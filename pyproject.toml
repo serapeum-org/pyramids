@@ -256,7 +256,7 @@ scipy = ">=1.17.1,<2"
 # Pin zarr via conda because conda-forge defaults to zarr v3 and the
 # pyramids lazy stack still targets the v2 API. Also routes dask /
 # distributed / fsspec through conda so they share the same numpy ABI as
-# libgdal-netcdf / h5py / netCDF4 (below).
+# libgdal-netcdf / h5py (below).
 [tool.pixi.feature.lazy.dependencies]
 "dask-core" = ">=2024.1.0"
 distributed = ">=2024.1.0"
@@ -265,34 +265,24 @@ fsspec = ">=2024.1.0"
 
 # HDF5-linking libraries must come from conda-forge so they share the
 # same HDF5 binary that libgdal-netcdf is linked against. PyPI wheels for
-# netCDF4 / h5netcdf / h5py each bundle their own HDF5 copy, which causes
-# DLL-shadowing on Windows (h5py fails with "DLL load failed while
-# importing defs") once more than one HDF5 backend is loaded in-process.
+# h5py bundle their own HDF5 copy, which causes DLL-shadowing on Windows
+# (h5py fails with "DLL load failed while importing defs") once more
+# than one HDF5 backend is loaded in-process.
 #
-# The ``xarray`` feature keeps the eager xarray stack on PyPI (fast
-# solves, no python pin). The heavier HDF5 co-requisites only land in
-# envs that also activate ``netcdf-lazy`` — that feature pulls h5py /
-# kerchunk / netcdf4 / h5netcdf from conda and pins python below 3.14
-# because conda-forge has no py314 build of netcdf4 yet.
+# pyramids' lazy NetCDF path is pure GDAL MDArray — it does NOT import
+# netCDF4, h5netcdf, or cftime. kerchunk needs h5py to walk HDF5 chunk
+# metadata; nothing else in this feature pulls HDF5-adjacent libraries.
 [tool.pixi.feature.netcdf-lazy.dependencies]
-python = "3.13.*"
 kerchunk = ">=0.2.6"
-# h5py 3.16 moved to hdf5 2.x, but libgdal-netcdf / netcdf4 1.7.4 still
-# link hdf5 1.14.x. Pin h5py to the last 1.14-compatible release so the
-# whole env shares one HDF5 binary. Raise this pin when libgdal-netcdf
-# follows hdf5 2.x.
+# h5py 3.16 moved to hdf5 2.x, but libgdal-netcdf still links hdf5 1.14.x.
+# Pin h5py to the last 1.14-compatible release so the whole env shares
+# one HDF5 binary. Raise this pin when libgdal-netcdf follows hdf5 2.x.
 h5py = ">=3.8.0,<3.16"
-# Pin the hdf5 major.minor line explicitly so any future h5py / netcdf4
-# rebuild that would drag hdf5 2.x is blocked until everything below
-# follows. Without this the solver will happily pair h5py 3.16 (hdf5 2)
-# with netcdf4 (still hdf5 1) and the env silently breaks on Windows.
+# Pin the hdf5 major.minor line explicitly so any future h5py rebuild
+# that would drag hdf5 2.x is blocked until libgdal-netcdf follows.
+# Without this the solver can pair h5py 3.16 (hdf5 2) with
+# libgdal-netcdf (still hdf5 1) and the env silently breaks on Windows.
 hdf5 = "1.14.*"
-# Conda-forge's newest netcdf4 1.7.4 "_107" rebuild is py311/py312/py314
-# only — no py313 build, and pixi prefers higher build numbers even
-# across wrong-ABI variants. Pin to the "_104" build series which has
-# a matching py313 variant.
-netcdf4 = { version = "==1.7.4", build = "nompi_py313*_104" }
-h5netcdf = ">=1.0.0"
 
 [tool.pixi.feature.parquet.dependencies]
 pyarrow = ">=10.0.0"
