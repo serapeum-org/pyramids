@@ -14,7 +14,9 @@ from pandas import DataFrame
 from shapely.geometry import Polygon
 
 from pyramids.base._errors import NoDataValueError, OutOfBoundsError, ReadOnlyError
+from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset import Dataset
+from pyramids.dataset._collaborators import Bands, Vectorize
 
 pytestmark = pytest.mark.core
 
@@ -100,7 +102,7 @@ class TestCreateRasterObject:
         # "OverflowError: Python int too large to convert to C long"
         # then the default_no_data_value (-9999) will be converted to int32 and used as the no_data_value
 
-        # Dataset._change_no_data_value_attr(band=0, no_data_value=-9999.0)
+        # Bands._change_no_data_value_attr(band=0, no_data_value=-9999.0)
         # the _change_no_data_value_attr method will try to change the no_data_value to -9999.0 (int32)
         # but the self.raster.GetRasterBand(band + 1).SetNoDataValue(no_data_value) will raise an error
         # "TypeError: in method 'Band_SetNoDataValue', argument 2 of type 'double'" , so the no_data_value will be
@@ -115,7 +117,9 @@ class TestCreateRasterObject:
         src = Dataset(src)
         dst = src.copy()
         assert isinstance(dst, Dataset)
-        assert dst.access == "write"
+        # In-memory copy preserves the source's access mode. The
+        # default ``Dataset(src)`` constructor uses ``read_only``.
+        assert dst.access == src.access == "read_only"
         assert id(dst) != id(src)
         assert dst.raster.GetGeoTransform() == src.raster.GetGeoTransform()
         assert dst.raster.GetProjection() == src.raster.GetProjection()
@@ -128,9 +132,15 @@ class TestCreateRasterObject:
         np.testing.assert_array_equal(
             src_arr, dst_arr, err_msg="arrays are not equal", strict=True
         )
-        # copy the dataset to disk
+        # An in-memory copy of a write-mode source stays write-mode.
+        src_write = Dataset(src._raster, access="write")
+        assert src_write.copy().access == "write"
+        # An on-disk copy is always returned in write mode (the caller
+        # has just created a new file they presumably want to populate).
         path = Path("tests/data/geotiff/test-copy-dataset-to-disk-delete.tif")
-        src.copy(path=path)
+        on_disk = src.copy(path=path)
+        assert on_disk.access == "write"
+        on_disk.close()
         src.close()
         assert path.exists()
         path.unlink()
@@ -200,13 +210,13 @@ class TestAttributesTable:
 
     def test_convert_df_to_attribute_table(self):
         df = pd.DataFrame(self.data)
-        rat = Dataset._df_to_attribute_table(df)
+        rat = Bands._df_to_attribute_table(df)
         assert isinstance(rat, gdal.RasterAttributeTable)
 
     def test_convert_attribute_table_to_df(self):
         df = pd.DataFrame(self.data)
-        rat = Dataset._df_to_attribute_table(df)
-        df2 = Dataset._attribute_table_to_df(rat)
+        rat = Bands._df_to_attribute_table(df)
+        df2 = Bands._attribute_table_to_df(rat)
         assert isinstance(df2, pd.DataFrame)
         assert df.equals(df2)
 
@@ -339,12 +349,12 @@ class TestProperties:
     def test_set_band_names(self, src: gdal.Dataset):
         src = Dataset(src)
         name_list = ["new_name"]
-        src._set_band_names(name_list)
+        src.bands._set_band_names(name_list)
         # check that the name is changed in the dataset object
         assert src.band_names == name_list
         assert src.raster.GetRasterBand(1).GetDescription() == name_list[0]
         # return back the old name so that the test_get_band_names pass the test.
-        src._set_band_names(["Band_1"])
+        src.bands._set_band_names(["Band_1"])
 
     def test_band_names(self, src: gdal.Dataset):
         name_list = ["new_name"]
@@ -471,7 +481,7 @@ class TestSpatialProperties:
         gdf = gpd.GeoDataFrame(
             columns=["id"], geometry=[Polygon(coords)], crs=32632, data=[[0]]
         )
-        window = dataset._convert_polygon_to_window(gdf)
+        window = dataset.io._convert_polygon_to_window(gdf)
         assert window == [5, 2, 1, 1]
         arr = dataset.read_array(band=0, window=window)
         assert arr[0] == 1
@@ -497,7 +507,7 @@ class TestSpatialProperties:
         assert np.array_equal(multi_band.ReadAsArray()[:, :5, :5], arr)
 
     def test_create_sr_from_epsg(self):
-        sr = Dataset._create_sr_from_epsg(4326)
+        sr = sr_from_epsg(4326)
         assert sr.GetAuthorityCode(None) == f"{4326}"
 
 
@@ -509,7 +519,7 @@ class TestNoDataValue:
     ):
         src = Dataset(src_set_no_data_value)
         try:
-            src._set_no_data_value(-99999.0)
+            src.bands._set_no_data_value(-99999.0)
         except ReadOnlyError:
             pass
 
@@ -519,7 +529,7 @@ class TestNoDataValue:
         src_no_data_value: float,
     ):
         src = Dataset(src_update)
-        src._set_no_data_value(5.0)
+        src.bands._set_no_data_value(5.0)
         # check if the no_data_value in the Dataset object is set
         assert src.raster.GetRasterBand(1).GetNoDataValue() == 5
         # check if the no_data_value of the Dataset object is set5
@@ -925,7 +935,7 @@ class TestCrop:
     ):
         mask_obj = Dataset(src)
         aligned_raster: Dataset = Dataset(aligned_raster)
-        cropped: Dataset = aligned_raster._crop_aligned(mask_obj)
+        cropped: Dataset = aligned_raster.spatial._crop_aligned(mask_obj)
         dst_arr_cropped = cropped.raster.ReadAsArray()
         # check that all the places of the nodatavalue are the same in both arrays
         src_arr[~np.isclose(src_arr, src_no_data_value, rtol=0.001)] = 5
@@ -941,7 +951,7 @@ class TestCrop:
         mask_obj = Dataset(sentinel_crop)
         aligned_raster = Dataset(sentinel_raster)
 
-        cropped: Dataset = aligned_raster._crop_aligned(mask_obj)
+        cropped: Dataset = aligned_raster.spatial._crop_aligned(mask_obj)
         dst_arr_cropped = cropped.raster.ReadAsArray()
         # filter the no_data_value out of the array
         arr = dst_arr_cropped[
@@ -970,7 +980,7 @@ class TestCrop:
         src_no_data_value: float,
     ):
         aligned_raster = Dataset(aligned_raster)
-        cropped = aligned_raster._crop_aligned(src_arr, mask_noval=src_no_data_value)
+        cropped = aligned_raster.spatial._crop_aligned(src_arr, mask_noval=src_no_data_value)
         dst_arr_cropped = cropped.raster.ReadAsArray()
         # check that all the places of the nodatavalue are the same in both arrays
         src_arr[~np.isclose(src_arr, src_no_data_value, rtol=0.001)] = 5
@@ -989,7 +999,7 @@ class TestCrop:
         # Geotransform = (432968.1206170588, 4000.0, 0.0, 520007.787999178, 0.0, -4000.0)
         mask_obj = Dataset(soil_raster)
         aligned_raster = Dataset(aligned_raster)
-        aligned_raster._crop_with_raster(mask_obj)
+        aligned_raster.spatial._crop_with_raster(mask_obj)
 
 
 class TestCropWithPolygon:
@@ -1022,7 +1032,7 @@ class TestCropWithPolygon:
         Check the number of the cropped cells and the no_data_value
         """
         src_obj = Dataset(rhine_raster)
-        cropped_raster = src_obj._crop_with_polygon_warp(polygon_mask, touch=True)
+        cropped_raster = src_obj.spatial._crop_with_polygon_warp(polygon_mask, touch=True)
 
         validation_dataset = Dataset(crop_by_wrap_touch_true_result)
         assert (
@@ -1058,7 +1068,7 @@ class TestCropWithPolygon:
         Check the number of the cropped cells and the no_data_value
         """
         src_obj = Dataset(rhine_raster)
-        cropped_raster = src_obj._crop_with_polygon_warp(polygon_mask, touch=False)
+        cropped_raster = src_obj.spatial._crop_with_polygon_warp(polygon_mask, touch=False)
 
         validation_dataset = Dataset(crop_by_wrap_touch_false_result)
         assert (
@@ -1080,7 +1090,7 @@ class TestCropWithPolygon:
         """
         src_obj = Dataset(era5_image)
 
-        cropped_raster = src_obj._crop_with_polygon_warp(era5_mask, touch=True)
+        cropped_raster = src_obj.spatial._crop_with_polygon_warp(era5_mask, touch=True)
         assert isinstance(cropped_raster.raster, gdal.Dataset)
         assert cropped_raster.no_data_value[0] == src_obj.no_data_value[0]
         assert cropped_raster.band_count == src_obj.band_count
@@ -1115,7 +1125,7 @@ class TestCropWithPolygon:
         """
         dataset = Dataset(raster_1band_coello_gdal_dataset)
         # test with irregular mask polygon
-        cropped = dataset._crop_with_polygon_warp(
+        cropped = dataset.spatial._crop_with_polygon_warp(
             coello_irregular_polygon_gdf, touch=False
         )
 
@@ -1635,7 +1645,7 @@ class TestNCtoGeoTIFF:
 class TestTiling:
     def test_window(self, raster_1band_coello_path):
         dataset = Dataset.read_file(raster_1band_coello_path)
-        tiles_details = dataset._tile_offsets(size=6)
+        tiles_details = dataset.io._tile_offsets(size=6)
         assert isinstance(tiles_details, GeneratorType)
         tiles_details_l = list(tiles_details)
         assert tiles_details_l == [
@@ -1795,7 +1805,7 @@ def test_nearest_neigbors():
     req_rows = [1, 3]
     req_cols = [2, 4]
     no_data_value = dataset.no_data_value[0]
-    new_array = Dataset._nearest_neighbour(arr, no_data_value, req_rows, req_cols)
+    new_array = Vectorize._nearest_neighbour(arr, no_data_value, req_rows, req_cols)
 
 
 def test_to_xyz():

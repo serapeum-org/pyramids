@@ -129,11 +129,11 @@ class TestValidate:
         """VSI paths are pre-checked via gdal.VSIStatL, NOT Path.exists.
 
         Test scenario:
-            Post-H1 contract: ``_raise_if_missing`` (called from
-            ``validate``) uses :func:`gdal.VSIStatL` for ``/vsi*``
+            Post-H1 contract: `_raise_if_missing` (called from
+            `validate`) uses :func:`gdal.VSIStatL` for `/vsi*`
             paths and :func:`pathlib.Path.exists` only for local
-            paths. Confirm that ``Path.exists`` is never consulted
-            for a ``/vsi*`` path even when VSIStatL reports the
+            paths. Confirm that `Path.exists` is never consulted
+            for a `/vsi*` path even when VSIStatL reports the
             target as missing.
         """
         from pathlib import Path as _Path

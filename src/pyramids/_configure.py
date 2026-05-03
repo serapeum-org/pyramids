@@ -1,21 +1,21 @@
 """Process- and cluster-wide GDAL configuration for pyramids.
 
-``pyramids.configure(...)`` applies a dict of GDAL config options to
+`pyramids.configure(...)` applies a dict of GDAL config options to
 the current process via :func:`gdal.SetConfigOption`, and — when a
-``dask.distributed.Client`` is passed — also registers a worker
+`dask.distributed.Client` is passed — also registers a worker
 plugin that replays the same config on every worker when they start.
 
 Why: odc-stac's Pangeo benchmark showed that a single call to the
-equivalent ``configure_rio`` cut a 68 s STAC load to 3.75 s (18×),
+equivalent `configure_rio` cut a 68 s STAC load to 3.75 s (18×),
 purely by setting cloud-friendly GDAL env options. pyramids users
 shouldn't have to discover these individually — one call opts in.
 
-The ``cloud_defaults=True`` preset mirrors odc-stac's
-``GDAL_CLOUD_DEFAULTS`` plus two extras for HTTP range-request
-performance. Individual keys can be overridden via ``**gdal_options``.
+The `cloud_defaults=True` preset mirrors odc-stac's
+`GDAL_CLOUD_DEFAULTS` plus two extras for HTTP range-request
+performance. Individual keys can be overridden via `**gdal_options`.
 
-The ``dask.distributed`` import is gated — importing this module
-does not pull dask. Only when ``client`` is non-None does the
+The `dask.distributed` import is gated — importing this module
+does not pull dask. Only when `client` is non-None does the
 plugin path engage.
 """
 
@@ -38,18 +38,18 @@ GDAL_CLOUD_DEFAULTS: dict[str, str] = {
 }
 """Default GDAL config options for cloud-hosted COG / NetCDF reads.
 
-Ported from odc-loader's ``GDAL_CLOUD_DEFAULTS`` with two additions
-(``GDAL_HTTP_MULTIRANGE`` and ``VSI_CACHE``) that stackstac's
-``DEFAULT_GDAL_ENV`` enables by default. Applied by
-:func:`configure` when ``cloud_defaults=True``.
+Ported from odc-loader's `GDAL_CLOUD_DEFAULTS` with two additions
+(`GDAL_HTTP_MULTIRANGE` and `VSI_CACHE`) that stackstac's
+`DEFAULT_GDAL_ENV` enables by default. Applied by
+:func:`configure` when `cloud_defaults=True`.
 """
 
 
 def _expand_credentials(prefix: str, creds: dict[str, Any] | None) -> dict[str, str]:
-    """Expand a credentials dict into ``PREFIX_KEY=value`` entries.
+    """Expand a credentials dict into `PREFIX_KEY=value` entries.
 
-    For example ``_expand_credentials("AWS", {"aws_unsigned": True})``
-    returns ``{"AWS_NO_SIGN_REQUEST": "YES"}``.
+    For example `_expand_credentials("AWS", {"aws_unsigned": True})`
+    returns `{"AWS_NO_SIGN_REQUEST": "YES"}`.
     """
     out: dict[str, str] = {}
     if creds:
@@ -75,17 +75,17 @@ def configure(
     Args:
         cloud_defaults: If True, apply :data:`GDAL_CLOUD_DEFAULTS`
             first. Individual keys can still be overridden via
-            ``**gdal_options``.
+            `**gdal_options`.
         aws: AWS-namespaced credentials dict; keys are upcased and
-            prefixed with ``AWS_``. The special key ``aws_unsigned``
-            (truthy) expands to ``AWS_NO_SIGN_REQUEST=YES``.
-        gs: Google Cloud Storage credentials dict, prefixed ``GS_``.
-        azure: Azure credentials dict, prefixed ``AZURE_``.
+            prefixed with `AWS_`. The special key `aws_unsigned`
+            (truthy) expands to `AWS_NO_SIGN_REQUEST=YES`.
+        gs: Google Cloud Storage credentials dict, prefixed `GS_`.
+        azure: Azure credentials dict, prefixed `AZURE_`.
         client: Optional :class:`dask.distributed.Client`. When given,
             a worker plugin is registered so every worker receives the
             same configuration on startup.
         **gdal_options: Any additional GDAL config options as
-            keyword arguments (they override ``cloud_defaults``).
+            keyword arguments (they override `cloud_defaults`).
 
     Returns:
         dict[str, str]: The effective key->value config dict that was
@@ -137,7 +137,7 @@ def configure(
 
 
 def _register_worker_plugin(client: Any, env: dict[str, str]) -> None:
-    """Register a WorkerPlugin that replays ``env`` on each dask worker."""
+    """Register a WorkerPlugin that replays `env` on each dask worker."""
     from dask.distributed import WorkerPlugin
 
     class PyramidsConfigPlugin(WorkerPlugin):
@@ -167,35 +167,35 @@ def configure_lazy_vector(
 ) -> dict[str, Any]:
     """Apply vector-side dask defaults for :class:`LazyFeatureCollection`.
 
-    ARC-V7: mirror of :func:`configure` for the raster side. Sets two
+    mirror of :func:`configure` for the raster side. Sets two
     vector-specific defaults that matter for lazy-vector performance:
 
     1. **Dask scheduler.** Shapely / GEOS ops hold the GIL, so the
-       default ``threads`` scheduler serialises geometry work to one
-       core. This helper can flip the global default to ``processes``
-       (or ``synchronous`` for debugging) via :func:`dask.config.set`
-       so subsequent ``.compute()`` calls use the right backend without
-       every caller remembering to pass ``scheduler=...``.
+       default `threads` scheduler serialises geometry work to one
+       core. This helper can flip the global default to `processes`
+       (or `synchronous` for debugging) via :func:`dask.config.set`
+       so subsequent `.compute()` calls use the right backend without
+       every caller remembering to pass `scheduler=...`.
     2. **Target bytes-per-partition.** Patches the module-level
-       ``_LAZY_TARGET_BYTES_PER_PARTITION`` constant used by
+       `_LAZY_TARGET_BYTES_PER_PARTITION` constant used by
        :func:`read_file(backend='dask')` to pick a default
-       ``npartitions`` from file size (ARC-V6). Users running on
+       `npartitions` from file size. Users running on
        machines with more RAM per worker can raise it; users on
        memory-constrained workers should lower it.
 
-    The ``client`` kwarg registers a worker plugin that re-applies
-    both defaults on every worker — so a remote ``LocalCluster`` or
-    ``dask.distributed`` cluster ends up with a consistent vector-side
+    The `client` kwarg registers a worker plugin that re-applies
+    both defaults on every worker — so a remote `LocalCluster` or
+    `dask.distributed` cluster ends up with a consistent vector-side
     config, not just the driver process.
 
     Args:
-        scheduler: One of ``"threads"``, ``"processes"``,
-            ``"synchronous"``, or ``"distributed"``. ``None`` leaves
+        scheduler: One of `"threads"`, `"processes"`,
+            `"synchronous"`, or `"distributed"`. `None` leaves
             the dask default unchanged.
         target_bytes_per_partition: Override the 128 MiB
             default that :func:`_resolve_lazy_partitioning` uses when
-            the caller supplies neither ``npartitions`` nor
-            ``chunksize``. ``None`` leaves it unchanged.
+            the caller supplies neither `npartitions` nor
+            `chunksize`. `None` leaves it unchanged.
         client: Optional :class:`dask.distributed.Client`. When given,
             both settings propagate to every worker via a
             :class:`WorkerPlugin`.

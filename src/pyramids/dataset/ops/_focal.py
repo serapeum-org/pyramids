@@ -1,24 +1,24 @@
 """Focal (neighborhood) operations on a :class:`Dataset`.
 
-DASK-26: per-pixel neighborhood filters that read a small halo of
+per-pixel neighborhood filters that read a small halo of
 surrounding cells. Two backends:
 
 * Eager (default): SciPy :mod:`scipy.ndimage` filter applied to the
   full numpy array.
-* Lazy (``chunks=<spec>``): wrap the same kernel in
-  :func:`dask.array.map_overlap` with ``depth=radius``,
-  ``boundary='reflect'``. dask-image's universal primitive.
+* Lazy (`chunks=<spec>`): wrap the same kernel in
+  :func:`dask.array.map_overlap` with `depth=radius`,
+  `boundary='reflect'`. dask-image's universal primitive.
 
 Supported ops:
 
-* ``focal_mean(radius)`` — uniform box average.
-* ``focal_std(radius)`` — standard deviation.
-* ``focal_apply(func, radius)`` — user-supplied kernel.
-* ``slope()``, ``aspect()``, ``hillshade(az, alt)`` — classic DEM
+* `focal_mean(radius)` — uniform box average.
+* `focal_std(radius)` — standard deviation.
+* `focal_apply(func, radius)` — user-supplied kernel.
+* `slope()`, `aspect()`, `hillshade(az, alt)` — classic DEM
   derivatives via centered-difference gradient.
 
-``scipy`` is already a core pyramids dep, so the eager path has
-zero import cost. Dask is imported only when ``chunks`` is given.
+`scipy` is already a core pyramids dep, so the eager path has
+zero import cost. Dask is imported only when `chunks` is given.
 """
 
 from __future__ import annotations
@@ -46,9 +46,9 @@ def _apply_eager_or_lazy(
     band: int,
     dtype: Any,
 ) -> Any:
-    """Run ``func`` on the band eagerly or wrap with ``dask.map_overlap``.
+    """Run `func` on the band eagerly or wrap with `dask.map_overlap`.
 
-    ``func`` must accept a 2-D numpy array and return a 2-D numpy
+    `func` must accept a 2-D numpy array and return a 2-D numpy
     array of the same shape.
     """
     if chunks is None:
@@ -80,7 +80,7 @@ def focal_mean(
     chunks: Any = None,
     band: int = 0,
 ) -> Any:
-    """Uniform box mean over a ``(2*radius+1)``-side window.
+    """Uniform box mean over a `(2*radius+1)`-side window.
 
     Args:
         ds: Source :class:`~pyramids.dataset.Dataset`.
@@ -91,7 +91,7 @@ def focal_mean(
 
     Returns:
         numpy.ndarray or dask.array.Array: Same shape as the input
-        band; eager on default ``chunks=None``, lazy otherwise.
+        band; eager on default `chunks=None`, lazy otherwise.
 
     Examples:
         - Apply a 3×3 box mean to a tiny in-memory raster and check
@@ -126,10 +126,10 @@ def focal_std(
     chunks: Any = None,
     band: int = 0,
 ) -> Any:
-    """Standard deviation over a ``(2*radius+1)``-side window.
+    """Standard deviation over a `(2*radius+1)`-side window.
 
-    L4: uses the two-pass formulation ``sqrt(mean((x - local_mean)²))``
-    rather than the unstable ``sqrt(E[x²] - E[x]²)``. The cancellation
+    uses the two-pass formulation `sqrt(mean((x - local_mean)²))`
+    rather than the unstable `sqrt(E[x²] - E[x]²)`. The cancellation
     error in the latter blows up for large magnitudes with small
     variance (a common DEM case — elevations in metres where the
     local deviation is centimetres). The two-pass variant does one
@@ -139,7 +139,7 @@ def focal_std(
     Args:
         ds: Source :class:`~pyramids.dataset.Dataset`.
         radius: Half-window in pixels. Default 1.
-        chunks: Lazy-path chunk spec; ``None`` runs eagerly.
+        chunks: Lazy-path chunk spec; `None` runs eagerly.
         band: Zero-based band index.
 
     Returns:
@@ -181,18 +181,18 @@ def focal_apply(
     chunks: Any = None,
     band: int = 0,
 ) -> Any:
-    """Apply a user-supplied aggregation over a ``(2*radius+1)`` window.
+    """Apply a user-supplied aggregation over a `(2*radius+1)` window.
 
-    ``func`` receives a flat 1-D array of window values and returns
+    `func` receives a flat 1-D array of window values and returns
     one scalar per window. Wrapped with
     :func:`scipy.ndimage.generic_filter`.
 
     Args:
         ds: Source :class:`~pyramids.dataset.Dataset`.
-        func: Callable ``func(values_1d) -> float``; receives the
+        func: Callable `func(values_1d) -> float`; receives the
             flattened window.
         radius: Half-window in pixels. Default 1.
-        chunks: Lazy-path chunk spec; ``None`` runs eagerly.
+        chunks: Lazy-path chunk spec; `None` runs eagerly.
         band: Zero-based band index.
 
     Returns:
@@ -241,9 +241,9 @@ def slope(
 
     Args:
         ds: Source DEM :class:`~pyramids.dataset.Dataset`.
-        chunks: Lazy-path chunk spec; ``None`` runs eagerly.
+        chunks: Lazy-path chunk spec; `None` runs eagerly.
         band: Zero-based band index.
-        units: ``"degrees"`` (default) or ``"radians"``.
+        units: `"degrees"` (default) or `"radians"`.
 
     Returns:
         numpy.ndarray or dask.array.Array: Per-cell slope magnitude.
@@ -284,12 +284,12 @@ def aspect(
 
     Args:
         ds: Source DEM :class:`~pyramids.dataset.Dataset`.
-        chunks: Lazy-path chunk spec; ``None`` runs eagerly.
+        chunks: Lazy-path chunk spec; `None` runs eagerly.
         band: Zero-based band index.
 
     Returns:
         numpy.ndarray or dask.array.Array: Aspect in degrees in
-        ``[0, 360)``.
+        `[0, 360)`.
 
     Examples:
         - Aspect of a uniform west-facing slope (values increase with
@@ -334,12 +334,12 @@ def hillshade(
         azimuth: Sun azimuth in degrees (0° = north, 90° = east, …).
             Default 315° (NW — the GIS cartographic convention).
         altitude: Sun altitude above horizon, in degrees. Default 45°.
-        chunks: Lazy-path chunk spec; ``None`` runs eagerly.
+        chunks: Lazy-path chunk spec; `None` runs eagerly.
         band: Zero-based band index.
 
     Returns:
         numpy.ndarray or dask.array.Array: Shaded-relief intensity
-        clipped to ``[0, 255]``.
+        clipped to `[0, 255]`.
 
     Examples:
         - Hillshade of a flat DEM saturates at the illumination level

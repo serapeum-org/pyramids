@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections import deque
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, cast
 
 from osgeo import gdal
+
+# Module-level logger so swallowed GDAL traversal errors surface at
+# DEBUG instead of disappearing entirely. Every ``except RuntimeError``
+# in this file logs through it. Real failures during MDIM traversal
+# (corrupted file, missing driver, deleted variable mid-walk) are now
+# observable; only the documented fallback path is silent at INFO.
+logger = logging.getLogger(__name__)
 
 from pyramids.netcdf.cf import classify_variables, parse_conventions
 from pyramids.netcdf.dimensions import MetaData as SharedMetaData
@@ -28,19 +36,19 @@ from pyramids.netcdf.utils import (
 
 
 class MetadataBuilder:
-    """Construct a ``NetCDFMetadata`` from a GDAL dataset.
+    """Construct a `NetCDFMetadata` from a GDAL dataset.
 
-    ``MetadataBuilder`` encapsulates the logic for extracting
-    multidimensional metadata from a GDAL ``Dataset`` opened with
+    `MetadataBuilder` encapsulates the logic for extracting
+    multidimensional metadata from a GDAL `Dataset` opened with
     the NetCDF driver. It delegates group/array/dimension traversal
-    to ``GroupTraverser`` and assembles the result into a single
-    ``NetCDFMetadata`` dataclass.
+    to `GroupTraverser` and assembles the result into a single
+    `NetCDFMetadata` dataclass.
 
-    Public module functions (``get_metadata``, ``to_dict``, etc.)
+    Public module functions (`get_metadata`, `to_dict`, etc.)
     delegate to this builder to preserve API compatibility.
 
     Args:
-        src: An already-opened ``gdal.Dataset`` pointing to a
+        src: An already-opened `gdal.Dataset` pointing to a
             NetCDF file.
         open_options: Optional dictionary of GDAL open-options
             that were used when opening the file. Stored as
@@ -66,8 +74,8 @@ class MetadataBuilder:
         """Initialize MetadataBuilder.
 
         Args:
-            src: An already-opened ``gdal.Dataset`` pointing
-                to a NetCDF file. Must not be ``None``.
+            src: An already-opened `gdal.Dataset` pointing
+                to a NetCDF file. Must not be `None`.
             open_options: Optional dictionary of GDAL
                 open-options recorded for provenance.
         """
@@ -75,12 +83,12 @@ class MetadataBuilder:
         self.open_options = open_options or None
 
     def build(self) -> NetCDFMetadata:
-        """Build and return the ``NetCDFMetadata`` for the dataset.
+        """Build and return the `NetCDFMetadata` for the dataset.
 
         Reads the driver name, root group, groups, variables,
         dimensions, global attributes, and structural information
         from the underlying GDAL dataset and assembles them into
-        a ``NetCDFMetadata`` instance.
+        a `NetCDFMetadata` instance.
 
         Returns:
             NetCDFMetadata: Fully populated metadata for the
@@ -117,7 +125,8 @@ class MetadataBuilder:
 
             try:
                 root_name = root_group.GetFullName()
-            except Exception:
+            except RuntimeError as exc:
+                logger.debug("root_group.GetFullName() failed: %s", exc)
                 root_name = "/"
             global_attrs = _read_attributes(root_group)
         else:
@@ -129,7 +138,10 @@ class MetadataBuilder:
                 global_attrs = {
                     str(k): str(v) for k, v in raw.items()  # type: ignore[arg-type]
                 }
-            except Exception:
+            except RuntimeError as exc:
+                logger.debug(
+                    "SharedMetaData.from_metadata fallback failed: %s", exc
+                )
                 global_attrs = {}
 
         structural_info = StructuralInfo.from_dataset(ds, driver_name)
@@ -200,21 +212,21 @@ class GroupTraverser:
     """Iterative BFS traverser for MDIM groups, variables, and dimensions.
 
     Performs a breadth-first walk over the GDAL multidimensional
-    group hierarchy starting from a root ``gdal.Group``. At each
+    group hierarchy starting from a root `gdal.Group`. At each
     group it collects dimensions, variables, and child-group
     references, storing them in the caller-provided dictionaries.
 
-    A ``collections.deque`` is used instead of recursion to avoid
+    A `collections.deque` is used instead of recursion to avoid
     stack overflow on deeply nested files. Group and variable names
     are sorted for deterministic output ordering.
 
     Args:
         groups: Mutable dictionary that will be populated with
-            ``GroupInfo`` instances keyed by short name.
+            `GroupInfo` instances keyed by short name.
         variables: Mutable dictionary that will be populated with
-            ``VariableInfo`` instances keyed by short name.
+            `VariableInfo` instances keyed by short name.
         dimensions: Mutable dictionary that will be populated
-            with ``DimensionInfo`` instances keyed by full name.
+            with `DimensionInfo` instances keyed by full name.
 
     Examples:
         >>> from collections import deque  # doctest: +SKIP
@@ -245,12 +257,12 @@ class GroupTraverser:
         """Initialize GroupTraverser with output dictionaries.
 
         Args:
-            groups: Dictionary to populate with ``GroupInfo``
-                objects. Keys are group full names (e.g. ``"/"``).
-            variables: Dictionary to populate with ``VariableInfo``
+            groups: Dictionary to populate with `GroupInfo`
+                objects. Keys are group full names (e.g. `"/"`).
+            variables: Dictionary to populate with `VariableInfo`
                 objects. Keys are variable full names.
             dimensions: Dictionary to populate with
-                ``DimensionInfo`` objects. Keys are dimension
+                `DimensionInfo` objects. Keys are dimension
                 full names.
         """
         self.groups = groups
@@ -258,7 +270,7 @@ class GroupTraverser:
         self.dimensions = dimensions
 
     def _collect_dimensions(self, group: gdal.Group, group_full_name: str) -> None:
-        """Collect all dimensions from *group* into ``self.dimensions``.
+        """Collect all dimensions from *group* into `self.dimensions`.
 
         Dimensions are sorted by name for deterministic ordering.
         Any GDAL errors when reading individual dimensions are
@@ -273,14 +285,18 @@ class GroupTraverser:
 
         try:
             dims = group.GetDimensions() or []
-        except Exception:
+        except RuntimeError as exc:
+            logger.debug(
+                "group.GetDimensions() failed for %r: %s", group_full_name, exc
+            )
             dims = []
 
         # Sort by name for determinism
         def _dim_name(d: Any) -> str:
             try:
                 result = str(d.GetName())
-            except Exception:
+            except RuntimeError as exc:
+                logger.debug("dimension.GetName() failed: %s", exc)
                 result = ""
             return result
 
@@ -291,10 +307,10 @@ class GroupTraverser:
             self.dimensions[dim.full_name.lstrip("/")] = dim
 
     def _collect_arrays(self, group: gdal.Group, group_full_name: str) -> list[str]:
-        """Collect all variables from *group* into ``self.variables``.
+        """Collect all variables from *group* into `self.variables`.
 
-        Each variable is opened via ``group.OpenMDArray`` and
-        converted to a ``VariableInfo`` dataclass. Variables that
+        Each variable is opened via `group.OpenMDArray` and
+        converted to a `VariableInfo` dataclass. Variables that
         cannot be opened are silently skipped.
 
         Args:
@@ -311,7 +327,13 @@ class GroupTraverser:
         for md_arr_name in _safe_array_names(group):
             try:
                 md_arr = group.OpenMDArray(md_arr_name)
-            except Exception:
+            except RuntimeError as exc:
+                logger.debug(
+                    "group.OpenMDArray(%r) failed in %r: %s",
+                    md_arr_name,
+                    group_full_name,
+                    exc,
+                )
                 md_arr = None
 
             if md_arr is None:
@@ -335,8 +357,8 @@ class GroupTraverser:
         time.
 
         Args:
-            root: The root ``gdal.Group`` returned by
-                ``gdal.Dataset.GetRootGroup()``.
+            root: The root `gdal.Group` returned by
+                `gdal.Dataset.GetRootGroup()`.
 
         Examples:
             >>> from osgeo import gdal  # doctest: +SKIP
@@ -372,7 +394,13 @@ class GroupTraverser:
             for cn in _safe_group_names(group):
                 try:
                     current_group = group.OpenGroup(cn)
-                except Exception:
+                except RuntimeError as exc:
+                    logger.debug(
+                        "group.OpenGroup(%r) failed in %r: %s",
+                        cn,
+                        group_full_name,
+                        exc,
+                    )
                     current_group = None
 
                 if current_group is None:
@@ -384,8 +412,14 @@ class GroupTraverser:
                         current_group, variables=[], children=[], attributes={}
                     )
                     current_group_full_name = child_info.full_name
-                except Exception:
-                    # As a last resort, fall back to simple path concatenation
+                except RuntimeError as exc:
+                    logger.debug(
+                        "GroupInfo.from_group(%r) failed in %r: %s; "
+                        "falling back to path concatenation",
+                        cn,
+                        group_full_name,
+                        exc,
+                    )
                     current_group_full_name = (
                         f"{group_full_name}/{cn}"
                         if group_full_name != "/"
@@ -414,14 +448,14 @@ def get_metadata(
     """Read and normalize all NetCDF MDIM metadata.
 
     Accepts several source types and delegates to
-    ``MetadataBuilder`` to produce a ``NetCDFMetadata`` instance.
+    `MetadataBuilder` to produce a `NetCDFMetadata` instance.
 
     Args:
         source (gdal.Dataset | str | object): The data source.
             Accepts a GDAL dataset directly, a file path (opened
-            internally with ``OF_MULTIDIM_RASTER``), or a pyramids
-            ``NetCDF``/``Dataset`` instance whose internal
-            ``_raster`` attribute is extracted automatically.
+            internally with `OF_MULTIDIM_RASTER`), or a pyramids
+            `NetCDF`/`Dataset` instance whose internal
+            `_raster` attribute is extracted automatically.
         open_options: Optional dictionary of GDAL open-options.
             Stored in the resulting metadata for provenance but
             not used to open the file.
@@ -464,14 +498,14 @@ def get_metadata(
 
 
 def to_dict(metadata: NetCDFMetadata) -> dict[str, Any]:
-    """Convert ``NetCDFMetadata`` to plain dicts suitable for JSON.
+    """Convert `NetCDFMetadata` to plain dicts suitable for JSON.
 
     Recursively walks all dataclass fields and converts them to
-    plain ``dict`` / ``list`` / scalar types so the result can be
-    passed directly to ``json.dumps``.
+    plain `dict` / `list` / scalar types so the result can be
+    passed directly to `json.dumps`.
 
     Args:
-        metadata: A ``NetCDFMetadata`` instance to convert.
+        metadata: A `NetCDFMetadata` instance to convert.
 
     Returns:
         dict: Nested dictionary with all dataclass fields
@@ -507,7 +541,7 @@ def to_dict(metadata: NetCDFMetadata) -> dict[str, Any]:
     See Also:
         to_json: Serializes directly to a JSON string.
         from_json: Deserializes a JSON string back to
-            ``NetCDFMetadata``.
+            `NetCDFMetadata`.
     """
 
     def convert(obj: Any) -> Any:
@@ -523,17 +557,17 @@ def to_dict(metadata: NetCDFMetadata) -> dict[str, Any]:
 
 
 def to_json(metadata: NetCDFMetadata) -> str:
-    """Serialize ``NetCDFMetadata`` to a compact JSON string.
+    """Serialize `NetCDFMetadata` to a compact JSON string.
 
-    Converts the dataclass tree to plain dicts via ``to_dict``
+    Converts the dataclass tree to plain dicts via `to_dict`
     and then encodes to JSON with no extra whitespace.
 
     Args:
-        metadata: A ``NetCDFMetadata`` instance to serialize.
+        metadata: A `NetCDFMetadata` instance to serialize.
 
     Returns:
         str: JSON-encoded string with no ASCII escaping and
-            compact separators (no spaces after ``,`` or ``:``).
+            compact separators (no spaces after `,` or `:`).
 
     Examples:
         Round-trip a minimal metadata object:
@@ -562,23 +596,23 @@ def to_json(metadata: NetCDFMetadata) -> str:
     See Also:
         to_dict: Converts to plain dicts without JSON encoding.
         from_json: Deserializes the string back to
-            ``NetCDFMetadata``.
+            `NetCDFMetadata`.
     """
     return json.dumps(to_dict(metadata), ensure_ascii=False, separators=(",", ":"))
 
 
 def from_json(s: str) -> NetCDFMetadata:
-    """Deserialize ``NetCDFMetadata`` from a JSON string.
+    """Deserialize `NetCDFMetadata` from a JSON string.
 
-    Parses the JSON produced by ``to_json`` and manually
-    reconstructs the dataclass hierarchy (``GroupInfo``,
-    ``VariableInfo``, ``DimensionInfo``, ``StructuralInfo``).
+    Parses the JSON produced by `to_json` and manually
+    reconstructs the dataclass hierarchy (`GroupInfo`,
+    `VariableInfo`, `DimensionInfo`, `StructuralInfo`).
 
-    Only the schema produced by ``to_dict`` / ``to_json`` is
-    supported; arbitrary JSON will likely raise ``KeyError``.
+    Only the schema produced by `to_dict` / `to_json` is
+    supported; arbitrary JSON will likely raise `KeyError`.
 
     Args:
-        s: A JSON string previously produced by ``to_json``.
+        s: A JSON string previously produced by `to_json`.
 
     Returns:
         NetCDFMetadata: Reconstructed metadata instance.
@@ -698,25 +732,25 @@ def flatten_for_index(metadata: NetCDFMetadata) -> dict[str, Any]:
     """Return a flat dict of key properties for indexing/search.
 
     Extracts a small, searchable summary from a full
-    ``NetCDFMetadata`` instance. The result contains scalar
+    `NetCDFMetadata` instance. The result contains scalar
     counts, the first 20 global attributes (prefixed with
-    ``global.``), and sorted lists of variable and dimension names.
+    `global.`), and sorted lists of variable and dimension names.
 
     Args:
-        metadata: A ``NetCDFMetadata`` instance to flatten.
+        metadata: A `NetCDFMetadata` instance to flatten.
 
     Returns:
         dict: Flat dictionary containing:
 
-            - ``driver`` (str): Driver name.
-            - ``root_group`` (str | None): Root group path.
-            - ``group_count`` (int): Number of groups.
-            - ``variable_count`` (int): Number of variables.
-            - ``dimension_count`` (int): Number of dimensions.
-            - ``global.<key>`` entries for the first 20 global
+            - `driver` (str): Driver name.
+            - `root_group` (str | None): Root group path.
+            - `group_count` (int): Number of groups.
+            - `variable_count` (int): Number of variables.
+            - `dimension_count` (int): Number of dimensions.
+            - `global.<key>` entries for the first 20 global
               attributes.
-            - ``variables`` (list[str]): Sorted variable names.
-            - ``dimensions`` (list[str]): Sorted dimension
+            - `variables` (list[str]): Sorted variable names.
+            - `dimensions` (list[str]): Sorted dimension
               names.
 
     Examples:

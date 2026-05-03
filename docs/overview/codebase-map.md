@@ -6,7 +6,7 @@ This page summarizes the main modules, key classes, and the public API surface o
 
 - pyramids.dataset
   - Raster data subpackage: concrete Dataset implementation, DatasetCollection for temporal stacks,
-    and AbstractDataset ABC. Rich I/O, transformations, tiling, pyramid operations, and export utilities.
+    and RasterBase ABC. Rich I/O, transformations, tiling, pyramid operations, and export utilities.
 - pyramids.feature
   - Vector data abstraction for feature collections built on GeoPandas; read/write, selection, join, spatial ops.
 - pyramids._io
@@ -47,7 +47,7 @@ Below is a high-level Mermaid class dependency diagram showing the main modules 
 
 ```mermaid
 classDiagram
-  class AbstractDataset {
+  class RasterBase {
     <<abstract>>
     +read_file(path, read_only)
     +to_file(path, band)
@@ -73,7 +73,7 @@ classDiagram
     <<module>>
   }
 
-  AbstractDataset <|-- Dataset
+  RasterBase <|-- Dataset
   DatasetCollection ..> Dataset : uses
   FeatureCollection ..> IO : uses
   Dataset ..> IO : uses

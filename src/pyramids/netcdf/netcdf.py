@@ -19,6 +19,7 @@ from osgeo import gdal
 from pyramids import _io
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import numpy_to_gdal_dtype
+from pyramids.base.crs import sr_from_epsg
 from pyramids.base.protocols import ArrayLike
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.netcdf._kerchunk import combine_kerchunk, to_kerchunk
@@ -39,13 +40,13 @@ from pyramids.netcdf.utils import create_time_conversion_func
 class _LazyVariableDict(dict):
     """Dict that loads NetCDF variables on first access per key.
 
-    Avoids the cost of calling ``get_variable()`` (which does
-    ``AsClassicDataset`` + Y-flip) for every variable upfront.
+    Avoids the cost of calling `get_variable()` (which does
+    `AsClassicDataset` + Y-flip) for every variable upfront.
     Only the variables actually accessed are loaded.
 
     Note:
         This class is **not thread-safe**. Concurrent access from
-        multiple threads may cause ``get_variable()`` to be called
+        multiple threads may cause `get_variable()` to be called
         more than once for the same key. Use external locking if
         thread-safety is required.
     """
@@ -94,22 +95,22 @@ def _reconstruct_netcdf(
     """Re-open a :class:`NetCDF` from its pickle recipe tuple.
 
     Called by :meth:`NetCDF.__reduce__` on unpickle. Carries four
-    bits of extra state beyond the base :class:`AbstractDataset`
+    bits of extra state beyond the base :class:`RasterBase`
     recipe so the reconstructed instance retains identity:
 
-    * ``is_md_array`` — was the file opened via
+    * `is_md_array` — was the file opened via
       :data:`gdal.OF_MULTIDIM_RASTER` (MDIM mode) or classic mode?
-    * ``is_subset`` — is this instance a container or a single variable?
-    * ``source_var_name`` — when ``is_subset`` is True, the variable
+    * `is_subset` — is this instance a container or a single variable?
+    * `source_var_name` — when `is_subset` is True, the variable
       path to re-traverse via :meth:`NetCDF.get_variable`.
 
     Args:
         path: On-disk path or VSI URL to re-open.
-        access: ``"read_only"`` opens read-only; any other value opens
+        access: `"read_only"` opens read-only; any other value opens
             for update.
-        is_md_array: Whether to pass ``open_as_multi_dimensional=True``
+        is_md_array: Whether to pass `open_as_multi_dimensional=True`
             to :meth:`NetCDF.read_file`.
-        is_subset: If True and ``source_var_name`` is not None, the
+        is_subset: If True and `source_var_name` is not None, the
             rebuilt container is then drilled into via
             :meth:`NetCDF.get_variable` before return.
         source_var_name: Variable path for the subset drill-down.
@@ -143,20 +144,20 @@ class NetCDF(Dataset):
     def __reduce__(self):  # type: ignore[override]
         """Emit the extended recipe tuple carrying NetCDF mode flags.
 
-        Overrides :meth:`AbstractDataset.__reduce__` to include
-        ``_is_md_array``, ``_is_subset``, and ``_source_var_name``,
+        Overrides :meth:`RasterBase.__reduce__` to include
+        `_is_md_array`, `_is_subset`, and `_source_var_name`,
         which are required to reconstruct a container vs a
         variable-subset with matching identity.
 
-        For variable-subset instances the ``_file_name`` attribute
+        For variable-subset instances the `_file_name` attribute
         reflects the subset's GDAL description, which is typically
         empty or driver-specific. We therefore fall back to the
-        parent container's ``_file_name`` when reconstructing a
+        parent container's `_file_name` when reconstructing a
         subset.
 
         Raises:
             TypeError: The NetCDF has no on-disk path (empty
-                ``_file_name`` or a ``/vsimem/`` path). Pickling an
+                `_file_name` or a `/vsimem/` path). Pickling an
                 in-memory NetCDF is not supported.
         """
         path = self._file_name
@@ -191,11 +192,11 @@ class NetCDF(Dataset):
 
         Args:
             src: A GDAL dataset handle (either classic or multidimensional).
-            access: Access mode, either ``"read_only"`` or ``"write"``.
-                Defaults to ``"read_only"``.
+            access: Access mode, either `"read_only"` or `"write"`.
+                Defaults to `"read_only"`.
             open_as_multi_dimensional: If True the dataset was opened with
-                ``gdal.OF_MULTIDIM_RASTER`` and supports groups, MDArrays,
-                and dimensions.  If False it was opened in classic raster
+                `gdal.OF_MULTIDIM_RASTER` and supports groups, MDArrays,
+                and dimensions. If False it was opened in classic raster
                 mode (subdatasets, bands). Defaults to True.
         """
         super().__init__(src, access=access)
@@ -220,6 +221,53 @@ class NetCDF(Dataset):
         self._variable_attrs: dict[str, Any] = {}
         self._scale: float | None = None
         self._offset: float | None = None
+
+    def _update_inplace(  # type: ignore[override]
+        self, src: gdal.Dataset, access: str | None = None
+    ) -> None:
+        """Swap internal state, preserving NetCDF-specific attributes.
+
+        The base `Dataset._update_inplace` rebuilds via
+        `type(self)(src, access)` and overwrites `self.__dict__`.
+        For a NetCDF that runs `NetCDF.__init__` with a default
+        `open_as_multi_dimensional=True`, which would reset
+        `_is_md_array` to True and clear every variable-subset
+        attribute. This override snapshots the subset state, runs the
+        base swap with the current MDIM mode, then restores the
+        snapshot — so a variable subset stays a subset across
+        `set_crs`, `apply(inplace=True)`, `change_no_data_value`,
+        and the `epsg` setter.
+        """
+        preserved = {
+            "_is_md_array": self._is_md_array,
+            "_is_subset": self._is_subset,
+            "_parent_nc": self._parent_nc,
+            "_source_var_name": self._source_var_name,
+            "_gdal_md_arr_ref": self._gdal_md_arr_ref,
+            "_gdal_rg_ref": self._gdal_rg_ref,
+            "_md_array_dims": self._md_array_dims,
+            "_band_dim_name": self._band_dim_name,
+            "_band_dim_values": self._band_dim_values,
+            "_variable_attrs": self._variable_attrs,
+            "_scale": self._scale,
+            "_offset": self._offset,
+        }
+        new = NetCDF(
+            src,
+            access=access or self._access,
+            open_as_multi_dimensional=self._is_md_array,
+        )
+        self.__dict__.update(new.__dict__)
+        self.__dict__.update(preserved)
+        # collaborators in `new.__dict__` point at
+        # `new` via `weakref.proxy`; re-bind to a proxy of `self`
+        # so callers using `self.spatial.crop(...)` after this update
+        # reach the surviving instance instead of the discarded `new`.
+        self_proxy = weakref.proxy(self)
+        for attr in ("io", "spatial", "bands", "analysis", "cell", "vectorize", "cog"):
+            collab = self.__dict__.get(attr)
+            if collab is not None:
+                collab._ds = self_proxy
 
     def __str__(self):
         """Return a human-readable summary of the NetCDF dataset."""
@@ -248,11 +296,11 @@ class NetCDF(Dataset):
     def lon(self) -> np.ndarray:
         """Longitude / x-coordinate values as a 1D array.
 
-        Looks for a variable named ``"lon"`` first, then ``"x"``.
+        Looks for a variable named `"lon"` first, then `"x"`.
 
         Returns:
             np.ndarray or None: Flattened coordinate array, or None if
-            neither ``lon`` nor ``x`` exists in the dataset.
+            neither `lon` nor `x` exists in the dataset.
         """
         lon = self._read_variable("lon")
         if lon is None:
@@ -269,11 +317,11 @@ class NetCDF(Dataset):
     def lat(self) -> np.ndarray:
         """Latitude / y-coordinate values as a 1D array.
 
-        Looks for a variable named ``"lat"`` first, then ``"y"``.
+        Looks for a variable named `"lat"` first, then `"y"`.
 
         Returns:
             np.ndarray or None: Flattened coordinate array, or None if
-            neither ``lat`` nor ``y`` exists in the dataset.
+            neither `lat` nor `y` exists in the dataset.
         """
         lat = self._read_variable("lat")
         if lat is None:
@@ -322,18 +370,18 @@ class NetCDF(Dataset):
 
         Returns:
             list[str]: Variable names. For MDIM mode these come from
-            ``GetMDArrayNames()`` minus dimension names; for classic mode
-            from ``GetSubDatasets()``.
+            `GetMDArrayNames()` minus dimension names; for classic mode
+            from `GetSubDatasets()`.
         """
         return self.get_variable_names()
 
     @property
     def variables(self) -> dict[str, NetCDF]:
-        """All data variables as a lazy dict of ``{name: NetCDF}`` subsets.
+        """All data variables as a lazy dict of `{name: NetCDF}` subsets.
 
         Variables are loaded on first access per key, not all at once.
-        Cached after loading; invalidated by ``add_variable`` /
-        ``remove_variable`` / ``set_variable``.
+        Cached after loading; invalidated by `add_variable` /
+        `remove_variable` / `set_variable`.
 
         Returns:
             dict[str, NetCDF]: Mapping from variable name to its subset.
@@ -351,10 +399,10 @@ class NetCDF(Dataset):
     def no_data_value(self, value: list | Number):
         """Set the no-data value that marks cells outside the domain.
 
-        The setter only changes the ``no_data_value`` attribute; it does
-        **not** modify the underlying cell values.  Use this to align the
+        The setter only changes the `no_data_value` attribute; it does
+        **not** modify the underlying cell values. Use this to align the
         attribute with whatever sentinel is already stored in the cells.
-        To actually rewrite cell values, use ``change_no_data_value``.
+        To actually rewrite cell values, use `change_no_data_value`.
 
         Args:
             value: New no-data value. A single number applied to all
@@ -362,13 +410,13 @@ class NetCDF(Dataset):
         """
         if isinstance(value, list):
             for i, val in enumerate(value):
-                self._change_no_data_value_attr(i, val)
+                self.bands._change_no_data_value_attr(i, val)
         else:
-            self._change_no_data_value_attr(0, value)
+            self.bands._change_no_data_value_attr(0, value)
 
     @property
     def file_name(self):
-        """File path, with the ``NETCDF:"path":var`` prefix stripped if present.
+        """File path, with the `NETCDF:"path":var` prefix stripped if present.
 
         Returns:
             str: Clean file path without the NETCDF prefix.
@@ -381,11 +429,11 @@ class NetCDF(Dataset):
 
     @property
     def time_stamp(self):
-        """Time coordinate values parsed from the CF-compliant ``time`` variable.
+        """Time coordinate values parsed from the CF-compliant `time` variable.
 
         Returns:
             list[str] | None: Formatted time strings, or None if no time
-                dimension with a ``units`` attribute is found.
+                dimension with a `units` attribute is found.
         """
         return self.get_time_variable()
 
@@ -418,54 +466,54 @@ class NetCDF(Dataset):
         chunks: Any = None,
         lock: Any = None,
     ) -> ArrayLike:
-        """Read array from the dataset (eager by default, lazy with ``chunks``).
+        """Read array from the dataset (eager by default, lazy with `chunks`).
 
         Args:
             variable: When this instance is a root MDIM container,
                 the variable name to read. When the instance is
-                already a variable subset (``nc.get_variable("x")``)
-                this argument must be ``None`` — the variable is
+                already a variable subset (`nc.get_variable("x")`)
+                this argument must be `None` — the variable is
                 already pinned.
             band: Band index to read, or None for all bands. Only
-                honored on the eager path (``chunks=None``).
+                honored on the eager path (`chunks=None`).
             window: Spatial window to read. Only honored on the
                 eager path.
-            unpack: If True and the variable has CF ``scale_factor``
-                and/or ``add_offset``, apply the transformation
-                ``real = raw * scale + offset``. Defaults to False.
+            unpack: If True and the variable has CF `scale_factor`
+                and/or `add_offset`, apply the transformation
+                `real = raw * scale + offset`. Defaults to False.
                 Applied lazily via :mod:`dask.array` arithmetic when
-                ``chunks`` is given — the compute graph stays lazy
+                `chunks` is given — the compute graph stays lazy
                 until the caller materializes it.
-            chunks: Chunking spec for a lazy return. ``None`` (the
+            chunks: Chunking spec for a lazy return. `None` (the
                 default) returns an eager :class:`numpy.ndarray` and
-                preserves the legacy behavior. Any of ``int``,
-                ``tuple``, ``dict``, or the string ``"auto"`` switches
+                preserves the legacy behavior. Any of `int`,
+                `tuple`, `dict`, or the string `"auto"` switches
                 to a :class:`dask.array.Array` backed by MDArray
                 chunk reads. Defaults chunked at the variable's
-                native ``GetBlockSize`` (see
+                native `GetBlockSize` (see
                 :attr:`pyramids.netcdf.models.VariableInfo.block_size`);
-                a conservative ``(1, ..., rows, cols)`` fallback is
+                a conservative `(1,..., rows, cols)` fallback is
                 used when the driver doesn't advertise one.
             lock: Lock passed to the underlying
                 :class:`pyramids.base._file_manager.CachingFileManager`.
-                ``None`` → :func:`pyramids.base._locks.default_lock`
+                `None` → :func:`pyramids.base._locks.default_lock`
                 (a :class:`SerializableLock`, or a
-                ``dask.distributed.Lock`` when a client is active).
-                ``False`` → :class:`pyramids.base._locks.DummyLock`.
-                Only meaningful when ``chunks`` is not ``None``.
+                `dask.distributed.Lock` when a client is active).
+                `False` → :class:`pyramids.base._locks.DummyLock`.
+                Only meaningful when `chunks` is not `None`.
 
         Returns:
             np.ndarray or dask.array.Array: The array data, eager
-            (numpy) by default or lazy (dask) when ``chunks`` is
+            (numpy) by default or lazy (dask) when `chunks` is
             supplied. The lazy array computes chunk-by-chunk through
-            ``md_arr.ReadAsArray(array_start_idx=starts, count=counts)``.
+            `md_arr.ReadAsArray(array_start_idx=starts, count=counts)`.
 
         Raises:
             ValueError: If called on a root MDIM container without a
-                ``variable`` argument, or when a subset is called
-                with a conflicting ``variable`` name.
-            ImportError: If ``chunks`` is given but ``dask`` is not
-                installed. Install the ``[lazy]`` extra.
+                `variable` argument, or when a subset is called
+                with a conflicting `variable` name.
+            ImportError: If `chunks` is given but `dask` is not
+                installed. Install the `[lazy]` extra.
         """
         is_container = (
             self._is_md_array and not self._is_subset and self.band_count == 0
@@ -529,18 +577,18 @@ class NetCDF(Dataset):
         """Wrap a Dataset result as a NetCDF, preserving variable-subset metadata.
 
         When spatial operations (crop, to_crs, resample) are called on a
-        NetCDF variable subset, the parent ``Dataset`` mixin returns a
-        plain ``Dataset``.  This helper re-wraps the result as a ``NetCDF``
+        NetCDF variable subset, the parent `Dataset` mixin returns a
+        plain `Dataset`. This helper re-wraps the result as a `NetCDF`
         and copies over the variable-specific attributes so that methods
-        like ``sel()``, ``read_array(unpack=True)``, and further spatial
+        like `sel()`, `read_array(unpack=True)`, and further spatial
         operations continue to work with consistent return types.
 
         Args:
-            result: The ``Dataset`` (or ``NetCDF``) returned by a parent
+            result: The `Dataset` (or `NetCDF`) returned by a parent
                 spatial operation.
 
         Returns:
-            NetCDF: The same data wrapped as a ``NetCDF`` with all
+            NetCDF: The same data wrapped as a `NetCDF` with all
                 variable-subset metadata preserved.
         """
         if isinstance(result, NetCDF):
@@ -576,10 +624,10 @@ class NetCDF(Dataset):
 
         On a **root MDIM container** this crops every variable and
         returns a new in-memory NetCDF container with the cropped
-        results.  On a **variable subset** it delegates to the
-        parent ``Dataset.crop()`` and wraps the result as ``NetCDF``
-        to preserve variable metadata (``_band_dim_name``,
-        ``_band_dim_values``, ``sel()``, etc.).
+        results. On a **variable subset** it delegates to the
+        parent `Dataset.crop()` and wraps the result as `NetCDF`
+        to preserve variable metadata (`_band_dim_name`,
+        `_band_dim_values`, `sel()`, etc.).
 
         Args:
             mask: GeoDataFrame with polygon geometry, or a Dataset
@@ -615,33 +663,17 @@ class NetCDF(Dataset):
         """
         if not self.variable_names:
             raise ValueError(
-                "Cannot apply operation to an empty container " "(no data variables)."
+                "Cannot apply operation to an empty container (no data variables)."
             )
-        first_name = self.variable_names[0]
-        first_var = self.get_variable(first_name)
-        first_result = getattr(first_var, operation)(**op_kwargs)
 
-        # to_crs returns a VRT -- materialize to avoid dangling refs
-        first_arr = first_result.read_array()
-        # Preserve the extra dimension for single-band 3D variables
-        # (read_array squeezes to 2D, but the time/level dim should survive)
-        if first_arr.ndim == 2 and first_var._band_dim_name is not None:
-            first_arr = np.expand_dims(first_arr, axis=0)
-        ndv = first_result.no_data_value
-        ndv_scalar = ndv[0] if isinstance(ndv, list) and ndv else ndv
-        result = NetCDF.create_from_array(
-            arr=first_arr,
-            geo=first_result.geotransform,
-            epsg=first_result.epsg,
-            no_data_value=ndv_scalar,
-            variable_name=first_name,
-            extra_dim_name=first_var._band_dim_name or "time",
-            extra_dim_values=first_var._band_dim_values,
-        )
-
-        for var_name in self.variable_names[1:]:
+        result = None
+        for var_name in self.variable_names:
             var = self.get_variable(var_name)
             var_result = getattr(var, operation)(**op_kwargs)
+            # to_crs returns a VRT — materialize before the source goes
+            # out of scope. read_array also squeezes singleton-band 3-D
+            # variables to 2-D, so re-expand when the variable carried a
+            # band/time/level dim originally.
             var_arr = var_result.read_array()
             if var_arr.ndim == 2 and var._band_dim_name is not None:
                 var_arr = np.expand_dims(var_arr, axis=0)
@@ -649,15 +681,29 @@ class NetCDF(Dataset):
             var_ndv_scalar = (
                 var_ndv[0] if isinstance(var_ndv, list) and var_ndv else var_ndv
             )
-            ds = Dataset.create_from_array(
-                var_arr,
-                geo=var_result.geotransform,
-                epsg=var_result.epsg,
-                no_data_value=var_ndv_scalar,
-            )
-            ds._band_dim_name = var._band_dim_name
-            ds._band_dim_values = var._band_dim_values
-            result.set_variable(var_name, ds)
+
+            if result is None:
+                # First variable: build the container.
+                result = NetCDF.create_from_array(
+                    arr=var_arr,
+                    geo=var_result.geotransform,
+                    epsg=var_result.epsg,
+                    no_data_value=var_ndv_scalar,
+                    variable_name=var_name,
+                    extra_dim_name=var._band_dim_name or "time",
+                    extra_dim_values=var._band_dim_values,
+                )
+            else:
+                # Subsequent variables: drop into the existing container.
+                ds = Dataset.create_from_array(
+                    var_arr,
+                    geo=var_result.geotransform,
+                    epsg=var_result.epsg,
+                    no_data_value=var_ndv_scalar,
+                )
+                ds._band_dim_name = var._band_dim_name
+                ds._band_dim_values = var._band_dim_values
+                result.set_variable(var_name, ds)
 
         return result
 
@@ -671,12 +717,12 @@ class NetCDF(Dataset):
 
         On a **root MDIM container** this reprojects every variable
         and returns a new container. On a **variable subset** it
-        delegates to ``Dataset.to_crs()`` and wraps the result as
-        ``NetCDF`` to preserve variable metadata.
+        delegates to `Dataset.to_crs()` and wraps the result as
+        `NetCDF` to preserve variable metadata.
 
         Args:
             to_epsg: Target EPSG code (e.g., 4326, 32637).
-            method: Resampling method. Defaults to ``"nearest neighbor"``.
+            method: Resampling method. Defaults to `"nearest neighbor"`.
             maintain_alignment: If True, keep the same number of rows
                 and columns. Defaults to False.
 
@@ -710,12 +756,12 @@ class NetCDF(Dataset):
 
         On a **root MDIM container** this resamples every variable
         and returns a new container. On a **variable subset** it
-        delegates to ``Dataset.resample()`` and wraps the result as
-        ``NetCDF`` to preserve variable metadata.
+        delegates to `Dataset.resample()` and wraps the result as
+        `NetCDF` to preserve variable metadata.
 
         Args:
             cell_size: New cell size.
-            method: Resampling method. Defaults to ``"nearest neighbor"``.
+            method: Resampling method. Defaults to `"nearest neighbor"`.
 
         Returns:
             NetCDF: Resampled container or variable subset.
@@ -737,14 +783,14 @@ class NetCDF(Dataset):
         """Select a subset of bands by coordinate values.
 
         Extracts bands whose coordinate values match the given
-        criteria.  Works on variable subsets that have
-        ``_band_dim_name`` and ``_band_dim_values`` set by
-        ``get_variable()``.
+        criteria. Works on variable subsets that have
+        `_band_dim_name` and `_band_dim_values` set by
+        `get_variable()`.
 
-        The result is always a ``NetCDF`` instance with the same
-        variable metadata preserved, so that ``sel()`` can be
+        The result is always a `NetCDF` instance with the same
+        variable metadata preserved, so that `sel()` can be
         chained and NetCDF-specific methods like
-        ``read_array(unpack=True)`` remain available.
+        `read_array(unpack=True)` remain available.
 
         Args:
             **kwargs: One keyword argument where the key is the
@@ -752,8 +798,8 @@ class NetCDF(Dataset):
 
                 - A single number: select one band by exact value.
                 - A list of numbers: select multiple bands.
-                - A ``slice(start, stop)``: select bands where
-                  ``start <= coord <= stop``.
+                - A `slice(start, stop)`: select bands where
+                  `start <= coord <= stop`.
 
         Returns:
             NetCDF: A new NetCDF variable subset with only the
@@ -761,7 +807,7 @@ class NetCDF(Dataset):
 
         Raises:
             ValueError: If the dimension name doesn't match
-                ``_band_dim_name``, or no matching bands are found.
+                `_band_dim_name`, or no matching bands are found.
 
         Examples:
             Select a single time step::
@@ -821,9 +867,9 @@ class NetCDF(Dataset):
         #
         # Trade-off: band-by-band reads avoid loading the entire variable
         # into memory, which matters for large variables with few selected
-        # bands.  However, when *most* bands are selected the per-band
+        # bands. However, when *most* bands are selected the per-band
         # GDAL overhead may be slower than a single full read followed by
-        # NumPy slicing.  In practice the difference is small because GDAL
+        # NumPy slicing. In practice the difference is small because GDAL
         # MEM driver reads are cheap; revisit if profiling shows a
         # bottleneck for large on-disk NetCDFs.
         band_arrays = [self.read_array(band=i) for i in band_indices]
@@ -855,12 +901,12 @@ class NetCDF(Dataset):
         """Open a NetCDF file from disk.
 
         Args:
-            path: Path to the ``.nc`` file.
+            path: Path to the `.nc` file.
             read_only: If True, open in read-only mode. Set to False for
                 write access. Defaults to True.
             open_as_multi_dimensional: If True, open with
-                ``gdal.OF_MULTIDIM_RASTER`` to access the full group /
-                dimension / variable hierarchy.  If False, open in classic
+                `gdal.OF_MULTIDIM_RASTER` to access the full group /
+                dimension / variable hierarchy. If False, open in classic
                 raster mode where each variable is a subdataset.
                 Defaults to True.
 
@@ -886,14 +932,14 @@ class NetCDF(Dataset):
         """Emit a kerchunk JSON reference manifest for this file.
 
         Thin forwarder to :func:`pyramids.netcdf._kerchunk.to_kerchunk`
-        using ``self._file_name`` as the source path. Requires the
-        ``[netcdf-lazy]`` optional extra.
+        using `self._file_name` as the source path. Requires the
+        `[netcdf-lazy]` optional extra.
 
         Args:
             output_path: Path where the manifest JSON is written.
             inline_threshold: Chunks smaller than this many bytes are
                 embedded directly. Default 500.
-            vlen_encode: VLEN string handling mode. Default ``"embed"``.
+            vlen_encode: VLEN string handling mode. Default `"embed"`.
 
         Returns:
             dict: The manifest dict that was written.
@@ -919,15 +965,15 @@ class NetCDF(Dataset):
 
         Thin forwarder to
         :func:`pyramids.netcdf._kerchunk.combine_kerchunk`. Requires
-        the ``[netcdf-lazy]`` optional extra.
+        the `[netcdf-lazy]` optional extra.
 
         Args:
             paths: Sequence of NetCDF paths to combine.
             output_path: Path where the combined manifest is written.
             concat_dims: Dimension name(s) along which to concatenate.
-                Default ``("time",)``.
+                Default `("time",)`.
             identical_dims: Dimensions expected to match across all
-                files. Default ``("lat", "lon")``.
+                files. Default `("lat", "lon")`.
             inline_threshold: Chunks smaller than this inline bytes are
                 embedded. Default 500.
 
@@ -952,24 +998,24 @@ class NetCDF(Dataset):
         parallel: bool = False,
         preprocess=None,
     ):
-        """Open many NetCDFs and stack ``variable`` into one lazy dask array.
+        """Open many NetCDFs and stack `variable` into one lazy dask array.
 
         Thin forwarder to
         :func:`pyramids.netcdf._mfdataset.open_mfdataset`; see that
         function for the full argument contract. Requires the
-        ``[lazy]`` optional extra.
+        `[lazy]` optional extra.
 
         Args:
             paths: Glob string, explicit path, or sequence of paths.
             variable: Name of the variable to extract from each file.
             chunks: Chunk spec forwarded to
                 :meth:`NetCDF.read_array`.
-            parallel: Fan out per-file opens through ``dask.delayed``.
+            parallel: Fan out per-file opens through `dask.delayed`.
             preprocess: Optional callable applied to each
                 :class:`NetCDF` before extraction.
 
         Returns:
-            dask.array.Array: Stack of shape ``(n_files, *var_shape)``.
+            dask.array.Array: Stack of shape `(n_files, *var_shape)`.
         """
         return open_mfdataset(
             paths,
@@ -984,8 +1030,8 @@ class NetCDF(Dataset):
         """Structured metadata for this NetCDF.
 
         Uses the GDAL Multidimensional API (groups, arrays, dimensions) when
-        the file was opened with ``open_as_multi_dimensional=True``.  Falls
-        back to the classic ``NETCDF_DIM_*`` parser (``dimensions.py``) when
+        the file was opened with `open_as_multi_dimensional=True`. Falls
+        back to the classic `NETCDF_DIM_*` parser (`dimensions.py`) when
         opened in classic mode (no root group available).
 
         Cached on first access. Invalidated by add_variable/remove_variable.
@@ -1012,12 +1058,12 @@ class NetCDF(Dataset):
     def get_all_metadata(self, open_options: dict | None = None) -> NetCDFMetadata:
         """Get full MDIM metadata (uncached).
 
-        Unlike ``meta_data`` (which is cached), this always re-traverses
+        Unlike `meta_data` (which is cached), this always re-traverses
         the GDAL multidimensional structure.
 
         Args:
             open_options: Driver-specific open options forwarded to
-                ``get_metadata()``. Defaults to None.
+                `get_metadata()`. Defaults to None.
 
         Returns:
             NetCDFMetadata
@@ -1030,19 +1076,19 @@ class NetCDF(Dataset):
     ) -> list[str] | None:
         """Parse the time coordinate variable into formatted date strings.
 
-        Reads the ``units`` attribute (e.g., ``"days since 1979-01-01"``)
+        Reads the `units` attribute (e.g., `"days since 1979-01-01"`)
         from the dimension metadata and converts raw numeric values to
         human-readable date strings.
 
         Args:
             var_name: Name of the time dimension / variable.
-                Defaults to ``"time"``.
+                Defaults to `"time"`.
             time_format: strftime format for the output strings.
-                Defaults to ``"%Y-%m-%d"``.
+                Defaults to `"%Y-%m-%d"`.
 
         Returns:
             list[str] or None: Formatted time strings, or None if the
-            time dimension is not found or lacks a ``units`` attribute.
+            time dimension is not found or lacks a `units` attribute.
         """
         time_stamp = None
         time_dim = self.meta_data.get_dimension(var_name)
@@ -1069,7 +1115,7 @@ class NetCDF(Dataset):
 
     @property
     def dimension_names(self) -> list[str] | None:
-        """Names of all dimensions in the root group (e.g., ``["x", "y", "time"]``).
+        """Names of all dimensions in the root group (e.g., `["x", "y", "time"]`).
 
         Returns:
             list[str] or None: Dimension names, or None if no root group
@@ -1116,18 +1162,18 @@ class NetCDF(Dataset):
         """Read a variable's data as a numpy array, optionally windowed.
 
         Uses the MDIM root group when available (avoids opening a new GDAL
-        handle). Falls back to the classic ``NETCDF:file:var`` path.
+        handle). Falls back to the classic `NETCDF:file:var` path.
 
         For arrays with 2+ dimensions, the Y axis is flipped if the data
-        is stored south-to-north (matching the flip in ``get_variable``).
+        is stored south-to-north (matching the flip in `get_variable`).
 
         Args:
             var: Variable name in the dataset.
-            window: Per-dimension window as a list of ``(start, count)``
-                tuples, one per dimension of the target variable.  For
-                example, ``[(0, 1), (100, 256), (200, 256)]`` reads
-                time[0:1], y[100:356], x[200:456].  When ``None`` the
-                full variable is read.  Only supported in MDIM mode;
+            window: Per-dimension window as a list of `(start, count)`
+                tuples, one per dimension of the target variable. For
+                example, `[(0, 1), (100, 256), (200, 256)]` reads
+                time[0:1], y[100:356], x[200:456]. When `None` the
+                full variable is read. Only supported in MDIM mode;
                 ignored in classic mode.
 
         Returns:
@@ -1187,7 +1233,7 @@ class NetCDF(Dataset):
         """Names of sub-groups in the root group.
 
         Returns:
-            list[str]: Sub-group names (e.g. ``["forecast", "analysis"]``).
+            list[str]: Sub-group names (e.g. `["forecast", "analysis"]`).
             Empty list if no sub-groups exist or the dataset is in
             classic mode.
         """
@@ -1211,7 +1257,7 @@ class NetCDF(Dataset):
 
         Args:
             group_name: Name of the sub-group. Supports nested paths
-                separated by ``/`` (e.g. ``"forecast/surface"``).
+                separated by `/` (e.g. `"forecast/surface"`).
 
         Returns:
             NetCDF: A container backed by the sub-group.
@@ -1300,12 +1346,12 @@ class NetCDF(Dataset):
         """Return names of data variables, excluding dimension coordinates.
 
         Uses CF classification when metadata is cached (fast path).
-        Otherwise queries ``GetMDArrayNames()`` and filters out dimension
+        Otherwise queries `GetMDArrayNames()` and filters out dimension
         arrays and 0-dimensional scalar variables (grid_mapping etc.).
         In classic mode, parses subdataset metadata.
 
         Returns:
-            list[str]: Variable names (e.g., ``["temperature", "precipitation"]``).
+            list[str]: Variable names (e.g., `["temperature", "precipitation"]`).
         """
         if self._cached_meta_data is not None and self._cached_meta_data.cf is not None:
             variable_names = list(self._cached_meta_data.cf.data_variable_names)
@@ -1337,12 +1383,12 @@ class NetCDF(Dataset):
         remaining dimensions are flattened into bands.
 
         If the Y dimension is stored south-to-north (positive Y pixel
-        size), it is reversed via ``MDArray.GetView()`` **before** the
-        conversion.  This is a lazy, zero-copy operation — GDAL handles
+        size), it is reversed via `MDArray.GetView()` **before** the
+        conversion. This is a lazy, zero-copy operation — GDAL handles
         the reversed indexing internally without reading the whole array.
 
-        Returns a tuple ``(classic_dataset, md_array, root_group)`` so
-        callers can keep the GDAL objects alive.  ``AsClassicDataset``
+        Returns a tuple `(classic_dataset, md_array, root_group)` so
+        callers can keep the GDAL objects alive. `AsClassicDataset`
         returns a **view** whose C++ backing depends on the MDArray and
         root group; if the Python SWIG wrappers for those are garbage-
         collected the view becomes a dangling pointer (segfault on
@@ -1379,14 +1425,14 @@ class NetCDF(Dataset):
         """Extract a single variable as a classic-raster NetCDF object.
 
         The returned object carries origin metadata so that modified data
-        can be written back via ``set_variable()``.
+        can be written back via `set_variable()`.
 
-        Supports group-qualified names: ``"forecast/temperature"`` first
-        navigates to the ``forecast`` sub-group, then extracts
-        ``temperature`` from it.
+        Supports group-qualified names: `"forecast/temperature"` first
+        navigates to the `forecast` sub-group, then extracts
+        `temperature` from it.
 
         Args:
-            variable_name: Name of the variable to extract. Use ``/``
+            variable_name: Name of the variable to extract. Use `/`
                 to separate group path from variable name.
 
         Returns:
@@ -1394,7 +1440,7 @@ class NetCDF(Dataset):
                 non-spatial dimensions are mapped to bands.
 
         Raises:
-            ValueError: If ``variable_name`` is not present in the dataset.
+            ValueError: If `variable_name` is not present in the dataset.
         """
         # Handle group-qualified names: "forecast/temperature"
         if "/" in variable_name:
@@ -1419,7 +1465,7 @@ class NetCDF(Dataset):
                 cube = NetCDF(src)
                 cube._is_md_array = True
                 # _read_md_array uses GetView to flip the data lazily,
-                # and GDAL usually corrects the geotransform.  But when
+                # and GDAL usually corrects the geotransform. But when
                 # the Y dimension has no indexing variable (e.g. WRF
                 # "south_north"), the geotransform may still be wrong.
                 # Fix it on the wrapper object (no data copy).
@@ -1529,11 +1575,10 @@ class NetCDF(Dataset):
         old = self._raster
         if old is not None and old is not new_raster:
             old.FlushCache()
-        # AbstractDataset state
+        # RasterBase state
         self._raster = new_raster
         self._geotransform = new_raster.GetGeoTransform()
         self._cell_size = self._geotransform[1]
-        self._meta_data = new_raster.GetMetadata()
         self._file_name = new_raster.GetDescription()
         self._epsg = self._get_epsg()
         self._rows = new_raster.RasterYSize
@@ -1568,7 +1613,7 @@ class NetCDF(Dataset):
 
         Returns:
             bool: True if the dataset is a variable subset extracted
-                via ``get_variable()``.
+                via `get_variable()`.
         """
         return self._is_subset
 
@@ -1578,7 +1623,7 @@ class NetCDF(Dataset):
 
         Returns:
             bool: True if the dataset was opened via
-                ``gdal.OF_MULTIDIM_RASTER`` and supports groups,
+                `gdal.OF_MULTIDIM_RASTER` and supports groups,
                 MDArrays, and dimensions.
         """
         return self._is_md_array
@@ -1590,22 +1635,22 @@ class NetCDF(Dataset):
     ) -> None:
         """Save the dataset to disk.
 
-        For ``.nc`` / ``.nc4`` files the full multidimensional structure
+        For `.nc` / `.nc4` files the full multidimensional structure
         (groups, dimensions, variables, attributes) is preserved via
-        ``CreateCopy`` with the netCDF driver.  For other extensions
-        (e.g. ``.tif``), the parent ``Dataset.to_file`` is used — but only
+        `CreateCopy` with the netCDF driver. For other extensions
+        (e.g. `.tif`), the parent `Dataset.to_file` is used — but only
         on variable subsets, not on root MDIM containers.
 
         Args:
             path: Destination file path. The extension determines the
-                output driver (``.nc`` -> netCDF, ``.tif`` -> GeoTIFF, etc.).
-            **kwargs: Forwarded to ``Dataset.to_file`` for non-NetCDF
-                extensions (e.g. ``tile_length``, ``creation_options``).
+                output driver (`.nc` -> netCDF, `.tif` -> GeoTIFF, etc.).
+            **kwargs: Forwarded to `Dataset.to_file` for non-NetCDF
+                extensions (e.g. `tile_length`, `creation_options`).
 
         Raises:
-            RuntimeError: If the netCDF ``CreateCopy`` call fails.
+            RuntimeError: If the netCDF `CreateCopy` call fails.
             ValueError: If a root MDIM container is saved to a non-NC
-                extension (use ``.nc`` or extract a variable first).
+                extension (use `.nc` or extract a variable first).
         """
         path = Path(path)
         extension = path.suffix[1:].lower()
@@ -1635,7 +1680,7 @@ class NetCDF(Dataset):
             NetCDF: A new NetCDF object with copied data.
 
         Raises:
-            RuntimeError: If ``CreateCopy`` fails.
+            RuntimeError: If `CreateCopy` fails.
         """
         if path is None:
             path = ""
@@ -1691,10 +1736,10 @@ class NetCDF(Dataset):
     ) -> gdal.Dimension:
         """Create a NetCDF dimension with an indexing variable.
 
-        The dimension type is inferred from ``dim_name``:
-        ``y``/``lat``/``latitude`` -> horizontal Y,
-        ``x``/``lon``/``longitude`` -> horizontal X,
-        ``bands``/``time`` -> temporal.
+        The dimension type is inferred from `dim_name`:
+        `y`/`lat`/`latitude` -> horizontal Y,
+        `x`/`lon`/`longitude` -> horizontal X,
+        `bands`/`time` -> temporal.
 
         The dimension is registered in the group together with a
         matching MDArray that stores the coordinate values.
@@ -1703,7 +1748,7 @@ class NetCDF(Dataset):
             group: Root group (or sub-group) of the multidimensional
                 dataset.
             dim_name: Name of the dimension to create.
-            dtype: GDAL ``ExtendedDataType`` for the indexing variable.
+            dtype: GDAL `ExtendedDataType` for the indexing variable.
             values: Coordinate values for the dimension.
 
         Returns:
@@ -1748,53 +1793,53 @@ class NetCDF(Dataset):
 
         For 3-D arrays the first axis is treated as a non-spatial
         dimension (time, level, depth, etc.) whose name and coordinate
-        values are controlled by ``extra_dim_name`` and
-        ``extra_dim_values``.
+        values are controlled by `extra_dim_name` and
+        `extra_dim_values`.
 
-        The driver is inferred from ``path``: if ``path`` is ``None``
+        The driver is inferred from `path`: if `path` is `None`
         the dataset is created in memory (MEM driver); if a path is
         provided the netCDF driver writes to disk.
 
         Args:
-            arr: 2-D ``(rows, cols)`` or 3-D
-                ``(extra_dim, rows, cols)`` NumPy array.
-            geo: Geotransform tuple ``(x_min, pixel_size, rotation,
-                y_max, rotation, pixel_size)``.
+            arr: 2-D `(rows, cols)` or 3-D
+                `(extra_dim, rows, cols)` NumPy array.
+            geo: Geotransform tuple `(x_min, pixel_size, rotation,
+                y_max, rotation, pixel_size)`.
             epsg: EPSG code for the spatial reference.
                 Defaults to 4326.
             no_data_value: Sentinel value for cells outside the
                 domain. Defaults to DEFAULT_NO_DATA_VALUE.
-            path: Output file path. If ``None``, the dataset is
+            path: Output file path. If `None`, the dataset is
                 created in memory. Defaults to None.
             variable_name: Name of the data variable in the NetCDF
-                file. Defaults to ``"data"``.
+                file. Defaults to `"data"`.
             extra_dim_name: Name of the non-spatial dimension for 3-D
-                arrays (e.g. ``"time"``, ``"level"``, ``"depth"``).
-                Ignored for 2-D arrays. Defaults to ``"time"``.
+                arrays (e.g. `"time"`, `"level"`, `"depth"`).
+                Ignored for 2-D arrays. Defaults to `"time"`.
             extra_dim_values: Coordinate values for the non-spatial
-                dimension. Must have length ``arr.shape[0]`` for 3-D
-                arrays. Defaults to ``[0, 1, 2, ..., N-1]``.
-            top_left_corner: ``(x, y)`` of the top-left corner. Used
-                with ``cell_size`` to build ``geo`` when ``geo`` is
+                dimension. Must have length `arr.shape[0]` for 3-D
+                arrays. Defaults to `[0, 1, 2,..., N-1]`.
+            top_left_corner: `(x, y)` of the top-left corner. Used
+                with `cell_size` to build `geo` when `geo` is
                 not provided. Defaults to None.
-            cell_size: Pixel size. Used with ``top_left_corner`` to
-                build ``geo``. Defaults to None.
+            cell_size: Pixel size. Used with `top_left_corner` to
+                build `geo`. Defaults to None.
             chunk_sizes: Chunk sizes for the data variable as a tuple
-                matching the array dimensions (e.g. ``(1, 256, 256)``
+                matching the array dimensions (e.g. `(1, 256, 256)`
                 for 3-D). Only effective when writing to disk.
                 Defaults to None (GDAL default chunking).
-            compression: Compression algorithm name (``"DEFLATE"``,
-                ``"ZSTD"``, etc.). Only effective when writing to
+            compression: Compression algorithm name (`"DEFLATE"`,
+                `"ZSTD"`, etc.). Only effective when writing to
                 disk. Defaults to None (no compression).
             compression_level: Compression level (e.g. 1-9 for
                 DEFLATE). Defaults to None (GDAL default).
-            title: CF global attribute ``title``. Short
+            title: CF global attribute `title`. Short
                 description of the dataset. Defaults to None.
-            institution: CF global attribute ``institution``.
+            institution: CF global attribute `institution`.
                 Where the data was produced. Defaults to None.
-            source: CF global attribute ``source``. How the
+            source: CF global attribute `source`. How the
                 data was produced. Defaults to None.
-            history: CF global attribute ``history``. Audit
+            history: CF global attribute `history`. Audit
                 trail of processing steps. Defaults to None.
 
         Returns:
@@ -1880,17 +1925,17 @@ class NetCDF(Dataset):
     ) -> gdal.Dataset:
         """Build a multidimensional GDAL dataset from an array.
 
-        The driver is inferred from ``path``: ``None`` -> MEM (in-memory),
+        The driver is inferred from `path`: `None` -> MEM (in-memory),
         otherwise the netCDF driver writes to disk.
 
         Args:
-            arr: 2-D ``(rows, cols)`` or 3-D
-                ``(extra_dim, rows, cols)`` NumPy array.
+            arr: 2-D `(rows, cols)` or 3-D
+                `(extra_dim, rows, cols)` NumPy array.
             variable_name: Name of the data variable.
             cols: Number of columns.
             rows: Number of rows.
             extra_dim_name: Name of the non-spatial dimension
-                (e.g. ``"time"``, ``"level"``). Defaults to ``"time"``.
+                (e.g. `"time"`, `"level"`). Defaults to `"time"`.
             extra_dim_values: Coordinate values for the non-spatial
                 dimension. Defaults to None.
             geo: Geotransform tuple. Defaults to None.
@@ -1903,12 +1948,12 @@ class NetCDF(Dataset):
                 None.
             compression: Compression algorithm. Defaults to None.
             compression_level: Compression level. Defaults to None.
-            title: CF global attribute ``title``. Defaults to None.
-            institution: CF global attribute ``institution``.
+            title: CF global attribute `title`. Defaults to None.
+            institution: CF global attribute `institution`.
                 Defaults to None.
-            source: CF global attribute ``source``.
+            source: CF global attribute `source`.
                 Defaults to None.
-            history: CF global attribute ``history``.
+            history: CF global attribute `history`.
                 Defaults to None.
 
         Returns:
@@ -1960,7 +2005,7 @@ class NetCDF(Dataset):
         # Determine if CRS is geographic (lon/lat) or projected (m)
         is_geographic = True
         if epsg is not None:
-            srs_check = Dataset._create_sr_from_epsg(int(epsg))
+            srs_check = sr_from_epsg(int(epsg))
             is_geographic = srs_check.IsGeographic() == 1
 
         dim_x = NetCDF._create_dimension(
@@ -2010,7 +2055,7 @@ class NetCDF(Dataset):
         md_arr.SetNoDataValueDouble(no_data_value)
         if epsg is None:
             raise ValueError("epsg cannot be None")
-        srse = Dataset._create_sr_from_epsg(epsg=int(epsg))
+        srse = sr_from_epsg(int(epsg))
         md_arr.SetSpatialRef(srse)
         md_arr.Write(arr)
 
@@ -2053,18 +2098,18 @@ class NetCDF(Dataset):
     ) -> gdal.Dimension:
         """Reuse an existing dimension or create a new one.
 
-        If a dimension with ``dim_name`` already exists in the root group
-        and has the same size as ``values``, it is returned directly.
-        On size mismatch, a new dimension with a ``_{size}`` suffix is
+        If a dimension with `dim_name` already exists in the root group
+        and has the same size as `values`, it is returned directly.
+        On size mismatch, a new dimension with a `_{size}` suffix is
         created to avoid conflicts.
 
         Args:
             rg: The root group of the multidimensional dataset.
-            dim_name: Name of the dimension (e.g., ``"x"``, ``"time"``).
+            dim_name: Name of the dimension (e.g., `"x"`, `"time"`).
             values: Coordinate values for this dimension.
-            dtype: GDAL ``ExtendedDataType`` for the indexing variable.
+            dtype: GDAL `ExtendedDataType` for the indexing variable.
             dim_type: GDAL dimension type constant (e.g.,
-                ``gdal.DIM_TYPE_HORIZONTAL_X``). Defaults to None.
+                `gdal.DIM_TYPE_HORIZONTAL_X`). Defaults to None.
 
         Returns:
             gdal.Dimension: The reused or newly created dimension.
@@ -2085,7 +2130,7 @@ class NetCDF(Dataset):
 
         Returns a live dict read from the GDAL root group each time.
         For MDIM mode, reads from the root group's attributes.
-        For classic mode, reads from GDAL's ``GetMetadata()``.
+        For classic mode, reads from GDAL's `GetMetadata()`.
 
         Returns:
             dict[str, Any]: Key-value mapping of global attributes.
@@ -2108,8 +2153,8 @@ class NetCDF(Dataset):
         Creates or updates a single attribute on the root group.
 
         Args:
-            name: Attribute name (e.g. ``"history"``,
-                ``"Conventions"``).
+            name: Attribute name (e.g. `"history"`,
+                `"Conventions"`).
             value: Attribute value. Supports str, int, float.
 
         Raises:
@@ -2176,24 +2221,24 @@ class NetCDF(Dataset):
     ):
         """Write a classic Dataset back as an MDArray variable in this container.
 
-        This is the reverse of ``get_variable()``.  After performing GIS
+        This is the reverse of `get_variable()`. After performing GIS
         operations (crop, reproject, etc.) on a variable subset, use this
         method to store the result back into the NetCDF container.
 
         Args:
-            variable_name: Name for the variable in this container.  If a
+            variable_name: Name for the variable in this container. If a
                 variable with this name already exists it is replaced.
             dataset: A classic raster dataset, typically the result of a
-                GIS operation on a variable obtained via ``get_variable()``.
+                GIS operation on a variable obtained via `get_variable()`.
             band_dim_name: Name of the dimension that maps to bands
-                (e.g. ``"time"``, ``"bands"``).  Auto-detected from the
-                dataset's ``_band_dim_name`` attribute when available.
+                (e.g. `"time"`, `"bands"`). Auto-detected from the
+                dataset's `_band_dim_name` attribute when available.
                 Defaults to None.
             band_dim_values: Coordinate values for the band dimension.
-                Auto-detected from ``_band_dim_values`` when available.
+                Auto-detected from `_band_dim_values` when available.
                 Defaults to None.
-            attrs: Variable attributes to set (e.g. ``{"units": "K"}``).
-                Auto-detected from ``_variable_attrs`` when available.
+            attrs: Variable attributes to set (e.g. `{"units": "K"}`).
+                Auto-detected from `_variable_attrs` when available.
                 Defaults to None.
 
         Raises:
@@ -2265,7 +2310,7 @@ class NetCDF(Dataset):
 
         # Set spatial reference (RT-7: attribute copying)
         if dataset.epsg:
-            srs = Dataset._create_sr_from_epsg(dataset.epsg)
+            srs = sr_from_epsg(dataset.epsg)
             md_arr.SetSpatialRef(srs)
 
         # Set no-data value
@@ -2286,8 +2331,8 @@ class NetCDF(Dataset):
     ) -> NetCDF:
         """Crop a single variable and store the result back.
 
-        Convenience method that combines ``get_variable`` → ``crop``
-        → ``set_variable`` in one call.
+        Convenience method that combines `get_variable` → `crop`
+        → `set_variable` in one call.
 
         Args:
             variable_name: Name of the variable to crop.
@@ -2309,14 +2354,14 @@ class NetCDF(Dataset):
     ) -> NetCDF:
         """Reproject a single variable and store the result back.
 
-        Convenience method that combines ``get_variable`` → ``to_crs``
-        → ``set_variable`` in one call.
+        Convenience method that combines `get_variable` → `to_crs`
+        → `set_variable` in one call.
 
         Args:
             variable_name: Name of the variable to reproject.
             to_epsg: Target EPSG code (e.g. 4326, 32637).
             method: Resampling method. Defaults to
-                ``"nearest neighbor"``.
+                `"nearest neighbor"`.
 
         Returns:
             NetCDF: This container (modified in-place).
@@ -2353,14 +2398,14 @@ class NetCDF(Dataset):
     ) -> NetCDF:
         """Resample a single variable and store the result back.
 
-        Convenience method that combines ``get_variable`` → ``resample``
-        → ``set_variable`` in one call.
+        Convenience method that combines `get_variable` → `resample`
+        → `set_variable` in one call.
 
         Args:
             variable_name: Name of the variable to resample.
             cell_size: New cell size.
             method: Resampling method. Defaults to
-                ``"nearest neighbor"``.
+                `"nearest neighbor"`.
 
         Returns:
             NetCDF: This container (modified in-place).
@@ -2379,7 +2424,7 @@ class NetCDF(Dataset):
             variable_name: Specific variable name(s) to copy. If None, all
                 variables from the source are copied. If a variable with
                 the same name already exists, it is renamed with a
-                ``"-new"`` suffix.
+                `"-new"` suffix.
         """
         src_rg = self._raster.GetRootGroup()
         var_rg = dataset._raster.GetRootGroup()
@@ -2403,7 +2448,7 @@ class NetCDF(Dataset):
         """Delete a variable from this container.
 
         If the dataset is backed by a file on disk, a MEM copy is made first
-        so that the on-disk file is not modified.  The internal raster
+        so that the on-disk file is not modified. The internal raster
         reference is replaced with the modified copy.
 
         Args:
@@ -2430,7 +2475,7 @@ class NetCDF(Dataset):
             new_name: Desired new name.
 
         Raises:
-            ValueError: If ``old_name`` doesn't exist or ``new_name``
+            ValueError: If `old_name` doesn't exist or `new_name`
                 already exists.
         """
         if old_name not in self.variable_names:
@@ -2450,23 +2495,23 @@ class NetCDF(Dataset):
         self._invalidate_caches()
 
     def to_xarray(self) -> Any:
-        """Convert this NetCDF container to an ``xarray.Dataset``.
+        """Convert this NetCDF container to an `xarray.Dataset`.
 
-        Builds an in-memory ``xarray.Dataset`` that mirrors the
+        Builds an in-memory `xarray.Dataset` that mirrors the
         variables, coordinates, dimensions, and global attributes of
         this pyramids NetCDF container.
 
         The entire conversion goes through GDAL's Multidimensional
         API — the same reader the rest of pyramids' NetCDF code uses.
-        No xarray engine plugin (``netcdf4``, ``h5netcdf``,
-        ``scipy.io.netcdf``) is involved, so the ``[xarray]`` extra
+        No xarray engine plugin (`netcdf4`, `h5netcdf`,
+        `scipy.io.netcdf`) is involved, so the `[xarray]` extra
         does not need to pull a NetCDF backend: pyramids is the
-        backend. The returned ``xr.Dataset`` holds already-
+        backend. The returned `xr.Dataset` holds already-
         materialised numpy arrays; for lazy reads use
         :meth:`read_array(chunks=...)` and wrap the result in
         :class:`xarray.DataArray` yourself.
 
-        Requires the optional ``xarray`` package. Install it with::
+        Requires the optional `xarray` package. Install it with::
 
             pip install 'pyramids-gis[xarray]'
 
@@ -2476,10 +2521,10 @@ class NetCDF(Dataset):
 
         Raises:
             pyramids.base._errors.OptionalPackageDoesNotExist:
-                If ``xarray`` is not installed.
+                If `xarray` is not installed.
             ValueError: If the underlying GDAL handle is not a
                 multidimensional container (open the file with
-                ``open_as_multi_dimensional=True``).
+                `open_as_multi_dimensional=True`).
 
         Examples:
             Convert a pyramids NetCDF to xarray::
@@ -2535,7 +2580,7 @@ class NetCDF(Dataset):
                     var_attrs[attr.GetName()] = attr.Read()
             except Exception:
                 pass
-            # GDAL's netCDF driver normalises the CF ``units`` attribute
+            # GDAL's netCDF driver normalises the CF `units` attribute
             # to MDArray.GetUnit() / SetUnit() rather than a regular
             # attribute. Merge it back into var_attrs for a clean
             # round-trip through xr.Dataset.
@@ -2557,29 +2602,29 @@ class NetCDF(Dataset):
         dataset: Any,
         path: str | Path | None = None,
     ) -> NetCDF:
-        """Create a pyramids NetCDF from an ``xarray.Dataset``.
+        """Create a pyramids NetCDF from an `xarray.Dataset`.
 
         Extracts dimensions, coordinates, data variables, and
-        attributes from the ``xarray.Dataset`` and writes them to a
+        attributes from the `xarray.Dataset` and writes them to a
         NetCDF file through pyramids' own GDAL Multidimensional
-        writer. No xarray engine plugin (``netcdf4``, ``h5netcdf``)
-        is invoked — pyramids is the writer, so the ``[xarray]``
+        writer. No xarray engine plugin (`netcdf4`, `h5netcdf`)
+        is invoked — pyramids is the writer, so the `[xarray]`
         extra does not need to pull a NetCDF backend.
 
         Usage::
 
             ds = xr.open_dataset("input.nc")
-            # ... xarray processing ...
+            #... xarray processing...
             nc = NetCDF.from_xarray(ds)
             var = nc.get_variable("temperature")
             cropped = var.crop(mask)
 
-        Requires the optional ``xarray`` package.
+        Requires the optional `xarray` package.
 
         Args:
-            dataset: An ``xarray.Dataset`` instance.
+            dataset: An `xarray.Dataset` instance.
             path: File path where the NetCDF will be written. If
-                ``None``, a temp ``.nc`` is created and cleaned up
+                `None`, a temp `.nc` is created and cleaned up
                 when the returned object is garbage-collected.
 
         Returns:
@@ -2588,8 +2633,8 @@ class NetCDF(Dataset):
 
         Raises:
             pyramids.base._errors.OptionalPackageDoesNotExist:
-                If ``xarray`` is not installed.
-            TypeError: If *dataset* is not an ``xarray.Dataset``.
+                If `xarray` is not installed.
+            TypeError: If *dataset* is not an `xarray.Dataset`.
         """
         try:
             import xarray as xr
@@ -2629,11 +2674,11 @@ class NetCDF(Dataset):
     def _build_multidim_from_xarray(dataset: Any) -> gdal.Dataset:
         """Build an in-memory GDAL multidim container from an xarray Dataset.
 
-        Creates dimensions from ``dataset.sizes``, writes each
+        Creates dimensions from `dataset.sizes`, writes each
         coordinate as a 1-D indexing MDArray, writes each data
         variable as an N-D MDArray whose dimensions are resolved by
         name. Variable and global attributes are copied via pyramids'
-        own ``write_attributes_to_md_array`` / ``write_global_attributes``
+        own `write_attributes_to_md_array` / `write_global_attributes`
         helpers so every type the CF layer already handles (str, int,
         float, bool, list) round-trips without going through xarray's
         NetCDF writer.
@@ -2651,9 +2696,9 @@ class NetCDF(Dataset):
             )
 
         def _apply_attrs(md_arr: gdal.MDArray, attrs: dict[str, Any]) -> None:
-            """Write xarray var attrs, routing ``units`` through SetUnit.
+            """Write xarray var attrs, routing `units` through SetUnit.
 
-            GDAL's netCDF writer moves the CF ``units`` attribute onto
+            GDAL's netCDF writer moves the CF `units` attribute onto
             the MDArray's own unit slot; if we also write it as a regular
             attribute it's dropped on the next CreateCopy. Split it out
             so the round trip is lossless.

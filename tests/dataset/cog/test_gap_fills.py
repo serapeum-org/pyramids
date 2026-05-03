@@ -1,13 +1,13 @@
-"""Additional scenario coverage for ``pyramids.dataset.cog`` and ops mixin.
+"""Additional scenario coverage for `pyramids.dataset.cog` and ops mixin.
 
 Fills boundary/interaction gaps surfaced by the
-``generate-full-test-suite`` skill's gap analysis:
+`generate-full-test-suite` skill's gap analysis:
 
-* ``_fallback_validate`` when the file raises during ``gdal.Open``.
-* ``to_cog(overview_count=0)`` boundary.
-* ``to_cog(add_mask=True, sparse_ok=True)`` option interaction.
-* ``to_cog(blocksize`` — largest allowed (4096) boundary.
-* ``CloudConfig.__exit__`` return-value contract.
+* `_fallback_validate` when the file raises during `gdal.Open`.
+* `to_cog(overview_count=0)` boundary.
+* `to_cog(add_mask=True, sparse_ok=True)` option interaction.
+* `to_cog(blocksize` — largest allowed (4096) boundary.
+* `CloudConfig.__exit__` return-value contract.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ def small_float_dataset() -> Dataset:
 
 
 class TestFallbackValidateGdalOpenRaises:
-    """Gap: ``_fallback_validate`` when ``gdal.Open`` raises."""
+    """Gap: `_fallback_validate` when `gdal.Open` raises."""
 
     def test_runtime_error_from_gdal_open_surfaces_as_error(
         self, monkeypatch, tmp_path
@@ -45,8 +45,8 @@ class TestFallbackValidateGdalOpenRaises:
         """Test _fallback_validate surfaces RuntimeError from gdal.Open.
 
         Test scenario:
-            ``gdal.Open`` raises ``RuntimeError`` (e.g., corrupt file)
-            rather than returning ``None``. The fallback validator must
+            `gdal.Open` raises `RuntimeError` (e.g., corrupt file)
+            rather than returning `None`. The fallback validator must
             not crash — it should propagate the exception since its
             callers translate it upstream.
         """
@@ -67,7 +67,7 @@ class TestFallbackValidateGdalOpenRaises:
 
 
 class TestToCogOverviewCountBoundary:
-    """Gap: ``to_cog(overview_count=0)`` — no overviews requested."""
+    """Gap: `to_cog(overview_count=0)` — no overviews requested."""
 
     def test_zero_overviews_produces_valid_cog(self, small_float_dataset, tmp_path):
         """Test to_cog with overview_count=0 writes a COG with no overviews.
@@ -88,7 +88,7 @@ class TestToCogOverviewCountBoundary:
 
 
 class TestToCogBlocksizeBoundaries:
-    """Gap: ``to_cog`` blocksize boundaries min (64) and max (4096)."""
+    """Gap: `to_cog` blocksize boundaries min (64) and max (4096)."""
 
     def test_min_blocksize_64_accepted(self, small_float_dataset, tmp_path):
         """Test to_cog accepts the smallest legal blocksize.
@@ -131,7 +131,7 @@ class TestToCogBlocksizeBoundaries:
 
 
 class TestToCogOptionInteractions:
-    """Gap: ``to_cog`` boolean option interactions (add_mask + sparse_ok)."""
+    """Gap: `to_cog` boolean option interactions (add_mask + sparse_ok)."""
 
     def test_add_mask_and_sparse_ok_both_true(self, small_float_dataset, tmp_path):
         """Test add_mask=True and sparse_ok=True combine without error.
@@ -159,8 +159,8 @@ class TestToCogOptionInteractions:
         """Test statistics=False produces a file without embedded band stats.
 
         Test scenario:
-            When ``statistics=False``, the COG driver should not compute
-            or embed ``STATISTICS_*`` metadata — the user opted out.
+            When `statistics=False`, the COG driver should not compute
+            or embed `STATISTICS_*` metadata — the user opted out.
         """
         out = small_float_dataset.to_cog(tmp_path / "no_stats.tif", statistics=False)
         reopened = gdal.Open(str(out))
@@ -176,15 +176,15 @@ class TestToCogOptionInteractions:
 
 
 class TestCloudConfigExitContract:
-    """Gap: ``CloudConfig.__exit__`` return value contract."""
+    """Gap: `CloudConfig.__exit__` return value contract."""
 
     def test_exit_returns_none_on_normal_exit(self):
         """Test __exit__ returns a falsy value when no exception occurred.
 
         Test scenario:
-            No exception inside the ``with`` block — ``__exit__`` is
-            called with ``(None, None, None)`` and returns the
-            underlying GDAL context manager's return (``None``), which
+            No exception inside the `with` block — `__exit__` is
+            called with `(None, None, None)` and returns the
+            underlying GDAL context manager's return (`None`), which
             does not suppress anything.
         """
         cfg = CloudConfig(aws_region="eu-west-1")
@@ -198,7 +198,7 @@ class TestCloudConfigExitContract:
         """Test exceptions inside the with block are re-raised.
 
         Test scenario:
-            If an exception is raised inside the block, ``__exit__``
+            If an exception is raised inside the block, `__exit__`
             must not return True (which would suppress it). Caller code
             must still see the original exception.
         """
@@ -215,7 +215,7 @@ class TestToCogPathHandling:
 
         Test scenario:
             Dataset.to_cog (single-file) takes a literal path; template
-            placeholders like ``{name}`` / ``{i}`` are a concern only of
+            placeholders like `{name}` / `{i}` are a concern only of
             DatasetCollection.to_cog_stack. Verify the filename is used
             verbatim.
         """

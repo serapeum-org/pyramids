@@ -1,20 +1,21 @@
 """Private OGR bridge for :mod:`pyramids.feature`.
 
 This module is **not part of the public API**. It exists solely so that
-``FeatureCollection`` methods that internally need a GDAL/OGR object
+`FeatureCollection` methods that internally need a GDAL/OGR object
 (for example :func:`osgeo.gdal.Rasterize` or :func:`osgeo.gdal.Warp` with
-``cutlineDSName``) can obtain one without leaking ``ogr.DataSource`` or
-``gdal.Dataset`` into the package's public surface.
+`cutlineDSName`) can obtain one without leaking `ogr.DataSource` or
+`gdal.Dataset` into the package's public surface.
 
 All helpers in this module are context-managed where possible so that the
-backing ``/vsimem/`` file and the OGR handle are deterministically
-released when the ``with`` block exits.
+backing `/vsimem/` file and the OGR handle are deterministically
+released when the `with` block exits.
 
 Do not import this module from user code; its signatures are unstable.
 """
 
 from __future__ import annotations
 
+import io
 import random
 import time
 from contextlib import contextmanager
@@ -28,15 +29,15 @@ from pyramids.base._errors import VectorDriverError
 
 
 def _new_vsimem_path() -> str:
-    """Return a fresh unique ``/vsimem/`` path for a GeoJSON serialization.
+    """Return a fresh unique `/vsimem/` path for a GeoJSON serialization.
 
-    The suffix is ``<time_ns>_<rand>`` (C35) — shorter than a UUID4 and
-    still collision-proof within a single process run: ``time.time_ns``
+    The suffix is `<time_ns>_<rand>` — shorter than a UUID4 and
+    still collision-proof within a single process run: `time.time_ns`
     has nanosecond resolution and the random integer adds 20 bits of
     tie-breaking for the same-nanosecond case.
 
     Returns:
-        str: A ``/vsimem/<time>_<rand>.geojson`` path.
+        str: A `/vsimem/<time>_<rand>.geojson` path.
 
     Examples:
         - Check the shape of a freshly generated path:
@@ -67,47 +68,47 @@ def _new_vsimem_path() -> str:
 def as_datasource(
     gdf: GeoDataFrame, *, gdal_dataset: bool = False
 ) -> Iterator[ogr.DataSource | gdal.Dataset]:
-    """Yield a short-lived OGR ``DataSource`` for a GeoDataFrame.
+    """Yield a short-lived OGR `DataSource` for a GeoDataFrame.
 
-    The DataSource (or ``gdal.Dataset`` with OGR contents when
-    ``gdal_dataset=True``) is backed by an in-memory ``/vsimem/`` GeoJSON
+    The DataSource (or `gdal.Dataset` with OGR contents when
+    `gdal_dataset=True`) is backed by an in-memory `/vsimem/` GeoJSON
     file that is unlinked when the context exits. The caller must use the
-    yielded object only inside the ``with`` block — storing it past the
+    yielded object only inside the `with` block — storing it past the
     block is a use-after-free.
 
     Args:
         gdf (GeoDataFrame):
             The GeoDataFrame to expose as an OGR DataSource. Any subclass
             of :class:`geopandas.GeoDataFrame` is accepted — in particular
-            ``pyramids.feature.FeatureCollection`` works unchanged since
-            it IS a ``GeoDataFrame``.
+            `pyramids.feature.FeatureCollection` works unchanged since
+            it IS a `GeoDataFrame`.
         gdal_dataset (bool):
-            When ``True``, yield a ``gdal.Dataset`` (opened via
-            :func:`gdal.OpenEx`) instead of an ``ogr.DataSource``. This
+            When `True`, yield a `gdal.Dataset` (opened via
+            :func:`gdal.OpenEx`) instead of an `ogr.DataSource`. This
             is the form required by :func:`gdal.Rasterize` when the
             vector argument is a Python GDAL object rather than a path.
 
     Yields:
         ogr.DataSource | gdal.Dataset: A short-lived handle to the vector
-        data. Do not store past the ``with`` block.
+        data. Do not store past the `with` block.
 
     Raises:
         VectorDriverError: If :func:`gdal.OpenEx` / :func:`ogr.Open`
-            returns ``None`` after the in-memory GeoJSON was written —
+            returns `None` after the in-memory GeoJSON was written —
             usually the GeoDataFrame has malformed geometry or an
-            unsupported CRS. The message includes the ``/vsimem/``
-            path for debugging (C4).
+            unsupported CRS. The message includes the `/vsimem/`
+            path for debugging.
 
     Notes:
-        Cleanup is exception-safe. If ``gdf.to_json`` or
+        Cleanup is exception-safe. If `gdf.to_json` or
         :func:`gdal.FileFromMemBuffer` raises before the in-memory file
-        is written, the ``finally`` block does **not** call
+        is written, the `finally` block does **not** call
         :func:`gdal.Unlink` on a non-existent path (tracked via an
-        internal ``file_written`` flag). When the user's ``with`` body
-        raises, the path is still unlinked exactly once (C4).
+        internal `file_written` flag). When the user's `with` body
+        raises, the path is still unlinked exactly once.
 
     Examples:
-        - Open a GeoDataFrame as an OGR DataSource inside a ``with``
+        - Open a GeoDataFrame as an OGR DataSource inside a `with`
           block, and confirm the yielded handle exposes one layer with
           the feature count the GDF had:
             ```python
@@ -126,7 +127,7 @@ def as_datasource(
             2
 
             ```
-        - Request a ``gdal.Dataset`` instead of an ``ogr.DataSource``
+        - Request a `gdal.Dataset` instead of an `ogr.DataSource`
           (the form :func:`gdal.Rasterize` expects when its vector
           argument is a Python GDAL object rather than a file path):
             ```python
@@ -147,14 +148,14 @@ def as_datasource(
     mem_path = _new_vsimem_path()
     # We must write into osgeo.gdal's own /vsimem/ — geopandas' default
     # pyogrio engine uses its own bundled GDAL with a separate VFS, so a
-    # ``gdf.to_file("/vsimem/…")`` would write to *that* engine's memory
-    # store and ``osgeo.gdal`` would never see it. Round-tripping through
-    # the GeoJSON serialization + ``gdal.FileFromMemBuffer`` guarantees
+    # `gdf.to_file("/vsimem/…")` would write to *that* engine's memory
+    # store and `osgeo.gdal` would never see it. Round-tripping through
+    # the GeoJSON serialization + `gdal.FileFromMemBuffer` guarantees
     # the file lands in the GDAL VFS we can open.
-    # C4: track whether the vsimem file was actually written so the
+    # track whether the vsimem file was actually written so the
     # finally block only unlinks when there is something to unlink.
-    # If ``gdf.to_json()`` or ``FileFromMemBuffer`` raises, no file
-    # exists on /vsimem/ and ``gdal.Unlink`` would log a spurious
+    # If `gdf.to_json()` or `FileFromMemBuffer` raises, no file
+    # exists on /vsimem/ and `gdal.Unlink` would log a spurious
     # warning about a missing path.
     geojson_bytes = gdf.to_json().encode("utf-8")
     file_written = False
@@ -164,10 +165,10 @@ def as_datasource(
         ds: ogr.DataSource | gdal.Dataset | None = (
             gdal.OpenEx(mem_path) if gdal_dataset else ogr.Open(mem_path)
         )
-        # C4: GDAL signals a failure to parse the in-memory GeoJSON by
-        # returning ``None`` rather than raising. Convert that to an
+        # GDAL signals a failure to parse the in-memory GeoJSON by
+        # returning `None` rather than raising. Convert that to an
         # explicit :class:`VectorDriverError` so callers see a typed
-        # failure instead of cryptic ``AttributeError: 'NoneType'``
+        # failure instead of cryptic `AttributeError: 'NoneType'`
         # deeper in the stack.
         if ds is None:
             raise VectorDriverError(
@@ -186,10 +187,10 @@ def as_datasource(
 
 @contextmanager
 def as_vsimem_path(gdf: GeoDataFrame) -> Iterator[str]:
-    """Yield a ``/vsimem/`` path to a GeoJSON serialization of ``gdf``.
+    """Yield a `/vsimem/` path to a GeoJSON serialization of `gdf`.
 
     Useful where a GDAL API needs a *path string* (e.g. the
-    ``cutlineDSName`` option of :func:`gdal.Warp`) rather than a Python
+    `cutlineDSName` option of :func:`gdal.Warp`) rather than a Python
     GDAL object. The path is unlinked on exit.
 
     Args:
@@ -197,12 +198,12 @@ def as_vsimem_path(gdf: GeoDataFrame) -> Iterator[str]:
             The GeoDataFrame to serialize.
 
     Yields:
-        str: A ``/vsimem/<uuid>.geojson`` path valid only inside the
-        ``with`` block.
+        str: A `/vsimem/<uuid>.geojson` path valid only inside the
+        `with` block.
 
     Examples:
         - Confirm the yielded path has the expected shape and that the
-          backing GeoJSON file exists for the duration of the ``with``
+          backing GeoJSON file exists for the duration of the `with`
           block (opened via :func:`osgeo.ogr.Open`):
             ```python
             >>> import geopandas as gpd
@@ -223,8 +224,8 @@ def as_vsimem_path(gdf: GeoDataFrame) -> Iterator[str]:
             ```
     """
     mem_path = _new_vsimem_path()
-    # See the note in ``as_datasource`` for why we use
-    # ``gdal.FileFromMemBuffer`` instead of ``gdf.to_file``.
+    # See the note in `as_datasource` for why we use
+    # `gdal.FileFromMemBuffer` instead of `gdf.to_file`.
     geojson_bytes = gdf.to_json().encode("utf-8")
     gdal.FileFromMemBuffer(mem_path, geojson_bytes)
     try:
@@ -234,22 +235,22 @@ def as_vsimem_path(gdf: GeoDataFrame) -> Iterator[str]:
 
 
 def datasource_to_gdf(ds: ogr.DataSource | gdal.Dataset) -> GeoDataFrame:
-    """Materialize an OGR ``DataSource`` into a ``GeoDataFrame``.
+    """Materialize an OGR `DataSource` into a `GeoDataFrame`.
 
     Used by internal operations (for example :func:`gdal.Polygonize`) that
     begin by allocating an OGR DataSource and need to hand a
-    ``GeoDataFrame`` back to the public layer. The conversion goes via a
-    ``/vsimem/`` GeoJSON round-trip using :func:`gdal.VectorTranslate`.
+    `GeoDataFrame` back to the public layer. The conversion goes via a
+    `/vsimem/` GeoJSON round-trip using :func:`gdal.VectorTranslate`.
 
-    D-M4: the round-trip stays entirely in osgeo.gdal's ``/vsimem/``
+    D-M4: the round-trip stays entirely in osgeo.gdal's `/vsimem/`
     VFS — no filesystem temp file is created. The serialised GeoJSON
     bytes are read back via :func:`gdal.VSIFOpenL` /
     :func:`gdal.VSIFReadL` and parsed from an in-memory
     :class:`io.BytesIO` via :func:`geopandas.read_file` (pyogrio
-    accepts buffer inputs). Cleanup of the ``/vsimem/`` path is gated
+    accepts buffer inputs). Cleanup of the `/vsimem/` path is gated
     on the write having actually succeeded, so a failed
-    ``VectorTranslate`` raises :class:`VectorDriverError` cleanly
-    without ``gdal.Unlink`` masking the original error.
+    `VectorTranslate` raises :class:`VectorDriverError` cleanly
+    without `gdal.Unlink` masking the original error.
 
     Args:
         ds (ogr.DataSource | gdal.Dataset):
@@ -257,22 +258,22 @@ def datasource_to_gdf(ds: ogr.DataSource | gdal.Dataset) -> GeoDataFrame:
             caller retains ownership.
 
     Returns:
-        GeoDataFrame: A plain ``GeoDataFrame`` (never a
-        ``FeatureCollection``) containing the layer's features. Callers
-        that want a ``FeatureCollection`` should wrap the result:
-        ``FeatureCollection(datasource_to_gdf(ds))``.
+        GeoDataFrame: A plain `GeoDataFrame` (never a
+        `FeatureCollection`) containing the layer's features. Callers
+        that want a `FeatureCollection` should wrap the result:
+        `FeatureCollection(datasource_to_gdf(ds))`.
 
     Raises:
         VectorDriverError: If :func:`gdal.VectorTranslate` fails to
             write the intermediate GeoJSON, or if the subsequent
-            :func:`gdal.VSIFOpenL` cannot open the ``/vsimem/`` path.
-            Multi-inherits from ``RuntimeError`` so existing
-            ``except RuntimeError`` handlers keep working.
+            :func:`gdal.VSIFOpenL` cannot open the `/vsimem/` path.
+            Multi-inherits from `RuntimeError` so existing
+            `except RuntimeError` handlers keep working.
 
     Examples:
         - Round-trip a GeoDataFrame through the OGR bridge: first open
-          it as an in-memory OGR ``DataSource`` via :func:`as_datasource`,
-          then materialize it back to a ``GeoDataFrame`` via
+          it as an in-memory OGR `DataSource` via :func:`as_datasource`,
+          then materialize it back to a `GeoDataFrame` via
           :func:`datasource_to_gdf`. Attribute and row counts survive:
             ```python
             >>> import geopandas as gpd
@@ -300,10 +301,8 @@ def datasource_to_gdf(ds: ogr.DataSource | gdal.Dataset) -> GeoDataFrame:
     # osgeo.gdal's /vsimem/. Per-call filesystem I/O is a real cost
     # on heavy polygonize workloads. Instead: VectorTranslate into
     # osgeo /vsimem/, read the bytes back out via GDAL's own VSIFile*
-    # APIs, and hand a ``BytesIO`` to ``geopandas.read_file`` — which
+    # APIs, and hand a `BytesIO` to `geopandas.read_file` — which
     # pyogrio accepts and parses from memory.
-    import io
-
     mem_path = _new_vsimem_path()
     file_written = False
     try:
@@ -327,8 +326,8 @@ def datasource_to_gdf(ds: ogr.DataSource | gdal.Dataset) -> GeoDataFrame:
             gdal.VSIFSeekL(vsi_file, 0, 2)  # SEEK_END
             size = gdal.VSIFTellL(vsi_file)
             gdal.VSIFSeekL(vsi_file, 0, 0)
-            # L1: gdal.VSIFReadL on GDAL >=3 already returns a Python
-            # bytes object; wrapping in ``bytes(...)`` forced a
+            # gdal.VSIFReadL on GDAL >=3 already returns a Python
+            # bytes object; wrapping in `bytes(...)` forced a
             # defensive O(size) copy that doubled peak memory on
             # polygonize outputs. Use the buffer as-is.
             data = gdal.VSIFReadL(1, size, vsi_file)

@@ -1,11 +1,11 @@
 """COG creation-option types, serialization, and validation.
 
-Provides the :data:`CreationOptions` alias (a ``Mapping[str, Any]``) plus
+Provides the :data:`CreationOptions` alias (a `Mapping[str, Any]`) plus
 three pure-Python helpers used by :mod:`pyramids.dataset.cog.write` and
 :class:`pyramids.dataset.ops.cog.COGMixin`:
 
-- :func:`to_gdal_options` — serialize a mapping into GDAL's ``['KEY=VALUE', ...]`` list form.
-- :func:`merge_options` — merge defaults with user-supplied extras (dict or legacy ``list[str]``).
+- :func:`to_gdal_options` — serialize a mapping into GDAL's `['KEY=VALUE',...]` list form.
+- :func:`merge_options` — merge defaults with user-supplied extras (dict or legacy `list[str]`).
 - :func:`validate_blocksize` — enforce the COG driver's power-of-2-in-[64, 4096] constraint.
 - :func:`validate_option_keys` — gate unknown keys against :data:`COG_DRIVER_OPTIONS`.
 
@@ -22,7 +22,7 @@ CreationOptions = Mapping[str, Any]
 
 Keys are the GDAL option names (case-insensitive; normalized to upper case
 during serialization). Values are scalars that stringify cleanly; booleans
-are translated to ``"YES"``/``"NO"``; ``None`` entries are dropped.
+are translated to `"YES"`/`"NO"`; `None` entries are dropped.
 """
 
 
@@ -68,7 +68,7 @@ _VALID_BLOCKSIZES: frozenset[int] = frozenset({64, 128, 256, 512, 1024, 2048, 40
 def _stringify(value: Any) -> str:
     """Convert a Python value to the string form GDAL expects.
 
-    Booleans become ``"YES"``/``"NO"`` (GDAL's convention); everything else
+    Booleans become `"YES"`/`"NO"` (GDAL's convention); everything else
     falls back to :class:`str`.
 
     Args:
@@ -110,17 +110,17 @@ def _stringify(value: Any) -> str:
 
 
 def to_gdal_options(opts: CreationOptions | None) -> list[str]:
-    """Serialize a mapping into GDAL's ``['KEY=VALUE', ...]`` list form.
+    """Serialize a mapping into GDAL's `['KEY=VALUE',...]` list form.
 
     Keys are uppercased; values are stringified via :func:`_stringify`
-    (booleans become ``"YES"``/``"NO"``). ``None`` values are skipped so
+    (booleans become `"YES"`/`"NO"`). `None` values are skipped so
     callers can pass optional kwargs through unchanged.
 
     Args:
-        opts: Mapping of option names to values, or ``None``.
+        opts: Mapping of option names to values, or `None`.
 
     Returns:
-        List of ``"KEY=VALUE"`` strings. Empty list when ``opts`` is ``None``.
+        List of `"KEY=VALUE"` strings. Empty list when `opts` is `None`.
 
     Examples:
         - Serialize a compression config:
@@ -157,16 +157,16 @@ def to_gdal_options(opts: CreationOptions | None) -> list[str]:
 
 
 def _parse_list_extra(items: list[str]) -> dict[str, Any]:
-    """Parse ``['KEY=VALUE', ...]`` legacy list form back to a dict.
+    """Parse `['KEY=VALUE',...]` legacy list form back to a dict.
 
     Args:
-        items: List of ``"KEY=VALUE"`` strings.
+        items: List of `"KEY=VALUE"` strings.
 
     Returns:
-        Dict with uppercased keys and string values (split on first ``=``).
+        Dict with uppercased keys and string values (split on first `=`).
 
     Raises:
-        ValueError: If any item lacks an ``=``.
+        ValueError: If any item lacks an `=`.
 
     Examples:
         - Parse a multi-entry list:
@@ -203,23 +203,23 @@ def merge_options(
 ) -> dict[str, Any]:
     """Merge default options with user-supplied extras; extras win.
 
-    Accepts ``extra`` as either a mapping ``{'KEY': value}`` or the legacy
-    list form ``['KEY=VALUE', ...]`` used by
+    Accepts `extra` as either a mapping `{'KEY': value}` or the legacy
+    list form `['KEY=VALUE',...]` used by
     :meth:`pyramids.dataset.Dataset.to_file`. All keys in the returned
-    dict are uppercased; ``None`` values from either source are dropped.
+    dict are uppercased; `None` values from either source are dropped.
 
     Args:
         defaults: Baseline options (typically derived from kwargs in
-            :meth:`~pyramids.dataset.ops.cog.COGMixin.to_cog`).
-        extra: User-provided overrides as a mapping, ``list[str]``, or
-            ``None``.
+            :meth:`pyramids.dataset._collaborators.COG.to_cog`).
+        extra: User-provided overrides as a mapping, `list[str]`, or
+            `None`.
 
     Returns:
-        New :class:`dict` with all keys uppercased and ``None`` values
-        removed; ``extra`` entries override ``defaults`` on conflict.
+        New :class:`dict` with all keys uppercased and `None` values
+        removed; `extra` entries override `defaults` on conflict.
 
     Raises:
-        ValueError: When a legacy list-form entry lacks ``=``.
+        ValueError: When a legacy list-form entry lacks `=`.
 
     Examples:
         - Dict extras override defaults on conflict:
@@ -254,16 +254,16 @@ def merge_options(
 
 
 def validate_blocksize(value: int) -> None:
-    """Raise :class:`ValueError` if ``value`` is not a valid COG tile size.
+    """Raise :class:`ValueError` if `value` is not a valid COG tile size.
 
-    The GDAL COG driver requires ``BLOCKSIZE`` to be a power of 2 in
+    The GDAL COG driver requires `BLOCKSIZE` to be a power of 2 in
     the closed range [64, 4096].
 
     Args:
         value: Proposed blocksize.
 
     Raises:
-        ValueError: If ``value`` is outside the allowed set.
+        ValueError: If `value` is outside the allowed set.
 
     Examples:
         - Valid power-of-2 blocksizes return silently:
@@ -274,7 +274,7 @@ def validate_blocksize(value: int) -> None:
             ```
         - Non-power-of-2 is rejected:
             ```python
-            >>> validate_blocksize(500)   # doctest: +IGNORE_EXCEPTION_DETAIL
+            >>> validate_blocksize(500) # doctest: +IGNORE_EXCEPTION_DETAIL
             Traceback (most recent call last):
             ...
             ValueError: blocksize must be a power of 2 in [64, 4096]; got 500...
@@ -282,7 +282,7 @@ def validate_blocksize(value: int) -> None:
             ```
         - Out-of-range values are rejected:
             ```python
-            >>> validate_blocksize(32)    # doctest: +IGNORE_EXCEPTION_DETAIL
+            >>> validate_blocksize(32) # doctest: +IGNORE_EXCEPTION_DETAIL
             Traceback (most recent call last):
             ...
             ValueError: blocksize must be a power of 2 in [64, 4096]; got 32...
@@ -316,7 +316,7 @@ def validate_option_keys(opts: CreationOptions) -> None:
             ```
         - Unknown keys raise ValueError naming the offender:
             ```python
-            >>> validate_option_keys({"NONSENSE": "x"})  # doctest: +IGNORE_EXCEPTION_DETAIL
+            >>> validate_option_keys({"NONSENSE": "x"}) # doctest: +IGNORE_EXCEPTION_DETAIL
             Traceback (most recent call last):
             ...
             ValueError: Unknown COG driver option(s): ['NONSENSE']...

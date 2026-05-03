@@ -1,12 +1,12 @@
-"""Tests for :class:`DatasetCollection` RasterMeta refactor (DASK-15).
+"""Tests for :class:`DatasetCollection` RasterMeta refactor.
 
 Backwards-compatible refactor: existing ``DatasetCollection(src,
-time_length)`` + ``create_cube`` paths are unchanged. Two additions
+time_length)` + `create_cube`` paths are unchanged. Two additions
 under test:
 
-* ``.meta`` property returns a :class:`RasterMeta` snapshot derived
-  eagerly from the template ``src`` at construction time.
-* ``DatasetCollection.from_files(files)`` classmethod constructs
+* `.meta` property returns a :class:`RasterMeta` snapshot derived
+  eagerly from the template `src` at construction time.
+* `DatasetCollection.from_files(files)` classmethod constructs
   from a list of paths, opening only the first file.
 """
 

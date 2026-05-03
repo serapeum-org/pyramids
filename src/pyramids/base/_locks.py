@@ -3,24 +3,24 @@
 Three shapes are exported:
 
 * :class:`SerializableLock` — a pickleable lock keyed by a UUID token
-  plus a process-wide ``WeakValueDictionary`` of ``token -> Lock``.
+  plus a process-wide `WeakValueDictionary` of `token -> Lock`.
   Pickling only transmits the token, so unpickled copies in the same
   process map back to the same underlying :class:`threading.Lock`
   while different processes get independent locks. This is the shape
   rioxarray / xarray use for dask-backed IO and is the correct
   default for pyramids' lazy read paths.
 * :class:`DummyLock` — a no-op lock that never blocks. Used when a
-  caller passes ``lock=False`` to opt into lock-free reads (per-thread
+  caller passes `lock=False` to opt into lock-free reads (per-thread
   handle, no cross-thread mutex — good for cloud COG reads where
   GDAL's block cache is per-handle anyway).
 * :func:`default_lock` — one-line factory that returns a fresh
   :class:`SerializableLock` in a single-process context, or a
   :class:`dask.distributed.Lock` when a running dask client is
   detected. Prefer this over direct instantiation when a method
-  accepts ``lock=None`` as "use the right thing".
+  accepts `lock=None` as "use the right thing".
 
 The dask import is gated: importing this module does not pull
-``dask.distributed``. ``default_lock`` only imports it when it
+`dask.distributed`. `default_lock` only imports it when it
 actually needs to probe for a running client.
 """
 
@@ -37,10 +37,10 @@ _LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = weakref.WeakValueDict
 class SerializableLock:
     """Pickleable lock keyed by a UUID token.
 
-    Each instance holds a single ``threading.Lock`` plus a token
+    Each instance holds a single `threading.Lock` plus a token
     string. On pickle, only the token is serialized; on unpickle, if
     the same token is already resident in the current process's
-    ``_LOCKS`` dict, the unpickled copy maps to the same underlying
+    `_LOCKS` dict, the unpickled copy maps to the same underlying
     lock (safe for in-process dask schedulers). Otherwise it creates
     a new lock in the target process (correct for cross-process dask
     because different processes should not share a Python-level
@@ -105,7 +105,7 @@ class SerializableLock:
 class DummyLock:
     """No-op lock that never blocks.
 
-    Drop-in substitute when a caller passes ``lock=False``. Callers
+    Drop-in substitute when a caller passes `lock=False`. Callers
     get the same context-manager / acquire / release surface without
     paying any synchronization cost.
 
@@ -114,12 +114,12 @@ class DummyLock:
             ```python
             >>> from pyramids.base._locks import DummyLock
             >>> with DummyLock():
-            ...     value = 42
+            ... value = 42
             >>> value
             42
 
             ```
-        - ``acquire`` always succeeds, even under "contention":
+        - `acquire` always succeeds, even under "contention":
             ```python
             >>> from pyramids.base._locks import DummyLock
             >>> lk = DummyLock()
@@ -151,16 +151,16 @@ def default_lock() -> Any:
     """Return the right lock for the current execution context.
 
     Probes for a running :class:`dask.distributed.Client`; if one is
-    active, returns a ``dask.distributed.Lock`` (cross-process mutex).
+    active, returns a `dask.distributed.Lock` (cross-process mutex).
     Otherwise returns a fresh :class:`SerializableLock` (in-process,
     pickle-safe).
 
-    Does **not** import ``dask.distributed`` unless a client is
+    Does **not** import `dask.distributed` unless a client is
     actually probed, so calling this in a dask-free environment is
     free.
 
     Returns:
-        A lock-protocol object supporting ``acquire``, ``release``,
+        A lock-protocol object supporting `acquire`, `release`,
         and context-manager use.
 
     Examples:

@@ -1,6 +1,6 @@
-"""Tests for :meth:`pyramids.dataset.abstract_dataset.AbstractDataset.__reduce__`.
+"""Tests for :meth:`pyramids.dataset.abstract_dataset.RasterBase.__reduce__`.
 
-DASK-3 adds a pickle contract to every ``AbstractDataset`` subclass:
+DASK-3 adds a pickle contract to every ``RasterBase`` subclass:
 pickle emits ``(class, file_name, access)`` and unpickle re-opens via
 ``cls.read_file(path, read_only=...)``. The live ``gdal.Dataset``
 pointer is never serialized.

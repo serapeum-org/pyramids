@@ -192,7 +192,7 @@ class TestReproject:
             rasters_folder_path, with_order=False
         )
         dataset.open_multi_dataset()
-        dataset.to_crs(to_epsg)
+        dataset.to_crs(to_epsg, inplace=True)
         assert dataset.base.epsg == to_epsg
         arr = dataset.values
         assert dataset.base.rows == arr.shape[1]
@@ -212,7 +212,7 @@ class TestAlign:
         )
         cube.open_multi_dataset()
         mask_obj = Dataset(src)
-        cube.align(mask_obj)
+        cube.align(mask_obj, inplace=True)
         assert cube.base.rows == mask_obj.rows
         assert cube.base.columns == mask_obj.columns
 

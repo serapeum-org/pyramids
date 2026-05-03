@@ -15,9 +15,9 @@ The module also exports two small dispatch helpers — :func:`is_lazy` and
 :func:`as_numpy` — so the rest of the codebase has a single place to
 branch between the eager and lazy paths.
 
-Importing this module does **not** import ``dask``; the dask reference
+Importing this module does **not** import `dask`; the dask reference
 is string-forwarded via :data:`typing.TYPE_CHECKING`, so this file is
-cheap to import in environments where the ``[lazy]`` extra is not
+cheap to import in environments where the `[lazy]` extra is not
 installed.
 """
 
@@ -33,7 +33,7 @@ if TYPE_CHECKING:  # pragma: no cover - only for type checkers
 
 
 # Type alias covering both numpy arrays and (optionally-installed) dask arrays.
-# String-forwarded so importing ``pyramids.base.protocols`` never triggers a
+# String-forwarded so importing `pyramids.base.protocols` never triggers a
 # dask import. Use this alias for function signatures that accept or return
 # either backend; use the :class:`_ArrayLikeProto` Protocol below for runtime
 # isinstance checks.
@@ -51,21 +51,21 @@ class SpatialObject(Protocol):
 
     Attributes / properties:
         epsg (int | None):
-            EPSG code of the CRS; ``None`` when the CRS is unset.
+            EPSG code of the CRS; `None` when the CRS is unset.
         total_bounds:
-            Array-like ``[minx, miny, maxx, maxy]`` in the object's
+            Array-like `[minx, miny, maxx, maxy]` in the object's
             CRS. FeatureCollection inherits this from
             :class:`geopandas.GeoDataFrame`; Dataset exposes the
             same shape via the same attribute.
         top_left_corner:
-            Sequence ``[minx, maxy]`` — the NW corner of the
+            Sequence `[minx, maxy]` — the NW corner of the
             bounding box.
 
     Methods:
         read_file(path) (classmethod):
             Construct an instance from a file path.
-        to_file(path, ...):
-            Serialize the object to ``path``.
+        to_file(path,...):
+            Serialize the object to `path`.
         plot(...):
             Render a matplotlib view of the object.
 
@@ -90,13 +90,13 @@ class SpatialObject(Protocol):
 
         Protocol stub — see :meth:`pyramids.dataset.Dataset.read_file` and
         :meth:`pyramids.feature.FeatureCollection.read_file` for runnable
-        examples. The ``...`` body here is a structural-type marker, not
+        examples. The `...` body here is a structural-type marker, not
         a callable implementation.
         """
         ...
 
     def to_file(self, path: str | Path, *args: Any, **kwargs: Any) -> None:
-        """Serialize this object to ``path`` (protocol stub; see concrete impls)."""
+        """Serialize this object to `path` (protocol stub; see concrete impls)."""
         ...
 
     def plot(self, *args: Any, **kwargs: Any) -> Any:
@@ -108,18 +108,18 @@ class SpatialObject(Protocol):
 class LazySpatialObject(Protocol):
     """Lazy variant of :class:`SpatialObject` for dask-backed vectors.
 
-    ARC-V4: a separate protocol for dask-backed objects whose
-    ``total_bounds`` / geometry attributes are not cheap to read. On an
-    eager :class:`pyramids.feature.FeatureCollection`, ``total_bounds``
+    a separate protocol for dask-backed objects whose
+    `total_bounds` / geometry attributes are not cheap to read. On an
+    eager :class:`pyramids.feature.FeatureCollection`, `total_bounds`
     is a materialised 4-element numpy array — cheap, safe to expose as
     a property. On a :class:`pyramids.feature.LazyFeatureCollection`,
-    ``total_bounds`` is a ``dask.Scalar`` that requires ``.compute()``
+    `total_bounds` is a `dask.Scalar` that requires `.compute()`
     (an O(partitions) reduction) to resolve. Hiding that compute behind
     an eager-looking property is a leak; this protocol makes the
     laziness explicit.
 
     Consumers that genuinely want to accept either eager or lazy
-    objects should type-check against ``SpatialObject | LazySpatialObject``
+    objects should type-check against `SpatialObject | LazySpatialObject`
     and branch on :func:`pyramids.feature.is_lazy_fc` before touching
     the bounds attributes.
 
@@ -128,7 +128,7 @@ class LazySpatialObject(Protocol):
             EPSG code of the CRS; cheap to read (pure metadata).
         total_bounds:
             A lazy object (dask Scalar for dask-geopandas backed
-            frames). Consumers must call ``.compute()`` to materialise.
+            frames). Consumers must call `.compute()` to materialise.
         npartitions (int):
             Number of dask partitions. Cheap (metadata only).
 
@@ -138,9 +138,9 @@ class LazySpatialObject(Protocol):
             :class:`SpatialObject` (eager twin).
         persist(**kwargs):
             Materialise graph into worker memory, stay lazy.
-        to_file(path, ...):
+        to_file(path,...):
             May raise :class:`NotImplementedError` for drivers with
-            no lazy write path — callers should ``.compute().to_file(...)``.
+            no lazy write path — callers should `.compute().to_file(...)`.
 
     Because this is :func:`typing.runtime_checkable`, you can use it
     with :func:`isinstance`:
@@ -179,17 +179,17 @@ class _ArrayLikeProto(Protocol):
     """Runtime-checkable structural type for eager-or-lazy arrays.
 
     Matches any object that has the attributes / methods numpy exposes on
-    its ndarray and that dask exposes on ``dask.array.Array``. Used for
+    its ndarray and that dask exposes on `dask.array.Array`. Used for
     :func:`isinstance` branches that dispatch on "do we have an array
     backend at all?" — *not* for static type annotations, which should
     use the :data:`ArrayLike` type alias instead.
 
     PEP 544 runtime checks verify attribute presence only, not
-    signatures, so extra guards (for example comparing ``ndim`` or
-    checking ``hasattr(x, "dask")``) may be needed for precise dispatch.
+    signatures, so extra guards (for example comparing `ndim` or
+    checking `hasattr(x, "dask")`) may be needed for precise dispatch.
 
     Examples:
-        - Numpy ``ndarray`` satisfies the structural type:
+        - Numpy `ndarray` satisfies the structural type:
             ```python
             >>> import numpy as np
             >>> from pyramids.base.protocols import _ArrayLikeProto
@@ -224,20 +224,20 @@ class _ArrayLikeProto(Protocol):
 
 
 def is_lazy(x: Any) -> bool:
-    """Return True if ``x`` is a dask-backed array, False if eager.
+    """Return True if `x` is a dask-backed array, False if eager.
 
     The check is duck-typed rather than isinstance-based, so any
-    object exposing a ``dask`` graph attribute plus a ``compute``
+    object exposing a `dask` graph attribute plus a `compute`
     method (for example custom dask subclasses) is reported as lazy.
-    ``None`` and non-array inputs return False.
+    `None` and non-array inputs return False.
 
     Args:
-        x: Any object — typically a numpy ``ndarray`` or a
-            ``dask.array.Array``.
+        x: Any object — typically a numpy `ndarray` or a
+            `dask.array.Array`.
 
     Returns:
-        bool: ``True`` when ``x`` is lazy (has dask graph and a
-        ``compute`` method), ``False`` otherwise.
+        bool: `True` when `x` is lazy (has dask graph and a
+        `compute` method), `False` otherwise.
 
     Examples:
         >>> import numpy as np
@@ -251,15 +251,15 @@ def is_lazy(x: Any) -> bool:
 
 
 def as_numpy(x: ArrayLike) -> np.ndarray:
-    """Return a numpy ndarray view/copy of ``x``, computing if lazy.
+    """Return a numpy ndarray view/copy of `x`, computing if lazy.
 
     Eager :class:`numpy.ndarray` inputs are returned via
     :func:`numpy.asarray` (a zero-copy view when the dtype matches).
-    Dask-backed inputs are materialized via ``x.compute()``.
+    Dask-backed inputs are materialized via `x.compute()`.
 
     Use this at the boundary where pyramids needs to hand an array
     to code that is not dask-aware (for example a GDAL
-    ``WriteArray`` call), so every lazy-vs-eager branch in the
+    `WriteArray` call), so every lazy-vs-eager branch in the
     codebase funnels through one helper.
 
     Args:

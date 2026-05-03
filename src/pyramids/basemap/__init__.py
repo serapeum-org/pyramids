@@ -5,7 +5,7 @@ data plotted on matplotlib axes. Tiles are fetched, stitched, and
 optionally warped to the data's CRS using GDAL.
 
 Requires optional dependencies: mercantile, xyzservices, Pillow.
-Install with: ``pyramids-gis[viz]``
+Install with: `pyramids-gis[viz]`
 """
 
 from pyramids.basemap.basemap import add_basemap, get_provider

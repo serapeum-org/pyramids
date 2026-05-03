@@ -23,17 +23,18 @@ of which extras are installed in the dev env.
 from __future__ import annotations
 
 import pytest
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask_geopandas
 
 pytestmark = pytest.mark.parquet_lazy
 
 try:
-    import dask_geopandas  # noqa: F401
-
-    HAS_DASK_GP = True
-except ImportError:  # pragma: no cover
+    import_dask_geopandas("dask-geopandas not installed")
+    import dask_geopandas
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_DASK_GP = False
-
-
+else:
+    HAS_DASK_GP = True
 class TestGetattrHookFullInstall:
     """When ``dask-geopandas`` is installed, the symbol resolves normally."""
 

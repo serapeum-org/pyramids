@@ -11,6 +11,8 @@ import geopandas as gpd
 import pytest
 from shapely.geometry import Point
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_pyarrow
 from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.parquet
@@ -25,13 +27,12 @@ except ImportError:  # pragma: no cover
 
 
 try:
-    import pyarrow  # noqa: F401
-
-    HAS_PYARROW = True
-except ImportError:  # pragma: no cover
+    import_pyarrow("pyarrow not installed")
+    import pyarrow
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_PYARROW = False
-
-
+else:
+    HAS_PYARROW = True
 requires_arrow = pytest.mark.skipif(
     not (HAS_PYOGRIO and HAS_PYARROW),
     reason="pyogrio + pyarrow both required for Arrow reads",

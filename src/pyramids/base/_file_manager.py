@@ -3,27 +3,27 @@
 Two concrete shapes, both subclasses of :class:`FileManager`:
 
 * :class:`CachingFileManager` — process-global LRU handle cache guarded
-  by a user-supplied lock (``SerializableLock`` is the default). One
+  by a user-supplied lock (`SerializableLock` is the default). One
   handle per cache key, shared by every caller that produces the same
   key. On LRU eviction or explicit :meth:`close` the underlying
-  ``gdal.Dataset`` is released. Pattern copied from xarray's
-  ``xarray.backends.file_manager.CachingFileManager``.
+  `gdal.Dataset` is released. Pattern copied from xarray's
+  `xarray.backends.file_manager.CachingFileManager`.
 
 * :class:`ThreadLocalFileManager` — per-thread handles, no locking.
   Each worker thread opens its own handle the first time it calls
   :meth:`acquire`. Pattern copied from rioxarray's
-  ``rioxarray._io.URIManager``.
+  `rioxarray._io.URIManager`.
 
-**Pickle rule** — ``__getstate__`` returns only the recipe
-(``opener``, ``path``, ``access``, ``kwargs``). The live handle, the
+**Pickle rule** — `__getstate__` returns only the recipe
+(`opener`, `path`, `access`, `kwargs`). The live handle, the
 cache, the lock's underlying :class:`threading.Lock` and the ref
 counter are never serialized. On unpickle the manager reconstructs
 with an empty cache and opens fresh on first :meth:`acquire`.
 
-This module does not import ``dask``. The :data:`SerializableLock`
-default is re-exported from :mod:`pyramids.base._locks` (which lands
-in DASK-5); until that module exists, pass ``lock=threading.Lock()``
-or ``lock=False`` explicitly.
+This module does not import `dask`. The :data:`SerializableLock`
+default is re-exported from :mod:`pyramids.base._locks`. If that
+module is unavailable, pass `lock=threading.Lock()` or
+`lock=False` explicitly.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from collections import OrderedDict
 from contextlib import contextmanager
 from typing import Any, Callable, Hashable, Iterator, MutableMapping
 
-import numpy as np  # noqa: F401  - imported so type checkers see np.ndarray refs
+import numpy as np # noqa: F401 - imported so type checkers see np.ndarray refs
 from osgeo import gdal, ogr
 
 from pyramids.base.remote import _to_vsi
@@ -56,20 +56,20 @@ _ACCESS_FLAGS = {
 
 
 def _resolve_access(access: str) -> int:
-    """Normalize a pyramids ``access`` string to the matching GDAL flag.
+    """Normalize a pyramids `access` string to the matching GDAL flag.
 
     Args:
-        access: One of ``"read_only"``, ``"r"``, ``"write"``, ``"w"``,
-            ``"update"``, ``"a"``.
+        access: One of `"read_only"`, `"r"`, `"write"`, `"w"`,
+            `"update"`, `"a"`.
 
     Returns:
         int: The corresponding :data:`osgeo.gdal.GA_*` constant.
 
     Raises:
-        ValueError: If ``access`` is not a recognized mode string.
+        ValueError: If `access` is not a recognized mode string.
 
     Examples:
-        - Read-only aliases all resolve to ``GA_ReadOnly``:
+        - Read-only aliases all resolve to `GA_ReadOnly`:
             ```python
             >>> from osgeo import gdal
             >>> from pyramids.base._file_manager import _resolve_access
@@ -100,18 +100,18 @@ def _resolve_access(access: str) -> int:
 
 
 def gdal_raster_open(path: str, access: str = "read_only", **_: Any) -> gdal.Dataset:
-    """Open a classic-mode raster (GeoTIFF, COG, PNG, ...) via :func:`gdal.Open`.
+    """Open a classic-mode raster (GeoTIFF, COG, PNG,...) via :func:`gdal.Open`.
 
-    The ``path`` is rewritten through :func:`pyramids.base.remote._to_vsi`
-    first, so callers can pass URL-scheme paths (``s3://bucket/file.tif``,
-    ``https://example.com/file.tif``) directly.
+    The `path` is rewritten through :func:`pyramids.base.remote._to_vsi`
+    first, so callers can pass URL-scheme paths (`s3://bucket/file.tif`,
+    `https://example.com/file.tif`) directly.
 
     Args:
         path: File path or URL.
         access: Access mode string — see :func:`_resolve_access`.
         **_: Extra keyword arguments are accepted and ignored so that a
             single uniform opener signature can be used as a
-            ``FileManager`` ``opener`` callable.
+            `FileManager` `opener` callable.
 
     Returns:
         osgeo.gdal.Dataset: The opened dataset handle.
@@ -145,7 +145,7 @@ def ogr_open(path: str, access: str = "read_only", **_: Any) -> ogr.DataSource:
 
     Args:
         path: File path or URL.
-        access: ``"read_only"`` / ``"r"`` opens read-only; any other
+        access: `"read_only"` / `"r"` opens read-only; any other
             value opens for update.
         **_: Extra keyword arguments accepted and ignored for signature
             uniformity.
@@ -158,12 +158,12 @@ def ogr_open(path: str, access: str = "read_only", **_: Any) -> ogr.DataSource:
 
 
 class _LRUCache(MutableMapping):
-    """Tiny LRU cache with ``on_evict`` callback.
+    """Tiny LRU cache with `on_evict` callback.
 
     Thin wrapper around :class:`collections.OrderedDict`. Keys are
     moved to the end of the insertion order on every access, and
-    ``popitem(last=False)`` removes the least-recently-used entry
-    when :attr:`maxsize` would otherwise be exceeded. An ``on_evict``
+    `popitem(last=False)` removes the least-recently-used entry
+    when :attr:`maxsize` would otherwise be exceeded. An `on_evict`
     callable (if provided) is invoked on eviction so cached file
     handles can be closed cleanly.
 
@@ -183,7 +183,7 @@ class _LRUCache(MutableMapping):
             False
 
             ```
-        - ``on_evict`` fires when a key is pushed out:
+        - `on_evict` fires when a key is pushed out:
             ```python
             >>> from pyramids.base._file_manager import _LRUCache
             >>> evicted = []
@@ -219,12 +219,12 @@ class _LRUCache(MutableMapping):
         self._enforce_size_limit(value)
 
     def _enforce_size_limit(self, target: int) -> None:
-        """Evict LRU entries until ``len(self) <= target``.
+        """Evict LRU entries until `len(self) <= target`.
 
-        M1: ``on_evict`` runs OUTSIDE the cache lock so the
+        `on_evict` runs OUTSIDE the cache lock so the
         callback is free to take any other lock (including a
         :class:`CachingFileManager` per-handle mutex) without
-        risking a deadlock against concurrent ``acquire()`` calls
+        risking a deadlock against concurrent `acquire()` calls
         on other threads.
         """
         to_evict: list[tuple[Hashable, Any]] = []
@@ -267,9 +267,9 @@ class _LRUCache(MutableMapping):
         return len(self._cache)
 
     def clear(self) -> None:
-        """Evict every entry, calling ``on_evict`` for each one.
+        """Evict every entry, calling `on_evict` for each one.
 
-        M1: ``on_evict`` runs with the cache lock released so callback
+        `on_evict` runs with the cache lock released so callback
         code can take other locks without deadlock.
         """
         with self._lock:
@@ -281,12 +281,12 @@ class _LRUCache(MutableMapping):
 
 
 def _close_handle(_key: Hashable, handle: Any) -> None:
-    """Close a cached GDAL/OGR handle if it has a ``Close`` method."""
+    """Close a cached GDAL/OGR handle if it has a `Close` method."""
     close = getattr(handle, "Close", None)
     if close is not None:
         try:
             close()
-        except Exception:  # pragma: no cover - closing a freed handle is harmless
+        except Exception: # pragma: no cover - closing a freed handle is harmless
             pass
 
 
@@ -294,8 +294,8 @@ FILE_CACHE: _LRUCache = _LRUCache(_DEFAULT_MAXSIZE, on_evict=_close_handle)
 """Process-global LRU cache shared by every :class:`CachingFileManager`.
 
 Keyed by a :class:`_HashedSequence` tuple of
-``(opener, path, access, sorted_kwargs, manager_id)``. Default size
-128; override via the ``PYRAMIDS_FILE_CACHE_MAXSIZE`` env var or by
+`(opener, path, access, sorted_kwargs, manager_id)`. Default size
+128; override via the `PYRAMIDS_FILE_CACHE_MAXSIZE` env var or by
 setting :attr:`FILE_CACHE.maxsize` at runtime.
 """
 
@@ -340,7 +340,7 @@ class _HashedSequence(list):
 def _make_cache_key(
     opener: Callable, path: str, access: str, kwargs: dict, manager_id: Hashable
 ) -> _HashedSequence:
-    """Build the ``FILE_CACHE`` key for a :class:`CachingFileManager`.
+    """Build the `FILE_CACHE` key for a :class:`CachingFileManager`.
 
     Kwargs are sorted so the same logical configuration always
     produces the same key regardless of dict ordering.
@@ -379,12 +379,12 @@ class CachingFileManager(FileManager):
     Args:
         opener: Callable opening the file — for example
             :func:`pyramids.base._openers.gdal_raster_open`. Must have
-            signature ``opener(path, access, **kwargs) -> handle``.
-        path: File path or URL passed to ``opener``.
-        access: Access mode string passed to ``opener``.
-        kwargs: Extra keyword arguments passed to ``opener``.
-        lock: A ``threading.Lock``-like object guarding access to the
-            cached handle, or ``False`` to skip locking. Defaults to
+            signature `opener(path, access, **kwargs) -> handle`.
+        path: File path or URL passed to `opener`.
+        access: Access mode string passed to `opener`.
+        kwargs: Extra keyword arguments passed to `opener`.
+        lock: A `threading.Lock`-like object guarding access to the
+            cached handle, or `False` to skip locking. Defaults to
             a fresh :class:`threading.Lock`.
         cache: The cache to store handles in. Defaults to the
             module-level :data:`FILE_CACHE`.
@@ -395,7 +395,7 @@ class CachingFileManager(FileManager):
 
     The manager is picklable. On unpickle, the new instance starts
     with no cached handle and opens fresh on first :meth:`acquire`;
-    if two unpickled clones use the same ``manager_id``, they both
+    if two unpickled clones use the same `manager_id`, they both
     resolve to the same cache slot.
     """
 
@@ -461,9 +461,9 @@ class CachingFileManager(FileManager):
 
     @contextmanager
     def acquire_context(self) -> Iterator[Any]:
-        """Context manager yielding the handle; lock is held inside ``with``.
+        """Context manager yielding the handle; lock is held inside `with`.
 
-        On any exception raised inside the ``with`` block, the handle
+        On any exception raised inside the `with` block, the handle
         is preserved in the cache (other callers may still need it);
         only explicit :meth:`close` removes it.
         """
@@ -483,7 +483,7 @@ class CachingFileManager(FileManager):
                 raise
 
     def _drop(self) -> None:
-        """Remove the handle from the cache without calling ``on_evict``."""
+        """Remove the handle from the cache without calling `on_evict`."""
         try:
             del self._cache[self._key]
         except KeyError:
@@ -501,7 +501,7 @@ class CachingFileManager(FileManager):
 
 
 class _NullLock:
-    """Drop-in lock that never blocks. Used when ``lock=False``."""
+    """Drop-in lock that never blocks. Used when `lock=False`."""
 
     def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
         return True
@@ -533,7 +533,7 @@ class ThreadLocalFileManager(FileManager):
             :class:`CachingFileManager`.
         path: File path or URL.
         access: Access mode string.
-        kwargs: Extra keyword arguments for ``opener``.
+        kwargs: Extra keyword arguments for `opener`.
     """
 
     def __init__(

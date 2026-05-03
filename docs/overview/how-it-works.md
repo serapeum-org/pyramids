@@ -33,7 +33,7 @@ flowchart TB
 ```mermaid
 flowchart LR
   io[_io: read_file, to_ascii, path parsing]\nutils[_utils: geometry/index helpers]
-  ds[dataset.Dataset]\nabs[dataset.abstract_dataset.AbstractDataset]
+  ds[dataset.Dataset]\nabs[dataset.abstract_dataset.RasterBase]
   dc[dataset.DatasetCollection]\nfc[feature.FeatureCollection]
 
   abs --> ds

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import pytest
 from osgeo import gdal
-
+import numpy as np  # noqa: E402
 from pyramids.base.remote import CloudConfig, _to_vsi, is_remote
+
+pytestmark = pytest.mark.core
 
 
 class TestToVsi:
@@ -247,7 +249,7 @@ class TestHttpCogRead:
     def test_read_plain_gtiff_over_http_may_require_range(self, http_server):
         """Plain (stripped) GTiff needs byte-range requests.
 
-        Python's stdlib ``http.server`` does not support HTTP Range,
+        Python's stdlib `http.server` does not support HTTP Range,
         so GDAL will fail for files that cannot be read sequentially.
         We only assert that *if* it raises, the URL was rewritten to
         /vsicurl/ first — i.e., the pipeline is correct even if the
@@ -282,22 +284,16 @@ class TestS3UrlRewriteNoNetwork:
         assert _parse_path("s3://b/k.tif") == "/vsis3/b/k.tif"
 
 
-# Need numpy import for the HTTP tests
-import numpy as np  # noqa: E402
-
-pytestmark = pytest.mark.core
-
-
 class TestToVsiArchiveChaining:
-    """Tests for ``_to_vsi``'s archive-chaining behavior.
+    """Tests for `_to_vsi`'s archive-chaining behavior.
 
-    Named after the public entry point (``_to_vsi``) rather than the
-    internal helper (``_chain_archive_vsi``) so the test class name
+    Named after the public entry point (`_to_vsi`) rather than the
+    internal helper (`_chain_archive_vsi`) so the test class name
     remains stable if the helper is later renamed or inlined.
 
     Covers the pre-existing gap where
-    ``https://host/archive.tar/inner.tif`` -> ``/vsicurl/...`` lost
-    access to the inner file because GDAL needs ``/vsitar//vsicurl/...``.
+    `https://host/archive.tar/inner.tif` -> `/vsicurl/...` lost
+    access to the inner file because GDAL needs `/vsitar//vsicurl/...`.
     """
 
     def test_tar_inside_https(self):
@@ -372,7 +368,7 @@ class TestToVsiArchiveChaining:
 
 
 class TestCloudConfigCtxAttribute:
-    """L2: CloudConfig._ctx is a typed field and is cleared on exit."""
+    """CloudConfig._ctx is a typed field and is cleared on exit."""
 
     def test_ctx_is_none_before_enter(self):
         """Fresh CloudConfig has _ctx as None, not an undefined attribute."""
@@ -412,15 +408,15 @@ class TestToVsiArchiveChainingEdgeCases:
     These scenarios used to FALSE-POSITIVE under the substring-only
     implementation: query-string injection, hostname ending in an
     archive extension, and nested archives. The boundary-anchored
-    regex + path-component extraction in ``_extract_archive_search_region``
+    regex + path-component extraction in `_extract_archive_search_region`
     must correctly handle them.
     """
 
     def test_query_string_with_dot_tar_not_chained(self):
-        """Presigned URL containing ``.tar/`` in the query must not chain.
+        """Presigned URL containing `.tar/` in the query must not chain.
 
         Test scenario:
-            A presigned URL may embed ``archive.tar`` in the query
+            A presigned URL may embed `archive.tar` in the query
             value (e.g. as part of a signed key). The file itself is
             a plain GeoTIFF; prepending /vsitar/ would break the read.
         """
@@ -450,7 +446,7 @@ class TestToVsiArchiveChainingEdgeCases:
         """Hostname whose label ends in .gz must not trigger archive chaining.
 
         Test scenario:
-            A hostname like ``data.gz.example.com`` or ``weird.gz`` is
+            A hostname like `data.gz.example.com` or `weird.gz` is
             legitimate and unrelated to gzip archives. The URL's path
             component is the only authoritative source for archive
             markers.
@@ -473,7 +469,7 @@ class TestToVsiArchiveChainingEdgeCases:
         """Nested archive path only applies the outermost archive prefix.
 
         Test scenario:
-            ``outer.zip/inner.tar/file.tif`` — only the OUTER .zip
+            `outer.zip/inner.tar/file.tif` — only the OUTER.zip
             marker is honored; GDAL's chained-VSI syntax doesn't
             compose through arbitrary nesting, so silently applying
             /vsitar//vsizip/... would produce un-openable paths in
@@ -487,12 +483,12 @@ class TestToVsiArchiveChainingEdgeCases:
         ), f"Nested archive: only outermost (.zip) should chain; got: {result}"
 
     def test_path_with_dot_tar_in_directory_name_chained(self):
-        """A legitimate ``archive.tar/`` segment in the path IS chained.
+        """A legitimate `archive.tar/` segment in the path IS chained.
 
         Test scenario:
             Regression guard that the boundary-anchored regex still
             catches the common case: a path segment named
-            ``something.tar/`` points INTO an archive and must be
+            `something.tar/` points INTO an archive and must be
             chained.
         """
         url = "https://foo.com/path/archive.tar/inner.tif"
@@ -521,7 +517,7 @@ class TestToVsiArchiveChainingEdgeCases:
         ), f".tar.gz/ must NOT route through /vsigzip/, got: {result}"
 
     def test_uppercase_archive_extension_matched(self):
-        """Case-insensitive matching — ``.ZIP/`` is treated like ``.zip/``."""
+        """Case-insensitive matching — `.ZIP/` is treated like `.zip/`."""
         url = "https://foo.com/ARCHIVE.ZIP/INNER.TIF"
         result = _to_vsi(url)
         assert result.startswith(

@@ -1,10 +1,10 @@
 """COG — Cloud Optimized GeoTIFF read/write/validate support.
 
-The ``pyramids.dataset.cog`` subpackage holds the raster-only COG
+The `pyramids.dataset.cog` subpackage holds the raster-only COG
 implementation: option serialization, a GDAL-driver write wrapper, and
 a validation helper. User-facing methods such as
-:meth:`~pyramids.dataset.ops.cog.COGMixin.to_cog` and
-:meth:`~pyramids.dataset.ops.cog.COGMixin.validate_cog` live in
+:meth:`pyramids.dataset._collaborators.COG.to_cog` and
+:meth:`pyramids.dataset._collaborators.COG.validate_cog` live in
 :mod:`pyramids.dataset.ops.cog` and delegate here.
 """
 

@@ -45,6 +45,8 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._locks import DummyLock, SerializableLock
 from pyramids.dataset import Dataset
@@ -54,14 +56,12 @@ from pyramids.dataset.ops.io import _read_chunk
 pytestmark = pytest.mark.lazy
 
 try:
+    import_dask("dask not installed")
     import dask.array as dask_array
-
-    HAS_DASK = True
-except ImportError:  # pragma: no cover
-    dask_array = None
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_DASK = False
-
-
+else:
+    HAS_DASK = True
 requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")
 
 

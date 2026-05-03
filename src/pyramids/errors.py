@@ -11,8 +11,8 @@ so a caller that wants to catch any pyramids failure can write::
         ...
 
 Finer-grained handlers stay useful: most concrete classes also inherit
-from a matching Python builtin (``ValueError`` / ``RuntimeError``) so
-existing ``except ValueError:`` / ``except RuntimeError:`` blocks keep
+from a matching Python builtin (`ValueError` / `RuntimeError`) so
+existing `except ValueError:` / `except RuntimeError:` blocks keep
 working without change.
 
 The implementation lives in :mod:`pyramids.base._errors`; that module

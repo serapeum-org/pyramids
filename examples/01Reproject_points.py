@@ -1,8 +1,7 @@
 """Reproject coordinates between EPSG codes.
 
-Demonstrates :func:`pyramids.feature.crs.reproject_coordinates` (ARC-14).
-Everything is (x, y) ordered on the way in and on the way out — no more
-(lat, lon) / (y, x) guess-games.
+Demonstrates :func:`pyramids.base.crs.reproject_coordinates`. Argument
+and return order is ``(x, y)`` throughout.
 """
 
 from pyramids.feature import FeatureCollection

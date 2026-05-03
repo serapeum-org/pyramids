@@ -13,10 +13,11 @@ from typing import Any
 
 import geopandas as gpd
 import numpy as np
-from osgeo import gdal, osr
+from osgeo import gdal
 from pyproj import CRS, Transformer
 from shapely.geometry import LineString, Point
 
+from pyramids.base.crs import sr_from_epsg
 from pyramids.basemap.basemap import add_basemap
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
@@ -38,7 +39,7 @@ class UgridDataset:
 
     Combines mesh topology, data variables, and global attributes
     into a single object with GIS-aware operations. Does NOT inherit
-    from Dataset or AbstractDataset — the raster paradigm does not
+    from Dataset or RasterBase — the raster paradigm does not
     apply to unstructured meshes.
 
     Attributes:
@@ -376,8 +377,7 @@ class UgridDataset:
             edge_y=new_edge_y,
         )
 
-        srs = osr.SpatialReference()
-        srs.ImportFromEPSG(to_epsg)
+        srs = sr_from_epsg(to_epsg)
         new_crs_wkt = srs.ExportToWkt()
 
         new_topo_info = None
@@ -632,8 +632,7 @@ class UgridDataset:
                     _data=arr,
                 )
 
-        srs = osr.SpatialReference()
-        srs.ImportFromEPSG(epsg)
+        srs = sr_from_epsg(epsg)
         crs_wkt = srs.ExportToWkt()
 
         topo_info = MeshTopologyInfo(

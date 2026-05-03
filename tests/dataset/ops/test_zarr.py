@@ -10,19 +10,20 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask, import_zarr
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
 
 try:
-    import dask.array  # noqa: F401
-    import zarr  # noqa: F401
-
-    HAS_ZARR = True
-except ImportError:  # pragma: no cover
+    import_dask("dask not installed")
+    import_zarr("zarr not installed")
+    import zarr
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_ZARR = False
-
-
+else:
+    HAS_ZARR = True
 requires_zarr = pytest.mark.skipif(not HAS_ZARR, reason="dask + zarr not installed")
 
 

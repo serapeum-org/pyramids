@@ -1,8 +1,17 @@
 """
-Abstract Dataset.
+RasterBase.
 
-raster contains python functions to handle raster data align them together based on a source raster, perform any
-algebraic operation on cell's values. gdal class: https://gdal.org/java/org/gdal/gdal/package-summary.html.
+State-holding base class that :class:`pyramids.dataset.Dataset` (and any
+future Dataset variant — LazyDataset, COGDataset, …) inherits. Owns the
+`gdal.Dataset` handle, geotransform, EPSG, dtype, and the abstract
+contract that subclasses must implement. The L-2 collaborator pattern
+(see :mod:`pyramids.dataset._collaborators`) attaches op families
+(`ds.io`, `ds.spatial`, etc.) to instances of subclasses; this base
+class provides the state they read through their weakref proxies.
+
+The module file is still named `abstract_dataset.py` for backwards
+compatibility with the module path; the class itself was renamed from
+`AbstractDataset` to `RasterBase`.
 """
 
 from __future__ import annotations
@@ -14,12 +23,12 @@ from typing import Any
 
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
-from osgeo import gdal, osr
-from osgeo.osr import SpatialReference
+from osgeo import gdal
 
 from pyramids.base._utils import (
     Catalog,
 )
+from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
 from pyramids.base.protocols import ArrayLike
 from pyramids.feature import FeatureCollection
 
@@ -40,31 +49,31 @@ RESAMPLING_METHODS = [
 ]
 
 
-def _reconstruct_dataset(cls: type, path: str, access: str) -> AbstractDataset:
+def _reconstruct_dataset(cls: type, path: str, access: str) -> RasterBase:
     """Re-open a dataset from its pickle recipe tuple.
 
-    Called by :meth:`AbstractDataset.__reduce__` on unpickle. Routes
-    through the target class's ``read_file`` classmethod so subclass
+    Called by :meth:`RasterBase.__reduce__` on unpickle. Routes
+    through the target class's `read_file` classmethod so subclass
     behavior (NetCDF mode flags, COG mixins) is preserved — subclasses
     that need to carry extra state (for example
-    :class:`~pyramids.netcdf.NetCDF`) override ``__reduce__`` directly.
+    :class:`~pyramids.netcdf.NetCDF`) override `__reduce__` directly.
 
     Args:
-        cls: The concrete :class:`AbstractDataset` subclass to
-            reconstruct (``Dataset``, ``NetCDF``, etc.).
+        cls: The concrete :class:`RasterBase` subclass to
+            reconstruct (`Dataset`, `NetCDF`, etc.).
         path: The on-disk path or VSI URL to re-open.
-        access: Access mode string; ``"read_only"`` opens read-only,
+        access: Access mode string; `"read_only"` opens read-only,
             any other value opens for update.
 
     Returns:
-        AbstractDataset: A freshly opened instance of ``cls``.
+        RasterBase: A freshly opened instance of `cls`.
     """
     read_only = access == "read_only"
     return cls.read_file(path, read_only=read_only)
 
 
-class AbstractDataset(ABC):
-    """AbstractDataset."""
+class RasterBase(ABC):
+    """RasterBase."""
 
     default_no_data_value = DEFAULT_NO_DATA_VALUE
 
@@ -79,10 +88,7 @@ class AbstractDataset(ABC):
         self._raster = src
         self._geotransform = src.GetGeoTransform()
         self._cell_size = self._geotransform[1]
-        # replace with a loop over the GetMetadata for each separate band
-        self._meta_data = src.GetMetadata()
         self._file_name = src.GetDescription()
-        # projection data
         # the epsg property returns the value of the _epsg attribute, so if the projection changes in any function, the
         # function should also change the value of the _epsg attribute.
         self._epsg = self._get_epsg()
@@ -97,17 +103,17 @@ class AbstractDataset(ABC):
     def __reduce__(self):
         """Return a recipe tuple that re-opens the dataset on unpickle.
 
-        Serialising a live ``gdal.Dataset`` pointer is not possible
+        Serialising a live `gdal.Dataset` pointer is not possible
         (native C++ handle, no copy semantics). Instead we emit the
-        minimal recipe ``(class, file_name, access)`` and reconstruct
-        on unpickle by calling ``cls.read_file(path, read_only=...)``.
+        minimal recipe `(class, file_name, access)` and reconstruct
+        on unpickle by calling `cls.read_file(path, read_only=...)`.
 
         The GDAL handle is therefore opened **on the receiving process
         / thread**, which is the invariant dask.distributed needs.
 
         Raises:
             TypeError: The dataset has no on-disk path (empty
-                ``_file_name`` or a ``/vsimem/`` path). In-memory
+                `_file_name` or a `/vsimem/` path). In-memory
                 datasets are not reconstructible from the recipe;
                 call :meth:`to_file` first to anchor them to disk.
         """
@@ -150,13 +156,11 @@ class AbstractDataset(ABC):
         pass
 
     @property
-    @abstractmethod
     def access(self):
         """Access mode (read_only/write)."""
         return self._access
 
     @property
-    @abstractmethod
     def raster(self) -> gdal.Dataset:
         """The base GDAL Dataset (read-only)."""
         return self._raster
@@ -180,13 +184,11 @@ class AbstractDataset(ABC):
         pass
 
     @property
-    @abstractmethod
     def geotransform(self):
         """WKT projection.(x, cell_size, 0, y, 0, -cell_size)."""
         return self._geotransform
 
     @property
-    @abstractmethod
     def top_left_corner(self):
         """Top left corner coordinates."""
         xmin, _, _, ymax, _, _ = self._geotransform
@@ -238,7 +240,6 @@ class AbstractDataset(ABC):
         pass
 
     @property
-    @abstractmethod
     def meta_data(self):
         """Meta data."""
         return self._raster.GetMetadata()
@@ -283,6 +284,42 @@ class AbstractDataset(ABC):
         )
         return y_coords
 
+    def _iloc(self, i: int) -> gdal.Band:
+        """Access a GDAL Band by 0-based index.
+
+        Hosted on `RasterBase` so every collaborator can resolve
+        `self._ds._iloc(i)` without depending on `BandMetadata` being
+        in the MRO. The duplicate body on `BandMetadata` is kept during
+        Stage 1 of the L-2 migration (both bodies are identical) and is
+        removed in Stage 2 PR2.7 when the bands collaborator lands.
+
+        The returned band object is only valid while the parent dataset
+        is open. Do not store the band reference — use it immediately
+        and discard it.
+
+        Args:
+            i: Band index (0-based).
+
+        Returns:
+            gdal.Band: GDAL band object.
+
+        Raises:
+            IndexError: If the index is negative or out of bounds.
+            RuntimeError: If the dataset has been closed.
+        """
+        if self._raster is None:
+            raise RuntimeError(
+                "Cannot access band on a closed dataset. "
+                "The dataset has been closed via close() or a context manager."
+            )
+        if i < 0:
+            raise IndexError("negative index not supported")
+        if i > self.band_count - 1:
+            raise IndexError(
+                f"index {i} is out of bounds for axis 0 with size {self.band_count}"
+            )
+        return self.raster.GetRasterBand(i + 1)
+
     @property
     def block_size(self) -> list[tuple[int, int]]:
         """Block Size.
@@ -317,13 +354,11 @@ class AbstractDataset(ABC):
         self._block_size = value
 
     @property
-    @abstractmethod
     def file_name(self):
         """File name."""
         return self._file_name
 
     @property
-    @abstractmethod
     def driver_type(self):
         """Driver Type."""
         drv = self.raster.GetDriver()
@@ -332,7 +367,7 @@ class AbstractDataset(ABC):
 
     @classmethod
     @abstractmethod
-    def read_file(cls, path: str | Path, read_only=True) -> AbstractDataset:
+    def read_file(cls, path: str | Path, read_only=True) -> RasterBase:
         """Read file.
 
         Args:
@@ -539,7 +574,7 @@ class AbstractDataset(ABC):
                 Name of the variable in the netcdf file. Default is None.
 
         Returns:
-            AbstractDataset:
+            RasterBase:
                 Dataset object.
         """
         pass
@@ -549,7 +584,6 @@ class AbstractDataset(ABC):
         """Get coordinate reference system."""
         pass
 
-    @abstractmethod
     def set_crs(self, crs: str | None = None, epsg: int | None = None):
         """Set Coordinates reference system.
 
@@ -575,12 +609,12 @@ class AbstractDataset(ABC):
         else:
             if crs is not None:
                 self.raster.SetProjection(crs)
-                # ARC-7: get_epsg_from_prj now raises on empty input;
-                # preserve the historical 4326 fallback explicitly so
+                # ARC-7: get_epsg_from_prj raises on empty input;
+                # epsg_from_wkt absorbs the historical 4326 fallback so
                 # datasets with a missing projection still get tagged.
-                self._epsg = FeatureCollection.get_epsg_from_prj(crs) if crs else 4326
+                self._epsg = epsg_from_wkt(crs)
             elif epsg is not None:
-                sr = AbstractDataset._create_sr_from_epsg(epsg)
+                sr = sr_from_epsg(epsg)
                 self.raster.SetProjection(sr.ExportToWkt())
                 self._epsg = epsg
             else:
@@ -592,7 +626,7 @@ class AbstractDataset(ABC):
         to_epsg: int,
         method: str = "nearest neighbor",
         maintain_alignment: bool = False,
-    ) -> AbstractDataset:
+    ) -> RasterBase:
         """To EPSG.
 
         to_epsg reprojects a raster to any projection
@@ -634,23 +668,6 @@ class AbstractDataset(ABC):
             int: EPSG number.
         """
         pass
-
-    @staticmethod
-    @abstractmethod
-    def _create_sr_from_epsg(epsg: int) -> SpatialReference:
-        """Create a spatial reference object from epsg number.
-
-        https://gdal.org/tutorials/osr_api_tut.html
-
-        Args:
-            epsg (int): EPSG number.
-
-        Returns:
-            SpatialReference: SpatialReference object.
-        """
-        sr = osr.SpatialReference()
-        sr.ImportFromEPSG(int(epsg))
-        return sr
 
     @abstractmethod
     def _check_no_data_value(self, no_data_value: list):
@@ -738,7 +755,7 @@ class AbstractDataset(ABC):
         self,
         mask: GeoDataFrame | FeatureCollection,
         touch: bool = True,
-    ) -> AbstractDataset:
+    ) -> RasterBase:
         """Crop.
 
             Crop/Clip the Dataset object using a polygon/raster.
@@ -752,7 +769,7 @@ class AbstractDataset(ABC):
                 True to make the changes in place.
 
         Returns:
-            AbstractDataset: Dataset Object.
+            RasterBase: Dataset Object.
         """
         pass
 
@@ -791,7 +808,7 @@ class AbstractDataset(ABC):
             contains any type of values, and you want to know the values in each class.
 
         Args:
-            classes_map (AbstractDataset):
+            classes_map (RasterBase):
                 Dataset object for the raster that has classes you want to overlay with the raster.
             band (int):
                 If the raster is multi-band raster choose the band you want to overlay with the classes map. Default is 0.
@@ -887,3 +904,5 @@ class AbstractDataset(ABC):
                 Array with all the values in the raster.
         """
         pass
+
+

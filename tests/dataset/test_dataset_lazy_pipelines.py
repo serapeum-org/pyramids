@@ -28,20 +28,20 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask, import_zarr
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.lazy
 
 try:
-    import dask.array  # noqa: F401
-    import dask.delayed  # noqa: F401
-    import zarr  # noqa: F401
-
-    HAS_FULL_STACK = True
-except ImportError:  # pragma: no cover
+    import_dask("dask not installed")
+    import_zarr("zarr not installed")
+    import zarr
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_FULL_STACK = False
-
-
+else:
+    HAS_FULL_STACK = True
 requires_full_stack = pytest.mark.skipif(
     not HAS_FULL_STACK, reason="dask + zarr required for Phase 1 e2e tests"
 )
@@ -86,7 +86,7 @@ class TestDatasetLazyPipelines:
 
         L2: ``to_raster(compute=False)`` only accepts disk-anchored
         Datasets, because the delayed write pickles ``self`` through
-        :meth:`AbstractDataset.__reduce__` which cannot reconstruct a
+        :meth:`RasterBase.__reduce__` which cannot reconstruct a
         MEM dataset. So we materialise ``map_blocks``, persist the
         result to disk eagerly, reopen it, and only then issue the
         delayed write.

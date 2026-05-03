@@ -1,24 +1,24 @@
 """Tests for :mod:`pyramids.base._file_manager`.
 
-DASK-2 introduces pickle-safe file-handle managers (`CachingFileManager`,
-`ThreadLocalFileManager`) plus a module-global ``FILE_CACHE`` LRU + a
-``_HashedSequence`` key type.
+introduces pickle-safe file-handle managers (`CachingFileManager`,
+`ThreadLocalFileManager`) plus a module-global `FILE_CACHE` LRU + a
+`_HashedSequence` key type.
 
 These tests cover:
 
-* ``_LRUCache`` eviction with ``on_evict`` callback.
-* ``_HashedSequence`` stable hashing.
-* ``CachingFileManager`` happy-path open / reuse / close.
-* ``CachingFileManager`` pickle round-trip — state tuple contains only
+* `_LRUCache` eviction with `on_evict` callback.
+* `_HashedSequence` stable hashing.
+* `CachingFileManager` happy-path open / reuse / close.
+* `CachingFileManager` pickle round-trip — state tuple contains only
   the recipe, never a handle.
-* ``CachingFileManager`` LRU eviction calls close.
-* ``CachingFileManager`` with ``lock=False`` uses the null lock.
-* ``CachingFileManager`` shared ``manager_id`` → two instances share one
+* `CachingFileManager` LRU eviction calls close.
+* `CachingFileManager` with `lock=False` uses the null lock.
+* `CachingFileManager` shared `manager_id` → two instances share one
   cache slot.
-* ``ThreadLocalFileManager`` per-thread handle isolation.
-* ``ThreadLocalFileManager`` pickle round-trip.
-* ``gdal_raster_open`` + ``gdal_mdarray_open`` + ``ogr_open`` respect
-  access modes and do URL rewriting via ``_to_vsi``.
+* `ThreadLocalFileManager` per-thread handle isolation.
+* `ThreadLocalFileManager` pickle round-trip.
+* `gdal_raster_open` + `gdal_mdarray_open` + `ogr_open` respect
+  access modes and do URL rewriting via `_to_vsi`.
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ def _reset_counter_and_cache():
 
 
 class TestLRUCache:
-    """``_LRUCache`` — small OrderedDict wrapper with ``on_evict`` hook."""
+    """`_LRUCache` — small OrderedDict wrapper with `on_evict` hook."""
 
     def test_basic_get_set(self):
         cache = _LRUCache(maxsize=4)
@@ -128,7 +128,7 @@ class TestLRUCache:
         assert sorted(evicted) == ["a", "b"]
 
     def test_maxsize_property_reports_current_limit(self):
-        """``cache.maxsize`` exposes the configured limit.
+        """`cache.maxsize` exposes the configured limit.
 
         Test scenario:
             The getter returns the integer passed at construction; the
@@ -143,7 +143,7 @@ class TestLRUCache:
         ), f"Expected maxsize=9 after widening, got {cache.maxsize}"
 
     def test_maxsize_setter_rejects_zero(self):
-        """Setting ``cache.maxsize`` below 1 raises ``ValueError``.
+        """Setting `cache.maxsize` below 1 raises `ValueError`.
 
         Test scenario:
             A zero/negative limit would mean "evict everything on every
@@ -159,9 +159,9 @@ class TestLRUCache:
 
         Test scenario:
             The LRU must bump the key to most-recently-used and swap
-            the stored value, without firing ``on_evict`` — because no
-            entry actually leaves the cache. This covers the ``if key
-            in self._cache`` fast-return branch.
+            the stored value, without firing `on_evict` — because no
+            entry actually leaves the cache. This covers the `if key
+            in self._cache` fast-return branch.
         """
         evicted: list = []
         cache = _LRUCache(maxsize=2, on_evict=lambda k, v: evicted.append(k))
@@ -176,7 +176,7 @@ class TestLRUCache:
 
         Test scenario:
             Iteration captures a snapshot under the lock so callers can
-            mutate the cache during the loop without a ``RuntimeError``.
+            mutate the cache during the loop without a `RuntimeError`.
             The returned order mirrors insertion/access order.
         """
         cache = _LRUCache(maxsize=4)
@@ -192,7 +192,7 @@ class TestLRUCache:
 
 
 class TestHashedSequence:
-    """``_HashedSequence`` — list subclass with cached hash."""
+    """`_HashedSequence` — list subclass with cached hash."""
 
     def test_is_hashable(self):
         hs = _HashedSequence([1, "x", (2, 3)])
@@ -205,7 +205,7 @@ class TestHashedSequence:
 
 
 class TestMakeCacheKey:
-    """``_make_cache_key`` canonicalizes kwargs order."""
+    """`_make_cache_key` canonicalizes kwargs order."""
 
     def test_kwargs_order_independent(self):
         k1 = _make_cache_key(_fake_opener, "p", "r", {"a": 1, "b": 2}, "id")
@@ -296,12 +296,12 @@ class TestCachingFileManager:
         assert fm._key not in FILE_CACHE
 
     def test_close_is_idempotent_when_handle_already_evicted(self):
-        """``close()`` tolerates a cache entry that was already removed.
+        """`close()` tolerates a cache entry that was already removed.
 
         Test scenario:
             Pre-evict the handle out-of-band (simulating an LRU eviction
-            that closed it in another manager), then call ``close()``.
-            It must return cleanly via the ``except KeyError: return``
+            that closed it in another manager), then call `close()`.
+            It must return cleanly via the `except KeyError: return`
             branch rather than raising.
         """
         fm = CachingFileManager(_fake_opener, "x.tif", "read_only")
@@ -310,12 +310,12 @@ class TestCachingFileManager:
         fm.close()
 
     def test_drop_handles_missing_cache_entry(self):
-        """``_drop()`` silently ignores a missing cache key.
+        """`_drop()` silently ignores a missing cache key.
 
         Test scenario:
-            ``_drop()`` is called in failure paths where the handle may
+            `_drop()` is called in failure paths where the handle may
             or may not be in the cache. Pre-remove the entry and call
-            ``_drop()`` directly — the ``except KeyError: pass`` branch
+            `_drop()` directly — the `except KeyError: pass` branch
             absorbs the error.
         """
         fm = CachingFileManager(_fake_opener, "x.tif", "read_only")
@@ -325,7 +325,7 @@ class TestCachingFileManager:
 
 
 class TestCachingFileManagerLRUEviction:
-    """``FILE_CACHE`` eviction closes evicted handles."""
+    """`FILE_CACHE` eviction closes evicted handles."""
 
     def test_lru_eviction_closes(self):
         FILE_CACHE.maxsize = 2
@@ -384,7 +384,7 @@ class TestThreadLocalFileManager:
         assert h2 is not h
 
     def test_acquire_context_yields_handle(self):
-        """``acquire_context()`` yields the thread-local handle.
+        """`acquire_context()` yields the thread-local handle.
 
         Test scenario:
             The context manager is a thin shim over :meth:`acquire`; it
@@ -404,15 +404,15 @@ class TestThreadLocalFileManager:
 
 
 class TestNullLock:
-    """:class:`_NullLock` drop-in for ``lock=False``."""
+    """:class:`_NullLock` drop-in for `lock=False`."""
 
     def test_acquire_always_returns_true(self):
-        """``acquire()`` is a no-op that always succeeds.
+        """`acquire()` is a no-op that always succeeds.
 
         Test scenario:
-            The null lock never blocks, regardless of ``blocking`` or
-            ``timeout`` kwargs. It must always return ``True`` so code
-            that inspects the return value (like ``with lock:`` guards)
+            The null lock never blocks, regardless of `blocking` or
+            `timeout` kwargs. It must always return `True` so code
+            that inspects the return value (like `with lock:` guards)
             proceeds as if it took the lock.
         """
         lock = _NullLock()
@@ -422,10 +422,10 @@ class TestNullLock:
         ), "_NullLock.acquire() must ignore blocking/timeout"
 
     def test_release_is_noop(self):
-        """``release()`` returns ``None`` without raising.
+        """`release()` returns `None` without raising.
 
         Test scenario:
-            Releasing an unacquired real lock raises ``RuntimeError``;
+            Releasing an unacquired real lock raises `RuntimeError`;
             the null lock must tolerate unmatched releases so caller
             code can treat it interchangeably.
         """
@@ -434,7 +434,7 @@ class TestNullLock:
 
 
 class TestOpeners:
-    """``_openers`` module primitives."""
+    """`_openers` module primitives."""
 
     def test_resolve_access_known(self):
         from osgeo import gdal
@@ -534,13 +534,13 @@ class TestOpenersE2E:
         return str(path)
 
     def test_ogr_open_read_only_returns_datasource(self, geojson_path):
-        """``ogr_open(access="read_only")`` returns a readable OGR datasource.
+        """`ogr_open(access="read_only")` returns a readable OGR datasource.
 
         Test scenario:
-            Opening a GeoJSON with ``access="read_only"`` must set the
+            Opening a GeoJSON with `access="read_only"` must set the
             OGR update flag to 0 and return a datasource whose first
             layer has the expected single feature. This covers the
-            ``update = 0 if access in {...}`` branch of :func:`ogr_open`.
+            `update = 0 if access in {...}` branch of :func:`ogr_open`.
         """
         ds = ogr_open(geojson_path, access="read_only")
         try:
@@ -553,10 +553,10 @@ class TestOpenersE2E:
             ds = None
 
     def test_ogr_open_write_access_flags_update(self, geojson_path):
-        """``ogr_open(access="w")`` passes ``update=1`` to :func:`ogr.Open`.
+        """`ogr_open(access="w")` passes `update=1` to :func:`ogr.Open`.
 
         Test scenario:
-            The "write" branch sets ``update=1`` so drivers that support
+            The "write" branch sets `update=1` so drivers that support
             edits open in update mode. The function must still return a
             valid datasource (not raise) for the common GeoJSON driver.
         """

@@ -1,9 +1,9 @@
 """Tests for :attr:`DatasetCollection.data` lazy dask-backed stack.
 
-DASK-16: file-backed ``DatasetCollection`` exposes a
-``dask.array.Array`` of shape ``(time_length, bands, rows, cols)``
+file-backed `DatasetCollection` exposes a
+`dask.array.Array` of shape `(time_length, bands, rows, cols)`
 without pre-allocating a numpy stack. Each chunk opens one file via
-:class:`CachingFileManager` + ``Dataset.read_file`` — no live GDAL
+:class:`CachingFileManager` + `Dataset.read_file` — no live GDAL
 handles are shipped across the dask graph pickle boundary.
 """
 
@@ -15,16 +15,18 @@ import pickle
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset, DatasetCollection
 
-pytestmark = pytest.mark.lazy
-
 try:
-    import dask.array  # noqa: F401
-
-    HAS_DASK = True
-except ImportError:  # pragma: no cover
+    import_dask("dask not installed")
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_DASK = False
+else:
+    HAS_DASK = True
+
+pytestmark = pytest.mark.lazy
 
 
 requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")

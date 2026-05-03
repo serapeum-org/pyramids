@@ -1,19 +1,9 @@
-"""Dataset operation mixins."""
+"""Dataset operation mixins.
 
-from pyramids.dataset.ops.analysis import Analysis
-from pyramids.dataset.ops.band_metadata import BandMetadata
-from pyramids.dataset.ops.cell import Cell
-from pyramids.dataset.ops.cog import COGMixin
-from pyramids.dataset.ops.io import IO
-from pyramids.dataset.ops.spatial import Spatial
-from pyramids.dataset.ops.vectorize import Vectorize
+Every public mixin has been migrated into a collaborator on
+:class:`pyramids.dataset.dataset.Dataset`. This package retains
+module-level helpers used by other modules, but no mixin classes
+remain in the public `__all__`.
+"""
 
-__all__ = [
-    "Analysis",
-    "BandMetadata",
-    "COGMixin",
-    "Cell",
-    "IO",
-    "Spatial",
-    "Vectorize",
-]
+__all__: list[str] = []

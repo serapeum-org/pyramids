@@ -35,7 +35,7 @@ flowchart LR
   io[_io: read_file, to_ascii, path parsing]
   utils[_utils: geometry/index helpers]
   ds[dataset.Dataset]
-  abs[dataset.AbstractDataset]
+  abs[dataset.RasterBase]
   dc[dataset.DatasetCollection]
   fc[feature.FeatureCollection]
 
@@ -51,7 +51,7 @@ flowchart LR
 
 ```mermaid
 classDiagram
-  class AbstractDataset {
+  class RasterBase {
     <<abstract>>
     +read_file(path, read_only)
     +to_file(path, band)
@@ -61,7 +61,7 @@ classDiagram
     +to_file(path, band, tile_length)
     +read()
   }
-  AbstractDataset <|-- Dataset
+  RasterBase <|-- Dataset
 ```
 
 ## UML Class: Vector Core
@@ -162,7 +162,7 @@ classDiagram
     }
 
     %% abstract base class for rasters
-    class abstract_dataset_AbstractDataset {
+    class abstract_dataset_RasterBase {
         +__init__(src, access)
         +values() np.ndarray
         +rows() int
@@ -250,13 +250,13 @@ classDiagram
     class _errors_OutOfBoundsError
 
     %% inheritance relations
-    abstract_dataset_AbstractDataset <|-- dataset_Dataset
+    abstract_dataset_RasterBase <|-- dataset_Dataset
     dataset_Dataset <|-- netcdf_NetCDF
 
     %% composition/usage relations
     collection_DatasetCollection --> dataset_Dataset : "base raster"
-    abstract_dataset_AbstractDataset ..> _utils_Catalog : "uses Catalog constant"
-    abstract_dataset_AbstractDataset ..> feature_FeatureCollection : "vector ops"
+    abstract_dataset_RasterBase ..> _utils_Catalog : "uses Catalog constant"
+    abstract_dataset_RasterBase ..> feature_FeatureCollection : "vector ops"
     dataset_Dataset ..> feature_FeatureCollection : "vector ops"
     feature_FeatureCollection ..> _utils_Catalog : "uses drivers"
     dataset_Dataset ..> _errors_ReadOnlyError : "raises"
@@ -287,7 +287,7 @@ classDiagram
     }
 
     %% abstract base class for rasters
-    class abstract_dataset_AbstractDataset {
+    class abstract_dataset_RasterBase {
         +__init__(src, access)
         +__str__()
         +__repr__()
@@ -499,13 +499,13 @@ classDiagram
     class _errors_OutOfBoundsError
 
     %% inheritance relations
-    abstract_dataset_AbstractDataset <|-- dataset_Dataset
+    abstract_dataset_RasterBase <|-- dataset_Dataset
     dataset_Dataset <|-- netcdf_NetCDF
 
     %% composition/usage relations
     collection_DatasetCollection --> dataset_Dataset : "base raster"
-    abstract_dataset_AbstractDataset ..> _utils_Catalog : "uses Catalog constant"
-    abstract_dataset_AbstractDataset ..> feature_FeatureCollection : "vector ops"
+    abstract_dataset_RasterBase ..> _utils_Catalog : "uses Catalog constant"
+    abstract_dataset_RasterBase ..> feature_FeatureCollection : "vector ops"
     dataset_Dataset ..> feature_FeatureCollection : "vector ops"
     feature_FeatureCollection ..> _utils_Catalog : "uses drivers"
     dataset_Dataset ..> _errors_ReadOnlyError : "raises"

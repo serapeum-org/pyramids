@@ -2,7 +2,7 @@
 
 Cell coordinate retrieval, cell polygons/points, and map-to-array coordinate conversions.
 
-::: pyramids.dataset.ops.cell.Cell
+::: pyramids.dataset._collaborators.Cell
     options:
         show_root_heading: true
         show_source: true

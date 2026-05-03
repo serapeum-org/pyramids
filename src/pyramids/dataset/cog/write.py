@@ -1,9 +1,9 @@
 """Write a gdal.Dataset to disk as a Cloud Optimized GeoTIFF.
 
-Thin wrapper around ``gdal.GetDriverByName("COG").CreateCopy`` that
+Thin wrapper around `gdal.GetDriverByName("COG").CreateCopy` that
 normalizes and validates options via :mod:`pyramids.dataset.cog.options`
 before handing off. Intended to be called from
-:meth:`pyramids.dataset.ops.cog.COGMixin.to_cog`; callers own the
+:meth:`pyramids.dataset._collaborators.COG.to_cog`; callers own the
 dataset's lifecycle.
 """
 
@@ -21,8 +21,6 @@ from pyramids.dataset.cog.options import (
     validate_option_keys,
 )
 
-gdal.UseExceptions()
-
 logger = logging.getLogger(__name__)
 
 
@@ -33,9 +31,9 @@ def translate_to_cog(
 ) -> gdal.Dataset:
     """Write a :class:`gdal.Dataset` to disk as a Cloud Optimized GeoTIFF.
 
-    Runs ``gdal.GetDriverByName("COG").CreateCopy`` after normalizing
-    and validating ``options``. The source dataset is flushed before
-    ``CreateCopy``; the destination dataset is returned unflushed so
+    Runs `gdal.GetDriverByName("COG").CreateCopy` after normalizing
+    and validating `options`. The source dataset is flushed before
+    `CreateCopy`; the destination dataset is returned unflushed so
     the caller can arrange its lifecycle.
 
     Args:
@@ -50,15 +48,15 @@ def translate_to_cog(
     Returns:
         gdal.Dataset: The newly written dataset. The caller is
         responsible for calling :meth:`FlushCache` and releasing the
-        reference (``dst = None``).
+        reference (`dst = None`).
 
     Raises:
         DriverNotExistError: The GDAL build lacks the COG driver.
-        FileNotFoundError: The parent directory of ``path`` does not exist.
+        FileNotFoundError: The parent directory of `path` does not exist.
         ValueError: An option key is not in
             :data:`~pyramids.dataset.cog.options.COG_DRIVER_OPTIONS`.
         FailedToSaveError: :func:`gdal.Driver.CreateCopy` returned
-            ``None`` or raised :class:`RuntimeError`.
+            `None` or raised :class:`RuntimeError`.
 
     Examples:
         - Write a minimal COG from an in-memory source:

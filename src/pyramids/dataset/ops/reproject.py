@@ -1,19 +1,19 @@
 """Operator-shaped reprojection: build the plan once, apply it to many datasets.
 
-DASK-9 introduces :class:`Reprojector` (and its :class:`Aligner`
-subclass) as an xesmf-shaped alternative to calling
+:class:`Reprojector` (and its :class:`Aligner` subclass) is
+an xesmf-shaped alternative to calling
 :meth:`Dataset.to_crs` once per dataset. Construction is small and
 cheap: a frozen :class:`ReprojectPlan` dataclass captures the
-``(target_epsg, method, maintain_alignment)`` tuple. Application
+`(target_epsg, method, maintain_alignment)` tuple. Application
 delegates to the existing :meth:`Dataset.to_crs` /
 :meth:`Dataset.align` implementations so the GDAL Warp path stays
 unchanged.
 
-The win is reuse: when you have a ``DatasetCollection`` of 365 daily
+The win is reuse: when you have a `DatasetCollection` of 365 daily
 rasters that all need the same reprojection, build one
-``Reprojector`` and call it 365 times rather than pay the overhead
+`Reprojector` and call it 365 times rather than pay the overhead
 of argument parsing + spec building on every call. Supports
-``compute=False`` so the whole reproject can be deferred into a
+`compute=False` so the whole reproject can be deferred into a
 dask graph via :func:`dask.delayed`.
 """
 
@@ -37,7 +37,7 @@ class ReprojectPlan:
     """Immutable, picklable reprojection specification.
 
     Held on a :class:`Reprojector` instance and reused across every
-    ``__call__``. The plan itself performs no I/O — all GDAL work
+    `__call__`. The plan itself performs no I/O — all GDAL work
     happens inside :meth:`Reprojector.__call__`.
 
     Attributes:
@@ -99,12 +99,12 @@ class Reprojector:
         return self._plan
 
     def __call__(self, ds: Dataset, *, compute: bool = True) -> Any:
-        """Apply the plan to ``ds``.
+        """Apply the plan to `ds`.
 
         Args:
             ds: Source :class:`~pyramids.dataset.Dataset`.
-            compute: ``True`` (default) runs the reprojection eagerly
-                and returns a new :class:`Dataset`. ``False`` wraps
+            compute: `True` (default) runs the reprojection eagerly
+                and returns a new :class:`Dataset`. `False` wraps
                 the eager call in :func:`dask.delayed` and returns a
                 :class:`dask.delayed.Delayed` object.
 
@@ -157,7 +157,7 @@ class Aligner(Reprojector):
         self._reference = reference
 
     def __call__(self, ds: Dataset, *, compute: bool = True) -> Any:
-        """Align ``ds`` to the reference geobox.
+        """Align `ds` to the reference geobox.
 
         Args:
             ds: Source :class:`~pyramids.dataset.Dataset`.
@@ -203,10 +203,10 @@ def _deferred_align(reference: Dataset, method: str, ds: Dataset) -> Any:
 def _align_sync(reference: Dataset, method: str, ds: Dataset) -> Dataset:
     """Synchronous align body — module-level for pickleability.
 
-    ``method`` is accepted for API parity with :class:`Reprojector` but
+    `method` is accepted for API parity with :class:`Reprojector` but
     :meth:`Dataset.align` currently fixes the resampling to nearest
     neighbor (see :func:`osgeo.gdal.Warp`'s default). Argument kept so
-    that if :meth:`Dataset.align` grows a ``method=`` kwarg in future
+    that if :meth:`Dataset.align` grows a `method=` kwarg in future
     the operator contract does not need to change.
     """
     del method  # reserved for future align(method=...) support

@@ -9,7 +9,7 @@ classDiagram
     }
 
     %% abstract base class for rasters
-    class AbstractDataset {
+    class RasterBase {
         +__init__(src, access)
         +__str__()
         +__repr__()
@@ -113,12 +113,12 @@ classDiagram
     class _errors_OutOfBoundsError
 
     %% inheritance relations
-    AbstractDataset <|-- Dataset
+    RasterBase <|-- Dataset
     Dataset <|-- NetCDF
 
     %% composition/usage relations
-    AbstractDataset ..> _utils_Catalog : "uses Catalog constant"
-    AbstractDataset ..> feature_FeatureCollection : "vector ops"
+    RasterBase ..> _utils_Catalog : "uses Catalog constant"
+    RasterBase ..> feature_FeatureCollection : "vector ops"
     Dataset ..> feature_FeatureCollection : "vector ops"
     Dataset ..> _errors_ReadOnlyError : "raises"
     Dataset ..> _errors_AlignmentError : "raises"

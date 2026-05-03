@@ -84,7 +84,7 @@ class MeshVariable:
     name: str
     location: str
     mesh_name: str
-    shape: tuple[int, ...]
+    shape: tuple[int,...]
     attributes: dict[str, Any] = field(default_factory=dict)
     nodata: float | None = None
     units: str | None = None
