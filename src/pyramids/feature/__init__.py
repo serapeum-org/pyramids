@@ -14,6 +14,22 @@ CRS / EPSG / reprojection helpers live in :mod:`pyramids.base.crs`.
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import import_dask_geopandas
 from pyramids.feature.collection import FeatureCollection
+from pyramids.feature.geometry import (
+    Coords,
+    GeometryCoords,
+    create_points,
+    create_polygon,
+    explode_gdf,
+    geometry_collection_coords,
+    get_coords,
+    get_line_coords,
+    get_point_coords,
+    get_poly_coords,
+    get_xy_coords,
+    multi_geom_handler,
+    point_collection,
+    polygon_wkt,
+)
 
 _LAZY_FC_INSTALL_HINT = (
     "LazyFeatureCollection requires the optional 'dask-geopandas' "
@@ -131,8 +147,22 @@ def is_lazy_fc(obj: object) -> bool:
 
 
 __all__ = [
+    "Coords",
     "FeatureCollection",
+    "GeometryCoords",
     "LazyFeatureCollection",
+    "create_points",
+    "create_polygon",
+    "explode_gdf",
+    "geometry_collection_coords",
+    "get_coords",
+    "get_line_coords",
+    "get_point_coords",
+    "get_poly_coords",
+    "get_xy_coords",
     "has_lazy_backend",
     "is_lazy_fc",
+    "multi_geom_handler",
+    "point_collection",
+    "polygon_wkt",
 ]

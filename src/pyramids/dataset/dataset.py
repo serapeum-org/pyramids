@@ -50,7 +50,7 @@ from pyramids.dataset.ops._zarr import (
 )
 from pyramids.dataset.ops._zonal import zonal_stats as _zonal_stats
 from pyramids.dataset.ops.vectorize import rasterize_features
-from pyramids.feature import FeatureCollection
+from pyramids.feature import FeatureCollection, create_polygon
 
 # tuple of collaborator attribute names. Used by
 # `Dataset.__init__` to wire the seven collaborators and by
@@ -424,7 +424,7 @@ class Dataset(RasterBase):
         """Concrete override of :meth:`RasterBase._calculate_bounds`."""
         x_min, y_min, x_max, y_max = self._calculate_bbox()
         coords = [(x_min, y_max), (x_min, y_min), (x_max, y_min), (x_max, y_max)]
-        poly = FeatureCollection.create_polygon(coords)
+        poly = create_polygon(coords)
         gdf = gpd.GeoDataFrame(geometry=[poly])
         gdf.set_crs(epsg=self.epsg, inplace=True)
         return gdf

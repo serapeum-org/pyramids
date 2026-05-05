@@ -1794,352 +1794,50 @@ class FeatureCollection(GeoDataFrame):
     # fc.to_dataset(cell_size=10)
     # → Dataset.from_features(fc, cell_size=10)
 
-    # Static delegates to helper modules kept for backward compatibility
-    # (callers may do `FeatureCollection.create_polygon(...)`).
+    def explode(self, geometry: str = "multipolygon") -> FeatureCollection:
+        """Explode multi-geometry rows into per-row single geometries.
 
-    @staticmethod
-    def _create_sr_from_proj(
-        prj: str, string_type: str | None = None
-    ) -> osr.SpatialReference:
-        """Delegate to :func:`pyramids.base.crs.create_sr_from_proj`."""
-        return _crs.create_sr_from_proj(prj, string_type)
-
-    @staticmethod
-    def get_epsg_from_prj(prj: str) -> int:
-        """Return the EPSG code identified by a projection string.
-
-        Thin delegate to :func:`pyramids.base.crs.get_epsg_from_prj` so callers
-        that already hold a :class:`FeatureCollection` do not need to import the
-        helper module.
+        Returns a new ``FeatureCollection`` where every row whose geometry
+        type matches ``geometry`` is split so each child geometry becomes
+        its own row. The current frame is not mutated.
 
         Args:
-            prj (str): Projection string (WKT, ESRI WKT, or Proj4).
+            geometry (str): The geometry type to explode (case-insensitive).
+                Defaults to ``"multipolygon"``.
 
         Returns:
-            int: The resolved EPSG code.
-
-        Raises:
-            CRSError: If `prj` is an empty string.
+            FeatureCollection: A new collection with the same CRS as
+            ``self`` and exploded geometries.
 
         Examples:
-            - Identify EPSG:4326 from its WKT representation:
+            - Explode a frame mixing one MultiPolygon with a Polygon:
                 ```python
-                >>> from osgeo import osr
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Polygon, MultiPolygon
                 >>> from pyramids.feature import FeatureCollection
-                >>> ref = osr.SpatialReference()
-                >>> _ = ref.ImportFromEPSG(4326)
-                >>> FeatureCollection.get_epsg_from_prj(ref.ExportToWkt())
-                4326
-
-                ```
-            - Empty string raises `CRSError` instead of defaulting:
-                ```python
-                >>> from pyramids.feature import FeatureCollection
-                >>> FeatureCollection.get_epsg_from_prj("")
-                Traceback (most recent call last):
-                    ...
-                pyramids.base._errors.CRSError:...empty projection string...
-
-                ```
-        """
-        return _crs.get_epsg_from_prj(prj)
-
-    @staticmethod
-    def reproject_coordinates(
-        x: list[float],
-        y: list[float],
-        *,
-        from_crs: Any = 4326,
-        to_crs: Any = 3857,
-        precision: int | None = 6,
-    ) -> tuple[list[float], list[float]]:
-        """Delegate to :func:`pyramids.base.crs.reproject_coordinates`.
-
-        canonical replacement for the deleted
-        `reproject_points` / `reproject_points2` pair. Argument and
-        return order is `(x, y)` throughout. `from_crs` / `to_crs`
-        accept any form :meth:`pyproj.Transformer.from_crs` understands
-        (EPSG int, authority string, WKT, Proj4, :class:`pyproj.CRS`).
-
-        Args:
-            x (list[float]): X-coordinates in the source CRS.
-            y (list[float]): Y-coordinates in the source CRS.
-            from_crs: Source CRS (EPSG int, authority string, WKT, Proj4, or
-                :class:`pyproj.CRS`). Default `4326`.
-            to_crs: Target CRS, same forms as `from_crs`. Default `3857`.
-            precision (int | None): Decimal places for each returned value, or
-                `None` to disable rounding. Default `6`.
-
-        Returns:
-            tuple[list[float], list[float]]: `(x, y)` in the target CRS.
-
-        Raises:
-            ValueError: If `len(x)!= len(y)`.
-            CRSError: If either CRS cannot be parsed by pyproj.
-
-        Examples:
-            - Reproject a single WGS84 point into Web Mercator:
-                ```python
-                >>> from pyramids.feature import FeatureCollection
-                >>> x, y = FeatureCollection.reproject_coordinates(
-                ...     [31.0], [30.0], from_crs=4326, to_crs=3857
+                >>> gdf = gpd.GeoDataFrame(
+                ...     {
+                ...         "name": ["a", "b"],
+                ...         "geometry": [
+                ...             MultiPolygon([
+                ...                 Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]),
+                ...                 Polygon([(5, 5), (7, 5), (7, 7), (5, 7)]),
+                ...             ]),
+                ...             Polygon([(10, 10), (11, 10), (11, 11), (10, 11)]),
+                ...         ],
+                ...     },
+                ...     crs="EPSG:4326",
                 ... )
-                >>> round(x[0])
-                3450904
-                >>> round(y[0])
-                3503550
-
-                ```
-            - Round-trip 4326 -> 3857 -> 4326 recovers the original to
-              `precision=6` decimals:
-                ```python
-                >>> from pyramids.feature import FeatureCollection
-                >>> x1, y1 = FeatureCollection.reproject_coordinates(
-                ...     [12.5], [55.7], from_crs=4326, to_crs=3857
-                ... )
-                >>> x2, y2 = FeatureCollection.reproject_coordinates(
-                ...     x1, y1, from_crs=3857, to_crs=4326
-                ... )
-                >>> round(x2[0], 4), round(y2[0], 4)
-                (12.5, 55.7)
-
-                ```
-            - Mismatched list lengths raise `ValueError`:
-                ```python
-                >>> from pyramids.feature import FeatureCollection
-                >>> FeatureCollection.reproject_coordinates(
-                ...     [1.0, 2.0], [3.0], from_crs=4326, to_crs=3857
-                ... )
-                Traceback (most recent call last):
-                    ...
-                ValueError: x and y must have equal length...
-
-                ```
-        """
-        return _crs.reproject_coordinates(
-            x, y, from_crs=from_crs, to_crs=to_crs, precision=precision
-        )
-
-    @staticmethod
-    def _get_xy_coords(geometry: Any, coord_type: str) -> list:
-        """Delegate to :func:`pyramids.feature.geometry.get_xy_coords`."""
-        return _geom.get_xy_coords(geometry, coord_type)
-
-    @staticmethod
-    def _get_point_coords(geometry: Point, coord_type: str) -> float | int:
-        """Delegate to :func:`pyramids.feature.geometry.get_point_coords`."""
-        return _geom.get_point_coords(geometry, coord_type)
-
-    @staticmethod
-    def _get_line_coords(geometry: LineString, coord_type: str) -> list:
-        """Delegate to :func:`pyramids.feature.geometry.get_line_coords`."""
-        return _geom.get_line_coords(geometry, coord_type)
-
-    @staticmethod
-    def _get_poly_coords(geometry: Polygon, coord_type: str) -> list:
-        """Delegate to :func:`pyramids.feature.geometry.get_poly_coords`."""
-        return _geom.get_poly_coords(geometry, coord_type)
-
-    @staticmethod
-    def _explode_gdf(gdf: GeoDataFrame, geometry: str = "multipolygon") -> GeoDataFrame:
-        """Delegate to :func:`pyramids.feature.geometry.explode_gdf`."""
-        return _geom.explode_gdf(gdf, geometry)
-
-    @staticmethod
-    def _multi_geom_handler(
-        multi_geometry: MultiPolygon | MultiPoint | MultiLineString,
-        coord_type: str,
-        geom_type: str,
-    ) -> list:
-        """Delegate to :func:`pyramids.feature.geometry.multi_geom_handler`."""
-        return _geom.multi_geom_handler(multi_geometry, coord_type, geom_type)
-
-    @staticmethod
-    def _geometry_collection(geom: Any, coord_type: str) -> list[Any]:
-        """Delegate to :func:`pyramids.feature.geometry.geometry_collection_coords`."""
-        return _geom.geometry_collection_coords(geom, coord_type)
-
-    @staticmethod
-    def _get_coords(row: Any, geom_col: str, coord_type: str) -> Any:
-        """Delegate to :func:`pyramids.feature.geometry.get_coords`."""
-        return _geom.get_coords(row, geom_col, coord_type)
-
-    @staticmethod
-    def create_polygon(coords: list[tuple[float, float]]) -> Polygon:
-        """Create a :class:`shapely.Polygon` from coordinates.
-
-        Delegates to :func:`pyramids.feature.geometry.create_polygon`.
-        For the WKT-string form use :meth:`polygon_wkt` instead.
-
-        the `wkt=True` polymorphic kwarg was removed
-        outright (no deprecation shim) — a polymorphic return type
-        was the whole motivation for splitting in the first
-        place.
-
-        Args:
-            coords (list[tuple[float, float]]): Ring coordinates. At least 3
-                vertices are required.
-
-        Returns:
-            Polygon: A shapely `Polygon`.
-
-        Raises:
-            InvalidGeometryError: If `coords` has fewer than 3 vertices.
-
-        Examples:
-            - Build a unit square and inspect its bounds / area:
-                ```python
-                >>> from pyramids.feature import FeatureCollection
-                >>> poly = FeatureCollection.create_polygon(
-                ...     [(0, 0), (1, 0), (1, 1), (0, 1)]
-                ... )
-                >>> poly.area
-                1.0
-                >>> poly.bounds
-                (0.0, 0.0, 1.0, 1.0)
-
-                ```
-            - A polygon with fewer than 3 vertices raises
-              `InvalidGeometryError`:
-                ```python
-                >>> from pyramids.feature import FeatureCollection
-                >>> FeatureCollection.create_polygon([(0, 0), (1, 1)])
-                Traceback (most recent call last):
-                    ...
-                pyramids.base._errors.InvalidGeometryError: ...at least 3 vertices...
-
-                ```
-        """
-        return _geom.create_polygon(coords)
-
-    @staticmethod
-    def polygon_wkt(coords: list[tuple[float, float]]) -> str:
-        """Return the WKT for a polygon built from `coords`.
-
-        Delegates to :func:`pyramids.feature.geometry.polygon_wkt`. This is the
-        WKT-string counterpart of :meth:`create_polygon`; the two were split in
-        so each entry point has a single return type.
-
-        Args:
-            coords (list[tuple[float, float]]): Ring coordinates.
-
-        Returns:
-            str: Well-Known Text representation of the polygon.
-
-        Examples:
-            - A unit-square ring produces a closed WKT polygon string:
-                ```python
-                >>> from pyramids.feature import FeatureCollection
-                >>> wkt = FeatureCollection.polygon_wkt(
-                ...     [(0, 0), (1, 0), (1, 1), (0, 1)]
-                ... )
-                >>> wkt.startswith("POLYGON")
-                True
-                >>> wkt.count("(")
-                2
-
-                ```
-            - A triangle WKT can be round-tripped back through shapely:
-                ```python
-                >>> from shapely import wkt as _wkt
-                >>> from pyramids.feature import FeatureCollection
-                >>> s = FeatureCollection.polygon_wkt(
-                ...     [(0, 0), (2, 0), (1, 2)]
-                ... )
-                >>> _wkt.loads(s).area
-                2.0
-
-                ```
-        """
-        return _geom.polygon_wkt(coords)
-
-    @staticmethod
-    def create_points(coords: Iterable[tuple[float, ...]]) -> list[Point]:
-        """Return a list of shapely Points from `coords`.
-
-        Delegates to :func:`pyramids.feature.geometry.create_points`.
-        fixed the return type to always be `list[Point]`; for the
-        `FeatureCollection` wrapper form use :meth:`point_collection`.
-
-        Args:
-            coords: Iterable of `(x, y)` tuples.
-
-        Returns:
-            list[Point]: The constructed shapely Points.
-
-        Examples:
-            - Build two points and read back their coordinates:
-                ```python
-                >>> from pyramids.feature import FeatureCollection
-                >>> pts = FeatureCollection.create_points([(0.0, 0.0), (1.5, 2.5)])
-                >>> len(pts)
-                2
-                >>> pts[1].x, pts[1].y
-                (1.5, 2.5)
-
-                ```
-            - Works with any iterable of coordinate pairs:
-                ```python
-                >>> from pyramids.feature import FeatureCollection
-                >>> pts = FeatureCollection.create_points(
-                ...     iter([(10.0, 20.0), (30.0, 40.0), (50.0, 60.0)])
-                ... )
-                >>> [(p.x, p.y) for p in pts]
-                [(10.0, 20.0), (30.0, 40.0), (50.0, 60.0)]
-
-                ```
-        """
-        return _geom.create_points(coords)
-
-    @staticmethod
-    def point_collection(
-        coords: Iterable[tuple[float, ...]], crs: Any
-    ) -> FeatureCollection:
-        """Return a FeatureCollection of points with the given CRS.
-
-        Delegates to :func:`pyramids.feature.geometry.point_collection` and
-        wraps the result as a `FeatureCollection`. This is the
-        `FeatureCollection` counterpart of :meth:`create_points`.
-
-        Args:
-            coords: Iterable of `(x, y)` tuples.
-            crs: Any CRS form accepted by :class:`geopandas.GeoDataFrame` (EPSG
-                int, WKT, Proj string, or :class:`pyproj.CRS`).
-
-        Returns:
-            FeatureCollection: A new `FeatureCollection` with a single
-            `geometry` column of shapely `Point` rows.
-
-        Examples:
-            - Build a 3-point WGS84 FC and inspect its CRS and geometry:
-                ```python
-                >>> from pyramids.feature import FeatureCollection
-                >>> fc = FeatureCollection.point_collection(
-                ...     [(0.0, 0.0), (1.0, 1.0), (2.0, 2.0)], crs="EPSG:4326",
-                ... )
-                >>> len(fc)
+                >>> fc = FeatureCollection(gdf)
+                >>> result = fc.explode("multipolygon")
+                >>> len(result)
                 3
-                >>> fc.crs.to_epsg()
-                4326
-                >>> fc.geometry.iloc[1].x
-                1.0
-
-                ```
-            - Integer EPSG works too; geometry column names default to
-              `"geometry"`:
-                ```python
-                >>> from pyramids.feature import FeatureCollection
-                >>> fc = FeatureCollection.point_collection(
-                ...     [(10.0, 20.0), (30.0, 40.0)], crs=3857,
-                ... )
-                >>> fc.geometry.name
-                'geometry'
-                >>> [(p.x, p.y) for p in fc.geometry]
-                [(10.0, 20.0), (30.0, 40.0)]
+                >>> [g.geom_type for g in result.geometry]
+                ['Polygon', 'Polygon', 'Polygon']
 
                 ```
         """
-        return FeatureCollection(_geom.point_collection(coords, crs=crs))
+        return FeatureCollection(_geom.explode_gdf(self, geometry=geometry))
 
     def with_coordinates(self) -> FeatureCollection:
         """Return a new FeatureCollection with per-vertex `x` and `y` columns.

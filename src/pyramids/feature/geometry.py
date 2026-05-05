@@ -1,11 +1,25 @@
 """Shape factories and coordinate-extraction helpers for :mod:`pyramids.feature`.
 
-These helpers were moved off :class:`pyramids.feature.FeatureCollection`
-into this module so the collection class can focus on per-feature
-behavior rather than static geometry utilities. The FeatureCollection
-class keeps thin static-method delegates for back-compat: callers that
-wrote `FeatureCollection.create_polygon(...)` or
-`FeatureCollection._get_coords(...)` continue to work unchanged.
+The module exposes two value-object classes — :class:`Coords` and
+:class:`GeometryCoords` — that wrap the shared input of related
+free functions and present a tidy method API. The free functions
+remain available for one-shot use; the classes are convenient when
+you need several outputs from the same input:
+
+* :class:`Coords` wraps a sequence of ``(x, y)`` tuples and provides
+  builders ``to_polygon`` / ``to_polygon_wkt`` / ``to_points`` /
+  ``to_geodataframe``. Replaces D-8 era free-function chains like
+  ``create_points(create_polygon(coords).boundary.coords)``.
+* :class:`GeometryCoords` wraps a shapely geometry and dispatches on
+  its concrete type (``Point`` / ``LineString`` / ``Polygon`` /
+  ``MultiX`` / ``GeometryCollection``) to expose ``.x`` / ``.y`` /
+  ``.xy`` properties. Replaces the ``coord_type="x"`` stringly-typed
+  parameter on the older free functions.
+
+``explode_gdf`` and ``get_coords`` operate on a GeoDataFrame /
+DataFrame row respectively and stay free functions: the natural
+home for them is the consumer (``FeatureCollection.explode``
+exposes the explode logic as an instance method).
 """
 
 from __future__ import annotations
@@ -710,3 +724,287 @@ def point_collection(coords: Iterable[tuple[float, ...]], crs: Any) -> GeoDataFr
     """
     pts = create_points(coords)
     return gpd.GeoDataFrame(columns=["geometry"], data=pts, crs=crs)
+
+
+class Coords:
+    """A sequence of ``(x, y[, z])`` coordinate tuples.
+
+    Wraps the input shared by the four geometry constructors that
+    used to live as free functions / FeatureCollection staticmethods.
+    Each builder is a thin instance method around the underlying
+    free function so callers can pick whichever form fits:
+
+    .. code-block:: python
+
+        # one-shot — free function
+        from pyramids.feature.geometry import create_polygon
+        poly = create_polygon([(0, 0), (1, 0), (1, 1)])
+
+        # multi-shot — class wraps the shared input
+        from pyramids.feature.geometry import Coords
+        ring = Coords([(0, 0), (1, 0), (1, 1)])
+        poly = ring.to_polygon()
+        wkt = ring.to_polygon_wkt()
+        pts = ring.to_points()
+        gdf = ring.to_geodataframe(crs="EPSG:4326")
+
+    The wrapper does not copy or validate the coordinate list at
+    construction; validation happens in the underlying free
+    function (e.g. :func:`create_polygon` raises if the ring is
+    fewer than 3 vertices).
+
+    Args:
+        coords: An iterable of ``(x, y)`` (or ``(x, y, z)``) tuples.
+            Stored verbatim; consumed lazily by each builder.
+
+    Examples:
+        - Same input produces a polygon, its WKT, and a point list:
+            ```python
+            >>> from pyramids.feature.geometry import Coords
+            >>> ring = Coords([(0, 0), (1, 0), (1, 1)])
+            >>> ring.to_polygon().wkt
+            'POLYGON ((0 0, 1 0, 1 1, 0 0))'
+            >>> ring.to_polygon_wkt()
+            'POLYGON ((0 0, 1 0, 1 1, 0 0))'
+            >>> [p.wkt for p in ring.to_points()]
+            ['POINT (0 0)', 'POINT (1 0)', 'POINT (1 1)']
+
+            ```
+        - Build a GeoDataFrame of points in WGS84:
+            ```python
+            >>> from pyramids.feature.geometry import Coords
+            >>> gdf = Coords([(10, 20), (30, 40)]).to_geodataframe("EPSG:4326")
+            >>> gdf.crs.to_epsg()
+            4326
+            >>> len(gdf)
+            2
+
+            ```
+    """
+
+    __slots__ = ("_coords",)
+
+    def __init__(self, coords: Iterable[tuple[float, ...]]):
+        self._coords = list(coords)
+
+    @property
+    def coords(self) -> list[tuple[float, ...]]:
+        """Return the coordinate list as a Python list (defensive copy)."""
+        return list(self._coords)
+
+    def __len__(self) -> int:
+        return len(self._coords)
+
+    def __iter__(self):
+        return iter(self._coords)
+
+    def to_polygon(self) -> Polygon:
+        """Build a :class:`shapely.Polygon` from the wrapped coordinates.
+
+        Returns:
+            Polygon: A shapely polygon with the wrapped coords as its
+                exterior ring.
+
+        Raises:
+            InvalidGeometryError: If the ring has fewer than 3 vertices.
+
+        Examples:
+            - Build a triangle and read its WKT:
+                ```python
+                >>> from pyramids.feature.geometry import Coords
+                >>> Coords([(0, 0), (1, 0), (1, 1)]).to_polygon().wkt
+                'POLYGON ((0 0, 1 0, 1 1, 0 0))'
+
+                ```
+        """
+        return create_polygon(self._coords)
+
+    def to_polygon_wkt(self) -> str:
+        """Return the WKT string of the polygon built from the coords.
+
+        Returns:
+            str: Well-Known Text representation.
+
+        Examples:
+            - Build the WKT of a unit square:
+                ```python
+                >>> from pyramids.feature.geometry import Coords
+                >>> Coords([(0, 0), (2, 0), (2, 2), (0, 2)]).to_polygon_wkt()
+                'POLYGON ((0 0, 2 0, 2 2, 0 2, 0 0))'
+
+                ```
+        """
+        return polygon_wkt(self._coords)
+
+    def to_points(self) -> list[Point]:
+        """Build a list of :class:`shapely.Point` from the wrapped coords.
+
+        Returns:
+            list[Point]: One Point per coordinate tuple.
+
+        Examples:
+            - Three coords yield three Points:
+                ```python
+                >>> from pyramids.feature.geometry import Coords
+                >>> [p.wkt for p in Coords([(0, 0), (1, 1), (2, 2)]).to_points()]
+                ['POINT (0 0)', 'POINT (1 1)', 'POINT (2 2)']
+
+                ```
+        """
+        return create_points(self._coords)
+
+    def to_geodataframe(self, crs: Any) -> GeoDataFrame:
+        """Build a :class:`GeoDataFrame` of points with the given CRS.
+
+        Args:
+            crs: Anything :class:`geopandas.GeoDataFrame` accepts —
+                an EPSG int, a WKT string, a Proj string, or
+                a :class:`pyproj.CRS` instance.
+
+        Returns:
+            GeoDataFrame: A frame with a single ``geometry`` column.
+
+        Examples:
+            - Build a GeoDataFrame of two points in WGS84:
+                ```python
+                >>> from pyramids.feature.geometry import Coords
+                >>> gdf = Coords([(10, 20), (30, 40)]).to_geodataframe("EPSG:4326")
+                >>> gdf.crs.to_epsg()
+                4326
+                >>> gdf.iloc[0].geometry.x
+                10.0
+
+                ```
+        """
+        return point_collection(self._coords, crs)
+
+
+class GeometryCoords:
+    """Coordinate extractor that dispatches on shapely geometry type.
+
+    Wraps a shapely geometry (``Point`` / ``LineString`` / ``Polygon`` /
+    ``MultiX`` / ``GeometryCollection``) and exposes ``.x`` / ``.y`` /
+    ``.xy`` properties that return the geometry's raw coordinates in
+    the appropriate shape:
+
+    * ``Point`` → scalar ``float`` for ``.x`` / ``.y``.
+    * ``LineString`` → flat list of vertex coordinates.
+    * ``Polygon`` → flat list of exterior-ring coordinates (interior
+      rings ignored).
+    * ``MultiPoint`` / ``MultiLineString`` / ``MultiPolygon`` →
+      list of per-part coordinate sequences.
+    * ``GeometryCollection`` → flat list merged across sub-geometries
+      (Points contribute scalars; LineString/Polygon contribute their
+      vertex lists, extended in iteration order).
+
+    Replaces the older free-function family
+    (``get_xy_coords`` / ``get_point_coords`` / ``get_line_coords`` /
+    ``get_poly_coords`` / ``multi_geom_handler`` /
+    ``geometry_collection_coords``) with a single object that knows
+    which dispatch to take and exposes ``.x`` / ``.y`` instead of a
+    stringly-typed ``coord_type="x"`` parameter.
+
+    Args:
+        geometry: A shapely geometry. Empty geometries raise on
+            access via :func:`get_coords`-style consumers; this
+            wrapper itself is non-validating at construction.
+
+    Examples:
+        - Point dispatch returns scalars:
+            ```python
+            >>> from shapely.geometry import Point
+            >>> from pyramids.feature.geometry import GeometryCoords
+            >>> g = GeometryCoords(Point(3.5, 4.25))
+            >>> g.x
+            3.5
+            >>> g.y
+            4.25
+
+            ```
+        - LineString dispatch returns vertex sequences:
+            ```python
+            >>> from shapely.geometry import LineString
+            >>> from pyramids.feature.geometry import GeometryCoords
+            >>> g = GeometryCoords(LineString([(0, 0), (1, 2), (2, 4)]))
+            >>> g.x
+            [0.0, 1.0, 2.0]
+            >>> g.y
+            [0.0, 2.0, 4.0]
+
+            ```
+        - Polygon dispatch returns the exterior ring (closed):
+            ```python
+            >>> from shapely.geometry import Polygon
+            >>> from pyramids.feature.geometry import GeometryCoords
+            >>> g = GeometryCoords(Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]))
+            >>> g.x
+            [0.0, 1.0, 1.0, 0.0, 0.0]
+
+            ```
+        - GeometryCollection merges across sub-geometries:
+            ```python
+            >>> from shapely.geometry import Point, LineString, GeometryCollection
+            >>> from pyramids.feature.geometry import GeometryCoords
+            >>> gc = GeometryCollection([Point(1, 2), LineString([(0, 0), (1, 1)])])
+            >>> GeometryCoords(gc).x
+            [1.0, 0.0, 1.0]
+
+            ```
+    """
+
+    __slots__ = ("_geometry",)
+
+    def __init__(self, geometry: Any):
+        self._geometry = geometry
+
+    @property
+    def geometry(self) -> Any:
+        """The wrapped shapely geometry (read-only)."""
+        return self._geometry
+
+    @property
+    def x(self):
+        """Coordinate(s) along the x-axis, dispatching by geometry type."""
+        return self._dispatch("x")
+
+    @property
+    def y(self):
+        """Coordinate(s) along the y-axis, dispatching by geometry type."""
+        return self._dispatch("y")
+
+    @property
+    def xy(self) -> tuple:
+        """``(x, y)`` pair returned in one call, useful for unpacking.
+
+        Examples:
+            - Unpack the (x, y) sequences from a LineString:
+                ```python
+                >>> from shapely.geometry import LineString
+                >>> from pyramids.feature.geometry import GeometryCoords
+                >>> x, y = GeometryCoords(LineString([(0, 0), (1, 2)])).xy
+                >>> x
+                [0.0, 1.0]
+                >>> y
+                [0.0, 2.0]
+
+                ```
+        """
+        return self.x, self.y
+
+    def _dispatch(self, axis: str):
+        gtype = self._geometry.geom_type.lower()
+        if gtype == "point":
+            return get_point_coords(self._geometry, axis)
+        if gtype == "linestring":
+            return get_line_coords(self._geometry, axis)
+        if gtype == "polygon":
+            return get_poly_coords(self._geometry, axis)
+        if gtype == "geometrycollection":
+            return geometry_collection_coords(self._geometry, axis)
+        if gtype.startswith("multi"):
+            return multi_geom_handler(self._geometry, axis, gtype)
+        # Fallback for unknown geometry types: try the linestring path,
+        # which uses geometry.coords.xy. If that raises AttributeError
+        # the underlying geometry simply doesn't expose coords and the
+        # caller sees the original error.
+        return get_xy_coords(self._geometry, axis)

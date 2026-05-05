@@ -22,7 +22,14 @@ from geopandas.geodataframe import GeoDataFrame
 from shapely.geometry.polygon import Polygon
 
 from pyramids.dataset import Dataset
-from pyramids.feature import FeatureCollection
+from pyramids.feature import (
+    FeatureCollection,
+    create_points,
+    create_polygon,
+    multi_geom_handler,
+    point_collection,
+    polygon_wkt,
+)
 
 pytestmark = pytest.mark.core
 
@@ -61,14 +68,14 @@ class TestCreatePolygon:
     """ARC-15: create_polygon is unconditional-Polygon; polygon_wkt gives WKT."""
 
     def test_create_polygon_returns_polygon(self, coordinates: List[Tuple[int, int]]):
-        result = FeatureCollection.create_polygon(coordinates)
+        result = create_polygon(coordinates)
         assert isinstance(result, Polygon)
 
     def test_polygon_wkt(
         self, coordinates: List[Tuple[int, int]], coordinates_wkt: str
     ):
         """``polygon_wkt`` returns the WKT string (no deprecation)."""
-        wkt = FeatureCollection.polygon_wkt(coordinates)
+        wkt = polygon_wkt(coordinates)
         assert isinstance(wkt, str)
         assert wkt == coordinates_wkt
 
@@ -84,7 +91,7 @@ class TestCreatePolygon:
         import pytest as _pt
 
         with _pt.raises(TypeError, match="wkt"):
-            FeatureCollection.create_polygon(coordinates, wkt=True)
+            create_polygon(coordinates, wkt=True)
 
     def test_create_polygon_too_few_vertices_raises(self):
         """C21: fewer than 3 vertices raises ``InvalidGeometryError``."""
@@ -93,7 +100,7 @@ class TestCreatePolygon:
         from pyramids.base._errors import InvalidGeometryError
 
         with _pt.raises(InvalidGeometryError, match="at least 3 vertices"):
-            FeatureCollection.create_polygon([(0, 0), (1, 1)])
+            create_polygon([(0, 0), (1, 1)])
 
     def test_create_polygon_zero_vertices_raises(self):
         """C21: empty input raises ``InvalidGeometryError``."""
@@ -102,7 +109,7 @@ class TestCreatePolygon:
         from pyramids.base._errors import InvalidGeometryError
 
         with _pt.raises(InvalidGeometryError, match="at least 3 vertices"):
-            FeatureCollection.create_polygon([])
+            create_polygon([])
 
     def test_create_polygon_exactly_three_vertices_ok(self):
         """C21 boundary: exactly 3 vertices is accepted.
@@ -112,7 +119,7 @@ class TestCreatePolygon:
             is the minimum-valid input and must construct a Polygon
             successfully.
         """
-        triangle = FeatureCollection.create_polygon([(0, 0), (1, 0), (0, 1)])
+        triangle = create_polygon([(0, 0), (1, 0), (0, 1)])
         assert isinstance(triangle, Polygon)
         assert not triangle.is_empty
 
@@ -121,12 +128,12 @@ class TestCreatePoint:
     """ARC-15: create_points is the list form; point_collection is the FC form."""
 
     def test_create_points_returns_list(self, coordinates: List[Tuple[int, int]]):
-        pts = FeatureCollection.create_points(coordinates)
+        pts = create_points(coordinates)
         assert isinstance(pts, list)
         assert len(pts) == len(coordinates)
 
     def test_point_collection_returns_fc(self, coordinates: List[Tuple[int, int]]):
-        fc = FeatureCollection.point_collection(coordinates, crs=4326)
+        fc = FeatureCollection(point_collection(coordinates, crs=4326))
         assert isinstance(fc, FeatureCollection)
         assert len(fc["geometry"]) == len(coordinates)
         assert fc.epsg == 4326
@@ -258,25 +265,25 @@ class TestMultiGeomHandler:
     def test_multi_points_with_multiple_point(
         self, multi_point_geom, point_coords: list
     ):
-        res = FeatureCollection._multi_geom_handler(multi_point_geom, "x", "MultiPoint")
+        res = multi_geom_handler(multi_point_geom, "x", "MultiPoint")
         assert all(np.isclose(res, [point_coords[0], point_coords[0]], rtol=0.00001))
 
     def test_multi_points_with_one_point(
         self, multi_point_one_point_geom, point_coords: list
     ):
-        res = FeatureCollection._multi_geom_handler(
+        res = multi_geom_handler(
             multi_point_one_point_geom, "x", "MultiPoint"
         )
         assert np.isclose(res[0], point_coords[0], rtol=0.00001)
 
     def test_multi_polygons(self, multi_polygon_geom, multi_polygon_coords_x: list):
-        res = FeatureCollection._multi_geom_handler(
+        res = multi_geom_handler(
             multi_polygon_geom, "x", "MultiPolygon"
         )
         assert res == multi_polygon_coords_x
 
     def test_multi_linestring(self, multi_line_geom, multi_linestring_coords_x: list):
-        res = FeatureCollection._multi_geom_handler(
+        res = multi_geom_handler(
             multi_line_geom, "x", "MULTILINESTRING"
         )
         assert res == multi_linestring_coords_x

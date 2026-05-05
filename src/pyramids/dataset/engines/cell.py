@@ -17,7 +17,7 @@ from hpc.indexing import get_indices2, locate_values
 from pandas import DataFrame
 
 from pyramids.dataset.engines._base import _Engine
-from pyramids.feature import FeatureCollection
+from pyramids.feature import FeatureCollection, create_points, create_polygon
 
 
 class Cell(_Engine):
@@ -218,7 +218,7 @@ class Cell(_Engine):
             )
             for i in range(len(x))
         ]
-        polygons = list(map(FeatureCollection.create_polygon, polys_coords))
+        polygons = list(map(create_polygon, polys_coords))
         gdf = gpd.GeoDataFrame(geometry=polygons)
         gdf.set_crs(epsg=epsg, inplace=True)
         gdf["id"] = gdf.index
@@ -301,7 +301,7 @@ class Cell(_Engine):
         epsg = self._ds._get_epsg()
 
         coords_tuples = list(zip(coords[:, 0], coords[:, 1]))
-        points = FeatureCollection.create_points(coords_tuples)
+        points = create_points(coords_tuples)
         gdf = gpd.GeoDataFrame(geometry=points)
         gdf.set_crs(epsg=epsg, inplace=True)
         gdf["id"] = gdf.index

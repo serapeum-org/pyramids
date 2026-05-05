@@ -28,7 +28,7 @@ from pyramids.base._utils import (
     numpy_to_gdal_dtype,
 )
 from pyramids.dataset.abstract_dataset import DEFAULT_NO_DATA_VALUE
-from pyramids.feature import FeatureCollection
+from pyramids.feature import FeatureCollection, create_polygon
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
@@ -937,7 +937,7 @@ class Bands(_Engine):
         """Get the bbox as a geodataframe with a polygon geometry."""
         x_min, y_min, x_max, y_max = self._calculate_bbox()
         coords = [(x_min, y_max), (x_min, y_min), (x_max, y_min), (x_max, y_max)]
-        poly = FeatureCollection.create_polygon(coords)
+        poly = create_polygon(coords)
         gdf = gpd.GeoDataFrame(geometry=[poly])
         gdf.set_crs(epsg=self._ds.epsg, inplace=True)
         return gdf
