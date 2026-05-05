@@ -35,6 +35,7 @@ from shapely.geometry.multipoint import MultiPoint
 from shapely.geometry.multipolygon import MultiPolygon
 
 from pyramids.base._errors import InvalidGeometryError
+from pyramids.base.crs import reproject_coordinates
 
 
 def get_xy_coords(geometry: Any, coord_type: str) -> list:
@@ -877,6 +878,67 @@ class Coords:
                 ```
         """
         return point_collection(self._coords, crs)
+
+    def reproject(
+        self,
+        *,
+        from_crs: Any,
+        to_crs: Any,
+        precision: int | None = 6,
+    ) -> Coords:
+        """Return a new :class:`Coords` reprojected from ``from_crs`` to ``to_crs``.
+
+        Wraps :func:`pyramids.base.crs.reproject_coordinates`. Lets
+        callers chain reprojection with the other ``Coords`` builders
+        without having to unzip / re-zip parallel x/y lists by hand.
+
+        Args:
+            from_crs: Source CRS — anything :func:`pyproj.Transformer.from_crs`
+                accepts (EPSG int, authority string, WKT, Proj4,
+                :class:`pyproj.CRS`).
+            to_crs: Destination CRS, same accepted forms as ``from_crs``.
+            precision: Number of decimal places to round the destination
+                coordinates to. ``None`` preserves full precision.
+                Defaults to 6.
+
+        Returns:
+            Coords: A new instance with reprojected coordinates. The
+            original instance is not mutated.
+
+        Examples:
+            - Reproject WGS84 lon/lat to Web Mercator and chain into a
+              polygon:
+                ```python
+                >>> from pyramids.feature.geometry import Coords
+                >>> ring = Coords([(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)])
+                >>> projected = ring.reproject(from_crs=4326, to_crs=3857)
+                >>> [(round(x, 0), round(y, 0)) for x, y in projected]
+                [(0.0, 0.0), (111319.0, 0.0), (111319.0, 111325.0)]
+                >>> projected.to_polygon().wkt.startswith("POLYGON")
+                True
+
+                ```
+            - An empty Coords reprojects to an empty Coords:
+                ```python
+                >>> from pyramids.feature.geometry import Coords
+                >>> empty = Coords([]).reproject(from_crs=4326, to_crs=3857)
+                >>> len(empty)
+                0
+
+                ```
+        """
+        if not self._coords:
+            return Coords([])
+        xs = [c[0] for c in self._coords]
+        ys = [c[1] for c in self._coords]
+        new_xs, new_ys = reproject_coordinates(
+            xs,
+            ys,
+            from_crs=from_crs,
+            to_crs=to_crs,
+            precision=precision,
+        )
+        return Coords(list(zip(new_xs, new_ys)))
 
 
 class GeometryCoords:
