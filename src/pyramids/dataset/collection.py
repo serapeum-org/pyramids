@@ -254,22 +254,79 @@ class DatasetCollection:
         files: list[str] | None = None,
         *,
         meta: RasterMeta | None = None,
+        datasets: list[Dataset] | None = None,
     ):
         """Construct DatasetCollection object.
 
         Args:
-            src: Template :class:`~pyramids.dataset.Dataset`.
+            src: Template :class:`~pyramids.dataset.Dataset` (also
+                serves as the timestep when no per-file Datasets are
+                given).
             time_length: Number of timesteps in the collection.
             files: Optional list of file paths backing each timestep.
+                When given, per-timestep ops open each path as a lazy
+                :class:`~pyramids.dataset.Dataset` on first access.
             meta: Optional :class:`RasterMeta` snapshot. When omitted,
                 a snapshot is derived eagerly from `src` so downstream
                 lazy paths can access geo metadata without
                 reopening the template every call.
+            datasets: Optional list of pre-opened
+                :class:`~pyramids.dataset.Dataset` handles, one per
+                timestep. When given, takes precedence over `files`
+                and `time_length` for per-timestep access. Used
+                internally by :meth:`to_crs` / :meth:`crop` /
+                :meth:`align` to wrap the result of per-timestep ops
+                without re-opening any files.
         """
         self._base = src
         self._files = files
         self._time_length = time_length
         self._meta = meta if meta is not None else RasterMeta.from_dataset(src)
+        # Cached lazy list of per-timestep Datasets. Populated on
+        # first access via the `datasets` property: from `datasets=`
+        # (caller-provided), then `files=` (open each path), then a
+        # `[src] * time_length` fallback for legacy call sites that
+        # don't pass either.
+        self._datasets: list[Dataset] | None = (
+            list(datasets) if datasets is not None else None
+        )
+
+    def __getstate__(self):
+        """Pickle state — drop the lazy `_datasets` cache.
+
+        Each `Dataset` in the cache wraps a live gdal handle that
+        cannot be pickled. Stripping the cache forces the
+        post-unpickle instance to re-open files on demand. The
+        on-disk paths in `_files` are the canonical truth.
+        """
+        state = self.__dict__.copy()
+        state["_datasets"] = None
+        return state
+
+    @property
+    def datasets(self) -> list[Dataset]:
+        """Lazy list of per-timestep :class:`Dataset` handles.
+
+        Populates on first access. Three sources, in priority order:
+
+        1. Caller-provided `datasets=` argument to ``__init__``
+           (used by per-timestep ops to wrap their results).
+        2. `files=` argument — each path opened as a lazy gdal
+           handle via :meth:`Dataset.read_file`.
+        3. Fallback for legacy ``DatasetCollection(src, time_length=N)``
+           constructions with neither ``files`` nor ``datasets`` —
+           the template ``src`` is replicated ``time_length`` times.
+
+        The cache is per-instance and lives until the collection is
+        garbage-collected. It is dropped on pickle (see
+        :meth:`__getstate__`).
+        """
+        if self._datasets is None:
+            if self._files is not None:
+                self._datasets = [Dataset.read_file(str(p)) for p in self._files]
+            else:
+                self._datasets = [self._base] * self._time_length
+        return self._datasets
 
     def __str__(self):
         """__str__."""
@@ -849,123 +906,222 @@ class DatasetCollection:
 
         return cls(sample, len(files), files)
 
-    def open_multi_dataset(self, band: int = 0) -> None:
-        """open_DatasetCollection.
-
-        Read values from the given band as arrays for all files.
-
-        Args:
-            band (int): Index of the band you want to read. Default is 0.
-
-        Returns:
-            None: Loads values into the internal 3D array [time, rows, cols] in-place.
-        """
-        # check the given band number
-        if not hasattr(self, "base"):
-            raise ValueError(
-                "please use the read_multiple_files method to get the files (tiff/ascii) in the"
-                "dataset directory"
-            )
-        if band > self.base.band_count - 1:
-            raise ValueError(
-                f"the raster has only {self.base.band_count} check the given band number"
-            )
-        # fill the array with no_data_value data
-        self._values = np.ones(
-            (
-                self.time_length,
-                self.base.rows,
-                self.base.columns,
-            )
-        )
-        self._values[:, :, :] = np.nan
-
-        for i, file_i in enumerate(self.files):
-            # read the tif file
-            raster_i = gdal.Open(f"{file_i}")
-            self._values[i, :, :] = raster_i.GetRasterBand(band + 1).ReadAsArray()
-
     @property
     def values(self) -> np.ndarray:
-        """Values.
+        """Materialise the per-timestep arrays as a 3D numpy cube.
 
-        - The attribute where the dataset array is stored.
-        - the 3D numpy array, [dataset length, rows, cols], [dataset length, lons, lats]
+        **Derived, not cached.** Every access reads each timestep's
+        first band via :meth:`Dataset.read_array` and stacks the
+        result into ``(time, rows, cols)``. There is no stored cube
+        that can drift from the canonical :attr:`datasets` source;
+        callers that want repeated access should hold the returned
+        array locally.
+
+        Returns:
+            np.ndarray: A fresh ``(time_length, rows, cols)`` float
+                array each call.
         """
-        return self._values
+        return np.stack(
+            [ds.read_array(band=0) for ds in self.datasets], axis=0
+        )
 
     @values.setter
-    def values(self, val):
-        """Values.
+    def values(self, val: np.ndarray) -> None:
+        """Replace per-timestep Datasets with MEM Datasets built from a 3D array.
 
-        - setting the data (array) does not allow different dimension from the dimension that has been
-        defined in creating the dataset.
+        Each slice ``val[i]`` becomes a new MEM-backed
+        :class:`~pyramids.dataset.Dataset` cloned from the base
+        template's georef with the slice written into band 1.
+        Replaces — does not merge with — any current
+        :attr:`datasets`. ``_files`` is cleared because the in-memory
+        result no longer corresponds to the disk paths.
+
+        Args:
+            val: A ``(time_length, rows, cols)`` numpy array.
+
+        Raises:
+            ValueError: If ``val`` is not 3D, or if its first axis
+                length disagrees with the existing :attr:`time_length`
+                (when the collection has already been sized).
         """
-        # if the attribute is defined before check the dimension
-        if hasattr(self, "values"):
-            if self._values.shape != val.shape:
-                raise ValueError(
-                    f"The dimension of the new data: {val.shape}, differs from the dimension of the "
-                    f"original dataset: {self._values.shape}, please redefine the base Dataset and "
-                    f"dataset_length first"
-                )
+        if val.ndim != 3:
+            raise ValueError(
+                f"values must be a 3D array (time, rows, cols); got "
+                f"shape {val.shape}"
+            )
+        if (
+            self._datasets is not None
+            and self._datasets
+            and val.shape[0] != self._time_length
+        ):
+            raise ValueError(
+                f"The dimension of the new data: {val.shape}, differs "
+                f"from the dimension of the original dataset: "
+                f"({self._time_length}, {self.rows}, {self.columns}); "
+                f"please redefine the base Dataset and dataset_length first"
+            )
+        # Build a fresh MEM Dataset per timestep using the INPUT
+        # dtype (not the base template's). Cloning the base preserves
+        # geo-ref but forces a dtype cast that silently lossy-rounds
+        # if the base is e.g. float32 and the input is float64.
+        # Using ``Dataset.create_from_array`` gives us the input
+        # dtype back verbatim and reuses the base's georef explicitly.
+        from pyramids.dataset.dataset import Dataset as _Dataset
 
-        self._values = val
+        new_datasets = []
+        for i in range(val.shape[0]):
+            ds = _Dataset.create_from_array(
+                arr=val[i],
+                geo=self._base.geotransform,
+                epsg=self._base.epsg,
+                no_data_value=self._base.no_data_value[0],
+            )
+            new_datasets.append(ds)
+        self._datasets = new_datasets
+        self._time_length = val.shape[0]
+        self._files = None
 
-    def __getitem__(self, key):
-        """Getitem."""
-        if not hasattr(self, "values"):
-            raise AttributeError("Please use the read_dataset method to read the data")
-        return self._values[key, :, :]
+    def open_multi_dataset(self, band: int = 0) -> None:
+        """Deprecated no-op (legacy API).
 
-    def __setitem__(self, key, value: np.ndarray):
-        """Setitem."""
-        if not hasattr(self, "values"):
-            raise AttributeError("Please use the read_dataset method to read the data")
-        self._values[key, :, :] = value
+        The eager ``_values`` cube this method used to populate is
+        gone. Per-timestep ``Dataset`` handles open lazily via
+        :attr:`datasets` on first access; the legacy ``values`` /
+        ``__getitem__`` / ``head`` / ``first`` views materialise on
+        demand from those handles. There is nothing for this method
+        to do.
+
+        Kept as a callable shim so legacy code that does
+        ``dc.open_multi_dataset()`` before reading ``.values`` still
+        runs without modification. New code should not call it.
+
+        Args:
+            band: Ignored. The full per-timestep band selection
+                happens inside :meth:`Dataset.read_array(band=...)`.
+        """
+        del band  # unused
+        return None
+
+    def __getitem__(self, key) -> np.ndarray:
+        """Return one or more timestep arrays, indexed along the time axis.
+
+        Equivalent to ``self.values[key]`` but with one slight
+        optimisation: an integer ``key`` reads only that timestep's
+        Dataset (never materialises the full cube).
+
+        Args:
+            key: Integer index or slice along the time axis.
+
+        Returns:
+            np.ndarray: A 2D array (single int) or a 3D array (slice).
+        """
+        if isinstance(key, int):
+            return self.datasets[key].read_array(band=0)
+        return self.values[key]
+
+    def __setitem__(self, key: int, value: np.ndarray) -> None:
+        """Replace a single timestep's Dataset with a MEM Dataset built from ``value``.
+
+        Args:
+            key (int): Integer index along the time axis.
+            value (np.ndarray): A 2D ``(rows, cols)`` array.
+
+        Raises:
+            TypeError: If ``key`` is not an integer (slice assignment
+                is not supported; rebuild the collection instead).
+        """
+        if not isinstance(key, int):
+            raise TypeError(
+                f"DatasetCollection.__setitem__ only accepts an integer "
+                f"index along the time axis; got {type(key).__name__}. "
+                f"Rebuild the collection if you need bulk replacement."
+            )
+        # Materialise the cache (so we have a list to modify) without
+        # building the full cube. Use ``create_from_array`` so the
+        # input array's dtype is preserved (CreateCopy on the base
+        # would cast through whatever dtype the base happened to use).
+        from pyramids.dataset.dataset import Dataset as _Dataset
+
+        datasets = self.datasets
+        datasets[key] = _Dataset.create_from_array(
+            arr=value,
+            geo=self._base.geotransform,
+            epsg=self._base.epsg,
+            no_data_value=self._base.no_data_value[0],
+        )
+        # The mutation breaks the disk correspondence for that slot;
+        # if the user mutates any timestep, the lazy reductions can no
+        # longer trust ``_files``. Drop the path list so they fall
+        # through to the in-memory handles instead.
+        self._files = None
 
     def __len__(self):
-        """Length of the DatasetCollection."""
-        return self._values.shape[0]
+        """Number of timesteps in the collection."""
+        return self._time_length
 
     def __iter__(self):
-        """Iterate over the DatasetCollection."""
-        return iter(self._values[:])
+        """Iterate over per-timestep arrays (matches the legacy API)."""
+        for ds in self.datasets:
+            yield ds.read_array(band=0)
 
-    def head(self, n: int = 5):
-        """First 5 Datasets."""
-        return self._values[:n, :, :]
+    def head(self, n: int = 5) -> np.ndarray:
+        """First ``n`` timestep arrays as a 3D numpy slice.
 
-    def tail(self, n: int = -5):
-        """Last 5 Datasets."""
-        return self._values[n:, :, :]
+        Args:
+            n (int): Number of timesteps. Defaults to 5.
 
-    def first(self):
-        """First Dataset."""
-        return self._values[0, :, :]
+        Returns:
+            np.ndarray: ``(min(n, time_length), rows, cols)`` array.
+        """
+        return self.values[:n]
 
-    def last(self):
-        """Last Dataset."""
-        return self._values[-1, :, :]
+    def tail(self, n: int = -5) -> np.ndarray:
+        """Last ``-n`` timestep arrays as a 3D numpy slice.
 
-    def iloc(self, i):
-        """iloc.
+        Matches the legacy signature: a NEGATIVE ``n`` (the default
+        ``-5``) means "last 5". Implementation simply does
+        ``self.values[n:]``, so a positive ``n`` would skip the first
+        ``n`` rows instead — that's the legacy behaviour and left as
+        is for back-compat.
 
-            - Access dataset array using index.
+        Args:
+            n (int): Negative integer giving the offset from the
+                end. Defaults to ``-5`` (last 5).
+
+        Returns:
+            np.ndarray: ``(abs(n), rows, cols)`` array (when ``n < 0``).
+        """
+        return self.values[n:]
+
+    def first(self) -> np.ndarray:
+        """First timestep array (2D).
+
+        Cheaper than ``self.values[0]`` because it only reads one
+        timestep instead of the full cube.
+        """
+        return self.datasets[0].read_array(band=0)
+
+    def last(self) -> np.ndarray:
+        """Last timestep array (2D).
+
+        Cheaper than ``self.values[-1]`` because it only reads one
+        timestep instead of the full cube.
+        """
+        return self.datasets[-1].read_array(band=0)
+
+    def iloc(self, i: int) -> Dataset:
+        """Return the ``Dataset`` at position ``i``.
 
         Args:
             i (int):
-                Index of the dataset to access.
+                Index of the timestep to access.
 
         Returns:
-            Dataset: The dataset at position `i`.
+            Dataset: The lazy ``Dataset`` handle at position ``i``.
+            Pixel values are not loaded — they're read on demand when
+            the caller invokes a method on the returned Dataset.
         """
-        if not hasattr(self, "values"):
-            raise DatasetNotFoundError("please read the dataset first")
-        arr = self._values[i, :, :]
-        dst = gdal.GetDriverByName("MEM").CreateCopy("", self.base.raster, 0)
-        dst.GetRasterBand(1).WriteArray(arr)
-        return Dataset(dst)
+        return self.datasets[i]
 
     def plot(
         self, band: int = 0, exclude_value: Any | None = None, **kwargs: Any
@@ -1017,7 +1173,13 @@ class DatasetCollection:
         )
         from cleopatra.array_glyph import ArrayGlyph
 
-        data = self.values
+        # Materialise the cube on demand for plotting. ArrayGlyph
+        # expects a single (time, rows, cols) numpy array; reading
+        # each Dataset's band into one stacked array is fine for a
+        # plot call (the user explicitly asked to render).
+        data = np.stack(
+            [ds.read_array(band=band) for ds in self.datasets], axis=0
+        )
 
         exclude_value = (
             [self.base.no_data_value[band], exclude_value]
@@ -1148,18 +1310,6 @@ class DatasetCollection:
         # the `values` property: the property getter raises AttributeError
         # on unpopulated collections, which hasattr catches silently, but
         # a future refactor that changes the exception type would break
-        # the guard. Matches the pattern used by `iloc` elsewhere in this
-        # module and correctly accepts either code path that populates
-        # `_values` (open_multi_dataset OR direct `.values = arr` assignment).
-        if not hasattr(self, "_values"):
-            raise DatasetNotFoundError(
-                "to_cog_stack requires the per-slice arrays to be loaded. "
-                "Populate them by calling open_multi_dataset(band=...) OR "
-                "by assigning directly to `.values`. Example:\n"
-                "    dc = DatasetCollection.read_multiple_files(...)\n"
-                "    dc.open_multi_dataset(band=0)\n"
-                "    dc.to_cog_stack('out/')"
-            )
         if "{t}" in pattern:
             raise ValueError(
                 "{t} placeholder not yet supported; DatasetCollection has "
@@ -1184,35 +1334,33 @@ class DatasetCollection:
 
     def _apply_per_timestep(
         self, method_name: str, *args: Any, **kwargs: Any
-    ) -> tuple[np.ndarray, Dataset]:
+    ) -> list[Dataset]:
         """Apply `Dataset.<method_name>(*args, **kwargs)` to each timestep.
 
-        Iterates over `self.iloc(i)`, dispatches the named per-timestep
-        Dataset method, reads its output array, and assembles the results
-        into a freshly-allocated `(time, rows, cols)` array. Returns the
-        assembled array and the last per-timestep `Dataset` so callers
-        can reuse it as the new `_base` template.
+        Iterates over the per-timestep ``Dataset`` handles in
+        :attr:`datasets` and dispatches the named method. Each
+        per-timestep call returns a new ``Dataset`` (typically a
+        MEM-backed result of an internal :func:`gdal.Warp`); the
+        list of those results is wrapped in a new collection by
+        :meth:`_finalize_per_timestep_result`.
+
+        Nothing materialises the full cube as a numpy array — each
+        ``Dataset.<op>`` already streams blocks through GDAL.
 
         Args:
             method_name: Name of the method to call on each timestep
-                Dataset (e.g. `"to_crs"`, `"crop"`, `"align"`).
+                Dataset (e.g. ``"to_crs"``, ``"crop"``, ``"align"``).
             *args, **kwargs: Forwarded to the per-timestep call.
 
         Returns:
-            Tuple of `(array, last_dst)` where `array` has shape
-            `(self.time_length, rows, cols)` matching the rows/cols of
-            the last per-timestep result.
+            list[Dataset]: One ``Dataset`` per timestep — each is the
+                output of calling the named method on the corresponding
+                input handle.
         """
-        array: np.ndarray | None = None
-        dst: Dataset | None = None
-        for i in range(self.time_length):
-            src = self.iloc(i)
-            dst = getattr(src, method_name)(*args, **kwargs)
-            arr = dst.read_array()
-            if i == 0:
-                array = np.full((self.time_length, arr.shape[0], arr.shape[1]), np.nan)
-            array[i, :, :] = arr
-        return array, dst  # type: ignore[return-value]
+        return [
+            getattr(ds, method_name)(*args, **kwargs)
+            for ds in self.datasets
+        ]
 
     def to_crs(
         self,
@@ -1256,13 +1404,13 @@ class DatasetCollection:
 
               ```
         """
-        array, dst = self._apply_per_timestep(
+        new_datasets = self._apply_per_timestep(
             "to_crs",
             to_epsg,
             method=method,
             maintain_alignment=maintain_alignment,
         )
-        return self._finalize_per_timestep_result(array, dst, inplace=inplace)
+        return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
 
     def crop(
         self, mask: Dataset | str, inplace: bool = False, touch: bool = True
@@ -1296,8 +1444,8 @@ class DatasetCollection:
 
               ```
         """
-        array, dst = self._apply_per_timestep("crop", mask, touch=touch)
-        return self._finalize_per_timestep_result(array, dst, inplace=inplace)
+        new_datasets = self._apply_per_timestep("crop", mask, touch=touch)
+        return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
 
     def align(
         self, alignment_src: Dataset, inplace: bool = False
@@ -1328,25 +1476,38 @@ class DatasetCollection:
         """
         if not isinstance(alignment_src, Dataset):
             raise TypeError("alignment_src input should be a Dataset object")
-        array, dst = self._apply_per_timestep("align", alignment_src)
-        return self._finalize_per_timestep_result(array, dst, inplace=inplace)
+        new_datasets = self._apply_per_timestep("align", alignment_src)
+        return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
 
     def _finalize_per_timestep_result(
-        self, array: np.ndarray, dst: Dataset, *, inplace: bool
+        self,
+        new_datasets: list[Dataset],
+        *,
+        inplace: bool,
     ) -> DatasetCollection | None:
-        """Wire the assembled array into either `self` or a new collection.
+        """Wire a list of new per-timestep Datasets into a collection.
 
         Centralises the inplace / non-inplace contract used by
         :meth:`to_crs`, :meth:`crop`, and :meth:`align` so the three
         share a single decision point.
+
+        Args:
+            new_datasets: One ``Dataset`` per timestep — the output of
+                the per-timestep op.
+            inplace: When True, replace this collection's handles in
+                place (and rebind ``_base`` to the first new handle).
+                When False, return a new collection wrapping the list.
         """
         if inplace:
-            self._values = array
-            self._base = dst
+            self._datasets = new_datasets
+            self._base = new_datasets[0]
+            self._files = None  # In-memory results no longer correspond to disk paths.
             return None
-        result = DatasetCollection(dst, time_length=self.time_length)
-        result._values = array
-        return result
+        return DatasetCollection(
+            new_datasets[0],
+            time_length=len(new_datasets),
+            datasets=new_datasets,
+        )
 
     @staticmethod
     def merge(
@@ -1399,37 +1560,52 @@ class DatasetCollection:
         )  # '-separate'
         gdal_merge.main(parameters)
 
-    def apply(self, ufunc: Callable) -> None:
-        """apply.
+    def apply(
+        self, ufunc: Callable, *, inplace: bool = False
+    ) -> DatasetCollection | None:
+        """Apply a function to every timestep raster.
 
-        apply a function on each raster in the DatasetCollection.
+        Each timestep ``Dataset.apply(ufunc)`` runs over the
+        in-domain cells of its band; the result is a new
+        ``Dataset``. The list of new ``Datasets`` is wrapped in a
+        new collection (out-of-place) or replaces this collection's
+        handles (inplace).
+
+        Out-of-place is the default — the previous in-place
+        signature mutated a shared numpy cube; with the
+        ``Dataset``-list backing there is no shared cube to mutate
+        and per-timestep ops always produce a new ``Dataset``.
 
         Args:
             ufunc (Callable):
                 Callable universal function (builtin or user defined). See
                 https://numpy.org/doc/stable/reference/ufuncs.html
                 To create a ufunc from a normal function: https://numpy.org/doc/stable/reference/generated/numpy.frompyfunc.html
+            inplace (bool):
+                When True, replace this collection's per-timestep
+                ``Dataset`` handles with the new outputs and return
+                ``None``. When False (default), return a new
+                ``DatasetCollection`` wrapping the new outputs.
 
         Returns:
-            None
+            DatasetCollection | None: New collection when
+            ``inplace=False``; ``None`` when ``inplace=True``.
 
         Examples:
             - Apply a simple modulo operation to each value:
 
               ```python
               >>> def func(val):
-              >>>    return val%2
+              ...    return val % 2
               >>> ufunc = np.frompyfunc(func, 1, 1)
-              >>> dataset.apply(ufunc)
+              >>> result = collection.apply(ufunc)  # doctest: +SKIP
 
               ```
         """
         if not callable(ufunc):
             raise TypeError("The Second argument should be a function")
-        arr = self.values
-        no_data_value = self.base.no_data_value[0]
-        domain = inside_domain(arr, no_data_value)
-        arr[domain] = ufunc(arr[domain])
+        new_datasets = self._apply_per_timestep("apply", ufunc)
+        return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
 
     def overlay(
         self,
@@ -1450,18 +1626,12 @@ class DatasetCollection:
                 intersected values in the maps from the path.
         """
         values: dict[Any, list[float]] = {}
-        for i in range(self.time_length):
-            src = self.iloc(i)
-            dict_i = src.overlay(classes_map, exclude_value)
+        for ds in self.datasets:
+            dict_i = ds.overlay(classes_map, exclude_value)
 
             # these are the distinct values from the BaseMap which are keys in the
             # values dict with each one having a list of values
-            classes = list(dict_i.keys())
-
-            for class_i in classes:
-                if class_i not in values.keys():
-                    values[class_i] = list()
-
-                values[class_i] = values[class_i] + dict_i[class_i]
+            for class_i, vals in dict_i.items():
+                values.setdefault(class_i, []).extend(vals)
 
         return values
