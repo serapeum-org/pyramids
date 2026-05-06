@@ -115,8 +115,11 @@ def _flox_groupby_reduce(
     from flox import groupby_reduce
 
     func_name = f"nan{op_name}" if skipna else op_name
+    moved = np.moveaxis(data, 0, -1) if hasattr(data, "ndim") else data
+    if hasattr(moved, "rechunk"):
+        moved = moved.rechunk({moved.ndim - 1: moved.shape[-1]})
     grouped_result, groups = groupby_reduce(
-        data,
+        moved,
         label_array,
         func=func_name,
         expected_groups=ordered_labels,
@@ -126,7 +129,7 @@ def _flox_groupby_reduce(
     out: dict = {}
     for label in ordered_labels:
         idx = index_by_label[label]
-        out[label] = materialised[idx]
+        out[label] = materialised[..., idx]
     return out
 
 
@@ -1335,7 +1338,16 @@ class DatasetCollection:
 
         for i in range(self.time_length):
             src = self.iloc(i)
-            src.to_file(path[i], band=band)
+            arr = src.read_array()
+            transient = Dataset.create_from_array(
+                arr=arr,
+                geo=src.geotransform,
+                epsg=src.epsg,
+                no_data_value=src.no_data_value[0],
+            )
+            transient.to_file(path[i], band=band)
+            transient.close()
+        self._datasets = None
 
     def to_cog_stack(
         self,
