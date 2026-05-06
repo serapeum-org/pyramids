@@ -448,7 +448,7 @@ class Analysis(_Engine):
         classes_map,
         band: int = 0,
         exclude_value: float | int | None = None,
-    ) -> dict[list[float], list[float]]:
+    ) -> dict[float, list[float]]:
         """Overlay.
 
         Overlay method extracts all the values in the dataset for each class in the given class map.
