@@ -801,7 +801,7 @@ class RasterBase(ABC):
         classes_map,
         band: int = 0,
         exclude_value: float | int | None = None,
-    ) -> dict[list[float], list[float]]:
+    ) -> dict[float, list[float]]:
         """Overlay.
 
             overlay extracts all the values in raster file if you have two maps one with classes, and the other map
