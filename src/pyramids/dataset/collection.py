@@ -1719,7 +1719,7 @@ class DatasetCollection:
         self,
         classes_map,
         exclude_value: float | int | None = None,
-    ) -> dict[list[float], list[float]]:
+    ) -> dict[float, list[float]]:
         """Overlay.
 
         Args:
@@ -1729,7 +1729,7 @@ class DatasetCollection:
                 Values to exclude from extracted values. Defaults to None.
 
         Returns:
-            dict[list[float], list[float]]:
+            dict[float, list[float]]:
                 Dictionary with a list of values in the basemap as keys and for each key a list of all the
                 intersected values in the maps from the path.
         """
