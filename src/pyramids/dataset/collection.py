@@ -16,6 +16,7 @@ from pyramids.base._errors import DatasetNotFoundError, OptionalPackageDoesNotEx
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._raster_meta import RasterMeta
 from pyramids.base._utils import import_cleopatra, import_flox, import_zarr
+from pyramids.dataset._reduce_ops import resolve_dask_op
 from pyramids.dataset._stac import from_stac as _from_stac
 from pyramids.dataset.abstract_dataset import CATALOG
 from pyramids.dataset.dataset import Dataset
@@ -114,7 +115,7 @@ def _flox_groupby_reduce(
     )
     from flox import groupby_reduce
 
-    func_name = f"nan{op_name}" if skipna else op_name
+    _, func_name = resolve_dask_op(op_name, skipna=skipna)
     moved = np.moveaxis(data, 0, -1) if hasattr(data, "ndim") else data
     if hasattr(moved, "rechunk"):
         moved = moved.rechunk({moved.ndim - 1: moved.shape[-1]})
@@ -145,10 +146,7 @@ def _fallback_groupby_reduce(
     Kept so `groupby` works in environments that skip the
     `[lazy]` extra's flox optional.
     """
-    import dask.array as da
-
-    func_name = f"nan{op_name}" if skipna else op_name
-    func = getattr(da, func_name)
+    func, _ = resolve_dask_op(op_name, skipna=skipna)
     out: dict = {}
     for label in ordered_labels:
         positions = np.where(label_array == label)[0]
@@ -530,17 +528,8 @@ class DatasetCollection:
 
     def _reduce(self, op_name: str, *, skipna: bool) -> np.ndarray:
         """Shared reduction dispatcher over the time axis."""
-        data = self.data
-        try:
-            import dask.array as da
-        except ImportError as exc:  # pragma: no cover
-            raise ImportError(
-                "DatasetCollection reductions require the optional 'dask' "
-                "dependency. Install with: pip install 'pyramids-gis[lazy]'"
-            ) from exc
-        func_name = f"nan{op_name}" if skipna else op_name
-        func = getattr(da, func_name)
-        result = func(data, axis=0)
+        func, _ = resolve_dask_op(op_name, skipna=skipna)
+        result = func(self.data, axis=0)
         return np.asarray(result.compute())
 
     def mean(self, *, skipna: bool = True) -> np.ndarray:

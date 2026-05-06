@@ -539,14 +539,11 @@ class NetCDF(Dataset):
         if chunks is None:
             result = super().read_array(band=band, window=window)
             if unpack:
-                scale = getattr(self, "_scale", None)
-                offset = getattr(self, "_offset", None)
-                if scale is not None or offset is not None:
-                    result = result.astype(np.float64)
-                    if scale is not None:
-                        result = result * scale
-                    if offset is not None:
-                        result = result + offset
+                result = _apply_unpack(
+                    result,
+                    getattr(self, "_scale", None),
+                    getattr(self, "_offset", None),
+                )
         else:
             parent = self._parent_nc if self._parent_nc is not None else self
             path = parent._file_name
