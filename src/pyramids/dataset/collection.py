@@ -245,7 +245,103 @@ def _read_time_step(path: str) -> np.ndarray:
 
 
 class DatasetCollection:
-    """DatasetCollection."""
+    """Time-stacked collection of co-registered rasters.
+
+    Holds N rasters that share a spatial template (rows, columns,
+    cell size, CRS) and exposes them as a single logical "cube"
+    along a time axis. Used for multi-temporal analysis (a daily
+    precipitation series, an annual NDVI stack, a model output
+    forecast, …).
+
+    The class operates through **two distinct backing paths**, each
+    serving a different concern. Understanding which methods route
+    through which is the key to using the class correctly.
+
+    Path A — per-timestep ``gdal.Dataset`` handles (``self._datasets``)
+        Backing store is a list of lazy ``Dataset`` instances, one
+        per timestep, populated by the ``datasets`` property on first
+        access. Each ``Dataset.read_file(path)`` opens a gdal handle
+        but does not read pixels — the cost per timestep is one file
+        descriptor + a small metadata read. Pixel data flows
+        block-by-block through GDAL when downstream methods invoke
+        ``read_array`` / ``crop`` / ``to_crs`` etc.
+
+        Methods that route through Path A:
+
+        * ``iloc(i)``, ``__getitem__``, ``__setitem__``,
+          ``head``, ``tail``, ``first``, ``last``,
+          ``values`` (read-side: derived per-call cube),
+          ``values=`` (write-side: rebuilds the list with
+          ``Dataset.create_from_array(...)`` per slice).
+        * Per-timestep ops: ``crop``, ``to_crs``, ``align``,
+          ``apply``, ``overlay``, ``to_file``, ``to_cog_stack``.
+          Each loops the handles via ``_apply_per_timestep`` and
+          produces a new collection wrapping the per-timestep
+          results.
+        * Visualisation: ``plot`` materialises the cube on demand
+          via ``np.stack([ds.read_array() for ds in datasets])``.
+
+        Works for both **file-backed** and **in-memory** collections.
+        After a mutating op (in-place ``crop``, ``apply``,
+        ``__setitem__``, ``values =``), the collection is in-memory
+        and Path A continues to work because the new ``Dataset``
+        instances live in the GDAL ``MEM`` driver.
+
+    Path B — dask graph over file paths (``self._files``)
+        Backing store is a list of file path strings. The ``data``
+        property assembles a ``dask.array.Array`` of shape
+        ``(time, bands, rows, cols)`` from
+        ``[dask.delayed(_read_time_step)(p) for p in self._files]``.
+        Workers re-open each path on demand via a process-cached
+        ``CachingFileManager`` — gdal handles never cross the
+        pickle boundary, only path strings do. This is what makes
+        the path scale to ``dask.distributed`` clusters and to
+        cubes larger than RAM.
+
+        Methods that route through Path B:
+
+        * Reductions over the time axis: ``mean``, ``sum``, ``min``,
+          ``max``, ``std``, ``var`` (all via ``_reduce``);
+          ``groupby(...).<reduction>(...)``.
+        * Out-of-process writes: ``to_zarr`` (streams the cube to
+          a Zarr store; never holds it all in RAM), ``to_kerchunk``
+          (pure metadata pass; reads only a few bytes per file).
+
+        Works for **file-backed** collections only. After a mutating
+        op clears ``_files``, Path B raises a clean
+        ``RuntimeError("DatasetCollection.data requires a
+        file-backed collection. Use DatasetCollection.from_files(...)
+        to construct one.")``.
+
+    Boundary between the two paths
+        The two paths read different attributes (``_datasets`` vs
+        ``_files``) — they are not parallel views of the same store
+        and cannot drift. The collection moves from "file-backed +
+        usable from both paths" to "in-memory + Path A only" the
+        moment a mutating op runs. The transition is explicit
+        (``_files = None``) and Path B raises clearly when called
+        on an in-memory collection. There is no silent disagreement.
+
+        The cost split is also explicit:
+
+        * Path A holds N file descriptors for the lifetime of the
+          collection; reads happen synchronously per-method.
+        * Path B holds zero handles at rest; reads happen inside
+          dask tasks (cached per-worker via
+          ``_READ_TIME_STEP_MANAGERS``) and can be parallelised.
+
+    Pickle
+        ``__getstate__`` drops the lazy ``_datasets`` cache so
+        pickle stores only the canonical metadata + paths. The
+        post-unpickle instance re-opens lazily on first access.
+        gdal handles never cross the pickle boundary, by design.
+
+    See Also:
+        :class:`pyramids.dataset.Dataset` — the per-timestep raster
+            wrapped by Path A and read on demand by Path B.
+        :class:`_GroupedCollection` — Path B view returned by
+            ``groupby``.
+    """
 
     def __init__(
         self,
