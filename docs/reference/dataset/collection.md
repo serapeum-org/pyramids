@@ -82,7 +82,7 @@ A collection moves from "file-backed + usable from both paths" to
 |----------------------------------|-------------------------------------|-----------------------------------------------------|
 | Handles at rest                  | N file descriptors (one per Dataset)| 0                                                   |
 | Where reads happen               | Synchronously per-method            | Inside dask tasks (parallelisable across workers)   |
-| Caching                          | The collection owns the handles     | Process-global `_READ_TIME_STEP_MANAGERS` per path  |
+| Caching                          | The collection owns the handles     | Process-global LRU `FILE_CACHE` (default 128 paths) |
 | Pickle                           | Cache dropped on `__getstate__`     | Path strings serialise cleanly                      |
 | Larger-than-RAM cubes            | Block-streaming per timestep        | Block-streaming across the whole cube + workers     |
 

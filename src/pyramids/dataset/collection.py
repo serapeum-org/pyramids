@@ -212,9 +212,6 @@ def _finalize_after_write(data_result, resolved_store, meta, files) -> None:
     _finalize_collection_metadata(resolved_store, meta, files)
 
 
-_READ_TIME_STEP_MANAGERS: dict[str, Any] = {}
-
-
 def _read_time_step(path: str) -> np.ndarray:
     """Synchronous per-file reader used by the lazy `data` dask graph.
 
@@ -222,21 +219,23 @@ def _read_time_step(path: str) -> np.ndarray:
     :func:`dask.delayed` task pickles as `(_read_time_step, path)`
     — no live GDAL handle crosses the wire.
 
-    H2 fix: route the per-file open through a process-local
-    :class:`CachingFileManager` keyed by path so workers reuse one
-    `gdal.Dataset` per file rather than reopening on every chunk
-    read. Avoids FD exhaustion on large
-    :class:`DatasetCollection` graphs.
+    Routes the per-file open through a fresh
+    :class:`CachingFileManager` whose `manager_id` is the path
+    itself, so two calls for the same path resolve to the same
+    :data:`FILE_CACHE` slot and share one cached `gdal.Dataset`.
+    The shared LRU bounds open file descriptors (default 128,
+    overridable via `PYRAMIDS_FILE_CACHE_MAXSIZE`) and evicts the
+    least-recently-used handle when full — so a long-running
+    process scanning many file lists no longer leaks handles or
+    manager objects.
     """
-    manager = _READ_TIME_STEP_MANAGERS.get(path)
-    if manager is None:
-        manager = CachingFileManager(
-            gdal_raster_open,
-            path,
-            "read_only",
-            lock=False,
-        )
-        _READ_TIME_STEP_MANAGERS[path] = manager
+    manager = CachingFileManager(
+        gdal_raster_open,
+        path,
+        "read_only",
+        lock=False,
+        manager_id=path,
+    )
     handle = manager.acquire()
     band_count = handle.RasterCount
     if band_count == 1:
@@ -330,8 +329,10 @@ class DatasetCollection:
         * Path A holds N file descriptors for the lifetime of the
           collection; reads happen synchronously per-method.
         * Path B holds zero handles at rest; reads happen inside
-          dask tasks (cached per-worker via
-          ``_READ_TIME_STEP_MANAGERS``) and can be parallelised.
+          dask tasks and share the process-global LRU
+          (``pyramids.base._file_manager.FILE_CACHE``, default 128
+          handles) — workers re-using the same path hit the same
+          cache slot regardless of which dask task opened it first.
 
     Pickle
         ``__getstate__`` drops the lazy ``_datasets`` cache so

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import multiprocessing
 import pickle
+from typing import Any
 
 import numpy as np
 import pytest
@@ -108,22 +109,35 @@ class TestGraphPickle:
 
 
 class TestManagerCaching:
-    """H2: repeated compute calls reuse cached GDAL handles per path."""
+    """Repeated compute calls reuse cached GDAL handles per path."""
 
     @requires_dask
-    def test_cached_manager_reused_across_computes(self, three_files):
-        from pyramids.dataset.collection import _READ_TIME_STEP_MANAGERS
+    def test_handle_reused_across_computes(self, three_files):
+        from pyramids.base._file_manager import FILE_CACHE
 
-        _READ_TIME_STEP_MANAGERS.clear()
+        def _path_entries() -> dict[str, Any]:
+            return {
+                key: handle
+                for key, handle in list(FILE_CACHE._cache.items())
+                if any(p in tuple(key) for p in three_files)
+            }
+
+        for path in three_files:
+            for key in [k for k in list(FILE_CACHE._cache) if path in tuple(k)]:
+                del FILE_CACHE._cache[key]
         collection = DatasetCollection.from_files(three_files)
         collection.data.compute()
-        first_snapshot = set(_READ_TIME_STEP_MANAGERS.keys())
+        first_snapshot = _path_entries()
         collection.data.compute()
-        second_snapshot = set(_READ_TIME_STEP_MANAGERS.keys())
+        second_snapshot = _path_entries()
         assert (
-            first_snapshot == second_snapshot
-        ), "Repeated compute should not register new managers"
+            set(first_snapshot) == set(second_snapshot)
+        ), "Repeated compute should not register new FILE_CACHE entries"
         assert len(first_snapshot) == len(three_files)
+        for key, handle in first_snapshot.items():
+            assert (
+                second_snapshot[key] is handle
+            ), "Repeated compute should reuse the cached gdal.Dataset"
 
 
 class TestErrors:
