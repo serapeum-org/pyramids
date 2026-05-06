@@ -353,14 +353,43 @@ class TestCrop:
         # shutil.rmtree(crop_aligned_folder_saveto)
 
 
-def test_merge(
+def test_merge_rasters_free_function(
     merge_input_raster: List[str],
     merge_output: Path,
 ):
-    DatasetCollection.merge(merge_input_raster, merge_output)
+    from pyramids.dataset.merge import merge_rasters
+
+    merge_rasters(merge_input_raster, merge_output)
     assert merge_output.exists()
     src = gdal.Open(str(merge_output))
     assert src.GetRasterBand(1).GetNoDataValue() == 0
+
+
+def test_merge_instance_method(
+    merge_input_raster: List[str],
+    tmp_path: Path,
+):
+    cube = DatasetCollection.from_files(merge_input_raster)
+    out = tmp_path / "merged_via_instance.tif"
+    cube.merge(out)
+    assert out.exists()
+    src = gdal.Open(str(out))
+    assert src.GetRasterBand(1).GetNoDataValue() == 0
+
+
+def test_merge_instance_method_raises_without_files():
+    arr = np.zeros((4, 5), dtype=np.float32)
+    ds = Dataset.create_from_array(
+        arr,
+        top_left_corner=(0.0, 4.0),
+        cell_size=1.0,
+        epsg=4326,
+    )
+    cube = DatasetCollection(ds, time_length=1)
+    with pytest.raises(RuntimeError, match="file-backed"):
+        cube.merge("unused.tif")
+
+
 
 
 class TestApply:

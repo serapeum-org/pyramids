@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, Callable
 import numpy as np
 import pandas as pd
 from osgeo import gdal
-from osgeo_utils import gdal_merge
 
 from pyramids.base._domain import inside_domain
 from pyramids.base._errors import DatasetNotFoundError, OptionalPackageDoesNotExist
@@ -20,6 +19,7 @@ from pyramids.base._utils import import_cleopatra, import_flox, import_zarr
 from pyramids.dataset._stac import from_stac as _from_stac
 from pyramids.dataset.abstract_dataset import CATALOG
 from pyramids.dataset.dataset import Dataset
+from pyramids.dataset.merge import merge_rasters
 from pyramids.dataset.ops._zarr import _resolve_store
 
 if TYPE_CHECKING:
@@ -1618,56 +1618,52 @@ class DatasetCollection:
             datasets=new_datasets,
         )
 
-    @staticmethod
     def merge(
-        src: list[str],
+        self,
         dst: str | Path,
         no_data_value: float | int | str = "0",
         init: float | int | str = "nan",
         n: float | int | str = "nan",
     ) -> None:
-        """merge.
-
-            Merges a group of rasters into one raster.
+        """Merge this collection's files into one raster.
 
         Args:
-            src (list[str]):
-                List of paths to all input rasters.
-            dst (str):
+            dst (str | Path):
                 Path to the output raster.
             no_data_value (float | int | str):
                 Assign a specified nodata value to output bands.
             init (float | int | str):
-                Pre-initialize the output image bands with these values. However, it is not
-                marked as the nodata value in the output file. If only one value is given, the same value is used
-                in all the bands.
+                Pre-initialize the output image bands with these
+                values. However, it is not marked as the nodata
+                value in the output file. If only one value is
+                given, the same value is used in all the bands.
             n (float | int | str):
-                Ignore pixels from files being merged in with this pixel value.
+                Ignore pixels from files being merged in with this
+                pixel value.
+
+        Raises:
+            RuntimeError: If the collection has no `files` list
+                (e.g. an in-memory collection produced by a
+                non-inplace op).
 
         Returns:
             None
         """
-        # run the command
-        # cmd = "gdal_merge.py -o merged_image_1.tif"
-        # subprocess.call(cmd.split() + file_list)
-        # vrt = gdal.BuildVRT("merged.vrt", file_list)
-        # src = gdal.Translate("merged_image.tif", vrt)
-
-        parameters = (
-            ["", "-o", str(dst)]
-            + src
-            + [
-                "-co",
-                "COMPRESS=LZW",
-                "-init",
-                str(init),
-                "-a_nodata",
-                str(no_data_value),
-                "-n",
-                str(n),
-            ]
-        )  # '-separate'
-        gdal_merge.main(parameters)
+        if not self._files:
+            raise RuntimeError(
+                "DatasetCollection.merge requires a file-backed "
+                "collection. Use DatasetCollection.from_files(...) "
+                "to construct one, or call "
+                "pyramids.dataset.merge.merge_rasters(src, dst, ...) "
+                "directly with an explicit path list."
+            )
+        merge_rasters(
+            self._files,
+            dst,
+            no_data_value=no_data_value,
+            init=init,
+            n=n,
+        )
 
     def apply(
         self, ufunc: Callable, *, inplace: bool = False
