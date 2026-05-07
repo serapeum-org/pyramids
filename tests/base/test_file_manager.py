@@ -32,6 +32,7 @@ from pyramids.base._file_manager import (
     FILE_CACHE,
     CachingFileManager,
     ThreadLocalFileManager,
+    _close_handle,
     _HashedSequence,
     _LRUCache,
     _make_cache_key,
@@ -189,6 +190,49 @@ class TestLRUCache:
             "y",
             "z",
         ], f"Expected iteration order ['x','y','z'], got {keys}"
+
+
+class TestCloseHandle:
+    """B-15: `_close_handle` narrows its catch and logs at DEBUG.
+
+    Pre-fix the function caught everything with bare
+    `except Exception: pass`, hiding both GDAL "I/O error during
+    flush" failures and unrelated programming bugs. Post-fix only
+    GDAL's `RuntimeError` is swallowed (logged at DEBUG so
+    operators can find issues); other exception classes propagate.
+    """
+
+    def test_runtime_error_is_swallowed_and_logged(self, caplog):
+        class _FlakyHandle:
+            def Close(self):
+                raise RuntimeError("simulated GDAL flush failure")
+
+        with caplog.at_level("DEBUG", logger="pyramids.base._file_manager"):
+            _close_handle("some-key", _FlakyHandle())
+        debug_records = [
+            r
+            for r in caplog.records
+            if r.levelname == "DEBUG"
+            and "close handle failed" in r.getMessage()
+        ]
+        assert debug_records, (
+            "Expected a DEBUG log line for the swallowed RuntimeError; "
+            f"got records: {[r.getMessage() for r in caplog.records]}"
+        )
+        assert "some-key" in debug_records[0].getMessage()
+
+    def test_type_error_propagates(self):
+        class _BrokenHandle:
+            Close = "not callable"
+
+        with pytest.raises(TypeError):
+            _close_handle("some-key", _BrokenHandle())
+
+    def test_handle_without_close_is_noop(self):
+        class _NoCloseHandle:
+            pass
+
+        _close_handle("some-key", _NoCloseHandle())
 
 
 class TestHashedSequence:

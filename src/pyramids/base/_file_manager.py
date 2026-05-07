@@ -29,6 +29,7 @@ module is unavailable, pass `lock=threading.Lock()` or
 from __future__ import annotations
 
 import atexit
+import logging
 import os
 import threading
 import uuid
@@ -41,6 +42,8 @@ import numpy as np  # noqa: F401 - imported so type checkers see np.ndarray refs
 from osgeo import gdal, ogr
 
 from pyramids.base.remote import _to_vsi
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_MAXSIZE = int(os.environ.get("PYRAMIDS_FILE_CACHE_MAXSIZE", "128"))
 
@@ -281,13 +284,26 @@ class _LRUCache(MutableMapping):
 
 
 def _close_handle(_key: Hashable, handle: Any) -> None:
-    """Close a cached GDAL/OGR handle if it has a `Close` method."""
+    """Close a cached GDAL/OGR handle if it has a `Close` method.
+
+    Eviction-time close failures are logged at DEBUG and swallowed
+    so that one stuck handle cannot abort the LRU's eviction loop
+    (which would leave the cache in an inconsistent state). Only
+    GDAL's `RuntimeError` is swallowed; other exception classes
+    indicate programming bugs in the caller and propagate.
+    """
     close = getattr(handle, "Close", None)
-    if close is not None:
-        try:
-            close()
-        except Exception:  # pragma: no cover - closing a freed handle is harmless
-            pass
+    if close is None:
+        return
+    try:
+        close()
+    except RuntimeError as exc:
+        logger.debug(
+            "close handle failed for cache key %r: %s",
+            _key,
+            exc,
+            exc_info=True,
+        )
 
 
 FILE_CACHE: _LRUCache = _LRUCache(_DEFAULT_MAXSIZE, on_evict=_close_handle)
