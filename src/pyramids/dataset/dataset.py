@@ -575,7 +575,7 @@ class Dataset(RasterBase):
             Band units: {self.band_units}
             Scale: {self.scale}
             Offset: {self.offset}
-            Mask: {self._no_data_value[0]}
+            Mask: {self.no_data_value[0]}
             Data type: {self.dtype[0]}
             File: {self.file_name}
         """
