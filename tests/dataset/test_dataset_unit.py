@@ -1650,7 +1650,7 @@ class TestGetAttributeTable:
         assert "class_id" in result.columns, "RAT should contain class_id column"
 
     def test_df_to_attribute_table_float_column(self):
-        """_df_to_attribute_table should handle float columns (line 1326, 1338)."""
+        """_df_to_attribute_table should handle float columns."""
         df = pd.DataFrame(
             {
                 "value": [1.1, 2.2, 3.3],
@@ -1663,7 +1663,7 @@ class TestGetAttributeTable:
         assert abs(val - 1.1) < 0.01, f"Expected ~1.1, got {val}"
 
     def test_attribute_table_to_df_real_type(self):
-        """_attribute_table_to_df should read GFT_Real columns (line 1376)."""
+        """_attribute_table_to_df should read GFT_Real columns."""
         df = pd.DataFrame(
             {
                 "int_col": pd.array([10, 20], dtype="int64"),
@@ -2173,7 +2173,7 @@ class TestCropAligned:
             src.spatial._crop_aligned(mask)
 
     def test_crop_aligned_multi_band_nan_mask(self):
-        """_crop_aligned with multi-band src and nan mask (line 4183)."""
+        """_crop_aligned with multi-band src and nan mask."""
         nd = -9999.0
         src_arr = np.ones((2, 3, 3), dtype=np.float32) * 5.0
         src = Dataset.create_from_array(
@@ -2197,7 +2197,7 @@ class TestCropAligned:
         assert arr.ndim == 3, "Multi-band result should be 3D"
 
     def test_crop_aligned_single_band_nan_mask(self):
-        """_crop_aligned with single-band src and NaN mask noval (line 4190)."""
+        """_crop_aligned with single-band src and NaN mask noval."""
         nd = -9999.0
         src_arr = np.ones((3, 3), dtype=np.float32) * 5.0
         src = Dataset.create_from_array(
@@ -2876,7 +2876,8 @@ class TestFillNoneNodata:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        # Manually set the internal nodata to None to trigger line 3813
+        # Manually set the internal nodata to None to exercise the
+        # fallback branch that infers the sentinel from NaN cells
         ds._no_data_value = [None]
         filled = ds.fill(42)
         result = filled.read_array()
@@ -3028,7 +3029,7 @@ class TestCropAlignedNanMask:
         assert np.isclose(result_arr[1, 1], 5.0), "Cell 1,1 should be unchanged"
 
     def test_crop_aligned_multi_band_with_nan_mask(self):
-        """_crop_aligned multi-band with NaN mask nodata (line 4183)."""
+        """_crop_aligned multi-band with NaN mask nodata."""
         nd = -9999.0
         src_arr = np.ones((2, 4, 4), dtype=np.float32) * 5.0
         src = Dataset.create_from_array(
@@ -3055,7 +3056,7 @@ class TestCropAlignedNanMask:
         assert result_arr.ndim == 3, "Multi-band result should be 3D"
 
     def test_crop_aligned_single_band_nan_mask_noval(self):
-        """_crop_aligned single-band with None mask noval (line 4190)."""
+        """_crop_aligned single-band with None mask noval."""
         nd = -9999.0
         src_arr = np.ones((4, 4), dtype=np.float32) * 10.0
         src = Dataset.create_from_array(
@@ -3132,7 +3133,7 @@ class TestReadOverviewArrayBranches:
     """Tests for read_overview_array branching paths."""
 
     def test_read_overview_no_band_single_band(self, tmp_path):
-        """read_overview_array band=None on single-band (line 5998-5999)."""
+        """read_overview_array band=None on single-band."""
         arr = np.ones((64, 64), dtype=np.float32)
         path = str(tmp_path / "ov_single.tif")
         Dataset.create_from_array(
@@ -3285,7 +3286,7 @@ class TestStatsWithMask:
     """Tests for stats with a mask GeoDataFrame."""
 
     def test_stats_with_mask_and_band(self, single_band_dataset):
-        """stats(band=0, mask=gdf) should use mask path (line 1624)."""
+        """stats(band=0, mask=gdf) should use mask path."""
         import geopandas as gpd
         from shapely.geometry import box
 
