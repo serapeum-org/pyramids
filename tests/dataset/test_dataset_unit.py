@@ -568,11 +568,11 @@ class TestChangeNoDataValueAttr:
     def test_no_data_value_setter_with_list(self, multi_band_dataset):
         """Setting no_data_value with a list should update all bands."""
         multi_band_dataset.no_data_value = [-1.0, -2.0, -3.0]
-        assert multi_band_dataset.no_data_value == [
+        assert multi_band_dataset.no_data_value == (
             -1.0,
             -2.0,
             -3.0,
-        ], "no_data_value list setter failed"
+        ), "no_data_value list setter failed"
 
     def test_no_data_value_setter_with_scalar(self, single_band_dataset):
         """Setting no_data_value with a scalar should update band 0."""
@@ -580,6 +580,46 @@ class TestChangeNoDataValueAttr:
         assert (
             single_band_dataset.no_data_value[0] == -5555.0
         ), "no_data_value scalar setter failed"
+
+    def test_no_data_value_getter_returns_tuple(self, single_band_dataset):
+        """B-17: getter returns immutable tuple, not list.
+
+        The read-only contract is now expressed at the type level —
+        mutating the returned object can never propagate to internal
+        state. Use the setter to change values.
+        """
+        ndv = single_band_dataset.no_data_value
+        assert isinstance(ndv, tuple), f"Expected tuple, got {type(ndv)}"
+
+    def test_no_data_value_setter_scalar_broadcasts_to_all_bands(
+        self, multi_band_dataset
+    ):
+        """B-17: scalar setter now writes every band, not just band 0.
+
+        Pre-fix only band 0 was updated; bands 1..N kept stale
+        values. Post-fix the scalar is broadcast to all bands.
+        """
+        multi_band_dataset.no_data_value = -7777.0
+        assert multi_band_dataset.no_data_value == (
+            -7777.0,
+            -7777.0,
+            -7777.0,
+        )
+
+    def test_no_data_value_setter_length_mismatch_raises(self, multi_band_dataset):
+        """B-17: list/tuple shorter than band_count is rejected up-front.
+
+        Pre-fix a too-short sequence silently set only the first N
+        bands; the remaining bands kept their old values with no
+        warning. Post-fix the setter raises ValueError early.
+        """
+        with pytest.raises(ValueError, match="does not match band_count"):
+            multi_band_dataset.no_data_value = [-1.0]
+
+    def test_no_data_value_setter_accepts_tuple(self, multi_band_dataset):
+        """B-17: setter accepts tuple inputs alongside lists."""
+        multi_band_dataset.no_data_value = (-1.0, -2.0, -3.0)
+        assert multi_band_dataset.no_data_value == (-1.0, -2.0, -3.0)
 
 
 class TestCreateFromArray:

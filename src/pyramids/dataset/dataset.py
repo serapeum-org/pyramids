@@ -704,15 +704,28 @@ class Dataset(RasterBase):
             self._iloc(i).SetUnitType(val)
 
     @property
-    def no_data_value(self) -> list:
-        """No data value that marks the cells out of the domain."""
-        return list(self._no_data_value)
+    def no_data_value(self) -> tuple:
+        """Per-band nodata markers as an immutable tuple.
+
+        Returns a `tuple` (not a `list`) to make the read-only
+        contract explicit — assign through the setter to change
+        values; mutating the returned object never propagates to
+        the underlying state.
+        """
+        return tuple(self._no_data_value)
 
     @no_data_value.setter
-    def no_data_value(self, value: list | Number):
-        """no_data_value.
+    def no_data_value(self, value: list | tuple | Number):
+        """Set the no_data_value marker on every band.
 
-        No data value that marks the cells out of the domain
+        Args:
+            value: Either a scalar (broadcast to all bands) or a
+                sequence (`list` / `tuple`) with `len == band_count`
+                providing one value per band.
+
+        Raises:
+            ValueError: When `value` is a sequence whose length
+                differs from `band_count`.
 
         Notes:
             - The setter does not change the values of the cells to the new no_data_value, it only changes the
@@ -723,11 +736,17 @@ class Dataset(RasterBase):
         See Also:
             - Dataset.change_no_data_value: Change the No Data Value.
         """
-        if isinstance(value, list):
+        if isinstance(value, (list, tuple)):
+            if len(value) != self.band_count:
+                raise ValueError(
+                    f"no_data_value sequence length {len(value)} does "
+                    f"not match band_count {self.band_count}"
+                )
             for i, val in enumerate(value):
                 self.bands._change_no_data_value_attr(i, val)
         else:
-            self.bands._change_no_data_value_attr(0, value)
+            for i in range(self.band_count):
+                self.bands._change_no_data_value_attr(i, value)
 
     @property
     def meta_data(self):

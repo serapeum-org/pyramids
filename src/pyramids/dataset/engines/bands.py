@@ -847,15 +847,21 @@ class Bands(_Engine):
 
         return df
 
-    def _check_no_data_value(self, no_data_value: list) -> list:
+    def _check_no_data_value(self, no_data_value: list | tuple) -> list:
         """Validate the no_data_value with the dtype of the object.
         Args:
             no_data_value:
-                No-data value(s) to validate.
+                No-data value(s) to validate. A `tuple` is accepted
+                as a convenience (e.g. when the caller passes
+                `Dataset.no_data_value` directly) and converted to
+                a fresh `list` so the in-place dtype-coercion below
+                works.
         Returns:
             Any:
                 Convert the no_data_value to comply with the dtype.
         """
+        if isinstance(no_data_value, tuple):
+            no_data_value = list(no_data_value)
         # convert the no_data_value based on the dtype of each raster band.
         for i, val in enumerate(self._ds.gdal_dtype):
             try:
@@ -897,7 +903,9 @@ class Bands(_Engine):
             no_data_value (numeric):
                 No data value to fill the masked part of the array.
         """
-        if not isinstance(no_data_value, list):
+        if isinstance(no_data_value, tuple):
+            no_data_value = list(no_data_value)
+        elif not isinstance(no_data_value, list):
             no_data_value = [no_data_value] * self._ds.band_count
         no_data_value = self._check_no_data_value(no_data_value)
         for band in range(self._ds.band_count):

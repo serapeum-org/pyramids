@@ -570,7 +570,7 @@ class TestNoDataValue:
         # check if the no_data_value in the Dataset object is set
         assert dataset.raster.GetRasterBand(1).GetNoDataValue() == new_val
         # check if the no_data_value of the Dataset object is set
-        assert dataset.no_data_value == [new_val]
+        assert dataset.no_data_value == (new_val,)
 
     def test_change_no_data_error_different_data_type(
         self, int_none_nodatavalue_attr_0_stored: gdal.Dataset

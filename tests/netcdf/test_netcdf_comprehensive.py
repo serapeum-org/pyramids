@@ -287,15 +287,16 @@ class TestFileName:
 class TestNoDataValue:
     """Tests for NetCDF.no_data_value property and setter."""
 
-    def test_getter_returns_list(self, nc_3d):
-        """Verify no_data_value getter returns a list.
+    def test_getter_returns_tuple(self, nc_3d):
+        """Verify no_data_value getter returns an immutable tuple.
 
         Test scenario:
-            Container no_data_value should be a list (possibly empty for
-            MDIM containers with 0 bands).
+            Container no_data_value should be a tuple (possibly empty
+            for MDIM containers with 0 bands) — read-only by design;
+            assign through the setter to change values.
         """
         ndv = nc_3d.no_data_value
-        assert isinstance(ndv, list), f"Expected list, got {type(ndv)}"
+        assert isinstance(ndv, tuple), f"Expected tuple, got {type(ndv)}"
 
     def test_setter_direct_attribute(self):
         """Verify no_data_value can be updated via _no_data_value attribute.
@@ -307,9 +308,11 @@ class TestNoDataValue:
         """
         nc = _make_2d_nc()
         var = nc.get_variable("elevation")
-        original = var.no_data_value[:]
+        original = tuple(var.no_data_value)
         var._no_data_value = [-1.0]
-        assert var.no_data_value == [-1.0], f"Expected [-1.0], got {var.no_data_value}"
+        assert var.no_data_value == (-1.0,), (
+            f"Expected (-1.0,), got {var.no_data_value}"
+        )
         assert var.no_data_value != original, "no_data_value should have changed"
 
 

@@ -391,12 +391,16 @@ class NetCDF(Dataset):
         return self._cached_variables
 
     @property
-    def no_data_value(self):
-        """No data value that marks the cells out of the domain."""
-        return self._no_data_value
+    def no_data_value(self) -> tuple:
+        """Per-band nodata markers as an immutable tuple.
+
+        Returns a `tuple` so the read-only contract is explicit —
+        assign through the setter to change values.
+        """
+        return tuple(self._no_data_value)
 
     @no_data_value.setter
-    def no_data_value(self, value: list | Number):
+    def no_data_value(self, value: list | tuple | Number):
         """Set the no-data value that marks cells outside the domain.
 
         The setter only changes the `no_data_value` attribute; it does
@@ -405,14 +409,25 @@ class NetCDF(Dataset):
         To actually rewrite cell values, use `change_no_data_value`.
 
         Args:
-            value: New no-data value. A single number applied to all
-                bands, or a list with one value per band.
+            value: New no-data value. A scalar is broadcast to every
+                band; a `list` / `tuple` with `len == band_count`
+                provides one value per band.
+
+        Raises:
+            ValueError: When `value` is a sequence whose length does
+                not equal `band_count`.
         """
-        if isinstance(value, list):
+        if isinstance(value, (list, tuple)):
+            if len(value) != self.band_count:
+                raise ValueError(
+                    f"no_data_value sequence length {len(value)} does "
+                    f"not match band_count {self.band_count}"
+                )
             for i, val in enumerate(value):
                 self.bands._change_no_data_value_attr(i, val)
         else:
-            self.bands._change_no_data_value_attr(0, value)
+            for i in range(self.band_count):
+                self.bands._change_no_data_value_attr(i, value)
 
     @property
     def file_name(self):
@@ -2049,7 +2064,15 @@ class NetCDF(Dataset):
 
         # Set metadata BEFORE writing data — netCDF driver requires
         # nodata to be set before the first Write call.
-        md_arr.SetNoDataValueDouble(no_data_value)
+        # Tolerate both scalar and per-band sequence inputs since
+        # callers often pass `Dataset.no_data_value` (now a tuple)
+        # straight through.
+        ndv_scalar = (
+            no_data_value[0]
+            if isinstance(no_data_value, (list, tuple)) and no_data_value
+            else no_data_value
+        )
+        md_arr.SetNoDataValueDouble(ndv_scalar)
         if epsg is None:
             raise ValueError("epsg cannot be None")
         srse = sr_from_epsg(int(epsg))
@@ -2372,7 +2395,7 @@ class NetCDF(Dataset):
         no_data_value = reprojected.no_data_value
         ndv_scalar = (
             no_data_value[0]
-            if isinstance(no_data_value, list) and no_data_value
+            if isinstance(no_data_value, (list, tuple)) and no_data_value
             else no_data_value
         )
         materialized = Dataset.create_from_array(

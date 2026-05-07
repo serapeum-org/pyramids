@@ -877,7 +877,7 @@ class TestSelNonContiguousBands:
         var = nc.get_variable("temperature")
         result = var.sel(time=6)
         ndv = result.no_data_value
-        ndv_scalar = ndv[0] if isinstance(ndv, list) else ndv
+        ndv_scalar = ndv[0] if isinstance(ndv, (list, tuple)) else ndv
         assert ndv_scalar == -9999.0, f"Expected nodata=-9999.0, got {ndv_scalar}"
 
 
