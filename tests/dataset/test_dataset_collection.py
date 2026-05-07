@@ -377,7 +377,13 @@ def test_merge_instance_method(
     assert src.GetRasterBand(1).GetNoDataValue() == 0
 
 
-def test_merge_instance_method_raises_without_files():
+def test_merge_instance_method_in_memory_collection(tmp_path: Path):
+    """L1: in-memory collections stage through a tempdir and merge.
+
+    Pre-fix this raised RuntimeError; post-fix the merge writes
+    each timestep to a temporary geotiff, merges them, and cleans
+    up the staging directory before returning.
+    """
     arr = np.zeros((4, 5), dtype=np.float32)
     ds = Dataset.create_from_array(
         arr,
@@ -386,8 +392,11 @@ def test_merge_instance_method_raises_without_files():
         epsg=4326,
     )
     cube = DatasetCollection(ds, time_length=1)
-    with pytest.raises(RuntimeError, match="file-backed"):
-        cube.merge("unused.tif")
+    out = tmp_path / "merged_in_memory.tif"
+    cube.merge(out)
+    assert out.exists()
+    src = gdal.Open(str(out))
+    assert src.GetRasterBand(1).GetNoDataValue() == 0
 
 
 

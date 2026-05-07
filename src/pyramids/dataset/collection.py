@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -1630,7 +1631,15 @@ class DatasetCollection:
         init: float | int | str = "nan",
         n: float | int | str = "nan",
     ) -> None:
-        """Merge this collection's files into one raster.
+        """Merge this collection's timesteps into one raster.
+
+        File-backed collections merge their on-disk paths directly.
+        In-memory collections (legacy `DatasetCollection(src,
+        time_length=N)` constructions, anything produced by
+        `crop(inplace=False)` / `apply()` / `to_crs(inplace=False)` /
+        `align(inplace=False)`) are first staged through a temp
+        directory, merged, and the staging directory is removed
+        before the call returns.
 
         Args:
             dst (str | Path):
@@ -1646,29 +1655,36 @@ class DatasetCollection:
                 Ignore pixels from files being merged in with this
                 pixel value.
 
-        Raises:
-            RuntimeError: If the collection has no `files` list
-                (e.g. an in-memory collection produced by a
-                non-inplace op).
-
         Returns:
             None
         """
-        if not self._files:
-            raise RuntimeError(
-                "DatasetCollection.merge requires a file-backed "
-                "collection. Use DatasetCollection.from_files(...) "
-                "to construct one, or call "
-                "pyramids.dataset.merge.merge_rasters(src, dst, ...) "
-                "directly with an explicit path list."
+        if self._files:
+            merge_rasters(
+                self._files,
+                dst,
+                no_data_value=no_data_value,
+                init=init,
+                n=n,
             )
-        merge_rasters(
-            self._files,
-            dst,
-            no_data_value=no_data_value,
-            init=init,
-            n=n,
-        )
+            return
+        # In-memory collection (legacy `DatasetCollection(src,
+        # time_length=N)` or anything returned by
+        # `crop(inplace=False)` / `apply()` / `to_crs(inplace=False)` /
+        # `align(inplace=False)`). Stage each timestep through a
+        # tempfile, merge the temp paths, then drop the staging
+        # directory. The tempfile pass is unavoidable: gdal_merge /
+        # BuildVRT both take on-disk paths.
+        with tempfile.TemporaryDirectory(prefix="pyramids-merge-") as staging:
+            staging_path = Path(staging)
+            self.to_file(staging_path, driver="geotiff")
+            staged_files = sorted(staging_path.glob("*.tif"))
+            merge_rasters(
+                [str(p) for p in staged_files],
+                dst,
+                no_data_value=no_data_value,
+                init=init,
+                n=n,
+            )
 
     def apply(
         self, ufunc: Callable, *, inplace: bool = False
