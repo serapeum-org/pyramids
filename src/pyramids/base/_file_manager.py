@@ -291,6 +291,18 @@ def _close_handle(_key: Hashable, handle: Any) -> None:
     (which would leave the cache in an inconsistent state). Only
     GDAL's `RuntimeError` is swallowed; other exception classes
     indicate programming bugs in the caller and propagate.
+
+    Notes:
+        Exceptions raised by GDAL through `Close()` on remote-FS
+        backends — `OSError` and `socket.timeout` from
+        `/vsis3/`, `/vsigs/`, `/vsiaz/` flush failures — are
+        intentionally NOT caught here. They surface to the caller
+        of the LRU operation that triggered the eviction
+        (`cache[key] = value` / `cache.clear()` / explicit
+        `manager.close()`) so the operator sees the I/O failure
+        rather than silent data loss. If a downstream pipeline
+        cannot tolerate that surface, wrap the LRU call in its
+        own retry/log shim — do not widen the catch here.
     """
     close = getattr(handle, "Close", None)
     if close is None:
