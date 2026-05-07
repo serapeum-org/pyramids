@@ -210,7 +210,7 @@ def _finalize_after_write(data_result, resolved_store, meta, files) -> None:
     _finalize_collection_metadata(resolved_store, meta, files)
 
 
-def _read_time_step(path: str) -> np.ndarray:
+def _read_time_step(path: str | Path) -> np.ndarray:
     """Synchronous per-file reader used by the lazy `data` dask graph.
 
     Module-level (not a closure) so each
@@ -226,7 +226,13 @@ def _read_time_step(path: str) -> np.ndarray:
     least-recently-used handle when full — so a long-running
     process scanning many file lists no longer leaks handles or
     manager objects.
+
+    The path is normalised to ``str`` before key construction so
+    callers passing ``pathlib.Path`` and ``str`` for the same file
+    hit one cache slot, not two — avoiding silent FILE_CACHE
+    fragmentation under mixed-type call sites.
     """
+    path = str(path)
     manager = CachingFileManager(
         gdal_raster_open,
         path,

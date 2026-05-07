@@ -139,6 +139,35 @@ class TestManagerCaching:
                 second_snapshot[key] is handle
             ), "Repeated compute should reuse the cached gdal.Dataset"
 
+    def test_path_and_str_share_cache_slot(self, three_files):
+        """M1 regression: `_read_time_step` normalises Path → str.
+
+        Pre-fix passing `Path("foo.tif")` and `"foo.tif"` produced
+        two distinct `FILE_CACHE` slots (the cache key is built
+        from the literal `manager_id`, and Path/str hash to
+        different keys). Post-fix the function calls `str(path)`
+        before constructing the manager, so both forms collapse
+        to a single slot.
+        """
+        from pathlib import Path
+
+        from pyramids.base._file_manager import FILE_CACHE
+        from pyramids.dataset.collection import _read_time_step
+
+        first_path = three_files[0]
+        for key in [k for k in list(FILE_CACHE._cache) if first_path in tuple(k)]:
+            del FILE_CACHE._cache[key]
+
+        _read_time_step(first_path)
+        _read_time_step(Path(first_path))
+        path_keys = [
+            k for k in list(FILE_CACHE._cache) if first_path in tuple(k)
+        ]
+        assert len(path_keys) == 1, (
+            f"Path and str inputs should share a FILE_CACHE slot; got "
+            f"{len(path_keys)} entries: {path_keys}"
+        )
+
 
 class TestErrors:
     def test_no_files_raises(self):
