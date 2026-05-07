@@ -428,8 +428,13 @@ class DatasetCollection:
 
     def __str__(self):
         """__str__."""
+        source_line = (
+            f"Files: {len(self._files)}"
+            if self._files is not None
+            else f"Time length: {self._time_length} (in-memory)"
+        )
         message = f"""
-            Files: {len(self.files)}
+            {source_line}
             Cell size: {self._base.cell_size}
             EPSG: {self._base.epsg}
             Dimension: {self.rows} * {self.columns}
@@ -439,8 +444,13 @@ class DatasetCollection:
 
     def __repr__(self):
         """__repr__."""
+        source_line = (
+            f"Files: {len(self._files)}"
+            if self._files is not None
+            else f"Time length: {self._time_length} (in-memory)"
+        )
         message = f"""
-            Files: {len(self.files)}
+            {source_line}
             Cell size: {self._base.cell_size}
             EPSG: {self._base.epsg}
             Dimension: {self.rows} * {self.columns}

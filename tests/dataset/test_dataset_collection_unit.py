@@ -104,6 +104,30 @@ class TestStringRepresentation:
         text = repr(md)
         assert "Dimension" in text, "__repr__ should contain 'Dimension'"
 
+    def test_str_works_without_files(self, base_dataset: Dataset):
+        """H1 regression: __str__ must not TypeError when files=None.
+
+        Pre-fix `len(self.files)` raised on collections built without
+        a `files=` argument (legacy in-memory constructions, anything
+        produced by `crop(inplace=False)` / `apply()`). Post-fix the
+        source line falls back to `time_length` and labels the cube
+        as in-memory.
+        """
+        md = DatasetCollection(base_dataset, time_length=2)
+        assert md.files is None
+        text = str(md)
+        assert "in-memory" in text, (
+            f"in-memory cube should label itself as such; got: {text}"
+        )
+        assert "Time length: 2" in text
+
+    def test_repr_works_without_files(self, base_dataset: Dataset):
+        """H1 regression: same as __str__ but for __repr__."""
+        md = DatasetCollection(base_dataset, time_length=2)
+        text = repr(md)
+        assert "in-memory" in text
+        assert "Time length: 2" in text
+
 
 class TestShapeProperties:
     """Tests for shape, rows, columns."""
