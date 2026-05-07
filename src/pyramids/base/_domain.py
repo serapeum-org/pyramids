@@ -1,7 +1,7 @@
 """No-data domain helpers — single source of truth for the
 `np.isclose(arr, no_data_value, rtol=…)` idiom that previously
-spread across `dataset.ops.analysis`, `dataset.ops.spatial`,
-`dataset.ops.band_metadata`, and `dataset.collection`.
+spread across `dataset.engines.analysis`, `dataset.engines.spatial`,
+`dataset.engines.bands`, and `dataset.collection`.
 
 Two helpers are exposed:
 
