@@ -2844,6 +2844,69 @@ class TestToCrsWestHemLongitude:
         assert result.epsg == 3857, "EPSG should be 3857"
 
 
+class TestReprojectNonSquareCells:
+    """B-10 regression: `_reproject_with_ReprojectImage` measures Y spacing.
+
+    The legacy implementation discarded the reprojected Y values and
+    forced the output cell to be square (X spacing reused for Y).
+    These tests prove the X and Y cell sizes are now measured
+    independently — both for inputs that are already non-square in
+    source CRS and for square inputs whose reprojection produces a
+    non-square cell on the destination CRS.
+    """
+
+    def test_reproject_high_latitude_yields_non_square_pixels(self):
+        """4326 → 3857 at 60°N: output Y/X ratio ≈ 1/cos(60°) = 2.
+
+        At latitude 60°N, one degree of longitude is ~half a degree of
+        latitude in metres — so projecting a square-degree pixel to
+        Web Mercator with `maintain_alignment=True` should produce a
+        Y-spacing roughly 2× the X spacing. Pre-fix the output was
+        forced square (Y == X), so this assertion was unsatisfiable.
+        """
+        arr = np.ones((10, 10), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(10.0, 60.5),
+            cell_size=0.1,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        result = ds.to_crs(to_epsg=3857, maintain_alignment=True)
+        x_spacing = abs(result.geotransform[1])
+        y_spacing = abs(result.geotransform[5])
+        ratio = y_spacing / x_spacing
+        assert ratio > 1.5, (
+            f"Expected Y spacing > 1.5x X spacing at 60N, got "
+            f"y/x = {ratio:.3f} (x={x_spacing:.2f}m, y={y_spacing:.2f}m)"
+        )
+
+    def test_reproject_preserves_non_square_input_aspect(self):
+        """Non-square source pixels must not collapse to square output.
+
+        Build a synthetic raster with cell_size=(2.0, 14.0) — a SAR-like
+        aspect ratio — reproject (UTM 33N → Web Mercator) with
+        `maintain_alignment=True`. Pre-fix the output Y spacing was
+        forced equal to the X spacing, collapsing the 7:1 input aspect
+        to 1:1.
+        """
+        arr = np.ones((10, 10), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            geo=(500_000.0, 2.0, 0.0, 5_500_000.0, 0.0, -14.0),
+            epsg=32633,
+            no_data_value=-9999.0,
+        )
+        result = ds.to_crs(to_epsg=3857, maintain_alignment=True)
+        x_spacing = abs(result.geotransform[1])
+        y_spacing = abs(result.geotransform[5])
+        ratio = y_spacing / x_spacing
+        assert ratio > 3.0, (
+            f"Non-square input (2m x 14m, ratio 7) should keep a "
+            f"non-square output; got y/x = {ratio:.3f}"
+        )
+
+
 class TestCropAlignedNanMask:
     """Tests for _crop_aligned with NaN mask nodata value."""
 

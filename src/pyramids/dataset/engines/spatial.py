@@ -403,38 +403,58 @@ class Spatial(_Engine):
             lrx = src_gt[0] + src_gt[1] * src_x
             lry = src_gt[3] + src_gt[5] * src_y
 
-        # get the cell size in the source raster and convert it to the new crs
-        # x coordinates or longitudes
-        xs = [src_gt[0], src_gt[0] + src_gt[1]]
-        # y coordinates or latitudes
-        ys = [src_gt[3], src_gt[3]]
+        # measure the X and Y cell-size separately by reprojecting a
+        # one-pixel step on each axis. The previous code only stepped
+        # X (passing `ys = [src_gt[3], src_gt[3]]`) and reused the X
+        # spacing for Y, which forced square output pixels and
+        # silently squashed non-square reprojections (e.g. 4326 →
+        # 3857 at non-zero latitude). Corner-sampled spacings are
+        # exact for affine transforms (UTM ↔ lat-lon, equal-area)
+        # and approximate for footprints spanning large latitude
+        # ranges where local pixel size varies — for those cases
+        # route through the gdal.Warp path in `Spatial.to_crs`.
+        x_pair_xs = [src_gt[0], src_gt[0] + src_gt[1]]
+        x_pair_ys = [src_gt[3], src_gt[3]]
+        y_pair_xs = [src_gt[0], src_gt[0]]
+        y_pair_ys = [src_gt[3], src_gt[3] + src_gt[5]]
 
         if src_epsg != to_epsg:
-            # transform the two-point coordinates to the new crs to calculate the new cell size
-            # reproject_coordinates takes (x, y) and returns (x, y).
-            new_xs, new_ys = reproject_coordinates(
-                xs, ys, from_crs=src_epsg, to_crs=to_epsg, precision=6
+            # x_pair_xs and x_pair_ys are horizontally spaced by the cell size, after reprojection gives the cell size
+            # in x
+            new_x_xs, _ = reproject_coordinates(
+                x_pair_xs,
+                x_pair_ys,
+                from_crs=src_epsg,
+                to_crs=to_epsg,
+                precision=6,
+            )
+            # y_pair_xs and y_pair_ys are vertically spaced by the cell size, after reprojection gives the cell size
+            # in y
+            _, new_y_ys = reproject_coordinates(
+                y_pair_xs,
+                y_pair_ys,
+                from_crs=src_epsg,
+                to_crs=to_epsg,
+                precision=6,
             )
         else:
-            new_xs = xs
-            # new_ys = ys
+            new_x_xs = x_pair_xs
+            new_y_ys = y_pair_ys
 
-        # TODO: the function does not always maintain alignment, based on the conversion of the cell_size and the
-        # pivot point
-        pixel_spacing = np.abs(new_xs[0] - new_xs[1])
+        x_spacing = np.abs(new_x_xs[0] - new_x_xs[1])
+        y_spacing = np.abs(new_y_ys[0] - new_y_ys[1])
 
-        # create a new raster
-        cols = int(np.round(abs(lrx - ulx) / pixel_spacing))
-        rows = int(np.round(abs(uly - lry) / pixel_spacing))
+        cols = int(np.round(abs(lrx - ulx) / x_spacing))
+        rows = int(np.round(abs(uly - lry) / y_spacing))
 
         dtype = self._ds.gdal_dtype[0]
         new_geo = (
             ulx,
-            pixel_spacing,
+            x_spacing,
             src_gt[2],
             uly,
             src_gt[4],
-            np.sign(src_gt[-1]) * pixel_spacing,
+            np.sign(src_gt[-1]) * y_spacing,
         )
         dst_obj = self._ds.__class__._build_dataset(
             cols,
