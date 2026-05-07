@@ -1027,6 +1027,22 @@ class TestReadArray:
         assert arr.ndim == 3, "Multi-band read should return 3D"
         assert arr.shape[0] == 3, "First dimension should be band count"
 
+    def test_read_array_negative_band_raises(self, single_band_dataset):
+        """B-12: negative band index now rejected with a clear error.
+
+        Pre-fix the validator only checked the upper bound; a
+        negative index slipped through to `_iloc` which raised
+        `IndexError`. After centralising the band-bounds check the
+        eager path raises a `ValueError` mentioning the valid range.
+        """
+        with pytest.raises(ValueError, match="band index should be between"):
+            single_band_dataset.read_array(band=-1)
+
+    def test_read_array_negative_band_lazy_raises(self, single_band_dataset):
+        """B-12 (lazy path): negative band index rejected with same error."""
+        with pytest.raises(ValueError, match="band index should be between"):
+            single_band_dataset.read_array(band=-1, chunks="auto")
+
 
 class TestIloc:
     """Tests for the _iloc method."""

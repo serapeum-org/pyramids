@@ -35,6 +35,25 @@ if TYPE_CHECKING:
 from pyramids.dataset.engines._base import _Engine
 
 
+def _validate_band_index(band: int | None, band_count: int) -> None:
+    """Raise ``ValueError`` if `band` is outside the valid range.
+
+    Treats `None` as a no-op (caller hasn't selected a specific
+    band yet). Validates against the closed interval
+    `[0, band_count - 1]` — both negative indices and
+    out-of-upper-bound indices raise. Centralised so all three
+    band-aware entry points (`read_array` eager, `_lazy_read_array`,
+    `read_overview`) agree on the contract.
+    """
+    if band is None:
+        return
+    if band < 0 or band > band_count - 1:
+        raise ValueError(
+            f"band index should be between 0 and {band_count - 1}, "
+            f"got {band}"
+        )
+
+
 class IO(_Engine):
 
     def read_array(
@@ -218,13 +237,9 @@ class IO(_Engine):
                     else:
                         arr[i, :, :] = self._read_block(i, window)
             else:
+                _validate_band_index(band, self._ds.band_count)
                 if band is None:
                     band = 0
-                else:
-                    if band > self._ds.band_count - 1:
-                        raise ValueError(
-                            f"band index should be between 0 and {self._ds.band_count - 1}"
-                        )
                 if window is None:
                     arr = self._ds._iloc(band).ReadAsArray()
                 else:
@@ -277,10 +292,7 @@ class IO(_Engine):
             from dask.array.core import normalize_chunks
         except ImportError as exc:
             raise ImportError(_LAZY_IMPORT_ERROR) from exc
-        if band is not None and band > self._ds.band_count - 1:
-            raise ValueError(
-                f"band index should be between 0 and {self._ds.band_count - 1}"
-            )
+        _validate_band_index(band, self._ds.band_count)
         single_band = band is not None or self._ds.band_count == 1
         dtype = np.dtype(self._ds.numpy_dtype[0])
         if single_band:
@@ -1273,16 +1285,12 @@ class IO(_Engine):
             for i in range(self._ds.band_count):
                 arr[i, :, :] = self.get_overview(i, overview_index).ReadAsArray()
         else:
+            _validate_band_index(band, self._ds.band_count)
             if band is None:
                 band = 0
-            else:
-                if band > self._ds.band_count - 1:
-                    raise ValueError(
-                        f"band index should be between 0 and {self._ds.band_count - 1}"
-                    )
-                if self.overview_count[band] == 0:
-                    raise ValueError(
-                        f"band {band} has no overviews, please create overviews first"
-                    )
+            elif self.overview_count[band] == 0:
+                raise ValueError(
+                    f"band {band} has no overviews, please create overviews first"
+                )
             arr = np.asarray(self.get_overview(band, overview_index).ReadAsArray())
         return arr
