@@ -400,7 +400,7 @@ class NetCDF(Dataset):
         return tuple(self._no_data_value)
 
     @no_data_value.setter
-    def no_data_value(self, value: list | tuple | Number):
+    def no_data_value(self, value: list | tuple | np.ndarray | Number):
         """Set the no-data value that marks cells outside the domain.
 
         The setter only changes the `no_data_value` attribute; it does
@@ -410,13 +410,26 @@ class NetCDF(Dataset):
 
         Args:
             value: New no-data value. A scalar is broadcast to every
-                band; a `list` / `tuple` with `len == band_count`
-                provides one value per band.
+                band; a `list`, `tuple`, or 1-D :class:`numpy.ndarray`
+                with `len == band_count` provides one value per band.
+                A 0-D ndarray is treated as a scalar.
 
         Raises:
             ValueError: When `value` is a sequence whose length does
-                not equal `band_count`.
+                not equal `band_count`, or a multi-dimensional
+                ndarray (only 0-D scalars and 1-D sequences are
+                accepted).
         """
+        if isinstance(value, np.ndarray):
+            if value.ndim == 0:
+                value = value.item()
+            elif value.ndim == 1:
+                value = value.tolist()
+            else:
+                raise ValueError(
+                    f"no_data_value ndarray must be 0-D (scalar) or 1-D "
+                    f"(per-band sequence); got ndim={value.ndim}"
+                )
         if isinstance(value, (list, tuple)):
             if len(value) != self.band_count:
                 raise ValueError(

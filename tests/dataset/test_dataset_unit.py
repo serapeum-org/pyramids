@@ -621,6 +621,30 @@ class TestChangeNoDataValueAttr:
         multi_band_dataset.no_data_value = (-1.0, -2.0, -3.0)
         assert multi_band_dataset.no_data_value == (-1.0, -2.0, -3.0)
 
+    def test_no_data_value_setter_accepts_1d_ndarray(self, multi_band_dataset):
+        """M4: 1-D ndarray with len == band_count is treated as per-band."""
+        multi_band_dataset.no_data_value = np.array(
+            [-1.0, -2.0, -3.0], dtype=np.float64
+        )
+        assert multi_band_dataset.no_data_value == (-1.0, -2.0, -3.0)
+
+    def test_no_data_value_setter_accepts_0d_ndarray(self, multi_band_dataset):
+        """M4: 0-D ndarray is treated as a scalar broadcast to every band."""
+        multi_band_dataset.no_data_value = np.array(-7.0, dtype=np.float64)
+        assert multi_band_dataset.no_data_value == (-7.0, -7.0, -7.0)
+
+    def test_no_data_value_setter_rejects_2d_ndarray(self, multi_band_dataset):
+        """M4: 2-D ndarray inputs are rejected with a clear error."""
+        with pytest.raises(ValueError, match="ndarray must be 0-D"):
+            multi_band_dataset.no_data_value = np.zeros((2, 3), dtype=np.float64)
+
+    def test_no_data_value_setter_ndarray_length_mismatch_raises(
+        self, multi_band_dataset
+    ):
+        """M4: 1-D ndarray with wrong length goes through the same check."""
+        with pytest.raises(ValueError, match="does not match band_count"):
+            multi_band_dataset.no_data_value = np.array([-1.0], dtype=np.float64)
+
 
 class TestCreateFromArray:
     """Tests for ``Dataset.create_from_array`` (the public form)."""

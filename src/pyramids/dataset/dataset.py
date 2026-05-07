@@ -715,17 +715,20 @@ class Dataset(RasterBase):
         return tuple(self._no_data_value)
 
     @no_data_value.setter
-    def no_data_value(self, value: list | tuple | Number):
+    def no_data_value(self, value: list | tuple | np.ndarray | Number):
         """Set the no_data_value marker on every band.
 
         Args:
             value: Either a scalar (broadcast to all bands) or a
-                sequence (`list` / `tuple`) with `len == band_count`
-                providing one value per band.
+                sequence (`list`, `tuple`, or 1-D :class:`numpy.ndarray`)
+                with `len == band_count` providing one value per band.
+                A 0-D ndarray is treated as a scalar.
 
         Raises:
             ValueError: When `value` is a sequence whose length
-                differs from `band_count`.
+                differs from `band_count`, or a multi-dimensional
+                ndarray (only 0-D scalars and 1-D sequences are
+                accepted).
 
         Notes:
             - The setter does not change the values of the cells to the new no_data_value, it only changes the
@@ -736,6 +739,16 @@ class Dataset(RasterBase):
         See Also:
             - Dataset.change_no_data_value: Change the No Data Value.
         """
+        if isinstance(value, np.ndarray):
+            if value.ndim == 0:
+                value = value.item()
+            elif value.ndim == 1:
+                value = value.tolist()
+            else:
+                raise ValueError(
+                    f"no_data_value ndarray must be 0-D (scalar) or 1-D "
+                    f"(per-band sequence); got ndim={value.ndim}"
+                )
         if isinstance(value, (list, tuple)):
             if len(value) != self.band_count:
                 raise ValueError(
