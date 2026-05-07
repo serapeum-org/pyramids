@@ -122,11 +122,22 @@ class Dataset(RasterBase):
         `new` instance, not at `self`. Re-bind every collaborator's
         `_ds` to `self` so subsequent `self.spatial.crop(...)`
         calls reach back into `self`, not the discarded `new`.
+
+        Why ``collab._ds = self_proxy`` works despite the slot:
+            ``_Engine`` declares ``__slots__ = ("_ds",)`` (see
+            :mod:`pyramids.dataset.engines._base`). Slots prevent
+            adding *new* attributes to an instance, not reassigning
+            existing ones, so direct rebinding of the single
+            declared slot stays legal. The proxy is freshly built
+            from ``self`` (not pulled from ``new``) so the engines
+            point at the live Dataset after the swap.
         """
         new = type(self)(src, access=access or self._access)
         self.__dict__.update(new.__dict__)
         # Re-bind via `weakref.proxy` so the back-reference stays
         # weak after the dict swap (matches `_Engine.__init__`).
+        # Direct slot reassignment is allowed because `_Engine`
+        # declares `_ds` as its only slot — see method docstring.
         self_proxy = weakref.proxy(self)
         for attr in _COLLABORATOR_ATTRS:
             collab = self.__dict__.get(attr)

@@ -56,6 +56,10 @@ class _Engine:
     circular pickle through `_ds`.
     """
 
+    # Single-slot class. Forbids extra attributes (catches typos
+    # and accidental state on engines) but still allows reassigning
+    # the slot itself — which `Dataset._update_inplace` relies on
+    # to re-bind the back-reference after `__dict__.update`.
     __slots__ = ("_ds",)
 
     def __init__(self, ds: Dataset) -> None:
