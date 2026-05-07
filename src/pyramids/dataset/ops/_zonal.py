@@ -1,25 +1,24 @@
 """Zonal statistics over a :class:`Dataset` + polygon
 :class:`FeatureCollection`.
 
-DASK-25 first cut: single-pass rasterize of every polygon into an
-integer label grid, then numpy-based per-label reductions. Follows
-xvec's ``method="rasterize"`` pattern (single rasterize, then
-groupby).
+Single-pass rasterize of every polygon into an integer label grid,
+then numpy-based per-label reductions. Follows xvec's
+`method="rasterize"` pattern (single rasterize, then groupby).
 
 Scope kept narrow:
 
-* Supported stats: ``mean``, ``sum``, ``min``, ``max``, ``count``,
-  ``std``, ``var``.
-* One band at a time (caller selects via ``band=``).
+* Supported stats: `mean`, `sum`, `min`, `max`, `count`,
+  `std`, `var`.
+* One band at a time (caller selects via `band=`).
 * Raster and vector must share a CRS — caller reprojects first if
   not. (A later enhancement can auto-align.)
-* Output is a ``pandas.DataFrame`` indexed by the FeatureCollection
+* Output is a `pandas.DataFrame` indexed by the FeatureCollection
   row index, with one column per stat.
 
 Area-weighted zonal statistics (where a cell's contribution is
 scaled by the fraction of its area inside the polygon) are planned
-as a ``method="fractional"`` follow-up — see
-``planning/dask/zonal_stats/`` for the full implementation plan.
+as a `method="fractional"` follow-up — see
+`planning/dask/zonal_stats/` for the full implementation plan.
 Until that lands, callers who need area-weighted semantics must
 either upsample the raster or rasterize the polygons finely and
 then reduce.
@@ -32,6 +31,8 @@ from typing import TYPE_CHECKING, Sequence
 import numpy as np
 import pandas as pd
 from osgeo import gdal, ogr, osr
+
+from pyramids.base.crs import sr_from_epsg, sr_from_wkt
 
 if TYPE_CHECKING:
     from pyramids.dataset import Dataset
@@ -50,14 +51,14 @@ _STAT_FUNCS = {
 
 
 def _rasterize_labels(ds: Dataset, fc: FeatureCollection) -> np.ndarray:
-    """Rasterize ``fc`` into an integer label array shaped like ``ds``.
+    """Rasterize `fc` into an integer label array shaped like `ds`.
 
     Label values are 0-based feature-index integers. Pixels not
     covered by any polygon get -1.
 
     H4: the FeatureCollection's CRS is attached to the OGR layer so
-    GDAL's ``RasterizeLayer`` reprojects coordinates when the vector
-    and raster CRSes disagree. A mismatch that ``pyproj`` considers
+    GDAL's `RasterizeLayer` reprojects coordinates when the vector
+    and raster CRSes disagree. A mismatch that `pyproj` considers
     incompatible raises :class:`ValueError` early rather than silently
     producing a mis-aligned label grid.
     """
@@ -72,11 +73,12 @@ def _rasterize_labels(ds: Dataset, fc: FeatureCollection) -> np.ndarray:
                 "FeatureCollection via fc.to_crs(ds.epsg) first."
             )
 
-    srs = osr.SpatialReference()
     if fc_crs is not None:
-        srs.ImportFromWkt(fc_crs.to_wkt())
+        srs = sr_from_wkt(fc_crs.to_wkt())
     elif ds_epsg is not None:
-        srs.ImportFromEPSG(ds_epsg)
+        srs = sr_from_epsg(ds_epsg)
+    else:
+        srs = osr.SpatialReference()
     mem_driver = ogr.GetDriverByName("Memory")
     ds_vec = mem_driver.CreateDataSource("zonal_mem")
     layer = ds_vec.CreateLayer("features", srs=srs, geom_type=ogr.wkbPolygon)
@@ -119,7 +121,7 @@ def _rasterize_zonal_stats(
 ) -> pd.DataFrame:
     """Compute stats via single-rasterize + vectorised groupby.
 
-    M3: mean / sum / count stats route through :func:`numpy.bincount`
+    mean / sum / count stats route through :func:`numpy.bincount`
     weighted reductions instead of a per-polygon Python loop. Non-
     linear stats (std / var / min / max) still use the loop because
     bincount can't express them without per-label sort.
@@ -157,7 +159,7 @@ def _bincount_stats(
 ) -> dict[str, np.ndarray]:
     """Vectorised sum / count / mean via :func:`numpy.bincount`.
 
-    ``labels`` uses -1 for unassigned pixels; we shift by +1 so
+    `labels` uses -1 for unassigned pixels; we shift by +1 so
     bincount's non-negative-index requirement is satisfied, then
     drop the leading "unassigned" bucket.
     """
@@ -215,29 +217,29 @@ def zonal_stats(
     method: str = "rasterize",
     band: int = 0,
 ) -> pd.DataFrame:
-    """Compute zonal statistics of ``ds`` over polygons in ``fc``.
+    """Compute zonal statistics of `ds` over polygons in `fc`.
 
     Args:
         ds: The source :class:`~pyramids.dataset.Dataset`.
         fc: A :class:`~pyramids.feature.FeatureCollection` of polygons.
-            CRS must match ``ds`` — reproject first if needed.
+            CRS must match `ds` — reproject first if needed.
         stats: Statistics to compute per polygon. One or more of
-            ``"mean"``, ``"sum"``, ``"min"``, ``"max"``, ``"std"``,
-            ``"var"``, ``"count"``.
-        method: ``"rasterize"`` is the only supported value today.
+            `"mean"`, `"sum"`, `"min"`, `"max"`, `"std"`,
+            `"var"`, `"count"`.
+        method: `"rasterize"` is the only supported value today.
             Uses a single-pass GDAL rasterize then numpy groupby per
             label — fast and accurate when polygons are comparable to
             or larger than the raster pixel. An area-weighted
-            ``"fractional"`` method is planned; see
-            ``planning/dask/zonal_stats/``.
-        band: Zero-based band index on ``ds``. Default 0.
+            `"fractional"` method is planned; see
+            `planning/dask/zonal_stats/`.
+        band: Zero-based band index on `ds`. Default 0.
 
     Returns:
-        pandas.DataFrame: Indexed by ``fc.index``; one column per
+        pandas.DataFrame: Indexed by `fc.index`; one column per
         stat.
 
     Raises:
-        ValueError: Unknown ``stat`` name or unknown ``method``.
+        ValueError: Unknown `stat` name or unknown `method`.
 
     Examples:
         - Compute the mean value of a constant-valued raster over one

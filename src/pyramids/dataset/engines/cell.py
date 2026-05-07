@@ -1,9 +1,14 @@
-"""Cell/coordinate utility mixin for the Dataset class."""
+"""Cell engine.
+
+Owns the Cell family of operations on a Dataset. Accessed as
+``ds.cell``; the Dataset exposes same-named facade methods so
+``ds.<method>(...)`` and ``ds.cell.<method>(...)`` are equivalent.
+"""
 
 from __future__ import annotations
 
 from numbers import Number
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import geopandas as gpd
 import numpy as np
@@ -11,14 +16,20 @@ from geopandas.geodataframe import GeoDataFrame
 from hpc.indexing import get_indices2, locate_values
 from pandas import DataFrame
 
-from pyramids.feature import FeatureCollection
-
-if TYPE_CHECKING:
-    from pyramids.dataset.dataset import Dataset
+from pyramids.dataset.engines._base import _Engine
+from pyramids.feature import FeatureCollection, create_points, create_polygon
 
 
-class Cell:
-    """Mixin providing cell coordinate and geometry utilities for Dataset."""
+class Cell(_Engine):
+    """Cell-geometry operations on a Dataset.
+
+    Owns the real implementations of `get_cell_coords`,
+    `get_cell_polygons`, `get_cell_points`,
+    `map_to_array_coordinates`, and `array_to_map_coordinates` after
+    L-2 PR 2.1. `Dataset` exposes a same-named facade for each method
+    that delegates to this collaborator, so `ds.get_cell_coords(...)`
+    and `ds.cell.get_cell_coords(...)` are equivalent.
+    """
 
     def get_cell_coords(
         self, location: str = "center", domain_only: bool = False
@@ -87,7 +98,6 @@ class Cell:
 
               ```
         """
-        # check the location parameter
         location = location.lower()
         if location not in ["center", "corner"]:
             raise ValueError(
@@ -96,11 +106,9 @@ class Cell:
             )
 
         if location == "center":
-            # Adding 0.5*cell size to get the center
             add_value = 0.5
         else:
             add_value = 0
-        # Getting data for the whole grid
         (
             x_init,
             cell_size_x,
@@ -108,19 +116,23 @@ class Cell:
             y_init,
             yy_span,
             cell_size_y,
-        ) = self.geotransform
+        ) = self._ds.geotransform
 
         if cell_size_x != cell_size_y:
             if np.abs(cell_size_x) != np.abs(cell_size_y):
-                self.logger.warning(
-                    f"The given raster does not have a square cells, the cell size is {cell_size_x}*{cell_size_y} "
+                self._ds.logger.warning(
+                    f"The given raster does not have a square cells, the cell size is "
+                    f"{cell_size_x}*{cell_size_y} "
                 )
 
-        # data in the array
-        no_val = self.no_data_value[0] if self.no_data_value[0] is not None else np.nan
-        arr = self.read_array(band=0)
+        no_val = (
+            self._ds.no_data_value[0]
+            if self._ds.no_data_value[0] is not None
+            else np.nan
+        )
+        arr = self._ds.read_array(band=0)
         if domain_only and no_val not in arr:
-            self.logger.warning(
+            self._ds.logger.warning(
                 "The no data value does not exist in the band, so all the cells will be considered, and the "
                 "domain_only filter will not be applied."
             )
@@ -128,7 +140,6 @@ class Cell:
         mask_values: list[Any] | None = [no_val] if domain_only else None
         indices = get_indices2(arr, mask=mask_values)
 
-        # exclude the no_data_values cells.
         f1 = [i[0] for i in indices]
         f2 = [i[1] for i in indices]
         x = [x_init + cell_size_x * (i + add_value) for i in f2]
@@ -184,21 +195,16 @@ class Cell:
         ![get_cell_polygons](./../../_images/dataset/get_cell_polygons.png)
         """
         coords = self.get_cell_coords(location="corner", domain_only=domain_only)
-        cell_size = self.geotransform[1]
-        epsg = self._get_epsg()
+        cell_size = self._ds.geotransform[1]
+        epsg = self._ds._get_epsg()
         x = np.zeros((coords.shape[0], 4))
         y = np.zeros((coords.shape[0], 4))
-        # fill the top left corner point
         x[:, 0] = coords[:, 0]
         y[:, 0] = coords[:, 1]
-        # fill the top right
         x[:, 1] = x[:, 0] + cell_size
         y[:, 1] = y[:, 0]
-        # fill the bottom right
         x[:, 2] = x[:, 0] + cell_size
         y[:, 2] = y[:, 0] - cell_size
-
-        # fill the bottom left
         x[:, 3] = x[:, 0]
         y[:, 3] = y[:, 0] - cell_size
 
@@ -212,7 +218,7 @@ class Cell:
             )
             for i in range(len(x))
         ]
-        polygons = list(map(FeatureCollection.create_polygon, polys_coords))
+        polygons = list(map(create_polygon, polys_coords))
         gdf = gpd.GeoDataFrame(geometry=polygons)
         gdf.set_crs(epsg=epsg, inplace=True)
         gdf["id"] = gdf.index
@@ -292,17 +298,17 @@ class Cell:
             ![get_cell_points-corner](./../../_images/dataset/get_cell_points-corner.png)
         """
         coords = self.get_cell_coords(location=location, domain_only=domain_only)
-        epsg = self._get_epsg()
+        epsg = self._ds._get_epsg()
 
         coords_tuples = list(zip(coords[:, 0], coords[:, 1]))
-        points = FeatureCollection.create_points(coords_tuples)
+        points = create_points(coords_tuples)
         gdf = gpd.GeoDataFrame(geometry=points)
         gdf.set_crs(epsg=epsg, inplace=True)
         gdf["id"] = gdf.index
         return gdf
 
     def map_to_array_coordinates(
-        self: Dataset,
+        self,
         points: GeoDataFrame | FeatureCollection | DataFrame,
     ) -> np.ndarray:
         """Convert coordinates of points to array indices.
@@ -361,11 +367,6 @@ class Cell:
 
               ```
         """
-        # After ARC-1a, FeatureCollection *is* a GeoDataFrame (and therefore
-        # *is* a DataFrame). Check the most specific type first so the
-        # branches do not overlap. ARC-16 replaced the mutating ``xy()``
-        # method with the non-mutating ``with_coordinates()`` — we keep
-        # the original inputs intact and read coords off the returned FC.
         if isinstance(points, FeatureCollection):
             verts = points.with_coordinates()
             points = verts.loc[:, ["x", "y"]].values
@@ -384,14 +385,12 @@ class Cell:
                 f" {type(points)}"
             )
 
-        # since the first row is x-coords so the first column in the indices is the column index
-        indices = locate_values(points, self.x, self.y)
-        # rearrange the columns to make the row index first
+        indices = locate_values(points, self._ds.x, self._ds.y)
         indices = indices[:, [1, 0]]
         return np.asarray(indices)
 
     def array_to_map_coordinates(
-        self: Dataset,
+        self,
         rows_index: list[Number] | np.ndarray,
         column_index: list[Number] | np.ndarray,
         center: bool = False,
@@ -436,10 +435,9 @@ class Cell:
 
               ```
         """
-        top_left_x, top_left_y = self.top_left_corner
-        cell_size = self.cell_size
+        top_left_x, top_left_y = self._ds.top_left_corner
+        cell_size = self._ds.cell_size
         if center:
-            # for the top left corner of the cell
             top_left_x += cell_size / 2
             top_left_y -= cell_size / 2
 

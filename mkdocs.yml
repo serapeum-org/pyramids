@@ -128,7 +128,7 @@ nav:
     - Feature:
       - Overview: reference/feature/index.md
       - Geometry helpers: reference/feature/geometry.md
-      - CRS helpers: reference/feature/crs.md
+    - CRS helpers: reference/base/crs.md
     - NetCDF:
       - NetCDF Class: reference/netcdf/index.md
       - Data Models: reference/netcdf/models.md

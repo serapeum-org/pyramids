@@ -1,8 +1,8 @@
 """Tests for :meth:`pyramids.dataset.Dataset.map_blocks` lazy dispatch.
 
-DASK-8: when ``chunks=`` is given, route through
+when `chunks=` is given, route through
 :func:`dask.array.map_blocks` and return a :class:`dask.array.Array`.
-The default path (``chunks=None``) preserves today's eager tile-by-tile
+The default path (`chunks=None`) preserves today's eager tile-by-tile
 behavior unchanged.
 """
 
@@ -12,17 +12,18 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset
 
-pytestmark = pytest.mark.lazy
-
 try:
-    import dask.array as dask_array
-
-    HAS_DASK = True
-except ImportError:  # pragma: no cover
-    dask_array = None
+    import_dask("dask not installed")
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_DASK = False
+else:
+    HAS_DASK = True
+
+pytestmark = pytest.mark.lazy
 
 
 requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")
@@ -45,7 +46,7 @@ def square_dataset(tmp_path) -> Dataset:
 
 
 class TestEagerPathUnchanged:
-    """``chunks=None`` keeps the existing behavior."""
+    """`chunks=None` keeps the existing behavior."""
 
     def test_default_returns_dataset(self, square_dataset):
         result = square_dataset.map_blocks(lambda a: a * 2, tile_size=5)
@@ -59,7 +60,7 @@ class TestEagerPathUnchanged:
 
 
 class TestLazyDispatch:
-    """``chunks=<spec>`` returns a dask.array.Array."""
+    """`chunks=<spec>` returns a dask.array.Array."""
 
     @requires_dask
     def test_chunks_auto_returns_dask(self, square_dataset):
@@ -108,12 +109,12 @@ class TestLazyDispatch:
 
     @requires_dask
     def test_drop_axis_kwarg_forwarded(self, square_dataset):
-        """``drop_axis=`` is forwarded to :func:`dask.array.map_blocks`.
+        """`drop_axis=` is forwarded to :func:`dask.array.map_blocks`.
 
         Test scenario:
-            A block function that reduces along an axis (``sum``) must
+            A block function that reduces along an axis (`sum`) must
             produce a lazy array of lower rank when the user passes
-            ``drop_axis=0``. This covers the ``kwargs["drop_axis"]=...``
+            `drop_axis=0`. This covers the `kwargs["drop_axis"]=...`
             assignment in the lazy branch of :meth:`map_blocks`.
         """
         result = square_dataset.map_blocks(
@@ -136,13 +137,13 @@ class TestLazyDispatch:
 
     @requires_dask
     def test_new_axis_kwarg_forwarded(self, square_dataset):
-        """``new_axis=`` is forwarded to :func:`dask.array.map_blocks`.
+        """`new_axis=` is forwarded to :func:`dask.array.map_blocks`.
 
         Test scenario:
-            A block function that adds a leading axis (``np.expand_dims``)
+            A block function that adds a leading axis (`np.expand_dims`)
             returns an array of higher rank. The lazy-path wiring must
-            forward ``new_axis=0`` so the dask graph knows about the
-            extra dimension. This covers the ``kwargs["new_axis"]=...``
+            forward `new_axis=0` so the dask graph knows about the
+            extra dimension. This covers the `kwargs["new_axis"]=...`
             assignment.
         """
         result = square_dataset.map_blocks(
@@ -161,7 +162,7 @@ class TestLazyDispatch:
 
 
 class TestImportErrorWithoutDask:
-    """``chunks=`` without dask raises actionable ``ImportError``."""
+    """`chunks=` without dask raises actionable `ImportError`."""
 
     def test_raises_without_dask(self, square_dataset, monkeypatch):
         import builtins

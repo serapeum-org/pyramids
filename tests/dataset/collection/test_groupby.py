@@ -1,7 +1,7 @@
 """Tests for :meth:`DatasetCollection.groupby`.
 
-DASK-18: group timesteps by per-file label, reduce each cohort.
-Functional without ``flox``; ``flox`` (when installed) accelerates the
+group timesteps by per-file label, reduce each cohort.
+Functional without `flox`; `flox` (when installed) accelerates the
 tree-reduction. Tests here use the dask-only fallback to stay
 portable.
 """
@@ -11,16 +11,18 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset, DatasetCollection
 
-pytestmark = pytest.mark.lazy
-
 try:
-    import dask.array  # noqa: F401
-
-    HAS_DASK = True
-except ImportError:  # pragma: no cover
+    import_dask("dask not installed")
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_DASK = False
+else:
+    HAS_DASK = True
+
+pytestmark = pytest.mark.lazy
 
 
 requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")

@@ -1,24 +1,15 @@
-"""COG-specific operations for :class:`~pyramids.dataset.Dataset`.
+"""COG engine.
 
-Mix-in that adds three public members to :class:`Dataset`:
-
-- :meth:`COGMixin.to_cog` — write the dataset as a Cloud Optimized GeoTIFF.
-- :meth:`COGMixin.is_cog` — property returning whether the backing file
-  on disk is a valid COG.
-- :meth:`COGMixin.validate_cog` — return a full
-  :class:`~pyramids.dataset.cog.ValidationReport`.
-
-The heavy lifting lives in :mod:`pyramids.dataset.cog` (options
-validation, GDAL ``CreateCopy`` invocation, and validation); this
-mixin assembles kwargs into the option mapping and enforces the
-categorical-raster resampling guardrail.
+Owns the COG family of operations on a Dataset. Accessed as
+``ds.cog``; the Dataset exposes same-named facade methods so
+``ds.<method>(...)`` and ``ds.cog.<method>(...)`` are equivalent.
 """
 
 from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import Any, Mapping
 
 from osgeo import gdal
 
@@ -29,20 +20,11 @@ from pyramids.dataset.cog import (
     validate,
     validate_blocksize,
 )
-
-if TYPE_CHECKING:
-    from pyramids.dataset.dataset import Dataset
-
+from pyramids.dataset.engines._base import _Engine
 
 _AVERAGING_RESAMPLERS: frozenset[str] = frozenset(
     {"average", "bilinear", "cubic", "cubicspline", "lanczos"}
 )
-"""Overview resampling methods that smooth pixel values.
-
-Incorrect for categorical rasters (land cover, basin IDs, classification
-masks). Using any of these on a categorical dataset emits a
-``UserWarning`` from :meth:`COGMixin.to_cog`.
-"""
 
 
 _INTEGER_DTYPES: frozenset[int] = frozenset(
@@ -59,11 +41,19 @@ _INTEGER_DTYPES: frozenset[int] = frozenset(
 )
 
 
-class COGMixin:
-    """Cloud Optimized GeoTIFF read/write/validate operations for :class:`Dataset`."""
+class COG(_Engine):
+    """Cloud Optimized GeoTIFF read/write/validate operations for `Dataset`.
+
+    Owns the real implementations of `to_cog`, `is_cog` (property),
+    and `validate_cog` after L-2 PR 2.2. `Dataset` exposes a
+    same-named facade for each so `ds.to_cog(...)` and
+    `ds.cog.to_cog(...)` are equivalent. The categorical-raster
+    resampling guardrail (`_warn_if_categorical_with_averaging`)
+    lives here too.
+    """
 
     def to_cog(
-        self: Dataset,
+        self,
         path: str | Path,
         *,
         compress: str = "DEFLATE",
@@ -91,10 +81,10 @@ class COGMixin:
 
         Args:
             path: Destination path. Parent directory must exist.
-            compress: Compression method. ``DEFLATE``, ``LZW``, and
-                ``NONE`` are guaranteed by every GDAL build. ``JPEG``
-                is almost always available. ``ZSTD``, ``WEBP``,
-                ``LERC``, ``LERC_DEFLATE``, and ``LERC_ZSTD`` require
+            compress: Compression method. `DEFLATE`, `LZW`, and
+                `NONE` are guaranteed by every GDAL build. `JPEG`
+                is almost always available. `ZSTD`, `WEBP`,
+                `LERC`, `LERC_DEFLATE`, and `LERC_ZSTD` require
                 the GDAL build to have been compiled with the
                 corresponding library (libzstd / libwebp / LERC); on
                 a GDAL build lacking them, the COG driver will raise
@@ -110,28 +100,28 @@ class COGMixin:
             level: Compression level (e.g., 1-12 for DEFLATE, 1-22 ZSTD).
             quality: Lossy-compression quality 1-100 (JPEG/WEBP).
             blocksize: Internal tile size; power of 2 in [64, 4096].
-            predictor: ``"YES"``/``"STANDARD"``/``"FLOATING_POINT"`` or 1/2/3.
-            bigtiff: ``"IF_SAFER"`` (default), ``"YES"``, ``"NO"``,
-                ``"IF_NEEDED"``.
-            num_threads: Worker threads; ``"ALL_CPUS"`` or an int.
-            overview_resampling: ``nearest``, ``average``, ``bilinear``,
-                ``cubic``, ``cubicspline``, ``lanczos``, ``mode``,
-                ``rms``, ``gauss``.
+            predictor: `"YES"`/`"STANDARD"`/`"FLOATING_POINT"` or 1/2/3.
+            bigtiff: `"IF_SAFER"` (default), `"YES"`, `"NO"`,
+                `"IF_NEEDED"`.
+            num_threads: Worker threads; `"ALL_CPUS"` or an int.
+            overview_resampling: `nearest`, `average`, `bilinear`,
+                `cubic`, `cubicspline`, `lanczos`, `mode`,
+                `rms`, `gauss`.
             overview_count: Number of overview levels (default: auto).
             overview_compress: Compression for overview IFDs.
-            tiling_scheme: e.g., ``"GoogleMapsCompatible"`` for a
+            tiling_scheme: e.g., `"GoogleMapsCompatible"` for a
                 web-optimized COG (EPSG:3857).
             zoom_level, zoom_level_strategy, aligned_levels: Advanced
                 tiling-scheme knobs.
-            resampling: Warp resampling when ``tiling_scheme`` or
-                ``target_srs`` reprojects.
+            resampling: Warp resampling when `tiling_scheme` or
+                `target_srs` reprojects.
             add_mask: Add an alpha band for transparency.
             sparse_ok: Allow sparse (unfilled) tiles.
             target_srs: Reproject before write. Int for EPSG or a WKT
                 / PROJ string.
             statistics: Compute and embed band statistics.
             extra: Additional GDAL creation options as a mapping or
-                legacy ``['KEY=VALUE', ...]`` list. Overrides
+                legacy `['KEY=VALUE',...]` list. Overrides
                 conflicting kwargs.
 
         Returns:
@@ -145,13 +135,13 @@ class COGMixin:
 
         Warnings:
             UserWarning: When the source looks categorical (integer
-                dtype or has a color table) and ``overview_resampling``
+                dtype or has a color table) and `overview_resampling`
                 is an averaging method.
 
         Note:
-            Setting ``tiling_scheme`` (e.g., ``GoogleMapsCompatible``)
-            implies a specific SRS — ``target_srs`` is ignored in that
-            case. A ``UserWarning`` is emitted if both are provided.
+            Setting `tiling_scheme` (e.g., `GoogleMapsCompatible`)
+            implies a specific SRS — `target_srs` is ignored in that
+            case. A `UserWarning` is emitted if both are provided.
 
         Examples:
             - Write a compressed COG from an in-memory Dataset:
@@ -228,7 +218,7 @@ class COGMixin:
 
         dst: gdal.Dataset | None = None
         try:
-            dst = translate_to_cog(self._raster, path, options)
+            dst = translate_to_cog(self._ds._raster, path, options)
             dst.FlushCache()
         finally:
             dst = None
@@ -236,10 +226,10 @@ class COGMixin:
         return Path(path)
 
     @property
-    def is_cog(self: Dataset) -> bool:
-        """``True`` iff the backing file on disk is a valid COG.
+    def is_cog(self) -> bool:
+        """`True` iff the backing file on disk is a valid COG.
 
-        ``False`` for MEM datasets, ``/vsimem/`` paths, and unsaved
+        `False` for MEM datasets, `/vsimem/` paths, and unsaved
         datasets (empty :attr:`file_name`).
 
         Examples:
@@ -266,7 +256,7 @@ class COGMixin:
                 ```
         """
         result: bool
-        fn = self.file_name
+        fn = self._ds.file_name
         if not fn or fn.startswith("/vsimem/"):
             result = False
         else:
@@ -276,18 +266,18 @@ class COGMixin:
                 result = False
         return result
 
-    def validate_cog(self: Dataset, strict: bool = False) -> ValidationReport:
+    def validate_cog(self, strict: bool = False) -> ValidationReport:
         """Validate the backing file as a COG.
 
         Args:
-            strict: If ``True``, warnings are treated as errors.
+            strict: If `True`, warnings are treated as errors.
 
         Returns:
             ValidationReport with errors, warnings, and structural details.
 
         Raises:
             FileNotFoundError: Dataset has no on-disk backing file
-                (MEM-only or ``/vsimem/``).
+                (MEM-only or `/vsimem/`).
 
         Examples:
             - Validate and branch on the result:
@@ -313,7 +303,7 @@ class COGMixin:
 
                 ```
         """
-        fn = self.file_name
+        fn = self._ds.file_name
         if not fn or fn.startswith("/vsimem/"):
             raise FileNotFoundError(
                 "Dataset has no on-disk backing file to validate "
@@ -321,27 +311,23 @@ class COGMixin:
             )
         return validate(fn, strict=strict)
 
-    # ---- private helpers ----
-
-    def _warn_if_categorical_with_averaging(
-        self: Dataset, overview_resampling: str
-    ) -> None:
-        """Emit a ``UserWarning`` if an averaging resampler is used on categorical data.
+    def _warn_if_categorical_with_averaging(self, overview_resampling: str) -> None:
+        """Emit a `UserWarning` if an averaging resampler is used on categorical data.
 
         Args:
             overview_resampling: The resampling method requested by the
                 caller. Case-insensitive. Only averaging-family methods
-                (``average``, ``bilinear``, ``cubic``, ``cubicspline``,
-                ``lanczos``) trigger the check.
+                (`average`, `bilinear`, `cubic`, `cubicspline`,
+                `lanczos`) trigger the check.
 
         Warns:
-            UserWarning: When ``overview_resampling`` is an averaging
+            UserWarning: When `overview_resampling` is an averaging
                 method and the source has a color table OR integer
                 dtype — both strong signals of categorical data.
 
         Note:
-            Silent when ``overview_resampling`` is ``nearest`` or
-            ``mode`` (both category-safe) or when the source is
+            Silent when `overview_resampling` is `nearest` or
+            `mode` (both category-safe) or when the source is
             floating-point and has no color table (continuous data).
 
         Examples:
@@ -350,7 +336,7 @@ class COGMixin:
                 >>> import warnings  # doctest: +SKIP
                 >>> with warnings.catch_warnings(record=True) as caught:  # doctest: +SKIP
                 ...     warnings.simplefilter("always")
-                ...     byte_ds._warn_if_categorical_with_averaging("average")
+                ...     byte_ds.cog._warn_if_categorical_with_averaging("average")
                 ...     [str(w.message) for w in caught if issubclass(w.category, UserWarning)]
                 ['overview_resampling=\\'average\\' averages pixel values, ...']
 
@@ -359,7 +345,7 @@ class COGMixin:
                 ```python
                 >>> with warnings.catch_warnings(record=True) as caught:  # doctest: +SKIP
                 ...     warnings.simplefilter("always")
-                ...     byte_ds._warn_if_categorical_with_averaging("nearest")
+                ...     byte_ds.cog._warn_if_categorical_with_averaging("nearest")
                 ...     len(caught)
                 0
 
@@ -367,7 +353,7 @@ class COGMixin:
         """
         if overview_resampling.lower() not in _AVERAGING_RESAMPLERS:
             return
-        first_band = self._raster.GetRasterBand(1)
+        first_band = self._ds._raster.GetRasterBand(1)
         has_color_table = first_band.GetColorTable() is not None
         is_integer = first_band.DataType in _INTEGER_DTYPES
         if has_color_table or is_integer:

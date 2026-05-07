@@ -1,8 +1,8 @@
 """Integration tests for the basemap module.
 
 These tests perform real network calls to fetch tiles from
-OpenStreetMap. They are marked ``slow`` and skipped in the
-default test suite. Run with: ``pytest -m slow``.
+OpenStreetMap. They are marked `slow` and skipped in the
+default test suite. Run with: `pytest -m slow`.
 """
 
 from __future__ import annotations

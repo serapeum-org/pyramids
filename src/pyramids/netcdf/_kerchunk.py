@@ -1,6 +1,6 @@
 """Kerchunk reference-manifest emit for NetCDF files.
 
-DASK-14: serialise a NetCDF (or a list of NetCDFs) into a kerchunk
+serialise a NetCDF (or a list of NetCDFs) into a kerchunk
 JSON reference manifest so downstream consumers can open the archive
 as a lazy Zarr-backed xarray cube with **zero rewrite**. The manifest
 is a small JSON document containing byte-range pointers into each
@@ -12,10 +12,10 @@ Two helpers:
   :class:`kerchunk.hdf.SingleHdf5ToZarr`.
 * :func:`combine_kerchunk` — multi-file manifest, wraps
   :class:`kerchunk.combine.MultiZarrToZarr`, concatenating along a
-  user-specified dimension (usually ``"time"``).
+  user-specified dimension (usually `"time"`).
 
 Kerchunk is not a hard dependency — it lives in the
-``[netcdf-lazy]`` optional extra. Helpers raise a clear
+`[netcdf-lazy]` optional extra. Helpers raise a clear
 :class:`ImportError` when kerchunk is missing.
 """
 
@@ -65,9 +65,9 @@ def to_kerchunk(
             embedded directly in the manifest rather than referenced
             by offset. Forwarded to
             :class:`kerchunk.hdf.SingleHdf5ToZarr`.
-        vlen_encode: One of ``"embed" | "null" | "leave" | "encode"``.
+        vlen_encode: One of `"embed" | "null" | "leave" | "encode"`.
             Controls how VLEN (variable-length) strings are handled.
-            Default ``"embed"`` inlines string values; other modes
+            Default `"embed"` inlines string values; other modes
             trade compatibility vs fidelity — see the kerchunk docs.
 
     Returns:
@@ -79,7 +79,7 @@ def to_kerchunk(
 
     Examples:
         - Emit a manifest for one NetCDF file (requires the
-          ``[netcdf-lazy]`` extra):
+          `[netcdf-lazy]` extra):
             ```python
             >>> from pathlib import Path  # doctest: +SKIP
             >>> from pyramids.netcdf._kerchunk import to_kerchunk  # doctest: +SKIP
@@ -123,10 +123,10 @@ def combine_kerchunk(
         src_paths: Sequence of source NetCDF / HDF5 paths or URLs.
         output_path: Path where the combined JSON manifest is written.
         concat_dims: Dimension name(s) along which to concatenate
-            per-file coordinates. Default ``("time",)``.
+            per-file coordinates. Default `("time",)`.
         identical_dims: Dimension name(s) expected to be identical
-            across every file (for example shared ``lat``/``lon``
-            coordinates). Default ``("lat", "lon")``.
+            across every file (for example shared `lat`/`lon`
+            coordinates). Default `("lat", "lon")`.
         inline_threshold: Same semantics as :func:`to_kerchunk`.
 
     Returns:

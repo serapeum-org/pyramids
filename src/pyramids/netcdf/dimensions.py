@@ -23,7 +23,7 @@ def _strip_braces(value: str) -> str:
         str: The substring without the outer braces and surrounding whitespace.
 
     Raises:
-        TypeError: If ``value`` is not a string.
+        TypeError: If `value` is not a string.
 
     Examples:
         - Typical usage: remove outer braces and spaces
@@ -35,7 +35,7 @@ def _strip_braces(value: str) -> str:
             ```
         - No braces: returns stripped content
             ```python
-            >>> _strip_braces("  a, b  ")
+            >>> _strip_braces(" a, b ")
             'a, b'
 
             ```
@@ -73,13 +73,13 @@ def _smart_split_csv(text: str) -> list[str]:
         if the content is empty.
 
     Raises:
-        TypeError: If ``text`` is not a string.
+        TypeError: If `text` is not a string.
 
     Examples:
         - Braced input with spaces
             ```python
             >>> from pyramids.netcdf.dimensions import _smart_split_csv
-            >>> _smart_split_csv('{ a , b , c }')
+            >>> _smart_split_csv('{ a, b, c }')
             ['a', 'b', 'c']
 
             ```
@@ -115,19 +115,19 @@ def _coerce_scalar(token: str) -> str | Number:
 
     The conversion strategy is conservative:
       - If the token matches an integer pattern (optional sign, digits only),
-        it's converted to ``int``.
-      - Otherwise, if ``float(token)`` succeeds, it's converted to ``float``.
+        it's converted to `int`.
+      - Otherwise, if `float(token)` succeeds, it's converted to `float`.
       - On any failure, the original string is returned unchanged.
 
     Args:
         token (str): The input string token.
 
     Returns:
-        str | Number: The coerced scalar (``int`` or ``float``) or the
+        str | Number: The coerced scalar (`int` or `float`) or the
         original string if not numeric.
 
     Raises:
-        TypeError: If ``token`` is not a string.
+        TypeError: If `token` is not a string.
 
     Examples:
         - Integer-like token
@@ -170,7 +170,7 @@ def _parse_values_list(text: str) -> list[str | Number]:
     """Parse a CSV/braced list into typed scalars.
 
     This helper combines :func:`_smart_split_csv` and :func:`_coerce_scalar` to
-    produce a list of tokens converted to ``int``/``float`` where possible.
+    produce a list of tokens converted to `int`/`float` where possible.
 
     Args:
         text (str): The metadata text containing values (e.g., "{0,31}").
@@ -180,7 +180,7 @@ def _parse_values_list(text: str) -> list[str | Number]:
         the input tokens.
 
     Raises:
-        TypeError: If ``text`` is not a string.
+        TypeError: If `text` is not a string.
 
     Examples:
         - Mixed numeric and text values
@@ -207,13 +207,13 @@ def _format_braced_list(values: Iterable[str | Number]) -> str:
 
     Args:
         values (Iterable[str | Number]):
-            Iterable of scalars to format. Each element is converted with ``str``.
+            Iterable of scalars to format. Each element is converted with `str`.
 
     Returns:
         str: A string like "{1,2,foo}". Empty iterables yield "{}".
 
     Raises:
-        TypeError: If ``values`` is not iterable.
+        TypeError: If `values` is not iterable.
 
     Examples:
         - Regular values
@@ -244,12 +244,12 @@ class DimMetaData:
     """Unified information for a single netCDF dimension.
 
     This immutable dataclass captures both the structural information the GDAL
-    netCDF driver exposes via ``NETCDF_DIM_*`` keys and, optionally, the
+    netCDF driver exposes via `NETCDF_DIM_*` keys and, optionally, the
     per-dimension attribute mapping collected from keys of the form
-    ``"<name>#<attr>"`` (e.g., ``time#units``).
+    `"<name>#<attr>"` (e.g., `time#units`).
 
-    It subsumes the previous "Dimension" helper by adding an ``attrs`` field
-    while still preserving the original ``raw`` bucket that stores the exact
+    It subsumes the previous "Dimension" helper by adding an `attrs` field
+    while still preserving the original `raw` bucket that stores the exact
     strings parsed from metadata.
 
     Args:
@@ -257,22 +257,22 @@ class DimMetaData:
             Dimension name (e.g., "time", "level0").
         size (int | None):
             Dimension length (if known). Often derived from the first integer
-            in ``*_DEF`` or the length of ``*_VALUES``.
+            in `*_DEF` or the length of `*_VALUES`.
         values (list[str | Number] | None):
-            Parsed scalar values from the ``*_VALUES`` entry, if provided by the
+            Parsed scalar values from the `*_VALUES` entry, if provided by the
             GDAL netCDF driver.
-        def_fields (tuple[int, ...] | None):
-            Parsed integers from the ``*_DEF`` entry. The meaning is driver-
+        def_fields (tuple[int,...] | None):
+            Parsed integers from the `*_DEF` entry. The meaning is driver-
             specific; commonly the first value corresponds to the dimension size.
         raw (dict[str, str]):
             Raw strings captured from metadata for this dimension (e.g., the
-            original ``DEF`` and ``VALUES`` content).
+            original `DEF` and `VALUES` content).
         attrs (dict[str, str]):
             Optional attribute dictionary associated with the same dimension
-            name (e.g., ``{"axis": "T", "units": "days since ..."}``).
+            name (e.g., `{"axis": "T", "units": "days since..."}`).
 
     Raises:
-        ValueError: If ``size`` is negative.
+        ValueError: If `size` is negative.
 
     Examples:
         - Construct manually for testing
@@ -328,22 +328,22 @@ class DimensionsIndex:
 
     A thin mapping-like container that stores :class:`DimMetaData` objects
     keyed by dimension name. Use :meth:`from_metadata` to construct an index
-    from a GDAL metadata mapping (e.g., ``gdal.Dataset.GetMetadata()``).
+    from a GDAL metadata mapping (e.g., `gdal.Dataset.GetMetadata()`).
 
     Behavior:
-      - Accepts dimensions listed under ``<prefix>EXTRA``.
-      - Also recognizes any ``<prefix><name>_DEF`` and ``<prefix><name>_VALUES``
-        keys, even when ``<name>`` is not listed in ``EXTRA``.
-      - Coerces numeric tokens to ``int``/``float`` where possible.
+      - Accepts dimensions listed under `<prefix>EXTRA`.
+      - Also recognizes any `<prefix><name>_DEF` and `<prefix><name>_VALUES`
+        keys, even when `<name>` is not listed in `EXTRA`.
+      - Coerces numeric tokens to `int`/`float` where possible.
 
     Notes:
-        The default prefix is ``NETCDF_DIM_`` but any prefix can be supplied to
+        The default prefix is `NETCDF_DIM_` but any prefix can be supplied to
         :meth:`from_metadata` and :meth:`to_metadata`.
 
     See Also:
         - :class:`DimMetaData`
         - :class:`MetaData` for a higher-level view that merges attributes
-          like ``time#units`` with dimension structure.
+          like `time#units` with dimension structure.
 
     Examples:
         - Build from typical NETCDF_DIM_* keys
@@ -392,16 +392,16 @@ class DimensionsIndex:
 
         Args:
             metadata (Mapping[str, str]):
-                GDAL metadata mapping (e.g., from ``Dataset.GetMetadata()``).
+                GDAL metadata mapping (e.g., from `Dataset.GetMetadata()`).
             prefix (str, optional):
-                Key prefix to filter on (default: ``'NETCDF_DIM_'``). Custom
-                prefixes are supported, e.g., ``'CUSTOM_DIM_'``.
+                Key prefix to filter on (default: `'NETCDF_DIM_'`). Custom
+                prefixes are supported, e.g., `'CUSTOM_DIM_'`.
 
         Returns:
             DimensionsIndex: Parsed index of dimensions.
 
         Raises:
-            TypeError: If ``metadata`` is not a mapping or contains non-string
+            TypeError: If `metadata` is not a mapping or contains non-string
                 keys/values.
 
         Examples:
@@ -559,7 +559,7 @@ class DimensionsIndex:
             name (str): Dimension name to check.
 
         Returns:
-            bool: ``True`` if present, else ``False``.
+            bool: `True` if present, else `False`.
 
         Examples:
             - Membership test
@@ -636,7 +636,7 @@ class DimensionsIndex:
 
         Returns:
             dict[str, dict[str, object]]: Mapping from dimension name to a
-            structure with ``size``, ``values`` and ``def_fields`` fields.
+            structure with `size`, `values` and `def_fields` fields.
 
         Examples:
             - Convert to a simple dict
@@ -668,11 +668,11 @@ class DimensionsIndex:
         """Serialize the index back to GDAL netCDF metadata keys.
 
         This produces keys compatible with the netCDF GDAL driver such as
-        ``<prefix>EXTRA``, ``<prefix><name>_DEF`` and ``<prefix><name>_VALUES``.
+        `<prefix>EXTRA`, `<prefix><name>_DEF` and `<prefix><name>_VALUES`.
 
         Args:
-            prefix (str): Metadata key prefix (defaults to ``"NETCDF_DIM_"``).
-            include_extra (bool): Whether to include the ``<prefix>EXTRA`` key
+            prefix (str): Metadata key prefix (defaults to `"NETCDF_DIM_"`).
+            include_extra (bool): Whether to include the `<prefix>EXTRA` key
                 listing dimension names.
             sort_names (bool): Whether to sort names deterministically in
                 outputs.
@@ -711,17 +711,17 @@ def parse_gdal_netcdf_dimensions(metadata: Mapping[str, str]) -> DimensionsIndex
     """Parse netCDF dimension info from GDAL metadata.
 
     A convenience wrapper around :meth:`DimensionsIndex.from_metadata` that
-    uses the default ``NETCDF_DIM_`` prefix.
+    uses the default `NETCDF_DIM_` prefix.
 
     Args:
         metadata (Mapping[str, str]): GDAL metadata mapping (e.g., from
-            ``Dataset.GetMetadata()``).
+            `Dataset.GetMetadata()`).
 
     Returns:
         DimensionsIndex: Parsed index of dimensions.
 
     Raises:
-        TypeError: If ``metadata`` is not a mapping.
+        TypeError: If `metadata` is not a mapping.
 
     Examples:
         - Typical usage
@@ -774,7 +774,7 @@ def parse_dimension_attributes(
         of attributes for that dimension.
 
     Raises:
-        TypeError: If ``metadata`` is not a mapping or contains non-string keys.
+        TypeError: If `metadata` is not a mapping or contains non-string keys.
 
     Examples:
         - Parse all attributes for any name
@@ -830,10 +830,10 @@ class MetaData:
 
     This class ties together two complementary pieces of information commonly
     exposed by the GDAL netCDF driver:
-      - A :class:`DimensionsIndex` parsed from ``NETCDF_DIM_*`` keys, describing
+      - A :class:`DimensionsIndex` parsed from `NETCDF_DIM_*` keys, describing
         dimension sizes, DEF fields, and VALUES.
       - Per-dimension attribute dictionaries collected from keys of the form
-        ``"<name>#<attr>"`` (e.g., ``time#units``, ``lat#axis``).
+        `"<name>#<attr>"` (e.g., `time#units`, `lat#axis`).
 
     Examples:
         - Build from a combined metadata mapping and inspect
@@ -878,11 +878,11 @@ class MetaData:
 
         Args:
             metadata (Mapping[str, str]):
-                GDAL metadata map (e.g., ``Dataset.GetMetadata()``).
+                GDAL metadata map (e.g., `Dataset.GetMetadata()`).
             prefix (str):
-                Prefix used for dimension entries (defaults to ``NETCDF_DIM_``).
+                Prefix used for dimension entries (defaults to `NETCDF_DIM_`).
             normalize_attr_keys (bool):
-                Normalize attribute keys (the part after ``#``) to lowercase.
+                Normalize attribute keys (the part after `#`) to lowercase.
             names (Iterable[str] | None):
                 If provided, limit attribute parsing to these names. By default
                 uses the dimension names discovered under the prefix.
@@ -971,7 +971,7 @@ class MetaData:
             name (str): Dimension name.
 
         Returns:
-            DimMetaData | None: The merged view if available, else ``None``.
+            DimMetaData | None: The merged view if available, else `None`.
 
         Examples:
             - Get a merged DimMetaData and inspect attributes
@@ -1037,16 +1037,16 @@ class MetaData:
         """Serialize back to a GDAL metadata mapping.
 
         Combines the dimension keys produced by :meth:`DimensionsIndex.to_metadata`
-        with flattened attribute keys of the form ``"<name>#<attr>"``.
+        with flattened attribute keys of the form `"<name>#<attr>"`.
 
         Args:
             prefix (str): Metadata key prefix for dimension keys. Defaults to
-                ``"NETCDF_DIM_"``.
-            include_extra (bool): Include an ``<prefix>EXTRA`` key listing
+                `"NETCDF_DIM_"`.
+            include_extra (bool): Include an `<prefix>EXTRA` key listing
                 dimension names.
             sort_names (bool): Sort dimension names when serializing for
                 determinism.
-            include_attrs (bool): Whether to include ``"<name>#<attr>"`` keys
+            include_attrs (bool): Whether to include `"<name>#<attr>"` keys
                 for known attributes.
 
         Returns:

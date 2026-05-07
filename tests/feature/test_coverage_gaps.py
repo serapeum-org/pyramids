@@ -28,6 +28,8 @@ from shapely.geometry import LineString, Point, Polygon, box
 
 from pyramids.base._errors import CRSError
 from pyramids.feature import FeatureCollection
+from pyramids.feature import get_line_coords, get_poly_coords
+from pyramids.base.crs import reproject_coordinates
 
 pytestmark = pytest.mark.core
 
@@ -49,18 +51,18 @@ class TestLowLevelCoordHelpers:
 
     def test_get_line_coords_x(self):
         line = LineString([(0.0, 10.0), (1.0, 11.0), (2.0, 12.0)])
-        xs = FeatureCollection._get_line_coords(line, "x")
+        xs = get_line_coords(line, "x")
         assert xs == [0.0, 1.0, 2.0]
 
     def test_get_line_coords_y(self):
         line = LineString([(0.0, 10.0), (1.0, 11.0), (2.0, 12.0)])
-        ys = FeatureCollection._get_line_coords(line, "y")
+        ys = get_line_coords(line, "y")
         assert ys == [10.0, 11.0, 12.0]
 
     def test_get_poly_coords_exterior_ring(self):
         """Polygon vertex extraction walks the exterior ring."""
         poly = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
-        xs = FeatureCollection._get_poly_coords(poly, "x")
+        xs = get_poly_coords(poly, "x")
         # First + last are the same (closed ring).
         assert xs[0] == xs[-1] == 0.0
         assert set(xs) == {0.0, 1.0}
@@ -124,14 +126,14 @@ class TestReprojectEdges:
     """Edge cases of ``reproject_coordinates``."""
 
     def test_empty_lists(self):
-        x, y = FeatureCollection.reproject_coordinates(
+        x, y = reproject_coordinates(
             [], [], from_crs=4326, to_crs=3857
         )
         assert x == [] and y == []
 
     def test_precision_zero_rounds_to_int(self):
         """precision=0 rounds to the nearest integer coordinate."""
-        x, y = FeatureCollection.reproject_coordinates(
+        x, y = reproject_coordinates(
             [31.0], [30.0], from_crs=4326, to_crs=3857, precision=0
         )
         # 3857 meters round to whole integers.

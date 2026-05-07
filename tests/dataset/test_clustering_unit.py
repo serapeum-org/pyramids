@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from pyramids.dataset.dataset import Dataset
-from pyramids.dataset.ops.vectorize import Vectorize
+from pyramids.dataset.engines import Vectorize
 
 pytestmark = pytest.mark.core
 

@@ -15,6 +15,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset, DatasetCollection
 
 pytestmark = pytest.mark.core
@@ -81,8 +83,8 @@ class TestFromStac:
 
     def test_lazy_data_computes(self, stac_items):
         try:
-            import dask.array  # noqa: F401
-        except ImportError:
+            import_dask("dask not installed")
+        except OptionalPackageDoesNotExist:
             pytest.skip("dask not installed")
         collection = DatasetCollection.from_stac(stac_items, asset="data")
         arr = collection.data.compute()

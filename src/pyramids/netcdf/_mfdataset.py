@@ -1,20 +1,20 @@
 """Multi-file NetCDF opener with optional parallel metadata fan-out.
 
-DASK-12: ``NetCDF.open_mfdataset(paths, variable, ...)`` opens many
+`NetCDF.open_mfdataset(paths, variable,...)` opens many
 NetCDF files and stacks a single named variable into a single lazy
 :class:`dask.array.Array` of shape
-``(n_files, *variable_shape)`` — the canonical shape for a set of
+`(n_files, *variable_shape)` — the canonical shape for a set of
 daily / hourly gridded files.
 
 Unlike :func:`xarray.open_mfdataset`, this helper is deliberately
 narrow: one variable at a time, no "by_coords" inference, no combine
 strategies. For the common hydrology / meteorology case (open 365
-noah_YYYYMMDD.nc files, stack the ``precipitation`` variable, reduce
+noah_YYYYMMDD.nc files, stack the `precipitation` variable, reduce
 along time) that narrowness is the whole point — no metadata
 inference means no failure modes when one file has a different
 schema.
 
-``parallel=True`` wraps each file's metadata read in
+`parallel=True` wraps each file's metadata read in
 :func:`dask.delayed`, so opening 500 files on a distributed cluster
 fans out over workers rather than blocking sequentially.
 """
@@ -38,7 +38,7 @@ _LAZY_IMPORT_ERROR = (
 
 
 def _resolve_paths(paths: str | Sequence[str | Path]) -> list[str]:
-    """Normalize ``paths`` to a sorted list of absolute string paths."""
+    """Normalize `paths` to a sorted list of absolute string paths."""
     if isinstance(paths, (str, Path)):
         resolved = [str(p) for p in sorted(glob.glob(str(paths)))]
         if not resolved:
@@ -60,8 +60,8 @@ def _open_and_extract(
     """Open one NetCDF + extract one variable as a dask array.
 
     Called synchronously by :func:`open_mfdataset` when
-    ``parallel=False`` and wrapped in :func:`dask.delayed` when
-    ``parallel=True``.
+    `parallel=False` and wrapped in :func:`dask.delayed` when
+    `parallel=True`.
     """
     from pyramids.netcdf import NetCDF
 
@@ -80,10 +80,10 @@ def open_mfdataset(
     parallel: bool = False,
     preprocess: Callable[[NetCDF], NetCDF] | None = None,
 ) -> Any:
-    """Open many NetCDFs; stack ``variable`` into one lazy dask array.
+    """Open many NetCDFs; stack `variable` into one lazy dask array.
 
     Args:
-        paths: Glob string (``"noah_*.nc"``), an explicit file path, or
+        paths: Glob string (`"noah_*.nc"`), an explicit file path, or
             a sequence of paths. Glob inputs are expanded and sorted
             alphabetically so the stack order is deterministic.
         variable: Name of the NetCDF variable to extract from each
@@ -91,24 +91,24 @@ def open_mfdataset(
             shape + dtype; mismatches produce a :class:`ValueError`
             from :func:`dask.array.stack` at graph-construction time.
         chunks: Chunk specification forwarded to
-            :meth:`NetCDF.read_array` when reading each file. ``None``
+            :meth:`NetCDF.read_array` when reading each file. `None`
             uses each variable's native on-disk chunking.
-        parallel: When ``True``, wraps the per-file open+extract in
+        parallel: When `True`, wraps the per-file open+extract in
             :func:`dask.delayed` so the reads fan out across a dask
-            scheduler. Default ``False`` reads sequentially.
+            scheduler. Default `False` reads sequentially.
         preprocess: Optional callable applied to each
             :class:`NetCDF` subset before its array is extracted —
             for example to unpack scale/offset, crop, or drop
             auxiliary variables.
 
     Returns:
-        dask.array.Array: A stack of shape ``(n_files, *var_shape)``.
-        Element ``[i, ...]`` corresponds to ``paths[i]`` (after glob
+        dask.array.Array: A stack of shape `(n_files, *var_shape)`.
+        Element `[i,...]` corresponds to `paths[i]` (after glob
         expansion + sort).
 
     Raises:
         ImportError: When dask is not installed.
-        FileNotFoundError: When ``paths`` is an explicit path that
+        FileNotFoundError: When `paths` is an explicit path that
             does not exist.
 
     Examples:

@@ -585,8 +585,8 @@ class TestDatasetCollectionProcessingPipeline:
             values[t, :, :] = float(t + 1)
         md.values = values
 
-        # Apply np.sqrt
-        md.apply(np.sqrt)
+        # Apply np.sqrt — out-of-place after the L-3 refactor.
+        md = md.apply(np.sqrt)
 
         # Verify each time step via iteration
         for i, slice_arr in enumerate(md):

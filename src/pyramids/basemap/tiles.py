@@ -35,7 +35,7 @@ MAX_TILES = 256
 def auto_zoom(bounds_4326: tuple[float, float, float, float]) -> int:
     """Compute an appropriate zoom level from bounds in EPSG:4326.
 
-    Uses the formula ``zoom = ceil(log2(360 / max(lon_extent, lat_extent)))``
+    Uses the formula `zoom = ceil(log2(360 / max(lon_extent, lat_extent)))`
     clamped to the range 0--19.
 
     Args:
@@ -156,10 +156,10 @@ def fetch_tiles(
 ) -> dict:
     """Fetch tile PNG images over HTTP in parallel.
 
-    Uses ``concurrent.futures.ThreadPoolExecutor`` for parallel
+    Uses `concurrent.futures.ThreadPoolExecutor` for parallel
     downloads. Each tile URL is constructed via the provider's
-    ``build_url()`` method. A ``User-Agent`` header
-    (``pyramids-gis/Python``) is set on all requests to comply
+    `build_url()` method. A `User-Agent` header
+    (`pyramids-gis/Python`) is set on all requests to comply
     with tile provider requirements.
 
     Args:
@@ -220,12 +220,12 @@ def stitch_tiles(
     Arranges tiles in a grid based on their x, y positions. The tile
     size is read from the first fetched image (typically 256 or 512px).
     Also computes the geographic extent of the stitched image in
-    EPSG:3857 coordinates using ``mercantile.xy_bounds()`` on the
+    EPSG:3857 coordinates using `mercantile.xy_bounds()` on the
     corner tiles.
 
     Args:
         tile_data (dict[mercantile.Tile, bytes]):
-            Mapping of Tile to PNG bytes (from ``fetch_tiles``).
+            Mapping of Tile to PNG bytes (from `fetch_tiles`).
         tiles (list[mercantile.Tile]):
             All tiles in the grid (defines the grid dimensions).
         zoom (int):

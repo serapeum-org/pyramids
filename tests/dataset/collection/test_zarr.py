@@ -1,6 +1,6 @@
 """Tests for :meth:`DatasetCollection.to_zarr`.
 
-DASK-20: write the full ``(T, B, R, C)`` cube to a Zarr store. Each
+write the full `(T, B, R, C)` cube to a Zarr store. Each
 dask chunk lands in an independent Zarr chunk file — the only truly
 parallel raster output path pyramids offers. Geobox metadata +
 time_length + file list are written as attrs so downstream consumers
@@ -14,17 +14,20 @@ import json
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask, import_zarr
 from pyramids.dataset import Dataset, DatasetCollection
 
-pytestmark = pytest.mark.lazy
-
 try:
-    import dask.array  # noqa: F401
+    import_dask("zarr + dask not installed")
+    import_zarr("zarr + dask not installed")
     import zarr
-
-    HAS_ZARR = True
-except ImportError:  # pragma: no cover
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_ZARR = False
+else:
+    HAS_ZARR = True
+
+pytestmark = pytest.mark.lazy
 
 
 requires_zarr = pytest.mark.skipif(not HAS_ZARR, reason="zarr + dask not installed")
@@ -102,7 +105,7 @@ class TestMetadataAttrs:
 
 
 class TestComputeFalse:
-    """``compute=False`` returns a :class:`dask.delayed.Delayed`."""
+    """`compute=False` returns a :class:`dask.delayed.Delayed`."""
 
     @requires_zarr
     def test_returns_delayed(self, three_files, tmp_path):

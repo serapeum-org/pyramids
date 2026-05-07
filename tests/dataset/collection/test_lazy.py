@@ -1,9 +1,9 @@
 """Tests for :attr:`DatasetCollection.data` lazy dask-backed stack.
 
-DASK-16: file-backed ``DatasetCollection`` exposes a
-``dask.array.Array`` of shape ``(time_length, bands, rows, cols)``
+file-backed `DatasetCollection` exposes a
+`dask.array.Array` of shape `(time_length, bands, rows, cols)`
 without pre-allocating a numpy stack. Each chunk opens one file via
-:class:`CachingFileManager` + ``Dataset.read_file`` — no live GDAL
+:class:`CachingFileManager` + `Dataset.read_file` — no live GDAL
 handles are shipped across the dask graph pickle boundary.
 """
 
@@ -11,20 +11,23 @@ from __future__ import annotations
 
 import multiprocessing
 import pickle
+from typing import Any
 
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset, DatasetCollection
 
-pytestmark = pytest.mark.lazy
-
 try:
-    import dask.array  # noqa: F401
-
-    HAS_DASK = True
-except ImportError:  # pragma: no cover
+    import_dask("dask not installed")
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_DASK = False
+else:
+    HAS_DASK = True
+
+pytestmark = pytest.mark.lazy
 
 
 requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")
@@ -106,22 +109,64 @@ class TestGraphPickle:
 
 
 class TestManagerCaching:
-    """H2: repeated compute calls reuse cached GDAL handles per path."""
+    """Repeated compute calls reuse cached GDAL handles per path."""
 
     @requires_dask
-    def test_cached_manager_reused_across_computes(self, three_files):
-        from pyramids.dataset.collection import _READ_TIME_STEP_MANAGERS
+    def test_handle_reused_across_computes(self, three_files):
+        from pyramids.base._file_manager import FILE_CACHE
 
-        _READ_TIME_STEP_MANAGERS.clear()
+        def _path_entries() -> dict[str, Any]:
+            return {
+                key: handle
+                for key, handle in list(FILE_CACHE._cache.items())
+                if any(p in tuple(key) for p in three_files)
+            }
+
+        for path in three_files:
+            for key in [k for k in list(FILE_CACHE._cache) if path in tuple(k)]:
+                del FILE_CACHE._cache[key]
         collection = DatasetCollection.from_files(three_files)
         collection.data.compute()
-        first_snapshot = set(_READ_TIME_STEP_MANAGERS.keys())
+        first_snapshot = _path_entries()
         collection.data.compute()
-        second_snapshot = set(_READ_TIME_STEP_MANAGERS.keys())
+        second_snapshot = _path_entries()
         assert (
-            first_snapshot == second_snapshot
-        ), "Repeated compute should not register new managers"
+            set(first_snapshot) == set(second_snapshot)
+        ), "Repeated compute should not register new FILE_CACHE entries"
         assert len(first_snapshot) == len(three_files)
+        for key, handle in first_snapshot.items():
+            assert (
+                second_snapshot[key] is handle
+            ), "Repeated compute should reuse the cached gdal.Dataset"
+
+    def test_path_and_str_share_cache_slot(self, three_files):
+        """M1 regression: `_read_time_step` normalises Path → str.
+
+        Pre-fix passing `Path("foo.tif")` and `"foo.tif"` produced
+        two distinct `FILE_CACHE` slots (the cache key is built
+        from the literal `manager_id`, and Path/str hash to
+        different keys). Post-fix the function calls `str(path)`
+        before constructing the manager, so both forms collapse
+        to a single slot.
+        """
+        from pathlib import Path
+
+        from pyramids.base._file_manager import FILE_CACHE
+        from pyramids.dataset.collection import _read_time_step
+
+        first_path = three_files[0]
+        for key in [k for k in list(FILE_CACHE._cache) if first_path in tuple(k)]:
+            del FILE_CACHE._cache[key]
+
+        _read_time_step(first_path)
+        _read_time_step(Path(first_path))
+        path_keys = [
+            k for k in list(FILE_CACHE._cache) if first_path in tuple(k)
+        ]
+        assert len(path_keys) == 1, (
+            f"Path and str inputs should share a FILE_CACHE slot; got "
+            f"{len(path_keys)} entries: {path_keys}"
+        )
 
 
 class TestErrors:

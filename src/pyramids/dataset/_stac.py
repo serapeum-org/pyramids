@@ -1,11 +1,11 @@
 """STAC ItemCollection → :class:`DatasetCollection`.
 
-DASK-19 first cut: given a sequence of STAC Items — :class:`pystac.Item`
-objects, raw JSON dicts, or anything else with ``.assets`` and
-``.bbox`` semantics — extract the chosen asset's ``href`` from each
+Given a sequence of STAC Items — :class:`pystac.Item`
+objects, raw JSON dicts, or anything else with `.assets` and
+`.bbox` semantics — extract the chosen asset's `href` from each
 item and delegate to :meth:`DatasetCollection.from_files`. Full
 odc-stac-style features (geobox-tiled graph, auto-geobox derivation,
-``fuse_func``, ``errors_as_nodata``) are deliberately out of scope —
+`fuse_func`, `errors_as_nodata`) are deliberately out of scope —
 those users are better served by the odc-stac or stackstac packages
 directly.
 
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 def _iter_items(items: Any) -> list[Any]:
-    """Normalise ``items`` to a list of STAC Items.
+    """Normalise `items` to a list of STAC Items.
 
     Accepts a :class:`pystac.ItemCollection`, a list, or any iterable
     yielding STAC items.
@@ -40,21 +40,21 @@ def _iter_items(items: Any) -> list[Any]:
 def _resolve_asset_href(item: Any, asset_key: str) -> str:
     """Return the href of a named asset on a STAC Item.
 
-    Supports both :class:`pystac.Asset` (``.href`` attribute) and
-    raw-dict STAC assets (``{"href": "..."}``) so callers can pass
+    Supports both :class:`pystac.Asset` (`.href` attribute) and
+    raw-dict STAC assets (`{"href": "..."}`) so callers can pass
     either a :class:`pystac.Item` or a plain JSON dict.
 
     Args:
-        item: Any object with an ``assets`` dict mapping asset keys
-            to objects / dicts bearing an ``href``.
-        asset_key: Asset name (``"B04"``, ``"visual"``, ...).
+        item: Any object with an `assets` dict mapping asset keys
+            to objects / dicts bearing an `href`.
+        asset_key: Asset name (`"B04"`, `"visual"`,...).
 
     Returns:
         str: The asset's href.
 
     Raises:
-        KeyError: When ``asset_key`` is not present on the item, or
-            when the asset exists but has no ``href``.
+        KeyError: When `asset_key` is not present on the item, or
+            when the asset exists but has no `href`.
     """
     assets = getattr(item, "assets", None)
     if assets is None and isinstance(item, dict):
@@ -84,9 +84,9 @@ def _item_intersects_bbox(
     item: Any,
     bbox: tuple[float, float, float, float],
 ) -> bool:
-    """Return True if ``item.bbox`` overlaps ``bbox`` (lon/lat box).
+    """Return True if `item.bbox` overlaps `bbox` (lon/lat box).
 
-    Reads ``item.bbox`` as either an attribute (pystac.Item) or a
+    Reads `item.bbox` as either an attribute (pystac.Item) or a
     dict key (raw JSON). Items without a bbox are treated as
     intersecting (permissive default — the caller opted in to the
     bbox filter, not the item).
@@ -114,15 +114,15 @@ def from_stac(
     """Build a :class:`DatasetCollection` from a STAC ItemCollection.
 
     Extracts one named asset's href from each item, optionally runs
-    ``patch_url`` on each href (typical use: sign a Planetary Computer
+    `patch_url` on each href (typical use: sign a Planetary Computer
     URL), and forwards to :meth:`DatasetCollection.from_files`.
 
     The item interface is fully duck-typed. Any of these shapes work:
 
-    * :class:`pystac.Item` objects (``item.assets["B04"].href``).
-    * Raw STAC JSON dicts (``item["assets"]["B04"]["href"]``).
-    * Any object exposing a dict-like ``.assets`` attribute whose
-      values bear a ``.href`` attribute or ``"href"`` key.
+    * :class:`pystac.Item` objects (`item.assets["B04"].href`).
+    * Raw STAC JSON dicts (`item["assets"]["B04"]["href"]`).
+    * Any object exposing a dict-like `.assets` attribute whose
+      values bear a `.href` attribute or `"href"` key.
 
     pyramids does not import pystac; users who construct Items via
     :mod:`pystac_client` / :mod:`pystac` pick that dependency up
@@ -130,26 +130,26 @@ def from_stac(
 
     Args:
         items: Iterable of STAC Items (see duck-typed shapes above).
-        asset: Asset key (e.g. ``"B04"``, ``"visual"``) whose
-            ``href`` on each item becomes a timestep in the
+        asset: Asset key (e.g. `"B04"`, `"visual"`) whose
+            `href` on each item becomes a timestep in the
             resulting collection.
         patch_url: Optional callable applied to each href — use for
             signing requester-pays URLs
-            (``planetary_computer.sign``, etc.).
-        bbox: Optional ``(minx, miny, maxx, maxy)`` lon/lat filter;
-            items whose ``bbox`` doesn't intersect are dropped
+            (`planetary_computer.sign`, etc.).
+        bbox: Optional `(minx, miny, maxx, maxy)` lon/lat filter;
+            items whose `bbox` doesn't intersect are dropped
             before hrefs are resolved.
         max_items: Optional cap on the number of items consumed
             (after bbox filtering).
 
     Returns:
         DatasetCollection: A file-backed collection whose
-        ``time_length`` equals ``len(items)`` and whose per-timestep
+        `time_length` equals `len(items)` and whose per-timestep
         backing file is the resolved asset URL.
 
     Raises:
         KeyError: When any item is missing the requested asset.
-        ValueError: When ``items`` yields zero items after filtering.
+        ValueError: When `items` yields zero items after filtering.
 
     Examples:
         - Build a DatasetCollection from raw STAC JSON dicts (no

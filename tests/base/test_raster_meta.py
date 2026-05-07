@@ -1,6 +1,6 @@
 """Tests for :class:`pyramids.base._raster_meta.RasterMeta`.
 
-DASK-15: picklable dataclass wrapping raster geobox + dtype + nodata
+picklable dataclass wrapping raster geobox + dtype + nodata
 so :class:`DatasetCollection` can hold per-file metadata without a
 live :class:`gdal.Dataset` handle.
 """
@@ -108,13 +108,13 @@ class TestFromDataset:
         self,
         monkeypatch,
     ):
-        """L3 fallback: empty ``numpy_dtype`` derives dtype from GDAL band.
+        """L3 fallback: empty `numpy_dtype` derives dtype from GDAL band.
 
         Test scenario:
             If :attr:`Dataset.numpy_dtype` is empty (as can happen when
             the eager cache has not populated), :meth:`from_dataset`
-            must not hardcode ``float64`` — it reads the GDAL band's
-            data type directly. For an ``int16`` raster the resulting
+            must not hardcode `float64` — it reads the GDAL band's
+            data type directly. For an `int16` raster the resulting
             :attr:`RasterMeta.dtype` must preserve the integer type.
         """
         arr = np.arange(20, dtype=np.int16).reshape(4, 5)

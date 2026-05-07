@@ -1,9 +1,9 @@
 """Picklable raster-metadata dataclass shared by lazy collection paths.
 
-DASK-15: frozen dataclass wrapping the geo + dtype + nodata info that
+frozen dataclass wrapping the geo + dtype + nodata info that
 :class:`~pyramids.dataset.DatasetCollection` needs to know about each
 timestep, without holding a live :class:`gdal.Dataset` handle. The
-DatasetCollection lazy path (DASK-16) reads per-file data through a
+DatasetCollection lazy path reads per-file data through a
 :class:`~pyramids.base._file_manager.CachingFileManager` and only
 needs the metadata at construction time.
 
@@ -43,15 +43,15 @@ class RasterMeta:
         rows: Number of rows.
         columns: Number of columns.
         band_count: Number of raster bands.
-        dtype: numpy dtype string (``"float32"``, ``"int16"``, ...).
+        dtype: numpy dtype string (`"float32"`, `"int16"`,...).
         transform: GDAL-style geotransform tuple
-            ``(top_left_x, pixel_w, row_skew, top_left_y, col_skew,
-            pixel_h)``. Stored as a plain tuple so the dataclass
-            pickles cleanly without an ``affine`` dependency.
+            `(top_left_x, pixel_w, row_skew, top_left_y, col_skew,
+            pixel_h)`. Stored as a plain tuple so the dataclass
+            pickles cleanly without an `affine` dependency.
         crs: :class:`pyproj.CRS` for the dataset. Pickles via its WKT.
-        nodata: Per-band nodata tuple. ``None`` entries mean the
+        nodata: Per-band nodata tuple. `None` entries mean the
             band has no nodata sentinel.
-        block_size: Per-band ``(block_width, block_height)`` tuple
+        block_size: Per-band `(block_width, block_height)` tuple
             captured at construction — reused as the default dask
             chunk shape in lazy read paths.
         band_names: Optional per-band names.
@@ -62,10 +62,10 @@ class RasterMeta:
             >>> from pyproj import CRS
             >>> from pyramids.base._raster_meta import RasterMeta
             >>> meta = RasterMeta(
-            ...     rows=10, columns=12, band_count=1, dtype="float32",
-            ...     transform=(0.0, 1.0, 0.0, 10.0, 0.0, -1.0),
-            ...     crs=CRS.from_epsg(4326),
-            ... )
+            ... rows=10, columns=12, band_count=1, dtype="float32",
+            ... transform=(0.0, 1.0, 0.0, 10.0, 0.0, -1.0),
+            ... crs=CRS.from_epsg(4326),
+            ...)
             >>> meta.epsg
             4326
             >>> meta.shape
@@ -88,12 +88,12 @@ class RasterMeta:
 
     @property
     def shape(self) -> tuple[int, int, int]:
-        """Shape ``(band_count, rows, columns)``."""
+        """Shape `(band_count, rows, columns)`."""
         return (self.band_count, self.rows, self.columns)
 
     @property
     def epsg(self) -> int | None:
-        """EPSG code if the CRS has one; else ``None``."""
+        """EPSG code if the CRS has one; else `None`."""
         try:
             return self.crs.to_epsg()
         except Exception:  # pragma: no cover - defensive
@@ -117,7 +117,7 @@ class RasterMeta:
             ds: The source :class:`~pyramids.dataset.Dataset`.
 
         Returns:
-            RasterMeta: Immutable copy of ``ds``'s geobox + dtype + nodata.
+            RasterMeta: Immutable copy of `ds`'s geobox + dtype + nodata.
         """
         transform = tuple(float(v) for v in ds.geotransform)
         crs = CRS.from_epsg(int(ds.epsg)) if ds.epsg else CRS.from_wkt(ds.crs)
@@ -127,7 +127,7 @@ class RasterMeta:
         band_names = tuple(ds.band_names or ())
         first_dtype = ds.numpy_dtype[0] if ds.numpy_dtype else None
         if first_dtype is None:
-            # L3: derive from GDAL band dtype rather than hardcoding
+            # derive from GDAL band dtype rather than hardcoding
             # float64 — otherwise a Dataset with an int16 band would
             # get a bogus float64 dtype metadata on the RasterMeta and
             # downstream dask graphs produce wrong-dtype arrays.

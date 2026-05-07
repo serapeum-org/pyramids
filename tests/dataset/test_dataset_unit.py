@@ -1,4 +1,4 @@
-"""Unit tests for Dataset and AbstractDataset classes.
+"""Unit tests for Dataset and RasterBase classes.
 
 Covers untested methods and edge cases using in-memory GDAL datasets
 (via Dataset.create_from_array) for fast, isolated execution.
@@ -18,8 +18,10 @@ from pyramids.base._errors import (
     OutOfBoundsError,
     ReadOnlyError,
 )
+from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset import Dataset
-from pyramids.dataset.abstract_dataset import AbstractDataset
+from pyramids.dataset.abstract_dataset import RasterBase
+from pyramids.dataset.engines import Analysis, Bands, Spatial, Vectorize
 
 pytestmark = pytest.mark.core
 
@@ -88,15 +90,15 @@ def dataset_with_nodata():
     return ds
 
 
-class TestAbstractDatasetStaticMethods:
-    """Tests for static helpers defined in AbstractDataset."""
+class TestRasterBaseStaticMethods:
+    """Tests for static helpers defined in RasterBase."""
 
     def test_get_x_lon_dimension_array_values(self):
         """Verify x-coordinate array for simple inputs."""
         pivot_x = 10.0
         cell_size = 0.5
         columns = 4
-        result = AbstractDataset.get_x_lon_dimension_array(pivot_x, cell_size, columns)
+        result = RasterBase.get_x_lon_dimension_array(pivot_x, cell_size, columns)
         expected = np.array([10.25, 10.75, 11.25, 11.75])
         np.testing.assert_allclose(
             result,
@@ -106,7 +108,7 @@ class TestAbstractDatasetStaticMethods:
 
     def test_get_x_lon_dimension_array_length(self):
         """Returned array length must equal the number of columns."""
-        result = AbstractDataset.get_x_lon_dimension_array(0.0, 1.0, 7)
+        result = RasterBase.get_x_lon_dimension_array(0.0, 1.0, 7)
         assert len(result) == 7, "Array length should equal column count"
 
     def test_get_y_lat_dimension_array_values(self):
@@ -114,7 +116,7 @@ class TestAbstractDatasetStaticMethods:
         pivot_y = 50.0
         cell_size = 0.5
         rows = 3
-        result = AbstractDataset.get_y_lat_dimension_array(pivot_y, cell_size, rows)
+        result = RasterBase.get_y_lat_dimension_array(pivot_y, cell_size, rows)
         expected = np.array([49.75, 49.25, 48.75])
         np.testing.assert_allclose(
             result,
@@ -124,12 +126,12 @@ class TestAbstractDatasetStaticMethods:
 
     def test_get_y_lat_dimension_array_length(self):
         """Returned array length must equal the number of rows."""
-        result = AbstractDataset.get_y_lat_dimension_array(0.0, 1.0, 5)
+        result = RasterBase.get_y_lat_dimension_array(0.0, 1.0, 5)
         assert len(result) == 5, "Array length should equal row count"
 
 
-class TestAbstractDatasetBlockSizeSetter:
-    """Tests for the block_size setter validation on AbstractDataset."""
+class TestRasterBaseBlockSizeSetter:
+    """Tests for the block_size setter validation on RasterBase."""
 
     def test_block_size_setter_invalid_raises(self, single_band_dataset):
         """Setting block_size with a non-2-element tuple should raise."""
@@ -145,7 +147,7 @@ class TestAbstractDatasetBlockSizeSetter:
 
 
 class TestSetCrsAbstract:
-    """Tests for AbstractDataset.set_crs (invoked via Dataset)."""
+    """Tests for RasterBase.set_crs (invoked via Dataset)."""
 
     def test_set_crs_with_epsg(self, single_band_dataset):
         """Setting CRS via epsg should update the EPSG attribute."""
@@ -550,7 +552,7 @@ class TestSetNoDataValueErrors:
         )
         ro_ds = Dataset.read_file(path, read_only=True)
         with pytest.raises(ReadOnlyError):
-            ro_ds._set_no_data_value(-1234.0)
+            ro_ds.bands._set_no_data_value(-1234.0)
 
 
 class TestChangeNoDataValueAttr:
@@ -558,7 +560,7 @@ class TestChangeNoDataValueAttr:
 
     def test_change_nodata_attr_updates_internal(self, single_band_dataset):
         """_change_no_data_value_attr should update the internal list."""
-        single_band_dataset._change_no_data_value_attr(0, -1111.0)
+        single_band_dataset.bands._change_no_data_value_attr(0, -1111.0)
         assert (
             single_band_dataset.no_data_value[0] == -1111.0
         ), "no_data_value attribute not updated"
@@ -566,11 +568,11 @@ class TestChangeNoDataValueAttr:
     def test_no_data_value_setter_with_list(self, multi_band_dataset):
         """Setting no_data_value with a list should update all bands."""
         multi_band_dataset.no_data_value = [-1.0, -2.0, -3.0]
-        assert multi_band_dataset.no_data_value == [
+        assert multi_band_dataset.no_data_value == (
             -1.0,
             -2.0,
             -3.0,
-        ], "no_data_value list setter failed"
+        ), "no_data_value list setter failed"
 
     def test_no_data_value_setter_with_scalar(self, single_band_dataset):
         """Setting no_data_value with a scalar should update band 0."""
@@ -579,17 +581,79 @@ class TestChangeNoDataValueAttr:
             single_band_dataset.no_data_value[0] == -5555.0
         ), "no_data_value scalar setter failed"
 
+    def test_no_data_value_getter_returns_tuple(self, single_band_dataset):
+        """B-17: getter returns immutable tuple, not list.
 
-class TestCreateGtiffFromArray:
-    """Tests for the _create_gtiff_from_array static method."""
+        The read-only contract is now expressed at the type level —
+        mutating the returned object can never propagate to internal
+        state. Use the setter to change values.
+        """
+        ndv = single_band_dataset.no_data_value
+        assert isinstance(ndv, tuple), f"Expected tuple, got {type(ndv)}"
+
+    def test_no_data_value_setter_scalar_broadcasts_to_all_bands(
+        self, multi_band_dataset
+    ):
+        """B-17: scalar setter now writes every band, not just band 0.
+
+        Pre-fix only band 0 was updated; bands 1..N kept stale
+        values. Post-fix the scalar is broadcast to all bands.
+        """
+        multi_band_dataset.no_data_value = -7777.0
+        assert multi_band_dataset.no_data_value == (
+            -7777.0,
+            -7777.0,
+            -7777.0,
+        )
+
+    def test_no_data_value_setter_length_mismatch_raises(self, multi_band_dataset):
+        """B-17: list/tuple shorter than band_count is rejected up-front.
+
+        Pre-fix a too-short sequence silently set only the first N
+        bands; the remaining bands kept their old values with no
+        warning. Post-fix the setter raises ValueError early.
+        """
+        with pytest.raises(ValueError, match="does not match band_count"):
+            multi_band_dataset.no_data_value = [-1.0]
+
+    def test_no_data_value_setter_accepts_tuple(self, multi_band_dataset):
+        """B-17: setter accepts tuple inputs alongside lists."""
+        multi_band_dataset.no_data_value = (-1.0, -2.0, -3.0)
+        assert multi_band_dataset.no_data_value == (-1.0, -2.0, -3.0)
+
+    def test_no_data_value_setter_accepts_1d_ndarray(self, multi_band_dataset):
+        """M4: 1-D ndarray with len == band_count is treated as per-band."""
+        multi_band_dataset.no_data_value = np.array(
+            [-1.0, -2.0, -3.0], dtype=np.float64
+        )
+        assert multi_band_dataset.no_data_value == (-1.0, -2.0, -3.0)
+
+    def test_no_data_value_setter_accepts_0d_ndarray(self, multi_band_dataset):
+        """M4: 0-D ndarray is treated as a scalar broadcast to every band."""
+        multi_band_dataset.no_data_value = np.array(-7.0, dtype=np.float64)
+        assert multi_band_dataset.no_data_value == (-7.0, -7.0, -7.0)
+
+    def test_no_data_value_setter_rejects_2d_ndarray(self, multi_band_dataset):
+        """M4: 2-D ndarray inputs are rejected with a clear error."""
+        with pytest.raises(ValueError, match="ndarray must be 0-D"):
+            multi_band_dataset.no_data_value = np.zeros((2, 3), dtype=np.float64)
+
+    def test_no_data_value_setter_ndarray_length_mismatch_raises(
+        self, multi_band_dataset
+    ):
+        """M4: 1-D ndarray with wrong length goes through the same check."""
+        with pytest.raises(ValueError, match="does not match band_count"):
+            multi_band_dataset.no_data_value = np.array([-1.0], dtype=np.float64)
+
+
+class TestCreateFromArray:
+    """Tests for ``Dataset.create_from_array`` (the public form)."""
 
     def test_single_band(self):
         """Create a single-band dataset from a 2D array."""
         arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
         geo = (0.0, 0.5, 0.0, 10.0, 0.0, -0.5)
-        result = Dataset._create_gtiff_from_array(
-            arr, cols=2, rows=2, bands=1, geo=geo, epsg=4326
-        )
+        result = Dataset.create_from_array(arr, geo=geo, epsg=4326)
         assert isinstance(result, Dataset), "Should return a Dataset"
         read_arr = result.read_array()
         np.testing.assert_array_equal(read_arr, arr, err_msg="Array values mismatch")
@@ -598,9 +662,7 @@ class TestCreateGtiffFromArray:
         """Create a multi-band dataset from a 3D array."""
         arr = np.ones((3, 4, 5), dtype=np.float64)
         geo = (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)
-        result = Dataset._create_gtiff_from_array(
-            arr, cols=5, rows=4, bands=3, geo=geo, epsg=4326
-        )
+        result = Dataset.create_from_array(arr, geo=geo, epsg=4326)
         assert result.band_count == 3, "Expected 3 bands"
 
 
@@ -695,7 +757,7 @@ class TestCorrectWrapCutlineError:
             epsg=4326,
             no_data_value=nd,
         )
-        corrected = Dataset._correct_wrap_cutline_error(ds)
+        corrected = Spatial._correct_wrap_cutline_error(ds)
         assert (
             corrected.rows == 2
         ), f"Expected 2 rows after correction, got {corrected.rows}"
@@ -737,7 +799,7 @@ class TestCorrectWrapCutlineError:
             epsg=4326,
             no_data_value=nd,
         )
-        corrected = Dataset._correct_wrap_cutline_error(ds)
+        corrected = Spatial._correct_wrap_cutline_error(ds)
         assert corrected.rows == 1, "Expected 1 row after 3D correction"
         assert corrected.columns == 1, "Expected 1 col after 3D correction"
 
@@ -1029,6 +1091,22 @@ class TestReadArray:
         assert arr.ndim == 3, "Multi-band read should return 3D"
         assert arr.shape[0] == 3, "First dimension should be band count"
 
+    def test_read_array_negative_band_raises(self, single_band_dataset):
+        """B-12: negative band index now rejected with a clear error.
+
+        Pre-fix the validator only checked the upper bound; a
+        negative index slipped through to `_iloc` which raised
+        `IndexError`. After centralising the band-bounds check the
+        eager path raises a `ValueError` mentioning the valid range.
+        """
+        with pytest.raises(ValueError, match="band index should be between"):
+            single_band_dataset.read_array(band=-1)
+
+    def test_read_array_negative_band_lazy_raises(self, single_band_dataset):
+        """B-12 (lazy path): negative band index rejected with same error."""
+        with pytest.raises(ValueError, match="band index should be between"):
+            single_band_dataset.read_array(band=-1, chunks="auto")
+
 
 class TestIloc:
     """Tests for the _iloc method."""
@@ -1121,11 +1199,11 @@ class TestCopy:
 
 
 class TestCreateSrFromEpsg:
-    """Tests for _create_sr_from_epsg static method."""
+    """Tests for the ``pyramids.base.crs.sr_from_epsg`` helper."""
 
     def test_valid_epsg(self):
         """Creating SR from a valid EPSG should return a SpatialReference."""
-        sr = Dataset._create_sr_from_epsg(4326)
+        sr = sr_from_epsg(4326)
         assert isinstance(sr, osr.SpatialReference), "Should return SpatialReference"
         wkt = sr.ExportToWkt()
         assert (
@@ -1572,20 +1650,20 @@ class TestGetAttributeTable:
         assert "class_id" in result.columns, "RAT should contain class_id column"
 
     def test_df_to_attribute_table_float_column(self):
-        """_df_to_attribute_table should handle float columns (line 1326, 1338)."""
+        """_df_to_attribute_table should handle float columns."""
         df = pd.DataFrame(
             {
                 "value": [1.1, 2.2, 3.3],
             }
         )
-        rat = Dataset._df_to_attribute_table(df)
+        rat = Bands._df_to_attribute_table(df)
         assert rat.GetColumnCount() == 1, "RAT should have 1 column"
         assert rat.GetRowCount() == 3, "RAT should have 3 rows"
         val = rat.GetValueAsDouble(0, 0)
         assert abs(val - 1.1) < 0.01, f"Expected ~1.1, got {val}"
 
     def test_attribute_table_to_df_real_type(self):
-        """_attribute_table_to_df should read GFT_Real columns (line 1376)."""
+        """_attribute_table_to_df should read GFT_Real columns."""
         df = pd.DataFrame(
             {
                 "int_col": pd.array([10, 20], dtype="int64"),
@@ -1593,8 +1671,8 @@ class TestGetAttributeTable:
                 "str_col": ["a", "b"],
             }
         )
-        rat = Dataset._df_to_attribute_table(df)
-        result = Dataset._attribute_table_to_df(rat)
+        rat = Bands._df_to_attribute_table(df)
+        result = Bands._attribute_table_to_df(rat)
         assert len(result) == 2, "Should have 2 rows"
         assert "float_col" in result.columns, "Should contain float_col"
         assert (
@@ -1636,7 +1714,7 @@ class TestStatsEdgeCases:
 
     def test_get_stats_returns_list(self, single_band_dataset):
         """_get_stats should return a list of 4 floats."""
-        vals = single_band_dataset._get_stats(band=0)
+        vals = single_band_dataset.analysis._get_stats(band=0)
         assert isinstance(vals, list), "_get_stats should return a list"
         assert len(vals) == 4, f"Expected 4 stats values, got {len(vals)}"
 
@@ -1654,7 +1732,7 @@ class TestStatsEdgeCases:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            vals = ds._get_stats(band=0)
+            vals = ds.analysis._get_stats(band=0)
         assert isinstance(vals, list), "_get_stats should still return a list"
 
 
@@ -1721,7 +1799,7 @@ class TestSetNoDataValueEdge:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        ds._set_no_data_value([-1234.0])
+        ds.bands._set_no_data_value([-1234.0])
         assert ds.no_data_value[0] == -1234.0, "No data value should be updated"
 
 
@@ -1743,7 +1821,7 @@ class TestSetNoDataValueBackend:
         )
         ro_ds = Dataset.read_file(path, read_only=True)
         with pytest.raises(ReadOnlyError):
-            ro_ds._set_no_data_value_backend(0, -1234.0)
+            ro_ds.bands._set_no_data_value_backend(0, -1234.0)
 
     def test_change_nodata_attr_updates_value(self):
         """_change_no_data_value_attr should update internal no_data_value."""
@@ -1755,7 +1833,7 @@ class TestSetNoDataValueBackend:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        ds._change_no_data_value_attr(0, -1234.0)
+        ds.bands._change_no_data_value_attr(0, -1234.0)
         assert (
             ds.no_data_value[0] == -1234.0
         ), "no_data_value should be updated to -1234.0"
@@ -1998,7 +2076,7 @@ class TestCropAligned:
             epsg=4326,
             no_data_value=nd,
         )
-        result = src._crop_aligned(mask)
+        result = src.spatial._crop_aligned(mask)
         arr = result.read_array()
         assert np.isclose(arr[1, 1], nd), "Masked cell should be nodata"
 
@@ -2014,7 +2092,7 @@ class TestCropAligned:
         )
         mask = np.ones((3, 3), dtype=np.float32)
         with pytest.raises(ValueError, match="no_val"):
-            src._crop_aligned(mask, mask_noval=None)
+            src.spatial._crop_aligned(mask, mask_noval=None)
 
     def test_crop_aligned_invalid_mask_type_raises(self):
         """_crop_aligned with invalid mask type should raise TypeError."""
@@ -2027,7 +2105,7 @@ class TestCropAligned:
             no_data_value=-9999.0,
         )
         with pytest.raises(TypeError):
-            src._crop_aligned("not_a_mask")
+            src.spatial._crop_aligned("not_a_mask")
 
     def test_crop_aligned_dimension_mismatch_raises(self):
         """_crop_aligned with different dimensions should raise ValueError."""
@@ -2048,7 +2126,7 @@ class TestCropAligned:
             no_data_value=-9999.0,
         )
         with pytest.raises(ValueError, match="different number"):
-            src._crop_aligned(mask)
+            src.spatial._crop_aligned(mask)
 
     def test_crop_aligned_different_location_raises(self):
         """_crop_aligned with different top-left corner raises ValueError."""
@@ -2070,7 +2148,7 @@ class TestCropAligned:
             no_data_value=nd,
         )
         with pytest.raises(ValueError, match="upper left corner"):
-            src._crop_aligned(mask)
+            src.spatial._crop_aligned(mask)
 
     def test_crop_aligned_different_epsg_raises(self):
         """_crop_aligned with different EPSG raises ValueError."""
@@ -2092,10 +2170,10 @@ class TestCropAligned:
             no_data_value=nd,
         )
         with pytest.raises(ValueError, match="coordinate system"):
-            src._crop_aligned(mask)
+            src.spatial._crop_aligned(mask)
 
     def test_crop_aligned_multi_band_nan_mask(self):
-        """_crop_aligned with multi-band src and nan mask (line 4183)."""
+        """_crop_aligned with multi-band src and nan mask."""
         nd = -9999.0
         src_arr = np.ones((2, 3, 3), dtype=np.float32) * 5.0
         src = Dataset.create_from_array(
@@ -2114,12 +2192,12 @@ class TestCropAligned:
             epsg=4326,
             no_data_value=np.nan,
         )
-        result = src._crop_aligned(mask)
+        result = src.spatial._crop_aligned(mask)
         arr = result.read_array()
         assert arr.ndim == 3, "Multi-band result should be 3D"
 
     def test_crop_aligned_single_band_nan_mask(self):
-        """_crop_aligned with single-band src and NaN mask noval (line 4190)."""
+        """_crop_aligned with single-band src and NaN mask noval."""
         nd = -9999.0
         src_arr = np.ones((3, 3), dtype=np.float32) * 5.0
         src = Dataset.create_from_array(
@@ -2138,7 +2216,7 @@ class TestCropAligned:
             epsg=4326,
             no_data_value=np.nan,
         )
-        result = src._crop_aligned(mask)
+        result = src.spatial._crop_aligned(mask)
         assert result is not None, "Should return a cropped dataset"
 
 
@@ -2148,7 +2226,7 @@ class TestCheckAlignment:
     def test_check_alignment_invalid_type_raises(self, single_band_dataset):
         """_check_alignment with non-Dataset should raise TypeError."""
         with pytest.raises(TypeError, match="Dataset"):
-            single_band_dataset._check_alignment("not_a_dataset")
+            single_band_dataset.spatial._check_alignment("not_a_dataset")
 
 
 class TestAlign:
@@ -2171,7 +2249,7 @@ class TestCropWithRaster:
     def test_crop_with_raster_invalid_type_raises(self, single_band_dataset):
         """_crop_with_raster with invalid type should raise TypeError."""
         with pytest.raises(TypeError):
-            single_band_dataset._crop_with_raster(12345)
+            single_band_dataset.spatial._crop_with_raster(12345)
 
 
 class TestCropWithPolygonWarp:
@@ -2180,7 +2258,7 @@ class TestCropWithPolygonWarp:
     def test_crop_with_polygon_invalid_type_raises(self, single_band_dataset):
         """_crop_with_polygon_warp with non-FC/GDF raises TypeError."""
         with pytest.raises(TypeError):
-            single_band_dataset._crop_with_polygon_warp(12345)
+            single_band_dataset.spatial._crop_with_polygon_warp(12345)
 
 
 class TestCropErrors:
@@ -2198,19 +2276,19 @@ class TestNearestNeighbour:
     def test_invalid_array_type_raises(self):
         """Non-array input should raise TypeError."""
         with pytest.raises(TypeError, match="gdal"):
-            Dataset._nearest_neighbour("not_array", -9999, [0], [0])
+            Vectorize._nearest_neighbour("not_array", -9999, [0], [0])
 
     def test_invalid_rows_type_raises(self):
         """Non-list rows should raise TypeError."""
         arr = np.ones((3, 3), dtype=np.float32)
         with pytest.raises(TypeError, match="rows"):
-            Dataset._nearest_neighbour(arr, -9999, 0, [0])
+            Vectorize._nearest_neighbour(arr, -9999, 0, [0])
 
     def test_invalid_cols_type_raises(self):
         """Non-list cols should raise TypeError."""
         arr = np.ones((3, 3), dtype=np.float32)
         with pytest.raises(TypeError, match="cols"):
-            Dataset._nearest_neighbour(arr, -9999, [0], 0)
+            Vectorize._nearest_neighbour(arr, -9999, [0], 0)
 
     def test_nearest_neighbour_fills_from_right(self):
         """_nearest_neighbour should fill from right neighbor."""
@@ -2223,7 +2301,7 @@ class TestNearestNeighbour:
             ],
             dtype=np.float32,
         )
-        result = Dataset._nearest_neighbour(arr.copy(), nd, [1], [0])
+        result = Vectorize._nearest_neighbour(arr.copy(), nd, [1], [0])
         assert result[1, 0] != nd, "Cell (1,0) should be filled by right neighbor"
 
     def test_nearest_neighbour_from_left(self):
@@ -2237,7 +2315,7 @@ class TestNearestNeighbour:
             ],
             dtype=np.float32,
         )
-        result = Dataset._nearest_neighbour(arr.copy(), nd, [1], [2])
+        result = Vectorize._nearest_neighbour(arr.copy(), nd, [1], [2])
         assert result[1, 2] != nd, "Cell at last col should be filled from left"
 
     def test_nearest_neighbour_left_neighbor(self):
@@ -2253,7 +2331,7 @@ class TestNearestNeighbour:
         )
         # Cell (1,2) is last col, so right check skipped.
         # Left (1,1) = 5.0 != nd -> filled
-        result = Dataset._nearest_neighbour(arr.copy(), nd, [1], [2])
+        result = Vectorize._nearest_neighbour(arr.copy(), nd, [1], [2])
         assert result[1, 2] == 5.0, "Cell at last col should fill from left"
 
     def test_nearest_neighbour_above_neighbor(self):
@@ -2288,7 +2366,7 @@ class TestNearestNeighbour:
             dtype=np.float32,
         )
         # Cell (1,2) at last col. Left (1,1)=5.0, cols[i]-1=1 > 0
-        result = Dataset._nearest_neighbour(arr2.copy(), nd, [1], [2])
+        result = Vectorize._nearest_neighbour(arr2.copy(), nd, [1], [2])
         assert result[1, 2] == 5.0, "Cell should be filled from left neighbor"
 
 
@@ -2361,7 +2439,7 @@ class TestNormalizeRescale:
     def test_normalize(self):
         """normalize should scale array to [0, 1] range."""
         arr = np.array([0.0, 50.0, 100.0])
-        result = Dataset.normalize(arr)
+        result = Analysis.normalize(arr)
         assert abs(result[0] - 0.0) < 1e-6, "Min should be normalized to 0.0"
         assert abs(result[2] - 1.0) < 1e-6, "Max should be normalized to 1.0"
         assert abs(result[1] - 0.5) < 1e-6, "Middle should be 0.5"
@@ -2369,7 +2447,7 @@ class TestNormalizeRescale:
     def test_rescale(self):
         """_rescale should linearly rescale with given min/max."""
         arr = np.array([10.0, 20.0, 30.0])
-        result = Dataset._rescale(arr, 10.0, 30.0)
+        result = Analysis._rescale(arr, 10.0, 30.0)
         assert abs(result[0] - 0.0) < 1e-6, "Min should rescale to 0.0"
         assert abs(result[2] - 1.0) < 1e-6, "Max should rescale to 1.0"
 
@@ -2708,7 +2786,7 @@ class TestCorrectWrapCutlineErrorNdim:
             epsg=4326,
             no_data_value=nd,
         )
-        result = Dataset._correct_wrap_cutline_error(ds_3d)
+        result = Spatial._correct_wrap_cutline_error(ds_3d)
         assert result.rows == 2, "Should trim first row of nodata"
 
 
@@ -2735,7 +2813,7 @@ class TestCropAlignedFillGaps:
             epsg=4326,
             no_data_value=nd,
         )
-        result = src._crop_aligned(mask, fill_gaps=True)
+        result = src.spatial._crop_aligned(mask, fill_gaps=True)
         arr = result.read_array()
         assert arr is not None, "Fill gaps result should have a valid array"
 
@@ -2798,7 +2876,8 @@ class TestFillNoneNodata:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        # Manually set the internal nodata to None to trigger line 3813
+        # Manually set the internal nodata to None to exercise the
+        # fallback branch that infers the sentinel from NaN cells
         ds._no_data_value = [None]
         filled = ds.fill(42)
         result = filled.read_array()
@@ -2846,11 +2925,111 @@ class TestToCrsWestHemLongitude:
         assert result.epsg == 3857, "EPSG should be 3857"
 
 
+class TestReprojectNonSquareCells:
+    """B-10 regression: `_reproject_with_ReprojectImage` measures Y spacing.
+
+    The legacy implementation discarded the reprojected Y values and
+    forced the output cell to be square (X spacing reused for Y).
+    These tests prove the X and Y cell sizes are now measured
+    independently — both for inputs that are already non-square in
+    source CRS and for square inputs whose reprojection produces a
+    non-square cell on the destination CRS.
+    """
+
+    def test_reproject_high_latitude_yields_non_square_pixels(self):
+        """4326 → 3857 at 60°N: output Y/X ratio ≈ 1/cos(60°) = 2.
+
+        At latitude 60°N, one degree of longitude is ~half a degree of
+        latitude in metres — so projecting a square-degree pixel to
+        Web Mercator with `maintain_alignment=True` should produce a
+        Y-spacing roughly 2× the X spacing. Pre-fix the output was
+        forced square (Y == X), so this assertion was unsatisfiable.
+        """
+        arr = np.ones((10, 10), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(10.0, 60.5),
+            cell_size=0.1,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        result = ds.to_crs(to_epsg=3857, maintain_alignment=True)
+        x_spacing = abs(result.geotransform[1])
+        y_spacing = abs(result.geotransform[5])
+        ratio = y_spacing / x_spacing
+        assert ratio > 1.5, (
+            f"Expected Y spacing > 1.5x X spacing at 60N, got "
+            f"y/x = {ratio:.3f} (x={x_spacing:.2f}m, y={y_spacing:.2f}m)"
+        )
+
+    def test_reproject_preserves_non_square_input_aspect(self):
+        """Non-square source pixels must not collapse to square output.
+
+        Build a synthetic raster with cell_size=(2.0, 14.0) — a SAR-like
+        aspect ratio — reproject (UTM 33N → Web Mercator) with
+        `maintain_alignment=True`. Pre-fix the output Y spacing was
+        forced equal to the X spacing, collapsing the 7:1 input aspect
+        to 1:1.
+        """
+        arr = np.ones((10, 10), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            geo=(500_000.0, 2.0, 0.0, 5_500_000.0, 0.0, -14.0),
+            epsg=32633,
+            no_data_value=-9999.0,
+        )
+        result = ds.to_crs(to_epsg=3857, maintain_alignment=True)
+        x_spacing = abs(result.geotransform[1])
+        y_spacing = abs(result.geotransform[5])
+        ratio = y_spacing / x_spacing
+        assert ratio > 3.0, (
+            f"Non-square input (2m x 14m, ratio 7) should keep a "
+            f"non-square output; got y/x = {ratio:.3f}"
+        )
+
+
 class TestCropAlignedNanMask:
     """Tests for _crop_aligned with NaN mask nodata value."""
 
+    def test_crop_aligned_numpy_mask_uses_source_geotransform(self):
+        """B-11 regression: numpy-array mask falls back to src geotransform.
+
+        Pre-fix the function relied on `try/except UnboundLocalError`
+        to detect the "mask is a numpy array" branch (because
+        `mask_gt` was only assigned in the RasterBase branch). The
+        replacement uses an explicit `isinstance(mask, RasterBase)`
+        check; this test guards both that the numpy-mask path still
+        works AND that the output geotransform / projection are
+        copied from the source raster (since a numpy array carries
+        no spatial metadata).
+        """
+        nd = -9999.0
+        src_arr = np.ones((4, 4), dtype=np.float32) * 5.0
+        src_top_left = (10.0, 50.0)
+        src_cell = 0.05
+        src = Dataset.create_from_array(
+            src_arr,
+            top_left_corner=src_top_left,
+            cell_size=src_cell,
+            epsg=4326,
+            no_data_value=nd,
+        )
+        mask_arr = np.ones((4, 4), dtype=np.float32)
+        mask_arr[0, 0] = nd
+        mask_arr[2, 3] = nd
+        result = src.spatial._crop_aligned(mask_arr, mask_noval=nd)
+        assert result.epsg == 4326, "Should preserve source CRS"
+        assert result.geotransform == src.geotransform, (
+            f"Output geotransform {result.geotransform} should match "
+            f"source {src.geotransform}"
+        )
+        result_arr = result.read_array()
+        assert np.isclose(result_arr[0, 0], nd), "Cell 0,0 should be nodata"
+        assert np.isclose(result_arr[2, 3], nd), "Cell 2,3 should be nodata"
+        assert np.isclose(result_arr[1, 1], 5.0), "Cell 1,1 should be unchanged"
+
     def test_crop_aligned_multi_band_with_nan_mask(self):
-        """_crop_aligned multi-band with NaN mask nodata (line 4183)."""
+        """_crop_aligned multi-band with NaN mask nodata."""
         nd = -9999.0
         src_arr = np.ones((2, 4, 4), dtype=np.float32) * 5.0
         src = Dataset.create_from_array(
@@ -2872,12 +3051,12 @@ class TestCropAlignedNanMask:
         )
         # Set mask nodata to None to trigger nan check path
         mask_ds._no_data_value = [None]
-        result = src._crop_aligned(mask_ds)
+        result = src.spatial._crop_aligned(mask_ds)
         result_arr = result.read_array()
         assert result_arr.ndim == 3, "Multi-band result should be 3D"
 
     def test_crop_aligned_single_band_nan_mask_noval(self):
-        """_crop_aligned single-band with None mask noval (line 4190)."""
+        """_crop_aligned single-band with None mask noval."""
         nd = -9999.0
         src_arr = np.ones((4, 4), dtype=np.float32) * 10.0
         src = Dataset.create_from_array(
@@ -2897,7 +3076,7 @@ class TestCropAlignedNanMask:
             no_data_value=-9999.0,
         )
         mask_ds._no_data_value = [None]
-        result = src._crop_aligned(mask_ds)
+        result = src.spatial._crop_aligned(mask_ds)
         result_arr = result.read_array()
         assert result_arr is not None, "Should return a valid array"
 
@@ -2928,7 +3107,7 @@ class TestCropWithRasterString:
             driver_type="GTiff",
             path=mask_path,
         )
-        result = src._crop_with_raster(mask_path)
+        result = src.spatial._crop_with_raster(mask_path)
         assert isinstance(result, Dataset), "Should return a Dataset"
 
 
@@ -2954,7 +3133,7 @@ class TestReadOverviewArrayBranches:
     """Tests for read_overview_array branching paths."""
 
     def test_read_overview_no_band_single_band(self, tmp_path):
-        """read_overview_array band=None on single-band (line 5998-5999)."""
+        """read_overview_array band=None on single-band."""
         arr = np.ones((64, 64), dtype=np.float32)
         path = str(tmp_path / "ov_single.tif")
         Dataset.create_from_array(
@@ -3042,7 +3221,7 @@ class TestSetNoDataValueRecovery:
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            ds._set_no_data_value([-9999])
+            ds.bands._set_no_data_value([-9999])
         assert ds.no_data_value[0] is not None, "No data value should be set"
 
 
@@ -3059,7 +3238,7 @@ class TestSetNoDataValueBackendErrors:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        ds._set_no_data_value_backend(0, -1234.0)
+        ds.bands._set_no_data_value_backend(0, -1234.0)
         assert (
             ds.no_data_value[0] == -1234.0
         ), "No data value should be updated by backend"
@@ -3099,7 +3278,7 @@ class TestCropWithPolygonWarpError:
 
         poly = box(0.0, -0.15, 0.15, 0.0)
         gdf = gpd.GeoDataFrame(geometry=[poly], crs="EPSG:4326")
-        result = single_band_dataset._crop_with_polygon_warp(gdf)
+        result = single_band_dataset.spatial._crop_with_polygon_warp(gdf)
         assert isinstance(result, Dataset), "Should return a cropped Dataset"
 
 
@@ -3107,7 +3286,7 @@ class TestStatsWithMask:
     """Tests for stats with a mask GeoDataFrame."""
 
     def test_stats_with_mask_and_band(self, single_band_dataset):
-        """stats(band=0, mask=gdf) should use mask path (line 1624)."""
+        """stats(band=0, mask=gdf) should use mask path."""
         import geopandas as gpd
         from shapely.geometry import box
 
@@ -3147,7 +3326,7 @@ class TestGetStatsRuntimeError:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             with pytest.raises(RuntimeError):
-                ds._get_stats(band=0)
+                ds.analysis._get_stats(band=0)
 
 
 class TestBandToPolygon:
@@ -3163,7 +3342,7 @@ class TestBandToPolygon:
             epsg=4326,
             no_data_value=-9999,
         )
-        gdf = ds._band_to_polygon(0, "class")
+        gdf = ds.vectorize._band_to_polygon(0, "class")
         assert gdf is not None, "_band_to_polygon should return GeoDataFrame"
         assert len(gdf) > 0, "Should have polygon features"
 
@@ -3439,7 +3618,7 @@ class TestWindow:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        windows = list(ds._tile_offsets(size=5))
+        windows = list(ds.io._tile_offsets(size=5))
         assert len(windows) > 0, "Should yield at least 1 window"
         for w in windows:
             assert len(w) == 4, "Each window is (xoff, yoff, w, h)"
@@ -3454,7 +3633,7 @@ class TestWindow:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        windows = list(ds._tile_offsets(size=3))
+        windows = list(ds.io._tile_offsets(size=3))
         assert len(windows) >= 4, f"Should yield at least 4 windows for 7x7 with size 3"
 
 
@@ -3643,7 +3822,7 @@ class TestCropWithPolygonFeatureCollection:
         poly = box(0.0, -0.15, 0.15, 0.0)
         gdf = gpd.GeoDataFrame(geometry=[poly], crs="EPSG:4326")
         fc = FeatureCollection(gdf)
-        result = single_band_dataset._crop_with_polygon_warp(fc)
+        result = single_band_dataset.spatial._crop_with_polygon_warp(fc)
         assert isinstance(result, Dataset), "Should return a cropped Dataset"
 
 
@@ -3706,10 +3885,10 @@ class TestSetNoDataValueMocked:
         )
         err_msg = "Attempt to write to read only dataset " "in GDALRasterBand::Fill()."
         with patch.object(
-            ds, "_set_no_data_value_backend", side_effect=RuntimeError(err_msg)
+            ds.bands, "_set_no_data_value_backend", side_effect=RuntimeError(err_msg)
         ):
             with pytest.raises(ReadOnlyError):
-                ds._set_no_data_value([-1234.0])
+                ds.bands._set_no_data_value([-1234.0])
 
     def test_set_nodata_double_conversion_via_mock(self):
         """_set_no_data_value retries with float64 on type error."""
@@ -3723,7 +3902,7 @@ class TestSetNoDataValueMocked:
         )
         err_msg = "in method 'Band_SetNoDataValue', " "argument 2 of type 'double'"
         call_count = [0]
-        original = ds._set_no_data_value_backend
+        original = ds.bands._set_no_data_value_backend
 
         def side_effect(band, val):
             """Raise on first call, succeed on retry."""
@@ -3733,11 +3912,11 @@ class TestSetNoDataValueMocked:
             original(band, val)
 
         with patch.object(
-            ds,
+            ds.bands,
             "_set_no_data_value_backend",
             side_effect=side_effect,
         ):
-            ds._set_no_data_value([-1234.0])
+            ds.bands._set_no_data_value([-1234.0])
         assert call_count[0] >= 2, "Should have retried after TypeError"
 
     def test_set_nodata_fallback_to_default_via_mock(self):
@@ -3751,7 +3930,7 @@ class TestSetNoDataValueMocked:
             no_data_value=-9999.0,
         )
         call_count = [0]
-        original = ds._set_no_data_value_backend
+        original = ds.bands._set_no_data_value_backend
 
         def side_effect(band, val):
             """Raise on first call, succeed on retry."""
@@ -3761,11 +3940,11 @@ class TestSetNoDataValueMocked:
             original(band, val)
 
         with patch.object(
-            ds,
+            ds.bands,
             "_set_no_data_value_backend",
             side_effect=side_effect,
         ):
-            ds._set_no_data_value([-1234.0])
+            ds.bands._set_no_data_value([-1234.0])
         assert call_count[0] >= 2, "Should have retried with default value"
 
 
@@ -3802,7 +3981,7 @@ class TestSetNoDataValueBackendMocked:
             return real_band
 
         with patch.object(ds.raster, "GetRasterBand", mock_get_band):
-            ds._set_no_data_value_backend(0, -1234.0)
+            ds.bands._set_no_data_value_backend(0, -1234.0)
 
     def test_backend_generic_error_raises(self):
         """_set_no_data_value_backend raises ValueError on unknown error."""
@@ -3828,7 +4007,7 @@ class TestSetNoDataValueBackendMocked:
 
         with patch.object(ds.raster, "GetRasterBand", mock_get_band):
             with pytest.raises(ValueError, match="Failed to fill"):
-                ds._set_no_data_value_backend(0, -1234.0)
+                ds.bands._set_no_data_value_backend(0, -1234.0)
 
 
 class TestChangeNoDataValueTypeError:
@@ -3916,7 +4095,7 @@ class TestChangeNoDataAttrConversion:
             return real_band
 
         with patch.object(ds.raster, "GetRasterBand", mock_get_band):
-            ds._change_no_data_value_attr(0, -1234.0)
+            ds.bands._change_no_data_value_attr(0, -1234.0)
         assert (
             ds.no_data_value[0] == -1234.0
         ), "nodata should be updated after type conversion"
@@ -3942,7 +4121,7 @@ class TestChangeNoDataAttrConversion:
 
         with patch.object(ds.raster, "GetRasterBand", mock_get_band):
             with pytest.raises(ReadOnlyError):
-                ds._change_no_data_value_attr(0, -1234.0)
+                ds.bands._change_no_data_value_attr(0, -1234.0)
 
 
 class TestToFileBlockSize:

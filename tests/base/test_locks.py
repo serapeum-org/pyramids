@@ -1,10 +1,10 @@
 """Tests for :mod:`pyramids.base._locks`.
 
-DASK-5 locking primitives:
+locking primitives:
 
 * :class:`SerializableLock` — pickleable, UUID-keyed, same-process lock
-  sharing via ``WeakValueDictionary``.
-* :class:`DummyLock` — no-op lock used when ``lock=False``.
+  sharing via `WeakValueDictionary`.
+* :class:`DummyLock` — no-op lock used when `lock=False`.
 * :func:`default_lock` — returns the right lock type for the current
   execution context (SerializableLock in single-process; dask
   distributed Lock when a client is running).

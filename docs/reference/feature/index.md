@@ -95,7 +95,7 @@ classDiagram
 | Attach per-vertex or centroid columns | `.with_coordinates()`, `.with_centroid()` |
 | Concatenate two FCs safely (CRS-checked) | `.concat(other)` |
 | Build raw geometries | `pyramids.feature.geometry.create_polygon` / `create_points` |
-| Reproject coordinate arrays | `pyramids.feature.crs.reproject_coordinates` |
+| Reproject coordinate arrays | `pyramids.base.crs.reproject_coordinates` |
 
 ## Lazy / Dask reads
 

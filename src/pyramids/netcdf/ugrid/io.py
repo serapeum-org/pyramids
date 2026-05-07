@@ -30,12 +30,12 @@ def parse_ugrid_topology(rg: gdal.Group) -> list[MeshTopologyInfo]:
 
     Detection strategy (handles diverse real-world files):
 
-    1. Primary: Scan all MDArrays for ``cf_role = "mesh_topology"`` attribute.
-    2. Fallback: Scan for variables with ``topology_dimension`` AND
-       ``node_coordinates`` attributes (older files without cf_role).
+    1. Primary: Scan all MDArrays for `cf_role = "mesh_topology"` attribute.
+    2. Fallback: Scan for variables with `topology_dimension` AND
+       `node_coordinates` attributes (older files without cf_role).
     3. Scalar check: GDAL may filter 0-dimensional arrays from
-       ``GetMDArrayNames()``. Explicitly try ``OpenMDArray(name)`` for
-       variable names found in other variables' ``mesh`` attributes.
+       `GetMDArrayNames()`. Explicitly try `OpenMDArray(name)` for
+       variable names found in other variables' `mesh` attributes.
 
     Args:
         rg: GDAL root group from a multidimensional NetCDF file.

@@ -1,4 +1,9 @@
-"""Analysis, statistics, and plot mixin for Dataset."""
+"""Analysis engine.
+
+Owns the Analysis family of operations on a Dataset. Accessed as
+``ds.analysis``; the Dataset exposes same-named facade methods so
+``ds.<method>(...)`` and ``ds.analysis.<method>(...)`` are equivalent.
+"""
 
 from __future__ import annotations
 
@@ -12,17 +17,19 @@ from geopandas.geodataframe import GeoDataFrame
 from hpc.indexing import get_indices2, get_pixels2
 from pandas import DataFrame
 
+from pyramids.base._domain import inside_domain, is_no_data
 from pyramids.base._errors import AlignmentError
 from pyramids.base._utils import import_cleopatra
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
     from cleopatra.array_glyph import ArrayGlyph
-
     from pyramids.dataset.dataset import Dataset
 
+from pyramids.dataset.engines._base import _Engine
 
-class Analysis:
+
+class Analysis(_Engine):
     """Mixin providing analysis, statistics, and data extraction operations for Dataset."""
 
     def stats(
@@ -113,27 +120,27 @@ class Analysis:
         """
         dst: Dataset | None = None
         if mask is not None:
-            dst = self.crop(mask, touch=True)
+            dst = self._ds.crop(mask, touch=True)
 
         if band is None:
             df = pd.DataFrame(
-                index=self.band_names,
+                index=self._ds.band_names,
                 columns=["min", "max", "mean", "std"],
                 dtype=np.float32,
             )
-            for i in range(self.band_count):
+            for i in range(self._ds.band_count):
                 if mask is not None and dst is not None:
-                    df.iloc[i, :] = dst._get_stats(i)
+                    df.iloc[i, :] = dst.analysis._get_stats(i)
                 else:
                     df.iloc[i, :] = self._get_stats(i)
         else:
             df = pd.DataFrame(
-                index=[self.band_names[band]],
+                index=[self._ds.band_names[band]],
                 columns=["min", "max", "mean", "std"],
                 dtype=np.float32,
             )
             if mask is not None and dst is not None:
-                df.iloc[0, :] = dst._get_stats(band)
+                df.iloc[0, :] = dst.analysis._get_stats(band)
             else:
                 df.iloc[0, :] = self._get_stats(band)
 
@@ -142,7 +149,7 @@ class Analysis:
     def _get_stats(self, band: int | None = None) -> list[float]:
         """_get_stats."""
         band_index = band if band is not None else 0
-        band_i = self._iloc(band_index)
+        band_i = self._ds._iloc(band_index)
         try:
             vals = band_i.GetStatistics(True, True)
         except RuntimeError:
@@ -169,9 +176,9 @@ class Analysis:
             int:
                 Number of cells.
         """
-        arr = self.read_array(band=band)
+        arr = self._ds.read_array(band=band)
         domain_count = np.size(arr[:, :]) - np.count_nonzero(
-            arr[np.isclose(arr, self.no_data_value[band], rtol=0.001)]
+            arr[is_no_data(arr, self._ds.no_data_value[band])]
         )
         return int(domain_count)
 
@@ -228,34 +235,34 @@ class Analysis:
         if not callable(func):
             raise TypeError("The second argument should be a function")
 
-        no_data_value = self.no_data_value[band]
-        src_array = self.read_array(band)
-        dtype = self.gdal_dtype[band]
+        no_data_value = self._ds.no_data_value[band]
+        src_array = self._ds.read_array(band)
+        dtype = self._ds.gdal_dtype[band]
 
         new_array = np.full(
-            (self.rows, self.columns), no_data_value, dtype=src_array.dtype
+            (self._ds.rows, self._ds.columns), no_data_value, dtype=src_array.dtype
         )
-        domain_mask = ~np.isclose(src_array, no_data_value, rtol=0.001)
+        domain_mask = inside_domain(src_array, no_data_value)
         domain_values = src_array[domain_mask]
         try:
             new_array[domain_mask] = func(domain_values)
         except (ValueError, TypeError):
             new_array[domain_mask] = np.vectorize(func)(domain_values)
 
-        dst_obj = type(self)._build_dataset(
-            self.columns,
-            self.rows,
+        dst_obj = self._ds.__class__._build_dataset(
+            self._ds.columns,
+            self._ds.rows,
             1,
             dtype,
-            self.geotransform,
-            self.crs,
+            self._ds.geotransform,
+            self._ds.crs,
             no_data_value,
         )
         dst_obj.raster.GetRasterBand(1).WriteArray(new_array)
 
         if inplace:
-            self._update_inplace(dst_obj.raster)
-            return self
+            self._ds._update_inplace(dst_obj.raster)
+            return None
         return dst_obj
 
     def fill(
@@ -302,21 +309,19 @@ class Analysis:
 
               ```
         """
-        no_data_value = self.no_data_value[0]
-        src_array = self.raster.ReadAsArray()
+        no_data_value = self._ds.no_data_value[0]
+        src_array = self._ds.raster.ReadAsArray()
 
-        if no_data_value is None:
-            no_data_value = np.nan
+        # rtol=1e-6 is intentionally tighter than the package default
+        # (1e-3): `fill` writes user-supplied values into every domain
+        # cell, so a too-loose match would clobber legitimate cells that
+        # happen to lie within ~0.1% of the no-data sentinel.
+        src_array[inside_domain(src_array, no_data_value, rtol=0.000001)] = value
 
-        if not np.isnan(no_data_value):
-            src_array[~np.isclose(src_array, no_data_value, rtol=0.000001)] = value
-        else:
-            src_array[~np.isnan(src_array)] = value
-
-        dst = type(self).dataset_like(self, src_array, path=path)
+        dst = self._ds.__class__.dataset_like(self._ds, src_array, path=path)
         if inplace:
-            self._update_inplace(dst.raster)
-            return self
+            self._ds._update_inplace(dst.raster)
+            return None
         return dst
 
     def extract(
@@ -416,9 +421,11 @@ class Analysis:
         """
         # Optimize: make the read_array return only the array for inside the mask feature, and not to read the whole
         #  raster
-        arr = self.read_array(band=band)
+        arr = self._ds.read_array(band=band)
         no_data_value = (
-            self.no_data_value[0] if self.no_data_value[0] is not None else np.nan
+            self._ds.no_data_value[0]
+            if self._ds.no_data_value[0] is not None
+            else np.nan
         )
         if mask is None:
             exclude_list = (
@@ -428,7 +435,7 @@ class Analysis:
             )
             values = get_pixels2(arr, exclude_list)
         else:
-            indices = self.map_to_array_coordinates(mask)
+            indices = self._ds.map_to_array_coordinates(mask)
             if arr.ndim > 2:
                 values = arr[:, indices[:, 0], indices[:, 1]]
             else:
@@ -441,7 +448,7 @@ class Analysis:
         classes_map,
         band: int = 0,
         exclude_value: float | int | None = None,
-    ) -> dict[list[float], list[float]]:
+    ) -> dict[float, list[float]]:
         """Overlay.
 
         Overlay method extracts all the values in the dataset for each class in the given class map.
@@ -491,14 +498,16 @@ class Analysis:
 
             - You can use the key `1` to get the values that overlay class 1.
         """
-        if not self._check_alignment(classes_map):
+        if not self._ds.spatial._check_alignment(classes_map):
             raise AlignmentError(
                 "The class Dataset is not aligned with the current raster, please use the method "
                 "'align' to align both rasters."
             )
-        arr = self.read_array(band=band)
+        arr = self._ds.read_array(band=band)
         no_data_value = (
-            self.no_data_value[0] if self.no_data_value[0] is not None else np.nan
+            self._ds.no_data_value[0]
+            if self._ds.no_data_value[0] is not None
+            else np.nan
         )
         mask = (
             [no_data_value, exclude_value]
@@ -533,7 +542,7 @@ class Analysis:
         """
         # TODO: there is a CreateMaskBand method in the gdal.Dataset class, it creates a mask band for the dataset
         #   either internally or externally.
-        arr = np.asarray(self._iloc(band).GetMaskBand().ReadAsArray())
+        arr = np.asarray(self._ds._iloc(band).GetMaskBand().ReadAsArray())
         return arr
 
     def footprint(
@@ -603,19 +612,19 @@ class Analysis:
             ![dataset-footprint-rhine-flood-extent](./../../_images/dataset/dataset-footprint-rhine-flood-extent.png)
 
         """
-        arr = self.read_array(band=band)
-        no_data_val = self.no_data_value[band]
+        arr = self._ds.read_array(band=band)
+        no_data_val = self._ds.no_data_value[band]
 
         if no_data_val is None:
             if not (np.isnan(arr)).any():
-                self.logger.warning(
+                self._ds.logger.warning(
                     "The nodata value stored in the raster does not exist in the raster "
                     "so either the raster extent is all full of data, or the no_data_value stored in the raster is"
                     " not correct"
                 )
         else:
             if not (np.isclose(arr, no_data_val, rtol=0.00001)).any():
-                self.logger.warning(
+                self._ds.logger.warning(
                     "the nodata value stored in the raster does not exist in the raster "
                     "so either the raster extent is all full of data, or the no_data_value stored in the raster is"
                     " not correct"
@@ -635,23 +644,26 @@ class Analysis:
         if no_data_val is None:
             # check if the whole raster is full of no_data_value
             if (np.isnan(arr)).all():
-                self.logger.warning("the raster is full of no_data_value")
+                self._ds.logger.warning("the raster is full of no_data_value")
                 return None
 
             arr[~np.isnan(arr)] = 2
         else:
             # check if the whole raster is full of no_data_value
             if (np.isclose(arr, no_data_val, rtol=0.00001)).all():
-                self.logger.warning("the raster is full of no_data_value")
+                self._ds.logger.warning("the raster is full of no_data_value")
                 return None
 
             arr[~np.isclose(arr, no_data_val, rtol=0.00001)] = 2
-        new_dataset = self.create_from_array(
-            arr, geo=self.geotransform, epsg=self.epsg, no_data_value=self.no_data_value
+        new_dataset = self._ds.create_from_array(
+            arr,
+            geo=self._ds.geotransform,
+            epsg=self._ds.epsg,
+            no_data_value=self._ds.no_data_value,
         )
         # then convert the raster into polygon
         gdf = new_dataset.cluster2(band=band)
-        gdf.rename(columns={"Band_1": self.band_names[band]}, inplace=True)
+        gdf.rename(columns={"Band_1": self._ds.band_names[band]}, inplace=True)
 
         return gdf
 
@@ -785,7 +797,7 @@ class Analysis:
             - As you see for small datasets, the approximation of the histogram will be the same as without approximation.
 
         """
-        band_obj = self._iloc(band)
+        band_obj = self._ds._iloc(band)
         min_val, max_val = band_obj.ComputeRasterMinMax()
         if min_value is None:
             min_value = min_val
@@ -918,22 +930,22 @@ class Analysis:
         )
         from cleopatra.array_glyph import ArrayGlyph
 
-        no_data_value = [np.nan if i is None else i for i in self.no_data_value]
+        no_data_value = [np.nan if i is None else i for i in self._ds.no_data_value]
         if overview:
-            arr = self.read_overview_array(
+            arr = self._ds.read_overview_array(
                 band=band,
                 overview_index=overview_index if overview_index is not None else 0,
             )
         else:
-            arr = self.read_array(band=band)
+            arr = self._ds.read_array(band=band)
         # if the raster has three bands or more.
-        if self.band_count >= 3:
+        if self._ds.band_count >= 3:
             if band is None:
                 if rgb is None:
                     rgb_candidate: list[int | None] = [
-                        self.get_band_by_color("red"),
-                        self.get_band_by_color("green"),
-                        self.get_band_by_color("blue"),
+                        self._ds.get_band_by_color("red"),
+                        self._ds.get_band_by_color("green"),
+                        self._ds.get_band_by_color("blue"),
                     ]
                     if None in rgb_candidate:
                         rgb = [2, 1, 0]
@@ -941,7 +953,7 @@ class Analysis:
                         rgb = [int(v) for v in rgb_candidate if v is not None]
                 # first make the band index the first band in the rgb list (red band)
                 band = rgb[0]
-        # elif self.band_count == 1:
+        # elif self._ds.band_count == 1:
         #     band = 0
         else:
             if band is None:
@@ -956,7 +968,7 @@ class Analysis:
         cleo = ArrayGlyph(
             arr,
             exclude_value=exclude_value,
-            extent=self.bbox,
+            extent=self._ds.bbox,
             rgb=rgb,
             surface_reflectance=surface_reflectance,
             cutoff=cutoff,
@@ -968,12 +980,12 @@ class Analysis:
         cleo.plot(**kwargs)
 
         if basemap:
-            if self.epsg is None:
+            if self._ds.epsg is None:
                 raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
             from pyramids.basemap.basemap import add_basemap
 
             source = basemap if isinstance(basemap, str) else None
-            add_basemap(cleo.ax, crs=self.epsg, source=source)
+            add_basemap(cleo.ax, crs=self._ds.epsg, source=source)
 
         return cleo
 

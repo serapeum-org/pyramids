@@ -1,16 +1,16 @@
-"""Tests for the ARC-18 vector-side error hierarchy.
+"""Tests for the vector-side error hierarchy.
 
-``pyramids.base._errors`` gained a :class:`FeatureError` base and
+`pyramids.base._errors` gained a :class:`FeatureError` base and
 three subclasses:
 
-- :class:`InvalidGeometryError` (also a ``ValueError``)
-- :class:`CRSError` (also a ``ValueError``)
-- :class:`VectorDriverError` (also a ``RuntimeError``)
+- :class:`InvalidGeometryError` (also a `ValueError`)
+- :class:`CRSError` (also a `ValueError`)
+- :class:`VectorDriverError` (also a `RuntimeError`)
 
 Every feature-side raise that previously used a bare builtin was
 migrated to the matching subclass. The multi-inheritance with the
-original builtin means existing ``except ValueError:`` and
-``except RuntimeError:`` handlers keep working — we did not break
+original builtin means existing `except ValueError:` and
+`except RuntimeError:` handlers keep working — we did not break
 callers to gain the new type.
 """
 
@@ -27,8 +27,8 @@ from pyramids.base._errors import (
     VectorDriverError,
     _PyramidsError,
 )
+from pyramids.base.crs import get_epsg_from_prj
 from pyramids.feature import FeatureCollection
-from pyramids.feature.crs import get_epsg_from_prj
 from pyramids.feature.geometry import get_coords
 
 pytestmark = pytest.mark.core
@@ -41,7 +41,7 @@ class TestHierarchy:
         assert issubclass(FeatureError, _PyramidsError)
 
     def test_invalid_geometry_is_value_error(self):
-        """``except ValueError`` must still catch ``InvalidGeometryError``."""
+        """`except ValueError` must still catch `InvalidGeometryError`."""
         assert issubclass(InvalidGeometryError, ValueError)
         assert issubclass(InvalidGeometryError, FeatureError)
 
@@ -55,7 +55,7 @@ class TestHierarchy:
 
 
 class TestInvalidGeometryError:
-    """MultiPolygon into get_coords raises InvalidGeometryError (ARC-9/-18)."""
+    """MultiPolygon into get_coords raises InvalidGeometryError (/-18)."""
 
     def test_raised_on_multipolygon(self):
         import pandas as pd
@@ -66,7 +66,7 @@ class TestInvalidGeometryError:
             get_coords(row, "geometry", "x")
 
     def test_still_catchable_as_value_error(self):
-        """Legacy handlers using ``except ValueError`` keep working."""
+        """Legacy handlers using `except ValueError` keep working."""
         import pandas as pd
 
         mp = MultiPolygon([box(0, 0, 1, 1)])
@@ -75,7 +75,7 @@ class TestInvalidGeometryError:
             get_coords(row, "geometry", "x")
 
     def test_catchable_as_feature_error(self):
-        """A broad ``except FeatureError:`` also catches it."""
+        """A broad `except FeatureError:` also catches it."""
         import pandas as pd
 
         mp = MultiPolygon([box(0, 0, 1, 1)])
@@ -92,13 +92,13 @@ class TestCRSError:
             get_epsg_from_prj("")
 
     def test_still_catchable_as_value_error(self):
-        """Legacy ``except ValueError`` still catches it."""
+        """Legacy `except ValueError` still catches it."""
         with pytest.raises(ValueError):
             get_epsg_from_prj("")
 
     @pytest.mark.plot
     def test_basemap_without_crs_raises_crs_error(self):
-        """FC.plot(basemap=True) without CRS raises CRSError (ARC-18)."""
+        """FC.plot(basemap=True) without CRS raises CRSError."""
         poly = box(0, 0, 1, 1)
         gdf = gpd.GeoDataFrame({"v": [1]}, geometry=[poly])  # no crs=
         fc = FeatureCollection(gdf)
@@ -148,7 +148,7 @@ class TestVectorDriverError:
                 _ogr.datasource_to_gdf(ds)
 
     def test_still_catchable_as_runtime_error(self, monkeypatch):
-        """Legacy ``except RuntimeError`` still catches it."""
+        """Legacy `except RuntimeError` still catches it."""
         from pyramids.feature import _ogr
 
         monkeypatch.setattr(

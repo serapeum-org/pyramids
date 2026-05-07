@@ -53,7 +53,7 @@ def http_cog_dir(tmp_path_factory) -> Path:
 
 @pytest.fixture(scope="module")
 def http_server(http_cog_dir: Path):
-    """Start a local HTTP server serving ``http_cog_dir``; yield the base URL."""
+    """Start a local HTTP server serving `http_cog_dir`; yield the base URL."""
     handler = functools.partial(_QuietHandler, directory=str(http_cog_dir))
     httpd = socketserver.ThreadingTCPServer(("127.0.0.1", 0), handler)
     port = httpd.server_address[1]

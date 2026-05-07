@@ -1,14 +1,14 @@
 """Lazy vector collection — subclasses :class:`dask_geopandas.GeoDataFrame`.
 
-DASK-40b: separate class (ARC-29 implemented). A LazyFeatureCollection IS a
+A LazyFeatureCollection IS a
 :class:`dask_geopandas.GeoDataFrame`; it is NOT a
 :class:`~pyramids.feature.FeatureCollection` or :class:`geopandas.GeoDataFrame`.
 Both classes satisfy the :class:`~pyramids.base.protocols.SpatialObject`
-protocol so consumers accept either via ``isinstance(x, SpatialObject)``.
+protocol so consumers accept either via `isinstance(x, SpatialObject)`.
 
-Importing this module requires ``dask-geopandas`` to be installed (the
-``[parquet-lazy]`` extra). The eager ``FeatureCollection`` is unaffected:
-its readers only import this module from inside the ``backend='dask'``
+Importing this module requires `dask-geopandas` to be installed (the
+`[parquet-lazy]` extra). The eager `FeatureCollection` is unaffected:
+its readers only import this module from inside the `backend='dask'`
 branch, so minimal installs never evaluate this file.
 """
 
@@ -31,7 +31,7 @@ def _rebuild_lazy_fc(parent_reduce: tuple) -> LazyFeatureCollection:
 
     Runs the reconstructor returned by
     :meth:`dask_geopandas.GeoDataFrame.__reduce__`, re-applies any pickled
-    state, then re-binds ``__class__`` so the restored object is a
+    state, then re-binds `__class__` so the restored object is a
     LazyFeatureCollection rather than a plain dask_geopandas frame.
     """
     reconstructor = parent_reduce[0]
@@ -52,39 +52,39 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
     """Lazy vector collection backed by a dask_geopandas graph.
 
     Subclasses :class:`dask_geopandas.GeoDataFrame` — every method of that
-    parent is available unchanged (``to_crs``, ``clip``, ``sjoin``,
-    ``.npartitions``, ``.spatial_partitions``). Overrides: ``compute`` /
-    ``persist`` return pyramids-native wrappers, ``spatial_shuffle``
-    re-wraps the shuffled result, ``to_file`` / ``plot`` raise with
-    actionable messages, and ``read_file`` is a classmethod delegating
+    parent is available unchanged (`to_crs`, `clip`, `sjoin`,
+    `.npartitions`, `.spatial_partitions`). Overrides: `compute` /
+    `persist` return pyramids-native wrappers, `spatial_shuffle`
+    re-wraps the shuffled result, `to_file` / `plot` raise with
+    actionable messages, and `read_file` is a classmethod delegating
     back to the eager reader so the
     :class:`~pyramids.base.protocols.SpatialObject` protocol is satisfied.
 
-    Construct via ``FeatureCollection.read_file(..., backend='dask')`` or
-    ``FeatureCollection.read_parquet(..., backend='dask')``. Direct
+    Construct via `FeatureCollection.read_file(..., backend='dask')` or
+    `FeatureCollection.read_parquet(..., backend='dask')`. Direct
     construction is discouraged; use
     :meth:`LazyFeatureCollection.from_dask_gdf` if you must wrap a
     pre-built dask-geopandas frame.
 
     Note:
-        On installs without the ``[parquet-lazy]`` extra, importing this
-        class from :mod:`pyramids.feature` returns ``None`` (sentinel).
-        Consumer code using ``isinstance`` must guard explicitly:
-        ``if LazyFeatureCollection is not None and isinstance(x, LazyFeatureCollection): ...``.
+        On installs without the `[parquet-lazy]` extra, importing this
+        class from :mod:`pyramids.feature` returns `None` (sentinel).
+        Consumer code using `isinstance` must guard explicitly:
+        `if LazyFeatureCollection is not None and isinstance(x, LazyFeatureCollection):...`.
     """
 
     def __getattribute__(self, name: str) -> Any:
         """Return a class-swapped view of every inherited method's result.
 
         dask-geopandas inherits from dask-expr and does not honour pandas'
-        classic ``_constructor`` hook. Methods like ``to_crs``, ``clip``,
-        ``sjoin``, ``copy``, ``drop_duplicates`` go through
-        ``map_partitions`` with meta inference and produce a plain
+        classic `_constructor` hook. Methods like `to_crs`, `clip`,
+        `sjoin`, `copy`, `drop_duplicates` go through
+        `map_partitions` with meta inference and produce a plain
         :class:`dask_geopandas.GeoDataFrame`, silently dropping the
         :class:`LazyFeatureCollection` subclass. This hook wraps every
         public callable so that a :class:`dask_geopandas.GeoDataFrame`
         result is rebranded back to the subclass before it reaches the
-        caller. Private names (``_``-prefixed) are passed through
+        caller. Private names (`_`-prefixed) are passed through
         unchanged to keep dask-expr internals — meta inference, name
         caches, partition probing — on the hot path they expect.
         """
@@ -121,21 +121,21 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
         from :func:`dask_geopandas.from_geopandas` or a third-party reader)
         and wants to use it through the pyramids type system.
 
-        Implementation uses class-swap (``copy()`` + ``__class__``
+        Implementation uses class-swap (`copy()` + `__class__`
         assignment) rather than a four-arg reconstruction, because
-        ``(dask, _name, _meta, divisions)`` is private dask.dataframe API
+        `(dask, _name, _meta, divisions)` is private dask.dataframe API
         that shifted between dask-expr and legacy. Class-swap relies only
         on Python's object model and survives upstream churn. The
-        invariant "``LazyFeatureCollection`` adds no extra instance state
+        invariant "`LazyFeatureCollection` adds no extra instance state
         beyond :class:`dask_geopandas.GeoDataFrame`" is pinned by
         :func:`tests.feature.test_lazy_feature_collection.test_from_dask_gdf_preserves_state`.
 
         Args:
-            dask_gdf: Pre-built ``dask_geopandas.GeoDataFrame`` to wrap.
+            dask_gdf: Pre-built `dask_geopandas.GeoDataFrame` to wrap.
 
         Returns:
-            LazyFeatureCollection: A view over ``dask_gdf`` whose
-            ``__class__`` has been rebound to LazyFeatureCollection.
+            LazyFeatureCollection: A view over `dask_gdf` whose
+            `__class__` has been rebound to LazyFeatureCollection.
             The task graph, partition names, metadata, and divisions
             are unchanged — only the concrete class is swapped.
 
@@ -164,7 +164,7 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
         result.__class__ = cls
         return result
 
-    # ARC-V1: Deprecated alias kept for one release cycle. Old callsites
+    # Deprecated alias kept for one release cycle. Old callsites
     # (readers inside collection.py, tests) can transition at their own
     # pace; remove the alias in a follow-up commit.
     _from_dask_gdf = from_dask_gdf
@@ -172,8 +172,8 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
     def __reduce__(self):
         """Preserve the LazyFeatureCollection class across pickle round-trips.
 
-        ``from_dask_gdf`` uses ``result.__class__ = cls`` to rebind the
-        concrete class. The parent's default ``__reduce__`` reconstructs
+        `from_dask_gdf` uses `result.__class__ = cls` to rebind the
+        concrete class. The parent's default `__reduce__` reconstructs
         with the base :class:`dask_geopandas.GeoDataFrame`, silently
         dropping the subclass on unpickle. Wrapping super's reduce tuple
         in a module-level trampoline re-applies the class swap.
@@ -192,25 +192,25 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
         """Construct a LazyFC from a vector file.
 
         Satisfies the :class:`~pyramids.base.protocols.SpatialObject`
-        protocol's ``read_file`` classmethod requirement. Delegates to
-        :meth:`FeatureCollection.read_file` with ``backend='dask'``.
+        protocol's `read_file` classmethod requirement. Delegates to
+        :meth:`FeatureCollection.read_file` with `backend='dask'`.
 
         The import of :class:`FeatureCollection` is inline by
         necessity — :mod:`pyramids.feature.collection` imports this module
         from inside its dask branch, so a top-of-file import here would
-        form a cycle. Per ``CLAUDE.md``, circular-import breaks are an
+        form a cycle. Per `CLAUDE.md`, circular-import breaks are an
         accepted exception to the no-inline-imports rule.
 
         Args:
             path: Path to a vector file GDAL/OGR can open (GeoJSON,
                 Shapefile, GeoPackage, FlatGeobuf, …).
             npartitions: Target number of dask partitions. Mutually
-                exclusive with ``chunksize``.
+                exclusive with `chunksize`.
             chunksize: Target rows per partition. Mutually exclusive
-                with ``npartitions``.
+                with `npartitions`.
             **kwargs: Forwarded to :meth:`FeatureCollection.read_file`.
-                Filter kwargs (``bbox`` / ``mask`` / ``rows`` /
-                ``columns`` / ``where`` / ``layer``) are rejected
+                Filter kwargs (`bbox` / `mask` / `rows` /
+                `columns` / `where` / `layer`) are rejected
                 because dask-geopandas has no pushdown for them.
 
         Returns:
@@ -253,10 +253,10 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
 
     @property
     def epsg(self) -> int | None:
-        """EPSG code of the CRS, or ``None`` when the CRS is unset.
+        """EPSG code of the CRS, or `None` when the CRS is unset.
 
         Cheap — reads the cached pyproj CRS attached to the
-        dask-geopandas frame and calls ``.to_epsg()``. No graph
+        dask-geopandas frame and calls `.to_epsg()`. No graph
         materialisation.
 
         Examples:
@@ -284,17 +284,17 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
         return result
 
     def compute_total_bounds(self) -> Any:
-        """Materialise :attr:`total_bounds` via an explicit ``.compute()`` call.
+        """Materialise :attr:`total_bounds` via an explicit `.compute()` call.
 
-        ARC-V4: :attr:`total_bounds` on a
+        :attr:`total_bounds` on a
         :class:`dask_geopandas.GeoDataFrame` is a lazy dask Scalar.
         Most consumers who want concrete numbers today wrote
-        ``lfc.total_bounds.compute()`` — this helper gives them a
+        `lfc.total_bounds.compute()` — this helper gives them a
         single-line, self-documenting equivalent that also makes the
         compute-cost explicit in the method name.
 
         Returns:
-            numpy.ndarray: ``[minx, miny, maxx, maxy]`` as a
+            numpy.ndarray: `[minx, miny, maxx, maxy]` as a
             4-element 1-D array — the exact shape
             :class:`geopandas.GeoDataFrame.total_bounds` returns.
 
@@ -325,11 +325,11 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
         """No lazy plot path; materialize first.
 
         Raises:
-            NotImplementedError: Always. Call ``.compute().plot(...)`` to
+            NotImplementedError: Always. Call `.compute().plot(...)` to
                 materialize before plotting.
 
         Examples:
-            - Calling ``.plot`` directly raises with an actionable hint:
+            - Calling `.plot` directly raises with an actionable hint:
                 ```python
                 >>> import geopandas as gpd
                 >>> import dask_geopandas as dg
@@ -359,17 +359,17 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
     def compute(self, **kwargs: Any) -> FeatureCollection:
         """Materialize the graph and return an eager :class:`FeatureCollection`.
 
-        The ``from pyramids.feature.collection import FeatureCollection``
-        import below is inline by necessity — ``collection.py`` imports
+        The `from pyramids.feature.collection import FeatureCollection`
+        import below is inline by necessity — `collection.py` imports
         this module from inside its dask branch, so a top-of-file import
-        here would form a cycle. Per ``CLAUDE.md``, circular-import
+        here would form a cycle. Per `CLAUDE.md`, circular-import
         breaks are the second accepted exception to the no-inline-imports
         rule.
 
         Args:
             **kwargs: Forwarded to
                 :meth:`dask_geopandas.GeoDataFrame.compute` (e.g.
-                ``scheduler="processes"``).
+                `scheduler="processes"`).
 
         Returns:
             FeatureCollection: an eager wrapper around the materialized
@@ -460,13 +460,13 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
         :meth:`sjoin` on the result.
 
         Args:
-            by: One of ``"hilbert"``, ``"morton"``, or ``"geohash"``.
+            by: One of `"hilbert"`, `"morton"`, or `"geohash"`.
             level: Curve resolution; default 16.
             npartitions: Optional output partition count.
             divisions: Optional explicit division boundaries.
 
         Returns:
-            LazyFeatureCollection: A new lazy FC with ``spatial_partitions``
+            LazyFeatureCollection: A new lazy FC with `spatial_partitions`
             populated.
 
         Examples:
@@ -505,8 +505,8 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
         Raises:
             NotImplementedError: Always. dask-geopandas has no lazy OGR
                 write path for GeoJSON / Shapefile / GeoPackage. Call
-                ``.compute().to_file(path)`` to materialize first, or
-                use ``to_parquet`` which IS lazy.
+                `.compute().to_file(path)` to materialize first, or
+                use `to_parquet` which IS lazy.
 
         Examples:
             - The hint at the raise site points to the supported paths:
@@ -541,33 +541,33 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
     def to_parquet(self, path: Any, *args: Any, **kwargs: Any) -> None:
         """Write the lazy frame to GeoParquet (the one genuinely-lazy writer).
 
-        ARC-V8: explicit wrapper around
+        explicit wrapper around
         :meth:`dask_geopandas.GeoDataFrame.to_parquet`. The parent
-        returns a :class:`dask.delayed.Delayed` (or ``None`` when the
+        returns a :class:`dask.delayed.Delayed` (or `None` when the
         call is implicitly computed), which leaks the dask detail into
-        user code and breaks the pyramids convention that ``to_*``
-        writers return ``None``. This override normalises the contract:
+        user code and breaks the pyramids convention that `to_*`
+        writers return `None`. This override normalises the contract:
 
         * The call blocks until every partition has been written.
-        * Return is always ``None`` — matches
+        * Return is always `None` — matches
           :meth:`FeatureCollection.to_parquet` and
           :meth:`LazyFeatureCollection.to_file` (the raising stub).
-        * All other kwargs (``compression=``, ``write_index=``,
-          ``storage_options=``) forward to the parent.
+        * All other kwargs (`compression=`, `write_index=`,
+          `storage_options=`) forward to the parent.
 
         Args:
-            path: Destination path or directory. Cloud URLs (``s3://``,
-                ``gs://``, ``az://``) work via ``storage_options``.
+            path: Destination path or directory. Cloud URLs (`s3://`,
+                `gs://`, `az://`) work via `storage_options`.
             *args: Forwarded to
                 :meth:`dask_geopandas.GeoDataFrame.to_parquet`.
             **kwargs: Forwarded to
                 :meth:`dask_geopandas.GeoDataFrame.to_parquet`.
-                ``compute=True`` is forced; passing ``compute=False``
+                `compute=True` is forced; passing `compute=False`
                 raises :class:`ValueError` because the pyramids API
-                contract is "``to_*`` always writes, never defers".
+                contract is "`to_*` always writes, never defers".
 
         Raises:
-            ValueError: If ``compute=False`` is supplied. Use the
+            ValueError: If `compute=False` is supplied. Use the
                 parent's API directly if you need a Delayed.
 
         Examples:

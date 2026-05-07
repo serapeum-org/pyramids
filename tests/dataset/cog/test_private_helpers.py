@@ -1,8 +1,8 @@
-"""Direct unit tests for private helpers in ``pyramids.dataset.cog.options``.
+"""Direct unit tests for private helpers in `pyramids.dataset.cog.options`.
 
 These tests complement the existing scenario coverage in
-``test_options.py`` (which exercises the helpers indirectly through
-``to_gdal_options``/``merge_options``). The skill's operating mode calls
+`test_options.py` (which exercises the helpers indirectly through
+`to_gdal_options`/`merge_options`). The skill's operating mode calls
 for direct coverage of private methods with a leading underscore, so
 each helper gets its own :class:`TestClass`.
 """
@@ -17,7 +17,7 @@ pytestmark = pytest.mark.core
 
 
 class TestStringify:
-    """Direct tests for the ``_stringify`` private helper."""
+    """Direct tests for the `_stringify` private helper."""
 
     @pytest.mark.parametrize(
         "value, expected",
@@ -69,8 +69,8 @@ class TestStringify:
         """Test _stringify on None defers to str().
 
         Test scenario:
-            None should not crash — ``str(None)`` is ``'None'``. (Note
-            the public API drops None values in ``to_gdal_options``;
+            None should not crash — `str(None)` is `'None'`. (Note
+            the public API drops None values in `to_gdal_options`;
             this is a direct-helper test of lower-level contract.)
         """
         assert (
@@ -79,7 +79,7 @@ class TestStringify:
 
 
 class TestParseListExtra:
-    """Direct tests for the ``_parse_list_extra`` private helper."""
+    """Direct tests for the `_parse_list_extra` private helper."""
 
     def test_single_entry(self):
         """Test parsing a single KEY=VALUE entry.
@@ -112,7 +112,7 @@ class TestParseListExtra:
 
         Test scenario:
             User-supplied mixed-case keys must be canonicalized so the
-            gate check against ``COG_DRIVER_OPTIONS`` works uniformly.
+            gate check against `COG_DRIVER_OPTIONS` works uniformly.
         """
         result = _parse_list_extra(["compress=deflate"])
         assert "COMPRESS" in result, f"Key not uppercased in {result!r}"
@@ -124,8 +124,8 @@ class TestParseListExtra:
         """Test values containing '=' are preserved intact.
 
         Test scenario:
-            ``partition('=')`` splits only on the first occurrence, so
-            a value like ``"key=subval"`` survives round-trip.
+            `partition('=')` splits only on the first occurrence, so
+            a value like `"key=subval"` survives round-trip.
         """
         result = _parse_list_extra(["TARGET_SRS=EPSG:3857=extra"])
         assert (
@@ -167,7 +167,7 @@ class TestParseListExtra:
         """Test KEY= (empty value) is allowed.
 
         Test scenario:
-            ``'KEY='`` partitions to ``('KEY', '=', '')`` — legal; the
+            `'KEY='` partitions to `('KEY', '=', '')` — legal; the
             value is the empty string.
         """
         result = _parse_list_extra(["COMPRESS="])

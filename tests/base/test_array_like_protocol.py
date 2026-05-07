@@ -1,7 +1,7 @@
 """Tests for :data:`pyramids.base.protocols.ArrayLike` + helpers.
 
-DASK-1 introduces the cross-cutting ``ArrayLike`` type alias plus the
-``_ArrayLikeProto`` runtime-checkable Protocol, plus two small dispatch
+introduces the cross-cutting `ArrayLike` type alias plus the
+`_ArrayLikeProto` runtime-checkable Protocol, plus two small dispatch
 helpers (:func:`is_lazy`, :func:`as_numpy`) that the rest of the code
 uses to branch between eager (numpy) and lazy (dask) array backends.
 
@@ -13,8 +13,8 @@ These tests exercise:
   installed). If dask is missing, the dask-specific tests skip
   individually while the numpy tests keep running.
 * Non-array objects (lists, ints) do not match the protocol.
-* ``is_lazy`` returns False for numpy and None, True for dask.
-* ``as_numpy`` is a no-op for numpy input, and computes for dask
+* `is_lazy` returns False for numpy and None, True for dask.
+* `as_numpy` is a no-op for numpy input, and computes for dask
   input.
 """
 
@@ -23,19 +23,19 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask
 from pyramids.base.protocols import ArrayLike, _ArrayLikeProto, as_numpy, is_lazy
 
 pytestmark = pytest.mark.core
 
 try:
+    import_dask("dask not installed")
     import dask.array as dask_array
-
-    HAS_DASK = True
-except ImportError:  # pragma: no cover
-    dask_array = None
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_DASK = False
-
-
+else:
+    HAS_DASK = True
 requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")
 
 
@@ -117,7 +117,7 @@ class TestAsNumpy:
 
 
 class TestArrayLikeAlias:
-    """``ArrayLike`` is a typing alias — exercise it in a function signature."""
+    """`ArrayLike` is a typing alias — exercise it in a function signature."""
 
     def test_function_accepts_numpy(self):
         def sum_array(x: ArrayLike) -> float:
@@ -145,7 +145,7 @@ class TestAliasExport:
         assert hasattr(protocols, "as_numpy")
 
     def test_spatial_object_still_exported(self):
-        """Smoke test that DASK-1 did not accidentally remove SpatialObject."""
+        """Smoke test that did not accidentally remove SpatialObject."""
         from pyramids.base.protocols import SpatialObject
 
         assert SpatialObject is not None
@@ -200,7 +200,7 @@ class TestArrayLikeGapCoverage:
         assert isinstance(FullDuck(), _ArrayLikeProto)
 
     def test_is_lazy_fake_duck_with_dask_attrs_is_lazy(self):
-        """Duck-typed class with .dask and .compute is reported lazy."""
+        """Duck-typed class with.dask and.compute is reported lazy."""
 
         class FakeDask:
             dask = {"fake": "graph"}
@@ -211,7 +211,7 @@ class TestArrayLikeGapCoverage:
         assert is_lazy(FakeDask()) is True
 
     def test_is_lazy_duck_with_only_dask_is_not_lazy(self):
-        """``.dask`` alone is not enough — must also have ``compute``."""
+        """`.dask` alone is not enough — must also have `compute`."""
 
         class HalfDaskLike:
             dask = {}

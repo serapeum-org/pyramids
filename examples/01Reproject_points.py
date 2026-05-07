@@ -1,17 +1,16 @@
 """Reproject coordinates between EPSG codes.
 
-Demonstrates :func:`pyramids.feature.crs.reproject_coordinates` (ARC-14).
-Everything is (x, y) ordered on the way in and on the way out — no more
-(lat, lon) / (y, x) guess-games.
+Demonstrates :func:`pyramids.base.crs.reproject_coordinates`. Argument
+and return order is ``(x, y)`` throughout.
 """
 
-from pyramids.feature import FeatureCollection
+from pyramids.base.crs import reproject_coordinates
 
 # %% WGS84 → UTM 18N
 x = [-180.0, -179.5]
 y = [90.0, 90.0]
 
-x_out, y_out = FeatureCollection.reproject_coordinates(
+x_out, y_out = reproject_coordinates(
     x, y, from_crs=4326, to_crs=32618, precision=9
 )
 
@@ -19,7 +18,7 @@ x_out, y_out = FeatureCollection.reproject_coordinates(
 x_in = [4522693.11]
 y_in = [7423522.55]
 
-lon, lat = FeatureCollection.reproject_coordinates(
+lon, lat = reproject_coordinates(
     x_in, y_in, from_crs=5641, to_crs=4326, precision=4
 )
 
@@ -29,7 +28,7 @@ assert lat[0] == -22.6895 and lon[0] == -47.2903, "Error ReprojectPoints error 1
 x = [-32.0, 71.0]
 y = [32.0, 83.0]
 
-x_out, y_out = FeatureCollection.reproject_coordinates(
+x_out, y_out = reproject_coordinates(
     x, y, from_crs=4326, to_crs=4647, precision=4
 )
 

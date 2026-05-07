@@ -23,34 +23,31 @@ import pickle
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask, import_kerchunk, import_xarray
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.netcdf_lazy
 
 try:
-    import dask.array  # noqa: F401
-
-    HAS_DASK = True
-except ImportError:  # pragma: no cover
+    import_dask("dask not installed")
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_DASK = False
-
-
+else:
+    HAS_DASK = True
 try:
+    import_xarray("xarray not installed")
     import xarray as xr
-
-    HAS_XARRAY = True
-except ImportError:  # pragma: no cover
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_XARRAY = False
-
-
+else:
+    HAS_XARRAY = True
 try:
-    import kerchunk.hdf  # noqa: F401
-
-    HAS_KERCHUNK = True
-except ImportError:  # pragma: no cover
+    import_kerchunk("kerchunk not installed")
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_KERCHUNK = False
-
-
+else:
+    HAS_KERCHUNK = True
 requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")
 requires_xarray = pytest.mark.skipif(not HAS_XARRAY, reason="xarray not installed")
 requires_kerchunk = pytest.mark.skipif(

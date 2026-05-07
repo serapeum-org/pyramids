@@ -104,6 +104,30 @@ class TestStringRepresentation:
         text = repr(md)
         assert "Dimension" in text, "__repr__ should contain 'Dimension'"
 
+    def test_str_works_without_files(self, base_dataset: Dataset):
+        """H1 regression: __str__ must not TypeError when files=None.
+
+        Pre-fix `len(self.files)` raised on collections built without
+        a `files=` argument (legacy in-memory constructions, anything
+        produced by `crop(inplace=False)` / `apply()`). Post-fix the
+        source line falls back to `time_length` and labels the cube
+        as in-memory.
+        """
+        md = DatasetCollection(base_dataset, time_length=2)
+        assert md.files is None
+        text = str(md)
+        assert "in-memory" in text, (
+            f"in-memory cube should label itself as such; got: {text}"
+        )
+        assert "Time length: 2" in text
+
+    def test_repr_works_without_files(self, base_dataset: Dataset):
+        """H1 regression: same as __str__ but for __repr__."""
+        md = DatasetCollection(base_dataset, time_length=2)
+        text = repr(md)
+        assert "in-memory" in text
+        assert "Time length: 2" in text
+
 
 class TestShapeProperties:
     """Tests for shape, rows, columns."""
@@ -223,32 +247,38 @@ class TestApply:
     """Tests for ``apply`` method with ufunc."""
 
     def test_apply_numpy_ufunc(self, base_dataset: Dataset):
-        """apply with np.abs should process all non-nodata cells."""
+        """apply with np.abs should process all non-nodata cells.
+
+        After the L-3 refactor ``apply`` is out-of-place — returns a
+        new ``DatasetCollection`` instead of mutating ``self``. The
+        assertion runs against the returned collection's ``values``.
+        """
         md = DatasetCollection.create_cube(base_dataset, dataset_length=2)
-        values = np.array([[[-5.0, 3.0, -1.0, 2.0, 0.0, -9999.0]]] * 2)
-        # Expand to proper dimensions
         values = np.full((2, 5, 6), -5.0)
         values[:, 0, -1] = -9999.0  # set nodata in one cell
         md.values = values
-        md.apply(np.abs)
-        # Non-nodata cells should now be positive
-        non_nodata = md.values[:, :, :-1]
+        result = md.apply(np.abs)
+        # Non-nodata cells should now be positive in the returned collection.
+        non_nodata = result.values[:, :, :-1]
         assert np.all(
             non_nodata >= 0
         ), "All non-nodata values should be positive after np.abs"
 
     def test_apply_custom_ufunc(self, base_dataset: Dataset):
-        """apply with a custom function via np.frompyfunc."""
+        """apply with a custom function via np.frompyfunc.
+
+        After the L-3 refactor ``apply`` is out-of-place — see
+        :meth:`test_apply_numpy_ufunc`.
+        """
         md = DatasetCollection.create_cube(base_dataset, dataset_length=2)
         values = np.full((2, 5, 6), 10.0)
         values[:, 0, 0] = -9999.0
         md.values = values
         double_fn = np.frompyfunc(lambda x: x * 2, 1, 1)
-        md.apply(double_fn)
-        # Non-nodata cells should be doubled
+        result = md.apply(double_fn)
         assert (
-            md.values[0, 1, 0] == 20.0
-        ), f"Expected 20.0 after doubling, got {md.values[0, 1, 0]}"
+            result.values[0, 1, 0] == 20.0
+        ), f"Expected 20.0 after doubling, got {result.values[0, 1, 0]}"
 
     def test_apply_non_callable_raises(self, cube_with_values: DatasetCollection):
         """apply with a non-callable argument should raise TypeError."""
@@ -307,19 +337,6 @@ class TestIloc:
         np.testing.assert_array_almost_equal(
             arr, expected, decimal=4, err_msg="iloc array should match values slice"
         )
-
-
-class TestOpenDatasetCollectionErrors:
-    """Tests for error handling in ``open_multi_dataset``."""
-
-    def test_invalid_band_raises(self):
-        """Requesting a band beyond band_count should raise ValueError."""
-        src = _make_mem_dataset()
-        md = DatasetCollection.create_cube(src, dataset_length=1)
-        # The dataset has 1 band (index 0), so band=1 should fail
-        with pytest.raises(ValueError, match="check the given band number"):
-            md._files = ["dummy.tif"]
-            md.open_multi_dataset(band=1)
 
 
 import datetime as dt
@@ -434,33 +451,11 @@ class TestReadMultipleFilesErrors:
         ), f"Expected time_length=2 after filtering, got {md.time_length}"
 
 
-class TestGetSetItemWithoutValues:
-    """Tests for __getitem__ and __setitem__ when values are not set."""
-
-    def test_getitem_without_values_raises(self):
-        """Accessing items before reading data should raise AttributeError."""
-        src = _make_mem_dataset()
-        md = DatasetCollection.create_cube(src, dataset_length=2)
-        with pytest.raises(AttributeError, match="read_dataset"):
-            _ = md[0]
-
-    def test_setitem_without_values_raises(self):
-        """Setting items before reading data should raise AttributeError."""
-        src = _make_mem_dataset()
-        md = DatasetCollection.create_cube(src, dataset_length=2)
-        with pytest.raises(AttributeError, match="read_dataset"):
-            md[0] = np.zeros((5, 6))
-
-
-class TestIlocWithoutValues:
-    """Tests for iloc when values are not set."""
-
-    def test_iloc_without_values_raises(self):
-        """Calling iloc before reading data should raise DatasetNotFoundError."""
-        src = _make_mem_dataset()
-        md = DatasetCollection.create_cube(src, dataset_length=2)
-        with pytest.raises(DatasetNotFoundError):
-            md.iloc(0)
+# Tests for "without values raises" deleted: after the L-3 refactor
+# the collection's per-timestep handles open lazily on first
+# access, so iloc/__getitem__/__setitem__ no longer need an upfront
+# `open_multi_dataset()` call. The error path those tests asserted
+# no longer exists.
 
 
 class TestAlignErrors:

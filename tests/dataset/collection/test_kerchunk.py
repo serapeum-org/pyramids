@@ -1,6 +1,6 @@
 """Tests for :meth:`DatasetCollection.to_kerchunk`.
 
-DASK-21: emit a combined kerchunk JSON manifest spanning every
+emit a combined kerchunk JSON manifest spanning every
 timestep file. Thin forwarder to
 :func:`pyramids.netcdf._kerchunk.combine_kerchunk`; tests skip when
 kerchunk is absent.
@@ -13,16 +13,18 @@ import json
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_kerchunk
 from pyramids.dataset import Dataset, DatasetCollection
 
-pytestmark = pytest.mark.lazy
-
 try:
-    import kerchunk.hdf  # noqa: F401
-
-    HAS_KERCHUNK = True
-except ImportError:  # pragma: no cover
+    import_kerchunk("kerchunk not installed")
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_KERCHUNK = False
+else:
+    HAS_KERCHUNK = True
+
+pytestmark = pytest.mark.lazy
 
 
 requires_kerchunk = pytest.mark.skipif(
@@ -59,7 +61,7 @@ class TestToKerchunk:
 
 
 class TestGeoTiffGuard:
-    """M5: GeoTIFF-backed collections raise NotImplementedError."""
+    """GeoTIFF-backed collections raise NotImplementedError."""
 
     def test_geotiff_collection_raises(self, tmp_path):
         arr = np.zeros((3, 4), dtype=np.float32)

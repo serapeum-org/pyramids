@@ -24,19 +24,19 @@ class GroupInfo:
     """Immutable metadata for a single MDIM group in a NetCDF file.
 
     All fields are JSON-serializable and use full names
-    (e.g. ``"/root/subgroup"``) for stable cross-references
+    (e.g. `"/root/subgroup"`) for stable cross-references
     between groups, variables, and dimensions.
 
     Note:
-        ``frozen=True`` prevents field reassignment but container
-        fields (``attributes``, ``children``, ``variables``) are
-        technically mutable.  Treat all contents as **read-only**
+        `frozen=True` prevents field reassignment but container
+        fields (`attributes`, `children`, `variables`) are
+        technically mutable. Treat all contents as **read-only**
         after construction.
 
     Args:
-        name: Short name of the group (e.g. ``"root"``).
+        name: Short name of the group (e.g. `"root"`).
         full_name: Fully qualified name including the path
-            (e.g. ``"/"`` for the root group).
+            (e.g. `"/"` for the root group).
         attributes: Key-value mapping of group-level
             attributes read from the NetCDF file.
         children: Full names of direct child groups.
@@ -99,17 +99,17 @@ class GroupInfo:
         """Build a GroupInfo from a live GDAL Group object.
 
         Extracts the group name, full name, and attributes
-        from the GDAL ``Group`` handle and bundles them into
-        an immutable ``GroupInfo`` instance.
+        from the GDAL `Group` handle and bundles them into
+        an immutable `GroupInfo` instance.
 
         Args:
             group: The GDAL multidimensional group object.
             variables: Full names of variables that belong to
-                this group (e.g. ``["/temperature"]``).
+                this group (e.g. `["/temperature"]`).
             children: Full names of direct child groups
-                (e.g. ``["/forecast"]``).
+                (e.g. `["/forecast"]`).
             attributes: Pre-read attributes dictionary. If
-                ``None``, attributes are read directly from
+                `None`, attributes are read directly from
                 the group.
 
         Returns:
@@ -141,29 +141,29 @@ class DimensionInfo:
 
     Captures the name, size, type, direction, and any
     attributes inherited from the dimension's indexing
-    variable (e.g. ``units`` and ``calendar`` for a time
+    variable (e.g. `units` and `calendar` for a time
     dimension).
 
     Note:
-        ``frozen=True`` prevents field reassignment but the
-        ``attrs`` dict is technically mutable.  Treat its
+        `frozen=True` prevents field reassignment but the
+        `attrs` dict is technically mutable. Treat its
         contents as **read-only** after construction.
 
     Args:
-        name: Short name of the dimension (e.g. ``"time"``).
+        name: Short name of the dimension (e.g. `"time"`).
         full_name: Fully qualified path name
-            (e.g. ``"/time"``).
+            (e.g. `"/time"`).
         size: Number of elements along this dimension.
         type: Dimension type string reported by GDAL, such
-            as ``"HORIZONTAL_X"`` or ``"TEMPORAL"``.
-            ``None`` if unavailable.
-        direction: Direction string (e.g. ``"EAST"``,
-            ``"NORTH"``). ``None`` if unavailable.
+            as `"HORIZONTAL_X"` or `"TEMPORAL"`.
+            `None` if unavailable.
+        direction: Direction string (e.g. `"EAST"`,
+            `"NORTH"`). `None` if unavailable.
         indexing_variable: Full name (or short name) of the
             variable that indexes this dimension.
-            ``None`` if no indexing variable exists.
+            `None` if no indexing variable exists.
         attrs: Attributes read from the indexing variable
-            (e.g. ``{"units": "days since 1970-01-01"}``).
+            (e.g. `{"units": "days since 1970-01-01"}`).
 
     Examples:
         - Create a spatial dimension:
@@ -222,13 +222,13 @@ class DimensionInfo:
         """Build a DimensionInfo from a live GDAL Dimension.
 
         Reads name, size, type, direction, and indexing
-        variable information from the GDAL ``Dimension``
+        variable information from the GDAL `Dimension`
         handle. Attributes are extracted from the indexing
-        variable when one exists (e.g. ``units`` and
-        ``calendar`` on a time coordinate).
+        variable when one exists (e.g. `units` and
+        `calendar` on a time coordinate).
 
         Args:
-            d: The GDAL multidimensional ``Dimension`` object.
+            d: The GDAL multidimensional `Dimension` object.
             group_full_name: Full name of the parent group
                 (used as a fallback prefix when the dimension
                 does not report its own full name).
@@ -310,39 +310,39 @@ class VariableInfo:
     chunking information.
 
     Note:
-        ``frozen=True`` prevents field reassignment but container
-        fields (``attributes``, ``dimensions``, etc.) are
-        technically mutable.  Treat all contents as **read-only**
+        `frozen=True` prevents field reassignment but container
+        fields (`attributes`, `dimensions`, etc.) are
+        technically mutable. Treat all contents as **read-only**
         after construction.
 
     Args:
-        name: Short variable name (e.g. ``"temperature"``).
+        name: Short variable name (e.g. `"temperature"`).
         full_name: Fully qualified name including the group
-            path (e.g. ``"/temperature"``).
+            path (e.g. `"/temperature"`).
         dtype: NumPy-compatible data type string
-            (e.g. ``"float32"``, ``"int16"``).
+            (e.g. `"float32"`, `"int16"`).
         shape: Size along each dimension, in dimension
             order.
         dimensions: Full names of the dimensions this array
-            spans, matching the order of ``shape``.
+            spans, matching the order of `shape`.
         attributes: Key-value mapping of variable-level
             NetCDF attributes.
-        unit: Physical unit string from the ``units``
-            attribute (e.g. ``"K"``, ``"mm/day"``).
-        nodata: No-data / fill value. ``None`` when no
+        unit: Physical unit string from the `units`
+            attribute (e.g. `"K"`, `"mm/day"`).
+        nodata: No-data / fill value. `None` when no
             fill value is defined.
-        scale: CF ``scale_factor``. ``None`` if not set.
-        offset: CF ``add_offset``. ``None`` if not set.
+        scale: CF `scale_factor`. `None` if not set.
+        offset: CF `add_offset`. `None` if not set.
         srs_wkt: Spatial reference as WKT string.
-            ``None`` if no SRS is attached.
+            `None` if no SRS is attached.
         srs_projjson: Spatial reference as PROJJSON string.
-            ``None`` if no SRS is attached.
+            `None` if no SRS is attached.
         coordinate_variables: Full names of coordinate
             variables associated with this array.
         structural_info: Driver-specific structural info
-            dictionary. ``None`` if unavailable.
+            dictionary. `None` if unavailable.
         block_size: Chunk sizes along each dimension.
-            ``None`` if the array is not chunked.
+            `None` if the array is not chunked.
 
     Examples:
         - Create metadata for a 2-D temperature variable:
@@ -417,12 +417,12 @@ class VariableInfo:
         Extracts name, data type, shape, dimension links,
         attributes, CF conventions (scale, offset, nodata),
         spatial reference, structural info, and chunk sizes
-        from the GDAL ``MDArray`` handle.
+        from the GDAL `MDArray` handle.
 
         Args:
             md_arr: The GDAL multidimensional array object.
             md_arr_name: Fallback short name used when the
-                array's own ``GetName()`` call fails.
+                array's own `GetName()` call fails.
             group_full_name: Full name of the parent group
                 (used as a fallback prefix for constructing
                 the array's full name).
@@ -529,10 +529,10 @@ class StructuralInfo:
 
     Args:
         driver_name: Short name of the GDAL driver
-            (e.g. ``"netCDF"``, ``"GTiff"``).
+            (e.g. `"netCDF"`, `"GTiff"`).
         driver_metadata: Key-value metadata reported by the
             driver (e.g. creation options, version info).
-            ``None`` if the driver exposes no metadata.
+            `None` if the driver exposes no metadata.
 
     Examples:
         - Create structural info for a NetCDF driver:
@@ -560,7 +560,7 @@ class StructuralInfo:
 
     See Also:
         NetCDFMetadata: Top-level model that includes a
-            ``StructuralInfo`` instance.
+            `StructuralInfo` instance.
     """
 
     driver_name: str
@@ -574,9 +574,9 @@ class StructuralInfo:
         dataset's driver handle.
 
         Args:
-            dataset: An open GDAL ``Dataset`` object.
+            dataset: An open GDAL `Dataset` object.
             driver_name: Short name of the GDAL driver
-                (e.g. ``"netCDF"``).
+                (e.g. `"netCDF"`).
 
         Returns:
             StructuralInfo: Constructed metadata instance
@@ -603,24 +603,24 @@ MAX_DISPLAY_VARIABLES = 10
 class CFInfo:
     """CF convention metadata derived by cross-referencing variables.
 
-    Computed as a post-processing step in ``MetadataBuilder.build()``
+    Computed as a post-processing step in `MetadataBuilder.build()`
     after all variables, dimensions, and attributes are collected.
 
     Args:
-        cf_version: CF version string parsed from ``Conventions``
-            (e.g. ``"1.8"``). None if not declared.
-        conventions: Parsed ``Conventions`` attribute as
-            ``{name: version}`` dict.
+        cf_version: CF version string parsed from `Conventions`
+            (e.g. `"1.8"`). None if not declared.
+        conventions: Parsed `Conventions` attribute as
+            `{name: version}` dict.
         classifications: Per-variable CF role classification as
-            ``{var_name: role}`` where role is one of ``"data"``,
-            ``"coordinate"``, ``"grid_mapping"``, ``"bounds"``,
-            ``"cell_measure"``, ``"ancillary"``, ``"mesh_topology"``,
-            ``"connectivity"``, ``"auxiliary_coordinate"``.
+            `{var_name: role}` where role is one of `"data"`,
+            `"coordinate"`, `"grid_mapping"`, `"bounds"`,
+            `"cell_measure"`, `"ancillary"`, `"mesh_topology"`,
+            `"connectivity"`, `"auxiliary_coordinate"`.
         grid_mappings: Grid mapping variable attributes as
-            ``{var_name: {attr: value}}``.
+            `{var_name: {attr: value}}`.
         bounds_map: Bounds associations as
-            ``{bounds_var_name: parent_coord_name}``.
-        data_variable_names: Variable names classified as ``"data"``.
+            `{bounds_var_name: parent_coord_name}`.
+        data_variable_names: Variable names classified as `"data"`.
     """
 
     cf_version: str | None = None
@@ -645,37 +645,37 @@ class NetCDFMetadata:
     JSON-serializable snapshot of the file's structure.
 
     Note:
-        Dictionary keys for ``groups``, ``variables``, and
-        ``dimensions`` use **short names** with the leading
-        ``/`` stripped (e.g. ``"time"`` not ``"/time"``).
-        The root group keeps ``"/"`` as its key.  The
-        ``full_name`` attribute on each object retains the
-        original GDAL path (e.g. ``"/time"``).  Use
-        ``get_dimension(name)`` for lookups that accept
+        Dictionary keys for `groups`, `variables`, and
+        `dimensions` use **short names** with the leading
+        `/` stripped (e.g. `"time"` not `"/time"`).
+        The root group keeps `"/"` as its key. The
+        `full_name` attribute on each object retains the
+        original GDAL path (e.g. `"/time"`). Use
+        `get_dimension(name)` for lookups that accept
         both forms.
 
     Args:
         driver: Short name of the GDAL driver used to
-            open the file (e.g. ``"netCDF"``).
+            open the file (e.g. `"netCDF"`).
         root_group: Full name of the root group
-            (typically ``"/"``). ``None`` when the file
+            (typically `"/"`). `None` when the file
             has no group hierarchy.
-        groups: Mapping keyed by short name (or ``"/"``
-            for root) to ``GroupInfo`` metadata.
+        groups: Mapping keyed by short name (or `"/"`
+            for root) to `GroupInfo` metadata.
         variables: Mapping keyed by short name to
-            ``VariableInfo`` metadata.
+            `VariableInfo` metadata.
         dimensions: Mapping keyed by short name to
-            ``DimensionInfo`` metadata.
+            `DimensionInfo` metadata.
         global_attributes: Key-value mapping of root-level
-            NetCDF attributes (e.g. ``Conventions``,
-            ``history``).
-        structural: Driver-level metadata, or ``None``
+            NetCDF attributes (e.g. `Conventions`,
+            `history`).
+        structural: Driver-level metadata, or `None`
             when unavailable.
         created_with: Version information for the tools
             used to extract metadata (e.g.
-            ``{"gdal": "3.9.0"}``).
+            `{"gdal": "3.9.0"}`).
         open_options_used: GDAL open options that were
-            passed when opening the file. ``None`` when
+            passed when opening the file. `None` when
             no special options were used.
 
     Examples:
@@ -790,20 +790,20 @@ class NetCDFMetadata:
     def get_dimension(self, name: str) -> DimensionInfo | None:
         """Look up a dimension by short name or full name.
 
-        Tries an exact key match against the ``dimensions``
+        Tries an exact key match against the `dimensions`
         dictionary first (keys are full names with the leading
-        ``/`` stripped, e.g. ``"/time"`` -> key ``"time"``,
-        ``"/group/time"`` -> key ``"group/time"``), then falls
-        back to matching by the dimension's short ``name``
+        `/` stripped, e.g. `"/time"` -> key `"time"`,
+        `"/group/time"` -> key `"group/time"`), then falls
+        back to matching by the dimension's short `name`
         attribute.
 
         Args:
-            name: Dimension short name (e.g. ``"time"``)
-                or full name (e.g. ``"/time"``).
+            name: Dimension short name (e.g. `"time"`)
+                or full name (e.g. `"/time"`).
 
         Returns:
             DimensionInfo | None: The matching dimension
-                metadata, or ``None`` if no dimension
+                metadata, or `None` if no dimension
                 matches.
 
         Examples:

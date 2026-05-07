@@ -40,7 +40,20 @@ from shapely.geometry import (
 from shapely.geometry.collection import GeometryCollection
 
 from pyramids.dataset import Dataset
-from pyramids.feature import FeatureCollection
+from pyramids.base.crs import (
+    create_sr_from_proj,
+    get_epsg_from_prj,
+    reproject_coordinates,
+)
+from pyramids.feature import (
+    FeatureCollection,
+    explode_gdf,
+    geometry_collection_coords,
+    get_coords,
+    get_point_coords,
+    get_xy_coords,
+    multi_geom_handler,
+)
 
 pytestmark = pytest.mark.core
 
@@ -309,28 +322,28 @@ class TestGeometryCollection:
 
     def test_extracts_point_x(self, geometry_collection_geom):
         """A Point(10, 20) should appear as 10.0 in the x-coord list."""
-        result = FeatureCollection._geometry_collection(geometry_collection_geom, "x")
+        result = geometry_collection_coords(geometry_collection_geom, "x")
         assert 10.0 in result
 
     def test_extracts_point_y(self, geometry_collection_geom):
         """A Point(10, 20) should appear as 20.0 in the y-coord list."""
-        result = FeatureCollection._geometry_collection(geometry_collection_geom, "y")
+        result = geometry_collection_coords(geometry_collection_geom, "y")
         assert 20.0 in result
 
     def test_extracts_linestring_coords(self, geometry_collection_geom):
         """LineString [(0,0),(1,1),(2,0)] x-coords should include 0, 1, 2."""
-        result = FeatureCollection._geometry_collection(geometry_collection_geom, "x")
+        result = geometry_collection_coords(geometry_collection_geom, "x")
         assert 0.0 in result and 1.0 in result and 2.0 in result
 
     def test_extracts_polygon_coords(self, geometry_collection_geom):
         """Polygon box(5,5,6,6) x-coords should include 5 and 6."""
-        result = FeatureCollection._geometry_collection(geometry_collection_geom, "x")
+        result = geometry_collection_coords(geometry_collection_geom, "x")
         assert 5.0 in result and 6.0 in result
 
     def test_empty_geometry_collection(self):
         """An empty GeometryCollection should produce an empty list."""
         gc = GeometryCollection()
-        result = FeatureCollection._geometry_collection(gc, "x")
+        result = geometry_collection_coords(gc, "x")
         assert result == []
 
 
@@ -353,7 +366,7 @@ class TestExplodeGdf:
 
     def test_no_multipolygon_unchanged(self, simple_polygon_gdf: GeoDataFrame):
         """A GDF without multi-geometries should be returned with same row count."""
-        result = FeatureCollection._explode_gdf(
+        result = explode_gdf(
             simple_polygon_gdf.copy(), geometry="multipolygon"
         )
         assert len(result) == len(simple_polygon_gdf)
@@ -376,7 +389,7 @@ class TestExplodeGdf:
         original_len = len(gdf)
         original_first_type = gdf.geometry.iloc[0].geom_type
 
-        FeatureCollection._explode_gdf(gdf, geometry="multipolygon")
+        explode_gdf(gdf, geometry="multipolygon")
 
         # Input row count + geometries are unchanged.
         assert (
@@ -400,7 +413,7 @@ class TestExplodeGdf:
         single = box(10.0, 10.0, 11.0, 11.0)
         gdf = gpd.GeoDataFrame(geometry=[mpoly, single], crs="EPSG:4326")
 
-        out = FeatureCollection._explode_gdf(gdf, geometry="multipolygon")
+        out = explode_gdf(gdf, geometry="multipolygon")
         assert out is not gdf, "return value must be a fresh GeoDataFrame"
         assert len(out) == 4, f"expected 4 exploded rows, got {len(out)}"
 
@@ -409,31 +422,31 @@ class TestMultiGeomHandler:
     """Tests for ``_multi_geom_handler``."""
 
     def test_multipoint_x(self, multipoint_geom: MultiPoint):
-        result = FeatureCollection._multi_geom_handler(
+        result = multi_geom_handler(
             multipoint_geom, "x", "multipoint"
         )
         assert result == [1.0, 3.0, 5.0]
 
     def test_multipoint_y(self, multipoint_geom: MultiPoint):
-        result = FeatureCollection._multi_geom_handler(
+        result = multi_geom_handler(
             multipoint_geom, "y", "multipoint"
         )
         assert result == [2.0, 4.0, 6.0]
 
     def test_multilinestring_x(self, multilinestring_geom: MultiLineString):
-        result = FeatureCollection._multi_geom_handler(
+        result = multi_geom_handler(
             multilinestring_geom, "x", "multilinestring"
         )
         assert result == [[0.0, 1.0], [2.0, 3.0]]
 
     def test_multilinestring_y(self, multilinestring_geom: MultiLineString):
-        result = FeatureCollection._multi_geom_handler(
+        result = multi_geom_handler(
             multilinestring_geom, "y", "multilinestring"
         )
         assert result == [[0.0, 1.0], [2.0, 3.0]]
 
     def test_multipolygon_x(self, multipolygon_geom: MultiPolygon):
-        result = FeatureCollection._multi_geom_handler(
+        result = multi_geom_handler(
             multipolygon_geom, "x", "multipolygon"
         )
         assert len(result) == 2
@@ -472,11 +485,11 @@ class TestReprojectCoordinates:
 
     def test_roundtrip_epsg_int(self):
         """4326 → 32636 → 4326 returns the original (x, y)."""
-        x_utm, y_utm = FeatureCollection.reproject_coordinates(
+        x_utm, y_utm = reproject_coordinates(
             [31.0], [30.0], from_crs=4326, to_crs=32636
         )
         assert len(x_utm) == 1 and len(y_utm) == 1
-        x_back, y_back = FeatureCollection.reproject_coordinates(
+        x_back, y_back = reproject_coordinates(
             x_utm, y_utm, from_crs=32636, to_crs=4326
         )
         assert abs(x_back[0] - 31.0) < 1e-4
@@ -484,14 +497,14 @@ class TestReprojectCoordinates:
 
     def test_multiple_points(self):
         """Works across a list of points."""
-        x_out, y_out = FeatureCollection.reproject_coordinates(
+        x_out, y_out = reproject_coordinates(
             [31.0, 32.0], [30.0, 31.0], from_crs=4326, to_crs=32636
         )
         assert len(x_out) == 2 and len(y_out) == 2
 
     def test_authority_string_crs(self):
         """Accepts 'EPSG:4326'-style authority strings, not just ints."""
-        x, y = FeatureCollection.reproject_coordinates(
+        x, y = reproject_coordinates(
             [31.0], [30.0], from_crs="EPSG:4326", to_crs="EPSG:3857"
         )
         assert len(x) == 1 and len(y) == 1
@@ -502,14 +515,14 @@ class TestReprojectCoordinates:
 
         src = CRS.from_epsg(4326)
         dst = CRS.from_epsg(3857)
-        x, y = FeatureCollection.reproject_coordinates(
+        x, y = reproject_coordinates(
             [31.0], [30.0], from_crs=src, to_crs=dst
         )
         assert len(x) == 1 and len(y) == 1
 
     def test_wgs84_to_web_mercator_values(self):
         """Concrete value check at (31, 30) into Web Mercator."""
-        x, y = FeatureCollection.reproject_coordinates(
+        x, y = reproject_coordinates(
             [31.0], [30.0], from_crs=4326, to_crs=3857
         )
         assert round(x[0]) == 3450904
@@ -517,10 +530,10 @@ class TestReprojectCoordinates:
 
     def test_precision_none_preserves_full_precision(self):
         """``precision=None`` disables rounding."""
-        x_default, _ = FeatureCollection.reproject_coordinates(
+        x_default, _ = reproject_coordinates(
             [31.0], [30.0], from_crs=4326, to_crs=3857, precision=2
         )
-        x_raw, _ = FeatureCollection.reproject_coordinates(
+        x_raw, _ = reproject_coordinates(
             [31.0], [30.0], from_crs=4326, to_crs=3857, precision=None
         )
         # The rounded-to-2-decimal form should not equal the raw form
@@ -531,7 +544,7 @@ class TestReprojectCoordinates:
     def test_length_mismatch_raises(self):
         """``len(x) != len(y)`` raises ValueError."""
         with pytest.raises(ValueError, match="equal length"):
-            FeatureCollection.reproject_coordinates(
+            reproject_coordinates(
                 [31.0, 32.0], [30.0], from_crs=4326, to_crs=3857
             )
 
@@ -548,7 +561,7 @@ class TestReprojectCoordinates:
         from pyramids.base._errors import CRSError
 
         with pytest.raises(CRSError, match="reproject_coordinates"):
-            FeatureCollection.reproject_coordinates(
+            reproject_coordinates(
                 [31.0],
                 [30.0],
                 from_crs="not a valid wkt string",
@@ -566,7 +579,7 @@ class TestReprojectCoordinates:
         from pyramids.base._errors import CRSError
 
         with pytest.raises(CRSError, match=r"to_crs="):
-            FeatureCollection.reproject_coordinates(
+            reproject_coordinates(
                 [31.0],
                 [30.0],
                 from_crs=4326,
@@ -585,7 +598,7 @@ class TestReprojectCoordinates:
         from pyramids.base._errors import CRSError
 
         with pytest.raises(CRSError, match="from_crs="):
-            FeatureCollection.reproject_coordinates(
+            reproject_coordinates(
                 [0.0], [0.0], from_crs=object(), to_crs=4326
             )
 
@@ -600,7 +613,7 @@ class TestReprojectCoordinates:
         from pyramids.base._errors import CRSError
 
         with pytest.raises(CRSError, match="reproject_coordinates"):
-            FeatureCollection.reproject_coordinates(
+            reproject_coordinates(
                 [0.0], [0.0], from_crs=999999999, to_crs=4326
             )
 
@@ -624,7 +637,7 @@ class TestReprojectCoordinates:
         monkeypatch.setattr(pyproj.Transformer, "from_crs", _raise_attr_error)
 
         with pytest.raises(AttributeError, match="simulated unrelated"):
-            FeatureCollection.reproject_coordinates(
+            reproject_coordinates(
                 [31.0], [30.0], from_crs=4326, to_crs=3857
             )
 
@@ -746,7 +759,7 @@ class TestReadParquetBboxKwarg:
 
         with _w.catch_warnings(record=True) as caught:
             _w.simplefilter("always")
-            FeatureCollection.reproject_coordinates(
+            reproject_coordinates(
                 [31.0], [30.0], from_crs=4326, to_crs=3857
             )
         future = [w for w in caught if issubclass(w.category, FutureWarning)]
@@ -765,19 +778,19 @@ class TestCreateSrFromProj:
     """Tests for ``_create_sr_from_proj``."""
 
     def test_wkt_default(self, wgs84_wkt: str):
-        srs = FeatureCollection._create_sr_from_proj(wgs84_wkt)
+        srs = create_sr_from_proj(wgs84_wkt)
         srs.AutoIdentifyEPSG()
         assert int(srs.GetAuthorityCode(None)) == 4326
 
     def test_proj4_string(self, utm_proj4: str):
-        srs = FeatureCollection._create_sr_from_proj(utm_proj4, string_type="PROJ4")
+        srs = create_sr_from_proj(utm_proj4, string_type="PROJ4")
         assert srs is not None
 
     def test_esri_wkt_string(self):
         srs_orig = osr.SpatialReference()
         srs_orig.ImportFromEPSG(4326)
         wkt_str = srs_orig.ExportToWkt()
-        srs = FeatureCollection._create_sr_from_proj(wkt_str, string_type="ESRI wkt")
+        srs = create_sr_from_proj(wkt_str, string_type="ESRI wkt")
         assert srs is not None
 
 
@@ -785,7 +798,7 @@ class TestGetEpsgFromPrj:
     """Tests for ``get_epsg_from_prj``."""
 
     def test_valid_wkt(self, wgs84_wkt: str):
-        assert FeatureCollection.get_epsg_from_prj(wgs84_wkt) == 4326
+        assert get_epsg_from_prj(wgs84_wkt) == 4326
 
     def test_empty_prj_raises(self):
         """ARC-7: empty string raises ValueError instead of silently returning 4326.
@@ -795,7 +808,7 @@ class TestGetEpsgFromPrj:
         that want a fallback should catch the error explicitly.
         """
         with pytest.raises(ValueError, match="empty projection string"):
-            FeatureCollection.get_epsg_from_prj("")
+            get_epsg_from_prj("")
 
 
 class TestGetCoords:
@@ -814,7 +827,7 @@ class TestGetCoords:
         import pandas as pd
 
         row = pd.Series({"geometry": geom})
-        result = FeatureCollection._get_coords(row, "geometry", "x")
+        result = get_coords(row, "geometry", "x")
         assert isinstance(result, expected_type)
 
     def test_multipolygon_raises(self):
@@ -831,7 +844,7 @@ class TestGetCoords:
         mp = MultiPolygon([box(0, 0, 1, 1)])
         row = pd.Series({"geometry": mp})
         with pytest.raises(ValueError, match="MultiPolygon"):
-            FeatureCollection._get_coords(row, "geometry", "x")
+            get_coords(row, "geometry", "x")
 
     def test_xy_does_not_drop_real_minus_9999(self):
         """ARC-9 regression: a polygon with x=-9999 is not silently dropped.
@@ -864,7 +877,7 @@ class TestGetCoords:
 
         row = pd.Series({"geometry": Point()})  # empty
         with pytest.raises(InvalidGeometryError, match="empty geometry"):
-            FeatureCollection._get_coords(row, "geometry", "x")
+            get_coords(row, "geometry", "x")
 
     def test_empty_linestring_raises_invalid_geometry(self):
         """C22: an empty LineString also raises ``InvalidGeometryError``."""
@@ -874,7 +887,7 @@ class TestGetCoords:
 
         row = pd.Series({"geometry": LineString()})
         with pytest.raises(InvalidGeometryError, match="empty geometry"):
-            FeatureCollection._get_coords(row, "geometry", "x")
+            get_coords(row, "geometry", "x")
 
     def test_empty_polygon_raises_invalid_geometry(self):
         """C22: an empty Polygon also raises ``InvalidGeometryError``."""
@@ -884,14 +897,14 @@ class TestGetCoords:
 
         row = pd.Series({"geometry": Polygon()})
         with pytest.raises(InvalidGeometryError, match="empty geometry"):
-            FeatureCollection._get_coords(row, "geometry", "y")
+            get_coords(row, "geometry", "y")
 
     def test_geometry_collection(self):
         import pandas as pd
 
         gc = GeometryCollection([Point(7, 8)])
         row = pd.Series({"geometry": gc})
-        result = FeatureCollection._get_coords(row, "geometry", "x")
+        result = get_coords(row, "geometry", "x")
         assert 7.0 in result
 
 
@@ -938,14 +951,14 @@ class TestGetXyCoordsInvalidType:
     def test_invalid_coord_type_raises(self):
         line = LineString([(0, 0), (1, 1)])
         with pytest.raises(ValueError, match="'x' or 'y'"):
-            FeatureCollection._get_xy_coords(line, "z")
+            get_xy_coords(line, "z")
 
 
 class TestGetPointCoordsInvalidType:
     def test_invalid_coord_type_raises(self):
         point = Point(5, 10)
         with pytest.raises(ValueError, match="'x' or 'y'"):
-            FeatureCollection._get_point_coords(point, "z")
+            get_point_coords(point, "z")
 
     def test_invalid_coord_type_checked_before_attribute_access(self):
         """M2: the ``coord_type`` check fires before ``geometry.x/y``.
@@ -962,4 +975,4 @@ class TestGetPointCoordsInvalidType:
         """
         empty = Point()
         with pytest.raises(ValueError, match="'x' or 'y'"):
-            FeatureCollection._get_point_coords(empty, "z")
+            get_point_coords(empty, "z")

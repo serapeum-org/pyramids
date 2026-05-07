@@ -323,4 +323,4 @@ of the multi-inheritance.
 
 - [Reference → FeatureCollection](../reference/feature/index.md)
 - [Reference → Geometry helpers](../reference/feature/geometry.md)
-- [Reference → CRS helpers](../reference/feature/crs.md)
+- [Reference → CRS helpers](../reference/base/crs.md)

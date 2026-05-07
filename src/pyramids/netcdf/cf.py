@@ -14,16 +14,18 @@ from typing import Any
 
 from osgeo import gdal, osr
 
+from pyramids.base.crs import sr_from_wkt
+
 logger = logging.getLogger(__name__)
 
 
 def _write_attrs(target: Any, attrs: dict[str, Any]) -> None:
     """Write attributes to a GDAL object (MDArray or Group).
 
-    Both ``gdal.MDArray`` and ``gdal.Group`` expose the same
-    ``CreateAttribute`` interface, so this single helper serves
-    both ``write_attributes_to_md_array`` and
-    ``write_global_attributes``.
+    Both `gdal.MDArray` and `gdal.Group` expose the same
+    `CreateAttribute` interface, so this single helper serves
+    both `write_attributes_to_md_array` and
+    `write_global_attributes`.
 
     Handles str, bool (stored as int32, since NetCDF has no bool
     type), int, float, list-of-numbers, and fallback-to-string.
@@ -106,17 +108,17 @@ def build_coordinate_attrs(
 ) -> dict[str, str]:
     """Generate CF-compliant attributes for a coordinate variable.
 
-    Maps dimension names to the appropriate CF ``axis``,
-    ``standard_name``, ``long_name``, and ``units`` attributes
+    Maps dimension names to the appropriate CF `axis`,
+    `standard_name`, `long_name`, and `units` attributes
     based on whether the CRS is geographic or projected.
 
     Dimension names are **case-normalized** (lowered) before
-    matching, so ``"X"``, ``"x"``, and ``"Lon"`` all match the
+    matching, so `"X"`, `"x"`, and `"Lon"` all match the
     X-axis pattern.
 
     Args:
-        dim_name: Dimension name (e.g. ``"x"``, ``"y"``, ``"lat"``,
-            ``"lon"``, ``"time"``). Case-insensitive.
+        dim_name: Dimension name (e.g. `"x"`, `"y"`, `"lat"`,
+            `"lon"`, `"time"`). Case-insensitive.
         is_geographic: True if the CRS is geographic (lon/lat),
             False if projected (easting/northing in metres).
 
@@ -195,16 +197,16 @@ def srs_to_grid_mapping(
 ) -> tuple[str, dict[str, Any]]:
     """Convert an OGR SpatialReference to CF grid_mapping name and params.
 
-    Returns the CF ``grid_mapping_name`` and a dict of CF projection
-    parameters (including ``crs_wkt`` for interoperability). For
-    geographic CRS (no projection), returns ``"latitude_longitude"``
+    Returns the CF `grid_mapping_name` and a dict of CF projection
+    parameters (including `crs_wkt` for interoperability). For
+    geographic CRS (no projection), returns `"latitude_longitude"`
     with only ellipsoid parameters.
 
     Args:
         srs: An OGR SpatialReference object.
 
     Returns:
-        Tuple of ``(grid_mapping_name, params_dict)``.
+        Tuple of `(grid_mapping_name, params_dict)`.
     """
     params: dict[str, Any] = {}
     params["crs_wkt"] = srs.ExportToWkt()
@@ -354,11 +356,11 @@ def grid_mapping_to_srs(
 ) -> osr.SpatialReference:
     """Convert CF grid_mapping attributes to an OGR SpatialReference.
 
-    Tries ``crs_wkt`` first (fast path). Falls back to reconstructing
+    Tries `crs_wkt` first (fast path). Falls back to reconstructing
     the SRS from individual CF parameters.
 
     Args:
-        grid_mapping_name: CF ``grid_mapping_name`` attribute value.
+        grid_mapping_name: CF `grid_mapping_name` attribute value.
         params: All attributes from the grid_mapping variable.
 
     Returns:
@@ -366,13 +368,11 @@ def grid_mapping_to_srs(
 
     Raises:
         ValueError: If the grid_mapping_name is not supported and
-            no ``crs_wkt`` is available.
+            no `crs_wkt` is available.
     """
-    srs = osr.SpatialReference()
-
     crs_wkt = params.get("crs_wkt")
     if crs_wkt:
-        srs.ImportFromWkt(crs_wkt)
+        srs = sr_from_wkt(crs_wkt)
     else:
         srs = _build_srs_from_cf_params(grid_mapping_name, params)
 
@@ -508,7 +508,7 @@ def _build_srs_from_cf_params(
 
 
 # ------------------------------------------------------------------ #
-#  Axis detection                                                      #
+#  Axis detection                                                    #
 # ------------------------------------------------------------------ #
 
 _STDNAME_TO_AXIS: dict[str, str] = {
@@ -549,10 +549,10 @@ def detect_axis(
     """Detect CF axis type from a variable's attributes.
 
     Applies heuristics in priority order:
-    1. Explicit ``axis`` attribute (``"X"``, ``"Y"``, ``"Z"``, ``"T"``)
-    2. ``standard_name`` lookup against CF conventions
-    3. Unit string matching (``degrees_north`` -> Y, etc.)
-    4. Variable name pattern matching (``lat`` -> Y, ``lon`` -> X)
+    1. Explicit `axis` attribute (`"X"`, `"Y"`, `"Z"`, `"T"`)
+    2. `standard_name` lookup against CF conventions
+    3. Unit string matching (`degrees_north` -> Y, etc.)
+    4. Variable name pattern matching (`lat` -> Y, `lon` -> X)
 
     Args:
         name: Variable or dimension short name.
@@ -560,7 +560,7 @@ def detect_axis(
         units: Unit string (separate from attrs for flexibility).
 
     Returns:
-        One of ``"X"``, ``"Y"``, ``"Z"``, ``"T"``, or None.
+        One of `"X"`, `"Y"`, `"Z"`, `"T"`, or None.
     """
     result: str | None = None
 
@@ -613,11 +613,11 @@ def classify_variables(
     Must be called AFTER all variables are collected.
 
     Args:
-        variables: Dict of ``{name: VariableInfo}`` from metadata.
-        dimensions: Dict of ``{name: DimensionInfo}`` from metadata.
+        variables: Dict of `{name: VariableInfo}` from metadata.
+        dimensions: Dict of `{name: DimensionInfo}` from metadata.
 
     Returns:
-        Dict of ``{variable_name: cf_role_string}``.
+        Dict of `{variable_name: cf_role_string}`.
     """
     dim_names: set[str] = set()
     for d in dimensions.values():
@@ -689,7 +689,7 @@ def _is_connectivity(attrs: dict[str, Any]) -> bool:
 
 
 # ------------------------------------------------------------------ #
-#  Conventions parsing                                                 #
+#  Conventions parsing                                               #
 # ------------------------------------------------------------------ #
 
 _MAX_TESTED_CF_VERSION = "1.11"
@@ -699,14 +699,14 @@ def parse_conventions(conventions_str: str | None) -> dict[str, str]:
     """Parse a Conventions global attribute string.
 
     Logs a warning if the CF version is higher than the highest
-    tested version (``1.11``).
+    tested version (`1.11`).
 
     Args:
         conventions_str: Space-separated conventions string, e.g.
-            ``"CF-1.8 UGRID-1.0 Deltares-0.10"``.
+            `"CF-1.8 UGRID-1.0 Deltares-0.10"`.
 
     Returns:
-        Dict of ``{convention_name: version_string}``.
+        Dict of `{convention_name: version_string}`.
     """
     result: dict[str, str] = {}
     if conventions_str:
@@ -734,20 +734,20 @@ def parse_conventions(conventions_str: str | None) -> dict[str, str]:
 
 
 # ------------------------------------------------------------------ #
-#  Cell methods parsing                                                #
+#  Cell methods parsing                                              #
 # ------------------------------------------------------------------ #
 
 
 def parse_cell_methods(cell_methods_str: str) -> list[dict[str, str]]:
-    """Parse a CF ``cell_methods`` attribute string.
+    """Parse a CF `cell_methods` attribute string.
 
     Args:
         cell_methods_str: CF cell_methods string, e.g.
-            ``"time: mean area: sum where land"``.
+            `"time: mean area: sum where land"`.
 
     Returns:
-        List of dicts with keys ``"dimensions"``, ``"method"``,
-        and optionally ``"where"`` and ``"over"``.
+        List of dicts with keys `"dimensions"`, `"method"`,
+        and optionally `"where"` and `"over"`.
     """
     results: list[dict[str, str]] = []
     pattern = r'(\w[\w\s]*?):\s+(\w+)' r'(?:\s+where\s+(\w+))?' r'(?:\s+over\s+(\w+))?'
@@ -765,7 +765,7 @@ def parse_cell_methods(cell_methods_str: str) -> list[dict[str, str]]:
 
 
 # ------------------------------------------------------------------ #
-#  Valid range masking                                                 #
+#  Valid range masking                                               #
 # ------------------------------------------------------------------ #
 
 
@@ -778,18 +778,18 @@ def apply_valid_range_mask(
 ) -> Any:
     """Mask values outside the CF valid range.
 
-    Values below ``valid_min`` or above ``valid_max`` are replaced
-    with ``fill_value``.
+    Values below `valid_min` or above `valid_max` are replaced
+    with `fill_value`.
 
     Args:
         arr: Input numpy array.
         valid_min: Minimum valid value.
         valid_max: Maximum valid value.
-        valid_range: ``[min, max]``. Overrides valid_min/max.
+        valid_range: `[min, max]`. Overrides valid_min/max.
         fill_value: Replacement value. Defaults to NaN.
 
     Returns:
-        A copy of ``arr`` with out-of-range values replaced.
+        A copy of `arr` with out-of-range values replaced.
     """
     if valid_range is not None:
         valid_min = valid_range[0]
@@ -803,7 +803,7 @@ def apply_valid_range_mask(
 
 
 # ------------------------------------------------------------------ #
-#  Flag decoding                                                       #
+#  Flag decoding                                                     #
 # ------------------------------------------------------------------ #
 
 
@@ -822,7 +822,7 @@ def decode_flags(
     2. **Boolean / bit-field** (flag_masks + flag_meanings):
        Returns a list of meanings for active bits.
     3. **Combined** (flag_masks + flag_values + flag_meanings):
-       Returns meanings where ``(value & mask) == flag_value``.
+       Returns meanings where `(value & mask) == flag_value`.
 
     Args:
         value: The integer flag value to decode.
@@ -832,7 +832,7 @@ def decode_flags(
 
     Returns:
         list[str]: List of matching meaning strings. Returns
-        ``["unknown"]`` if no match or no meanings provided.
+        `["unknown"]` if no match or no meanings provided.
     """
     result: list[str] = ["unknown"]
 
@@ -866,7 +866,7 @@ def decode_flags(
 
 
 # ------------------------------------------------------------------ #
-#  CF compliance validation                                            #
+#  CF compliance validation                                          #
 # ------------------------------------------------------------------ #
 
 
@@ -882,19 +882,19 @@ def validate_cf(
     cfchecker replacement — it covers the most common issues.
 
     Checks:
-    1. ``Conventions`` attribute present and contains ``"CF-"``
-    2. Coordinate variables have ``units``
-    3. Time coordinates have ``calendar``
+    1. `Conventions` attribute present and contains `"CF-"`
+    2. Coordinate variables have `units`
+    3. Time coordinates have `calendar`
 
     Limitation: Only checks dimension-coordinate variables (those
     whose name matches a dimension). Auxiliary coordinates referenced
-    by the ``coordinates`` attribute on data variables are not
+    by the `coordinates` attribute on data variables are not
     validated.
 
     Args:
         global_attrs: Root-level attributes dict.
-        variables: Dict of ``{name: VariableInfo}`` from metadata.
-        dimensions: Dict of ``{name: DimensionInfo}`` from metadata.
+        variables: Dict of `{name: VariableInfo}` from metadata.
+        dimensions: Dict of `{name: DimensionInfo}` from metadata.
 
     Returns:
         List of warning/error strings. Empty if compliant.

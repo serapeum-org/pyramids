@@ -23,7 +23,7 @@ locks, `Dataset.to_zarr` / `from_zarr`, and parallel Zarr writes.
 
 Install: `pip install 'pyramids-gis[lazy]'`.
 
-::: pyramids.dataset.ops.io.IO
+::: pyramids.dataset.engines.IO
     options:
         show_root_heading: true
         show_source: true

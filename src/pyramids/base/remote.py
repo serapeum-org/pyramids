@@ -3,16 +3,16 @@
 Two concerns live in this module:
 
 1. :func:`_to_vsi` and :func:`is_remote` — transparently rewrite
-   user-facing URLs (``s3://``, ``gs://``, ``az://``, ``abfs://``,
-   ``http``, ``https``, ``file``) into GDAL's virtual filesystem
-   syntax (``/vsis3/``, ``/vsigs/``, ``/vsiaz/``, ``/vsicurl/``).
+   user-facing URLs (`s3://`, `gs://`, `az://`, `abfs://`,
+   `http`, `https`, `file`) into GDAL's virtual filesystem
+   syntax (`/vsis3/`, `/vsigs/`, `/vsiaz/`, `/vsicurl/`).
    Called from :func:`pyramids._io._parse_path` so every file-open
    path in the package benefits without explicit wiring.
 
 2. :class:`CloudConfig` — a context manager wrapping
    :func:`gdal.config_options` that sets AWS / GS / Azure credential
-   config options for the duration of a ``with`` block. Environment
-   variables are honored by default; ``CloudConfig`` is only needed
+   config options for the duration of a `with` block. Environment
+   variables are honored by default; `CloudConfig` is only needed
    when you want to override credentials in code.
 """
 
@@ -50,12 +50,12 @@ _ARCHIVE_EXT_TO_VSI: dict[str, str] = {
     "gz": "/vsigzip/",
 }
 
-# Match ``.<ext>/`` where ``<ext>`` is an archive extension (longest
-# alternatives first) and the match is followed by ``/`` (lookahead).
-# The leading literal ``.`` anchors the match to a file-extension
+# Match `.<ext>/` where `<ext>` is an archive extension (longest
+# alternatives first) and the match is followed by `/` (lookahead).
+# The leading literal `.` anchors the match to a file-extension
 # boundary so hostnames that happen to include the token
-# (``host.gz/...``) are matched only when they also look like a path
-# archive segment — see ``_extract_archive_search_region`` which
+# (`host.gz/...`) are matched only when they also look like a path
+# archive segment — see `_extract_archive_search_region` which
 # strips the hostname before this regex is applied.
 _ARCHIVE_MARKER_RE = re.compile(r"\.(tar\.gz|tgz|zip|tar|gz)(?=/)", re.IGNORECASE)
 
@@ -90,9 +90,9 @@ _VSI_PREFIXES: tuple[str, ...] = (
 
 
 def is_remote(path: str) -> bool:
-    """True if ``path`` is a URL with a recognized scheme or a ``/vsi*`` path.
+    """True if `path` is a URL with a recognized scheme or a `/vsi*` path.
 
-    Windows drive-letter paths (``C:/foo``) are *not* treated as remote
+    Windows drive-letter paths (`C:/foo`) are *not* treated as remote
     even though :func:`urllib.parse.urlparse` reports a scheme — the
     check requires the scheme length to exceed 1.
 
@@ -100,10 +100,10 @@ def is_remote(path: str) -> bool:
         path: A string path or URL.
 
     Returns:
-        ``True`` for ``s3://``, ``gs://``, ``az://``, ``abfs://``,
-        ``http(s)://``, ``file://``, and any ``/vsi*`` path. ``False``
+        `True` for `s3://`, `gs://`, `az://`, `abfs://`,
+        `http(s)://`, `file://`, and any `/vsi*` path. `False`
         for local POSIX or Windows paths (including drive-letter form)
-        and for compressed-archive paths that don't start with ``/vsi``.
+        and for compressed-archive paths that don't start with `/vsi`.
 
     Examples:
         - Cloud URL schemes are recognized as remote:
@@ -141,36 +141,36 @@ def is_remote(path: str) -> bool:
 
 
 def _to_vsi(path: str) -> str:
-    """Rewrite URL-scheme paths to GDAL ``/vsi*`` form; idempotent.
+    """Rewrite URL-scheme paths to GDAL `/vsi*` form; idempotent.
 
     Rules:
 
-    ===========================  ====================================
-    Input                        Output
-    ===========================  ====================================
-    ``s3://bucket/key``          ``/vsis3/bucket/key``
-    ``gs://bucket/key``          ``/vsigs/bucket/key``
-    ``az://container/blob``      ``/vsiaz/container/blob``
-    ``abfs://container/blob``    ``/vsiaz/container/blob``
-    ``https://host/path.tif``    ``/vsicurl/https://host/path.tif``
-    ``http://host/path.tif``     ``/vsicurl/http://host/path.tif``
-    ``file:///C:/path/x.tif``    ``C:/path/x.tif`` (Windows)
-    ``file:///srv/x.tif``        ``/srv/x.tif`` (POSIX)
-    ``/vsis3/...``               unchanged (already VSI)
-    ``C:/data/x.tif``            unchanged (Windows local)
-    ``/local/path``              unchanged (POSIX local)
-    ===========================  ====================================
+    =========================== ====================================
+    Input Output
+    =========================== ====================================
+    `s3://bucket/key`           `/vsis3/bucket/key`
+    `gs://bucket/key`           `/vsigs/bucket/key`
+    `az://container/blob`       `/vsiaz/container/blob`
+    `abfs://container/blob`     `/vsiaz/container/blob`
+    `https://host/path.tif`     `/vsicurl/https://host/path.tif`
+    `http://host/path.tif`      `/vsicurl/http://host/path.tif`
+    `file:///C:/path/x.tif`     `C:/path/x.tif` (Windows)
+    `file:///srv/x.tif`         `/srv/x.tif` (POSIX)
+    `/vsis3/...                 ` unchanged (already VSI)
+    `C:/data/x.tif`             unchanged (Windows local)
+    `/local/path`               unchanged (POSIX local)
+    =========================== ====================================
 
-    Query strings on ``http(s)://`` URLs (presigned S3/GCS URLs) are
-    preserved — the whole URL including ``?sig=...`` is appended to
-    ``/vsicurl/``.
+    Query strings on `http(s)://` URLs (presigned S3/GCS URLs) are
+    preserved — the whole URL including `?sig=...` is appended to
+    `/vsicurl/`.
 
     Args:
         path: Local path, URL, or already-VSI path.
 
     Returns:
         The VSI-rewritten path if a rewrite applies; otherwise
-        ``path`` unchanged.
+        `path` unchanged.
 
     Examples:
         - Cloud-object-store URLs get the matching /vsi prefix:
@@ -225,30 +225,30 @@ def _to_vsi(path: str) -> str:
             # N2: downgraded from info to debug — a DatasetCollection
             # of thousands of files fires this once per chunk read and
             # floods the stream. Users can re-enable with
-            # ``logging.getLogger("pyramids.base.remote").setLevel(
-            # logging.DEBUG)``.
+            # `logging.getLogger("pyramids.base.remote").setLevel(
+            # logging.DEBUG)`.
             logger.debug("cloud path rewritten: %r -> %r", path, new_path)
     return new_path
 
 
 def _extract_archive_search_region(path: str) -> str | None:
-    """Return the portion of ``path`` to scan for archive markers.
+    """Return the portion of `path` to scan for archive markers.
 
-    For ``/vsicurl/http(s)://...`` paths, returns only the URL's path
+    For `/vsicurl/http(s)://...` paths, returns only the URL's path
     component (stripping the scheme, hostname, and query string) so
-    that a hostname like ``host.gz`` or a query value like
-    ``?key=archive.tar/...`` cannot false-trigger archive detection.
+    that a hostname like `host.gz` or a query value like
+    `?key=archive.tar/...` cannot false-trigger archive detection.
 
-    For ``/vsis3/``, ``/vsigs/``, ``/vsiaz/`` paths, returns everything
+    For `/vsis3/`, `/vsigs/`, `/vsiaz/` paths, returns everything
     after the prefix — these VSI schemes have no hostname/query
-    structure, only ``<bucket>/<key>``.
+    structure, only `<bucket>/<key>`.
 
     Args:
         path: A VSI path that has already been rewritten by
             :func:`_to_vsi`.
 
     Returns:
-        The search region (string) or ``None`` when ``path`` is not a
+        The search region (string) or `None` when `path` is not a
         cloud VSI path eligible for archive chaining.
     """
     result: str | None
@@ -272,26 +272,26 @@ def _chain_archive_vsi(path: str) -> str:
     """Prepend archive VSI prefix to a cloud/VSI path that points inside an archive.
 
     Handles the case where a user passes a URL like
-    ``https://host/archive.tar/inner.tif`` — after the initial
+    `https://host/archive.tar/inner.tif` — after the initial
     :func:`_to_vsi` rewrite, the path reads
-    ``/vsicurl/https://host/archive.tar/inner.tif``; GDAL needs this
-    to become ``/vsitar//vsicurl/https://host/archive.tar/inner.tif``
+    `/vsicurl/https://host/archive.tar/inner.tif`; GDAL needs this
+    to become `/vsitar//vsicurl/https://host/archive.tar/inner.tif`
     to actually read the inner file.
 
     The marker detection is boundary-anchored (not a plain substring
     search) so the following edge cases are correctly rejected:
 
-    * Hostname ending in ``.gz`` (e.g. ``https://host.gz/file.tif``) —
+    * Hostname ending in `.gz` (e.g. `https://host.gz/file.tif`) —
       the hostname is stripped before the search region is scanned.
-    * Query strings that happen to contain ``.tar/`` (e.g. a presigned
-      URL with ``?key=archive.tar/inner``) — the query string is
+    * Query strings that happen to contain `.tar/` (e.g. a presigned
+      URL with `?key=archive.tar/inner`) — the query string is
       excluded from the search.
     * Non-archive extensions at a path-segment boundary are ignored
-      because the regex requires a literal ``.`` before the
-      extension AND a ``/`` after it.
+      because the regex requires a literal `.` before the
+      extension AND a `/` after it.
 
     Single-layer only: nested archives like
-    ``outer.zip/inner.tar/file.tif`` are chained with the *outermost*
+    `outer.zip/inner.tar/file.tif` are chained with the *outermost*
     archive's VSI prefix only. GDAL's chained-VSI syntax does not
     compose through arbitrary nesting without explicit intermediate
     VSI URLs, so attempting to recurse would usually produce an
@@ -300,11 +300,11 @@ def _chain_archive_vsi(path: str) -> str:
 
     Args:
         path: Path that has already been through the initial scheme
-            rewrite (or was already in ``/vsi*`` form).
+            rewrite (or was already in `/vsi*` form).
 
     Returns:
         Chained VSI path if archive traversal is detected; otherwise
-        ``path`` unchanged.
+        `path` unchanged.
     """
     if not path.startswith(_CLOUD_VSI_PREFIXES):
         return path
@@ -326,28 +326,28 @@ class CloudConfig:
     """Context manager setting GDAL config options for cloud I/O.
 
     Honors environment variables by default — construct with no args
-    and GDAL reads ``AWS_*``, ``GS_*``, ``AZURE_*`` from the process
+    and GDAL reads `AWS_*`, `GS_*`, `AZURE_*` from the process
     environment. Provide explicit credentials to override for a single
     block of operations.
 
     Field → GDAL option map:
 
-    ================================  ==================================
-    Field                             GDAL config option
-    ================================  ==================================
-    ``aws_access_key_id``             ``AWS_ACCESS_KEY_ID``
-    ``aws_secret_access_key``         ``AWS_SECRET_ACCESS_KEY``
-    ``aws_session_token``             ``AWS_SESSION_TOKEN``
-    ``aws_region``                    ``AWS_REGION``
-    ``aws_no_sign_request=True``      ``AWS_NO_SIGN_REQUEST=YES``
-    ``gs_oauth2_refresh_token``       ``GS_OAUTH2_REFRESH_TOKEN``
-    ``gs_access_key_id``              ``GS_ACCESS_KEY_ID``
-    ``gs_secret_access_key``          ``GS_SECRET_ACCESS_KEY``
-    ``azure_storage_account``         ``AZURE_STORAGE_ACCOUNT``
-    ``azure_storage_access_key``      ``AZURE_STORAGE_ACCESS_KEY``
-    ``azure_storage_sas_token``       ``AZURE_STORAGE_SAS_TOKEN``
-    ``extra={"KEY": "VALUE", ...}``   verbatim passthrough
-    ================================  ==================================
+    ================================ ==================================
+    Field GDAL config option
+    ================================ ==================================
+    `aws_access_key_id`              `AWS_ACCESS_KEY_ID`
+    `aws_secret_access_key`          `AWS_SECRET_ACCESS_KEY`
+    `aws_session_token`              `AWS_SESSION_TOKEN`
+    `aws_region`                     `AWS_REGION`
+    `aws_no_sign_request=True`       `AWS_NO_SIGN_REQUEST=YES`
+    `gs_oauth2_refresh_token`        `GS_OAUTH2_REFRESH_TOKEN`
+    `gs_access_key_id`               `GS_ACCESS_KEY_ID`
+    `gs_secret_access_key`           `GS_SECRET_ACCESS_KEY`
+    `azure_storage_account`          `AZURE_STORAGE_ACCOUNT`
+    `azure_storage_access_key`       `AZURE_STORAGE_ACCESS_KEY`
+    `azure_storage_sas_token`        `AZURE_STORAGE_SAS_TOKEN`
+    `extra={"KEY": "VALUE",...}`      verbatim passthrough
+    ================================ ==================================
 
     Examples:
         - Override the AWS region for a single operation:
@@ -372,7 +372,7 @@ class CloudConfig:
 
     Note:
         :func:`gdal.config_options` is thread-local; each thread that
-        opens cloud assets needs its own ``with CloudConfig(...)``.
+        opens cloud assets needs its own `with CloudConfig(...)`.
     """
 
     aws_access_key_id: str | None = None
@@ -394,8 +394,8 @@ class CloudConfig:
 
         Returns:
             Dict suitable for :func:`gdal.config_options`. None-valued
-            fields are dropped; ``aws_no_sign_request=True`` becomes
-            ``AWS_NO_SIGN_REQUEST=YES``; ``extra`` entries are merged
+            fields are dropped; `aws_no_sign_request=True` becomes
+            `AWS_NO_SIGN_REQUEST=YES`; `extra` entries are merged
             in verbatim and override explicit fields on conflict.
 
         Examples:

@@ -1,6 +1,6 @@
-"""End-to-end tests for DatasetCollection reductions + pickle (DASK-15..18 seams).
+"""End-to-end tests for DatasetCollection reductions + pickle (seams).
 
-DASK-15..18 are each covered by per-task suites. This file exercises
+ are each covered by per-task suites. This file exercises
 the seams where one task's output feeds another:
 
 1. Pickle + cross-process compute of :meth:`DatasetCollection.mean`
@@ -9,7 +9,7 @@ the seams where one task's output feeds another:
    per-group numpy means computed directly.
 3. :meth:`DatasetCollection.from_files` metadata survives pickle +
    unpickle; the reconstructed collection still computes correctly.
-4. Lazy ``.data`` → ``.min()`` preserves RasterMeta-derived shape
+4. Lazy `.data` → `.min()` preserves RasterMeta-derived shape
    and dtype (reductions drop the time axis, nothing else).
 """
 
@@ -21,16 +21,18 @@ import pickle
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset, DatasetCollection
 
-pytestmark = pytest.mark.lazy
-
 try:
-    import dask.array  # noqa: F401
-
-    HAS_DASK = True
-except ImportError:  # pragma: no cover
+    import_dask("dask not installed")
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_DASK = False
+else:
+    HAS_DASK = True
+
+pytestmark = pytest.mark.lazy
 
 
 requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")

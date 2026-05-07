@@ -2,7 +2,7 @@
 
 DASK-4 adds a pickle contract specific to :class:`NetCDF` that
 carries three extra bits of state beyond the base
-:class:`AbstractDataset` recipe:
+:class:`RasterBase` recipe:
 
 * ``_is_md_array`` — whether the file was opened with
   ``gdal.OF_MULTIDIM_RASTER``.

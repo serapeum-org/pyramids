@@ -7,7 +7,7 @@ from typing import Any, TypeAlias, cast
 
 from osgeo import gdal, osr
 
-from pyramids.base._utils import gdal_to_numpy_dtype
+from pyramids.base._utils import gdal_to_numpy_dtype, import_cftime
 
 # Keep simple, JSON-serializable attribute values only
 AttributeScalar: TypeAlias = bool | int | float | str
@@ -19,18 +19,18 @@ _ORIGIN_RE = re.compile(r'^\s*([A-Za-z]+)\s+since\s+(.+?)\s*$', re.IGNORECASE)
 def _full_name_with_fallback(group: gdal.Group, default_name: str | None = None) -> str:
     """Get the full hierarchical name of a GDAL group with fallback.
 
-    Attempts ``group.GetFullName()`` first, then falls back to
-    ``"/<name>"`` using ``GetName()`` or the provided default.
+    Attempts `group.GetFullName()` first, then falls back to
+    `"/<name>"` using `GetName()` or the provided default.
 
     Args:
         group: A GDAL multidimensional group object.
-        default_name: Name to use when both ``GetFullName``
-            and ``GetName`` fail. Defaults to ``None``,
-            which produces ``"/"``.
+        default_name: Name to use when both `GetFullName`
+            and `GetName` fail. Defaults to `None`,
+            which produces `"/"`.
 
     Returns:
-        The full hierarchical path string (e.g., ``"/root/sub"``),
-        or ``"/"`` for root / unnamed groups.
+        The full hierarchical path string (e.g., `"/root/sub"`),
+        or `"/"` for root / unnamed groups.
     """
     try:
         result = str(group.GetFullName())
@@ -51,7 +51,7 @@ def _get_group_name(group: gdal.Group) -> str:
         group: A GDAL multidimensional group object.
 
     Returns:
-        The group name string, or ``""`` if the name
+        The group name string, or `""` if the name
         cannot be retrieved.
     """
     try:
@@ -104,7 +104,7 @@ def _get_root_group(dataset: gdal.Dataset) -> gdal.Group | None:
             the multidimensional API).
 
     Returns:
-        The root ``gdal.Group``, or ``None`` if the dataset
+        The root `gdal.Group`, or `None` if the dataset
         does not expose a multidimensional group hierarchy.
     """
     try:
@@ -120,8 +120,8 @@ def _get_driver_name(dataset: gdal.Dataset) -> str:
         dataset: An opened GDAL dataset.
 
     Returns:
-        Driver short name (e.g., ``"netCDF"``, ``"GTiff"``),
-        or ``"UNKNOWN"`` if retrieval fails.
+        Driver short name (e.g., `"netCDF"`, `"GTiff"`),
+        or `"UNKNOWN"` if retrieval fails.
     """
     try:
         result = str(dataset.GetDriver().ShortName)
@@ -134,12 +134,12 @@ def _export_srs(srs: osr.SpatialReference | None) -> tuple[str | None, str | Non
     """Export a spatial reference to WKT and PROJJSON strings.
 
     Args:
-        srs: An OSR spatial reference object, or ``None``.
+        srs: An OSR spatial reference object, or `None`.
 
     Returns:
-        A two-element tuple ``(wkt, projjson)`` where each
-        element is a string or ``None`` if the export failed
-        or *srs* was ``None``.
+        A two-element tuple `(wkt, projjson)` where each
+        element is a string or `None` if the export failed
+        or *srs* was `None`.
     """
     if not srs:
         return None, None
@@ -161,8 +161,8 @@ def _get_array_nodata(
 ) -> int | float | str | None:
     """Determine the no-data value for a multidimensional array.
 
-    Checks CF-standard attributes (``_FillValue``,
-    ``missing_value``) first, then falls back to the GDAL
+    Checks CF-standard attributes (`_FillValue`,
+    `missing_value`) first, then falls back to the GDAL
     driver API methods.
 
     Args:
@@ -170,8 +170,8 @@ def _get_array_nodata(
         attrs: Pre-read attribute dictionary for the array.
 
     Returns:
-        The no-data value as an ``int``, ``float``, or
-        ``str``, or ``None`` if none is defined.
+        The no-data value as an `int`, `float`, or
+        `str`, or `None` if none is defined.
     """
     # Precedence: CF _FillValue, then missing_value, then driver API
     for key in ("_FillValue", "missing_value"):
@@ -209,17 +209,17 @@ def _get_array_scale_offset(
 ) -> tuple[float | None, float | None]:
     """Extract scale and offset for packed data.
 
-    Reads CF ``scale_factor`` / ``add_offset`` attributes first,
+    Reads CF `scale_factor` / `add_offset` attributes first,
     then checks the GDAL driver API. The unpacking formula is:
-    ``value = packed * scale + offset``.
+    `value = packed * scale + offset`.
 
     Args:
         mdarr: A GDAL multidimensional array object.
         attrs: Pre-read attribute dictionary for the array.
 
     Returns:
-        A tuple ``(scale, offset)`` where each element is a
-        ``float`` or ``None`` if not defined.
+        A tuple `(scale, offset)` where each element is a
+        `float` or `None` if not defined.
     """
     scale = None
     offset = None
@@ -256,7 +256,7 @@ def _get_block_size(mdarr: gdal.MDArray) -> list[int] | None:
 
     Returns:
         A list of integers representing the block size along
-        each dimension, or ``None`` if unavailable.
+        each dimension, or `None` if unavailable.
     """
     try:
         bs = mdarr.GetBlockSize()
@@ -306,20 +306,20 @@ def _get_coord_variable_names(mdarr: gdal.MDArray) -> list[str]:
 def _normalize_origin_string(origin: str) -> str:
     """Normalize a CF time origin into a zero-padded datetime string.
 
-    Handles abbreviated origins such as ``"1-1-1 0:0:0"`` or
-    ``"1-1-1T0:0:0"`` and pads them into the canonical form
-    ``"0001-01-01 00:00:00"`` that ``datetime.fromisoformat``
+    Handles abbreviated origins such as `"1-1-1 0:0:0"` or
+    `"1-1-1T0:0:0"` and pads them into the canonical form
+    `"0001-01-01 00:00:00"` that `datetime.fromisoformat`
     can parse.
 
     Args:
-        origin: A date or datetime string from a CF ``units``
-            attribute. May use ``T`` or space as the
+        origin: A date or datetime string from a CF `units`
+            attribute. May use `T` or space as the
             date/time separator, and components need not be
             zero-padded.
 
     Returns:
         A zero-padded datetime string in the format
-        ``"YYYY-MM-DD HH:MM:SS"`` (with optional fractional
+        `"YYYY-MM-DD HH:MM:SS"` (with optional fractional
         seconds preserved).
 
     Examples:
@@ -333,7 +333,7 @@ def _normalize_origin_string(origin: str) -> str:
 
             ```
 
-        - Handle ISO ``T`` separator:
+        - Handle ISO `T` separator:
             ```python
             >>> _normalize_origin_string("1979-1-1T0:0:0")
             '1979-01-01 00:00:00'
@@ -377,21 +377,21 @@ def _normalize_origin_string(origin: str) -> str:
 def _parse_units_origin(units: str) -> tuple[str, datetime]:
     """Parse a CF time-units string into unit name and origin.
 
-    Splits a string like ``"days since 1979-01-01"`` into
-    the lowercase unit name and the origin as a ``datetime``.
+    Splits a string like `"days since 1979-01-01"` into
+    the lowercase unit name and the origin as a `datetime`.
 
     Args:
         units: CF time-units string in the format
-            ``"<unit> since <origin>"``.
+            `"<unit> since <origin>"`.
 
     Returns:
-        A tuple ``(unit, origin_datetime)`` where *unit* is
-        a lowercase string (e.g., ``"days"``) and
-        *origin_datetime* is a ``datetime`` instance.
+        A tuple `(unit, origin_datetime)` where *unit* is
+        a lowercase string (e.g., `"days"`) and
+        *origin_datetime* is a `datetime` instance.
 
     Raises:
         ValueError: If *units* does not match the expected
-            ``"<unit> since <origin>"`` pattern.
+            `"<unit> since <origin>"` pattern.
 
     Examples:
         - Parse a standard day-based unit string:
@@ -450,22 +450,22 @@ def create_time_conversion_func(
     """Create a converter that maps numeric CF time offsets to date strings.
 
     Parses CF-compliant time unit strings (e.g.,
-    ``"days since 1979-01-01"``) and returns a callable that
+    `"days since 1979-01-01"`) and returns a callable that
     converts numeric offsets to formatted date strings.
 
     For standard/proleptic_gregorian calendars, uses Python's
-    ``datetime`` + ``timedelta``. For non-standard calendars
-    (``360_day``, ``noleap``, ``all_leap``, ``julian``), uses
-    ``cftime.num2date()`` (optional dependency).
+    `datetime` + `timedelta`. For non-standard calendars
+    (`360_day`, `noleap`, `all_leap`, `julian`), uses
+    `cftime.num2date()` (optional dependency).
 
     Args:
         units: CF time unit string in the format
-            ``"<unit> since <origin>"``. Supported units are
+            `"<unit> since <origin>"`. Supported units are
             days, hours, minutes, and seconds.
         out_format: strftime format for the output strings.
-            Defaults to ``"%Y-%m-%d %H:%M:%S"``.
-        calendar: CF calendar type. Defaults to ``"standard"``.
-            Non-standard calendars require the ``cftime`` package.
+            Defaults to `"%Y-%m-%d %H:%M:%S"`.
+        calendar: CF calendar type. Defaults to `"standard"`.
+            Non-standard calendars require the `cftime` package.
 
     Returns:
         Callable: A function that takes a numeric value and
@@ -475,7 +475,7 @@ def create_time_conversion_func(
         ValueError: If the unit string cannot be parsed or
             uses an unsupported time unit.
         ImportError: If a non-standard calendar is requested
-            and ``cftime`` is not installed.
+            and `cftime` is not installed.
 
     Examples:
         - Convert day offsets from a 1979 origin:
@@ -512,13 +512,11 @@ def create_time_conversion_func(
     converter = None
 
     if calendar.lower() not in ("standard", "proleptic_gregorian", "gregorian"):
-        try:
-            import cftime  # noqa: F811 - optional dep, inline import required
-        except ImportError:
-            raise ImportError(
-                f"Calendar '{calendar}' requires the cftime package. "
-                f"Install it with: pixi add cftime"
-            )
+        import_cftime(
+            f"Calendar '{calendar}' requires the cftime package. "
+            f"Install it with: pixi add cftime"
+        )
+        import cftime
 
         def convert_cftime(value):
             dt = cftime.num2date(value, units, calendar)
@@ -551,16 +549,16 @@ def create_time_conversion_func(
 def _dtype_to_str(dt: Any) -> str:
     """Convert a GDAL extended data type to a numpy dtype string.
 
-    Tries ``dt.GetName()`` first (works for string types), then
-    ``dt.GetNumericDataType()`` which returns a GDAL code that
-    ``gdal_to_numpy_dtype()`` converts to a name like ``"float32"``.
+    Tries `dt.GetName()` first (works for string types), then
+    `dt.GetNumericDataType()` which returns a GDAL code that
+    `gdal_to_numpy_dtype()` converts to a name like `"float32"`.
 
     Args:
-        dt: A GDAL ``ExtendedDataType`` or similar object.
+        dt: A GDAL `ExtendedDataType` or similar object.
 
     Returns:
-        A numpy-compatible dtype name (e.g. ``"float32"``,
-        ``"int16"``), or ``"unknown"`` if conversion fails.
+        A numpy-compatible dtype name (e.g. `"float32"`,
+        `"int16"`), or `"unknown"` if conversion fails.
     """
     result = "unknown"
     try:
@@ -584,18 +582,18 @@ def _dtype_to_str(dt: Any) -> str:
 def _to_py_scalar(x: Any) -> Any:
     """Convert a value to a native JSON-serializable Python type.
 
-    Handles numpy scalars (via ``.item()``), ``bytes``
+    Handles numpy scalars (via `.item()`), `bytes`
     (decoded as UTF-8), and passes through native Python
     scalars unchanged. Non-convertible values fall back to
-    ``str()``.
+    `str()`.
 
     Args:
-        x: Any value, typically a numpy scalar, ``bytes``,
+        x: Any value, typically a numpy scalar, `bytes`,
             or a native Python scalar.
 
     Returns:
-        A JSON-serializable Python value (``bool``, ``int``,
-        ``float``, ``str``, or ``None``).
+        A JSON-serializable Python value (`bool`, `int`,
+        `float`, `str`, or `None`).
 
     Examples:
         - Native scalars pass through unchanged:
@@ -642,14 +640,14 @@ def _normalize_attr_value(val: Any) -> AttributeValue:
     """Normalize an attribute value to a JSON-serializable form.
 
     Converts lists/tuples element-wise and scalars directly
-    using ``_to_py_scalar``.
+    using `_to_py_scalar`.
 
     Args:
         val: Raw attribute value from GDAL, which may be a
-            list, tuple, numpy array, scalar, or ``bytes``.
+            list, tuple, numpy array, scalar, or `bytes`.
 
     Returns:
-        A normalized ``AttributeValue``: either a list of
+        A normalized `AttributeValue`: either a list of
         JSON-friendly scalars or a single scalar.
     """
     # Vector
@@ -663,12 +661,12 @@ def _normalize_attr_value(val: Any) -> AttributeValue:
 def _read_attribute_value(attr: gdal.Attribute) -> AttributeValue:
     """Read a single GDAL attribute and normalize its value.
 
-    Tries the generic ``attr.Read()`` first, then falls back
-    to type-specific readers (``ReadAsInt64``,
-    ``ReadAsDouble``, ``ReadAsString``, etc.).
+    Tries the generic `attr.Read()` first, then falls back
+    to type-specific readers (`ReadAsInt64`,
+    `ReadAsDouble`, `ReadAsString`, etc.).
 
     Args:
-        attr: A GDAL ``Attribute`` object.
+        attr: A GDAL `Attribute` object.
 
     Returns:
         The attribute value as a JSON-serializable scalar or
@@ -703,14 +701,14 @@ def _read_attributes(obj: Any) -> dict[str, AttributeValue]:
     """Read all attributes from a GDAL object into a dictionary.
 
     Iterates over attributes exposed by
-    ``obj.GetAttributes()`` and normalizes each value. Skips
+    `obj.GetAttributes()` and normalizes each value. Skips
     attributes whose names cannot be retrieved and falls
     back gracefully for unreadable values.
 
     Args:
         obj: Any GDAL object that supports
-            ``GetAttributes()`` (e.g., ``gdal.Group``,
-            ``gdal.MDArray``).
+            `GetAttributes()` (e.g., `gdal.Group`,
+            `gdal.MDArray`).
 
     Returns:
         A dictionary mapping attribute names to their

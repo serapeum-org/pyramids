@@ -5,18 +5,18 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
 
 try:
-    import dask.array  # noqa: F401
-
-    HAS_DASK = True
-except ImportError:  # pragma: no cover
+    import_dask("dask not installed")
+except OptionalPackageDoesNotExist:  # pragma: no cover
     HAS_DASK = False
-
-
+else:
+    HAS_DASK = True
 requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")
 
 

@@ -1,33 +1,33 @@
 """Lazy (dask-backed) MDArray readers for :class:`pyramids.netcdf.NetCDF`.
 
 This module exists so :meth:`NetCDF.read_array` can opt-in to a
-``dask.array.Array`` return value without importing dask at module
+`dask.array.Array` return value without importing dask at module
 import time and without adding dask to the hard dependencies.
 
 Design summary:
 
 * :func:`build_lazy_array` is the public entry point used by
-  :meth:`NetCDF.read_array` when ``chunks`` is provided. It
+  :meth:`NetCDF.read_array` when `chunks` is provided. It
   constructs a :class:`pyramids.base._file_manager.CachingFileManager`
   around :func:`pyramids.base._openers.gdal_mdarray_open`, builds a
-  :class:`dask.array.Array` via ``dask.array.map_blocks`` over a
+  :class:`dask.array.Array` via `dask.array.map_blocks` over a
   grid of block slices, and returns the resulting lazy array.
 * :func:`_read_mdarray_chunk` is the per-chunk reader invoked by
   dask's task graph. It opens the MDIM handle through the manager,
   looks up the MDArray, and calls
-  ``md_arr.ReadAsArray(array_start_idx=starts, count=counts)`` —
+  `md_arr.ReadAsArray(array_start_idx=starts, count=counts)` —
   the exact shape of the existing eager read at
-  ``netcdf.py:_read_variable`` lines 954–956.
-* :func:`_normalize_chunks` maps the user-facing ``chunks`` argument
-  (``None``, ``int``, ``tuple``, ``dict``, or ``"auto"``) onto the
+  `netcdf.py:_read_variable` lines 954–956.
+* :func:`_normalize_chunks` maps the user-facing `chunks` argument
+  (`None`, `int`, `tuple`, `dict`, or `"auto"`) onto the
   flat tuple of per-axis chunk sizes that dask expects, honoring
-  ``VariableInfo.block_size`` as the preferred default.
+  `VariableInfo.block_size` as the preferred default.
 
 The module is cheap to import: it depends only on numpy, the
 Phase-0 helpers, and :mod:`osgeo.gdal` (already a hard dep). The
-``dask`` import happens inside :func:`build_lazy_array` after the
+`dask` import happens inside :func:`build_lazy_array` after the
 caller has actually asked for a lazy result, and is guarded so
-callers without the ``[lazy]`` extra installed get a clear
+callers without the `[lazy]` extra installed get a clear
 :class:`ImportError`.
 """
 
@@ -39,36 +39,20 @@ import numpy as np
 
 from pyramids.base._file_manager import CachingFileManager, gdal_mdarray_open
 from pyramids.base._locks import DummyLock, default_lock
+from pyramids.base._utils import import_dask
 
 _DASK_MISSING_MESSAGE = (
     "dask is required for lazy NetCDF reads; install pyramids-gis[lazy]"
 )
 
 
-def _require_dask() -> Any:
-    """Import :mod:`dask.array` or raise a helpful :class:`ImportError`.
-
-    Returns:
-        The imported ``dask.array`` module.
-
-    Raises:
-        ImportError: If ``dask`` is not installed. The message asks
-            the user to install the ``[lazy]`` extra.
-    """
-    try:
-        import dask.array as da  # noqa: F401  - local import (lazy dask branch)
-    except ImportError as exc:  # pragma: no cover - exercised via monkeypatch
-        raise ImportError(_DASK_MISSING_MESSAGE) from exc
-    return da
-
-
 def _resolve_lock(lock: Any) -> Any:
-    """Resolve the ``lock`` kwarg into a concrete lock object.
+    """Resolve the `lock` kwarg into a concrete lock object.
 
-    * ``None`` → :func:`pyramids.base._locks.default_lock` (a fresh
+    * `None` → :func:`pyramids.base._locks.default_lock` (a fresh
       :class:`SerializableLock` in single-process mode, a
-      ``dask.distributed.Lock`` when a distributed client is running).
-    * ``False`` → :class:`pyramids.base._locks.DummyLock` (no-op).
+      `dask.distributed.Lock` when a distributed client is running).
+    * `False` → :class:`pyramids.base._locks.DummyLock` (no-op).
     * anything else → returned unchanged (assumed to be a
       lock-protocol object).
 
@@ -76,7 +60,7 @@ def _resolve_lock(lock: Any) -> Any:
         lock: Value passed by the caller.
 
     Returns:
-        A lock-protocol object supporting ``acquire`` / ``release`` /
+        A lock-protocol object supporting `acquire` / `release` /
         context-manager use.
     """
     if lock is None:
@@ -92,11 +76,11 @@ def _mdarray_shape_and_dtype(
     path: str,
     variable_name: str,
 ) -> tuple[tuple[int, ...], np.dtype, list[int] | None, bool]:
-    """Return ``(shape, numpy_dtype, block_size, needs_y_flip)`` for an MDArray.
+    """Return `(shape, numpy_dtype, block_size, needs_y_flip)` for an MDArray.
 
-    Opens the file in MDIM mode, looks up ``variable_name`` in the
+    Opens the file in MDIM mode, looks up `variable_name` in the
     root group, and returns the shape, the numpy dtype used by
-    ``ReadAsArray`` output, the MDArray's native ``GetBlockSize``
+    `ReadAsArray` output, the MDArray's native `GetBlockSize`
     (if available), and a flag indicating whether the Y axis is
     stored south-to-north (in which case downstream code must flip).
 
@@ -104,8 +88,8 @@ def _mdarray_shape_and_dtype(
     lazy graph re-opens through the :class:`CachingFileManager`.
 
     The Y-flip detection mirrors the eager-path logic at
-    ``NetCDF._needs_y_flip``: an ``AsClassicDataset`` view is
-    created and its geotransform ``gt[5]`` (pixel height) is
+    `NetCDF._needs_y_flip`: an `AsClassicDataset` view is
+    created and its geotransform `gt[5]` (pixel height) is
     inspected — a positive value means the data is stored
     south-to-north and the eager path flips it, so the lazy path
     must match.
@@ -115,7 +99,7 @@ def _mdarray_shape_and_dtype(
         variable_name: Name of the MDArray in the root group.
 
     Returns:
-        tuple: ``(shape, dtype, block_size, needs_y_flip)``.
+        tuple: `(shape, dtype, block_size, needs_y_flip)`.
 
     Raises:
         ValueError: If the variable is not found in the root group
@@ -169,22 +153,22 @@ def _default_chunks(
 
     Preference order:
 
-    1. The MDArray's native ``GetBlockSize`` (captured from
+    1. The MDArray's native `GetBlockSize` (captured from
        :attr:`VariableInfo.block_size`). Any zero entries from GDAL
        are replaced by the full axis length.
-    2. Fallback ``(1, ..., 1, rows, cols)`` — one element per
+    2. Fallback `(1,..., 1, rows, cols)` — one element per
        non-spatial axis, full last two axes. For 1-D and 2-D
-       arrays this collapses to ``shape`` (single chunk).
+       arrays this collapses to `shape` (single chunk).
 
     Args:
         shape: Full shape of the MDArray.
         block_size: Native block size from
-            ``gdal.MDArray.GetBlockSize``, or ``None`` when the
+            `gdal.MDArray.GetBlockSize`, or `None` when the
             driver doesn't advertise one.
 
     Returns:
-        tuple[int, ...]: Per-axis chunk sizes, same length as
-        ``shape``.
+        tuple[int,...]: Per-axis chunk sizes, same length as
+        `shape`.
     """
     if block_size is not None and len(block_size) == len(shape):
         chunks = tuple(
@@ -203,20 +187,20 @@ def _normalize_chunks(
     shape: tuple[int, ...],
     block_size: list[int] | None,
 ) -> tuple[int, ...]:
-    """Normalize a user-supplied ``chunks`` argument.
+    """Normalize a user-supplied `chunks` argument.
 
     Supports every shape documented on :meth:`NetCDF.read_array`:
 
-    * ``None`` → caller should not use the lazy path; raises
+    * `None` → caller should not use the lazy path; raises
       :class:`ValueError` (lazy path must not be entered with
-      ``chunks=None``).
-    * ``"auto"`` → use :func:`_default_chunks` (native block size
+      `chunks=None`).
+    * `"auto"` → use :func:`_default_chunks` (native block size
       when known, conservative fallback otherwise).
-    * ``int`` → apply that size to every axis.
-    * ``tuple``/``list`` → must match ``len(shape)``; each element
-      is an ``int`` or ``-1`` (meaning "full axis").
-    * ``dict`` → keyed by axis index (``int``) or by the literal
-      strings ``"bands"``/``"rows"``/``"cols"`` for 3-D arrays.
+    * `int` → apply that size to every axis.
+    * `tuple`/`list` → must match `len(shape)`; each element
+      is an `int` or `-1` (meaning "full axis").
+    * `dict` → keyed by axis index (`int`) or by the literal
+      strings `"bands"`/`"rows"`/`"cols"` for 3-D arrays.
       Missing axes fall back to the :func:`_default_chunks` value.
 
     Args:
@@ -296,13 +280,13 @@ def _read_mdarray_chunk(
     """Read one block of an MDArray through a :class:`CachingFileManager`.
 
     Mirrors the shape of the eager chunk read at
-    ``netcdf.py:_read_variable`` lines 954–956::
+    `netcdf.py:_read_variable` lines 954–956::
 
         md_arr.ReadAsArray(array_start_idx=starts, count=counts)
 
     Args:
         manager: Manager yielding a fresh / cached MDIM
-            ``gdal.Dataset`` when entered via
+            `gdal.Dataset` when entered via
             :meth:`CachingFileManager.acquire_context`.
         variable_name: Name of the MDArray in the root group.
         starts: Per-axis start indices.
@@ -311,7 +295,7 @@ def _read_mdarray_chunk(
             returns a different one (e.g. a narrower int).
 
     Returns:
-        np.ndarray: The block data, shape ``tuple(counts)``.
+        np.ndarray: The block data, shape `tuple(counts)`.
     """
     with manager.acquire_context() as ds:
         rg = ds.GetRootGroup()
@@ -333,20 +317,20 @@ def _apply_unpack(
     scale: float | None,
     offset: float | None,
 ) -> Any:
-    """Apply CF ``scale_factor`` / ``add_offset`` to a lazy or eager array.
+    """Apply CF `scale_factor` / `add_offset` to a lazy or eager array.
 
     The lazy dask branch funnels through this helper so the
-    transformation is expressed as ``dask.array`` arithmetic — the
+    transformation is expressed as `dask.array` arithmetic — the
     compute graph stays lazy until the user explicitly materializes
     it.
 
     Args:
         arr: The raw array (dask or numpy).
-        scale: CF ``scale_factor``, or ``None``.
-        offset: CF ``add_offset``, or ``None``.
+        scale: CF `scale_factor`, or `None`.
+        offset: CF `add_offset`, or `None`.
 
     Returns:
-        The (possibly transformed) array, cast to ``float64`` when a
+        The (possibly transformed) array, cast to `float64` when a
         transformation was applied.
     """
     if scale is None and offset is None:
@@ -366,10 +350,10 @@ def _expand_chunks(
 ) -> tuple[tuple[int, ...], ...]:
     """Expand a flat chunk tuple into dask's per-axis size tuples.
 
-    Dask's ``chunks=`` argument wants ``((c0a, c0b, ...), (c1a, ...),
-    ...)`` — one tuple per axis listing the sizes along that axis.
-    Given ``shape=(30, 100, 200)`` and ``chunk_shape=(1, 50, 200)``
-    this returns ``((1,)*30, (50, 50), (200,))``.
+    Dask's `chunks=` argument wants `((c0a, c0b,...), (c1a,...),
+    ...)` — one tuple per axis listing the sizes along that axis.
+    Given `shape=(30, 100, 200)` and `chunk_shape=(1, 50, 200)`
+    this returns `((1,)*30, (50, 50), (200,))`.
 
     Args:
         shape: Full array shape.
@@ -394,13 +378,13 @@ class _MDArrayChunkReader:
     """Pickle-safe callable invoked by dask for each chunk.
 
     Holds the :class:`CachingFileManager`, the variable name, the
-    target dtype, and the per-chunk ``(starts, counts)`` needed to
+    target dtype, and the per-chunk `(starts, counts)` needed to
     issue the matching
-    ``md_arr.ReadAsArray(array_start_idx=starts, count=counts)``
+    `md_arr.ReadAsArray(array_start_idx=starts, count=counts)`
     call. One instance per chunk — dask stores it directly in the
     task graph so it must survive :mod:`pickle`.
 
-    The closure form (``def _read(...): ...`` inside a factory) does
+    The closure form (`def _read(...):...` inside a factory) does
     *not* pickle cleanly in spawn subprocesses; this class form does.
     """
 
@@ -458,7 +442,7 @@ def _chunk_starts(chunks_per_axis: tuple[tuple[int, ...], ...]) -> list[list[int
 
     Returns:
         list[list[int]]: Per-axis start-index lists, same structure
-        as ``chunks_per_axis`` but with cumulative sums.
+        as `chunks_per_axis` but with cumulative sums.
     """
     starts = []
     for sizes in chunks_per_axis:
@@ -483,13 +467,13 @@ def build_lazy_array(
     Args:
         path: On-disk path to the NetCDF / HDF5 / Zarr file.
         variable_name: Name of the MDArray in the root group.
-        chunks: Raw user input — ``int``, ``tuple``, ``dict``, or
-            the string ``"auto"``. See :func:`_normalize_chunks`.
+        chunks: Raw user input — `int`, `tuple`, `dict`, or
+            the string `"auto"`. See :func:`_normalize_chunks`.
         lock: Lock passed to :class:`CachingFileManager`; see
             :func:`_resolve_lock`.
         manager_id: Optional stable id so two lazy reads of the same
             variable share a cache slot. Defaults to
-            ``(path, variable_name)`` so repeated calls for the same
+            `(path, variable_name)` so repeated calls for the same
             variable de-duplicate the cached handle.
 
     Returns:
@@ -497,11 +481,13 @@ def build_lazy_array(
         through :func:`_read_mdarray_chunk`.
 
     Raises:
-        ImportError: If ``dask`` is not installed.
-        ValueError: For malformed ``chunks`` input or missing
+        ImportError: If `dask` is not installed.
+        ValueError: For malformed `chunks` input or missing
             variable.
     """
-    da = _require_dask()
+    import_dask(_DASK_MISSING_MESSAGE)
+    import dask.array as da
+
     shape, dtype, block_size, needs_y_flip = _mdarray_shape_and_dtype(
         path,
         variable_name,

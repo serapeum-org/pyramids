@@ -9,7 +9,9 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from osgeo import gdal, osr
+from osgeo import gdal
+
+from pyramids.base.crs import sr_from_epsg
 
 
 def warp_tile_image(
@@ -23,8 +25,8 @@ def warp_tile_image(
 
     Uses GDAL's MEM driver (entirely in-memory, no filesystem paths)
     to avoid disk I/O. Both RGB (3-band) and RGBA (4-band) tile images
-    are supported. If the source is RGB, ``dstAlpha=True`` is passed to
-    ``gdal.WarpOptions`` so GDAL auto-generates an alpha mask for areas
+    are supported. If the source is RGB, `dstAlpha=True` is passed to
+    `gdal.WarpOptions` so GDAL auto-generates an alpha mask for areas
     outside the source extent, preventing black borders.
 
     Args:
@@ -70,10 +72,7 @@ def warp_tile_image(
     y_res = (extent_3857[3] - extent_3857[1]) / height
     src_ds.SetGeoTransform([extent_3857[0], x_res, 0, extent_3857[3], 0, -y_res])
 
-    src_srs = osr.SpatialReference()
-    err = src_srs.ImportFromEPSG(3857)
-    if err != 0:
-        raise RuntimeError(f"Failed to create SRS from EPSG:3857 (error {err}).")
+    src_srs = sr_from_epsg(3857)
     src_ds.SetProjection(src_srs.ExportToWkt())
 
     for i in range(n_bands):

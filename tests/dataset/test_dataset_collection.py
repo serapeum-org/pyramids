@@ -192,7 +192,7 @@ class TestReproject:
             rasters_folder_path, with_order=False
         )
         dataset.open_multi_dataset()
-        dataset.to_crs(to_epsg)
+        dataset.to_crs(to_epsg, inplace=True)
         assert dataset.base.epsg == to_epsg
         arr = dataset.values
         assert dataset.base.rows == arr.shape[1]
@@ -212,7 +212,7 @@ class TestAlign:
         )
         cube.open_multi_dataset()
         mask_obj = Dataset(src)
-        cube.align(mask_obj)
+        cube.align(mask_obj, inplace=True)
         assert cube.base.rows == mask_obj.rows
         assert cube.base.columns == mask_obj.columns
 
@@ -353,14 +353,52 @@ class TestCrop:
         # shutil.rmtree(crop_aligned_folder_saveto)
 
 
-def test_merge(
+def test_merge_rasters_free_function(
     merge_input_raster: List[str],
     merge_output: Path,
 ):
-    DatasetCollection.merge(merge_input_raster, merge_output)
+    from pyramids.dataset.merge import merge_rasters
+
+    merge_rasters(merge_input_raster, merge_output)
     assert merge_output.exists()
     src = gdal.Open(str(merge_output))
     assert src.GetRasterBand(1).GetNoDataValue() == 0
+
+
+def test_merge_instance_method(
+    merge_input_raster: List[str],
+    tmp_path: Path,
+):
+    cube = DatasetCollection.from_files(merge_input_raster)
+    out = tmp_path / "merged_via_instance.tif"
+    cube.merge(out)
+    assert out.exists()
+    src = gdal.Open(str(out))
+    assert src.GetRasterBand(1).GetNoDataValue() == 0
+
+
+def test_merge_instance_method_in_memory_collection(tmp_path: Path):
+    """L1: in-memory collections stage through a tempdir and merge.
+
+    Pre-fix this raised RuntimeError; post-fix the merge writes
+    each timestep to a temporary geotiff, merges them, and cleans
+    up the staging directory before returning.
+    """
+    arr = np.zeros((4, 5), dtype=np.float32)
+    ds = Dataset.create_from_array(
+        arr,
+        top_left_corner=(0.0, 4.0),
+        cell_size=1.0,
+        epsg=4326,
+    )
+    cube = DatasetCollection(ds, time_length=1)
+    out = tmp_path / "merged_in_memory.tif"
+    cube.merge(out)
+    assert out.exists()
+    src = gdal.Open(str(out))
+    assert src.GetRasterBand(1).GetNoDataValue() == 0
+
+
 
 
 class TestApply:

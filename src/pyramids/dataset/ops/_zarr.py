@@ -1,6 +1,6 @@
 """Zarr read / write for :class:`~pyramids.dataset.Dataset`.
 
-DASK-10: Zarr is the only raster output format where pyramids can do
+Zarr is the only raster output format where pyramids can do
 fully-parallel writes — each dask chunk lands in an independent Zarr
 chunk file. This module provides two helpers wrapped by
 :meth:`Dataset.to_zarr` and :meth:`Dataset.from_zarr`:
@@ -8,12 +8,12 @@ chunk file. This module provides two helpers wrapped by
 * :func:`write_dataset_to_zarr` — serialises a :class:`Dataset` (eager
   or dask-backed) to a Zarr store using the geobox-metadata convention
   that rioxarray / xarray expect, so the output round-trips through
-  ``rioxarray.open_rasterio(store)`` without bespoke glue.
+  `rioxarray.open_rasterio(store)` without bespoke glue.
 * :func:`read_dataset_from_zarr` — opens a Zarr store and constructs a
   :class:`Dataset` with the recovered geobox.
 
 Zarr and fsspec are imported lazily inside the helpers — pyramids'
-core import stays free of both even when the ``[lazy]`` extra is not
+core import stays free of both even when the `[lazy]` extra is not
 installed.
 """
 
@@ -23,7 +23,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from osgeo import osr
+
+from pyramids.base.crs import sr_from_epsg
 
 if TYPE_CHECKING:
     from pyramids.dataset import Dataset
@@ -46,8 +47,7 @@ def _require_zarr() -> Any:
 
 def _metadata_dict(ds: Dataset) -> dict[str, Any]:
     """Return the pyramids-convention attr dict that rioxarray can read."""
-    srs = osr.SpatialReference()
-    srs.ImportFromEPSG(int(ds.epsg))
+    srs = sr_from_epsg(int(ds.epsg))
     nodata_tuple = ds.no_data_value
     return {
         "spatial_ref": srs.ExportToWkt(),
@@ -61,7 +61,7 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
 
 
 def _build_dask_array(ds: Dataset, chunks: Any) -> Any:
-    """Wrap ``ds`` as a 3-D ``dask.array.Array`` ``(bands, rows, cols)``.
+    """Wrap `ds` as a 3-D `dask.array.Array` `(bands, rows, cols)`.
 
     Always normalizes to 3-D so the on-disk Zarr layout is uniform and
     :func:`read_dataset_from_zarr` can reconstruct without a branch on
@@ -99,36 +99,36 @@ def write_dataset_to_zarr(
     chunks: Any = "auto",
     storage_options: dict[str, Any] | None = None,
 ) -> Any:
-    """Serialise ``ds`` to a Zarr store.
+    """Serialise `ds` to a Zarr store.
 
-    Writes the ``(bands, rows, cols)`` dask array to ``<store>/data``
+    Writes the `(bands, rows, cols)` dask array to `<store>/data`
     and persists the pyramids geobox metadata as attributes on both
-    the root group and the array. On ``compute=False`` the data write
+    the root group and the array. On `compute=False` the data write
     and the attribute write are bundled into a single
-    :class:`dask.delayed.Delayed` so calling ``.compute()`` finalizes
+    :class:`dask.delayed.Delayed` so calling `.compute()` finalizes
     everything atomically.
 
     Args:
         ds: Source :class:`~pyramids.dataset.Dataset`.
-        store: Target store — a path, a fsspec URL (``s3://...``), or
+        store: Target store — a path, a fsspec URL (`s3://...`), or
             any :class:`zarr.storage.Store` instance.
-        compute: ``True`` (default) triggers the write immediately and
-            returns ``None``. ``False`` returns a
+        compute: `True` (default) triggers the write immediately and
+            returns `None`. `False` returns a
             :class:`dask.delayed.Delayed`.
-        mode: Zarr open mode. ``"w"`` (default) writes fresh;
-            ``"a"`` appends/updates.
+        mode: Zarr open mode. `"w"` (default) writes fresh;
+            `"a"` appends/updates.
         chunks: Chunk specification forwarded to
-            :meth:`Dataset.read_array`. ``"auto"`` (default) respects
+            :meth:`Dataset.read_array`. `"auto"` (default) respects
             the on-disk block shape.
         storage_options: fsspec options for cloud stores.
 
     Returns:
-        ``None`` on ``compute=True``; a :class:`dask.delayed.Delayed`
-        on ``compute=False``.
+        `None` on `compute=True`; a :class:`dask.delayed.Delayed`
+        on `compute=False`.
 
     Examples:
         - Round-trip a small Dataset through Zarr (requires the
-          ``[lazy]`` extra for zarr + dask):
+          `[lazy]` extra for zarr + dask):
             ```python
             >>> import tempfile  # doctest: +SKIP
             >>> from pathlib import Path  # doctest: +SKIP
@@ -196,7 +196,7 @@ def read_dataset_from_zarr(
         store: Input store — path / fsspec URL / :class:`zarr.storage.Store`.
         chunks: If non-None, the reconstructed :class:`Dataset` is
             lazy-backed via :meth:`Dataset.read_array(chunks=...)` on
-            its backing /vsimem tif. Use ``None`` (default) for an
+            its backing /vsimem tif. Use `None` (default) for an
             eager numpy round-trip.
         storage_options: fsspec storage options.
 
@@ -205,7 +205,7 @@ def read_dataset_from_zarr(
 
     Examples:
         - Read a store that was written with :func:`write_dataset_to_zarr`
-          and check the recovered shape (requires the ``[lazy]``
+          and check the recovered shape (requires the `[lazy]`
           extra):
             ```python
             >>> import tempfile  # doctest: +SKIP
