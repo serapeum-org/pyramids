@@ -31,17 +31,21 @@ vector data (shapefiles, GeoJSON), and multi-temporal datacubes.
 graph LR
     GeoTIFF & NetCDF & Shapefile & UGRID -->|read| pyramids
     subgraph pyramids
+        direction TB
         Dataset
         NetCDF_class[NetCDF]
         UgridDataset
         DatasetCollection
         FeatureCollection
+        subgraph Engines["Dataset engines (ds.io · ds.spatial · ds.bands · ds.analysis · ds.cell · ds.vectorize · ds.cog)"]
+        end
     end
     Dataset -->|crop · reproject · align| Dataset
+    Dataset --- Engines
     FeatureCollection -->|rasterize| Dataset
     UgridDataset -->|interpolate| Dataset
     Dataset -->|vectorize| FeatureCollection
-    DatasetCollection -->|temporal stack| Dataset
+    DatasetCollection -->|lazy temporal stack| Dataset
     NetCDF_class -->|extends| Dataset
 ```
 
@@ -52,15 +56,21 @@ Main Features
 -------------
 
 - **Dataset** - Read, write, crop, reproject, and align single-band and multi-band rasters (GeoTIFF)
-  with full no-data handling and coordinate reference system support.
+  with full no-data handling and coordinate reference system support. Public API is organized into
+  seven engine collaborators (`ds.io`, `ds.spatial`, `ds.bands`, `ds.analysis`, `ds.cell`,
+  `ds.vectorize`, `ds.cog`); same-named facade methods on the Dataset itself keep the
+  short form working — `ds.crop(mask)` and `ds.spatial.crop(mask)` are equivalent.
 - **NetCDF** - Extends Dataset for NetCDF files with time/variable dimensions and CF conventions metadata.
   Optional xarray interoperability.
 - **UgridDataset** - Read and visualize UGRID-1.0 unstructured meshes (triangles, quads, mixed).
   Supports mesh-to-raster interpolation and mesh-to-vector export.
-- **DatasetCollection** - Manage time-series of co-registered rasters as a temporal stack for
-  multi-temporal analysis.
+- **DatasetCollection** - Manage time-series of co-registered rasters as a lazy temporal stack
+  (per-timestep gdal handles open on demand; the full cube is never materialised in RAM)
+  with optional dask-backed reductions and groupby.
 - **FeatureCollection** - Work with vector data (shapefiles, GeoJSON) through a unified GeoDataFrame and
   OGR DataSource interface, including rasterization and geometry operations.
+- **Cloud-Optimized GeoTIFF (COG)** - First-class read/write/validate support via `ds.to_cog`,
+  `ds.is_cog`, and `ds.validate_cog`.
 - **Spatial operations** - Align rasters to a reference grid, reproject between coordinate systems,
   crop to vector boundaries, and convert between raster, NetCDF, and vector formats.
 
@@ -112,10 +122,14 @@ from pyramids.dataset import Dataset
 src = Dataset.read_file("path/to/raster.tif")
 print(src.epsg)        # coordinate reference system EPSG code
 print(src.cell_size)   # pixel resolution
-print(src.shape)       # (rows, columns)
+print(src.shape)       # (bands, rows, columns)
 
-# Get the raster data as a NumPy array
-arr = src.raster.ReadAsArray()
+# Read the raster data as a NumPy array
+arr = src.read_array()                  # all bands
+band0 = src.read_array(band=0)          # one band
+
+# Spatial ops route through the spatial engine; the facade stays short
+reprojected = src.to_crs(to_epsg=3857)  # same as src.spatial.to_crs(...)
 ```
 
 ```python
@@ -131,7 +145,19 @@ from pyramids.feature import FeatureCollection
 
 # Open a vector file
 vector = FeatureCollection.read_file("path/to/shapefile.shp")
-print(vector.shape)
+print(vector.epsg)            # CRS EPSG code
+print(vector.total_bounds)    # (minx, miny, maxx, maxy)
+```
+
+```python
+from pyramids.dataset import DatasetCollection
+
+# Build a lazy stack of co-registered rasters (no pixels read yet)
+cube = DatasetCollection.from_files(["a.tif", "b.tif", "c.tif"])
+print(cube.time_length, cube.shape)
+
+# Reductions over the time axis use dask under the hood
+mean = cube.mean()                       # nan-aware by default
 ```
 
 Testing
