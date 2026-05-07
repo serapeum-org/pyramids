@@ -2910,6 +2910,43 @@ class TestReprojectNonSquareCells:
 class TestCropAlignedNanMask:
     """Tests for _crop_aligned with NaN mask nodata value."""
 
+    def test_crop_aligned_numpy_mask_uses_source_geotransform(self):
+        """B-11 regression: numpy-array mask falls back to src geotransform.
+
+        Pre-fix the function relied on `try/except UnboundLocalError`
+        to detect the "mask is a numpy array" branch (because
+        `mask_gt` was only assigned in the RasterBase branch). The
+        replacement uses an explicit `isinstance(mask, RasterBase)`
+        check; this test guards both that the numpy-mask path still
+        works AND that the output geotransform / projection are
+        copied from the source raster (since a numpy array carries
+        no spatial metadata).
+        """
+        nd = -9999.0
+        src_arr = np.ones((4, 4), dtype=np.float32) * 5.0
+        src_top_left = (10.0, 50.0)
+        src_cell = 0.05
+        src = Dataset.create_from_array(
+            src_arr,
+            top_left_corner=src_top_left,
+            cell_size=src_cell,
+            epsg=4326,
+            no_data_value=nd,
+        )
+        mask_arr = np.ones((4, 4), dtype=np.float32)
+        mask_arr[0, 0] = nd
+        mask_arr[2, 3] = nd
+        result = src.spatial._crop_aligned(mask_arr, mask_noval=nd)
+        assert result.epsg == 4326, "Should preserve source CRS"
+        assert result.geotransform == src.geotransform, (
+            f"Output geotransform {result.geotransform} should match "
+            f"source {src.geotransform}"
+        )
+        result_arr = result.read_array()
+        assert np.isclose(result_arr[0, 0], nd), "Cell 0,0 should be nodata"
+        assert np.isclose(result_arr[2, 3], nd), "Cell 2,3 should be nodata"
+        assert np.isclose(result_arr[1, 1], 5.0), "Cell 1,1 should be unchanged"
+
     def test_crop_aligned_multi_band_with_nan_mask(self):
         """_crop_aligned multi-band with NaN mask nodata (line 4183)."""
         nd = -9999.0

@@ -598,15 +598,13 @@ class Spatial(_Engine):
         dst = self._ds.__class__._create_dataset(
             col, row, band_count, self._ds.gdal_dtype[0], driver="MEM"
         )
-        # but with a lot of computations,
-        # if the mask is an array and the mask_gt is not defined, use the src_gt as both the mask and the src
-        # are aligned, so they have the sam gt
-        try:
-            # set the geotransform
+        # if the mask is a numpy array there's no geotransform / CRS
+        # to copy from it; fall back to the source raster's because
+        # the contract requires both rasters to be already aligned.
+        if isinstance(mask, RasterBase):
             dst.SetGeoTransform(mask_gt)
-            # set the projection
             dst.SetProjection(mask.crs)
-        except UnboundLocalError:
+        else:
             dst.SetGeoTransform(self._ds.geotransform)
             dst.SetProjection(src_sref.ExportToWkt())
 
