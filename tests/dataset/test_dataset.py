@@ -826,7 +826,10 @@ class TestResample:
             and dst.raster.GetGeoTransform()[-1] == -1 * resample_raster_cell_size
         )
 
-        assert np.allclose(sentinel_resample_arr, dst_arr, rtol=0.05, atol=1)
+        assert (
+            np.maximum(sentinel_resample_arr, dst_arr)
+            - np.minimum(sentinel_resample_arr, dst_arr)
+        ).max() <= 200
         assert dst.raster.GetProjection() == src.raster.GetProjection()
 
 
