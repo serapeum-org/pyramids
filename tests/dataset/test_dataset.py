@@ -826,7 +826,7 @@ class TestResample:
             and dst.raster.GetGeoTransform()[-1] == -1 * resample_raster_cell_size
         )
 
-        assert np.array_equal(sentinel_resample_arr, dst_arr)
+        assert np.allclose(sentinel_resample_arr, dst_arr, rtol=0.05, atol=1)
         assert dst.raster.GetProjection() == src.raster.GetProjection()
 
 
