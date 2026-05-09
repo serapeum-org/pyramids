@@ -206,6 +206,11 @@ class MetadataBuilder:
             data_variable_names=data_vars,
         )
 
+    # Allow-list of CF attribute names topped up from the classic GDAL
+    # driver when the multidim driver omits them. Locked by the test
+    # `TestClassicDimFallbackAttrsConstant::test_classic_dim_fallback_attrs_value`
+    # — adding a name here is a behavioural change that should fail that
+    # test intentionally so the contract is reviewed.
     _CLASSIC_DIM_FALLBACK_ATTRS: tuple[str, ...] = ("units", "calendar")
 
     def _topup_dim_attrs_from_classic(
@@ -215,19 +220,36 @@ class MetadataBuilder:
         """Top up `dimensions[*].attrs` from classic GDAL metadata.
 
         The multidim NetCDF driver occasionally drops CF attributes
-        (notably `units` on time dims of CDS-Beta retrievals) from
-        the indexing variable. The same attributes remain reachable
-        through the classic driver as `<dim_name>#<attr_name>` keys
-        on a classic-mode `gdal.Dataset.GetMetadata()`. This helper
-        merges the classic-API view in for any attribute in
-        `_CLASSIC_DIM_FALLBACK_ATTRS` that the multidim path did
-        not surface, leaving everything else untouched.
+        (notably `units` on time dims of CDS-Beta retrievals) from the
+        indexing variable. The same attributes remain reachable through
+        the classic driver as `<dim_name>#<attr_name>` keys on a
+        classic-mode `gdal.Dataset.GetMetadata()`. This helper merges
+        the classic-API view in for any attribute in
+        `_CLASSIC_DIM_FALLBACK_ATTRS` that the multidim path did not
+        surface, leaving everything else untouched.
+
+        Existing multidim values always win over classic values; only
+        missing entries are merged. The `DimensionInfo` dataclass is
+        frozen, so updated entries are swapped in via
+        `dataclasses.replace` rather than mutated in place.
 
         Args:
             dimensions: Mutable map of dimensions assembled by
-                `GroupTraverser`. Entries with missing fallback
-                attrs are replaced with new `DimensionInfo` values
-                (the dataclass is frozen).
+                `GroupTraverser`. Entries with missing fallback attrs
+                are replaced with new `DimensionInfo` values keyed by
+                the same dictionary key.
+
+        Returns:
+            None. Mutates `dimensions` in place.
+
+        Notes:
+            All failure paths in `_read_classic_metadata_for_topup`
+            collapse to an empty dict, so this helper degrades to a
+            no-op when the classic metadata is unavailable.
+
+        See Also:
+            `_read_classic_metadata_for_topup`: source of the classic-API
+                metadata used here.
         """
         classic_md = self._read_classic_metadata_for_topup()
         if not classic_md:
@@ -248,13 +270,26 @@ class MetadataBuilder:
     def _read_classic_metadata_for_topup(self) -> dict[str, str]:
         """Return a classic-mode flat metadata dict for the dataset.
 
-        Datasets opened with `OF_MULTIDIM_RASTER` return `{}` from
-        `GetMetadata()`; the flat `<dim>#<attr>` keys only exist on
-        a classic-mode open. When the in-hand dataset already has
-        such keys, they are returned directly; otherwise a transient
-        classic-mode handle is opened on the same path. Any failure
-        (no path, file unreachable, GDAL error) yields `{}` so the
-        top-up becomes a no-op.
+        Datasets opened with `gdal.OF_MULTIDIM_RASTER` return `{}` from
+        `GetMetadata()`; the flat `<dim>#<attr>` keys only exist on a
+        classic-mode open. When the in-hand dataset already has such
+        keys (i.e. it was opened classically), they are returned
+        directly. Otherwise a transient classic-mode handle is opened
+        on the same path via `gdal.Open(GetDescription())`. Any failure
+        (no path, file unreachable, GDAL error on `GetMetadata` /
+        `GetDescription` / `Open`) yields `{}` so the top-up becomes a
+        no-op.
+
+        Returns:
+            dict[str, str]: Flat metadata keyed by `<dim>#<attr>` (and
+            other classic keys like `NC_GLOBAL#*`). Empty dict on any
+            failure path.
+
+        Notes:
+            This method opens a fresh GDAL handle when the in-hand
+            dataset is multidim-only. The handle is released as the
+            local variable goes out of scope; the returned dict is a
+            plain Python dict independent of GDAL state.
         """
         result: dict[str, str] = {}
         try:

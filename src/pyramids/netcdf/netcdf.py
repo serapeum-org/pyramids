@@ -614,6 +614,18 @@ class NetCDF(Dataset):
         like `sel()`, `read_array(unpack=True)`, and further spatial
         operations continue to work with consistent return types.
 
+        Both the legacy single-band-dim fields (`_band_dim_name`,
+        `_band_dim_values`) and the multi-band-dim fields
+        (`_band_dim_names`, `_band_dim_values_map`, `_band_dim_sizes`)
+        are propagated. The legacy length-guard nullifies
+        `_band_dim_values` only when its primary-dim view is provably
+        stale: for single-band-dim variables it compares
+        `len(values) != _band_count`; for multi-band-dim variables it
+        compares `prod(_band_dim_sizes) != _band_count` instead, so a
+        4-D variable whose total band count diverged from the cached
+        sizes (e.g. after a band-shrinking operation outside `sel()`)
+        drops the now-stale primary view.
+
         Args:
             result: The `Dataset` (or `NetCDF`) returned by a parent
                 spatial operation.
@@ -621,6 +633,11 @@ class NetCDF(Dataset):
         Returns:
             NetCDF: The same data wrapped as a `NetCDF` with all
                 variable-subset metadata preserved.
+
+        See Also:
+            `sel`: produces results that flow through this helper to
+                keep the multi-band-dim metadata consistent across
+                spatial ops.
         """
         if isinstance(result, NetCDF):
             wrapped = result
@@ -833,47 +850,87 @@ class NetCDF(Dataset):
         return result
 
     def sel(self, **kwargs: Any) -> NetCDF:
-        """Select a subset of bands by coordinate values.
+        """Select a subset of bands by coordinate values along a band dim.
 
-        Extracts bands whose coordinate values match the given
-        criteria. Works on variable subsets that have
-        `_band_dim_name` and `_band_dim_values` set by
-        `get_variable()`.
+        Extracts bands whose coordinate values match the given criteria.
+        Works on any variable subset that has at least one non-spatial
+        dimension tracked in `_band_dim_names` (set by
+        `get_variable()`). For 4-D+ files with multiple non-spatial
+        dims (e.g. `(valid_time, pressure_level, lat, lon)` from CDS-Beta
+        ERA5), `sel()` may name any of those dims; chaining `sel()`
+        pins multiple band dims one at a time.
 
-        The result is always a `NetCDF` instance with the same
-        variable metadata preserved, so that `sel()` can be
-        chained and NetCDF-specific methods like
-        `read_array(unpack=True)` remain available.
+        The result is always a `NetCDF` instance with the same variable
+        metadata preserved, so `sel()` can be chained and NetCDF-only
+        methods like `read_array(unpack=True)` remain available.
+
+        Internals: GDAL flattens an MDIM array `(d_0, ..., d_{n-1},
+        lat, lon)` row-major over the non-spatial dims, with the last
+        non-spatial dim varying fastest. For a band dim at axis `k`
+        with sizes `S`, the implementation uses
+        `stride = prod(S[k+1:])`, `block = stride * S[k]`, and
+        `total = prod(S)` to map each pinned index `p` to the band
+        ranges `[outer + p*stride .. outer + (p+1)*stride)` for every
+        `outer in range(0, total, block)`. For a single-band-dim
+        variable this reduces to the identity
+        `band_indices == dim_indices`.
 
         Args:
-            **kwargs: One keyword argument where the key is the
-                dimension name and the value is one of:
+            **kwargs: Exactly one keyword argument. The key must name a
+                tracked band dim (one of `self._band_dim_names`); the
+                value is one of:
 
                 - A single number: select one band by exact value.
                 - A list of numbers: select multiple bands.
                 - A `slice(start, stop)`: select bands where
-                  `start <= coord <= stop`.
+                  `start <= coord <= stop` (both bounds inclusive).
 
         Returns:
-            NetCDF: A new NetCDF variable subset with only the
-                selected bands and all variable metadata preserved.
+            NetCDF: A new variable subset with only the selected bands
+                and full metadata preserved. `_band_dim_sizes` reflects
+                the pinned axis (e.g. `(4, 1)` after pinning a level on
+                a `(4, 3)` cube), and `_band_dim_values_map[dim_name]`
+                shrinks to the chosen values. Legacy `_band_dim_values`
+                is refreshed from the (possibly updated) primary entry
+                in the map.
 
         Raises:
-            ValueError: If the dimension name doesn't match
-                `_band_dim_name`, or no matching bands are found.
+            ValueError: If exactly one kwarg isn't passed, the variable
+                has no tracked band dims, the named dim isn't one of
+                `_band_dim_names`, the dim has no coord values
+                (`_band_dim_values_map[dim] is None`), or no bands match
+                the selector.
 
         Examples:
-            Select a single time step::
+            - Pin a pressure level on a 4-D file:
+                ```python
+                >>> nc = NetCDF.read_file(  # doctest: +SKIP
+                ...     "tests/data/netcdf/pyramids-netcdf-4d.nc"
+                ... )
+                >>> var = nc.get_variable("temperature")  # doctest: +SKIP
+                >>> sub = var.sel(pressure_level=500)  # doctest: +SKIP
+                >>> sub._band_dim_sizes  # doctest: +SKIP
+                (4, 1)
 
-                var.sel(time=6)
+                ```
+            - Chain `sel()` to pin both time and level (collapses to 2-D):
+                ```python
+                >>> sub = var.sel(time=12).sel(pressure_level=500)  # doctest: +SKIP
+                >>> sub.read_array().shape  # doctest: +SKIP
+                (5, 6)
 
-            Select multiple time steps::
+                ```
+            - Use a list selector to keep only two of the levels:
+                ```python
+                >>> sub = var.sel(pressure_level=[1000, 500])  # doctest: +SKIP
+                >>> sub._band_dim_values_map["pressure_level"]  # doctest: +SKIP
+                [1000.0, 500.0]
 
-                var.sel(time=[0, 12, 24])
+                ```
 
-            Select a range::
-
-                var.sel(time=slice(6, 18))
+        See Also:
+            `get_variable`: builds a variable subset and populates the
+                band-dim metadata that `sel()` consumes.
         """
         if len(kwargs) != 1:
             raise ValueError("sel() requires exactly one keyword argument.")
@@ -1507,8 +1564,17 @@ class NetCDF(Dataset):
     def get_variable(self, variable_name: str) -> NetCDF:
         """Extract a single variable as a classic-raster NetCDF object.
 
-        The returned object carries origin metadata so that modified data
-        can be written back via `set_variable()`.
+        The returned object carries origin metadata so modified data
+        can be written back via `set_variable()`. Every non-spatial
+        dim of the variable is tracked: for an N-D MDIM array
+        `(d_0, ..., d_{n-1}, lat, lon)` the build path populates
+        `_band_dim_names`, `_band_dim_values_map`, and
+        `_band_dim_sizes` with all non-spatial dims in storage order,
+        while the legacy `_band_dim_name` / `_band_dim_values` keep
+        pointing at the first non-spatial dim so existing 3-D
+        consumers see no change. 4-D+ files (e.g. CDS-Beta ERA5
+        pressure-levels with `(valid_time, pressure_level, lat, lon)`)
+        are addressable via `sel()` along any tracked band dim.
 
         Supports group-qualified names: `"forecast/temperature"` first
         navigates to the `forecast` sub-group, then extracts
@@ -1519,11 +1585,24 @@ class NetCDF(Dataset):
                 to separate group path from variable name.
 
         Returns:
-            NetCDF: A subset backed by a classic dataset where
-                non-spatial dimensions are mapped to bands.
+            NetCDF: A subset backed by a classic dataset where every
+                non-spatial dimension is mapped onto bands. The new
+                `_band_dim_names` / `_band_dim_values_map` /
+                `_band_dim_sizes` fields drive `sel()`; the legacy
+                `_band_dim_name` / `_band_dim_values` track the first
+                non-spatial dim.
 
         Raises:
             ValueError: If `variable_name` is not present in the dataset.
+
+        Notes:
+            String-typed indexing variables (e.g. WRF's `Times` array)
+            cannot be read via GDAL SWIG bindings; the build path falls
+            back to integer indices `[0, 1, ..., size - 1]` for those
+            dims.
+
+        See Also:
+            `sel`: subsets the result along any tracked band dim.
         """
         # Handle group-qualified names: "forecast/temperature"
         if "/" in variable_name:
