@@ -581,15 +581,18 @@ class TestSelEdgeCases:
     """sel() edge cases specific to ARC-10."""
 
     def test_sel_raises_when_band_dim_values_is_none(self):
-        """sel() raises ValueError when _band_dim_values is None.
+        """sel() raises ValueError when the band dim has no coord values.
 
         Test scenario:
-            A variable with _band_dim_name set but _band_dim_values
-            as None should raise a clear error, not crash in the
-            band-level read loop.
+            A variable with the band dim tracked but no coord values
+            (string-typed indexing variables that GDAL SWIG can't read,
+            or a fabricated subset where the values were lost) should
+            raise a clear error, not crash in the band-level read loop.
+            Post-#311 the lookup is on ``_band_dim_values_map[dim_name]``.
         """
         nc = _make_3d_nc()
         var = nc.get_variable("temperature")
+        var._band_dim_values_map["time"] = None
         var._band_dim_values = None
         with pytest.raises(ValueError, match="No coordinate values"):
             var.sel(time=6)

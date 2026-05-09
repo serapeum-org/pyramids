@@ -1414,13 +1414,24 @@ class TestGetVariableNonDataset:
 
 
 class TestGetVariableMultipleBandDims:
-    """Tests for get_variable with multiple non-spatial dims."""
+    """Tests for get_variable with multiple non-spatial dims (issue #311).
+
+    Pre-#311 the build path discarded both band dims when there was more
+    than one non-spatial dim, leaving ``_band_dim_name = None`` and
+    locking out ``sel()``. Post-#311 the build path tracks every
+    non-spatial dim in ``_band_dim_names`` / ``_band_dim_values_map`` /
+    ``_band_dim_sizes``, while the legacy ``_band_dim_name`` /
+    ``_band_dim_values`` keep pointing at the first non-spatial dim.
+    """
 
     def test_get_variable_with_two_band_dims(self):
-        """Verify get_variable sets band_dim_name=None when >1 band dims.
+        """Build path tracks both band dims for a 4-D variable.
 
-        Covers the else branch where len(band_dims) != 1
-        (e.g. a 4D array with two non-spatial dimensions).
+        Test scenario:
+            Construct an in-memory 4-D MDArray with dims (time, ensemble,
+            y, x). Both non-spatial dims must appear in ``_band_dim_names``
+            in storage order; their sizes and coord values must be
+            populated; legacy fields point at the primary (time) dim.
         """
         src = gdal.GetDriverByName("MEM").CreateMultiDimensional("multi_band_dims")
         rg = src.GetRootGroup()
@@ -1452,12 +1463,25 @@ class TestGetVariableMultipleBandDims:
 
         nc = NetCDF(src)
         var = nc.get_variable("temp")
-        assert (
-            var._band_dim_name is None
-        ), f"Expected None band_dim_name for 4D var, got {var._band_dim_name}"
-        assert (
-            var._band_dim_values is None
-        ), f"Expected None band_dim_values for 4D var, got {var._band_dim_values}"
+        assert var._band_dim_names == ("time", "ensemble"), (
+            f"Expected ('time', 'ensemble'), got {var._band_dim_names!r}"
+        )
+        assert var._band_dim_sizes == (2, 2), (
+            f"Expected sizes (2, 2), got {var._band_dim_sizes!r}"
+        )
+        assert var._band_dim_values_map["time"] == [0.0, 1.0], (
+            f"time values mismatch: {var._band_dim_values_map.get('time')!r}"
+        )
+        assert var._band_dim_values_map["ensemble"] == [1.0, 2.0], (
+            f"ensemble values mismatch: "
+            f"{var._band_dim_values_map.get('ensemble')!r}"
+        )
+        assert var._band_dim_name == "time", (
+            f"legacy primary must be 'time', got {var._band_dim_name!r}"
+        )
+        assert var._band_dim_values == [0.0, 1.0], (
+            f"legacy primary values mismatch: {var._band_dim_values!r}"
+        )
 
 
 class TestGetVariableAttrException:

@@ -218,6 +218,9 @@ class NetCDF(Dataset):
         self._md_array_dims: list[str] = []
         self._band_dim_name: str | None = None
         self._band_dim_values: list[Any] | None = None
+        self._band_dim_names: tuple[str, ...] = ()
+        self._band_dim_values_map: dict[str, list[Any] | None] = {}
+        self._band_dim_sizes: tuple[int, ...] = ()
         self._variable_attrs: dict[str, Any] = {}
         self._scale: float | None = None
         self._offset: float | None = None
@@ -248,6 +251,9 @@ class NetCDF(Dataset):
             "_md_array_dims": self._md_array_dims,
             "_band_dim_name": self._band_dim_name,
             "_band_dim_values": self._band_dim_values,
+            "_band_dim_names": self._band_dim_names,
+            "_band_dim_values_map": self._band_dim_values_map,
+            "_band_dim_sizes": self._band_dim_sizes,
             "_variable_attrs": self._variable_attrs,
             "_scale": self._scale,
             "_offset": self._offset,
@@ -627,11 +633,33 @@ class NetCDF(Dataset):
         wrapped._is_md_array = self._is_md_array
         wrapped._is_subset = self._is_subset
         wrapped._band_dim_name = self._band_dim_name
+        wrapped._band_dim_names = self._band_dim_names
+        wrapped._band_dim_sizes = self._band_dim_sizes
+        wrapped._band_dim_values_map = dict(self._band_dim_values_map)
+        # Length-guard: nullify legacy values only when the primary-dim
+        # view is provably stale. For multi-band-dim variables the
+        # `_band_count` is the product of every band-dim size, so compare
+        # against `prod(_band_dim_sizes)` rather than `len(values)`.
+        expected_count = 1
+        for sz in self._band_dim_sizes:
+            expected_count *= sz
         if (
             self._band_dim_values is not None
             and wrapped._band_count > 0
+            and len(self._band_dim_names) <= 1
             and len(self._band_dim_values) != wrapped._band_count
         ):
+            wrapped._band_dim_values = None
+        elif (
+            self._band_dim_values is not None
+            and wrapped._band_count > 0
+            and len(self._band_dim_names) > 1
+            and expected_count != wrapped._band_count
+        ):
+            # Multi-band-dim variable whose total band count diverged from
+            # the cached sizes (e.g. after a band-shrinking operation
+            # outside sel()). Drop the now-stale primary view; sel() must
+            # repopulate before further use.
             wrapped._band_dim_values = None
         else:
             wrapped._band_dim_values = self._band_dim_values
@@ -852,51 +880,69 @@ class NetCDF(Dataset):
 
         dim_name, selector = next(iter(kwargs.items()))
 
-        if self._band_dim_name is None:
+        if not self._band_dim_names:
             raise ValueError(
-                "sel() requires a variable with a non-spatial dimension. "
-                "This variable has no band dimension tracked."
+                "sel() requires a variable with at least one non-spatial "
+                "dimension. This variable has no band dimensions tracked."
             )
-        if dim_name != self._band_dim_name:
+        if dim_name not in self._band_dim_names:
             raise ValueError(
-                f"Dimension '{dim_name}' does not match the band "
-                f"dimension '{self._band_dim_name}'."
-            )
-        if self._band_dim_values is None:
-            raise ValueError(
-                "No coordinate values available for dimension " f"'{dim_name}'."
+                f"Dimension {dim_name!r} does not match any band dimension "
+                f"of this variable {list(self._band_dim_names)!r}."
             )
 
-        coords = self._band_dim_values
+        coords = self._band_dim_values_map.get(dim_name)
+        if coords is None:
+            raise ValueError(
+                f"No coordinate values available for dimension {dim_name!r}."
+            )
 
         if isinstance(selector, slice):
             start = selector.start if selector.start is not None else coords[0]
             stop = selector.stop if selector.stop is not None else coords[-1]
-            band_indices = [i for i, v in enumerate(coords) if start <= v <= stop]
+            dim_indices = [i for i, v in enumerate(coords) if start <= v <= stop]
         elif isinstance(selector, list):
             coord_set = set(selector)
-            band_indices = [i for i, v in enumerate(coords) if v in coord_set]
+            dim_indices = [i for i, v in enumerate(coords) if v in coord_set]
         else:
-            band_indices = [i for i, v in enumerate(coords) if v == selector]
+            dim_indices = [i for i, v in enumerate(coords) if v == selector]
 
-        if not band_indices:
+        if not dim_indices:
             raise ValueError(
-                f"No bands match {dim_name}={selector}. " f"Available values: {coords}"
+                f"No bands match {dim_name}={selector}. "
+                f"Available values: {coords}"
             )
 
-        selected_coords = [coords[i] for i in band_indices]
+        # Map (pinned dim index along dim_name) -> classic-band indices.
+        # GDAL flattens (d_0, ..., d_{n-1}, lat, lon) row-major over the
+        # non-spatial dims: the last non-spatial dim varies fastest. For
+        # a band-dim at axis `k` with sizes S, stride = prod(S[k+1:]) and
+        # block = stride * S[k]. For each pinned index p we emit
+        # `[outer + p*stride .. outer + (p+1)*stride)` for every outer in
+        # range(0, total, block). Reduces to identity (band_indices ==
+        # dim_indices) when there is exactly one band dim.
+        dim_axis = self._band_dim_names.index(dim_name)
+        sizes = self._band_dim_sizes
+        stride = 1
+        for sz in sizes[dim_axis + 1:]:
+            stride *= sz
+        block = stride * sizes[dim_axis]
+        total = 1
+        for sz in sizes:
+            total *= sz
+
+        band_indices: list[int] = []
+        for pinned in dim_indices:
+            for outer_start in range(0, total, block):
+                base = outer_start + pinned * stride
+                band_indices.extend(range(base, base + stride))
+
+        selected_coords = [coords[i] for i in dim_indices]
 
         # Read only the selected bands instead of loading the full array.
         # Each band index maps to a 1-based GDAL band in the classic
-        # dataset view created by get_variable().
-        #
-        # Trade-off: band-by-band reads avoid loading the entire variable
-        # into memory, which matters for large variables with few selected
-        # bands. However, when *most* bands are selected the per-band
-        # GDAL overhead may be slower than a single full read followed by
-        # NumPy slicing. In practice the difference is small because GDAL
-        # MEM driver reads are cheap; revisit if profiling shows a
-        # bottleneck for large on-disk NetCDFs.
+        # dataset view created by get_variable(). Band-by-band reads
+        # avoid loading the entire variable into memory.
         band_arrays = [self.read_array(band=i) for i in band_indices]
         if len(band_arrays) == 1:
             selected = band_arrays[0]
@@ -912,7 +958,19 @@ class NetCDF(Dataset):
             no_data_value=ndv_scalar,
         )
         result = self._preserve_netcdf_metadata(ds_result)
-        result._band_dim_values = selected_coords
+        new_sizes = tuple(
+            len(dim_indices) if i == dim_axis else s
+            for i, s in enumerate(sizes)
+        )
+        result._band_dim_sizes = new_sizes
+        result._band_dim_values_map = dict(self._band_dim_values_map)
+        result._band_dim_values_map[dim_name] = selected_coords
+        # Refresh legacy primary-dim values to match the (possibly
+        # updated) primary entry in the map.
+        if result._band_dim_name is not None:
+            result._band_dim_values = result._band_dim_values_map.get(
+                result._band_dim_name
+            )
 
         return result
 
@@ -1534,30 +1592,46 @@ class NetCDF(Dataset):
                 dims = md_arr.GetDimensions()
                 cube._md_array_dims = [d.GetName() for d in dims]
 
-                # Identify which dimension became bands (all except X/Y)
+                # Identify which dimensions became bands (all except X/Y).
+                # Track every non-spatial dim so 4-D+ files (e.g. CDS-Beta
+                # ERA5 pressure-levels: time, pressure_level, lat, lon)
+                # remain addressable via sel(). Legacy fields point at the
+                # primary (first) non-spatial dim so 3-D consumers see no
+                # change.
                 if len(dims) > 2:
                     spatial_indices = {len(dims) - 1, len(dims) - 2}
                     band_dims = [
                         d for i, d in enumerate(dims) if i not in spatial_indices
                     ]
-                    if len(band_dims) == 1:
-                        cube._band_dim_name = band_dims[0].GetName()
-                        iv = band_dims[0].GetIndexingVariable()
+                else:
+                    band_dims = []
+
+                if band_dims:
+                    cube._band_dim_names = tuple(d.GetName() for d in band_dims)
+                    cube._band_dim_sizes = tuple(d.GetSize() for d in band_dims)
+                    cube._band_dim_values_map = {}
+                    for d in band_dims:
+                        iv = d.GetIndexingVariable()
                         try:
-                            cube._band_dim_values = (
+                            values = (
                                 iv.ReadAsArray().tolist() if iv is not None else None
                             )
                         except RuntimeError:
                             # String-typed indexing variables (e.g. WRF
                             # "Times") can't be read via ReadAsArray in
                             # GDAL SWIG bindings — fall back to indices.
-                            cube._band_dim_values = list(range(band_dims[0].GetSize()))
-                    else:
-                        cube._band_dim_name = None
-                        cube._band_dim_values = None
+                            values = list(range(d.GetSize()))
+                        cube._band_dim_values_map[d.GetName()] = values
+                    cube._band_dim_name = cube._band_dim_names[0]
+                    cube._band_dim_values = cube._band_dim_values_map[
+                        cube._band_dim_name
+                    ]
                 else:
                     cube._band_dim_name = None
                     cube._band_dim_values = None
+                    cube._band_dim_names = ()
+                    cube._band_dim_values_map = {}
+                    cube._band_dim_sizes = ()
 
                 # Copy variable attributes
                 cube._variable_attrs = {}
@@ -1578,6 +1652,9 @@ class NetCDF(Dataset):
                 cube._md_array_dims = []
                 cube._band_dim_name = None
                 cube._band_dim_values = None
+                cube._band_dim_names = ()
+                cube._band_dim_values_map = {}
+                cube._band_dim_sizes = ()
                 cube._variable_attrs = {}
                 cube._scale = None
                 cube._offset = None
@@ -1585,6 +1662,9 @@ class NetCDF(Dataset):
             cube._md_array_dims = []
             cube._band_dim_name = None
             cube._band_dim_values = None
+            cube._band_dim_names = ()
+            cube._band_dim_values_map = {}
+            cube._band_dim_sizes = ()
             cube._variable_attrs = {}
             cube._scale = None
             cube._offset = None
@@ -2419,6 +2499,9 @@ class NetCDF(Dataset):
         )
         materialized._band_dim_name = var._band_dim_name
         materialized._band_dim_values = var._band_dim_values
+        materialized._band_dim_names = var._band_dim_names
+        materialized._band_dim_values_map = dict(var._band_dim_values_map)
+        materialized._band_dim_sizes = var._band_dim_sizes
         materialized._variable_attrs = var._variable_attrs
         self.set_variable(variable_name, materialized)
         return self

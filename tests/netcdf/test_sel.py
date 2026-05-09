@@ -480,3 +480,53 @@ class TestSelRoundTrip:
             expected,
             err_msg="Round-trip data mismatch after sel → set_variable",
         )
+
+
+class TestSelThreeDimRegression:
+    """3-D files keep the pre-feature contract after #311 lifted the
+    single-band-dim restriction.
+
+    Locks in: legacy ``_band_dim_name`` / ``_band_dim_values`` populated,
+    new ``_band_dim_names`` is a 1-tuple, ``_band_dim_sizes`` is a 1-tuple,
+    and ``_band_dim_values_map`` carries the same primary list.
+    """
+
+    def test_legacy_fields_populated_for_3d(self):
+        """3-D variable still exposes legacy single-dim fields unchanged."""
+        nc = _make_nc()
+        var = nc.get_variable("temp")
+        assert var._band_dim_name == "time", (
+            f"primary dim must be 'time', got {var._band_dim_name!r}"
+        )
+        assert var._band_dim_values == [0, 6, 12, 18, 24], (
+            f"values mismatch: {var._band_dim_values!r}"
+        )
+
+    def test_new_fields_are_singleton_for_3d(self):
+        """The new multi-dim fields collapse to one-entry containers on a 3-D file."""
+        nc = _make_nc()
+        var = nc.get_variable("temp")
+        assert var._band_dim_names == ("time",), (
+            f"_band_dim_names must be a 1-tuple, got {var._band_dim_names!r}"
+        )
+        assert var._band_dim_sizes == (5,), (
+            f"_band_dim_sizes must be (5,), got {var._band_dim_sizes!r}"
+        )
+        assert var._band_dim_values_map == {"time": [0, 6, 12, 18, 24]}, (
+            f"_band_dim_values_map mismatch: {var._band_dim_values_map!r}"
+        )
+
+    def test_sel_after_pin_keeps_singleton_layout(self):
+        """``sel(time=12)`` on a 3-D var still produces a single-band-dim result."""
+        nc = _make_nc()
+        var = nc.get_variable("temp")
+        result = var.sel(time=12)
+        assert result._band_dim_names == ("time",), (
+            f"singleton layout broken: {result._band_dim_names!r}"
+        )
+        assert result._band_dim_sizes == (1,), (
+            f"size after sel must be (1,), got {result._band_dim_sizes!r}"
+        )
+        assert result._band_dim_values_map == {"time": [12]}, (
+            f"values_map after sel mismatch: {result._band_dim_values_map!r}"
+        )
