@@ -216,9 +216,14 @@ jobs:
           print('All runtime checks passed.')
           "
 
-      - name: Run test suite (non-plot)
+      - name: Run core test suite
         shell: bash
-        run: pytest -vvv -sv -o "pythonpath=" -m "not plot and not xarray" --ignore=tests/dataset/test_plot.py tests/
+        # `core` is auto-applied by tests/conftest.py to every test that
+        # doesn't carry an extras marker (plot/xarray/lazy/etc.). Same
+        # convention as wheel-test.yml::test-wheel-core. Extras-gated
+        # tests auto-skip when their extra isn't installed (we install
+        # the bare wheel only).
+        run: pytest -vvv -sv -o "pythonpath=" -m core tests/
 
   # -------------------------------------------------------------------------
   # Publish to PyPI using the PYPI_PUBLISH token (same secret as

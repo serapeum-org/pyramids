@@ -41,9 +41,6 @@ if _vendored_osgeo.is_dir():
         print(f"[pyramids] GDAL_DATA: {_os.environ.get('GDAL_DATA')}")
         print(f"[pyramids] PROJ_DATA: {_os.environ.get('PROJ_DATA')}")
 
-from pyramids.base.config import Config
-
-
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _get_version
 
