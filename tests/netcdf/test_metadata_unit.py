@@ -665,6 +665,84 @@ class TestReadClassicMetadataForTopup:
             md == {}
         ), f"expected empty dict when reopened md is None, got {md}"
 
+    def test_repeat_calls_use_cache_and_skip_reopen(self):
+        """Second call returns the cached result without re-opening.
+
+        Test scenario:
+            Two consecutive calls to ``_read_classic_metadata_for_topup``
+            on the same builder. ``gdal.Open`` must run exactly once
+            (first call); the second call returns the same dict without
+            invoking ``gdal.Open`` again.
+        """
+        ds = MagicMock()
+        ds.GetMetadata.return_value = {}
+        ds.GetDescription.return_value = "/some/file.nc"
+        classic_ds = MagicMock()
+        classic_ds.GetMetadata.return_value = {"x#units": "m"}
+        builder = MetadataBuilder(ds)
+
+        with patch(
+            "pyramids.netcdf.metadata.gdal.Open", return_value=classic_ds
+        ) as mock_open:
+            first = builder._read_classic_metadata_for_topup()
+            second = builder._read_classic_metadata_for_topup()
+
+        assert (
+            mock_open.call_count == 1
+        ), f"reopen should run once, ran {mock_open.call_count} times"
+        assert first == {"x#units": "m"}, f"first call wrong: {first}"
+        assert second is first, (
+            "second call should return the cached object, "
+            f"got distinct objects: {second!r} vs {first!r}"
+        )
+
+    def test_cache_holds_empty_dict_after_failure(self):
+        """A failed first call still caches; second call doesn't retry.
+
+        Test scenario:
+            First call fails (no path; reopen yields ``{}``). Second
+            call returns the cached empty dict without calling
+            ``gdal.Open`` again. Avoids hammering a broken remote path.
+        """
+        ds = MagicMock()
+        ds.GetMetadata.return_value = {}
+        ds.GetDescription.return_value = ""
+        builder = MetadataBuilder(ds)
+
+        with patch("pyramids.netcdf.metadata.gdal.Open") as mock_open:
+            first = builder._read_classic_metadata_for_topup()
+            second = builder._read_classic_metadata_for_topup()
+
+        mock_open.assert_not_called()
+        assert first == {} == second, (
+            f"both calls should return the cached empty dict, "
+            f"got first={first!r}, second={second!r}"
+        )
+
+    def test_fresh_builder_does_not_share_cache(self):
+        """Cache is per-instance; constructing a new builder re-fills.
+
+        Test scenario:
+            First builder caches one classic-md dict. A second builder
+            built on the same dataset must hit ``gdal.Open`` again — the
+            cache lives on the builder, not on the dataset.
+        """
+        ds = MagicMock()
+        ds.GetMetadata.return_value = {}
+        ds.GetDescription.return_value = "/some/file.nc"
+        classic_ds = MagicMock()
+        classic_ds.GetMetadata.return_value = {"y#units": "s"}
+
+        with patch(
+            "pyramids.netcdf.metadata.gdal.Open", return_value=classic_ds
+        ) as mock_open:
+            MetadataBuilder(ds)._read_classic_metadata_for_topup()
+            MetadataBuilder(ds)._read_classic_metadata_for_topup()
+
+        assert mock_open.call_count == 2, (
+            f"each fresh builder should reopen, ran {mock_open.call_count} times"
+        )
+
 
 class TestDimAttrsTopupFromClassicExtras:
     """Additional branch coverage for ``_topup_dim_attrs_from_classic``.

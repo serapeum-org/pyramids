@@ -81,6 +81,12 @@ class MetadataBuilder:
         """
         self.gdal_dataset = src
         self.open_options = open_options or None
+        # Cache for `_read_classic_metadata_for_topup`: lazy-filled on
+        # first call so repeat builds (or repeat calls within a build)
+        # don't re-open the file in classic mode. `None` means "not yet
+        # filled"; an empty dict means "filled but no classic metadata
+        # was available". Reset by `_invalidate_classic_md_cache`.
+        self._classic_md_cache: dict[str, str] | None = None
 
     def build(self) -> NetCDFMetadata:
         """Build and return the `NetCDFMetadata` for the dataset.
@@ -280,17 +286,25 @@ class MetadataBuilder:
         `GetDescription` / `Open`) yields `{}` so the top-up becomes a
         no-op.
 
+        The result is cached on the `MetadataBuilder` instance after
+        the first call so that repeat builds — and code paths that
+        invoke `build()` in a loop, e.g. `to_kerchunk` or
+        `_apply_to_all_variables` — don't re-open the file every time.
+        For cloud / VSI paths this avoids extra network round-trips.
+
         Returns:
             dict[str, str]: Flat metadata keyed by `<dim>#<attr>` (and
             other classic keys like `NC_GLOBAL#*`). Empty dict on any
             failure path.
 
         Notes:
-            This method opens a fresh GDAL handle when the in-hand
-            dataset is multidim-only. The handle is released as the
-            local variable goes out of scope; the returned dict is a
-            plain Python dict independent of GDAL state.
+            The cache is invalidated only by constructing a fresh
+            `MetadataBuilder`. That matches the lifecycle of the class
+            (one builder per dataset per intent) and avoids stale-
+            metadata bugs if a caller mutates the underlying file.
         """
+        if self._classic_md_cache is not None:
+            return self._classic_md_cache
         result: dict[str, str] = {}
         try:
             existing = self.gdal_dataset.GetMetadata() or {}
@@ -308,14 +322,18 @@ class MetadataBuilder:
             if path:
                 try:
                     ds = gdal.Open(path)
-                    if ds is not None:
-                        result = ds.GetMetadata() or {}
+                    try:
+                        if ds is not None:
+                            result = ds.GetMetadata() or {}
+                    finally:
+                        ds = None  # explicit release; see review M1
                 except RuntimeError as exc:
                     logger.debug(
                         "classic re-open failed during dim top-up (%r): %s",
                         path,
                         exc,
                     )
+        self._classic_md_cache = result
         return result
 
 
