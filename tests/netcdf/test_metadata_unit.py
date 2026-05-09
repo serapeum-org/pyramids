@@ -14,6 +14,7 @@ import json
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
+from osgeo import gdal
 
 from pyramids.netcdf.metadata import (
     GroupTraverser,
@@ -345,6 +346,580 @@ class TestMetadataBuilder:
         assert (
             "version" in md.created_with
         ), f"Expected 'version' key in created_with, got {md.created_with}"
+
+
+class TestDimAttrsTopupFromClassic:
+    """Surface `<dim>#units` from classic GDAL metadata when the multidim
+    indexing variable omits it (CDS-Beta NetCDFs).
+    """
+
+    def test_units_topped_up_when_multidim_omits_it(self):
+        """Multidim has long_name+calendar; classic has units (and calendar)."""
+        iv = MagicMock()
+        iv.GetFullName.return_value = "/valid_time"
+        iv.GetName.return_value = "valid_time"
+        iv.GetAttributes.return_value = [
+            _mock_attribute("long_name", "time"),
+            _mock_attribute("calendar", "proleptic_gregorian"),
+        ]
+        dim = _mock_dimension(name="valid_time", full_name="/valid_time", size=12)
+        dim.GetIndexingVariable.return_value = iv
+
+        root = _mock_group(dimensions=[dim])
+        ds = _mock_dataset(
+            root_group=root,
+            metadata={
+                "valid_time#units": "seconds since 1970-01-01",
+                "valid_time#calendar": "should-not-overwrite",
+            },
+        )
+
+        md = MetadataBuilder(ds).build()
+
+        assert (
+            md.dimensions["valid_time"].attrs.get("units")
+            == "seconds since 1970-01-01"
+        ), "classic units should be merged into the dim attrs"
+        assert (
+            md.dimensions["valid_time"].attrs.get("calendar")
+            == "proleptic_gregorian"
+        ), "multidim calendar must not be overwritten by the classic value"
+
+    def test_existing_units_not_overwritten(self):
+        """Multidim already has units; classic must not overwrite it."""
+        iv = MagicMock()
+        iv.GetFullName.return_value = "/time"
+        iv.GetName.return_value = "time"
+        iv.GetAttributes.return_value = [
+            _mock_attribute("units", "days since 1979-01-01"),
+        ]
+        dim = _mock_dimension(name="time", full_name="/time", size=10)
+        dim.GetIndexingVariable.return_value = iv
+
+        root = _mock_group(dimensions=[dim])
+        ds = _mock_dataset(
+            root_group=root,
+            metadata={"time#units": "seconds since 1970-01-01"},
+        )
+
+        md = MetadataBuilder(ds).build()
+
+        assert (
+            md.dimensions["time"].attrs.get("units") == "days since 1979-01-01"
+        ), "multidim units must win over classic units"
+
+    def test_no_classic_fallback_value_leaves_attrs_unchanged(self):
+        """Neither path exposes units; attrs stay as-is."""
+        iv = MagicMock()
+        iv.GetFullName.return_value = "/x"
+        iv.GetName.return_value = "x"
+        iv.GetAttributes.return_value = [_mock_attribute("long_name", "x-axis")]
+        dim = _mock_dimension(name="x", full_name="/x", size=10)
+        dim.GetIndexingVariable.return_value = iv
+
+        root = _mock_group(dimensions=[dim])
+        ds = _mock_dataset(root_group=root, metadata={})
+
+        md = MetadataBuilder(ds).build()
+
+        assert (
+            "units" not in md.dimensions["x"].attrs
+        ), "units must remain absent when neither path provides it"
+        assert (
+            md.dimensions["x"].attrs.get("long_name") == "x-axis"
+        ), "pre-existing attrs must be preserved"
+
+    def test_classic_metadata_failure_is_safe(self):
+        """RuntimeError from GetMetadata() must not break build()."""
+        iv = MagicMock()
+        iv.GetFullName.return_value = "/valid_time"
+        iv.GetName.return_value = "valid_time"
+        iv.GetAttributes.return_value = []
+        dim = _mock_dimension(name="valid_time", full_name="/valid_time", size=1)
+        dim.GetIndexingVariable.return_value = iv
+
+        root = _mock_group(dimensions=[dim])
+        ds = _mock_dataset(root_group=root, metadata={})
+        ds.GetMetadata.side_effect = RuntimeError("boom")
+
+        md = MetadataBuilder(ds).build()
+
+        assert (
+            "units" not in md.dimensions["valid_time"].attrs
+        ), "GetMetadata failure must leave dim attrs untouched"
+
+
+class TestReadClassicMetadataForTopup:
+    """Branch-level tests for ``MetadataBuilder._read_classic_metadata_for_topup``.
+
+    Exercises every decision point of the helper directly (without going
+    through ``build()``) so each branch — classic-already-has-keys, reopen
+    success, reopen-None, reopen-raises, empty-path, GetDescription failure,
+    GetMetadata failure, ``None`` returned by either ``GetMetadata`` — has
+    its own dedicated case.
+    """
+
+    def test_uses_existing_metadata_when_it_has_hash_keys(self):
+        """Classic-already-has-keys path returns ``GetMetadata`` directly.
+
+        Test scenario:
+            ``ds.GetMetadata()`` returns a dict containing at least one
+            ``<dim>#<attr>`` key. The helper must use it as-is and never
+            call ``gdal.Open``.
+        """
+        ds = MagicMock()
+        ds.GetMetadata.return_value = {"valid_time#units": "seconds since 1970"}
+        builder = MetadataBuilder(ds)
+
+        with patch("pyramids.netcdf.metadata.gdal.Open") as mock_open:
+            md = builder._read_classic_metadata_for_topup()
+
+        mock_open.assert_not_called()
+        assert md == {
+            "valid_time#units": "seconds since 1970"
+        }, f"expected pass-through of classic md, got {md}"
+
+    def test_metadata_without_hash_keys_triggers_reopen(self):
+        """Non-empty metadata without ``#`` keys still falls through to reopen.
+
+        Test scenario:
+            Multidim datasets sometimes return ``NETCDF_DIM_*`` keys but no
+            ``<dim>#<attr>`` keys. The helper must not be fooled by the
+            non-empty dict and must reopen in classic mode.
+        """
+        ds = MagicMock()
+        ds.GetMetadata.return_value = {"NETCDF_DIM_time_DEF": "{2,6}"}
+        ds.GetDescription.return_value = "/some/file.nc"
+        classic_ds = MagicMock()
+        classic_ds.GetMetadata.return_value = {"time#units": "days"}
+        builder = MetadataBuilder(ds)
+
+        with patch("pyramids.netcdf.metadata.gdal.Open", return_value=classic_ds):
+            md = builder._read_classic_metadata_for_topup()
+
+        assert md == {
+            "time#units": "days"
+        }, f"expected reopen result, got {md}"
+
+    def test_reopens_in_classic_mode_when_existing_metadata_empty(self):
+        """Multidim dataset reopens transparently and returns classic metadata.
+
+        Test scenario:
+            ``GetMetadata`` returns ``{}`` (multidim case);
+            ``GetDescription`` exposes the file path; ``gdal.Open`` returns a
+            classic-mode handle whose ``GetMetadata`` carries the flat keys.
+        """
+        ds = MagicMock()
+        ds.GetMetadata.return_value = {}
+        ds.GetDescription.return_value = "/some/file.nc"
+        classic_ds = MagicMock()
+        classic_ds.GetMetadata.return_value = {"valid_time#units": "secs"}
+        builder = MetadataBuilder(ds)
+
+        with patch(
+            "pyramids.netcdf.metadata.gdal.Open", return_value=classic_ds
+        ) as mock_open:
+            md = builder._read_classic_metadata_for_topup()
+
+        mock_open.assert_called_once_with("/some/file.nc")
+        assert md == {
+            "valid_time#units": "secs"
+        }, f"expected reopen metadata, got {md}"
+
+    def test_reopen_returns_none_yields_empty_dict(self):
+        """``gdal.Open`` returning ``None`` is treated as a no-op.
+
+        Test scenario:
+            File path is set but ``gdal.Open`` returns ``None`` (file
+            unreachable / unsupported driver); helper degrades to ``{}``.
+        """
+        ds = MagicMock()
+        ds.GetMetadata.return_value = {}
+        ds.GetDescription.return_value = "/missing/file.nc"
+        builder = MetadataBuilder(ds)
+
+        with patch("pyramids.netcdf.metadata.gdal.Open", return_value=None):
+            md = builder._read_classic_metadata_for_topup()
+
+        assert md == {}, f"expected empty dict on reopen None, got {md}"
+
+    def test_reopen_raises_runtime_error_yields_empty_dict(self):
+        """``gdal.Open`` raising ``RuntimeError`` is swallowed; helper returns ``{}``.
+
+        Test scenario:
+            Reopening raises a GDAL-style RuntimeError (e.g. driver not
+            available, permission denied). Helper must log and degrade to
+            ``{}`` so the topup becomes a no-op.
+        """
+        ds = MagicMock()
+        ds.GetMetadata.return_value = {}
+        ds.GetDescription.return_value = "/broken.nc"
+        builder = MetadataBuilder(ds)
+
+        with patch(
+            "pyramids.netcdf.metadata.gdal.Open",
+            side_effect=RuntimeError("driver said no"),
+        ):
+            md = builder._read_classic_metadata_for_topup()
+
+        assert md == {}, f"expected empty dict on reopen RuntimeError, got {md}"
+
+    def test_empty_description_skips_reopen(self):
+        """Empty ``GetDescription`` short-circuits the reopen branch.
+
+        Test scenario:
+            In-memory datasets often have an empty description; helper must
+            not call ``gdal.Open("")`` and must return ``{}``.
+        """
+        ds = MagicMock()
+        ds.GetMetadata.return_value = {}
+        ds.GetDescription.return_value = ""
+        builder = MetadataBuilder(ds)
+
+        with patch("pyramids.netcdf.metadata.gdal.Open") as mock_open:
+            md = builder._read_classic_metadata_for_topup()
+
+        mock_open.assert_not_called()
+        assert md == {}, f"expected empty dict for empty path, got {md}"
+
+    def test_get_description_runtime_error_yields_empty_dict(self):
+        """``GetDescription`` raising ``RuntimeError`` is swallowed.
+
+        Test scenario:
+            Some pathological datasets raise on ``GetDescription``; helper
+            catches the error, treats path as empty, and returns ``{}``.
+        """
+        ds = MagicMock()
+        ds.GetMetadata.return_value = {}
+        ds.GetDescription.side_effect = RuntimeError("no desc")
+        builder = MetadataBuilder(ds)
+
+        with patch("pyramids.netcdf.metadata.gdal.Open") as mock_open:
+            md = builder._read_classic_metadata_for_topup()
+
+        mock_open.assert_not_called()
+        assert (
+            md == {}
+        ), f"expected empty dict on GetDescription failure, got {md}"
+
+    def test_get_metadata_runtime_error_falls_through_to_reopen(self):
+        """``GetMetadata`` raising still allows the reopen path to run.
+
+        Test scenario:
+            The original multidim ``GetMetadata`` raises; the reopen
+            workflow recovers via ``GetDescription`` + ``gdal.Open``.
+        """
+        ds = MagicMock()
+        ds.GetMetadata.side_effect = RuntimeError("boom")
+        ds.GetDescription.return_value = "/recovered.nc"
+        classic_ds = MagicMock()
+        classic_ds.GetMetadata.return_value = {"x#units": "m"}
+        builder = MetadataBuilder(ds)
+
+        with patch("pyramids.netcdf.metadata.gdal.Open", return_value=classic_ds):
+            md = builder._read_classic_metadata_for_topup()
+
+        assert md == {
+            "x#units": "m"
+        }, f"expected reopen result after GetMetadata raise, got {md}"
+
+    def test_get_metadata_returns_none_treated_as_empty(self):
+        """``GetMetadata`` returning ``None`` is coerced to ``{}`` via ``or {}``.
+
+        Test scenario:
+            Some GDAL drivers return ``None``; helper must not crash on
+            ``None`` and must fall through to the reopen branch.
+        """
+        ds = MagicMock()
+        ds.GetMetadata.return_value = None
+        ds.GetDescription.return_value = "/p.nc"
+        classic_ds = MagicMock()
+        classic_ds.GetMetadata.return_value = {"a#units": "u"}
+        builder = MetadataBuilder(ds)
+
+        with patch("pyramids.netcdf.metadata.gdal.Open", return_value=classic_ds):
+            md = builder._read_classic_metadata_for_topup()
+
+        assert md == {
+            "a#units": "u"
+        }, f"expected reopen result when GetMetadata returns None, got {md}"
+
+    def test_reopen_get_metadata_returns_none_yields_empty(self):
+        """Reopened classic ds returning ``None`` for ``GetMetadata`` -> ``{}``.
+
+        Test scenario:
+            Reopen succeeds but the classic-mode ds yields ``None``; helper
+            uses ``or {}`` so the final result is ``{}`` (a topup no-op).
+        """
+        ds = MagicMock()
+        ds.GetMetadata.return_value = {}
+        ds.GetDescription.return_value = "/p.nc"
+        classic_ds = MagicMock()
+        classic_ds.GetMetadata.return_value = None
+        builder = MetadataBuilder(ds)
+
+        with patch("pyramids.netcdf.metadata.gdal.Open", return_value=classic_ds):
+            md = builder._read_classic_metadata_for_topup()
+
+        assert (
+            md == {}
+        ), f"expected empty dict when reopened md is None, got {md}"
+
+
+class TestDimAttrsTopupFromClassicExtras:
+    """Additional branch coverage for ``_topup_dim_attrs_from_classic``.
+
+    The four headline cases live in ``TestDimAttrsTopupFromClassic``; this
+    class fills in partial-fallback, falsy-value, multi-dim, frozen-replace,
+    and early-return scenarios.
+    """
+
+    def _build_dim(self, name, multidim_attrs):
+        """Construct a (mock_dim, indexing_var) pair with given multidim attrs.
+
+        Args:
+            name: Short name shared by the dim, indexing variable, and the
+                full-name path component.
+            multidim_attrs: Dict mapped to ``GetAttributes`` of the indexing
+                variable. Each (k, v) becomes one ``_mock_attribute``.
+
+        Returns:
+            MagicMock: The mocked ``gdal.Dimension`` ready for ``_mock_group``.
+        """
+        iv = MagicMock()
+        iv.GetFullName.return_value = f"/{name}"
+        iv.GetName.return_value = name
+        iv.GetAttributes.return_value = [
+            _mock_attribute(k, v) for k, v in multidim_attrs.items()
+        ]
+        dim = _mock_dimension(name=name, full_name=f"/{name}", size=1)
+        dim.GetIndexingVariable.return_value = iv
+        return dim
+
+    def test_partial_fallback_units_only_no_calendar(self):
+        """Classic provides only ``units``; ``calendar`` stays absent.
+
+        Test scenario:
+            Multidim has ``long_name``; classic has ``<dim>#units`` only.
+            Helper merges units; calendar must remain missing.
+        """
+        dim = self._build_dim("t", {"long_name": "time"})
+        root = _mock_group(dimensions=[dim])
+        ds = _mock_dataset(root_group=root, metadata={"t#units": "days"})
+
+        md = MetadataBuilder(ds).build()
+
+        attrs = md.dimensions["t"].attrs
+        assert attrs.get("units") == "days", f"units missing: {attrs}"
+        assert "calendar" not in attrs, f"calendar must stay absent: {attrs}"
+        assert (
+            attrs.get("long_name") == "time"
+        ), f"pre-existing attr lost: {attrs}"
+
+    def test_partial_fallback_calendar_only_no_units(self):
+        """Classic provides only ``calendar``; ``units`` stays absent.
+
+        Test scenario:
+            Multidim is bare; classic has ``<dim>#calendar`` only. Helper
+            merges calendar; units must remain missing.
+        """
+        dim = self._build_dim("t", {})
+        root = _mock_group(dimensions=[dim])
+        ds = _mock_dataset(root_group=root, metadata={"t#calendar": "gregorian"})
+
+        md = MetadataBuilder(ds).build()
+
+        attrs = md.dimensions["t"].attrs
+        assert (
+            attrs.get("calendar") == "gregorian"
+        ), f"calendar missing: {attrs}"
+        assert "units" not in attrs, f"units must stay absent: {attrs}"
+
+    def test_classic_value_falsy_does_not_add(self):
+        """Empty-string classic values are filtered by the truthy check.
+
+        Test scenario:
+            ``<dim>#units`` is the empty string. ``if value:`` is False, so
+            the helper does NOT inject ``units``.
+        """
+        dim = self._build_dim("valid_time", {})
+        root = _mock_group(dimensions=[dim])
+        ds = _mock_dataset(root_group=root, metadata={"valid_time#units": ""})
+
+        md = MetadataBuilder(ds).build()
+
+        assert (
+            "units" not in md.dimensions["valid_time"].attrs
+        ), "empty-string classic value must not be merged"
+
+    def test_multiple_dims_mixed_update_and_skip(self):
+        """Two dims; one is already complete, one needs the topup.
+
+        Test scenario:
+            ``time`` already has units (multidim); ``lat`` lacks units. Only
+            ``lat`` is replaced; ``time`` keeps its multidim value.
+        """
+        time_dim = self._build_dim("time", {"units": "days since 1900"})
+        lat_dim = self._build_dim("lat", {})
+        root = _mock_group(dimensions=[time_dim, lat_dim])
+        ds = _mock_dataset(
+            root_group=root,
+            metadata={
+                "time#units": "should-not-overwrite",
+                "lat#units": "degrees_north",
+            },
+        )
+
+        md = MetadataBuilder(ds).build()
+
+        assert (
+            md.dimensions["time"].attrs["units"] == "days since 1900"
+        ), "time multidim units must win over classic"
+        assert (
+            md.dimensions["lat"].attrs["units"] == "degrees_north"
+        ), "lat must receive classic units"
+
+    def test_frozen_dataclass_replaced_not_mutated(self):
+        """Topup uses ``dataclasses.replace`` — the original instance is intact.
+
+        Test scenario:
+            Build twice from the same dataset, swapping the classic
+            metadata between builds. The first build's captured
+            ``DimensionInfo`` must keep its original attrs even after the
+            second build runs (i.e. no shared mutable state).
+        """
+        dim = self._build_dim("t", {})
+        root = _mock_group(dimensions=[dim])
+        ds = _mock_dataset(root_group=root, metadata={"t#units": "u1"})
+
+        md1 = MetadataBuilder(ds).build()
+        captured = md1.dimensions["t"]
+        ds.GetMetadata.return_value = {"t#units": "u2"}
+        md2 = MetadataBuilder(ds).build()
+
+        assert (
+            captured.attrs["units"] == "u1"
+        ), f"first DimensionInfo was mutated: {captured.attrs}"
+        assert (
+            md2.dimensions["t"].attrs["units"] == "u2"
+        ), f"second build did not see new metadata: {md2.dimensions['t'].attrs}"
+
+    def test_topup_skipped_when_classic_metadata_empty(self):
+        """Empty classic metadata triggers the early-return branch.
+
+        Test scenario:
+            Multidim dim has only ``long_name``; classic returns ``{}``.
+            ``_topup_dim_attrs_from_classic`` must return immediately and
+            leave the dim untouched.
+        """
+        dim = self._build_dim("t", {"long_name": "T"})
+        root = _mock_group(dimensions=[dim])
+        ds = _mock_dataset(root_group=root, metadata={})
+
+        md = MetadataBuilder(ds).build()
+
+        attrs = md.dimensions["t"].attrs
+        assert attrs == {
+            "long_name": "T"
+        }, f"empty classic metadata must leave dim attrs untouched, got {attrs}"
+
+
+class TestMetadataBuilderTopupIntegration:
+    """Verify ``build()`` invokes the topup helper at the right time."""
+
+    def test_build_calls_topup_with_dimensions_map(self):
+        """``build()`` calls ``_topup_dim_attrs_from_classic`` exactly once.
+
+        Test scenario:
+            Patch the topup helper, build a dataset with one dim, assert the
+            helper was invoked with a dict that contains the dim and only
+            once per build.
+        """
+        dim = _mock_dimension(name="t", full_name="/t", size=1)
+        root = _mock_group(dimensions=[dim])
+        ds = _mock_dataset(root_group=root)
+        builder = MetadataBuilder(ds)
+
+        with patch.object(
+            MetadataBuilder, "_topup_dim_attrs_from_classic"
+        ) as mock_topup:
+            builder.build()
+
+        mock_topup.assert_called_once()
+        args, _kwargs = mock_topup.call_args
+        assert "t" in args[0], (
+            f"topup invoked with wrong dimensions arg: {args[0]}"
+        )
+
+    def test_build_skips_topup_when_no_root_group(self):
+        """No-MDIM datasets bypass the topup call entirely.
+
+        Test scenario:
+            ``ds.GetRootGroup`` returns ``None``; the ``if root_group is not
+            None:`` branch in ``build()`` skips the topup hook altogether.
+        """
+        ds = _mock_dataset(root_group=None)
+        builder = MetadataBuilder(ds)
+
+        with patch.object(
+            MetadataBuilder, "_topup_dim_attrs_from_classic"
+        ) as mock_topup:
+            builder.build()
+
+        mock_topup.assert_not_called()
+
+
+class TestClassicDimFallbackAttrsConstant:
+    """Lock the constant tuple used by the topup helper."""
+
+    def test_classic_dim_fallback_attrs_value(self):
+        """``_CLASSIC_DIM_FALLBACK_ATTRS`` equals ``("units", "calendar")``.
+
+        Test scenario:
+            Surface check on the class-level tuple. Locked because the value
+            is part of the test contract — adding a new attr here is a
+            behaviour change that should fail this assertion intentionally.
+        """
+        assert MetadataBuilder._CLASSIC_DIM_FALLBACK_ATTRS == (
+            "units",
+            "calendar",
+        ), (
+            f"unexpected fallback attrs tuple: "
+            f"{MetadataBuilder._CLASSIC_DIM_FALLBACK_ATTRS}"
+        )
+
+
+class TestMetadataBuilderRealFile:
+    """Real-file integration test for the topup pipeline.
+
+    Complements the mock-based unit tests above: opens the bundled
+    CDS-Beta repro fixture in MDIM mode and asserts the helper recovers
+    ``valid_time#units`` from the classic GDAL driver. Independent of the
+    ``NetCDF`` wrapper layer (covered separately in test_netcdf_unit.py).
+    """
+
+    def test_topup_works_on_real_cds_beta_fixture(self):
+        """End-to-end check on tests/data/netcdf/era5_cds_beta_t2m_jan2022.nc.
+
+        Test scenario:
+            Open the fixture in MDIM mode (where ``valid_time#units`` is
+            absent on the indexing variable), run ``MetadataBuilder.build``,
+            and assert the topped-up ``units`` and preserved
+            ``calendar``.
+        """
+        ds = gdal.OpenEx(
+            "tests/data/netcdf/era5_cds_beta_t2m_jan2022.nc",
+            gdal.OF_MULTIDIM_RASTER,
+        )
+        md = MetadataBuilder(ds).build()
+
+        attrs = md.dimensions["valid_time"].attrs
+        assert (
+            attrs.get("units") == "seconds since 1970-01-01"
+        ), f"e2e topup failed; got attrs={attrs}"
+        assert (
+            attrs.get("calendar") == "proleptic_gregorian"
+        ), f"e2e calendar lost; got attrs={attrs}"
 
 
 class TestGroupTraverserWalk:

@@ -217,6 +217,39 @@ class TestGetTimeVariable:
         if result is not None:
             assert "/" in result[0], f"Expected '/' in date format, got {result[0]}"
 
+    def test_get_time_variable_cds_beta_era5(self):
+        """E2E: CDS-Beta ERA5 NetCDFs hide ``valid_time#units`` from the
+        multidim driver but expose it on the classic driver. The
+        ``MetadataBuilder._topup_dim_attrs_from_classic`` fallback must
+        recover ``units`` (and ``calendar``) so ``get_time_variable``
+        returns parsed dates instead of ``None``. Reproduces issue #309.
+        """
+        nc = NetCDF.read_file(
+            "tests/data/netcdf/era5_cds_beta_t2m_jan2022.nc",
+            open_as_multi_dimensional=True,
+        )
+
+        valid_time = nc.meta_data.dimensions["valid_time"]
+        assert (
+            valid_time.attrs.get("units") == "seconds since 1970-01-01"
+        ), f"expected classic units to be merged, got attrs={valid_time.attrs}"
+        assert (
+            valid_time.attrs.get("calendar") == "proleptic_gregorian"
+        ), f"expected calendar from multidim to survive, got attrs={valid_time.attrs}"
+
+        result = nc.get_time_variable("valid_time")
+        assert result is not None, (
+            "get_time_variable returned None on a CDS-Beta NetCDF — the "
+            "classic-metadata top-up did not surface 'units' on valid_time"
+        )
+        assert isinstance(result, list), f"expected list, got {type(result)}"
+        assert (
+            len(result) == valid_time.size
+        ), f"expected {valid_time.size} timestamps, got {len(result)}"
+        assert result[0].startswith("2022-01-"), (
+            f"expected 2022-01-* from the CDS-Beta sample, got {result[0]}"
+        )
+
 
 class TestSpatialOperationDelegates:
     """Tests for crop() and to_crs() delegation to parent class."""

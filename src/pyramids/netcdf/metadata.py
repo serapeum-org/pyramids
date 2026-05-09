@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import deque
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -122,6 +122,7 @@ class MetadataBuilder:
         if root_group is not None:
             traverser = GroupTraverser(groups_map, variables_map, dimensions_map)
             traverser.walk(root_group)
+            self._topup_dim_attrs_from_classic(dimensions_map)
 
             try:
                 root_name = root_group.GetFullName()
@@ -204,6 +205,83 @@ class MetadataBuilder:
             bounds_map=bounds_map,
             data_variable_names=data_vars,
         )
+
+    _CLASSIC_DIM_FALLBACK_ATTRS: tuple[str, ...] = ("units", "calendar")
+
+    def _topup_dim_attrs_from_classic(
+        self,
+        dimensions: dict[str, DimensionInfo],
+    ) -> None:
+        """Top up `dimensions[*].attrs` from classic GDAL metadata.
+
+        The multidim NetCDF driver occasionally drops CF attributes
+        (notably `units` on time dims of CDS-Beta retrievals) from
+        the indexing variable. The same attributes remain reachable
+        through the classic driver as `<dim_name>#<attr_name>` keys
+        on a classic-mode `gdal.Dataset.GetMetadata()`. This helper
+        merges the classic-API view in for any attribute in
+        `_CLASSIC_DIM_FALLBACK_ATTRS` that the multidim path did
+        not surface, leaving everything else untouched.
+
+        Args:
+            dimensions: Mutable map of dimensions assembled by
+                `GroupTraverser`. Entries with missing fallback
+                attrs are replaced with new `DimensionInfo` values
+                (the dataclass is frozen).
+        """
+        classic_md = self._read_classic_metadata_for_topup()
+        if not classic_md:
+            return
+        for key, dim in list(dimensions.items()):
+            new_attrs = dict(dim.attrs)
+            updated = False
+            for attr_name in self._CLASSIC_DIM_FALLBACK_ATTRS:
+                if attr_name in new_attrs:
+                    continue
+                value = classic_md.get(f"{dim.name}#{attr_name}")
+                if value:
+                    new_attrs[attr_name] = value
+                    updated = True
+            if updated:
+                dimensions[key] = replace(dim, attrs=new_attrs)
+
+    def _read_classic_metadata_for_topup(self) -> dict[str, str]:
+        """Return a classic-mode flat metadata dict for the dataset.
+
+        Datasets opened with `OF_MULTIDIM_RASTER` return `{}` from
+        `GetMetadata()`; the flat `<dim>#<attr>` keys only exist on
+        a classic-mode open. When the in-hand dataset already has
+        such keys, they are returned directly; otherwise a transient
+        classic-mode handle is opened on the same path. Any failure
+        (no path, file unreachable, GDAL error) yields `{}` so the
+        top-up becomes a no-op.
+        """
+        result: dict[str, str] = {}
+        try:
+            existing = self.gdal_dataset.GetMetadata() or {}
+        except RuntimeError as exc:
+            logger.debug("classic GetMetadata() failed during dim top-up: %s", exc)
+            existing = {}
+        if any("#" in k for k in existing):
+            result = existing
+        else:
+            try:
+                path = self.gdal_dataset.GetDescription()
+            except RuntimeError as exc:
+                logger.debug("GetDescription() failed during dim top-up: %s", exc)
+                path = ""
+            if path:
+                try:
+                    ds = gdal.Open(path)
+                    if ds is not None:
+                        result = ds.GetMetadata() or {}
+                except RuntimeError as exc:
+                    logger.debug(
+                        "classic re-open failed during dim top-up (%r): %s",
+                        path,
+                        exc,
+                    )
+        return result
 
 
 class GroupTraverser:
