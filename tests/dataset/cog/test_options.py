@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+pytestmark = pytest.mark.core
+
 from pyramids.dataset.cog.options import (
     COG_DRIVER_OPTIONS,
     merge_options,

@@ -54,6 +54,7 @@ class MeshSpatialIndex:
         """KD-tree on node coordinates. Lazy-built on first access."""
         if self._node_tree is None:
             from scipy.spatial import cKDTree
+
             self._node_tree = cKDTree(
                 np.column_stack([self._mesh.node_x, self._mesh.node_y])
             )
@@ -64,6 +65,7 @@ class MeshSpatialIndex:
         """KD-tree on face centroids. Lazy-built on first access."""
         if self._face_tree is None:
             from scipy.spatial import cKDTree
+
             cx, cy = self._mesh.face_centroids
             self._face_tree = cKDTree(np.column_stack([cx, cy]))
         return self._face_tree
@@ -316,16 +318,21 @@ def _subset_mesh_by_face_indices(
 
     if len(selected_faces) == 0:
         empty_fnc = Connectivity(
-            data=np.empty((0, 1), dtype=np.intp), fill_value=-1,
-            cf_role="face_node_connectivity", original_start_index=0,
+            data=np.empty((0, 1), dtype=np.intp),
+            fill_value=-1,
+            cf_role="face_node_connectivity",
+            original_start_index=0,
         )
         empty_mesh = Mesh2d(
-            node_x=np.empty(0), node_y=np.empty(0),
+            node_x=np.empty(0),
+            node_y=np.empty(0),
             face_node_connectivity=empty_fnc,
         )
         from pyramids.netcdf.ugrid.dataset import UgridDataset
+
         return UgridDataset(
-            mesh=empty_mesh, data_variables={},
+            mesh=empty_mesh,
+            data_variables={},
             global_attributes=dataset._global_attributes,
             topology_info=dataset._topology_info,
             crs_wkt=dataset._crs_wkt,
@@ -345,7 +352,8 @@ def _subset_mesh_by_face_indices(
     old_fnc = mesh.face_node_connectivity
     new_fnc_data = np.full(
         (len(selected_faces), old_fnc.max_nodes_per_element),
-        -1, dtype=np.intp,
+        -1,
+        dtype=np.intp,
     )
     for row_idx, fi in enumerate(selected_faces):
         nodes = old_fnc.get_element(fi)
@@ -353,7 +361,8 @@ def _subset_mesh_by_face_indices(
             new_fnc_data[row_idx, col_idx] = old_to_new[int(n)]
 
     new_fnc = Connectivity(
-        data=new_fnc_data, fill_value=-1,
+        data=new_fnc_data,
+        fill_value=-1,
         cf_role="face_node_connectivity",
         original_start_index=old_fnc.original_start_index,
     )
@@ -371,7 +380,8 @@ def _subset_mesh_by_face_indices(
 
         new_enc_data = np.full(
             (len(kept_edges), enc.max_nodes_per_element),
-            -1, dtype=np.intp,
+            -1,
+            dtype=np.intp,
         )
         for row_idx, ei in enumerate(kept_edges):
             nodes = enc.get_element(ei)
@@ -379,7 +389,8 @@ def _subset_mesh_by_face_indices(
                 new_enc_data[row_idx, col_idx] = old_to_new[int(n)]
 
         new_enc = Connectivity(
-            data=new_enc_data, fill_value=-1,
+            data=new_enc_data,
+            fill_value=-1,
             cf_role="edge_node_connectivity",
             original_start_index=enc.original_start_index,
         )
@@ -397,11 +408,14 @@ def _subset_mesh_by_face_indices(
             new_edge_y = mesh._edge_y[kept_edge_indices]
 
     new_mesh = Mesh2d(
-        node_x=new_node_x, node_y=new_node_y,
+        node_x=new_node_x,
+        node_y=new_node_y,
         face_node_connectivity=new_fnc,
         edge_node_connectivity=new_enc,
-        face_x=new_face_x, face_y=new_face_y,
-        edge_x=new_edge_x, edge_y=new_edge_y,
+        face_x=new_face_x,
+        face_y=new_face_y,
+        edge_x=new_edge_x,
+        edge_y=new_edge_y,
     )
 
     new_data_vars: dict[str, MeshVariable] = {}

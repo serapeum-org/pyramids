@@ -159,18 +159,22 @@ def _densify_and_reproject_bounds(
 
     t = np.linspace(0, 1, n_points)
     # Sample four edges: south, east, north, west.
-    xs = np.concatenate([
-        west + t * (east - west),
-        np.full_like(t, east),
-        east - t * (east - west),
-        np.full_like(t, west),
-    ])
-    ys = np.concatenate([
-        np.full_like(t, south),
-        south + t * (north - south),
-        np.full_like(t, north),
-        north - t * (north - south),
-    ])
+    xs = np.concatenate(
+        [
+            west + t * (east - west),
+            np.full_like(t, east),
+            east - t * (east - west),
+            np.full_like(t, west),
+        ]
+    )
+    ys = np.concatenate(
+        [
+            np.full_like(t, south),
+            south + t * (north - south),
+            np.full_like(t, north),
+            north - t * (north - south),
+        ]
+    )
 
     tx, ty = transformer.transform(xs, ys)
 
@@ -183,7 +187,12 @@ def _densify_and_reproject_bounds(
             f"outside the valid domain for this CRS transformation."
         )
 
-    result = (float(tx_arr.min()), float(ty_arr.min()), float(tx_arr.max()), float(ty_arr.max()))
+    result = (
+        float(tx_arr.min()),
+        float(ty_arr.min()),
+        float(tx_arr.max()),
+        float(ty_arr.max()),
+    )
     return result
 
 
@@ -327,9 +336,7 @@ def add_basemap(
     w4326, s4326 = transformer_to_4326.transform(w3857, s3857)
     e4326, n4326 = transformer_to_4326.transform(e3857, n3857)
 
-    if not all(
-        np.isfinite(v) for v in (w4326, s4326, e4326, n4326)
-    ):
+    if not all(np.isfinite(v) for v in (w4326, s4326, e4326, n4326)):
         raise ValueError(
             "Reprojection to EPSG:4326 produced infinite or NaN "
             "coordinates. The data extent may be outside the valid "
@@ -373,9 +380,7 @@ def add_basemap(
             f"coverage."
         )
 
-    tile_data = tiles_mod.fetch_tiles(
-        tiles, provider, timeout=timeout, retries=retries
-    )
+    tile_data = tiles_mod.fetch_tiles(tiles, provider, timeout=timeout, retries=retries)
 
     image, extent_3857 = tiles_mod.stitch_tiles(tile_data, tiles, tile_zoom)
 

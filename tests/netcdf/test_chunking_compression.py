@@ -9,12 +9,15 @@ single return statement, descriptive assertion messages.
 """
 
 import os
+
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 from osgeo import gdal
+
 from pyramids.netcdf.netcdf import NetCDF
 
+pytestmark = pytest.mark.core
 
 SEED = 42
 GEO = (0.0, 0.01, 0, 1.0, 0, -0.01)
@@ -35,13 +38,20 @@ class TestCompressionOnDisk:
         uncompressed = str(tmp_path / "uncompressed.nc")
 
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="v",
-            extra_dim_name="time", path=compressed,
-            compression="DEFLATE", compression_level=4,
+            arr=arr,
+            geo=GEO,
+            variable_name="v",
+            extra_dim_name="time",
+            path=compressed,
+            compression="DEFLATE",
+            compression_level=4,
         )
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="v",
-            extra_dim_name="time", path=uncompressed,
+            arr=arr,
+            geo=GEO,
+            variable_name="v",
+            extra_dim_name="time",
+            path=uncompressed,
         )
         comp_size = os.path.getsize(compressed)
         uncomp_size = os.path.getsize(uncompressed)
@@ -61,14 +71,22 @@ class TestCompressionOnDisk:
         high = str(tmp_path / "level9.nc")
 
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="v",
-            extra_dim_name="time", path=low,
-            compression="DEFLATE", compression_level=1,
+            arr=arr,
+            geo=GEO,
+            variable_name="v",
+            extra_dim_name="time",
+            path=low,
+            compression="DEFLATE",
+            compression_level=1,
         )
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="v",
-            extra_dim_name="time", path=high,
-            compression="DEFLATE", compression_level=9,
+            arr=arr,
+            geo=GEO,
+            variable_name="v",
+            extra_dim_name="time",
+            path=high,
+            compression="DEFLATE",
+            compression_level=9,
         )
         assert os.path.getsize(high) <= os.path.getsize(low), (
             f"Level 9 ({os.path.getsize(high)}) should be <= "
@@ -89,8 +107,11 @@ class TestChunkingOnDisk:
         arr = np.random.RandomState(SEED).rand(5, 50, 50).astype(np.float64)
         path = str(tmp_path / "chunked.nc")
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="temp",
-            extra_dim_name="time", path=path,
+            arr=arr,
+            geo=GEO,
+            variable_name="temp",
+            extra_dim_name="time",
+            path=path,
             chunk_sizes=(1, 25, 25),
         )
         ds = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER)
@@ -98,9 +119,7 @@ class TestChunkingOnDisk:
         md_arr = rg.OpenMDArray("temp")
         block = md_arr.GetBlockSize()
         ds = None
-        assert block == [1, 25, 25], (
-            f"Expected block size [1, 25, 25], got {block}"
-        )
+        assert block == [1, 25, 25], f"Expected block size [1, 25, 25], got {block}"
 
     def test_chunk_with_compression(self, tmp_path):
         """Chunking and compression should work together.
@@ -112,22 +131,24 @@ class TestChunkingOnDisk:
         arr = np.random.RandomState(SEED).rand(5, 50, 50).astype(np.float64)
         path = str(tmp_path / "chunk_compress.nc")
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="v",
-            extra_dim_name="time", path=path,
+            arr=arr,
+            geo=GEO,
+            variable_name="v",
+            extra_dim_name="time",
+            path=path,
             chunk_sizes=(1, 50, 50),
-            compression="DEFLATE", compression_level=4,
+            compression="DEFLATE",
+            compression_level=4,
         )
         ds = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER)
         rg = ds.GetRootGroup()
         md_arr = rg.OpenMDArray("v")
         block = md_arr.GetBlockSize()
         ds = None
-        assert block == [1, 50, 50], (
-            f"Expected [1, 50, 50], got {block}"
-        )
-        assert os.path.getsize(path) > 0, (
-            "Compressed file should exist and have content"
-        )
+        assert block == [1, 50, 50], f"Expected [1, 50, 50], got {block}"
+        assert (
+            os.path.getsize(path) > 0
+        ), "Compressed file should exist and have content"
 
 
 class TestRoundTripDataIntegrity:
@@ -142,13 +163,18 @@ class TestRoundTripDataIntegrity:
         arr = np.random.RandomState(SEED).rand(50, 50).astype(np.float64)
         path = str(tmp_path / "rt_2d.nc")
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="elev", path=path,
+            arr=arr,
+            geo=GEO,
+            variable_name="elev",
+            path=path,
             compression="DEFLATE",
         )
         reloaded = NetCDF.read_file(path)
         var = reloaded.get_variable("elev")
         assert_allclose(
-            var.read_array(band=0), arr, rtol=1e-10,
+            var.read_array(band=0),
+            arr,
+            rtol=1e-10,
             err_msg="2D compressed data mismatch",
         )
 
@@ -161,17 +187,22 @@ class TestRoundTripDataIntegrity:
         arr = np.random.RandomState(SEED).rand(5, 30, 40).astype(np.float64)
         path = str(tmp_path / "rt_3d.nc")
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="temp",
+            arr=arr,
+            geo=GEO,
+            variable_name="temp",
             extra_dim_name="time",
             extra_dim_values=[0, 6, 12, 18, 24],
             path=path,
             chunk_sizes=(1, 30, 40),
-            compression="DEFLATE", compression_level=4,
+            compression="DEFLATE",
+            compression_level=4,
         )
         reloaded = NetCDF.read_file(path)
         var = reloaded.get_variable("temp")
         assert_allclose(
-            var.read_array(), arr, rtol=1e-10,
+            var.read_array(),
+            arr,
+            rtol=1e-10,
             err_msg="3D compressed data mismatch",
         )
 
@@ -184,14 +215,19 @@ class TestRoundTripDataIntegrity:
         arr = np.random.RandomState(SEED).rand(10, 10).astype(np.float64)
         path = str(tmp_path / "rt_ndv.nc")
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="v", path=path,
+            arr=arr,
+            geo=GEO,
+            variable_name="v",
+            path=path,
             no_data_value=-9999.0,
             compression="DEFLATE",
         )
         reloaded = NetCDF.read_file(path)
         var = reloaded.get_variable("v")
         assert_allclose(
-            var.no_data_value[0], -9999.0, rtol=1e-6,
+            var.no_data_value[0],
+            -9999.0,
+            rtol=1e-6,
             err_msg="Nodata not preserved after compression",
         )
 
@@ -207,14 +243,14 @@ class TestInMemoryIgnoresOptions:
         """
         arr = np.random.RandomState(SEED).rand(3, 10, 10).astype(np.float64)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="v",
+            arr=arr,
+            geo=GEO,
+            variable_name="v",
             extra_dim_name="time",
             chunk_sizes=(1, 5, 5),
         )
         var = nc.get_variable("v")
-        assert var.shape == (3, 10, 10), (
-            f"Shape should be preserved, got {var.shape}"
-        )
+        assert var.shape == (3, 10, 10), f"Shape should be preserved, got {var.shape}"
 
     def test_compression_ignored_in_memory(self):
         """Passing compression without path should not raise.
@@ -224,12 +260,16 @@ class TestInMemoryIgnoresOptions:
         """
         arr = np.ones((5, 5), dtype=np.float64)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="v",
-            compression="DEFLATE", compression_level=9,
+            arr=arr,
+            geo=GEO,
+            variable_name="v",
+            compression="DEFLATE",
+            compression_level=9,
         )
         var = nc.get_variable("v")
         assert_allclose(
-            var.read_array(band=0), arr,
+            var.read_array(band=0),
+            arr,
             err_msg="Data should be preserved even with ignored options",
         )
 
@@ -246,8 +286,11 @@ class TestBoundaryChunkSizes:
         arr = np.random.RandomState(SEED).rand(5, 50, 50).astype(np.float64)
         path = str(tmp_path / "single_chunk.nc")
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="v",
-            extra_dim_name="time", path=path,
+            arr=arr,
+            geo=GEO,
+            variable_name="v",
+            extra_dim_name="time",
+            path=path,
             chunk_sizes=(5, 50, 50),
             compression="DEFLATE",
         )
@@ -255,9 +298,7 @@ class TestBoundaryChunkSizes:
         rg = ds.GetRootGroup()
         block = rg.OpenMDArray("v").GetBlockSize()
         ds = None
-        assert block == [5, 50, 50], (
-            f"Expected [5, 50, 50], got {block}"
-        )
+        assert block == [5, 50, 50], f"Expected [5, 50, 50], got {block}"
 
     def test_2d_chunk_sizes(self, tmp_path):
         """Chunk sizes for a 2D array (no extra dimension).
@@ -268,7 +309,10 @@ class TestBoundaryChunkSizes:
         arr = np.random.RandomState(SEED).rand(50, 50).astype(np.float64)
         path = str(tmp_path / "chunk_2d.nc")
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="v", path=path,
+            arr=arr,
+            geo=GEO,
+            variable_name="v",
+            path=path,
             chunk_sizes=(25, 25),
             compression="DEFLATE",
         )
@@ -276,9 +320,7 @@ class TestBoundaryChunkSizes:
         rg = ds.GetRootGroup()
         block = rg.OpenMDArray("v").GetBlockSize()
         ds = None
-        assert block == [25, 25], (
-            f"Expected [25, 25], got {block}"
-        )
+        assert block == [25, 25], f"Expected [25, 25], got {block}"
 
 
 class TestChunkingViaMetadataAPI:
@@ -296,18 +338,23 @@ class TestChunkingViaMetadataAPI:
         arr = np.random.RandomState(SEED).rand(5, 60, 80).astype(np.float64)
         path = str(tmp_path / "chunked_meta.nc")
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="precip",
-            extra_dim_name="time", path=path,
+            arr=arr,
+            geo=GEO,
+            variable_name="precip",
+            extra_dim_name="time",
+            path=path,
             chunk_sizes=(2, 30, 40),
         )
         metadata = get_metadata(path)
-        assert "precip" in metadata.variables, (
-            f"Expected 'precip' in variables, got {list(metadata.variables.keys())}"
-        )
+        assert (
+            "precip" in metadata.variables
+        ), f"Expected 'precip' in variables, got {list(metadata.variables.keys())}"
         var_info = metadata.variables["precip"]
-        assert var_info.block_size == [2, 30, 40], (
-            f"Expected block_size [2, 30, 40], got {var_info.block_size}"
-        )
+        assert var_info.block_size == [
+            2,
+            30,
+            40,
+        ], f"Expected block_size [2, 30, 40], got {var_info.block_size}"
 
     def test_2d_chunk_sizes_in_metadata(self, tmp_path):
         """2D variable chunking should appear in metadata.
@@ -321,14 +368,18 @@ class TestChunkingViaMetadataAPI:
         arr = np.random.RandomState(SEED).rand(40, 60).astype(np.float64)
         path = str(tmp_path / "2d_chunked_meta.nc")
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="elev", path=path,
+            arr=arr,
+            geo=GEO,
+            variable_name="elev",
+            path=path,
             chunk_sizes=(20, 30),
         )
         metadata = get_metadata(path)
         var_info = metadata.variables["elev"]
-        assert var_info.block_size == [20, 30], (
-            f"Expected [20, 30], got {var_info.block_size}"
-        )
+        assert var_info.block_size == [
+            20,
+            30,
+        ], f"Expected [20, 30], got {var_info.block_size}"
 
     def test_no_chunking_block_size_none(self, tmp_path):
         """VariableInfo.block_size should be None when no chunking specified.
@@ -342,15 +393,18 @@ class TestChunkingViaMetadataAPI:
         arr = np.random.RandomState(SEED).rand(3, 25, 25).astype(np.float64)
         path = str(tmp_path / "no_chunk_meta.nc")
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="temp",
-            extra_dim_name="time", path=path,
+            arr=arr,
+            geo=GEO,
+            variable_name="temp",
+            extra_dim_name="time",
+            path=path,
         )
         metadata = get_metadata(path)
         var_info = metadata.variables["temp"]
         result = var_info.block_size
-        assert result is None or isinstance(result, list), (
-            f"block_size should be None or list, got {type(result).__name__}"
-        )
+        assert result is None or isinstance(
+            result, list
+        ), f"block_size should be None or list, got {type(result).__name__}"
 
     def test_chunk_with_compression_in_metadata(self, tmp_path):
         """Chunking + compression should both be reflected in metadata.
@@ -365,19 +419,25 @@ class TestChunkingViaMetadataAPI:
         arr = np.random.RandomState(SEED).rand(4, 80, 100).astype(np.float64)
         path = str(tmp_path / "chunk_compress_meta.nc")
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="var",
-            extra_dim_name="time", path=path,
+            arr=arr,
+            geo=GEO,
+            variable_name="var",
+            extra_dim_name="time",
+            path=path,
             chunk_sizes=(1, 40, 50),
-            compression="DEFLATE", compression_level=6,
+            compression="DEFLATE",
+            compression_level=6,
         )
         metadata = get_metadata(path)
         var_info = metadata.variables["var"]
-        assert var_info.block_size == [1, 40, 50], (
-            f"Expected [1, 40, 50], got {var_info.block_size}"
-        )
-        assert var_info.structural_info is not None or True, (
-            "structural_info may contain compression details"
-        )
+        assert var_info.block_size == [
+            1,
+            40,
+            50,
+        ], f"Expected [1, 40, 50], got {var_info.block_size}"
+        assert (
+            var_info.structural_info is not None or True
+        ), "structural_info may contain compression details"
 
     def test_read_file_preserves_chunking_info(self, tmp_path):
         """NetCDF.read_file followed by get_metadata should preserve chunking.
@@ -391,16 +451,21 @@ class TestChunkingViaMetadataAPI:
         arr = np.random.RandomState(SEED).rand(3, 45, 55).astype(np.float64)
         path = str(tmp_path / "read_chunk.nc")
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="data",
-            extra_dim_name="level", path=path,
+            arr=arr,
+            geo=GEO,
+            variable_name="data",
+            extra_dim_name="level",
+            path=path,
             chunk_sizes=(1, 15, 15),
         )
         nc = NetCDF.read_file(path)
         metadata = get_metadata(nc)
         var_info = metadata.variables["data"]
-        assert var_info.block_size == [1, 15, 15], (
-            f"Expected [1, 15, 15] after read_file, got {var_info.block_size}"
-        )
+        assert var_info.block_size == [
+            1,
+            15,
+            15,
+        ], f"Expected [1, 15, 15] after read_file, got {var_info.block_size}"
 
 
 class TestCreateDimensionHelper:
@@ -417,8 +482,12 @@ class TestCreateDimensionHelper:
         dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
         values = np.array([1.0, 2.0, 3.0])
         dim = NetCDF._create_dimension(
-            rg, "x", dtype, values,
-            gdal.DIM_TYPE_HORIZONTAL_X, set_indexing=True,
+            rg,
+            "x",
+            dtype,
+            values,
+            gdal.DIM_TYPE_HORIZONTAL_X,
+            set_indexing=True,
         )
         assert dim.GetSize() == 3, f"Expected size 3, got {dim.GetSize()}"
         iv = dim.GetIndexingVariable()
@@ -436,8 +505,12 @@ class TestCreateDimensionHelper:
         dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
         values = np.array([10.0, 20.0])
         dim = NetCDF._create_dimension(
-            rg, "y", dtype, values,
-            gdal.DIM_TYPE_HORIZONTAL_Y, set_indexing=False,
+            rg,
+            "y",
+            dtype,
+            values,
+            gdal.DIM_TYPE_HORIZONTAL_Y,
+            set_indexing=False,
         )
         assert dim.GetSize() == 2, f"Expected size 2, got {dim.GetSize()}"
 
@@ -455,7 +528,8 @@ class TestCreateDimensionHelper:
         NetCDF._create_dimension(rg, "z", dtype, values)
         coord = rg.OpenMDArray("z")
         assert_allclose(
-            coord.ReadAsArray(), values,
+            coord.ReadAsArray(),
+            values,
             err_msg="Coordinate values not written correctly",
         )
 
@@ -473,7 +547,10 @@ class TestNodataBeforeWrite:
         arr = np.full((10, 10), -9999.0, dtype=np.float64)
         path = str(tmp_path / "ndv_order.nc")
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="v", path=path,
+            arr=arr,
+            geo=GEO,
+            variable_name="v",
+            path=path,
             no_data_value=-9999.0,
         )
         ds = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER)
@@ -482,7 +559,9 @@ class TestNodataBeforeWrite:
         ndv = md_arr.GetNoDataValue()
         ds = None
         assert_allclose(
-            ndv, -9999.0, rtol=1e-6,
+            ndv,
+            -9999.0,
+            rtol=1e-6,
             err_msg=f"Nodata not preserved on disk, got {ndv}",
         )
 
@@ -500,13 +579,18 @@ class TestCompressionOnly:
         arr = np.random.RandomState(SEED).rand(20, 30).astype(np.float64)
         path = str(tmp_path / "compress_no_chunk.nc")
         NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="v", path=path,
+            arr=arr,
+            geo=GEO,
+            variable_name="v",
+            path=path,
             compression="DEFLATE",
         )
         assert os.path.getsize(path) > 0, "File should be created"
         reloaded = NetCDF.read_file(path)
         var = reloaded.get_variable("v")
         assert_allclose(
-            var.read_array(band=0), arr, rtol=1e-10,
+            var.read_array(band=0),
+            arr,
+            rtol=1e-10,
             err_msg="Data should survive compression without chunks",
         )

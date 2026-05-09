@@ -11,6 +11,8 @@ from pyramids.netcdf.dimensions import (
     parse_gdal_netcdf_dimensions,
 )
 
+pytestmark = pytest.mark.core
+
 
 class TestStripBraces:
     def test_with_braces(self):

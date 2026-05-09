@@ -17,8 +17,25 @@ from pandas import DataFrame
 from shapely import wkt
 from shapely.geometry import Polygon
 
+from tests._marks import EXTRA_MARKERS
 from tests.dataset.conftest import *
 from tests.feature.conftest import *
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-apply the matching skipif for any ``@pytest.mark.<extra>`` tag.
+
+    A test annotated with ``@pytest.mark.netcdf_lazy`` (or any other
+    extras marker registered in :mod:`tests._marks`) picks up the
+    corresponding ``requires_<extra>`` skip condition during collection,
+    so test authors don't have to repeat the ``try/except ImportError``
+    + ``pytest.mark.skipif`` boilerplate. Hand-applied skip decorators on
+    the same test are preserved — this hook only *adds*, never removes.
+    """
+    for item in items:
+        for marker_name, skip_marker in EXTRA_MARKERS.items():
+            if marker_name in item.keywords:
+                item.add_marker(skip_marker)
 
 
 @pytest.fixture(scope="session", autouse=True)

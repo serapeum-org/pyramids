@@ -1,6 +1,6 @@
 [project]
 name = "pyramids-gis"
-version = "0.13.0"
+version = "0.16.0"
 description = "GIS utility package"
 readme = {file = "README.md", content-type = "text/markdown"}
 authors = [
@@ -29,6 +29,7 @@ dependencies = [
     # GDAL is NOT listed as a pip dep: it's vendored into the wheel
     # (see src/pyramids/_vendor/osgeo/ after build). conda-forge users
     # still get GDAL via conda dependency in the feedstock.
+    "GDAL >=3.10.0,<4",
     "geopandas >=1.0.0",
     "hpc-utils >=0.1.5",
     "numpy >=2.0.0",
@@ -41,7 +42,17 @@ dependencies = [
 
 [project.optional-dependencies]
 viz = ["cleopatra>=0.7.1", "mercantile>=1.2.0", "xyzservices>=2024.4.0", "Pillow>=9.0.0"]
-xarray = ["xarray>=2023.1.0", "netCDF4>=1.6.0", "h5netcdf>=1.0.0", "cftime>=1.6.0"]
+lazy = [
+    "dask>=2024.1.0",
+    "distributed>=2024.1.0",
+    "zarr>=2.17.0,<3",
+    "fsspec>=2024.1.0",
+    "flox>=0.9.0",
+]
+xarray = ["xarray>=2023.1.0"]
+netcdf-lazy = ["pyramids-gis[lazy]", "kerchunk>=0.2.6", "h5py>=3.8.0"]
+parquet = ["pyarrow>=10.0.0"]
+parquet-lazy = ["pyramids-gis[lazy,parquet]", "dask-geopandas>=0.5.0"]
 
 [dependency-groups]
 dev = [
@@ -194,8 +205,20 @@ markers = [
     "vfs: mark a test as a virtual file system (deselect with '-m \"not vfs\"')",
     "slow: mark test as slow (deselect with '-m \"not slow\"')",
     "fast: mark test as fast (deselect with '-m \"not fast\"')",
-    "plot: test plotting function optional package (deselect with '-m \"not plot\"')",
-    "xarray: tests requiring xarray with NetCDF backend (deselect with '-m \"not xarray\"')"
+    "core: extras-free test (auto-applied when no extras marker is present)",
+    "plot: tests requiring the [viz] extra (cleopatra) — plotting tests (deselect with '-m \"not plot\"')",
+    # One marker per remaining [project.optional-dependencies] group.
+    # Each marker auto-skips when the extra's headline dep is not
+    # importable (see ``tests/_marks.py`` + ``pytest_collection_modifyitems``
+    # in ``tests/conftest.py``) so test authors declare intent once via
+    # ``@pytest.mark.<extra>`` rather than repeating ``try/except
+    # ImportError`` boilerplate. The [viz] extra is already covered by
+    # the ``plot`` marker above — don't register a duplicate ``viz`` one.
+    "lazy: tests requiring the [lazy] extra (dask, distributed, zarr, fsspec, flox)",
+    "xarray: tests requiring the [xarray] extra (xarray)",
+    "netcdf_lazy: tests requiring the [netcdf-lazy] extra (kerchunk, h5py, + lazy)",
+    "parquet: tests requiring the [parquet] extra (pyarrow)",
+    "parquet_lazy: tests requiring the [parquet-lazy] extra (dask-geopandas, + parquet, + lazy)",
 ]
 
 
@@ -211,7 +234,7 @@ main = { cmd = "pytest -vvv --cov=src/pyramids -sv -m 'not plot and not xarray' 
 plot = { cmd = "pytest -vvv --cov=src/pyramids --cov-append -sv -m 'plot' --cov-report=xml", description = "Run plot test suite" }
 xarray-tests = { cmd = "pytest -vvv --cov=src/pyramids --cov-append -sv -m 'xarray' --cov-report=xml", description = "Run xarray interop tests" }
 test-all = { cmd = "pytest -vvv --cov=src/pyramids -sv --cov-report=xml --cov-report=term-missing", description = "Run all testsuite" }
-notebooks = { cmd = "pytest --nbval --nbval-lax --verbose docs/examples", description = "check notebooks" }
+notebooks = { cmd = "pytest --nbval --nbval-lax --verbose docs/examples --ignore-glob='docs/examples/**/dask-lazy-*.ipynb' --ignore-glob='docs/examples/**/lazy-*-complete.ipynb'", description = "check notebooks (skips dask cookbooks — cloud-data ones hit real endpoints; local-data ones need extras envs)" }
 jupyter = { cmd = "jupyter lab --no-browser --IdentityProvider.token='' --ServerApp.password='' --port=8889", description = "check notebooks" }
 build-dist = { cmd = "python -m build", description = "Build sdist and wheel for PyPI" }
 publish-pypi = { cmd = "twine upload --non-interactive --repository pypi dist/*", depends-on = ["build-dist"], description = "Build and upload package to PyPI" }
@@ -222,7 +245,10 @@ mypy = { cmd = "mypy", description = "Run mypy type checking" }
 
 [tool.pixi.environments]
 default = {features = ["viz"], solve-group = "default" }
-dev = { features = ["viz", "dev", "xarray"], solve-group = "default" }
+dev = { features = ["viz", "dev", "xarray", "lazy"], solve-group = "default" }
+netcdf-lazy = { features = ["viz", "dev", "lazy", "netcdf-lazy"], solve-group = "default" }
+parquet = { features = ["viz", "dev", "xarray", "lazy", "parquet"], solve-group = "default" }
+parquet-lazy = { features = ["viz", "dev", "xarray", "lazy", "parquet", "parquet-lazy"], solve-group = "default" }
 notebook = { features = ["viz", "notebook"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "docs" }
 py311 = { features = ["py311", "viz", "dev", "xarray"], solve-group = "py311" }
@@ -250,6 +276,44 @@ python = "3.14.*"
 [tool.pixi.feature.dev.dependencies]
 scipy = ">=1.17.1,<2"
 
+# Pin zarr via conda because conda-forge defaults to zarr v3 and the
+# pyramids lazy stack still targets the v2 API. Also routes dask /
+# distributed / fsspec through conda so they share the same numpy ABI as
+# libgdal-netcdf / h5py (below).
+[tool.pixi.feature.lazy.dependencies]
+"dask-core" = ">=2024.1.0"
+distributed = ">=2024.1.0"
+zarr = ">=2.17.0,<3"
+fsspec = ">=2024.1.0"
+flox = ">=0.9.0"
+
+# HDF5-linking libraries must come from conda-forge so they share the
+# same HDF5 binary that libgdal-netcdf is linked against. PyPI wheels for
+# h5py bundle their own HDF5 copy, which causes DLL-shadowing on Windows
+# (h5py fails with "DLL load failed while importing defs") once more
+# than one HDF5 backend is loaded in-process.
+#
+# pyramids' lazy NetCDF path is pure GDAL MDArray — it does NOT import
+# netCDF4, h5netcdf, or cftime. kerchunk needs h5py to walk HDF5 chunk
+# metadata; nothing else in this feature pulls HDF5-adjacent libraries.
+[tool.pixi.feature.netcdf-lazy.dependencies]
+kerchunk = ">=0.2.6"
+# h5py 3.16 moved to hdf5 2.x, but libgdal-netcdf still links hdf5 1.14.x.
+# Pin h5py to the last 1.14-compatible release so the whole env shares
+# one HDF5 binary. Raise this pin when libgdal-netcdf follows hdf5 2.x.
+h5py = ">=3.8.0,<3.16"
+# Pin the hdf5 major.minor line explicitly so any future h5py rebuild
+# that would drag hdf5 2.x is blocked until libgdal-netcdf follows.
+# Without this the solver can pair h5py 3.16 (hdf5 2) with
+# libgdal-netcdf (still hdf5 1) and the env silently breaks on Windows.
+hdf5 = "1.14.*"
+
+[tool.pixi.feature.parquet.dependencies]
+pyarrow = ">=10.0.0"
+
+[tool.pixi.feature.parquet-lazy.dependencies]
+dask-geopandas = ">=0.5.0"
+
 # ---------------------------------------------------------------------------
 # wheel-build feature: native deps we need inside the cibuildwheel container.
 # Deliberately pinned tighter than the runtime [tool.pixi.dependencies] block
@@ -270,10 +334,14 @@ swig = ">=4.3,<5"
 [tool.pixi.feature.wheel-build.target.linux-64.dependencies]
 libstdcxx-ng = "*"
 
+
 [tool.pixi.dependencies]
 gdal = ">=3.10.0,<4"
 libgdal-netcdf = ">=3.10.0,<4"
 libgdal-hdf4 = ">=3.10.0,<4"
+# Conda-forge's geopandas-base no longer pulls in a vector-IO backend.
+# pyogrio is required for GeoDataFrame.to_file / read_file on every env.
+pyogrio = ">=0.7"
 
 
 # ---------------------------------------------------------------------------

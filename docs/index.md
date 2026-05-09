@@ -38,7 +38,7 @@ Main Features
   convert different forms of distributed data (rasters, NetCDF, shapefiles)
 - Cloud Optimized GeoTIFF (COG) read, write, and validation, with
   transparent S3 / GCS / Azure / HTTPS support via GDAL's virtual
-  filesystem. See the [COG cookbook](how-to/cog.md).
+  filesystem. See the [COG tutorial](tutorials/cog.md).
 
 ## Installation
 

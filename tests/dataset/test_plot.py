@@ -6,10 +6,14 @@ import pytest
 from osgeo import gdal
 from pandas import DataFrame
 
-from pyramids.dataset import Dataset
-from pyramids.dataset import DatasetCollection
+from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset.engines import Analysis, Bands
 
-_cleo_array = pytest.importorskip("cleopatra.array_glyph", reason="cleopatra not installed")
+pytestmark = pytest.mark.plot
+
+_cleo_array = pytest.importorskip(
+    "cleopatra.array_glyph", reason="cleopatra not installed"
+)
 ArrayGlyph = _cleo_array.ArrayGlyph
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
 Config = _cleo_config.Config
@@ -90,7 +94,9 @@ class TestPlotDatasetCollection:
     ):
         from cleopatra.array_glyph import ArrayGlyph
 
-        cube = DatasetCollection.read_multiple_files(rasters_folder_path, with_order=False)
+        cube = DatasetCollection.read_multiple_files(
+            rasters_folder_path, with_order=False
+        )
         cube.open_multi_dataset()
         cleo = cube.plot()
         assert isinstance(cleo, ArrayGlyph)
@@ -133,7 +139,7 @@ class TestColorTable:
     @pytest.mark.plot
     def test_get_color_table(self, src_with_color_table: Dataset):
         dataset = Dataset(src_with_color_table)
-        df = dataset._get_color_table()
+        df = dataset.bands._get_color_table()
         assert isinstance(df, DataFrame)
         assert all(df.columns == ["band", "values", "red", "green", "blue", "alpha"])
         assert all(df.band == 1)
@@ -153,7 +159,7 @@ class TestColorTable:
         df.loc[:, "color"] = color_hex
 
         dataset = Dataset(src_without_color_table)
-        dataset._set_color_table(df, overwrite=True)
+        dataset.bands._set_color_table(df, overwrite=True)
 
         color_table = dataset.raster.GetRasterBand(1).GetColorTable()
         assert color_table is not None, "the color table should not be None"
@@ -185,6 +191,6 @@ class TestColorRelief:
     @pytest.mark.plot
     def test_process_color_table(self):
 
-        color_table = Dataset._process_color_table(self.df)
+        color_table = Analysis._process_color_table(self.df)
         assert isinstance(color_table, DataFrame)
         assert all(color_table.columns == ["values", "red", "green", "blue", "alpha"])

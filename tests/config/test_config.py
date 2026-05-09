@@ -3,7 +3,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from pyramids.base.config import Config
+
+pytestmark = pytest.mark.core
 
 
 class TestConfigEndToEnd(unittest.TestCase):
@@ -49,7 +53,19 @@ class TestConfigEndToEnd(unittest.TestCase):
 
 class TestConfigMock(unittest.TestCase):
     def setUp(self):
+        # Snapshot GDAL_DRIVER_PATH so tests in this class can mutate
+        # `os.environ` freely without leaking a bogus path into later
+        # tests — multiprocessing-spawn tests inherit os.environ, and a
+        # stale `GDAL_DRIVER_PATH=/fake/...` breaks every downstream
+        # subprocess NetCDF read with "gdal_HDF5.so not available".
+        self._saved_gdal_driver_path = os.environ.get("GDAL_DRIVER_PATH")
         self.config = Config()
+
+    def tearDown(self):
+        if self._saved_gdal_driver_path is None:
+            os.environ.pop("GDAL_DRIVER_PATH", None)
+        else:
+            os.environ["GDAL_DRIVER_PATH"] = self._saved_gdal_driver_path
 
     @patch("os.environ", new_callable=dict)
     @patch("pyramids.base.config.Config.set_env_conda")
@@ -73,6 +89,7 @@ class TestConfigMock(unittest.TestCase):
     @patch("os.getenv", return_value="/fake/conda/prefix")
     @patch("pathlib.Path.exists", return_value=True)
     def test_set_env_conda_success(self, mock_exists, mock_getenv):
+        # Env leakage is guarded by `setUp`/`tearDown` on the class.
         result = self.config.set_env_conda()
         self.assertEqual(result, Path("/fake/conda/prefix/Library/lib/gdalplugins"))
         path = Path(os.environ["GDAL_DRIVER_PATH"])

@@ -1,28 +1,35 @@
 ﻿# Change log
 
 
-## Unreleased
+## 0.16.0 (2026-05-09)
 
-### Distribution
+### Fix
 
-- `pip install pyramids-gis` now ships **self-contained platform wheels**
-  on PyPI with GDAL, PROJ, GEOS, HDF4/5, NetCDF, and all native deps
-  bundled. No pre-installed system GDAL required on Linux (glibc ≥ 2.39),
-  macOS 11+ (Intel + Apple Silicon), or Windows 10+ (x64).
-- The conda-forge package continues to receive GDAL via conda (not
-  bundled) and is the preferred path on older Linux distros.
-- See [installation.md](installation.md) and
-  [troubleshooting.md](troubleshooting.md) for platform coverage and
-  troubleshooting.
+- **wheel-test**: unblock core matrix; add branch input to dispatch (#308)
 
-### Internal
+### Refactor
 
-- Build infrastructure migrated from pure-Python wheels to cibuildwheel
-  + pixi + conda-forge binary extraction. Build iteration time reduced
-  from ~45–60 min to ~5 min per wheel. See
-  [planning/bundle/option-1-implementation-plan.md](../planning/bundle/option-1-implementation-plan.md)
-  for the full architecture.
+- re-evaluate package architecture; close audit(#289)
 
+## 0.15.0 (2026-04-24)
+
+### Feat
+
+- **dask**: integrate Dask across dataset, netcdf, collection, and feature paths (#253)
+
+### Fix
+
+- wheel-test fails for plot tests (#261)
+
+### Refactor
+
+- **feature**: modernize feature subpackage and expand I/O surface (#252)
+
+## 0.14.0 (2026-04-14)
+
+### Feat
+
+- **cog**: add Cloud Optimized GeoTIFF support (write, validate, cloud I/O, stack export) (#249)
 
 ## 0.13.0 (2026-04-12)
 

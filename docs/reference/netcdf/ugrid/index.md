@@ -7,7 +7,7 @@ SCHISM, FVCOM, ADCIRC).
 ## Architecture
 
 `UgridDataset` is a standalone class that does **not** inherit from
-`Dataset` or `AbstractDataset`. Unstructured meshes have no
+`Dataset` or `RasterBase`. Unstructured meshes have no
 geotransform, rows, or columns. Instead, data is indexed by topology
 elements (nodes, faces, edges).
 

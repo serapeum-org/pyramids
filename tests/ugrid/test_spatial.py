@@ -20,6 +20,8 @@ from pyramids.netcdf.ugrid.spatial import (
     subset_by_bounds,
 )
 
+pytestmark = pytest.mark.core
+
 
 @pytest.fixture
 def unit_square_mesh():
@@ -38,18 +40,23 @@ def unit_square_mesh():
     """
     node_x = np.array([0.0, 1.0, 2.0, 0.0, 1.0, 2.0, 0.0, 1.0, 2.0])
     node_y = np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0])
-    faces = np.array([
-        [0, 1, 4, 3],
-        [1, 2, 5, 4],
-        [3, 4, 7, 6],
-        [4, 5, 8, 7],
-    ], dtype=np.intp)
+    faces = np.array(
+        [
+            [0, 1, 4, 3],
+            [1, 2, 5, 4],
+            [3, 4, 7, 6],
+            [4, 5, 8, 7],
+        ],
+        dtype=np.intp,
+    )
     return Mesh2d(
         node_x=node_x,
         node_y=node_y,
         face_node_connectivity=Connectivity(
-            data=faces, fill_value=-1,
-            cf_role="face_node_connectivity", original_start_index=0,
+            data=faces,
+            fill_value=-1,
+            cf_role="face_node_connectivity",
+            original_start_index=0,
         ),
     )
 
@@ -71,8 +78,10 @@ def unit_square_dataset(unit_square_mesh):
         ),
     }
     topo = MeshTopologyInfo(
-        mesh_name="mesh2d", topology_dimension=2,
-        node_x_var="node_x", node_y_var="node_y",
+        mesh_name="mesh2d",
+        topology_dimension=2,
+        node_x_var="node_x",
+        node_y_var="node_y",
         face_node_var="face_nodes",
         data_variables={"temperature": "face"},
     )
@@ -105,7 +114,9 @@ class TestMeshSpatialIndexKDTree:
         """
         idx = MeshSpatialIndex(unit_square_mesh)
         result = idx.locate_nearest_node(1.0, 1.0, k=3)
-        assert len(result.flatten()) == 3, f"Expected 3 results, got {len(result.flatten())}"
+        assert (
+            len(result.flatten()) == 3
+        ), f"Expected 3 results, got {len(result.flatten())}"
         assert 4 in result.flatten(), f"Node 4 at (1,1) should be nearest, got {result}"
 
     def test_locate_nearest_face(self, unit_square_mesh):
@@ -215,7 +226,6 @@ class TestMeshSpatialIndexLocateFaces:
         assert result[0] >= 0, f"Expected valid face for inside point, got {result[0]}"
         assert result[1] == -1, f"Expected -1 for outside point, got {result[1]}"
 
-
     def test_locate_faces_nonaligned_indices(self):
         """Test locate_faces when point/face indices don't align.
 
@@ -228,17 +238,20 @@ class TestMeshSpatialIndexLocateFaces:
         node_y = np.array([10.0, 10.0, 11.0, 0.0, 0.0, 1.0])
         faces = np.array([[0, 1, 2], [3, 4, 5]], dtype=np.intp)
         mesh = Mesh2d(
-            node_x=node_x, node_y=node_y,
+            node_x=node_x,
+            node_y=node_y,
             face_node_connectivity=Connectivity(
-                data=faces, fill_value=-1,
-                cf_role="face_node_connectivity", original_start_index=0,
+                data=faces,
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
             ),
         )
         idx = MeshSpatialIndex(mesh)
         result = idx.locate_faces(np.array([0.3]), np.array([0.3]))
-        assert result[0] == 1, (
-            f"Point at (0.3, 0.3) should be in face 1, got face {result[0]}"
-        )
+        assert (
+            result[0] == 1
+        ), f"Point at (0.3, 0.3) should be in face 1, got face {result[0]}"
 
 
 class TestClipMesh:
@@ -266,7 +279,9 @@ class TestClipMesh:
 
         mask = box(0.0, 0.0, 1.0, 2.0)
         clipped = clip_mesh(unit_square_dataset, mask, touch=True)
-        assert clipped.n_face >= 2, f"Expected >= 2 faces with touch=True, got {clipped.n_face}"
+        assert (
+            clipped.n_face >= 2
+        ), f"Expected >= 2 faces with touch=True, got {clipped.n_face}"
 
     def test_clip_preserves_data(self, unit_square_dataset):
         """Test that clipping preserves data variables.
@@ -278,14 +293,14 @@ class TestClipMesh:
 
         mask = box(-0.1, -0.1, 1.1, 1.1)
         clipped = clip_mesh(unit_square_dataset, mask, touch=False)
-        assert "temperature" in clipped.data_variable_names, (
-            f"temperature should be in clipped data, got {clipped.data_variable_names}"
-        )
+        assert (
+            "temperature" in clipped.data_variable_names
+        ), f"temperature should be in clipped data, got {clipped.data_variable_names}"
         var = clipped["temperature"]
         assert var.data is not None, "Clipped data should not be None"
-        assert len(var.data) == clipped.n_face, (
-            f"Data length should match face count: {len(var.data)} vs {clipped.n_face}"
-        )
+        assert (
+            len(var.data) == clipped.n_face
+        ), f"Data length should match face count: {len(var.data)} vs {clipped.n_face}"
 
     def test_clip_renumbers_nodes(self, unit_square_dataset):
         """Test that clipping renumbers nodes compactly.
@@ -298,9 +313,9 @@ class TestClipMesh:
         clipped = clip_mesh(unit_square_dataset, mask, touch=False)
         fnc = clipped.mesh.face_node_connectivity
         max_node = fnc.data[fnc.data != -1].max()
-        assert max_node < clipped.n_node, (
-            f"Max node index {max_node} should be < n_node {clipped.n_node}"
-        )
+        assert (
+            max_node < clipped.n_node
+        ), f"Max node index {max_node} should be < n_node {clipped.n_node}"
 
 
 class TestSubsetByBounds:
@@ -378,9 +393,9 @@ class TestSpatialWithUgridConventionNc:
         mid_x = (xmin + xmax) / 2
         mid_y = (ymin + ymax) / 2
         result = ugrid_ds.subset_by_bounds(xmin, ymin, mid_x, mid_y)
-        assert result.n_face < ugrid_ds.n_face, (
-            f"Subset should have fewer faces: {result.n_face} vs {ugrid_ds.n_face}"
-        )
+        assert (
+            result.n_face < ugrid_ds.n_face
+        ), f"Subset should have fewer faces: {result.n_face} vs {ugrid_ds.n_face}"
         assert result.n_face > 0, "Subset should have at least 1 face"
 
 
@@ -427,20 +442,23 @@ class TestSpatialEdgeCases:
             Clip a mesh with node data and verify node count matches data length.
         """
 
-
         ds = UgridDataset.create_from_arrays(
             node_x=np.array([0.0, 1.0, 2.0, 0.0, 1.0, 2.0, 0.0, 1.0, 2.0]),
             node_y=np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0]),
-            face_node_connectivity=np.array([
-                [0, 1, 4, 3], [1, 2, 5, 4],
-                [3, 4, 7, 6], [4, 5, 8, 7],
-            ]),
+            face_node_connectivity=np.array(
+                [
+                    [0, 1, 4, 3],
+                    [1, 2, 5, 4],
+                    [3, 4, 7, 6],
+                    [4, 5, 8, 7],
+                ]
+            ),
             data={"altitude": np.arange(9, dtype=np.float64)},
             data_locations={"altitude": "node"},
         )
         mask = box(-0.1, -0.1, 1.1, 1.1)
         clipped = ds.clip(mask, touch=False)
         var = clipped["altitude"]
-        assert var.n_elements == clipped.n_node, (
-            f"Node data length {var.n_elements} should match n_node {clipped.n_node}"
-        )
+        assert (
+            var.n_elements == clipped.n_node
+        ), f"Node data length {var.n_elements} should match n_node {clipped.n_node}"

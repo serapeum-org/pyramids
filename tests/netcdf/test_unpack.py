@@ -7,7 +7,10 @@ single return statement, descriptive assertion messages.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
+
 from pyramids.netcdf.netcdf import NetCDF
+
+pytestmark = pytest.mark.core
 
 
 @pytest.fixture(scope="module")
@@ -34,7 +37,9 @@ class TestUnpackWithScaleOffset:
         unpacked = var.read_array(band=0, unpack=True)
         expected = raw.astype(np.float64) * 0.01 + 1.5
         assert_allclose(
-            unpacked, expected, rtol=1e-10,
+            unpacked,
+            expected,
+            rtol=1e-10,
             err_msg="Unpacked should equal raw * scale + offset",
         )
 
@@ -47,9 +52,7 @@ class TestUnpackWithScaleOffset:
         """
         var = scale_offset_nc.get_variable("z")
         unpacked = var.read_array(band=0, unpack=True)
-        assert unpacked.dtype == np.float64, (
-            f"Expected float64, got {unpacked.dtype}"
-        )
+        assert unpacked.dtype == np.float64, f"Expected float64, got {unpacked.dtype}"
 
     def test_raw_unchanged_without_unpack(self, scale_offset_nc):
         """read_array(unpack=False) should return raw packed values.
@@ -61,9 +64,9 @@ class TestUnpackWithScaleOffset:
         var = scale_offset_nc.get_variable("z")
         raw1 = var.read_array(band=0)
         raw2 = var.read_array(band=0, unpack=False)
-        assert np.array_equal(raw1, raw2), (
-            "unpack=False should return identical data to default"
-        )
+        assert np.array_equal(
+            raw1, raw2
+        ), "unpack=False should return identical data to default"
 
     def test_second_variable_also_unpacks(self, scale_offset_nc):
         """Variable 'q' with different scale/offset should also unpack.
@@ -76,7 +79,9 @@ class TestUnpackWithScaleOffset:
         unpacked = var.read_array(band=0, unpack=True)
         expected = raw.astype(np.float64) * 0.1 + 2.5
         assert_allclose(
-            unpacked, expected, rtol=1e-10,
+            unpacked,
+            expected,
+            rtol=1e-10,
             err_msg="q variable unpack mismatch",
         )
 
@@ -94,13 +99,16 @@ class TestUnpackWithoutScaleOffset:
         arr = np.arange(20, dtype=np.float64).reshape(4, 5)
         geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=geo, variable_name="plain",
+            arr=arr,
+            geo=geo,
+            variable_name="plain",
         )
         var = nc.get_variable("plain")
         raw = var.read_array(band=0)
         unpacked = var.read_array(band=0, unpack=True)
         assert_allclose(
-            unpacked, raw,
+            unpacked,
+            raw,
             err_msg="No scale/offset: unpack should be identity",
         )
 
@@ -113,7 +121,9 @@ class TestUnpackWithoutScaleOffset:
         arr = np.ones((5, 5), dtype=np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=geo, variable_name="v",
+            arr=arr,
+            geo=geo,
+            variable_name="v",
         )
         var = nc.get_variable("v")
         assert var._scale is None, f"Expected None, got {var._scale}"
@@ -136,7 +146,9 @@ class TestUnpackScaleOnly:
         unpacked = var.read_array(band=0, unpack=True)
         expected = raw.astype(np.float64) * var._scale
         assert_allclose(
-            unpacked, expected, rtol=1e-10,
+            unpacked,
+            expected,
+            rtol=1e-10,
             err_msg="Scale-only unpack mismatch",
         )
 
@@ -158,7 +170,9 @@ class TestUnpackOffsetOnly:
         unpacked = var.read_array(band=0, unpack=True)
         expected = raw.astype(np.float64) + original_offset
         assert_allclose(
-            unpacked, expected, rtol=1e-10,
+            unpacked,
+            expected,
+            rtol=1e-10,
             err_msg="Offset-only unpack mismatch",
         )
 
@@ -177,6 +191,8 @@ class TestUnpackAllBands:
         unpacked_all = var.read_array(unpack=True)
         expected = raw_all.astype(np.float64) * var._scale + var._offset
         assert_allclose(
-            unpacked_all, expected, rtol=1e-10,
+            unpacked_all,
+            expected,
+            rtol=1e-10,
             err_msg="Unpack all bands mismatch",
         )

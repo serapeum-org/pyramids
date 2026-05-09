@@ -49,8 +49,10 @@ def triangle_mesh():
         node_x=node_x,
         node_y=node_y,
         face_node_connectivity=Connectivity(
-            data=faces, fill_value=-1,
-            cf_role="face_node_connectivity", original_start_index=0,
+            data=faces,
+            fill_value=-1,
+            cf_role="face_node_connectivity",
+            original_start_index=0,
         ),
     )
 
@@ -70,16 +72,21 @@ def mixed_mesh():
     """
     node_x = np.array([0.0, 1.0, 2.0, 0.0, 1.0, 2.0])
     node_y = np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0])
-    faces = np.array([
-        [0, 1, 4, 3],
-        [1, 2, 5, -1],
-        [1, 5, 4, -1],
-    ], dtype=np.intp)
+    faces = np.array(
+        [
+            [0, 1, 4, 3],
+            [1, 2, 5, -1],
+            [1, 5, 4, -1],
+        ],
+        dtype=np.intp,
+    )
     return Mesh2d(
         node_x=node_x,
         node_y=node_y,
         face_node_connectivity=Connectivity(
-            data=faces, fill_value=-1,
-            cf_role="face_node_connectivity", original_start_index=0,
+            data=faces,
+            fill_value=-1,
+            cf_role="face_node_connectivity",
+            original_start_index=0,
         ),
     )

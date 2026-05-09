@@ -1,4 +1,9 @@
-"""Spatial operations mixin for Dataset."""
+"""Spatial engine.
+
+Owns the Spatial family of operations on a Dataset. Accessed as
+``ds.spatial``; the Dataset exposes same-named facade methods so
+``ds.<method>(...)`` and ``ds.spatial.<method>(...)`` are equivalent.
+"""
 
 from __future__ import annotations
 
@@ -8,27 +13,31 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal, osr
-from osgeo.osr import SpatialReference
 
+from pyramids.base._domain import is_no_data
 from pyramids.base._utils import INTERPOLATION_METHODS
-from pyramids.base._errors import AlignmentError, ReadOnlyError
-from pyramids.dataset.abstract_dataset import (
-    AbstractDataset,
-    CATALOG,
-    DEFAULT_NO_DATA_VALUE,
-    RESAMPLING_METHODS,
+from pyramids.base.crs import (
+    epsg_from_wkt,
+    reproject_coordinates,
+    sr_from_epsg,
+    sr_from_wkt,
 )
+from pyramids.dataset.abstract_dataset import RasterBase
 from pyramids.feature import FeatureCollection
+from pyramids.feature import _ogr as _feature_ogr
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
+from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines.vectorize import Vectorize
 
-class Spatial:
+
+class Spatial(_Engine):
 
     def _get_crs(self) -> str:
         """Get coordinate reference system."""
-        return str(self.raster.GetProjection())
+        return str(self._ds.raster.GetProjection())
 
     def set_crs(self, crs: str | None = None, epsg: int | None = None) -> None:
         """Set the Coordinate Reference System (CRS).
@@ -49,19 +58,22 @@ class Spatial:
         """
         # first change the projection of the gdal dataset object
         # second change the epsg attribute of the Dataset object
-        if self.driver_type == "ascii":
+        if self._ds.driver_type == "ascii":
             raise TypeError(
                 "Setting CRS for ASCII file is not possible, you can save the files to a geotiff and then "
                 "reset the crs"
             )
         else:
             if crs is not None:
-                self.raster.SetProjection(crs)
-                self._epsg = FeatureCollection.get_epsg_from_prj(crs)
+                self._ds.raster.SetProjection(crs)
+                # fallback to 4326 when crs is an empty string
+                # (get_epsg_from_prj raises in that case); epsg_from_wkt
+                # absorbs the fallback in one place.
+                self._ds._epsg = epsg_from_wkt(crs)
             elif epsg is not None:
-                sr = type(self)._create_sr_from_epsg(epsg)
-                self.raster.SetProjection(sr.ExportToWkt())
-                self._epsg = epsg
+                sr = sr_from_epsg(epsg)
+                self._ds.raster.SetProjection(sr.ExportToWkt())
+                self._ds._epsg = epsg
             else:
                 raise ValueError("Either crs or epsg must be provided.")
 
@@ -154,8 +166,8 @@ class Spatial:
         if maintain_alignment:
             dst_obj = self._reproject_with_ReprojectImage(to_epsg, resampling_method)
         else:
-            dst = gdal.Warp("", self.raster, dstSRS=f"EPSG:{to_epsg}", format="VRT")
-            dst_obj = type(self)(dst)
+            dst = gdal.Warp("", self._ds.raster, dstSRS=f"EPSG:{to_epsg}", format="VRT")
+            dst_obj = self._ds.__class__(dst)
 
         return dst_obj
 
@@ -168,27 +180,12 @@ class Spatial:
             int: EPSG number.
         """
         prj = self._get_crs()
-        epsg = FeatureCollection.get_epsg_from_prj(prj)
+        # get_epsg_from_prj raises on empty input; epsg_from_wkt
+        # absorbs the historical 4326 fallback for datasets without a
+        # projection.
+        epsg = epsg_from_wkt(prj)
 
         return epsg
-
-    @staticmethod
-    def _create_sr_from_epsg(epsg: int) -> SpatialReference:
-        """Create a spatial reference object from EPSG number.
-
-        https://gdal.org/tutorials/osr_api_tut.html
-
-        Args:
-            epsg (int):
-                EPSG number.
-
-        Returns:
-            SpatialReference:
-                SpatialReference object.
-        """
-        sr = osr.SpatialReference()
-        sr.ImportFromEPSG(int(epsg))
-        return sr
 
     def convert_longitude(self) -> Dataset:
         """Convert Longitude.
@@ -203,12 +200,12 @@ class Spatial:
         """
         # dst = gdal.Warp(
         #     "",
-        #     self.raster,
+        #     self._ds.raster,
         #     dstSRS="+proj=longlat +ellps=WGS84 +datum=WGS84 +lon_0=0 +over",
         #     format="VRT",
         # )
-        lon = self.lon
-        src = self.raster
+        lon = self._ds.lon
+        src = self._ds.raster
         # create a copy
         drv = gdal.GetDriverByName("MEM")
         dst = drv.CreateCopy("", src, 0)
@@ -221,20 +218,20 @@ class Spatial:
         ind = list(range(first_to_translated, len(lon)))
         ind_2 = list(range(0, first_to_translated))
 
-        for band in range(self.band_count):
-            arr = self.read_array(band=band)
+        for band in range(self._ds.band_count):
+            arr = self._ds.read_array(band=band)
             arr_rearranged = arr[:, ind + ind_2]
             dst.GetRasterBand(band + 1).WriteArray(arr_rearranged)
 
         # correct the geotransform
-        top_left_corner = self.top_left_corner
-        gt = list(self.geotransform)
+        top_left_corner = self._ds.top_left_corner
+        gt = list(self._ds.geotransform)
         if lon[-1] > 180:
             new_gt = top_left_corner[0] - 180
             gt[0] = new_gt
 
         dst.SetGeoTransform(gt)
-        return type(self)(dst)
+        return self._ds.__class__(dst)
 
     def resample(
         self, cell_size: int | float, method: str = "nearest neighbor"
@@ -316,35 +313,40 @@ class Spatial:
 
         resampling_method: Any = INTERPOLATION_METHODS.get(method)
 
-        sr_src = osr.SpatialReference(wkt=self.crs)
+        sr_src = sr_from_wkt(self._ds.crs)
 
-        ulx = self.geotransform[0]
-        uly = self.geotransform[3]
+        ulx = self._ds.geotransform[0]
+        uly = self._ds.geotransform[3]
         # transform the right lower corner point
-        lrx = self.geotransform[0] + self.geotransform[1] * self.columns
-        lry = self.geotransform[3] + self.geotransform[5] * self.rows
+        lrx = self._ds.geotransform[0] + self._ds.geotransform[1] * self._ds.columns
+        lry = self._ds.geotransform[3] + self._ds.geotransform[5] * self._ds.rows
 
         # new geotransform
         new_geo = (
-            self.geotransform[0],
+            self._ds.geotransform[0],
             cell_size,
-            self.geotransform[2],
-            self.geotransform[3],
-            self.geotransform[4],
+            self._ds.geotransform[2],
+            self._ds.geotransform[3],
+            self._ds.geotransform[4],
             -1 * cell_size,
         )
         # create a new raster
         cols = int(np.round(abs(lrx - ulx) / cell_size))
         rows = int(np.round(abs(uly - lry) / cell_size))
-        dtype = self.gdal_dtype[0]
-        bands = self.band_count
+        dtype = self._ds.gdal_dtype[0]
+        bands = self._ds.band_count
 
-        dst_obj = type(self)._build_dataset(
-            cols, rows, bands, dtype, new_geo, sr_src.ExportToWkt(),
-            self.no_data_value,
+        dst_obj = self._ds.__class__._build_dataset(
+            cols,
+            rows,
+            bands,
+            dtype,
+            new_geo,
+            sr_src.ExportToWkt(),
+            self._ds.no_data_value,
         )
         gdal.ReprojectImage(
-            self.raster,
+            self._ds.raster,
             dst_obj.raster,
             sr_src.ExportToWkt(),
             sr_src.ExportToWkt(),
@@ -356,14 +358,14 @@ class Spatial:
     def _reproject_with_ReprojectImage(
         self, to_epsg: int, method: str = "nearest neighbor"
     ) -> Dataset:
-        src_gt = self.geotransform
-        src_x = self.columns
-        src_y = self.rows
+        src_gt = self._ds.geotransform
+        src_x = self._ds.columns
+        src_y = self._ds.rows
 
-        src_sr = osr.SpatialReference(wkt=self.crs)
-        src_epsg = self.epsg
+        src_sr = sr_from_wkt(self._ds.crs)
+        src_epsg = self._ds.epsg
 
-        dst_sr = self._create_sr_from_epsg(to_epsg)
+        dst_sr = sr_from_epsg(to_epsg)
 
         # in case the source crs is GCS and longitude is in the west hemisphere, gdal
         # reads longitude from 0 to 360 and a transformation factor wont work with values
@@ -383,8 +385,9 @@ class Spatial:
                 xs = [src_gt[0], src_gt[0] + src_gt[1] * src_x]
                 ys = [src_gt[3], src_gt[3] + src_gt[5] * src_y]
 
-                [uly, lry], [ulx, lrx] = FeatureCollection.reproject_points(
-                    ys, xs, from_epsg=src_epsg, to_epsg=to_epsg
+                # reproject_coordinates takes (x, y) and returns (x, y).
+                [ulx, lrx], [uly, lry] = reproject_coordinates(
+                    xs, ys, from_crs=src_epsg, to_crs=to_epsg
                 )
                 # old transform
                 # # transform the right upper corner point
@@ -400,44 +403,70 @@ class Spatial:
             lrx = src_gt[0] + src_gt[1] * src_x
             lry = src_gt[3] + src_gt[5] * src_y
 
-        # get the cell size in the source raster and convert it to the new crs
-        # x coordinates or longitudes
-        xs = [src_gt[0], src_gt[0] + src_gt[1]]
-        # y coordinates or latitudes
-        ys = [src_gt[3], src_gt[3]]
+        # measure the X and Y cell-size separately by reprojecting a
+        # one-pixel step on each axis. The previous code only stepped
+        # X (passing `ys = [src_gt[3], src_gt[3]]`) and reused the X
+        # spacing for Y, which forced square output pixels and
+        # silently squashed non-square reprojections (e.g. 4326 →
+        # 3857 at non-zero latitude). Corner-sampled spacings are
+        # exact for affine transforms (UTM ↔ lat-lon, equal-area)
+        # and approximate for footprints spanning large latitude
+        # ranges where local pixel size varies — for those cases
+        # route through the gdal.Warp path in `Spatial.to_crs`.
+        x_pair_xs = [src_gt[0], src_gt[0] + src_gt[1]]
+        x_pair_ys = [src_gt[3], src_gt[3]]
+        y_pair_xs = [src_gt[0], src_gt[0]]
+        y_pair_ys = [src_gt[3], src_gt[3] + src_gt[5]]
 
         if src_epsg != to_epsg:
-            # transform the two-point coordinates to the new crs to calculate the new cell size
-            new_ys, new_xs = FeatureCollection.reproject_points(
-                ys, xs, from_epsg=src_epsg, to_epsg=to_epsg, precision=6
+            # x_pair_xs and x_pair_ys are horizontally spaced by the cell size, after reprojection gives the cell size
+            # in x
+            new_x_xs, _ = reproject_coordinates(
+                x_pair_xs,
+                x_pair_ys,
+                from_crs=src_epsg,
+                to_crs=to_epsg,
+                precision=6,
+            )
+            # y_pair_xs and y_pair_ys are vertically spaced by the cell size, after reprojection gives the cell size
+            # in y
+            _, new_y_ys = reproject_coordinates(
+                y_pair_xs,
+                y_pair_ys,
+                from_crs=src_epsg,
+                to_crs=to_epsg,
+                precision=6,
             )
         else:
-            new_xs = xs
-            # new_ys = ys
+            new_x_xs = x_pair_xs
+            new_y_ys = y_pair_ys
 
-        # TODO: the function does not always maintain alignment, based on the conversion of the cell_size and the
-        # pivot point
-        pixel_spacing = np.abs(new_xs[0] - new_xs[1])
+        x_spacing = np.abs(new_x_xs[0] - new_x_xs[1])
+        y_spacing = np.abs(new_y_ys[0] - new_y_ys[1])
 
-        # create a new raster
-        cols = int(np.round(abs(lrx - ulx) / pixel_spacing))
-        rows = int(np.round(abs(uly - lry) / pixel_spacing))
+        cols = int(np.round(abs(lrx - ulx) / x_spacing))
+        rows = int(np.round(abs(uly - lry) / y_spacing))
 
-        dtype = self.gdal_dtype[0]
+        dtype = self._ds.gdal_dtype[0]
         new_geo = (
             ulx,
-            pixel_spacing,
+            x_spacing,
             src_gt[2],
             uly,
             src_gt[4],
-            np.sign(src_gt[-1]) * pixel_spacing,
+            np.sign(src_gt[-1]) * y_spacing,
         )
-        dst_obj = type(self)._build_dataset(
-            cols, rows, self.band_count, dtype, new_geo, dst_sr.ExportToWkt(),
-            self.no_data_value,
+        dst_obj = self._ds.__class__._build_dataset(
+            cols,
+            rows,
+            self._ds.band_count,
+            dtype,
+            new_geo,
+            dst_sr.ExportToWkt(),
+            self._ds.no_data_value,
         )
         gdal.ReprojectImage(
-            self.raster,
+            self._ds.raster,
             dst_obj.raster,
             src_sr.ExportToWkt(),
             dst_sr.ExportToWkt(),
@@ -464,43 +493,23 @@ class Spatial:
         # compare no of element that is not no_data_value in both rasters to make sure they are matched
         # if both inputs are rasters
         mask_array = mask.read_array()
-        row = mask.rows
-        col = mask.columns
         mask_noval = mask.no_data_value[0]
 
-        if isinstance(mask, AbstractDataset) and isinstance(self, AbstractDataset):
-            # there might be cells that are out of domain in the src but not out of domain in the mask
-            # so change all the src_noval to mask_noval in the src_array
-            # src_array[np.isclose(src_array, self.no_data_value[0], rtol=0.001)] = mask_noval
-            # then count them (out of domain cells) in the src_array
-            elem_src = src_array.size - np.count_nonzero(
-                src_array[np.isclose(src_array, self.no_data_value[0], rtol=0.001)]
-            )
-            # count the out of domain cells in the mask
-            elem_mask = mask_array.size - np.count_nonzero(
-                mask_array[np.isclose(mask_array, mask_noval, rtol=0.001)]
-            )
+        if isinstance(mask, RasterBase) and isinstance(self._ds, RasterBase):
+            src_no_data = is_no_data(src_array, self._ds.no_data_value[0])
+            mask_no_data = is_no_data(mask_array, mask_noval)
+            elem_src = src_array.size - np.count_nonzero(src_array[src_no_data])
+            elem_mask = mask_array.size - np.count_nonzero(mask_array[mask_no_data])
 
-            # if not equal, then store indices of those cells that don't match
+            # Cells that are out-of-domain in src but in-domain in mask
+            # need to be interpolated from neighbors.
             if elem_mask > elem_src:
-                rows = [
-                    i
-                    for i in range(row)
-                    for j in range(col)
-                    if np.isclose(src_array[i, j], self.no_data_value[0], rtol=0.001)
-                    and not np.isclose(mask_array[i, j], mask_noval, rtol=0.001)
-                ]
-                cols = [
-                    j
-                    for i in range(row)
-                    for j in range(col)
-                    if np.isclose(src_array[i, j], self.no_data_value[0], rtol=0.001)
-                    and not np.isclose(mask_array[i, j], mask_noval, rtol=0.001)
-                ]
-            # interpolate those missing cells by the nearest neighbor
-            if elem_mask > elem_src:
-                src_array = type(self)._nearest_neighbour(
-                    src_array, self.no_data_value[0], rows, cols
+                gap_rows, gap_cols = np.where(src_no_data & ~mask_no_data)
+                src_array = Vectorize._nearest_neighbour(
+                    src_array,
+                    self._ds.no_data_value[0],
+                    gap_rows.tolist(),
+                    gap_cols.tolist(),
                 )
         return src_array
 
@@ -527,7 +536,7 @@ class Spatial:
             Dataset:
                 The raster with NoDataValue stored in its cells exactly the same as the source raster.
         """
-        if isinstance(mask, AbstractDataset):
+        if isinstance(mask, RasterBase):
             mask_gt = mask.geotransform
             mask_epsg = mask.epsg
             row = mask.rows
@@ -547,73 +556,61 @@ class Spatial:
                 f"given - {type(mask)}"
             )
 
-        band_count = self.band_count
-        src_sref = osr.SpatialReference(wkt=self.crs)
-        src_array = self.read_array()
+        band_count = self._ds.band_count
+        src_sref = sr_from_wkt(self._ds.crs)
+        src_array = self._ds.read_array()
 
-        if not row == self.rows or not col == self.columns:
+        if not row == self._ds.rows or not col == self._ds.columns:
             raise ValueError(
                 "Two rasters have different number of columns or rows, please resample or match both rasters"
             )
 
-        if isinstance(mask, AbstractDataset):
+        if isinstance(mask, RasterBase):
             if (
-                not self.top_left_corner == mask.top_left_corner
-                or not self.cell_size == mask.cell_size
+                not self._ds.top_left_corner == mask.top_left_corner
+                or not self._ds.cell_size == mask.cell_size
             ):
                 raise ValueError(
                     "the location of the upper left corner of both rasters is not the same or cell size is "
                     "different please match both rasters first "
                 )
 
-            if not mask_epsg == self.epsg:
+            if not mask_epsg == self._ds.epsg:
                 raise ValueError(
                     "Dataset A & B are using different coordinate systems please reproject one of them to "
                     "the other raster coordinate system"
                 )
 
+        mask_no_data = is_no_data(mask_array, mask_noval)
         if band_count > 1:
             # check if the no data value for the src complies with the dtype of the src as sometimes the band is full
             # of values and the no_data_value is not used at all in the band, and when we try to replace any value in
             # the array with the no_data_value it will raise an error.
-            no_data_value = self._check_no_data_value(self.no_data_value)
-
-            for band in range(self.band_count):
-                if mask_noval is None:
-                    src_array[band, np.isnan(mask_array)] = self.no_data_value[band]
-                else:
-                    src_array[band, np.isclose(mask_array, mask_noval, rtol=0.001)] = (
-                        no_data_value[band]
-                    )
+            no_data_value = self._ds._check_no_data_value(self._ds.no_data_value)
+            for band in range(self._ds.band_count):
+                src_array[band, mask_no_data] = no_data_value[band]
         else:
-            if mask_noval is None:
-                src_array[np.isnan(mask_array)] = self.no_data_value[0]
-            else:
-                src_array[np.isclose(mask_array, mask_noval, rtol=0.001)] = (
-                    self.no_data_value[0]
-                )
+            src_array[mask_no_data] = self._ds.no_data_value[0]
 
         if fill_gaps:
             src_array = self.fill_gaps(mask, src_array)
 
-        dst = type(self)._create_dataset(
-            col, row, band_count, self.gdal_dtype[0], driver="MEM"
+        dst = self._ds.__class__._create_dataset(
+            col, row, band_count, self._ds.gdal_dtype[0], driver="MEM"
         )
-        # but with a lot of computations,
-        # if the mask is an array and the mask_gt is not defined, use the src_gt as both the mask and the src
-        # are aligned, so they have the sam gt
-        try:
-            # set the geotransform
+        # if the mask is a numpy array there's no geotransform / CRS
+        # to copy from it; fall back to the source raster's because
+        # the contract requires both rasters to be already aligned.
+        if isinstance(mask, RasterBase):
             dst.SetGeoTransform(mask_gt)
-            # set the projection
             dst.SetProjection(mask.crs)
-        except UnboundLocalError:
-            dst.SetGeoTransform(self.geotransform)
+        else:
+            dst.SetGeoTransform(self._ds.geotransform)
             dst.SetProjection(src_sref.ExportToWkt())
 
-        dst_obj = type(self)(dst)
+        dst_obj = self._ds.__class__(dst)
         # set the no data value
-        dst_obj._set_no_data_value(self.no_data_value)
+        dst_obj._set_no_data_value(self._ds.no_data_value)
         if band_count > 1:
             for band in range(band_count):
                 dst_obj.raster.GetRasterBand(band + 1).WriteArray(src_array[band, :, :])
@@ -623,10 +620,10 @@ class Spatial:
 
     def _check_alignment(self, mask) -> bool:
         """Check if raster is aligned with a given mask raster."""
-        if not isinstance(mask, AbstractDataset):
+        if not isinstance(mask, RasterBase):
             raise TypeError("The second parameter should be a Dataset")
 
-        return self.rows == mask.rows and self.columns == mask.columns
+        return self._ds.rows == mask.rows and self._ds.columns == mask.columns
 
     def align(
         self,
@@ -716,7 +713,7 @@ class Spatial:
 
             ![align-result](./../../_images/dataset/align-result.png)
         """
-        if isinstance(alignment_src, AbstractDataset):
+        if isinstance(alignment_src, RasterBase):
             src = alignment_src
         else:
             raise TypeError(
@@ -725,12 +722,17 @@ class Spatial:
             )
 
         # reproject the raster to match the projection of alignment_src
-        reprojected_raster_b: Dataset = self
-        if self.epsg != src.epsg:
+        reprojected_raster_b: Dataset = self._ds
+        if self._ds.epsg != src.epsg:
             reprojected_raster_b = self.to_crs(src.epsg)  # type: ignore[assignment]
-        dst_obj = type(self)._build_dataset(
-            src.columns, src.rows, self.band_count, src.gdal_dtype[0],
-            src.geotransform, src.crs, self.no_data_value,
+        dst_obj = self._ds.__class__._build_dataset(
+            src.columns,
+            src.rows,
+            self._ds.band_count,
+            src.gdal_dtype[0],
+            src.geotransform,
+            src.crs,
+            self._ds.no_data_value,
         )
         method = gdal.GRA_NearestNeighbour
         # resample the reprojected_RasterB
@@ -760,8 +762,8 @@ class Spatial:
         """
         # get information from the mask raster
         if isinstance(mask, (str, Path)):
-            mask = type(self).read_file(mask)
-        elif isinstance(mask, AbstractDataset):
+            mask = self._ds.__class__.read_file(mask)
+        elif isinstance(mask, RasterBase):
             mask = mask
         else:
             raise TypeError(
@@ -769,11 +771,11 @@ class Spatial:
             )
         if not self._check_alignment(mask):
             # first align the mask with the src raster
-            mask = mask.align(self)
+            mask = mask.align(self._ds)
         # crop the src raster with the aligned mask
         dst_obj = self._crop_aligned(mask)
 
-        dst_obj = type(self)._correct_wrap_cutline_error(dst_obj)
+        dst_obj = Spatial._correct_wrap_cutline_error(dst_obj)
         return dst_obj
 
     def _crop_with_polygon_warp(
@@ -802,27 +804,32 @@ class Spatial:
                     f"The function takes only a FeatureCollection or GeoDataFrame, given {type(feature)}"
                 )
 
-        feature = feature._gdf_to_ds()
-        warp_options = gdal.WarpOptions(
-            format="VRT",
-            # outputBounds=feature.total_bounds,
-            cropToCutline=not touch,
-            cutlineDSName=feature.file_name,
-            # cutlineLayer=feature.layer_names[0],
-            multithread=True,
-        )
-        dst = gdal.Warp("", self.raster, options=warp_options)
+        # gdal.Warp's cutlineDSName needs a *path*; stage the vector in
+        # /vsimem/ through the internal OGR bridge. The path is unlinked
+        # automatically when the with-block exits.
         # Use the base Dataset class (not a subclass like NetCDF) for intermediate GDAL warp results
         # because _correct_wrap_cutline_error calls create_from_array which has different behavior in
         # subclasses.
         base_cls = next(
-            c for c in type(self).__mro__
-            if AbstractDataset in getattr(c, "__bases__", ())
+            c
+            for c in self._ds.__class__.__mro__
+            if RasterBase in getattr(c, "__bases__", ())
         )
-        dst_obj = base_cls(dst)
 
-        if touch:
-            dst_obj = base_cls._correct_wrap_cutline_error(dst_obj)
+        # The warp output (VRT) may resolve the cutline lazily, so we must
+        # complete every access that could touch the cutline path inside
+        # the with-block that keeps that path alive.
+        with _feature_ogr.as_vsimem_path(feature) as cutline_path:
+            warp_options = gdal.WarpOptions(
+                format="VRT",
+                cropToCutline=not touch,
+                cutlineDSName=cutline_path,
+                multithread=True,
+            )
+            dst = gdal.Warp("", self._ds.raster, options=warp_options)
+            dst_obj = base_cls(dst)
+            if touch:
+                dst_obj = Spatial._correct_wrap_cutline_error(dst_obj)
 
         return dst_obj
 
@@ -969,7 +976,7 @@ class Spatial:
         """
         if isinstance(mask, GeoDataFrame):
             dst = self._crop_with_polygon_warp(mask, touch=touch)
-        elif isinstance(mask, AbstractDataset):
+        elif isinstance(mask, RasterBase):
             dst = self._crop_with_raster(mask)
         else:
             raise TypeError(

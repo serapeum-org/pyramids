@@ -7,29 +7,31 @@ unstructured mesh data.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
 import numpy as np
-from osgeo import gdal, osr
+from osgeo import gdal
 from pyproj import CRS, Transformer
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import LineString, Point
 
+from pyramids.base.crs import sr_from_epsg
+from pyramids.basemap.basemap import add_basemap
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf.cf import write_global_attributes
 from pyramids.netcdf.ugrid.connectivity import Connectivity
+from pyramids.netcdf.ugrid.interpolation import mesh_to_grid
 from pyramids.netcdf.ugrid.io import (
     parse_ugrid_topology,
     write_ugrid_data_variable,
     write_ugrid_topology,
 )
-from pyramids.netcdf.ugrid.interpolation import mesh_to_grid
 from pyramids.netcdf.ugrid.mesh import Mesh2d
 from pyramids.netcdf.ugrid.models import MeshTopologyInfo, MeshVariable, UgridMetadata
 from pyramids.netcdf.utils import _read_attributes
-from pyramids.basemap.basemap import add_basemap
 
 
 class UgridDataset:
@@ -37,7 +39,7 @@ class UgridDataset:
 
     Combines mesh topology, data variables, and global attributes
     into a single object with GIS-aware operations. Does NOT inherit
-    from Dataset or AbstractDataset — the raster paradigm does not
+    from Dataset or RasterBase — the raster paradigm does not
     apply to unstructured meshes.
 
     Attributes:
@@ -100,9 +102,7 @@ class UgridDataset:
 
         topologies = parse_ugrid_topology(rg)
         if not topologies:
-            raise ValueError(
-                f"No UGRID mesh topology found in: {path}"
-            )
+            raise ValueError(f"No UGRID mesh topology found in: {path}")
 
         topo_info = topologies[0]
         mesh = Mesh2d.from_gdal_group(rg, topo_info)
@@ -210,9 +210,7 @@ class UgridDataset:
     def metadata(self) -> UgridMetadata:
         """Full metadata summary for this dataset."""
         topo_tuple = (self._topology_info,) if self._topology_info else ()
-        data_vars = {
-            name: var.location for name, var in self._data_variables.items()
-        }
+        data_vars = {name: var.location for name, var in self._data_variables.items()}
         conventions = self._global_attributes.get("Conventions")
         result = UgridMetadata(
             mesh_topologies=topo_tuple,
@@ -254,9 +252,7 @@ class UgridDataset:
         var = self.get_data(variable_name)
         data = var.data
         if data is None:
-            raise ValueError(
-                f"Variable '{variable_name}' has no data loaded."
-            )
+            raise ValueError(f"Variable '{variable_name}' has no data loaded.")
         if var.has_time:
             data = data[0]
 
@@ -294,6 +290,7 @@ class UgridDataset:
             New UgridDataset with clipped mesh and data.
         """
         from pyramids.netcdf.ugrid.spatial import clip_mesh
+
         result = clip_mesh(self, mask, touch=touch)
         return result
 
@@ -316,6 +313,7 @@ class UgridDataset:
             New UgridDataset with subset mesh and data.
         """
         from pyramids.netcdf.ugrid.spatial import subset_by_bounds
+
         result = subset_by_bounds(self, xmin, ymin, xmax, ymax)
         return result
 
@@ -340,24 +338,29 @@ class UgridDataset:
             )
 
         transformer = Transformer.from_crs(
-            f"EPSG:{source_epsg}", f"EPSG:{to_epsg}", always_xy=True,
+            f"EPSG:{source_epsg}",
+            f"EPSG:{to_epsg}",
+            always_xy=True,
         )
         new_node_x, new_node_y = transformer.transform(
-            self._mesh.node_x, self._mesh.node_y,
+            self._mesh.node_x,
+            self._mesh.node_y,
         )
 
         new_face_x = None
         new_face_y = None
         if self._mesh._face_x is not None and self._mesh._face_y is not None:
             new_face_x, new_face_y = transformer.transform(
-                self._mesh._face_x, self._mesh._face_y,
+                self._mesh._face_x,
+                self._mesh._face_y,
             )
 
         new_edge_x = None
         new_edge_y = None
         if self._mesh._edge_x is not None and self._mesh._edge_y is not None:
             new_edge_x, new_edge_y = transformer.transform(
-                self._mesh._edge_x, self._mesh._edge_y,
+                self._mesh._edge_x,
+                self._mesh._edge_y,
             )
 
         new_mesh = Mesh2d(
@@ -374,11 +377,9 @@ class UgridDataset:
             edge_y=new_edge_y,
         )
 
-        srs = osr.SpatialReference()
-        srs.ImportFromEPSG(to_epsg)
+        srs = sr_from_epsg(to_epsg)
         new_crs_wkt = srs.ExportToWkt()
 
-        from dataclasses import replace
         new_topo_info = None
         if self._topology_info is not None:
             new_topo_info = replace(self._topology_info, crs_wkt=new_crs_wkt)
@@ -425,17 +426,22 @@ class UgridDataset:
             if var.has_time:
                 sliced_data = var.sel_time(index)
                 new_data_vars[name] = MeshVariable(
-                    name=var.name, location=var.location,
-                    mesh_name=var.mesh_name, shape=sliced_data.shape,
-                    attributes=var.attributes, nodata=var.nodata,
-                    units=var.units, standard_name=var.standard_name,
+                    name=var.name,
+                    location=var.location,
+                    mesh_name=var.mesh_name,
+                    shape=sliced_data.shape,
+                    attributes=var.attributes,
+                    nodata=var.nodata,
+                    units=var.units,
+                    standard_name=var.standard_name,
                     _data=sliced_data,
                 )
             else:
                 new_data_vars[name] = var
 
         result = UgridDataset(
-            mesh=self._mesh, data_variables=new_data_vars,
+            mesh=self._mesh,
+            data_variables=new_data_vars,
             global_attributes=self._global_attributes,
             topology_info=self._topology_info,
             crs_wkt=self._crs_wkt,
@@ -460,7 +466,8 @@ class UgridDataset:
                 new_data_vars[name] = var
 
         result = UgridDataset(
-            mesh=self._mesh, data_variables=new_data_vars,
+            mesh=self._mesh,
+            data_variables=new_data_vars,
             global_attributes=self._global_attributes,
             topology_info=self._topology_info,
             crs_wkt=self._crs_wkt,
@@ -519,23 +526,19 @@ class UgridDataset:
         geometries = []
         if location == "face":
             from pyramids.netcdf.ugrid.spatial import MeshSpatialIndex
+
             spatial_idx = MeshSpatialIndex(self._mesh)
             geometries = spatial_idx.face_polygons
         elif location == "node":
             for i in range(self.n_node):
-                geometries.append(
-                    Point(self._mesh.node_x[i], self._mesh.node_y[i])
-                )
+                geometries.append(Point(self._mesh.node_x[i], self._mesh.node_y[i]))
         elif location == "edge":
             if self._mesh.edge_node_connectivity is None:
                 raise ValueError("Edge connectivity not available.")
             enc = self._mesh.edge_node_connectivity
             for i in range(enc.n_elements):
                 nodes = enc.get_element(i)
-                coords = [
-                    (self._mesh.node_x[n], self._mesh.node_y[n])
-                    for n in nodes
-                ]
+                coords = [(self._mesh.node_x[n], self._mesh.node_y[n]) for n in nodes]
                 geometries.append(LineString(coords))
         else:
             raise ValueError(f"Unknown location: {location}")
@@ -622,17 +625,19 @@ class UgridDataset:
                 loc = data_locations.get(name, "face")
                 topo_data_vars[name] = loc
                 data_variables[name] = MeshVariable(
-                    name=name, location=loc,
+                    name=name,
+                    location=loc,
                     mesh_name=mesh_name,
-                    shape=arr.shape, _data=arr,
+                    shape=arr.shape,
+                    _data=arr,
                 )
 
-        srs = osr.SpatialReference()
-        srs.ImportFromEPSG(epsg)
+        srs = sr_from_epsg(epsg)
         crs_wkt = srs.ExportToWkt()
 
         topo_info = MeshTopologyInfo(
-            mesh_name=mesh_name, topology_dimension=2,
+            mesh_name=mesh_name,
+            topology_dimension=2,
             node_x_var=f"{mesh_name}_node_x",
             node_y_var=f"{mesh_name}_node_y",
             face_node_var=f"{mesh_name}_face_nodes",
@@ -641,9 +646,11 @@ class UgridDataset:
         )
 
         result = cls(
-            mesh=mesh, data_variables=data_variables,
+            mesh=mesh,
+            data_variables=data_variables,
             global_attributes={"Conventions": "CF-1.8 UGRID-1.0"},
-            topology_info=topo_info, crs_wkt=crs_wkt,
+            topology_info=topo_info,
+            crs_wkt=crs_wkt,
         )
         return result
 
@@ -682,15 +689,19 @@ class UgridDataset:
         if title is None:
             title = variable_name
         result = plot_mesh_data(
-            self._mesh, data, location=var.location,
-            ax=ax, cmap=cmap, title=title, **kwargs,
+            self._mesh,
+            data,
+            location=var.location,
+            ax=ax,
+            cmap=cmap,
+            title=title,
+            **kwargs,
         )
 
         if basemap:
             if self.epsg is None:
                 raise ValueError(
-                    "UgridDataset must have a CRS (epsg) to "
-                    "use basemap."
+                    "UgridDataset must have a CRS (epsg) to " "use basemap."
                 )
             source = basemap if isinstance(basemap, str) else None
             ax = result.ax if hasattr(result, "ax") else result

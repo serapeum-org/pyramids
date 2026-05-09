@@ -1,9 +1,8 @@
-"""Unit tests targeting uncovered lines in pyramids.netcdf.netcdf.NetCDF.
+"""Unit tests targeting branch coverage in pyramids.netcdf.netcdf.NetCDF.
 
-Covers lines: 161, 210-214, 237, 276, 301, 332, 359-363, 419-425,
-430-437, 467-476, 534-536, 541-543, 595-598, 621, 661-668, 677,
-711-720, 730-736, 841, 853, 879, 966, 971, 988, 1045, 1047,
-1086-1087, 1233-1234, 1244-1258, 1260-1261, 1282, 1286, 1310.
+Per-test docstrings describe the branch under test; pre-refactor
+line-number anchors were removed in favour of behavioural
+descriptions, which survive future code motion.
 
 Style: Google-style docstrings, <=120 char lines, no inline imports,
 descriptive assertion error messages.
@@ -21,8 +20,9 @@ from osgeo import gdal
 from pyramids.dataset import Dataset
 from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.netcdf import NetCDF
-
 from tests.netcdf.conftest import make_3d_nc
+
+pytestmark = pytest.mark.core
 
 
 def _make_3d_nc(
@@ -38,9 +38,14 @@ def _make_3d_nc(
     Delegates to the shared ``make_3d_nc`` helper in conftest.
     """
     return make_3d_nc(
-        rows=rows, cols=cols, bands=bands, epsg=epsg,
-        variable_name=variable_name, no_data_value=no_data_value,
-        arr_type="random", seed=42,
+        rows=rows,
+        cols=cols,
+        bands=bands,
+        epsg=epsg,
+        variable_name=variable_name,
+        no_data_value=no_data_value,
+        arr_type="random",
+        seed=42,
     )
 
 
@@ -100,7 +105,7 @@ class TestGeotransformFallback:
     def test_geotransform_falls_back_when_lon_lat_none(self):
         """Verify geotransform returns _geotransform when lon/lat are None.
 
-        Covers line 161: the branch returning self._geotransform when
+        Covers the branch returning self._geotransform when
         lon and lat are not available from _read_variable.
         """
         nc = _make_3d_nc()
@@ -127,7 +132,7 @@ class TestNoDataValueSetter:
     def test_setter_with_single_value(self):
         """Verify no_data_value setter handles a single scalar value.
 
-        Covers line 214: the else branch that calls
+        Covers the else branch that calls
         _change_no_data_value_attr(0, value) for a scalar.
         """
         nc = _make_2d_nc()
@@ -140,7 +145,7 @@ class TestNoDataValueSetter:
     def test_setter_with_list_value(self):
         """Verify no_data_value setter handles a list of values.
 
-        Covers lines 210-213: the if-isinstance(value, list) branch
+        Covers the if-isinstance(value, list) branch
         that iterates and sets per-band no-data values.
         """
         nc = _make_3d_nc()
@@ -159,7 +164,7 @@ class TestTimeStamp:
     def test_time_stamp_returns_none_without_time_units(self):
         """Verify time_stamp returns None when there is no time units attribute.
 
-        Covers line 237: delegates to get_time_variable() which returns
+        Covers delegates to get_time_variable() which returns
         None when time dimension lacks a 'units' attribute.
         """
         nc = _make_3d_nc()
@@ -175,7 +180,7 @@ class TestGetTimeVariable:
     def test_get_time_variable_with_units(self):
         """Verify get_time_variable parses time when units attribute exists.
 
-        Covers lines 467-476: the full path through get_time_variable
+        Covers the full path through get_time_variable
         where time_dim has units and time values can be converted.
         """
         nc = NetCDF.read_file(
@@ -191,7 +196,7 @@ class TestGetTimeVariable:
     def test_get_time_variable_no_time_dim(self):
         """Verify get_time_variable returns None when no time dimension exists.
 
-        Covers line 467 (time_stamp = None) and line 476 return.
+        Covers (time_stamp = None) return.
         """
         nc = _make_2d_nc()
         result = nc.get_time_variable()
@@ -202,7 +207,7 @@ class TestGetTimeVariable:
     def test_get_time_variable_custom_format(self):
         """Verify get_time_variable respects custom time_format.
 
-        Covers lines 474-475: the conversion path with a custom format.
+        Covers the conversion path with a custom format.
         """
         nc = NetCDF.read_file(
             "tests/data/netcdf/noah-precipitation-1979.nc",
@@ -219,7 +224,7 @@ class TestSpatialOperationDelegates:
     def test_crop_delegates_to_super(self):
         """Verify crop() passes through to Dataset.crop for subsets.
 
-        Covers line 276: super().crop() call after _check_not_container.
+        Covers super().crop() call after _check_not_container.
         """
         nc = _make_3d_nc(rows=20, cols=24, bands=2)
         var = nc.get_variable("temperature")
@@ -239,7 +244,7 @@ class TestSpatialOperationDelegates:
     def test_to_crs_delegates_to_super(self):
         """Verify to_crs() passes through to Dataset.to_crs for subsets.
 
-        Covers line 301: super().to_crs() call after _check_not_container.
+        Covers super().to_crs() call after _check_not_container.
         """
         nc = _make_3d_nc(rows=10, cols=12, bands=1, epsg=4326)
         var = nc.get_variable("temperature")
@@ -253,7 +258,7 @@ class TestReadFileWriteMode:
     def test_read_file_write_mode(self, tmp_path):
         """Verify read_file with read_only=False opens in write mode.
 
-        Covers line 332: the else branch setting read_only = 'write'.
+        Covers the else branch setting read_only = 'write'.
         """
         nc = _make_2d_nc()
         out = str(tmp_path / "writable.nc")
@@ -275,7 +280,7 @@ class TestMetaDataSetter:
     def test_setter_with_dict(self):
         """Verify meta_data setter accepts a plain dict and sets items.
 
-        Covers lines 359-361: the isinstance(value, dict) branch
+        Covers the isinstance(value, dict) branch
         calling SetMetadataItem for each key.
         """
         nc = _make_2d_nc()
@@ -288,7 +293,7 @@ class TestMetaDataSetter:
     def test_setter_with_netcdf_metadata(self):
         """Verify meta_data setter accepts a NetCDFMetadata object.
 
-        Covers lines 362-363: the else branch that directly sets
+        Covers the else branch that directly sets
         _cached_meta_data.
         """
         from pyramids.netcdf.models import DimensionInfo
@@ -318,7 +323,7 @@ class TestReadVariable:
     def test_read_variable_dimension_indexing_variable(self):
         """Verify _read_variable reads coordinate arrays via dimension indexing.
 
-        Covers lines 534-536: the fallback to dim.GetIndexingVariable()
+        Covers the fallback to dim.GetIndexingVariable()
         when OpenMDArray returns None.
         """
         nc = _make_2d_nc()
@@ -331,7 +336,7 @@ class TestReadVariable:
     def test_read_variable_classic_mode(self):
         """Verify _read_variable works in classic mode via subdataset string.
 
-        Covers lines 541-543: the classic-mode branch that opens via
+        Covers the classic-mode branch that opens via
         gdal.Open(f'NETCDF:{path}:{var}').
         """
         nc = NetCDF.read_file(
@@ -370,7 +375,7 @@ class TestReadMdArray1D:
     def test_read_md_array_1d_string_type(self):
         """Verify _read_md_array handles 1D string-typed arrays.
 
-        Covers lines 594-596: the len(dims)==1 branch with a
+        Covers the len(dims)==1 branch with a
         GEDTC_STRING dtype, returning (md_arr, md_arr, rg).
         """
         # Create an MDIM dataset with a 1D string variable
@@ -400,9 +405,7 @@ class TestNeedsYFlip:
         rg = nc._raster.GetRootGroup()
         md_arr = rg.OpenMDArray("x")
         result = nc._needs_y_flip(rg, md_arr)
-        assert result is False, (
-            f"Expected False for 1-D array, got {result}"
-        )
+        assert result is False, f"Expected False for 1-D array, got {result}"
 
     def test_returns_bool_for_2d_array(self):
         """Verify _needs_y_flip returns a bool for 2D arrays.
@@ -417,9 +420,7 @@ class TestNeedsYFlip:
         rg = nc._raster.GetRootGroup()
         md_arr = rg.OpenMDArray("elevation")
         result = nc._needs_y_flip(rg, md_arr)
-        assert isinstance(result, bool), (
-            f"Expected bool, got {type(result)}"
-        )
+        assert isinstance(result, bool), f"Expected bool, got {type(result)}"
 
 
 class TestGetVariableEdgeCases:
@@ -428,7 +429,7 @@ class TestGetVariableEdgeCases:
     def test_get_variable_invalid_name_raises(self):
         """Verify get_variable raises ValueError for invalid variable name.
 
-        Covers line 677 branch where src is None after gdal.Open.
+        Covers branch where src is None after gdal.Open.
         """
         nc = _make_3d_nc()
         with pytest.raises(ValueError, match="not a valid variable name"):
@@ -437,7 +438,7 @@ class TestGetVariableEdgeCases:
     def test_get_variable_classic_mode(self):
         """Verify get_variable works in classic mode (no root group).
 
-        Covers lines 674-682: the else branch using
+        Covers the else branch using
         NETCDF:file:variable_name.
         """
         nc = NetCDF.read_file(
@@ -455,7 +456,7 @@ class TestGetVariableEdgeCases:
     def test_get_variable_sets_md_array_dims(self):
         """Verify get_variable populates _md_array_dims.
 
-        Covers the code around lines 693-694 where dims are stored.
+        Covers the code where dims are stored.
         """
         nc = _make_3d_nc()
         var = nc.get_variable("temperature")
@@ -469,7 +470,7 @@ class TestGetVariableEdgeCases:
     def test_get_variable_sets_band_dim_info(self):
         """Verify get_variable populates _band_dim_name and _band_dim_values.
 
-        Covers lines 702-710 where band dimension info is extracted.
+        Covers where band dimension info is extracted.
         """
         nc = _make_3d_nc()
         var = nc.get_variable("temperature")
@@ -486,7 +487,7 @@ class TestGetVariableEdgeCases:
     def test_get_variable_2d_has_no_band_dim(self):
         """Verify get_variable sets _band_dim_name=None for 2D variables.
 
-        Covers lines 722-723: the else branch where ndim <= 2.
+        Covers the else branch where ndim <= 2.
         """
         nc = _make_2d_nc()
         var = nc.get_variable("elevation")
@@ -504,7 +505,7 @@ class TestGetVariableBandDimErrors:
     def test_get_variable_band_dim_runtime_error_fallback(self):
         """Verify get_variable handles RuntimeError when reading band dim values.
 
-        Covers lines 711-720: when ReadAsArray on the indexing variable
+        Covers when ReadAsArray on the indexing variable
         raises RuntimeError, falls back to range indices.
         """
         nc = _make_3d_nc()
@@ -519,7 +520,7 @@ class TestToFile:
     def test_to_file_tif_extension_for_subset(self, tmp_path):
         """Verify to_file works for non-.nc extensions on variable subsets.
 
-        Covers line 853: super().to_file() path for subsets.
+        Covers super().to_file() path for subsets.
         """
         nc = _make_2d_nc()
         var = nc.get_variable("elevation")
@@ -531,7 +532,7 @@ class TestToFile:
     def test_to_file_non_nc_on_container_raises(self, tmp_path):
         """Verify to_file raises ValueError for non-.nc on root containers.
 
-        Covers lines 847-852: the ValueError for multidimensional
+        Covers the ValueError for multidimensional
         container + non-nc extension.
         """
         nc = _make_2d_nc()
@@ -542,7 +543,7 @@ class TestToFile:
     def test_to_file_nc_creates_copy_failure(self, tmp_path):
         """Verify to_file raises RuntimeError when CreateCopy fails.
 
-        Covers line 841: the RuntimeError branch.
+        Covers the RuntimeError branch.
         """
         nc = _make_2d_nc()
         with patch.object(gdal.Driver, "CreateCopy", return_value=None):
@@ -557,7 +558,7 @@ class TestCopy:
     def test_copy_failure_raises_runtime_error(self):
         """Verify copy raises RuntimeError when CreateCopy fails.
 
-        Covers line 879: the RuntimeError branch.
+        Covers the RuntimeError branch.
         """
         nc = _make_2d_nc()
         with patch.object(gdal.Driver, "CreateCopy", return_value=None):
@@ -567,7 +568,7 @@ class TestCopy:
     def test_copy_to_file_path(self, tmp_path):
         """Verify copy with a file path uses netCDF driver.
 
-        Covers lines 874-876: the else branch setting driver='netCDF'.
+        Covers the else branch setting driver='netCDF'.
         """
         nc = _make_2d_nc()
         out = tmp_path / "copy_output.nc"
@@ -582,7 +583,7 @@ class TestCreateFromArrayAlternatives:
     def test_create_from_array_with_top_left_and_cell_size(self):
         """Verify create_from_array builds geo from top_left_corner and cell_size.
 
-        Covers lines 965-968: the branch building geo from
+        Covers the branch building geo from
         top_left_corner and cell_size.
         """
         arr = np.random.rand(5, 10).astype(np.float64)
@@ -601,7 +602,7 @@ class TestCreateFromArrayAlternatives:
     def test_create_from_array_no_geo_raises(self):
         """Verify create_from_array raises ValueError without geo information.
 
-        Covers lines 970-972: the ValueError when geo is None and
+        Covers the ValueError when geo is None and
         top_left_corner/cell_size are not both provided.
         """
         arr = np.random.rand(5, 10).astype(np.float64)
@@ -615,7 +616,7 @@ class TestCreateFromArrayAlternatives:
     def test_create_from_array_default_variable_name(self):
         """Verify create_from_array defaults variable_name to 'data'.
 
-        Covers line 988: variable_name = 'data' default.
+        Covers variable_name = 'data' default.
         """
         arr = np.random.rand(5, 10).astype(np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
@@ -655,7 +656,7 @@ class TestCreateNetcdfFromArrayValidation:
     def test_variable_name_none_raises(self):
         """Verify _create_netcdf_from_array raises ValueError for None variable_name.
 
-        Covers line 1045: the ValueError for variable_name is None.
+        Covers the ValueError for variable_name is None.
         """
         arr = np.random.rand(5, 10).astype(np.float64)
         with pytest.raises(ValueError, match="Variable_name cannot be None"):
@@ -670,7 +671,7 @@ class TestCreateNetcdfFromArrayValidation:
     def test_geo_none_raises(self):
         """Verify _create_netcdf_from_array raises ValueError for None geo.
 
-        Covers line 1047: the ValueError for geo is None.
+        Covers the ValueError for geo is None.
         """
         arr = np.random.rand(5, 10).astype(np.float64)
         with pytest.raises(ValueError, match="geo cannot be None"):
@@ -702,22 +703,16 @@ class TestAddMdArrayToGroupFallback:
         dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
         for d in src_arr.GetDimensions():
             iv = d.GetIndexingVariable()
-            NetCDF.create_main_dimension(
-                dst_rg, d.GetName(), dtype, iv.ReadAsArray()
-            )
+            NetCDF.create_main_dimension(dst_rg, d.GetName(), dtype, iv.ReadAsArray())
 
         # Patch GetNoDataValue to return None (no nodata on source)
-        with patch.object(
-            type(src_arr), "GetNoDataValue", return_value=None
-        ):
+        with patch.object(type(src_arr), "GetNoDataValue", return_value=None):
             NetCDF._add_md_array_to_group(dst_rg, "copied_var", src_arr)
 
         copied = dst_rg.OpenMDArray("copied_var")
         assert copied is not None, "Copied variable should exist"
         ndv = copied.GetNoDataValue()
-        assert ndv is None, (
-            f"Expected no nodata (None), got {ndv}"
-        )
+        assert ndv is None, f"Expected no nodata (None), got {ndv}"
 
 
 class TestSetVariableAttributes:
@@ -726,7 +721,7 @@ class TestSetVariableAttributes:
     def test_set_variable_with_float_attr(self):
         """Verify set_variable writes float attributes.
 
-        Covers lines 1244-1248: the float attribute branch.
+        Covers the float attribute branch.
         """
         nc = _make_2d_nc()
         ds = _make_dataset_2d()
@@ -745,7 +740,7 @@ class TestSetVariableAttributes:
     def test_set_variable_with_int_attr(self):
         """Verify set_variable writes integer attributes.
 
-        Covers lines 1249-1253: the int attribute branch.
+        Covers the int attribute branch.
         """
         nc = _make_2d_nc()
         ds = _make_dataset_2d()
@@ -762,7 +757,7 @@ class TestSetVariableAttributes:
     def test_set_variable_with_non_string_non_numeric_attr(self):
         """Verify set_variable converts unknown types to string.
 
-        Covers lines 1254-1258: the else branch converting value to
+        Covers the else branch converting value to
         str and using CreateString.
         """
         nc = _make_2d_nc()
@@ -779,7 +774,7 @@ class TestSetVariableAttributes:
     def test_set_variable_with_string_attr(self):
         """Verify set_variable writes string attributes.
 
-        Covers lines 1240-1243: the string attribute branch.
+        Covers the string attribute branch.
         """
         nc = _make_2d_nc()
         ds = _make_dataset_2d()
@@ -796,7 +791,7 @@ class TestSetVariableAttributes:
     def test_set_variable_no_data_exception_path(self):
         """Verify set_variable handles exception when SetNoDataValueDouble fails.
 
-        Covers lines 1233-1234: the except branch in no-data setting.
+        Covers the except branch in no-data setting.
         """
         nc = _make_2d_nc()
         ds = _make_dataset_2d()
@@ -809,7 +804,7 @@ class TestSetVariableAttributes:
     def test_set_variable_replaces_existing(self):
         """Verify set_variable deletes and replaces an existing variable.
 
-        Covers line 1174: rg.DeleteMDArray(variable_name).
+        Covers rg.DeleteMDArray(variable_name).
         """
         nc = _make_2d_nc()
         ds1 = _make_dataset_2d()
@@ -826,7 +821,7 @@ class TestSetVariableAttributes:
     def test_set_variable_3d_with_no_band_dim(self):
         """Verify set_variable auto-names band dim as 'bands'.
 
-        Covers lines 1202-1205: default band_dim_name and values.
+        Covers default band_dim_name and values.
         """
         nc = _make_2d_nc()
         ds = _make_dataset_3d(bands=2, rows=10, cols=12)
@@ -843,7 +838,7 @@ class TestSetVariableAttributes:
     def test_set_variable_attr_exception_silenced(self):
         """Verify set_variable silences exceptions when writing attributes.
 
-        Covers lines 1260-1261: the except pass block.
+        Covers the except pass block.
         """
         nc = _make_2d_nc()
         ds = _make_dataset_2d()
@@ -860,7 +855,7 @@ class TestSetVariableAttributes:
     def test_set_variable_without_root_group_raises(self):
         """Verify set_variable raises ValueError when no root group.
 
-        Covers lines 1158-1161.
+        Covers .
         """
         nc = NetCDF.read_file(
             "tests/data/netcdf/noah-precipitation-1979.nc",
@@ -877,7 +872,7 @@ class TestAddVariable:
     def test_add_variable_with_specific_name(self):
         """Verify add_variable copies a specific variable by name.
 
-        Covers line 1282: names_to_copy = [variable_name].
+        Covers names_to_copy = [variable_name].
         """
         nc = _make_3d_nc(variable_name="temp")
         nc2 = _make_3d_nc(variable_name="precip")
@@ -889,7 +884,7 @@ class TestAddVariable:
     def test_add_variable_non_netcdf_dataset(self):
         """Verify add_variable with a plain Dataset gives empty names_to_copy.
 
-        Covers line 1286: names_to_copy = [] for non-NetCDF dataset.
+        Covers names_to_copy = [] for non-NetCDF dataset.
         """
         nc = _make_3d_nc(variable_name="temp")
         ds = _make_dataset_2d()
@@ -914,7 +909,7 @@ class TestRemoveVariable:
     def test_remove_variable_from_file_based_dataset(self, tmp_path):
         """Verify remove_variable copies to memory for file-based datasets.
 
-        Covers line 1310: the else branch using CreateCopy for
+        Covers the else branch using CreateCopy for
         non-memory drivers.
         """
         nc = _make_3d_nc(variable_name="temp")
@@ -934,7 +929,7 @@ class TestRemoveVariable:
     def test_remove_variable_in_memory(self):
         """Verify remove_variable works directly for in-memory datasets.
 
-        Covers line 1308: the if driver_type == 'memory' branch.
+        Covers the if driver_type == 'memory' branch.
         """
         nc = _make_3d_nc(variable_name="temp")
         assert "temp" in nc.variable_names, "Variable should exist before removal"
@@ -1020,7 +1015,7 @@ class TestMSWEPFile:
 def _make_nc_with_time_units(rows=4, cols=5, n_times=3):
     """Create an MDIM NetCDF with a time dimension that has a 'units' attr.
 
-    This is needed to exercise get_time_variable lines 470-475.
+    This is needed to exercise the get_time_variable conversion path.
 
     Returns:
         NetCDF: An in-memory NetCDF with a time dimension carrying
@@ -1067,7 +1062,7 @@ class TestGetTimeVariableWithUnits:
     def test_get_time_variable_with_days_since(self):
         """Verify get_time_variable converts time values when units exist.
 
-        Covers lines 470-475: the full path where time_dim has units,
+        Covers the full path where time_dim has units,
         time values are read, and the conversion function is applied.
         """
         nc = _make_nc_with_time_units(n_times=3)
@@ -1087,7 +1082,7 @@ class TestGetTimeVariableWithUnits:
     def test_get_time_variable_custom_format(self):
         """Verify get_time_variable uses a custom format string.
 
-        Covers line 474: the create_time_conversion_func call with
+        Covers the create_time_conversion_func call with
         custom time_format.
         """
         nc = _make_nc_with_time_units(n_times=2)
@@ -1100,7 +1095,7 @@ class TestGetTimeVariableWithUnits:
     def test_time_stamp_property_with_units(self):
         """Verify time_stamp property returns dates when time has units.
 
-        Covers line 237: the delegation to get_time_variable().
+        Covers the delegation to get_time_variable().
         """
         nc = _make_nc_with_time_units(n_times=2)
         result = nc.time_stamp
@@ -1116,7 +1111,7 @@ class TestReadVariableFallbackPaths:
     def test_read_variable_via_dimension_indexing(self):
         """Verify _read_variable falls back to dimension indexing variable.
 
-        Covers lines 534-536: when OpenMDArray returns None for a
+        Covers when OpenMDArray returns None for a
         dimension name, falls back to dim.GetIndexingVariable().
         """
         nc = _make_2d_nc()
@@ -1156,7 +1151,7 @@ class TestReadVariableFallbackPaths:
     def test_read_variable_classic_mode_success(self):
         """Verify _read_variable reads data in classic mode.
 
-        Covers lines 540-543: the classic-mode path opening via
+        Covers the classic-mode path opening via
         NETCDF:file:var string.
         """
         nc = NetCDF.read_file(
@@ -1178,7 +1173,7 @@ class TestGetVariableYFlipAndErrors:
     def test_get_variable_with_y_flip(self):
         """Verify get_variable handles south-to-north Y orientation.
 
-        Covers lines 661-668: the gt[5] > 0 correction branch
+        Covers the gt[5] > 0 correction branch
         in get_variable.
         """
         # Create an MDIM dataset where lat is stored south-to-north
@@ -1212,7 +1207,7 @@ class TestGetVariableYFlipAndErrors:
     def test_get_variable_classic_open_returns_none(self):
         """Verify get_variable raises ValueError when gdal.Open returns None.
 
-        Covers line 677: the branch where gdal.Open returns None
+        Covers the branch where gdal.Open returns None
         in classic mode. GDAL sometimes returns None instead of raising.
         """
         nc = NetCDF.read_file(
@@ -1235,7 +1230,7 @@ class TestGetVariableYFlipAndErrors:
     def test_get_variable_band_dim_read_error(self):
         """Verify get_variable falls back to range when ReadAsArray fails.
 
-        Covers lines 711-720: the RuntimeError branch where
+        Covers the RuntimeError branch where
         ReadAsArray on the band dim indexing variable fails.
         """
         nc = _make_3d_nc()
@@ -1314,12 +1309,12 @@ class TestGetVariableYFlipAndErrors:
     def test_get_variable_md_arr_none(self):
         """Verify get_variable handles case when md_arr is None.
 
-        Covers lines 730-736: the branch where md_arr is None after
+        Covers the branch where md_arr is None after
         _read_md_array returns a non-MDArray (e.g. string type).
         """
         nc = _make_3d_nc()
         # If _read_md_array returns None md_arr (second element), the code
-        # at line 690 sets md_arr = None, then lines 732-736 set defaults
+        # sets md_arr = None, then the fallback path sets defaults
         original_read = nc._read_md_array
 
         def patched_read(variable_name):
@@ -1350,7 +1345,7 @@ class TestGetVariableNonDataset:
     def test_get_variable_1d_string_returns_md_arr(self):
         """Verify get_variable handles non-Dataset result from _read_md_array.
 
-        Covers lines 667-668: the else branch where src from
+        Covers the else branch where src from
         _read_md_array is not a gdal.Dataset (e.g. string-type MDArray),
         and cube is set to src directly.
         """
@@ -1386,12 +1381,12 @@ class TestGetVariableNonDataset:
 
 
 class TestGetVariableMultipleBandDims:
-    """Tests for get_variable with multiple non-spatial dims (lines 718-720)."""
+    """Tests for get_variable with multiple non-spatial dims."""
 
     def test_get_variable_with_two_band_dims(self):
         """Verify get_variable sets band_dim_name=None when >1 band dims.
 
-        Covers lines 719-720: the else branch where len(band_dims) != 1
+        Covers the else branch where len(band_dims) != 1
         (e.g. a 4D array with two non-spatial dimensions).
         """
         src = gdal.GetDriverByName("MEM").CreateMultiDimensional("multi_band_dims")
@@ -1433,12 +1428,12 @@ class TestGetVariableMultipleBandDims:
 
 
 class TestGetVariableAttrException:
-    """Tests for get_variable GetAttributes exception (lines 730-731)."""
+    """Tests for get_variable GetAttributes exception."""
 
     def test_get_variable_attr_read_error(self):
         """Verify get_variable handles GetAttributes failure gracefully.
 
-        Covers lines 730-731: the except Exception: pass block when
+        Covers the except Exception: pass block when
         GetAttributes raises on the MDArray.
         """
         nc = _make_3d_nc()
@@ -1473,12 +1468,12 @@ class TestGetVariableAttrException:
 
 
 class TestSetVariableAttrWriteException:
-    """Tests for set_variable attribute Write exception (lines 1260-1261)."""
+    """Tests for set_variable attribute Write exception."""
 
     def test_set_variable_attr_write_failure_silenced(self):
         """Verify set_variable silences exceptions in attribute Write.
 
-        Covers lines 1260-1261: the except Exception: pass block
+        Covers the except Exception: pass block
         when CreateAttribute or Write raises.
         """
         nc = _make_2d_nc()
@@ -1514,7 +1509,7 @@ class TestSetVariableNoDataException:
     def test_set_variable_no_data_float_conversion_error(self):
         """Verify set_variable handles exception in SetNoDataValueDouble.
 
-        Covers lines 1233-1234: the except pass block when
+        Covers the except pass block when
         SetNoDataValueDouble raises.
         """
         nc = _make_2d_nc()
@@ -1534,7 +1529,7 @@ class TestSetVariableAttrException:
     def test_set_variable_with_attr_create_failure(self):
         """Verify set_variable silences exceptions in attribute creation.
 
-        Covers lines 1260-1261: the except pass block when
+        Covers the except pass block when
         CreateAttribute or Write raises.
         """
         nc = _make_2d_nc()
@@ -1566,12 +1561,12 @@ class TestSetVariableAttrException:
 
 
 class TestReadMdArray1DNumeric:
-    """Tests for _read_md_array with 1D numeric variables (line 597-598)."""
+    """Tests for _read_md_array with 1D numeric variables."""
 
     def test_read_md_array_1d_numeric_via_custom_ds(self):
         """Verify _read_md_array returns AsClassicDataset for 1D numeric arrays.
 
-        Covers lines 597-598: the 1D numeric branch. Creates a custom
+        Covers the 1D numeric branch. Creates a custom
         MDIM dataset with a 1D numeric variable to test this path.
         Note: AsClassicDataset(0, 1, rg) may fail on some GDAL versions
         for truly 1D arrays. We test the code path is reached.

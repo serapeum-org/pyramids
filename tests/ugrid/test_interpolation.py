@@ -16,6 +16,8 @@ from pyramids.netcdf.ugrid.interpolation import mesh_to_grid
 from pyramids.netcdf.ugrid.mesh import Mesh2d
 from pyramids.netcdf.ugrid.models import MeshTopologyInfo, MeshVariable
 
+pytestmark = pytest.mark.core
+
 
 @pytest.fixture
 def grid_mesh():
@@ -34,17 +36,23 @@ def grid_mesh():
     """
     node_x = np.array([0.0, 1.0, 2.0, 0.0, 1.0, 2.0, 0.0, 1.0, 2.0])
     node_y = np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0])
-    faces = np.array([
-        [0, 1, 4, 3],
-        [1, 2, 5, 4],
-        [3, 4, 7, 6],
-        [4, 5, 8, 7],
-    ], dtype=np.intp)
+    faces = np.array(
+        [
+            [0, 1, 4, 3],
+            [1, 2, 5, 4],
+            [3, 4, 7, 6],
+            [4, 5, 8, 7],
+        ],
+        dtype=np.intp,
+    )
     mesh = Mesh2d(
-        node_x=node_x, node_y=node_y,
+        node_x=node_x,
+        node_y=node_y,
         face_node_connectivity=Connectivity(
-            data=faces, fill_value=-1,
-            cf_role="face_node_connectivity", original_start_index=0,
+            data=faces,
+            fill_value=-1,
+            cf_role="face_node_connectivity",
+            original_start_index=0,
         ),
     )
     face_data = np.array([10.0, 20.0, 30.0, 40.0])
@@ -99,8 +107,13 @@ class TestMeshToGridNearest:
         """
         mesh, data = grid_mesh
         grid, _ = mesh_to_grid(
-            mesh, data, "face", cell_size=0.5,
-            bounds=(-5, -5, 7, 7), nodata=-9999.0, max_distance=0.1,
+            mesh,
+            data,
+            "face",
+            cell_size=0.5,
+            bounds=(-5, -5, 7, 7),
+            nodata=-9999.0,
+            max_distance=0.1,
         )
         assert np.any(grid == -9999.0), "Should have nodata cells outside mesh"
 
@@ -112,7 +125,10 @@ class TestMeshToGridNearest:
         """
         mesh, data = grid_mesh
         grid, geo = mesh_to_grid(
-            mesh, data, "face", cell_size=0.5,
+            mesh,
+            data,
+            "face",
+            cell_size=0.5,
             bounds=(0.0, 0.0, 1.0, 1.0),
         )
         assert grid.shape == (2, 2), f"Expected shape (2, 2), got {grid.shape}"
@@ -201,9 +217,9 @@ class TestToDataset:
         """
         ds = UgridDataset.read_file(ugrid_convention_nc_path)
         raster = ds.to_dataset("mesh2d_node_z", cell_size=500.0)
-        assert abs(raster.cell_size - 500.0) < 1e-6, (
-            f"Expected cell_size 500, got {raster.cell_size}"
-        )
+        assert (
+            abs(raster.cell_size - 500.0) < 1e-6
+        ), f"Expected cell_size 500, got {raster.cell_size}"
 
     def test_to_dataset_linear(self, ugrid_convention_nc_path):
         """Test to_dataset with linear interpolation.

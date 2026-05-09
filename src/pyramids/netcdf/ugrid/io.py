@@ -30,12 +30,12 @@ def parse_ugrid_topology(rg: gdal.Group) -> list[MeshTopologyInfo]:
 
     Detection strategy (handles diverse real-world files):
 
-    1. Primary: Scan all MDArrays for ``cf_role = "mesh_topology"`` attribute.
-    2. Fallback: Scan for variables with ``topology_dimension`` AND
-       ``node_coordinates`` attributes (older files without cf_role).
+    1. Primary: Scan all MDArrays for `cf_role = "mesh_topology"` attribute.
+    2. Fallback: Scan for variables with `topology_dimension` AND
+       `node_coordinates` attributes (older files without cf_role).
     3. Scalar check: GDAL may filter 0-dimensional arrays from
-       ``GetMDArrayNames()``. Explicitly try ``OpenMDArray(name)`` for
-       variable names found in other variables' ``mesh`` attributes.
+       `GetMDArrayNames()`. Explicitly try `OpenMDArray(name)` for
+       variable names found in other variables' `mesh` attributes.
 
     Args:
         rg: GDAL root group from a multidimensional NetCDF file.
@@ -249,13 +249,17 @@ def write_ugrid_topology(
 
     fnc = mesh.face_node_connectivity
     max_fn_dim = rg.CreateDimension(
-        f"{mesh_name}_nMaxFaceNodes", None, None, fnc.max_nodes_per_element,
+        f"{mesh_name}_nMaxFaceNodes",
+        None,
+        None,
+        fnc.max_nodes_per_element,
     )
     two_dim = rg.CreateDimension("Two", None, None, 2)
 
     topo_dim = rg.CreateDimension(f"{mesh_name}_scalar", None, None, 1)
     topo_arr = rg.CreateMDArray(
-        mesh_name, [topo_dim],
+        mesh_name,
+        [topo_dim],
         gdal.ExtendedDataType.Create(gdal.GDT_Int32),
     )
     topo_attrs = {
@@ -275,19 +279,26 @@ def write_ugrid_topology(
     _write_coord_array(rg, f"{mesh_name}_node_y", [n_node_dim], mesh.node_y)
 
     _write_connectivity_array(
-        rg, f"{mesh_name}_face_nodes",
-        [n_face_dim, max_fn_dim], fnc,
+        rg,
+        f"{mesh_name}_face_nodes",
+        [n_face_dim, max_fn_dim],
+        fnc,
     )
 
     if mesh.edge_node_connectivity is not None:
         enc = mesh.edge_node_connectivity
         n_edge_dim = rg.CreateDimension(
-            f"{mesh_name}_nEdges", None, None, enc.n_elements,
+            f"{mesh_name}_nEdges",
+            None,
+            None,
+            enc.n_elements,
         )
         dims[f"{mesh_name}_nEdges"] = n_edge_dim
         _write_connectivity_array(
-            rg, f"{mesh_name}_edge_nodes",
-            [n_edge_dim, two_dim], enc,
+            rg,
+            f"{mesh_name}_edge_nodes",
+            [n_edge_dim, two_dim],
+            enc,
         )
 
     if mesh._face_x is not None and mesh._face_y is not None:
@@ -313,7 +324,8 @@ def _write_crs_variable(
         scalar_dim: Scalar dimension for the CRS variable.
     """
     crs_arr = rg.CreateMDArray(
-        "crs", [scalar_dim],
+        "crs",
+        [scalar_dim],
         gdal.ExtendedDataType.Create(gdal.GDT_Int32),
     )
     crs_arr.Write(np.array([0], dtype=np.int32))
@@ -335,7 +347,9 @@ def _write_coord_array(
         data: 1D numpy array of coordinate values.
     """
     md_arr = rg.CreateMDArray(
-        name, dims, gdal.ExtendedDataType.Create(gdal.GDT_Float64),
+        name,
+        dims,
+        gdal.ExtendedDataType.Create(gdal.GDT_Float64),
     )
     md_arr.Write(data.astype(np.float64))
 
@@ -355,7 +369,9 @@ def _write_connectivity_array(
         conn: Connectivity instance.
     """
     md_arr = rg.CreateMDArray(
-        name, dims, gdal.ExtendedDataType.Create(gdal.GDT_Int32),
+        name,
+        dims,
+        gdal.ExtendedDataType.Create(gdal.GDT_Int32),
     )
     out_data = conn.data.copy().astype(np.int32)
     file_fill = -999
@@ -365,11 +381,14 @@ def _write_connectivity_array(
         out_data[valid] += conn.original_start_index
 
     md_arr.Write(out_data)
-    write_attributes_to_md_array(md_arr, {
-        "cf_role": conn.cf_role,
-        "start_index": conn.original_start_index,
-        "_FillValue": file_fill,
-    })
+    write_attributes_to_md_array(
+        md_arr,
+        {
+            "cf_role": conn.cf_role,
+            "start_index": conn.original_start_index,
+            "_FillValue": file_fill,
+        },
+    )
 
 
 def write_ugrid_data_variable(
@@ -415,7 +434,8 @@ def write_ugrid_data_variable(
     gdal_dt = dtype_map.get(var.dtype, gdal.GDT_Float64)
 
     md_arr = rg.CreateMDArray(
-        var.name, dim_list,
+        var.name,
+        dim_list,
         gdal.ExtendedDataType.Create(gdal_dt),
     )
     md_arr.Write(var.data)

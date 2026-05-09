@@ -13,6 +13,8 @@ import pytest
 
 from pyramids.basemap.warp import warp_tile_image
 
+pytestmark = pytest.mark.plot
+
 
 def _make_rgba_image(
     width: int = 64, height: int = 64, color: tuple[int, ...] = (255, 0, 0, 255)

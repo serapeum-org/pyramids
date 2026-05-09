@@ -284,14 +284,18 @@ class TestAddBasemap:
         fake_image = np.zeros((256, 256, 4), dtype=np.uint8)
         with (
             patch.object(
-                tiles_mod, "auto_zoom", return_value=10,
+                tiles_mod,
+                "auto_zoom",
+                return_value=10,
             ) as mock_zoom,
             patch.object(
-                tiles_mod, "fetch_tiles",
+                tiles_mod,
+                "fetch_tiles",
                 return_value={Tile(0, 0, 10): _make_tile_png()},
             ) as mock_fetch,
             patch.object(
-                tiles_mod, "stitch_tiles",
+                tiles_mod,
+                "stitch_tiles",
                 return_value=(
                     fake_image,
                     (1000000.0, 6000000.0, 1200000.0, 6200000.0),
@@ -309,6 +313,7 @@ class TestAddBasemap:
             imshow.
         """
         from pyramids.basemap import warp as warp_mod
+
         with patch.object(warp_mod, "warp_tile_image") as mock_warp:
             result = add_basemap(mock_ax, crs=3857)
 
@@ -328,6 +333,7 @@ class TestAddBasemap:
 
         fake_image = np.zeros((256, 256, 4), dtype=np.uint8)
         from pyramids.basemap import warp as warp_mod
+
         with patch.object(
             warp_mod,
             "warp_tile_image",
@@ -405,6 +411,7 @@ class TestAddBasemap:
         import mercantile as merc_mod
 
         from pyramids.basemap import tiles as tiles_mod
+
         fake_image = np.zeros((256, 256, 4), dtype=np.uint8)
         many_tiles = [Tile(x=i, y=j, z=10) for i in range(20) for j in range(20)]
         few_tiles = [Tile(x=i, y=j, z=9) for i in range(10) for j in range(10)]
@@ -412,26 +419,29 @@ class TestAddBasemap:
         with (
             patch.object(tiles_mod, "auto_zoom", return_value=10),
             patch.object(
-                tiles_mod, "fetch_tiles",
+                tiles_mod,
+                "fetch_tiles",
                 return_value={Tile(0, 0, 9): _make_tile_png()},
             ),
             patch.object(
-                tiles_mod, "stitch_tiles",
+                tiles_mod,
+                "stitch_tiles",
                 return_value=(
                     fake_image,
                     (1000000.0, 6000000.0, 1200000.0, 6200000.0),
                 ),
             ),
             patch.object(
-                merc_mod, "tiles",
+                merc_mod,
+                "tiles",
                 side_effect=[many_tiles, few_tiles],
             ) as mock_tiles,
         ):
             add_basemap(mock_ax, crs=3857)
 
             calls = mock_tiles.call_args_list
-            assert len(calls) == 2, (
-                f"Expected 2 calls to mercantile.tiles, got {len(calls)}"
-            )
+            assert (
+                len(calls) == 2
+            ), f"Expected 2 calls to mercantile.tiles, got {len(calls)}"
             assert calls[0][1]["zooms"] == 10, "First call should use zoom 10"
             assert calls[1][1]["zooms"] == 9, "Second call should use zoom 9"

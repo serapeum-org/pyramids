@@ -167,6 +167,8 @@ from pyramids._io import (
     to_ascii,
 )
 
+pytestmark = pytest.mark.core
+
 
 class TestExtractFromGzDelete:
     """Tests for extract_from_gz with delete=True."""
@@ -398,16 +400,10 @@ class TestParsePathRemote:
         assert _parse_path("az://container/blob.tif") == "/vsiaz/container/blob.tif"
 
     def test_https_becomes_vsicurl(self):
-        assert (
-            _parse_path("https://foo.com/x.tif")
-            == "/vsicurl/https://foo.com/x.tif"
-        )
+        assert _parse_path("https://foo.com/x.tif") == "/vsicurl/https://foo.com/x.tif"
 
     def test_http_becomes_vsicurl(self):
-        assert (
-            _parse_path("http://foo.com/x.tif")
-            == "/vsicurl/http://foo.com/x.tif"
-        )
+        assert _parse_path("http://foo.com/x.tif") == "/vsicurl/http://foo.com/x.tif"
 
     def test_already_vsi_passthrough(self):
         assert _parse_path("/vsicurl/https://foo/x.tif") == "/vsicurl/https://foo/x.tif"

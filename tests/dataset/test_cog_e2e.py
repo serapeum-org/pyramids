@@ -19,6 +19,8 @@ from osgeo import gdal
 
 from pyramids.dataset import Dataset
 
+pytestmark = pytest.mark.core
+
 
 @pytest.fixture
 def float_dataset_128() -> Dataset:
@@ -43,8 +45,15 @@ def compression_support() -> set[str]:
     meta = gdal.GetDriverByName("GTiff").GetMetadataItem("DMD_CREATIONOPTIONLIST") or ""
     algos = set()
     for alg in [
-        "NONE", "LZW", "DEFLATE", "ZSTD", "WEBP", "LERC",
-        "LERC_DEFLATE", "LERC_ZSTD", "JPEG",
+        "NONE",
+        "LZW",
+        "DEFLATE",
+        "ZSTD",
+        "WEBP",
+        "LERC",
+        "LERC_DEFLATE",
+        "LERC_ZSTD",
+        "JPEG",
     ]:
         if f">{alg}<" in meta:
             algos.add(alg)
@@ -96,17 +105,11 @@ class TestMultiBandRoundtrip:
 
 
 class TestEveryCompression:
-    @pytest.mark.parametrize(
-        "method", ["DEFLATE", "LZW", "ZSTD", "NONE", "LERC"]
-    )
-    def test_round_trip(
-        self, float_dataset_128, tmp_path, compression_support, method
-    ):
+    @pytest.mark.parametrize("method", ["DEFLATE", "LZW", "ZSTD", "NONE", "LERC"])
+    def test_round_trip(self, float_dataset_128, tmp_path, compression_support, method):
         if method not in compression_support:
             pytest.skip(f"GDAL build lacks {method}")
-        out = float_dataset_128.to_cog(
-            tmp_path / f"{method}.tif", compress=method
-        )
+        out = float_dataset_128.to_cog(tmp_path / f"{method}.tif", compress=method)
         reopened = Dataset.read_file(out)
         reopened_arr = reopened.read_array()
         if method == "LERC":
@@ -142,9 +145,7 @@ class TestLercTolerance:
 
 
 class TestWebOptimized:
-    def test_google_maps_compatible_is_web_mercator(
-        self, float_dataset_128, tmp_path
-    ):
+    def test_google_maps_compatible_is_web_mercator(self, float_dataset_128, tmp_path):
         out = float_dataset_128.to_cog(
             tmp_path / "web.tif", tiling_scheme="GoogleMapsCompatible"
         )

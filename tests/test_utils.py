@@ -14,6 +14,8 @@ from pyramids.base._utils import (
     ogr_to_numpy_dtype,
 )
 
+pytestmark = pytest.mark.core
+
 
 def test_numpy_to_gdal_dtype(arr: np.ndarray):
     # test with array input

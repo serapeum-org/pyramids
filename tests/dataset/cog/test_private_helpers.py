@@ -1,8 +1,8 @@
-"""Direct unit tests for private helpers in ``pyramids.dataset.cog.options``.
+"""Direct unit tests for private helpers in `pyramids.dataset.cog.options`.
 
 These tests complement the existing scenario coverage in
-``test_options.py`` (which exercises the helpers indirectly through
-``to_gdal_options``/``merge_options``). The skill's operating mode calls
+`test_options.py` (which exercises the helpers indirectly through
+`to_gdal_options`/`merge_options`). The skill's operating mode calls
 for direct coverage of private methods with a leading underscore, so
 each helper gets its own :class:`TestClass`.
 """
@@ -13,9 +13,11 @@ import pytest
 
 from pyramids.dataset.cog.options import _parse_list_extra, _stringify
 
+pytestmark = pytest.mark.core
+
 
 class TestStringify:
-    """Direct tests for the ``_stringify`` private helper."""
+    """Direct tests for the `_stringify` private helper."""
 
     @pytest.mark.parametrize(
         "value, expected",
@@ -44,9 +46,9 @@ class TestStringify:
             boundary cases.
         """
         result = _stringify(value)
-        assert result == expected, (
-            f"_stringify({value!r}) returned {result!r}, expected {expected!r}"
-        )
+        assert (
+            result == expected
+        ), f"_stringify({value!r}) returned {result!r}, expected {expected!r}"
 
     def test_stringify_bool_before_int_priority(self):
         """Test that True/False are treated as bool, not int.
@@ -56,28 +58,28 @@ class TestStringify:
             might stringify True as "1". The helper must branch on bool
             first.
         """
-        assert _stringify(True) == "YES", (
-            f"True must be 'YES', not 'True' or '1', got {_stringify(True)!r}"
-        )
-        assert _stringify(False) == "NO", (
-            f"False must be 'NO', not 'False' or '0', got {_stringify(False)!r}"
-        )
+        assert (
+            _stringify(True) == "YES"
+        ), f"True must be 'YES', not 'True' or '1', got {_stringify(True)!r}"
+        assert (
+            _stringify(False) == "NO"
+        ), f"False must be 'NO', not 'False' or '0', got {_stringify(False)!r}"
 
     def test_stringify_none_uses_str(self):
         """Test _stringify on None defers to str().
 
         Test scenario:
-            None should not crash — ``str(None)`` is ``'None'``. (Note
-            the public API drops None values in ``to_gdal_options``;
+            None should not crash — `str(None)` is `'None'`. (Note
+            the public API drops None values in `to_gdal_options`;
             this is a direct-helper test of lower-level contract.)
         """
-        assert _stringify(None) == "None", (
-            f"_stringify(None) must defer to str(); got {_stringify(None)!r}"
-        )
+        assert (
+            _stringify(None) == "None"
+        ), f"_stringify(None) must defer to str(); got {_stringify(None)!r}"
 
 
 class TestParseListExtra:
-    """Direct tests for the ``_parse_list_extra`` private helper."""
+    """Direct tests for the `_parse_list_extra` private helper."""
 
     def test_single_entry(self):
         """Test parsing a single KEY=VALUE entry.
@@ -87,9 +89,9 @@ class TestParseListExtra:
             string value preserved.
         """
         result = _parse_list_extra(["COMPRESS=DEFLATE"])
-        assert result == {"COMPRESS": "DEFLATE"}, (
-            f"Single-entry parse produced {result!r}"
-        )
+        assert result == {
+            "COMPRESS": "DEFLATE"
+        }, f"Single-entry parse produced {result!r}"
 
     def test_multiple_entries_preserve_order(self):
         """Test multiple entries populate the dict correctly.
@@ -99,36 +101,36 @@ class TestParseListExtra:
             values are preserved as strings.
         """
         result = _parse_list_extra(["COMPRESS=LZW", "LEVEL=9", "PREDICTOR=2"])
-        assert result == {"COMPRESS": "LZW", "LEVEL": "9", "PREDICTOR": "2"}, (
-            f"Multi-entry parse produced unexpected result: {result!r}"
-        )
+        assert result == {
+            "COMPRESS": "LZW",
+            "LEVEL": "9",
+            "PREDICTOR": "2",
+        }, f"Multi-entry parse produced unexpected result: {result!r}"
 
     def test_lowercase_key_is_uppercased(self):
         """Test lowercase keys are normalized to uppercase.
 
         Test scenario:
             User-supplied mixed-case keys must be canonicalized so the
-            gate check against ``COG_DRIVER_OPTIONS`` works uniformly.
+            gate check against `COG_DRIVER_OPTIONS` works uniformly.
         """
         result = _parse_list_extra(["compress=deflate"])
-        assert "COMPRESS" in result, (
-            f"Key not uppercased in {result!r}"
-        )
-        assert result["COMPRESS"] == "deflate", (
-            f"Value must be preserved verbatim; got {result['COMPRESS']!r}"
-        )
+        assert "COMPRESS" in result, f"Key not uppercased in {result!r}"
+        assert (
+            result["COMPRESS"] == "deflate"
+        ), f"Value must be preserved verbatim; got {result['COMPRESS']!r}"
 
     def test_value_containing_equals_sign(self):
         """Test values containing '=' are preserved intact.
 
         Test scenario:
-            ``partition('=')`` splits only on the first occurrence, so
-            a value like ``"key=subval"`` survives round-trip.
+            `partition('=')` splits only on the first occurrence, so
+            a value like `"key=subval"` survives round-trip.
         """
         result = _parse_list_extra(["TARGET_SRS=EPSG:3857=extra"])
-        assert result["TARGET_SRS"] == "EPSG:3857=extra", (
-            f"Value with '=' not preserved; got {result['TARGET_SRS']!r}"
-        )
+        assert (
+            result["TARGET_SRS"] == "EPSG:3857=extra"
+        ), f"Value with '=' not preserved; got {result['TARGET_SRS']!r}"
 
     def test_empty_list_returns_empty_dict(self):
         """Test empty input yields an empty dict.
@@ -147,9 +149,9 @@ class TestParseListExtra:
         """
         with pytest.raises(ValueError, match="missing '='") as exc_info:
             _parse_list_extra(["not-a-pair"])
-        assert "not-a-pair" in str(exc_info.value), (
-            f"Error message must echo the malformed entry; got: {exc_info.value}"
-        )
+        assert "not-a-pair" in str(
+            exc_info.value
+        ), f"Error message must echo the malformed entry; got: {exc_info.value}"
 
     def test_malformed_entry_in_middle(self):
         """Test a malformed entry among valid ones still raises.
@@ -165,10 +167,8 @@ class TestParseListExtra:
         """Test KEY= (empty value) is allowed.
 
         Test scenario:
-            ``'KEY='`` partitions to ``('KEY', '=', '')`` — legal; the
+            `'KEY='` partitions to `('KEY', '=', '')` — legal; the
             value is the empty string.
         """
         result = _parse_list_extra(["COMPRESS="])
-        assert result == {"COMPRESS": ""}, (
-            f"Empty-value entry produced {result!r}"
-        )
+        assert result == {"COMPRESS": ""}, f"Empty-value entry produced {result!r}"

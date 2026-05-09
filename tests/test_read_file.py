@@ -1,6 +1,9 @@
+import pytest
 from osgeo import gdal
 
 from pyramids.dataset import Dataset
+
+pytestmark = pytest.mark.core
 
 
 def test_from_gdal_dataset(

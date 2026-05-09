@@ -14,6 +14,8 @@ from pyramids.netcdf.ugrid.dataset import UgridDataset
 from pyramids.netcdf.ugrid.mesh import Mesh2d
 from pyramids.netcdf.ugrid.models import MeshVariable
 
+pytestmark = pytest.mark.core
+
 
 class TestCrsHandling:
     """Tests for CRS handling and reprojection (UGRID-18)."""
@@ -47,12 +49,12 @@ class TestCrsHandling:
         )
         reprojected = ds.to_crs(4326)
         assert reprojected.epsg == 4326, f"Expected EPSG 4326, got {reprojected.epsg}"
-        assert reprojected.mesh.node_x[0] < 180, (
-            f"Expected longitude < 180, got {reprojected.mesh.node_x[0]}"
-        )
-        assert reprojected.mesh.node_y[0] < 90, (
-            f"Expected latitude < 90, got {reprojected.mesh.node_y[0]}"
-        )
+        assert (
+            reprojected.mesh.node_x[0] < 180
+        ), f"Expected longitude < 180, got {reprojected.mesh.node_x[0]}"
+        assert (
+            reprojected.mesh.node_y[0] < 90
+        ), f"Expected latitude < 90, got {reprojected.mesh.node_y[0]}"
 
     def test_to_crs_preserves_data(self):
         """Test that reprojection preserves data values.
@@ -69,9 +71,9 @@ class TestCrsHandling:
             epsg=32631,
         )
         reprojected = ds.to_crs(4326)
-        assert reprojected["temp"].data[0] == 25.0, (
-            f"Data should be preserved, got {reprojected['temp'].data[0]}"
-        )
+        assert (
+            reprojected["temp"].data[0] == 25.0
+        ), f"Data should be preserved, got {reprojected['temp'].data[0]}"
 
     def test_to_crs_preserves_topology(self):
         """Test that reprojection preserves mesh topology.
@@ -101,12 +103,14 @@ class TestCrsHandling:
             node_y=np.array([0.0, 0.0, 1.0]),
             face_node_connectivity=Connectivity(
                 data=np.array([[0, 1, 2]], dtype=np.intp),
-                fill_value=-1, cf_role="face_node_connectivity",
+                fill_value=-1,
+                cf_role="face_node_connectivity",
                 original_start_index=0,
             ),
         )
         ds = UgridDataset(
-            mesh=mesh, data_variables={},
+            mesh=mesh,
+            data_variables={},
             global_attributes={},
         )
         with pytest.raises(ValueError, match="source CRS is unknown"):
@@ -123,11 +127,13 @@ class TestTimeDimension:
         Returns:
             UgridDataset with 3 time steps, 2 faces.
         """
-        data_2d = np.array([
-            [1.0, 2.0],
-            [3.0, 4.0],
-            [5.0, 6.0],
-        ])
+        data_2d = np.array(
+            [
+                [1.0, 2.0],
+                [3.0, 4.0],
+                [5.0, 6.0],
+            ]
+        )
         return UgridDataset.create_from_arrays(
             node_x=np.array([0.0, 1.0, 0.5, 1.5]),
             node_y=np.array([0.0, 0.0, 1.0, 1.0]),
@@ -195,9 +201,9 @@ class TestEdgeNodeData:
         ds = UgridDataset.read_file(ugrid_convention_nc_path)
         var = ds["mesh2d_node_z"]
         assert var.location == "node", f"Expected 'node', got '{var.location}'"
-        assert var.n_elements == ds.n_node, (
-            f"Node data elements should match n_node: {var.n_elements} vs {ds.n_node}"
-        )
+        assert (
+            var.n_elements == ds.n_node
+        ), f"Node data elements should match n_node: {var.n_elements} vs {ds.n_node}"
 
     def test_edge_data_access(self, ugrid_convention_nc_path):
         """Test accessing edge-centered data.
@@ -208,9 +214,9 @@ class TestEdgeNodeData:
         ds = UgridDataset.read_file(ugrid_convention_nc_path)
         var = ds["mesh2d_edge_type"]
         assert var.location == "edge", f"Expected 'edge', got '{var.location}'"
-        assert var.n_elements == ds.n_edge, (
-            f"Edge data elements should match n_edge: {var.n_elements} vs {ds.n_edge}"
-        )
+        assert (
+            var.n_elements == ds.n_edge
+        ), f"Edge data elements should match n_edge: {var.n_elements} vs {ds.n_edge}"
 
     def test_node_data_to_geodataframe(self):
         """Test converting node data to GeoDataFrame with Points.

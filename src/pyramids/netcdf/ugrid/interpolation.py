@@ -176,9 +176,7 @@ def _interpolate_linear(
     """
     from scipy.interpolate import LinearNDInterpolator
 
-    interpolator = LinearNDInterpolator(
-        source_points, source_values, fill_value=nodata
-    )
+    interpolator = LinearNDInterpolator(source_points, source_values, fill_value=nodata)
     result = interpolator(target_points)
 
     return result

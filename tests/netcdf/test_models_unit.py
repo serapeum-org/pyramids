@@ -15,12 +15,14 @@ from unittest.mock import MagicMock, PropertyMock, patch
 import pytest
 
 from pyramids.netcdf.models import (
-    VariableInfo,
     DimensionInfo,
     GroupInfo,
     NetCDFMetadata,
     StructuralInfo,
+    VariableInfo,
 )
+
+pytestmark = pytest.mark.core
 
 
 def _mock_group(
@@ -812,7 +814,9 @@ class TestNetCDFMetadataDataclass:
         assert meta.driver == "netCDF", f"Expected 'netCDF', got '{meta.driver}'"
         assert meta.root_group == "/", f"Expected '/', got '{meta.root_group}'"
         assert isinstance(meta.groups, dict), f"Expected dict, got {type(meta.groups)}"
-        assert isinstance(meta.variables, dict), f"Expected dict, got {type(meta.variables)}"
+        assert isinstance(
+            meta.variables, dict
+        ), f"Expected dict, got {type(meta.variables)}"
         assert isinstance(
             meta.dimensions, dict
         ), f"Expected dict, got {type(meta.dimensions)}"

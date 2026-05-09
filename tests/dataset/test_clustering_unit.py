@@ -10,7 +10,9 @@ import numpy as np
 import pytest
 
 from pyramids.dataset.dataset import Dataset
-from pyramids.dataset.ops.vectorize import Vectorize
+from pyramids.dataset.engines import Vectorize
+
+pytestmark = pytest.mark.core
 
 
 @pytest.fixture(scope="module")
@@ -64,7 +66,9 @@ class TestGroupNeighbours:
         position, values, cluster = self._call(arr, 0, 0, 0, 10)
         assert position == [], f"Expected no neighbours, got {position}"
         assert values == [], f"Expected no values, got {values}"
-        assert cluster[0, 0] == 0, "Starting cell should not be marked by _group_neighbours"
+        assert (
+            cluster[0, 0] == 0
+        ), "Starting cell should not be marked by _group_neighbours"
 
     def test_all_cells_in_bounds_3x3(self):
         """Test BFS floods the entire 3x3 array when all cells are in range.
@@ -77,7 +81,9 @@ class TestGroupNeighbours:
         arr = np.ones((3, 3), dtype=float) * 5
         position, values, cluster = self._call(arr, 1, 1, 1, 10)
 
-        assert len(position) == 9, f"Expected 9 cells (8 neighbors + start), got {len(position)}"
+        assert (
+            len(position) == 9
+        ), f"Expected 9 cells (8 neighbors + start), got {len(position)}"
         assert all(v == 5.0 for v in values), f"All values should be 5.0, got {values}"
         visited = {(r, c) for r, c in position}
         expected = {(r, c) for r in range(3) for c in range(3)}
@@ -131,9 +137,9 @@ class TestGroupNeighbours:
 
         found_positions = {(r, c) for r, c in position}
         expected = {(0, 0), (0, 2), (2, 0), (2, 2), (1, 1)}
-        assert found_positions == expected, (
-            f"Expected diagonal corners + center {expected}, got {found_positions}"
-        )
+        assert (
+            found_positions == expected
+        ), f"Expected diagonal corners + center {expected}, got {found_positions}"
 
     def test_l_shaped_region(self):
         """Test BFS correctly follows an L-shaped connected region.
@@ -153,9 +159,7 @@ class TestGroupNeighbours:
         cluster_arr[2, 0] = 1
         position = []
         values = []
-        Vectorize._group_neighbours(
-            arr, 2, 0, 4, 6, position, values, 1, cluster_arr
-        )
+        Vectorize._group_neighbours(arr, 2, 0, 4, 6, position, values, 1, cluster_arr)
 
         found = {(r, c) for r, c in position}
         expected = {(0, 0), (1, 0), (2, 1), (2, 2)}
@@ -174,17 +178,15 @@ class TestGroupNeighbours:
         cluster_arr[0, 1] = 99
         position = []
         values = []
-        Vectorize._group_neighbours(
-            arr, 1, 1, 1, 10, position, values, 1, cluster_arr
-        )
+        Vectorize._group_neighbours(arr, 1, 1, 1, 10, position, values, 1, cluster_arr)
 
         found = {(r, c) for r, c in position}
         assert (0, 0) not in found, "Cell (0,0) already clustered, should be skipped"
         assert (0, 1) not in found, "Cell (0,1) already clustered, should be skipped"
         expected_count = 7
-        assert len(found) == expected_count, (
-            f"Expected {expected_count} cells (6 unmarked neighbors + start), got {len(found)}"
-        )
+        assert (
+            len(found) == expected_count
+        ), f"Expected {expected_count} cells (6 unmarked neighbors + start), got {len(found)}"
 
     def test_corner_start_position(self):
         """Test BFS starting from a corner cell discovers all cells.
@@ -196,9 +198,9 @@ class TestGroupNeighbours:
         arr = np.ones((3, 3), dtype=float) * 5
         position, values, cluster = self._call(arr, 0, 0, 1, 10)
 
-        assert len(position) == 9, (
-            f"All 9 cells should be reachable from corner, got {len(position)}"
-        )
+        assert (
+            len(position) == 9
+        ), f"All 9 cells should be reachable from corner, got {len(position)}"
 
     def test_edge_start_position(self):
         """Test BFS starting from an edge (non-corner) cell discovers all cells.
@@ -210,9 +212,9 @@ class TestGroupNeighbours:
         arr = np.ones((3, 3), dtype=float) * 5
         position, values, cluster = self._call(arr, 0, 1, 1, 10)
 
-        assert len(position) == 9, (
-            f"All 9 cells should be reachable from edge, got {len(position)}"
-        )
+        assert (
+            len(position) == 9
+        ), f"All 9 cells should be reachable from edge, got {len(position)}"
 
     def test_cluster_number_assigned_correctly(self):
         """Test that discovered cells are marked with the correct cluster count.
@@ -224,9 +226,9 @@ class TestGroupNeighbours:
         position, values, cluster = self._call(arr, 1, 1, 1, 10, count=7)
 
         for r, c in position:
-            assert cluster[r, c] == 7, (
-                f"Cell ({r},{c}) should have cluster=7, got {cluster[r, c]}"
-            )
+            assert (
+                cluster[r, c] == 7
+            ), f"Cell ({r},{c}) should have cluster=7, got {cluster[r, c]}"
 
     def test_values_match_array_contents(self):
         """Test that collected values match the actual array cell values.
@@ -245,9 +247,7 @@ class TestGroupNeighbours:
         position, values, cluster = self._call(arr, 1, 1, 1, 9)
 
         for (r, c), v in zip(position, values):
-            assert v == arr[r, c], (
-                f"Value at ({r},{c}) should be {arr[r, c]}, got {v}"
-            )
+            assert v == arr[r, c], f"Value at ({r},{c}) should be {arr[r, c]}, got {v}"
 
     def test_two_disconnected_regions(self):
         """Test BFS only floods one connected component from the start cell.
@@ -270,9 +270,9 @@ class TestGroupNeighbours:
 
         found = {(r, c) for r, c in position}
         top_left_block = {(0, 0), (0, 1), (1, 0), (1, 1)}
-        assert found == top_left_block, (
-            f"BFS should only reach top-left block {top_left_block}, got {found}"
-        )
+        assert (
+            found == top_left_block
+        ), f"BFS should only reach top-left block {top_left_block}, got {found}"
 
     def test_diagonal_bridges_one_cell_gap(self):
         """Test that 8-connectivity bridges a 1-cell diagonal gap.
@@ -291,9 +291,9 @@ class TestGroupNeighbours:
         )
         position, values, cluster = self._call(arr, 0, 0, 4, 6)
 
-        assert len(position) == 8, (
-            f"Diagonal bridge should connect both blocks (8 cells), got {len(position)}"
-        )
+        assert (
+            len(position) == 8
+        ), f"Diagonal bridge should connect both blocks (8 cells), got {len(position)}"
 
     def test_large_raster_no_recursion_error(self):
         """Test BFS handles a large connected region without hitting recursion limit.
@@ -307,9 +307,9 @@ class TestGroupNeighbours:
         position, values, cluster = self._call(arr, 100, 100, 1, 10)
 
         expected_count = 200 * 200
-        assert len(position) == expected_count, (
-            f"Expected {expected_count} cells (all including start), got {len(position)}"
-        )
+        assert (
+            len(position) == expected_count
+        ), f"Expected {expected_count} cells (all including start), got {len(position)}"
 
     def test_float_bounds_with_float_values(self):
         """Test BFS with non-integer float bounds and array values.
@@ -343,9 +343,7 @@ class TestGroupNeighbours:
         arr[2, 0] = 5.0
         position, values, cluster = self._call(arr, 0, 0, 4, 6)
 
-        assert len(position) == 7, (
-            f"Expected 7 cells in corridor, got {len(position)}"
-        )
+        assert len(position) == 7, f"Expected 7 cells in corridor, got {len(position)}"
 
     def test_does_not_modify_input_array(self):
         """Test BFS does not mutate the input data array.
@@ -378,12 +376,13 @@ class TestGroupNeighbours:
         position, values, cluster = self._call(arr, 0, 0, 4, 6)
 
         found = {(r, c) for r, c in position}
-        assert (0, 0) not in found, (
+        assert (
+            0,
+            0,
+        ) not in found, (
             "Starting cell has value 0 (out of bounds), should not be marked"
         )
-        assert len(found) == 3, (
-            f"Expected 3 in-bound neighbors, got {len(found)}"
-        )
+        assert len(found) == 3, f"Expected 3 in-bound neighbors, got {len(found)}"
 
 
 class TestCluster:
@@ -428,9 +427,9 @@ class TestCluster:
         """
         cluster_array, count, position, values = uniform_dataset.cluster(1, 10)
 
-        assert isinstance(cluster_array, np.ndarray), (
-            f"Expected np.ndarray, got {type(cluster_array)}"
-        )
+        assert isinstance(
+            cluster_array, np.ndarray
+        ), f"Expected np.ndarray, got {type(cluster_array)}"
         assert isinstance(count, int), f"Expected int, got {type(count)}"
         assert isinstance(position, list), f"Expected list, got {type(position)}"
         assert isinstance(values, list), f"Expected list, got {type(values)}"
@@ -444,15 +443,15 @@ class TestCluster:
         """
         cluster_array, count, position, values = uniform_dataset.cluster(1, 10)
 
-        assert count == 2, (
-            f"Expected count=2 (1 cluster + final increment), got {count}"
-        )
+        assert (
+            count == 2
+        ), f"Expected count=2 (1 cluster + final increment), got {count}"
         assert len(position) == 16, f"Expected 16 positions, got {len(position)}"
         assert len(values) == 16, f"Expected 16 values, got {len(values)}"
         unique_clusters = set(cluster_array.flatten()) - {0}
-        assert unique_clusters == {1}, (
-            f"Expected single cluster label {{1}}, got {unique_clusters}"
-        )
+        assert unique_clusters == {
+            1
+        }, f"Expected single cluster label {{1}}, got {unique_clusters}"
 
     def test_no_cells_in_bounds(self, make_dataset):
         """Test cluster with bounds that exclude all cells.
@@ -479,15 +478,15 @@ class TestCluster:
         """
         cluster_array, count, position, values = two_cluster_dataset.cluster(4, 6)
 
-        assert count == 3, (
-            f"Expected count=3 (2 clusters + final increment), got {count}"
-        )
+        assert (
+            count == 3
+        ), f"Expected count=3 (2 clusters + final increment), got {count}"
         assert len(position) == 8, f"Expected 8 clustered cells, got {len(position)}"
 
         cluster_labels = set(cluster_array.flatten()) - {0}
-        assert len(cluster_labels) == 2, (
-            f"Expected 2 distinct cluster labels, got {cluster_labels}"
-        )
+        assert (
+            len(cluster_labels) == 2
+        ), f"Expected 2 distinct cluster labels, got {cluster_labels}"
 
     def test_diagonal_bridge_forms_single_cluster(self, make_dataset):
         """Test that a 1-cell diagonal gap connects two blocks into one cluster.
@@ -508,10 +507,10 @@ class TestCluster:
         dataset = make_dataset(arr)
         cluster_array, count, position, values = dataset.cluster(4, 6)
 
-        assert count == 2, (
-            f"Expected count=2 (1 cluster + increment), got {count}"
-        )
-        assert len(position) == 8, f"Expected 8 cells in single cluster, got {len(position)}"
+        assert count == 2, f"Expected count=2 (1 cluster + increment), got {count}"
+        assert (
+            len(position) == 8
+        ), f"Expected 8 cells in single cluster, got {len(position)}"
 
     def test_isolated_single_cell(self, make_dataset):
         """Test that a single isolated cell forms its own cluster.
@@ -534,9 +533,9 @@ class TestCluster:
         assert len(position) == 1, f"Expected 1 position, got {len(position)}"
         assert position[0] == [1, 1], f"Expected position [1,1], got {position[0]}"
         assert values == [5.0], f"Expected values [5.0], got {values}"
-        assert cluster_array[1, 1] == 1, (
-            f"Center cell should have cluster=1, got {cluster_array[1, 1]}"
-        )
+        assert (
+            cluster_array[1, 1] == 1
+        ), f"Center cell should have cluster=1, got {cluster_array[1, 1]}"
 
     def test_boundary_values_exact_match(self, make_dataset):
         """Test cells with values exactly at the bounds are included.
@@ -550,7 +549,11 @@ class TestCluster:
         cluster_array, count, position, values = dataset.cluster(2.0, 8.0)
 
         assert len(position) == 3, f"Expected 3 cells, got {len(position)}"
-        assert set(values) == {2.0, 5.0, 8.0}, f"Expected {{2, 5, 8}}, got {set(values)}"
+        assert set(values) == {
+            2.0,
+            5.0,
+            8.0,
+        }, f"Expected {{2, 5, 8}}, got {set(values)}"
 
     def test_diagonal_connectivity(self, make_dataset):
         """Test that diagonally-connected cells belong to the same cluster.
@@ -570,10 +573,12 @@ class TestCluster:
         dataset = make_dataset(arr)
         cluster_array, count, position, values = dataset.cluster(4, 6)
 
-        assert count == 2, (
-            f"Expected count=2 (1 diagonal cluster + increment), got {count}"
-        )
-        assert len(position) == 5, f"Expected 5 cells in diagonal cluster, got {len(position)}"
+        assert (
+            count == 2
+        ), f"Expected count=2 (1 diagonal cluster + increment), got {count}"
+        assert (
+            len(position) == 5
+        ), f"Expected 5 cells in diagonal cluster, got {len(position)}"
 
     def test_cluster_array_shape_matches_input(self, make_dataset):
         """Test the returned cluster array has the same shape as the raster.
@@ -585,9 +590,10 @@ class TestCluster:
         dataset = make_dataset(arr)
         cluster_array, count, position, values = dataset.cluster(1, 10)
 
-        assert cluster_array.shape == (5, 7), (
-            f"Expected shape (5, 7), got {cluster_array.shape}"
-        )
+        assert cluster_array.shape == (
+            5,
+            7,
+        ), f"Expected shape (5, 7), got {cluster_array.shape}"
 
     def test_multiple_isolated_cells(self, make_dataset):
         """Test that multiple isolated in-bound cells each form their own cluster.
@@ -605,9 +611,9 @@ class TestCluster:
         dataset = make_dataset(arr)
         cluster_array, count, position, values = dataset.cluster(4, 6)
 
-        assert count == 5, (
-            f"Expected count=5 (4 isolated clusters + increment), got {count}"
-        )
+        assert (
+            count == 5
+        ), f"Expected count=5 (4 isolated clusters + increment), got {count}"
         assert len(position) == 4, f"Expected 4 positions, got {len(position)}"
 
     def test_large_raster_completes(self, make_dataset):
@@ -623,9 +629,7 @@ class TestCluster:
         cluster_array, count, position, values = dataset.cluster(1, 10)
 
         assert count == 2, f"Expected count=2 (1 cluster + increment), got {count}"
-        assert len(position) == 40000, (
-            f"Expected 40000 cells, got {len(position)}"
-        )
+        assert len(position) == 40000, f"Expected 40000 cells, got {len(position)}"
         assert np.all(cluster_array == 1), "All cells should belong to cluster 1"
 
     def test_mixed_values_partial_clustering(self, make_dataset):
@@ -644,9 +648,9 @@ class TestCluster:
             assert 3 <= v <= 7, f"Value {v} is outside bounds [3, 7]"
 
         in_bound_count = np.sum((arr >= 3) & (arr <= 7))
-        assert len(position) == in_bound_count, (
-            f"Expected {in_bound_count} cells in bounds, got {len(position)}"
-        )
+        assert (
+            len(position) == in_bound_count
+        ), f"Expected {in_bound_count} cells in bounds, got {len(position)}"
 
     def test_single_row_array(self, make_dataset):
         """Test cluster on a 1-row array.
@@ -689,15 +693,15 @@ class TestCluster:
         dataset = make_dataset(arr)
         cluster_array, count, position, values = dataset.cluster(4, 6)
 
-        assert cluster_array[0, 0] == 1, (
-            f"First cluster should be label 1, got {cluster_array[0, 0]}"
-        )
-        assert cluster_array[2, 0] == 2, (
-            f"Second cluster should be label 2, got {cluster_array[2, 0]}"
-        )
-        assert cluster_array[4, 0] == 3, (
-            f"Third cluster should be label 3, got {cluster_array[4, 0]}"
-        )
+        assert (
+            cluster_array[0, 0] == 1
+        ), f"First cluster should be label 1, got {cluster_array[0, 0]}"
+        assert (
+            cluster_array[2, 0] == 2
+        ), f"Second cluster should be label 2, got {cluster_array[2, 0]}"
+        assert (
+            cluster_array[4, 0] == 3
+        ), f"Third cluster should be label 3, got {cluster_array[4, 0]}"
 
     def test_out_of_bound_cells_remain_zero(self, make_dataset):
         """Test that cells outside the value bounds stay 0 in the cluster array.
@@ -716,12 +720,12 @@ class TestCluster:
         dataset = make_dataset(arr)
         cluster_array, count, position, values = dataset.cluster(4, 6)
 
-        assert cluster_array[0, 1] == 0, (
-            f"Out-of-bound cell (0,1) should be 0, got {cluster_array[0, 1]}"
-        )
-        assert cluster_array[1, 0] == 0, (
-            f"Out-of-bound cell (1,0) should be 0, got {cluster_array[1, 0]}"
-        )
+        assert (
+            cluster_array[0, 1] == 0
+        ), f"Out-of-bound cell (0,1) should be 0, got {cluster_array[0, 1]}"
+        assert (
+            cluster_array[1, 0] == 0
+        ), f"Out-of-bound cell (1,0) should be 0, got {cluster_array[1, 0]}"
 
     def test_position_values_correspondence(self, make_dataset):
         """Test that position and values lists are aligned.
@@ -736,9 +740,9 @@ class TestCluster:
         cluster_array, count, position, values = dataset.cluster(3, 7)
 
         for (r, c), v in zip(position, values):
-            assert v == arr[r, c], (
-                f"Value {v} at position ({r},{c}) doesn't match array value {arr[r, c]}"
-            )
+            assert (
+                v == arr[r, c]
+            ), f"Value {v} at position ({r},{c}) doesn't match array value {arr[r, c]}"
 
     def test_cluster_with_real_dem(self, rhine_dem, clusters):
         """Test cluster against pre-computed golden results from a real DEM.
@@ -751,8 +755,8 @@ class TestCluster:
         cluster_array, count, position, values = dataset.cluster(0.1, 20)
 
         assert count == 155, f"Expected 155 clusters, got {count}"
-        assert np.array_equal(cluster_array, clusters), (
-            "Cluster array does not match pre-computed golden result"
-        )
+        assert np.array_equal(
+            cluster_array, clusters
+        ), "Cluster array does not match pre-computed golden result"
         assert len(position) == 2364, f"Expected 2364 positions, got {len(position)}"
         assert len(values) == 2364, f"Expected 2364 values, got {len(values)}"

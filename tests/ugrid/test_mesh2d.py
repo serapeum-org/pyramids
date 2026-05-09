@@ -12,6 +12,8 @@ import pytest
 from pyramids.netcdf.ugrid.connectivity import Connectivity
 from pyramids.netcdf.ugrid.mesh import Mesh2d
 
+pytestmark = pytest.mark.core
+
 
 class TestMesh2dProperties:
     """Tests for Mesh2d basic properties."""
@@ -120,12 +122,16 @@ class TestMesh2dFaceCentroids:
         face_x = np.array([99.0])
         face_y = np.array([99.0])
         mesh = Mesh2d(
-            node_x=node_x, node_y=node_y,
+            node_x=node_x,
+            node_y=node_y,
             face_node_connectivity=Connectivity(
-                data=faces, fill_value=-1,
-                cf_role="face_node_connectivity", original_start_index=0,
+                data=faces,
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
             ),
-            face_x=face_x, face_y=face_y,
+            face_x=face_x,
+            face_y=face_y,
         )
         cx, cy = mesh.face_centroids
         assert cx[0] == 99.0, f"Expected provided face_x=99.0, got {cx[0]}"
@@ -155,10 +161,13 @@ class TestMesh2dFaceAreas:
         node_y = np.array([0.0, 0.0, 1.0])
         faces = np.array([[0, 1, 2]], dtype=np.intp)
         mesh = Mesh2d(
-            node_x=node_x, node_y=node_y,
+            node_x=node_x,
+            node_y=node_y,
             face_node_connectivity=Connectivity(
-                data=faces, fill_value=-1,
-                cf_role="face_node_connectivity", original_start_index=0,
+                data=faces,
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
             ),
         )
         areas = mesh.face_areas
@@ -174,10 +183,13 @@ class TestMesh2dFaceAreas:
         node_y = np.array([0.0, 0.0, 1.0, 1.0])
         faces = np.array([[0, 1, 2, 3]], dtype=np.intp)
         mesh = Mesh2d(
-            node_x=node_x, node_y=node_y,
+            node_x=node_x,
+            node_y=node_y,
             face_node_connectivity=Connectivity(
-                data=faces, fill_value=-1,
-                cf_role="face_node_connectivity", original_start_index=0,
+                data=faces,
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
             ),
         )
         areas = mesh.face_areas
@@ -229,14 +241,19 @@ class TestMesh2dElementAccess:
         faces = np.array([[0, 1, 2]], dtype=np.intp)
         edges = np.array([[0, 1], [1, 2], [2, 0]], dtype=np.intp)
         mesh = Mesh2d(
-            node_x=node_x, node_y=node_y,
+            node_x=node_x,
+            node_y=node_y,
             face_node_connectivity=Connectivity(
-                data=faces, fill_value=-1,
-                cf_role="face_node_connectivity", original_start_index=0,
+                data=faces,
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
             ),
             edge_node_connectivity=Connectivity(
-                data=edges, fill_value=-1,
-                cf_role="edge_node_connectivity", original_start_index=0,
+                data=edges,
+                fill_value=-1,
+                cf_role="edge_node_connectivity",
+                original_start_index=0,
             ),
         )
         start, end = mesh.get_edge_coords(0)
@@ -266,7 +283,9 @@ class TestMesh2dBuildConnectivity:
         enc = triangle_mesh.edge_node_connectivity
         assert enc is not None, "Edge connectivity should be built"
         assert enc.n_elements > 0, "Should have at least 1 edge"
-        assert enc.max_nodes_per_element == 2, f"Edges should have 2 nodes, got {enc.max_nodes_per_element}"
+        assert (
+            enc.max_nodes_per_element == 2
+        ), f"Edges should have 2 nodes, got {enc.max_nodes_per_element}"
 
     def test_build_face_face_connectivity(self, triangle_mesh):
         """Test building face-face neighbor connectivity.
@@ -337,10 +356,13 @@ class TestMesh2dEdgeCases:
         node_y = np.array([0.0, 0.0])
         faces = np.array([[0, 1, -1]], dtype=np.intp)
         mesh = Mesh2d(
-            node_x=node_x, node_y=node_y,
+            node_x=node_x,
+            node_y=node_y,
             face_node_connectivity=Connectivity(
-                data=faces, fill_value=-1,
-                cf_role="face_node_connectivity", original_start_index=0,
+                data=faces,
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
             ),
         )
         with pytest.raises(ValueError, match="no faces with 3 or more nodes"):
@@ -386,10 +408,13 @@ class TestMesh2dEdgeCases:
         node_y = np.array([0.0, 0.0, 1.0, 1.0])
         faces = np.array([[0, 1, 2], [1, 3, 2]], dtype=np.intp)
         mesh = Mesh2d(
-            node_x=node_x, node_y=node_y,
+            node_x=node_x,
+            node_y=node_y,
             face_node_connectivity=Connectivity(
-                data=faces, fill_value=-1,
-                cf_role="face_node_connectivity", original_start_index=0,
+                data=faces,
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
             ),
         )
         mesh.build_face_face_connectivity()

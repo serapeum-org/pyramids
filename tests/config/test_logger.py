@@ -9,6 +9,8 @@ from osgeo import gdal
 
 from pyramids.base.config import Config, LoggerManager
 
+pytestmark = pytest.mark.core
+
 
 @contextmanager
 def isolated_root_logging():

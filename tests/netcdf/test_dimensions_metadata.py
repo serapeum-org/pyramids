@@ -1,9 +1,13 @@
+import pytest
+
 from pyramids.netcdf.dimensions import (
     DimensionsIndex,
     DimMetaData,
     MetaData,
     parse_dimension_attributes,
 )
+
+pytestmark = pytest.mark.core
 
 
 class TestParseDimensionAttributes:

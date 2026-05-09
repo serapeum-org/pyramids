@@ -15,7 +15,10 @@ single return statement, descriptive assertion messages.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
+
 from pyramids.netcdf.netcdf import NetCDF
+
+pytestmark = pytest.mark.core
 
 
 @pytest.fixture(scope="module")
@@ -38,9 +41,7 @@ class TestExternalFileOrientation:
         """
         var = noah_nc.get_variable("Band1")
         gt = var.geotransform
-        assert gt[5] < 0, (
-            f"Y pixel size should be negative, got {gt[5]}"
-        )
+        assert gt[5] < 0, f"Y pixel size should be negative, got {gt[5]}"
 
     def test_get_variable_origin_at_north(self, noah_nc):
         """Geotransform Y origin should be at the north edge (~90).
@@ -50,9 +51,7 @@ class TestExternalFileOrientation:
         """
         var = noah_nc.get_variable("Band1")
         gt = var.geotransform
-        assert gt[3] > 0, (
-            f"Y origin should be positive (north), got {gt[3]}"
-        )
+        assert gt[3] > 0, f"Y origin should be positive (north), got {gt[3]}"
 
 
 class TestReadVariableConsistency:
@@ -69,7 +68,9 @@ class TestReadVariableConsistency:
         var = noah_nc.get_variable("Band1")
         from_get = var.read_array(band=0)
         assert_allclose(
-            from_read, from_get, rtol=1e-5,
+            from_read,
+            from_get,
+            rtol=1e-5,
             err_msg="_read_variable and get_variable data mismatch",
         )
 
@@ -82,13 +83,16 @@ class TestReadVariableConsistency:
         arr = np.arange(50, dtype=np.float64).reshape(10, 5)
         geo = (0.0, 1.0, 0, 10.0, 0, -1.0)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=geo, variable_name="test",
+            arr=arr,
+            geo=geo,
+            variable_name="test",
         )
         from_read = nc._read_variable("test")
         var = nc.get_variable("test")
         from_get = var.read_array(band=0)
         assert_allclose(
-            from_read, from_get,
+            from_read,
+            from_get,
             err_msg="Pyramids-created file: _read_variable != get_variable",
         )
 
@@ -101,14 +105,17 @@ class TestReadVariableConsistency:
         arr = np.arange(150, dtype=np.float64).reshape(3, 10, 5)
         geo = (0.0, 1.0, 0, 10.0, 0, -1.0)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=geo, variable_name="test3d",
+            arr=arr,
+            geo=geo,
+            variable_name="test3d",
             extra_dim_name="time",
         )
         from_read = nc._read_variable("test3d")
         var = nc.get_variable("test3d")
         from_get = var.read_array()
         assert_allclose(
-            from_read, from_get,
+            from_read,
+            from_get,
             err_msg="Pyramids-created 3D: _read_variable != get_variable",
         )
 
@@ -125,12 +132,15 @@ class TestPyramidsCreatedNotFlipped:
         arr = np.arange(50, dtype=np.float64).reshape(10, 5)
         geo = (0.0, 1.0, 0, 10.0, 0, -1.0)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=geo, variable_name="seq",
+            arr=arr,
+            geo=geo,
+            variable_name="seq",
         )
         var = nc.get_variable("seq")
         read_back = var.read_array(band=0)
         assert_allclose(
-            read_back, arr,
+            read_back,
+            arr,
             err_msg="create_from_array data should not be altered",
         )
 
@@ -144,13 +154,13 @@ class TestPyramidsCreatedNotFlipped:
         arr = np.ones((5, 5), dtype=np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=geo, variable_name="v",
+            arr=arr,
+            geo=geo,
+            variable_name="v",
         )
         var = nc.get_variable("v")
         gt = var.geotransform
-        assert gt[5] < 0, (
-            f"Y pixel size should be negative, got {gt[5]}"
-        )
+        assert gt[5] < 0, f"Y pixel size should be negative, got {gt[5]}"
 
 
 class TestOneDimNotFlipped:
@@ -165,14 +175,14 @@ class TestOneDimNotFlipped:
         arr = np.ones((5, 8), dtype=np.float64)
         geo = (10.0, 0.5, 0, 15.0, 0, -0.5)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=geo, variable_name="v",
+            arr=arr,
+            geo=geo,
+            variable_name="v",
         )
         x_vals = nc._read_variable("x")
         assert x_vals is not None, "x coordinate should be readable"
         assert x_vals.ndim == 1, f"Expected 1D, got {x_vals.ndim}D"
-        assert x_vals[0] < x_vals[-1], (
-            "x should be ascending (west to east)"
-        )
+        assert x_vals[0] < x_vals[-1], "x should be ascending (west to east)"
 
 
 class TestDiskRoundTripOrientation:
@@ -192,6 +202,8 @@ class TestDiskRoundTripOrientation:
         var_reloaded = reloaded.get_variable("Band1")
         arr_reloaded = var_reloaded.read_array(band=0)
         assert_allclose(
-            arr_orig, arr_reloaded, rtol=1e-5,
+            arr_orig,
+            arr_reloaded,
+            rtol=1e-5,
             err_msg="Orientation changed after disk round-trip",
         )

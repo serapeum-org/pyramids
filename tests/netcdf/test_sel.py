@@ -7,7 +7,10 @@ single return statement, descriptive assertion messages.
 import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
+
 from pyramids.netcdf.netcdf import NetCDF
+
+pytestmark = pytest.mark.core
 
 
 def _make_nc():
@@ -15,8 +18,11 @@ def _make_nc():
     arr = np.arange(60, dtype=np.float64).reshape(5, 3, 4)
     geo = (0.0, 1.0, 0, 3.0, 0, -1.0)
     nc = NetCDF.create_from_array(
-        arr=arr, geo=geo, variable_name="temp",
-        extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+        arr=arr,
+        geo=geo,
+        variable_name="temp",
+        extra_dim_name="time",
+        extra_dim_values=[0, 6, 12, 18, 24],
     )
     return nc
 
@@ -33,9 +39,7 @@ class TestSelSingleValue:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=6)
-        assert result.shape == (1, 3, 4), (
-            f"Expected (1, 3, 4), got {result.shape}"
-        )
+        assert result.shape == (1, 3, 4), f"Expected (1, 3, 4), got {result.shape}"
 
     def test_data_matches_original_band(self):
         """Selected data should match the corresponding band in the original.
@@ -48,7 +52,8 @@ class TestSelSingleValue:
         result = var.sel(time=12)
         expected = var.read_array()[2]
         assert_array_equal(
-            result.read_array(), expected,
+            result.read_array(),
+            expected,
             err_msg="sel data should match original band",
         )
 
@@ -61,9 +66,9 @@ class TestSelSingleValue:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=18)
-        assert result._band_dim_values == [18.0], (
-            f"Expected [18.0], got {result._band_dim_values}"
-        )
+        assert result._band_dim_values == [
+            18.0
+        ], f"Expected [18.0], got {result._band_dim_values}"
 
 
 class TestSelList:
@@ -78,9 +83,7 @@ class TestSelList:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=[0, 12, 24])
-        assert result.shape == (3, 3, 4), (
-            f"Expected (3, 3, 4), got {result.shape}"
-        )
+        assert result.shape == (3, 3, 4), f"Expected (3, 3, 4), got {result.shape}"
 
     def test_data_matches_original_bands(self):
         """Selected bands should match original bands at those indices.
@@ -94,7 +97,8 @@ class TestSelList:
         orig = var.read_array()
         expected = orig[[0, 4]]
         assert_array_equal(
-            result.read_array(), expected,
+            result.read_array(),
+            expected,
             err_msg="sel list data should match original bands",
         )
 
@@ -107,9 +111,10 @@ class TestSelList:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=[6, 18])
-        assert result._band_dim_values == [6.0, 18.0], (
-            f"Expected [6.0, 18.0], got {result._band_dim_values}"
-        )
+        assert result._band_dim_values == [
+            6.0,
+            18.0,
+        ], f"Expected [6.0, 18.0], got {result._band_dim_values}"
 
 
 class TestSelSlice:
@@ -124,12 +129,12 @@ class TestSelSlice:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=slice(6, 18))
-        assert result.shape == (3, 3, 4), (
-            f"Expected (3, 3, 4), got {result.shape}"
-        )
-        assert result._band_dim_values == [6.0, 12.0, 18.0], (
-            f"Expected [6, 12, 18], got {result._band_dim_values}"
-        )
+        assert result.shape == (3, 3, 4), f"Expected (3, 3, 4), got {result.shape}"
+        assert result._band_dim_values == [
+            6.0,
+            12.0,
+            18.0,
+        ], f"Expected [6, 12, 18], got {result._band_dim_values}"
 
     def test_open_start(self):
         """slice(None, 12) should select from beginning up to 12.
@@ -140,9 +145,11 @@ class TestSelSlice:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=slice(None, 12))
-        assert result._band_dim_values == [0.0, 6.0, 12.0], (
-            f"Expected [0, 6, 12], got {result._band_dim_values}"
-        )
+        assert result._band_dim_values == [
+            0.0,
+            6.0,
+            12.0,
+        ], f"Expected [0, 6, 12], got {result._band_dim_values}"
 
     def test_open_end(self):
         """slice(18, None) should select from 18 to the end.
@@ -153,9 +160,10 @@ class TestSelSlice:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=slice(18, None))
-        assert result._band_dim_values == [18.0, 24.0], (
-            f"Expected [18, 24], got {result._band_dim_values}"
-        )
+        assert result._band_dim_values == [
+            18.0,
+            24.0,
+        ], f"Expected [18, 24], got {result._band_dim_values}"
 
 
 class TestSelErrors:
@@ -192,7 +200,9 @@ class TestSelErrors:
         arr = np.ones((5, 8), dtype=np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=geo, variable_name="flat",
+            arr=arr,
+            geo=geo,
+            variable_name="flat",
         )
         var = nc.get_variable("flat")
         with pytest.raises(ValueError, match="no band dimension"):
@@ -224,7 +234,8 @@ class TestSelBoundary:
         result = var.sel(time=0)
         expected = var.read_array()[0]
         assert_array_equal(
-            result.read_array(), expected,
+            result.read_array(),
+            expected,
             err_msg="sel(first) data mismatch",
         )
 
@@ -239,7 +250,8 @@ class TestSelBoundary:
         result = var.sel(time=24)
         expected = var.read_array()[4]
         assert_array_equal(
-            result.read_array(), expected,
+            result.read_array(),
+            expected,
             err_msg="sel(last) data mismatch",
         )
 
@@ -252,9 +264,7 @@ class TestSelBoundary:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=[0, 6, 12, 24, 18])
-        assert result.band_count == 5, (
-            f"Expected 5 bands, got {result.band_count}"
-        )
+        assert result.band_count == 5, f"Expected 5 bands, got {result.band_count}"
 
     def test_select_all_elements_via_slice(self):
         """slice(None, None) should select everything.
@@ -265,9 +275,7 @@ class TestSelBoundary:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=slice(None, None))
-        assert result.band_count == 5, (
-            f"Expected 5 bands, got {result.band_count}"
-        )
+        assert result.band_count == 5, f"Expected 5 bands, got {result.band_count}"
 
     def test_float_coordinate_matching(self):
         """sel() should match float coordinates exactly.
@@ -278,18 +286,21 @@ class TestSelBoundary:
         arr = np.arange(36, dtype=np.float64).reshape(3, 3, 4)
         geo = (0.0, 1.0, 0, 3.0, 0, -1.0)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=geo, variable_name="v",
+            arr=arr,
+            geo=geo,
+            variable_name="v",
             extra_dim_name="level",
             extra_dim_values=[0.5, 1.5, 2.5],
         )
         var = nc.get_variable("v")
         result = var.sel(level=1.5)
-        assert result._band_dim_values == [1.5], (
-            f"Expected [1.5], got {result._band_dim_values}"
-        )
+        assert result._band_dim_values == [
+            1.5
+        ], f"Expected [1.5], got {result._band_dim_values}"
         expected = var.read_array()[1]
         assert_array_equal(
-            result.read_array(), expected,
+            result.read_array(),
+            expected,
             err_msg="Float coord sel data mismatch",
         )
 
@@ -339,9 +350,9 @@ class TestSelPreservation:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=12)
-        assert result.geotransform == var.geotransform, (
-            f"Geotransform changed: {var.geotransform} → {result.geotransform}"
-        )
+        assert (
+            result.geotransform == var.geotransform
+        ), f"Geotransform changed: {var.geotransform} → {result.geotransform}"
 
     def test_epsg_preserved(self):
         """EPSG should be identical after sel.
@@ -352,9 +363,7 @@ class TestSelPreservation:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=12)
-        assert result.epsg == var.epsg, (
-            f"EPSG changed: {var.epsg} → {result.epsg}"
-        )
+        assert result.epsg == var.epsg, f"EPSG changed: {var.epsg} → {result.epsg}"
 
     def test_band_dim_name_preserved(self):
         """_band_dim_name should carry through to the result.
@@ -365,9 +374,9 @@ class TestSelPreservation:
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=[6, 18])
-        assert result._band_dim_name == "time", (
-            f"Expected 'time', got {result._band_dim_name}"
-        )
+        assert (
+            result._band_dim_name == "time"
+        ), f"Expected 'time', got {result._band_dim_name}"
 
     def test_variable_attrs_preserved(self):
         """_variable_attrs should carry through to the result.
@@ -379,9 +388,10 @@ class TestSelPreservation:
         var = nc.get_variable("temp")
         var._variable_attrs = {"units": "K", "long_name": "Temperature"}
         result = var.sel(time=12)
-        assert result._variable_attrs == {"units": "K", "long_name": "Temperature"}, (
-            f"Attrs not preserved: {result._variable_attrs}"
-        )
+        assert result._variable_attrs == {
+            "units": "K",
+            "long_name": "Temperature",
+        }, f"Attrs not preserved: {result._variable_attrs}"
 
     def test_nodata_preserved(self):
         """No-data value should carry through to the result.
@@ -394,9 +404,7 @@ class TestSelPreservation:
         result = var.sel(time=[0, 6])
         orig_ndv = var.no_data_value[0]
         result_ndv = result.no_data_value[0]
-        assert result_ndv == orig_ndv, (
-            f"No-data changed: {orig_ndv} → {result_ndv}"
-        )
+        assert result_ndv == orig_ndv, f"No-data changed: {orig_ndv} → {result_ndv}"
 
 
 class TestSelReturnsNetCDF:
@@ -410,22 +418,24 @@ class TestSelReturnsNetCDF:
             calling read_array(unpack=True) remain available.
         """
         from pyramids.netcdf import NetCDF
+
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=12)
-        assert isinstance(result, NetCDF), (
-            f"Expected NetCDF, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, NetCDF
+        ), f"Expected NetCDF, got {type(result).__name__}"
 
     def test_result_is_also_dataset(self):
         """sel() result is still a Dataset (via inheritance)."""
         from pyramids.dataset import Dataset
+
         nc = _make_nc()
         var = nc.get_variable("temp")
         result = var.sel(time=12)
-        assert isinstance(result, Dataset), (
-            f"Expected Dataset, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, Dataset
+        ), f"Expected Dataset, got {type(result).__name__}"
 
 
 class TestSelRoundTrip:
@@ -441,14 +451,16 @@ class TestSelRoundTrip:
         var = nc.get_variable("temp")
         subset = var.sel(time=[6, 18])
         nc.set_variable("temp_subset", subset)
-        assert "temp_subset" in nc.variable_names, (
-            f"Expected 'temp_subset' in {nc.variable_names}"
-        )
+        assert (
+            "temp_subset" in nc.variable_names
+        ), f"Expected 'temp_subset' in {nc.variable_names}"
         rg = nc._raster.GetRootGroup()
         md_arr = rg.OpenMDArray("temp_subset")
-        assert list(md_arr.GetShape()) == [2, 3, 4], (
-            f"Expected shape [2, 3, 4], got {list(md_arr.GetShape())}"
-        )
+        assert list(md_arr.GetShape()) == [
+            2,
+            3,
+            4,
+        ], f"Expected shape [2, 3, 4], got {list(md_arr.GetShape())}"
 
     def test_sel_set_variable_data_integrity(self):
         """Data written back after sel should be identical when re-read.
@@ -464,6 +476,7 @@ class TestSelRoundTrip:
         rg = nc._raster.GetRootGroup()
         stored = rg.OpenMDArray("temp_sub").ReadAsArray()
         assert_array_equal(
-            stored, expected,
+            stored,
+            expected,
             err_msg="Round-trip data mismatch after sel → set_variable",
         )

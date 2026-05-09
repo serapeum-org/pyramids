@@ -12,6 +12,8 @@ from osgeo import gdal
 from pyramids.dataset import Dataset
 from pyramids.dataset.cog.validate import ValidationReport
 
+pytestmark = pytest.mark.core
+
 
 @pytest.fixture
 def small_float_dataset() -> Dataset:
@@ -56,9 +58,7 @@ class TestToCogBasics:
     def test_roundtrip_array_equality(self, small_float_dataset, tmp_path):
         out = small_float_dataset.to_cog(tmp_path / "out.tif")
         reopened = Dataset.read_file(out)
-        assert np.array_equal(
-            small_float_dataset.read_array(), reopened.read_array()
-        )
+        assert np.array_equal(small_float_dataset.read_array(), reopened.read_array())
         reopened.close()
 
     def test_default_compression_is_deflate(self, small_float_dataset, tmp_path):
@@ -80,9 +80,7 @@ class TestToCogBasics:
 
 
 class TestToCogBlocksizeValidation:
-    def test_invalid_blocksize_raises_before_write(
-        self, small_float_dataset, tmp_path
-    ):
+    def test_invalid_blocksize_raises_before_write(self, small_float_dataset, tmp_path):
         with pytest.raises(ValueError, match="power of 2"):
             small_float_dataset.to_cog(tmp_path / "x.tif", blocksize=500)
 
@@ -101,7 +99,11 @@ class TestToCogCompression:
     def test_compress_none(self, small_float_dataset, tmp_path):
         out = small_float_dataset.to_cog(tmp_path / "out.tif", compress="NONE")
         info = gdal.Info(str(out))
-        assert "COMPRESSION" not in info.split("Image Structure Metadata:", 1)[1].split("\n", 1)[0] or True
+        assert (
+            "COMPRESSION"
+            not in info.split("Image Structure Metadata:", 1)[1].split("\n", 1)[0]
+            or True
+        )
         # Just verify the file opens; some GDAL builds omit COMPRESSION metadata when NONE.
         assert out.exists()
 
@@ -131,9 +133,7 @@ class TestToCogExtra:
 
     def test_extra_invalid_key_raises(self, small_float_dataset, tmp_path):
         with pytest.raises(ValueError, match="NONSENSE"):
-            small_float_dataset.to_cog(
-                tmp_path / "out.tif", extra={"NONSENSE": "x"}
-            )
+            small_float_dataset.to_cog(tmp_path / "out.tif", extra={"NONSENSE": "x"})
 
 
 class TestToCogWebOptimized:
@@ -171,9 +171,7 @@ class TestToCogCategoricalWarning:
                 tmp_path / "out.tif", overview_resampling="average"
             )
 
-    @pytest.mark.parametrize(
-        "method", ["bilinear", "cubic", "cubicspline", "lanczos"]
-    )
+    @pytest.mark.parametrize("method", ["bilinear", "cubic", "cubicspline", "lanczos"])
     def test_byte_with_averaging_family_warns(
         self, small_byte_dataset, tmp_path, method
     ):
@@ -182,9 +180,7 @@ class TestToCogCategoricalWarning:
                 tmp_path / f"out_{method}.tif", overview_resampling=method
             )
 
-    def test_float_with_average_does_not_warn(
-        self, small_float_dataset, tmp_path
-    ):
+    def test_float_with_average_does_not_warn(self, small_float_dataset, tmp_path):
         with warnings.catch_warnings():
             warnings.simplefilter("error", UserWarning)
             small_float_dataset.to_cog(
@@ -201,9 +197,7 @@ class TestToCogCategoricalWarning:
     def test_byte_with_mode_does_not_warn(self, small_byte_dataset, tmp_path):
         with warnings.catch_warnings():
             warnings.simplefilter("error", UserWarning)
-            small_byte_dataset.to_cog(
-                tmp_path / "out.tif", overview_resampling="mode"
-            )
+            small_byte_dataset.to_cog(tmp_path / "out.tif", overview_resampling="mode")
 
 
 # ---------------------------------------------------------------------------
@@ -264,9 +258,7 @@ class TestToFileDriverCog:
         assert reopened.is_cog is True
         reopened.close()
 
-    def test_driver_cog_with_creation_options_list(
-        self, small_float_dataset, tmp_path
-    ):
+    def test_driver_cog_with_creation_options_list(self, small_float_dataset, tmp_path):
         out = tmp_path / "x.tif"
         small_float_dataset.to_file(
             out, driver="COG", creation_options=["COMPRESS=LZW"]
@@ -302,6 +294,7 @@ class TestIsCogMissingFile:
         # Recreate a Dataset-like object pointing at a path that no longer
         # exists by constructing from a fresh MEM copy with the description set.
         from osgeo import gdal as _gdal
+
         src = _gdal.GetDriverByName("MEM").CreateCopy("", small_float_dataset._raster)
         src.SetDescription(str(out))  # path that does not exist
         ds = Dataset(src)
@@ -311,9 +304,7 @@ class TestIsCogMissingFile:
 class TestToFileDriverCogArgForwarding:
     """M2: to_file(driver="COG") must forward/reject kwargs explicitly."""
 
-    def test_tile_length_forwarded_as_blocksize(
-        self, small_float_dataset, tmp_path
-    ):
+    def test_tile_length_forwarded_as_blocksize(self, small_float_dataset, tmp_path):
         """tile_length reaches the COG driver as BLOCKSIZE.
 
         Test scenario:
@@ -325,9 +316,9 @@ class TestToFileDriverCogArgForwarding:
         reopened = gdal.Open(str(out))
         bx, by = reopened.GetRasterBand(1).GetBlockSize()
         reopened = None
-        assert bx == 256 and by == 256, (
-            f"Expected blocksize (256, 256), got ({bx}, {by})"
-        )
+        assert (
+            bx == 256 and by == 256
+        ), f"Expected blocksize (256, 256), got ({bx}, {by})"
 
     def test_band_nonzero_raises(self, small_float_dataset, tmp_path):
         """driver='COG' with band != 0 is rejected loudly.
@@ -339,9 +330,9 @@ class TestToFileDriverCogArgForwarding:
         with pytest.raises(ValueError, match="band") as exc_info:
             small_float_dataset.to_file(tmp_path / "x.tif", band=1, driver="COG")
         msg = str(exc_info.value)
-        assert "band" in msg.lower() and "COG" in msg, (
-            f"Error must mention 'band' and 'COG'; got: {msg}"
-        )
+        assert (
+            "band" in msg.lower() and "COG" in msg
+        ), f"Error must mention 'band' and 'COG'; got: {msg}"
 
     def test_band_zero_is_accepted(self, small_float_dataset, tmp_path):
         """band=0 (the default) must continue to work with driver='COG'.
@@ -354,9 +345,7 @@ class TestToFileDriverCogArgForwarding:
         small_float_dataset.to_file(out, band=0, driver="COG")
         assert out.exists(), f"Output missing: {out}"
 
-    def test_creation_options_still_forwarded(
-        self, small_float_dataset, tmp_path
-    ):
+    def test_creation_options_still_forwarded(self, small_float_dataset, tmp_path):
         """Existing list[str] creation_options contract is preserved.
 
         Test scenario:
@@ -368,6 +357,6 @@ class TestToFileDriverCogArgForwarding:
             out, driver="COG", creation_options=["COMPRESS=LZW"]
         )
         info = gdal.Info(str(out))
-        assert "COMPRESSION=LZW" in info, (
-            f"Expected LZW in gdal.Info output: {info[:200]}"
-        )
+        assert (
+            "COMPRESSION=LZW" in info
+        ), f"Expected LZW in gdal.Info output: {info[:200]}"

@@ -9,59 +9,158 @@ flowchart LR
   user(User) -->|Provides GIS data paths & commands| pyramids{{pyramids package}}
   ext1[(Raster files\nGeoTIFF/ASC/NetCDF)] --> pyramids
   ext2[(Vector files\nShapefile/GeoJSON/GPKG)] --> pyramids
-  pyramids --> out1[(Processed rasters\nGeoTIFF/ASC)]
-  pyramids --> out2[(Processed vectors\nGeoJSON/GPKG)]
+  ext3[(UGRID NetCDF\nunstructured meshes)] --> pyramids
+  ext4[(Cloud / archive\ns3:// · gs:// · az:// · zip · gzip · tar)] --> pyramids
+  pyramids --> out1[(Processed rasters\nGeoTIFF · COG · ASC)]
+  pyramids --> out2[(Processed vectors\nGeoJSON · GPKG)]
+  pyramids --> out3[(Lazy stacks\nZarr · kerchunk JSON)]
 ```
 
 ## C4: Containers
 
 ```mermaid
 flowchart TB
-  subgraph Runtime Process
-    A[Dataset]:::c --> B[_io]
-    C[DatasetCollection]:::c --> B
-    D[FeatureCollection]:::c --> B
-    A --> E[_utils]
-    C --> E
-    D --> E
+  subgraph Runtime["Runtime Process"]
+    subgraph Base["pyramids.base"]
+      CRS[crs]:::b
+      FM[_file_manager]:::b
+      DOM[_domain]:::b
+      META[_raster_meta]:::b
+    end
+    subgraph Raster["pyramids.dataset"]
+      A[Dataset]:::c
+      C[DatasetCollection]:::c
+      E[engines.* IO/Spatial/Bands/Analysis/Cell/Vectorize/COG]:::e
+    end
+    subgraph NC["pyramids.netcdf"]
+      N[NetCDF]:::c
+      UG[UgridDataset]:::c
+    end
+    subgraph Vec["pyramids.feature"]
+      D[FeatureCollection]:::c
+    end
+    PyIO[pyramids._io]:::b
+    A --> Base
+    C --> Base
+    N --> Base
+    D --> Base
+    UG --> Base
+    A --> E
+    N --> A
+    C --> A
+    PyIO --> A
+    PyIO --> N
+    PyIO --> D
   end
   classDef c fill:#eef,stroke:#88f
+  classDef b fill:#efe,stroke:#8a8
+  classDef e fill:#fee,stroke:#c88
 ```
 
 ## C4: Components
 
 ```mermaid
 flowchart LR
-  io[_io: read_file, to_ascii, path parsing]
-  utils[_utils: geometry/index helpers]
+  io[_io: zip · gzip · tar · /vsi-rewrite]
+  remote[base.remote: _to_vsi · CloudConfig]
+  crs[base.crs: sr_from_epsg · sr_from_wkt · reproject_coordinates]
+  dom[base._domain: is_no_data · inside_domain]
+  fm[base._file_manager: CachingFileManager · FILE_CACHE]
+  meta[base._raster_meta: RasterMeta]
+
+  abs[dataset.abstract_dataset.RasterBase]
   ds[dataset.Dataset]
-  abs[dataset.AbstractDataset]
   dc[dataset.DatasetCollection]
+  redop[dataset._reduce_ops.resolve_dask_op]
+  merge[dataset.merge.merge_rasters]
+  eng[dataset.engines.* — IO · Spatial · Bands · Analysis · Cell · Vectorize · COG]
+
+  nc[netcdf.NetCDF]
+  ugds[netcdf.ugrid.UgridDataset]
+  lazy[netcdf._lazy._apply_unpack]
+
   fc[feature.FeatureCollection]
+  geom[feature.geometry: Coords · GeometryCoords · create_polygon · create_point]
 
   abs --> ds
-  ds --> io
+  ds --> nc
+  ds --> eng
   dc --> ds
-  fc --> io
-  ds --> utils
-  fc --> utils
+  dc --> redop
+  dc --> merge
+  nc --> lazy
+  ugds --> ds
+  fc --> geom
+  io --> ds
+  io --> nc
+  io --> fc
+  remote --> io
+  ds --> crs
+  fc --> crs
+  ds --> fm
+  dc --> fm
+  ds --> dom
+  dc --> meta
 ```
 
-## UML Class: Raster Core
+## UML Class: Raster Core (with engines)
 
 ```mermaid
 classDiagram
-  class AbstractDataset {
+  class RasterBase {
     <<abstract>>
     +read_file(path, read_only)
     +to_file(path, band)
+    +read_array(band, window)
   }
   class Dataset {
-    +read_file(path, read_only, file_i)
-    +to_file(path, band, tile_length)
-    +read()
+    +io
+    +spatial
+    +bands
+    +analysis
+    +cell
+    +vectorize
+    +cog
+    +read_file(path)
+    +read_array(band, window)
+    +to_file(path)
+    +crop(mask)
+    +to_crs(to_epsg)
   }
-  AbstractDataset <|-- Dataset
+  class NetCDF {
+    +variables
+    +get_variable(name)
+    +read_array(band, window, unpack)
+    +time_stamp
+  }
+  class _Engine {
+    <<abstract>>
+    -_ds : weakref.proxy
+  }
+  class IO
+  class Spatial
+  class Bands
+  class Analysis
+  class Cell
+  class Vectorize
+  class COG
+
+  RasterBase <|-- Dataset
+  Dataset <|-- NetCDF
+  _Engine <|-- IO
+  _Engine <|-- Spatial
+  _Engine <|-- Bands
+  _Engine <|-- Analysis
+  _Engine <|-- Cell
+  _Engine <|-- Vectorize
+  _Engine <|-- COG
+  Dataset *-- IO : ds.io
+  Dataset *-- Spatial : ds.spatial
+  Dataset *-- Bands : ds.bands
+  Dataset *-- Analysis : ds.analysis
+  Dataset *-- Cell : ds.cell
+  Dataset *-- Vectorize : ds.vectorize
+  Dataset *-- COG : ds.cog
 ```
 
 ## UML Class: Vector Core
@@ -71,7 +170,26 @@ classDiagram
   class FeatureCollection {
     +read_file(path)
     +to_file(path, driver)
+    +epsg
+    +total_bounds
+    +column
+    +schema
+    +explode()
   }
+  class Coords {
+    +to_polygon()
+    +to_polygon_wkt()
+    +to_points()
+    +to_geodataframe()
+  }
+  class GeometryCoords {
+    +x
+    +y
+    +xy
+  }
+
+  FeatureCollection ..> Coords : uses
+  FeatureCollection ..> GeometryCoords : uses
 ```
 
 ## Sequence: Read Raster from Zip
@@ -80,36 +198,62 @@ classDiagram
 sequenceDiagram
   participant U as User
   participant DS as Dataset
-  participant IO as _io
+  participant IO as pyramids._io
+  participant REM as pyramids.base.remote
   U->>DS: Dataset.read_file("dem.zip!dem.tif")
-  DS->>IO: _parse_path(path)
-  IO-->>DS: zip path + inner file
-  DS->>IO: read_file(...)
-  IO-->>DS: array + meta
+  DS->>IO: parse path
+  IO->>REM: _to_vsi(...)
+  REM-->>IO: /vsizip/... path
+  IO-->>DS: gdal.Dataset handle
   DS-->>U: Dataset instance
 ```
 
-## Sequence: Save Raster to GeoTIFF
+## Sequence: Crop via the Spatial engine
 
 ```mermaid
 sequenceDiagram
   participant U as User
   participant DS as Dataset
-  U->>DS: to_file("out.tif")
-  DS-->>U: writes file
+  participant SP as Spatial (ds.spatial)
+  U->>DS: ds.crop(mask)
+  DS->>SP: spatial.crop(mask) (facade)
+  SP->>DS: read_array · build dst MEM
+  SP-->>DS: cropped Dataset
+  DS-->>U: cropped Dataset
 ```
 
-## Sequence: Build DatasetCollection from Folder
+## Sequence: Save Raster to GeoTIFF / COG
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant DS as Dataset
+  participant IO as IO (ds.io)
+  participant CG as COG (ds.cog)
+  U->>DS: ds.to_file("out.tif")
+  DS->>IO: io.to_file(...)
+  IO-->>U: out.tif
+  U->>DS: ds.to_cog("out.tif", compress="ZSTD")
+  DS->>CG: cog.to_cog(...)
+  CG-->>U: out.tif (COG)
+```
+
+## Sequence: Build DatasetCollection from a Folder
 
 ```mermaid
 sequenceDiagram
   participant U as User
   participant DC as DatasetCollection
   participant DS as Dataset
-  U->>DC: from_folder("./rasters/*.tif")
-  DC->>DS: open each file
-  DS-->>DC: Dataset objects
-  DC-->>U: DatasetCollection
+  U->>DC: DatasetCollection.from_files(paths)
+  Note over DC: lazy — no pixels read yet
+  U->>DC: cube.iloc(0)
+  DC->>DS: Dataset.read_file(paths[0])
+  DS-->>DC: Dataset (gdal handle open)
+  DC-->>U: Dataset
+  U->>DC: cube.mean()
+  DC->>DC: dask graph over per-file _read_time_step
+  DC-->>U: ndarray (T-axis reduced)
 ```
 
 ## Sequence: Zonal Statistics
@@ -119,20 +263,25 @@ sequenceDiagram
   participant U as User
   participant DS as Dataset
   participant FC as FeatureCollection
-  U->>FC: read_file(polygons.gpkg)
-  U->>DS: read_file(raster.tif)
-  FC->>DS: zonal_stats(raster)
-  DS-->>U: table
+  U->>FC: FeatureCollection.read_file(polygons.gpkg)
+  U->>DS: Dataset.read_file(raster.tif)
+  FC->>DS: zonal_stats(raster, polygons)
+  DS-->>U: stats DataFrame
 ```
 
-## Sequence: Align and Resample
+## Sequence: Reproject (maintain_alignment=True)
 
 ```mermaid
 sequenceDiagram
   participant U as User
   participant DS as Dataset
-  U->>DS: align_to(reference)
-  DS-->>U: aligned dataset
+  participant SP as Spatial (ds.spatial)
+  U->>DS: ds.to_crs(to_epsg=3857, maintain_alignment=True)
+  DS->>SP: _reproject_with_ReprojectImage
+  SP->>SP: reproject one-pixel X-step + one-pixel Y-step
+  SP->>SP: build dst (cols, rows, geo from x_spacing, y_spacing)
+  SP-->>DS: gdal.ReprojectImage(src, dst)
+  DS-->>U: reprojected Dataset
 ```
 
 ## Dependency Graph (Modules)
@@ -140,138 +289,27 @@ sequenceDiagram
 ```mermaid
 flowchart LR
   abstract_dataset --> dataset
-  _io --> dataset
-  _utils --> dataset
+  base_crs[base.crs] --> dataset
+  base_crs --> feature
+  base_domain[base._domain] --> dataset
+  base_domain --> dataset_collection
+  base_file_manager[base._file_manager] --> dataset
+  base_file_manager --> dataset_collection
+  base_raster_meta[base._raster_meta] --> dataset_collection
+  pyramids_io[_io] --> dataset
+  pyramids_io --> netcdf
+  pyramids_io --> feature
+  dataset --> netcdf
   dataset --> dataset_collection
-  _io --> feature
-  _utils --> feature
+  dataset --> engines
+  netcdf_lazy[netcdf._lazy] --> netcdf
+  ugrid --> dataset
+  feature_geometry[feature.geometry] --> feature
+  reduce_ops[dataset._reduce_ops] --> dataset_collection
+  merge_mod[dataset.merge] --> dataset_collection
 ```
 
-- brief class diagram for the `Dataset` class and related components:
-
-```mermaid
-classDiagram
-    %% configuration class
-    class config_Config {
-        +__init__(config_file)
-        +load_config()
-        +initialize_gdal()
-        +dynamic_env_variables()
-        +set_env_conda()
-        +set_env_os()
-    }
-
-    %% abstract base class for rasters
-    class abstract_dataset_AbstractDataset {
-        +__init__(src, access)
-        +values() np.ndarray
-        +rows() int
-        +columns() int
-        +shape() (bands, rows, cols)
-        +geotransform()
-        +top_left_corner()
-        +epsg() int
-        +crs()
-        +cell_size() int
-        +no_data_value
-        +meta_data()
-    }
-
-    %% concrete raster class
-    class dataset_Dataset {
-        +__init__(src, access)
-        +read_file(path, read_only)
-        +create_from_array(array, top_left_corner, cell_size, epsg)
-        +read_array(band, window)
-        +to_file(path, driver)
-        +align(alignment_src, data_src)
-        +resample(cell_size, method)
-        +crop(window)
-        +plot(title, ticks_spacing, cmap, color_scale, vmin, cbar_label)
-    }
-
-    %% NetCDF: raster class specialised for NetCDF variables
-    class netcdf_NetCDF {
-        +__init__(src, access)
-        +get_variable_names()
-        +get_variables()
-        +time_stamp()
-        +lat()
-        +lon()
-    }
-
-    %% DataCube: stack of rasters
-    class collection_DatasetCollection {
-        +__init__(src, time_length, files)
-        +create_cube(src, dataset_length)
-        +read_multiple_files(path, with_order, regex_string, date, file_name_data_fmt, start, end, fmt, extension)
-        +base() Dataset
-        +files() list
-        +time_length() int
-        +shape() (time, rows, cols)
-        +rows() int
-        +columns() int
-    }
-
-    %% FeatureCollection for vector data
-    class feature_FeatureCollection {
-        +__init__(gdf)
-        +GetXYCoords()
-        +GetPointCoords()
-        +GetLineCoords()
-        +GetPolyCoords()
-        +Explode()
-        +CombineGeometrics()
-        +GCSDistance()
-        +ReprojectPoints()
-        +AddSpatialReference()
-        +WriteShapefile()
-    }
-
-    %% Driver catalog
-    class _utils_Catalog {
-        +__init__(raster_driver)
-        +get_driver(driver)
-        +get_gdal_name(driver)
-        +get_driver_by_extension(extension)
-        +get_extension(driver)
-        +exists(driver)
-    }
-
-    %% error classes
-    class _errors_ReadOnlyError
-    class _errors_DatasetNotFoundError
-    class _errors_NoDataValueError
-    class _errors_AlignmentError
-    class _errors_DriverNotExistError
-    class _errors_FileFormatNotSupportedError
-    class _errors_OptionalPackageDoesNotExist
-    class _errors_FailedToSaveError
-    class _errors_OutOfBoundsError
-
-    %% inheritance relations
-    abstract_dataset_AbstractDataset <|-- dataset_Dataset
-    dataset_Dataset <|-- netcdf_NetCDF
-
-    %% composition/usage relations
-    collection_DatasetCollection --> dataset_Dataset : "base raster"
-    abstract_dataset_AbstractDataset ..> _utils_Catalog : "uses Catalog constant"
-    abstract_dataset_AbstractDataset ..> feature_FeatureCollection : "vector ops"
-    dataset_Dataset ..> feature_FeatureCollection : "vector ops"
-    feature_FeatureCollection ..> _utils_Catalog : "uses drivers"
-    dataset_Dataset ..> _errors_ReadOnlyError : "raises"
-    dataset_Dataset ..> _errors_AlignmentError : "raises"
-    dataset_Dataset ..> _errors_NoDataValueError : "raises"
-    dataset_Dataset ..> _errors_FailedToSaveError : "raises"
-    dataset_Dataset ..> _errors_OutOfBoundsError : "raises"
-    collection_DatasetCollection ..> _errors_DatasetNotFoundError : "raises"
-    feature_FeatureCollection ..> _errors_DriverNotExistError : "raises"
-    netcdf_NetCDF ..> _errors_OptionalPackageDoesNotExist : "raises"
-    config_Config ..> dataset_Dataset : "initialises raster settings"
-
-```
-
-- Detailed class diagram:
+## Detailed Class Diagram
 
 ```mermaid
 classDiagram
@@ -283,239 +321,170 @@ classDiagram
         +set_env_conda()
         +dynamic_env_variables()
         +setup_logging()
-        +set_error_handler()
     }
 
     %% abstract base class for rasters
-    class abstract_dataset_AbstractDataset {
+    class abstract_dataset_RasterBase {
         +__init__(src, access)
         +__str__()
         +__repr__()
-        +access()
-        +raster()
-        +raster(value)
-        +values()
-        +rows()
-        +columns()
-        +shape()
-        +geotransform()
-        +top_left_corner()
-        +epsg()
-        +epsg(value)
-        +crs()
-        +crs(value)
-        +cell_size()
-        +no_data_value()
-        +no_data_value(value)
-        +meta_data()
-        +meta_data(value)
-        +block_size()
-        +block_size(value)
-        +file_name()
-        +driver_type()
+        +access
+        +raster
+        +rows · columns · shape
+        +geotransform
+        +top_left_corner
+        +epsg · crs
+        +cell_size
+        +no_data_value
+        +meta_data
+        +block_size
+        +file_name
+        +driver_type
         +read_file(path, read_only)
         +read_array(band, window)
-        +_read_block(band, window)
-        +plot(band, exclude_value, rgb, surface_reflectance, cutoff, overview, overview_index, **kwargs)
+        +plot(...)
     }
 
     %% concrete raster class
     class dataset_Dataset {
         +__init__(src, access)
-        +__str__()
-        +__repr__()
-        +access()
-        +raster()
-        +raster(value)
-        +values()
-        +rows()
-        +columns()
-        +shape()
-        +geotransform()
-        +epsg()
-        +epsg(value)
-        +crs()
-        +crs(value)
-        +cell_size()
-        +band_count()
-        +band_names()
-        +band_names(name_list)
-        +band_units()
-        +band_units(value)
-        +no_data_value()
-        +no_data_value(value)
-        +meta_data()
-        +meta_data(value)
-        +block_size()
-        +block_size(value)
-        +file_name()
-        +driver_type()
-        +scale()
-        +scale(value)
-        +offset()
-        +offset(value)
-        +read_file(path, read_only)
+        +io · spatial · bands · analysis
+        +cell · vectorize · cog
+        +read_file(path)
         +create_from_array(arr, top_left_corner, cell_size, epsg)
+        +create_from_array(arr, geo, epsg)
         +read_array(band, window)
-        +_read_block(band, window)
-        +plot(band, exclude_value, rgb, surface_reflectance, cutoff, overview, overview_index, **kwargs)
-        +to_file(path, driver, band)
+        +to_file(path, driver)
+        +to_cog(path, ...)
+        +is_cog
+        +validate_cog()
         +to_crs(to_epsg, method, maintain_alignment)
         +resample(cell_size, method)
         +align(alignment_src)
         +crop(mask, touch)
-        +merge(src, dst, no_data_value, init, n)
         +apply(ufunc)
         +overlay(classes_map, exclude_value)
     }
 
     %% NetCDF: raster class specialised for NetCDF variables
     class netcdf_NetCDF {
-        +__init__(src, access)
-        +__str__()
-        +__repr__()
-        +lon()
-        +lat()
-        +x()
-        +y()
-        +get_y_lat_dimension_array(pivot_y, cell_size, rows)
-        +get_x_lon_dimension_array(pivot_x, cell_size, columns)
-        +variables()
-        +no_data_value()
-        +no_data_value(value)
-        +file_name()
-        +time_stamp()
+        +__init__(src, access, open_as_multi_dimensional)
+        +lon · lat · x · y
+        +variables · get_variable(name)
+        +no_data_value
+        +file_name · time_stamp
         +read_file(path, read_only, open_as_multi_dimensional)
-        +_get_time_variable()
-        +_get_lat_lon()
-        +_read_variable(var)
+        +read_array(band, window, unpack, chunks)
         +get_variable_names()
-        +_read_md_array(variable_name)
         +get_variables(read_only)
-        +is_subset()
-        +is_md_array()
-        +create_main_dimension(group, dim_name, dtype, values)
-        +create_from_array(arr, geo, bands_values, epsg, no_data_value, driver_type, path, variable_name)
-        +_create_netcdf_from_array(arr, variable_name, cols, rows, bands, bands_values, geo, epsg, no_data_value, driver_type, path)
-        +_add_md_array_to_group(dst_group, var_name, src_mdarray)
+        +is_subset · is_md_array
+        +create_from_array(arr, geo, ...)
         +add_variable(dataset, variable_name)
         +remove_variable(variable_name)
     }
 
-    %% DataCube: stack of rasters
+    %% UgridDataset
+    class ugrid_UgridDataset {
+        +__init__(src)
+        +mesh · n_face
+        +data_variable_names
+        +read_file(path)
+        +create_from_arrays(...)
+        +to_dataset(...)
+        +to_geodataframe()
+        +plot()
+    }
+
+    %% DatasetCollection: lazy temporal stack
     class collection_DatasetCollection {
-        +__init__(src, time_length, files)
-        +__str__()
-        +__repr__()
-        +base()
-        +files()
-        +time_length()
-        +rows()
-        +columns()
-        +shape()
-        +create_cube(src, dataset_length)
-        +read_multiple_files(path, with_order, regex_string, date, file_name_data_fmt, start, end, fmt, extension)
-        +open_datacube(band)
-        +values()
-        +values(val)
-        +__getitem__(key)
-        +__setitem__(key, value)
-        +__len__()
-        +__iter__()
-        +head(n)
-        +tail(n)
-        +first()
-        +last()
-        +iloc(i)
-        +plot(band, exclude_value, **kwargs)
-        +to_file(path, driver, band)
-        +to_crs(to_epsg, method, maintain_alignment)
-        +crop(mask, inplace, touch)
-        +align(alignment_src)
-        +merge(src, dst, no_data_value, init, n)
-        +apply(ufunc)
-        +overlay(classes_map, exclude_value)
+        +__init__(src, time_length, files, datasets, meta)
+        +base · files · time_length · shape
+        +datasets · data
+        +iloc(i) · __getitem__ · __setitem__
+        +head · tail · first · last
+        +mean · sum · min · max · std · var
+        +groupby(labels)
+        +crop · to_crs · align · apply
+        +to_file · to_zarr · to_kerchunk · merge
+    }
+
+    %% Engines (Dataset collaborators)
+    class engines_IO {
+        +read_array · _lazy_read_array
+        +to_file · to_raster
+        +read_overview · get_block_arrangement
+        +to_xyz · map_blocks
+    }
+    class engines_Spatial {
+        +to_crs · resample · align
+        +crop · _crop_aligned
+        +set_crs · _get_epsg
+    }
+    class engines_Bands {
+        +color_table · _get_color_table · _set_color_table
+        +_change_no_data_value_attr
+        +_check_no_data_value · _set_no_data_value
+        +change_no_data_value
+        +rats · stats helpers
+    }
+    class engines_Analysis {
+        +stats · count_domain_cells
+        +overlay · histogram
+        +plot
+    }
+    class engines_Cell {
+        +get_cell_coords · get_cell_polygons · get_cell_points
+        +map_to_array_coordinates · array_to_map_coordinates
+    }
+    class engines_Vectorize {
+        +to_feature_collection · translate
+        +cluster · cluster2
+    }
+    class engines_COG {
+        +to_cog · is_cog · validate_cog
     }
 
     %% FeatureCollection for vector data
     class feature_FeatureCollection {
         +__init__(gdf)
-        +__str__()
-        +feature()
-        +epsg()
-        +total_bounds()
-        +top_left_corner()
-        +layers_count()
-        +layer_names()
-        +column()
-        +file_name()
-        +dtypes()
+        +epsg · total_bounds · top_left_corner
+        +column · schema · file_name
         +read_file(path)
-        +create_ds(driver, path)
-        +_create_driver(driver, path)
-        +_copy_driver_to_memory(ds, name)
         +to_file(path, driver)
-        +_gdf_to_ds(inplace, gdal_dataset)
-        +_ds_to_gdf_with_io(inplace)
-        +_ds_to_gdf_in_memory(inplace)
-        +GetXYCoords()
-        +GetPointCoords()
-        +GetLineCoords()
-        +GetPolyCoords()
-        +Explode()
-        +MultiGeomHandler()
-        +GetCoords()
-        +XY()
-        +CreatePolygon()
-        +CreatePoint()
-        +CombineGeometrics()
-        +GCSDistance()
-        +ReprojectPoints()
-        +ReprojectPoints_2()
-        +AddSpatialReference()
-        +PolygonCenterPoint()
-        +WriteShapefile()
+        +explode()
+        +to_dataset(...)
     }
-
-    %% Driver catalog
-    class _utils_Catalog {
-        +__init__(raster_driver)
-        +get_driver(driver)
-        +get_gdal_name(driver)
-        +get_driver_by_extension(extension)
-        +get_extension(driver)
-        +exists(driver)
+    class feature_Coords {
+        +to_polygon()
+        +to_polygon_wkt()
+        +to_points()
+        +to_geodataframe()
     }
-
-    %% error classes
-    class _errors_ReadOnlyError
-    class _errors_DatasetNotFoundError
-    class _errors_NoDataValueError
-    class _errors_AlignmentError
-    class _errors_DriverNotExistError
-    class _errors_FileFormatNotSupportedError
-    class _errors_OptionalPackageDoesNotExist
-    class _errors_FailedToSaveError
-    class _errors_OutOfBoundsError
+    class feature_GeometryCoords {
+        +x
+        +y
+        +xy
+    }
 
     %% inheritance relations
-    abstract_dataset_AbstractDataset <|-- dataset_Dataset
+    abstract_dataset_RasterBase <|-- dataset_Dataset
     dataset_Dataset <|-- netcdf_NetCDF
 
-    %% composition/usage relations
-    collection_DatasetCollection --> dataset_Dataset : "base raster"
-    abstract_dataset_AbstractDataset ..> _utils_Catalog : "uses Catalog constant"
-    abstract_dataset_AbstractDataset ..> feature_FeatureCollection : "vector ops"
-    dataset_Dataset ..> feature_FeatureCollection : "vector ops"
-    feature_FeatureCollection ..> _utils_Catalog : "uses drivers"
-    dataset_Dataset ..> _errors_ReadOnlyError : "raises"
-    dataset_Dataset ..> _errors_AlignmentError : "raises"
-    dataset_Dataset ..> _errors_NoDataValueError : "raises"
-    dataset_Dataset ..> _errors_FailedToSaveError : "raises"
-    dataset_Dataset ..> _errors_OutOfBoundsError : "raises"
-    collection_DatasetCollection ..> _errors_DatasetNotFoundError : "raises"
-    feature_FeatureCollection ..> _errors_DriverNotExistError : "raises"
-    netcdf_NetCDF ..> _errors_OptionalPackageDoesNotExist : "raises"
-    config_Config ..> dataset_Dataset : "initialises raster settings"
+    %% engine composition
+    dataset_Dataset *-- engines_IO : ds.io
+    dataset_Dataset *-- engines_Spatial : ds.spatial
+    dataset_Dataset *-- engines_Bands : ds.bands
+    dataset_Dataset *-- engines_Analysis : ds.analysis
+    dataset_Dataset *-- engines_Cell : ds.cell
+    dataset_Dataset *-- engines_Vectorize : ds.vectorize
+    dataset_Dataset *-- engines_COG : ds.cog
 
+    %% other relations
+    collection_DatasetCollection o-- dataset_Dataset : per-timestep
+    ugrid_UgridDataset ..> dataset_Dataset : interpolate
+    feature_FeatureCollection ..> dataset_Dataset : rasterize
+    dataset_Dataset ..> feature_FeatureCollection : vectorize
+    feature_FeatureCollection ..> feature_Coords : uses
+    feature_FeatureCollection ..> feature_GeometryCoords : uses
+    config_Config ..> dataset_Dataset : initialises GDAL settings
 ```

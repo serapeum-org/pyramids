@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from numpy.testing import assert_array_equal, assert_allclose
+from numpy.testing import assert_allclose, assert_array_equal
 
 from pyramids.dataset import Dataset
 from pyramids.netcdf.netcdf import NetCDF
-
 from tests.netcdf.conftest import make_3d_nc
+
+pytestmark = pytest.mark.core
 
 
 def _make_3d_nc(
@@ -32,11 +33,14 @@ def _make_3d_nc(
     Delegates to the shared ``make_3d_nc`` helper in conftest.
     """
     return make_3d_nc(
-        rows=rows, cols=cols, bands=bands,
+        rows=rows,
+        cols=cols,
+        bands=bands,
         variable_name=variable_name,
         geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
         arr_type="sequential",
-        extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+        extra_dim_name="time",
+        extra_dim_values=[0, 6, 12, 18, 24],
     )
 
 
@@ -94,9 +98,11 @@ class TestReadVariableNoWindow:
         """
         result = nc_3d._read_variable("temperature")
         assert result is not None, "_read_variable should not return None"
-        assert result.shape == (5, 6, 8), (
-            f"Expected shape (5, 6, 8), got {result.shape}"
-        )
+        assert result.shape == (
+            5,
+            6,
+            8,
+        ), f"Expected shape (5, 6, 8), got {result.shape}"
 
     def test_full_read_2d_variable(self, nc_2d):
         """_read_variable returns full 2D array when no window is given.
@@ -106,9 +112,7 @@ class TestReadVariableNoWindow:
         """
         result = nc_2d._read_variable("elevation")
         assert result is not None, "_read_variable should not return None"
-        assert result.shape == (6, 8), (
-            f"Expected shape (6, 8), got {result.shape}"
-        )
+        assert result.shape == (6, 8), f"Expected shape (6, 8), got {result.shape}"
 
     def test_full_read_coordinate_variable(self, nc_3d):
         """_read_variable reads a 1D coordinate/dimension variable.
@@ -118,15 +122,9 @@ class TestReadVariableNoWindow:
             with the correct number of elements.
         """
         result = nc_3d._read_variable("x")
-        assert result is not None, (
-            "x coordinate variable should be readable"
-        )
-        assert result.ndim == 1, (
-            f"Expected 1D array, got {result.ndim}D"
-        )
-        assert result.shape[0] == 8, (
-            f"Expected 8 x-coordinates, got {result.shape[0]}"
-        )
+        assert result is not None, "x coordinate variable should be readable"
+        assert result.ndim == 1, f"Expected 1D array, got {result.ndim}D"
+        assert result.shape[0] == 8, f"Expected 8 x-coordinates, got {result.shape[0]}"
 
     def test_full_read_time_coordinate(self, nc_3d):
         """_read_variable reads the time dimension's indexing variable.
@@ -135,12 +133,12 @@ class TestReadVariableNoWindow:
             Reading 'time' should return [0, 6, 12, 18, 24].
         """
         result = nc_3d._read_variable("time")
-        assert result is not None, (
-            "time coordinate should be readable"
-        )
+        assert result is not None, "time coordinate should be readable"
         expected = np.array([0, 6, 12, 18, 24], dtype=np.float64)
         assert_allclose(
-            result.reshape(-1), expected, rtol=1e-10,
+            result.reshape(-1),
+            expected,
+            rtol=1e-10,
             err_msg="time coordinate values should match creation values",
         )
 
@@ -151,9 +149,9 @@ class TestReadVariableNoWindow:
             Reading 'no_such_var' should return None, not raise.
         """
         result = nc_3d._read_variable("no_such_var")
-        assert result is None, (
-            f"Expected None for nonexistent variable, got {type(result)}"
-        )
+        assert (
+            result is None
+        ), f"Expected None for nonexistent variable, got {type(result)}"
 
 
 class TestReadVariableWithWindow:
@@ -171,9 +169,11 @@ class TestReadVariableWithWindow:
             window=[(1, 2), (0, 6), (0, 8)],
         )
         assert result is not None, "Windowed read should not return None"
-        assert result.shape == (2, 6, 8), (
-            f"Expected shape (2, 6, 8), got {result.shape}"
-        )
+        assert result.shape == (
+            2,
+            6,
+            8,
+        ), f"Expected shape (2, 6, 8), got {result.shape}"
 
     def test_window_reads_spatial_subset(self, nc_3d):
         """Window on spatial dimensions reads a spatial tile.
@@ -187,9 +187,11 @@ class TestReadVariableWithWindow:
             window=[(0, 5), (2, 3), (1, 4)],
         )
         assert result is not None, "Windowed spatial read should not return None"
-        assert result.shape == (5, 3, 4), (
-            f"Expected shape (5, 3, 4), got {result.shape}"
-        )
+        assert result.shape == (
+            5,
+            3,
+            4,
+        ), f"Expected shape (5, 3, 4), got {result.shape}"
 
     def test_window_single_pixel(self, nc_3d):
         """Window reading a single pixel (1 time, 1 row, 1 col).
@@ -202,9 +204,7 @@ class TestReadVariableWithWindow:
             window=[(0, 1), (0, 1), (0, 1)],
         )
         assert result is not None, "Single-pixel windowed read should work"
-        assert result.size == 1, (
-            f"Expected 1 element, got {result.size}"
-        )
+        assert result.size == 1, f"Expected 1 element, got {result.size}"
 
     def test_window_data_matches_full_read(self, nc_3d):
         """Windowed data matches the corresponding slice of a full read.
@@ -221,7 +221,8 @@ class TestReadVariableWithWindow:
         )
         expected = full[1:3, 1:4, 2:6]
         assert_array_equal(
-            windowed, expected,
+            windowed,
+            expected,
             err_msg="Windowed data should match slice of full array",
         )
 
@@ -236,9 +237,7 @@ class TestReadVariableWithWindow:
             window=[(0, 3), (0, 4)],
         )
         assert result is not None, "Windowed 2D read should not return None"
-        assert result.shape == (3, 4), (
-            f"Expected shape (3, 4), got {result.shape}"
-        )
+        assert result.shape == (3, 4), f"Expected shape (3, 4), got {result.shape}"
 
     def test_window_2d_data_matches_full(self, nc_2d):
         """Windowed 2D data matches the corresponding slice.
@@ -254,7 +253,8 @@ class TestReadVariableWithWindow:
         )
         expected = full[2:5, 3:7]
         assert_array_equal(
-            windowed, expected,
+            windowed,
+            expected,
             err_msg="Windowed 2D data should match slice of full array",
         )
 
@@ -266,12 +266,12 @@ class TestReadVariableWithWindow:
             coordinate values starting at index 1: [6, 12, 18].
         """
         result = nc_3d._read_variable("time", window=[(1, 3)])
-        assert result is not None, (
-            "Windowed read on time coordinate should work"
-        )
+        assert result is not None, "Windowed read on time coordinate should work"
         expected = np.array([6.0, 12.0, 18.0])
         assert_allclose(
-            result.reshape(-1), expected, rtol=1e-10,
+            result.reshape(-1),
+            expected,
+            rtol=1e-10,
             err_msg="Windowed time coordinate should return indices 1-3",
         )
 
@@ -284,12 +284,12 @@ class TestReadVariableWithWindow:
         """
         full_x = nc_3d._read_variable("x")
         windowed_x = nc_3d._read_variable("x", window=[(2, 3)])
-        assert windowed_x is not None, (
-            "Windowed x coordinate read should work"
-        )
+        assert windowed_x is not None, "Windowed x coordinate read should work"
         expected = full_x[2:5]
         assert_allclose(
-            windowed_x.reshape(-1), expected.reshape(-1), rtol=1e-10,
+            windowed_x.reshape(-1),
+            expected.reshape(-1),
+            rtol=1e-10,
             err_msg="Windowed x should match full[2:5]",
         )
 
@@ -307,9 +307,7 @@ class TestReadVariableWithWindow:
             window=[(0, 1), (0, 6), (0, 8)],
         )
         assert windowed is not None, "Windowed read should succeed"
-        assert windowed.shape == (1, 6, 8), (
-            f"Expected (1, 6, 8), got {windowed.shape}"
-        )
+        assert windowed.shape == (1, 6, 8), f"Expected (1, 6, 8), got {windowed.shape}"
 
 
 class TestReadVariableClassicMode:
@@ -324,26 +322,29 @@ class TestReadVariableClassicMode:
             variable returned.
         """
         nc = NetCDF.read_file(
-            noah_nc_path, open_as_multi_dimensional=False,
+            noah_nc_path,
+            open_as_multi_dimensional=False,
         )
         var_names = nc.variable_names
         if not var_names:
             pytest.skip("No variables found in classic-mode dataset")
         result_no_window = nc._read_variable(var_names[0])
         result_with_window = nc._read_variable(
-            var_names[0], window=[(0, 1)],
+            var_names[0],
+            window=[(0, 1)],
         )
         if result_no_window is not None and result_with_window is not None:
             assert_array_equal(
-                result_no_window, result_with_window,
+                result_no_window,
+                result_with_window,
                 err_msg=(
-                    "Classic mode should ignore window and return "
-                    "the full variable"
+                    "Classic mode should ignore window and return " "the full variable"
                 ),
             )
 
     def test_classic_mode_nonexistent_variable_returns_none(
-        self, noah_nc_path,
+        self,
+        noah_nc_path,
     ):
         """Classic mode returns None for a nonexistent variable.
 
@@ -353,12 +354,12 @@ class TestReadVariableClassicMode:
             RuntimeError/AttributeError except path.
         """
         nc = NetCDF.read_file(
-            noah_nc_path, open_as_multi_dimensional=False,
+            noah_nc_path,
+            open_as_multi_dimensional=False,
         )
         result = nc._read_variable("completely_nonexistent_var_xyz")
         assert result is None, (
-            f"Expected None for nonexistent var in classic mode, "
-            f"got {type(result)}"
+            f"Expected None for nonexistent var in classic mode, " f"got {type(result)}"
         )
 
 
@@ -377,7 +378,8 @@ class TestSelDataIntegrity:
         sel_result = var.sel(time=12)
         expected = var.read_array(band=2)
         assert_array_equal(
-            sel_result.read_array(), expected,
+            sel_result.read_array(),
+            expected,
             err_msg="sel(time=12) data should match band index 2",
         )
 
@@ -395,7 +397,8 @@ class TestSelDataIntegrity:
         band_3 = var.read_array(band=3)
         expected = np.stack([band_0, band_3], axis=0)
         assert_array_equal(
-            sel_result.read_array(), expected,
+            sel_result.read_array(),
+            expected,
             err_msg="sel(time=[0,18]) should equal stack of bands 0,3",
         )
 
@@ -411,7 +414,8 @@ class TestSelDataIntegrity:
         bands = [var.read_array(band=i) for i in [1, 2, 3]]
         expected = np.stack(bands, axis=0)
         assert_array_equal(
-            sel_result.read_array(), expected,
+            sel_result.read_array(),
+            expected,
             err_msg="sel(time=slice(6,18)) should match bands 1-3",
         )
 
@@ -427,7 +431,8 @@ class TestSelDataIntegrity:
         sel_result = var.sel(time=[0, 6, 12, 18, 24])
         expected = var.read_array()
         assert_array_equal(
-            sel_result.read_array(), expected,
+            sel_result.read_array(),
+            expected,
             err_msg="Selecting all times should match full read",
         )
 
@@ -442,7 +447,8 @@ class TestSelDataIntegrity:
         result = var.sel(time=0)
         expected = var.read_array(band=0)
         assert_array_equal(
-            result.read_array(), expected,
+            result.read_array(),
+            expected,
             err_msg="sel(time=0) should match first band",
         )
 
@@ -457,7 +463,8 @@ class TestSelDataIntegrity:
         result = var.sel(time=24)
         expected = var.read_array(band=4)
         assert_array_equal(
-            result.read_array(), expected,
+            result.read_array(),
+            expected,
             err_msg="sel(time=24) should match last band",
         )
 
@@ -478,7 +485,8 @@ class TestSelChaining:
         second = first.sel(time=12)
         expected = var.read_array(band=2)
         assert_array_equal(
-            second.read_array(), expected,
+            second.read_array(),
+            expected,
             err_msg="Chained sel should isolate band index 2",
         )
 
@@ -492,13 +500,16 @@ class TestSelChaining:
         nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         first = var.sel(time=[0, 6, 12])
-        assert first._band_dim_values == [0, 6, 12], (
-            f"After first sel: expected [0,6,12], got {first._band_dim_values}"
-        )
+        assert first._band_dim_values == [
+            0,
+            6,
+            12,
+        ], f"After first sel: expected [0,6,12], got {first._band_dim_values}"
         second = first.sel(time=[0, 12])
-        assert second._band_dim_values == [0, 12], (
-            f"After second sel: expected [0,12], got {second._band_dim_values}"
-        )
+        assert second._band_dim_values == [
+            0,
+            12,
+        ], f"After second sel: expected [0,12], got {second._band_dim_values}"
 
     def test_sel_chain_preserves_metadata(self):
         """Chained sel() preserves NetCDF variable metadata.
@@ -511,15 +522,15 @@ class TestSelChaining:
         var = nc.get_variable("temperature")
         first = var.sel(time=[0, 6, 12])
         second = first.sel(time=6)
-        assert second._band_dim_name == "time", (
-            f"Expected band_dim_name='time', got {second._band_dim_name}"
-        )
-        assert second._is_subset is True, (
-            f"Expected _is_subset=True, got {second._is_subset}"
-        )
-        assert isinstance(second, NetCDF), (
-            f"Expected NetCDF, got {type(second).__name__}"
-        )
+        assert (
+            second._band_dim_name == "time"
+        ), f"Expected band_dim_name='time', got {second._band_dim_name}"
+        assert (
+            second._is_subset is True
+        ), f"Expected _is_subset=True, got {second._is_subset}"
+        assert isinstance(
+            second, NetCDF
+        ), f"Expected NetCDF, got {type(second).__name__}"
 
 
 class TestSelShape:
@@ -536,9 +547,10 @@ class TestSelShape:
         var = nc.get_variable("temperature")
         result = var.sel(time=6)
         arr = result.read_array()
-        assert arr.shape == (6, 8), (
-            f"Expected (6, 8) for single-band sel, got {arr.shape}"
-        )
+        assert arr.shape == (
+            6,
+            8,
+        ), f"Expected (6, 8) for single-band sel, got {arr.shape}"
 
     def test_two_values_shape_is_3d(self):
         """Selecting two time steps returns a 3D array.
@@ -550,9 +562,7 @@ class TestSelShape:
         var = nc.get_variable("temperature")
         result = var.sel(time=[6, 18])
         arr = result.read_array()
-        assert arr.shape == (2, 6, 8), (
-            f"Expected (2, 6, 8), got {arr.shape}"
-        )
+        assert arr.shape == (2, 6, 8), f"Expected (2, 6, 8), got {arr.shape}"
 
     def test_all_values_shape_matches_original(self):
         """Selecting all time steps returns the original shape.
@@ -564,9 +574,7 @@ class TestSelShape:
         var = nc.get_variable("temperature")
         result = var.sel(time=[0, 6, 12, 18, 24])
         arr = result.read_array()
-        assert arr.shape == (5, 6, 8), (
-            f"Expected (5, 6, 8), got {arr.shape}"
-        )
+        assert arr.shape == (5, 6, 8), f"Expected (5, 6, 8), got {arr.shape}"
 
 
 class TestSelEdgeCases:
@@ -599,9 +607,9 @@ class TestSelReturnTypeAndMetadata:
         nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         result = var.sel(time=6)
-        assert isinstance(result, NetCDF), (
-            f"Expected NetCDF, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, NetCDF
+        ), f"Expected NetCDF, got {type(result).__name__}"
 
     def test_preserves_band_dim_name(self):
         """sel() preserves _band_dim_name='time'.
@@ -612,9 +620,9 @@ class TestSelReturnTypeAndMetadata:
         nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         result = var.sel(time=[6, 12])
-        assert result._band_dim_name == "time", (
-            f"Expected 'time', got {result._band_dim_name}"
-        )
+        assert (
+            result._band_dim_name == "time"
+        ), f"Expected 'time', got {result._band_dim_name}"
 
     def test_preserves_scale_offset(self):
         """sel() preserves _scale and _offset for CF unpacking.
@@ -627,12 +635,8 @@ class TestSelReturnTypeAndMetadata:
         var._scale = 0.01
         var._offset = 273.15
         result = var.sel(time=12)
-        assert result._scale == 0.01, (
-            f"Expected scale=0.01, got {result._scale}"
-        )
-        assert result._offset == 273.15, (
-            f"Expected offset=273.15, got {result._offset}"
-        )
+        assert result._scale == 0.01, f"Expected scale=0.01, got {result._scale}"
+        assert result._offset == 273.15, f"Expected offset=273.15, got {result._offset}"
 
     def test_sel_result_supports_unpack(self):
         """read_array(unpack=True) works on a sel() result.
@@ -650,7 +654,9 @@ class TestSelReturnTypeAndMetadata:
         unpacked = result.read_array(unpack=True)
         expected = raw.astype(np.float64) * 2.0 + 10.0
         assert_allclose(
-            unpacked, expected, rtol=1e-10,
+            unpacked,
+            expected,
+            rtol=1e-10,
             err_msg="Unpack should apply scale*value+offset",
         )
 
@@ -669,9 +675,9 @@ class TestSelSetVariableRoundTrip:
         var = nc.get_variable("temperature")
         selected = var.sel(time=[0, 12])
         nc.set_variable("temp_subset", selected)
-        assert "temp_subset" in nc.variable_names, (
-            "temp_subset should appear in variable_names"
-        )
+        assert (
+            "temp_subset" in nc.variable_names
+        ), "temp_subset should appear in variable_names"
 
     def test_sel_round_trip_data_integrity(self):
         """Data survives a sel -> set_variable -> get_variable round trip.
@@ -688,7 +694,9 @@ class TestSelSetVariableRoundTrip:
         restored = nc.get_variable("temp_sub")
         restored_data = restored.read_array()
         assert_allclose(
-            restored_data, sel_data, rtol=1e-10,
+            restored_data,
+            sel_data,
+            rtol=1e-10,
             err_msg="Data should survive sel -> set_variable round trip",
         )
 
@@ -709,10 +717,9 @@ class TestReadVariableWindowBoundary:
             window=[(0, 5), (0, 6), (0, 8)],
         )
         assert_array_equal(
-            windowed, full,
-            err_msg=(
-                "Window covering entire extent should match full read"
-            ),
+            windowed,
+            full,
+            err_msg=("Window covering entire extent should match full read"),
         )
 
     def test_window_last_element_3d(self, nc_3d):
@@ -727,12 +734,12 @@ class TestReadVariableWindowBoundary:
             "temperature",
             window=[(4, 1), (5, 1), (7, 1)],
         )
-        assert windowed is not None, (
-            "Reading last element should not return None"
-        )
+        assert windowed is not None, "Reading last element should not return None"
         expected_value = full[4, 5, 7]
         assert_allclose(
-            windowed.flat[0], expected_value, rtol=1e-10,
+            windowed.flat[0],
+            expected_value,
+            rtol=1e-10,
             err_msg="Last element should match full[4, 5, 7]",
         )
 
@@ -747,12 +754,12 @@ class TestReadVariableWindowBoundary:
             "elevation",
             window=[(5, 1), (7, 1)],
         )
-        assert windowed is not None, (
-            "Reading last 2D element should work"
-        )
+        assert windowed is not None, "Reading last 2D element should work"
         expected_value = full[5, 7]
         assert_allclose(
-            windowed.flat[0], expected_value, rtol=1e-10,
+            windowed.flat[0],
+            expected_value,
+            rtol=1e-10,
             err_msg="Last 2D element should match full[5, 7]",
         )
 
@@ -765,12 +772,12 @@ class TestReadVariableWindowBoundary:
         """
         full_y = nc_3d._read_variable("y")
         windowed_y = nc_3d._read_variable("y", window=[(1, 3)])
-        assert windowed_y is not None, (
-            "Windowed y coordinate read should work"
-        )
+        assert windowed_y is not None, "Windowed y coordinate read should work"
         expected = full_y[1:4]
         assert_allclose(
-            windowed_y.reshape(-1), expected.reshape(-1), rtol=1e-10,
+            windowed_y.reshape(-1),
+            expected.reshape(-1),
+            rtol=1e-10,
             err_msg="Windowed y should match full[1:4]",
         )
 
@@ -782,11 +789,11 @@ class TestReadVariableWindowBoundary:
             return None, not raise.
         """
         result = nc_3d._read_variable(
-            "no_such_var", window=[(0, 1)],
+            "no_such_var",
+            window=[(0, 1)],
         )
         assert result is None, (
-            f"Expected None for nonexistent var with window, "
-            f"got {type(result)}"
+            f"Expected None for nonexistent var with window, " f"got {type(result)}"
         )
 
     def test_window_returns_numpy_array_not_bytearray(self, nc_3d):
@@ -800,9 +807,9 @@ class TestReadVariableWindowBoundary:
             "temperature",
             window=[(0, 2), (0, 3), (0, 4)],
         )
-        assert isinstance(result, np.ndarray), (
-            f"Expected np.ndarray, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, np.ndarray
+        ), f"Expected np.ndarray, got {type(result).__name__}"
 
     def test_window_preserves_dtype(self, nc_3d):
         """Windowed read preserves the original data type.
@@ -816,9 +823,9 @@ class TestReadVariableWindowBoundary:
             "temperature",
             window=[(0, 1), (0, 2), (0, 3)],
         )
-        assert windowed.dtype == full.dtype, (
-            f"Expected dtype {full.dtype}, got {windowed.dtype}"
-        )
+        assert (
+            windowed.dtype == full.dtype
+        ), f"Expected dtype {full.dtype}, got {windowed.dtype}"
 
 
 class TestSelNonContiguousBands:
@@ -839,10 +846,9 @@ class TestSelNonContiguousBands:
         band_4 = var.read_array(band=4)
         expected = np.stack([band_0, band_2, band_4], axis=0)
         assert_array_equal(
-            result.read_array(), expected,
-            err_msg=(
-                "Non-contiguous sel should pick bands 0, 2, 4"
-            ),
+            result.read_array(),
+            expected,
+            err_msg=("Non-contiguous sel should pick bands 0, 2, 4"),
         )
 
     def test_sel_non_contiguous_coords_correct(self):
@@ -854,9 +860,11 @@ class TestSelNonContiguousBands:
         nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         result = var.sel(time=[0, 12, 24])
-        assert result._band_dim_values == [0, 12, 24], (
-            f"Expected [0, 12, 24], got {result._band_dim_values}"
-        )
+        assert result._band_dim_values == [
+            0,
+            12,
+            24,
+        ], f"Expected [0, 12, 24], got {result._band_dim_values}"
 
     def test_sel_preserves_nodata(self):
         """sel() preserves the no_data_value on the result.
@@ -869,10 +877,8 @@ class TestSelNonContiguousBands:
         var = nc.get_variable("temperature")
         result = var.sel(time=6)
         ndv = result.no_data_value
-        ndv_scalar = ndv[0] if isinstance(ndv, list) else ndv
-        assert ndv_scalar == -9999.0, (
-            f"Expected nodata=-9999.0, got {ndv_scalar}"
-        )
+        ndv_scalar = ndv[0] if isinstance(ndv, (list, tuple)) else ndv
+        assert ndv_scalar == -9999.0, f"Expected nodata=-9999.0, got {ndv_scalar}"
 
 
 class TestSelOnDiskFile:
@@ -887,7 +893,8 @@ class TestSelOnDiskFile:
             result has the right shape and type.
         """
         nc = NetCDF.read_file(
-            pyramids_created_nc_3d, open_as_multi_dimensional=True,
+            pyramids_created_nc_3d,
+            open_as_multi_dimensional=True,
         )
         var_names = nc.variable_names
         if not var_names:
@@ -897,9 +904,9 @@ class TestSelOnDiskFile:
             pytest.skip("Variable has no band dimension")
         first_coord = var._band_dim_values[0]
         result = var.sel(**{var._band_dim_name: first_coord})
-        assert isinstance(result, NetCDF), (
-            f"Expected NetCDF, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, NetCDF
+        ), f"Expected NetCDF, got {type(result).__name__}"
         assert result.rows > 0, "Result should have spatial rows"
         assert result.columns > 0, "Result should have spatial columns"
 
@@ -911,7 +918,8 @@ class TestSelOnDiskFile:
             variable, and verify the result shape is correct.
         """
         nc = NetCDF.read_file(
-            noah_nc_path, open_as_multi_dimensional=True,
+            noah_nc_path,
+            open_as_multi_dimensional=True,
         )
         var_names = nc.variable_names
         if not var_names:
@@ -921,12 +929,9 @@ class TestSelOnDiskFile:
             pytest.skip("Could not read variable")
         window = [(0, 1)] * full.ndim
         windowed = nc._read_variable(var_names[0], window=window)
-        assert windowed is not None, (
-            "Windowed read on on-disk NC should succeed"
-        )
+        assert windowed is not None, "Windowed read on on-disk NC should succeed"
         assert windowed.size == 1, (
-            f"Single-element window should return 1 value, "
-            f"got {windowed.size}"
+            f"Single-element window should return 1 value, " f"got {windowed.size}"
         )
 
 
@@ -951,9 +956,7 @@ class TestReadVariableWindowMultiDimFallback:
         full_time = nc_3d._read_variable("time")
         assert full_time is not None, "time should be readable"
         windowed_time = nc_3d._read_variable("time", window=[(1, 3)])
-        assert windowed_time is not None, (
-            "Windowed 1D time read should succeed"
-        )
-        assert windowed_time.shape[0] == 3, (
-            f"Expected 3 elements, got {windowed_time.shape[0]}"
-        )
+        assert windowed_time is not None, "Windowed 1D time read should succeed"
+        assert (
+            windowed_time.shape[0] == 3
+        ), f"Expected 3 elements, got {windowed_time.shape[0]}"

@@ -8,8 +8,11 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 from osgeo import gdal
-from pyramids.netcdf.netcdf import NetCDF
+
 from pyramids.base._utils import numpy_to_gdal_dtype
+from pyramids.netcdf.netcdf import NetCDF
+
+pytestmark = pytest.mark.core
 
 
 def _make_grouped_nc():
@@ -54,7 +57,9 @@ def _make_flat_nc():
     """Create an in-memory NetCDF with no sub-groups."""
     arr = np.ones((5, 8), dtype=np.float64)
     return NetCDF.create_from_array(
-        arr=arr, geo=(0, 1, 0, 5, 0, -1), variable_name="v",
+        arr=arr,
+        geo=(0, 1, 0, 5, 0, -1),
+        variable_name="v",
     )
 
 
@@ -69,12 +74,8 @@ class TestGroupNames:
         """
         nc = _make_grouped_nc()
         names = nc.group_names
-        assert "forecast" in names, (
-            f"Expected 'forecast' in {names}"
-        )
-        assert "analysis" in names, (
-            f"Expected 'analysis' in {names}"
-        )
+        assert "forecast" in names, f"Expected 'forecast' in {names}"
+        assert "analysis" in names, f"Expected 'analysis' in {names}"
 
     def test_flat_nc_returns_empty(self):
         """A container with no sub-groups should return [].
@@ -83,9 +84,7 @@ class TestGroupNames:
             create_from_array produces a flat container.
         """
         nc = _make_flat_nc()
-        assert nc.group_names == [], (
-            f"Expected [], got {nc.group_names}"
-        )
+        assert nc.group_names == [], f"Expected [], got {nc.group_names}"
 
     def test_returns_list(self):
         """group_names should return a list, not None.
@@ -94,9 +93,9 @@ class TestGroupNames:
             Even for flat files, the return type is list.
         """
         nc = _make_flat_nc()
-        assert isinstance(nc.group_names, list), (
-            f"Expected list, got {type(nc.group_names)}"
-        )
+        assert isinstance(
+            nc.group_names, list
+        ), f"Expected list, got {type(nc.group_names)}"
 
 
 class TestGetGroup:
@@ -110,9 +109,7 @@ class TestGetGroup:
         """
         nc = _make_grouped_nc()
         fg = nc.get_group("forecast")
-        assert isinstance(fg, NetCDF), (
-            f"Expected NetCDF, got {type(fg).__name__}"
-        )
+        assert isinstance(fg, NetCDF), f"Expected NetCDF, got {type(fg).__name__}"
 
     def test_sub_group_has_correct_variables(self):
         """Sub-group should expose its own variables.
@@ -122,9 +119,9 @@ class TestGetGroup:
         """
         nc = _make_grouped_nc()
         fg = nc.get_group("forecast")
-        assert "temperature" in fg.variable_names, (
-            f"Expected 'temperature' in {fg.variable_names}"
-        )
+        assert (
+            "temperature" in fg.variable_names
+        ), f"Expected 'temperature' in {fg.variable_names}"
 
     def test_sub_group_variable_data(self):
         """Data from a sub-group variable should be correct.
@@ -137,7 +134,8 @@ class TestGetGroup:
         var = fg.get_variable("temperature")
         data = var.read_array(band=0)
         assert_allclose(
-            data, 300.0,
+            data,
+            300.0,
             err_msg="forecast/temperature should be 300.0",
         )
 
@@ -150,12 +148,12 @@ class TestGetGroup:
         nc = _make_grouped_nc()
         fg = nc.get_group("forecast")
         ag = nc.get_group("analysis")
-        assert "temperature" in fg.variable_names, (
-            f"forecast should have temperature: {fg.variable_names}"
-        )
-        assert "wind_speed" in ag.variable_names, (
-            f"analysis should have wind_speed: {ag.variable_names}"
-        )
+        assert (
+            "temperature" in fg.variable_names
+        ), f"forecast should have temperature: {fg.variable_names}"
+        assert (
+            "wind_speed" in ag.variable_names
+        ), f"analysis should have wind_speed: {ag.variable_names}"
 
     def test_nonexistent_group_raises(self):
         """get_group with invalid name should raise ValueError.
@@ -192,9 +190,7 @@ class TestGetVariableWithPath:
         """
         nc = _make_grouped_nc()
         var = nc.get_variable("forecast/temperature")
-        assert var.shape == (1, 5, 8), (
-            f"Expected (1, 5, 8), got {var.shape}"
-        )
+        assert var.shape == (1, 5, 8), f"Expected (1, 5, 8), got {var.shape}"
 
     def test_group_path_data_correct(self):
         """Data from path-accessed variable should be correct.
@@ -206,7 +202,8 @@ class TestGetVariableWithPath:
         var = nc.get_variable("analysis/wind_speed")
         data = var.read_array(band=0)
         assert_allclose(
-            data, 5.5,
+            data,
+            5.5,
             err_msg="analysis/wind_speed should be 5.5",
         )
 
@@ -220,7 +217,8 @@ class TestGetVariableWithPath:
         var = nc.get_variable("elevation")
         data = var.read_array(band=0)
         assert_allclose(
-            data, 100.0,
+            data,
+            100.0,
             err_msg="root elevation should be 100.0",
         )
 

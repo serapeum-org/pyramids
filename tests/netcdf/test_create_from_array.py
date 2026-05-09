@@ -15,6 +15,8 @@ from numpy.testing import assert_allclose
 from pyramids.dataset import Dataset
 from pyramids.netcdf.netcdf import NetCDF
 
+pytestmark = pytest.mark.core
+
 GEO = (30.0, 0.5, 0, 35.0, 0, -0.5)
 SEED = 42
 

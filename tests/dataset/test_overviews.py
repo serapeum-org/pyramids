@@ -9,6 +9,8 @@ from osgeo import gdal
 from pyramids.base._errors import ReadOnlyError
 from pyramids.dataset import Dataset
 
+pytestmark = pytest.mark.core
+
 
 def test_get_overview_error(era5_image: gdal.Dataset):
     # test getting overview before creating it

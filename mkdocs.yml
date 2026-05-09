@@ -126,7 +126,10 @@ nav:
       - Band Metadata Operations: reference/dataset/band_metadata.md
       - Cell Operations: reference/dataset/cell.md
     - DatasetCollection: reference/dataset_collection.md
-    - Feature Collection: reference/feature.md
+    - Feature:
+      - Overview: reference/feature/index.md
+      - Geometry helpers: reference/feature/geometry.md
+    - CRS helpers: reference/base/crs.md
     - NetCDF:
       - NetCDF Class: reference/netcdf/index.md
       - Data Models: reference/netcdf/models.md
@@ -146,6 +149,12 @@ nav:
         - Visualization: reference/netcdf/ugrid/plot.md
     - config: reference/config.md
   - Examples:
+      - Lazy / Dask:
+          - Overview: tutorials/lazy/lazy-compute.md
+          - Lazy rasters (Dataset): tutorials/lazy/lazy-raster.md
+          - Lazy NetCDF: tutorials/lazy/lazy-netcdf.md
+          - Lazy collections (DatasetCollection): tutorials/lazy/lazy-collection.md
+          - Lazy vector reads (FeatureCollection): tutorials/lazy/lazy-vector.md
       - Dataset:
           - Overview: tutorials/dataset.md
           - Raster basics: tutorials/raster-basics.md
@@ -156,17 +165,28 @@ nav:
           - DatasetCollection (guide): tutorials/dataset_collection.md
           - Dataset collection: examples/dataset/dataset_collection.ipynb
           - South America: examples/dataset/south-america.ipynb
+          - Cloud Optimized GeoTIFFs: tutorials/cog.md
+          - Dask (Sentinel-2 COGs on AWS): examples/dataset/dask-lazy-datasets.ipynb
+          - Dask — Dataset (local data): examples/dataset/lazy-dataset-complete.ipynb
+          - Dask — DatasetCollection (local data): examples/dataset/lazy-collection-complete.ipynb
+      - Feature:
+          - FeatureCollection tutorial: tutorials/feature.md
+          - Dask (Overture Maps on AWS): examples/feature/dask-lazy-features.ipynb
+          - Dask — LazyFeatureCollection (local data): examples/feature/lazy-feature-complete.ipynb
       - Basemap:
           - Basemap example: examples/basemap/basemap-example.ipynb
       - NetCDF:
+          - Dask (ERA5 on AWS): examples/netcdf/dask-lazy-netcdf.ipynb
+          - Dask — NetCDF (local data): examples/netcdf/lazy-netcdf-complete.ipynb
           - UGRID:
               - Mesh exploration: examples/netcdf/ugrid/ugrid-mesh-exploration.ipynb
               - River channel: examples/netcdf/ugrid/ugrid-river-channel.ipynb
+              - Dask (FVCOM NECOFS via OPeNDAP): examples/netcdf/ugrid/dask-lazy-ugrid.ipynb
   - How-to:
       - Dev Container: how-to/devcontainer.md
       - Docker & GHCR: how-to/docker.md
       - Recipes: how-to/recipes.md
-      - Cloud Optimized GeoTIFFs: how-to/cog.md
+      - Testing & CI: how-to/testing.md
       - FAQ & Troubleshooting: how-to/faq.md
   - About:
     - Change-log: change-log.md

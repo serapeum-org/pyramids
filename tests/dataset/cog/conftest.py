@@ -47,9 +47,21 @@ def gtiff_compression_list() -> set[str]:
     # Crude but adequate: scan for tokens inside the <Value> of COMPRESS.
     algos = set()
     for alg in [
-        "NONE", "LZW", "PACKBITS", "DEFLATE", "JPEG", "CCITTRLE", "CCITTFAX3",
-        "CCITTFAX4", "ZSTD", "LERC", "LERC_DEFLATE", "LERC_ZSTD", "WEBP",
-        "JXL", "LZMA",
+        "NONE",
+        "LZW",
+        "PACKBITS",
+        "DEFLATE",
+        "JPEG",
+        "CCITTRLE",
+        "CCITTFAX3",
+        "CCITTFAX4",
+        "ZSTD",
+        "LERC",
+        "LERC_DEFLATE",
+        "LERC_ZSTD",
+        "WEBP",
+        "JXL",
+        "LZMA",
     ]:
         if f">{alg}<" in (meta or ""):
             algos.add(alg)

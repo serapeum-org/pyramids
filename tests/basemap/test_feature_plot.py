@@ -52,22 +52,24 @@ class TestFeatureCollectionPlot:
         ax = gdf_fc.plot(column="name")
         assert ax is not None, "plot(column=...) should return an Axes"
 
-    def test_plot_raises_type_error_for_ogr_datasource(self):
-        """Test that plot() raises TypeError for OGR DataSource.
+    def test_constructor_rejects_ogr_datasource(self):
+        """The constructor itself rejects ogr.DataSource.
 
         Test scenario:
-            A FeatureCollection backed by an ogr.DataSource (not a
-            GeoDataFrame) should raise TypeError with a clear message.
+            After, ogr.DataSource is internal-only. The
+            FeatureCollection constructor raises TypeError before any
+            method (including plot) can ever see an OGR-backed instance,
+            so the previous "plot() rejects OGR backend" guard is now
+            unreachable and was deleted.
         """
         driver = ogr.GetDriverByName("Memory")
         ds = driver.CreateDataSource("test")
         ds.CreateLayer("layer")
-        fc = FeatureCollection(ds)
 
-        with pytest.raises(TypeError, match="GeoDataFrame"):
-            fc.plot()
+        with pytest.raises(TypeError, match="no longer accepts"):
+            FeatureCollection(ds)
 
-    @patch("pyramids.basemap.basemap.add_basemap")
+    @patch("pyramids.feature.collection.add_basemap")
     def test_plot_with_basemap_calls_add_basemap(
         self, mock_add_basemap: MagicMock, gdf_fc: FeatureCollection
     ):
@@ -85,7 +87,7 @@ class TestFeatureCollectionPlot:
             call_kwargs[1]["crs"] == 4326
         ), f"Expected crs=4326, got {call_kwargs[1]['crs']}"
 
-    @patch("pyramids.basemap.basemap.add_basemap")
+    @patch("pyramids.feature.collection.add_basemap")
     def test_plot_with_basemap_string_passes_source(
         self, mock_add_basemap: MagicMock, gdf_fc: FeatureCollection
     ):

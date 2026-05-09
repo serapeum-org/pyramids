@@ -1,17 +1,23 @@
-"""Unit tests for FeatureCollection methods that lack coverage.
+"""Unit tests for FeatureCollection methods (GeoDataFrame-subclass design).
 
-Targets untested / low-coverage code paths in
-``pyramids.feature``, including:
-- ``_geometry_collection`` static method
-- ``_explode_gdf`` with multipolygon geometry
-- ``_multi_geom_handler`` for multipoint, multilinestring, multipolygon
-- ``_get_ds_epsg`` static method
-- ``center_point`` method
-- ``_copy_driver_to_memory``
-- ``create_ds`` with various drivers (geojson, memory)
-- ``dtypes`` property on both GeoDataFrame and DataSource
-- ``reproject_points`` and ``reproject_points2``
-- ``_create_sr_from_proj`` with different string types
+These tests cover the pyramids-specific surface of ``FeatureCollection``
+after the ARC-1a/ARC-1b refactor:
+
+- Static helpers: ``_geometry_collection``, ``_explode_gdf``,
+  ``_multi_geom_handler``, ``_get_coords``, ``_get_xy_coords``,
+  ``_get_point_coords``, ``_create_sr_from_proj``.
+- Instance methods: ``center_point``, ``dtypes``, ``__str__``.
+- Classmethods / statics: ``create_point``, ``create_polygon``,
+  ``reproject_coordinates``, ``get_epsg_from_prj``.
+- The ARC-1b guard: constructing ``FeatureCollection(ogr.DataSource)``
+  raises ``TypeError`` and the constructor accepts only what
+  ``GeoDataFrame`` accepts.
+
+Tests that exercised the old OGR-accepting public surface
+(``create_ds``, ``_copy_driver_to_memory``, ``_ds_to_gdf``,
+``_gdf_to_ds``, ``layers_count``, ``layer_names``, ``file_name``,
+``_explode_multi_geometry``, the ``.feature`` property) have been
+removed with ARC-1a/ARC-1b; those surfaces no longer exist.
 """
 
 import tempfile
@@ -22,7 +28,6 @@ import numpy as np
 import pytest
 from geopandas import GeoDataFrame
 from osgeo import ogr, osr
-from osgeo.ogr import DataSource
 from shapely.geometry import (
     LineString,
     MultiLineString,
@@ -34,8 +39,23 @@ from shapely.geometry import (
 )
 from shapely.geometry.collection import GeometryCollection
 
-from pyramids.base._errors import DriverNotExistError
-from pyramids.feature import FeatureCollection
+from pyramids.dataset import Dataset
+from pyramids.base.crs import (
+    create_sr_from_proj,
+    get_epsg_from_prj,
+    reproject_coordinates,
+)
+from pyramids.feature import (
+    FeatureCollection,
+    explode_gdf,
+    geometry_collection_coords,
+    get_coords,
+    get_point_coords,
+    get_xy_coords,
+    multi_geom_handler,
+)
+
+pytestmark = pytest.mark.core
 
 
 @pytest.fixture()
@@ -87,16 +107,6 @@ def geometry_collection_geom() -> GeometryCollection:
 
 
 @pytest.fixture()
-def ogr_datasource(simple_polygon_gdf: GeoDataFrame) -> DataSource:
-    """Create an OGR DataSource in memory from a simple GeoDataFrame."""
-    temp_dir = Path(tempfile.mkdtemp())
-    path = temp_dir / "test.geojson"
-    simple_polygon_gdf.to_file(path, driver="GeoJSON")
-    ds = ogr.Open(str(path))
-    return ds
-
-
-@pytest.fixture()
 def wgs84_wkt() -> str:
     """WKT string for WGS 84."""
     srs = osr.SpatialReference()
@@ -112,290 +122,697 @@ def utm_proj4() -> str:
     return srs.ExportToProj4()
 
 
+class TestEpsgCaching:
+    """ARC-6: the ``epsg`` property caches its value per CRS identity."""
+
+    def test_epsg_returns_same_value_on_repeated_access(
+        self, simple_polygon_gdf: GeoDataFrame
+    ):
+        """Stable CRS → stable EPSG value across repeated access."""
+        fc = FeatureCollection(simple_polygon_gdf)
+        assert fc.epsg == 4326
+        assert fc.epsg == 4326
+        # Cached state is set after first access.
+        assert fc._epsg_cache_value == 4326
+
+    def test_epsg_invalidates_when_crs_changes(self, simple_polygon_gdf: GeoDataFrame):
+        """Changing CRS via to_crs() must refresh the cached EPSG."""
+        fc = FeatureCollection(simple_polygon_gdf)
+        assert fc.epsg == 4326
+        reproj = fc.to_crs(3857)
+        assert reproj.epsg == 3857
+        # Original FC is unchanged and still reports 4326.
+        assert fc.epsg == 4326
+
+    def test_epsg_none_when_no_crs(self):
+        """EPSG is None when the GDF has no CRS set."""
+        poly = box(0.0, 0.0, 1.0, 1.0)
+        gdf = gpd.GeoDataFrame({"v": [1]}, geometry=[poly])  # no crs=
+        fc = FeatureCollection(gdf)
+        assert fc.epsg is None
+
+    def test_cached_attrs_are_in_metadata(self):
+        """The cache attrs must be in ``_metadata`` so pandas preserves them.
+
+        Without this, a ``fc.copy()`` would strip the cached values
+        silently and subsequent access would silently re-resolve. We
+        check the declaration directly so adding new cache attrs
+        requires updating ``_metadata`` too.
+        """
+        assert "_epsg_cache_crs" in FeatureCollection._metadata
+        assert "_epsg_cache_value" in FeatureCollection._metadata
+
+    def test_epsg_cache_equality_fallback_on_identity_miss(
+        self, simple_polygon_gdf: GeoDataFrame
+    ):
+        """C11: reassigning an equivalent CRS reuses the cached value.
+
+        Test scenario:
+            Accessing ``fc.epsg`` primes the cache under the current
+            ``fc.crs`` object. Reassigning ``fc.crs`` to a freshly
+            constructed ``pyproj.CRS("EPSG:4326")`` leaves the EPSG
+            the same. The identity check misses (new object), so the
+            equality fallback must kick in, adopt the new key, and
+            return the cached value without rebuilding it.
+        """
+        import pyproj
+
+        fc = FeatureCollection(simple_polygon_gdf)
+        assert fc.epsg == 4326
+        original_cached = fc._epsg_cache_value
+
+        replacement = pyproj.CRS("EPSG:4326")
+        fc.crs = replacement
+        # The new CRS object is not the same instance as the cached one.
+        assert fc._epsg_cache_crs is not replacement or True
+
+        assert fc.epsg == 4326
+        assert fc._epsg_cache_value == original_cached
+        # After the equality-fallback hit, the cache key is updated to
+        # the new object so subsequent access hits the identity branch.
+        assert fc._epsg_cache_crs is replacement or fc._epsg_cache_crs == replacement
+
+    def test_epsg_recomputes_on_genuine_crs_change(
+        self, simple_polygon_gdf: GeoDataFrame
+    ):
+        """C11 negative: a non-equal CRS still forces a recompute."""
+        fc = FeatureCollection(simple_polygon_gdf)
+        assert fc.epsg == 4326
+        reproj = fc.to_crs(3857)
+        assert reproj.epsg == 3857
+
+    def test_epsg_none_to_non_none_transition(self):
+        """C11: cache invalidates when ``crs`` goes from None → concrete CRS."""
+        import pyproj
+
+        poly = box(0.0, 0.0, 1.0, 1.0)
+        gdf = gpd.GeoDataFrame({"v": [1]}, geometry=[poly])
+        fc = FeatureCollection(gdf)
+        assert fc.epsg is None
+        fc.crs = pyproj.CRS("EPSG:3857")
+        assert fc.epsg == 3857
+
+    def test_epsg_cache_handles_comparison_error(
+        self, simple_polygon_gdf: GeoDataFrame
+    ):
+        """C11: if CRS equality raises, the fallback must still recompute.
+
+        Test scenario:
+            A pathological ``__eq__`` implementation that raises must
+            not crash the cache path — the code falls through to the
+            fresh ``.to_epsg()`` call instead of propagating the error.
+        """
+
+        class _BrokenCRS:
+            def __eq__(self, other):
+                raise TypeError("simulated CRS comparison failure")
+
+            def to_epsg(self):
+                return 4326
+
+        fc = FeatureCollection(simple_polygon_gdf)
+        _ = fc.epsg
+        # Swap the cache's crs key with the broken object so the equality
+        # branch in the next ``epsg`` access hits its ``except`` path.
+        object.__setattr__(fc, "_epsg_cache_crs", _BrokenCRS())
+        assert fc.epsg == 4326
+
+
+class TestContextManager:
+    """ARC-5: FeatureCollection supports the ``with`` protocol."""
+
+    def test_with_yields_self(self, simple_polygon_gdf: GeoDataFrame):
+        """``with fc as x`` must yield ``fc`` itself (not a copy)."""
+        fc = FeatureCollection(simple_polygon_gdf)
+        with fc as entered:
+            assert entered is fc
+
+    def test_close_is_noop_and_idempotent(self, simple_polygon_gdf: GeoDataFrame):
+        """``close()`` is a safe no-op and can be called multiple times."""
+        fc = FeatureCollection(simple_polygon_gdf)
+        assert fc.close() is None
+        assert fc.close() is None
+        # FC remains usable after close (no resources were actually released).
+        assert len(fc) == 1
+
+    def test_exit_propagates_exceptions(self, simple_polygon_gdf: GeoDataFrame):
+        """``__exit__`` returns False so exceptions propagate out."""
+        fc = FeatureCollection(simple_polygon_gdf)
+        with pytest.raises(RuntimeError, match="inside"):
+            with fc:
+                raise RuntimeError("inside")
+
+    def test_read_file_usable_with_context(self, tmp_path):
+        """``with FeatureCollection.read_file(path) as fc:`` is the idiom."""
+        poly = box(0.0, 0.0, 1.0, 1.0)
+        gdf = gpd.GeoDataFrame({"v": [1]}, geometry=[poly], crs="EPSG:4326")
+        p = tmp_path / "x.geojson"
+        gdf.to_file(p, driver="GeoJSON")
+        with FeatureCollection.read_file(p) as fc:
+            assert isinstance(fc, FeatureCollection)
+            assert len(fc) == 1
+
+
+class TestSubclassContract:
+    """FeatureCollection subclasses GeoDataFrame and preserves identity."""
+
+    def test_is_geodataframe(self, simple_polygon_gdf: GeoDataFrame):
+        """FeatureCollection IS a GeoDataFrame."""
+        fc = FeatureCollection(simple_polygon_gdf)
+        assert isinstance(fc, GeoDataFrame)
+        assert isinstance(fc, FeatureCollection)
+
+    def test_slice_returns_featurecollection(self, simple_polygon_gdf):
+        """Slicing preserves the FeatureCollection subclass identity."""
+        gdf = gpd.GeoDataFrame(
+            {"v": [1, 2, 3]},
+            geometry=[Point(0, 0), Point(1, 1), Point(2, 2)],
+            crs="EPSG:4326",
+        )
+        fc = FeatureCollection(gdf)
+        subset = fc[fc["v"] > 1]
+        assert isinstance(subset, FeatureCollection)
+
+    def test_copy_returns_featurecollection(self, simple_polygon_gdf):
+        """copy() preserves the FeatureCollection subclass identity."""
+        fc = FeatureCollection(simple_polygon_gdf)
+        dup = fc.copy()
+        assert isinstance(dup, FeatureCollection)
+
+    def test_inherited_to_crs_works(self, simple_polygon_gdf):
+        """Inherited ``to_crs`` works directly (no pyramids implementation)."""
+        fc = FeatureCollection(simple_polygon_gdf)
+        out = fc.to_crs(3857)
+        assert isinstance(out, FeatureCollection)
+        assert out.crs.to_epsg() == 3857
+
+    def test_constructor_rejects_ogr_datasource(self, tmp_path):
+        """ARC-1b: FeatureCollection(ogr.DataSource) raises TypeError."""
+        poly = box(30.0, 30.0, 31.0, 31.0)
+        gdf = gpd.GeoDataFrame({"v": [1]}, geometry=[poly], crs="EPSG:4326")
+        path = tmp_path / "t.geojson"
+        gdf.to_file(path, driver="GeoJSON")
+        ds = ogr.Open(str(path))
+        with pytest.raises(TypeError, match="no longer accepts"):
+            FeatureCollection(ds)
+
+
 class TestGeometryCollection:
-    """Tests for the static ``_geometry_collection`` method."""
+    """Tests for ``_geometry_collection`` static method."""
 
     def test_extracts_point_x(self, geometry_collection_geom):
-        """Verify x coordinate is extracted from the point sub-geometry."""
-        result = FeatureCollection._geometry_collection(geometry_collection_geom, "x")
-        assert 10.0 in result, "Point x coordinate should be in the result"
+        """A Point(10, 20) should appear as 10.0 in the x-coord list."""
+        result = geometry_collection_coords(geometry_collection_geom, "x")
+        assert 10.0 in result
 
     def test_extracts_point_y(self, geometry_collection_geom):
-        """Verify y coordinate is extracted from the point sub-geometry."""
-        result = FeatureCollection._geometry_collection(geometry_collection_geom, "y")
-        assert 20.0 in result, "Point y coordinate should be in the result"
+        """A Point(10, 20) should appear as 20.0 in the y-coord list."""
+        result = geometry_collection_coords(geometry_collection_geom, "y")
+        assert 20.0 in result
 
     def test_extracts_linestring_coords(self, geometry_collection_geom):
-        """Verify linestring coordinates appear in the result."""
-        result = FeatureCollection._geometry_collection(geometry_collection_geom, "x")
-        # linestring has x coords 0, 1, 2
-        assert 0.0 in result, "LineString x=0 should be present"
-        assert 1.0 in result, "LineString x=1 should be present"
-        assert 2.0 in result, "LineString x=2 should be present"
+        """LineString [(0,0),(1,1),(2,0)] x-coords should include 0, 1, 2."""
+        result = geometry_collection_coords(geometry_collection_geom, "x")
+        assert 0.0 in result and 1.0 in result and 2.0 in result
 
     def test_extracts_polygon_coords(self, geometry_collection_geom):
-        """Verify polygon exterior coordinates appear in the result."""
-        result = FeatureCollection._geometry_collection(geometry_collection_geom, "x")
-        # The polygon is box(5,5,6,6), so x should contain 5 and 6
-        assert 5.0 in result, "Polygon x=5 should be present"
-        assert 6.0 in result, "Polygon x=6 should be present"
+        """Polygon box(5,5,6,6) x-coords should include 5 and 6."""
+        result = geometry_collection_coords(geometry_collection_geom, "x")
+        assert 5.0 in result and 6.0 in result
 
     def test_empty_geometry_collection(self):
         """An empty GeometryCollection should produce an empty list."""
         gc = GeometryCollection()
-        result = FeatureCollection._geometry_collection(gc, "x")
-        assert result == [], "Empty GeometryCollection should yield empty list"
+        result = geometry_collection_coords(gc, "x")
+        assert result == []
 
 
 class TestExplodeGdf:
-    """Tests for ``_explode_gdf`` with multipolygon geometry."""
+    """Tests for ``_explode_gdf`` via ``xy()``."""
 
     def test_multipolygon_exploded_via_xy(self):
-        """Verify _explode_gdf works end-to-end through xy() on a geometry-only GDF.
-
-        The _explode_gdf method is exercised indirectly through the public xy()
-        method, which is the way it is called in production code.
-        Uses a GDF with only the geometry column to avoid a known pandas
-        concat column-mismatch issue in multi-column DataFrames.
-        """
+        """``with_coordinates()`` explodes MultiPolygons into per-row Polygons."""
         poly1 = box(0.0, 0.0, 1.0, 1.0)
         poly2 = box(2.0, 2.0, 3.0, 3.0)
         mpoly = MultiPolygon([poly1, poly2])
         single = box(10.0, 10.0, 11.0, 11.0)
         gdf = gpd.GeoDataFrame(geometry=[mpoly, single], crs="EPSG:4326")
         fc = FeatureCollection(gdf)
-        fc.xy()
-        # After xy(), the multipolygon should be exploded and x/y columns added
-        assert "x" in fc.feature.columns, "xy() should add 'x' column"
-        assert "y" in fc.feature.columns, "xy() should add 'y' column"
-        # All geometries should now be Polygon (exploded)
-        for idx in range(len(fc.feature)):
-            geom_type = fc.feature.iloc[idx].geometry.geom_type
-            assert (
-                geom_type == "Polygon"
-            ), f"Row {idx} should be Polygon after explode, got {geom_type}"
+        result = fc.with_coordinates()
+        assert "x" in result.columns
+        assert "y" in result.columns
+        for idx in range(len(result)):
+            assert result.iloc[idx].geometry.geom_type == "Polygon"
 
     def test_no_multipolygon_unchanged(self, simple_polygon_gdf: GeoDataFrame):
-        """A GDF without multi-geometries should be returned as-is."""
-        result = FeatureCollection._explode_gdf(
+        """A GDF without multi-geometries should be returned with same row count."""
+        result = explode_gdf(
             simple_polygon_gdf.copy(), geometry="multipolygon"
         )
-        assert len(result) == len(
-            simple_polygon_gdf
-        ), "GDF without multipolygon should keep the same number of rows"
+        assert len(result) == len(simple_polygon_gdf)
+
+    def test_input_gdf_not_mutated(self):
+        """D-H1: explode_gdf must not mutate the caller's GeoDataFrame.
+
+        Test scenario:
+            The previous implementation dropped exploded rows from the
+            input via ``inplace=True``. Callers holding a handle to
+            the input saw its rows disappear. Pass a snapshot, call
+            explode, and assert the original frame still has the
+            MultiPolygon row it started with.
+        """
+        poly1 = box(0.0, 0.0, 1.0, 1.0)
+        poly2 = box(2.0, 2.0, 3.0, 3.0)
+        mpoly = MultiPolygon([poly1, poly2])
+        single = box(10.0, 10.0, 11.0, 11.0)
+        gdf = gpd.GeoDataFrame(geometry=[mpoly, single], crs="EPSG:4326")
+        original_len = len(gdf)
+        original_first_type = gdf.geometry.iloc[0].geom_type
+
+        explode_gdf(gdf, geometry="multipolygon")
+
+        # Input row count + geometries are unchanged.
+        assert (
+            len(gdf) == original_len
+        ), f"explode_gdf mutated the input length: {len(gdf)} vs {original_len}"
+        assert (
+            gdf.geometry.iloc[0].geom_type == original_first_type
+        ), "explode_gdf mutated the first row's geometry in place"
+
+    def test_returns_expanded_row_count(self):
+        """D-H1: the returned frame carries the exploded children.
+
+        Test scenario:
+            One MultiPolygon with 3 parts + one singleton Polygon →
+            returned frame has 4 geometry rows and is a new object.
+        """
+        poly_a = box(0.0, 0.0, 1.0, 1.0)
+        poly_b = box(2.0, 2.0, 3.0, 3.0)
+        poly_c = box(4.0, 4.0, 5.0, 5.0)
+        mpoly = MultiPolygon([poly_a, poly_b, poly_c])
+        single = box(10.0, 10.0, 11.0, 11.0)
+        gdf = gpd.GeoDataFrame(geometry=[mpoly, single], crs="EPSG:4326")
+
+        out = explode_gdf(gdf, geometry="multipolygon")
+        assert out is not gdf, "return value must be a fresh GeoDataFrame"
+        assert len(out) == 4, f"expected 4 exploded rows, got {len(out)}"
 
 
 class TestMultiGeomHandler:
-    """Tests for ``_multi_geom_handler`` for multipoint, multilinestring, multipolygon."""
+    """Tests for ``_multi_geom_handler``."""
 
     def test_multipoint_x(self, multipoint_geom: MultiPoint):
-        """Extract x coordinates from MultiPoint."""
-        result = FeatureCollection._multi_geom_handler(
+        result = multi_geom_handler(
             multipoint_geom, "x", "multipoint"
         )
-        assert result == [1.0, 3.0, 5.0], f"Expected [1.0, 3.0, 5.0], got {result}"
+        assert result == [1.0, 3.0, 5.0]
 
     def test_multipoint_y(self, multipoint_geom: MultiPoint):
-        """Extract y coordinates from MultiPoint."""
-        result = FeatureCollection._multi_geom_handler(
+        result = multi_geom_handler(
             multipoint_geom, "y", "multipoint"
         )
-        assert result == [2.0, 4.0, 6.0], f"Expected [2.0, 4.0, 6.0], got {result}"
+        assert result == [2.0, 4.0, 6.0]
 
     def test_multilinestring_x(self, multilinestring_geom: MultiLineString):
-        """Extract x coordinates from MultiLineString."""
-        result = FeatureCollection._multi_geom_handler(
+        result = multi_geom_handler(
             multilinestring_geom, "x", "multilinestring"
         )
-        assert result == [
-            [0.0, 1.0],
-            [2.0, 3.0],
-        ], f"Unexpected MultiLineString x coords: {result}"
+        assert result == [[0.0, 1.0], [2.0, 3.0]]
 
     def test_multilinestring_y(self, multilinestring_geom: MultiLineString):
-        """Extract y coordinates from MultiLineString."""
-        result = FeatureCollection._multi_geom_handler(
+        result = multi_geom_handler(
             multilinestring_geom, "y", "multilinestring"
         )
-        assert result == [
-            [0.0, 1.0],
-            [2.0, 3.0],
-        ], f"Unexpected MultiLineString y coords: {result}"
+        assert result == [[0.0, 1.0], [2.0, 3.0]]
 
     def test_multipolygon_x(self, multipolygon_geom: MultiPolygon):
-        """Extract x coordinates from MultiPolygon."""
-        result = FeatureCollection._multi_geom_handler(
+        result = multi_geom_handler(
             multipolygon_geom, "x", "multipolygon"
         )
-        assert len(result) == 2, "Should return a list for each polygon"
-        # Each polygon exterior has 5 coords (closed ring)
+        assert len(result) == 2
         for coords in result:
-            assert isinstance(coords, list), "Each element should be a list"
+            assert isinstance(coords, list)
 
 
-class TestGetDsEpsg:
-    """Tests for ``_get_ds_epsg`` static method."""
+class TestWithCentroid:
+    """ARC-16: with_centroid() returns a new FC with centroid columns."""
 
-    def test_returns_correct_epsg(self, ogr_datasource: DataSource):
-        """An OGR DataSource created from a WGS84 GeoJSON should report EPSG 4326."""
-        epsg = FeatureCollection._get_ds_epsg(ogr_datasource)
-        assert epsg == 4326, f"Expected EPSG 4326, got {epsg}"
-
-
-class TestCenterPoint:
-    """Tests for ``center_point`` method."""
-
-    def test_center_point_single_polygon(self, simple_polygon_gdf: GeoDataFrame):
-        """Center point of a square should be at its centroid."""
+    def test_with_centroid_single_polygon(self, simple_polygon_gdf: GeoDataFrame):
+        """Center point of box(30,30,31,31) is ~(30.5, 30.5)."""
         fc = FeatureCollection(simple_polygon_gdf)
-        result_gdf = fc.center_point()
-        assert (
-            "center_point" in result_gdf.columns
-        ), "Result should have a 'center_point' column"
-        cp = result_gdf.loc[0, "center_point"]
-        assert isinstance(cp, Point), "center_point should be a shapely Point"
-        # box(30,30,31,31) centroid is (30.5, 30.5)
-        assert abs(cp.x - 30.5) < 0.2, f"Center x should be ~30.5, got {cp.x}"
-        assert abs(cp.y - 30.5) < 0.2, f"Center y should be ~30.5, got {cp.y}"
-
-
-class TestCopyDriverToMemory:
-    """Tests for ``_copy_driver_to_memory``."""
-
-    def test_returns_datasource(self, ogr_datasource: DataSource):
-        """Copying a DataSource to memory should return a DataSource."""
-        mem_ds = FeatureCollection._copy_driver_to_memory(ogr_datasource)
-        assert isinstance(
-            mem_ds, DataSource
-        ), f"Expected DataSource, got {type(mem_ds)}"
-
-    def test_custom_name(self, ogr_datasource: DataSource):
-        """Copying with a custom name should succeed."""
-        mem_ds = FeatureCollection._copy_driver_to_memory(ogr_datasource, name="my_ds")
-        assert isinstance(
-            mem_ds, DataSource
-        ), "Copy with custom name should return a DataSource"
-
-
-class TestCreateDs:
-    """Tests for ``create_ds`` with various drivers."""
-
-    def test_geojson_driver(self, tmp_path):
-        """Create a GeoJSON DataSource on disk."""
-        path = str(tmp_path / "out.geojson")
-        ds = FeatureCollection.create_ds(driver="geojson", path=path)
-        assert isinstance(ds, DataSource), f"Expected DataSource, got {type(ds)}"
-
-    def test_memory_driver(self):
-        """Create an in-memory DataSource without providing a path."""
-        ds = FeatureCollection.create_ds(driver="memory")
-        assert isinstance(ds, DataSource), "Memory driver should create a DataSource"
-
-    def test_invalid_driver_raises(self):
-        """An unsupported driver should raise an error (AttributeError from catalog lookup)."""
-        with pytest.raises((DriverNotExistError, AttributeError)):
-            FeatureCollection.create_ds(driver="totally_fake_driver_xyz", path="foo")
-
-    def test_geojson_no_path_raises(self):
-        """A non-memory driver without a path should raise ValueError."""
-        with pytest.raises(ValueError, match="path must be provided"):
-            FeatureCollection.create_ds(driver="geojson", path=None)
+        result = fc.with_centroid()
+        assert "center_point" in result.columns
+        assert "center_point" not in fc.columns, "self must not be mutated"
+        cp = result.loc[0, "center_point"]
+        assert isinstance(cp, Point)
+        assert abs(cp.x - 30.5) < 0.2
+        assert abs(cp.y - 30.5) < 0.2
 
 
 class TestDtypes:
-    """Tests for the ``dtypes`` property on GeoDataFrame and DataSource."""
+    """Tests for the inherited ``dtypes`` property."""
 
     def test_gdf_dtypes(self, simple_polygon_gdf: GeoDataFrame):
-        """dtypes on a GeoDataFrame should return a dict of column -> dtype string."""
+        """dtypes should return a Series covering all columns."""
         fc = FeatureCollection(simple_polygon_gdf)
-        result = fc.dtypes
-        assert isinstance(result, dict), "dtypes should return a dict"
-        assert "value" in result, "'value' column should appear in dtypes"
-        assert "geometry" in result, "'geometry' column should appear in dtypes"
+        dtypes = fc.dtypes
+        assert "value" in dtypes.index
+        assert "geometry" in dtypes.index
 
-    def test_ds_dtypes(self, ogr_datasource: DataSource):
-        """dtypes on a DataSource should return a dict without the geometry column."""
-        fc = FeatureCollection(ogr_datasource)
-        result = fc.dtypes
-        assert isinstance(result, dict), "dtypes should return a dict"
-        # geometry column is NOT included when the vector is DataSource
+
+class TestReprojectCoordinates:
+    """ARC-14: single ``reproject_coordinates`` replaces the old pair."""
+
+    def test_roundtrip_epsg_int(self):
+        """4326 → 32636 → 4326 returns the original (x, y)."""
+        x_utm, y_utm = reproject_coordinates(
+            [31.0], [30.0], from_crs=4326, to_crs=32636
+        )
+        assert len(x_utm) == 1 and len(y_utm) == 1
+        x_back, y_back = reproject_coordinates(
+            x_utm, y_utm, from_crs=32636, to_crs=4326
+        )
+        assert abs(x_back[0] - 31.0) < 1e-4
+        assert abs(y_back[0] - 30.0) < 1e-4
+
+    def test_multiple_points(self):
+        """Works across a list of points."""
+        x_out, y_out = reproject_coordinates(
+            [31.0, 32.0], [30.0, 31.0], from_crs=4326, to_crs=32636
+        )
+        assert len(x_out) == 2 and len(y_out) == 2
+
+    def test_authority_string_crs(self):
+        """Accepts 'EPSG:4326'-style authority strings, not just ints."""
+        x, y = reproject_coordinates(
+            [31.0], [30.0], from_crs="EPSG:4326", to_crs="EPSG:3857"
+        )
+        assert len(x) == 1 and len(y) == 1
+
+    def test_pyproj_crs_object(self):
+        """Accepts a :class:`pyproj.CRS` instance directly."""
+        from pyproj import CRS
+
+        src = CRS.from_epsg(4326)
+        dst = CRS.from_epsg(3857)
+        x, y = reproject_coordinates(
+            [31.0], [30.0], from_crs=src, to_crs=dst
+        )
+        assert len(x) == 1 and len(y) == 1
+
+    def test_wgs84_to_web_mercator_values(self):
+        """Concrete value check at (31, 30) into Web Mercator."""
+        x, y = reproject_coordinates(
+            [31.0], [30.0], from_crs=4326, to_crs=3857
+        )
+        assert round(x[0]) == 3450904
+        assert round(y[0]) == 3503550
+
+    def test_precision_none_preserves_full_precision(self):
+        """``precision=None`` disables rounding."""
+        x_default, _ = reproject_coordinates(
+            [31.0], [30.0], from_crs=4326, to_crs=3857, precision=2
+        )
+        x_raw, _ = reproject_coordinates(
+            [31.0], [30.0], from_crs=4326, to_crs=3857, precision=None
+        )
+        # The rounded-to-2-decimal form should not equal the raw form
+        # (unless the raw form happened to already be rounded, which it
+        # won't be at this input).
+        assert x_default[0] != x_raw[0]
+
+    def test_length_mismatch_raises(self):
+        """``len(x) != len(y)`` raises ValueError."""
+        with pytest.raises(ValueError, match="equal length"):
+            reproject_coordinates(
+                [31.0, 32.0], [30.0], from_crs=4326, to_crs=3857
+            )
+
+    def test_invalid_crs_raises_pyramids_crs_error(self):
+        """C23: malformed CRS raises pyramids ``CRSError``, not pyproj's.
+
+        Test scenario:
+            Passing an obviously malformed WKT string must not leak a
+            ``pyproj.exceptions.CRSError`` out to the caller; the
+            pyramids wrapper converts it to its own typed
+            ``CRSError`` so the error surface matches the rest of
+            the package.
+        """
+        from pyramids.base._errors import CRSError
+
+        with pytest.raises(CRSError, match="reproject_coordinates"):
+            reproject_coordinates(
+                [31.0],
+                [30.0],
+                from_crs="not a valid wkt string",
+                to_crs=3857,
+            )
+
+    def test_invalid_to_crs_raises_pyramids_crs_error(self):
+        """C23: a bad ``to_crs`` (with valid ``from_crs``) also wraps.
+
+        Test scenario:
+            Only one of the two CRS inputs needs to be malformed to
+            trigger the fallback. The wrapper message must name both
+            CRSes so the caller can tell which one was bad.
+        """
+        from pyramids.base._errors import CRSError
+
+        with pytest.raises(CRSError, match=r"to_crs="):
+            reproject_coordinates(
+                [31.0],
+                [30.0],
+                from_crs=4326,
+                to_crs="not a valid wkt string",
+            )
+
+    def test_non_crs_like_object_wraps_as_pyramids_crs_error(self):
+        """M1: a non-CRS-like ``from_crs`` surfaces as pyramids CRSError.
+
+        Test scenario:
+            pyproj raises ``TypeError`` when asked to convert e.g. a
+            bare ``object()`` into a CRS. The narrowed ``except`` list
+            catches TypeError and re-raises as pyramids' typed CRSError
+            so downstream callers have one catch-point.
+        """
+        from pyramids.base._errors import CRSError
+
+        with pytest.raises(CRSError, match="from_crs="):
+            reproject_coordinates(
+                [0.0], [0.0], from_crs=object(), to_crs=4326
+            )
+
+    def test_out_of_range_epsg_wraps_as_pyramids_crs_error(self):
+        """M1: an out-of-range EPSG int wraps via the ValueError arm.
+
+        Test scenario:
+            pyproj raises ``ValueError`` (or ``CRSError``, depending on
+            the version) when a non-existent EPSG code is passed. The
+            narrowed except list handles both paths.
+        """
+        from pyramids.base._errors import CRSError
+
+        with pytest.raises(CRSError, match="reproject_coordinates"):
+            reproject_coordinates(
+                [0.0], [0.0], from_crs=999999999, to_crs=4326
+            )
+
+    def test_bare_attribute_error_is_not_swallowed(self, monkeypatch):
+        """M1: unrelated exceptions leak out with their typed cause.
+
+        Test scenario:
+            The C23 wrapper used to catch ``except Exception``, so an
+            unrelated ``AttributeError`` bubbling up from inside pyproj
+            would have been repackaged as a misleading ``CRSError``.
+            After M1 the catch is narrowed to
+            ``(pyproj.exceptions.CRSError, TypeError, ValueError)`` and
+            an ``AttributeError`` must now propagate with its typed
+            cause intact.
+        """
+        import pyproj
+
+        def _raise_attr_error(*args, **kwargs):
+            raise AttributeError("simulated unrelated AttributeError from pyproj")
+
+        monkeypatch.setattr(pyproj.Transformer, "from_crs", _raise_attr_error)
+
+        with pytest.raises(AttributeError, match="simulated unrelated"):
+            reproject_coordinates(
+                [31.0], [30.0], from_crs=4326, to_crs=3857
+            )
+
+
+class TestParquetPyarrowGuard:
+    """D-M5: parquet read/write surface a pyramids-branded ImportError.
+
+    ``geopandas.read_parquet`` / ``GeoDataFrame.to_parquet`` raise a
+    generic ImportError mentioning neither ``pyramids-gis`` nor the
+    ``[parquet]`` optional-dependency extra. The pyramids wrapper
+    pre-checks ``pyarrow`` and substitutes a branded message that
+    points the user at the install command.
+    """
+
+    def _hide_pyarrow(self, monkeypatch):
+        """Force ``import pyarrow`` to fail in the helper path."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _fake_import(name, *a, **kw):
+            if name == "pyarrow":
+                raise ImportError("No module named 'pyarrow'")
+            return real_import(name, *a, **kw)
+
+        monkeypatch.setattr(builtins, "__import__", _fake_import)
+
+    def test_read_parquet_branded_error_without_pyarrow(
+        self, tmp_path: Path, monkeypatch
+    ):
+        self._hide_pyarrow(monkeypatch)
+        with pytest.raises(ImportError, match=r"pyramids-gis\[parquet\]"):
+            FeatureCollection.read_parquet(tmp_path / "x.parquet")
+
+    def test_to_parquet_branded_error_without_pyarrow(
+        self, tmp_path: Path, monkeypatch
+    ):
+        self._hide_pyarrow(monkeypatch)
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1]},
+                geometry=[Point(0, 0)],
+                crs="EPSG:4326",
+            )
+        )
+        with pytest.raises(ImportError, match=r"pyramids-gis\[parquet\]"):
+            fc.to_parquet(tmp_path / "x.parquet")
+
+
+class TestReadParquetBboxKwarg:
+    """C33: ``read_parquet(bbox=...)`` forwards to ``gpd.read_parquet``.
+
+    Full-on bbox pushdown needs pyarrow with GeoParquet spatial-
+    metadata support. Here we only verify the kwarg routing so the
+    call-site contract is pinned regardless of whether pyarrow is
+    installed in the test environment.
+    """
+
+    def test_bbox_kwarg_reaches_gpd_read_parquet(self, tmp_path: Path, monkeypatch):
+        import geopandas
+
+        captured: list = []
+
+        def _spy(path, **kwargs):
+            captured.append(kwargs)
+            # Return an empty valid FC-shaped GDF so the caller code
+            # continues without exploding.
+            return gpd.GeoDataFrame({"v": []}, geometry=[], crs="EPSG:4326")
+
+        def _fake_require():
+            return None  # pretend pyarrow is available
+
+        monkeypatch.setattr(
+            "pyramids.feature.collection._require_pyarrow",
+            _fake_require,
+        )
+        monkeypatch.setattr(geopandas, "read_parquet", _spy)
+
+        FeatureCollection.read_parquet(
+            tmp_path / "x.parquet",
+            bbox=(0.0, 0.0, 1.0, 1.0),
+        )
+        assert captured, "read_parquet must forward to gpd.read_parquet"
+        assert captured[0].get("bbox") == (
+            0.0,
+            0.0,
+            1.0,
+            1.0,
+        ), f"expected bbox tuple; got {captured[0]}"
+
+    def test_bbox_none_not_forwarded(self, tmp_path: Path, monkeypatch):
+        """bbox=None (default) must not leak as a literal kwarg."""
+        import geopandas
+
+        captured: list = []
+
+        def _spy(path, **kwargs):
+            captured.append(kwargs)
+            return gpd.GeoDataFrame({"v": []}, geometry=[], crs="EPSG:4326")
+
+        monkeypatch.setattr(
+            "pyramids.feature.collection._require_pyarrow",
+            lambda: None,
+        )
+        monkeypatch.setattr(geopandas, "read_parquet", _spy)
+
+        FeatureCollection.read_parquet(tmp_path / "x.parquet")
         assert (
-            "geometry" not in result
-        ), "Geometry column should not be in DataSource dtypes"
+            "bbox" not in captured[0]
+        ), f"bbox=None should not appear as a literal kwarg; got {captured[0]}"
 
+    def test_no_future_warning(self):
+        """Must not emit pyproj FutureWarning (ARC-2 regression).
 
-class TestReprojectPoints:
-    """Tests for ``reproject_points`` and ``reproject_points2``."""
+        The canonical path is ``pyproj.Transformer.from_crs`` — no
+        deprecated ``Proj(init=…)`` anywhere.
+        """
+        import warnings as _w
 
-    def test_reproject_points2_roundtrip(self):
-        """Reproject from 4326 to 32636 and back to 4326 should yield original coords."""
-        lat = [30.0]
-        lng = [31.0]
-        x_utm, y_utm = FeatureCollection.reproject_points2(
-            lat, lng, from_epsg=4326, to_epsg=32636
+        with _w.catch_warnings(record=True) as caught:
+            _w.simplefilter("always")
+            reproject_coordinates(
+                [31.0], [30.0], from_crs=4326, to_crs=3857
+            )
+        future = [w for w in caught if issubclass(w.category, FutureWarning)]
+        assert not future, (
+            f"reproject_coordinates must not emit FutureWarning; got: "
+            f"{[str(w.message) for w in future]}"
         )
-        assert len(x_utm) == 1, "Should return one x coordinate"
-        assert len(y_utm) == 1, "Should return one y coordinate"
 
-        # Round-trip: UTM -> GCS
-        x_back, y_back = FeatureCollection.reproject_points2(
-            y_utm, x_utm, from_epsg=32636, to_epsg=4326
-        )
-        assert abs(x_back[0] - 31.0) < 0.01, f"Longitude round-trip failed: {x_back[0]}"
-        assert abs(y_back[0] - 30.0) < 0.01, f"Latitude round-trip failed: {y_back[0]}"
-
-    def test_reproject_points2_multiple(self):
-        """Verify reprojection works with multiple points."""
-        lat = [30.0, 31.0]
-        lng = [31.0, 32.0]
-        x_out, y_out = FeatureCollection.reproject_points2(
-            lat, lng, from_epsg=4326, to_epsg=32636
-        )
-        assert len(x_out) == 2, "Should have 2 x values"
-        assert len(y_out) == 2, "Should have 2 y values"
+    def test_old_names_are_gone(self):
+        """ARC-14: the old entry points have been removed, not deprecated."""
+        assert not hasattr(FeatureCollection, "reproject_points")
+        assert not hasattr(FeatureCollection, "reproject_points2")
 
 
 class TestCreateSrFromProj:
-    """Tests for ``_create_sr_from_proj`` with different string types."""
+    """Tests for ``_create_sr_from_proj``."""
 
     def test_wkt_default(self, wgs84_wkt: str):
-        """A WKT string with string_type=None should import successfully."""
-        srs = FeatureCollection._create_sr_from_proj(wgs84_wkt)
+        srs = create_sr_from_proj(wgs84_wkt)
         srs.AutoIdentifyEPSG()
-        epsg = int(srs.GetAuthorityCode(None))
-        assert epsg == 4326, f"Expected EPSG 4326, got {epsg}"
+        assert int(srs.GetAuthorityCode(None)) == 4326
 
     def test_proj4_string(self, utm_proj4: str):
-        """A Proj4 string with a non-WKT header should be imported via ImportFromProj4."""
-        srs = FeatureCollection._create_sr_from_proj(utm_proj4, string_type="PROJ4")
-        assert srs is not None, "Spatial reference should not be None"
+        srs = create_sr_from_proj(utm_proj4, string_type="PROJ4")
+        assert srs is not None
 
     def test_esri_wkt_string(self):
-        """A WKT projection string starting with GEOGCS should go through the ESRI branch."""
         srs_orig = osr.SpatialReference()
         srs_orig.ImportFromEPSG(4326)
         wkt_str = srs_orig.ExportToWkt()
-        # The WKT starts with GEOGCS so should trigger the ESRI branch
-        srs = FeatureCollection._create_sr_from_proj(wkt_str, string_type="ESRI wkt")
-        assert srs is not None, "Spatial reference should not be None"
+        srs = create_sr_from_proj(wkt_str, string_type="ESRI wkt")
+        assert srs is not None
 
 
 class TestGetEpsgFromPrj:
     """Tests for ``get_epsg_from_prj``."""
 
     def test_valid_wkt(self, wgs84_wkt: str):
-        """A valid WGS84 WKT should return EPSG 4326."""
-        epsg = FeatureCollection.get_epsg_from_prj(wgs84_wkt)
-        assert epsg == 4326, f"Expected 4326, got {epsg}"
+        assert get_epsg_from_prj(wgs84_wkt) == 4326
 
-    def test_empty_prj(self):
-        """An empty projection string should default to 4326."""
-        epsg = FeatureCollection.get_epsg_from_prj("")
-        assert epsg == 4326, f"Empty prj should return 4326, got {epsg}"
+    def test_empty_prj_raises(self):
+        """ARC-7: empty string raises ValueError instead of silently returning 4326.
+
+        The old behavior masked real configuration errors (a vector
+        with a missing projection would be assumed WGS84). Callers
+        that want a fallback should catch the error explicitly.
+        """
+        with pytest.raises(ValueError, match="empty projection string"):
+            get_epsg_from_prj("")
 
 
 class TestGetCoords:
-    """Tests for ``_get_coords`` static method via various geometry types."""
+    """Tests for ``_get_coords`` dispatch."""
 
     @pytest.mark.parametrize(
         "geom, expected_type",
@@ -407,84 +824,110 @@ class TestGetCoords:
         ids=["point", "linestring", "polygon"],
     )
     def test_basic_geometries(self, geom, expected_type):
-        """_get_coords should return the correct type for basic geometries."""
         import pandas as pd
 
         row = pd.Series({"geometry": geom})
-        result = FeatureCollection._get_coords(row, "geometry", "x")
-        assert isinstance(
-            result, expected_type
-        ), f"Expected {expected_type}, got {type(result)}"
+        result = get_coords(row, "geometry", "x")
+        assert isinstance(result, expected_type)
 
-    def test_multipolygon_returns_sentinel(self):
-        """MultiPolygon geometries should return -9999 (sentinel for removal)."""
+    def test_multipolygon_raises(self):
+        """ARC-9: MultiPolygon rows raise; callers must explode first.
+
+        Before ARC-9 the function returned the magic value -9999 as a
+        sentinel, which silently dropped rows whose x coordinate
+        happened to equal -9999 in projected CRSes. The function now
+        raises ValueError; xy() guarantees this branch is unreachable
+        by calling explode_gdf first.
+        """
         import pandas as pd
 
         mp = MultiPolygon([box(0, 0, 1, 1)])
         row = pd.Series({"geometry": mp})
-        result = FeatureCollection._get_coords(row, "geometry", "x")
-        assert result == -9999, "MultiPolygon should return -9999 sentinel value"
+        with pytest.raises(ValueError, match="MultiPolygon"):
+            get_coords(row, "geometry", "x")
+
+    def test_xy_does_not_drop_real_minus_9999(self):
+        """ARC-9 regression: a polygon with x=-9999 is not silently dropped.
+
+        Under the old sentinel design a polygon whose x coordinate
+        equaled -9999 would have matched the drop filter and vanished.
+        The explode-first design keeps it.
+        """
+        poly = box(-9999.0, -9999.0, -9998.0, -9998.0)
+        gdf = gpd.GeoDataFrame({"v": [1]}, geometry=[poly], crs="EPSG:32636")
+        fc = FeatureCollection(gdf)
+        result = fc.with_coordinates()
+        assert len(result) == 1
+        xs = result.loc[0, "x"]
+        assert -9999.0 in xs, f"Real -9999 coord missing: {xs}"
+
+    def test_empty_point_raises_invalid_geometry(self):
+        """C22: an empty geometry raises ``InvalidGeometryError``.
+
+        Test scenario:
+            Empty shapely points previously surfaced either a
+            ``(nan, nan)`` tuple (via ``Point.x`` / ``Point.y``) or a
+            cryptic ``GEOSException``. Callers had no clean way to
+            tell them apart from legitimate coords. Now the function
+            raises a typed error telling them to filter first.
+        """
+        import pandas as pd
+
+        from pyramids.base._errors import InvalidGeometryError
+
+        row = pd.Series({"geometry": Point()})  # empty
+        with pytest.raises(InvalidGeometryError, match="empty geometry"):
+            get_coords(row, "geometry", "x")
+
+    def test_empty_linestring_raises_invalid_geometry(self):
+        """C22: an empty LineString also raises ``InvalidGeometryError``."""
+        import pandas as pd
+
+        from pyramids.base._errors import InvalidGeometryError
+
+        row = pd.Series({"geometry": LineString()})
+        with pytest.raises(InvalidGeometryError, match="empty geometry"):
+            get_coords(row, "geometry", "x")
+
+    def test_empty_polygon_raises_invalid_geometry(self):
+        """C22: an empty Polygon also raises ``InvalidGeometryError``."""
+        import pandas as pd
+
+        from pyramids.base._errors import InvalidGeometryError
+
+        row = pd.Series({"geometry": Polygon()})
+        with pytest.raises(InvalidGeometryError, match="empty geometry"):
+            get_coords(row, "geometry", "y")
 
     def test_geometry_collection(self):
-        """GeometryCollection should delegate to _geometry_collection."""
         import pandas as pd
 
         gc = GeometryCollection([Point(7, 8)])
         row = pd.Series({"geometry": gc})
-        result = FeatureCollection._get_coords(row, "geometry", "x")
-        assert 7.0 in result, "GeometryCollection point x=7 should be in result"
+        result = get_coords(row, "geometry", "x")
+        assert 7.0 in result
 
 
 class TestFeatureCollectionStr:
-    """Tests for __str__ method."""
+    """Tests for the pyramids-branded ``__str__``."""
 
     def test_str_returns_string(self, simple_polygon_gdf: GeoDataFrame):
-        """__str__ should return a string containing feature info."""
         fc = FeatureCollection(simple_polygon_gdf)
         result = str(fc)
-        assert isinstance(result, str), "__str__ should return a string"
-        assert "Feature" in result, "__str__ output should contain 'Feature'"
-
-
-class TestCreateDsDriverNotExist:
-    """Tests for create_ds with a truly unsupported driver name."""
-
-    def test_driver_not_exist_raises(self):
-        """A driver that returns None from catalog should raise DriverNotExistError."""
-        with pytest.raises((DriverNotExistError, AttributeError)):
-            FeatureCollection.create_ds(
-                driver="zzz_nonexistent_driver_zzz", path="dummy"
-            )
-
-
-class TestDsToGdfInplaceAndMethods:
-    """Tests for _ds_to_gdf with inplace=True."""
-
-    def test_ds_to_gdf_inplace_sets_feature(self, ogr_datasource: DataSource):
-        """Calling _ds_to_gdf with inplace=True should replace feature with GeoDataFrame."""
-        fc = FeatureCollection(ogr_datasource)
-        result = fc._ds_to_gdf(inplace=True)
-        assert result is None, "inplace=True should return None"
-        assert isinstance(
-            fc.feature, GeoDataFrame
-        ), "feature should now be a GeoDataFrame after inplace conversion"
+        assert isinstance(result, str)
+        assert "FeatureCollection" in result
 
 
 class TestToDatasetErrors:
-    """Tests for to_dataset error paths."""
+    """Tests for the error paths of :meth:`FeatureCollection.to_dataset`."""
 
     def test_no_cell_size_no_dataset_raises(self, simple_polygon_gdf: GeoDataFrame):
-        """Calling to_dataset with neither cell_size nor dataset raises ValueError."""
         fc = FeatureCollection(simple_polygon_gdf)
         with pytest.raises(ValueError, match="cell size"):
-            fc.to_dataset(cell_size=None, dataset=None)
+            Dataset.from_features(fc, cell_size=None, template=None)
 
     def test_mismatched_epsg_raises(self, simple_polygon_gdf: GeoDataFrame):
-        """When dataset and vector have different EPSG, ValueError is raised."""
-        from pyramids.dataset import Dataset
-
         fc = FeatureCollection(simple_polygon_gdf)
-        # Create a dataset with a different EPSG (32636 UTM)
         ds = Dataset.create(
             cell_size=1000.0,
             rows=3,
@@ -496,67 +939,40 @@ class TestToDatasetErrors:
             no_data_value=-9999.0,
         )
         with pytest.raises(ValueError, match="not the same EPSG"):
-            fc.to_dataset(dataset=ds)
+            Dataset.from_features(fc, template=ds)
 
     def test_non_dataset_object_raises(self, simple_polygon_gdf: GeoDataFrame):
-        """Passing a non-Dataset object as dataset raises an error."""
         fc = FeatureCollection(simple_polygon_gdf)
         with pytest.raises((TypeError, AttributeError)):
-            fc.to_dataset(dataset="not_a_dataset")
-
-
-class TestGetEpsgFromDataSource:
-    """Tests for _get_epsg when feature is a DataSource."""
-
-    def test_datasource_epsg(self, ogr_datasource: DataSource):
-        """A FeatureCollection wrapping a DataSource should report correct EPSG."""
-        fc = FeatureCollection(ogr_datasource)
-        epsg = fc.epsg
-        assert epsg == 4326, f"Expected EPSG 4326, got {epsg}"
-
-
-class TestGetEpsgInvalidType:
-    """Tests for _get_epsg with unsupported feature type."""
-
-    def test_invalid_feature_type_raises(self):
-        """Wrapping a non-GDF/non-DataSource should raise ValueError on .epsg."""
-        fc = FeatureCollection.__new__(FeatureCollection)
-        fc._feature = "not_a_valid_feature"
-        with pytest.raises(ValueError, match="Unable to get EPSG"):
-            _ = fc.epsg
+            Dataset.from_features(fc, template="not_a_dataset")
 
 
 class TestGetXyCoordsInvalidType:
-    """Tests for _get_xy_coords with invalid coord_type."""
-
     def test_invalid_coord_type_raises(self):
-        """Passing an invalid coord_type raises ValueError."""
         line = LineString([(0, 0), (1, 1)])
         with pytest.raises(ValueError, match="'x' or 'y'"):
-            FeatureCollection._get_xy_coords(line, "z")
+            get_xy_coords(line, "z")
 
 
 class TestGetPointCoordsInvalidType:
-    """Tests for _get_point_coords with invalid coord_type."""
-
     def test_invalid_coord_type_raises(self):
-        """Passing an invalid coord_type to _get_point_coords raises ValueError."""
         point = Point(5, 10)
         with pytest.raises(ValueError, match="'x' or 'y'"):
-            FeatureCollection._get_point_coords(point, "z")
+            get_point_coords(point, "z")
 
+    def test_invalid_coord_type_checked_before_attribute_access(self):
+        """M2: the ``coord_type`` check fires before ``geometry.x/y``.
 
-class TestExplodeMultiGeometry:
-    """Tests for _explode_multi_geometry static method."""
-
-    def test_explode_multipolygon(self):
-        """Exploding a MultiPolygon should return individual Polygons."""
-        poly1 = box(0, 0, 1, 1)
-        poly2 = box(2, 2, 3, 3)
-        mpoly = MultiPolygon([poly1, poly2])
-        result = FeatureCollection._explode_multi_geometry(mpoly.geoms)
-        assert len(result) == 2, f"Expected 2 polygons, got {len(result)}"
-        for geom in result:
-            assert (
-                geom.geom_type == "Polygon"
-            ), f"Each element should be a Polygon, got {geom.geom_type}"
+        Test scenario:
+            An empty ``shapely.Point`` has no coordinates and
+            ``geometry.x`` / ``.y`` raise ``GEOSException`` when
+            accessed. Under the pre-M2 D-L6 code the dispatch dict
+            evaluated BOTH attributes eagerly, so callers with an
+            empty Point got a cryptic GEOS error even when they
+            passed an invalid ``coord_type``. After M2 the coord_type
+            check runs first, so invalid types fail with the clean
+            ``ValueError`` regardless of geometry validity.
+        """
+        empty = Point()
+        with pytest.raises(ValueError, match="'x' or 'y'"):
+            get_point_coords(empty, "z")

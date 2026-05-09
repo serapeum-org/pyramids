@@ -8,6 +8,8 @@ import pytest
 from pyramids.netcdf.cf import decode_flags, validate_cf
 from pyramids.netcdf.netcdf import NetCDF
 
+pytestmark = pytest.mark.core
+
 GEO = (30.0, 0.5, 0, 35.0, 0, -0.5)
 SEED = 42
 
@@ -78,6 +80,7 @@ class TestValidateCF:
             def __init__(self, a, u):
                 self.attributes = a
                 self.unit = u
+
         return MockVar(attrs, unit)
 
     def _make_mock_dim(self, name):
@@ -85,6 +88,7 @@ class TestValidateCF:
             def __init__(self, n):
                 self.name = n
                 self.full_name = f"/{n}"
+
         return MockDim(name)
 
     def test_compliant_file(self):
@@ -98,9 +102,9 @@ class TestValidateCF:
     def test_missing_conventions(self):
         """Missing Conventions attribute produces an issue."""
         issues = validate_cf({}, {}, {})
-        assert any("Conventions" in i for i in issues), (
-            f"Expected Conventions warning, got {issues}"
-        )
+        assert any(
+            "Conventions" in i for i in issues
+        ), f"Expected Conventions warning, got {issues}"
 
     def test_coordinate_missing_units(self):
         """Coordinate variable without units produces a warning."""
@@ -108,21 +112,19 @@ class TestValidateCF:
         dims = {"x": self._make_mock_dim("x")}
         vars_ = {"x": self._make_mock_var({}, None)}
         issues = validate_cf(global_attrs, vars_, dims)
-        assert any("units" in i for i in issues), (
-            f"Expected units warning, got {issues}"
-        )
+        assert any(
+            "units" in i for i in issues
+        ), f"Expected units warning, got {issues}"
 
     def test_time_missing_calendar(self):
         """Time coordinate without calendar produces a warning."""
         global_attrs = {"Conventions": "CF-1.8"}
         dims = {"time": self._make_mock_dim("time")}
-        vars_ = {"time": self._make_mock_var(
-            {"units": "days since 1970-01-01"}, None
-        )}
+        vars_ = {"time": self._make_mock_var({"units": "days since 1970-01-01"}, None)}
         issues = validate_cf(global_attrs, vars_, dims)
-        assert any("calendar" in i for i in issues), (
-            f"Expected calendar warning, got {issues}"
-        )
+        assert any(
+            "calendar" in i for i in issues
+        ), f"Expected calendar warning, got {issues}"
 
 
 class TestCFAttributePreservation:
@@ -137,12 +139,14 @@ class TestCFAttributePreservation:
         """
         arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
         nc = NetCDF.create_from_array(
-            arr=arr, geo=GEO, variable_name="temp",
+            arr=arr,
+            geo=GEO,
+            variable_name="temp",
         )
         var = nc.get_variable("temp")
-        assert hasattr(var, "_variable_attrs"), (
-            "Variable should have _variable_attrs from RT-7"
-        )
+        assert hasattr(
+            var, "_variable_attrs"
+        ), "Variable should have _variable_attrs from RT-7"
 
     def test_conventions_preserved_after_copy(self):
         """Conventions attribute preserved after copy().
@@ -154,6 +158,6 @@ class TestCFAttributePreservation:
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         nc2 = nc.copy()
         ga = nc2.global_attributes
-        assert ga.get("Conventions") == "CF-1.8", (
-            f"Conventions lost after copy, got {ga.get('Conventions')!r}"
-        )
+        assert (
+            ga.get("Conventions") == "CF-1.8"
+        ), f"Conventions lost after copy, got {ga.get('Conventions')!r}"

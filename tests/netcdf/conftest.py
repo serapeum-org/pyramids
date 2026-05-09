@@ -66,7 +66,8 @@ def make_3d_nc(
         arr = np.random.RandomState(seed).rand(bands, rows, cols).astype(np.float64)
     else:
         arr = np.arange(
-            bands * rows * cols, dtype=np.float64,
+            bands * rows * cols,
+            dtype=np.float64,
         ).reshape(bands, rows, cols)
 
     kwargs = {

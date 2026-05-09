@@ -147,9 +147,7 @@ class MeshVariable:
             ValueError: If the variable has no time dimension.
         """
         if not self.has_time:
-            raise ValueError(
-                f"Variable '{self.name}' has no time dimension."
-            )
+            raise ValueError(f"Variable '{self.name}' has no time dimension.")
         result = self.data[index]
         return result
 
@@ -167,9 +165,7 @@ class MeshVariable:
             ValueError: If the variable has no time dimension.
         """
         if not self.has_time:
-            raise ValueError(
-                f"Variable '{self.name}' has no time dimension."
-            )
+            raise ValueError(f"Variable '{self.name}' has no time dimension.")
         sliced_data = self.data[start:stop]
         result = MeshVariable(
             name=self.name,

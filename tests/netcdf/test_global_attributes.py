@@ -6,7 +6,10 @@ single return statement, descriptive assertion messages.
 
 import numpy as np
 import pytest
+
 from pyramids.netcdf.netcdf import NetCDF
+
+pytestmark = pytest.mark.core
 
 
 def _make_nc():
@@ -14,7 +17,9 @@ def _make_nc():
     arr = np.ones((5, 5), dtype=np.float64)
     geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
     return NetCDF.create_from_array(
-        arr=arr, geo=geo, variable_name="v",
+        arr=arr,
+        geo=geo,
+        variable_name="v",
     )
 
 
@@ -29,9 +34,7 @@ class TestGlobalAttributesProperty:
         """
         nc = _make_nc()
         attrs = nc.global_attributes
-        assert isinstance(attrs, dict), (
-            f"Expected dict, got {type(attrs)}"
-        )
+        assert isinstance(attrs, dict), f"Expected dict, got {type(attrs)}"
 
     def test_returns_set_attributes(self):
         """After setting attributes, they should appear in the property.
@@ -42,12 +45,10 @@ class TestGlobalAttributesProperty:
         nc = _make_nc()
         nc.set_global_attribute("Conventions", "CF-1.8")
         attrs = nc.global_attributes
-        assert "Conventions" in attrs, (
-            f"Expected 'Conventions' in {attrs}"
-        )
-        assert attrs["Conventions"] == "CF-1.8", (
-            f"Expected 'CF-1.8', got {attrs['Conventions']}"
-        )
+        assert "Conventions" in attrs, f"Expected 'Conventions' in {attrs}"
+        assert (
+            attrs["Conventions"] == "CF-1.8"
+        ), f"Expected 'CF-1.8', got {attrs['Conventions']}"
 
     def test_returns_fresh_copy_each_time(self):
         """global_attributes should read live from GDAL, not a stale cache.
@@ -84,9 +85,9 @@ class TestSetGlobalAttribute:
         """
         nc = _make_nc()
         nc.set_global_attribute("history", "created by test")
-        assert nc.global_attributes["history"] == "created by test", (
-            f"String not stored correctly"
-        )
+        assert (
+            nc.global_attributes["history"] == "created by test"
+        ), f"String not stored correctly"
 
     def test_float_value(self):
         """Setting a float attribute should store it correctly.
@@ -96,9 +97,7 @@ class TestSetGlobalAttribute:
         """
         nc = _make_nc()
         nc.set_global_attribute("version", 2.5)
-        assert nc.global_attributes["version"] == 2.5, (
-            f"Float not stored correctly"
-        )
+        assert nc.global_attributes["version"] == 2.5, f"Float not stored correctly"
 
     def test_int_value(self):
         """Setting an int attribute should store it correctly.
@@ -108,9 +107,7 @@ class TestSetGlobalAttribute:
         """
         nc = _make_nc()
         nc.set_global_attribute("count", 42)
-        assert nc.global_attributes["count"] == 42, (
-            f"Int not stored correctly"
-        )
+        assert nc.global_attributes["count"] == 42, f"Int not stored correctly"
 
     def test_overwrite_existing(self):
         """Setting an attribute that already exists should overwrite it.
@@ -121,9 +118,7 @@ class TestSetGlobalAttribute:
         nc = _make_nc()
         nc.set_global_attribute("key", "first")
         nc.set_global_attribute("key", "second")
-        assert nc.global_attributes["key"] == "second", (
-            f"Overwrite failed"
-        )
+        assert nc.global_attributes["key"] == "second", f"Overwrite failed"
 
     def test_multiple_attributes(self):
         """Setting multiple attributes should all be readable.
@@ -136,9 +131,9 @@ class TestSetGlobalAttribute:
         nc.set_global_attribute("b", 2.0)
         nc.set_global_attribute("c", 3)
         attrs = nc.global_attributes
-        assert "a" in attrs and "b" in attrs and "c" in attrs, (
-            f"Not all attrs present: {list(attrs.keys())}"
-        )
+        assert (
+            "a" in attrs and "b" in attrs and "c" in attrs
+        ), f"Not all attrs present: {list(attrs.keys())}"
 
     def test_requires_mdim_container(self):
         """set_global_attribute on classic mode should raise.
@@ -167,9 +162,7 @@ class TestDeleteGlobalAttribute:
         nc.set_global_attribute("key", "value")
         assert "key" in nc.global_attributes
         nc.delete_global_attribute("key")
-        assert "key" not in nc.global_attributes, (
-            "Attribute should be deleted"
-        )
+        assert "key" not in nc.global_attributes, "Attribute should be deleted"
 
     def test_delete_nonexistent_does_not_raise(self):
         """Deleting a non-existent attribute should not raise.
@@ -210,9 +203,9 @@ class TestGlobalAttributesDiskRoundTrip:
         nc.to_file(out)
         reloaded = NetCDF.read_file(out)
         attrs = reloaded.global_attributes
-        assert "Conventions" in attrs, (
-            f"Conventions not preserved: {list(attrs.keys())}"
-        )
-        assert attrs["Conventions"] == "CF-1.8", (
-            f"Expected 'CF-1.8', got {attrs['Conventions']}"
-        )
+        assert (
+            "Conventions" in attrs
+        ), f"Conventions not preserved: {list(attrs.keys())}"
+        assert (
+            attrs["Conventions"] == "CF-1.8"
+        ), f"Expected 'CF-1.8', got {attrs['Conventions']}"

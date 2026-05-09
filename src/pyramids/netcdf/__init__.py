@@ -5,11 +5,11 @@ from __future__ import annotations
 from pyramids.netcdf.metadata import from_json, get_metadata, to_dict, to_json
 from pyramids.netcdf.models import (
     CFInfo,
-    VariableInfo,
     DimensionInfo,
     GroupInfo,
     NetCDFMetadata,
     StructuralInfo,
+    VariableInfo,
 )
 from pyramids.netcdf.netcdf import NetCDF
 from pyramids.netcdf.ugrid import UgridDataset

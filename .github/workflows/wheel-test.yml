@@ -7,6 +7,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch / ref to build and test (defaults to the ref selected in the UI)"
+        required: false
+        default: ""
+        type: string
   workflow_call:
 
 jobs:
@@ -16,6 +22,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ inputs.branch || github.ref }}
 
       - name: Set up Pixi
         uses: serapeum-org/github-actions/actions/python-setup/pixi@cd02ddbe749b77cbafd08bc48c788974fc989db7 # pixi/v1
@@ -37,7 +44,11 @@ jobs:
           name: wheel
           path: dist/*.whl
 
-  test-wheel:
+  # Core wheel test: install the bare wheel (no optional extras) across
+  # OS × Python, and run the subset of the test suite that is supposed
+  # to run on a minimal install. Any extras-gated test must auto-skip
+  # via ``tests/conftest.py``'s ``pytest_collection_modifyitems`` hook.
+  test-wheel-core:
     needs: build-wheel
     runs-on: ${{ matrix.os }}
     strategy:
@@ -50,6 +61,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ inputs.branch || github.ref }}
 
       - name: Download wheel artifact
         uses: actions/download-artifact@v4
@@ -74,7 +86,7 @@ jobs:
             "libgdal-netcdf>=3.10.0,<4" \
             "libgdal-hdf4>=3.10.0,<4"
 
-      - name: Install wheel
+      - name: Install wheel (no extras)
         shell: bash -el {0}
         run: pip install dist/*.whl
 
@@ -82,26 +94,93 @@ jobs:
         shell: bash -el {0}
         run: python -c "import pyramids; print(pyramids.__version__)"
 
-      - name: Install test dependencies
+      - name: Install test runner
         shell: bash -el {0}
         run: pip install pytest pytest-env pytest-mock
 
-      - name: Run tests against installed wheel
+      - name: Run core tests
         shell: bash -el {0}
-        run: pytest -vvv -sv -m "not plot and not xarray" --ignore=tests/dataset/test_plot.py tests/
+        # ``core`` is auto-applied by tests/conftest.py to every test
+        # that carries no extras marker — see
+        # ``pytest_collection_modifyitems`` there. Any new extra added
+        # in the future is handled automatically: new extras-gated
+        # tests get their extras marker, non-extras tests keep getting
+        # ``core`` without needing a negation list update here.
+        run: |
+          pytest -vvv -sv -m core tests/
 
-      - name: Install viz extra
-        shell: bash -el {0}
-        run: pip install "pyramids-gis[viz]"
+  # Per-extra wheel test: one job per optional extra. Each matrix cell
+  # gets a freshly-provisioned conda env, installs the wheel with just
+  # that one extra (``pip install "pyramids-gis[X]"``), and runs ONLY
+  # the tests tagged with the matching ``@pytest.mark.<marker>``. This
+  # isolates extras so that a broken [X] extra can't mask / be masked
+  # by a working [Y] install, and verifies that each extra's headline
+  # dep is enough to run its tests (no hidden transitive reliance on
+  # another extra).
+  test-wheel-extras:
+    needs: build-wheel
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Hold OS / Python fixed; the core matrix above covers that
+        # dimension. The point of this job is extras × pip semantics.
+        os: [ubuntu-latest]
+        python-version: ["3.13"]
+        extra:
+          - { name: viz,          pip_extra: "viz",          marker: "plot",         dir: "tests/" }
+          - { name: xarray,       pip_extra: "xarray",       marker: "xarray",       dir: "tests/" }
+          - { name: lazy,         pip_extra: "lazy",         marker: "lazy",         dir: "tests/" }
+          - { name: netcdf-lazy,  pip_extra: "netcdf-lazy",  marker: "netcdf_lazy",  dir: "tests/netcdf/lazy" }
+          - { name: parquet,      pip_extra: "parquet",      marker: "parquet",      dir: "tests/feature" }
+          - { name: parquet-lazy, pip_extra: "parquet-lazy", marker: "parquet_lazy", dir: "tests/feature/lazy" }
 
-      - name: Run plot tests
-        shell: bash -el {0}
-        run: pytest -vvv -sv -m "plot" tests/
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.branch || github.ref }}
 
-      - name: Install xarray extra
-        shell: bash -el {0}
-        run: pip install "pyramids-gis[xarray]"
+      - name: Download wheel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel
+          path: dist/
 
-      - name: Run xarray tests
+      - name: Install Conda (Miniforge)
+        uses: conda-incubator/setup-miniconda@fc2d68f6413eb2d87b895e92f8584b5b94a10167 # v3
+        with:
+          miniforge-version: latest
+          python-version: ${{ matrix.python-version }}
+          channels: conda-forge
+          channel-priority: strict
+          activate-environment: wheel-test
+
+      - name: Install native GDAL dependencies
         shell: bash -el {0}
-        run: pytest -vvv -sv -m "xarray" tests/
+        run: |
+          conda install -y -n wheel-test \
+            "gdal>=3.10.0,<4" \
+            "libgdal-netcdf>=3.10.0,<4" \
+            "libgdal-hdf4>=3.10.0,<4"
+
+      - name: Install wheel with only [${{ matrix.extra.name }}] extra
+        shell: bash -el {0}
+        run: |
+          WHEEL=$(ls dist/*.whl)
+          pip install "${WHEEL}[${{ matrix.extra.pip_extra }}]"
+
+      - name: Verify package import
+        shell: bash -el {0}
+        run: python -c "import pyramids; print(pyramids.__version__)"
+
+      - name: Install test runner
+        shell: bash -el {0}
+        run: pip install pytest pytest-env pytest-mock
+
+      - name: Run ${{ matrix.extra.marker }}-marked tests
+        shell: bash -el {0}
+        run: |
+          pytest -vvv -sv \
+            -m "${{ matrix.extra.marker }}" \
+            ${{ matrix.extra.dir }}

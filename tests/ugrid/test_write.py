@@ -14,6 +14,8 @@ from pyramids.feature import FeatureCollection
 from pyramids.netcdf.ugrid.dataset import UgridDataset
 from pyramids.netcdf.ugrid.models import MeshTopologyInfo, MeshVariable
 
+pytestmark = pytest.mark.core
+
 
 class TestWriteUgrid:
     """Tests for UgridDataset.to_file() (UGRID-15)."""
@@ -40,15 +42,17 @@ class TestWriteUgrid:
         ds2 = UgridDataset.read_file(out_path)
         assert ds2.n_node == 3, f"Expected 3 nodes, got {ds2.n_node}"
         assert ds2.n_face == 1, f"Expected 1 face, got {ds2.n_face}"
-        assert "elevation" in ds2.data_variable_names, (
-            f"Expected 'elevation', got {ds2.data_variable_names}"
-        )
+        assert (
+            "elevation" in ds2.data_variable_names
+        ), f"Expected 'elevation', got {ds2.data_variable_names}"
         np.testing.assert_array_almost_equal(
-            ds2["elevation"].data, [5.0],
+            ds2["elevation"].data,
+            [5.0],
             err_msg="Elevation data should survive round-trip",
         )
         np.testing.assert_array_almost_equal(
-            ds2.mesh.node_x, [0.0, 1.0, 0.5],
+            ds2.mesh.node_x,
+            [0.0, 1.0, 0.5],
             err_msg="Node x-coordinates should survive round-trip",
         )
 
@@ -61,19 +65,25 @@ class TestWriteUgrid:
         """
         data_vars = {
             "temp": MeshVariable(
-                name="temp", location="face", mesh_name="mesh2d",
-                shape=(3,), _data=np.array([1.0, 2.0, 3.0]),
+                name="temp",
+                location="face",
+                mesh_name="mesh2d",
+                shape=(3,),
+                _data=np.array([1.0, 2.0, 3.0]),
                 units="K",
             ),
         }
         topo = MeshTopologyInfo(
-            mesh_name="mesh2d", topology_dimension=2,
-            node_x_var="mesh2d_node_x", node_y_var="mesh2d_node_y",
+            mesh_name="mesh2d",
+            topology_dimension=2,
+            node_x_var="mesh2d_node_x",
+            node_y_var="mesh2d_node_y",
             face_node_var="mesh2d_face_nodes",
             data_variables={"temp": "face"},
         )
         ds = UgridDataset(
-            mesh=mixed_mesh, data_variables=data_vars,
+            mesh=mixed_mesh,
+            data_variables=data_vars,
             global_attributes={"Conventions": "CF-1.8 UGRID-1.0"},
             topology_info=topo,
         )
@@ -99,18 +109,20 @@ class TestWriteUgrid:
         ds1.to_file(out_path)
 
         ds2 = UgridDataset.read_file(out_path)
-        assert ds2.n_node == ds1.n_node, (
-            f"Node count mismatch: {ds2.n_node} vs {ds1.n_node}"
-        )
-        assert ds2.n_face == ds1.n_face, (
-            f"Face count mismatch: {ds2.n_face} vs {ds1.n_face}"
-        )
+        assert (
+            ds2.n_node == ds1.n_node
+        ), f"Node count mismatch: {ds2.n_node} vs {ds1.n_node}"
+        assert (
+            ds2.n_face == ds1.n_face
+        ), f"Face count mismatch: {ds2.n_face} vs {ds1.n_face}"
         np.testing.assert_array_almost_equal(
-            ds2["mesh2d_node_z"].data[:10], ds1["mesh2d_node_z"].data[:10],
+            ds2["mesh2d_node_z"].data[:10],
+            ds1["mesh2d_node_z"].data[:10],
             err_msg="Node z data should survive round-trip",
         )
         np.testing.assert_array_almost_equal(
-            ds2.mesh.node_x[:10], ds1.mesh.node_x[:10],
+            ds2.mesh.node_x[:10],
+            ds1.mesh.node_x[:10],
             err_msg="Node x-coordinates should survive round-trip",
         )
 
@@ -133,9 +145,9 @@ class TestToGeoDataFrame:
         )
         gdf = ds.to_geodataframe("temp", location="face")
         assert len(gdf) == 1, f"Expected 1 row, got {len(gdf)}"
-        assert gdf.geometry.iloc[0].geom_type == "Polygon", (
-            f"Expected Polygon, got {gdf.geometry.iloc[0].geom_type}"
-        )
+        assert (
+            gdf.geometry.iloc[0].geom_type == "Polygon"
+        ), f"Expected Polygon, got {gdf.geometry.iloc[0].geom_type}"
         assert "temp" in gdf.columns, f"Expected 'temp' column, got {list(gdf.columns)}"
 
     def test_node_geodataframe(self):
@@ -151,9 +163,9 @@ class TestToGeoDataFrame:
         )
         gdf = ds.to_geodataframe(location="node")
         assert len(gdf) == 3, f"Expected 3 rows, got {len(gdf)}"
-        assert gdf.geometry.iloc[0].geom_type == "Point", (
-            f"Expected Point, got {gdf.geometry.iloc[0].geom_type}"
-        )
+        assert (
+            gdf.geometry.iloc[0].geom_type == "Point"
+        ), f"Expected Point, got {gdf.geometry.iloc[0].geom_type}"
 
     def test_no_variable(self):
         """Test GeoDataFrame without data variable.
@@ -215,7 +227,9 @@ class TestCreateFromArrays:
             data={"temperature": np.array([20.0])},
             data_locations={"temperature": "face"},
         )
-        assert "temperature" in ds.data_variable_names, "Should have temperature variable"
+        assert (
+            "temperature" in ds.data_variable_names
+        ), "Should have temperature variable"
         assert ds["temperature"].data[0] == 20.0, "Temperature should be 20.0"
 
     def test_mixed_mesh(self):
@@ -227,10 +241,12 @@ class TestCreateFromArrays:
         ds = UgridDataset.create_from_arrays(
             node_x=np.array([0.0, 1.0, 2.0, 0.0, 1.0, 2.0]),
             node_y=np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0]),
-            face_node_connectivity=np.array([
-                [0, 1, 4, 3],
-                [1, 2, 5, -1],
-            ]),
+            face_node_connectivity=np.array(
+                [
+                    [0, 1, 4, 3],
+                    [1, 2, 5, -1],
+                ]
+            ),
         )
         assert ds.n_face == 2, f"Expected 2 faces, got {ds.n_face}"
         assert ds.n_node == 6, f"Expected 6 nodes, got {ds.n_node}"
@@ -267,9 +283,9 @@ class TestEdgeGeoDataFrame:
         ds.mesh.build_edge_connectivity()
         gdf = ds.to_geodataframe(location="edge")
         assert len(gdf) == 3, f"Expected 3 edge rows, got {len(gdf)}"
-        assert gdf.geometry.iloc[0].geom_type == "LineString", (
-            f"Expected LineString, got {gdf.geometry.iloc[0].geom_type}"
-        )
+        assert (
+            gdf.geometry.iloc[0].geom_type == "LineString"
+        ), f"Expected LineString, got {gdf.geometry.iloc[0].geom_type}"
 
     def test_edge_no_connectivity_raises(self):
         """Test to_geodataframe raises when edge connectivity missing.
@@ -303,9 +319,9 @@ class TestToFeatureCollection:
             data_locations={"elev": "face"},
         )
         fc = ds.to_feature_collection("elev", location="face")
-        assert isinstance(fc, FeatureCollection), (
-            f"Expected FeatureCollection, got {type(fc)}"
-        )
+        assert isinstance(
+            fc, FeatureCollection
+        ), f"Expected FeatureCollection, got {type(fc)}"
 
 
 class TestTemporalWrite:
@@ -335,6 +351,7 @@ class TestTemporalWrite:
         assert var.has_time, "Should have time dimension"
         assert var.n_time_steps == 2, f"Expected 2 time steps, got {var.n_time_steps}"
         np.testing.assert_array_almost_equal(
-            var.data, temporal_data,
+            var.data,
+            temporal_data,
             err_msg="Temporal data should survive round-trip",
         )

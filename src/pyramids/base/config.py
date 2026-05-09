@@ -39,8 +39,10 @@ See Also:
 
 from __future__ import annotations
 
+import copy as _copy
 import logging
 import os
+import site
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -117,8 +119,6 @@ class ColorFormatter(logging.Formatter):
 
             ```
         """
-        import copy as _copy
-
         colored = _copy.copy(record)
         color = self.LEVEL_COLORS.get(record.levelno, "")
         colored.levelname = f"{color}{record.levelname}{self.RESET}"
@@ -789,8 +789,6 @@ class Config:
 
             # For Windows, check Python site-packages
             if sys.platform == "win32":
-                import site
-
                 for site_path in site.getsitepackages():
                     plugins = Plugins(site_packages_path=site_path)
                     path = plugins.check_path()
