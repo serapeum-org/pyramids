@@ -1,6 +1,16 @@
 ﻿# Change log
 
 
+## 0.16.0 (2026-05-09)
+
+### Fix
+
+- **wheel-test**: unblock core matrix; add branch input to dispatch (#308)
+
+### Refactor
+
+- re-evaluate package architecture; close audit(#289)
+
 ## 0.15.0 (2026-04-24)
 
 ### Feat
