@@ -1102,8 +1102,9 @@ class TestReadArray:
         with pytest.raises(ValueError, match="band index should be between"):
             single_band_dataset.read_array(band=-1)
 
+    @pytest.mark.lazy
     def test_read_array_negative_band_lazy_raises(self, single_band_dataset):
-        """B-12 (lazy path): negative band index rejected with same error."""
+        """Lazy path: negative band index rejected with same error."""
         with pytest.raises(ValueError, match="band index should be between"):
             single_band_dataset.read_array(band=-1, chunks="auto")
 
