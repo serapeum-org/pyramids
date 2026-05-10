@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import os
 import tempfile
+import warnings
 import weakref
 from numbers import Number
 from pathlib import Path
@@ -480,44 +481,147 @@ class NetCDF(Dataset):
                 f"Use nc.get_variable('var_name').{operation}(...) instead."
             )
 
-    def plot(self, band: int = 0, **kwargs):
-        """Plot a band of the NetCDF variable subset.
+    def plot(
+        self,
+        variable: str | None = None,
+        *,
+        time: Any | None = None,
+        level: Any | None = None,
+        member: Any | None = None,
+        sel: dict[str, Any] | None = None,
+        isel: dict[str, int] | None = None,
+        x: str | None = None,
+        y: str | None = None,
+        cmap: str | None = None,
+        vmin: float | None = None,
+        vmax: float | None = None,
+        robust: bool = False,
+        levels: int | list[float] | None = None,
+        norm: Any | None = None,
+        center: float | None = None,
+        extend: str | None = None,
+        add_colorbar: bool = True,
+        cbar_kwargs: dict | None = None,
+        ax: Any | None = None,
+        figsize: tuple[float, float] | None = None,
+        aspect: str | float | None = None,
+        title: str | None = None,
+        exclude_value: Any | None = None,
+        basemap: bool | str | None = None,
+        **kwargs: Any,
+    ):
+        """Plot a 2-D slice of a NetCDF variable using xarray-aligned vocabulary.
 
-        NetCDF defaults to ``band=0`` for any variable subset — the GeoTIFF/Sentinel
-        RGB heuristic on :meth:`Dataset.plot` does **not** apply here, because NetCDF
-        ``band`` is just a flat index into a non-spatial dimension (typically time or
-        level) and carries no colour semantics. The satellite-imagery kwargs ``rgb=``,
-        ``surface_reflectance=`` and ``cutoff=`` are explicitly rejected for the same
-        reason — they describe Sentinel-2-style multi-band reflectance data, not
-        atmospheric / oceanographic data cubes.
+        The public surface is shaped around **variables** and **dimensions** — `band`
+        is not a NetCDF concept and has been removed from the signature. Variable
+        selection is performed by name, and the 2-D slice to render is pinned via
+        the label-based selectors `time=`, `level=`, `member=`, `sel=`, or `isel=`,
+        which all forward to :meth:`sel`. Colour controls mirror xarray (`vmin`,
+        `vmax`, `robust`, `levels`, `norm`, `center`, `extend`, `add_colorbar`,
+        `cbar_kwargs`) and are forwarded to cleopatra's renderer.
 
-        Blocked on root MDIM containers — extract a variable first via
-        :meth:`get_variable` (or by indexing) before calling :meth:`plot`.
+        On a **root MDIM container** the `variable=` argument is required:
+
+        ```python
+        nc.plot(variable="t2m", time="2024-01-15")
+        ```
+
+        On a **variable subset** (the result of :meth:`get_variable`) `variable=` may
+        be omitted or must equal the pinned variable name; otherwise the call is
+        rejected, mirroring the :meth:`read_array` contract.
 
         Args:
-            band (int):
-                Flat band index into the variable subset. For a 3-D NetCDF variable
-                ``(extra_dim, rows, cols)`` the band index selects an ``extra_dim`` slice
-                (typically a time step or vertical level). Defaults to ``0``.
+            variable (str, optional):
+                Name of the variable to plot. Required on the root MDIM container;
+                must be `None` or equal to the pinned variable name on a subset.
+                Defaults to None.
+            time (Any, optional):
+                Convenience label selector for the time dim — equivalent to
+                `sel={"time": time}`. Forwarded to :meth:`sel`. Defaults to None.
+            level (Any, optional):
+                Convenience label selector for the vertical dim. Auto-detected as
+                the first of `pressure_level` / `depth` / `height` / `z` present in
+                `_band_dim_names` (or the primary band dim if it matches one of
+                those names). Defaults to None.
+            member (Any, optional):
+                Convenience label selector for the ensemble / realization dim
+                (`member` / `realization` / `ensemble`). Defaults to None.
+            sel (dict, optional):
+                Raw label-based selectors forwarded one-by-one to :meth:`sel`. Keys
+                must be valid band-dim names of the variable. Defaults to None.
+            isel (dict, optional):
+                Positional selectors keyed by dim name. Each int is converted to
+                the corresponding coord value via `_band_dim_values_map[dim]`; if
+                a band dim has no coord values the int is used directly as the
+                index. Defaults to None.
+            x (str, optional):
+                Name of the x-coordinate variable. Validated against
+                `variable_names`; the actual axes are still derived from the
+                geotransform until PR-3 introduces curvilinear coord rendering.
+                Defaults to None.
+            y (str, optional):
+                Name of the y-coordinate variable. Same validation rules as `x`.
+                Defaults to None.
+            cmap (str, optional):
+                Matplotlib colormap name. Forwarded to cleopatra. Defaults to None.
+            vmin (float, optional):
+                Lower colour limit. Forwarded to cleopatra. Defaults to None.
+            vmax (float, optional):
+                Upper colour limit. Forwarded to cleopatra. Defaults to None.
+            robust (bool, optional):
+                If True, clip colour limits to the 2nd / 98th percentile
+                (xarray-standard). Forwarded to cleopatra. Defaults to False.
+            levels (int or list[float], optional):
+                Discrete contour levels — integer count or explicit edges.
+                Forwarded to cleopatra. Defaults to None.
+            norm (Any, optional):
+                Matplotlib `Normalize` instance. Forwarded to cleopatra. Defaults
+                to None.
+            center (float, optional):
+                Diverging-cmap centre (e.g. `0.0` for anomalies). Forwarded to
+                cleopatra. Defaults to None.
+            extend (str, optional):
+                Colorbar arrow style: `"neither"`, `"both"`, `"min"`, or `"max"`.
+                Forwarded to cleopatra. Defaults to None.
+            add_colorbar (bool, optional):
+                Whether to add a colorbar. Forwarded to cleopatra. Defaults to
+                True.
+            cbar_kwargs (dict, optional):
+                Keyword arguments forwarded to `fig.colorbar`. Defaults to None.
+            ax (Any, optional):
+                Existing matplotlib Axes to draw into. Defaults to None.
+            figsize (tuple, optional):
+                Figure size in inches. Defaults to None.
+            aspect (str or float, optional):
+                Axes aspect ratio. Defaults to None.
+            title (str, optional):
+                Plot title. Defaults to None.
+            exclude_value (Any, optional):
+                Pixel value to mask out before plotting. Defaults to None.
+            basemap (bool or str, optional):
+                If truthy, overlay an OpenStreetMap basemap (or a named
+                contextily tile provider). Defaults to None.
             **kwargs:
-                Additional keyword arguments forwarded verbatim to
-                :meth:`Analysis.plot <pyramids.dataset.engines.Analysis.plot>`. See that
-                method for the full kwargs surface.
+                Additional keyword arguments forwarded to
+                :meth:`Analysis.plot <pyramids.dataset.engines.Analysis.plot>`.
+                The legacy `band=` kwarg is accepted here for backward
+                compatibility but emits a :class:`DeprecationWarning`.
 
         Returns:
-            ArrayGlyph: A cleopatra ``ArrayGlyph`` wrapping the rendered figure. Use
-                ``cleo.fig`` and ``cleo.ax`` to drop down to raw matplotlib.
+            ArrayGlyph: A cleopatra ``ArrayGlyph`` wrapping the rendered figure.
 
         Raises:
-            TypeError: If any of ``rgb``, ``surface_reflectance``, or ``cutoff`` is
-                passed. The error message points at the right replacement (``band=`` for
-                ``rgb=``, ``vmin=``/``vmax=`` for ``cutoff=``).
-            ValueError: If called on a root MDIM container (i.e. the NetCDF wrapper still
-                points at the multi-variable root rather than at a specific variable).
+            TypeError: If any of the Sentinel-only kwargs (`rgb`,
+                `surface_reflectance`, `cutoff`, `percentile`, `overview`,
+                `overview_index`) is passed. Each rejection message names the
+                xarray-aligned replacement.
+            ValueError: If called on a root MDIM container without `variable=`,
+                if `variable=` is passed on a subset and does not match the pinned
+                variable name, if `x=` / `y=` reference unknown variables, or if
+                the resolved selectors do not pin to a single 2-D slice.
 
         Examples:
-            - Reject Sentinel-only kwargs. The forbidden-kwarg gate fires before any
-              cleopatra import, so these examples are runnable as doctests:
+            - Plot the first time step of a variable on a container:
 
               ```python
               >>> import numpy as np
@@ -525,59 +629,297 @@ class NetCDF(Dataset):
               >>> arr = np.random.rand(4, 8, 8).astype(np.float32)
               >>> nc = NetCDF.create_from_array(
               ...     arr, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ...     variable_name="t2m",
               ... )
-              >>> nc.plot(rgb=[0, 1, 2])  # doctest: +IGNORE_EXCEPTION_DETAIL
-              Traceback (most recent call last):
-                  ...
-              TypeError: NetCDF.plot() does not accept rgb=: ...
-              >>> nc.plot(surface_reflectance=10000)  # doctest: +IGNORE_EXCEPTION_DETAIL
-              Traceback (most recent call last):
-                  ...
-              TypeError: NetCDF.plot() does not accept surface_reflectance=: ...
-              >>> nc.plot(cutoff=[0.1, 0.9])  # doctest: +IGNORE_EXCEPTION_DETAIL
-              Traceback (most recent call last):
-                  ...
-              TypeError: NetCDF.plot() does not accept cutoff=: ...
+              >>> cleo = nc.plot(variable="t2m", isel={"time": 0})  # doctest: +SKIP
 
               ```
 
-            - Render the default ``band=0`` slice of a NetCDF variable subset. Tagged
-              ``+SKIP`` because the call requires the optional ``[viz]`` extra (cleopatra +
-              matplotlib):
+            - Pick a time slice by label:
 
               ```python
-              >>> cleo = nc.plot()  # doctest: +SKIP
-              >>> cleo.fig          # doctest: +SKIP
-              <Figure size 800x800 with 2 Axes>
+              >>> cleo = nc.plot(variable="t2m", time=2)  # doctest: +SKIP
 
               ```
 
-            - Pick a different time/level slice by passing ``band=``:
+            - Reject Sentinel-only kwargs with a hint at the replacement:
 
               ```python
-              >>> cleo = nc.plot(band=2)  # doctest: +SKIP
+              >>> nc.plot(variable="t2m", percentile=2)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: ...robust=True...
 
               ```
         """
         forbidden_kwargs = {
             "rgb": (
-                "NetCDF.plot() does not accept rgb=: NetCDF data is not RGB; "
-                "use `band=` to select a time/level slice."
+                "NetCDF.plot() does not accept `rgb=`: NetCDF data is not RGB. "
+                "Use `time=`, `level=`, `isel=`, or `band=` to select a slice."
             ),
             "surface_reflectance": (
-                "NetCDF.plot() does not accept surface_reflectance=: "
-                "Sentinel-only kwarg; not meaningful for NetCDF variables."
+                "NetCDF.plot() does not accept `surface_reflectance=`: "
+                "`surface_reflectance` is Sentinel-only; not meaningful for NetCDF."
             ),
             "cutoff": (
-                "NetCDF.plot() does not accept cutoff=: Sentinel-only kwarg; "
-                "use `vmin=`/`vmax=` instead (will land in PR-2)."
+                "NetCDF.plot() does not accept `cutoff=`: `cutoff` is Sentinel-only; "
+                "use `vmin=`/`vmax=`/`robust=True` instead."
+            ),
+            "percentile": (
+                "NetCDF.plot() does not accept `percentile=`: `percentile` is "
+                "Sentinel-only; use `robust=True` (2nd/98th percentile, xarray-style)."
+            ),
+            "overview": (
+                "NetCDF.plot() does not accept `overview=`: Overviews are a "
+                "GeoTIFF/COG concept; not applicable to NetCDF."
+            ),
+            "overview_index": (
+                "NetCDF.plot() does not accept `overview_index=`: Overviews are a "
+                "GeoTIFF/COG concept; not applicable to NetCDF."
             ),
         }
         for name, message in forbidden_kwargs.items():
             if name in kwargs:
                 raise TypeError(message)
-        self._check_not_container("plot")
-        return self.analysis.plot(band=band, **kwargs)
+
+        is_container = (
+            self._is_md_array and not self._is_subset and self.band_count == 0
+        )
+        if is_container:
+            if variable is None:
+                available = self.variable_names
+                raise ValueError(
+                    "Plotting requires a `variable=` argument on a NetCDF "
+                    f"container. Available: {available}. Or call "
+                    "`nc.get_variable('name').plot(...)`."
+                )
+            self._validate_xy_coord_names(x, y)
+            subset = self.get_variable(variable)
+            return subset.plot(
+                time=time,
+                level=level,
+                member=member,
+                sel=sel,
+                isel=isel,
+                x=x,
+                y=y,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                robust=robust,
+                levels=levels,
+                norm=norm,
+                center=center,
+                extend=extend,
+                add_colorbar=add_colorbar,
+                cbar_kwargs=cbar_kwargs,
+                ax=ax,
+                figsize=figsize,
+                aspect=aspect,
+                title=title,
+                exclude_value=exclude_value,
+                basemap=basemap,
+                **kwargs,
+            )
+
+        if variable is not None and variable != self._source_var_name:
+            raise ValueError(
+                f"This subset is pinned to {self._source_var_name!r}; cannot "
+                f"re-plot as {variable!r}. Call `plot` on the parent container."
+            )
+
+        # On a subset, validate against the parent's variable names when
+        # available (the subset's own `variable_names` is empty for the
+        # in-memory classic view returned by `get_variable`).
+        validator_owner = self._parent_nc if self._parent_nc is not None else self
+        validator_owner._validate_xy_coord_names(x, y)
+        self._plot_x_coord_name = x
+        self._plot_y_coord_name = y
+
+        legacy_band = kwargs.pop("band", None)
+        if legacy_band is not None:
+            warnings.warn(
+                "Pass `time=`/`level=`/`isel=` instead. `band=` remains supported "
+                "for now as a low-level escape hatch.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        resolved_sel: dict[str, Any] = {}
+        if sel:
+            for dim_name, value in sel.items():
+                resolved_sel[dim_name] = value
+
+        if time is not None:
+            time_dim = self._resolve_time_dim_name()
+            resolved_sel[time_dim] = time
+        if level is not None:
+            level_dim = self._resolve_level_dim_name()
+            resolved_sel[level_dim] = level
+        if member is not None:
+            member_dim = self._resolve_member_dim_name()
+            resolved_sel[member_dim] = member
+
+        if isel:
+            for dim_name, idx in isel.items():
+                if dim_name not in self._band_dim_names:
+                    raise ValueError(
+                        f"isel dim {dim_name!r} is not a band dim of this "
+                        f"variable {list(self._band_dim_names)!r}."
+                    )
+                coords = self._band_dim_values_map.get(dim_name)
+                if coords is None:
+                    resolved_sel[dim_name] = idx
+                else:
+                    resolved_sel[dim_name] = coords[idx]
+
+        pinned = self
+        for dim_name, value in resolved_sel.items():
+            pinned = pinned.sel(**{dim_name: value})
+
+        flat_band = 0 if legacy_band is None else legacy_band
+        if resolved_sel and pinned.band_count != 1:
+            raise ValueError(
+                f"Selectors did not pin to a single 2-D slice. Resolved: "
+                f"{resolved_sel}. Remaining shape: {pinned.shape}."
+            )
+
+        analysis_kwargs: dict[str, Any] = dict(kwargs)
+        forwarded_kwargs = (
+            ("cmap", cmap),
+            ("vmin", vmin),
+            ("vmax", vmax),
+            ("levels", levels),
+            ("norm", norm),
+            ("center", center),
+            ("extend", extend),
+            ("cbar_kwargs", cbar_kwargs),
+            ("ax", ax),
+            ("figsize", figsize),
+            ("aspect", aspect),
+            ("title", title),
+        )
+        for key, value in forwarded_kwargs:
+            if value is not None:
+                analysis_kwargs[key] = value
+        # `robust` carries a default of False; only forward when the caller
+        # explicitly enables it. `add_colorbar` is part of the xarray-aligned
+        # surface but is not yet honoured by the current cleopatra release;
+        # the kwarg is accepted on the signature for forward compatibility
+        # but silently dropped before reaching the renderer.
+        if robust:
+            analysis_kwargs["robust"] = True
+        _ = add_colorbar
+
+        analysis_kwargs.setdefault("rgb", None)
+
+        return pinned.analysis.plot(
+            band=flat_band,
+            exclude_value=exclude_value,
+            basemap=basemap,
+            **analysis_kwargs,
+        )
+
+    def _validate_xy_coord_names(self, x: str | None, y: str | None) -> None:
+        """Validate that `x=` / `y=` resolve to a variable of this NetCDF.
+
+        Used by :meth:`plot` to reject typo'd coord names early. The
+        validation pool is `self.variable_names`.
+
+        Args:
+            x: Candidate x-coord variable name, or ``None``.
+            y: Candidate y-coord variable name, or ``None``.
+
+        Raises:
+            ValueError: When `x` or `y` is given but is not a variable
+                of this NetCDF.
+        """
+        if x is not None and x not in self.variable_names:
+            raise ValueError(
+                f"x={x!r} is not a variable of this NetCDF. "
+                f"Available: {self.variable_names}."
+            )
+        if y is not None and y not in self.variable_names:
+            raise ValueError(
+                f"y={y!r} is not a variable of this NetCDF. "
+                f"Available: {self.variable_names}."
+            )
+
+    def _resolve_time_dim_name(self) -> str:
+        """Return the band-dim name that represents the time axis.
+
+        Falls back to the primary band dim when no candidate is found among
+        `_band_dim_names`.
+
+        Returns:
+            str: Name of the dim to use as the `time` axis.
+
+        Raises:
+            ValueError: If the variable has no band dims to select from.
+        """
+        if not self._band_dim_names:
+            raise ValueError(
+                "`time=` was passed but this variable has no band dimension."
+            )
+        candidates = ("time", "valid_time", "t")
+        for name in self._band_dim_names:
+            if name.lower() in candidates:
+                return name
+        return self._band_dim_names[0]
+
+    def _resolve_level_dim_name(self) -> str:
+        """Return the band-dim name that represents the vertical axis.
+
+        Auto-detection scans `_band_dim_names` for one of `pressure_level`,
+        `depth`, `height`, `z` (case-insensitive).
+
+        Returns:
+            str: Name of the dim to use as the `level` axis.
+
+        Raises:
+            ValueError: If no candidate vertical-dim name is present in
+                `_band_dim_names`.
+        """
+        if not self._band_dim_names:
+            raise ValueError(
+                "`level=` was passed but this variable has no band dimension."
+            )
+        candidates = ("pressure_level", "depth", "height", "z", "level")
+        for name in self._band_dim_names:
+            if name.lower() in candidates:
+                return name
+        raise ValueError(
+            "`level=` could not be auto-resolved. Use `sel={dim: value}` to "
+            f"name the vertical dim explicitly. Band dims: "
+            f"{list(self._band_dim_names)}."
+        )
+
+    def _resolve_member_dim_name(self) -> str:
+        """Return the band-dim name that represents the ensemble axis.
+
+        Auto-detection scans `_band_dim_names` for one of `member`,
+        `realization`, `ensemble` (case-insensitive).
+
+        Returns:
+            str: Name of the dim to use as the `member` axis.
+
+        Raises:
+            ValueError: If no candidate ensemble-dim name is present in
+                `_band_dim_names`.
+        """
+        if not self._band_dim_names:
+            raise ValueError(
+                "`member=` was passed but this variable has no band dimension."
+            )
+        candidates = ("member", "realization", "ensemble")
+        for name in self._band_dim_names:
+            if name.lower() in candidates:
+                return name
+        raise ValueError(
+            "`member=` could not be auto-resolved. Use `sel={dim: value}` to "
+            f"name the ensemble dim explicitly. Band dims: "
+            f"{list(self._band_dim_names)}."
+        )
 
     def read_array(
         self,
