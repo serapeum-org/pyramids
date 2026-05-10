@@ -988,6 +988,21 @@ class NetCDF(Dataset):
 
                 ```
 
+        Notes:
+            All four examples above are tagged `# doctest: +SKIP`
+            because they need a real on-disk NetCDF fixture. The
+            runnable equivalents live in:
+
+            - `tests/netcdf/test_sel.py::TestSelSingleValue` /
+              `TestSelList` / `TestSelSlice` (3-D scenarios — single
+              value, list selector, slice selector including the
+              direction-agnostic path).
+            - `tests/netcdf/test_sel_4d.py::TestSelByPressureLevel` /
+              `TestSelByTime` / `TestSelChained` (4-D scenarios —
+              pin secondary / primary dim, chained `sel().sel()`).
+            - `tests/netcdf/test_sel_4d.py::TestSelErrorMessages` (the
+              error contract).
+
         See Also:
             `get_variable`: builds a variable subset and populates the
                 band-dim metadata that `sel()` consumes.
