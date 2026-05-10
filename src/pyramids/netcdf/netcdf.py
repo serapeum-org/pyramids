@@ -1279,21 +1279,43 @@ class NetCDF(Dataset):
         return time_stamp
 
     def _get_dimension_names(self) -> list[str] | None:
+        """Return all dimension names, in storage order.
+
+        On the root MDIM container, this reads from `GetRootGroup()`.
+        On a variable subset (returned by `get_variable()`), the
+        underlying raster is a classic-mode in-memory `Dataset` whose
+        `GetRootGroup()` is `None`, but the source MDArray's dim names
+        were captured into `_md_array_dims` at subset-build time. Fall
+        through to that field so cube callers see the same public
+        surface as container callers.
+
+        Returns:
+            list[str] or None: Dim names. `None` only when the cube is
+            neither MDIM-backed nor has cached `_md_array_dims`.
+        """
         rg = self._raster.GetRootGroup()
         if rg is not None:
             dims = rg.GetDimensions()
-            dims_names: list[str] | None = [dim.GetName() for dim in dims]
-        else:
-            dims_names = None
-        return dims_names
+            return [dim.GetName() for dim in dims]
+        cached = getattr(self, "_md_array_dims", None)
+        if cached:
+            return list(cached)
+        return None
 
     @property
     def dimension_names(self) -> list[str] | None:
-        """Names of all dimensions in the root group (e.g., `["x", "y", "time"]`).
+        """Names of all dimensions in storage order.
+
+        On the root MDIM container the names come from the GDAL root
+        group (e.g. `["x", "y", "time"]`). On a variable subset
+        returned by `get_variable()` the names come from the cached
+        `_md_array_dims` captured at subset-build time, so 4-D+ cubes
+        report all dims (e.g. `["valid_time", "pressure_level",
+        "latitude", "longitude"]`) without touching private state.
 
         Returns:
-            list[str] or None: Dimension names, or None if no root group
-            is available (classic mode).
+            list[str] or None: Dim names. `None` only on a cube that
+            has neither a root group nor cached `_md_array_dims`.
         """
         return self._get_dimension_names()
 
