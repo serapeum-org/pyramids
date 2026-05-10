@@ -22097,8 +22097,8 @@ packages:
   requires_python: '>=3.7'
 - pypi: ./
   name: pyramids-gis
-  version: 0.16.0
-  sha256: d28f1321b6eaaa7600d25b0133086d8303b8f3d227c75333e237b7a4ffb60556
+  version: 0.17.0
+  sha256: 95cb33c54c3fd61d826d2c997831df407204657f8910c0af15f291b6cd467518
   requires_dist:
   - gdal>=3.10.0,<4
   - geopandas>=1.0.0
