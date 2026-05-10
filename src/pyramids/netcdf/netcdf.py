@@ -621,7 +621,9 @@ class NetCDF(Dataset):
                 the resolved selectors do not pin to a single 2-D slice.
 
         Examples:
-            - Plot the first time step of a variable on a container:
+            - Plot the first time step of a variable on a container. Tagged
+              `+SKIP` because rendering requires the optional `[viz]` extra
+              (cleopatra + matplotlib):
 
               ```python
               >>> import numpy as np
@@ -632,23 +634,127 @@ class NetCDF(Dataset):
               ...     variable_name="t2m",
               ... )
               >>> cleo = nc.plot(variable="t2m", isel={"time": 0})  # doctest: +SKIP
+              >>> cleo.fig  # doctest: +SKIP
+              <Figure size 800x800 with 2 Axes>
 
               ```
 
-            - Pick a time slice by label:
+            - Pick a time slice by label — the `time=` alias is
+              equivalent to `sel={"time": value}`:
 
               ```python
               >>> cleo = nc.plot(variable="t2m", time=2)  # doctest: +SKIP
 
               ```
 
-            - Reject Sentinel-only kwargs with a hint at the replacement:
+            - Pin both time and level on a 4-D `(time, pressure_level,
+              lat, lon)` variable. The selectors collapse both band dims
+              to a single 2-D slice — equivalent to
+              `var.sel(time=12).sel(pressure_level=500)`:
+
+              ```python
+              >>> arr4d = np.random.rand(3, 2, 5, 5).astype(np.float32)
+              >>> nc4d = NetCDF.create_from_array(  # doctest: +SKIP
+              ...     arr=arr4d,
+              ...     geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
+              ...     epsg=4326,
+              ...     variable_name="temperature",
+              ...     extra_dims=[
+              ...         ("time", [0, 6, 12]),
+              ...         ("pressure_level", [1000, 500]),
+              ...     ],
+              ... )
+              >>> cleo = nc4d.plot(  # doctest: +SKIP
+              ...     variable="temperature", time=12, level=500
+              ... )
+
+              ```
+
+            - Use an explicit `sel=` dict instead of the convenience
+              aliases — keys must match the variable's band-dim names:
+
+              ```python
+              >>> cleo = nc.plot(  # doctest: +SKIP
+              ...     variable="t2m", sel={"time": 2}
+              ... )
+
+              ```
+
+            - Use an `isel=` dict to address slices positionally. Each
+              integer is mapped to the corresponding coord value via
+              `_band_dim_values_map`:
+
+              ```python
+              >>> cleo = nc.plot(  # doctest: +SKIP
+              ...     variable="t2m", isel={"time": 0}
+              ... )
+
+              ```
+
+            - All six Sentinel-only kwargs are rejected with a hint at
+              the xarray-aligned replacement. These doctests are
+              runnable because the kwargs gate fires before any
+              cleopatra import:
+
+              ```python
+              >>> nc.plot(variable="t2m", rgb=[0, 1, 2])  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: ...rgb=...
+
+              ```
+
+              ```python
+              >>> nc.plot(variable="t2m", surface_reflectance=10000)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: ...surface_reflectance...
+
+              ```
+
+              ```python
+              >>> nc.plot(variable="t2m", cutoff=[0.1, 0.9])  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: ...cutoff...
+
+              ```
 
               ```python
               >>> nc.plot(variable="t2m", percentile=2)  # doctest: +IGNORE_EXCEPTION_DETAIL
               Traceback (most recent call last):
                   ...
               TypeError: ...robust=True...
+
+              ```
+
+              ```python
+              >>> nc.plot(variable="t2m", overview=2)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: ...overview=...
+
+              ```
+
+              ```python
+              >>> nc.plot(variable="t2m", overview_index=2)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: ...overview_index=...
+
+              ```
+
+            - The legacy `band=` kwarg still works as an escape hatch
+              but emits a :class:`DeprecationWarning`. Prefer
+              `time=`/`level=`/`isel=` for new code:
+
+              ```python
+              >>> import warnings
+              >>> with warnings.catch_warnings(record=True) as caught:  # doctest: +SKIP
+              ...     warnings.simplefilter("always")
+              ...     cleo = nc.plot(variable="t2m", band=2)
+              >>> caught[0].category.__name__  # doctest: +SKIP
+              'DeprecationWarning'
 
               ```
         """
@@ -824,7 +930,10 @@ class NetCDF(Dataset):
         """Validate that `x=` / `y=` resolve to a variable of this NetCDF.
 
         Used by :meth:`plot` to reject typo'd coord names early. The
-        validation pool is `self.variable_names`.
+        validation pool is `self.variable_names`. `None` is always
+        accepted — only explicitly supplied names are checked. The
+        method does not return anything; it raises on failure and
+        returns `None` on success.
 
         Args:
             x: Candidate x-coord variable name, or ``None``.
@@ -832,7 +941,36 @@ class NetCDF(Dataset):
 
         Raises:
             ValueError: When `x` or `y` is given but is not a variable
-                of this NetCDF.
+                of this NetCDF. The error message lists the available
+                variable names so the caller can spot typos.
+
+        Examples:
+            - `None` inputs are always accepted and the method returns
+              silently:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import NetCDF
+              >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+              >>> nc = NetCDF.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+              ...     variable_name="t2m",
+              ... )
+              >>> nc._validate_xy_coord_names(None, None) is None
+              True
+
+              ```
+
+            - An unknown coord name raises :class:`ValueError` and
+              names the available variables:
+
+              ```python
+              >>> nc._validate_xy_coord_names("bogus", None)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              ValueError: x='bogus' is not a variable of this NetCDF...
+
+              ```
         """
         if x is not None and x not in self.variable_names:
             raise ValueError(
@@ -848,14 +986,55 @@ class NetCDF(Dataset):
     def _resolve_time_dim_name(self) -> str:
         """Return the band-dim name that represents the time axis.
 
-        Falls back to the primary band dim when no candidate is found among
-        `_band_dim_names`.
+        Scans `_band_dim_names` (case-insensitive) for one of `time`,
+        `valid_time`, or `t`. When no candidate matches, falls back to
+        the **primary** (first) band dim so legacy 3-D files without
+        an explicit `time` dim name still work with the `time=`
+        convenience selector on :meth:`plot`.
 
         Returns:
-            str: Name of the dim to use as the `time` axis.
+            str: Name of the dim to use as the `time` axis. Either a
+                match from the candidate list or the first entry of
+                `_band_dim_names` when no candidate is present.
 
         Raises:
-            ValueError: If the variable has no band dims to select from.
+            ValueError: If `_band_dim_names` is empty — i.e. the
+                variable is purely 2-D and has no band dim to map a
+                `time=` selector onto.
+
+        Examples:
+            - A variable whose first non-spatial dim is literally named
+              `time` resolves to that name:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import NetCDF
+              >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+              >>> nc = NetCDF.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+              ...     variable_name="t2m", extra_dim_name="time",
+              ... )
+              >>> var = nc.get_variable("t2m")
+              >>> var._resolve_time_dim_name()
+              'time'
+
+              ```
+
+            - When no band dim matches any of `time` / `valid_time` /
+              `t`, the helper falls back to the **primary** band dim so
+              callers using `time=` on legacy 3-D files still work:
+
+              ```python
+              >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+              >>> nc = NetCDF.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+              ...     variable_name="data", extra_dim_name="depth",
+              ... )
+              >>> var = nc.get_variable("data")
+              >>> var._resolve_time_dim_name()
+              'depth'
+
+              ```
         """
         if not self._band_dim_names:
             raise ValueError(
@@ -870,15 +1049,61 @@ class NetCDF(Dataset):
     def _resolve_level_dim_name(self) -> str:
         """Return the band-dim name that represents the vertical axis.
 
-        Auto-detection scans `_band_dim_names` for one of `pressure_level`,
-        `depth`, `height`, `z` (case-insensitive).
+        Auto-detection scans `_band_dim_names` (case-insensitive) for
+        one of `pressure_level`, `depth`, `height`, `z`, or `level`.
+        Unlike :meth:`_resolve_time_dim_name` this helper does **not**
+        fall back to the primary band dim — a non-time/non-member dim
+        that happens to be first is unlikely to actually be a vertical
+        axis, so the helper prefers an explicit failure that asks the
+        caller to use `sel={dim: value}` instead.
 
         Returns:
-            str: Name of the dim to use as the `level` axis.
+            str: Name of the dim to use as the `level` axis. The first
+                entry of `_band_dim_names` whose lowercased name is in
+                the candidate set.
 
         Raises:
-            ValueError: If no candidate vertical-dim name is present in
-                `_band_dim_names`.
+            ValueError: If `_band_dim_names` is empty, or if no entry
+                matches the candidate vertical-dim names. The error
+                message lists the actual band dims to help the caller
+                pick the right `sel=` key.
+
+        Examples:
+            - A variable with a `pressure_level` band dim resolves to
+              that name:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import NetCDF
+              >>> arr = np.random.rand(2, 4, 4).astype(np.float32)
+              >>> nc = NetCDF.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+              ...     variable_name="temperature",
+              ...     extra_dim_name="pressure_level",
+              ...     extra_dim_values=[1000, 500],
+              ... )
+              >>> var = nc.get_variable("temperature")
+              >>> var._resolve_level_dim_name()
+              'pressure_level'
+
+              ```
+
+            - A variable whose only band dim is named `time` cannot be
+              auto-resolved as a vertical axis, so the helper raises:
+
+              ```python
+              >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+              >>> nc = NetCDF.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+              ...     variable_name="t2m", extra_dim_name="time",
+              ... )
+              >>> var = nc.get_variable("t2m")
+              >>> var._resolve_level_dim_name()  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              ValueError: `level=` could not be auto-resolved...
+
+              ```
         """
         if not self._band_dim_names:
             raise ValueError(
@@ -897,15 +1122,59 @@ class NetCDF(Dataset):
     def _resolve_member_dim_name(self) -> str:
         """Return the band-dim name that represents the ensemble axis.
 
-        Auto-detection scans `_band_dim_names` for one of `member`,
-        `realization`, `ensemble` (case-insensitive).
+        Auto-detection scans `_band_dim_names` (case-insensitive) for
+        one of `member`, `realization`, `ensemble`. Like
+        :meth:`_resolve_level_dim_name` this helper raises rather than
+        falling back to the primary band dim, so a typo or missing
+        ensemble dim surfaces as an explicit error.
 
         Returns:
-            str: Name of the dim to use as the `member` axis.
+            str: Name of the dim to use as the `member` axis. The
+                first entry of `_band_dim_names` whose lowercased name
+                is in the candidate set.
 
         Raises:
-            ValueError: If no candidate ensemble-dim name is present in
-                `_band_dim_names`.
+            ValueError: If `_band_dim_names` is empty, or if no entry
+                matches the candidate ensemble-dim names. The error
+                message lists the actual band dims to help the caller
+                pick the right `sel=` key.
+
+        Examples:
+            - A variable with a `realization` band dim resolves to
+              that name:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import NetCDF
+              >>> arr = np.random.rand(5, 4, 4).astype(np.float32)
+              >>> nc = NetCDF.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+              ...     variable_name="t2m",
+              ...     extra_dim_name="realization",
+              ...     extra_dim_values=[0, 1, 2, 3, 4],
+              ... )
+              >>> var = nc.get_variable("t2m")
+              >>> var._resolve_member_dim_name()
+              'realization'
+
+              ```
+
+            - A variable whose only band dim is named `time` cannot be
+              auto-resolved as an ensemble axis, so the helper raises:
+
+              ```python
+              >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+              >>> nc = NetCDF.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+              ...     variable_name="t2m", extra_dim_name="time",
+              ... )
+              >>> var = nc.get_variable("t2m")
+              >>> var._resolve_member_dim_name()  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              ValueError: `member=` could not be auto-resolved...
+
+              ```
         """
         if not self._band_dim_names:
             raise ValueError(
