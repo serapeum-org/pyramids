@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.17.0 (2026-05-10)
+
+### Feat
+
+- **netcdf**: support 4-D+ NetCDFs and fix CDS-Beta metadata path (#313)
+
 ## 0.16.0 (2026-05-09)
 
 ### Fix
