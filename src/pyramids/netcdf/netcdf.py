@@ -747,22 +747,53 @@ class NetCDF(Dataset):
             var_arr = var_result.read_array()
             if var_arr.ndim == 2 and var._band_dim_name is not None:
                 var_arr = np.expand_dims(var_arr, axis=0)
+            # For 4-D+ variables, GDAL classic raster flattened the
+            # non-spatial axes into a single bands axis on read — undo
+            # that so the rebuild can materialise every band-dim. The
+            # cached `_band_dim_sizes` describes the storage order
+            # (last non-spatial dim varies fastest, matching GDAL's
+            # row-major flatten), so the reshape is the literal
+            # inverse of that flatten.
+            if (
+                len(var._band_dim_names) > 1
+                and var_arr.ndim == 3
+                and var._band_dim_sizes
+            ):
+                var_arr = var_arr.reshape(
+                    *var._band_dim_sizes, var_arr.shape[-2], var_arr.shape[-1]
+                )
             var_ndv = var_result.no_data_value
             var_ndv_scalar = (
                 var_ndv[0] if isinstance(var_ndv, list) and var_ndv else var_ndv
             )
+            extra_dims = (
+                [
+                    (name, var._band_dim_values_map.get(name))
+                    for name in var._band_dim_names
+                ]
+                if var._band_dim_names
+                else None
+            )
 
             if result is None:
                 # First variable: build the container.
-                result = NetCDF.create_from_array(
-                    arr=var_arr,
-                    geo=var_result.geotransform,
-                    epsg=var_result.epsg,
-                    no_data_value=var_ndv_scalar,
-                    variable_name=var_name,
-                    extra_dim_name=var._band_dim_name or "time",
-                    extra_dim_values=var._band_dim_values,
-                )
+                if extra_dims is not None:
+                    result = NetCDF.create_from_array(
+                        arr=var_arr,
+                        geo=var_result.geotransform,
+                        epsg=var_result.epsg,
+                        no_data_value=var_ndv_scalar,
+                        variable_name=var_name,
+                        extra_dims=extra_dims,
+                    )
+                else:
+                    result = NetCDF.create_from_array(
+                        arr=var_arr,
+                        geo=var_result.geotransform,
+                        epsg=var_result.epsg,
+                        no_data_value=var_ndv_scalar,
+                        variable_name=var_name,
+                    )
             else:
                 # Subsequent variables: drop into the existing container.
                 ds = Dataset.create_from_array(
@@ -773,6 +804,9 @@ class NetCDF(Dataset):
                 )
                 ds._band_dim_name = var._band_dim_name
                 ds._band_dim_values = var._band_dim_values
+                ds._band_dim_names = var._band_dim_names
+                ds._band_dim_values_map = dict(var._band_dim_values_map)
+                ds._band_dim_sizes = var._band_dim_sizes
                 result.set_variable(var_name, ds)
 
         return result
@@ -1963,6 +1997,7 @@ class NetCDF(Dataset):
         variable_name: str | None = None,
         extra_dim_name: str = "time",
         extra_dim_values: list | None = None,
+        extra_dims: list[tuple[str, list | None]] | None = None,
         top_left_corner: tuple[float, float] | None = None,
         cell_size: int | float | None = None,
         chunk_sizes: tuple | list | None = None,
@@ -1980,13 +2015,20 @@ class NetCDF(Dataset):
         values are controlled by `extra_dim_name` and
         `extra_dim_values`.
 
+        For 4-D+ arrays — e.g. `(time, level, lat, lon)` — pass
+        `extra_dims=[("time", time_values), ("pressure_level", level_values)]`
+        in storage order. Every non-spatial dimension is then
+        materialised on the resulting NetCDF, preserving the full
+        layout. `extra_dims` and the legacy single-dim params
+        (`extra_dim_name` / `extra_dim_values`) are mutually exclusive.
+
         The driver is inferred from `path`: if `path` is `None`
         the dataset is created in memory (MEM driver); if a path is
         provided the netCDF driver writes to disk.
 
         Args:
-            arr: 2-D `(rows, cols)` or 3-D
-                `(extra_dim, rows, cols)` NumPy array.
+            arr: 2-D `(rows, cols)`, 3-D `(extra_dim, rows, cols)`, or
+                4-D+ `(d_0, ..., d_{n-1}, rows, cols)` NumPy array.
             geo: Geotransform tuple `(x_min, pixel_size, rotation,
                 y_max, rotation, pixel_size)`.
             epsg: EPSG code for the spatial reference.
@@ -1997,12 +2039,22 @@ class NetCDF(Dataset):
                 created in memory. Defaults to None.
             variable_name: Name of the data variable in the NetCDF
                 file. Defaults to `"data"`.
-            extra_dim_name: Name of the non-spatial dimension for 3-D
-                arrays (e.g. `"time"`, `"level"`, `"depth"`).
-                Ignored for 2-D arrays. Defaults to `"time"`.
-            extra_dim_values: Coordinate values for the non-spatial
-                dimension. Must have length `arr.shape[0]` for 3-D
-                arrays. Defaults to `[0, 1, 2,..., N-1]`.
+            extra_dim_name: Legacy single-dim path. Name of the
+                non-spatial dimension for 3-D arrays (e.g. `"time"`,
+                `"level"`, `"depth"`). Ignored for 2-D arrays.
+                Mutually exclusive with `extra_dims`. Defaults to
+                `"time"`.
+            extra_dim_values: Legacy single-dim path. Coordinate values
+                for the non-spatial dimension. Must have length
+                `arr.shape[0]` for 3-D arrays. Mutually exclusive with
+                `extra_dims`. Defaults to `[0, 1, 2,..., N-1]`.
+            extra_dims: Multi-dim path. Ordered list of
+                `(dim_name, values)` pairs describing every non-spatial
+                dimension in storage order. `len(extra_dims)` must
+                equal `arr.ndim - 2`. Each `values` is either a list of
+                length `arr.shape[i]` or `None` (use integer indices
+                `[0, 1, ..., size - 1]`). Mutually exclusive with
+                `extra_dim_name` / `extra_dim_values`.
             top_left_corner: `(x, y)` of the top-left corner. Used
                 with `cell_size` to build `geo` when `geo` is
                 not provided. Defaults to None.
@@ -2044,21 +2096,25 @@ class NetCDF(Dataset):
                 "'cell_size' must be provided."
             )
 
-        if arr.ndim == 2:
-            rows = int(arr.shape[0])
-            cols = int(arr.shape[1])
-        else:
-            rows = int(arr.shape[1])
-            cols = int(arr.shape[2])
+        rows = int(arr.shape[-2]) if arr.ndim >= 2 else 0
+        cols = int(arr.shape[-1]) if arr.ndim >= 2 else 0
 
-        if extra_dim_values is None and arr.ndim == 3:
-            extra_dim_values = list(range(arr.shape[0]))
+        # Reconcile the legacy single-dim params with the new
+        # `extra_dims` list-of-pairs API. Result is a normalised list
+        # of (name, values) pairs whose length equals
+        # `max(arr.ndim - 2, 0)`.
+        resolved_extra_dims = cls._resolve_extra_dims(
+            arr=arr,
+            extra_dim_name=extra_dim_name,
+            extra_dim_values=extra_dim_values,
+            extra_dims=extra_dims,
+        )
 
         if arr.ndim == 3:
             DimMetaData(
-                name=extra_dim_name,
+                name=resolved_extra_dims[0][0],
                 size=arr.shape[0],
-                values=extra_dim_values,
+                values=resolved_extra_dims[0][1],
             )
 
         if variable_name is None:
@@ -2069,8 +2125,7 @@ class NetCDF(Dataset):
             variable_name,
             cols,
             rows,
-            extra_dim_name,
-            extra_dim_values,
+            resolved_extra_dims,
             geo,
             epsg,
             no_data_value,
@@ -2088,13 +2143,86 @@ class NetCDF(Dataset):
         return result
 
     @staticmethod
+    def _resolve_extra_dims(
+        arr: np.ndarray,
+        extra_dim_name: str,
+        extra_dim_values: list | None,
+        extra_dims: list[tuple[str, list | None]] | None,
+    ) -> list[tuple[str, list]]:
+        """Normalise the legacy + new extra-dim API into a single list.
+
+        Returns an ordered list of `(dim_name, values)` pairs whose
+        length equals `max(arr.ndim - 2, 0)`. Each `values` entry is a
+        concrete Python list (never `None` — defaults are filled with
+        integer indices `[0, 1, ..., size - 1]`).
+
+        Args:
+            arr: The data array; only its `ndim` and `shape` are read.
+            extra_dim_name: Legacy single-dim name (caller-default
+                `"time"`).
+            extra_dim_values: Legacy single-dim values, or `None`.
+            extra_dims: New multi-dim list of `(name, values)` pairs,
+                or `None` for the legacy path.
+
+        Returns:
+            list[tuple[str, list]]: Normalised dim specs.
+
+        Raises:
+            ValueError: If `extra_dims` is supplied alongside
+                `extra_dim_values`; if `extra_dims` length doesn't
+                match `arr.ndim - 2`; or if any per-dim `values`
+                length doesn't match the corresponding `arr.shape[i]`.
+        """
+        expected = max(arr.ndim - 2, 0)
+        if extra_dims is not None:
+            if extra_dim_values is not None:
+                raise ValueError(
+                    "extra_dims and extra_dim_values are mutually "
+                    "exclusive. Use one or the other."
+                )
+            if len(extra_dims) != expected:
+                raise ValueError(
+                    f"extra_dims must have {expected} entries for a "
+                    f"{arr.ndim}-D array, got {len(extra_dims)}."
+                )
+            resolved: list[tuple[str, list]] = []
+            for i, entry in enumerate(extra_dims):
+                name, values = entry
+                if values is None:
+                    values = list(range(int(arr.shape[i])))
+                elif len(values) != int(arr.shape[i]):
+                    raise ValueError(
+                        f"extra_dims[{i}] values length {len(values)} "
+                        f"does not match arr.shape[{i}]={arr.shape[i]}."
+                    )
+                else:
+                    values = list(values)
+                resolved.append((name, values))
+            return resolved
+        if expected == 0:
+            return []
+        if expected == 1:
+            values = (
+                list(extra_dim_values)
+                if extra_dim_values is not None
+                else list(range(int(arr.shape[0])))
+            )
+            return [(extra_dim_name, values)]
+        # 4-D+ array with no `extra_dims` and no legacy values: fall
+        # back to anonymous dim names and integer indices so the array
+        # can still be written.
+        return [
+            (f"dim_{i}", list(range(int(arr.shape[i]))))
+            for i in range(expected)
+        ]
+
+    @staticmethod
     def _create_netcdf_from_array(
         arr: np.ndarray,
         variable_name: str,
         cols: int,
         rows: int,
-        extra_dim_name: str = "time",
-        extra_dim_values: list | None = None,
+        extra_dims: list[tuple[str, list]] | None = None,
         geo: tuple[float, float, float, float, float, float] | None = None,
         epsg: str | int | None = None,
         no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
@@ -2113,15 +2241,16 @@ class NetCDF(Dataset):
         otherwise the netCDF driver writes to disk.
 
         Args:
-            arr: 2-D `(rows, cols)` or 3-D
-                `(extra_dim, rows, cols)` NumPy array.
+            arr: 2-D `(rows, cols)`, 3-D `(extra_dim, rows, cols)`, or
+                4-D+ `(d_0, ..., d_{n-1}, rows, cols)` NumPy array.
             variable_name: Name of the data variable.
             cols: Number of columns.
             rows: Number of rows.
-            extra_dim_name: Name of the non-spatial dimension
-                (e.g. `"time"`, `"level"`). Defaults to `"time"`.
-            extra_dim_values: Coordinate values for the non-spatial
-                dimension. Defaults to None.
+            extra_dims: Ordered list of `(dim_name, values)` pairs for
+                every non-spatial dimension. Length matches
+                `arr.ndim - 2`. Empty list for 2-D arrays. Pre-resolved
+                by `_resolve_extra_dims` so each `values` entry is a
+                concrete list.
             geo: Geotransform tuple. Defaults to None.
             epsg: EPSG code. Defaults to None.
             no_data_value: No-data sentinel. Defaults to
@@ -2148,6 +2277,8 @@ class NetCDF(Dataset):
         if geo is None:
             raise ValueError("geo cannot be None")
 
+        if extra_dims is None:
+            extra_dims = []
         dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
         x_dim_values = NetCDF.get_x_lon_dimension_array(geo[0], geo[1], cols)
         y_dim_values = NetCDF.get_y_lat_dimension_array(geo[3], geo[1], rows)
@@ -2211,28 +2342,32 @@ class NetCDF(Dataset):
             is_geographic=is_geographic,
         )
 
-        if arr.ndim == 3:
-            extra_dim = NetCDF._create_dimension(
+        # Build one GDAL dimension per non-spatial axis in storage
+        # order, then create the MDArray with `(*extra_dims, dim_y,
+        # dim_x)`. This generalises the previous 3-D-only branch: a
+        # 2-D array yields zero extra dims; a 3-D array yields one;
+        # 4-D+ yields the full set. The first non-spatial dim is
+        # tagged `DIM_TYPE_TEMPORAL` (matching the legacy 3-D path),
+        # and any additional dims are left untagged so the netCDF
+        # driver doesn't second-guess their semantics.
+        gdal_extra_dims = []
+        for i, (dim_name, dim_values) in enumerate(extra_dims):
+            dim_type = gdal.DIM_TYPE_TEMPORAL if i == 0 else None
+            gd_dim = NetCDF._create_dimension(
                 rg,
-                extra_dim_name,
+                dim_name,
                 dtype,
-                np.array(extra_dim_values),
-                gdal.DIM_TYPE_TEMPORAL,
+                np.array(dim_values),
+                dim_type,
                 use_set_indexing,
             )
-            md_arr = rg.CreateMDArray(
-                variable_name,
-                [extra_dim, dim_y, dim_x],
-                dtype,
-                create_options if create_options else [],
-            )
-        else:
-            md_arr = rg.CreateMDArray(
-                variable_name,
-                [dim_y, dim_x],
-                dtype,
-                create_options if create_options else [],
-            )
+            gdal_extra_dims.append(gd_dim)
+        md_arr = rg.CreateMDArray(
+            variable_name,
+            [*gdal_extra_dims, dim_y, dim_x],
+            dtype,
+            create_options if create_options else [],
+        )
 
         # Set metadata BEFORE writing data — netCDF driver requires
         # nodata to be set before the first Write call.
@@ -2244,7 +2379,8 @@ class NetCDF(Dataset):
             if isinstance(no_data_value, (list, tuple)) and no_data_value
             else no_data_value
         )
-        md_arr.SetNoDataValueDouble(ndv_scalar)
+        if ndv_scalar is not None:
+            md_arr.SetNoDataValueDouble(float(ndv_scalar))
         if epsg is None:
             raise ValueError("epsg cannot be None")
         srse = sr_from_epsg(int(epsg))
@@ -2451,6 +2587,19 @@ class NetCDF(Dataset):
             band_dim_values = dataset._band_dim_values
         if attrs is None and hasattr(dataset, "_variable_attrs"):
             attrs = dataset._variable_attrs
+        # Multi-band-dim metadata: every non-spatial dim and its
+        # coords / sizes. Populated by `get_variable` for 4-D+
+        # variables. When present, the rebuild materialises each dim
+        # separately instead of flattening to a single bands axis.
+        band_dim_names: tuple[str, ...] = tuple(
+            getattr(dataset, "_band_dim_names", ()) or ()
+        )
+        band_dim_sizes: tuple[int, ...] = tuple(
+            getattr(dataset, "_band_dim_sizes", ()) or ()
+        )
+        band_dim_values_map: dict = dict(
+            getattr(dataset, "_band_dim_values_map", {}) or {}
+        )
 
         # Delete existing variable if present
         if variable_name in self.variable_names:
@@ -2478,8 +2627,30 @@ class NetCDF(Dataset):
             rg, "y", y_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_Y
         )
 
-        # Build band dimension if the data is 3D
-        if arr.ndim == 3:
+        # 4-D+ rebuild: reshape the flattened bands back into the
+        # cached storage order, then create one GDAL dimension per
+        # non-spatial axis. Falls through to the legacy single-dim
+        # path when only one (or zero) band dim is tracked.
+        if len(band_dim_names) > 1 and arr.ndim == 3 and band_dim_sizes:
+            arr = arr.reshape(*band_dim_sizes, arr.shape[-2], arr.shape[-1])
+            gdal_band_dims = []
+            for i, dim_name in enumerate(band_dim_names):
+                values = band_dim_values_map.get(dim_name)
+                if values is None:
+                    values = list(range(int(band_dim_sizes[i])))
+                gdal_band_dims.append(
+                    self._get_or_create_dimension(
+                        rg,
+                        dim_name,
+                        np.array(values, dtype=np.float64),
+                        coord_dtype,
+                        gdal.DIM_TYPE_TEMPORAL if i == 0 else None,
+                    )
+                )
+            md_arr = rg.CreateMDArray(
+                variable_name, [*gdal_band_dims, dim_y, dim_x], data_dtype
+            )
+        elif arr.ndim == 3:
             if band_dim_name is None:
                 band_dim_name = "bands"
             if band_dim_values is None:

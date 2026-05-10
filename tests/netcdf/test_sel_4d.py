@@ -244,3 +244,128 @@ class TestEra5RealFixture:
         assert result.read_array().shape == expected, (
             f"got {result.read_array().shape}"
         )
+
+
+class TestRootContainer4DSpatialOps:
+    """Verify `crop()` / `to_crs()` / `resample()` on a 4-D *root container*
+    preserve every band-dim instead of flattening the secondary axis (issue #314).
+
+    The PR-review M2 finding pointed out that the rebuild path through
+    `_apply_to_all_variables` previously called `create_from_array` with a
+    single `extra_dim_*` API, silently dropping the secondary band-dim. This
+    suite locks in the multi-band-dim round-trip.
+    """
+
+    def test_create_from_array_with_extra_dims(self):
+        """`extra_dims` API materialises every non-spatial dim on a 4-D array."""
+        arr = np.arange(2 * 3 * 5 * 6).reshape(2, 3, 5, 6).astype(np.float64)
+        nc = NetCDF.create_from_array(
+            arr=arr,
+            geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
+            extra_dims=[("time", [10, 20]), ("level", [1000, 850, 500])],
+            variable_name="temp",
+        )
+        var = nc.get_variable("temp")
+        assert var._band_dim_names == ("time", "level"), (
+            f"expected ('time', 'level'), got {var._band_dim_names!r}"
+        )
+        assert var._band_dim_sizes == (2, 3), (
+            f"expected sizes (2, 3), got {var._band_dim_sizes!r}"
+        )
+        assert var._band_dim_values_map["time"] == [10.0, 20.0]
+        assert var._band_dim_values_map["level"] == [1000.0, 850.0, 500.0]
+
+    def test_create_from_array_extra_dims_mutually_exclusive_with_legacy(self):
+        """`extra_dims` and `extra_dim_values` together raise `ValueError`."""
+        arr = np.zeros((3, 5, 6), dtype=np.float64)
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            NetCDF.create_from_array(
+                arr=arr,
+                geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
+                extra_dim_values=[1, 2, 3],
+                extra_dims=[("time", [1, 2, 3])],
+                variable_name="temp",
+            )
+
+    def test_create_from_array_extra_dims_length_validated(self):
+        """`extra_dims` length must equal `arr.ndim - 2`."""
+        arr = np.zeros((2, 3, 5, 6), dtype=np.float64)
+        with pytest.raises(ValueError, match="must have 2 entries"):
+            NetCDF.create_from_array(
+                arr=arr,
+                geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
+                extra_dims=[("time", [1, 2])],   # only 1 entry, need 2
+                variable_name="temp",
+            )
+
+    def test_create_from_array_extra_dims_values_length_validated(self):
+        """Each per-dim values list must match `arr.shape[i]`."""
+        arr = np.zeros((2, 3, 5, 6), dtype=np.float64)
+        with pytest.raises(ValueError, match="does not match arr.shape"):
+            NetCDF.create_from_array(
+                arr=arr,
+                geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
+                extra_dims=[("time", [1, 2, 3]), ("level", [1, 2, 3])],
+                variable_name="temp",
+            )
+
+    def test_crop_root_container_preserves_both_band_dims(self):
+        """`nc.crop(mask=...)` on the bundled CDS-Beta 4-D fixture keeps both dims."""
+        import geopandas as gpd
+        from shapely.geometry import box
+
+        nc = NetCDF.read_file(ERA5_PATH)
+        var = nc.get_variable("t")
+        mask = gpd.GeoDataFrame(
+            geometry=[box(-49.5, 63.5, -48.5, 64.5)], crs=f"EPSG:{var.epsg}"
+        )
+
+        result = nc.crop(mask=mask)
+        inner = result.get_variable("t")
+
+        assert inner._band_dim_names == ("valid_time", "pressure_level"), (
+            f"crop on root container dropped a band-dim: "
+            f"got {inner._band_dim_names!r}"
+        )
+        assert inner._band_dim_sizes == (4, 1), (
+            f"sizes mismatch after crop: {inner._band_dim_sizes!r}"
+        )
+        assert inner._band_dim_values_map["pressure_level"] == [500.0]
+        # sel() across either axis still works on the cropped container.
+        sub = inner.sel(pressure_level=500)
+        assert sub.read_array().shape[0] == 4, (
+            f"pin level should leave 4 time bands, got "
+            f"{sub.read_array().shape}"
+        )
+
+    def test_crop_root_container_synthetic_4d_round_trip(self):
+        """Synthetic `(4, 3)` cube survives a no-op-style crop on the root.
+
+        Test scenario:
+            Crop with a mask that covers the full extent. The output
+            shape and `_band_dim_*` fields must match the input.
+        """
+        import geopandas as gpd
+        from shapely.geometry import box
+
+        nc = NetCDF.read_file(SYNTH_PATH)
+        var = nc.get_variable("temperature")
+        # Mask spanning the whole extent — crop is essentially a copy
+        # via the multi-variable rebuild path.
+        xmin, ymin, xmax, ymax = (-10.5, 39.5, -4.5, 44.5)
+        mask = gpd.GeoDataFrame(
+            geometry=[box(xmin, ymin, xmax, ymax)], crs=f"EPSG:{var.epsg}"
+        )
+
+        result = nc.crop(mask=mask)
+        inner = result.get_variable("temperature")
+
+        assert inner._band_dim_names == ("time", "pressure_level"), (
+            f"got {inner._band_dim_names!r}"
+        )
+        assert inner._band_dim_sizes == (NT, NL), (
+            f"sizes mismatch: {inner._band_dim_sizes!r}"
+        )
+        # Values must round-trip
+        assert inner._band_dim_values_map["time"] == TIME_VALUES
+        assert inner._band_dim_values_map["pressure_level"] == LEVEL_VALUES
