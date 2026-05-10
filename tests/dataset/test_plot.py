@@ -8,6 +8,7 @@ from pandas import DataFrame
 
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset.engines import Analysis, Bands
+from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.plot
 
@@ -301,8 +302,6 @@ def _make_nc_subset_with_band_count(tmp_path, n_bands: int):
     Uses the in-memory MEM driver path of :meth:`NetCDF.create_from_array` so
     each test gets a fresh fixture without disk churn.
     """
-    from pyramids.netcdf.netcdf import NetCDF
-
     rng = np.random.default_rng(42)
     arr = rng.random((n_bands, 5, 6)).astype("float32")
     nc = NetCDF.create_from_array(
@@ -366,3 +365,170 @@ class TestNetCDFPlot:
         nc_subset, _ = _make_nc_subset_with_band_count(tmp_path, n_bands=4)
         with pytest.raises(TypeError, match=r"cutoff="):
             nc_subset.plot(cutoff=[0.5])
+
+
+class TestDatasetPlotFacade:
+    """End-to-end facade tests for :meth:`Dataset.plot` after PR-1."""
+
+    @pytest.mark.plot
+    def test_returns_array_glyph(self):
+        """:meth:`Dataset.plot` returns a cleopatra ``ArrayGlyph``.
+
+        Test scenario:
+            Calling the facade with a single-band dataset must return
+            an instance of :class:`cleopatra.array_glyph.ArrayGlyph` so
+            downstream callers can chain visual customisations.
+        """
+        rng = np.random.default_rng(1337)
+        arr = rng.random((6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+
+        result = dataset.plot()
+        assert isinstance(result, ArrayGlyph), (
+            f"Expected ArrayGlyph, got {type(result).__name__}"
+        )
+
+    @pytest.mark.plot
+    def test_two_consecutive_calls_return_independent_figures(self):
+        """Two ``plot()`` calls on the same dataset must yield distinct figures.
+
+        Test scenario:
+            The facade must be a pure factory of ``ArrayGlyph``
+            instances — no hidden state should leak between calls. Two
+            consecutive invocations must return two distinct ``cleo.fig``
+            references so downstream code can layer multiple plots.
+        """
+        rng = np.random.default_rng(1337)
+        arr = rng.random((6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+
+        first = dataset.plot()
+        second = dataset.plot()
+        assert first is not second, "plot() must return a fresh ArrayGlyph each call"
+        assert first.fig is not second.fig, (
+            "Each call must own a distinct matplotlib Figure"
+        )
+
+    @pytest.mark.plot
+    @pytest.mark.parametrize(
+        "color_scale",
+        [
+            "linear",
+            "power",
+            "sym-lognorm",
+        ],
+    )
+    def test_color_scale_string_aliases_work(self, color_scale):
+        """M-2 docstring fix: cleopatra accepts ``color_scale`` string aliases.
+
+        Args:
+            color_scale: String alias for the colour-scale enum.
+
+        Test scenario:
+            The PR-1 docstring change documented the string aliases as
+            valid ``color_scale`` values. Verify each alias is forwarded
+            to cleopatra and yields an ``ArrayGlyph``.
+
+        Notes:
+            The integer codes (``1``-``5``) are also documented but are
+            currently broken in the installed cleopatra release
+            (``'int' object has no attribute 'lower'`` in
+            ``cleopatra.glyph._update_color_norm``). When that
+            upstream bug is fixed, extend the parametrize list to
+            include the integer codes too.
+        """
+        rng = np.random.default_rng(1337)
+        arr = rng.random((6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+
+        result = dataset.plot(color_scale=color_scale)
+        assert isinstance(result, ArrayGlyph), (
+            f"color_scale={color_scale!r} should return ArrayGlyph, "
+            f"got {type(result).__name__}"
+        )
+
+    @pytest.mark.plot
+    def test_facade_forwards_to_analysis_plot(self):
+        """The facade must delegate to :meth:`Analysis.plot`, not duplicate logic.
+
+        Test scenario:
+            ``Dataset.plot`` is a thin facade. Mock the engine and
+            verify a single call with the resolved positional and
+            keyword args is made; the resolver should hand over
+            ``band=0`` for a single-band raster.
+        """
+        rng = np.random.default_rng(1337)
+        arr = rng.random((6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+
+        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "stub-glyph"
+            result = dataset.plot(figsize=(4, 4))
+
+        assert result == "stub-glyph", f"Facade must return engine output, got {result!r}"
+        assert mock_plot.call_count == 1
+        call_kwargs = mock_plot.call_args.kwargs
+        assert call_kwargs["band"] == 0, (
+            f"Resolver should send band=0, got {call_kwargs.get('band')}"
+        )
+        assert call_kwargs["figsize"] == (4, 4), (
+            f"Extra kwargs must propagate, got {call_kwargs.get('figsize')}"
+        )
+
+
+class TestAnalysisPlotEngine:
+    """Tests for the post-PR-1 :meth:`Analysis.plot` engine contract.
+
+    The engine is now band-agnostic: it requires a concrete ``band``
+    integer and applies no resolution heuristic.
+    """
+
+    @pytest.mark.plot
+    def test_explicit_band_renders_array_glyph(self):
+        """Calling ``Analysis.plot(band=N)`` directly must work.
+
+        Test scenario:
+            Bypass the facade and hit the engine directly with an
+            explicit band index — exercises the branch the PR-1 docs
+            promise: the engine never resolves and is purely generic.
+        """
+        rng = np.random.default_rng(1337)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+
+        result = dataset.analysis.plot(band=2)
+        assert isinstance(result, ArrayGlyph), (
+            f"Expected ArrayGlyph, got {type(result).__name__}"
+        )
+
+    @pytest.mark.plot
+    def test_out_of_range_band_raises(self):
+        """An out-of-range band must propagate the underlying error.
+
+        Test scenario:
+            ``read_array`` raises :class:`ValueError` (or :class:`IndexError`
+            on the metadata path) when the requested band is past the
+            last available band. The engine performs no resolution, so
+            the error should surface to the caller unchanged.
+        """
+        rng = np.random.default_rng(1337)
+        arr = rng.random((6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+
+        with pytest.raises((ValueError, IndexError)):
+            dataset.analysis.plot(band=42)
+
+
+
