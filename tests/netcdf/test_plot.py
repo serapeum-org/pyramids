@@ -1462,3 +1462,533 @@ class TestNetCDFPlotFaceting:
         nc = _make_3d_nc(n_times=4)
         with pytest.raises(ValueError, match=r"positive int"):
             nc.plot(variable="t2m", col="time", col_wrap=0)
+
+
+class TestCurvilinearCoordsEdges:
+    """PR-3 edge cases not covered by :class:`TestCurvilinearCoords`.
+
+    These tests pin down the corner cases of curvilinear coord
+    detection — CF attribute ordering, mixed coord-spec forms, shape
+    validation, and ``kind=`` interaction with regular vs.
+    curvilinear grids.
+    """
+
+    def test_cf_coordinates_lon_then_lat(self):
+        """CF `coordinates="XLONG XLAT"` (lon-first) still resolves the pair.
+
+        Test scenario:
+            CF Conventions list auxiliary coord variables space-
+            separated with no enforced order. The lon-first form must
+            still be parsed: the lon/lat name heuristic identifies
+            XLONG as the x candidate and XLAT as the y candidate
+            regardless of the order in the attribute string.
+        """
+        nc, _, _, _ = _make_curvilinear_nc(
+            rows=5, cols=6, cf_attr="XLONG XLAT",
+        )
+        cleo = nc.plot(variable="CANWAT")
+        assert cleo.coords is not None, (
+            "lon-first CF attribute must still resolve curvilinear coords"
+        )
+        assert cleo.coords[0].shape == (5, 6), (
+            f"x array should be (5, 6), got {cleo.coords[0].shape}"
+        )
+
+    def test_cf_coordinates_lat_then_lon(self):
+        """CF `coordinates="XLAT XLONG"` (lat-first) is also accepted.
+
+        Test scenario:
+            With the names in the opposite order the same pair must
+            resolve — the heuristic looks at the names, not the list
+            position. Both axes still match the data slice shape.
+        """
+        nc, _, _, _ = _make_curvilinear_nc(
+            rows=5, cols=6, cf_attr="XLAT XLONG",
+        )
+        cleo = nc.plot(variable="CANWAT")
+        assert cleo.coords is not None, (
+            "lat-first CF attribute must still resolve curvilinear coords"
+        )
+        assert cleo.coords[0].shape == (5, 6), (
+            f"x array should still be (5, 6), got {cleo.coords[0].shape}"
+        )
+
+    def test_cf_attribute_wins_over_well_known_naming(self):
+        """CF `coordinates` takes priority over the WRF naming convention.
+
+        Test scenario:
+            The variable carries both a CF ``coordinates`` attribute
+            that names a custom pair (``my_lon``/``my_lat``) AND the
+            WRF-style ``XLONG``/``XLAT`` is available on the parent.
+            CF detection runs first, so the custom pair wins. We assert
+            on the actual coord arrays returned — the CF arrays differ
+            from the WRF arrays because they are independent grids.
+        """
+        rng = np.random.default_rng(42)
+        nc = NetCDF.create_from_array(
+            arr=rng.random((5, 6)).astype(np.float32),
+            geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
+            epsg=4326,
+            variable_name="CANWAT",
+        )
+        wrf_x = np.linspace(-110.0, -100.0, 6, dtype=np.float32)
+        wrf_y = np.linspace(35.0, 45.0, 5, dtype=np.float32)
+        wrf_x_2d, wrf_y_2d = np.meshgrid(wrf_x, wrf_y)
+        cf_x_2d = wrf_x_2d + 100.0
+        cf_y_2d = wrf_y_2d + 50.0
+        extra_vars = {
+            "XLONG": wrf_x_2d,
+            "XLAT": wrf_y_2d,
+            "my_lon": cf_x_2d,
+            "my_lat": cf_y_2d,
+        }
+        spliced_names = list(nc.variable_names) + list(extra_vars)
+        original_read = type(nc)._read_variable
+        original_get_variable = type(nc).get_variable
+
+        def _read(self_, var, window=None):
+            if var in extra_vars:
+                return extra_vars[var]
+            return original_read(self_, var, window)
+
+        def _get_variable(self_, name):
+            subset = original_get_variable(self_, name)
+            attrs = dict(getattr(subset, "_variable_attrs", {}) or {})
+            attrs["coordinates"] = "my_lon my_lat"
+            subset._variable_attrs = attrs
+            return subset
+
+        nc._read_variable = types.MethodType(_read, nc)
+        nc.get_variable = types.MethodType(_get_variable, nc)
+        nc_class = type(nc)
+        subcls = type(
+            f"{nc_class.__name__}WithBothCoordPairs",
+            (nc_class,),
+            {"variable_names": property(lambda _self: spliced_names)},
+        )
+        nc.__class__ = subcls
+
+        cleo = nc.plot(variable="CANWAT")
+        assert cleo.coords is not None, "CF coords must resolve"
+        # The CF arrays (shifted by 100/50) should reach cleopatra, not
+        # the WRF arrays. Check on the x axis (longitude shift = +100).
+        np.testing.assert_array_equal(
+            cleo.coords[0],
+            cf_x_2d,
+            err_msg="CF attribute pair must win over WRF naming convention",
+        )
+
+    def test_cf_attribute_wrong_shape_falls_back_to_extent(self):
+        """A CF `coordinates` attr naming a wrong-shape coord falls back.
+
+        Test scenario:
+            The CF attribute names ``my_lon``/``my_lat`` but the
+            arrays returned by ``_read_variable`` have a shape that
+            does not match the data slice. The detector must silently
+            skip and the render must succeed using the geotransform
+            extent — i.e. no crash, ``cleo.coords is None``, and the
+            extent is populated from the bbox.
+        """
+        rng = np.random.default_rng(43)
+        nc = NetCDF.create_from_array(
+            arr=rng.random((5, 6)).astype(np.float32),
+            geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
+            epsg=4326,
+            variable_name="CANWAT",
+        )
+        bad_x = np.linspace(-1.0, 1.0, 99, dtype=np.float32)
+        bad_y = np.linspace(0.0, 1.0, 99, dtype=np.float32)
+        extra_vars = {"my_lon": bad_x, "my_lat": bad_y}
+        spliced_names = list(nc.variable_names) + list(extra_vars)
+        original_read = type(nc)._read_variable
+        original_get_variable = type(nc).get_variable
+
+        def _read(self_, var, window=None):
+            if var in extra_vars:
+                return extra_vars[var]
+            return original_read(self_, var, window)
+
+        def _get_variable(self_, name):
+            subset = original_get_variable(self_, name)
+            attrs = dict(getattr(subset, "_variable_attrs", {}) or {})
+            attrs["coordinates"] = "my_lon my_lat"
+            subset._variable_attrs = attrs
+            return subset
+
+        nc._read_variable = types.MethodType(_read, nc)
+        nc.get_variable = types.MethodType(_get_variable, nc)
+        nc_class = type(nc)
+        subcls = type(
+            f"{nc_class.__name__}WithBadCFShape",
+            (nc_class,),
+            {"variable_names": property(lambda _self: spliced_names)},
+        )
+        nc.__class__ = subcls
+
+        cleo = nc.plot(variable="CANWAT")
+        assert cleo.coords is None, (
+            "Wrong-shape CF coords must be skipped (no crash); got coords"
+        )
+        assert cleo.extent is not None, (
+            "Renderer must fall back to extent when CF coords don't fit"
+        )
+
+    def test_explicit_coords_missing_variable_name_raises(self):
+        """`coords=("missing", "XLAT")` references a non-variable name.
+
+        Test scenario:
+            One of the two names doesn't exist in
+            ``parent.variable_names``. The coord-spec coercer raises
+            :class:`ValueError`, mentioning the bad name and listing
+            available variables. The other valid name must not mask
+            the error.
+        """
+        nc, _, _, _ = _make_curvilinear_nc(rows=5, cols=6)
+        with pytest.raises(ValueError, match=r"missing") as exc_info:
+            nc.plot(variable="CANWAT", coords=("missing", "XLAT"))
+        assert "Available" in str(exc_info.value), (
+            f"Error must list available variables, got: {exc_info.value}"
+        )
+
+    def test_explicit_coords_mixed_string_array_forms(self):
+        """`coords=(name, array)` mixed-form is accepted.
+
+        Test scenario:
+            The first element is a variable name (resolved via
+            ``_read_variable``), the second is a raw numpy array. The
+            coercer treats each element independently, so mixed forms
+            must work. The resulting curvilinear coords must reach
+            cleopatra.
+        """
+        nc, x_2d, y_2d, _ = _make_curvilinear_nc(rows=4, cols=5)
+        cleo = nc.plot(variable="CANWAT", coords=("XLONG", y_2d))
+        assert cleo.coords is not None, "Mixed-form coords must resolve"
+        np.testing.assert_array_equal(cleo.coords[0], x_2d)
+        np.testing.assert_array_equal(cleo.coords[1], y_2d)
+
+    def test_explicit_coords_with_nan_values_propagates_matplotlib_error(self):
+        """`coords=(x_nan, y_nan)` propagates matplotlib's non-finite-coords error.
+
+        Test scenario:
+            Pyramids does not validate coord *values* — only shapes.
+            All-NaN coord arrays reach cleopatra which calls
+            ``ax.pcolormesh``. Matplotlib rejects non-finite coords
+            with a ValueError. The pyramids layer must not mask this
+            error (no try/except around the render); it must
+            propagate to the caller unchanged so the user can fix
+            the upstream data.
+        """
+        nc, _, _, _ = _make_curvilinear_nc(rows=4, cols=5)
+        x_nan = np.full((4, 5), np.nan, dtype=np.float32)
+        y_nan = np.full((4, 5), np.nan, dtype=np.float32)
+        with pytest.raises(ValueError, match=r"non-finite"):
+            nc.plot(variable="CANWAT", coords=(x_nan, y_nan))
+
+    def test_kind_auto_no_curvilinear_uses_imshow_path(self):
+        """`kind="auto"` on a regular grid leaves coords None (imshow path).
+
+        Test scenario:
+            A plain 3-D NetCDF with no curvilinear conventions has no
+            coords to resolve. With ``kind="auto"`` (the default) the
+            renderer should fall through to imshow — verified by
+            ``cleo.coords is None`` and a populated extent.
+        """
+        nc = _make_3d_nc()
+        cleo = nc.plot(variable="t2m", kind="auto")
+        assert cleo.coords is None, (
+            "Regular grid + kind='auto' should keep coords None (imshow path)"
+        )
+        assert cleo.extent is not None, "Imshow path must carry an extent"
+
+    def test_kind_pcolormesh_without_explicit_coords_renders(self):
+        """`kind="pcolormesh"` + coords=None — cleopatra auto-derives a grid.
+
+        Test scenario:
+            With no curvilinear coords and an explicit
+            ``kind="pcolormesh"``, cleopatra falls back to an
+            index-derived grid. The pyramids layer must forward the
+            kind verbatim and not crash; cleo handles the rest.
+        """
+        nc = _make_3d_nc()
+        cleo = nc.plot(variable="t2m", kind="pcolormesh")
+        assert isinstance(cleo, ArrayGlyph), (
+            "kind='pcolormesh' without coords must still produce an ArrayGlyph"
+        )
+
+    def test_coords_1d_x_1d_y_correct_lengths(self):
+        """`coords=(1D x of len cols, 1D y of len rows)` is accepted.
+
+        Test scenario:
+            cleopatra accepts 1-D coord pairs (x of length ``cols``,
+            y of length ``rows``) and meshgrids them internally. The
+            pyramids shape validator must accept this form: assert the
+            returned cleo carries the original 1-D arrays.
+        """
+        nc, _, _, _ = _make_curvilinear_nc(rows=5, cols=6)
+        x_1d = np.linspace(-1.0, 1.0, 6, dtype=np.float32)
+        y_1d = np.linspace(0.0, 1.0, 5, dtype=np.float32)
+        cleo = nc.plot(variable="CANWAT", coords=(x_1d, y_1d))
+        assert cleo.coords is not None
+        assert cleo.coords[0].shape == (6,), (
+            f"x should be 1-D of length 6, got {cleo.coords[0].shape}"
+        )
+        assert cleo.coords[1].shape == (5,), (
+            f"y should be 1-D of length 5, got {cleo.coords[1].shape}"
+        )
+
+    def test_coords_1d_swapped_lengths_falls_back_to_extent(self):
+        """`coords=(1D x of len rows, 1D y of len cols)` shapes mismatch.
+
+        Test scenario:
+            Swap the two arrays — now x has the row length and y has
+            the col length. ``_coord_shapes_match`` returns False, so
+            the explicit-coord branch rejects them. With no other
+            curvilinear conventions on the container (plain NetCDF
+            from :func:`_make_3d_nc`) the render falls back to
+            extent. We assert no crash and ``cleo.coords is None``.
+        """
+        nc = _make_3d_nc(n_times=1, rows=5, cols=6)
+        x_wrong = np.linspace(-1.0, 1.0, 5, dtype=np.float32)
+        y_wrong = np.linspace(0.0, 1.0, 6, dtype=np.float32)
+        cleo = nc.plot(variable="t2m", coords=(x_wrong, y_wrong))
+        assert cleo.coords is None, (
+            "Swapped-length 1-D coords must skip and fall back to extent"
+        )
+        assert cleo.extent is not None
+
+    def test_coords_2d_x_1d_y_mixed_dims_accepted(self):
+        """`coords=(2D x matching slice, 1D y of len rows)` mixed dims work.
+
+        Test scenario:
+            The shape validator accepts each axis independently — 2-D
+            x matching the slice plus a 1-D y matching ``rows``
+            satisfies both `x_ok` and `y_ok`. Verify the mixed-dim
+            arrays reach cleopatra unchanged.
+        """
+        nc, _, _, _ = _make_curvilinear_nc(rows=5, cols=6)
+        x_2d = np.random.default_rng(99).random((5, 6)).astype(np.float32)
+        y_1d = np.linspace(0.0, 1.0, 5, dtype=np.float32)
+        cleo = nc.plot(variable="CANWAT", coords=(x_2d, y_1d))
+        assert cleo.coords is not None, "Mixed (2D, 1D) coords must resolve"
+        assert cleo.coords[0].shape == (5, 6)
+        assert cleo.coords[1].shape == (5,)
+
+
+class TestNetCDFPlotFacetingEdges:
+    """PR-4 edge cases not covered by :class:`TestNetCDFPlotFaceting`.
+
+    Coverage targets degenerate grids, ``col_wrap`` bounds, conflict
+    error messages, faceting interaction with pinned dims, curvilinear
+    coord forwarding to facet cells, and the returned FacetGrid
+    attribute contract.
+    """
+
+    def test_col_wrap_one_produces_single_column(self):
+        """`col_wrap=1` arranges N panels into N rows × 1 col."""
+        nc = _make_3d_nc(n_times=4)
+        grid = nc.plot(variable="t2m", col="time", col_wrap=1)
+        assert isinstance(grid, _FacetGrid)
+        assert grid.axes.shape == (4, 1), (
+            f"col_wrap=1 should yield 4 rows × 1 col, got {grid.axes.shape}"
+        )
+        assert len(grid.name_dicts) == 4
+
+    def test_col_wrap_larger_than_panel_count(self):
+        """`col_wrap=8` with N=4 panels still works (single row, 4 visible).
+
+        Test scenario:
+            When ``col_wrap`` exceeds the number of facet panels
+            cleopatra produces a single row whose visible-panel count
+            equals the panel count. The pyramids layer simply forwards
+            the wrap; we confirm the grid is constructed without
+            crashing and has the expected shape.
+        """
+        nc = _make_3d_nc(n_times=4)
+        grid = nc.plot(variable="t2m", col="time", col_wrap=8)
+        assert isinstance(grid, _FacetGrid)
+        assert grid.axes.shape == (1, 8), (
+            f"col_wrap=8 with N=4 should yield a 1×8 grid, got {grid.axes.shape}"
+        )
+        visible = [ax for ax in grid.axes.ravel() if ax.get_visible()]
+        assert len(visible) == 4, (
+            f"Exactly 4 panels should be visible, got {len(visible)}"
+        )
+
+    def test_col_with_single_step_degenerate_grid(self):
+        """`col="time"` with N=1 yields a 1×1 grid (degenerate but valid).
+
+        Test scenario:
+            A variable with a single time step still satisfies the
+            facet contract; the resulting grid has one cell. Used to
+            guard against off-by-one bugs in the stack builder.
+        """
+        nc = _make_3d_nc(n_times=1)
+        grid = nc.plot(variable="t2m", col="time")
+        assert isinstance(grid, _FacetGrid)
+        assert grid.axes.shape == (1, 1), (
+            f"Single-step facet should yield (1, 1), got {grid.axes.shape}"
+        )
+        assert len(grid.name_dicts) == 1
+
+    def test_facet_dim_unknown_lists_available_dims(self):
+        """`col="bogus"` error message lists the actual band dim names.
+
+        Test scenario:
+            The validator must include the available band dim names so
+            the user can pick a valid one without re-reading the
+            variable. Verify the message contains both ``bogus`` and
+            ``time`` (the real band dim).
+        """
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"not a band dim") as exc_info:
+            nc.plot(variable="t2m", col="bogus")
+        msg = str(exc_info.value)
+        assert "bogus" in msg, f"Error must echo the bad name, got: {msg}"
+        assert "time" in msg, f"Error must list 'time' as available, got: {msg}"
+
+    def test_row_alone_error_mentions_col_requirement(self):
+        """`row=` alone error message explicitly mentions `col=` requirement."""
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"requires `col=`") as exc_info:
+            nc.plot(variable="t2m", row="time")
+        assert "col=" in str(exc_info.value), (
+            f"Error must mention col= requirement, got: {exc_info.value}"
+        )
+
+    def test_facet_with_sel_pinning_other_dim(self):
+        """Faceting `col="time"` plus `sel={"pressure_level": 500}` succeeds.
+
+        Test scenario:
+            A 4-D variable with both ``time`` and ``pressure_level``
+            band dims: pin ``pressure_level`` via ``sel`` and facet
+            over ``time``. The validator must not flag a conflict
+            because the dims differ. The resulting grid has
+            ``time_len`` panels.
+        """
+        nc = _make_4d_nc()
+        grid = nc.plot(
+            variable="temperature",
+            sel={"pressure_level": 500},
+            col="time",
+        )
+        assert isinstance(grid, _FacetGrid)
+        # _make_4d_nc has nt=3
+        assert grid.axes.shape == (1, 3), (
+            f"sel-pinned level + col=time should be (1, 3), got {grid.axes.shape}"
+        )
+
+    def test_facet_with_kind_pcolormesh_forwarded(self):
+        """Faceting + `kind="pcolormesh"` forwards the kind to cleo.facet.
+
+        Test scenario:
+            ``kind`` is set via the cleo constructor (stored as a
+            default) and consumed by ``ArrayGlyph.facet``. We patch
+            ``Analysis.plot`` and confirm both ``facet_kwargs`` and
+            ``kind="pcolormesh"`` reach the engine.
+        """
+        nc = _make_3d_nc(n_times=3)
+        var = nc.get_variable("t2m")
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "stub"
+            nc.plot(variable="t2m", col="time", kind="pcolormesh")
+        call_kwargs = mock_plot.call_args.kwargs
+        assert call_kwargs.get("kind") == "pcolormesh", (
+            f"kind should reach Analysis.plot, got: {call_kwargs}"
+        )
+        assert "facet_kwargs" in call_kwargs, (
+            f"facet_kwargs must be present, got: {list(call_kwargs)}"
+        )
+
+    def test_facet_with_curvilinear_coords_forwarded(self):
+        """Faceting + curvilinear `coords=` forwards both to the engine.
+
+        Test scenario:
+            On a 3-D curvilinear variable, faceting over ``time`` plus
+            an explicit ``coords=("XLONG", "XLAT")`` must forward both
+            kwargs. We patch ``Analysis.plot`` and inspect: the
+            ``coords`` kwarg must carry resolved 2-D arrays and the
+            ``facet_kwargs`` dict must include ``col``.
+        """
+        nc, _, _, _ = _make_curvilinear_nc(rows=4, cols=5, n_times=3)
+        var = nc.get_variable("CANWAT")
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "stub"
+            nc.plot(
+                variable="CANWAT",
+                col="time",
+                coords=("XLONG", "XLAT"),
+            )
+        call_kwargs = mock_plot.call_args.kwargs
+        assert "facet_kwargs" in call_kwargs, "facet_kwargs missing"
+        assert "coords" in call_kwargs, "coords missing alongside facet_kwargs"
+        assert call_kwargs["coords"][0].shape == (4, 5), (
+            f"coords[0] should be 2D (4, 5), got {call_kwargs['coords'][0].shape}"
+        )
+
+    def test_facet_with_robust_forwarded(self):
+        """Faceting + `robust=True` forwards the percentile-stretch flag.
+
+        Test scenario:
+            cleopatra applies the percentile stretch over the full
+            stack when ``robust=True`` is set at the constructor
+            level. Pyramids must forward the flag verbatim. We patch
+            ``Analysis.plot`` and assert ``robust=True`` is in the
+            call kwargs alongside ``facet_kwargs``.
+        """
+        nc = _make_3d_nc(n_times=3)
+        var = nc.get_variable("t2m")
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "stub"
+            nc.plot(variable="t2m", col="time", robust=True)
+        call_kwargs = mock_plot.call_args.kwargs
+        assert call_kwargs.get("robust") is True, (
+            f"robust=True must reach Analysis.plot, got: {call_kwargs}"
+        )
+        assert "facet_kwargs" in call_kwargs
+
+    def test_facet_grid_exposes_fig_axes_cbar_name_dicts(self):
+        """Returned FacetGrid carries `.fig`, `.axes`, `.cbar`, `.name_dicts`."""
+        nc = _make_3d_nc(n_times=3)
+        grid = nc.plot(variable="t2m", col="time")
+        assert hasattr(grid, "fig"), "FacetGrid must expose .fig"
+        assert hasattr(grid, "axes"), "FacetGrid must expose .axes"
+        assert hasattr(grid, "cbar"), "FacetGrid must expose .cbar"
+        assert hasattr(grid, "name_dicts"), "FacetGrid must expose .name_dicts"
+        assert grid.fig is not None, "FacetGrid.fig must not be None"
+        assert grid.axes.shape == (1, 3)
+        assert isinstance(grid.name_dicts, list)
+
+    def test_facet_invalid_col_wrap_non_integer_raises(self):
+        """`col_wrap="three"` (str) raises with the positive-int hint."""
+        nc = _make_3d_nc(n_times=4)
+        with pytest.raises(ValueError, match=r"positive int") as exc_info:
+            nc.plot(variable="t2m", col="time", col_wrap="three")
+        assert "col_wrap" in str(exc_info.value), (
+            f"Error must reference col_wrap, got: {exc_info.value}"
+        )
+
+    def test_facet_4d_col_row_grid_shape(self):
+        """4-D facet with `col="time", row="pressure_level"` matches dim sizes.
+
+        Test scenario:
+            ``_make_4d_nc`` has ``nt=3`` and ``nl=2``. The faceted
+            grid axes attribute has shape ``(nrows, ncols)`` where
+            ``nrows=len(row)=2`` and ``ncols=len(col)=3``. The
+            ``name_dicts`` list has length ``nt * nl = 6``, and every
+            entry references both dim names.
+        """
+        nc = _make_4d_nc()
+        grid = nc.plot(
+            variable="temperature",
+            col="time",
+            row="pressure_level",
+        )
+        assert grid.axes.shape == (2, 3), (
+            f"4-D col+row grid should be (nrows=2, ncols=3), got {grid.axes.shape}"
+        )
+        assert len(grid.name_dicts) == 6, (
+            f"name_dicts should have nt*nl=6 entries, got {len(grid.name_dicts)}"
+        )
+        for entry in grid.name_dicts:
+            assert "time" in entry, f"Missing 'time' in {entry}"
+            assert "pressure_level" in entry, f"Missing 'pressure_level' in {entry}"

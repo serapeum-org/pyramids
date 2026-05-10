@@ -1,3 +1,4 @@
+import warnings
 from unittest.mock import patch
 
 import numpy as np
@@ -7,6 +8,7 @@ from osgeo import gdal
 from pandas import DataFrame
 
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset.engines import Analysis, Bands
 from pyramids.netcdf.netcdf import NetCDF
 
@@ -640,6 +642,341 @@ class TestAnalysisPlotEngine:
 
         with pytest.raises((ValueError, IndexError)):
             dataset.analysis.plot(band=42)
+
+
+class TestDatasetPlotRgbOptionsEdges:
+    """PR-4 / D-3 edge cases for ``rgb_options=`` not in :class:`TestDatasetPlotRgbOptions`.
+
+    Coverage targets the merge precedence between the grouped form and
+    the loose-kwarg form, empty-dict handling, no-op semantics, and
+    interactions with the deprecation warning.
+    """
+
+    @pytest.fixture(scope="function")
+    def multiband_dataset(self):
+        """Build an in-memory 3-band float32 dataset for RGB testing.
+
+        Returns:
+            Dataset: A small 3-band dataset with random values.
+        """
+        rng = np.random.default_rng(2025)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        return Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+
+    @pytest.mark.plot
+    def test_rgb_options_with_rgb_and_surface_reflectance(self, multiband_dataset):
+        """Both `rgb` and `surface_reflectance` keys forward correctly.
+
+        Test scenario:
+            ``rgb_options={"rgb": [2, 1, 0], "surface_reflectance": 10000}``
+            must populate both kwargs on the downstream Analysis.plot
+            call without any DeprecationWarning (the grouped form is
+            the recommended path).
+        """
+        with patch.object(
+            type(multiband_dataset.analysis), "plot", autospec=True
+        ) as mock_plot:
+            mock_plot.return_value = "stub"
+            with warnings.catch_warnings(record=True) as captured:
+                warnings.simplefilter("always")
+                multiband_dataset.plot(
+                    rgb_options={"rgb": [2, 1, 0], "surface_reflectance": 10000},
+                )
+        call_kwargs = mock_plot.call_args.kwargs
+        assert call_kwargs["rgb"] == [2, 1, 0], (
+            f"rgb must be forwarded, got: {call_kwargs.get('rgb')}"
+        )
+        assert call_kwargs["surface_reflectance"] == 10000, (
+            f"surface_reflectance must be forwarded, "
+            f"got: {call_kwargs.get('surface_reflectance')}"
+        )
+        deprecations = [
+            w for w in captured if issubclass(w.category, DeprecationWarning)
+        ]
+        assert not deprecations, (
+            f"Grouped form must not emit DeprecationWarning, got: "
+            f"{[str(w.message) for w in deprecations]}"
+        )
+
+    @pytest.mark.plot
+    def test_empty_rgb_options_dict_is_noop(self, multiband_dataset):
+        """`rgb_options={}` (empty) leaves all kwargs at their defaults.
+
+        Test scenario:
+            An empty dict resolves to no overrides — the four
+            Sentinel kwargs remain ``None`` (which the resolver
+            propagates to the engine as ``rgb=None``, etc.). No
+            DeprecationWarning is emitted because no loose kwargs
+            were passed.
+        """
+        with patch.object(
+            type(multiband_dataset.analysis), "plot", autospec=True
+        ) as mock_plot:
+            mock_plot.return_value = "stub"
+            with warnings.catch_warnings(record=True) as captured:
+                warnings.simplefilter("always")
+                multiband_dataset.plot(rgb_options={})
+        call_kwargs = mock_plot.call_args.kwargs
+        # No Sentinel kwargs were set; the resolver passes None through.
+        assert call_kwargs.get("rgb") is None, (
+            f"Empty rgb_options should leave rgb=None, got: {call_kwargs.get('rgb')}"
+        )
+        assert call_kwargs.get("surface_reflectance") is None, (
+            f"Empty rgb_options should leave surface_reflectance=None"
+        )
+        deprecations = [
+            w for w in captured if issubclass(w.category, DeprecationWarning)
+        ]
+        assert not deprecations, (
+            "Empty rgb_options must not emit DeprecationWarning"
+        )
+
+    @pytest.mark.plot
+    def test_loose_rgb_with_empty_group_still_warns(self, multiband_dataset):
+        """Loose `rgb=` with `rgb_options={}` still triggers the deprecation.
+
+        Test scenario:
+            The warning is gated on the loose kwargs being not-None
+            (not on whether ``rgb_options`` is provided). An empty
+            group doesn't suppress the warning when a loose kwarg is
+            present. The loose ``rgb`` survives because the empty
+            group has no entries to overwrite it.
+        """
+        with patch.object(
+            type(multiband_dataset.analysis), "plot", autospec=True
+        ) as mock_plot:
+            mock_plot.return_value = "stub"
+            with pytest.warns(DeprecationWarning, match=r"rgb_options"):
+                multiband_dataset.plot(rgb=[0, 1, 2], rgb_options={})
+        assert mock_plot.call_args.kwargs["rgb"] == [0, 1, 2], (
+            "Loose rgb must survive when rgb_options is empty"
+        )
+
+    @pytest.mark.plot
+    def test_only_loose_surface_reflectance_emits_warning_once(self, multiband_dataset):
+        """A single loose `surface_reflectance=` triggers exactly one warning.
+
+        Test scenario:
+            The merge helper emits one warning regardless of how many
+            loose kwargs were passed; with only one set, exactly one
+            DeprecationWarning fires. Verifies the warning is not
+            spammed per-kwarg.
+        """
+        with patch.object(
+            type(multiband_dataset.analysis), "plot", autospec=True
+        ) as mock_plot:
+            mock_plot.return_value = "stub"
+            with warnings.catch_warnings(record=True) as captured:
+                warnings.simplefilter("always")
+                multiband_dataset.plot(surface_reflectance=10000)
+        deprecations = [
+            w for w in captured if issubclass(w.category, DeprecationWarning)
+        ]
+        assert len(deprecations) == 1, (
+            f"Exactly one DeprecationWarning expected, got {len(deprecations)}: "
+            f"{[str(w.message) for w in deprecations]}"
+        )
+        assert "surface_reflectance" in str(deprecations[0].message), (
+            f"Warning must name the loose kwarg, got: {deprecations[0].message}"
+        )
+
+    @pytest.mark.plot
+    def test_rgb_options_only_partial_override(self, multiband_dataset):
+        """`rgb_options` overrides only its own keys; other loose kwargs survive.
+
+        Test scenario:
+            Pass loose ``percentile=2`` AND
+            ``rgb_options={"rgb": [0, 1, 2]}``. The grouped form
+            overrides only ``rgb`` (which wasn't set loose), and the
+            loose ``percentile`` propagates unchanged. The
+            DeprecationWarning still fires because at least one loose
+            kwarg was used.
+        """
+        with patch.object(
+            type(multiband_dataset.analysis), "plot", autospec=True
+        ) as mock_plot:
+            mock_plot.return_value = "stub"
+            with pytest.warns(DeprecationWarning, match=r"percentile"):
+                multiband_dataset.plot(
+                    percentile=2,
+                    rgb_options={"rgb": [0, 1, 2]},
+                )
+        call_kwargs = mock_plot.call_args.kwargs
+        assert call_kwargs["rgb"] == [0, 1, 2], (
+            f"Grouped rgb must propagate, got: {call_kwargs.get('rgb')}"
+        )
+        assert call_kwargs["percentile"] == 2, (
+            f"Loose percentile must survive, got: {call_kwargs.get('percentile')}"
+        )
+
+
+class TestPlotPhase3CrossCutting:
+    """Cross-cutting regressions for the PR-4 D-2 refactor.
+
+    The shared ``render_array`` helper now backs ``Analysis.plot``,
+    ``DatasetCollection.plot``, and the NetCDF facet path. These tests
+    pin the public-contract invariants: types, return values, and
+    behavioural equivalence vs. the engine directly.
+    """
+
+    @pytest.fixture(scope="function")
+    def single_band_dataset(self):
+        """Build a deterministic single-band dataset for cross-cutting tests.
+
+        Returns:
+            Dataset: A 1-band float32 dataset.
+        """
+        rng = np.random.default_rng(7777)
+        arr = rng.random((6, 6)).astype("float32")
+        return Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+
+    @pytest.mark.plot
+    def test_dataset_plot_returns_array_glyph_post_refactor(
+        self, single_band_dataset
+    ):
+        """`Dataset.plot()` still returns an ArrayGlyph after D-2 collapse.
+
+        Test scenario:
+            The D-2 refactor routes ``Dataset.plot`` through the
+            shared ``render_array`` helper. The public contract is
+            unchanged: the call must return a cleopatra ArrayGlyph
+            instance. Pre-refactor parity is required for downstream
+            callers that chain visual customisations.
+        """
+        result = single_band_dataset.plot()
+        assert isinstance(result, ArrayGlyph), (
+            f"Dataset.plot() must return ArrayGlyph after D-2, got: {type(result).__name__}"
+        )
+
+    @pytest.mark.plot
+    def test_analysis_plot_returns_array_glyph_post_refactor(
+        self, single_band_dataset
+    ):
+        """`Analysis.plot(band=N)` still returns an ArrayGlyph after D-2.
+
+        Test scenario:
+            ``Analysis.plot`` is the engine; the D-2 collapse pushes
+            cleo construction into ``render_array``. A direct engine
+            call must still produce an ArrayGlyph (this is the
+            existing public engine API).
+        """
+        result = single_band_dataset.analysis.plot(band=0)
+        assert isinstance(result, ArrayGlyph), (
+            f"Analysis.plot() must return ArrayGlyph after D-2, "
+            f"got: {type(result).__name__}"
+        )
+
+    @pytest.mark.plot
+    def test_dataset_collection_plot_returns_array_glyph_post_refactor(
+        self, rasters_folder_path
+    ):
+        """`DatasetCollection.plot()` still returns an ArrayGlyph after D-2.
+
+        Test scenario:
+            ``DatasetCollection.plot`` was previously a direct
+            cleopatra-constructor call; D-2 routes it through
+            ``render_array`` with ``mode="animate"``. The return type
+            (cleopatra ArrayGlyph) is preserved. Uses the same fixture
+            chain as :class:`TestPlotDatasetCollection`.
+        """
+        cube = DatasetCollection.read_multiple_files(
+            rasters_folder_path, with_order=False
+        )
+        cube.open_multi_dataset()
+        result = cube.plot()
+        assert isinstance(result, ArrayGlyph), (
+            f"DatasetCollection.plot() must return ArrayGlyph after D-2, "
+            f"got: {type(result).__name__}"
+        )
+
+    @pytest.mark.plot
+    def test_render_array_direct_call_matches_analysis_plot(
+        self, single_band_dataset
+    ):
+        """Calling `render_array(mode="plot")` directly produces the same array.
+
+        Test scenario:
+            The shared helper is module-private but the contract is
+            stable: calling it with the same array + extent that
+            ``Analysis.plot`` would compute internally yields an
+            ArrayGlyph wrapping the same data. This guards against a
+            regression where the engine and helper diverge on how the
+            data array is reshaped.
+        """
+        arr = single_band_dataset.read_array(band=0)
+        bbox = single_band_dataset.bbox
+        helper_glyph = render_array(
+            arr=arr,
+            extent=bbox,
+            exclude_value=[np.nan],
+            mode="plot",
+        )
+        engine_glyph = single_band_dataset.analysis.plot(band=0)
+        np.testing.assert_array_equal(
+            helper_glyph.arr,
+            engine_glyph.arr,
+            err_msg="render_array(mode='plot') and Analysis.plot must produce "
+            "identical .arr",
+        )
+
+    @pytest.mark.plot
+    def test_render_array_invalid_mode_raises(self):
+        """`render_array(mode="bogus")` raises ValueError naming the valid modes.
+
+        Test scenario:
+            The helper validates ``mode`` against
+            ``("plot", "animate", "facet")``. An unknown value must
+            raise a ValueError that lists the valid options so the
+            caller can fix it.
+        """
+        arr = np.zeros((4, 4), dtype="float32")
+        with pytest.raises(ValueError, match=r"Invalid mode") as exc_info:
+            render_array(arr=arr, mode="bogus")
+        msg = str(exc_info.value)
+        assert "plot" in msg, f"Error must list 'plot', got: {msg}"
+        assert "animate" in msg, f"Error must list 'animate', got: {msg}"
+        assert "facet" in msg, f"Error must list 'facet', got: {msg}"
+
+    @pytest.mark.plot
+    def test_render_array_animate_requires_axis_values(self):
+        """`render_array(mode="animate")` without `animation_axis_values` raises."""
+        arr = np.zeros((3, 4, 4), dtype="float32")
+        with pytest.raises(ValueError, match=r"animation_axis_values"):
+            render_array(arr=arr, mode="animate")
+
+    @pytest.mark.plot
+    def test_render_array_facet_requires_facet_kwargs(self):
+        """`render_array(mode="facet")` without `facet_kwargs` raises."""
+        arr = np.zeros((3, 4, 4), dtype="float32")
+        with pytest.raises(ValueError, match=r"facet_kwargs"):
+            render_array(arr=arr, mode="facet")
+
+    @pytest.mark.plot
+    def test_render_array_basemap_requires_epsg(self):
+        """`render_array(basemap=True, basemap_epsg=None)` raises with CRS hint.
+
+        Test scenario:
+            The basemap path requires a CRS to project the contextily
+            tiles. Without one, the helper raises with the same
+            "Dataset must have a CRS" message that the original
+            ``Analysis.plot`` produced. We assert the error text
+            matches so we don't drift away from the pre-refactor
+            user-facing message.
+        """
+        rng = np.random.default_rng(321)
+        arr = rng.random((4, 4)).astype("float32")
+        with pytest.raises(ValueError, match=r"CRS"):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                basemap=True,
+                basemap_epsg=None,
+            )
 
 
 
