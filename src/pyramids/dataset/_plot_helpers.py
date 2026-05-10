@@ -1,22 +1,52 @@
 """Shared rendering helper for the per-class plotting facades.
 
-This module collapses the cleopatra dispatch logic that used to live in
-both :meth:`pyramids.dataset.engines.Analysis.plot` and
-:meth:`pyramids.dataset.collection.DatasetCollection.plot` into a single
-function. Each facade resolves the data and metadata it needs (band
-index, slice arrays, extent, exclude value), then hands the result to
-:func:`render_array` which owns the actual cleopatra call.
+This module is the **single backend abstraction** (D-6) for every
+raster plot call inside pyramids. The cleopatra dispatch logic that
+used to live in three different places (``Analysis.plot``,
+``DatasetCollection.plot``, the bespoke ``NetCDF.plot`` faceting
+branch) is collapsed into :func:`render_array` here. Each per-class
+facade resolves the data and metadata it needs (band index, slice
+arrays, extent, exclude value, curvilinear coords) and hands the
+result to :func:`render_array` which owns the actual cleopatra call.
+The mesh counterpart lives in :mod:`pyramids.netcdf.ugrid.plot` as
+``plot_mesh_data`` / ``plot_mesh_outline`` (N-6) — same contract,
+different cleopatra glyph (``MeshGlyph`` vs ``ArrayGlyph``).
 
 The helper takes an explicit ``mode`` argument so callers can pick
 between three render shapes:
 
 * ``"plot"`` — `ArrayGlyph(...).plot(**kwargs)` for a single 2-D slice.
 * ``"animate"`` — `ArrayGlyph(...).animate(animation_axis_values,
-  **kwargs)` for a temporal stack (the DatasetCollection path).
+  **kwargs)` for a temporal stack (the DatasetCollection path and the
+  PR-5 NetCDF.plot animate path).
 * ``"facet"`` — `ArrayGlyph(...).facet(**facet_kwargs, **kwargs)` for a
   multi-subplot grid (the NetCDF.plot N-9 path).
 
 Module-private; not part of the public pyramids surface.
+
+D-4 — kwarg routing
+-------------------
+
+Cleopatra's ``ArrayGlyph`` validates every kwarg twice: the constructor
+stores style/colour options into ``self.default_options``, and
+``ArrayGlyph.plot`` writes the same dict again. Forwarding the *same*
+kwargs dict to both call sites was the original D-4 smell — harmless
+(values were just re-assigned) but confusing. PR-6 splits the
+incoming ``**kwargs`` into two buckets:
+
+* **render-call-only** — ``points``, ``point_color``, ``point_size``,
+  ``pid_color``, ``pid_size``, ``kind``. These are explicit keyword
+  arguments on ``ArrayGlyph.plot``/``.animate``/``.facet`` and must
+  reach the render method, not the constructor.
+* **constructor** — every other kwarg (``cmap``, ``vmin``, ``vmax``,
+  ``levels``, ``robust``, ``center``, ``extend``, ``cbar_kwargs``,
+  ``figsize``, ``title``, ``num_size``, ...). These go into
+  ``default_options`` and the render methods pick them up from there.
+
+The animate path is the one exception: cleopatra's ``ArrayGlyph.animate``
+re-validates **every** kwarg against ``DEFAULT_OPTIONS``, so for that
+mode we merge both buckets back into a single ``animate_kwargs`` dict
+and pass nothing to the constructor.
 """
 
 from __future__ import annotations
@@ -25,13 +55,20 @@ from typing import Any, Callable
 
 import numpy as np
 
-from pyramids.base._utils import import_cleopatra
+from pyramids.base._utils import require_cleopatra
 # `add_basemap` is imported at top-level so existing test patches that
 # target `pyramids.basemap.basemap.add_basemap` keep working. The
 # helper re-resolves the symbol via `pyramids.basemap.basemap` inside
 # :func:`render_array` so monkeypatching the module attribute is
 # honoured at call time.
 from pyramids.basemap import basemap as _basemap_module
+
+# N-6 — Mesh rendering shares this module's "data in, glyph out"
+# contract via :func:`mesh_render`. The function lives next to
+# :func:`render_array` so the single-backend abstraction (D-6) is
+# trivially discoverable. Implementation forwards to
+# :mod:`pyramids.netcdf.ugrid.plot` to avoid a circular import; the
+# UGRID-side helpers contain the cleopatra ``MeshGlyph`` dispatch.
 
 
 def render_array(
@@ -190,10 +227,7 @@ def render_array(
 
             ```
     """
-    import_cleopatra(
-        "The current function uses cleopatra package to for plotting, please install it "
-        "manually, for more info check https://github.com/serapeum-org/cleopatra"
-    )
+    require_cleopatra()
     from cleopatra.array_glyph import ArrayGlyph
 
     valid_modes = ("plot", "animate", "facet")
@@ -217,11 +251,40 @@ def render_array(
     # cleopatra's `coords` and `extent` are mutually exclusive; drop
     # `extent` when curvilinear coords are present.
     effective_extent = None if coords is not None else extent
-    # The `"animate"` path only flows kwargs into `cleo.animate(...)`,
-    # not the constructor — keys like `interval` / `points` are valid
-    # for animate but not in cleopatra's `DEFAULT_OPTIONS` and would
-    # trigger an "Unknown option" ValueError on the constructor pass.
-    ctor_kwargs = {} if mode == "animate" else kwargs
+
+    # D-4 split: keep figure/colour/scale options on the constructor
+    # (they land in cleopatra's ``default_options`` once) and route the
+    # render-call-only kwargs (``points``, ``point_color``, ...,
+    # ``kind``) to ``cleo.plot``/``cleo.animate``/``cleo.facet``. Before
+    # PR-6 the same ``kwargs`` dict was passed to both call sites; that
+    # double-forward was harmless (cleopatra re-assigned the same values
+    # into ``default_options``) but obscured which kwargs belonged where.
+    plot_call_only = {
+        "points",
+        "point_color",
+        "point_size",
+        "pid_color",
+        "pid_size",
+        "kind",
+    }
+    ctor_kwargs: dict[str, Any] = {}
+    render_kwargs: dict[str, Any] = {}
+    for key, value in kwargs.items():
+        if key in plot_call_only:
+            render_kwargs[key] = value
+        else:
+            ctor_kwargs[key] = value
+    # The ``"animate"`` path only flows kwargs into ``cleo.animate(...)``,
+    # not the constructor — keys like ``interval`` are valid for animate
+    # but not in cleopatra's ``DEFAULT_OPTIONS`` and would trigger an
+    # "Unknown option" ValueError on the constructor pass. Merge the two
+    # buckets back together for the animate call.
+    if mode == "animate":
+        animate_kwargs = {**ctor_kwargs, **render_kwargs}
+        ctor_kwargs = {}
+    else:
+        animate_kwargs = {}
+
     cleo = ArrayGlyph(
         arr,
         exclude_value=exclude_value if exclude_value is not None else np.nan,
@@ -237,7 +300,10 @@ def render_array(
     )
 
     if mode == "plot":
-        cleo.plot(**kwargs)
+        # Only render-call-only kwargs reach ``cleo.plot`` — the
+        # constructor already absorbed every option meaningful to
+        # cleopatra's ``default_options`` machinery.
+        cleo.plot(**render_kwargs)
         result: Any = cleo
         if basemap:
             if basemap_epsg is None:
@@ -255,11 +321,102 @@ def render_array(
     elif mode == "animate":
         if data_getter is not None:
             cleo.animate(
-                animation_axis_values, data_getter=data_getter, **kwargs
+                animation_axis_values,
+                data_getter=data_getter,
+                **animate_kwargs,
             )
         else:
-            cleo.animate(animation_axis_values, **kwargs)
+            cleo.animate(animation_axis_values, **animate_kwargs)
         result = cleo
     else:
-        result = cleo.facet(**facet_kwargs, **kwargs)
+        # Facet path: cleopatra's ``ArrayGlyph.facet`` accepts every
+        # option that ``ArrayGlyph.plot`` does (it allocates one Axes
+        # per panel and calls ``imshow``/``pcolormesh`` under the hood).
+        # Forward only the render-call-only set; the rest is already on
+        # the constructor.
+        result = cleo.facet(**facet_kwargs, **render_kwargs)
+    return result
+
+
+def mesh_render(
+    *,
+    mesh: Any,
+    data: Any,
+    location: str = "face",
+    basemap: bool | str | None = None,
+    basemap_epsg: int | None = None,
+    **kwargs: Any,
+) -> Any:
+    """N-6 — sibling of :func:`render_array` for UGRID mesh data.
+
+    Routes a pyramids ``Mesh2d`` + a per-element data array through
+    cleopatra's :class:`~cleopatra.mesh_glyph.MeshGlyph`, returning the
+    glyph instance. Mirrors the :func:`render_array` contract — "single
+    backend abstraction, one entry point per cleopatra glyph" — so the
+    raster facade (:meth:`pyramids.dataset.Dataset.plot`,
+    :meth:`pyramids.netcdf.NetCDF.plot`) and the mesh facade
+    (:meth:`pyramids.netcdf.ugrid.dataset.UgridDataset.plot`) now share
+    the same dispatch shape.
+
+    Args:
+        mesh: A :class:`pyramids.netcdf.ugrid.mesh.Mesh2d` topology.
+        data: 1-D data array. Length must match ``mesh.n_face`` when
+            ``location='face'`` or ``mesh.n_node`` when
+            ``location='node'``.
+        location: Mesh element location for the data — ``"face"`` or
+            ``"node"``. Defaults to ``"face"``.
+        basemap: ``True`` or a contextily provider string; overlays a
+            web-tile basemap underneath the rendered mesh. ``None``
+            (default) skips the basemap.
+        basemap_epsg: CRS code passed to
+            :func:`pyramids.basemap.basemap.add_basemap`. When
+            ``basemap`` is truthy and this is ``None`` the helper
+            raises :class:`ValueError`.
+        **kwargs: Forwarded to
+            :func:`pyramids.netcdf.ugrid.plot.plot_mesh_data`. Common
+            options: ``ax``, ``cmap``, ``vmin``, ``vmax``,
+            ``edgecolor``, ``colorbar``, ``title``.
+
+    Returns:
+        cleopatra.mesh_glyph.MeshGlyph: The same instance that
+            :func:`pyramids.netcdf.ugrid.plot.plot_mesh_data` returns.
+
+    Raises:
+        ValueError: If ``basemap`` is truthy and ``basemap_epsg`` is
+            ``None``.
+
+    Examples:
+        Render a single-triangle mesh with face-centred data. Tagged
+        ``+SKIP`` because the call requires the optional ``[viz]`` extra
+        and a real matplotlib backend:
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset._plot_helpers import mesh_render
+            >>> from pyramids.netcdf.ugrid.mesh import Mesh2d
+            >>> mesh = Mesh2d.from_arrays(  # doctest: +SKIP
+            ...     node_x=np.array([0.0, 1.0, 0.5]),
+            ...     node_y=np.array([0.0, 0.0, 1.0]),
+            ...     face_node_connectivity=np.array([[0, 1, 2]]),
+            ... )
+            >>> glyph = mesh_render(  # doctest: +SKIP
+            ...     mesh=mesh,
+            ...     data=np.array([1.5]),
+            ...     location="face",
+            ... )
+
+            ```
+    """
+    if basemap and basemap_epsg is None:
+        raise ValueError(
+            "Dataset must have a CRS (epsg) to use basemap."
+        )
+    require_cleopatra()
+    from pyramids.netcdf.ugrid.plot import plot_mesh_data
+
+    result = plot_mesh_data(mesh, data, location=location, **kwargs)
+    if basemap:
+        source = basemap if isinstance(basemap, str) else None
+        ax = result.ax if hasattr(result, "ax") else result
+        _basemap_module.add_basemap(ax, crs=basemap_epsg, source=source)
     return result

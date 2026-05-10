@@ -388,12 +388,45 @@ class Catalog:
         return result_key
 
 
+_DEFAULT_CLEOPATRA_MSG = (
+    "The current operation uses the cleopatra package. Install it via the "
+    "[viz] extra (`pip install pyramids-gis[viz]`) or directly from "
+    "https://github.com/serapeum-org/cleopatra"
+)
+
+
 def import_cleopatra(message: str):
     """Import cleopatra."""
     try:
         import cleopatra  # noqa
     except ImportError:
         raise OptionalPackageDoesNotExist(message)
+
+
+def require_cleopatra(msg: str | None = None) -> None:
+    """Single guard for the optional cleopatra dependency.
+
+    Consolidates the scattered ``import_cleopatra(<bespoke message>)``
+    calls that used to live next to every plot / colour helper. The
+    default error message points at the ``[viz]`` install extra; callers
+    that want a domain-specific hint pass ``msg`` and override it.
+
+    Args:
+        msg: Override for the default error message. ``None`` uses the
+            shared default.
+
+    Raises:
+        OptionalPackageDoesNotExist: When cleopatra is not importable.
+
+    Examples:
+        Default message (kept inside the test runner so importing
+        cleopatra does not crash):
+
+            >>> from pyramids.base._utils import require_cleopatra
+            >>> require_cleopatra()  # doctest: +SKIP
+    """
+    effective = msg if msg is not None else _DEFAULT_CLEOPATRA_MSG
+    import_cleopatra(effective)
 
 
 def import_flox(message: str):

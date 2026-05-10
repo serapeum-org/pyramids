@@ -445,3 +445,65 @@ class TestAddBasemap:
             ), f"Expected 2 calls to mercantile.tiles, got {len(calls)}"
             assert calls[0][1]["zooms"] == 10, "First call should use zoom 10"
             assert calls[1][1]["zooms"] == 9, "Second call should use zoom 9"
+
+
+class TestCleopatraDelegation:
+    """Tests for the PR-6 / C-6 ``cleopatra.add_tiles`` delegation.
+
+    The cleopatra release containing the C-6 ``add_tiles`` helper is
+    not yet published, so :func:`pyramids.basemap.add_basemap` still
+    runs an inline implementation. These tests assert the contract
+    that the eventual delegation must satisfy:
+
+    * The shared signature of ``pyramids.basemap.add_basemap`` and
+      ``cleopatra.add_tiles`` matches.
+    * ``cleopatra.add_tiles`` is importable from the ``cleopatra``
+      package root, ready for the one-line wrapper migration.
+
+    When the version pin in pyproject.toml gets bumped these tests
+    serve as the regression net for the rewrite.
+    """
+
+    def test_cleopatra_add_tiles_is_importable(self):
+        """C-6 has been merged in cleopatra; the helper is importable."""
+        cleopatra = pytest.importorskip(
+            "cleopatra", reason="cleopatra not installed"
+        )
+        assert hasattr(cleopatra, "add_tiles"), (
+            "cleopatra.add_tiles must be exposed at the package root "
+            "(C-6 contract). Re-export from cleopatra.tiles or "
+            "cleopatra.__init__."
+        )
+
+    def test_pyramids_and_cleopatra_share_addmap_signature(self):
+        """Pyramids ``add_basemap`` and cleopatra ``add_tiles`` line up.
+
+        Test scenario:
+            The PR-6 migration TODO turns ``add_basemap`` into a
+            one-line wrapper around ``cleopatra.add_tiles``. The
+            switch only works if the two functions accept the same
+            kwargs. Compare the parameter names directly so a future
+            cleopatra release that drifts the signature gets caught
+            here.
+        """
+        import inspect
+
+        cleopatra = pytest.importorskip(
+            "cleopatra", reason="cleopatra not installed"
+        )
+        cleo_sig = inspect.signature(cleopatra.add_tiles)
+        pyr_sig = inspect.signature(add_basemap)
+        cleo_params = set(cleo_sig.parameters) - {"ax"}
+        pyr_params = set(pyr_sig.parameters) - {"ax"}
+        missing = cleo_params - pyr_params
+        extra = pyr_params - cleo_params
+        assert not missing, (
+            f"cleopatra.add_tiles has params not in pyramids.add_basemap: "
+            f"{missing}. Either add them to pyramids or update the C-6 "
+            "delegation contract."
+        )
+        assert not extra, (
+            f"pyramids.add_basemap has params not in cleopatra.add_tiles: "
+            f"{extra}. The PR-6 one-line delegation will not work until "
+            "these are pushed upstream."
+        )

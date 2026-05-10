@@ -979,4 +979,127 @@ class TestPlotPhase3CrossCutting:
             )
 
 
+class TestPlotPR6Cleanups:
+    """Regression coverage for the PR-6 D-4 / D-5 cleanup."""
+
+    def test_no_legacy_import_cleopatra_in_plot_modules(self):
+        """D-5 — every plot-adjacent module uses ``require_cleopatra``.
+
+        Test scenario:
+            The legacy ``import_cleopatra(<verbose message>)`` call
+            sites were consolidated into a single
+            ``require_cleopatra()`` helper in
+            :mod:`pyramids.base._utils`. A regression scan of the
+            plot-adjacent modules must not turn up any remaining
+            ``import_cleopatra(`` *calls* (the function definition
+            stays around for downstream consumers). This is a
+            grep-style test: the absence is the assertion.
+        """
+        from pathlib import Path
+
+        repo = Path(__file__).parents[2]
+        targets = [
+            "src/pyramids/dataset/_plot_helpers.py",
+            "src/pyramids/dataset/engines/analysis.py",
+            "src/pyramids/dataset/engines/bands.py",
+            "src/pyramids/netcdf/ugrid/plot.py",
+        ]
+        offenders = []
+        for rel in targets:
+            content = (repo / rel).read_text(encoding="utf-8")
+            for line in content.splitlines():
+                stripped = line.strip()
+                if (
+                    "import_cleopatra(" in stripped
+                    and not stripped.startswith("#")
+                ):
+                    offenders.append(f"{rel}: {stripped}")
+        assert not offenders, (
+            f"Found legacy `import_cleopatra(` call sites: {offenders}. "
+            "Use `require_cleopatra()` from `pyramids.base._utils`."
+        )
+
+    def test_require_cleopatra_callable_from_single_location(self):
+        """D-5 — ``require_cleopatra`` lives in one place and is callable.
+
+        Test scenario:
+            The consolidated guard is exposed from
+            ``pyramids.base._utils.require_cleopatra``. It should be
+            importable and callable; the call succeeds silently when
+            cleopatra is installed (which it is in the [viz] test env).
+        """
+        from pyramids.base._utils import require_cleopatra
+
+        require_cleopatra()
+        require_cleopatra("optional override message")
+
+    def test_render_array_kwargs_not_double_forwarded(self):
+        """D-4 — kwargs reach the constructor xor the render call.
+
+        Test scenario:
+            The render-call-only kwargs (``points``, ``point_color``,
+            ``point_size``, ``pid_color``, ``pid_size``, ``kind``) must
+            reach ``ArrayGlyph.plot``, not the constructor. Every
+            other kwarg must land on the constructor exactly once.
+            We patch both call sites and inspect the recorded kwargs.
+        """
+        from unittest.mock import patch as _patch
+
+        from pyramids.dataset._plot_helpers import render_array as _rarr
+
+        rng = np.random.default_rng(7)
+        arr = rng.random((4, 4)).astype("float32")
+
+        ctor_seen: dict = {}
+        plot_seen: dict = {}
+
+        class _FakeAxes:
+            def __init__(self):
+                self.aspect = "auto"
+
+            def get_xlim(self):
+                return (0.0, 1.0)
+
+            def get_ylim(self):
+                return (0.0, 1.0)
+
+        class _FakeGlyph:
+            def __init__(self, array, **kwargs):
+                ctor_seen.update(kwargs)
+                self.arr = array
+                self.ax = _FakeAxes()
+                self.fig = None
+
+            def plot(self, **kwargs):
+                plot_seen.update(kwargs)
+                return (None, self.ax)
+
+        with _patch(
+            "cleopatra.array_glyph.ArrayGlyph",
+            new=_FakeGlyph,
+        ):
+            _rarr(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                cmap="viridis",
+                vmin=0.0,
+                kind="imshow",
+                points=None,
+            )
+
+        assert "cmap" in ctor_seen, (
+            f"Ctor should own `cmap`; got ctor={ctor_seen}, plot={plot_seen}"
+        )
+        assert "cmap" not in plot_seen, (
+            f"`cmap` must not double-forward; plot kwargs={plot_seen}"
+        )
+        assert "kind" in plot_seen, (
+            f"`kind` should reach cleo.plot; got plot={plot_seen}"
+        )
+        assert "kind" not in ctor_seen, (
+            f"`kind` should not be on the constructor; ctor={ctor_seen}"
+        )
+
+
 

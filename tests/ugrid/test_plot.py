@@ -92,3 +92,36 @@ class TestUgridDatasetPlotMethods:
         )
         result = ds.plot_outline()
         assert isinstance(result, MeshGlyph), f"Expected MeshGlyph, got {type(result)}"
+
+    def test_dataset_plot_routes_through_mesh_render(self):
+        """N-6 — UgridDataset.plot dispatches via the shared helper.
+
+        Test scenario:
+            Patch ``pyramids.dataset._plot_helpers.mesh_render`` and
+            verify ``UgridDataset.plot`` goes through it. The patched
+            helper records the call args so the test asserts both that
+            the data flows through and that the same single-backend
+            abstraction now serves raster (``render_array``) and mesh
+            (``mesh_render``) facades.
+        """
+        from unittest.mock import patch
+
+        ds = UgridDataset.create_from_arrays(
+            node_x=np.array([0.0, 1.0, 0.5]),
+            node_y=np.array([0.0, 0.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2]]),
+            data={"depth": np.array([5.0])},
+            data_locations={"depth": "face"},
+        )
+        with patch(
+            "pyramids.netcdf.ugrid.dataset._mesh_render",
+            return_value="sentinel",
+        ) as mock_render:
+            result = ds.plot("depth")
+        assert result == "sentinel", (
+            f"UgridDataset.plot must return mesh_render result, got {result!r}"
+        )
+        mock_render.assert_called_once()
+        kw = mock_render.call_args.kwargs
+        assert kw.get("location") == "face"
+        assert kw.get("title") == "depth"

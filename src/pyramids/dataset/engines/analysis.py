@@ -19,7 +19,7 @@ from pandas import DataFrame
 
 from pyramids.base._domain import inside_domain, is_no_data
 from pyramids.base._errors import AlignmentError
-from pyramids.base._utils import import_cleopatra
+from pyramids.base._utils import require_cleopatra
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.feature import FeatureCollection
 
@@ -1022,10 +1022,7 @@ class Analysis(_Engine):
 
     @staticmethod
     def _process_color_table(color_table: DataFrame) -> DataFrame:
-        import_cleopatra(
-            "The current function uses cleopatra package to for plotting, please install it manually, for more info"
-            " check https://github.com/serapeum-org/cleopatra"
-        )
+        require_cleopatra()
         from cleopatra.colors import Colors
 
         # if the color_table does not contain the red, green, and blue columns, assume it has one column with

@@ -4,6 +4,28 @@ Provides the public API for adding web tile basemaps to matplotlib
 axes. Tiles are fetched from XYZ providers (OpenStreetMap, CartoDB,
 Esri, etc.), stitched into a single image, optionally warped to the
 data's CRS via GDAL, and rendered underneath the data layer.
+
+PR-6 / C-6 migration note
+-------------------------
+
+The cleopatra package now ships an equivalent
+:func:`cleopatra.tiles.add_tiles` helper (cleopatra C-6 task) with
+the same external contract — same kwarg names, same return shape,
+same provider resolution. Once the cleopatra release containing C-6
+is pinned in ``pyproject.toml``'s ``[viz]`` extra,
+:func:`add_basemap` here can become a one-line wrapper around
+``cleopatra.add_tiles``. Until the release is published the
+implementation stays inline so the existing pinned versions in the
+``[viz]`` extra (``mercantile``, ``xyzservices``, ``Pillow``)
+continue to work without depending on an unreleased cleopatra. The
+public symbol :func:`add_basemap` continues to work either way — that
+is the contract every existing test patches against.
+
+# TODO: bump to cleopatra release containing C-6 (add_tiles) and
+# turn the body of :func:`add_basemap` into
+#     ``return cleopatra.add_tiles(ax, source=source, crs=crs, ...)``.
+# Then drop ``mercantile`` / ``xyzservices`` / ``Pillow`` from the
+# ``[viz]`` extra in ``pyproject.toml``.
 """
 
 from __future__ import annotations
