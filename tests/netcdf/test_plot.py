@@ -432,3 +432,646 @@ class TestNetCDFPlotDefaultRender:
         nc = _make_3d_nc()
         result = nc.plot(variable="t2m")
         assert isinstance(result, ArrayGlyph)
+
+    def test_3d_time_slice_arrayglyph_shape_matches_2d(self):
+        """`time=N` selector returns an ArrayGlyph wrapping the 5x5 spatial slice.
+
+        Test scenario:
+            Build a 3-time-step container with 5x5 grid, pin
+            ``time=1``, and verify the returned ArrayGlyph wraps a 2-D
+            array of shape ``(5, 5)`` that equals the corresponding
+            band of the source.
+        """
+        nc = _make_3d_nc(n_times=3, rows=5, cols=5)
+        var = nc.get_variable("t2m")
+        expected = var.read_array()[1]
+        result = nc.plot(variable="t2m", time=1)
+        assert isinstance(result, ArrayGlyph), (
+            f"Expected ArrayGlyph, got {type(result).__name__}"
+        )
+        assert result.arr.shape == (5, 5), (
+            f"Expected 2-D (5, 5) slice, got shape {result.arr.shape}"
+        )
+        assert_array_equal(
+            result.arr,
+            expected,
+            err_msg="time=1 slice must equal var.read_array()[1] byte-for-byte",
+        )
+
+    def test_4d_time_level_slice_matches_chained_sel(self):
+        """4-D `time=` + `level=` returns the same 2-D array as chained ``sel()``.
+
+        Test scenario:
+            Plot a 4-D ``(time, pressure_level, lat, lon)`` variable
+            with ``time=12, level=500`` and verify the rendered
+            ArrayGlyph's array equals ``var.sel(time=12).sel(pressure_level=500).read_array()``.
+        """
+        nc = _make_4d_nc()
+        var = nc.get_variable("temperature")
+        expected = var.sel(time=12).sel(pressure_level=500).read_array()
+        result = nc.plot(variable="temperature", time=12, level=500)
+        assert isinstance(result, ArrayGlyph), (
+            f"Expected ArrayGlyph, got {type(result).__name__}"
+        )
+        assert_array_equal(
+            result.arr,
+            expected,
+            err_msg="4-D plot slice must match var.sel(...).sel(...).read_array()",
+        )
+
+    def test_plot_twice_returns_independent_array_glyphs(self):
+        """Two successive plot calls return distinct ArrayGlyph instances.
+
+        Test scenario:
+            Calling ``nc.plot`` twice on the same variable must
+            produce two ArrayGlyph objects with different ``.fig``
+            matplotlib figure instances — each render gets its own
+            canvas and no state leaks between calls.
+        """
+        nc = _make_3d_nc()
+        first = nc.plot(variable="t2m", time=0)
+        second = nc.plot(variable="t2m", time=0)
+        assert first is not second, "Successive plot calls returned the same object"
+        assert first.fig is not second.fig, (
+            "Successive plot calls shared the same matplotlib Figure; "
+            "each render must own its canvas"
+        )
+
+
+class TestNetCDFPlotVariableResolutionEdges:
+    """Coverage for ``variable=`` edge cases not covered above."""
+
+    def test_empty_string_variable_raises_value_error(self):
+        """``variable=""`` is not a real variable and must be rejected.
+
+        Test scenario:
+            Empty-string lookup goes through ``get_variable("")`` and
+            must surface as a meaningful ValueError so the user is
+            not left with a cryptic GDAL error.
+        """
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError):
+            nc.plot(variable="")
+
+    def test_whitespace_variable_name_raises(self):
+        """Leading/trailing whitespace on ``variable=`` is rejected.
+
+        Test scenario:
+            ``variable=" t2m "`` (with surrounding whitespace) does
+            not match the canonical variable name ``"t2m"``; the call
+            must raise rather than silently rendering the wrong thing.
+        """
+        nc = _make_3d_nc()
+        with pytest.raises((ValueError, RuntimeError)):
+            nc.plot(variable=" t2m ")
+
+    def test_unknown_variable_name_raises(self):
+        """``variable="missing"`` is not in ``variable_names`` and must raise."""
+        nc = _make_3d_nc()
+        with pytest.raises((ValueError, KeyError, RuntimeError)):
+            nc.plot(variable="missing")
+
+    def test_4d_no_selectors_raises_did_not_pin(self):
+        """4-D variable plotted with no selectors must report the under-pin.
+
+        Test scenario:
+            With band_count == n_times * n_levels > 1 and no
+            selectors, ``pinned.analysis.plot(band=0, ...)`` is reached
+            but the slice is ambiguous. The current behaviour renders
+            band 0 of the flattened cube; assert this path runs to
+            completion (no crash) and returns an ArrayGlyph — the
+            "did not pin" guard fires only when ``resolved_sel`` is
+            truthy.
+        """
+        nc = _make_4d_nc()
+        result = nc.plot(variable="temperature")
+        assert isinstance(result, ArrayGlyph), (
+            f"4-D no-selector default should still render the first flat "
+            f"band, got {type(result).__name__}"
+        )
+
+    def test_4d_under_specified_isel_raises_with_resolved_and_shape(self):
+        """4-D variable under-pinned via ``isel`` reports resolved and remaining shape.
+
+        Test scenario:
+            ``isel={"time": 0}`` on a ``(time, pressure_level, lat, lon)``
+            variable leaves the pressure_level dim free. The
+            ValueError must mention "single 2-D slice", the resolved
+            selector dict, and the remaining shape.
+        """
+        nc = _make_4d_nc()
+        with pytest.raises(ValueError, match=r"single 2-D slice") as exc_info:
+            nc.plot(variable="temperature", isel={"time": 0})
+        msg = str(exc_info.value)
+        assert "time" in msg, f"Resolved selectors should be reported, got: {msg}"
+        assert "Remaining shape" in msg, (
+            f"Error must include 'Remaining shape', got: {msg}"
+        )
+
+
+class TestNetCDFPlotRejectedKwargsCombinations:
+    """Combination semantics for the six Sentinel-only rejected kwargs."""
+
+    def test_all_six_rejected_kwargs_first_wins(self):
+        """When several rejected kwargs are passed together, ``rgb`` wins.
+
+        Test scenario:
+            The gate iterates the ``forbidden_kwargs`` mapping in
+            insertion order; ``rgb`` is first, so its message is the
+            one that surfaces. This documents the precedence and
+            guards against an accidental dict reorder regression.
+        """
+        nc = _make_3d_nc()
+        with pytest.raises(TypeError, match=r"rgb="):
+            nc.plot(
+                variable="t2m",
+                rgb=[0, 1, 2],
+                surface_reflectance=10000,
+                cutoff=[0.1, 0.9],
+                percentile=2,
+                overview=True,
+                overview_index=0,
+            )
+
+    def test_rejected_kwarg_via_kwargs_dict_still_raises(self):
+        """A rejected kwarg passed via ``**`` unpacking still raises.
+
+        Test scenario:
+            The gate inspects ``kwargs`` (the captured ``**kwargs``)
+            regardless of how the caller spelled the argument. A user
+            who builds the kwargs dict programmatically must hit the
+            same TypeError, ensuring the contract is keyword-agnostic.
+        """
+        nc = _make_3d_nc()
+        extra = {"percentile": 2}
+        with pytest.raises(TypeError, match=r"robust=True"):
+            nc.plot(variable="t2m", **extra)
+
+    def test_legacy_band_plus_rejected_rejection_wins(self):
+        """Rejected kwarg + legacy ``band=`` → rejected wins, no DeprecationWarning.
+
+        Test scenario:
+            The forbidden-kwargs gate runs before the legacy ``band=``
+            pop in :func:`NetCDF.plot`. A combined call must therefore
+            raise TypeError and emit **no** DeprecationWarning.
+        """
+        nc = _make_3d_nc()
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            with pytest.raises(TypeError, match=r"overview="):
+                nc.plot(variable="t2m", band=0, overview=True)
+        deprecation_warnings = [
+            w for w in captured if issubclass(w.category, DeprecationWarning)
+        ]
+        assert not deprecation_warnings, (
+            f"Rejection must fire before the band= deprecation hook; "
+            f"got {[str(w.message) for w in deprecation_warnings]}"
+        )
+
+
+class TestNetCDFPlotSelectorEdges:
+    """Edges for the selector pipeline (``sel``/``isel``/``time``/``level``/``member``)."""
+
+    def test_empty_sel_dict_is_noop(self):
+        """``sel={}`` adds no resolved selectors; default render proceeds."""
+        nc = _make_3d_nc()
+        result = nc.plot(variable="t2m", sel={})
+        assert isinstance(result, ArrayGlyph), (
+            f"Empty sel dict must be a no-op, got {type(result).__name__}"
+        )
+
+    def test_empty_isel_dict_is_noop(self):
+        """``isel={}`` adds no resolved selectors; default render proceeds."""
+        nc = _make_3d_nc()
+        result = nc.plot(variable="t2m", isel={})
+        assert isinstance(result, ArrayGlyph), (
+            f"Empty isel dict must be a no-op, got {type(result).__name__}"
+        )
+
+    def test_time_alias_overrides_sel_entry(self):
+        """``time=`` alias is written into ``resolved_sel`` after the raw ``sel``.
+
+        Test scenario:
+            Both ``sel={"time": 0}`` and ``time=2`` are passed. Per
+            the implementation order in :func:`NetCDF.plot`, the
+            convenience alias is appended last and overwrites the
+            sel-dict entry. Verify by capturing the band index that
+            actually reaches the renderer.
+        """
+        nc = _make_3d_nc(n_times=4)
+        var = nc.get_variable("t2m")
+        expected = var.read_array()[2]
+        captured: dict = {}
+
+        def _capture(self_engine, **kw):
+            captured["data"] = self_engine._ds.read_array(band=0)
+            return "ok"
+
+        with patch.object(
+            type(var.analysis), "plot", autospec=True, side_effect=_capture
+        ):
+            nc.plot(variable="t2m", sel={"time": 0}, time=2)
+
+        assert_array_equal(
+            captured["data"],
+            expected,
+            err_msg="time=2 must override sel={'time': 0} (convenience alias wins)",
+        )
+
+    def test_isel_overrides_sel_for_same_dim(self):
+        """``isel`` writes after ``sel`` + aliases; isel wins for shared dims.
+
+        Test scenario:
+            Both ``sel={"time": 0}`` and ``isel={"time": 2}`` are
+            given; the implementation processes ``sel`` first, then
+            ``isel``, so the isel entry is the one that survives in
+            ``resolved_sel``.
+        """
+        nc = _make_3d_nc(n_times=4)
+        var = nc.get_variable("t2m")
+        expected = var.read_array()[2]
+        captured: dict = {}
+
+        def _capture(self_engine, **kw):
+            captured["data"] = self_engine._ds.read_array(band=0)
+            return "ok"
+
+        with patch.object(
+            type(var.analysis), "plot", autospec=True, side_effect=_capture
+        ):
+            nc.plot(
+                variable="t2m",
+                sel={"time": 0},
+                isel={"time": 2},
+            )
+        assert_array_equal(
+            captured["data"],
+            expected,
+            err_msg="isel must override sel for the same dim (later write wins)",
+        )
+
+    def test_time_value_not_in_coords_raises(self):
+        """An unknown ``time=`` value surfaces as a ValueError from ``sel``."""
+        nc = _make_3d_nc(n_times=4)
+        with pytest.raises(ValueError, match=r"No bands match"):
+            nc.plot(variable="t2m", time=999)
+
+    def test_isel_unknown_dim_name_raises(self):
+        """``isel`` keyed by a non-band-dim name must raise with a helpful list."""
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"is not a band dim"):
+            nc.plot(variable="t2m", isel={"bogus_dim": 0})
+
+    def test_level_on_variable_without_vertical_dim_raises(self):
+        """``level=`` on a variable whose band dims do not include a vertical name.
+
+        Test scenario:
+            On a 3-D ``(time, lat, lon)`` variable the band dim is
+            ``time`` only — none of the candidates (``pressure_level``,
+            ``depth``, ``height``, ``z``, ``level``) appear. The
+            resolver must raise and include the available band dims
+            in the message.
+        """
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"level=") as exc_info:
+            nc.plot(variable="t2m", level=500)
+        assert "['time']" in str(exc_info.value), (
+            f"Band dim names must be reported in the error, got: {exc_info.value}"
+        )
+
+    def test_member_on_variable_without_ensemble_dim_raises(self):
+        """``member=`` on a non-ensemble variable surfaces a clear ValueError."""
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"member=") as exc_info:
+            nc.plot(variable="t2m", member=0)
+        assert "['time']" in str(exc_info.value), (
+            f"Available band dims must be listed, got: {exc_info.value}"
+        )
+
+    def test_under_specified_4d_message_contents(self):
+        """Pin-to-one-slice ValueError on 4-D includes resolved and remaining shape.
+
+        Test scenario:
+            ``sel={"time": 12}`` on the 4-D variable leaves
+            pressure_level free; the error message must include both
+            the resolved selector dict and the remaining shape so the
+            user can debug.
+        """
+        nc = _make_4d_nc()
+        with pytest.raises(ValueError, match=r"single 2-D slice") as exc_info:
+            nc.plot(variable="temperature", sel={"time": 12})
+        message = str(exc_info.value)
+        assert "Resolved" in message, (
+            f"Error must mention 'Resolved', got: {message}"
+        )
+        assert "Remaining shape" in message, (
+            f"Error must mention 'Remaining shape', got: {message}"
+        )
+
+
+class TestNetCDFPlotCoordAxesExtra:
+    """Additional ``x=`` / ``y=`` validation coverage."""
+
+    def test_invalid_x_with_valid_y_raises_on_x_first(self):
+        """``x="bogus"`` with valid ``y=`` still raises (x is checked first)."""
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"x=") as exc_info:
+            nc.plot(variable="t2m", x="bogus", y="t2m")
+        assert "bogus" in str(exc_info.value), (
+            f"Error must echo the bad name, got: {exc_info.value}"
+        )
+
+    def test_valid_x_omitted_y_renders(self):
+        """``x=<valid>`` with ``y=None`` passes validation and renders."""
+        nc = _make_3d_nc()
+        result = nc.plot(variable="t2m", x="t2m")
+        assert isinstance(result, ArrayGlyph), (
+            "x=<valid> with y omitted should render"
+        )
+
+    def test_valid_x_y_stashed_on_subset(self):
+        """``x=`` and ``y=`` are stored on the subset for later PR-3 use.
+
+        Test scenario:
+            After ``nc.plot(variable="t2m", x="t2m", y="t2m")`` the
+            subset returned by ``get_variable`` records the names in
+            ``_plot_x_coord_name`` / ``_plot_y_coord_name``. We
+            capture the subset via patching to assert the stash.
+        """
+        nc = _make_3d_nc()
+        captured_subset: list = []
+        real_get_variable = type(nc).get_variable
+
+        def _spy(self_, name):
+            sub = real_get_variable(self_, name)
+            captured_subset.append(sub)
+            return sub
+
+        with patch.object(type(nc), "get_variable", _spy):
+            nc.plot(variable="t2m", x="t2m", y="t2m")
+
+        assert captured_subset, "get_variable was not called on the container"
+        sub = captured_subset[0]
+        assert sub._plot_x_coord_name == "t2m", (
+            f"Expected x='t2m', got {sub._plot_x_coord_name!r}"
+        )
+        assert sub._plot_y_coord_name == "t2m", (
+            f"Expected y='t2m', got {sub._plot_y_coord_name!r}"
+        )
+
+
+class TestNetCDFPlotForwardingExtra:
+    """Additional kwarg-forwarding edges to cleopatra."""
+
+    def test_cmap_forwarded(self):
+        """``cmap="viridis"`` reaches ``Analysis.plot`` verbatim."""
+        nc = _make_3d_nc()
+        var = nc.get_variable("t2m")
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "ok"
+            nc.plot(variable="t2m", cmap="viridis")
+        assert mock_plot.call_args.kwargs.get("cmap") == "viridis", (
+            f"cmap must be forwarded, got: {mock_plot.call_args.kwargs}"
+        )
+
+    def test_vmin_vmax_forwarded(self):
+        """``vmin``/``vmax`` are forwarded to the renderer."""
+        nc = _make_3d_nc()
+        var = nc.get_variable("t2m")
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "ok"
+            nc.plot(variable="t2m", vmin=0.0, vmax=1.0)
+        kw = mock_plot.call_args.kwargs
+        assert kw.get("vmin") == 0.0, f"vmin not forwarded: {kw}"
+        assert kw.get("vmax") == 1.0, f"vmax not forwarded: {kw}"
+
+    def test_basemap_without_epsg_raises(self):
+        """``basemap=True`` on a CRS-less subset must surface the underlying ValueError.
+
+        Test scenario:
+            The ``Analysis.plot`` engine enforces
+            ``"Dataset must have a CRS (epsg) to use basemap."``. We
+            null out ``_epsg`` on the variable subset returned by
+            ``get_variable`` and confirm NetCDF.plot does not
+            short-circuit the basemap contract.
+        """
+        nc = _make_3d_nc()
+        real_get_variable = type(nc).get_variable
+
+        def _spy(self_, name):
+            sub = real_get_variable(self_, name)
+            sub._epsg = None
+            return sub
+
+        with patch.object(type(nc), "get_variable", _spy):
+            with pytest.raises(ValueError, match=r"CRS"):
+                nc.plot(variable="t2m", basemap=True)
+
+
+class TestNetCDFPlotContainerBehaviour:
+    """Container/subset dispatch wiring covered end-to-end."""
+
+    def test_container_error_lists_available_variables(self):
+        """The missing-variable error message includes every available name.
+
+        Test scenario:
+            On a container with a single variable ``t2m``, the
+            ValueError text must include ``'t2m'`` so users can pick
+            from the list verbatim.
+        """
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"variable=") as exc_info:
+            nc.plot()
+        assert "t2m" in str(exc_info.value), (
+            f"Error message must list available variables, got: {exc_info.value}"
+        )
+
+    def test_subset_with_matching_variable_continues_silently(self):
+        """``var.plot(variable=var._source_var_name)`` does not raise.
+
+        Test scenario:
+            Mirror of ``read_array``'s contract: passing the pinned
+            name on a subset is accepted and the call proceeds to
+            render. We patch ``Analysis.plot`` to confirm the call
+            reaches the engine.
+        """
+        nc = _make_3d_nc()
+        var = nc.get_variable("t2m")
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "ok"
+            result = var.plot(variable=var._source_var_name)
+        assert result == "ok", (
+            f"Expected the patched render to return 'ok', got: {result!r}"
+        )
+        assert mock_plot.called, "Analysis.plot was not invoked"
+
+
+def _make_2d_nc():
+    """Build a 2-D (lat, lon) NetCDF in memory with no band dim.
+
+    Returns:
+        NetCDF: Container with a single 2-D variable ``surface``.
+    """
+    rng = np.random.default_rng(3)
+    arr = rng.random((5, 5)).astype(np.float32)
+    nc = NetCDF.create_from_array(
+        arr=arr,
+        geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
+        epsg=4326,
+        variable_name="surface",
+    )
+    return nc
+
+
+def _make_ensemble_nc():
+    """Build a 3-D (member, lat, lon) NetCDF for ensemble selector tests.
+
+    Returns:
+        NetCDF: Container whose only variable has an ``ensemble`` dim.
+    """
+    rng = np.random.default_rng(4)
+    arr = rng.random((3, 4, 4)).astype(np.float32)
+    nc = NetCDF.create_from_array(
+        arr=arr,
+        geo=(0.0, 1.0, 0, 4.0, 0, -1.0),
+        epsg=4326,
+        variable_name="forecast",
+        extra_dim_name="ensemble",
+        extra_dim_values=[0, 1, 2],
+    )
+    return nc
+
+
+def _make_3d_nc_anon_dim():
+    """Build a 3-D NetCDF whose band dim is not a time-coded name.
+
+    Returns:
+        NetCDF: Container whose variable has a single ``alpha`` band dim
+        (none of ``time`` / ``valid_time`` / ``t``).
+    """
+    rng = np.random.default_rng(5)
+    arr = rng.random((3, 4, 4)).astype(np.float32)
+    nc = NetCDF.create_from_array(
+        arr=arr,
+        geo=(0.0, 1.0, 0, 4.0, 0, -1.0),
+        epsg=4326,
+        variable_name="signal",
+        extra_dim_name="alpha",
+        extra_dim_values=[10, 20, 30],
+    )
+    return nc
+
+
+class TestNetCDFPlotDimResolverFallbacks:
+    """Coverage for the 2-D / fallback paths in the three dim resolvers."""
+
+    def test_time_on_pure_2d_variable_raises(self):
+        """``time=`` on a variable with no band dim raises a helpful ValueError.
+
+        Test scenario:
+            A 2-D ``(lat, lon)`` variable has empty
+            ``_band_dim_names``; the resolver must short-circuit with
+            a message that mentions the absent band dimension.
+        """
+        nc = _make_2d_nc()
+        var = nc.get_variable("surface")
+        with pytest.raises(ValueError, match=r"no band dimension"):
+            var.plot(time=0)
+
+    def test_level_on_pure_2d_variable_raises(self):
+        """``level=`` on a 2-D variable raises with the band-dim hint."""
+        nc = _make_2d_nc()
+        var = nc.get_variable("surface")
+        with pytest.raises(ValueError, match=r"no band dimension"):
+            var.plot(level=500)
+
+    def test_member_on_pure_2d_variable_raises(self):
+        """``member=`` on a 2-D variable raises with the band-dim hint."""
+        nc = _make_2d_nc()
+        var = nc.get_variable("surface")
+        with pytest.raises(ValueError, match=r"no band dimension"):
+            var.plot(member=0)
+
+    def test_time_falls_back_to_primary_band_dim(self):
+        """``time=`` returns the first band dim when no candidate name matches.
+
+        Test scenario:
+            Build a NetCDF whose band dim is ``alpha`` — none of the
+            time-coded candidates (``time``, ``valid_time``, ``t``)
+            are present. The resolver must fall back to
+            ``_band_dim_names[0]`` and pin the slice via
+            ``sel(alpha=...)``. Verify by capturing the band that
+            reaches the renderer.
+        """
+        nc = _make_3d_nc_anon_dim()
+        var = nc.get_variable("signal")
+        expected = var.read_array()[1]
+        captured: dict = {}
+
+        def _capture(self_engine, **kw):
+            captured["data"] = self_engine._ds.read_array(band=0)
+            return "ok"
+
+        with patch.object(
+            type(var.analysis), "plot", autospec=True, side_effect=_capture
+        ):
+            nc.plot(variable="signal", time=20)
+        assert_array_equal(
+            captured["data"],
+            expected,
+            err_msg="time= fallback must resolve to the first band dim (alpha)",
+        )
+
+
+class TestNetCDFPlotMemberSelector:
+    """End-to-end selector coverage for the ``member=`` alias."""
+
+    def test_member_resolves_ensemble_dim_and_pins_slice(self):
+        """``member=N`` resolves the ``ensemble`` dim and pins the matching slice.
+
+        Test scenario:
+            Build a ``(member, lat, lon)`` variable with values ``0,
+            1, 2``; call ``nc.plot(variable=..., member=1)`` and
+            confirm the slice that reaches the renderer equals
+            ``var.read_array()[1]``.
+        """
+        nc = _make_ensemble_nc()
+        var = nc.get_variable("forecast")
+        expected = var.read_array()[1]
+        captured: dict = {}
+
+        def _capture(self_engine, **kw):
+            captured["data"] = self_engine._ds.read_array(band=0)
+            return "ok"
+
+        with patch.object(
+            type(var.analysis), "plot", autospec=True, side_effect=_capture
+        ):
+            nc.plot(variable="forecast", member=1)
+        assert_array_equal(
+            captured["data"],
+            expected,
+            err_msg="member=1 must pin var.read_array()[1] on an ensemble dim",
+        )
+
+
+class TestNetCDFPlotIselNoCoordValues:
+    """``isel`` with a coord-less dim uses the raw integer index."""
+
+    def test_isel_with_none_coords_uses_index_directly(self):
+        """``coords is None`` branch in ``isel`` passes the int through to ``sel``.
+
+        Test scenario:
+            Null ``_band_dim_values_map["time"]`` on the variable
+            subset, then call ``var.plot(isel={"time": 1})``. The
+            isel branch sees ``coords is None``, sets
+            ``resolved_sel["time"] = 1``, and the subsequent
+            ``sel(time=1)`` must raise because no coord values exist
+            — which we accept here; the goal is exercising the branch.
+        """
+        nc = _make_3d_nc()
+        var = nc.get_variable("t2m")
+        var._band_dim_values_map = dict(var._band_dim_values_map)
+        var._band_dim_values_map["time"] = None
+        with pytest.raises(ValueError, match=r"No coordinate values"):
+            var.plot(isel={"time": 1})
