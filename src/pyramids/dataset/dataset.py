@@ -308,6 +308,51 @@ class Dataset(RasterBase):
             tuple[int, list[int] | None]: The resolved single-band index and the
                 effective ``rgb`` list to forward to :meth:`Analysis.plot`. The ``rgb``
                 element is ``None`` when no RGB rendering should happen.
+
+        Examples:
+            - Explicit ``band`` is always returned untouched (rule 1):
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> arr = np.random.rand(4, 8, 8).astype(np.float32)
+              >>> ds = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ... )
+              >>> ds._resolve_plot_band(band=2, rgb=None)
+              (2, None)
+
+              ```
+
+            - Single-band raster falls back to band ``0`` (rule 2):
+
+              ```python
+              >>> single = np.random.rand(6, 6).astype(np.float32)
+              >>> ds_1band = Dataset.create_from_array(
+              ...     single, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ... )
+              >>> ds_1band._resolve_plot_band(band=None, rgb=None)
+              (0, None)
+
+              ```
+
+            - Multi-band dataset with no ``ColorInterpretation`` defaults to band ``0``
+              (rule 3, the D-1 fix). ``Dataset.create_from_array`` produces a multi-band
+              MEM raster whose bands all report ``undefined`` colour interpretation:
+
+              ```python
+              >>> ds._resolve_plot_band(band=None, rgb=None)
+              (0, None)
+
+              ```
+
+            - Explicit ``rgb`` passes through alongside an explicit ``band``:
+
+              ```python
+              >>> ds._resolve_plot_band(band=1, rgb=[2, 1, 0])
+              (1, [2, 1, 0])
+
+              ```
         """
         if band is not None:
             resolved_band = band
@@ -361,6 +406,81 @@ class Dataset(RasterBase):
         the red band is auto-selected (either from ``rgb[0]`` or by resolving the colour
         tags). Otherwise the facade defaults to band ``0``. See
         :meth:`Analysis.plot` for the full kwargs surface.
+
+        Args:
+            band (int, optional):
+                Band index to render. When ``None``, the index is resolved by
+                :meth:`_resolve_plot_band`.
+            exclude_value (Any, optional):
+                Pixel value to mask out before plotting. Default is ``None``.
+            rgb (list[int], optional):
+                Three- or four-element list of band indices ``[r, g, b]`` (optionally
+                ``[r, g, b, a]``) to render the dataset as a true-colour composite.
+                Only honoured when the dataset has at least 3 bands and at least one
+                band reports a colour interpretation. Default is ``None``.
+            surface_reflectance (int, optional):
+                Surface-reflectance scale factor used to normalise satellite reflectance
+                bands (typically ``10000`` for Sentinel-2). Default is ``None``.
+            cutoff (list, optional):
+                Per-band clip values used when rendering RGB composites. Default is
+                ``None``.
+            overview (bool, optional):
+                If ``True``, plot the overview pyramid level instead of the full-resolution
+                array. Default is ``False``.
+            overview_index (int, optional):
+                Index of the overview level to plot when ``overview=True``. Default is ``0``.
+            percentile (int, optional):
+                Percentile used when computing colour-scale limits. Default is ``None``.
+            basemap (bool or str, optional):
+                If ``True``, overlay an OpenStreetMap basemap. If a string, use it as the
+                contextily/xyzservices tile-provider name (e.g. ``"CartoDB.Positron"``).
+                Default is ``None``. Requires the ``[viz]`` extra.
+            **kwargs:
+                Additional keyword arguments forwarded verbatim to
+                :meth:`Analysis.plot`. See that method for the full kwargs surface
+                (figure size, color scale, color bar, basemap, etc.).
+
+        Returns:
+            ArrayGlyph: A cleopatra ``ArrayGlyph`` wrapping the rendered figure.
+                Use ``cleo.fig`` (the :class:`matplotlib.figure.Figure`) and ``cleo.ax``
+                (the :class:`matplotlib.axes.Axes`) to drop down to raw matplotlib.
+
+        Examples:
+            - Render the first band of a single-band MEM raster. Tagged ``+SKIP`` because
+              the call requires the optional ``[viz]`` extra (cleopatra + matplotlib):
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> arr = np.random.rand(8, 8).astype(np.float32)
+              >>> ds = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ... )
+              >>> cleo = ds.plot()  # doctest: +SKIP
+              >>> cleo.fig          # doctest: +SKIP
+              <Figure size 800x800 with 2 Axes>
+
+              ```
+
+            - Override the resolved band index. The facade forwards ``band=1`` straight
+              to the engine without consulting the heuristic:
+
+              ```python
+              >>> cleo = ds.plot(band=1)  # doctest: +SKIP
+
+              ```
+
+            - Render a multi-band raster as a true-colour composite by passing an
+              explicit ``rgb`` list:
+
+              ```python
+              >>> arr3 = np.random.rand(3, 8, 8).astype(np.float32)
+              >>> rgb_ds = Dataset.create_from_array(
+              ...     arr3, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ... )
+              >>> cleo = rgb_ds.plot(rgb=[0, 1, 2])  # doctest: +SKIP
+
+              ```
         """
         resolved_band, resolved_rgb = self._resolve_plot_band(band, rgb)
         return self.analysis.plot(

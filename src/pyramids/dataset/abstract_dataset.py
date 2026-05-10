@@ -465,8 +465,10 @@ class RasterBase(ABC):
                 Value to exclude from the plot. Default is None.
             rgb (List[int], optional):
                 RGB band indices. Default is [3, 2, 1].
-            surface_reflectance (int, optional):
-                Surface reflectance. Default is 10,000.
+            surface_reflectance (int | None, optional):
+                Surface reflectance value used to normalise satellite reflectance bands
+                (typically ``10000`` for Sentinel-2). Default is ``None`` — concrete
+                subclasses are responsible for picking a meaningful default when relevant.
             cutoff (List, optional):
                 Clip the range of pixel values for each band (take only the pixel values from 0 to the value of
                 the cutoff and scale them back to between 0 and 1). Default is None.

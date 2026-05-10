@@ -491,15 +491,73 @@ class NetCDF(Dataset):
         reason — they describe Sentinel-2-style multi-band reflectance data, not
         atmospheric / oceanographic data cubes.
 
-        Blocked on root MDIM containers — extract a variable first.
+        Blocked on root MDIM containers — extract a variable first via
+        :meth:`get_variable` (or by indexing) before calling :meth:`plot`.
 
         Args:
-            band: Flat band index into the subset (defaults to ``0``).
-            **kwargs: Forwarded to :meth:`Analysis.plot`.
+            band (int):
+                Flat band index into the variable subset. For a 3-D NetCDF variable
+                ``(extra_dim, rows, cols)`` the band index selects an ``extra_dim`` slice
+                (typically a time step or vertical level). Defaults to ``0``.
+            **kwargs:
+                Additional keyword arguments forwarded verbatim to
+                :meth:`Analysis.plot <pyramids.dataset.engines.Analysis.plot>`. See that
+                method for the full kwargs surface.
+
+        Returns:
+            ArrayGlyph: A cleopatra ``ArrayGlyph`` wrapping the rendered figure. Use
+                ``cleo.fig`` and ``cleo.ax`` to drop down to raw matplotlib.
 
         Raises:
-            TypeError: If any of ``rgb``, ``surface_reflectance``, or ``cutoff`` is passed.
-            ValueError: If called on a root MDIM container.
+            TypeError: If any of ``rgb``, ``surface_reflectance``, or ``cutoff`` is
+                passed. The error message points at the right replacement (``band=`` for
+                ``rgb=``, ``vmin=``/``vmax=`` for ``cutoff=``).
+            ValueError: If called on a root MDIM container (i.e. the NetCDF wrapper still
+                points at the multi-variable root rather than at a specific variable).
+
+        Examples:
+            - Reject Sentinel-only kwargs. The forbidden-kwarg gate fires before any
+              cleopatra import, so these examples are runnable as doctests:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import NetCDF
+              >>> arr = np.random.rand(4, 8, 8).astype(np.float32)
+              >>> nc = NetCDF.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ... )
+              >>> nc.plot(rgb=[0, 1, 2])  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: NetCDF.plot() does not accept rgb=: ...
+              >>> nc.plot(surface_reflectance=10000)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: NetCDF.plot() does not accept surface_reflectance=: ...
+              >>> nc.plot(cutoff=[0.1, 0.9])  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: NetCDF.plot() does not accept cutoff=: ...
+
+              ```
+
+            - Render the default ``band=0`` slice of a NetCDF variable subset. Tagged
+              ``+SKIP`` because the call requires the optional ``[viz]`` extra (cleopatra +
+              matplotlib):
+
+              ```python
+              >>> cleo = nc.plot()  # doctest: +SKIP
+              >>> cleo.fig          # doctest: +SKIP
+              <Figure size 800x800 with 2 Axes>
+
+              ```
+
+            - Pick a different time/level slice by passing ``band=``:
+
+              ```python
+              >>> cleo = nc.plot(band=2)  # doctest: +SKIP
+
+              ```
         """
         forbidden_kwargs = {
             "rgb": (
