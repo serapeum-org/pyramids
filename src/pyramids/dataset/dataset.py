@@ -501,6 +501,18 @@ class Dataset(RasterBase):
               ... )
 
               ```
+
+            - The deprecated loose-kwarg form still works but emits a
+              :class:`DeprecationWarning`. New code should prefer the
+              grouped ``rgb_options=`` form shown above:
+
+              ```python
+              >>> cleo = rgb_ds.plot(  # doctest: +SKIP
+              ...     rgb=[0, 1, 2], surface_reflectance=255,
+              ... )
+              DeprecationWarning: Passing `rgb=`, `surface_reflectance=`...
+
+              ```
         """
         rgb, surface_reflectance, cutoff, percentile = self._merge_rgb_options(
             rgb_options=rgb_options,
@@ -553,6 +565,100 @@ class Dataset(RasterBase):
         Returns:
             tuple: ``(rgb, surface_reflectance, cutoff, percentile)``
                 resolved values, with the grouped form taking precedence.
+
+        Raises:
+            ValueError: If ``rgb_options`` contains a key outside the
+                accepted set ``{"rgb", "surface_reflectance", "cutoff",
+                "percentile"}``.
+
+        Examples:
+            - Pass everything through the grouped form (recommended).
+              No warnings are emitted and the returned four-tuple
+              mirrors the inputs in order:
+
+                ```python
+                >>> import warnings
+                >>> from pyramids.dataset import Dataset
+                >>> with warnings.catch_warnings(record=True) as caught:
+                ...     warnings.simplefilter("always")
+                ...     result = Dataset._merge_rgb_options(
+                ...         rgb_options={
+                ...             "rgb": [2, 1, 0],
+                ...             "surface_reflectance": 10000,
+                ...         },
+                ...         rgb=None,
+                ...         surface_reflectance=None,
+                ...         cutoff=None,
+                ...         percentile=None,
+                ...     )
+                >>> result
+                ([2, 1, 0], 10000, None, None)
+                >>> [w.category.__name__ for w in caught]
+                []
+
+                ```
+
+            - Passing a value via the loose top-level kwarg path emits
+              a :class:`DeprecationWarning` that names the kwarg(s)
+              used and points to the grouped replacement:
+
+                ```python
+                >>> import warnings
+                >>> from pyramids.dataset import Dataset
+                >>> with warnings.catch_warnings(record=True) as caught:
+                ...     warnings.simplefilter("always")
+                ...     result = Dataset._merge_rgb_options(
+                ...         rgb_options=None,
+                ...         rgb=[2, 1, 0],
+                ...         surface_reflectance=None,
+                ...         cutoff=None,
+                ...         percentile=None,
+                ...     )
+                >>> result
+                ([2, 1, 0], None, None, None)
+                >>> caught[0].category.__name__
+                'DeprecationWarning'
+
+                ```
+
+            - When both forms collide, ``rgb_options`` wins. A
+              :class:`DeprecationWarning` is still emitted for the loose
+              kwarg:
+
+                ```python
+                >>> import warnings
+                >>> from pyramids.dataset import Dataset
+                >>> with warnings.catch_warnings(record=True) as caught:
+                ...     warnings.simplefilter("always")
+                ...     result = Dataset._merge_rgb_options(
+                ...         rgb_options={"rgb": [0, 1, 2]},
+                ...         rgb=[3, 4, 5],
+                ...         surface_reflectance=None,
+                ...         cutoff=None,
+                ...         percentile=None,
+                ...     )
+                >>> result
+                ([0, 1, 2], None, None, None)
+
+                ```
+
+            - An unknown key in ``rgb_options`` raises
+              :class:`ValueError`:
+
+                ```python
+                >>> from pyramids.dataset import Dataset
+                >>> Dataset._merge_rgb_options(  # doctest: +IGNORE_EXCEPTION_DETAIL
+                ...     rgb_options={"unknown": 1},
+                ...     rgb=None,
+                ...     surface_reflectance=None,
+                ...     cutoff=None,
+                ...     percentile=None,
+                ... )
+                Traceback (most recent call last):
+                    ...
+                ValueError: Unknown keys in `rgb_options`: ['unknown']...
+
+                ```
         """
         loose_pairs = {
             "rgb": rgb,

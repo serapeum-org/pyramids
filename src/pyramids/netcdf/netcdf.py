@@ -838,6 +838,92 @@ class NetCDF(Dataset):
               ... )
 
               ```
+
+            - Render with explicit 2-D coord arrays passed directly via
+              ``coords=``. The arrays bypass the CF / convention
+              auto-detection step and route the renderer to
+              ``pcolormesh``:
+
+              ```python
+              >>> import numpy as np
+              >>> x2d, y2d = np.meshgrid(
+              ...     np.linspace(0, 10, 4), np.linspace(0, 10, 4),
+              ... )
+              >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+              >>> nc_curv = NetCDF.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+              ...     variable_name="t2m",
+              ... )
+              >>> cleo = nc_curv.plot(  # doctest: +SKIP
+              ...     variable="t2m", coords=(x2d, y2d),
+              ... )
+
+              ```
+
+            - Facet over the time dim. Setting ``col="time"`` walks the
+              dim, builds a stack of slices, and hands them to
+              :meth:`cleopatra.array_glyph.ArrayGlyph.facet`. The return
+              type becomes :class:`cleopatra.array_glyph.FacetGrid`:
+
+              ```python
+              >>> arr = np.random.rand(4, 5, 5).astype(np.float32)
+              >>> nc_t = NetCDF.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+              ...     variable_name="t2m",
+              ... )
+              >>> grid = nc_t.plot(  # doctest: +SKIP
+              ...     variable="t2m", col="time",
+              ... )
+
+              ```
+
+            - Facet a 4-D variable across both axes with ``col=`` and
+              ``row=``; ``col_wrap=`` is ignored when ``row=`` is given:
+
+              ```python
+              >>> arr4d = np.random.rand(3, 2, 4, 4).astype(np.float32)
+              >>> nc4d = NetCDF.create_from_array(
+              ...     arr=arr4d,
+              ...     geo=(0.0, 1.0, 0, 4.0, 0, -1.0),
+              ...     epsg=4326,
+              ...     variable_name="temperature",
+              ...     extra_dims=[
+              ...         ("time", [0, 6, 12]),
+              ...         ("pressure_level", [1000, 500]),
+              ...     ],
+              ... )
+              >>> grid = nc4d.plot(  # doctest: +SKIP
+              ...     variable="temperature",
+              ...     col="time",
+              ...     row="pressure_level",
+              ... )
+
+              ```
+
+            - Wrapping a single-axis facet into a grid via ``col_wrap=``.
+              ``N=4`` panels with ``col_wrap=3`` wrap to a ``2x3``
+              layout with one hidden slot:
+
+              ```python
+              >>> grid = nc_t.plot(  # doctest: +SKIP
+              ...     variable="t2m", col="time", col_wrap=3,
+              ... )
+
+              ```
+
+            - Faceting on a dim that is also pinned by a selector
+              raises :class:`ValueError` before any I/O. The gate is
+              enforced by :meth:`_validate_facet_dims`:
+
+              ```python
+              >>> nc_t.plot(  # doctest: +IGNORE_EXCEPTION_DETAIL
+              ...     variable="t2m", time=0, col="time",
+              ... )
+              Traceback (most recent call last):
+                  ...
+              ValueError: Cannot facet on 'time'...
+
+              ```
         """
         forbidden_kwargs = {
             "rgb": (
@@ -1094,6 +1180,50 @@ class NetCDF(Dataset):
                 variable; if the same dim appears in both the facet
                 kwargs and the resolved selectors; if `row=` is set
                 without `col=`; or if `col_wrap` is not a positive int.
+
+        Examples:
+            - A `col=` value that names an unpinned band dim validates
+              silently (the method returns ``None``):
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+                >>> nc = NetCDF.create_from_array(
+                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     variable_name="t2m",
+                ... )
+                >>> sub = nc.get_variable("t2m")
+                >>> sub._validate_facet_dims(
+                ...     col="time", row=None, col_wrap=None, resolved_sel={},
+                ... ) is None
+                True
+
+                ```
+
+            - Faceting on a dim that is also pinned by a selector
+              raises :class:`ValueError`:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+                >>> nc = NetCDF.create_from_array(
+                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     variable_name="t2m",
+                ... )
+                >>> sub = nc.get_variable("t2m")
+                >>> sub._validate_facet_dims(  # doctest: +IGNORE_EXCEPTION_DETAIL
+                ...     col="time",
+                ...     row=None,
+                ...     col_wrap=None,
+                ...     resolved_sel={"time": 0},
+                ... )
+                Traceback (most recent call last):
+                    ...
+                ValueError: Cannot facet on 'time'...
+
+                ```
         """
         facet_targets: list[str] = []
         if col is not None:
@@ -1149,6 +1279,64 @@ class NetCDF(Dataset):
             tuple: ``(stack, facet_kwargs)`` — the materialised array
                 and the kwargs dict to forward to
                 :meth:`cleopatra.array_glyph.ArrayGlyph.facet`.
+
+        Examples:
+            - Build a 3-D stack from a 3-D variable's single time dim
+              (``col`` only). The stack has one slice per coord value
+              and ``facet_kwargs`` carries the dim name and its coords:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+                >>> nc = NetCDF.create_from_array(
+                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     variable_name="t2m",
+                ... )
+                >>> sub = nc.get_variable("t2m")
+                >>> stack, fkw = sub._build_facet_stack(
+                ...     col="time", row=None, col_wrap=None,
+                ... )
+                >>> stack.shape
+                (3, 4, 4)
+                >>> fkw["col"]
+                'time'
+                >>> fkw["col_coords"]
+                [0.0, 1.0, 2.0]
+
+                ```
+
+            - Build a 4-D stack from a 4-D variable with both ``col``
+              and ``row`` facets. The result is
+              ``(Ncol, Nrow, rows, cols)`` and both axes' coords land in
+              ``facet_kwargs``:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> arr4d = np.random.rand(3, 2, 4, 4).astype(np.float32)
+                >>> nc4d = NetCDF.create_from_array(
+                ...     arr=arr4d,
+                ...     geo=(0.0, 1.0, 0, 4.0, 0, -1.0),
+                ...     epsg=4326,
+                ...     variable_name="temperature",
+                ...     extra_dims=[
+                ...         ("time", [0, 6, 12]),
+                ...         ("pressure_level", [1000, 500]),
+                ...     ],
+                ... )
+                >>> sub = nc4d.get_variable("temperature")
+                >>> stack, fkw = sub._build_facet_stack(
+                ...     col="time", row="pressure_level", col_wrap=None,
+                ... )
+                >>> stack.shape
+                (3, 2, 4, 4)
+                >>> fkw["row"]
+                'pressure_level'
+                >>> fkw["row_coords"]
+                [1000.0, 500.0]
+
+                ```
         """
         col_values = list(self._band_dim_values_map.get(col, []))
         if not col_values:
@@ -1300,6 +1488,76 @@ class NetCDF(Dataset):
                 only one of ``x`` / ``y`` is given, or if user-supplied
                 coord variable names do not exist on the parent
                 container.
+
+        Examples:
+            - A NetCDF without curvilinear coords (no CF
+              ``coordinates`` attribute, no WRF/ROMS/NEMO names) returns
+              ``None`` so the caller can fall back to the
+              geotransform-derived extent:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+                >>> nc = NetCDF.create_from_array(
+                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     variable_name="t2m",
+                ... )
+                >>> sub = nc.get_variable("t2m")
+                >>> sub._resolve_curvilinear_coords(
+                ...     x=None, y=None, coords=None,
+                ... ) is None
+                True
+
+                ```
+
+            - User-supplied numpy arrays for ``coords=`` (the WRF-style
+              ``XLAT``/``XLONG`` convention fallback path uses the same
+              array-shape validation). The helper returns the validated
+              ``(x_arr, y_arr)`` pair unchanged:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+                >>> nc = NetCDF.create_from_array(
+                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     variable_name="t2m",
+                ... )
+                >>> sub = nc.get_variable("t2m")
+                >>> x2d, y2d = np.meshgrid(
+                ...     np.linspace(0, 10, 4), np.linspace(0, 10, 4),
+                ... )
+                >>> x_arr, y_arr = sub._resolve_curvilinear_coords(
+                ...     x=None, y=None, coords=(x2d, y2d),
+                ... )
+                >>> x_arr.shape
+                (4, 4)
+                >>> y_arr.shape
+                (4, 4)
+
+                ```
+
+            - A length-1 ``coords=`` sequence raises
+              :class:`ValueError`:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+                >>> nc = NetCDF.create_from_array(
+                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     variable_name="t2m",
+                ... )
+                >>> sub = nc.get_variable("t2m")
+                >>> sub._resolve_curvilinear_coords(  # doctest: +IGNORE_EXCEPTION_DETAIL
+                ...     x=None, y=None, coords=("XLONG",),
+                ... )
+                Traceback (most recent call last):
+                    ...
+                ValueError: `coords=` must be a length-2 sequence...
+
+                ```
         """
         result: tuple[np.ndarray, np.ndarray] | None = None
 

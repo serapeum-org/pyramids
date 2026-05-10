@@ -1233,9 +1233,24 @@ class DatasetCollection:
     def plot(
         self, band: int = 0, exclude_value: Any | None = None, **kwargs: Any
     ) -> ArrayGlyph:
-        r"""Read Array.
+        r"""Render the collection as an animated stack of band slices.
 
-            - read the values stored in a given band.
+            - read the values stored in a given band across every
+              ``Dataset`` in the collection and hand the resulting
+              ``(time, rows, cols)`` array to cleopatra's animation
+              path.
+
+        Implementation note: this method is a thin caller around the
+        shared :func:`pyramids.dataset._plot_helpers.render_array`
+        helper. It stacks one band per ``Dataset`` into a 3-D array
+        and forwards to ``render_array(..., mode="animate",
+        animation_axis_values=...)``. The duplicated ``ArrayGlyph``
+        construction that used to live here is gone — the helper owns
+        the cleopatra dispatch and the same code path serves the
+        single-frame ``Dataset.plot`` and the multi-panel
+        ``NetCDF.plot`` facets. See
+        :mod:`pyramids.dataset._plot_helpers` for the three-mode
+        contract.
 
         Args:
             band (int):

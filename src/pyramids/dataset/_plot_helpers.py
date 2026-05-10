@@ -105,6 +105,80 @@ def render_array(
         ValueError: If ``mode`` is not one of the accepted values, if a
             required mode-specific argument is missing, or if
             ``basemap`` is truthy and ``basemap_epsg`` is ``None``.
+
+    Examples:
+        - Single-slice plot path. Tagged ``+SKIP`` because the call
+          touches cleopatra / matplotlib (the helper short-circuits
+          on ``mode`` validation before that, but rendering itself
+          requires the optional ``[viz]`` extra):
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset._plot_helpers import render_array
+            >>> arr = np.random.rand(8, 8).astype(np.float32)
+            >>> cleo = render_array(  # doctest: +SKIP
+            ...     arr=arr,
+            ...     extent=[0, 0, 8, 8],
+            ...     mode="plot",
+            ... )
+            >>> cleo.fig  # doctest: +SKIP
+            <Figure size 800x800 with 2 Axes>
+
+            ```
+
+        - Animation path used by
+          :meth:`pyramids.dataset.collection.DatasetCollection.plot`.
+          The 3-D stack is ``(time, rows, cols)`` and the frame
+          labels are passed via ``animation_axis_values``:
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset._plot_helpers import render_array
+            >>> stack = np.random.rand(4, 8, 8).astype(np.float32)
+            >>> cleo = render_array(  # doctest: +SKIP
+            ...     arr=stack,
+            ...     mode="animate",
+            ...     animation_axis_values=[0, 1, 2, 3],
+            ... )
+
+            ```
+
+        - Facet path used by :meth:`pyramids.netcdf.NetCDF.plot`. The
+          caller pre-builds the stack with ``_build_facet_stack`` and
+          passes the matching ``facet_kwargs`` dict (containing
+          ``col``, ``col_coords``, optionally ``row`` / ``row_coords``
+          / ``col_wrap``):
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset._plot_helpers import render_array
+            >>> stack = np.random.rand(3, 8, 8).astype(np.float32)
+            >>> grid = render_array(  # doctest: +SKIP
+            ...     arr=stack,
+            ...     mode="facet",
+            ...     facet_kwargs={
+            ...         "col": "time",
+            ...         "col_coords": [0, 1, 2],
+            ...     },
+            ... )
+
+            ```
+
+        - Invalid ``mode`` values are rejected up-front so caller
+          mistakes surface without touching cleopatra:
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset._plot_helpers import render_array
+            >>> arr = np.random.rand(4, 4).astype(np.float32)
+            >>> render_array(  # doctest: +IGNORE_EXCEPTION_DETAIL
+            ...     arr=arr, mode="bogus",
+            ... )
+            Traceback (most recent call last):
+                ...
+            ValueError: Invalid mode='bogus'...
+
+            ```
     """
     import_cleopatra(
         "The current function uses cleopatra package to for plotting, please install it "

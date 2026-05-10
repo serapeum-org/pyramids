@@ -844,6 +844,19 @@ class Analysis(_Engine):
         The plot function uses the `cleopatra` as a backend to plot the raster data, for more information check
         [ArrayGlyph](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/#cleopatra.array_glyph.ArrayGlyph.plot).
 
+        Implementation note: this method is a thin caller around the
+        shared :func:`pyramids.dataset._plot_helpers.render_array`
+        helper. It resolves the data (``arr``), extent, exclude value,
+        and curvilinear coords from the underlying ``Dataset``, then
+        forwards to ``render_array(..., mode="plot", ...)`` for a
+        single 2-D slice or ``mode="facet"`` when ``NetCDF.plot``
+        injects a pre-built ``_facet_stack`` and ``facet_kwargs``.
+        ``DatasetCollection.plot`` reuses the same helper with
+        ``mode="animate"``. The shared helper owns the actual
+        ``ArrayGlyph`` construction and dispatch — see the module
+        docstring of :mod:`pyramids.dataset._plot_helpers` for the
+        three-mode contract.
+
         Args:
             band (int):
                 Concrete band index to render. Must be provided \u2014 the engine does not resolve
