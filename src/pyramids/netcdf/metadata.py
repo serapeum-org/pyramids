@@ -66,6 +66,13 @@ class MetadataBuilder:
         'netCDF'
     """
 
+    # Allow-list of CF attribute names topped up from the classic GDAL
+    # driver when the multidim driver omits them. Locked by the test
+    # `TestClassicDimFallbackAttrsConstant::test_classic_dim_fallback_attrs_value`
+    # — adding a name here is a behavioural change that should fail that
+    # test intentionally so the contract is reviewed.
+    _CLASSIC_DIM_FALLBACK_ATTRS: tuple[str, ...] = ("units", "calendar")
+
     def __init__(
         self,
         src: gdal.Dataset,
@@ -211,13 +218,6 @@ class MetadataBuilder:
             bounds_map=bounds_map,
             data_variable_names=data_vars,
         )
-
-    # Allow-list of CF attribute names topped up from the classic GDAL
-    # driver when the multidim driver omits them. Locked by the test
-    # `TestClassicDimFallbackAttrsConstant::test_classic_dim_fallback_attrs_value`
-    # — adding a name here is a behavioural change that should fail that
-    # test intentionally so the contract is reviewed.
-    _CLASSIC_DIM_FALLBACK_ATTRS: tuple[str, ...] = ("units", "calendar")
 
     def _topup_dim_attrs_from_classic(
         self,

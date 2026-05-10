@@ -6,6 +6,7 @@ netcdf contains python functions to handle netcdf data. gdal class: https://gdal
 
 from __future__ import annotations
 
+import math
 import os
 import tempfile
 import weakref
@@ -657,9 +658,7 @@ class NetCDF(Dataset):
         # view is provably stale. For multi-band-dim variables the
         # `_band_count` is the product of every band-dim size, so compare
         # against `prod(_band_dim_sizes)` rather than `len(values)`.
-        expected_count = 1
-        for sz in self._band_dim_sizes:
-            expected_count *= sz
+        expected_count = math.prod(self._band_dim_sizes)
         if (
             self._band_dim_values is not None
             and wrapped._band_count > 0
@@ -1049,13 +1048,9 @@ class NetCDF(Dataset):
         # dim_indices) when there is exactly one band dim.
         dim_axis = self._band_dim_names.index(dim_name)
         sizes = self._band_dim_sizes
-        stride = 1
-        for sz in sizes[dim_axis + 1:]:
-            stride *= sz
+        stride = math.prod(sizes[dim_axis + 1:])
         block = stride * sizes[dim_axis]
-        total = 1
-        for sz in sizes:
-            total *= sz
+        total = math.prod(sizes)
 
         band_indices: list[int] = []
         for pinned in dim_indices:
