@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import deque
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -66,6 +66,13 @@ class MetadataBuilder:
         'netCDF'
     """
 
+    # Allow-list of CF attribute names topped up from the classic GDAL
+    # driver when the multidim driver omits them. Locked by the test
+    # `TestClassicDimFallbackAttrsConstant::test_classic_dim_fallback_attrs_value`
+    # — adding a name here is a behavioural change that should fail that
+    # test intentionally so the contract is reviewed.
+    _CLASSIC_DIM_FALLBACK_ATTRS: tuple[str, ...] = ("units", "calendar")
+
     def __init__(
         self,
         src: gdal.Dataset,
@@ -81,6 +88,12 @@ class MetadataBuilder:
         """
         self.gdal_dataset = src
         self.open_options = open_options or None
+        # Cache for `_read_classic_metadata_for_topup`: lazy-filled on
+        # first call so repeat builds (or repeat calls within a build)
+        # don't re-open the file in classic mode. `None` means "not yet
+        # filled"; an empty dict means "filled but no classic metadata
+        # was available". Reset by `_invalidate_classic_md_cache`.
+        self._classic_md_cache: dict[str, str] | None = None
 
     def build(self) -> NetCDFMetadata:
         """Build and return the `NetCDFMetadata` for the dataset.
@@ -122,6 +135,7 @@ class MetadataBuilder:
         if root_group is not None:
             traverser = GroupTraverser(groups_map, variables_map, dimensions_map)
             traverser.walk(root_group)
+            self._topup_dim_attrs_from_classic(dimensions_map)
 
             try:
                 root_name = root_group.GetFullName()
@@ -204,6 +218,153 @@ class MetadataBuilder:
             bounds_map=bounds_map,
             data_variable_names=data_vars,
         )
+
+    def _topup_dim_attrs_from_classic(
+        self,
+        dimensions: dict[str, DimensionInfo],
+    ) -> None:
+        """Top up `dimensions[*].attrs` from classic GDAL metadata.
+
+        The multidim NetCDF driver occasionally drops CF attributes
+        (notably `units` on time dims of CDS-Beta retrievals) from the
+        indexing variable. The same attributes remain reachable through
+        the classic driver as `<dim_name>#<attr_name>` keys on a
+        classic-mode `gdal.Dataset.GetMetadata()`. This helper merges
+        the classic-API view in for any attribute in
+        `_CLASSIC_DIM_FALLBACK_ATTRS` that the multidim path did not
+        surface, leaving everything else untouched.
+
+        Existing multidim values always win over classic values; only
+        missing entries are merged. The `DimensionInfo` dataclass is
+        frozen, so updated entries are swapped in via
+        `dataclasses.replace` rather than mutated in place.
+
+        Args:
+            dimensions: Mutable map of dimensions assembled by
+                `GroupTraverser`. Entries with missing fallback attrs
+                are replaced with new `DimensionInfo` values keyed by
+                the same dictionary key.
+
+        Returns:
+            None. Mutates `dimensions` in place.
+
+        Notes:
+            All failure paths in `_read_classic_metadata_for_topup`
+            collapse to an empty dict, so this helper degrades to a
+            no-op when the classic metadata is unavailable.
+
+        See Also:
+            `_read_classic_metadata_for_topup`: source of the classic-API
+                metadata used here.
+        """
+        classic_md = self._read_classic_metadata_for_topup()
+        if not classic_md:
+            return
+        for key, dim in list(dimensions.items()):
+            new_attrs = dict(dim.attrs)
+            updated = False
+            for attr_name in self._CLASSIC_DIM_FALLBACK_ATTRS:
+                if attr_name in new_attrs:
+                    continue
+                value = classic_md.get(f"{dim.name}#{attr_name}")
+                if value:
+                    new_attrs[attr_name] = value
+                    updated = True
+            if updated:
+                dimensions[key] = replace(dim, attrs=new_attrs)
+
+    @staticmethod
+    def _is_classic_dim_attr_key(key: str) -> bool:
+        """Return `True` iff `key` looks like a classic NetCDF dim/var attr.
+
+        Classic GDAL metadata flattens per-variable / per-dim attrs as
+        `<name>#<attr>` (e.g. `valid_time#units`,
+        `NC_GLOBAL#Conventions`). The multidim driver instead exposes
+        `NETCDF_DIM_<name>_DEF` / `NETCDF_DIM_<name>_VALUES` style
+        markers — those can technically contain a `#` in unusual
+        setups but are NOT per-dim attribute carriers, so they should
+        not satisfy the "looks classic" check.
+
+        Args:
+            key: A key from `gdal.Dataset.GetMetadata()`.
+
+        Returns:
+            bool: `True` if the key is a `<name>#<attr>` pair where
+            `<name>` is non-empty and not a GDAL multidim marker.
+        """
+        if "#" not in key:
+            return False
+        prefix, _, attr = key.partition("#")
+        if not prefix or not attr:
+            return False
+        return not prefix.startswith("NETCDF_")
+
+    def _read_classic_metadata_for_topup(self) -> dict[str, str]:
+        """Return a classic-mode flat metadata dict for the dataset.
+
+        Datasets opened with `gdal.OF_MULTIDIM_RASTER` return `{}` from
+        `GetMetadata()`; the flat `<dim>#<attr>` keys only exist on a
+        classic-mode open. When the in-hand dataset already has such
+        keys (i.e. it was opened classically), they are returned
+        directly. Otherwise a transient classic-mode handle is opened
+        on the same path via `gdal.Open(GetDescription())`. Any failure
+        (no path, file unreachable, GDAL error on `GetMetadata` /
+        `GetDescription` / `Open`) yields `{}` so the top-up becomes a
+        no-op.
+
+        The result is cached on the `MetadataBuilder` instance after
+        the first call so that repeat builds — and code paths that
+        invoke `build()` in a loop, e.g. `to_kerchunk` or
+        `_apply_to_all_variables` — don't re-open the file every time.
+        For cloud / VSI paths this avoids extra network round-trips.
+
+        Returns:
+            dict[str, str]: Flat metadata keyed by `<dim>#<attr>` (and
+            other classic keys like `NC_GLOBAL#*`). Empty dict on any
+            failure path.
+
+        Notes:
+            The cache is invalidated only by constructing a fresh
+            `MetadataBuilder`. That matches the lifecycle of the class
+            (one builder per dataset per intent) and avoids stale-
+            metadata bugs if a caller mutates the underlying file.
+        """
+        if self._classic_md_cache is not None:
+            return self._classic_md_cache
+        result: dict[str, str] = {}
+        try:
+            existing = self.gdal_dataset.GetMetadata() or {}
+        except RuntimeError as exc:
+            logger.debug("classic GetMetadata() failed during dim top-up: %s", exc)
+            existing = {}
+        # Detect a classic-mode metadata dict by the presence of at
+        # least one `<dim>#<attr>` key. Exclude GDAL-driver markers
+        # like `NETCDF_DIM_*` from the heuristic — those can carry a
+        # `#` in some setups but don't give us per-dim attributes.
+        if any(self._is_classic_dim_attr_key(k) for k in existing):
+            result = existing
+        else:
+            try:
+                path = self.gdal_dataset.GetDescription()
+            except RuntimeError as exc:
+                logger.debug("GetDescription() failed during dim top-up: %s", exc)
+                path = ""
+            if path:
+                try:
+                    ds = gdal.Open(path)
+                    try:
+                        if ds is not None:
+                            result = ds.GetMetadata() or {}
+                    finally:
+                        ds = None  # explicit release; see review M1
+                except RuntimeError as exc:
+                    logger.debug(
+                        "classic re-open failed during dim top-up (%r): %s",
+                        path,
+                        exc,
+                    )
+        self._classic_md_cache = result
+        return result
 
 
 class GroupTraverser:

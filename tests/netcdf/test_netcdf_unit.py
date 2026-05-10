@@ -217,6 +217,39 @@ class TestGetTimeVariable:
         if result is not None:
             assert "/" in result[0], f"Expected '/' in date format, got {result[0]}"
 
+    def test_get_time_variable_cds_beta_era5(self):
+        """E2E: CDS-Beta ERA5 NetCDFs hide ``valid_time#units`` from the
+        multidim driver but expose it on the classic driver. The
+        ``MetadataBuilder._topup_dim_attrs_from_classic`` fallback must
+        recover ``units`` (and ``calendar``) so ``get_time_variable``
+        returns parsed dates instead of ``None``. Reproduces issue #309.
+        """
+        nc = NetCDF.read_file(
+            "tests/data/netcdf/era5_cds_beta_t2m_jan2022.nc",
+            open_as_multi_dimensional=True,
+        )
+
+        valid_time = nc.meta_data.dimensions["valid_time"]
+        assert (
+            valid_time.attrs.get("units") == "seconds since 1970-01-01"
+        ), f"expected classic units to be merged, got attrs={valid_time.attrs}"
+        assert (
+            valid_time.attrs.get("calendar") == "proleptic_gregorian"
+        ), f"expected calendar from multidim to survive, got attrs={valid_time.attrs}"
+
+        result = nc.get_time_variable("valid_time")
+        assert result is not None, (
+            "get_time_variable returned None on a CDS-Beta NetCDF — the "
+            "classic-metadata top-up did not surface 'units' on valid_time"
+        )
+        assert isinstance(result, list), f"expected list, got {type(result)}"
+        assert (
+            len(result) == valid_time.size
+        ), f"expected {valid_time.size} timestamps, got {len(result)}"
+        assert result[0].startswith("2022-01-"), (
+            f"expected 2022-01-* from the CDS-Beta sample, got {result[0]}"
+        )
+
 
 class TestSpatialOperationDelegates:
     """Tests for crop() and to_crs() delegation to parent class."""
@@ -1381,13 +1414,24 @@ class TestGetVariableNonDataset:
 
 
 class TestGetVariableMultipleBandDims:
-    """Tests for get_variable with multiple non-spatial dims."""
+    """Tests for get_variable with multiple non-spatial dims (issue #311).
+
+    Pre-#311 the build path discarded both band dims when there was more
+    than one non-spatial dim, leaving ``_band_dim_name = None`` and
+    locking out ``sel()``. Post-#311 the build path tracks every
+    non-spatial dim in ``_band_dim_names`` / ``_band_dim_values_map`` /
+    ``_band_dim_sizes``, while the legacy ``_band_dim_name`` /
+    ``_band_dim_values`` keep pointing at the first non-spatial dim.
+    """
 
     def test_get_variable_with_two_band_dims(self):
-        """Verify get_variable sets band_dim_name=None when >1 band dims.
+        """Build path tracks both band dims for a 4-D variable.
 
-        Covers the else branch where len(band_dims) != 1
-        (e.g. a 4D array with two non-spatial dimensions).
+        Test scenario:
+            Construct an in-memory 4-D MDArray with dims (time, ensemble,
+            y, x). Both non-spatial dims must appear in ``_band_dim_names``
+            in storage order; their sizes and coord values must be
+            populated; legacy fields point at the primary (time) dim.
         """
         src = gdal.GetDriverByName("MEM").CreateMultiDimensional("multi_band_dims")
         rg = src.GetRootGroup()
@@ -1419,12 +1463,25 @@ class TestGetVariableMultipleBandDims:
 
         nc = NetCDF(src)
         var = nc.get_variable("temp")
-        assert (
-            var._band_dim_name is None
-        ), f"Expected None band_dim_name for 4D var, got {var._band_dim_name}"
-        assert (
-            var._band_dim_values is None
-        ), f"Expected None band_dim_values for 4D var, got {var._band_dim_values}"
+        assert var._band_dim_names == ("time", "ensemble"), (
+            f"Expected ('time', 'ensemble'), got {var._band_dim_names!r}"
+        )
+        assert var._band_dim_sizes == (2, 2), (
+            f"Expected sizes (2, 2), got {var._band_dim_sizes!r}"
+        )
+        assert var._band_dim_values_map["time"] == [0.0, 1.0], (
+            f"time values mismatch: {var._band_dim_values_map.get('time')!r}"
+        )
+        assert var._band_dim_values_map["ensemble"] == [1.0, 2.0], (
+            f"ensemble values mismatch: "
+            f"{var._band_dim_values_map.get('ensemble')!r}"
+        )
+        assert var._band_dim_name == "time", (
+            f"legacy primary must be 'time', got {var._band_dim_name!r}"
+        )
+        assert var._band_dim_values == [0.0, 1.0], (
+            f"legacy primary values mismatch: {var._band_dim_values!r}"
+        )
 
 
 class TestGetVariableAttrException:
@@ -1592,3 +1649,103 @@ class TestReadMdArray1DNumeric:
             # AsClassicDataset(0, 1) may raise on some GDAL versions
             # for 1D arrays -- that's expected behavior on this path
             pass
+
+
+class TestCubeDimensionNames:
+    """`get_variable(...).dimension_names` must mirror the container's view.
+
+    Pre-fix the property returned `None` on a variable subset because the
+    classic-mode in-memory `Dataset` underlying the cube has no GDAL root
+    group. The cube's dim names live on `_md_array_dims` and are the right
+    fall-through. See `pyramids-h1-followup.md` in the earthly planning
+    docs for context.
+
+    Note: when pyramids has to y-flip the source on read (ascending-lat
+    inputs), the spatial dim is renamed to `subset_lat_*` on the cube.
+    Real-world CDS-Beta files (already north-down) keep the original
+    name. Tests use the era5 fixture for byte-equality and the synthetic
+    4-D fixture for shape / first-two-dims invariants.
+    """
+
+    def test_cube_lists_all_dims_in_storage_order_on_real_4d(self):
+        """4-D cube reports every dim in storage order (no y-flip rename here).
+
+        Test scenario:
+            era5 CDS-Beta pressure-levels file is already north-down so
+            pyramids takes the no-flip read path. The cube's
+            `dimension_names` should match the container's exactly.
+        """
+        nc = NetCDF.read_file(
+            "tests/data/netcdf/era5_cds_beta_t_pressure_levels_jan2022.nc"
+        )
+        var = nc.get_variable("t")
+        assert var.dimension_names == [
+            "valid_time",
+            "pressure_level",
+            "latitude",
+            "longitude",
+        ], f"got {var.dimension_names!r}"
+
+    def test_cube_dimension_names_matches_container_for_real_4d(self):
+        """Cube's `dimension_names` mirrors container's on a no-flip file."""
+        nc = NetCDF.read_file(
+            "tests/data/netcdf/era5_cds_beta_t_pressure_levels_jan2022.nc"
+        )
+        var = nc.get_variable("t")
+        assert (
+            var.dimension_names == nc.dimension_names
+        ), f"cube={var.dimension_names!r} container={nc.dimension_names!r}"
+
+    def test_cube_dimension_names_first_two_match_band_dims_on_synthetic(self):
+        """Synthetic 4-D cube reports both band dims first; spatial dims may
+        be renamed by pyramids' y-flip but count is still 4.
+        """
+        nc = NetCDF.read_file("tests/data/netcdf/pyramids-netcdf-4d.nc")
+        var = nc.get_variable("temperature")
+        names = var.dimension_names
+        assert names is not None, "cube dim names must not be None after fix"
+        assert len(names) == 4, f"4-D cube must have 4 dims, got {names!r}"
+        assert names[:2] == ["time", "pressure_level"], (
+            f"band dims must be first two, got {names!r}"
+        )
+
+    def test_cube_dimension_names_is_independent_copy(self):
+        """Mutating the returned list must not alter `_md_array_dims`."""
+        nc = NetCDF.read_file("tests/data/netcdf/pyramids-netcdf-4d.nc")
+        var = nc.get_variable("temperature")
+        names = var.dimension_names
+        original = list(var._md_array_dims)
+        names.append("bogus")
+        assert "bogus" not in var._md_array_dims, (
+            f"_md_array_dims was mutated through dimension_names: "
+            f"{var._md_array_dims!r}"
+        )
+        assert var._md_array_dims == original, (
+            "subsequent reads of dimension_names should still match the "
+            "original cached list"
+        )
+
+    def test_cube_with_no_md_array_dims_returns_none(self):
+        """Defensive: a cube whose `_md_array_dims` is empty returns `None`."""
+        nc = NetCDF.read_file("tests/data/netcdf/pyramids-netcdf-4d.nc")
+        var = nc.get_variable("temperature")
+        var._md_array_dims = []
+        assert var.dimension_names is None, (
+            f"empty cache should yield None, got {var.dimension_names!r}"
+        )
+
+    def test_container_dimension_names_unchanged(self):
+        """The container path is unchanged: still reads from the root group.
+
+        Test scenario:
+            On the bundled 4-D synthetic, the container reports the
+            exact dim names from the file (no y-flip rename, since the
+            container is the original MDIM dataset).
+        """
+        nc = NetCDF.read_file("tests/data/netcdf/pyramids-netcdf-4d.nc")
+        assert nc.dimension_names == [
+            "time",
+            "pressure_level",
+            "lat",
+            "lon",
+        ], f"container path regressed: {nc.dimension_names!r}"

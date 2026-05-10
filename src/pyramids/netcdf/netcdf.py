@@ -6,6 +6,7 @@ netcdf contains python functions to handle netcdf data. gdal class: https://gdal
 
 from __future__ import annotations
 
+import math
 import os
 import tempfile
 import weakref
@@ -218,6 +219,9 @@ class NetCDF(Dataset):
         self._md_array_dims: list[str] = []
         self._band_dim_name: str | None = None
         self._band_dim_values: list[Any] | None = None
+        self._band_dim_names: tuple[str, ...] = ()
+        self._band_dim_values_map: dict[str, list[Any] | None] = {}
+        self._band_dim_sizes: tuple[int, ...] = ()
         self._variable_attrs: dict[str, Any] = {}
         self._scale: float | None = None
         self._offset: float | None = None
@@ -248,6 +252,9 @@ class NetCDF(Dataset):
             "_md_array_dims": self._md_array_dims,
             "_band_dim_name": self._band_dim_name,
             "_band_dim_values": self._band_dim_values,
+            "_band_dim_names": self._band_dim_names,
+            "_band_dim_values_map": self._band_dim_values_map,
+            "_band_dim_sizes": self._band_dim_sizes,
             "_variable_attrs": self._variable_attrs,
             "_scale": self._scale,
             "_offset": self._offset,
@@ -608,6 +615,18 @@ class NetCDF(Dataset):
         like `sel()`, `read_array(unpack=True)`, and further spatial
         operations continue to work with consistent return types.
 
+        Both the legacy single-band-dim fields (`_band_dim_name`,
+        `_band_dim_values`) and the multi-band-dim fields
+        (`_band_dim_names`, `_band_dim_values_map`, `_band_dim_sizes`)
+        are propagated. The legacy length-guard nullifies
+        `_band_dim_values` only when its primary-dim view is provably
+        stale: for single-band-dim variables it compares
+        `len(values) != _band_count`; for multi-band-dim variables it
+        compares `prod(_band_dim_sizes) != _band_count` instead, so a
+        4-D variable whose total band count diverged from the cached
+        sizes (e.g. after a band-shrinking operation outside `sel()`)
+        drops the now-stale primary view.
+
         Args:
             result: The `Dataset` (or `NetCDF`) returned by a parent
                 spatial operation.
@@ -615,6 +634,11 @@ class NetCDF(Dataset):
         Returns:
             NetCDF: The same data wrapped as a `NetCDF` with all
                 variable-subset metadata preserved.
+
+        See Also:
+            `sel`: produces results that flow through this helper to
+                keep the multi-band-dim metadata consistent across
+                spatial ops.
         """
         if isinstance(result, NetCDF):
             wrapped = result
@@ -627,14 +651,48 @@ class NetCDF(Dataset):
         wrapped._is_md_array = self._is_md_array
         wrapped._is_subset = self._is_subset
         wrapped._band_dim_name = self._band_dim_name
+        wrapped._band_dim_names = self._band_dim_names
+        wrapped._band_dim_sizes = self._band_dim_sizes
+        wrapped._band_dim_values_map = dict(self._band_dim_values_map)
+        # Length-guard: nullify legacy values only when the primary-dim
+        # view is provably stale. For multi-band-dim variables the
+        # `_band_count` is the product of every band-dim size, so compare
+        # against `prod(_band_dim_sizes)` rather than `len(values)`.
+        expected_count = math.prod(self._band_dim_sizes)
         if (
             self._band_dim_values is not None
             and wrapped._band_count > 0
+            and len(self._band_dim_names) <= 1
             and len(self._band_dim_values) != wrapped._band_count
         ):
             wrapped._band_dim_values = None
+        elif (
+            self._band_dim_values is not None
+            and wrapped._band_count > 0
+            and len(self._band_dim_names) > 1
+            and expected_count != wrapped._band_count
+        ):
+            # Multi-band-dim variable whose total band count diverged from
+            # the cached sizes (e.g. after a band-shrinking operation
+            # outside sel()). Drop the now-stale primary view.
+            wrapped._band_dim_values = None
         else:
             wrapped._band_dim_values = self._band_dim_values
+        # Self-heal: if the guard above nulled the legacy values but
+        # the per-dim map still carries an entry of the right length
+        # for the new band count, refill from there. Makes the helper
+        # idempotent under repeat calls and removes the post-call
+        # refill requirement on callers like `sel()` for the
+        # pin-secondary-dim case (where the primary-dim entry in the
+        # map is still valid).
+        if (
+            wrapped._band_dim_values is None
+            and wrapped._band_dim_name is not None
+            and wrapped._band_count > 0
+        ):
+            candidate = wrapped._band_dim_values_map.get(wrapped._band_dim_name)
+            if candidate is not None and len(candidate) == wrapped._band_count:
+                wrapped._band_dim_values = list(candidate)
         wrapped._variable_attrs = self._variable_attrs
         wrapped._scale = self._scale
         wrapped._offset = self._offset
@@ -702,22 +760,53 @@ class NetCDF(Dataset):
             var_arr = var_result.read_array()
             if var_arr.ndim == 2 and var._band_dim_name is not None:
                 var_arr = np.expand_dims(var_arr, axis=0)
+            # For 4-D+ variables, GDAL classic raster flattened the
+            # non-spatial axes into a single bands axis on read — undo
+            # that so the rebuild can materialise every band-dim. The
+            # cached `_band_dim_sizes` describes the storage order
+            # (last non-spatial dim varies fastest, matching GDAL's
+            # row-major flatten), so the reshape is the literal
+            # inverse of that flatten.
+            if (
+                len(var._band_dim_names) > 1
+                and var_arr.ndim == 3
+                and var._band_dim_sizes
+            ):
+                var_arr = var_arr.reshape(
+                    *var._band_dim_sizes, var_arr.shape[-2], var_arr.shape[-1]
+                )
             var_ndv = var_result.no_data_value
             var_ndv_scalar = (
                 var_ndv[0] if isinstance(var_ndv, list) and var_ndv else var_ndv
             )
+            extra_dims = (
+                [
+                    (name, var._band_dim_values_map.get(name))
+                    for name in var._band_dim_names
+                ]
+                if var._band_dim_names
+                else None
+            )
 
             if result is None:
                 # First variable: build the container.
-                result = NetCDF.create_from_array(
-                    arr=var_arr,
-                    geo=var_result.geotransform,
-                    epsg=var_result.epsg,
-                    no_data_value=var_ndv_scalar,
-                    variable_name=var_name,
-                    extra_dim_name=var._band_dim_name or "time",
-                    extra_dim_values=var._band_dim_values,
-                )
+                if extra_dims is not None:
+                    result = NetCDF.create_from_array(
+                        arr=var_arr,
+                        geo=var_result.geotransform,
+                        epsg=var_result.epsg,
+                        no_data_value=var_ndv_scalar,
+                        variable_name=var_name,
+                        extra_dims=extra_dims,
+                    )
+                else:
+                    result = NetCDF.create_from_array(
+                        arr=var_arr,
+                        geo=var_result.geotransform,
+                        epsg=var_result.epsg,
+                        no_data_value=var_ndv_scalar,
+                        variable_name=var_name,
+                    )
             else:
                 # Subsequent variables: drop into the existing container.
                 ds = Dataset.create_from_array(
@@ -728,6 +817,9 @@ class NetCDF(Dataset):
                 )
                 ds._band_dim_name = var._band_dim_name
                 ds._band_dim_values = var._band_dim_values
+                ds._band_dim_names = var._band_dim_names
+                ds._band_dim_values_map = dict(var._band_dim_values_map)
+                ds._band_dim_sizes = var._band_dim_sizes
                 result.set_variable(var_name, ds)
 
         return result
@@ -805,98 +897,188 @@ class NetCDF(Dataset):
         return result
 
     def sel(self, **kwargs: Any) -> NetCDF:
-        """Select a subset of bands by coordinate values.
+        """Select a subset of bands by coordinate values along a band dim.
 
-        Extracts bands whose coordinate values match the given
-        criteria. Works on variable subsets that have
-        `_band_dim_name` and `_band_dim_values` set by
-        `get_variable()`.
+        Extracts bands whose coordinate values match the given criteria.
+        Works on any variable subset that has at least one non-spatial
+        dimension tracked in `_band_dim_names` (set by
+        `get_variable()`). For 4-D+ files with multiple non-spatial
+        dims (e.g. `(valid_time, pressure_level, lat, lon)` from CDS-Beta
+        ERA5), `sel()` may name any of those dims; chaining `sel()`
+        pins multiple band dims one at a time.
 
-        The result is always a `NetCDF` instance with the same
-        variable metadata preserved, so that `sel()` can be
-        chained and NetCDF-specific methods like
-        `read_array(unpack=True)` remain available.
+        The result is always a `NetCDF` instance with the same variable
+        metadata preserved, so `sel()` can be chained and NetCDF-only
+        methods like `read_array(unpack=True)` remain available.
+
+        Internals: GDAL flattens an MDIM array `(d_0, ..., d_{n-1},
+        lat, lon)` row-major over the non-spatial dims, with the last
+        non-spatial dim varying fastest. For a band dim at axis `k`
+        with sizes `S`, the implementation uses
+        `stride = prod(S[k+1:])`, `block = stride * S[k]`, and
+        `total = prod(S)` to map each pinned index `p` to the band
+        ranges `[outer + p*stride .. outer + (p+1)*stride)` for every
+        `outer in range(0, total, block)`. For a single-band-dim
+        variable this reduces to the identity
+        `band_indices == dim_indices`.
 
         Args:
-            **kwargs: One keyword argument where the key is the
-                dimension name and the value is one of:
+            **kwargs: Exactly one keyword argument. The key must name a
+                tracked band dim (one of `self._band_dim_names`); the
+                value is one of:
 
                 - A single number: select one band by exact value.
                 - A list of numbers: select multiple bands.
-                - A `slice(start, stop)`: select bands where
-                  `start <= coord <= stop`.
+                - A `slice(start, stop)`: select bands whose coord
+                  falls between `start` and `stop` inclusive. Bounds
+                  are normalised before matching, so the slice is
+                  direction-agnostic — works on both ascending and
+                  descending coord axes (e.g. `latitude` stored
+                  north-to-south).
 
         Returns:
-            NetCDF: A new NetCDF variable subset with only the
-                selected bands and all variable metadata preserved.
+            NetCDF: A new variable subset with only the selected bands
+                and full metadata preserved. `_band_dim_sizes` reflects
+                the pinned axis (e.g. `(4, 1)` after pinning a level on
+                a `(4, 3)` cube), and `_band_dim_values_map[dim_name]`
+                shrinks to the chosen values. Legacy `_band_dim_values`
+                is refreshed from the (possibly updated) primary entry
+                in the map.
 
         Raises:
-            ValueError: If the dimension name doesn't match
-                `_band_dim_name`, or no matching bands are found.
+            ValueError: If exactly one kwarg isn't passed, the variable
+                has no tracked band dims, the named dim isn't one of
+                `_band_dim_names`, the dim has no coord values
+                (`_band_dim_values_map[dim] is None`), or no bands match
+                the selector.
 
         Examples:
-            Select a single time step::
+            - Pin a pressure level on a 4-D file:
+                ```python
+                >>> nc = NetCDF.read_file(  # doctest: +SKIP
+                ...     "tests/data/netcdf/pyramids-netcdf-4d.nc"
+                ... )
+                >>> var = nc.get_variable("temperature")  # doctest: +SKIP
+                >>> sub = var.sel(pressure_level=500)  # doctest: +SKIP
+                >>> sub._band_dim_sizes  # doctest: +SKIP
+                (4, 1)
 
-                var.sel(time=6)
+                ```
+            - Chain `sel()` to pin both time and level (collapses to 2-D):
+                ```python
+                >>> sub = var.sel(time=12).sel(pressure_level=500)  # doctest: +SKIP
+                >>> sub.read_array().shape  # doctest: +SKIP
+                (5, 6)
 
-            Select multiple time steps::
+                ```
+            - Use a list selector to keep only two of the levels:
+                ```python
+                >>> sub = var.sel(pressure_level=[1000, 500])  # doctest: +SKIP
+                >>> sub._band_dim_values_map["pressure_level"]  # doctest: +SKIP
+                [1000.0, 500.0]
 
-                var.sel(time=[0, 12, 24])
+                ```
+            - Use a slice selector — direction-agnostic, so the same
+              call works on ascending coords (e.g. `[500, 850, 1000]`)
+              and on descending coords (e.g. `[1000, 850, 500]`):
+                ```python
+                >>> sub = var.sel(pressure_level=slice(500, 1000))  # doctest: +SKIP
+                >>> sub._band_dim_values_map["pressure_level"]  # doctest: +SKIP
+                [1000.0, 850.0, 500.0]
 
-            Select a range::
+                ```
 
-                var.sel(time=slice(6, 18))
+        Notes:
+            All four examples above are tagged `# doctest: +SKIP`
+            because they need a real on-disk NetCDF fixture. The
+            runnable equivalents live in:
+
+            - `tests/netcdf/test_sel.py::TestSelSingleValue` /
+              `TestSelList` / `TestSelSlice` (3-D scenarios — single
+              value, list selector, slice selector including the
+              direction-agnostic path).
+            - `tests/netcdf/test_sel_4d.py::TestSelByPressureLevel` /
+              `TestSelByTime` / `TestSelChained` (4-D scenarios —
+              pin secondary / primary dim, chained `sel().sel()`).
+            - `tests/netcdf/test_sel_4d.py::TestSelErrorMessages` (the
+              error contract).
+
+        See Also:
+            `get_variable`: builds a variable subset and populates the
+                band-dim metadata that `sel()` consumes.
         """
         if len(kwargs) != 1:
             raise ValueError("sel() requires exactly one keyword argument.")
 
         dim_name, selector = next(iter(kwargs.items()))
 
-        if self._band_dim_name is None:
+        if not self._band_dim_names:
             raise ValueError(
-                "sel() requires a variable with a non-spatial dimension. "
-                "This variable has no band dimension tracked."
+                "sel() requires a variable with at least one non-spatial "
+                "dimension. This variable has no band dimensions tracked."
             )
-        if dim_name != self._band_dim_name:
+        if dim_name not in self._band_dim_names:
             raise ValueError(
-                f"Dimension '{dim_name}' does not match the band "
-                f"dimension '{self._band_dim_name}'."
-            )
-        if self._band_dim_values is None:
-            raise ValueError(
-                "No coordinate values available for dimension " f"'{dim_name}'."
+                f"Dimension {dim_name!r} does not match any band dimension "
+                f"of this variable {list(self._band_dim_names)!r}."
             )
 
-        coords = self._band_dim_values
+        coords = self._band_dim_values_map.get(dim_name)
+        if coords is None:
+            raise ValueError(
+                f"No coordinate values available for dimension {dim_name!r}."
+            )
 
         if isinstance(selector, slice):
             start = selector.start if selector.start is not None else coords[0]
             stop = selector.stop if selector.stop is not None else coords[-1]
-            band_indices = [i for i, v in enumerate(coords) if start <= v <= stop]
+            # Normalise bounds so the match works on both ascending and
+            # descending coord axes (e.g. `latitude = [44, 43, 42, 41,
+            # 40]` from CDS-Beta retrievals). Without this, a
+            # `slice(None, None)` on a descending axis defaults to
+            # `start=44, stop=40`, the test `44 <= v <= 40` matches
+            # nothing, and the user gets a confusing "no bands match"
+            # error instead of "select everything".
+            lo, hi = (start, stop) if start <= stop else (stop, start)
+            dim_indices = [i for i, v in enumerate(coords) if lo <= v <= hi]
         elif isinstance(selector, list):
             coord_set = set(selector)
-            band_indices = [i for i, v in enumerate(coords) if v in coord_set]
+            dim_indices = [i for i, v in enumerate(coords) if v in coord_set]
         else:
-            band_indices = [i for i, v in enumerate(coords) if v == selector]
+            dim_indices = [i for i, v in enumerate(coords) if v == selector]
 
-        if not band_indices:
+        if not dim_indices:
             raise ValueError(
-                f"No bands match {dim_name}={selector}. " f"Available values: {coords}"
+                f"No bands match {dim_name}={selector}. "
+                f"Available values: {coords}"
             )
 
-        selected_coords = [coords[i] for i in band_indices]
+        # Map (pinned dim index along dim_name) -> classic-band indices.
+        # GDAL flattens (d_0, ..., d_{n-1}, lat, lon) row-major over the
+        # non-spatial dims: the last non-spatial dim varies fastest. For
+        # a band-dim at axis `k` with sizes S, stride = prod(S[k+1:]) and
+        # block = stride * S[k]. For each pinned index p we emit
+        # `[outer + p*stride .. outer + (p+1)*stride)` for every outer in
+        # range(0, total, block). Reduces to identity (band_indices ==
+        # dim_indices) when there is exactly one band dim.
+        dim_axis = self._band_dim_names.index(dim_name)
+        sizes = self._band_dim_sizes
+        stride = math.prod(sizes[dim_axis + 1:])
+        block = stride * sizes[dim_axis]
+        total = math.prod(sizes)
+
+        band_indices: list[int] = []
+        for pinned in dim_indices:
+            for outer_start in range(0, total, block):
+                base = outer_start + pinned * stride
+                band_indices.extend(range(base, base + stride))
+
+        selected_coords = [coords[i] for i in dim_indices]
 
         # Read only the selected bands instead of loading the full array.
         # Each band index maps to a 1-based GDAL band in the classic
-        # dataset view created by get_variable().
-        #
-        # Trade-off: band-by-band reads avoid loading the entire variable
-        # into memory, which matters for large variables with few selected
-        # bands. However, when *most* bands are selected the per-band
-        # GDAL overhead may be slower than a single full read followed by
-        # NumPy slicing. In practice the difference is small because GDAL
-        # MEM driver reads are cheap; revisit if profiling shows a
-        # bottleneck for large on-disk NetCDFs.
+        # dataset view created by get_variable(). Band-by-band reads
+        # avoid loading the entire variable into memory.
         band_arrays = [self.read_array(band=i) for i in band_indices]
         if len(band_arrays) == 1:
             selected = band_arrays[0]
@@ -912,7 +1094,21 @@ class NetCDF(Dataset):
             no_data_value=ndv_scalar,
         )
         result = self._preserve_netcdf_metadata(ds_result)
-        result._band_dim_values = selected_coords
+        new_sizes = tuple(
+            len(dim_indices) if i == dim_axis else s
+            for i, s in enumerate(sizes)
+        )
+        result._band_dim_sizes = new_sizes
+        result._band_dim_values_map = dict(self._band_dim_values_map)
+        result._band_dim_values_map[dim_name] = selected_coords
+        # Refresh legacy primary-dim values to match the (possibly
+        # updated) primary entry in the map. `_band_dim_name` is
+        # guaranteed non-None here: entry to `sel()` requires
+        # `_band_dim_names` to be non-empty, and the build path always
+        # sets `_band_dim_name = _band_dim_names[0]`.
+        result._band_dim_values = result._band_dim_values_map.get(
+            result._band_dim_name
+        )
 
         return result
 
@@ -1130,21 +1326,43 @@ class NetCDF(Dataset):
         return time_stamp
 
     def _get_dimension_names(self) -> list[str] | None:
+        """Return all dimension names, in storage order.
+
+        On the root MDIM container, this reads from `GetRootGroup()`.
+        On a variable subset (returned by `get_variable()`), the
+        underlying raster is a classic-mode in-memory `Dataset` whose
+        `GetRootGroup()` is `None`, but the source MDArray's dim names
+        were captured into `_md_array_dims` at subset-build time. Fall
+        through to that field so cube callers see the same public
+        surface as container callers.
+
+        Returns:
+            list[str] or None: Dim names. `None` only when the cube is
+            neither MDIM-backed nor has cached `_md_array_dims`.
+        """
         rg = self._raster.GetRootGroup()
         if rg is not None:
             dims = rg.GetDimensions()
-            dims_names: list[str] | None = [dim.GetName() for dim in dims]
-        else:
-            dims_names = None
-        return dims_names
+            return [dim.GetName() for dim in dims]
+        cached = getattr(self, "_md_array_dims", None)
+        if cached:
+            return list(cached)
+        return None
 
     @property
     def dimension_names(self) -> list[str] | None:
-        """Names of all dimensions in the root group (e.g., `["x", "y", "time"]`).
+        """Names of all dimensions in storage order.
+
+        On the root MDIM container the names come from the GDAL root
+        group (e.g. `["x", "y", "time"]`). On a variable subset
+        returned by `get_variable()` the names come from the cached
+        `_md_array_dims` captured at subset-build time, so 4-D+ cubes
+        report all dims (e.g. `["valid_time", "pressure_level",
+        "latitude", "longitude"]`) without touching private state.
 
         Returns:
-            list[str] or None: Dimension names, or None if no root group
-            is available (classic mode).
+            list[str] or None: Dim names. `None` only on a cube that
+            has neither a root group nor cached `_md_array_dims`.
         """
         return self._get_dimension_names()
 
@@ -1449,8 +1667,17 @@ class NetCDF(Dataset):
     def get_variable(self, variable_name: str) -> NetCDF:
         """Extract a single variable as a classic-raster NetCDF object.
 
-        The returned object carries origin metadata so that modified data
-        can be written back via `set_variable()`.
+        The returned object carries origin metadata so modified data
+        can be written back via `set_variable()`. Every non-spatial
+        dim of the variable is tracked: for an N-D MDIM array
+        `(d_0, ..., d_{n-1}, lat, lon)` the build path populates
+        `_band_dim_names`, `_band_dim_values_map`, and
+        `_band_dim_sizes` with all non-spatial dims in storage order,
+        while the legacy `_band_dim_name` / `_band_dim_values` keep
+        pointing at the first non-spatial dim so existing 3-D
+        consumers see no change. 4-D+ files (e.g. CDS-Beta ERA5
+        pressure-levels with `(valid_time, pressure_level, lat, lon)`)
+        are addressable via `sel()` along any tracked band dim.
 
         Supports group-qualified names: `"forecast/temperature"` first
         navigates to the `forecast` sub-group, then extracts
@@ -1461,11 +1688,24 @@ class NetCDF(Dataset):
                 to separate group path from variable name.
 
         Returns:
-            NetCDF: A subset backed by a classic dataset where
-                non-spatial dimensions are mapped to bands.
+            NetCDF: A subset backed by a classic dataset where every
+                non-spatial dimension is mapped onto bands. The new
+                `_band_dim_names` / `_band_dim_values_map` /
+                `_band_dim_sizes` fields drive `sel()`; the legacy
+                `_band_dim_name` / `_band_dim_values` track the first
+                non-spatial dim.
 
         Raises:
             ValueError: If `variable_name` is not present in the dataset.
+
+        Notes:
+            String-typed indexing variables (e.g. WRF's `Times` array)
+            cannot be read via GDAL SWIG bindings; the build path falls
+            back to integer indices `[0, 1, ..., size - 1]` for those
+            dims.
+
+        See Also:
+            `sel`: subsets the result along any tracked band dim.
         """
         # Handle group-qualified names: "forecast/temperature"
         if "/" in variable_name:
@@ -1534,30 +1774,46 @@ class NetCDF(Dataset):
                 dims = md_arr.GetDimensions()
                 cube._md_array_dims = [d.GetName() for d in dims]
 
-                # Identify which dimension became bands (all except X/Y)
+                # Identify which dimensions became bands (all except X/Y).
+                # Track every non-spatial dim so 4-D+ files (e.g. CDS-Beta
+                # ERA5 pressure-levels: time, pressure_level, lat, lon)
+                # remain addressable via sel(). Legacy fields point at the
+                # primary (first) non-spatial dim so 3-D consumers see no
+                # change.
                 if len(dims) > 2:
                     spatial_indices = {len(dims) - 1, len(dims) - 2}
                     band_dims = [
                         d for i, d in enumerate(dims) if i not in spatial_indices
                     ]
-                    if len(band_dims) == 1:
-                        cube._band_dim_name = band_dims[0].GetName()
-                        iv = band_dims[0].GetIndexingVariable()
+                else:
+                    band_dims = []
+
+                if band_dims:
+                    cube._band_dim_names = tuple(d.GetName() for d in band_dims)
+                    cube._band_dim_sizes = tuple(d.GetSize() for d in band_dims)
+                    cube._band_dim_values_map = {}
+                    for d in band_dims:
+                        iv = d.GetIndexingVariable()
                         try:
-                            cube._band_dim_values = (
+                            values = (
                                 iv.ReadAsArray().tolist() if iv is not None else None
                             )
                         except RuntimeError:
                             # String-typed indexing variables (e.g. WRF
                             # "Times") can't be read via ReadAsArray in
                             # GDAL SWIG bindings — fall back to indices.
-                            cube._band_dim_values = list(range(band_dims[0].GetSize()))
-                    else:
-                        cube._band_dim_name = None
-                        cube._band_dim_values = None
+                            values = list(range(d.GetSize()))
+                        cube._band_dim_values_map[d.GetName()] = values
+                    cube._band_dim_name = cube._band_dim_names[0]
+                    cube._band_dim_values = cube._band_dim_values_map[
+                        cube._band_dim_name
+                    ]
                 else:
                     cube._band_dim_name = None
                     cube._band_dim_values = None
+                    cube._band_dim_names = ()
+                    cube._band_dim_values_map = {}
+                    cube._band_dim_sizes = ()
 
                 # Copy variable attributes
                 cube._variable_attrs = {}
@@ -1578,6 +1834,9 @@ class NetCDF(Dataset):
                 cube._md_array_dims = []
                 cube._band_dim_name = None
                 cube._band_dim_values = None
+                cube._band_dim_names = ()
+                cube._band_dim_values_map = {}
+                cube._band_dim_sizes = ()
                 cube._variable_attrs = {}
                 cube._scale = None
                 cube._offset = None
@@ -1585,6 +1844,9 @@ class NetCDF(Dataset):
             cube._md_array_dims = []
             cube._band_dim_name = None
             cube._band_dim_values = None
+            cube._band_dim_names = ()
+            cube._band_dim_values_map = {}
+            cube._band_dim_sizes = ()
             cube._variable_attrs = {}
             cube._scale = None
             cube._offset = None
@@ -1804,6 +2066,7 @@ class NetCDF(Dataset):
         variable_name: str | None = None,
         extra_dim_name: str = "time",
         extra_dim_values: list | None = None,
+        extra_dims: list[tuple[str, list | None]] | None = None,
         top_left_corner: tuple[float, float] | None = None,
         cell_size: int | float | None = None,
         chunk_sizes: tuple | list | None = None,
@@ -1821,13 +2084,20 @@ class NetCDF(Dataset):
         values are controlled by `extra_dim_name` and
         `extra_dim_values`.
 
+        For 4-D+ arrays — e.g. `(time, level, lat, lon)` — pass
+        `extra_dims=[("time", time_values), ("pressure_level", level_values)]`
+        in storage order. Every non-spatial dimension is then
+        materialised on the resulting NetCDF, preserving the full
+        layout. `extra_dims` and the legacy single-dim params
+        (`extra_dim_name` / `extra_dim_values`) are mutually exclusive.
+
         The driver is inferred from `path`: if `path` is `None`
         the dataset is created in memory (MEM driver); if a path is
         provided the netCDF driver writes to disk.
 
         Args:
-            arr: 2-D `(rows, cols)` or 3-D
-                `(extra_dim, rows, cols)` NumPy array.
+            arr: 2-D `(rows, cols)`, 3-D `(extra_dim, rows, cols)`, or
+                4-D+ `(d_0, ..., d_{n-1}, rows, cols)` NumPy array.
             geo: Geotransform tuple `(x_min, pixel_size, rotation,
                 y_max, rotation, pixel_size)`.
             epsg: EPSG code for the spatial reference.
@@ -1838,12 +2108,22 @@ class NetCDF(Dataset):
                 created in memory. Defaults to None.
             variable_name: Name of the data variable in the NetCDF
                 file. Defaults to `"data"`.
-            extra_dim_name: Name of the non-spatial dimension for 3-D
-                arrays (e.g. `"time"`, `"level"`, `"depth"`).
-                Ignored for 2-D arrays. Defaults to `"time"`.
-            extra_dim_values: Coordinate values for the non-spatial
-                dimension. Must have length `arr.shape[0]` for 3-D
-                arrays. Defaults to `[0, 1, 2,..., N-1]`.
+            extra_dim_name: Legacy single-dim path. Name of the
+                non-spatial dimension for 3-D arrays (e.g. `"time"`,
+                `"level"`, `"depth"`). Ignored for 2-D arrays.
+                Mutually exclusive with `extra_dims`. Defaults to
+                `"time"`.
+            extra_dim_values: Legacy single-dim path. Coordinate values
+                for the non-spatial dimension. Must have length
+                `arr.shape[0]` for 3-D arrays. Mutually exclusive with
+                `extra_dims`. Defaults to `[0, 1, 2,..., N-1]`.
+            extra_dims: Multi-dim path. Ordered list of
+                `(dim_name, values)` pairs describing every non-spatial
+                dimension in storage order. `len(extra_dims)` must
+                equal `arr.ndim - 2`. Each `values` is either a list of
+                length `arr.shape[i]` or `None` (use integer indices
+                `[0, 1, ..., size - 1]`). Mutually exclusive with
+                `extra_dim_name` / `extra_dim_values`.
             top_left_corner: `(x, y)` of the top-left corner. Used
                 with `cell_size` to build `geo` when `geo` is
                 not provided. Defaults to None.
@@ -1885,21 +2165,25 @@ class NetCDF(Dataset):
                 "'cell_size' must be provided."
             )
 
-        if arr.ndim == 2:
-            rows = int(arr.shape[0])
-            cols = int(arr.shape[1])
-        else:
-            rows = int(arr.shape[1])
-            cols = int(arr.shape[2])
+        rows = int(arr.shape[-2]) if arr.ndim >= 2 else 0
+        cols = int(arr.shape[-1]) if arr.ndim >= 2 else 0
 
-        if extra_dim_values is None and arr.ndim == 3:
-            extra_dim_values = list(range(arr.shape[0]))
+        # Reconcile the legacy single-dim params with the new
+        # `extra_dims` list-of-pairs API. Result is a normalised list
+        # of (name, values) pairs whose length equals
+        # `max(arr.ndim - 2, 0)`.
+        resolved_extra_dims = cls._resolve_extra_dims(
+            arr=arr,
+            extra_dim_name=extra_dim_name,
+            extra_dim_values=extra_dim_values,
+            extra_dims=extra_dims,
+        )
 
         if arr.ndim == 3:
             DimMetaData(
-                name=extra_dim_name,
+                name=resolved_extra_dims[0][0],
                 size=arr.shape[0],
-                values=extra_dim_values,
+                values=resolved_extra_dims[0][1],
             )
 
         if variable_name is None:
@@ -1910,8 +2194,7 @@ class NetCDF(Dataset):
             variable_name,
             cols,
             rows,
-            extra_dim_name,
-            extra_dim_values,
+            resolved_extra_dims,
             geo,
             epsg,
             no_data_value,
@@ -1929,13 +2212,86 @@ class NetCDF(Dataset):
         return result
 
     @staticmethod
+    def _resolve_extra_dims(
+        arr: np.ndarray,
+        extra_dim_name: str,
+        extra_dim_values: list | None,
+        extra_dims: list[tuple[str, list | None]] | None,
+    ) -> list[tuple[str, list]]:
+        """Normalise the legacy + new extra-dim API into a single list.
+
+        Returns an ordered list of `(dim_name, values)` pairs whose
+        length equals `max(arr.ndim - 2, 0)`. Each `values` entry is a
+        concrete Python list (never `None` — defaults are filled with
+        integer indices `[0, 1, ..., size - 1]`).
+
+        Args:
+            arr: The data array; only its `ndim` and `shape` are read.
+            extra_dim_name: Legacy single-dim name (caller-default
+                `"time"`).
+            extra_dim_values: Legacy single-dim values, or `None`.
+            extra_dims: New multi-dim list of `(name, values)` pairs,
+                or `None` for the legacy path.
+
+        Returns:
+            list[tuple[str, list]]: Normalised dim specs.
+
+        Raises:
+            ValueError: If `extra_dims` is supplied alongside
+                `extra_dim_values`; if `extra_dims` length doesn't
+                match `arr.ndim - 2`; or if any per-dim `values`
+                length doesn't match the corresponding `arr.shape[i]`.
+        """
+        expected = max(arr.ndim - 2, 0)
+        if extra_dims is not None:
+            if extra_dim_values is not None:
+                raise ValueError(
+                    "extra_dims and extra_dim_values are mutually "
+                    "exclusive. Use one or the other."
+                )
+            if len(extra_dims) != expected:
+                raise ValueError(
+                    f"extra_dims must have {expected} entries for a "
+                    f"{arr.ndim}-D array, got {len(extra_dims)}."
+                )
+            resolved: list[tuple[str, list]] = []
+            for i, entry in enumerate(extra_dims):
+                name, values = entry
+                if values is None:
+                    values = list(range(int(arr.shape[i])))
+                elif len(values) != int(arr.shape[i]):
+                    raise ValueError(
+                        f"extra_dims[{i}] values length {len(values)} "
+                        f"does not match arr.shape[{i}]={arr.shape[i]}."
+                    )
+                else:
+                    values = list(values)
+                resolved.append((name, values))
+            return resolved
+        if expected == 0:
+            return []
+        if expected == 1:
+            values = (
+                list(extra_dim_values)
+                if extra_dim_values is not None
+                else list(range(int(arr.shape[0])))
+            )
+            return [(extra_dim_name, values)]
+        # 4-D+ array with no `extra_dims` and no legacy values: fall
+        # back to anonymous dim names and integer indices so the array
+        # can still be written.
+        return [
+            (f"dim_{i}", list(range(int(arr.shape[i]))))
+            for i in range(expected)
+        ]
+
+    @staticmethod
     def _create_netcdf_from_array(
         arr: np.ndarray,
         variable_name: str,
         cols: int,
         rows: int,
-        extra_dim_name: str = "time",
-        extra_dim_values: list | None = None,
+        extra_dims: list[tuple[str, list]] | None = None,
         geo: tuple[float, float, float, float, float, float] | None = None,
         epsg: str | int | None = None,
         no_data_value: Any | list = DEFAULT_NO_DATA_VALUE,
@@ -1954,15 +2310,16 @@ class NetCDF(Dataset):
         otherwise the netCDF driver writes to disk.
 
         Args:
-            arr: 2-D `(rows, cols)` or 3-D
-                `(extra_dim, rows, cols)` NumPy array.
+            arr: 2-D `(rows, cols)`, 3-D `(extra_dim, rows, cols)`, or
+                4-D+ `(d_0, ..., d_{n-1}, rows, cols)` NumPy array.
             variable_name: Name of the data variable.
             cols: Number of columns.
             rows: Number of rows.
-            extra_dim_name: Name of the non-spatial dimension
-                (e.g. `"time"`, `"level"`). Defaults to `"time"`.
-            extra_dim_values: Coordinate values for the non-spatial
-                dimension. Defaults to None.
+            extra_dims: Ordered list of `(dim_name, values)` pairs for
+                every non-spatial dimension. Length matches
+                `arr.ndim - 2`. Empty list for 2-D arrays. Pre-resolved
+                by `_resolve_extra_dims` so each `values` entry is a
+                concrete list.
             geo: Geotransform tuple. Defaults to None.
             epsg: EPSG code. Defaults to None.
             no_data_value: No-data sentinel. Defaults to
@@ -1989,6 +2346,8 @@ class NetCDF(Dataset):
         if geo is None:
             raise ValueError("geo cannot be None")
 
+        if extra_dims is None:
+            extra_dims = []
         dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
         x_dim_values = NetCDF.get_x_lon_dimension_array(geo[0], geo[1], cols)
         y_dim_values = NetCDF.get_y_lat_dimension_array(geo[3], geo[1], rows)
@@ -2052,28 +2411,32 @@ class NetCDF(Dataset):
             is_geographic=is_geographic,
         )
 
-        if arr.ndim == 3:
-            extra_dim = NetCDF._create_dimension(
+        # Build one GDAL dimension per non-spatial axis in storage
+        # order, then create the MDArray with `(*extra_dims, dim_y,
+        # dim_x)`. This generalises the previous 3-D-only branch: a
+        # 2-D array yields zero extra dims; a 3-D array yields one;
+        # 4-D+ yields the full set. The first non-spatial dim is
+        # tagged `DIM_TYPE_TEMPORAL` (matching the legacy 3-D path),
+        # and any additional dims are left untagged so the netCDF
+        # driver doesn't second-guess their semantics.
+        gdal_extra_dims = []
+        for i, (dim_name, dim_values) in enumerate(extra_dims):
+            dim_type = gdal.DIM_TYPE_TEMPORAL if i == 0 else None
+            gd_dim = NetCDF._create_dimension(
                 rg,
-                extra_dim_name,
+                dim_name,
                 dtype,
-                np.array(extra_dim_values),
-                gdal.DIM_TYPE_TEMPORAL,
+                np.array(dim_values),
+                dim_type,
                 use_set_indexing,
             )
-            md_arr = rg.CreateMDArray(
-                variable_name,
-                [extra_dim, dim_y, dim_x],
-                dtype,
-                create_options if create_options else [],
-            )
-        else:
-            md_arr = rg.CreateMDArray(
-                variable_name,
-                [dim_y, dim_x],
-                dtype,
-                create_options if create_options else [],
-            )
+            gdal_extra_dims.append(gd_dim)
+        md_arr = rg.CreateMDArray(
+            variable_name,
+            [*gdal_extra_dims, dim_y, dim_x],
+            dtype,
+            create_options if create_options else [],
+        )
 
         # Set metadata BEFORE writing data — netCDF driver requires
         # nodata to be set before the first Write call.
@@ -2085,7 +2448,8 @@ class NetCDF(Dataset):
             if isinstance(no_data_value, (list, tuple)) and no_data_value
             else no_data_value
         )
-        md_arr.SetNoDataValueDouble(ndv_scalar)
+        if ndv_scalar is not None:
+            md_arr.SetNoDataValueDouble(float(ndv_scalar))
         if epsg is None:
             raise ValueError("epsg cannot be None")
         srse = sr_from_epsg(int(epsg))
@@ -2292,6 +2656,19 @@ class NetCDF(Dataset):
             band_dim_values = dataset._band_dim_values
         if attrs is None and hasattr(dataset, "_variable_attrs"):
             attrs = dataset._variable_attrs
+        # Multi-band-dim metadata: every non-spatial dim and its
+        # coords / sizes. Populated by `get_variable` for 4-D+
+        # variables. When present, the rebuild materialises each dim
+        # separately instead of flattening to a single bands axis.
+        band_dim_names: tuple[str, ...] = tuple(
+            getattr(dataset, "_band_dim_names", ()) or ()
+        )
+        band_dim_sizes: tuple[int, ...] = tuple(
+            getattr(dataset, "_band_dim_sizes", ()) or ()
+        )
+        band_dim_values_map: dict = dict(
+            getattr(dataset, "_band_dim_values_map", {}) or {}
+        )
 
         # Delete existing variable if present
         if variable_name in self.variable_names:
@@ -2319,8 +2696,30 @@ class NetCDF(Dataset):
             rg, "y", y_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_Y
         )
 
-        # Build band dimension if the data is 3D
-        if arr.ndim == 3:
+        # 4-D+ rebuild: reshape the flattened bands back into the
+        # cached storage order, then create one GDAL dimension per
+        # non-spatial axis. Falls through to the legacy single-dim
+        # path when only one (or zero) band dim is tracked.
+        if len(band_dim_names) > 1 and arr.ndim == 3 and band_dim_sizes:
+            arr = arr.reshape(*band_dim_sizes, arr.shape[-2], arr.shape[-1])
+            gdal_band_dims = []
+            for i, dim_name in enumerate(band_dim_names):
+                values = band_dim_values_map.get(dim_name)
+                if values is None:
+                    values = list(range(int(band_dim_sizes[i])))
+                gdal_band_dims.append(
+                    self._get_or_create_dimension(
+                        rg,
+                        dim_name,
+                        np.array(values, dtype=np.float64),
+                        coord_dtype,
+                        gdal.DIM_TYPE_TEMPORAL if i == 0 else None,
+                    )
+                )
+            md_arr = rg.CreateMDArray(
+                variable_name, [*gdal_band_dims, dim_y, dim_x], data_dtype
+            )
+        elif arr.ndim == 3:
             if band_dim_name is None:
                 band_dim_name = "bands"
             if band_dim_values is None:
@@ -2419,6 +2818,9 @@ class NetCDF(Dataset):
         )
         materialized._band_dim_name = var._band_dim_name
         materialized._band_dim_values = var._band_dim_values
+        materialized._band_dim_names = var._band_dim_names
+        materialized._band_dim_values_map = dict(var._band_dim_values_map)
+        materialized._band_dim_sizes = var._band_dim_sizes
         materialized._variable_attrs = var._variable_attrs
         self.set_variable(variable_name, materialized)
         return self
