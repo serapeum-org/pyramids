@@ -199,6 +199,10 @@ def render_array(
         raise ValueError(
             "`facet_kwargs` is required when mode='facet'."
         )
+    if basemap and basemap_epsg is None:
+        raise ValueError(
+            "Dataset must have a CRS (epsg) to use basemap."
+        )
 
     # cleopatra's `coords` and `extent` are mutually exclusive; drop
     # `extent` when curvilinear coords are present.
