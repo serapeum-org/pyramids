@@ -21,7 +21,7 @@ Module-private; not part of the public pyramids surface.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -36,7 +36,7 @@ from pyramids.basemap import basemap as _basemap_module
 
 def render_array(
     *,
-    arr: np.ndarray,
+    arr: np.ndarray | None,
     extent: list | None = None,
     coords: tuple | list | None = None,
     exclude_value: list | None = None,
@@ -46,6 +46,7 @@ def render_array(
     percentile: int | None = None,
     mode: str = "plot",
     animation_axis_values: list[Any] | None = None,
+    data_getter: Callable[[int], np.ndarray] | None = None,
     facet_kwargs: dict[str, Any] | None = None,
     ax: Any | None = None,
     fig: Any | None = None,
@@ -78,6 +79,15 @@ def render_array(
         mode: One of ``"plot"`` / ``"animate"`` / ``"facet"``.
         animation_axis_values: Frame labels for the animation path.
             Required when ``mode == "animate"``.
+        data_getter: Optional callable ``f(i) -> ndarray`` forwarded to
+            :meth:`cleopatra.array_glyph.ArrayGlyph.animate` as the
+            ``data_getter`` kwarg. When set the animation streams each
+            frame lazily through this callback instead of slicing the
+            pre-materialised ``arr`` stack — used by
+            :meth:`pyramids.netcdf.NetCDF.plot` to avoid building a 3-D
+            stack up front. The callable must return a 2-D array
+            matching ``arr.shape[-2:]``. Only meaningful when
+            ``mode == "animate"``.
         facet_kwargs: Keyword args forwarded to ``ArrayGlyph.facet``
             (``col``, ``row``, ``col_wrap``, ``col_coords``,
             ``row_coords``, ``kind``). Required when
@@ -243,7 +253,12 @@ def render_array(
                 cleo.ax, crs=basemap_epsg, source=source,
             )
     elif mode == "animate":
-        cleo.animate(animation_axis_values, **kwargs)
+        if data_getter is not None:
+            cleo.animate(
+                animation_axis_values, data_getter=data_getter, **kwargs
+            )
+        else:
+            cleo.animate(animation_axis_values, **kwargs)
         result = cleo
     else:
         result = cleo.facet(**facet_kwargs, **kwargs)

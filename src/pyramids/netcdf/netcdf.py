@@ -6,6 +6,7 @@ netcdf contains python functions to handle netcdf data. gdal class: https://gdal
 
 from __future__ import annotations
 
+import logging
 import math
 import os
 import tempfile
@@ -24,6 +25,7 @@ from pyramids.base._utils import numpy_to_gdal_dtype
 from pyramids.base.crs import sr_from_epsg
 from pyramids.base.protocols import ArrayLike
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
+from pyramids.dataset._plot_helpers import render_array as _render_array
 from pyramids.netcdf._kerchunk import combine_kerchunk, to_kerchunk
 from pyramids.netcdf._lazy import _apply_unpack, build_lazy_array
 from pyramids.netcdf._mfdataset import open_mfdataset
@@ -37,6 +39,13 @@ from pyramids.netcdf.dimensions import DimMetaData
 from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.utils import create_time_conversion_func
+
+logger = logging.getLogger(__name__)
+# Size threshold (bytes) above which `NetCDF.plot` logs a hint
+# suggesting the caller pass an explicit ``chunks=`` spec to switch
+# the static-plot read path to dask. 100 MB matches xarray's default
+# rule of thumb for "this should be lazy".
+_LAZY_HINT_THRESHOLD_BYTES = 100 * 1024 * 1024
 
 
 class _LazyVariableDict(dict):
@@ -513,6 +522,8 @@ class NetCDF(Dataset):
         title: str | None = None,
         exclude_value: Any | None = None,
         basemap: bool | str | None = None,
+        animate: bool | str | None = None,
+        chunks: Any | None = None,
         **kwargs: Any,
     ):
         """Plot a 2-D slice of a NetCDF variable using xarray-aligned vocabulary.
@@ -647,6 +658,32 @@ class NetCDF(Dataset):
             basemap (bool or str, optional):
                 If truthy, overlay an OpenStreetMap basemap (or a named
                 contextily tile provider). Defaults to None.
+            animate (bool or str, optional):
+                When set, render the variable as an animation across a
+                band dim instead of a single 2-D slice. ``True``
+                animates along the variable's primary band dim
+                (typically ``time``) — only valid when exactly one band
+                dim remains after the selectors collapse the others. A
+                string names the dim to animate along; it must be one
+                of ``self._band_dim_names``. ``None`` (default) returns
+                a static plot. Mutually exclusive with ``col=`` /
+                ``row=`` faceting and with any selector
+                (``time=``/``level=``/``member=``/``sel=``/``isel=``)
+                that pins the animated dim. Frames are materialised
+                lazily via a per-frame ``data_getter`` callback so the
+                animation never builds the full 3-D stack in memory.
+                Defaults to None.
+            chunks (Any, optional):
+                Chunking spec forwarded to :meth:`read_array` for the
+                static-plot path. ``None`` (default) preserves the
+                eager read. Any of ``int`` / ``tuple`` / ``dict`` /
+                ``"auto"`` switches to the dask-backed lazy read and
+                only the rendered slice is materialised. When omitted
+                and the variable's on-disk size exceeds 100 MB the
+                facade logs an informational hint pointing at this
+                kwarg — no auto-chunking happens (the user always
+                opts in). Has no effect on the ``animate=`` path,
+                which uses its own per-frame lazy read.
             **kwargs:
                 Additional keyword arguments forwarded to
                 :meth:`Analysis.plot <pyramids.dataset.engines.Analysis.plot>`.
@@ -997,6 +1034,8 @@ class NetCDF(Dataset):
                 title=title,
                 exclude_value=exclude_value,
                 basemap=basemap,
+                animate=animate,
+                chunks=chunks,
                 **kwargs,
             )
 
@@ -1064,12 +1103,29 @@ class NetCDF(Dataset):
                 resolved_sel=resolved_sel,
             )
 
+        # Animation (PR-5 / N-5). `animate=` is mutually exclusive with
+        # both faceting and any selector that pins the animated dim.
+        # The validator resolves the target dim name and raises before
+        # any I/O so misuse surfaces immediately.
+        animate_dim: str | None = None
+        if animate is not None and animate is not False:
+            animate_dim = self._resolve_animate_dim(
+                animate=animate,
+                faceting_active=faceting_active,
+                resolved_sel=resolved_sel,
+            )
+
         pinned = self
         for dim_name, value in resolved_sel.items():
             pinned = pinned.sel(**{dim_name: value})
 
         flat_band = 0 if legacy_band is None else legacy_band
-        if not faceting_active and resolved_sel and pinned.band_count != 1:
+        if (
+            not faceting_active
+            and animate_dim is None
+            and resolved_sel
+            and pinned.band_count != 1
+        ):
             raise ValueError(
                 f"Selectors did not pin to a single 2-D slice. Resolved: "
                 f"{resolved_sel}. Remaining shape: {pinned.shape}."
@@ -1142,6 +1198,19 @@ class NetCDF(Dataset):
                 basemap=basemap,
                 **analysis_kwargs,
             )
+
+        if animate_dim is not None:
+            return pinned._render_animate(
+                animate_dim=animate_dim,
+                analysis_kwargs=analysis_kwargs,
+                exclude_value=exclude_value,
+                basemap=basemap,
+            )
+
+        if chunks is not None:
+            analysis_kwargs["_chunks"] = chunks
+        else:
+            pinned._maybe_log_lazy_hint()
 
         return pinned.analysis.plot(
             band=flat_band,
@@ -1377,6 +1446,225 @@ class NetCDF(Dataset):
                 "row_coords": row_values,
             }
         return stack, facet_kwargs
+
+    def _resolve_animate_dim(
+        self,
+        *,
+        animate: bool | str,
+        faceting_active: bool,
+        resolved_sel: dict[str, Any],
+    ) -> str:
+        """Resolve and validate the animation dim name.
+
+        Implements the mutual-exclusivity gates listed in
+        :meth:`plot`'s docstring for ``animate=``. Faceting and animation
+        share the same dim-walking contract on cleopatra's side, so a
+        request to do both at once is rejected. The animated dim must
+        also not appear in ``resolved_sel`` because a pin would collapse
+        the dim before the animation could iterate over it.
+
+        Args:
+            animate: The user's ``animate=`` value. ``True`` picks the
+                primary band dim (typically ``time``). A string names
+                the target dim explicitly.
+            faceting_active: ``True`` when ``col=`` / ``row=`` is set.
+                The two paths are mutually exclusive.
+            resolved_sel: The selector dict built from
+                ``time``/``level``/``member``/``sel``/``isel``. A pin
+                on the animated dim is rejected.
+
+        Returns:
+            str: The resolved band-dim name to animate along.
+
+        Raises:
+            ValueError: On any of the failure modes documented above —
+                empty band dims, ``animate=True`` with multiple band
+                dims, unknown string name, conflict with faceting, or
+                conflict with a selector pin.
+        """
+        if faceting_active:
+            raise ValueError(
+                "`animate=` is mutually exclusive with `col=`/`row=` "
+                "faceting. Pick one of the two render modes."
+            )
+        if not self._band_dim_names:
+            raise ValueError(
+                "`animate=` was passed but this variable has no band "
+                "dimension."
+            )
+        if animate is True:
+            free_dims = [
+                name
+                for name in self._band_dim_names
+                if name not in resolved_sel
+            ]
+            if len(free_dims) != 1:
+                raise ValueError(
+                    "`animate=True` requires exactly one free band dim "
+                    "after selectors collapse the rest. Free dims: "
+                    f"{free_dims}. Pass `animate='<dim>'` to disambiguate."
+                )
+            resolved = free_dims[0]
+        else:
+            if not isinstance(animate, str):
+                raise ValueError(
+                    "`animate=` must be `True`, a band-dim name string, "
+                    f"or `None`. Got {animate!r}."
+                )
+            if animate not in self._band_dim_names:
+                raise ValueError(
+                    f"`animate={animate!r}` is not a band dim of this "
+                    f"variable. Available: {list(self._band_dim_names)}."
+                )
+            resolved = animate
+        if resolved in resolved_sel:
+            raise ValueError(
+                f"Cannot animate on {resolved!r}: it is already pinned "
+                "by a selector (`time=`/`level=`/`member=`/`sel=`/`isel=`). "
+                "Drop the selector or animate over a different dim."
+            )
+        return resolved
+
+    def _render_animate(
+        self,
+        *,
+        animate_dim: str,
+        analysis_kwargs: dict[str, Any],
+        exclude_value: Any | None,
+        basemap: bool | str | None,
+    ) -> Any:
+        """Build the lazy ``data_getter`` and dispatch the animation render.
+
+        Resolves the per-frame coord labels (with CF time decoding when
+        applicable), builds a ``data_getter(i)`` closure that calls
+        :meth:`sel` + :meth:`read_array` once per frame, and forwards
+        everything to :func:`pyramids.dataset._plot_helpers.render_array`
+        with ``mode="animate"``. The first frame doubles as the
+        cleopatra shape template so the ``ArrayGlyph`` constructor has
+        a 2-D array to size its axes against.
+
+        Args:
+            animate_dim: Name of the band dim to walk over. Already
+                validated by :meth:`_resolve_animate_dim`.
+            analysis_kwargs: Kwargs accumulated by :meth:`plot` that
+                were destined for the static-plot path. The animate
+                path strips kwargs that are meaningful only to
+                :meth:`Analysis.plot` (e.g. ``rgb``, ``kind``,
+                ``coords``, ``_facet_stack``) before forwarding to
+                cleopatra's animate entry point.
+            exclude_value: Per-frame mask value forwarded to cleopatra.
+            basemap: Forwarded to :func:`render_array`; only honoured
+                when the animation eventually exposes a single ``Axes``
+                (cleopatra's :func:`add_tiles` is single-axes today).
+
+        Returns:
+            cleopatra.array_glyph.ArrayGlyph: The cleopatra glyph
+                wrapping the streamed ``FuncAnimation``. The matplotlib
+                animation object is reachable via the glyph's matplotlib
+                figure.
+        """
+        dim_values_raw = self._band_dim_values_map.get(animate_dim)
+        if dim_values_raw is None:
+            dim_index = self._band_dim_names.index(animate_dim)
+            dim_size = self._band_dim_sizes[dim_index]
+            frame_labels: list[Any] = list(range(dim_size))
+            frame_keys: list[Any] = list(range(dim_size))
+        else:
+            frame_keys = list(dim_values_raw)
+            decoded = (
+                self.get_time_variable(animate_dim)
+                if animate_dim.lower() in ("time", "valid_time", "t")
+                else None
+            )
+            frame_labels = (
+                decoded if decoded is not None else list(dim_values_raw)
+            )
+
+        no_data_value = [
+            np.nan if v is None else v for v in self.no_data_value
+        ]
+        resolved_exclude = (
+            [no_data_value[0], exclude_value]
+            if exclude_value is not None
+            else [no_data_value[0]]
+        )
+
+        def _data_getter(i: int) -> np.ndarray:
+            frame = self.sel(**{animate_dim: frame_keys[i]}).read_array(
+                band=0
+            )
+            return frame
+
+        template = np.asarray(_data_getter(0))
+
+        animate_kwargs = dict(analysis_kwargs)
+        # Strip kwargs that only make sense for the static-plot path:
+        # cleopatra's `animate()` does not accept `kind`, `coords`,
+        # `extend`, `cbar_kwargs`, `aspect`, `levels`, `center`,
+        # `norm`, `robust`, or `rgb`. Carry vmin/vmax/cmap/figsize/
+        # title across since they have well-defined animate semantics.
+        for key in (
+            "kind",
+            "coords",
+            "extend",
+            "cbar_kwargs",
+            "aspect",
+            "levels",
+            "center",
+            "norm",
+            "robust",
+            "rgb",
+            "_facet_stack",
+            "facet_kwargs",
+            "_chunks",
+        ):
+            animate_kwargs.pop(key, None)
+
+        ax = animate_kwargs.pop("ax", None)
+        fig = animate_kwargs.pop("fig", None)
+        return _render_array(
+            arr=template,
+            extent=self.bbox,
+            exclude_value=resolved_exclude,
+            mode="animate",
+            animation_axis_values=frame_labels,
+            data_getter=_data_getter,
+            ax=ax,
+            fig=fig,
+            basemap=basemap,
+            basemap_epsg=self.epsg,
+            **animate_kwargs,
+        )
+
+    def _maybe_log_lazy_hint(self) -> None:
+        """Log a hint when the variable size warrants explicit chunking.
+
+        The static-plot path reads the full variable into memory by
+        default. For very large variables this is wasteful — only the
+        rendered 2-D slice is shown. When the on-disk size exceeds
+        :data:`_LAZY_HINT_THRESHOLD_BYTES` (100 MB) the facade logs an
+        informational message pointing the caller at the ``chunks=``
+        kwarg. No auto-chunking happens — the user always opts in.
+
+        Returns:
+            None
+        """
+        try:
+            shape = self.shape
+            itemsize = int(np.dtype(self.dtype[0]).itemsize)
+        except (AttributeError, IndexError, TypeError, ValueError):
+            return
+        if not shape:
+            return
+        size_bytes = int(np.prod(shape)) * itemsize
+        if size_bytes > _LAZY_HINT_THRESHOLD_BYTES:
+            logger.info(
+                "NetCDF.plot reading %d bytes eagerly; pass chunks= for a "
+                "lazy slice (variable=%r, shape=%s).",
+                size_bytes,
+                self._source_var_name,
+                shape,
+            )
 
     def _validate_xy_coord_names(self, x: str | None, y: str | None) -> None:
         """Validate that `x=` / `y=` resolve to a variable of this NetCDF.

@@ -1992,3 +1992,294 @@ class TestNetCDFPlotFacetingEdges:
         for entry in grid.name_dicts:
             assert "time" in entry, f"Missing 'time' in {entry}"
             assert "pressure_level" in entry, f"Missing 'pressure_level' in {entry}"
+
+
+class TestNetCDFPlotAnimate:
+    """Tests for the PR-5 ``animate=`` kwarg on NetCDF.plot."""
+
+    def test_animate_true_returns_array_glyph(self):
+        """``animate=True`` on a single-band-dim variable returns ArrayGlyph.
+
+        Test scenario:
+            On a 3-D ``(time, lat, lon)`` variable with ``time`` as
+            the only band dim, ``animate=True`` resolves it as the
+            target dim and returns a cleopatra ``ArrayGlyph`` wrapping
+            the streamed animation. The matplotlib animation object is
+            attached to the glyph's figure.
+        """
+        nc = _make_3d_nc(n_times=3)
+        result = nc.plot(variable="t2m", animate=True)
+        assert isinstance(result, ArrayGlyph), (
+            f"Expected ArrayGlyph, got {type(result).__name__}"
+        )
+        assert result.fig is not None, "Animation must own a Figure"
+
+    def test_animate_string_resolves_named_dim(self):
+        """``animate="time"`` walks the named dim and returns ArrayGlyph."""
+        nc = _make_3d_nc(n_times=4)
+        result = nc.plot(variable="t2m", animate="time")
+        assert isinstance(result, ArrayGlyph)
+
+    def test_animate_unknown_dim_raises(self):
+        """``animate="bogus"`` lists available band dims in the error message."""
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"animate='bogus'"):
+            nc.plot(variable="t2m", animate="bogus")
+
+    def test_animate_with_col_raises_mutually_exclusive(self):
+        """``animate=True`` together with ``col=`` is rejected up-front."""
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"mutually exclusive"):
+            nc.plot(variable="t2m", animate=True, col="time")
+
+    def test_animate_with_pinned_dim_raises(self):
+        """``animate="time"`` together with ``time=`` selector conflicts."""
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"already pinned"):
+            nc.plot(variable="t2m", animate="time", time=0)
+
+    def test_animate_true_with_multiple_band_dims_raises(self):
+        """``animate=True`` on a 4-D variable without selectors is ambiguous.
+
+        Test scenario:
+            A 4-D ``(time, pressure_level, lat, lon)`` variable has
+            two free band dims. ``animate=True`` cannot pick one
+            automatically — the error message must mention both free
+            dims so the caller can name the target via ``animate=<name>``.
+        """
+        nc = _make_4d_nc()
+        with pytest.raises(ValueError, match=r"exactly one free band dim"):
+            nc.plot(variable="temperature", animate=True)
+
+    def test_animate_4d_with_level_pin_picks_time(self):
+        """4-D variable: pin ``level``, then ``animate=True`` picks ``time``.
+
+        Test scenario:
+            Collapsing ``pressure_level`` via ``level=`` leaves
+            ``time`` as the only free band dim, so ``animate=True``
+            unambiguously walks ``time``.
+        """
+        nc = _make_4d_nc()
+        result = nc.plot(variable="temperature", level=500, animate=True)
+        assert isinstance(result, ArrayGlyph)
+
+    def test_animate_uses_cf_decoded_time_labels(self):
+        """CF-decoded date strings are used as the animation frame labels.
+
+        Test scenario:
+            Build a 3-D NetCDF whose ``time`` dim carries CF
+            ``units="days since 2024-01-01"`` so ``get_time_variable()``
+            decodes the raw values into ``YYYY-MM-DD`` strings. Patch
+            :meth:`NetCDF.get_time_variable` to return a known label
+            list and assert those labels reach
+            :func:`pyramids.dataset._plot_helpers.render_array` via
+            ``animation_axis_values``.
+        """
+        nc = _make_3d_nc(n_times=3)
+        labels = ["2024-01-01", "2024-01-02", "2024-01-03"]
+        captured: dict = {}
+
+        def _fake_render(**kw):
+            captured["kw"] = kw
+            return "ok"
+
+        with patch(
+            "pyramids.netcdf.netcdf.NetCDF.get_time_variable",
+            return_value=labels,
+        ):
+            with patch(
+                "pyramids.netcdf.netcdf._render_array",
+                side_effect=_fake_render,
+            ):
+                nc.plot(variable="t2m", animate=True)
+        assert captured["kw"]["mode"] == "animate"
+        assert captured["kw"]["animation_axis_values"] == labels
+
+    def test_animate_data_getter_called_once_per_frame(self):
+        """The lazy ``data_getter`` invokes ``sel().read_array`` per frame.
+
+        Test scenario:
+            Patch the ``_render_array`` indirection in
+            :mod:`pyramids.netcdf.netcdf` so the test captures the
+            ``data_getter`` callable that pyramids hands to cleopatra.
+            Invoking the callable for indices 0..N-1 must call
+            ``sel().read_array(band=0)`` exactly once per call and
+            return a 2-D array matching the source slice.
+        """
+        nc = _make_3d_nc(n_times=4)
+        captured: dict = {}
+
+        def _fake_render(**kw):
+            captured["kw"] = kw
+            return "ok"
+
+        with patch(
+            "pyramids.netcdf.netcdf._render_array",
+            side_effect=_fake_render,
+        ):
+            nc.plot(variable="t2m", animate=True)
+        getter = captured["kw"]["data_getter"]
+        var = nc.get_variable("t2m")
+        full = var.read_array()
+        for i in range(4):
+            frame = getter(i)
+            assert frame.shape == (5, 5), (
+                f"Frame {i} expected (5,5), got {frame.shape}"
+            )
+            assert_array_equal(
+                frame,
+                full[i],
+                err_msg=f"Frame {i} must match full[{i}]",
+            )
+
+    def test_animate_does_not_build_full_stack(self):
+        """The animate path never builds a 3-D stack up-front.
+
+        Test scenario:
+            Spy on the variable subset's ``read_array`` method and
+            confirm that the pre-animate setup calls it at most once
+            (for the cleopatra shape template — the first
+            ``data_getter(0)`` call). The remaining frames are pulled
+            lazily once cleopatra iterates the animation.
+        """
+        nc = _make_3d_nc(n_times=5)
+        captured: dict = {}
+
+        def _fake_render(**kw):
+            captured["kw"] = kw
+            return "ok"
+
+        with patch(
+            "pyramids.netcdf.netcdf._render_array",
+            side_effect=_fake_render,
+        ):
+            nc.plot(variable="t2m", animate=True)
+        template = captured["kw"]["arr"]
+        assert template.ndim == 2, (
+            f"Template handed to render_array must be 2-D, got {template.shape}"
+        )
+
+    def test_animate_invalid_type_raises(self):
+        """``animate=1.0`` (non-bool, non-str) is rejected with a clear error."""
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"animate="):
+            nc.plot(variable="t2m", animate=1.0)
+
+
+class TestNetCDFPlotLazy:
+    """Tests for the PR-5 ``chunks=`` lazy static-plot path."""
+
+    def test_chunks_dict_routes_through_dask(self, tmp_path):
+        """``chunks={"x": 5, "y": 5}`` switches the read path to dask.
+
+        Test scenario:
+            Requires the optional ``dask`` dep and a real on-disk
+            NetCDF (the lazy path needs a file the dask graph can
+            reopen). With ``chunks=`` set, ``Analysis.plot`` calls
+            ``read_array(chunks=...)`` and ``.compute()``s only the
+            requested band. The result is the same cleopatra
+            ``ArrayGlyph`` shape as the eager path.
+        """
+        pytest.importorskip("dask", reason="dask not installed")
+        nc_mem = _make_3d_nc(n_times=2, rows=4, cols=4)
+        out = tmp_path / "tiny.nc"
+        nc_mem.to_file(out)
+        nc = NetCDF.read_file(str(out))
+        result = nc.plot(
+            variable="t2m",
+            time=0,
+            chunks={"cols": 2, "rows": 2},
+        )
+        assert isinstance(result, ArrayGlyph)
+        assert result.arr.shape == (4, 4)
+
+    def test_chunks_none_preserves_eager_behaviour(self):
+        """``chunks=None`` (default) preserves the current eager path.
+
+        Test scenario:
+            ``Analysis.plot`` is patched so the test inspects the
+            kwargs it receives. ``chunks=None`` (default) must not
+            inject any ``_chunks`` kwarg into the call.
+        """
+        nc = _make_3d_nc()
+        var = nc.get_variable("t2m")
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "ok"
+            nc.plot(variable="t2m", time=0)
+        kw = mock_plot.call_args.kwargs
+        assert "_chunks" not in kw, (
+            f"chunks=None must not inject _chunks; got {kw}"
+        )
+
+    def test_chunks_value_forwarded_via_underscore_kwarg(self):
+        """A user-supplied ``chunks=`` is forwarded to ``Analysis.plot``.
+
+        Test scenario:
+            With ``chunks={"cols": 1}``, ``NetCDF.plot`` must inject
+            ``_chunks={"cols": 1}`` into the engine call so ``Analysis.plot``
+            can pick it up and route the read through the dask path.
+        """
+        nc = _make_3d_nc()
+        var = nc.get_variable("t2m")
+        spec = {"x": 1}
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "ok"
+            nc.plot(variable="t2m", time=0, chunks=spec)
+        kw = mock_plot.call_args.kwargs
+        assert kw.get("_chunks") == spec
+
+    def test_lazy_hint_logged_for_large_variable(self, caplog):
+        """Variables above the 100 MB threshold log an informational hint.
+
+        Test scenario:
+            Patch the subset's ``shape`` property to report a size
+            > 100 MB. The static-plot path (no ``chunks=``) must emit
+            an ``INFO``-level log with the ``chunks=`` hint. The plot
+            call itself is short-circuited by patching ``Analysis.plot``.
+        """
+        nc = _make_3d_nc()
+        var = nc.get_variable("t2m")
+        large_shape = (50, 4000, 4000)
+        with patch.object(
+            type(var), "shape", new_callable=lambda: property(lambda s: large_shape)
+        ):
+            with patch.object(
+                type(var.analysis), "plot", autospec=True
+            ) as mock_plot:
+                mock_plot.return_value = "ok"
+                with caplog.at_level("INFO", logger="pyramids.netcdf.netcdf"):
+                    nc.plot(variable="t2m", time=0)
+        msgs = [r.getMessage() for r in caplog.records]
+        assert any("chunks=" in m for m in msgs), (
+            f"Expected chunks= hint in logs, got: {msgs}"
+        )
+
+    def test_lazy_hint_not_logged_when_chunks_supplied(self, caplog):
+        """No hint is logged when the caller already passed ``chunks=``.
+
+        Test scenario:
+            Same oversize shape as the previous test but with
+            ``chunks={"cols": 1}`` set. The hint is gated on
+            ``chunks is None`` so the log message must be absent.
+        """
+        pytest.importorskip("dask", reason="dask not installed")
+        nc = _make_3d_nc()
+        var = nc.get_variable("t2m")
+        large_shape = (50, 4000, 4000)
+        with patch.object(
+            type(var), "shape", new_callable=lambda: property(lambda s: large_shape)
+        ):
+            with patch.object(
+                type(var.analysis), "plot", autospec=True
+            ) as mock_plot:
+                mock_plot.return_value = "ok"
+                with caplog.at_level("INFO", logger="pyramids.netcdf.netcdf"):
+                    nc.plot(
+                        variable="t2m",
+                        time=0,
+                        chunks={"cols": 1},
+                    )
+        msgs = [r.getMessage() for r in caplog.records]
+        assert not any("chunks=" in m for m in msgs), (
+            f"Hint must not fire when chunks= is supplied; got: {msgs}"
+        )

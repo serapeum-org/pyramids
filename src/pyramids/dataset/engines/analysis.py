@@ -955,13 +955,31 @@ class Analysis(_Engine):
         # mutually-exclusive `extent` swap. `facet_kwargs` (PR-4) is
         # forwarded by `NetCDF.plot` to switch the helper to the
         # `mode="facet"` branch; the pre-built stack arrives alongside as
-        # `_facet_stack`.
+        # `_facet_stack`. `_chunks` (PR-5) is injected by `NetCDF.plot`
+        # to switch the static-plot read path to the dask-backed lazy
+        # read; only the rendered slice is materialised.
         coords = kwargs.pop("coords", None)
         facet_kwargs = kwargs.pop("facet_kwargs", None)
         facet_stack = kwargs.pop("_facet_stack", None)
+        chunks = kwargs.pop("_chunks", None)
         mode = "facet" if facet_kwargs else "plot"
         if mode == "facet":
             arr = facet_stack
+        elif chunks is not None:
+            # Lazy read path: build a dask array of the variable, then
+            # materialise only the requested slice via `.compute()`.
+            # `read_array(chunks=...)` is only meaningful on NetCDF —
+            # plain Dataset doesn't support `chunks`. The kwarg arrives
+            # here only because NetCDF.plot injected it, so the call is
+            # safe to issue.
+            lazy = self._ds.read_array(chunks=chunks)
+            if hasattr(lazy, "compute"):
+                if lazy.ndim == 3:
+                    arr = np.asarray(lazy[band].compute())
+                else:
+                    arr = np.asarray(lazy.compute())
+            else:
+                arr = lazy if band is None else lazy[band]
         else:
             # When ``rgb`` is supplied, cleopatra's ArrayGlyph needs the full
             # multi-band ``(bands, rows, cols)`` array so it can pick the
