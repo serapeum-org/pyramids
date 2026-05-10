@@ -448,7 +448,7 @@ class RasterBase(ABC):
         band: int | None = None,
         exclude_value: Any | None = None,
         rgb: list[int] | None = None,
-        surface_reflectance: int = 10000,
+        surface_reflectance: int | None = None,
         cutoff: list | None = None,
         overview: bool = False,
         overview_index: int = 0,

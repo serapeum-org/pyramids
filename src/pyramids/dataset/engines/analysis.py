@@ -821,7 +821,7 @@ class Analysis(_Engine):
 
     def plot(
         self,
-        band: int | None = None,
+        band: int,
         exclude_value: Any | None = None,
         rgb: list[int] | None = None,
         surface_reflectance: int | None = None,
@@ -833,19 +833,26 @@ class Analysis(_Engine):
         **kwargs: Any,
     ) -> ArrayGlyph:
         """Plot the values/overviews of a given band.
+
+        This is the generic rendering engine. It assumes ``band`` has already been resolved
+        by the caller (typically a per-class facade such as :meth:`Dataset.plot` or
+        :meth:`NetCDF.plot`). It does **not** apply any band-resolution policy (no RGB
+        heuristic, no `ColorInterpretation` lookup, no default-to-zero fallback) \u2014 those
+        are dataset-type-specific decisions that belong on the facades.
+
         The plot function uses the `cleopatra` as a backend to plot the raster data, for more information check
         [ArrayGlyph](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/#cleopatra.array_glyph.ArrayGlyph.plot).
+
         Args:
-            band (int, optional):
-                The band you want to get its data. Default is 0.
+            band (int):
+                Concrete band index to render. Must be provided \u2014 the engine does not resolve
+                bands.
             exclude_value (Any, optional):
                 Value to exclude from the plot. Default is None.
             rgb (List[int], optional):
                 The indices of the red, green, and blue bands in the `Dataset`. the `rgb` parameter can be a list of
-                three values, or a list of four values if the alpha band is also included.
-                The `plot` method will check if the rgb bands are defined in the `Dataset`, if all the three bands (
-                red, green, blue)) are defined, the method will use them to plot the real image, if not the rgb bands
-                will be considered as [2,1,0] as the default order for sentinel tif files.
+                three values, or a list of four values if the alpha band is also included. Only meaningful for
+                Sentinel-style multi-band rasters; pass-through to cleopatra.
             surface_reflectance (int, optional):
                 Surface reflectance value for normalizing satellite data, by default None.
                 Typically 10000 for Sentinel-2 data.
@@ -879,7 +886,7 @@ class Analysis(_Engine):
                 | `ticks_spacing`             | int, optional       | Spacing between color bar ticks. Default is `2`. |
                 | `cbar_label_size`           | int, optional       | Size of the color bar label. Default is `12`. |
                 | `cbar_label`                | str, optional       | Label of the color bar. Default is `'Discharge m\u00b3/s'`. |
-                | `color_scale`               | int, optional       | Scale mode for colors. Options: 1 = normal, 2 = power, 3 = SymLogNorm, 4 = PowerNorm, 5 = BoundaryNorm. Default is `1`. |
+                | `color_scale`               | int or str, optional | Scale mode for colors. Accepts both integer codes (`1`\u2013`5`) and string aliases. Integer codes: `1` = normal, `2` = power, `3` = SymLogNorm, `4` = PowerNorm, `5` = BoundaryNorm. String aliases: `"linear"` (= `1`), `"power"` (= `2`), `"sym-lognorm"` (= `3`), `"boundary-norm"` (= `4`), `"midpoint"` (= `5`). Default is `1` / `"linear"`. |
                 | `gamma`                     | float, optional     | Value needed for color scale option 2. Default is `1/2`. |
                 | `line_threshold`            | float, optional     | Value needed for color scale option 3. Default is `0.0001`. |
                 | `line_scale`                | float, optional     | Value needed for color scale option 3. Default is `0.001`. |
@@ -891,7 +898,12 @@ class Analysis(_Engine):
                 | `background_color_threshold`| float or int, optional | Threshold for deciding text color over cells: if value > threshold -> black text; else white text. If `None`, max value / 2 is used. Default is `None`. |
         Returns:
             ArrayGlyph:
-                ArrayGlyph object. For more details of the ArrayGlyph object check the [ArrayGlyph](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/).
+                A cleopatra ``ArrayGlyph`` wrapping the rendered figure. The underlying matplotlib
+                primitives are exposed as ``cleo.fig`` (the :class:`matplotlib.figure.Figure`) and
+                ``cleo.ax`` (the :class:`matplotlib.axes.Axes`) \u2014 use these as the escape hatch
+                when you need to further customise the plot with raw matplotlib calls. For the
+                full ``ArrayGlyph`` API see the
+                [ArrayGlyph reference](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/).
         Examples:
             - Plot a certain band:
               ```python
@@ -931,33 +943,17 @@ class Analysis(_Engine):
         from cleopatra.array_glyph import ArrayGlyph
 
         no_data_value = [np.nan if i is None else i for i in self._ds.no_data_value]
+        # When ``rgb`` is supplied, cleopatra's ArrayGlyph needs the full multi-band
+        # ``(bands, rows, cols)`` array so it can pick the colour channels itself. In all
+        # other cases we render just the requested band as a 2-D array.
+        read_band = None if rgb is not None else band
         if overview:
             arr = self._ds.read_overview_array(
-                band=band,
+                band=read_band,
                 overview_index=overview_index if overview_index is not None else 0,
             )
         else:
-            arr = self._ds.read_array(band=band)
-        # if the raster has three bands or more.
-        if self._ds.band_count >= 3:
-            if band is None:
-                if rgb is None:
-                    rgb_candidate: list[int | None] = [
-                        self._ds.get_band_by_color("red"),
-                        self._ds.get_band_by_color("green"),
-                        self._ds.get_band_by_color("blue"),
-                    ]
-                    if None in rgb_candidate:
-                        rgb = [2, 1, 0]
-                    else:
-                        rgb = [int(v) for v in rgb_candidate if v is not None]
-                # first make the band index the first band in the rgb list (red band)
-                band = rgb[0]
-        # elif self._ds.band_count == 1:
-        #     band = 0
-        else:
-            if band is None:
-                band = 0
+            arr = self._ds.read_array(band=read_band)
         exclude_value = (
             [no_data_value[band], exclude_value]
             if exclude_value is not None

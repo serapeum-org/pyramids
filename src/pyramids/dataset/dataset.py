@@ -278,9 +278,103 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Analysis.get_histogram <pyramids.dataset.engines.Analysis.get_histogram>`."""
         return self.analysis.get_histogram(*args, **kwargs)
 
-    def plot(self, *args, **kwargs):
-        """Facade — delegates to :meth:`Analysis.plot <pyramids.dataset.engines.Analysis.plot>`."""
-        return self.analysis.plot(*args, **kwargs)
+    def _resolve_plot_band(
+        self, band: int | None, rgb: list[int] | None
+    ) -> tuple[int, list[int] | None]:
+        """Resolve which band index (and effective ``rgb`` list) to render for :meth:`plot`.
+
+        Applies the GeoTIFF / Sentinel-imagery band-resolution policy that used to live
+        inside :meth:`Analysis.plot`. The rules, in order, are:
+
+        1. If ``band`` is explicitly provided, it is returned as-is (and ``rgb`` passes
+           through untouched).
+        2. If the dataset has fewer than 3 bands, return ``(0, rgb)``.
+        3. If the dataset has 3+ bands but **no** band has a GDAL ``ColorInterpretation``
+           set (i.e. every band reports ``undefined``), return ``(0, rgb)``. This is the
+           D-1 fix: ``band_count >= 3`` alone is not a sufficient signal that the data
+           is an RGB image — multi-band scalar cubes (e.g. time series stacked into one
+           GeoTIFF) also have ``band_count >= 3`` and must not be misinterpreted as RGB.
+        4. Otherwise, treat the dataset as RGB imagery. If ``rgb`` was supplied, its
+           first entry is the red band. If it was not supplied, resolve red/green/blue
+           via :meth:`get_band_by_color`; fall back to ``[2, 1, 0]`` (the default
+           Sentinel-2 band order) only when one or more colour channels can't be
+           identified.
+
+        Args:
+            band: User-supplied band index, or ``None`` to trigger the heuristic.
+            rgb: User-supplied ``[r, g, b]`` band index list, or ``None``.
+
+        Returns:
+            tuple[int, list[int] | None]: The resolved single-band index and the
+                effective ``rgb`` list to forward to :meth:`Analysis.plot`. The ``rgb``
+                element is ``None`` when no RGB rendering should happen.
+        """
+        if band is not None:
+            resolved_band = band
+            resolved_rgb = rgb
+        elif self.band_count < 3:
+            resolved_band = 0
+            resolved_rgb = rgb
+        else:
+            band_colors = list(self.band_color.values())
+            has_color_interp = any(c != "undefined" for c in band_colors)
+            if not has_color_interp:
+                resolved_band = 0
+                resolved_rgb = rgb
+            else:
+                if rgb is None:
+                    candidate: list[int | None] = [
+                        self.get_band_by_color("red"),
+                        self.get_band_by_color("green"),
+                        self.get_band_by_color("blue"),
+                    ]
+                    if None in candidate:
+                        resolved_rgb = [2, 1, 0]
+                    else:
+                        resolved_rgb = [int(v) for v in candidate]
+                else:
+                    resolved_rgb = rgb
+                resolved_band = int(resolved_rgb[0])
+        return resolved_band, resolved_rgb
+
+    def plot(
+        self,
+        band: int | None = None,
+        exclude_value: Any | None = None,
+        rgb: list[int] | None = None,
+        surface_reflectance: int | None = None,
+        cutoff: list | None = None,
+        overview: bool | None = False,
+        overview_index: int | None = 0,
+        percentile: int | None = None,
+        basemap: bool | str | None = None,
+        **kwargs: Any,
+    ):
+        """Plot the values/overviews of a band.
+
+        Facade for :meth:`Analysis.plot <pyramids.dataset.engines.Analysis.plot>`. Resolves
+        the band index via :meth:`_resolve_plot_band` (GeoTIFF/Sentinel semantics) and then
+        forwards the call to the generic rendering engine.
+
+        When ``band`` is ``None`` and the dataset looks like an RGB image — i.e. it has
+        at least 3 bands **and** at least one band has a GDAL ``ColorInterpretation`` set —
+        the red band is auto-selected (either from ``rgb[0]`` or by resolving the colour
+        tags). Otherwise the facade defaults to band ``0``. See
+        :meth:`Analysis.plot` for the full kwargs surface.
+        """
+        resolved_band, resolved_rgb = self._resolve_plot_band(band, rgb)
+        return self.analysis.plot(
+            band=resolved_band,
+            exclude_value=exclude_value,
+            rgb=resolved_rgb,
+            surface_reflectance=surface_reflectance,
+            cutoff=cutoff,
+            overview=overview,
+            overview_index=overview_index,
+            percentile=percentile,
+            basemap=basemap,
+            **kwargs,
+        )
 
     def crop(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.crop <pyramids.dataset.engines.Spatial.crop>`."""

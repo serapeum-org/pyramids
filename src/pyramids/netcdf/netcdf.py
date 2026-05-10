@@ -480,16 +480,46 @@ class NetCDF(Dataset):
                 f"Use nc.get_variable('var_name').{operation}(...) instead."
             )
 
-    def plot(self, band=None, **kwargs):
-        """Plot a band of the dataset.
+    def plot(self, band: int = 0, **kwargs):
+        """Plot a band of the NetCDF variable subset.
+
+        NetCDF defaults to ``band=0`` for any variable subset — the GeoTIFF/Sentinel
+        RGB heuristic on :meth:`Dataset.plot` does **not** apply here, because NetCDF
+        ``band`` is just a flat index into a non-spatial dimension (typically time or
+        level) and carries no colour semantics. The satellite-imagery kwargs ``rgb=``,
+        ``surface_reflectance=`` and ``cutoff=`` are explicitly rejected for the same
+        reason — they describe Sentinel-2-style multi-band reflectance data, not
+        atmospheric / oceanographic data cubes.
 
         Blocked on root MDIM containers — extract a variable first.
 
+        Args:
+            band: Flat band index into the subset (defaults to ``0``).
+            **kwargs: Forwarded to :meth:`Analysis.plot`.
+
         Raises:
+            TypeError: If any of ``rgb``, ``surface_reflectance``, or ``cutoff`` is passed.
             ValueError: If called on a root MDIM container.
         """
+        forbidden_kwargs = {
+            "rgb": (
+                "NetCDF.plot() does not accept rgb=: NetCDF data is not RGB; "
+                "use `band=` to select a time/level slice."
+            ),
+            "surface_reflectance": (
+                "NetCDF.plot() does not accept surface_reflectance=: "
+                "Sentinel-only kwarg; not meaningful for NetCDF variables."
+            ),
+            "cutoff": (
+                "NetCDF.plot() does not accept cutoff=: Sentinel-only kwarg; "
+                "use `vmin=`/`vmax=` instead (will land in PR-2)."
+            ),
+        }
+        for name, message in forbidden_kwargs.items():
+            if name in kwargs:
+                raise TypeError(message)
         self._check_not_container("plot")
-        return super().plot(band=band, **kwargs)
+        return self.analysis.plot(band=band, **kwargs)
 
     def read_array(
         self,
