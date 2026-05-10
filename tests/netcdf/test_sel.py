@@ -165,6 +165,104 @@ class TestSelSlice:
             24.0,
         ], f"Expected [18, 24], got {result._band_dim_values}"
 
+    def test_descending_coord_open_slice_selects_all(self):
+        """`slice(None, None)` on a descending-coord dim selects every band.
+
+        Test scenario:
+            CDS-Beta `latitude` is stored north-to-south, so coords
+            descend (e.g. `[44, 43, 42, 41, 40]`). Pre-fix the default
+            fill `start=44, stop=40` produced the test `44 <= v <= 40`
+            which matched nothing. Bounds are now normalised before
+            the match, so the slice is direction-agnostic.
+        """
+        nc = _make_nc()
+        var = nc.get_variable("temp")
+        # Manually flip the band-dim coords to mimic a descending axis;
+        # the underlying band data stays in storage order so the test
+        # only exercises the slice-bound logic.
+        var._band_dim_values = list(reversed(var._band_dim_values))
+        var._band_dim_values_map = dict(var._band_dim_values_map)
+        var._band_dim_values_map["time"] = list(var._band_dim_values)
+
+        result = var.sel(time=slice(None, None))
+        assert sorted(result._band_dim_values) == [0.0, 6.0, 12.0, 18.0, 24.0], (
+            f"open-ended slice on descending coords should select every "
+            f"band, got {result._band_dim_values}"
+        )
+
+    def test_descending_coord_explicit_inverted_bounds(self):
+        """`slice(high, low)` on descending coords matches the inclusive range.
+
+        Test scenario:
+            With `coords = [24, 18, 12, 6, 0]` (descending), the user
+            writes `slice(18, 6)` (high → low) — the natural reading
+            order. The match must include 18, 12, 6.
+        """
+        nc = _make_nc()
+        var = nc.get_variable("temp")
+        var._band_dim_values = list(reversed(var._band_dim_values))
+        var._band_dim_values_map = dict(var._band_dim_values_map)
+        var._band_dim_values_map["time"] = list(var._band_dim_values)
+
+        result = var.sel(time=slice(18, 6))
+        assert sorted(result._band_dim_values) == [6.0, 12.0, 18.0], (
+            f"slice(18, 6) on descending coords should select [6, 12, 18], "
+            f"got {result._band_dim_values}"
+        )
+
+    def test_equal_bounds_selects_single_band(self):
+        """slice(12, 12) hits the inclusive `<=` boundary on both sides.
+
+        Test scenario:
+            On ascending coords [0, 6, 12, 18, 24], `slice(12, 12)`
+            should select exactly the band at coord 12. Locks in that
+            the bound check is `<=` (not `<`) on both sides.
+        """
+        nc = _make_nc()
+        var = nc.get_variable("temp")
+        result = var.sel(time=slice(12, 12))
+        assert result._band_dim_values == [12.0], (
+            f"slice(12, 12) should select single band [12], got "
+            f"{result._band_dim_values!r}"
+        )
+
+    def test_ascending_with_inverted_bounds(self):
+        """slice(18, 6) on ASCENDING coords gives the same result as on descending.
+
+        Test scenario:
+            User mistakenly writes `slice(high, low)` on ascending
+            coords. Bound normalisation makes the slice
+            direction-agnostic, so the result is the same set of
+            bands as `slice(6, 18)`. Locks in the symmetry between
+            ascending and descending paths.
+        """
+        nc = _make_nc()
+        var = nc.get_variable("temp")
+        result = var.sel(time=slice(18, 6))
+        assert result._band_dim_values == [6.0, 12.0, 18.0], (
+            f"slice(18, 6) on ascending should match slice(6, 18), got "
+            f"{result._band_dim_values!r}"
+        )
+
+    def test_descending_no_match_still_raises(self):
+        """A genuinely empty slice on descending coords still raises ValueError.
+
+        Test scenario:
+            On descending coords [24, 18, 12, 6, 0], `slice(100, 200)`
+            normalises to `(100, 200)` and matches no coord (all
+            below 100). Confirms the existing "No bands match" guard
+            still fires after normalisation — the swap doesn't mask
+            no-match errors.
+        """
+        nc = _make_nc()
+        var = nc.get_variable("temp")
+        var._band_dim_values = list(reversed(var._band_dim_values))
+        var._band_dim_values_map = dict(var._band_dim_values_map)
+        var._band_dim_values_map["time"] = list(var._band_dim_values)
+
+        with pytest.raises(ValueError, match="No bands match"):
+            var.sel(time=slice(100, 200))
+
 
 class TestSelErrors:
     """sel() error handling."""

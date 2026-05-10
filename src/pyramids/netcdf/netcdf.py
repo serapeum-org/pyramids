@@ -930,8 +930,12 @@ class NetCDF(Dataset):
 
                 - A single number: select one band by exact value.
                 - A list of numbers: select multiple bands.
-                - A `slice(start, stop)`: select bands where
-                  `start <= coord <= stop` (both bounds inclusive).
+                - A `slice(start, stop)`: select bands whose coord
+                  falls between `start` and `stop` inclusive. Bounds
+                  are normalised before matching, so the slice is
+                  direction-agnostic — works on both ascending and
+                  descending coord axes (e.g. `latitude` stored
+                  north-to-south).
 
         Returns:
             NetCDF: A new variable subset with only the selected bands
@@ -975,6 +979,15 @@ class NetCDF(Dataset):
                 [1000.0, 500.0]
 
                 ```
+            - Use a slice selector — direction-agnostic, so the same
+              call works on ascending coords (e.g. `[500, 850, 1000]`)
+              and on descending coords (e.g. `[1000, 850, 500]`):
+                ```python
+                >>> sub = var.sel(pressure_level=slice(500, 1000))  # doctest: +SKIP
+                >>> sub._band_dim_values_map["pressure_level"]  # doctest: +SKIP
+                [1000.0, 850.0, 500.0]
+
+                ```
 
         See Also:
             `get_variable`: builds a variable subset and populates the
@@ -1005,7 +1018,15 @@ class NetCDF(Dataset):
         if isinstance(selector, slice):
             start = selector.start if selector.start is not None else coords[0]
             stop = selector.stop if selector.stop is not None else coords[-1]
-            dim_indices = [i for i, v in enumerate(coords) if start <= v <= stop]
+            # Normalise bounds so the match works on both ascending and
+            # descending coord axes (e.g. `latitude = [44, 43, 42, 41,
+            # 40]` from CDS-Beta retrievals). Without this, a
+            # `slice(None, None)` on a descending axis defaults to
+            # `start=44, stop=40`, the test `44 <= v <= 40` matches
+            # nothing, and the user gets a confusing "no bands match"
+            # error instead of "select everything".
+            lo, hi = (start, stop) if start <= stop else (stop, start)
+            dim_indices = [i for i, v in enumerate(coords) if lo <= v <= hi]
         elif isinstance(selector, list):
             coord_set = set(selector)
             dim_indices = [i for i, v in enumerate(coords) if v in coord_set]
