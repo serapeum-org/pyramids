@@ -675,11 +675,25 @@ class NetCDF(Dataset):
         ):
             # Multi-band-dim variable whose total band count diverged from
             # the cached sizes (e.g. after a band-shrinking operation
-            # outside sel()). Drop the now-stale primary view; sel() must
-            # repopulate before further use.
+            # outside sel()). Drop the now-stale primary view.
             wrapped._band_dim_values = None
         else:
             wrapped._band_dim_values = self._band_dim_values
+        # Self-heal: if the guard above nulled the legacy values but
+        # the per-dim map still carries an entry of the right length
+        # for the new band count, refill from there. Makes the helper
+        # idempotent under repeat calls and removes the post-call
+        # refill requirement on callers like `sel()` for the
+        # pin-secondary-dim case (where the primary-dim entry in the
+        # map is still valid).
+        if (
+            wrapped._band_dim_values is None
+            and wrapped._band_dim_name is not None
+            and wrapped._band_count > 0
+        ):
+            candidate = wrapped._band_dim_values_map.get(wrapped._band_dim_name)
+            if candidate is not None and len(candidate) == wrapped._band_count:
+                wrapped._band_dim_values = list(candidate)
         wrapped._variable_attrs = self._variable_attrs
         wrapped._scale = self._scale
         wrapped._offset = self._offset

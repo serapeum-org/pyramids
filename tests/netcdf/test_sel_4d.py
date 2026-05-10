@@ -369,3 +369,75 @@ class TestRootContainer4DSpatialOps:
         # Values must round-trip
         assert inner._band_dim_values_map["time"] == TIME_VALUES
         assert inner._band_dim_values_map["pressure_level"] == LEVEL_VALUES
+
+
+class TestPreserveNetcdfMetadataSelfHeal:
+    """`_preserve_netcdf_metadata` is idempotent under repeat calls (review #M3).
+
+    The length-guard nullifies `_band_dim_values` whenever the cached
+    sizes diverge from the wrapped band count. Pre-self-heal, callers
+    like `sel()` had to refill the legacy field after every call to
+    keep the contract intact. The self-heal block in
+    `_preserve_netcdf_metadata` now refills from
+    `_band_dim_values_map[primary_dim]` when the lengths match, so the
+    helper survives repeat calls and any future spatial op that
+    bypasses sel().
+    """
+
+    def test_self_heal_after_pin_secondary_dim(self):
+        """Pin a secondary band dim, then re-run preserve.
+
+        Test scenario:
+            `sel(pressure_level=500)` on the synthetic `(4, 3)` cube.
+            The post-sel result has `_band_dim_sizes = (4, 1)` — but
+            the legacy `_band_dim_values` was nullified by the length
+            guard during preserve, then refilled by sel(). Calling
+            `_preserve_netcdf_metadata` again on the result must NOT
+            re-null the legacy values: the primary-dim entry in the
+            map still has the right length.
+        """
+        nc = NetCDF.read_file(SYNTH_PATH)
+        var = nc.get_variable("temperature")
+        sub = var.sel(pressure_level=500)
+        assert sub._band_dim_values == TIME_VALUES, (
+            f"post-sel values broken: {sub._band_dim_values!r}"
+        )
+        # Round-trip through preserve a second time. Wrapping a fresh
+        # Dataset of the same shape simulates a downstream spatial op
+        # that doesn't refill afterwards.
+        rewrapped = sub._preserve_netcdf_metadata(sub)
+        assert rewrapped._band_dim_values == TIME_VALUES, (
+            f"self-heal failed; values dropped to "
+            f"{rewrapped._band_dim_values!r}"
+        )
+        assert rewrapped._band_dim_name == "time", (
+            f"primary dim must stay 'time', got {rewrapped._band_dim_name!r}"
+        )
+
+    def test_self_heal_keeps_none_when_no_match_available(self):
+        """If no map entry matches the new band count, the value stays None.
+
+        Test scenario:
+            Force the length guard to fire by tampering with
+            `_band_dim_sizes` so the guard's `prod(sizes) !=
+            wrapped._band_count` check is true. Also scrub the
+            primary-dim entry in the map to a wrong-length list. The
+            self-heal must NOT inject a stale list — it should leave
+            the field as None so the bug surfaces loudly downstream.
+        """
+        nc = NetCDF.read_file(SYNTH_PATH)
+        var = nc.get_variable("temperature")
+        # Start from the unmodified 4-D variable. Tamper with state so
+        # preserve's guard fires AND the self-heal lookup misses.
+        var._band_dim_sizes = (NT, NL, 99)        # bogus size, prod != band_count
+        var._band_dim_names = ("time", "pressure_level", "fake")
+        var._band_dim_values_map = {
+            "time": [],                            # wrong-length primary entry
+            "pressure_level": LEVEL_VALUES,
+            "fake": [],
+        }
+        rewrapped = var._preserve_netcdf_metadata(var)
+        assert rewrapped._band_dim_values is None, (
+            f"self-heal injected a stale list: "
+            f"{rewrapped._band_dim_values!r}"
+        )
