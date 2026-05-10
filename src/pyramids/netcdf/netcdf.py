@@ -1071,11 +1071,13 @@ class NetCDF(Dataset):
         result._band_dim_values_map = dict(self._band_dim_values_map)
         result._band_dim_values_map[dim_name] = selected_coords
         # Refresh legacy primary-dim values to match the (possibly
-        # updated) primary entry in the map.
-        if result._band_dim_name is not None:
-            result._band_dim_values = result._band_dim_values_map.get(
-                result._band_dim_name
-            )
+        # updated) primary entry in the map. `_band_dim_name` is
+        # guaranteed non-None here: entry to `sel()` requires
+        # `_band_dim_names` to be non-empty, and the build path always
+        # sets `_band_dim_name = _band_dim_names[0]`.
+        result._band_dim_values = result._band_dim_values_map.get(
+            result._band_dim_name
+        )
 
         return result
 

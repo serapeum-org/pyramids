@@ -273,6 +273,32 @@ class MetadataBuilder:
             if updated:
                 dimensions[key] = replace(dim, attrs=new_attrs)
 
+    @staticmethod
+    def _is_classic_dim_attr_key(key: str) -> bool:
+        """Return `True` iff `key` looks like a classic NetCDF dim/var attr.
+
+        Classic GDAL metadata flattens per-variable / per-dim attrs as
+        `<name>#<attr>` (e.g. `valid_time#units`,
+        `NC_GLOBAL#Conventions`). The multidim driver instead exposes
+        `NETCDF_DIM_<name>_DEF` / `NETCDF_DIM_<name>_VALUES` style
+        markers — those can technically contain a `#` in unusual
+        setups but are NOT per-dim attribute carriers, so they should
+        not satisfy the "looks classic" check.
+
+        Args:
+            key: A key from `gdal.Dataset.GetMetadata()`.
+
+        Returns:
+            bool: `True` if the key is a `<name>#<attr>` pair where
+            `<name>` is non-empty and not a GDAL multidim marker.
+        """
+        if "#" not in key:
+            return False
+        prefix, _, attr = key.partition("#")
+        if not prefix or not attr:
+            return False
+        return not prefix.startswith("NETCDF_")
+
     def _read_classic_metadata_for_topup(self) -> dict[str, str]:
         """Return a classic-mode flat metadata dict for the dataset.
 
@@ -311,7 +337,11 @@ class MetadataBuilder:
         except RuntimeError as exc:
             logger.debug("classic GetMetadata() failed during dim top-up: %s", exc)
             existing = {}
-        if any("#" in k for k in existing):
+        # Detect a classic-mode metadata dict by the presence of at
+        # least one `<dim>#<attr>` key. Exclude GDAL-driver markers
+        # like `NETCDF_DIM_*` from the heuristic — those can carry a
+        # `#` in some setups but don't give us per-dim attributes.
+        if any(self._is_classic_dim_attr_key(k) for k in existing):
             result = existing
         else:
             try:

@@ -441,3 +441,97 @@ class TestPreserveNetcdfMetadataSelfHeal:
             f"self-heal injected a stale list: "
             f"{rewrapped._band_dim_values!r}"
         )
+
+
+def _make_4d_writable_nc():
+    """Build an in-memory 4-D NetCDF for round-trip tests.
+
+    Uses the `extra_dims` API added in PR #313 so the container is
+    writable (MEM driver) and carries the same shape and dim names as
+    the synthetic on-disk fixture, but stays mutable for
+    `set_variable` calls.
+    """
+    arr = np.zeros((NT, NL, NY, NX), dtype=np.float64)
+    for t in range(NT):
+        for level in range(NL):
+            for y in range(NY):
+                for x in range(NX):
+                    arr[t, level, y, x] = (
+                        t * 1000.0 + level * 100.0 + y * 10.0 + x
+                    )
+    return NetCDF.create_from_array(
+        arr=arr,
+        geo=(-10.0, 1.0, 0, 44.0, 0, -1.0),
+        epsg=4326,
+        variable_name="temperature",
+        extra_dims=[("time", TIME_VALUES), ("pressure_level", LEVEL_VALUES)],
+    )
+
+
+class TestSel4DRoundTrip:
+    """4-D round-trip via `sel()` → `set_variable` → re-read (review L3).
+
+    Mirrors the 3-D `TestSelRoundTrip::test_sel_set_variable_data_integrity`
+    pattern in `test_sel.py` to lock the read → sel → set_variable →
+    re-read pipeline on a multi-band-dim variable. Catches any future
+    regression in `set_variable`'s 4-D path (added with the
+    `extra_dims` API in commit `a973fec9`).
+    """
+
+    def test_sel_set_variable_data_integrity_pin_secondary_dim(self):
+        """Pin a non-primary band dim; round-trip the data values.
+
+        Test scenario:
+            Build an in-memory 4-D container,
+            `sel(pressure_level=500)` (a `(4, 1)` cube), write it back
+            via `set_variable("temp_sub", subset)`, then re-read via
+            `OpenMDArray("temp_sub").ReadAsArray()`. `set_variable`
+            faithfully stores the full `(4, 1, 5, 6)` multi-dim
+            layout while `subset.read_array()` squeezes the
+            singleton level axis to `(4, 5, 6)` — same data, different
+            shape — so the assertion squeezes both sides before
+            comparing.
+        """
+        nc = _make_4d_writable_nc()
+        var = nc.get_variable("temperature")
+        subset = var.sel(pressure_level=500)
+        expected = subset.read_array()
+        nc.set_variable("temp_sub", subset)
+
+        rg = nc._raster.GetRootGroup()
+        stored = rg.OpenMDArray("temp_sub").ReadAsArray()
+        # set_variable preserves the full (4, 1, 5, 6) layout; the
+        # read of `subset` squeezed the singleton level → (4, 5, 6).
+        assert_array_equal(
+            np.squeeze(stored),
+            np.squeeze(expected),
+            err_msg="round-trip data mismatch after sel(pressure_level) → set_variable",
+        )
+        assert stored.shape == (NT, 1, NY, NX), (
+            f"set_variable should preserve the (NT, 1, NY, NX) layout, "
+            f"got {stored.shape}"
+        )
+
+    def test_sel_set_variable_preserves_4d_metadata_on_reload(self):
+        """After `set_variable`, the new variable still carries band-dim metadata.
+
+        Test scenario:
+            Write a `sel(time=12)` slice (shape `(1, NL)`) back via
+            `set_variable`, then reload via `get_variable`. Asserts at
+            minimum the legacy `_band_dim_name` is populated and the
+            spatial trailing two dims match the source shape.
+        """
+        nc = _make_4d_writable_nc()
+        var = nc.get_variable("temperature")
+        subset = var.sel(time=12)   # (1, NL) shape after pinning t=2
+        nc.set_variable("temp_t12", subset)
+
+        reloaded = nc.get_variable("temp_t12")
+        assert reloaded._band_dim_name is not None, (
+            f"set_variable lost band-dim metadata: "
+            f"_band_dim_name={reloaded._band_dim_name!r}"
+        )
+        assert reloaded.read_array().shape[-2:] == (NY, NX), (
+            f"spatial shape regressed after round-trip: "
+            f"{reloaded.read_array().shape}"
+        )

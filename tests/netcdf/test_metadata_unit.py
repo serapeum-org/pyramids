@@ -501,6 +501,31 @@ class TestReadClassicMetadataForTopup:
             "time#units": "days"
         }, f"expected reopen result, got {md}"
 
+    def test_netcdf_prefixed_hash_keys_do_not_short_circuit(self):
+        """`NETCDF_*#…` keys must NOT count as classic dim-attr keys.
+
+        Test scenario:
+            A pathological multidim driver produces metadata with a
+            `NETCDF_DIM_pressure_level#bogus` key (hash present but
+            still a GDAL marker). The helper must ignore that key and
+            still reopen in classic mode.
+        """
+        ds = MagicMock()
+        ds.GetMetadata.return_value = {
+            "NETCDF_DIM_pressure_level#bogus": "ignored",
+        }
+        ds.GetDescription.return_value = "/some/file.nc"
+        classic_ds = MagicMock()
+        classic_ds.GetMetadata.return_value = {"valid_time#units": "secs"}
+        builder = MetadataBuilder(ds)
+
+        with patch("pyramids.netcdf.metadata.gdal.Open", return_value=classic_ds):
+            md = builder._read_classic_metadata_for_topup()
+
+        assert md == {
+            "valid_time#units": "secs"
+        }, f"expected reopen result, got {md}"
+
     def test_reopens_in_classic_mode_when_existing_metadata_empty(self):
         """Multidim dataset reopens transparently and returns classic metadata.
 
