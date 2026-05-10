@@ -961,10 +961,20 @@ class Analysis(_Engine):
         )
         ax = kwargs.pop("ax", None)
         fig = kwargs.pop("fig", None)
+        # When `coords` is supplied (curvilinear NetCDF path) cleopatra's
+        # ArrayGlyph rejects a simultaneous `extent`; drop the geotransform-
+        # derived extent in that case so the renderer routes via pcolormesh
+        # against the (x, y) coordinate arrays. `kind` is part of the same
+        # cleopatra surface — it is stored as a default by the constructor
+        # and consumed by `ArrayGlyph.plot(kind=...)`, so leaving it in
+        # `kwargs` is the right behaviour (no pop needed).
+        coords = kwargs.pop("coords", None)
+        extent_for_glyph = None if coords is not None else self._ds.bbox
         cleo = ArrayGlyph(
             arr,
             exclude_value=exclude_value,
-            extent=self._ds.bbox,
+            extent=extent_for_glyph,
+            coords=coords,
             rgb=rgb,
             surface_reflectance=surface_reflectance,
             cutoff=cutoff,

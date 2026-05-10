@@ -13,6 +13,7 @@ Agg backend that the pytest configuration forces on import.
 
 from __future__ import annotations
 
+import types
 import warnings
 from unittest.mock import patch
 
@@ -1075,3 +1076,296 @@ class TestNetCDFPlotIselNoCoordValues:
         var._band_dim_values_map["time"] = None
         with pytest.raises(ValueError, match=r"No coordinate values"):
             var.plot(isel={"time": 1})
+
+
+def _attach_curvilinear_coords(
+    nc,
+    rows: int,
+    cols: int,
+    *,
+    x_name: str = "XLONG",
+    y_name: str = "XLAT",
+    cf_attr: str | None = None,
+):
+    """Splice synthetic 2-D curvilinear coord arrays onto the container.
+
+    Helper used by :class:`TestCurvilinearCoords` to simulate a WRF-style
+    NetCDF without authoring a real GDAL MDIM file. Patches are scoped
+    to the instance — ``nc.__dict__`` is mutated with overrides for
+    ``variable_names`` and ``_read_variable``, leaving other instances
+    of :class:`NetCDF` untouched.
+
+    Args:
+        nc: NetCDF container to splice onto.
+        rows: Number of rows for the synthetic coord grid.
+        cols: Number of columns for the synthetic coord grid.
+        x_name: Name of the synthetic x-coord variable.
+        y_name: Name of the synthetic y-coord variable.
+        cf_attr: When not None, the value is written as a CF
+            ``coordinates`` attribute on the data variable's subset so
+            the CF detection path fires.
+
+    Returns:
+        tuple: ``(x_arr, y_arr)`` — the synthetic 2-D coord arrays
+        that were installed.
+    """
+    x_arr = np.linspace(-110.0, -100.0, cols, dtype=np.float32)
+    y_arr = np.linspace(35.0, 45.0, rows, dtype=np.float32)
+    x_2d, y_2d = np.meshgrid(x_arr, y_arr)
+    extra_vars = {x_name: x_2d, y_name: y_2d}
+    base_names = list(nc.variable_names)
+    spliced_names = base_names + [x_name, y_name]
+    original_read = type(nc)._read_variable
+    original_get_variable = type(nc).get_variable
+
+    def _read(self_, var, window=None):
+        if var in extra_vars:
+            return extra_vars[var]
+        return original_read(self_, var, window)
+
+    def _get_variable(self_, name):
+        subset = original_get_variable(self_, name)
+        if cf_attr is not None and name in base_names:
+            attrs = dict(getattr(subset, "_variable_attrs", {}) or {})
+            attrs["coordinates"] = cf_attr
+            subset._variable_attrs = attrs
+        return subset
+
+    # Instance-level patches: bind the closures to this `nc` only by
+    # using `types.MethodType` so other NetCDF instances built inside
+    # the same test session see the original implementations.
+    nc._read_variable = types.MethodType(_read, nc)
+    nc.get_variable = types.MethodType(_get_variable, nc)
+    # `variable_names` is a property on the class. Override per-instance
+    # by stuffing a simple object that returns the spliced list when the
+    # property's descriptor falls back to `__dict__` (it doesn't).
+    # Instead, monkeypatch the property via a subclass on this instance
+    # using a small class trick: replace `__class__` on this instance
+    # with a thin subclass that overrides only `variable_names`.
+    nc_class = type(nc)
+    subcls = type(
+        f"{nc_class.__name__}WithSpliceCoords",
+        (nc_class,),
+        {"variable_names": property(lambda _self: spliced_names)},
+    )
+    nc.__class__ = subcls
+    return x_2d, y_2d
+
+
+def _make_curvilinear_nc(
+    rows: int = 6,
+    cols: int = 7,
+    *,
+    x_name: str = "XLONG",
+    y_name: str = "XLAT",
+    cf_attr: str | None = None,
+    n_times: int | None = None,
+):
+    """Build a NetCDF whose container advertises curvilinear coords.
+
+    Args:
+        rows: Number of latitude rows.
+        cols: Number of longitude columns.
+        x_name: Name for the synthetic x-coord variable
+            (``"XLONG"`` for WRF, ``"lon_rho"`` for ROMS, etc.).
+        y_name: Name for the synthetic y-coord variable.
+        cf_attr: When not None, the value is written as a CF
+            ``coordinates`` attribute on the data variable's subset so
+            the CF detection path fires.
+        n_times: When set, build a 3-D (time, lat, lon) variable;
+            otherwise build a 2-D (lat, lon) variable.
+
+    Returns:
+        tuple: ``(nc, x_arr, y_arr, data_var_name)`` — the container,
+        the synthetic coord arrays, and the data variable name.
+    """
+    rng = np.random.default_rng(7)
+    data_var = "CANWAT"
+    if n_times is None:
+        arr = rng.random((rows, cols)).astype(np.float32)
+        nc = NetCDF.create_from_array(
+            arr=arr,
+            geo=(0.0, 1.0, 0, float(rows), 0, -1.0),
+            epsg=4326,
+            variable_name=data_var,
+        )
+    else:
+        arr = rng.random((n_times, rows, cols)).astype(np.float32)
+        nc = NetCDF.create_from_array(
+            arr=arr,
+            geo=(0.0, 1.0, 0, float(rows), 0, -1.0),
+            epsg=4326,
+            variable_name=data_var,
+            extra_dim_name="time",
+            extra_dim_values=list(range(n_times)),
+        )
+    x_2d, y_2d = _attach_curvilinear_coords(
+        nc,
+        rows,
+        cols,
+        x_name=x_name,
+        y_name=y_name,
+        cf_attr=cf_attr,
+    )
+    return nc, x_2d, y_2d, data_var
+
+
+class TestCurvilinearCoords:
+    """PR-3 — curvilinear coord detection and ``kind=`` dispatch in NetCDF.plot.
+
+    Each test renders a synthetic NetCDF whose parent container exposes
+    2-D ``XLAT``/``XLONG``-style coord variables via patched
+    ``variable_names`` / ``_read_variable``. The :meth:`NetCDF.plot`
+    surface should resolve those coords, hand them to cleopatra as
+    ``coords=(x, y)``, and let cleopatra route to ``pcolormesh``.
+    """
+
+    def test_explicit_kind_pcolormesh_renders(self):
+        """`kind="pcolormesh"` plus 2-D curvilinear coords renders.
+
+        Test scenario:
+            Build a WRF-style NetCDF with 2-D ``XLAT``/``XLONG`` coord
+            variables. The first call passes the kind explicitly; the
+            returned ArrayGlyph wraps a 2-D array with shape
+            ``(rows, cols)`` and exposes the resolved coords on
+            ``cleo.coords``.
+        """
+        nc, x_2d, y_2d, _ = _make_curvilinear_nc(rows=6, cols=7)
+        cleo = nc.plot(variable="CANWAT", kind="pcolormesh")
+        assert isinstance(cleo, ArrayGlyph)
+        assert cleo.coords is not None, "curvilinear coords must reach cleopatra"
+        assert cleo.coords[0].shape == (6, 7)
+        assert cleo.coords[1].shape == (6, 7)
+        assert cleo.extent is None, (
+            "extent must be suppressed when curvilinear coords are present"
+        )
+
+    def test_kind_auto_routes_to_pcolormesh_with_2d_coords(self):
+        """`kind="auto"` (default) auto-routes when 2-D coords are detected.
+
+        Test scenario:
+            With WRF-style ``XLAT``/``XLONG`` available on the
+            container, the auto-detection path picks them up and
+            cleopatra's ``kind="auto"`` resolves to pcolormesh
+            (verified via ``cleo.coords`` being populated).
+        """
+        nc, _, _, _ = _make_curvilinear_nc(rows=6, cols=7)
+        cleo = nc.plot(variable="CANWAT")
+        assert cleo.coords is not None
+        assert cleo.coords[0].shape == (6, 7)
+
+    def test_explicit_coords_by_name(self):
+        """`coords=("XLONG", "XLAT")` looks up coord variables by name."""
+        nc, x_2d, y_2d, _ = _make_curvilinear_nc(rows=5, cols=6)
+        cleo = nc.plot(variable="CANWAT", coords=("XLONG", "XLAT"))
+        assert cleo.coords is not None
+        assert cleo.coords[0].shape == (5, 6)
+
+    def test_explicit_coords_by_array(self):
+        """`coords=(x_array, y_array)` passes arrays through untouched."""
+        nc, x_2d, y_2d, _ = _make_curvilinear_nc(rows=4, cols=5)
+        cleo = nc.plot(variable="CANWAT", coords=(x_2d, y_2d))
+        assert cleo.coords is not None
+        np.testing.assert_array_equal(cleo.coords[0], x_2d)
+        np.testing.assert_array_equal(cleo.coords[1], y_2d)
+
+    def test_invalid_coords_one_tuple_raises(self):
+        """`coords=("nonexistent",)` (length-1) is rejected as malformed."""
+        nc, _, _, _ = _make_curvilinear_nc()
+        with pytest.raises(ValueError, match=r"length-2 sequence"):
+            nc.plot(variable="CANWAT", coords=("nonexistent",))
+
+    def test_x_y_kwargs_override_auto_detection(self):
+        """`x="XLONG", y="XLAT"` honours the PR-2 signature override.
+
+        Test scenario:
+            With the curvilinear conventions in place auto-detection
+            would normally pick them up; the test sets ``x=`` / ``y=``
+            explicitly and verifies the same coords still reach
+            cleopatra (i.e. the override path uses the same arrays).
+        """
+        nc, x_2d, _, _ = _make_curvilinear_nc(rows=5, cols=6)
+        cleo = nc.plot(variable="CANWAT", x="XLONG", y="XLAT")
+        assert cleo.coords is not None
+        assert cleo.coords[0].shape == (5, 6)
+
+    def test_no_curvilinear_falls_back_to_extent(self):
+        """A regular variable with no curvilinear coords keeps imshow extent.
+
+        Test scenario:
+            Build a plain 3-D ``(time, lat, lon)`` NetCDF with no
+            curvilinear coord variables. The auto path returns None, so
+            cleopatra renders via imshow with the geotransform-derived
+            extent — verified by ``cleo.coords is None`` and a non-None
+            ``cleo.extent``.
+        """
+        nc = _make_3d_nc()
+        cleo = nc.plot(variable="t2m")
+        assert cleo.coords is None
+        assert cleo.extent is not None
+
+    def test_roms_naming_convention_auto_detected(self):
+        """ROMS-style `lat_rho`/`lon_rho` are auto-detected like WRF."""
+        nc, _, _, _ = _make_curvilinear_nc(
+            rows=5, cols=6, x_name="lon_rho", y_name="lat_rho",
+        )
+        cleo = nc.plot(variable="CANWAT")
+        assert cleo.coords is not None
+        assert cleo.coords[0].shape == (5, 6)
+
+    def test_kind_contour_forwards(self):
+        """`kind="contour"` is forwarded and renders."""
+        nc, _, _, _ = _make_curvilinear_nc(rows=5, cols=6)
+        cleo = nc.plot(variable="CANWAT", kind="contour")
+        assert isinstance(cleo, ArrayGlyph)
+
+    def test_kind_contourf_forwards(self):
+        """`kind="contourf"` is forwarded and renders."""
+        nc, _, _, _ = _make_curvilinear_nc(rows=5, cols=6)
+        cleo = nc.plot(variable="CANWAT", kind="contourf")
+        assert isinstance(cleo, ArrayGlyph)
+
+    def test_kind_bogus_raises_value_error(self):
+        """`kind="bogus"` propagates cleopatra's ValueError to the caller.
+
+        Test scenario:
+            cleopatra validates ``kind`` against
+            :data:`cleopatra.array_glyph.VALID_PLOT_KINDS`. An unknown
+            value triggers a ValueError that must propagate through
+            pyramids unchanged so users see the same error message they
+            would see calling ArrayGlyph directly.
+        """
+        nc, _, _, _ = _make_curvilinear_nc()
+        with pytest.raises(ValueError, match=r"Invalid kind"):
+            nc.plot(variable="CANWAT", kind="bogus")
+
+    def test_cf_coordinates_attr_auto_detected(self):
+        """CF `coordinates` attribute drives the auto-detection path.
+
+        Test scenario:
+            Build a NetCDF where the data variable's subset carries a
+            CF ``coordinates`` attribute that lists ``"longitude
+            latitude"`` (custom names, not in the well-known list). The
+            CF-aware detection path should parse the attribute, resolve
+            each name via ``_read_variable``, and pass them to
+            cleopatra as curvilinear coords.
+        """
+        nc, _, _, _ = _make_curvilinear_nc(
+            rows=5,
+            cols=6,
+            x_name="longitude",
+            y_name="latitude",
+            cf_attr="longitude latitude",
+        )
+        cleo = nc.plot(variable="CANWAT")
+        assert cleo.coords is not None
+        assert cleo.coords[0].shape == (5, 6)
+
+    def test_nemo_naming_convention_auto_detected(self):
+        """NEMO-style ``nav_lat``/``nav_lon`` are auto-detected like WRF."""
+        nc, _, _, _ = _make_curvilinear_nc(
+            rows=5, cols=6, x_name="nav_lon", y_name="nav_lat",
+        )
+        cleo = nc.plot(variable="CANWAT")
+        assert cleo.coords is not None
+        assert cleo.coords[0].shape == (5, 6)

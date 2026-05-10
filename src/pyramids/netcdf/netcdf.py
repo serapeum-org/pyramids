@@ -492,6 +492,8 @@ class NetCDF(Dataset):
         isel: dict[str, int] | None = None,
         x: str | None = None,
         y: str | None = None,
+        coords: tuple | list | None = None,
+        kind: str = "auto",
         cmap: str | None = None,
         vmin: float | None = None,
         vmax: float | None = None,
@@ -555,13 +557,39 @@ class NetCDF(Dataset):
                 a band dim has no coord values the int is used directly as the
                 index. Defaults to None.
             x (str, optional):
-                Name of the x-coordinate variable. Validated against
-                `variable_names`; the actual axes are still derived from the
-                geotransform until PR-3 introduces curvilinear coord rendering.
-                Defaults to None.
+                Name of the x-coordinate variable. When set together with
+                `y=`, overrides auto-detection: the named coord variables
+                are read off the parent NetCDF and passed to cleopatra as
+                `coords=(x_arr, y_arr)`, routing the renderer to
+                `pcolormesh`. Validated against `variable_names`. Defaults
+                to None.
             y (str, optional):
-                Name of the y-coordinate variable. Same validation rules as `x`.
-                Defaults to None.
+                Name of the y-coordinate variable. Same validation and
+                semantics as `x=`. Defaults to None.
+            coords (tuple or list, optional):
+                Explicit curvilinear `(x, y)` coordinate spec for the
+                pcolormesh path. Accepts two forms:
+
+                - A length-2 sequence of strings — each is looked up as a
+                  variable name via `_read_variable` on the parent
+                  container.
+                - A length-2 sequence of numpy arrays — passed straight
+                  through to cleopatra. Each array is 1-D (length matches
+                  the data x/y axis) or 2-D matching `(rows, cols)`.
+
+                When `coords=` is omitted, pyramids auto-detects
+                curvilinear coords via the CF `coordinates` attribute on
+                the variable, then via the well-known naming conventions
+                (WRF `XLAT`/`XLONG`, ROMS `lat_rho`/`lon_rho`, NEMO
+                `nav_lat`/`nav_lon`). When nothing matches, the renderer
+                falls back to `extent=self.bbox` (imshow). Defaults to
+                None.
+            kind (str, optional):
+                Render kind forwarded to cleopatra's `ArrayGlyph.plot`.
+                One of `"auto"`, `"imshow"`, `"pcolormesh"`, `"contour"`,
+                `"contourf"`. `"auto"` routes to `pcolormesh` when
+                curvilinear `coords` are present, else `imshow`. Defaults
+                to `"auto"`.
             cmap (str, optional):
                 Matplotlib colormap name. Forwarded to cleopatra. Defaults to None.
             vmin (float, optional):
@@ -757,6 +785,41 @@ class NetCDF(Dataset):
               'DeprecationWarning'
 
               ```
+
+            - Render a WRF-style curvilinear NetCDF on its real lat/lon
+              grid. With 2-D `XLAT` / `XLONG` coord variables on the
+              container, pyramids auto-detects them and routes the
+              renderer to `pcolormesh`. This replaces the manual
+              `ax.pcolormesh(lon_0, lat_0, band_t, ...)` workaround that
+              users previously had to write themselves:
+
+              ```python
+              >>> cleo = nc.plot(variable="CANWAT", kind="pcolormesh")  # doctest: +SKIP
+
+              ```
+
+            - Pass an explicit curvilinear coord pair by variable name —
+              useful when the variable has no CF `coordinates` attribute
+              and the convention does not match WRF/ROMS/NEMO:
+
+              ```python
+              >>> cleo = nc.plot(  # doctest: +SKIP
+              ...     variable="CANWAT", coords=("XLONG", "XLAT"),
+              ... )
+
+              ```
+
+            - Pick a non-default render kind. `"contourf"` produces
+              filled contours from the same data; `"auto"` (the default)
+              picks `pcolormesh` when curvilinear coords are present,
+              else falls back to `imshow`:
+
+              ```python
+              >>> cleo = nc.plot(  # doctest: +SKIP
+              ...     variable="t2m", kind="contourf", levels=10,
+              ... )
+
+              ```
         """
         forbidden_kwargs = {
             "rgb": (
@@ -809,6 +872,8 @@ class NetCDF(Dataset):
                 isel=isel,
                 x=x,
                 y=y,
+                coords=coords,
+                kind=kind,
                 cmap=cmap,
                 vmin=vmin,
                 vmax=vmax,
@@ -873,11 +938,11 @@ class NetCDF(Dataset):
                         f"isel dim {dim_name!r} is not a band dim of this "
                         f"variable {list(self._band_dim_names)!r}."
                     )
-                coords = self._band_dim_values_map.get(dim_name)
-                if coords is None:
+                dim_coords = self._band_dim_values_map.get(dim_name)
+                if dim_coords is None:
                     resolved_sel[dim_name] = idx
                 else:
-                    resolved_sel[dim_name] = coords[idx]
+                    resolved_sel[dim_name] = dim_coords[idx]
 
         pinned = self
         for dim_name, value in resolved_sel.items():
@@ -916,6 +981,32 @@ class NetCDF(Dataset):
         if robust:
             analysis_kwargs["robust"] = True
         _ = add_colorbar
+
+        # Curvilinear coord resolution. Priority (highest first):
+        # 1. Explicit user `x=` / `y=` (PR-2 signature).
+        # 2. Explicit user `coords=` (this PR).
+        # 3. CF `coordinates` attribute on the variable + well-known
+        #    conventions (XLAT/XLONG, lat_rho/lon_rho, nav_lat/nav_lon).
+        # When none of the above resolves to a valid coord pair the
+        # engine falls back to `extent=self.bbox` (imshow).
+        resolved_coord_arrays = pinned._resolve_curvilinear_coords(
+            x=x, y=y, coords=coords,
+        )
+        if resolved_coord_arrays is not None:
+            analysis_kwargs["coords"] = resolved_coord_arrays
+
+        # `kind` is forwarded to cleopatra's `ArrayGlyph.plot(kind=...)`
+        # dispatch. The default `"auto"` is harmless to forward (cleopatra
+        # treats it as the default) but adding it unconditionally would
+        # noise the kwargs dict; only forward non-defaults.
+        if kind != "auto":
+            analysis_kwargs["kind"] = kind
+        elif resolved_coord_arrays is not None:
+            # When the renderer has curvilinear coords but the caller
+            # left `kind="auto"`, forward "auto" anyway so cleopatra can
+            # see the routing decision in the kwargs trail (helps when
+            # users introspect the call).
+            analysis_kwargs["kind"] = "auto"
 
         analysis_kwargs.setdefault("rgb", None)
 
@@ -982,6 +1073,308 @@ class NetCDF(Dataset):
                 f"y={y!r} is not a variable of this NetCDF. "
                 f"Available: {self.variable_names}."
             )
+
+    _CURVILINEAR_NAME_PAIRS = (
+        ("XLONG", "XLAT"),
+        ("lon_rho", "lat_rho"),
+        ("nav_lon", "nav_lat"),
+    )
+
+    def _resolve_curvilinear_coords(
+        self,
+        *,
+        x: str | None,
+        y: str | None,
+        coords: tuple | list | None,
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """Resolve curvilinear `(x, y)` coords for the rendered slice.
+
+        Detection priority (first match wins):
+
+        1. Explicit user `x=` / `y=` from the PR-2 signature. Both must
+           be given together (one alone is rejected as ambiguous).
+        2. Explicit user `coords=` (PR-3). Accepts a length-2 sequence of
+           variable-name strings *or* numpy arrays.
+        3. The variable's CF `coordinates` attribute, which lists the
+           auxiliary coord variables for the data variable.
+        4. Well-known curvilinear naming conventions for files that
+           omit the CF attribute: WRF (`XLAT`/`XLONG`), ROMS
+           (`lat_rho`/`lon_rho`), NEMO (`nav_lat`/`nav_lon`).
+
+        For each candidate pair the helper reads the named variables
+        via the parent container's :meth:`_read_variable` (or uses the
+        caller-supplied arrays directly), then validates the shapes
+        against the rendered slice. Shapes that do not match silently
+        skip — the next candidate gets a chance. When nothing resolves
+        to a valid pair the helper returns ``None`` so the caller falls
+        back to the geotransform-derived ``extent``.
+
+        Args:
+            x: Name of the x coord variable. When set together with
+                ``y`` it overrides auto-detection.
+            y: Name of the y coord variable. Same semantics as ``x``.
+            coords: Explicit `(x, y)` spec — either two strings (looked
+                up via :meth:`_read_variable`) or two numpy arrays
+                (passed straight through after shape validation).
+
+        Returns:
+            tuple[np.ndarray, np.ndarray] or None: The validated
+                ``(x_arr, y_arr)`` pair, or ``None`` when no
+                curvilinear coords could be resolved.
+
+        Raises:
+            ValueError: If ``coords`` is not a length-2 sequence, if
+                only one of ``x`` / ``y`` is given, or if user-supplied
+                coord variable names do not exist on the parent
+                container.
+        """
+        result: tuple[np.ndarray, np.ndarray] | None = None
+
+        parent = self._parent_nc if self._parent_nc is not None else self
+        data_shape = self.shape[-2:] if self.shape else None
+
+        # Only treat `x=`/`y=` as a curvilinear override when BOTH are
+        # supplied. A single `x=` (without `y=`) is a backward-compatible
+        # tag for downstream code that doesn't intersect with the curvilinear
+        # path — leave it alone and fall through to CF / convention
+        # auto-detection.
+        explicit_xy = x is not None and y is not None
+        if explicit_xy:
+            user_coords: tuple | None = (x, y)
+        elif coords is not None:
+            if not isinstance(coords, (tuple, list)) or len(coords) != 2:
+                raise ValueError(
+                    "`coords=` must be a length-2 sequence (x, y). Got "
+                    f"{type(coords).__name__} of length "
+                    f"{len(coords) if hasattr(coords, '__len__') else '?'}."
+                )
+            user_coords = tuple(coords)
+        else:
+            user_coords = None
+
+        if user_coords is not None:
+            x_in, y_in = user_coords
+            x_arr = self._coerce_coord_spec(x_in, parent, "x")
+            y_arr = self._coerce_coord_spec(y_in, parent, "y")
+            if self._coord_shapes_match(x_arr, y_arr, data_shape):
+                result = (x_arr, y_arr)
+
+        if result is None and data_shape is not None:
+            cf_pair = self._cf_coordinates_pair(parent)
+            if cf_pair is not None:
+                x_arr, y_arr = cf_pair
+                if self._coord_shapes_match(x_arr, y_arr, data_shape):
+                    result = (x_arr, y_arr)
+
+        if result is None and data_shape is not None:
+            for x_name, y_name in self._CURVILINEAR_NAME_PAIRS:
+                if (
+                    x_name in parent.variable_names
+                    and y_name in parent.variable_names
+                ):
+                    x_arr = parent._read_variable(x_name)
+                    y_arr = parent._read_variable(y_name)
+                    if x_arr is None or y_arr is None:
+                        continue
+                    x_arr = self._squeeze_leading_axes(x_arr, data_shape)
+                    y_arr = self._squeeze_leading_axes(y_arr, data_shape)
+                    if self._coord_shapes_match(x_arr, y_arr, data_shape):
+                        result = (x_arr, y_arr)
+                        break
+
+        return result
+
+    @staticmethod
+    def _coerce_coord_spec(
+        spec: Any, parent: NetCDF, axis_label: str,
+    ) -> np.ndarray:
+        """Convert a single coord spec (str or array) to a numpy array.
+
+        Args:
+            spec: Either a variable name (str) to look up on the parent
+                container, or an array-like that is converted via
+                :func:`numpy.asarray`.
+            parent: NetCDF container used to resolve string names via
+                :meth:`_read_variable`.
+            axis_label: ``"x"`` or ``"y"``; used in error messages so the
+                caller can spot which axis failed.
+
+        Returns:
+            np.ndarray: The resolved coordinate array.
+
+        Raises:
+            ValueError: If a string name is not in the parent's
+                ``variable_names`` or :meth:`_read_variable` returns
+                ``None``.
+        """
+        if isinstance(spec, str):
+            if spec not in parent.variable_names:
+                raise ValueError(
+                    f"coords {axis_label}={spec!r} is not a variable of "
+                    f"the parent NetCDF. Available: {parent.variable_names}."
+                )
+            arr = parent._read_variable(spec)
+            if arr is None:
+                raise ValueError(
+                    f"coords {axis_label}={spec!r} could not be read via "
+                    "`_read_variable`."
+                )
+            result = arr
+        else:
+            result = np.asarray(spec)
+        return result
+
+    @staticmethod
+    def _squeeze_leading_axes(
+        arr: np.ndarray, data_shape: tuple[int, int],
+    ) -> np.ndarray:
+        """Drop leading singleton/time axes so a coord matches the slice shape.
+
+        WRF stores `XLAT` / `XLONG` as `(time, lat, lon)` even though the
+        same grid is shared across time — taking time-step 0 gives a 2-D
+        view that lines up with the data slice.
+
+        Args:
+            arr: Coord array, typically 2-D or 3-D ``(extra, rows, cols)``.
+            data_shape: Target shape ``(rows, cols)`` of the data slice.
+
+        Returns:
+            np.ndarray: Either ``arr`` unchanged (already 1-D / 2-D
+                matching) or the time-step-0 slice of a 3-D array.
+        """
+        rows, cols = data_shape
+        if arr.ndim == 3 and arr.shape[-2:] == (rows, cols):
+            result = arr[0]
+        else:
+            result = arr
+        return result
+
+    @staticmethod
+    def _coord_shapes_match(
+        x_arr: np.ndarray,
+        y_arr: np.ndarray,
+        data_shape: tuple[int, int] | None,
+    ) -> bool:
+        """Return True when ``(x_arr, y_arr)`` line up with ``data_shape``.
+
+        Accepts the same shape rules as cleopatra's `ArrayGlyph(coords=)`:
+
+        * ``x_arr`` is 1-D matching ``cols`` or 2-D matching the slice.
+        * ``y_arr`` is 1-D matching ``rows`` or 2-D matching the slice.
+
+        Args:
+            x_arr: Candidate x coordinate array.
+            y_arr: Candidate y coordinate array.
+            data_shape: ``(rows, cols)`` of the data slice. ``None`` →
+                cannot validate, returns ``False``.
+
+        Returns:
+            bool: ``True`` when both arrays line up with ``data_shape``.
+        """
+        result = False
+        if data_shape is not None:
+            rows, cols = data_shape
+            x_ok = (x_arr.ndim == 1 and x_arr.shape[0] == cols) or (
+                x_arr.ndim == 2 and x_arr.shape == data_shape
+            )
+            y_ok = (y_arr.ndim == 1 and y_arr.shape[0] == rows) or (
+                y_arr.ndim == 2 and y_arr.shape == data_shape
+            )
+            result = x_ok and y_ok
+        return result
+
+    def _cf_coordinates_pair(
+        self, parent: NetCDF,
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """Parse the CF `coordinates` attribute into an `(x, y)` array pair.
+
+        The CF Conventions allow a data variable to declare auxiliary
+        coordinate variables via its ``coordinates`` attribute (a
+        space-separated string of variable names). Pyramids reads the
+        attribute off ``self._variable_attrs`` (populated by
+        :meth:`get_variable`), then resolves each name to an array.
+
+        For each pair (n choose 2 from the listed coord vars) the helper
+        picks the first one where one name reads as the x axis (1-D
+        ``cols`` or 2-D matching) and the other as the y axis (1-D
+        ``rows`` or 2-D matching). When the attribute is missing or no
+        valid pair is found returns ``None`` so the caller can fall
+        back to the well-known-naming pass.
+
+        Args:
+            parent: NetCDF container — coord variables are read off the
+                parent (not the subset) via :meth:`_read_variable`.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray] or None: The validated x/y
+                pair, or ``None`` when nothing matched.
+        """
+        result = None
+        attrs = getattr(self, "_variable_attrs", None) or {}
+        coord_attr = attrs.get("coordinates")
+        data_shape = self.shape[-2:] if self.shape else None
+        if isinstance(coord_attr, str) and data_shape is not None:
+            names = [n for n in coord_attr.split() if n]
+            candidate_arrays: dict[str, np.ndarray] = {}
+            for name in names:
+                if name in parent.variable_names:
+                    arr = parent._read_variable(name)
+                    if arr is not None:
+                        candidate_arrays[name] = self._squeeze_leading_axes(
+                            arr, data_shape,
+                        )
+            rows, cols = data_shape
+            x_candidates: list[tuple[str, np.ndarray]] = []
+            y_candidates: list[tuple[str, np.ndarray]] = []
+            for name, arr in candidate_arrays.items():
+                if (arr.ndim == 1 and arr.shape[0] == cols) or (
+                    arr.ndim == 2 and arr.shape == data_shape
+                ):
+                    x_candidates.append((name, arr))
+                if (arr.ndim == 1 and arr.shape[0] == rows) or (
+                    arr.ndim == 2 and arr.shape == data_shape
+                ):
+                    y_candidates.append((name, arr))
+            for x_name, x_arr in x_candidates:
+                for y_name, y_arr in y_candidates:
+                    if x_name == y_name:
+                        continue
+                    if self._coord_shapes_match(x_arr, y_arr, data_shape):
+                        if self._looks_like_x_then_y(x_name, y_name):
+                            result = (x_arr, y_arr)
+                            break
+                if result is not None:
+                    break
+            if result is None and x_candidates and y_candidates:
+                # Fallback: first viable pair regardless of name heuristic.
+                x_arr = x_candidates[0][1]
+                y_arr = y_candidates[0][1]
+                if self._coord_shapes_match(x_arr, y_arr, data_shape):
+                    result = (x_arr, y_arr)
+        return result
+
+    @staticmethod
+    def _looks_like_x_then_y(x_name: str, y_name: str) -> bool:
+        """Heuristic name check: x looks like a longitude, y like a latitude.
+
+        Used to disambiguate the CF `coordinates` attribute when the
+        list has two viable candidates per axis. Returns ``True`` when
+        ``x_name`` contains ``"lon"`` / ``"long"`` and ``y_name``
+        contains ``"lat"`` (case-insensitive). Used purely as a tiebreaker;
+        a failed match falls back to the first viable pair.
+
+        Args:
+            x_name: Candidate x variable name.
+            y_name: Candidate y variable name.
+
+        Returns:
+            bool: ``True`` when the names follow the lon/lat convention.
+        """
+        xl = x_name.lower()
+        yl = y_name.lower()
+        x_is_lon = "lon" in xl or "long" in xl
+        y_is_lat = "lat" in yl
+        return x_is_lon and y_is_lat
 
     def _resolve_time_dim_name(self) -> str:
         """Return the band-dim name that represents the time axis.
