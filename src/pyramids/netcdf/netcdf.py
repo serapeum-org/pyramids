@@ -494,6 +494,9 @@ class NetCDF(Dataset):
         y: str | None = None,
         coords: tuple | list | None = None,
         kind: str = "auto",
+        col: str | None = None,
+        row: str | None = None,
+        col_wrap: int | None = None,
         cmap: str | None = None,
         vmin: float | None = None,
         vmax: float | None = None,
@@ -590,6 +593,21 @@ class NetCDF(Dataset):
                 `"contourf"`. `"auto"` routes to `pcolormesh` when
                 curvilinear `coords` are present, else `imshow`. Defaults
                 to `"auto"`.
+            col (str, optional):
+                Name of a band dim to facet across columns. When set,
+                pyramids materialises a stack by iterating along the
+                named dim and hands the stack to cleopatra's
+                :meth:`ArrayGlyph.facet`. The return value becomes a
+                :class:`cleopatra.array_glyph.FacetGrid` instead of a
+                single :class:`~cleopatra.array_glyph.ArrayGlyph`.
+                Defaults to None.
+            row (str, optional):
+                Name of a band dim to facet across rows. Requires `col=`.
+                Faceting both `col=` and `row=` requires a 4-D variable
+                (rows × cols × spatial). Defaults to None.
+            col_wrap (int, optional):
+                Wrap the column axis into multiple rows. Only honoured
+                when `row=` is None. Defaults to None.
             cmap (str, optional):
                 Matplotlib colormap name. Forwarded to cleopatra. Defaults to None.
             vmin (float, optional):
@@ -874,6 +892,9 @@ class NetCDF(Dataset):
                 y=y,
                 coords=coords,
                 kind=kind,
+                col=col,
+                row=row,
+                col_wrap=col_wrap,
                 cmap=cmap,
                 vmin=vmin,
                 vmax=vmax,
@@ -944,12 +965,25 @@ class NetCDF(Dataset):
                 else:
                     resolved_sel[dim_name] = dim_coords[idx]
 
+        # Faceting (PR-4 / N-9). When `col=` (and optionally `row=`) is
+        # set, validate that the named dim is not already pinned by the
+        # selectors, then bail out to the faceting branch which builds
+        # the stack and forwards to `ArrayGlyph.facet`.
+        faceting_active = col is not None or row is not None
+        if faceting_active:
+            self._validate_facet_dims(
+                col=col,
+                row=row,
+                col_wrap=col_wrap,
+                resolved_sel=resolved_sel,
+            )
+
         pinned = self
         for dim_name, value in resolved_sel.items():
             pinned = pinned.sel(**{dim_name: value})
 
         flat_band = 0 if legacy_band is None else legacy_band
-        if resolved_sel and pinned.band_count != 1:
+        if not faceting_active and resolved_sel and pinned.band_count != 1:
             raise ValueError(
                 f"Selectors did not pin to a single 2-D slice. Resolved: "
                 f"{resolved_sel}. Remaining shape: {pinned.shape}."
@@ -1010,12 +1044,151 @@ class NetCDF(Dataset):
 
         analysis_kwargs.setdefault("rgb", None)
 
+        if faceting_active:
+            stack, facet_kwargs = pinned._build_facet_stack(
+                col=col, row=row, col_wrap=col_wrap,
+            )
+            analysis_kwargs["facet_kwargs"] = facet_kwargs
+            analysis_kwargs["_facet_stack"] = stack
+            return pinned.analysis.plot(
+                band=flat_band,
+                exclude_value=exclude_value,
+                basemap=basemap,
+                **analysis_kwargs,
+            )
+
         return pinned.analysis.plot(
             band=flat_band,
             exclude_value=exclude_value,
             basemap=basemap,
             **analysis_kwargs,
         )
+
+    def _validate_facet_dims(
+        self,
+        *,
+        col: str | None,
+        row: str | None,
+        col_wrap: int | None,
+        resolved_sel: dict[str, Any],
+    ) -> None:
+        """Validate the faceting kwargs against the resolved selectors.
+
+        Faceting is implemented by walking a band dim and rendering one
+        subplot per coord value. The same dim cannot also be pinned by
+        a selector — that would either produce an empty stack (when the
+        pin is by label) or contradict the user's intent (when both are
+        given). The validator catches these conflicts before any I/O.
+
+        Args:
+            col: Name of the column-facet dim, or ``None``.
+            row: Name of the row-facet dim, or ``None``.
+            col_wrap: Wrap value, or ``None``. Only checked for type
+                here; the actual wrap is enforced by
+                :meth:`cleopatra.array_glyph.ArrayGlyph.facet`.
+            resolved_sel: The resolved selector dict (``sel`` + ``time``
+                / ``level`` / ``member`` / ``isel`` merged).
+
+        Raises:
+            ValueError: If `col` or `row` is not a band dim of this
+                variable; if the same dim appears in both the facet
+                kwargs and the resolved selectors; if `row=` is set
+                without `col=`; or if `col_wrap` is not a positive int.
+        """
+        facet_targets: list[str] = []
+        if col is not None:
+            facet_targets.append(col)
+        if row is not None:
+            facet_targets.append(row)
+        if row is not None and col is None:
+            raise ValueError(
+                "Faceting on `row=` requires `col=` as well. Pass both."
+            )
+        for name in facet_targets:
+            if name not in self._band_dim_names:
+                raise ValueError(
+                    f"Facet dim {name!r} is not a band dim of this variable. "
+                    f"Available: {list(self._band_dim_names)}."
+                )
+            if name in resolved_sel:
+                raise ValueError(
+                    f"Cannot facet on {name!r}: it is already pinned by a "
+                    "selector (`time=`/`level=`/`member=`/`sel=`/`isel=`). "
+                    "Drop the selector or facet over a different dim."
+                )
+        if col_wrap is not None and (
+            not isinstance(col_wrap, (int, np.integer)) or col_wrap < 1
+        ):
+            raise ValueError(
+                f"`col_wrap` must be a positive int, got {col_wrap!r}."
+            )
+
+    def _build_facet_stack(
+        self,
+        *,
+        col: str | None,
+        row: str | None,
+        col_wrap: int | None,
+    ) -> tuple[np.ndarray, dict[str, Any]]:
+        """Materialise the facet stack and the cleopatra `facet` kwargs.
+
+        For a `col`-only facet over a band dim of size ``N`` the result
+        is a 3-D ``(N, rows, cols)`` numpy array. For a `col`+`row`
+        facet over band dims of size ``Ncol``/``Nrow`` the result is a
+        4-D ``(Ncol, Nrow, rows, cols)`` array. The accompanying
+        ``facet_kwargs`` dict carries the names + coord labels +
+        wrap value that cleopatra needs.
+
+        Args:
+            col: Column-facet dim name; must be a band dim.
+            row: Optional row-facet dim name; must be a band dim if set.
+            col_wrap: Optional wrap for the column axis. Forwarded to
+                cleopatra; ignored when `row` is given.
+
+        Returns:
+            tuple: ``(stack, facet_kwargs)`` — the materialised array
+                and the kwargs dict to forward to
+                :meth:`cleopatra.array_glyph.ArrayGlyph.facet`.
+        """
+        col_values = list(self._band_dim_values_map.get(col, []))
+        if not col_values:
+            col_values = list(range(self._band_dim_sizes[
+                self._band_dim_names.index(col)
+            ]))
+        slices: list[Any] = []
+        if row is None:
+            for value in col_values:
+                pinned = self.sel(**{col: value})
+                slices.append(pinned.read_array(band=0))
+            stack = np.stack(slices, axis=0)
+            facet_kwargs: dict[str, Any] = {
+                "col": col,
+                "col_coords": col_values,
+            }
+            if col_wrap is not None:
+                facet_kwargs["col_wrap"] = col_wrap
+        else:
+            row_values = list(self._band_dim_values_map.get(row, []))
+            if not row_values:
+                row_values = list(range(self._band_dim_sizes[
+                    self._band_dim_names.index(row)
+                ]))
+            for col_value in col_values:
+                row_slices: list[Any] = []
+                for row_value in row_values:
+                    pinned = self.sel(**{col: col_value}).sel(
+                        **{row: row_value}
+                    )
+                    row_slices.append(pinned.read_array(band=0))
+                slices.append(np.stack(row_slices, axis=0))
+            stack = np.stack(slices, axis=0)
+            facet_kwargs = {
+                "col": col,
+                "row": row,
+                "col_coords": col_values,
+                "row_coords": row_values,
+            }
+        return stack, facet_kwargs
 
     def _validate_xy_coord_names(self, x: str | None, y: str | None) -> None:
         """Validate that `x=` / `y=` resolve to a variable of this NetCDF.

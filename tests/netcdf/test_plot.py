@@ -1369,3 +1369,96 @@ class TestCurvilinearCoords:
         cleo = nc.plot(variable="CANWAT")
         assert cleo.coords is not None
         assert cleo.coords[0].shape == (5, 6)
+
+
+_FacetGrid = _cleo_array.FacetGrid
+
+
+class TestNetCDFPlotFaceting:
+    """PR-4 — `col=`/`row=`/`col_wrap=` build a multi-subplot grid.
+
+    Each test exercises the cleopatra `ArrayGlyph.facet` wiring on
+    NetCDF.plot. The returned object is a
+    :class:`cleopatra.array_glyph.FacetGrid`; subplot count and the
+    `name_dicts` index map confirm the dispatch.
+    """
+
+    def test_col_only_returns_facet_grid_with_one_row(self):
+        """`col="time"` on a 3-D variable returns N=time_len subplots."""
+        nc = _make_3d_nc(n_times=4)
+        grid = nc.plot(variable="t2m", col="time")
+        assert isinstance(grid, _FacetGrid)
+        assert grid.axes.shape == (1, 4)
+        assert len(grid.name_dicts) == 4
+        assert all("time" in d for d in grid.name_dicts)
+
+    def test_col_and_row_on_4d_returns_2d_grid(self):
+        """`col="time"` + `row="pressure_level"` on a 4-D var → 2-D grid."""
+        nc = _make_4d_nc()
+        grid = nc.plot(
+            variable="temperature", col="time", row="pressure_level",
+        )
+        assert isinstance(grid, _FacetGrid)
+        # _make_4d_nc has nt=3, nl=2 — so axes shape (ncols, nrows) = (3, 2)
+        # cleopatra builds subplots with shape (nrows, ncols) where
+        # nrows=n_row, ncols=n_col.
+        assert grid.axes.shape == (2, 3)
+        assert len(grid.name_dicts) == 6
+        for d in grid.name_dicts:
+            assert "time" in d
+            assert "pressure_level" in d
+
+    def test_col_wrap_wraps_into_grid(self):
+        """`col_wrap=3` wraps N=4 panels into a 2x3 grid."""
+        nc = _make_3d_nc(n_times=4)
+        grid = nc.plot(variable="t2m", col="time", col_wrap=3)
+        assert isinstance(grid, _FacetGrid)
+        assert grid.axes.shape == (2, 3)
+        # The last panel is hidden when N=4 doesn't fill a 2x3 grid.
+        hidden = [ax for ax in grid.axes.ravel() if not ax.get_visible()]
+        assert len(hidden) == 2
+
+    def test_pin_one_dim_facet_over_another(self):
+        """`level=500, col="time"` pins level first, then facets over time."""
+        nc = _make_4d_nc()
+        grid = nc.plot(variable="temperature", level=500, col="time")
+        assert isinstance(grid, _FacetGrid)
+        # nt=3 → 3 subplots in a single row.
+        assert grid.axes.shape == (1, 3)
+        assert len(grid.name_dicts) == 3
+
+    def test_conflict_time_kwarg_and_col_time(self):
+        """`time=0, col="time"` is rejected — the same dim cannot be both."""
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"already pinned"):
+            nc.plot(variable="t2m", time=0, col="time")
+
+    def test_conflict_isel_and_col(self):
+        """`isel={"time": 0}, col="time"` is also rejected with the same hint."""
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"already pinned"):
+            nc.plot(variable="t2m", isel={"time": 0}, col="time")
+
+    def test_conflict_sel_and_col(self):
+        """`sel={"time": 0}, col="time"` is also rejected."""
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"already pinned"):
+            nc.plot(variable="t2m", sel={"time": 0}, col="time")
+
+    def test_row_without_col_raises(self):
+        """`row=` without `col=` is rejected with a clear error."""
+        nc = _make_4d_nc()
+        with pytest.raises(ValueError, match=r"requires `col=`"):
+            nc.plot(variable="temperature", row="time")
+
+    def test_facet_dim_not_a_band_dim_raises(self):
+        """`col="bogus"` is not a band dim of the variable; raises."""
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"not a band dim"):
+            nc.plot(variable="t2m", col="bogus")
+
+    def test_invalid_col_wrap_raises(self):
+        """`col_wrap=0` or non-int raises ValueError."""
+        nc = _make_3d_nc(n_times=4)
+        with pytest.raises(ValueError, match=r"positive int"):
+            nc.plot(variable="t2m", col="time", col_wrap=0)

@@ -8,6 +8,7 @@ algebraic operation on cell's values.
 from __future__ import annotations
 
 import logging
+import warnings
 import weakref
 from numbers import Number
 from pathlib import Path
@@ -393,6 +394,7 @@ class Dataset(RasterBase):
         overview_index: int | None = 0,
         percentile: int | None = None,
         basemap: bool | str | None = None,
+        rgb_options: dict | None = None,
         **kwargs: Any,
     ):
         """Plot the values/overviews of a band.
@@ -407,6 +409,12 @@ class Dataset(RasterBase):
         tags). Otherwise the facade defaults to band ``0``. See
         :meth:`Analysis.plot` for the full kwargs surface.
 
+        The four satellite-imagery kwargs ``rgb``, ``surface_reflectance``, ``cutoff``,
+        and ``percentile`` may be grouped under a single ``rgb_options=`` dict
+        (recommended) or passed loose at the top level (deprecated; emits
+        :class:`DeprecationWarning`). When both forms are mixed, the values inside
+        ``rgb_options`` win.
+
         Args:
             band (int, optional):
                 Band index to render. When ``None``, the index is resolved by
@@ -414,14 +422,17 @@ class Dataset(RasterBase):
             exclude_value (Any, optional):
                 Pixel value to mask out before plotting. Default is ``None``.
             rgb (list[int], optional):
+                **Deprecated**; pass via ``rgb_options={"rgb": [...]}`` instead.
                 Three- or four-element list of band indices ``[r, g, b]`` (optionally
                 ``[r, g, b, a]``) to render the dataset as a true-colour composite.
                 Only honoured when the dataset has at least 3 bands and at least one
                 band reports a colour interpretation. Default is ``None``.
             surface_reflectance (int, optional):
+                **Deprecated**; pass via ``rgb_options={"surface_reflectance": ...}``.
                 Surface-reflectance scale factor used to normalise satellite reflectance
                 bands (typically ``10000`` for Sentinel-2). Default is ``None``.
             cutoff (list, optional):
+                **Deprecated**; pass via ``rgb_options={"cutoff": ...}``.
                 Per-band clip values used when rendering RGB composites. Default is
                 ``None``.
             overview (bool, optional):
@@ -430,11 +441,18 @@ class Dataset(RasterBase):
             overview_index (int, optional):
                 Index of the overview level to plot when ``overview=True``. Default is ``0``.
             percentile (int, optional):
+                **Deprecated**; pass via ``rgb_options={"percentile": ...}``.
                 Percentile used when computing colour-scale limits. Default is ``None``.
             basemap (bool or str, optional):
                 If ``True``, overlay an OpenStreetMap basemap. If a string, use it as the
                 contextily/xyzservices tile-provider name (e.g. ``"CartoDB.Positron"``).
                 Default is ``None``. Requires the ``[viz]`` extra.
+            rgb_options (dict, optional):
+                Grouped Sentinel-imagery kwargs. Accepted keys:
+                ``"rgb"``, ``"surface_reflectance"``, ``"cutoff"``,
+                ``"percentile"``. Recommended over the loose top-level
+                kwargs (which emit :class:`DeprecationWarning`). Default
+                is ``None``.
             **kwargs:
                 Additional keyword arguments forwarded verbatim to
                 :meth:`Analysis.plot`. See that method for the full kwargs surface
@@ -470,18 +488,27 @@ class Dataset(RasterBase):
 
               ```
 
-            - Render a multi-band raster as a true-colour composite by passing an
-              explicit ``rgb`` list:
+            - Render a multi-band raster as a true-colour composite via the
+              recommended ``rgb_options=`` group:
 
               ```python
               >>> arr3 = np.random.rand(3, 8, 8).astype(np.float32)
               >>> rgb_ds = Dataset.create_from_array(
               ...     arr3, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
               ... )
-              >>> cleo = rgb_ds.plot(rgb=[0, 1, 2])  # doctest: +SKIP
+              >>> cleo = rgb_ds.plot(  # doctest: +SKIP
+              ...     rgb_options={"rgb": [0, 1, 2], "surface_reflectance": 255},
+              ... )
 
               ```
         """
+        rgb, surface_reflectance, cutoff, percentile = self._merge_rgb_options(
+            rgb_options=rgb_options,
+            rgb=rgb,
+            surface_reflectance=surface_reflectance,
+            cutoff=cutoff,
+            percentile=percentile,
+        )
         resolved_band, resolved_rgb = self._resolve_plot_band(band, rgb)
         return self.analysis.plot(
             band=resolved_band,
@@ -495,6 +522,68 @@ class Dataset(RasterBase):
             basemap=basemap,
             **kwargs,
         )
+
+    @staticmethod
+    def _merge_rgb_options(
+        *,
+        rgb_options: dict | None,
+        rgb: list[int] | None,
+        surface_reflectance: int | None,
+        cutoff: list | None,
+        percentile: int | None,
+    ) -> tuple[list[int] | None, int | None, list | None, int | None]:
+        """Merge `rgb_options=` with the deprecated loose top-level kwargs.
+
+        Returns the resolved four-tuple ``(rgb, surface_reflectance,
+        cutoff, percentile)`` passed forward to the renderer. Values in
+        ``rgb_options`` win over the loose kwargs on collision; using
+        any of the four loose kwargs emits a :class:`DeprecationWarning`
+        recommending the grouped form.
+
+        Args:
+            rgb_options: Recommended grouped form (``{"rgb": ..., ...}``).
+                Accepted keys: ``"rgb"``, ``"surface_reflectance"``,
+                ``"cutoff"``, ``"percentile"``. ``None`` means
+                no grouped options were supplied.
+            rgb: Deprecated top-level kwarg.
+            surface_reflectance: Deprecated top-level kwarg.
+            cutoff: Deprecated top-level kwarg.
+            percentile: Deprecated top-level kwarg.
+
+        Returns:
+            tuple: ``(rgb, surface_reflectance, cutoff, percentile)``
+                resolved values, with the grouped form taking precedence.
+        """
+        loose_pairs = {
+            "rgb": rgb,
+            "surface_reflectance": surface_reflectance,
+            "cutoff": cutoff,
+            "percentile": percentile,
+        }
+        used_loose = [name for name, value in loose_pairs.items() if value is not None]
+        if used_loose:
+            warnings.warn(
+                "Passing "
+                + ", ".join(f"`{name}=`" for name in used_loose)
+                + " as top-level kwargs to `Dataset.plot` is deprecated. "
+                "Group them under `rgb_options={...}` instead.",
+                DeprecationWarning,
+                stacklevel=3,
+            )
+        if rgb_options:
+            unknown = set(rgb_options) - set(loose_pairs)
+            if unknown:
+                raise ValueError(
+                    f"Unknown keys in `rgb_options`: {sorted(unknown)}. "
+                    f"Accepted: {sorted(loose_pairs)}."
+                )
+            rgb = rgb_options.get("rgb", rgb)
+            surface_reflectance = rgb_options.get(
+                "surface_reflectance", surface_reflectance,
+            )
+            cutoff = rgb_options.get("cutoff", cutoff)
+            percentile = rgb_options.get("percentile", percentile)
+        return rgb, surface_reflectance, cutoff, percentile
 
     def crop(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.crop <pyramids.dataset.engines.Spatial.crop>`."""

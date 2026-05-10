@@ -16,7 +16,8 @@ from pyramids.base._domain import inside_domain
 from pyramids.base._errors import DatasetNotFoundError, OptionalPackageDoesNotExist
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._raster_meta import RasterMeta
-from pyramids.base._utils import import_cleopatra, import_flox, import_zarr
+from pyramids.base._utils import import_flox, import_zarr
+from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
 from pyramids.dataset._stac import from_stac as _from_stac
 from pyramids.dataset.abstract_dataset import CATALOG
@@ -1273,30 +1274,26 @@ class DatasetCollection:
         Returns:
             ArrayGlyph: A plotting/animation handle (from cleopatra.ArrayGlyph).
         """
-        import_cleopatra(
-            "The current funcrion uses cleopatra package to for plotting, please install it manually, for more info "
-            "check https://github.com/serapeum-org/cleopatra"
-        )
-        from cleopatra.array_glyph import ArrayGlyph
-
-        # Materialise the cube on demand for plotting. ArrayGlyph
-        # expects a single (time, rows, cols) numpy array; reading
-        # each Dataset's band into one stacked array is fine for a
-        # plot call (the user explicitly asked to render).
+        # Materialise the cube on demand for plotting. The render helper
+        # expects a single (time, rows, cols) numpy array; reading each
+        # Dataset's band into one stacked array is fine for a plot call
+        # (the user explicitly asked to render). Delegates the cleopatra
+        # call to :func:`render_array` (D-2 — shared with `Analysis.plot`).
         data = np.stack(
             [ds.read_array(band=band) for ds in self.datasets], axis=0
         )
-
         exclude_value = (
             [self.base.no_data_value[band], exclude_value]
             if exclude_value is not None
             else [self.base.no_data_value[band]]
         )
-
-        cleo = ArrayGlyph(data, exclude_value=exclude_value)
-        time = list(range(self.time_length))
-        cleo.animate(time, **kwargs)
-        return cleo
+        return render_array(
+            arr=data,
+            exclude_value=exclude_value,
+            mode="animate",
+            animation_axis_values=list(range(self.time_length)),
+            **kwargs,
+        )
 
     def to_file(
         self,

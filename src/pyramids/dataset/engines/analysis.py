@@ -20,6 +20,7 @@ from pandas import DataFrame
 from pyramids.base._domain import inside_domain, is_no_data
 from pyramids.base._errors import AlignmentError
 from pyramids.base._utils import import_cleopatra
+from pyramids.dataset._plot_helpers import render_array
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
@@ -936,24 +937,33 @@ class Analysis(_Engine):
               (<Figure size 800x800 with 2 Axes>, <Axes: >)
               ```
         """
-        import_cleopatra(
-            "The current function uses cleopatra package to for plotting, please install it manually, for more info "
-            "check https://github.com/serapeum-org/cleopatra"
-        )
-        from cleopatra.array_glyph import ArrayGlyph
-
         no_data_value = [np.nan if i is None else i for i in self._ds.no_data_value]
-        # When ``rgb`` is supplied, cleopatra's ArrayGlyph needs the full multi-band
-        # ``(bands, rows, cols)`` array so it can pick the colour channels itself. In all
-        # other cases we render just the requested band as a 2-D array.
-        read_band = None if rgb is not None else band
-        if overview:
-            arr = self._ds.read_overview_array(
-                band=read_band,
-                overview_index=overview_index if overview_index is not None else 0,
-            )
+        # `coords` is the PR-3 curvilinear kwarg; the helper handles the
+        # mutually-exclusive `extent` swap. `facet_kwargs` (PR-4) is
+        # forwarded by `NetCDF.plot` to switch the helper to the
+        # `mode="facet"` branch; the pre-built stack arrives alongside as
+        # `_facet_stack`.
+        coords = kwargs.pop("coords", None)
+        facet_kwargs = kwargs.pop("facet_kwargs", None)
+        facet_stack = kwargs.pop("_facet_stack", None)
+        mode = "facet" if facet_kwargs else "plot"
+        if mode == "facet":
+            arr = facet_stack
         else:
-            arr = self._ds.read_array(band=read_band)
+            # When ``rgb`` is supplied, cleopatra's ArrayGlyph needs the full
+            # multi-band ``(bands, rows, cols)`` array so it can pick the
+            # colour channels itself. In all other cases we render just the
+            # requested band as a 2-D array.
+            read_band = None if rgb is not None else band
+            if overview:
+                arr = self._ds.read_overview_array(
+                    band=read_band,
+                    overview_index=(
+                        overview_index if overview_index is not None else 0
+                    ),
+                )
+            else:
+                arr = self._ds.read_array(band=read_band)
         exclude_value = (
             [no_data_value[band], exclude_value]
             if exclude_value is not None
@@ -961,39 +971,23 @@ class Analysis(_Engine):
         )
         ax = kwargs.pop("ax", None)
         fig = kwargs.pop("fig", None)
-        # When `coords` is supplied (curvilinear NetCDF path) cleopatra's
-        # ArrayGlyph rejects a simultaneous `extent`; drop the geotransform-
-        # derived extent in that case so the renderer routes via pcolormesh
-        # against the (x, y) coordinate arrays. `kind` is part of the same
-        # cleopatra surface — it is stored as a default by the constructor
-        # and consumed by `ArrayGlyph.plot(kind=...)`, so leaving it in
-        # `kwargs` is the right behaviour (no pop needed).
-        coords = kwargs.pop("coords", None)
-        extent_for_glyph = None if coords is not None else self._ds.bbox
-        cleo = ArrayGlyph(
-            arr,
-            exclude_value=exclude_value,
-            extent=extent_for_glyph,
+        return render_array(
+            arr=arr,
+            extent=self._ds.bbox,
             coords=coords,
+            exclude_value=exclude_value,
             rgb=rgb,
             surface_reflectance=surface_reflectance,
             cutoff=cutoff,
             percentile=percentile,
+            mode=mode,
+            facet_kwargs=facet_kwargs,
             ax=ax,
             fig=fig,
+            basemap=basemap,
+            basemap_epsg=self._ds.epsg,
             **kwargs,
         )
-        cleo.plot(**kwargs)
-
-        if basemap:
-            if self._ds.epsg is None:
-                raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
-            from pyramids.basemap.basemap import add_basemap
-
-            source = basemap if isinstance(basemap, str) else None
-            add_basemap(cleo.ax, crs=self._ds.epsg, source=source)
-
-        return cleo
 
     @staticmethod
     def _process_color_table(color_table: DataFrame) -> DataFrame:

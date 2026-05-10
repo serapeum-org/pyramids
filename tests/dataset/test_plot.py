@@ -484,6 +484,117 @@ class TestDatasetPlotFacade:
         )
 
 
+class TestDatasetPlotRgbOptions:
+    """PR-4 / D-3 — `rgb_options=` group + DeprecationWarning on loose kwargs."""
+
+    @pytest.mark.plot
+    def test_rgb_options_group_works(self):
+        """`rgb_options={"rgb": [...]}` works identically to the loose form."""
+        rng = np.random.default_rng(11)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "stub"
+            dataset.plot(rgb_options={"rgb": [2, 1, 0]})
+        call_kwargs = mock_plot.call_args.kwargs
+        assert call_kwargs["rgb"] == [2, 1, 0]
+
+    @pytest.mark.plot
+    def test_rgb_options_carries_all_four_keys(self):
+        """All four Sentinel kwargs flow through the `rgb_options=` group."""
+        rng = np.random.default_rng(12)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        opts = {
+            "rgb": [0, 1, 2],
+            "surface_reflectance": 10000,
+            "cutoff": [0.1, 0.9],
+            "percentile": 2,
+        }
+        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "stub"
+            dataset.plot(rgb_options=opts)
+        call_kwargs = mock_plot.call_args.kwargs
+        assert call_kwargs["rgb"] == opts["rgb"]
+        assert call_kwargs["surface_reflectance"] == opts["surface_reflectance"]
+        assert call_kwargs["cutoff"] == opts["cutoff"]
+        assert call_kwargs["percentile"] == opts["percentile"]
+
+    @pytest.mark.plot
+    def test_loose_rgb_emits_deprecation_warning(self):
+        """Passing `rgb=` loose at the top level emits DeprecationWarning."""
+        rng = np.random.default_rng(13)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "stub"
+            with pytest.warns(DeprecationWarning, match=r"rgb_options"):
+                dataset.plot(rgb=[0, 1, 2])
+        assert mock_plot.call_args.kwargs["rgb"] == [0, 1, 2]
+
+    @pytest.mark.plot
+    @pytest.mark.parametrize(
+        "key,value",
+        [
+            ("surface_reflectance", 10000),
+            ("cutoff", [0.1, 0.9]),
+            ("percentile", 2),
+        ],
+    )
+    def test_other_loose_kwargs_emit_deprecation_warning(self, key, value):
+        """Each Sentinel-loose kwarg emits a DeprecationWarning individually.
+
+        Args:
+            key: One of ``"surface_reflectance"`` / ``"cutoff"`` /
+                ``"percentile"``.
+            value: Test value to pass in for that kwarg.
+        """
+        rng = np.random.default_rng(14)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "stub"
+            with pytest.warns(DeprecationWarning, match=r"rgb_options"):
+                dataset.plot(**{key: value})
+        assert mock_plot.call_args.kwargs[key] == value
+
+    @pytest.mark.plot
+    def test_rgb_options_unknown_key_raises(self):
+        """Unknown keys in `rgb_options` are rejected with a clear error."""
+        rng = np.random.default_rng(15)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        with pytest.raises(ValueError, match=r"Unknown keys"):
+            dataset.plot(rgb_options={"bogus": True})
+
+    @pytest.mark.plot
+    def test_rgb_options_overrides_loose_kwarg(self):
+        """When both forms are passed, `rgb_options` wins for the same key."""
+        rng = np.random.default_rng(16)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "stub"
+            with pytest.warns(DeprecationWarning):
+                dataset.plot(
+                    rgb=[2, 1, 0],
+                    rgb_options={"rgb": [0, 1, 2]},
+                )
+        assert mock_plot.call_args.kwargs["rgb"] == [0, 1, 2]
+
+
 class TestAnalysisPlotEngine:
     """Tests for the post-PR-1 :meth:`Analysis.plot` engine contract.
 
