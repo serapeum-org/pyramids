@@ -1167,6 +1167,13 @@ class NetCDFPlot:
             y_arr = self._coerce_coord_spec(y_in, parent, "y")
             if self._coord_shapes_match(x_arr, y_arr, data_shape):
                 result = (x_arr, y_arr)
+            else:
+                logger.warning(
+                    "Explicit `coords=` shapes %s / %s don't match the data "
+                    "slice shape %s; ignoring the supplied coords and falling "
+                    "back to auto-detection / the geotransform extent.",
+                    x_arr.shape, y_arr.shape, data_shape,
+                )
 
         if result is None and data_shape is not None:
             cf_pair = self._cf_coordinates_pair(nc, parent)
@@ -1190,6 +1197,12 @@ class NetCDFPlot:
                     if self._coord_shapes_match(x_arr, y_arr, data_shape):
                         result = (x_arr, y_arr)
                         break
+                    logger.debug(
+                        "Conventional curvilinear coord pair (%r, %r) is "
+                        "present on the NetCDF but shapes %s / %s don't match "
+                        "the data slice shape %s; skipping this pair.",
+                        x_name, y_name, x_arr.shape, y_arr.shape, data_shape,
+                    )
 
         return result
 
@@ -1363,6 +1376,16 @@ class NetCDFPlot:
                 y_arr = y_candidates[0][1]
                 if self._coord_shapes_match(x_arr, y_arr, data_shape):
                     result = (x_arr, y_arr)
+            if result is None and names:
+                logger.debug(
+                    "CF `coordinates` attr %r on variable %r did not yield a "
+                    "coord pair matching the data slice shape %s (candidate "
+                    "shapes: %s); falling back to conventional names / extent.",
+                    names,
+                    getattr(nc, "_source_var_name", None),
+                    data_shape,
+                    {n: a.shape for n, a in candidate_arrays.items()},
+                )
         return result
 
     @staticmethod

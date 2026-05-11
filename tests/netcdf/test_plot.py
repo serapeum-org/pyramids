@@ -26,6 +26,7 @@ the Agg backend that the pytest configuration forces on import.
 
 from __future__ import annotations
 
+import logging
 import types
 import warnings
 from types import SimpleNamespace
@@ -1602,6 +1603,33 @@ class TestCurvilinearCoordsEdges:
     validation, and ``kind=`` interaction with regular vs.
     curvilinear grids.
     """
+
+    def test_explicit_coords_shape_mismatch_warns_and_falls_back(self, caplog):
+        """Wrong-shaped `coords=` arrays → `logger.warning` + fall back to extent.
+
+        Test scenario:
+            M1 fix — when the caller passes explicit `coords=` whose
+            arrays don't match the data slice shape, pyramids must not
+            silently ignore them. It logs a WARNING on the
+            ``pyramids.netcdf._plot`` logger naming the mismatched
+            shapes, then falls through (no conventional coords on this
+            NetCDF, so all the way to the geotransform-derived extent).
+            The render still succeeds, just without curvilinear coords.
+        """
+        nc = _make_2d_nc()  # 5x5 `surface`, no XLONG/XLAT auto-detect names
+        bad_x = np.zeros((3, 3), dtype=np.float64)
+        bad_y = np.zeros((3, 3), dtype=np.float64)
+        with caplog.at_level(logging.WARNING, logger="pyramids.netcdf._plot"):
+            cleo = nc.plot(variable="surface", coords=(bad_x, bad_y))
+        assert cleo.coords is None, (
+            "mismatched explicit coords must be dropped, not used; "
+            f"got {getattr(cleo, 'coords', None)!r}"
+        )
+        assert any(
+            "don't match the data slice shape" in r.getMessage()
+            and r.levelno == logging.WARNING
+            for r in caplog.records
+        ), f"expected a shape-mismatch WARNING, got: {[r.getMessage() for r in caplog.records]}"
 
     def test_cf_coordinates_lon_then_lat(self):
         """CF `coordinates="XLONG XLAT"` (lon-first) still resolves the pair.
