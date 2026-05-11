@@ -26,6 +26,15 @@ is the contract every existing test patches against.
 #     ``return cleopatra.add_tiles(ax, source=source, crs=crs, ...)``.
 # Then drop ``mercantile`` / ``xyzservices`` / ``Pillow`` from the
 # ``[viz]`` extra in ``pyproject.toml``.
+#
+# Import-direction constraint
+# ---------------------------
+# This module must NOT import from ``pyramids.dataset`` (or anything
+# under it). ``pyramids.dataset._plot_helpers`` imports *this* module at
+# top level (it resolves ``add_basemap`` at call time so monkeypatching
+# works) — a back-edge would make the import graph cyclic and deadlock
+# at import time. Keep the dependency one-way: ``dataset -> basemap``,
+# never ``basemap -> dataset``.
 """
 
 from __future__ import annotations

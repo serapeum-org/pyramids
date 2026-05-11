@@ -85,6 +85,36 @@ def _reject_forbidden_kwargs(kwargs: dict[str, Any]) -> None:
             raise TypeError(message)
 
 
+# Kwargs that the static-plot path puts into the render-kwargs dict but
+# cleopatra's ``ArrayGlyph.animate`` cannot accept (it re-validates every
+# kwarg against ``DEFAULT_OPTIONS`` and would raise "Unknown option"): the
+# `kind=` dispatch hint, the curvilinear `coords` pair, the `aspect`
+# figure hint, and the xarray colour-norm trio that the animate render
+# loop doesn't consult. Plus the pyramids-internal injection keys
+# (`_facet_stack` / `facet_kwargs` / `_chunks` / `_extent`) which never
+# make sense for an animation. ``_render_animate`` strips these before
+# forwarding. (Kept as a block-list rather than an allow-list because a
+# correct allow-list would be *longer* — cleopatra's animate accepts most
+# of `DEFAULT_OPTIONS` plus `interval` / `points` / ... — and a *small*
+# allow-list would silently drop legitimate kwargs like `interval`.)
+_ANIMATE_DROP_KWARGS = frozenset({
+    "kind",
+    "coords",
+    "extend",
+    "cbar_kwargs",
+    "aspect",
+    "levels",
+    "center",
+    "norm",
+    "robust",
+    "rgb",
+    "_facet_stack",
+    "facet_kwargs",
+    "_chunks",
+    "_extent",
+})
+
+
 class NetCDFPlot:
     """Owns the plotting pipeline for a :class:`~pyramids.netcdf.netcdf.NetCDF`.
 
@@ -135,12 +165,21 @@ class NetCDFPlot:
         facet = facet or FacetSpec()
 
         if nc._is_md_array and not nc._is_subset and nc.band_count == 0:
+            # Forward every plot kwarg verbatim to the variable subset.
+            # At this point ``locals()`` is exactly ``{self, nc, variable,
+            # kwargs}`` plus the named plot params (no other locals are
+            # bound yet), so filtering those four leaves precisely the
+            # forwardable set — adding a param to :meth:`run`'s signature
+            # needs no change here, and a stray local before this point
+            # would surface as a loud ``TypeError`` rather than a silent
+            # dropped kwarg.
+            passthrough = {
+                name: value
+                for name, value in locals().items()
+                if name not in {"self", "nc", "variable", "kwargs"}
+            }
             return self._delegate_to_variable(
-                nc, variable,
-                selectors=selectors, colour=colour, facet=facet, coords=coords,
-                kind=kind, animate=animate, chunks=chunks, basemap=basemap,
-                exclude_value=exclude_value, title=title, ax=ax, figsize=figsize,
-                **kwargs,
+                nc, variable, **passthrough, **kwargs,
             )
         if variable is not None and variable != nc._source_var_name:
             raise ValueError(
@@ -905,28 +944,16 @@ class NetCDFPlot:
 
         template = np.asarray(_data_getter(0))
 
-        animate_kwargs = dict(analysis_kwargs)
-        # Strip kwargs that only make sense for the static-plot path:
-        # cleopatra's `animate()` does not accept `kind`, `coords`,
-        # `extend`, `cbar_kwargs`, `aspect`, `levels`, `center`,
-        # `norm`, `robust`, or `rgb`. Carry vmin/vmax/cmap/figsize/
-        # title across since they have well-defined animate semantics.
-        for key in (
-            "kind",
-            "coords",
-            "extend",
-            "cbar_kwargs",
-            "aspect",
-            "levels",
-            "center",
-            "norm",
-            "robust",
-            "rgb",
-            "_facet_stack",
-            "facet_kwargs",
-            "_chunks",
-        ):
-            animate_kwargs.pop(key, None)
+        # Drop the static-plot-only render kwargs cleopatra's `animate()`
+        # rejects, plus the pyramids-internal injection keys. See
+        # :data:`_ANIMATE_DROP_KWARGS`. Everything else (vmin/vmax/cmap/
+        # figsize/title/interval/points/...) carries through with its
+        # well-defined animate semantics.
+        animate_kwargs = {
+            key: value
+            for key, value in analysis_kwargs.items()
+            if key not in _ANIMATE_DROP_KWARGS
+        }
 
         ax = animate_kwargs.pop("ax", None)
         fig = animate_kwargs.pop("fig", None)

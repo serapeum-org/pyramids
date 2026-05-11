@@ -21,6 +21,7 @@ from osgeo import gdal
 from pyramids import _io
 from pyramids.base._utils import (
     DTYPE_CONVERSION_DF,
+    UNDEFINED_COLOR_INTERP,
     numpy_to_gdal_dtype,
 )
 from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
@@ -339,9 +340,12 @@ class Dataset(RasterBase):
 
             - Multi-band dataset with no ``ColorInterpretation`` defaults to band ``0``
               (rule 3, the D-1 fix). ``Dataset.create_from_array`` produces a multi-band
-              MEM raster whose bands all report ``undefined`` colour interpretation:
+              MEM raster whose bands all report ``undefined`` colour interpretation —
+              asserted explicitly here so this doctest fails loudly if that ever changes:
 
               ```python
+              >>> list(ds.band_color.values())
+              ['undefined', 'undefined', 'undefined', 'undefined']
               >>> ds._resolve_plot_band(band=None, rgb=None)
               (0, None)
 
@@ -363,7 +367,9 @@ class Dataset(RasterBase):
             resolved_rgb = rgb
         else:
             band_colors = list(self.band_color.values())
-            has_color_interp = any(c != "undefined" for c in band_colors)
+            has_color_interp = any(
+                c != UNDEFINED_COLOR_INTERP for c in band_colors
+            )
             if not has_color_interp:
                 resolved_band = 0
                 resolved_rgb = rgb
