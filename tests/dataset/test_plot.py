@@ -596,6 +596,43 @@ class TestDatasetPlotRgbOptions:
                 )
         assert mock_plot.call_args.kwargs["rgb"] == [0, 1, 2]
 
+    def test_collision_warning_distinguishes_from_pure_loose(self):
+        """A loose+grouped collision warns "rgb_options wins", not "group them" (M2).
+
+        Test scenario:
+            M2 fix — when both `rgb=` (loose) and `rgb_options={"rgb": ...}`
+            are passed for the same key, the DeprecationWarning must say
+            the loose value was overridden ("`rgb_options` wins — drop
+            the loose form"), *not* the misleading "Group them under
+            `rgb_options={...}` instead" message that implies the user
+            forgot the grouped form. Conversely, a pure-loose call (no
+            `rgb_options`) still gets the original "group them" wording.
+        """
+        rng = np.random.default_rng(17)
+        arr = rng.random((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "stub"
+            with warnings.catch_warnings(record=True) as collide:
+                warnings.simplefilter("always")
+                dataset.plot(rgb=[2, 1, 0], rgb_options={"rgb": [0, 1, 2]})
+            with warnings.catch_warnings(record=True) as pure:
+                warnings.simplefilter("always")
+                dataset.plot(rgb=[2, 1, 0])
+        collide_msg = " ".join(str(w.message) for w in collide)
+        pure_msg = " ".join(str(w.message) for w in pure)
+        assert "rgb_options` wins" in collide_msg and "drop the loose form" in collide_msg, (
+            f"collision warning should say rgb_options wins; got: {collide_msg!r}"
+        )
+        assert "Group them under" not in collide_msg, (
+            f"collision warning must not use the 'group them' wording; got: {collide_msg!r}"
+        )
+        assert "Group them under" in pure_msg, (
+            f"pure-loose warning should keep the 'group them' wording; got: {pure_msg!r}"
+        )
+
 
 class TestAnalysisPlotEngine:
     """Tests for the post-PR-1 :meth:`Analysis.plot` engine contract.

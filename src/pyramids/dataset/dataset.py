@@ -666,29 +666,43 @@ class Dataset(RasterBase):
             "cutoff": cutoff,
             "percentile": percentile,
         }
+        opts = rgb_options or {}
+        unknown = set(opts) - set(loose_pairs)
+        if unknown:
+            raise ValueError(
+                f"Unknown keys in `rgb_options`: {sorted(unknown)}. "
+                f"Accepted: {sorted(loose_pairs)}."
+            )
         used_loose = [name for name, value in loose_pairs.items() if value is not None]
-        if used_loose:
+        # Split the deprecated loose kwargs into those overridden by a
+        # matching `rgb_options` key (a collision — the loose value is
+        # discarded) and those used on their own. They get distinct
+        # warning text so the message isn't misleading: a user who *did*
+        # use the grouped form shouldn't be told "group them" again.
+        overridden = [name for name in used_loose if name in opts]
+        pure_loose = [name for name in used_loose if name not in opts]
+        if pure_loose:
             warnings.warn(
                 "Passing "
-                + ", ".join(f"`{name}=`" for name in used_loose)
+                + ", ".join(f"`{name}=`" for name in pure_loose)
                 + " as top-level kwargs to `Dataset.plot` is deprecated. "
                 "Group them under `rgb_options={...}` instead.",
                 DeprecationWarning,
                 stacklevel=3,
             )
-        if rgb_options:
-            unknown = set(rgb_options) - set(loose_pairs)
-            if unknown:
-                raise ValueError(
-                    f"Unknown keys in `rgb_options`: {sorted(unknown)}. "
-                    f"Accepted: {sorted(loose_pairs)}."
-                )
-            rgb = rgb_options.get("rgb", rgb)
-            surface_reflectance = rgb_options.get(
-                "surface_reflectance", surface_reflectance,
+        if overridden:
+            warnings.warn(
+                "Both the loose "
+                + ", ".join(f"`{name}=`" for name in overridden)
+                + " kwarg(s) and `rgb_options` were given for the same key(s); "
+                "`rgb_options` wins — drop the loose form.",
+                DeprecationWarning,
+                stacklevel=3,
             )
-            cutoff = rgb_options.get("cutoff", cutoff)
-            percentile = rgb_options.get("percentile", percentile)
+        rgb = opts.get("rgb", rgb)
+        surface_reflectance = opts.get("surface_reflectance", surface_reflectance)
+        cutoff = opts.get("cutoff", cutoff)
+        percentile = opts.get("percentile", percentile)
         return rgb, surface_reflectance, cutoff, percentile
 
     def crop(self, *args, **kwargs):
