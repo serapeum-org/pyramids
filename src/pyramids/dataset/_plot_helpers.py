@@ -299,6 +299,19 @@ def render_array(
         **ctor_kwargs,
     )
 
+    # ``basemap and basemap_epsg is None`` was already rejected at the top
+    # of this function, so when ``basemap`` is truthy ``basemap_epsg`` is set.
+    basemap_source = basemap if isinstance(basemap, str) else None
+
+    def _apply_basemap(target_ax: Any) -> None:
+        # Resolve ``add_basemap`` via the module attribute at call time so
+        # test-time ``patch("pyramids.basemap.basemap.add_basemap")`` is
+        # honoured (the patch swaps the module attribute, not any
+        # pre-bound reference this helper might hold).
+        _basemap_module.add_basemap(
+            target_ax, crs=basemap_epsg, source=basemap_source,
+        )
+
     if mode == "plot":
         # Only render-call-only kwargs reach ``cleo.plot`` — the
         # constructor already absorbed every option meaningful to
@@ -306,16 +319,7 @@ def render_array(
         cleo.plot(**render_kwargs)
         result: Any = cleo
         if basemap:
-            # ``basemap and basemap_epsg is None`` was already rejected at
-            # the top of this function — by here ``basemap_epsg`` is set.
-            source = basemap if isinstance(basemap, str) else None
-            # Resolve `add_basemap` via the module attribute at call time
-            # so test-time `patch("pyramids.basemap.basemap.add_basemap")`
-            # captures the call (the patch replaces the module attribute,
-            # not any pre-bound reference held by this helper).
-            _basemap_module.add_basemap(
-                cleo.ax, crs=basemap_epsg, source=source,
-            )
+            _apply_basemap(cleo.ax)
     elif mode == "animate":
         if data_getter is not None:
             cleo.animate(
@@ -333,6 +337,17 @@ def render_array(
         # Forward only the render-call-only set; the rest is already on
         # the constructor.
         result = cleo.facet(**facet_kwargs, **render_kwargs)
+        if basemap:
+            # Every facet panel renders the same spatial domain (cleopatra
+            # reuses the parent extent / curvilinear coords across panels),
+            # so each visible panel gets the same tile layer underneath —
+            # at the cost of one tile fetch per panel. Hidden trailing
+            # slots (``set_visible(False)``) are skipped.
+            panel_axes = getattr(result, "axes", None)
+            if panel_axes is not None:
+                for panel_ax in np.asarray(panel_axes).ravel():
+                    if panel_ax is not None and panel_ax.get_visible():
+                        _apply_basemap(panel_ax)
     return result
 
 

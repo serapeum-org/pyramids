@@ -2158,6 +2158,65 @@ class TestNetCDFPlotFacetingEdges:
             assert "time" in entry, f"Missing 'time' in {entry}"
             assert "pressure_level" in entry, f"Missing 'pressure_level' in {entry}"
 
+    def test_facet_with_basemap_adds_one_per_panel(self):
+        """`facet=...` + `basemap=True` overlays a tile layer on every panel (M4).
+
+        Test scenario:
+            M4 fix — the facet path used to silently drop `basemap=`.
+            It now iterates the facet panels and calls `add_basemap`
+            on each visible `Axes`. Patch `add_basemap` and confirm it
+            fires once per panel (3 panels for `col="time"` over a
+            3-time-step variable), each with the subset's `crs`.
+        """
+        nc = _make_3d_nc(n_times=3)
+        with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
+            nc.plot(
+                variable="t2m",
+                facet=FacetSpec(col="time"),
+                basemap=True,
+            )
+        assert mock_add.call_count == 3, (
+            f"expected one add_basemap per facet panel (3), got {mock_add.call_count}"
+        )
+        for call in mock_add.call_args_list:
+            assert call.kwargs.get("crs") == nc.get_variable("t2m").epsg, (
+                f"each panel basemap must use the variable's CRS, got: {call.kwargs}"
+            )
+
+    def test_facet_with_basemap_skips_hidden_panels(self):
+        """`col_wrap` hidden trailing slots get no basemap (M4).
+
+        Test scenario:
+            4 time steps with `col_wrap=3` → a 2×3 grid where the last
+            two slots are hidden (`set_visible(False)`). `add_basemap`
+            must fire exactly 4 times (the visible panels), not 6.
+        """
+        nc = _make_3d_nc(n_times=4)
+        with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
+            nc.plot(
+                variable="t2m",
+                facet=FacetSpec(col="time", col_wrap=3),
+                basemap=True,
+            )
+        assert mock_add.call_count == 4, (
+            f"expected one add_basemap per visible panel (4), got {mock_add.call_count}"
+        )
+
+    def test_facet_with_basemap_string_source_propagates(self):
+        """`basemap="CartoDB.Positron"` forwards the provider name to every panel."""
+        nc = _make_3d_nc(n_times=2)
+        with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
+            nc.plot(
+                variable="t2m",
+                facet=FacetSpec(col="time"),
+                basemap="CartoDB.Positron",
+            )
+        assert mock_add.call_count == 2
+        for call in mock_add.call_args_list:
+            assert call.kwargs.get("source") == "CartoDB.Positron", (
+                f"string basemap must pass through as `source`, got: {call.kwargs}"
+            )
+
 
 class TestNetCDFPlotAnimate:
     """Tests for the PR-5 ``animate=`` kwarg on NetCDF.plot."""
