@@ -10,7 +10,6 @@ public docstring stays on :meth:`NetCDF.plot`; this module is implementation.
 from __future__ import annotations
 
 import logging
-import warnings
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -35,10 +34,16 @@ _LAZY_HINT_THRESHOLD_BYTES = 100 * 1024 * 1024
 # `overview`, no error at all). Module-level so it's greppable / testable
 # without instantiating ``NetCDFPlot``.
 _FORBIDDEN_PLOT_KWARGS: dict[str, str] = {
+    "band": (
+        "NetCDF.plot() does not accept `band=`: a flat band index is the wrong "
+        "vocabulary for NetCDF. Use `Selectors(isel={'<dim>': <idx>})` for "
+        "positional selection or `Selectors(time=...)` / `Selectors(level=...)` "
+        "for label selection."
+    ),
     "rgb": (
         "NetCDF.plot() does not accept `rgb=`: NetCDF data is not RGB. "
-        "Use `Selectors(time=...)`, `Selectors(level=...)`, "
-        "`Selectors(isel=...)`, or `band=` to select a slice."
+        "Use `Selectors(time=...)`, `Selectors(level=...)`, or "
+        "`Selectors(isel=...)` to select a slice."
     ),
     "surface_reflectance": (
         "NetCDF.plot() does not accept `surface_reflectance=`: "
@@ -163,16 +168,6 @@ class NetCDFPlot:
                 f"re-plot as {variable!r}. Call `plot` on the parent container."
             )
 
-        legacy_band = kwargs.pop("band", None)
-        if legacy_band is not None:
-            warnings.warn(
-                "Pass `Selectors(time=...)`/`Selectors(level=...)`/"
-                "`Selectors(isel=...)` instead. `band=` remains supported "
-                "for now as a low-level escape hatch.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-
         resolved_sel: dict[str, Any] = {}
         if selectors.sel:
             for dim_name, value in selectors.sel.items():
@@ -224,7 +219,9 @@ class NetCDFPlot:
         for dim_name, value in resolved_sel.items():
             pinned = pinned.sel(**{dim_name: value})
 
-        flat_band = 0 if legacy_band is None else legacy_band
+        # After pinning every selected dim the variable is 2-D, so the
+        # engine always renders the first (and only) flattened band.
+        flat_band = 0
         if (
             not faceting_active
             and animate_dim is None

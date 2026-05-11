@@ -352,13 +352,17 @@ class TestNetCDFPlotPolicy:
     @pytest.mark.parametrize(
         "kwarg, value, expected_substr",
         [
-            ("rgb", [0, 1, 2], "band="),
+            ("band", 0, "Selectors"),
+            ("rgb", [0, 1, 2], "not RGB"),
             ("surface_reflectance", 10000, "Sentinel"),
             ("cutoff", [0.5], "vmin"),
+            ("percentile", 2, "robust"),
+            ("overview", True, "GeoTIFF/COG"),
+            ("overview_index", 0, "GeoTIFF/COG"),
         ],
     )
     def test_forbidden_kwarg_raises_type_error(self, kwarg, value, expected_substr):
-        """Each Sentinel-only kwarg raises :class:`TypeError` with hint text.
+        """Each rejected GeoTIFF/Sentinel kwarg raises :class:`TypeError` with hint text.
 
         Args:
             kwarg: Name of the kwarg under test.
@@ -367,9 +371,11 @@ class TestNetCDFPlotPolicy:
                 so the replacement-suggestion contract doesn't drift.
 
         Test scenario:
-            ``rgb`` must point at ``band=``; ``surface_reflectance``
-            must mention Sentinel; ``cutoff`` must point at
-            ``vmin``/``vmax`` (PR-2 hint).
+            ``band`` must point at ``Selectors``; ``rgb`` must say
+            "not RGB"; ``surface_reflectance`` must mention Sentinel;
+            ``cutoff`` must point at ``vmin``/``vmax``; ``percentile``
+            must point at ``robust``; the overview kwargs must mention
+            ``GeoTIFF/COG``.
         """
         nc_subset = _make_nc_subset(n_bands=2)
         with pytest.raises(TypeError) as exc_info:
@@ -414,18 +420,18 @@ class TestNetCDFPlotPolicy:
             f"NetCDF default must be band=0, got {mock_plot.call_args.kwargs.get('band')}"
         )
 
-    def test_explicit_band_forwards_unchanged(self):
-        """``NetCDF.plot(band=2)`` must forward ``band=2`` to the engine.
+    def test_band_kwarg_rejected_with_migration_hint(self):
+        """``NetCDF.plot(band=2)`` raises ``TypeError`` — ``band=`` is not NetCDF vocabulary.
 
         Test scenario:
-            The override defaults to 0 but must honour an explicit band
-            without modification.
+            The flat band index was a back-compat shim that has been
+            removed; ``band`` now lives in ``_FORBIDDEN_PLOT_KWARGS``.
+            The error message must point at ``Selectors(...)``.
         """
         nc_subset = _make_nc_subset(n_bands=4)
-        with patch.object(type(nc_subset.analysis), "plot", autospec=True) as mock_plot:
-            mock_plot.return_value = "ok"
+        with pytest.raises(TypeError, match=r"band=") as exc_info:
             nc_subset.plot(band=2)
-        assert mock_plot.call_args.kwargs["band"] == 2
+        assert "Selectors" in str(exc_info.value)
 
     def test_extra_kwargs_forwarded_to_engine(self):
         """Innocent kwargs (``figsize``) propagate past the forbidden-kwarg gate.

@@ -384,33 +384,39 @@ class TestNetCDFPlotColourForwarding:
         assert kw.get("cbar_kwargs") == cbar
 
 
-class TestNetCDFPlotLegacyBandKwarg:
-    """`band=` is removed from the public signature but still accepted via kwargs."""
+class TestNetCDFPlotBandKwargRejected:
+    """`band=` is rejected outright — a flat band index is the wrong vocabulary for NetCDF."""
 
-    def test_band_emits_deprecation_warning(self):
-        """`band=0` works and emits a `DeprecationWarning`."""
+    def test_band_raises_type_error_with_migration_hint(self):
+        """`band=0` raises `TypeError` pointing at `Selectors(isel=...)`.
+
+        Test scenario:
+            `band=` was a back-compat shim that has been removed. It now
+            joins the other rejected GeoTIFF/Sentinel kwargs in
+            `_FORBIDDEN_PLOT_KWARGS`; the error message must mention
+            `Selectors` so the user knows the replacement.
+        """
+        nc = _make_3d_nc()
+        with pytest.raises(TypeError, match=r"band=") as exc_info:
+            nc.plot(variable="t2m", band=0)
+        msg = str(exc_info.value)
+        assert "Selectors" in msg, (
+            f"band= rejection should point at Selectors(...), got: {msg}"
+        )
+
+    def test_band_rejection_fires_before_render(self):
+        """The `band=` gate runs before any engine call.
+
+        Test scenario:
+            Patch `Analysis.plot`; passing `band=2` must raise before
+            the engine is ever invoked.
+        """
         nc = _make_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
-            mock_plot.return_value = "ok"
-            with warnings.catch_warnings(record=True) as captured:
-                warnings.simplefilter("always")
-                nc.plot(variable="t2m", band=0)
-        assert any(
-            issubclass(w.category, DeprecationWarning) for w in captured
-        ), f"DeprecationWarning not emitted; got {[w.category for w in captured]}"
-        assert mock_plot.call_args.kwargs["band"] == 0
-
-    def test_band_forwarded_as_resolved_index(self):
-        """A non-zero `band=` is forwarded as the resolved flat band index."""
-        nc = _make_3d_nc()
-        var = nc.get_variable("t2m")
-        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
-            mock_plot.return_value = "ok"
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", DeprecationWarning)
+            with pytest.raises(TypeError, match=r"band="):
                 nc.plot(variable="t2m", band=2)
-        assert mock_plot.call_args.kwargs["band"] == 2
+        assert not mock_plot.called, "engine was called despite the band= rejection"
 
 
 class TestNetCDFPlotCoordAxes:
@@ -652,24 +658,28 @@ class TestNetCDFPlotRejectedKwargsCombinations:
         with pytest.raises(TypeError, match=r"robust=True"):
             nc.plot(variable="t2m", **extra)
 
-    def test_legacy_band_plus_rejected_rejection_wins(self):
-        """Rejected kwarg + legacy ``band=`` → rejected wins, no DeprecationWarning.
+    def test_band_plus_overview_band_message_wins(self):
+        """``band=`` + ``overview=`` → the ``band=`` message surfaces (it's first in the map).
 
         Test scenario:
-            The forbidden-kwargs gate runs before the legacy ``band=``
-            pop in :func:`NetCDF.plot`. A combined call must therefore
-            raise TypeError and emit **no** DeprecationWarning.
+            ``band`` is the first key in ``_FORBIDDEN_PLOT_KWARGS`` (it's
+            the most likely mistake — it was a real parameter on
+            ``main``'s ``NetCDF.plot``). When several rejected kwargs are
+            passed together the gate raises on the first matching key in
+            insertion order, so ``band=`` wins over ``overview=``. No
+            ``DeprecationWarning`` is emitted — the back-compat shim is
+            gone, ``band=`` is a hard rejection now.
         """
         nc = _make_3d_nc()
         with warnings.catch_warnings(record=True) as captured:
             warnings.simplefilter("always")
-            with pytest.raises(TypeError, match=r"overview="):
+            with pytest.raises(TypeError, match=r"band="):
                 nc.plot(variable="t2m", band=0, overview=True)
         deprecation_warnings = [
             w for w in captured if issubclass(w.category, DeprecationWarning)
         ]
         assert not deprecation_warnings, (
-            f"Rejection must fire before the band= deprecation hook; "
+            f"band= is a hard rejection now, no deprecation hook; "
             f"got {[str(w.message) for w in deprecation_warnings]}"
         )
 
