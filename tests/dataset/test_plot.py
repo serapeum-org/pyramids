@@ -436,38 +436,66 @@ class TestDatasetPlotFacade:
             "linear",
             "power",
             "sym-lognorm",
+            "boundary-norm",
+            "Power",
         ],
     )
     def test_color_scale_string_aliases_work(self, color_scale):
-        """M-2 docstring fix: cleopatra accepts ``color_scale`` string aliases.
+        """``color_scale`` accepts the ``cleopatra.styles.ColorScale`` aliases.
 
         Args:
-            color_scale: String alias for the colour-scale enum.
+            color_scale: String alias for the colour-scale enum (lookup
+                is case-insensitive on the cleopatra side).
 
         Test scenario:
-            The PR-1 docstring change documented the string aliases as
-            valid ``color_scale`` values. Verify each alias is forwarded
-            to cleopatra and yields an ``ArrayGlyph``.
+            The plot docstrings document the string aliases as the valid
+            ``color_scale`` values. Verify each alias (including a
+            mixed-case spelling) is forwarded to cleopatra and yields an
+            ``ArrayGlyph``.
 
         Notes:
-            The integer codes (``1``-``5``) are also documented but are
-            currently broken in the installed cleopatra release
-            (``'int' object has no attribute 'lower'`` in
-            ``cleopatra.glyph._update_color_norm``). When that
-            upstream bug is fixed, extend the parametrize list to
-            include the integer codes too.
+            cleopatra's ``ColorScale`` StrEnum replaced the legacy
+            integer codes (``1``-``5``); those are no longer accepted —
+            see :meth:`test_color_scale_integer_codes_rejected`.
         """
         rng = np.random.default_rng(1337)
         arr = rng.random((6, 6)).astype("float32")
         dataset = Dataset.create_from_array(
             arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
         )
+        plot_kwargs = {"color_scale": color_scale}
+        if color_scale.lower() == "boundary-norm":
+            plot_kwargs["bounds"] = [0.0, 0.25, 0.5, 0.75, 1.0]
 
-        result = dataset.plot(color_scale=color_scale)
+        result = dataset.plot(**plot_kwargs)
         assert isinstance(result, ArrayGlyph), (
             f"color_scale={color_scale!r} should return ArrayGlyph, "
             f"got {type(result).__name__}"
         )
+
+    @pytest.mark.plot
+    @pytest.mark.parametrize("color_scale", [1, 2, 3, 4, 5, 0])
+    def test_color_scale_integer_codes_rejected(self, color_scale):
+        """Legacy integer ``color_scale`` codes raise a clear ``ValueError``.
+
+        Args:
+            color_scale: A legacy integer code that older releases
+                accepted but cleopatra's ``ColorScale`` enum rejects.
+
+        Test scenario:
+            cleopatra now validates ``color_scale`` against the
+            ``ColorScale`` StrEnum and raises ``ValueError`` for anything
+            that is not one of the documented aliases (or a ``ColorScale``
+            member). Confirm pyramids surfaces that error unchanged.
+        """
+        rng = np.random.default_rng(7)
+        arr = rng.random((5, 5)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+
+        with pytest.raises(ValueError, match="color_scale"):
+            dataset.plot(color_scale=color_scale)
 
     @pytest.mark.plot
     def test_facade_forwards_to_analysis_plot(self):

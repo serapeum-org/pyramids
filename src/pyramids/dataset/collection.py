@@ -1274,12 +1274,12 @@ class DatasetCollection:
                 | ticks_spacing              | int, optional         | Spacing in the color bar ticks. Default is `2`. |
                 | cbar_label_size            | int, optional         | Size of the color bar label. Default is `12`. |
                 | cbar_label                 | str, optional         | Label of the color bar. Default is `'Discharge m³/s'`. |
-                | color_scale                | int, optional         | Color scaling mode (default = `1`): 1 = normal scale, 2 = power scale, 3 = SymLogNorm scale, 4 = PowerNorm scale, 5 = BoundaryNorm scale. |
-                | gamma                      | float, optional       | Value needed for `color_scale=2`. Default is `1/2`. |
-                | line_threshold             | float, optional       | Value needed for `color_scale=3`. Default is `0.0001`. |
-                | line_scale                 | float, optional       | Value needed for `color_scale=3`. Default is `0.001`. |
-                | bounds                     | list                  | Discrete bounds for `color_scale=4`. Default is `None`. |
-                | midpoint                   | float, optional       | Value needed for `color_scale=5`. Default is `0`. |
+                | color_scale                | str, optional         | Color-scale mode (default `"linear"`): one of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styles.ColorScale` member. Integer codes are no longer accepted. |
+                | gamma                      | float, optional       | Exponent for `color_scale="power"`. Default is `1/2`. |
+                | line_threshold             | float, optional       | `linthresh` for `color_scale="sym-lognorm"`. Default is `0.0001`. |
+                | line_scale                 | float, optional       | `linscale` for `color_scale="sym-lognorm"`. Default is `0.001`. |
+                | bounds                     | list                  | Discrete bounds for `color_scale="boundary-norm"`. Default is `None`. |
+                | midpoint                   | float, optional       | Midpoint value for `color_scale="midpoint"`. Default is `0`. |
                 | cmap                       | str, optional         | Color map style. Default is `'coolwarm_r'`. |
                 | display_cell_value         | bool                  | Whether to display the values of the cells as text. |
                 | num_size                   | int, optional         | Size of the numbers plotted on top of each cell. Default is `8`. |

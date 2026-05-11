@@ -482,7 +482,7 @@ class Analysis(_Engine):
 
               ```python
               >>> classes = Dataset.read_file("examples/data/geotiff/rhine-classes.tif")
-              >>> classes.plot(figsize=(6, 8), color_scale=4, bounds=[1,2,3,4,5,6]) # doctest: +SKIP
+              >>> classes.plot(figsize=(6, 8), color_scale="boundary-norm", bounds=[1,2,3,4,5,6]) # doctest: +SKIP
 
               ```
 
@@ -900,12 +900,12 @@ class Analysis(_Engine):
                 | `ticks_spacing`             | int, optional       | Spacing between color bar ticks. Default is `2`. |
                 | `cbar_label_size`           | int, optional       | Size of the color bar label. Default is `12`. |
                 | `cbar_label`                | str, optional       | Label of the color bar. Default is `'Discharge m\u00b3/s'`. |
-                | `color_scale`               | int or str, optional | Scale mode for colors. Accepts both integer codes (`1`\u2013`5`) and string aliases. Integer codes: `1` = normal, `2` = power, `3` = SymLogNorm, `4` = PowerNorm, `5` = BoundaryNorm. String aliases: `"linear"` (= `1`), `"power"` (= `2`), `"sym-lognorm"` (= `3`), `"boundary-norm"` (= `4`), `"midpoint"` (= `5`). Default is `1` / `"linear"`. |
-                | `gamma`                     | float, optional     | Value needed for color scale option 2. Default is `1/2`. |
-                | `line_threshold`            | float, optional     | Value needed for color scale option 3. Default is `0.0001`. |
-                | `line_scale`                | float, optional     | Value needed for color scale option 3. Default is `0.001`. |
-                | `bounds`                    | list, optional      | Discrete bounds for color scale option 4. Default is `None`. |
-                | `midpoint`                  | float, optional     | Value needed for color scale option 5. Default is `0`. |
+                | `color_scale`               | str, optional       | Color-scale mode. One of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styles.ColorScale` member. Integer codes are no longer accepted. Default is `"linear"`. |
+                | `gamma`                     | float, optional     | Exponent for the `"power"` color scale. Default is `1/2`. |
+                | `line_threshold`            | float, optional     | `linthresh` for the `"sym-lognorm"` color scale. Default is `0.0001`. |
+                | `line_scale`                | float, optional     | `linscale` for the `"sym-lognorm"` color scale. Default is `0.001`. |
+                | `bounds`                    | list, optional      | Discrete bounds for the `"boundary-norm"` color scale. Default is `None`. |
+                | `midpoint`                  | float, optional     | Midpoint value for the `"midpoint"` color scale. Default is `0`. |
                 | `cmap`                      | str, optional       | Color map style. Default is `'coolwarm_r'`. |
                 | `display_cell_value`        | bool, optional      | Whether to display cell values as text. |
                 | `num_size`                  | int, optional       | Size of numbers plotted on top of each cell. Default is `8`. |

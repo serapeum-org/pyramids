@@ -507,23 +507,20 @@ class RasterBase(ABC):
                     Size of the color bar label. The default is 12.
                 cbar_label (str, optional):
                     Label of the color bar. The default is 'Discharge m3/s'.
-                color_scale (int, optional):
-                    There are 5 options to change the scale of the colors. The default is 1.
-                    1- normal scale.
-                    2- power scale.
-                    3- SymLogNorm scale.
-                    4- PowerNorm scale.
-                    5- BoundaryNorm scale.
+                color_scale (str, optional):
+                    Color-scale mode. One of "linear", "power", "sym-lognorm", "boundary-norm", "midpoint"
+                    (case-insensitive), or a ``cleopatra.styles.ColorScale`` member. Integer codes are no
+                    longer accepted. The default is "linear".
                 gamma (float, optional):
-                    Value needed for option 2. The default is 1./2.
+                    Exponent for the "power" color scale. The default is 1./2.
                 line_threshold (float, optional):
-                    Value needed for option 3. The default is 0.0001.
+                    ``linthresh`` for the "sym-lognorm" color scale. The default is 0.0001.
                 line_scale (float, optional):
-                    Value needed for option 3. The default is 0.001.
+                    ``linscale`` for the "sym-lognorm" color scale. The default is 0.001.
                 bounds (List, optional):
-                    A list of numbers to be used as discrete bounds for color scale 4. Default is None.
+                    A list of numbers used as discrete bounds for the "boundary-norm" color scale. Default is None.
                 midpoint (float, optional):
-                    Value needed for option 5. The default is 0.
+                    Midpoint value for the "midpoint" color scale. The default is 0.
                 cmap (str, optional):
                     Color style. The default is 'coolwarm_r'.
                 display_cell_value (bool, optional):
