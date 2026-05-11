@@ -961,10 +961,10 @@ class TestNetCDFPlotAddColorbar:
             user's render call still succeeds even if the colorbar
             cannot be removed.
         """
-        from pyramids.netcdf.netcdf import NetCDF
+        from pyramids.netcdf._plot import NetCDFPlot
 
-        NetCDF._remove_colorbar(SimpleNamespace())
-        NetCDF._remove_colorbar(SimpleNamespace(cbar=None))
+        NetCDFPlot._remove_colorbar(SimpleNamespace())
+        NetCDFPlot._remove_colorbar(SimpleNamespace(cbar=None))
 
 
 class TestNetCDFPlotContainerBehaviour:
@@ -2219,7 +2219,7 @@ class TestNetCDFPlotAnimate:
             return_value=labels,
         ):
             with patch(
-                "pyramids.netcdf.netcdf._render_array",
+                "pyramids.netcdf._plot._render_array",
                 side_effect=_fake_render,
             ):
                 nc.plot(variable="t2m", animate=True)
@@ -2245,7 +2245,7 @@ class TestNetCDFPlotAnimate:
             return "ok"
 
         with patch(
-            "pyramids.netcdf.netcdf._render_array",
+            "pyramids.netcdf._plot._render_array",
             side_effect=_fake_render,
         ):
             nc.plot(variable="t2m", animate=True)
@@ -2281,7 +2281,7 @@ class TestNetCDFPlotAnimate:
             return "ok"
 
         with patch(
-            "pyramids.netcdf.netcdf._render_array",
+            "pyramids.netcdf._plot._render_array",
             side_effect=_fake_render,
         ):
             nc.plot(variable="t2m", animate=True)
@@ -2378,7 +2378,7 @@ class TestNetCDFPlotLazy:
                 type(var.analysis), "plot", autospec=True
             ) as mock_plot:
                 mock_plot.return_value = "ok"
-                with caplog.at_level("INFO", logger="pyramids.netcdf.netcdf"):
+                with caplog.at_level("INFO", logger="pyramids.netcdf._plot"):
                     nc.plot(variable="t2m", selectors=Selectors(time=0))
         msgs = [r.getMessage() for r in caplog.records]
         assert any("chunks=" in m for m in msgs), (
@@ -2404,7 +2404,7 @@ class TestNetCDFPlotLazy:
                 type(var.analysis), "plot", autospec=True
             ) as mock_plot:
                 mock_plot.return_value = "ok"
-                with caplog.at_level("INFO", logger="pyramids.netcdf.netcdf"):
+                with caplog.at_level("INFO", logger="pyramids.netcdf._plot"):
                     nc.plot(
                         variable="t2m",
                         selectors=Selectors(time=0),
@@ -2435,7 +2435,7 @@ class TestNetCDFPlotAnimateEdges:
             return "ok"
 
         with patch(
-            "pyramids.netcdf.netcdf._render_array",
+            "pyramids.netcdf._plot._render_array",
             side_effect=_fake_render,
         ):
             nc.plot(
@@ -2486,7 +2486,7 @@ class TestNetCDFPlotAnimateEdges:
             return "ok"
 
         with patch(
-            "pyramids.netcdf.netcdf._render_array",
+            "pyramids.netcdf._plot._render_array",
             side_effect=_fake_render,
         ):
             nc.plot(
@@ -2539,7 +2539,7 @@ class TestNetCDFPlotAnimateEdges:
             return "ok"
 
         with patch(
-            "pyramids.netcdf.netcdf._render_array",
+            "pyramids.netcdf._plot._render_array",
             side_effect=_fake_render,
         ):
             nc.plot(variable="t2m", animate=True)
@@ -2631,10 +2631,10 @@ class TestNetCDFPlotLazyEdges:
         """
         nc = _make_3d_nc()
         with patch(
-            "pyramids.netcdf.netcdf._render_array",
+            "pyramids.netcdf._plot._render_array",
             return_value="ok",
         ):
-            with caplog.at_level("INFO", logger="pyramids.netcdf.netcdf"):
+            with caplog.at_level("INFO", logger="pyramids.netcdf._plot"):
                 nc.plot(variable="t2m", selectors=Selectors(time=0))
         msgs = [r.getMessage() for r in caplog.records]
         assert not any("chunks=" in m for m in msgs), (
@@ -2659,7 +2659,7 @@ class TestNetCDFPlotLazyEdges:
                 type(var.analysis), "plot", autospec=True
             ) as mock_plot:
                 mock_plot.return_value = "ok"
-                with caplog.at_level("INFO", logger="pyramids.netcdf.netcdf"):
+                with caplog.at_level("INFO", logger="pyramids.netcdf._plot"):
                     nc.plot(variable="t2m", selectors=Selectors(time=0))
         hint_msgs = [r.getMessage() for r in caplog.records if "chunks=" in r.getMessage()]
         assert hint_msgs, "Expected at least one hint log record"
@@ -2677,7 +2677,7 @@ class TestNetCDFPlotLazyEdges:
             so the boundary case must NOT log the hint — a regression
             here would fire the hint on every plot of a 99-MB variable.
         """
-        from pyramids.netcdf.netcdf import _LAZY_HINT_THRESHOLD_BYTES
+        from pyramids.netcdf._plot import _LAZY_HINT_THRESHOLD_BYTES
 
         nc = _make_3d_nc()
         var = nc.get_variable("t2m")
@@ -2691,7 +2691,7 @@ class TestNetCDFPlotLazyEdges:
                 type(var.analysis), "plot", autospec=True
             ) as mock_plot:
                 mock_plot.return_value = "ok"
-                with caplog.at_level("INFO", logger="pyramids.netcdf.netcdf"):
+                with caplog.at_level("INFO", logger="pyramids.netcdf._plot"):
                     nc.plot(variable="t2m", selectors=Selectors(time=0))
         msgs = [r.getMessage() for r in caplog.records if "chunks=" in r.getMessage()]
         assert not msgs, (
