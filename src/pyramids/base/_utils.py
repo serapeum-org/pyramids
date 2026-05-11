@@ -135,6 +135,11 @@ COLOR_NAMES = [
     "YCbCr_CbBand",
     "YCbCr_CrBand",
 ]
+# Human-readable name for GDAL's "no colour interpretation set" sentinel
+# (``gdal.GCI_Undefined`` -> ``COLOR_NAMES[0]``). Use this constant instead
+# of the bare string literal so a name change can't silently break the
+# "is this band an RGB channel?" checks (e.g. ``Dataset._resolve_plot_band``).
+UNDEFINED_COLOR_INTERP = COLOR_NAMES[0]
 
 COLOR_TABLE = DataFrame(
     columns=["id", "gdal_constant", "name"],
@@ -388,12 +393,81 @@ class Catalog:
         return result_key
 
 
+_DEFAULT_CLEOPATRA_MSG = (
+    "The current operation uses the cleopatra package. Install it via the "
+    "[viz] extra (`pip install pyramids-gis[viz]`) or directly from "
+    "https://github.com/serapeum-org/cleopatra"
+)
+
+
 def import_cleopatra(message: str):
     """Import cleopatra."""
     try:
         import cleopatra  # noqa
     except ImportError:
         raise OptionalPackageDoesNotExist(message)
+
+
+def require_cleopatra(msg: str | None = None) -> None:
+    """Single guard for the optional cleopatra dependency.
+
+    Consolidates the scattered ``import_cleopatra(<bespoke message>)``
+    calls that used to live next to every plot / colour helper. The
+    default error message points at the ``[viz]`` install extra; callers
+    that want a domain-specific hint pass ``msg`` and override it. The
+    helper returns ``None`` when cleopatra is importable and raises
+    :class:`OptionalPackageDoesNotExist` otherwise — no side effects
+    beyond the import check.
+
+    Args:
+        msg: Override for the default error message. ``None`` uses the
+            shared default that points at the ``[viz]`` install extra.
+
+    Raises:
+        OptionalPackageDoesNotExist: When cleopatra is not importable.
+
+    Examples:
+        - When cleopatra is installed the call returns silently and
+          the rest of the plotting facade proceeds. The doctest
+          monkeypatches the import to a stub so the example works
+          even on environments without the ``[viz]`` extra:
+
+            ```python
+            >>> import sys, types
+            >>> from pyramids.base._utils import require_cleopatra
+            >>> stub = types.ModuleType("cleopatra")
+            >>> sys.modules.setdefault("cleopatra", stub) is not None
+            True
+            >>> require_cleopatra() is None
+            True
+
+            ```
+
+        - When cleopatra is missing the helper raises
+          :class:`OptionalPackageDoesNotExist`. The doctest hides the
+          existing import then forces the failure path with a custom
+          message and restores the cached module afterwards:
+
+            ```python
+            >>> import sys
+            >>> from pyramids.base._utils import require_cleopatra
+            >>> from pyramids.base._errors import OptionalPackageDoesNotExist
+            >>> saved = sys.modules.pop("cleopatra", None)
+            >>> sys.modules["cleopatra"] = None  # block the import
+            >>> try:
+            ...     require_cleopatra("custom hint")
+            ... except OptionalPackageDoesNotExist as exc:
+            ...     print(str(exc))
+            ... finally:
+            ...     sys.modules.pop("cleopatra", None)
+            ...     if saved is not None:
+            ...         sys.modules["cleopatra"] = saved
+            custom hint
+
+            ```
+    """
+    effective = msg if msg is not None else _DEFAULT_CLEOPATRA_MSG
+    import_cleopatra(effective)
 
 
 def import_flox(message: str):

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyramids.base._utils import import_cleopatra
+from pyramids.base._utils import require_cleopatra
 from pyramids.netcdf.ugrid.mesh import Mesh2d
 
 _CLEOPATRA_MSG = (
@@ -25,7 +25,7 @@ def _mesh_to_glyph(mesh: Mesh2d, **kwargs: Any) -> Any:
     Extracts node coordinates, face-node connectivity, fill value,
     and (optionally) edge-node connectivity from the `Mesh2d` and
     passes them to the `MeshGlyph` constructor. The
-    `import_cleopatra` guard ensures a helpful error message if
+    `require_cleopatra` guard ensures a helpful error message if
     cleopatra is not installed.
 
     Args:
@@ -44,7 +44,7 @@ def _mesh_to_glyph(mesh: Mesh2d, **kwargs: Any) -> Any:
         OptionalPackageDoesNotExist: If cleopatra is not installed.
             The error message includes install instructions.
     """
-    import_cleopatra(_CLEOPATRA_MSG)
+    require_cleopatra(_CLEOPATRA_MSG)
     from cleopatra.mesh_glyph import MeshGlyph
 
     edge_nodes = None

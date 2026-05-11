@@ -725,7 +725,7 @@ class Vectorize(_Engine):
               ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
               ... )
               >>> dataset.plot(
-              ...     color_scale=4, bounds=[1, 1.9, 4.1, 5], display_cell_value=True, num_size=12,
+              ...     color_scale="boundary-norm", bounds=[1, 1.9, 4.1, 5], display_cell_value=True, num_size=12,
               ...     background_color_threshold=5
               ... )  # doctest: +SKIP
 

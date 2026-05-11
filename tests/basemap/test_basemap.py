@@ -445,3 +445,151 @@ class TestAddBasemap:
             ), f"Expected 2 calls to mercantile.tiles, got {len(calls)}"
             assert calls[0][1]["zooms"] == 10, "First call should use zoom 10"
             assert calls[1][1]["zooms"] == 9, "Second call should use zoom 9"
+
+
+class TestCleopatraDelegation:
+    """Tests for the PR-6 / C-6 ``cleopatra.add_tiles`` delegation.
+
+    The cleopatra release containing the C-6 ``add_tiles`` helper is
+    not yet published, so :func:`pyramids.basemap.add_basemap` still
+    runs an inline implementation. These tests assert the contract
+    that the eventual delegation must satisfy:
+
+    * The shared signature of ``pyramids.basemap.add_basemap`` and
+      ``cleopatra.add_tiles`` matches.
+    * ``cleopatra.add_tiles`` is importable from the ``cleopatra``
+      package root, ready for the one-line wrapper migration.
+
+    When the version pin in pyproject.toml gets bumped these tests
+    serve as the regression net for the rewrite.
+    """
+
+    def test_cleopatra_add_tiles_is_importable(self):
+        """C-6 has been merged in cleopatra; the helper is importable."""
+        cleopatra = pytest.importorskip(
+            "cleopatra", reason="cleopatra not installed"
+        )
+        assert hasattr(cleopatra, "add_tiles"), (
+            "cleopatra.add_tiles must be exposed at the package root "
+            "(C-6 contract). Re-export from cleopatra.tiles or "
+            "cleopatra.__init__."
+        )
+
+    def test_pyramids_and_cleopatra_share_addmap_signature(self):
+        """Pyramids ``add_basemap`` and cleopatra ``add_tiles`` line up.
+
+        Test scenario:
+            The PR-6 migration TODO turns ``add_basemap`` into a
+            one-line wrapper around ``cleopatra.add_tiles``. The
+            switch only works if the two functions accept the same
+            kwargs. Compare the parameter names directly so a future
+            cleopatra release that drifts the signature gets caught
+            here.
+        """
+        import inspect
+
+        cleopatra = pytest.importorskip(
+            "cleopatra", reason="cleopatra not installed"
+        )
+        cleo_sig = inspect.signature(cleopatra.add_tiles)
+        pyr_sig = inspect.signature(add_basemap)
+        cleo_params = set(cleo_sig.parameters) - {"ax"}
+        pyr_params = set(pyr_sig.parameters) - {"ax"}
+        missing = cleo_params - pyr_params
+        extra = pyr_params - cleo_params
+        # Cleopatra is allowed to grow its surface: a new *optional* param
+        # (e.g. `user_agent=`) doesn't break the planned
+        # `add_basemap(ax, **kwargs) -> cleopatra.add_tiles(ax, **kwargs)`
+        # delegation — pyramids just won't expose it. What *would* break
+        # the delegation is cleopatra making a previously-shared (or any)
+        # param *required* while pyramids lacks it.
+        for name in missing:
+            param = cleo_sig.parameters[name]
+            assert param.default is not inspect.Parameter.empty, (
+                f"cleopatra.add_tiles added a *required* param {name!r} not in "
+                "pyramids.add_basemap — the C-6 delegation contract is broken."
+            )
+        assert not extra, (
+            f"pyramids.add_basemap has params not in cleopatra.add_tiles: "
+            f"{extra}. The PR-6 one-line delegation will not work until "
+            "these are pushed upstream."
+        )
+
+
+class TestAddBasemapSignatureStability:
+    """PR-6 — assert ``add_basemap``'s signature has not drifted.
+
+    Existing tests across the suite patch ``pyramids.basemap.basemap.
+    add_basemap`` with positional/kwargs combinations. Any signature
+    change here breaks those patches silently — pin the parameter set
+    so a future drift surfaces with a clear test failure.
+    """
+
+    EXPECTED_PARAMS = (
+        "ax",
+        "crs",
+        "source",
+        "zoom",
+        "alpha",
+        "attribution",
+        "zorder",
+        "interpolation",
+        "timeout",
+        "retries",
+    )
+
+    def test_add_basemap_parameter_names(self):
+        """Parameter names match the documented PR-6 contract.
+
+        Test scenario:
+            Compare the parameter names of ``add_basemap`` against the
+            frozen list in ``EXPECTED_PARAMS``. The order matters because
+            most call sites pass ``ax`` positionally — a rename or
+            reorder must surface here, not at a downstream caller.
+        """
+        import inspect
+
+        from pyramids.basemap.basemap import add_basemap
+
+        params = tuple(inspect.signature(add_basemap).parameters.keys())
+        assert params == self.EXPECTED_PARAMS, (
+            f"add_basemap signature changed; expected {self.EXPECTED_PARAMS}, "
+            f"got {params}. Update the PR-6 C-6 delegation contract."
+        )
+
+    def test_add_basemap_default_values(self):
+        """Default values for each parameter match the PR-6 contract.
+
+        Test scenario:
+            Confirm the documented defaults — ``crs=3857``,
+            ``zoom='auto'``, ``alpha=1.0``, ``attribution=True``,
+            ``zorder=-1``, ``interpolation='bilinear'``, ``timeout=10``,
+            ``retries=2``. A regression here means a caller's omitted
+            kwarg silently picks up a different value than before PR-6.
+        """
+        import inspect
+
+        from pyramids.basemap.basemap import add_basemap
+
+        sig = inspect.signature(add_basemap)
+        defaults = {
+            name: param.default
+            for name, param in sig.parameters.items()
+            if param.default is not inspect.Parameter.empty
+        }
+        expected = {
+            "crs": 3857,
+            "source": None,
+            "zoom": "auto",
+            "alpha": 1.0,
+            "attribution": True,
+            "zorder": -1,
+            "interpolation": "bilinear",
+            "timeout": 10,
+            "retries": 2,
+        }
+        for key, value in expected.items():
+            assert defaults.get(key) == value, (
+                f"Default for `{key}` drifted: expected {value!r}, got "
+                f"{defaults.get(key)!r}"
+            )

@@ -288,7 +288,12 @@ FACADE_METHODS = [
     ("analysis", "get_mask"),
     ("analysis", "footprint"),
     ("analysis", "get_histogram"),
-    ("analysis", "plot"),
+    # NB: ``("analysis", "plot")`` is intentionally excluded — ``Dataset.plot`` is
+    # no longer a pure pass-through facade since PR-1 (D-0). It now applies the
+    # GeoTIFF/Sentinel band-resolution policy (``_resolve_plot_band``) before
+    # delegating, so its signature and call shape differ from the engine's. The
+    # band-resolution behaviour is covered by ``TestResolvePlotBand`` in
+    # ``tests/dataset/test_plot.py``.
 ]
 
 

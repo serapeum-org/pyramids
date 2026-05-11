@@ -26,6 +26,8 @@ from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.netcdf._kerchunk import combine_kerchunk, to_kerchunk
 from pyramids.netcdf._lazy import _apply_unpack, build_lazy_array
 from pyramids.netcdf._mfdataset import open_mfdataset
+from pyramids.netcdf._plot import NetCDFPlot
+from pyramids.netcdf._plot_options import ColourOpts, FacetSpec, Selectors
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     srs_to_grid_mapping,
@@ -480,16 +482,474 @@ class NetCDF(Dataset):
                 f"Use nc.get_variable('var_name').{operation}(...) instead."
             )
 
-    def plot(self, band=None, **kwargs):
-        """Plot a band of the dataset.
+    def plot(
+        self,
+        variable: str | None = None,
+        *,
+        selectors: Selectors | None = None,
+        colour: ColourOpts | None = None,
+        facet: FacetSpec | None = None,
+        coords: tuple | list | None = None,
+        kind: str = "auto",
+        animate: bool | str | None = None,
+        chunks: Any | None = None,
+        basemap: bool | str | None = None,
+        exclude_value: Any | None = None,
+        title: str | None = None,
+        ax: Any | None = None,
+        figsize: tuple[float, float] | None = None,
+        **kwargs: Any,
+    ):
+        """Plot a 2-D slice of a NetCDF variable using xarray-aligned vocabulary.
 
-        Blocked on root MDIM containers — extract a variable first.
+        The public surface is shaped around **variables** and **dimensions** — ``band``
+        is not a NetCDF concept and has been removed from the signature. Variable
+        selection is by name; the slice to render is pinned via a :class:`Selectors`
+        option bag (``time`` / ``level`` / ``member`` / ``sel`` / ``isel``); colour
+        controls live on a :class:`ColourOpts` bag (``cmap`` / ``vmin`` / ``vmax`` /
+        ``robust`` / ``levels`` / ``norm`` / ``center`` / ``extend`` / ``add_colorbar``
+        / ``cbar_kwargs``); multi-panel layout is described by a :class:`FacetSpec`
+        bag (``col`` / ``row`` / ``col_wrap``). Each bag is a frozen dataclass —
+        construct it inline at the call site.
+
+        On a **root MDIM container** the ``variable=`` argument is required:
+
+        ```python
+        from pyramids import NetCDF, Selectors
+        nc.plot(variable="t2m", selectors=Selectors(time="2024-01-15"))
+        ```
+
+        On a **variable subset** (the result of :meth:`get_variable`) ``variable=``
+        may be omitted or must equal the pinned variable name; otherwise the call
+        is rejected, mirroring the :meth:`read_array` contract.
+
+        Args:
+            variable (str, optional):
+                Name of the variable to plot. Required on the root MDIM container;
+                must be ``None`` or equal to the pinned variable name on a subset.
+                Defaults to None.
+            selectors (Selectors, optional):
+                Dim-selector bag. See :class:`Selectors` for the field list. A
+                missing bag is treated as :class:`Selectors`\\ () (all fields
+                ``None``). Defaults to None.
+            colour (ColourOpts, optional):
+                Colour-control bag. See :class:`ColourOpts` for the field list. A
+                missing bag is treated as :class:`ColourOpts`\\ () (cleopatra
+                defaults). Defaults to None.
+            facet (FacetSpec, optional):
+                Faceting bag. See :class:`FacetSpec` for the field list. A missing
+                bag (or one where both ``col`` and ``row`` are ``None``) routes
+                the call to the single-panel static-plot path. Defaults to None.
+            coords (tuple or list, optional):
+                Explicit curvilinear ``(x, y)`` coordinate spec for the
+                pcolormesh path. Accepts two forms:
+
+                - A length-2 sequence of strings — each is looked up as a
+                  variable name via ``_read_variable`` on the parent
+                  container.
+                - A length-2 sequence of numpy arrays — passed straight
+                  through to cleopatra. Each array is 1-D (length matches
+                  the data x/y axis) or 2-D matching ``(rows, cols)``.
+
+                When ``coords=`` is omitted, pyramids auto-detects
+                curvilinear coords via the CF ``coordinates`` attribute on
+                the variable, then via the well-known naming conventions
+                (WRF ``XLAT`` / ``XLONG``, ROMS ``lat_rho`` / ``lon_rho``,
+                NEMO ``nav_lat`` / ``nav_lon``). When nothing matches, the
+                renderer falls back to ``extent=self.bbox`` (imshow).
+                Defaults to None.
+            kind (str, optional):
+                Render kind forwarded to cleopatra's ``ArrayGlyph.plot``.
+                One of ``"auto"``, ``"imshow"``, ``"pcolormesh"``,
+                ``"contour"``, ``"contourf"``. ``"auto"`` routes to
+                ``pcolormesh`` when curvilinear ``coords`` are present,
+                else ``imshow``. Defaults to ``"auto"``.
+            animate (bool or str, optional):
+                When set, render the variable as an animation across a
+                band dim instead of a single 2-D slice. ``True`` animates
+                along the variable's primary band dim (typically
+                ``time``) — only valid when exactly one band dim remains
+                after the selectors collapse the others. A string names
+                the dim to animate along. ``None`` (default) returns a
+                static plot. Mutually exclusive with faceting and with
+                any selector that pins the animated dim. Defaults to
+                None.
+            chunks (Any, optional):
+                Chunking spec forwarded to :meth:`read_array` for the
+                static-plot path. ``None`` (default) preserves the eager
+                read. Any of ``int`` / ``tuple`` / ``dict`` / ``"auto"``
+                switches to the dask-backed lazy read and only the
+                rendered slice is materialised. Has no effect on the
+                ``animate=`` path. Defaults to None.
+            basemap (bool or str, optional):
+                If truthy, overlay an OpenStreetMap basemap (or a named
+                contextily tile provider). Defaults to None.
+            exclude_value (Any, optional):
+                Pixel value to mask out before plotting. Defaults to None.
+            title (str, optional):
+                Plot title. Defaults to None.
+            ax (Any, optional):
+                Existing matplotlib Axes to draw into. Defaults to None.
+            figsize (tuple, optional):
+                Figure size in inches. Defaults to None.
+            **kwargs:
+                Additional keyword arguments forwarded to
+                :meth:`Analysis.plot <pyramids.dataset.engines.Analysis.plot>`.
+                The legacy ``band=`` kwarg is accepted here for backward
+                compatibility but emits a :class:`DeprecationWarning`.
+
+        Returns:
+            ArrayGlyph: A cleopatra ``ArrayGlyph`` wrapping the rendered figure.
 
         Raises:
-            ValueError: If called on a root MDIM container.
+            TypeError: If any of the Sentinel-only kwargs (``rgb``,
+                ``surface_reflectance``, ``cutoff``, ``percentile``,
+                ``overview``, ``overview_index``) is passed. Each
+                rejection message names the xarray-aligned replacement.
+            ValueError: If called on a root MDIM container without
+                ``variable=``, if ``variable=`` is passed on a subset and
+                does not match the pinned variable name, if the resolved
+                selectors do not pin to a single 2-D slice, or if
+                ``coords=`` is malformed.
+
+        Examples:
+            - Plot the first time step of a variable on a container. Tagged
+              ``+SKIP`` because rendering requires the optional ``[viz]``
+              extra (cleopatra + matplotlib):
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.netcdf import NetCDF, Selectors
+              >>> arr = np.random.rand(4, 8, 8).astype(np.float32)
+              >>> nc = NetCDF.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=0.1, epsg=4326,
+              ...     variable_name="t2m",
+              ... )
+              >>> cleo = nc.plot(  # doctest: +SKIP
+              ...     variable="t2m", selectors=Selectors(isel={"time": 0}),
+              ... )
+
+              ```
+
+            - Pick a time slice by label — the ``Selectors.time`` alias
+              is equivalent to ``Selectors(sel={"time": value})``:
+
+              ```python
+              >>> cleo = nc.plot(  # doctest: +SKIP
+              ...     variable="t2m", selectors=Selectors(time=2),
+              ... )
+
+              ```
+
+            - Pin both time and level on a 4-D ``(time, pressure_level,
+              lat, lon)`` variable. The selectors collapse both band
+              dims to a single 2-D slice — equivalent to
+              ``var.sel(time=12).sel(pressure_level=500)``:
+
+              ```python
+              >>> cleo = nc.plot(  # doctest: +SKIP
+              ...     variable="temperature",
+              ...     selectors=Selectors(time=12, level=500),
+              ... )
+
+              ```
+
+            - Use an explicit ``sel`` dict instead of the convenience
+              aliases — keys must match the variable's band-dim names:
+
+              ```python
+              >>> cleo = nc.plot(  # doctest: +SKIP
+              ...     variable="t2m", selectors=Selectors(sel={"time": 2}),
+              ... )
+
+              ```
+
+            - Use an ``isel`` dict to address slices positionally. Each
+              integer is mapped to the corresponding coord value via
+              ``_band_dim_values_map``:
+
+              ```python
+              >>> cleo = nc.plot(  # doctest: +SKIP
+              ...     variable="t2m", selectors=Selectors(isel={"time": 0}),
+              ... )
+
+              ```
+
+            - All six Sentinel-only kwargs are rejected with a hint at
+              the xarray-aligned replacement. These doctests run because
+              the gate fires before any cleopatra import:
+
+              ```python
+              >>> nc.plot(variable="t2m", rgb=[0, 1, 2])  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: ...rgb=...
+
+              ```
+
+              ```python
+              >>> nc.plot(variable="t2m", surface_reflectance=10000)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: ...surface_reflectance...
+
+              ```
+
+              ```python
+              >>> nc.plot(variable="t2m", cutoff=[0.1, 0.9])  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: ...cutoff...
+
+              ```
+
+              ```python
+              >>> nc.plot(variable="t2m", percentile=2)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: ...robust=True...
+
+              ```
+
+              ```python
+              >>> nc.plot(variable="t2m", overview=2)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: ...overview=...
+
+              ```
+
+              ```python
+              >>> nc.plot(variable="t2m", overview_index=2)  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              TypeError: ...overview_index=...
+
+              ```
+
+            - The legacy ``band=`` kwarg still works as an escape hatch
+              but emits a :class:`DeprecationWarning`. Prefer
+              ``Selectors(time=...)`` for new code:
+
+              ```python
+              >>> import warnings
+              >>> with warnings.catch_warnings(record=True) as caught:  # doctest: +SKIP
+              ...     warnings.simplefilter("always")
+              ...     cleo = nc.plot(variable="t2m", band=2)
+              >>> caught[0].category.__name__  # doctest: +SKIP
+              'DeprecationWarning'
+
+              ```
+
+            - Render a WRF-style curvilinear NetCDF on its real lat/lon
+              grid. With 2-D ``XLAT`` / ``XLONG`` coord variables on the
+              container, pyramids auto-detects them and routes the
+              renderer to ``pcolormesh``:
+
+              ```python
+              >>> cleo = nc.plot(variable="CANWAT", kind="pcolormesh")  # doctest: +SKIP
+
+              ```
+
+            - Pass an explicit curvilinear coord pair by variable name —
+              useful when the variable has no CF ``coordinates``
+              attribute and the convention does not match
+              WRF / ROMS / NEMO:
+
+              ```python
+              >>> cleo = nc.plot(  # doctest: +SKIP
+              ...     variable="CANWAT", coords=("XLONG", "XLAT"),
+              ... )
+
+              ```
+
+            - Pick a non-default render kind. ``"contourf"`` produces
+              filled contours from the same data; ``"auto"`` (the
+              default) picks ``pcolormesh`` when curvilinear coords are
+              present, else falls back to ``imshow``. Discrete contour
+              levels live on :class:`ColourOpts`:
+
+              ```python
+              >>> from pyramids import ColourOpts
+              >>> cleo = nc.plot(  # doctest: +SKIP
+              ...     variable="t2m",
+              ...     kind="contourf",
+              ...     colour=ColourOpts(levels=10),
+              ... )
+
+              ```
+
+            - Render with explicit 2-D coord arrays passed directly via
+              ``coords=``. The arrays bypass the CF / convention
+              auto-detection step and route the renderer to
+              ``pcolormesh``:
+
+              ```python
+              >>> import numpy as np
+              >>> x2d, y2d = np.meshgrid(
+              ...     np.linspace(0, 10, 4), np.linspace(0, 10, 4),
+              ... )
+              >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+              >>> nc_curv = NetCDF.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+              ...     variable_name="t2m",
+              ... )
+              >>> cleo = nc_curv.plot(  # doctest: +SKIP
+              ...     variable="t2m", coords=(x2d, y2d),
+              ... )
+
+              ```
+
+            - Robust xarray-style colour limits — clip to the 2nd / 98th
+              percentile of the rendered slice. Colour controls live
+              on :class:`ColourOpts`:
+
+              ```python
+              >>> from pyramids import ColourOpts
+              >>> cleo = nc.plot(  # doctest: +SKIP
+              ...     variable="t2m",
+              ...     colour=ColourOpts(cmap="viridis", robust=True),
+              ... )
+
+              ```
+
+            - Disable the colorbar — the facade removes it post-render
+              because cleopatra always attaches one:
+
+              ```python
+              >>> from pyramids import ColourOpts
+              >>> cleo = nc.plot(  # doctest: +SKIP
+              ...     variable="t2m", colour=ColourOpts(add_colorbar=False),
+              ... )
+
+              ```
+
+            - Facet over the time dim. :class:`FacetSpec` lists the
+              column dim (and optionally a row dim and a wrap value).
+              The return type becomes
+              :class:`cleopatra.array_glyph.FacetGrid`:
+
+              ```python
+              >>> from pyramids import FacetSpec
+              >>> grid = nc.plot(  # doctest: +SKIP
+              ...     variable="t2m", facet=FacetSpec(col="time"),
+              ... )
+
+              ```
+
+            - Facet a 4-D variable across both axes with ``col`` and
+              ``row``. ``col_wrap`` is ignored when ``row`` is given:
+
+              ```python
+              >>> grid = nc.plot(  # doctest: +SKIP
+              ...     variable="temperature",
+              ...     facet=FacetSpec(col="time", row="pressure_level"),
+              ... )
+
+              ```
+
+            - Wrap a single-axis facet into a grid via ``col_wrap``.
+              ``N=4`` panels with ``col_wrap=3`` wrap to a ``2x3``
+              layout with one hidden slot:
+
+              ```python
+              >>> grid = nc.plot(  # doctest: +SKIP
+              ...     variable="t2m", facet=FacetSpec(col="time", col_wrap=3),
+              ... )
+
+              ```
+
+            - Faceting on a dim that is also pinned by a selector
+              raises :class:`ValueError` before any I/O:
+
+              ```python
+              >>> nc.plot(  # doctest: +IGNORE_EXCEPTION_DETAIL
+              ...     variable="t2m",
+              ...     selectors=Selectors(time=0),
+              ...     facet=FacetSpec(col="time"),
+              ... )
+              Traceback (most recent call last):
+                  ...
+              ValueError: Cannot facet on 'time'...
+
+              ```
+
+            - Animate along the primary band dim with ``animate=True``.
+              The facade resolves the single free band dim (``time``
+              here) and streams frames lazily via a per-frame
+              ``data_getter`` so the animation never builds a 3-D stack:
+
+              ```python
+              >>> cleo = nc.plot(variable="t2m", animate=True)  # doctest: +SKIP
+
+              ```
+
+            - Name the animation dim explicitly. The string must match
+              one of the variable's band-dim names. ``animate="time"``
+              is equivalent to ``animate=True`` when ``time`` is the
+              only free band dim; the explicit form is required on
+              variables with more than one free band dim:
+
+              ```python
+              >>> cleo = nc.plot(variable="t2m", animate="time")  # doctest: +SKIP
+
+              ```
+
+            - An unknown ``animate=`` dim name is rejected before any
+              I/O. The error message lists the available band dims so
+              typos are easy to spot:
+
+              ```python
+              >>> nc.plot(variable="t2m", animate="bogus")  # doctest: +IGNORE_EXCEPTION_DETAIL
+              Traceback (most recent call last):
+                  ...
+              ValueError: `animate='bogus'` is not a band dim...
+
+              ```
+
+            - Pinning a dim and then asking to animate over it
+              raises :class:`ValueError`:
+
+              ```python
+              >>> nc.plot(  # doctest: +IGNORE_EXCEPTION_DETAIL
+              ...     variable="t2m",
+              ...     selectors=Selectors(time=0),
+              ...     animate="time",
+              ... )
+              Traceback (most recent call last):
+                  ...
+              ValueError: Cannot animate on 'time'...
+
+              ```
+
+            - Switch the static-plot path to a lazy dask read with
+              ``chunks=``. Only the rendered slice is materialised —
+              useful when the variable is very large and a full eager
+              read would waste memory:
+
+              ```python
+              >>> cleo = nc.plot(  # doctest: +SKIP
+              ...     variable="t2m", chunks={"x": 5, "y": 5},
+              ... )
+
+              ```
         """
-        self._check_not_container("plot")
-        return super().plot(band=band, **kwargs)
+        return NetCDFPlot(self).run(
+            variable,
+            selectors=selectors,
+            colour=colour,
+            facet=facet,
+            coords=coords,
+            kind=kind,
+            animate=animate,
+            chunks=chunks,
+            basemap=basemap,
+            exclude_value=exclude_value,
+            title=title,
+            ax=ax,
+            figsize=figsize,
+            **kwargs,
+        )
 
     def read_array(
         self,

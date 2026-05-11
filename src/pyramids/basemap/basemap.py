@@ -4,6 +4,37 @@ Provides the public API for adding web tile basemaps to matplotlib
 axes. Tiles are fetched from XYZ providers (OpenStreetMap, CartoDB,
 Esri, etc.), stitched into a single image, optionally warped to the
 data's CRS via GDAL, and rendered underneath the data layer.
+
+PR-6 / C-6 migration note
+-------------------------
+
+The cleopatra package now ships an equivalent
+:func:`cleopatra.tiles.add_tiles` helper (cleopatra C-6 task) with
+the same external contract — same kwarg names, same return shape,
+same provider resolution. Once the cleopatra release containing C-6
+is pinned in ``pyproject.toml``'s ``[viz]`` extra,
+:func:`add_basemap` here can become a one-line wrapper around
+``cleopatra.add_tiles``. Until the release is published the
+implementation stays inline so the existing pinned versions in the
+``[viz]`` extra (``mercantile``, ``xyzservices``, ``Pillow``)
+continue to work without depending on an unreleased cleopatra. The
+public symbol :func:`add_basemap` continues to work either way — that
+is the contract every existing test patches against.
+
+# TODO: bump to cleopatra release containing C-6 (add_tiles) and
+# turn the body of :func:`add_basemap` into
+#     ``return cleopatra.add_tiles(ax, source=source, crs=crs, ...)``.
+# Then drop ``mercantile`` / ``xyzservices`` / ``Pillow`` from the
+# ``[viz]`` extra in ``pyproject.toml``.
+#
+# Import-direction constraint
+# ---------------------------
+# This module must NOT import from ``pyramids.dataset`` (or anything
+# under it). ``pyramids.dataset._plot_helpers`` imports *this* module at
+# top level (it resolves ``add_basemap`` at call time so monkeypatching
+# works) — a back-edge would make the import graph cyclic and deadlock
+# at import time. Keep the dependency one-way: ``dataset -> basemap``,
+# never ``basemap -> dataset``.
 """
 
 from __future__ import annotations
@@ -213,6 +244,12 @@ def add_basemap(
     Fetches XYZ web tiles for the axes' geographic extent, stitches
     them into a single image, optionally reprojects to the data's CRS,
     and renders the image underneath the data layer.
+
+    Note:
+        Planned to delegate to :func:`cleopatra.tiles.add_tiles` once
+        the cleopatra release shipping the C-6 helper is pinned in the
+        ``[viz]`` extra; see the module docstring's PR-6 / C-6
+        migration note for details.
 
     Args:
         ax (matplotlib.axes.Axes):

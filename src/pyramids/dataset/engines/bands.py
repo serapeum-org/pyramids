@@ -24,8 +24,8 @@ from pyramids.base._utils import (
     color_name_to_gdal_constant,
     gdal_constant_to_color_name,
     gdal_to_numpy_dtype,
-    import_cleopatra,
     numpy_to_gdal_dtype,
+    require_cleopatra,
 )
 from pyramids.dataset.abstract_dataset import DEFAULT_NO_DATA_VALUE
 from pyramids.feature import FeatureCollection, create_polygon
@@ -787,11 +787,7 @@ class Bands(_Engine):
             overwrite (bool):
                 True to overwrite the existing color table. Default is False.
         """
-        import_cleopatra(
-            "The current function uses cleopatra package to for plotting,"
-            " please install it manually, for more info"
-            " check https://github.com/serapeum-org/cleopatra"
-        )
+        require_cleopatra()
         from cleopatra.colors import Colors
 
         color = Colors(color_df["color"].tolist())
