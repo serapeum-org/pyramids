@@ -1,5 +1,9 @@
 # Plotting
 
+> For a worked, example-driven walkthrough see the
+> [**Plotting NetCDF data**](../../tutorials/netcdf-plotting.md) tutorial. This page is the API
+> reference (signature table + the auto-generated `Selectors` / `ColourOpts` / `FacetSpec` docs).
+
 `NetCDF.plot` has its own, xarray-aligned plotting surface — it does **not** inherit the
 GeoTIFF / Sentinel-imagery semantics of `Dataset.plot`. You pick a *variable*, slice along the
 non-spatial dimensions, and pass colour / faceting / coordinate options through small grouped,

@@ -41,8 +41,10 @@ Install: `pip install 'pyramids-gis[lazy]'` for the core path,
 `animate=`, and `chunks=` (lazy). It does **not** inherit `Dataset.plot`'s
 GeoTIFF / Sentinel kwargs (`band`, `rgb`, `surface_reflectance`, `cutoff`,
 `percentile`, `overview`, `overview_index`) — passing any of them raises `TypeError`.
-See [Plotting](plot.md) for the full surface and the `Selectors` / `ColourOpts` /
-`FacetSpec` dataclasses. Requires the `[viz]` extra.
+See the [Plotting reference](plot.md) for the full surface and the `Selectors` /
+`ColourOpts` / `FacetSpec` dataclasses, and the
+[Plotting NetCDF data](../../tutorials/netcdf-plotting.md) tutorial for worked examples.
+Requires the `[viz]` extra.
 
 ::: pyramids.netcdf.NetCDF
     options:

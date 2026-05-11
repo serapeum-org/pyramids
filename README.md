@@ -39,6 +39,8 @@ graph LR
         FeatureCollection
         subgraph Engines["Dataset engines (ds.io · ds.spatial · ds.bands · ds.analysis · ds.cell · ds.vectorize · ds.cog)"]
         end
+        subgraph Plotting["Plotting layer — _plot_helpers.render_array · mesh_render · NetCDFPlot · Selectors / ColourOpts / FacetSpec · basemap"]
+        end
     end
     Dataset -->|crop · reproject · align| Dataset
     Dataset --- Engines
@@ -47,6 +49,8 @@ graph LR
     Dataset -->|vectorize| FeatureCollection
     DatasetCollection -->|lazy temporal stack| Dataset
     NetCDF_class -->|extends| Dataset
+    Dataset & NetCDF_class & DatasetCollection & UgridDataset -->|plot| Plotting
+    Plotting -->|delegates| cleopatra(["cleopatra<br/>ArrayGlyph · MeshGlyph · tiles"])
 ```
 
 For detailed architecture diagrams, see
@@ -61,7 +65,9 @@ Main Features
   `ds.vectorize`, `ds.cog`); same-named facade methods on the Dataset itself keep the
   short form working — `ds.crop(mask)` and `ds.spatial.crop(mask)` are equivalent.
 - **NetCDF** - Extends Dataset for NetCDF files with time/variable dimensions and CF conventions metadata.
-  Optional xarray interoperability.
+  Optional xarray interoperability. `NetCDF.plot` exposes an xarray-aligned plotting API
+  (`variable=` + grouped `Selectors` / `ColourOpts` / `FacetSpec` dataclasses, curvilinear `coords=`,
+  `kind=`, `animate=`, lazy `chunks=`).
 - **UgridDataset** - Read and visualize UGRID-1.0 unstructured meshes (triangles, quads, mixed).
   Supports mesh-to-raster interpolation and mesh-to-vector export.
 - **DatasetCollection** - Manage time-series of co-registered rasters as a lazy temporal stack
@@ -69,6 +75,10 @@ Main Features
   with optional dask-backed reductions and groupby.
 - **FeatureCollection** - Work with vector data (shapefiles, GeoJSON) through a unified GeoDataFrame and
   OGR DataSource interface, including rasterization and geometry operations.
+- **Plotting** - `Dataset` / `NetCDF` / `DatasetCollection` / `UgridDataset` all expose a `plot` method
+  backed by [cleopatra](https://github.com/serapeum-org/cleopatra) (the `[viz]` extra), routed through
+  a shared `pyramids.dataset._plot_helpers` core. Optional web-tile basemap underlays via
+  `pyramids.basemap.add_basemap` (a thin wrapper over `cleopatra.tiles.add_tiles`).
 - **Cloud-Optimized GeoTIFF (COG)** - First-class read/write/validate support via `ds.to_cog`,
   `ds.is_cog`, and `ds.validate_cog`.
 - **Spatial operations** - Align rasters to a reference grid, reproject between coordinate systems,
@@ -108,8 +118,9 @@ pip install pyramids-gis
 ## Optional extras
 
 ```
-pip install pyramids-gis[viz]      # cleopatra plotting support
+pip install pyramids-gis[viz]      # cleopatra plotting + web-tile basemaps (cleopatra[tiles])
 pip install pyramids-gis[xarray]   # xarray/NetCDF4 interoperability
+pip install pyramids-gis[lazy]     # dask-backed lazy reads (and animation frame streaming)
 ```
 
 Quick start
@@ -134,10 +145,17 @@ reprojected = src.to_crs(to_epsg=3857)  # same as src.spatial.to_crs(...)
 
 ```python
 from pyramids.netcdf import NetCDF
+from pyramids import Selectors, ColourOpts, FacetSpec   # grouped plot options
 
 # Open a NetCDF file
 nc = NetCDF.read_file("path/to/data.nc")
 print(nc.variables)
+
+# xarray-aligned plotting (needs the [viz] extra)
+nc.plot("t2m", selectors=Selectors(time="2020-07-01", level=850),
+        colour=ColourOpts(cmap="coolwarm", robust=True))
+nc.plot("t2m", facet=FacetSpec(col="time", col_wrap=4))   # small multiples
+nc.plot("t2m", animate="time", chunks={"time": 1})        # lazy per-frame animation
 ```
 
 ```python
