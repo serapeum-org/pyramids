@@ -360,7 +360,10 @@ class Dataset(RasterBase):
               ```
         """
         if band is not None:
-            resolved_band = band
+            # Coerce to a plain ``int`` here too (the RGB branch already
+            # does) so the return type matches the ``tuple[int, ...]``
+            # docstring even when the caller passed e.g. a ``numpy.int64``.
+            resolved_band = int(band)
             resolved_rgb = rgb
         elif self.band_count < 3:
             resolved_band = 0

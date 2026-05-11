@@ -206,6 +206,12 @@ class TestResolvePlotBand:
     that it only fires when there is genuine evidence the data is RGB imagery
     (i.e. at least one band carries a GDAL ``ColorInterpretation``). The generic
     ``Analysis.plot`` engine must no longer apply any band-resolution policy.
+
+    See also:
+        ``tests/dataset/test_plot_resolution.py::TestResolvePlotBandPolicy`` — the
+        wider parametrised matrix over band counts / colour-interp configs / RGB
+        overrides. This class holds the original PR-1 cases; the deliberate
+        overlap exercises the same rules from a focused vs a tabular angle.
     """
 
     @pytest.mark.plot
@@ -324,6 +330,14 @@ class TestNetCDFPlot:
     - Default to ``band=0`` even on multi-band variable subsets (no RGB heuristic).
     - Reject the satellite-imagery kwargs (``rgb``, ``surface_reflectance``,
       ``cutoff``) because NetCDF subsets are not Sentinel imagery.
+
+    See also:
+        ``tests/dataset/test_plot_resolution.py::TestNetCDFPlotPolicy`` (the
+        parametrised forbidden-kwarg / default-band matrix) and the full
+        ``tests/netcdf/test_plot.py`` suite (the post-PR-2 xarray-aligned
+        signature in depth — ``Selectors``/``ColourOpts``/``FacetSpec``,
+        curvilinear coords, faceting, animate, lazy). This class holds the
+        original PR-1/D-0 cases.
     """
 
     @pytest.mark.plot

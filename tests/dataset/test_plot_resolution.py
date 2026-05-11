@@ -55,6 +55,12 @@ class TestResolvePlotBandPolicy:
     moved out of the generic ``Analysis.plot`` engine. These tests
     pin every branch of the policy so the documented contract is
     enforced even when the cleopatra extra is not installed.
+
+    See also:
+        ``tests/dataset/test_plot.py::TestResolvePlotBand`` — the
+        original PR-1 cases (cleopatra-marked, exercising the same
+        rules end-to-end through ``Dataset.plot``). This class is the
+        wider parametrised matrix; the overlap is intentional.
     """
 
     def test_explicit_band_pass_through_no_rgb(self):
@@ -322,7 +328,16 @@ class TestRasterBasePlotSignatureContract:
 
 
 class TestNetCDFPlotPolicy:
-    """Logic-only tests for :meth:`NetCDF.plot` (no cleopatra import)."""
+    """Logic-only tests for :meth:`NetCDF.plot` (no cleopatra import).
+
+    See also:
+        ``tests/dataset/test_plot.py::TestNetCDFPlot`` (the PR-1/D-0
+        originals) and ``tests/netcdf/test_plot.py`` —
+        ``TestNetCDFPlotRejectedKwargs`` / ``TestNetCDFPlotBandKwargRejected``
+        / ``TestNetCDFPlotRejectedKwargsCombinations`` cover the same
+        forbidden-kwarg gate end-to-end against the post-PR-2 signature;
+        this class is the no-cleopatra-needed logic slice of it.
+    """
 
     def test_root_mdim_container_raises_value_error(self):
         """Root MDIM container call to ``plot`` raises :class:`ValueError`.
