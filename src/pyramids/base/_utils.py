@@ -535,11 +535,9 @@ def import_kerchunk(message: str):
 
 
 def import_basemap(message: str):
-    """Import basemap dependencies (mercantile, xyzservices, Pillow)."""
+    """Import the web-tile basemap backend (``cleopatra.tiles``, the ``[tiles]`` extra)."""
     try:
-        import mercantile  # noqa
-        import xyzservices  # noqa
-        from PIL import Image  # noqa
+        from cleopatra import tiles  # noqa
     except ImportError:
         raise OptionalPackageDoesNotExist(message)
 

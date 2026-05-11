@@ -1,493 +1,190 @@
-"""Tests for pyramids.basemap.basemap module.
+"""Tests for pyramids.basemap.basemap.
 
-Covers get_provider, _densify_and_reproject_bounds, and add_basemap
-with mocked tile fetching (no real network calls).
+``add_basemap`` and ``get_provider`` are thin wrappers over
+``cleopatra.tiles.add_tiles`` / ``cleopatra.tiles.get_provider`` (the
+cleopatra C-6 helpers). These tests cover the delegation contract: the
+right cleopatra function is called with the translated kwargs, its return
+value is propagated, the missing-extra error path is wired up, and the
+public signature has not drifted (downstream code patches against it).
 """
 
 from __future__ import annotations
 
 import inspect
-import io
-from collections import namedtuple
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import patch
 
-import numpy as np
 import pytest
 
 pytestmark = pytest.mark.plot
 
-pytest.importorskip("PIL", reason="Pillow not installed (viz extra)")
-pytest.importorskip("mercantile", reason="mercantile not installed (viz extra)")
-from PIL import Image
-
-from pyramids.basemap.basemap import (
-    _densify_and_reproject_bounds,
-    add_basemap,
-    get_provider,
+pytest.importorskip(
+    "cleopatra.tiles", reason="cleopatra[tiles] extra not installed"
 )
 
-Tile = namedtuple("Tile", ["x", "y", "z"])
-
-
-def _make_tile_png(size: int = 256) -> bytes:
-    """Create a solid-color RGBA PNG tile image as bytes.
-
-    Parameters
-    ----------
-    size : int
-        Width and height of the square tile in pixels.
-
-    Returns
-    -------
-    bytes
-        PNG-encoded image bytes.
-    """
-    img = Image.new("RGBA", (size, size), (128, 128, 128, 255))
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.basemap.basemap import add_basemap, get_provider
 
 
 class TestGetProvider:
-    """Tests for get_provider function."""
+    """``get_provider`` delegates to ``cleopatra.tiles.get_provider``."""
 
-    def test_default_provider_is_openstreetmap(self):
-        """Test that None returns OpenStreetMap.Mapnik.
-
-        Test scenario:
-            Calling get_provider() with no arguments should return
-            the default OpenStreetMap Mapnik provider.
-        """
-        provider = get_provider(None)
-        assert "openstreetmap" in provider.name.lower() or "OpenStreetMap" in str(
-            provider
-        ), f"Default provider should be OpenStreetMap, got {provider}"
-
-    def test_resolve_cartodb_positron(self):
-        """Test resolving CartoDB.Positron by dot-separated name.
+    def test_delegates_to_cleopatra_get_provider(self):
+        """The ``name`` argument is forwarded and the result returned verbatim.
 
         Test scenario:
-            The string "CartoDB.Positron" should resolve to a valid
-            provider with a URL template.
+            Patch ``cleopatra.tiles.get_provider`` with a sentinel and
+            confirm ``get_provider("CartoDB.Positron")`` calls it once
+            with that name and hands back its return value.
         """
-        provider = get_provider("CartoDB.Positron")
-        assert hasattr(
-            provider, "build_url"
-        ), f"Provider should have build_url method: {provider}"
+        with patch("cleopatra.tiles.get_provider") as mock_get:
+            result = get_provider("CartoDB.Positron")
 
-    def test_resolve_esri_world_imagery(self):
-        """Test resolving Esri.WorldImagery by dot-separated name.
-
-        Test scenario:
-            The string "Esri.WorldImagery" should resolve to a valid
-            provider.
-        """
-        provider = get_provider("Esri.WorldImagery")
-        assert provider is not None, "Esri.WorldImagery should resolve"
-
-    def test_invalid_provider_raises_value_error(self):
-        """Test that an unknown provider name raises ValueError.
-
-        Test scenario:
-            A nonsensical provider name should raise ValueError with
-            a clear message.
-        """
-        with pytest.raises(ValueError, match="Unknown tile provider"):
-            get_provider("NonExistent.FakeProvider")
-
-    def test_partial_invalid_name_raises_value_error(self):
-        """Test that a partially valid name raises ValueError.
-
-        Test scenario:
-            "OpenStreetMap.NonExistent" has a valid first part but
-            invalid second part, and should raise ValueError.
-        """
-        with pytest.raises(ValueError, match="Failed at"):
-            get_provider("OpenStreetMap.NonExistent")
-
-
-class TestDensifyAndReprojectBounds:
-    """Tests for _densify_and_reproject_bounds function."""
-
-    def test_4326_to_3857_produces_meters(self):
-        """Test that reprojecting from 4326 to 3857 gives meter values.
-
-        Test scenario:
-            A small bbox in degrees should produce a bbox in meters
-            with values in the millions range (Web Mercator).
-        """
-        result = _densify_and_reproject_bounds(
-            10.0,
-            50.0,
-            11.0,
-            51.0,
-            "EPSG:4326",
-            "EPSG:3857",
-        )
-        west, south, east, north = result
-        assert abs(west) > 100000, f"West should be in meters (large value), got {west}"
-        assert west < east, f"West ({west}) should be < East ({east})"
-        assert south < north, f"South ({south}) should be < North ({north})"
-
-    def test_3857_to_4326_produces_degrees(self):
-        """Test that reprojecting from 3857 to 4326 gives degree values.
-
-        Test scenario:
-            A bbox in meters should produce a bbox in degrees with
-            values in the range -180 to 180 (lon) and -90 to 90 (lat).
-        """
-        result = _densify_and_reproject_bounds(
-            1000000.0,
-            6000000.0,
-            1200000.0,
-            6200000.0,
-            "EPSG:3857",
-            "EPSG:4326",
-        )
-        west, south, east, north = result
-        assert -180 <= west <= 180, f"West should be in degrees, got {west}"
-        assert -90 <= south <= 90, f"South should be in degrees, got {south}"
-
-    def test_densification_improves_accuracy(self):
-        """Test that densified bounds cover more area than corner-only.
-
-        Test scenario:
-            For a wide UTM extent, densification should produce a
-            wider bbox in 4326 than just reprojecting the two corners,
-            because the UTM grid lines curve in 4326.
-        """
-        from pyproj import Transformer
-
-        west_utm, south_utm = 200000.0, 5400000.0
-        east_utm, north_utm = 800000.0, 6200000.0
-
-        transformer = Transformer.from_crs("EPSG:32633", "EPSG:4326", always_xy=True)
-        cw, cs = transformer.transform(west_utm, south_utm)
-        ce, cn = transformer.transform(east_utm, north_utm)
-        corner_width = ce - cw
-
-        densified = _densify_and_reproject_bounds(
-            west_utm,
-            south_utm,
-            east_utm,
-            north_utm,
-            "EPSG:32633",
-            "EPSG:4326",
-            n_points=21,
-        )
-        densified_width = densified[2] - densified[0]
-
-        assert densified_width >= corner_width, (
-            f"Densified width ({densified_width}) should be >= "
-            f"corner-only width ({corner_width})"
+        mock_get.assert_called_once_with("CartoDB.Positron")
+        assert result is mock_get.return_value, (
+            "get_provider must return cleopatra.tiles.get_provider's result"
         )
 
-    def test_identity_transform(self):
-        """Test that reprojecting to the same CRS preserves bounds.
+    def test_default_provider_round_trip(self):
+        """A no-arg call resolves the real default provider through cleopatra.
 
         Test scenario:
-            Reprojecting 4326 to 4326 should return approximately
-            the same bounds.
+            With cleopatra installed, ``get_provider()`` should resolve
+            the OpenStreetMap.Mapnik default — a smoke test that the
+            wrapper does not mangle the call.
         """
-        bounds = (10.0, 50.0, 11.0, 51.0)
-        result = _densify_and_reproject_bounds(*bounds, "EPSG:4326", "EPSG:4326")
-        for orig, reprojected in zip(bounds, result):
-            assert abs(orig - reprojected) < 0.001, (
-                f"Identity transform should preserve bounds: "
-                f"{orig} vs {reprojected}"
-            )
+        provider = get_provider()
+        name = getattr(provider, "name", "") or str(provider)
+        assert "openstreetmap" in name.lower(), (
+            f"default provider should be OpenStreetMap, got {provider!r}"
+        )
+
+    def test_missing_extra_raises(self):
+        """When the cleopatra ``[tiles]`` extra is absent the guard fires.
+
+        Test scenario:
+            Patch the ``import_basemap`` guard to raise
+            ``OptionalPackageDoesNotExist`` and confirm ``get_provider``
+            surfaces it (rather than an opaque ``ImportError``).
+        """
+        with patch(
+            "pyramids.basemap.basemap.import_basemap",
+            side_effect=OptionalPackageDoesNotExist("no cleopatra[tiles]"),
+        ):
+            with pytest.raises(OptionalPackageDoesNotExist):
+                get_provider("CartoDB.Positron")
 
 
 class TestAddBasemap:
-    """Tests for add_basemap function."""
+    """``add_basemap`` delegates to ``cleopatra.tiles.add_tiles``."""
 
-    @pytest.fixture
-    def mock_ax(self):
-        """Create a mock matplotlib Axes with realistic extent.
-
-        Returns:
-            MagicMock: Axes mock with xlim/ylim set to a small area
-            in EPSG:3857.
-        """
-        ax = MagicMock()
-        ax.get_xlim.return_value = (1000000.0, 1200000.0)
-        ax.get_ylim.return_value = (6000000.0, 6200000.0)
-        ax.get_aspect.return_value = "auto"
-
-        mock_transform = MagicMock()
-        mock_transform.inverted.return_value = mock_transform
-        mock_fig = MagicMock()
-        mock_fig.dpi = 100.0
-        type(mock_fig).dpi_scale_trans = PropertyMock(return_value=mock_transform)
-
-        mock_bbox = MagicMock()
-        mock_bbox.width = 6.0
-        mock_bbox.height = 4.0
-        mock_bbox.transformed.return_value = mock_bbox
-
-        ax.get_figure.return_value = mock_fig
-        ax.get_window_extent.return_value = mock_bbox
-        return ax
-
-    def test_raises_on_empty_axes(self):
-        """Test that empty axes (default 0-1 limits) raises ValueError.
+    def test_delegates_with_default_kwargs(self):
+        """A bare ``add_basemap(ax)`` forwards the documented defaults.
 
         Test scenario:
-            Axes with no data plotted have limits (0, 1). add_basemap
-            should raise ValueError with a helpful message.
+            Patch ``cleopatra.tiles.add_tiles`` and call ``add_basemap``
+            with only ``ax``. Every wrapper-level default must reach
+            cleopatra as a keyword (``crs=3857``, ``zoom="auto"``, …) and
+            the axes must be passed positionally.
         """
-        ax = MagicMock()
-        ax.get_xlim.return_value = (0.0, 1.0)
-        ax.get_ylim.return_value = (0.0, 1.0)
+        sentinel_ax = object()
+        with patch("cleopatra.tiles.add_tiles") as mock_add:
+            result = add_basemap(sentinel_ax)
 
-        with pytest.raises(ValueError, match="no data extent"):
-            add_basemap(ax)
-
-    @pytest.mark.parametrize(
-        "bad_ax",
-        [None, "not_an_axes", 42, {}],
-        ids=["none", "string", "int", "dict"],
-    )
-    def test_raises_on_invalid_ax_type(self, bad_ax):
-        """Test that non-Axes objects raise TypeError.
-
-        Test scenario:
-            Objects without get_xlim/get_ylim should raise TypeError
-            with a clear message indicating the expected type.
-        """
-        with pytest.raises(TypeError, match="matplotlib.axes.Axes"):
-            add_basemap(bad_ax)
-
-    @pytest.mark.parametrize(
-        "bad_zoom",
-        [-1, 20, 100, "invalid"],
-        ids=["negative", "too_high", "way_too_high", "string"],
-    )
-    def test_raises_on_invalid_zoom(self, bad_zoom, mock_ax: MagicMock):
-        """Test that invalid zoom values raise ValueError.
-
-        Test scenario:
-            Zoom must be 'auto' or an int 0-19. Values outside this
-            range or non-numeric strings should raise ValueError.
-        """
-        with pytest.raises(ValueError, match="zoom"):
-            add_basemap(mock_ax, crs=3857, zoom=bad_zoom)
-
-    @pytest.fixture
-    def _patch_tiles(self):
-        """Patch tile functions with sensible defaults.
-
-        Yields:
-            tuple: (mockauto_zoom, mock_fetch, mock_stitch) mocks.
-        """
-        from pyramids.basemap import tiles as tiles_mod
-
-        fake_image = np.zeros((256, 256, 4), dtype=np.uint8)
-        with (
-            patch.object(
-                tiles_mod,
-                "auto_zoom",
-                return_value=10,
-            ) as mock_zoom,
-            patch.object(
-                tiles_mod,
-                "fetch_tiles",
-                return_value={Tile(0, 0, 10): _make_tile_png()},
-            ) as mock_fetch,
-            patch.object(
-                tiles_mod,
-                "stitch_tiles",
-                return_value=(
-                    fake_image,
-                    (1000000.0, 6000000.0, 1200000.0, 6200000.0),
-                ),
-            ) as mock_stitch,
-        ):
-            yield mock_zoom, mock_fetch, mock_stitch
-
-    def test_basemap_3857_skips_warping(self, mock_ax: MagicMock, _patch_tiles):
-        """Test that CRS=3857 skips the warping step.
-
-        Test scenario:
-            When data is already in EPSG:3857, no CRS warping should
-            occur. The stitched image should be passed directly to
-            imshow.
-        """
-        from pyramids.basemap import warp as warp_mod
-
-        with patch.object(warp_mod, "warp_tile_image") as mock_warp:
-            result = add_basemap(mock_ax, crs=3857)
-
-        mock_warp.assert_not_called()
-        mock_ax.imshow.assert_called_once()
-        assert result is mock_ax, "add_basemap should return the axes"
-
-    def test_basemap_4326_triggers_warping(self, mock_ax: MagicMock, _patch_tiles):
-        """Test that CRS=4326 triggers the GDAL warping step.
-
-        Test scenario:
-            When data is in EPSG:4326, warp_tile_image should be
-            called to reproject the basemap tiles.
-        """
-        mock_ax.get_xlim.return_value = (10.0, 11.0)
-        mock_ax.get_ylim.return_value = (50.0, 51.0)
-
-        fake_image = np.zeros((256, 256, 4), dtype=np.uint8)
-        from pyramids.basemap import warp as warp_mod
-
-        with patch.object(
-            warp_mod,
-            "warp_tile_image",
-            return_value=(fake_image, (10.0, 50.0, 11.0, 51.0)),
-        ) as mock_warp:
-            add_basemap(mock_ax, crs=4326)
-
-        mock_warp.assert_called_once()
-        mock_ax.imshow.assert_called_once()
-
-    def test_restores_axis_limits_after_imshow(self, mock_ax: MagicMock, _patch_tiles):
-        """Test that original axis limits are restored after adding basemap.
-
-        Test scenario:
-            After imshow potentially changes the view, set_xlim and
-            set_ylim should be called with the original limits.
-        """
-        add_basemap(mock_ax, crs=3857)
-
-        mock_ax.set_xlim.assert_called_once_with((1000000.0, 1200000.0))
-        mock_ax.set_ylim.assert_called_once_with((6000000.0, 6200000.0))
-
-    def test_attribution_false_skips_text(self, mock_ax: MagicMock, _patch_tiles):
-        """Test that attribution=False does not add text to axes.
-
-        Test scenario:
-            When attribution is explicitly False, ax.text should not
-            be called.
-        """
-        add_basemap(mock_ax, crs=3857, attribution=False)
-
-        mock_ax.text.assert_not_called()
-
-    def test_custom_attribution_string(self, mock_ax: MagicMock, _patch_tiles):
-        """Test that a custom attribution string is used.
-
-        Test scenario:
-            Passing a string as attribution should add that exact
-            text to the axes.
-        """
-        add_basemap(mock_ax, crs=3857, attribution="Custom Attribution")
-
-        mock_ax.text.assert_called_once()
-        call_args = mock_ax.text.call_args
-        assert call_args[0][2] == "Custom Attribution", (
-            f"Attribution text should be 'Custom Attribution', "
-            f"got {call_args[0][2]}"
+        mock_add.assert_called_once_with(
+            sentinel_ax,
+            source=None,
+            crs=3857,
+            zoom="auto",
+            alpha=1.0,
+            attribution=True,
+            zorder=-1,
+            interpolation="bilinear",
+            timeout=10,
+            retries=2,
+        )
+        assert result is mock_add.return_value, (
+            "add_basemap must return cleopatra.tiles.add_tiles's result"
         )
 
-    def test_imshow_receives_correct_kwargs(self, mock_ax: MagicMock, _patch_tiles):
-        """Test that imshow is called with correct alpha and zorder.
+    def test_delegates_with_custom_kwargs(self):
+        """Caller-supplied options are forwarded to cleopatra unchanged.
 
         Test scenario:
-            Custom alpha=0.5 and zorder=-2 should be passed through
-            to ax.imshow.
+            Pass a non-default ``crs``, ``source``, ``alpha``, and
+            ``zorder``; the patched ``add_tiles`` must receive exactly
+            those values (and the untouched defaults for the rest).
         """
-        add_basemap(mock_ax, crs=3857, alpha=0.5, zorder=-2)
+        sentinel_ax = object()
+        with patch("cleopatra.tiles.add_tiles") as mock_add:
+            add_basemap(
+                sentinel_ax,
+                crs=4326,
+                source="CartoDB.Positron",
+                alpha=0.5,
+                zorder=-2,
+            )
 
-        call_kwargs = mock_ax.imshow.call_args[1]
-        assert (
-            call_kwargs["alpha"] == 0.5
-        ), f"Expected alpha=0.5, got {call_kwargs['alpha']}"
-        assert (
-            call_kwargs["zorder"] == -2
-        ), f"Expected zorder=-2, got {call_kwargs['zorder']}"
+        mock_add.assert_called_once_with(
+            sentinel_ax,
+            source="CartoDB.Positron",
+            crs=4326,
+            zoom="auto",
+            alpha=0.5,
+            attribution=True,
+            zorder=-2,
+            interpolation="bilinear",
+            timeout=10,
+            retries=2,
+        )
 
-    def test_max_tiles_reduces_zoom(self, mock_ax: MagicMock):
-        """Test that zoom is reduced when tile count exceeds MAX_TILES.
+    def test_missing_extra_raises(self):
+        """``add_basemap`` surfaces the missing-extra error before delegating.
 
         Test scenario:
-            Mock mercantile.tiles to return >256 tiles at zoom 10,
-            then fewer at zoom 9. Verify the function settles on
-            zoom 9.
+            Patch the ``import_basemap`` guard to raise; ``add_basemap``
+            must propagate ``OptionalPackageDoesNotExist`` and never reach
+            ``cleopatra.tiles.add_tiles``.
         """
-        import mercantile as merc_mod
-
-        from pyramids.basemap import tiles as tiles_mod
-
-        fake_image = np.zeros((256, 256, 4), dtype=np.uint8)
-        many_tiles = [Tile(x=i, y=j, z=10) for i in range(20) for j in range(20)]
-        few_tiles = [Tile(x=i, y=j, z=9) for i in range(10) for j in range(10)]
-
-        with (
-            patch.object(tiles_mod, "auto_zoom", return_value=10),
-            patch.object(
-                tiles_mod,
-                "fetch_tiles",
-                return_value={Tile(0, 0, 9): _make_tile_png()},
-            ),
-            patch.object(
-                tiles_mod,
-                "stitch_tiles",
-                return_value=(
-                    fake_image,
-                    (1000000.0, 6000000.0, 1200000.0, 6200000.0),
-                ),
-            ),
-            patch.object(
-                merc_mod,
-                "tiles",
-                side_effect=[many_tiles, few_tiles],
-            ) as mock_tiles,
+        with patch(
+            "pyramids.basemap.basemap.import_basemap",
+            side_effect=OptionalPackageDoesNotExist("no cleopatra[tiles]"),
         ):
-            add_basemap(mock_ax, crs=3857)
-
-            calls = mock_tiles.call_args_list
-            assert (
-                len(calls) == 2
-            ), f"Expected 2 calls to mercantile.tiles, got {len(calls)}"
-            assert calls[0][1]["zooms"] == 10, "First call should use zoom 10"
-            assert calls[1][1]["zooms"] == 9, "Second call should use zoom 9"
+            with patch("cleopatra.tiles.add_tiles") as mock_add:
+                with pytest.raises(OptionalPackageDoesNotExist):
+                    add_basemap(object())
+        mock_add.assert_not_called()
 
 
 class TestCleopatraDelegation:
-    """Tests for the PR-6 / C-6 `cleopatra.tiles.add_tiles` delegation.
+    """The ``add_basemap`` -> ``cleopatra.tiles.add_tiles`` contract.
 
-    cleopatra 0.8.0 ships the C-6 `add_tiles` helper (in
-    :mod:`cleopatra.tiles`), but :func:`pyramids.basemap.add_basemap`
-    still runs an inline implementation pending the one-line-wrapper
-    migration (see the TODO in `pyramids.basemap.basemap`). These
-    tests assert the contract that migration must satisfy:
-
-    * `cleopatra.tiles.add_tiles` is importable.
-    * The shared signature of `pyramids.basemap.add_basemap` and
-      `cleopatra.tiles.add_tiles` lines up (cleopatra may add new
-      *optional* params; it must not add *required* ones pyramids lacks,
-      and pyramids must not expose params cleopatra doesn't have).
-
-    When `add_basemap` is rewritten to delegate, these tests stay as
-    the regression net for the rewrite.
+    ``add_basemap`` is a thin wrapper over ``cleopatra.tiles.add_tiles``
+    (shipped in ``cleopatra >= 0.8.0``, pinned via the ``[viz]`` extra as
+    ``cleopatra[tiles]``). These tests pin the contract that wrapper relies
+    on: the helper is importable, and the two signatures stay compatible —
+    cleopatra may add new *optional* params (pyramids just won't expose
+    them), but a previously-shared param going *required* upstream, or a
+    pyramids-only param, would break the delegation.
     """
 
     def test_cleopatra_add_tiles_is_importable(self):
-        """C-6 shipped in cleopatra 0.8.0; `cleopatra.tiles.add_tiles` imports."""
+        """``cleopatra.tiles.add_tiles`` imports (C-6 contract)."""
         cleopatra_tiles = pytest.importorskip(
             "cleopatra.tiles",
             reason="cleopatra[tiles] extra not installed",
         )
         assert hasattr(cleopatra_tiles, "add_tiles"), (
-            "cleopatra.tiles.add_tiles must exist (C-6 contract) so "
+            "cleopatra.tiles.add_tiles must exist so "
             "pyramids.basemap.add_basemap can delegate to it."
         )
 
     def test_pyramids_and_cleopatra_share_addmap_signature(self):
-        """Pyramids `add_basemap` and `cleopatra.tiles.add_tiles` line up.
+        """``add_basemap`` and ``cleopatra.tiles.add_tiles`` line up.
 
         Test scenario:
-            The PR-6 migration TODO turns `add_basemap` into a
-            one-line wrapper around `cleopatra.tiles.add_tiles`. The
-            switch only works if the two functions accept compatible
-            kwargs. Compare the parameter names directly so a future
-            cleopatra release that drifts the signature gets caught
-            here.
+            Compare the parameter names directly so a future cleopatra
+            release that drifts the signature gets caught here rather than
+            at a downstream call site.
         """
         cleopatra_tiles = pytest.importorskip(
             "cleopatra.tiles",
@@ -501,30 +198,30 @@ class TestCleopatraDelegation:
         extra = pyr_params - cleo_params
         # Cleopatra is allowed to grow its surface: new *optional* params
         # (e.g. `user_agent=` / `max_tiles=` in 0.8.0) don't break the
-        # planned `add_basemap(ax, **kwargs) -> cleopatra.tiles.add_tiles(ax,
-        # **kwargs)` delegation — pyramids just won't expose them. What
-        # *would* break the delegation is cleopatra making a previously-shared
-        # (or any) param *required* while pyramids lacks it.
+        # `add_basemap(ax, ...) -> cleopatra.tiles.add_tiles(ax, ...)`
+        # delegation — pyramids just won't expose them. What *would* break
+        # it is cleopatra making a previously-shared (or any) param
+        # *required* while pyramids lacks it.
         for name in missing:
             param = cleo_sig.parameters[name]
             assert param.default is not inspect.Parameter.empty, (
-                f"cleopatra.tiles.add_tiles added a *required* param {name!r} not "
-                "in pyramids.add_basemap — the C-6 delegation contract is broken."
+                f"cleopatra.tiles.add_tiles added a *required* param {name!r} "
+                "not in pyramids.add_basemap — the delegation contract is broken."
             )
         assert not extra, (
             f"pyramids.add_basemap has params not in cleopatra.tiles.add_tiles: "
-            f"{extra}. The PR-6 one-line delegation will not work until "
+            f"{extra}. The thin-wrapper delegation will not work until "
             "these are pushed upstream."
         )
 
 
 class TestAddBasemapSignatureStability:
-    """PR-6 — assert `add_basemap`'s signature has not drifted.
+    """Assert ``add_basemap``'s public signature has not drifted.
 
-    Existing tests across the suite patch `pyramids.basemap.basemap.
-    add_basemap` with positional/kwargs combinations. Any signature
-    change here breaks those patches silently — pin the parameter set
-    so a future drift surfaces with a clear test failure.
+    Tests across the suite (and ``pyramids.dataset._plot_helpers``) call
+    ``add_basemap`` with positional / keyword combinations. Any signature
+    change here breaks those silently — pin the parameter set so a future
+    drift surfaces with a clear failure.
     """
 
     EXPECTED_PARAMS = (
@@ -541,53 +238,15 @@ class TestAddBasemapSignatureStability:
     )
 
     def test_add_basemap_parameter_names(self):
-        """Parameter names match the documented PR-6 contract.
+        """Parameter names (and order) match the documented contract.
 
         Test scenario:
-            Compare the parameter names of `add_basemap` against the
-            frozen list in `EXPECTED_PARAMS`. The order matters because
-            most call sites pass `ax` positionally — a rename or
-            reorder must surface here, not at a downstream caller.
+            Compare ``add_basemap``'s parameter names against the frozen
+            ``EXPECTED_PARAMS``. Order matters because most call sites pass
+            ``ax`` positionally — a rename or reorder must surface here.
         """
         params = tuple(inspect.signature(add_basemap).parameters.keys())
         assert params == self.EXPECTED_PARAMS, (
             f"add_basemap signature changed; expected {self.EXPECTED_PARAMS}, "
-            f"got {params}. Update the PR-6 C-6 delegation contract."
+            f"got {params}."
         )
-
-    def test_add_basemap_default_values(self):
-        """Default values for each parameter match the PR-6 contract.
-
-        Test scenario:
-            Confirm the documented defaults — `crs=3857`,
-            `zoom='auto'`, `alpha=1.0`, `attribution=True`,
-            `zorder=-1`, `interpolation='bilinear'`, `timeout=10`,
-            `retries=2`. A regression here means a caller's omitted
-            kwarg silently picks up a different value than before PR-6.
-        """
-        import inspect
-
-        from pyramids.basemap.basemap import add_basemap
-
-        sig = inspect.signature(add_basemap)
-        defaults = {
-            name: param.default
-            for name, param in sig.parameters.items()
-            if param.default is not inspect.Parameter.empty
-        }
-        expected = {
-            "crs": 3857,
-            "source": None,
-            "zoom": "auto",
-            "alpha": 1.0,
-            "attribution": True,
-            "zorder": -1,
-            "interpolation": "bilinear",
-            "timeout": 10,
-            "retries": 2,
-        }
-        for key, value in expected.items():
-            assert defaults.get(key) == value, (
-                f"Default for `{key}` drifted: expected {value!r}, got "
-                f"{defaults.get(key)!r}"
-            )

@@ -43,7 +43,8 @@ of the `pyramids` package.
     `Coords` / `GeometryCoords` value-object classes that replace the old
     static-method shims.
 - `pyramids.basemap`
-  - Optional basemap tiles + warping for plot underlays.
+  - `add_basemap` / `get_provider` — thin wrappers over `cleopatra.tiles`
+    (the `[viz]` extra's `cleopatra[tiles]`) for web-tile plot underlays.
 - `pyramids._io`
   - Compressed-archive (zip/gzip/tar) and remote-URL (`s3://`, `gs://`,
     `az://`, `http(s)://`, `file://`) handling via GDAL's virtual
