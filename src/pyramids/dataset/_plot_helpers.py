@@ -306,10 +306,8 @@ def render_array(
         cleo.plot(**render_kwargs)
         result: Any = cleo
         if basemap:
-            if basemap_epsg is None:
-                raise ValueError(
-                    "Dataset must have a CRS (epsg) to use basemap."
-                )
+            # ``basemap and basemap_epsg is None`` was already rejected at
+            # the top of this function — by here ``basemap_epsg`` is set.
             source = basemap if isinstance(basemap, str) else None
             # Resolve `add_basemap` via the module attribute at call time
             # so test-time `patch("pyramids.basemap.basemap.add_basemap")`
