@@ -131,6 +131,7 @@ nav:
     - CRS helpers: reference/base/crs.md
     - NetCDF:
       - NetCDF Class: reference/netcdf/index.md
+      - Plotting: reference/netcdf/plot.md
       - Data Models: reference/netcdf/models.md
       - Metadata: reference/netcdf/metadata.md
       - Dimensions: reference/netcdf/dimensions.md
