@@ -189,6 +189,10 @@ class NetCDFPlot:
             )
             analysis_kwargs["facet_kwargs"] = facet_kwargs
             analysis_kwargs["_facet_stack"] = stack
+            # The facet stack is built here from `pinned`; the engine
+            # renders it but can't derive the extent from its own
+            # `self._ds`, so pass `pinned.bbox` explicitly (M6).
+            analysis_kwargs["_extent"] = pinned.bbox
             result = pinned.analysis.plot(
                 band=0, exclude_value=exclude_value, basemap=basemap,
                 **analysis_kwargs,

@@ -2217,6 +2217,56 @@ class TestNetCDFPlotFacetingEdges:
                 f"string basemap must pass through as `source`, got: {call.kwargs}"
             )
 
+    def test_facet_passes_pinned_extent_to_render(self):
+        """The facet path supplies the pinned subset's bbox as the render extent (M6).
+
+        Test scenario:
+            M6 fix — the facet stack is built from the pinned subset
+            but rendered by `Analysis.plot`, which can't derive the
+            extent from its own `self._ds` for an *injected* stack.
+            `NetCDFPlot.run` now passes `_extent=pinned.bbox`, and the
+            engine forwards it as `extent=` to `render_array`. Patch
+            `render_array`, plot a faceted variable, and confirm the
+            `extent=` it receives equals the variable subset's `bbox`.
+        """
+        nc = _make_3d_nc(n_times=3)
+        var = nc.get_variable("t2m")
+        with patch(
+            "pyramids.dataset.engines.analysis.render_array"
+        ) as mock_render:
+            mock_render.return_value = "ok"
+            nc.plot(variable="t2m", facet=FacetSpec(col="time"))
+        extent = mock_render.call_args.kwargs.get("extent")
+        assert extent == var.bbox, (
+            f"facet render extent must be the pinned subset's bbox "
+            f"{var.bbox}, got {extent}"
+        )
+        assert mock_render.call_args.kwargs.get("mode") == "facet", (
+            "this should have gone through the facet render path"
+        )
+
+    def test_static_plot_still_uses_self_ds_bbox(self):
+        """No `_extent` injected on the non-facet path → engine uses `self._ds.bbox` (M6).
+
+        Test scenario:
+            The M6 change must not perturb the self-read path: a plain
+            `nc.plot(variable="t2m")` (no facet) has no `_extent`
+            kwarg, so `Analysis.plot` falls back to `self._ds.bbox` —
+            which equals the variable subset's `bbox`.
+        """
+        nc = _make_3d_nc(n_times=3)
+        var = nc.get_variable("t2m")
+        with patch(
+            "pyramids.dataset.engines.analysis.render_array"
+        ) as mock_render:
+            mock_render.return_value = "ok"
+            nc.plot(variable="t2m")
+        extent = mock_render.call_args.kwargs.get("extent")
+        assert extent == var.bbox, (
+            f"static render extent should be self._ds.bbox {var.bbox}, got {extent}"
+        )
+        assert mock_render.call_args.kwargs.get("mode") == "plot"
+
 
 class TestNetCDFPlotAnimate:
     """Tests for the PR-5 ``animate=`` kwarg on NetCDF.plot."""

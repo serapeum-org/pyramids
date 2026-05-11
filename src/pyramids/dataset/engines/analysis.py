@@ -955,12 +955,16 @@ class Analysis(_Engine):
         # mutually-exclusive `extent` swap. `facet_kwargs` (PR-4) is
         # forwarded by `NetCDF.plot` to switch the helper to the
         # `mode="facet"` branch; the pre-built stack arrives alongside as
-        # `_facet_stack`. `_chunks` (PR-5) is injected by `NetCDF.plot`
-        # to switch the static-plot read path to the dask-backed lazy
-        # read; only the rendered slice is materialised.
+        # `_facet_stack` and its spatial extent as `_extent` (the facet
+        # stack is *injected*, not read from `self._ds`, so the engine
+        # can't derive the extent from `self._ds.bbox` — the caller must
+        # supply it). `_chunks` (PR-5) is injected by `NetCDF.plot` to
+        # switch the static-plot read path to the dask-backed lazy read;
+        # only the rendered slice is materialised.
         coords = kwargs.pop("coords", None)
         facet_kwargs = kwargs.pop("facet_kwargs", None)
         facet_stack = kwargs.pop("_facet_stack", None)
+        injected_extent = kwargs.pop("_extent", None)
         chunks = kwargs.pop("_chunks", None)
         mode = "facet" if facet_kwargs else "plot"
         if mode == "facet":
@@ -1002,9 +1006,17 @@ class Analysis(_Engine):
         )
         ax = kwargs.pop("ax", None)
         fig = kwargs.pop("fig", None)
+        # On the self-read paths (`mode="plot"` / `_chunks`) the data and
+        # the extent both come from `self._ds`. On the injected-stack path
+        # (`mode="facet"`) the caller passes `_extent` so the panels are
+        # placed at the stack's own spatial domain rather than implicitly
+        # trusting that it matches `self._ds.bbox`.
+        effective_extent = (
+            injected_extent if injected_extent is not None else self._ds.bbox
+        )
         return render_array(
             arr=arr,
-            extent=self._ds.bbox,
+            extent=effective_extent,
             coords=coords,
             exclude_value=exclude_value,
             rgb=rgb,
