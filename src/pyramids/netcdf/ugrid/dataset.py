@@ -18,8 +18,8 @@ from pyproj import CRS, Transformer
 from shapely.geometry import LineString, Point
 
 from pyramids.base.crs import sr_from_epsg
-from pyramids.basemap.basemap import add_basemap
 from pyramids.dataset import Dataset
+from pyramids.dataset._plot_helpers import mesh_render as _mesh_render
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf.cf import write_global_attributes
 from pyramids.netcdf.ugrid.connectivity import Connectivity
@@ -665,6 +665,13 @@ class UgridDataset:
     ) -> Any:
         """Plot a mesh data variable.
 
+        N-6 — this facade now goes through the same module-level
+        helper as the raster path. The mesh-specific dispatch lives in
+        :func:`pyramids.dataset._plot_helpers.mesh_render`; both
+        ``Dataset.plot``/``NetCDF.plot`` and ``UgridDataset.plot`` share
+        the "resolve data, hand to a single helper" contract so the
+        two formats no longer maintain independent plotting code paths.
+
         Args:
             variable_name: Name of the data variable to plot.
             ax: matplotlib Axes. Created if None.
@@ -673,40 +680,35 @@ class UgridDataset:
             basemap: If True, add an OpenStreetMap basemap. If a string,
                 use it as the tile provider name (e.g. "CartoDB.Positron").
                 Default is None (no basemap). Requires the [viz] extra.
-            **kwargs: Additional arguments passed to plot_mesh_data.
+            **kwargs: Additional arguments passed to mesh_render
+                (forwarded to plot_mesh_data).
 
         Returns:
             cleopatra.mesh_glyph.MeshGlyph instance with the plot
                 rendered. Use the returned object to access Figure/Axes
                 or call additional MeshGlyph methods.
         """
-        from pyramids.netcdf.ugrid.plot import plot_mesh_data
-
         var = self.get_data(variable_name)
         data = var.data
         if var.has_time:
             data = data[0]
         if title is None:
             title = variable_name
-        result = plot_mesh_data(
-            self._mesh,
-            data,
+        if basemap and self.epsg is None:
+            raise ValueError(
+                "UgridDataset must have a CRS (epsg) to use basemap."
+            )
+        result = _mesh_render(
+            mesh=self._mesh,
+            data=data,
             location=var.location,
             ax=ax,
             cmap=cmap,
             title=title,
+            basemap=basemap,
+            basemap_epsg=self.epsg,
             **kwargs,
         )
-
-        if basemap:
-            if self.epsg is None:
-                raise ValueError(
-                    "UgridDataset must have a CRS (epsg) to " "use basemap."
-                )
-            source = basemap if isinstance(basemap, str) else None
-            ax = result.ax if hasattr(result, "ax") else result
-            add_basemap(ax, crs=self.epsg, source=source)
-
         return result
 
     def plot_outline(self, ax: Any = None, **kwargs: Any) -> Any:

@@ -19,7 +19,8 @@ from pandas import DataFrame
 
 from pyramids.base._domain import inside_domain, is_no_data
 from pyramids.base._errors import AlignmentError
-from pyramids.base._utils import import_cleopatra
+from pyramids.base._utils import require_cleopatra
+from pyramids.dataset._plot_helpers import render_array
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
@@ -481,7 +482,7 @@ class Analysis(_Engine):
 
               ```python
               >>> classes = Dataset.read_file("examples/data/geotiff/rhine-classes.tif")
-              >>> classes.plot(figsize=(6, 8), color_scale=4, bounds=[1,2,3,4,5,6]) # doctest: +SKIP
+              >>> classes.plot(figsize=(6, 8), color_scale="boundary-norm", bounds=[1,2,3,4,5,6]) # doctest: +SKIP
 
               ```
 
@@ -821,7 +822,7 @@ class Analysis(_Engine):
 
     def plot(
         self,
-        band: int | None = None,
+        band: int,
         exclude_value: Any | None = None,
         rgb: list[int] | None = None,
         surface_reflectance: int | None = None,
@@ -833,19 +834,39 @@ class Analysis(_Engine):
         **kwargs: Any,
     ) -> ArrayGlyph:
         """Plot the values/overviews of a given band.
+
+        This is the generic rendering engine. It assumes ``band`` has already been resolved
+        by the caller (typically a per-class facade such as :meth:`Dataset.plot` or
+        :meth:`NetCDF.plot`). It does **not** apply any band-resolution policy (no RGB
+        heuristic, no `ColorInterpretation` lookup, no default-to-zero fallback) \u2014 those
+        are dataset-type-specific decisions that belong on the facades.
+
         The plot function uses the `cleopatra` as a backend to plot the raster data, for more information check
         [ArrayGlyph](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/#cleopatra.array_glyph.ArrayGlyph.plot).
+
+        Implementation note: this method is a thin caller around the
+        shared :func:`pyramids.dataset._plot_helpers.render_array`
+        helper. It resolves the data (``arr``), extent, exclude value,
+        and curvilinear coords from the underlying ``Dataset``, then
+        forwards to ``render_array(..., mode="plot", ...)`` for a
+        single 2-D slice or ``mode="facet"`` when ``NetCDF.plot``
+        injects a pre-built ``_facet_stack`` and ``facet_kwargs``.
+        ``DatasetCollection.plot`` reuses the same helper with
+        ``mode="animate"``. The shared helper owns the actual
+        ``ArrayGlyph`` construction and dispatch — see the module
+        docstring of :mod:`pyramids.dataset._plot_helpers` for the
+        three-mode contract.
+
         Args:
-            band (int, optional):
-                The band you want to get its data. Default is 0.
+            band (int):
+                Concrete band index to render. Must be provided \u2014 the engine does not resolve
+                bands.
             exclude_value (Any, optional):
                 Value to exclude from the plot. Default is None.
             rgb (List[int], optional):
                 The indices of the red, green, and blue bands in the `Dataset`. the `rgb` parameter can be a list of
-                three values, or a list of four values if the alpha band is also included.
-                The `plot` method will check if the rgb bands are defined in the `Dataset`, if all the three bands (
-                red, green, blue)) are defined, the method will use them to plot the real image, if not the rgb bands
-                will be considered as [2,1,0] as the default order for sentinel tif files.
+                three values, or a list of four values if the alpha band is also included. Only meaningful for
+                Sentinel-style multi-band rasters; pass-through to cleopatra.
             surface_reflectance (int, optional):
                 Surface reflectance value for normalizing satellite data, by default None.
                 Typically 10000 for Sentinel-2 data.
@@ -879,19 +900,24 @@ class Analysis(_Engine):
                 | `ticks_spacing`             | int, optional       | Spacing between color bar ticks. Default is `2`. |
                 | `cbar_label_size`           | int, optional       | Size of the color bar label. Default is `12`. |
                 | `cbar_label`                | str, optional       | Label of the color bar. Default is `'Discharge m\u00b3/s'`. |
-                | `color_scale`               | int, optional       | Scale mode for colors. Options: 1 = normal, 2 = power, 3 = SymLogNorm, 4 = PowerNorm, 5 = BoundaryNorm. Default is `1`. |
-                | `gamma`                     | float, optional     | Value needed for color scale option 2. Default is `1/2`. |
-                | `line_threshold`            | float, optional     | Value needed for color scale option 3. Default is `0.0001`. |
-                | `line_scale`                | float, optional     | Value needed for color scale option 3. Default is `0.001`. |
-                | `bounds`                    | list, optional      | Discrete bounds for color scale option 4. Default is `None`. |
-                | `midpoint`                  | float, optional     | Value needed for color scale option 5. Default is `0`. |
+                | `color_scale`               | str, optional       | Color-scale mode. One of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styles.ColorScale` member. Integer codes are no longer accepted. Default is `"linear"`. |
+                | `gamma`                     | float, optional     | Exponent for the `"power"` color scale. Default is `1/2`. |
+                | `line_threshold`            | float, optional     | `linthresh` for the `"sym-lognorm"` color scale. Default is `0.0001`. |
+                | `line_scale`                | float, optional     | `linscale` for the `"sym-lognorm"` color scale. Default is `0.001`. |
+                | `bounds`                    | list, optional      | Discrete bounds for the `"boundary-norm"` color scale. Default is `None`. |
+                | `midpoint`                  | float, optional     | Midpoint value for the `"midpoint"` color scale. Default is `0`. |
                 | `cmap`                      | str, optional       | Color map style. Default is `'coolwarm_r'`. |
                 | `display_cell_value`        | bool, optional      | Whether to display cell values as text. |
                 | `num_size`                  | int, optional       | Size of numbers plotted on top of each cell. Default is `8`. |
                 | `background_color_threshold`| float or int, optional | Threshold for deciding text color over cells: if value > threshold -> black text; else white text. If `None`, max value / 2 is used. Default is `None`. |
         Returns:
             ArrayGlyph:
-                ArrayGlyph object. For more details of the ArrayGlyph object check the [ArrayGlyph](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/).
+                A cleopatra ``ArrayGlyph`` wrapping the rendered figure. The underlying matplotlib
+                primitives are exposed as ``cleo.fig`` (the :class:`matplotlib.figure.Figure`) and
+                ``cleo.ax`` (the :class:`matplotlib.axes.Axes`) \u2014 use these as the escape hatch
+                when you need to further customise the plot with raw matplotlib calls. For the
+                full ``ArrayGlyph`` API see the
+                [ArrayGlyph reference](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/).
         Examples:
             - Plot a certain band:
               ```python
@@ -924,40 +950,64 @@ class Analysis(_Engine):
               (<Figure size 800x800 with 2 Axes>, <Axes: >)
               ```
         """
-        import_cleopatra(
-            "The current function uses cleopatra package to for plotting, please install it manually, for more info "
-            "check https://github.com/serapeum-org/cleopatra"
-        )
-        from cleopatra.array_glyph import ArrayGlyph
-
         no_data_value = [np.nan if i is None else i for i in self._ds.no_data_value]
-        if overview:
-            arr = self._ds.read_overview_array(
-                band=band,
-                overview_index=overview_index if overview_index is not None else 0,
-            )
+        # `coords` is the PR-3 curvilinear kwarg; the helper handles the
+        # mutually-exclusive `extent` swap. `facet_kwargs` (PR-4) is
+        # forwarded by `NetCDF.plot` to switch the helper to the
+        # `mode="facet"` branch; the pre-built stack arrives alongside as
+        # `_facet_stack` and its spatial extent as `_extent` (the facet
+        # stack is *injected*, not read from `self._ds`, so the engine
+        # can't derive the extent from `self._ds.bbox` — the caller must
+        # supply it). `_chunks` (PR-5) is injected by `NetCDF.plot` to
+        # switch the static-plot read path to the dask-backed lazy read;
+        # only the rendered slice is materialised.
+        coords = kwargs.pop("coords", None)
+        facet_kwargs = kwargs.pop("facet_kwargs", None)
+        facet_stack = kwargs.pop("_facet_stack", None)
+        injected_extent = kwargs.pop("_extent", None)
+        chunks = kwargs.pop("_chunks", None)
+        mode = "facet" if facet_kwargs else "plot"
+        if mode == "facet":
+            arr = facet_stack
+        elif chunks is not None:
+            # Lazy read path: build a dask array of the variable, then
+            # materialise only the requested slice via `.compute()`.
+            # `read_array(chunks=...)` is only meaningful on NetCDF —
+            # plain Dataset doesn't support `chunks`. The kwarg arrives
+            # here only because NetCDF.plot injected it, so the call is
+            # safe to issue.
+            lazy = self._ds.read_array(chunks=chunks)
+            if hasattr(lazy, "compute"):
+                if lazy.ndim > 2:
+                    # `read_array(chunks=...)` returns the variable's
+                    # native `(d0, d1, ..., rows, cols)` shape, whereas
+                    # the eager `read_array()` flattens the non-spatial
+                    # dims into a single bands axis. Match that flatten so
+                    # `band` indexes the same slice. The reshape stays
+                    # lazy — `read_array(chunks=...)` already chunks the
+                    # non-spatial dims at size 1, so it's a pure relabel —
+                    # and only the chosen band's chunks get computed.
+                    lazy = lazy.reshape(-1, *lazy.shape[-2:])
+                    arr = np.asarray(lazy[band].compute())
+                else:
+                    arr = np.asarray(lazy.compute())
+            else:
+                arr = lazy if band is None else lazy[band]
         else:
-            arr = self._ds.read_array(band=band)
-        # if the raster has three bands or more.
-        if self._ds.band_count >= 3:
-            if band is None:
-                if rgb is None:
-                    rgb_candidate: list[int | None] = [
-                        self._ds.get_band_by_color("red"),
-                        self._ds.get_band_by_color("green"),
-                        self._ds.get_band_by_color("blue"),
-                    ]
-                    if None in rgb_candidate:
-                        rgb = [2, 1, 0]
-                    else:
-                        rgb = [int(v) for v in rgb_candidate if v is not None]
-                # first make the band index the first band in the rgb list (red band)
-                band = rgb[0]
-        # elif self._ds.band_count == 1:
-        #     band = 0
-        else:
-            if band is None:
-                band = 0
+            # When ``rgb`` is supplied, cleopatra's ArrayGlyph needs the full
+            # multi-band ``(bands, rows, cols)`` array so it can pick the
+            # colour channels itself. In all other cases we render just the
+            # requested band as a 2-D array.
+            read_band = None if rgb is not None else band
+            if overview:
+                arr = self._ds.read_overview_array(
+                    band=read_band,
+                    overview_index=(
+                        overview_index if overview_index is not None else 0
+                    ),
+                )
+            else:
+                arr = self._ds.read_array(band=read_band)
         exclude_value = (
             [no_data_value[band], exclude_value]
             if exclude_value is not None
@@ -965,36 +1015,35 @@ class Analysis(_Engine):
         )
         ax = kwargs.pop("ax", None)
         fig = kwargs.pop("fig", None)
-        cleo = ArrayGlyph(
-            arr,
+        # On the self-read paths (`mode="plot"` / `_chunks`) the data and
+        # the extent both come from `self._ds`. On the injected-stack path
+        # (`mode="facet"`) the caller passes `_extent` so the panels are
+        # placed at the stack's own spatial domain rather than implicitly
+        # trusting that it matches `self._ds.bbox`.
+        effective_extent = (
+            injected_extent if injected_extent is not None else self._ds.bbox
+        )
+        return render_array(
+            arr=arr,
+            extent=effective_extent,
+            coords=coords,
             exclude_value=exclude_value,
-            extent=self._ds.bbox,
             rgb=rgb,
             surface_reflectance=surface_reflectance,
             cutoff=cutoff,
             percentile=percentile,
+            mode=mode,
+            facet_kwargs=facet_kwargs,
             ax=ax,
             fig=fig,
+            basemap=basemap,
+            basemap_epsg=self._ds.epsg,
             **kwargs,
         )
-        cleo.plot(**kwargs)
-
-        if basemap:
-            if self._ds.epsg is None:
-                raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
-            from pyramids.basemap.basemap import add_basemap
-
-            source = basemap if isinstance(basemap, str) else None
-            add_basemap(cleo.ax, crs=self._ds.epsg, source=source)
-
-        return cleo
 
     @staticmethod
     def _process_color_table(color_table: DataFrame) -> DataFrame:
-        import_cleopatra(
-            "The current function uses cleopatra package to for plotting, please install it manually, for more info"
-            " check https://github.com/serapeum-org/cleopatra"
-        )
+        require_cleopatra()
         from cleopatra.colors import Colors
 
         # if the color_table does not contain the red, green, and blue columns, assume it has one column with

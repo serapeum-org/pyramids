@@ -448,7 +448,7 @@ class RasterBase(ABC):
         band: int | None = None,
         exclude_value: Any | None = None,
         rgb: list[int] | None = None,
-        surface_reflectance: int = 10000,
+        surface_reflectance: int | None = None,
         cutoff: list | None = None,
         overview: bool = False,
         overview_index: int = 0,
@@ -465,8 +465,10 @@ class RasterBase(ABC):
                 Value to exclude from the plot. Default is None.
             rgb (List[int], optional):
                 RGB band indices. Default is [3, 2, 1].
-            surface_reflectance (int, optional):
-                Surface reflectance. Default is 10,000.
+            surface_reflectance (int | None, optional):
+                Surface reflectance value used to normalise satellite reflectance bands
+                (typically ``10000`` for Sentinel-2). Default is ``None`` — concrete
+                subclasses are responsible for picking a meaningful default when relevant.
             cutoff (List, optional):
                 Clip the range of pixel values for each band (take only the pixel values from 0 to the value of
                 the cutoff and scale them back to between 0 and 1). Default is None.
@@ -505,23 +507,20 @@ class RasterBase(ABC):
                     Size of the color bar label. The default is 12.
                 cbar_label (str, optional):
                     Label of the color bar. The default is 'Discharge m3/s'.
-                color_scale (int, optional):
-                    There are 5 options to change the scale of the colors. The default is 1.
-                    1- normal scale.
-                    2- power scale.
-                    3- SymLogNorm scale.
-                    4- PowerNorm scale.
-                    5- BoundaryNorm scale.
+                color_scale (str, optional):
+                    Color-scale mode. One of "linear", "power", "sym-lognorm", "boundary-norm", "midpoint"
+                    (case-insensitive), or a ``cleopatra.styles.ColorScale`` member. Integer codes are no
+                    longer accepted. The default is "linear".
                 gamma (float, optional):
-                    Value needed for option 2. The default is 1./2.
+                    Exponent for the "power" color scale. The default is 1./2.
                 line_threshold (float, optional):
-                    Value needed for option 3. The default is 0.0001.
+                    ``linthresh`` for the "sym-lognorm" color scale. The default is 0.0001.
                 line_scale (float, optional):
-                    Value needed for option 3. The default is 0.001.
+                    ``linscale`` for the "sym-lognorm" color scale. The default is 0.001.
                 bounds (List, optional):
-                    A list of numbers to be used as discrete bounds for color scale 4. Default is None.
+                    A list of numbers used as discrete bounds for the "boundary-norm" color scale. Default is None.
                 midpoint (float, optional):
-                    Value needed for option 5. The default is 0.
+                    Midpoint value for the "midpoint" color scale. The default is 0.
                 cmap (str, optional):
                     Color style. The default is 'coolwarm_r'.
                 display_cell_value (bool, optional):

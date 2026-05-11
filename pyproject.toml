@@ -1,6 +1,6 @@
 [project]
 name = "pyramids-gis"
-version = "0.16.0"
+version = "0.17.0"
 description = "GIS utility package"
 readme = {file = "README.md", content-type = "text/markdown"}
 authors = [
@@ -41,7 +41,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-viz = ["cleopatra>=0.7.1", "mercantile>=1.2.0", "xyzservices>=2024.4.0", "Pillow>=9.0.0"]
+viz = ["cleopatra[tiles]>=0.8.0"]
 lazy = [
     "dask>=2024.1.0",
     "distributed>=2024.1.0",

@@ -16,7 +16,8 @@ from pyramids.base._domain import inside_domain
 from pyramids.base._errors import DatasetNotFoundError, OptionalPackageDoesNotExist
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._raster_meta import RasterMeta
-from pyramids.base._utils import import_cleopatra, import_flox, import_zarr
+from pyramids.base._utils import import_flox, import_zarr
+from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
 from pyramids.dataset._stac import from_stac as _from_stac
 from pyramids.dataset.abstract_dataset import CATALOG
@@ -1232,9 +1233,24 @@ class DatasetCollection:
     def plot(
         self, band: int = 0, exclude_value: Any | None = None, **kwargs: Any
     ) -> ArrayGlyph:
-        r"""Read Array.
+        r"""Render the collection as an animated stack of band slices.
 
-            - read the values stored in a given band.
+            - read the values stored in a given band across every
+              ``Dataset`` in the collection and hand the resulting
+              ``(time, rows, cols)`` array to cleopatra's animation
+              path.
+
+        Implementation note: this method is a thin caller around the
+        shared :func:`pyramids.dataset._plot_helpers.render_array`
+        helper. It stacks one band per ``Dataset`` into a 3-D array
+        and forwards to ``render_array(..., mode="animate",
+        animation_axis_values=...)``. The duplicated ``ArrayGlyph``
+        construction that used to live here is gone — the helper owns
+        the cleopatra dispatch and the same code path serves the
+        single-frame ``Dataset.plot`` and the multi-panel
+        ``NetCDF.plot`` facets. See
+        :mod:`pyramids.dataset._plot_helpers` for the three-mode
+        contract.
 
         Args:
             band (int):
@@ -1258,12 +1274,12 @@ class DatasetCollection:
                 | ticks_spacing              | int, optional         | Spacing in the color bar ticks. Default is `2`. |
                 | cbar_label_size            | int, optional         | Size of the color bar label. Default is `12`. |
                 | cbar_label                 | str, optional         | Label of the color bar. Default is `'Discharge m³/s'`. |
-                | color_scale                | int, optional         | Color scaling mode (default = `1`): 1 = normal scale, 2 = power scale, 3 = SymLogNorm scale, 4 = PowerNorm scale, 5 = BoundaryNorm scale. |
-                | gamma                      | float, optional       | Value needed for `color_scale=2`. Default is `1/2`. |
-                | line_threshold             | float, optional       | Value needed for `color_scale=3`. Default is `0.0001`. |
-                | line_scale                 | float, optional       | Value needed for `color_scale=3`. Default is `0.001`. |
-                | bounds                     | list                  | Discrete bounds for `color_scale=4`. Default is `None`. |
-                | midpoint                   | float, optional       | Value needed for `color_scale=5`. Default is `0`. |
+                | color_scale                | str, optional         | Color-scale mode (default `"linear"`): one of `"linear"`, `"power"`, `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"` (case-insensitive), or a `cleopatra.styles.ColorScale` member. Integer codes are no longer accepted. |
+                | gamma                      | float, optional       | Exponent for `color_scale="power"`. Default is `1/2`. |
+                | line_threshold             | float, optional       | `linthresh` for `color_scale="sym-lognorm"`. Default is `0.0001`. |
+                | line_scale                 | float, optional       | `linscale` for `color_scale="sym-lognorm"`. Default is `0.001`. |
+                | bounds                     | list                  | Discrete bounds for `color_scale="boundary-norm"`. Default is `None`. |
+                | midpoint                   | float, optional       | Midpoint value for `color_scale="midpoint"`. Default is `0`. |
                 | cmap                       | str, optional         | Color map style. Default is `'coolwarm_r'`. |
                 | display_cell_value         | bool                  | Whether to display the values of the cells as text. |
                 | num_size                   | int, optional         | Size of the numbers plotted on top of each cell. Default is `8`. |
@@ -1273,30 +1289,26 @@ class DatasetCollection:
         Returns:
             ArrayGlyph: A plotting/animation handle (from cleopatra.ArrayGlyph).
         """
-        import_cleopatra(
-            "The current funcrion uses cleopatra package to for plotting, please install it manually, for more info "
-            "check https://github.com/serapeum-org/cleopatra"
-        )
-        from cleopatra.array_glyph import ArrayGlyph
-
-        # Materialise the cube on demand for plotting. ArrayGlyph
-        # expects a single (time, rows, cols) numpy array; reading
-        # each Dataset's band into one stacked array is fine for a
-        # plot call (the user explicitly asked to render).
+        # Materialise the cube on demand for plotting. The render helper
+        # expects a single (time, rows, cols) numpy array; reading each
+        # Dataset's band into one stacked array is fine for a plot call
+        # (the user explicitly asked to render). Delegates the cleopatra
+        # call to :func:`render_array` (D-2 — shared with `Analysis.plot`).
         data = np.stack(
             [ds.read_array(band=band) for ds in self.datasets], axis=0
         )
-
         exclude_value = (
             [self.base.no_data_value[band], exclude_value]
             if exclude_value is not None
             else [self.base.no_data_value[band]]
         )
-
-        cleo = ArrayGlyph(data, exclude_value=exclude_value)
-        time = list(range(self.time_length))
-        cleo.animate(time, **kwargs)
-        return cleo
+        return render_array(
+            arr=data,
+            exclude_value=exclude_value,
+            mode="animate",
+            animation_axis_values=list(range(self.time_length)),
+            **kwargs,
+        )
 
     def to_file(
         self,

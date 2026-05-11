@@ -191,3 +191,135 @@ class TestImportCleopatra:
 
         with pytest.raises(OptionalPackageDoesNotExist):
             import_cleopatra("cleopatra is required")
+
+
+class TestRequireCleopatra:
+    """Tests for the D-5 ``require_cleopatra`` consolidation helper."""
+
+    def test_default_message_returns_none_when_installed(self):
+        """``require_cleopatra()`` returns nothing when cleopatra is available.
+
+        Test scenario:
+            The shared D-5 guard is a thin wrapper around
+            `import_cleopatra` with a default message pointing at the
+            `[viz]` extra. When cleopatra is installed (as in the test
+            env) the call returns `None` silently. Auto-skips when the
+            `[viz]` extra is not installed (bare-wheel CI job, etc.).
+        """
+        pytest.importorskip(
+            "cleopatra", reason="cleopatra not installed (viz extra)"
+        )
+        from pyramids.base._utils import require_cleopatra
+
+        result = require_cleopatra()
+        assert result is None, (
+            f"require_cleopatra must return None on success; got {result!r}"
+        )
+
+    def test_custom_message_returns_none_when_installed(self):
+        """An explicit ``msg`` does not change the success path.
+
+        Test scenario:
+            A caller-supplied override message only matters on the
+            failure path. With cleopatra installed, `require_cleopatra`
+            must still return `None` regardless of the message
+            argument. Auto-skips when the `[viz]` extra is not
+            installed.
+        """
+        pytest.importorskip(
+            "cleopatra", reason="cleopatra not installed (viz extra)"
+        )
+        from pyramids.base._utils import require_cleopatra
+
+        result = require_cleopatra("custom override")
+        assert result is None, (
+            f"require_cleopatra must return None on success; got {result!r}"
+        )
+
+    def test_default_message_mentions_viz_extra_when_missing(self, monkeypatch):
+        """Default error message points at the ``[viz]`` install extra.
+
+        Test scenario:
+            Block the ``cleopatra`` import so ``require_cleopatra()``
+            raises ``OptionalPackageDoesNotExist``. The default message
+            from ``_DEFAULT_CLEOPATRA_MSG`` mentions the ``[viz]`` extra
+            so the user knows how to install it.
+        """
+        import builtins
+
+        from pyramids.base._errors import OptionalPackageDoesNotExist
+
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "cleopatra":
+                raise ImportError("mocked")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        from pyramids.base._utils import require_cleopatra
+
+        with pytest.raises(OptionalPackageDoesNotExist) as exc:
+            require_cleopatra()
+        msg = str(exc.value)
+        assert "viz" in msg.lower() or "cleopatra" in msg.lower(), (
+            f"Default error must mention viz/cleopatra; got {msg!r}"
+        )
+
+    def test_custom_message_passed_through_on_failure(self, monkeypatch):
+        """A custom ``msg`` overrides the default error text.
+
+        Test scenario:
+            Patch ``cleopatra`` import to fail and call
+            ``require_cleopatra(msg="custom-from-test")``. The raised
+            exception must contain exactly that string so each caller
+            can supply a domain-specific install hint.
+        """
+        import builtins
+
+        from pyramids.base._errors import OptionalPackageDoesNotExist
+
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "cleopatra":
+                raise ImportError("mocked")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        from pyramids.base._utils import require_cleopatra
+
+        with pytest.raises(OptionalPackageDoesNotExist) as exc:
+            require_cleopatra(msg="custom-from-test")
+        assert "custom-from-test" in str(exc.value), (
+            f"Custom msg must appear in the exception; got {exc.value!r}"
+        )
+
+    def test_none_msg_uses_default(self, monkeypatch):
+        """``require_cleopatra(msg=None)`` is identical to no argument.
+
+        Test scenario:
+            ``msg=None`` is the documented default; ``require_cleopatra``
+            falls back to ``_DEFAULT_CLEOPATRA_MSG``. Confirm explicit
+            ``None`` does not raise a TypeError and falls through to the
+            default message on failure.
+        """
+        import builtins
+
+        from pyramids.base._errors import OptionalPackageDoesNotExist
+
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "cleopatra":
+                raise ImportError("mocked")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+        from pyramids.base._utils import _DEFAULT_CLEOPATRA_MSG, require_cleopatra
+
+        with pytest.raises(OptionalPackageDoesNotExist) as exc:
+            require_cleopatra(msg=None)
+        assert str(exc.value) == _DEFAULT_CLEOPATRA_MSG, (
+            f"Expected default message; got {exc.value!r}"
+        )

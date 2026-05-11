@@ -1,11 +1,13 @@
 """Basemap support for pyramids plots.
 
-Adds web tile basemaps (OpenStreetMap, CartoDB, Esri, etc.) underneath
-data plotted on matplotlib axes. Tiles are fetched, stitched, and
-optionally warped to the data's CRS using GDAL.
+Adds web-tile basemaps (OpenStreetMap, CartoDB, Esri, etc.) underneath
+data plotted on matplotlib axes. :func:`~pyramids.basemap.add_basemap`
+and :func:`~pyramids.basemap.get_provider` are thin wrappers over
+:mod:`cleopatra.tiles` (the cleopatra C-6 helpers) — cleopatra does the
+tile fetching, stitching, GDAL CRS warping, and rendering.
 
-Requires optional dependencies: mercantile, xyzservices, Pillow.
-Install with: `pyramids-gis[viz]`
+Requires the cleopatra ``[tiles]`` extra. Install with: `pyramids-gis[viz]`
+(which pins `cleopatra[tiles]`).
 """
 
 from pyramids.basemap.basemap import add_basemap, get_provider
