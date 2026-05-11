@@ -73,7 +73,7 @@ def _resolve_access(access: str) -> int:
 
     Examples:
         - Read-only aliases all resolve to `GA_ReadOnly`:
-            ``python
+            ```python
             >>> from osgeo import gdal
             >>> from pyramids.base._file_manager import _resolve_access
             >>> _resolve_access("read_only") == gdal.GA_ReadOnly
@@ -81,7 +81,7 @@ def _resolve_access(access: str) -> int:
             >>> _resolve_access("r") == gdal.GA_ReadOnly
             True
 
-            ``
+            ```
         - Unknown access string raises a descriptive ValueError:
             ```python
             >>> from pyramids.base._file_manager import _resolve_access
