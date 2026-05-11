@@ -129,99 +129,41 @@ class NetCDFPlot:
         """Implement :meth:`NetCDF.plot`. See there for the public docstring."""
         nc = self.nc
         _reject_forbidden_kwargs(kwargs)
-
         selectors = selectors or Selectors()
         colour = colour or ColourOpts()
         facet = facet or FacetSpec()
 
-        is_container = (
-            nc._is_md_array and not nc._is_subset and nc.band_count == 0
-        )
-        if is_container:
-            if variable is None:
-                available = nc.variable_names
-                raise ValueError(
-                    "Plotting requires a `variable=` argument on a NetCDF "
-                    f"container. Available: {available}. Or call "
-                    "`nc.get_variable('name').plot(...)`."
-                )
-            subset = nc.get_variable(variable)
-            return subset.plot(
-                selectors=selectors,
-                colour=colour,
-                facet=facet,
-                coords=coords,
-                kind=kind,
-                animate=animate,
-                chunks=chunks,
-                basemap=basemap,
-                exclude_value=exclude_value,
-                title=title,
-                ax=ax,
-                figsize=figsize,
+        if nc._is_md_array and not nc._is_subset and nc.band_count == 0:
+            return self._delegate_to_variable(
+                nc, variable,
+                selectors=selectors, colour=colour, facet=facet, coords=coords,
+                kind=kind, animate=animate, chunks=chunks, basemap=basemap,
+                exclude_value=exclude_value, title=title, ax=ax, figsize=figsize,
                 **kwargs,
             )
-
         if variable is not None and variable != nc._source_var_name:
             raise ValueError(
                 f"This subset is pinned to {nc._source_var_name!r}; cannot "
                 f"re-plot as {variable!r}. Call `plot` on the parent container."
             )
 
-        resolved_sel: dict[str, Any] = {}
-        if selectors.sel:
-            for dim_name, value in selectors.sel.items():
-                resolved_sel[dim_name] = value
-
-        if selectors.time is not None:
-            time_dim = self._resolve_time_dim_name(nc)
-            resolved_sel[time_dim] = selectors.time
-        if selectors.level is not None:
-            level_dim = self._resolve_level_dim_name(nc)
-            resolved_sel[level_dim] = selectors.level
-        if selectors.member is not None:
-            member_dim = self._resolve_member_dim_name(nc)
-            resolved_sel[member_dim] = selectors.member
-
-        if selectors.isel:
-            for dim_name, idx in selectors.isel.items():
-                if dim_name not in nc._band_dim_names:
-                    raise ValueError(
-                        f"isel dim {dim_name!r} is not a band dim of this "
-                        f"variable {list(nc._band_dim_names)!r}."
-                    )
-                dim_coords = nc._band_dim_values_map.get(dim_name)
-                if dim_coords is None:
-                    resolved_sel[dim_name] = idx
-                else:
-                    resolved_sel[dim_name] = dim_coords[idx]
-
+        resolved_sel = self._resolve_selectors(nc, selectors)
         faceting_active = facet.col is not None or facet.row is not None
         if faceting_active:
             self._validate_facet_dims(
-                nc,
-                col=facet.col,
-                row=facet.row,
-                col_wrap=facet.col_wrap,
+                nc, col=facet.col, row=facet.row, col_wrap=facet.col_wrap,
                 resolved_sel=resolved_sel,
             )
-
         animate_dim: str | None = None
         if animate is not None and animate is not False:
             animate_dim = self._resolve_animate_dim(
-                nc,
-                animate=animate,
-                faceting_active=faceting_active,
+                nc, animate=animate, faceting_active=faceting_active,
                 resolved_sel=resolved_sel,
             )
 
         pinned = nc
         for dim_name, value in resolved_sel.items():
             pinned = pinned.sel(**{dim_name: value})
-
-        # After pinning every selected dim the variable is 2-D, so the
-        # engine always renders the first (and only) flattened band.
-        flat_band = 0
         if (
             not faceting_active
             and animate_dim is None
@@ -233,8 +175,157 @@ class NetCDFPlot:
                 f"{resolved_sel}. Remaining shape: {pinned.shape}."
             )
 
-        analysis_kwargs: dict[str, Any] = dict(kwargs)
-        forwarded_kwargs = (
+        analysis_kwargs = self._build_render_kwargs(
+            pinned, colour=colour, coords=coords, kind=kind,
+            ax=ax, figsize=figsize, title=title, base_kwargs=kwargs,
+        )
+
+        # After pinning every selected dim the variable is 2-D, so the
+        # engine always renders the first (and only) flattened band.
+        if faceting_active:
+            stack, facet_kwargs = self._build_facet_stack(
+                pinned, col=facet.col, row=facet.row, col_wrap=facet.col_wrap,
+            )
+            analysis_kwargs["facet_kwargs"] = facet_kwargs
+            analysis_kwargs["_facet_stack"] = stack
+            result = pinned.analysis.plot(
+                band=0, exclude_value=exclude_value, basemap=basemap,
+                **analysis_kwargs,
+            )
+        elif animate_dim is not None:
+            result = self._render_animate(
+                pinned, animate_dim=animate_dim, analysis_kwargs=analysis_kwargs,
+                exclude_value=exclude_value, basemap=basemap,
+            )
+        else:
+            if chunks is not None:
+                analysis_kwargs["_chunks"] = chunks
+            else:
+                self._maybe_log_lazy_hint(pinned)
+            result = pinned.analysis.plot(
+                band=0, exclude_value=exclude_value, basemap=basemap,
+                **analysis_kwargs,
+            )
+
+        if not colour.add_colorbar:
+            self._remove_colorbar(result)
+        return result
+
+    def _delegate_to_variable(
+        self, nc: "NetCDF", variable: str | None, **plot_kwargs: Any
+    ) -> Any:
+        """Drill into ``variable`` on a root MDIM container, then re-dispatch :meth:`run`.
+
+        Args:
+            nc: The root MDIM container (``band_count == 0``).
+            variable: Variable name to extract. Required here — a
+                container has no single 2-D slice to plot.
+            **plot_kwargs: Every other :meth:`NetCDF.plot` kwarg,
+                forwarded verbatim to ``subset.plot(...)``.
+
+        Returns:
+            Whatever ``subset.plot(...)`` returns (an ``ArrayGlyph`` /
+            ``FacetGrid`` from cleopatra).
+
+        Raises:
+            ValueError: If ``variable`` is ``None`` — the message lists
+                the available variable names.
+        """
+        if variable is None:
+            raise ValueError(
+                "Plotting requires a `variable=` argument on a NetCDF "
+                f"container. Available: {nc.variable_names}. Or call "
+                "`nc.get_variable('name').plot(...)`."
+            )
+        return nc.get_variable(variable).plot(**plot_kwargs)
+
+    def _resolve_selectors(
+        self, nc: "NetCDF", selectors: Selectors
+    ) -> dict[str, Any]:
+        """Flatten a :class:`Selectors` into a ``{dim_name: label}`` dict.
+
+        Merges, in priority order: the raw ``sel`` dict, then the
+        ``time`` / ``level`` / ``member`` convenience aliases (each
+        resolved to its actual band-dim name), then ``isel`` (converted
+        from positional index to label via the dim's coord array, or
+        kept as a raw index when the dim has no coords). Later sources
+        win on key collision.
+
+        Args:
+            nc: The variable subset whose band dims are being selected.
+            selectors: The :class:`Selectors` instance (or ``Selectors()``
+                when the caller passed ``None``).
+
+        Returns:
+            dict[str, Any]: ``{band_dim_name: coord_label_or_index}``
+            for every dim the caller pinned. Empty when no selector was
+            given.
+
+        Raises:
+            ValueError: If an ``isel`` key is not a band dim of ``nc``.
+        """
+        resolved: dict[str, Any] = {}
+        if selectors.sel:
+            resolved.update(selectors.sel)
+        if selectors.time is not None:
+            resolved[self._resolve_time_dim_name(nc)] = selectors.time
+        if selectors.level is not None:
+            resolved[self._resolve_level_dim_name(nc)] = selectors.level
+        if selectors.member is not None:
+            resolved[self._resolve_member_dim_name(nc)] = selectors.member
+        if selectors.isel:
+            for dim_name, idx in selectors.isel.items():
+                if dim_name not in nc._band_dim_names:
+                    raise ValueError(
+                        f"isel dim {dim_name!r} is not a band dim of this "
+                        f"variable {list(nc._band_dim_names)!r}."
+                    )
+                dim_coords = nc._band_dim_values_map.get(dim_name)
+                resolved[dim_name] = idx if dim_coords is None else dim_coords[idx]
+        return resolved
+
+    def _build_render_kwargs(
+        self,
+        pinned: "NetCDF",
+        *,
+        colour: ColourOpts,
+        coords: tuple | list | None,
+        kind: str,
+        ax: Any | None,
+        figsize: tuple[float, float] | None,
+        title: str | None,
+        base_kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Assemble the kwargs dict handed to :meth:`Analysis.plot`.
+
+        Starts from ``base_kwargs`` (the caller's ``**kwargs`` pass-through
+        to cleopatra), then layers on: the non-default :class:`ColourOpts`
+        fields (``cmap`` / ``vmin`` / ``vmax`` / ``levels`` / ``norm`` /
+        ``center`` / ``extend`` / ``cbar_kwargs``, plus ``robust`` only
+        when explicitly enabled — ``add_colorbar`` is intentionally *not*
+        forwarded; it's applied post-render via :meth:`_remove_colorbar`);
+        ``ax`` / ``figsize`` / ``title``; the curvilinear coord pair when
+        one resolves; and the ``kind`` dispatch hint. A ``rgb=None``
+        default is set so the engine's RGB branch stays off.
+
+        Args:
+            pinned: The 2-D variable subset being rendered (needed for
+                curvilinear coord resolution).
+            colour: The caller's :class:`ColourOpts` (or ``ColourOpts()``).
+            coords: Explicit ``(x, y)`` coord spec from the caller, or
+                ``None`` (auto-detect from CF attrs / conventions).
+            kind: The render-kind hint (``"auto"`` / ``"imshow"`` / ...).
+            ax: Pre-existing matplotlib Axes, or ``None``.
+            figsize: Figure size tuple, or ``None``.
+            title: Plot title, or ``None``.
+            base_kwargs: The caller's leftover ``**kwargs`` (forwarded
+                verbatim to cleopatra).
+
+        Returns:
+            dict[str, Any]: The merged kwargs dict for the engine call.
+        """
+        out: dict[str, Any] = dict(base_kwargs)
+        for key, value in (
             ("cmap", colour.cmap),
             ("vmin", colour.vmin),
             ("vmax", colour.vmax),
@@ -246,80 +337,31 @@ class NetCDFPlot:
             ("ax", ax),
             ("figsize", figsize),
             ("title", title),
-        )
-        for key, value in forwarded_kwargs:
+        ):
             if value is not None:
-                analysis_kwargs[key] = value
-        # `robust` carries a default of False; only forward when the caller
-        # explicitly enables it. `add_colorbar` is the xarray-aligned switch
-        # for hiding the colorbar; cleopatra does not accept the kwarg
-        # directly, so we forward `True` as a no-op and apply
-        # ``add_colorbar=False`` post-render via :meth:`_remove_colorbar`.
+                out[key] = value
         if colour.robust:
-            analysis_kwargs["robust"] = True
+            out["robust"] = True
 
         # Curvilinear coord resolution. Priority (highest first):
         # 1. Explicit user `coords=`.
-        # 2. CF `coordinates` attribute on the variable + well-known
-        #    conventions (XLAT/XLONG, lat_rho/lon_rho, nav_lat/nav_lon).
-        # When none resolves to a valid coord pair the engine falls
-        # back to `extent=self.bbox` (imshow).
-        resolved_coord_arrays = self._resolve_curvilinear_coords(
-            pinned, coords=coords,
-        )
-        if resolved_coord_arrays is not None:
-            analysis_kwargs["coords"] = resolved_coord_arrays
+        # 2. CF `coordinates` attribute + well-known conventions
+        #    (XLAT/XLONG, lat_rho/lon_rho, nav_lat/nav_lon).
+        # When nothing resolves the engine falls back to `extent=bbox`.
+        resolved_coords = self._resolve_curvilinear_coords(pinned, coords=coords)
+        if resolved_coords is not None:
+            out["coords"] = resolved_coords
 
-        # `kind` is forwarded to cleopatra's `ArrayGlyph.plot(kind=...)`
-        # dispatch. The default `"auto"` is harmless to forward (cleopatra
-        # treats it as the default) but adding it unconditionally would
-        # noise the kwargs dict; only forward non-defaults.
+        # `kind` forwards to cleopatra's `ArrayGlyph.plot(kind=...)`.
+        # Forward non-defaults; forward "auto" too when curvilinear coords
+        # are present so the routing decision shows up in the kwargs trail.
         if kind != "auto":
-            analysis_kwargs["kind"] = kind
-        elif resolved_coord_arrays is not None:
-            # When the renderer has curvilinear coords but the caller
-            # left `kind="auto"`, forward "auto" anyway so cleopatra can
-            # see the routing decision in the kwargs trail (helps when
-            # users introspect the call).
-            analysis_kwargs["kind"] = "auto"
+            out["kind"] = kind
+        elif resolved_coords is not None:
+            out["kind"] = "auto"
 
-        analysis_kwargs.setdefault("rgb", None)
-
-        if faceting_active:
-            stack, facet_kwargs = self._build_facet_stack(
-                pinned, col=facet.col, row=facet.row, col_wrap=facet.col_wrap,
-            )
-            analysis_kwargs["facet_kwargs"] = facet_kwargs
-            analysis_kwargs["_facet_stack"] = stack
-            result = pinned.analysis.plot(
-                band=flat_band,
-                exclude_value=exclude_value,
-                basemap=basemap,
-                **analysis_kwargs,
-            )
-        elif animate_dim is not None:
-            result = self._render_animate(
-                pinned,
-                animate_dim=animate_dim,
-                analysis_kwargs=analysis_kwargs,
-                exclude_value=exclude_value,
-                basemap=basemap,
-            )
-        else:
-            if chunks is not None:
-                analysis_kwargs["_chunks"] = chunks
-            else:
-                self._maybe_log_lazy_hint(pinned)
-            result = pinned.analysis.plot(
-                band=flat_band,
-                exclude_value=exclude_value,
-                basemap=basemap,
-                **analysis_kwargs,
-            )
-
-        if not colour.add_colorbar:
-            self._remove_colorbar(result)
-        return result
+        out.setdefault("rgb", None)
+        return out
 
     @staticmethod
     def _remove_colorbar(result: Any) -> None:
