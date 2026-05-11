@@ -113,6 +113,7 @@ nav:
   - Overview:
     - Codebase Map: overview/codebase-map.md
     - How it works: overview/how-it-works.md
+    - Architecture: overview/architecture.md
   - Architecture:
     - Diagrams: architecture/diagrams.md
   - Reference:
@@ -131,6 +132,7 @@ nav:
     - CRS helpers: reference/base/crs.md
     - NetCDF:
       - NetCDF Class: reference/netcdf/index.md
+      - Plotting: reference/netcdf/plot.md
       - Data Models: reference/netcdf/models.md
       - Metadata: reference/netcdf/metadata.md
       - Dimensions: reference/netcdf/dimensions.md
@@ -175,6 +177,7 @@ nav:
       - Basemap:
           - Basemap example: examples/basemap/basemap-example.ipynb
       - NetCDF:
+          - Plotting NetCDF data: tutorials/netcdf-plotting.md
           - Dask (ERA5 on AWS): examples/netcdf/dask-lazy-netcdf.ipynb
           - Dask — NetCDF (local data): examples/netcdf/lazy-netcdf-complete.ipynb
           - UGRID:

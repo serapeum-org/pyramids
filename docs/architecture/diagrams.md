@@ -74,13 +74,20 @@ flowchart LR
   redop[dataset._reduce_ops.resolve_dask_op]
   merge[dataset.merge.merge_rasters]
   eng[dataset.engines.* — IO · Spatial · Bands · Analysis · Cell · Vectorize · COG]
+  rendercore[dataset._plot_helpers: render_array · mesh_render]
 
   nc[netcdf.NetCDF]
+  ncplot[netcdf._plot.NetCDFPlot]
+  plotopts[netcdf._plot_options: Selectors · ColourOpts · FacetSpec]
   ugds[netcdf.ugrid.UgridDataset]
+  ugplot[netcdf.ugrid.plot: plot_mesh_data · plot_mesh_outline]
   lazy[netcdf._lazy._apply_unpack]
 
   fc[feature.FeatureCollection]
   geom[feature.geometry: Coords · GeometryCoords · create_polygon · create_point]
+
+  bm[basemap: add_basemap · get_provider]
+  cleo([cleopatra: ArrayGlyph · FacetGrid · MeshGlyph · styles.ColorScale · tiles])
 
   abs --> ds
   ds --> nc
@@ -89,8 +96,20 @@ flowchart LR
   dc --> redop
   dc --> merge
   nc --> lazy
+  nc --> ncplot
+  ncplot --> plotopts
+  ncplot --> rendercore
   ugds --> ds
+  ugds --> rendercore
+  ugplot --> cleo
+  ds --> rendercore
+  dc --> rendercore
+  eng --> rendercore
+  rendercore --> bm
+  rendercore --> cleo
+  bm --> cleo
   fc --> geom
+  fc --> bm
   io --> ds
   io --> nc
   io --> fc
@@ -126,12 +145,15 @@ classDiagram
     +to_file(path)
     +crop(mask)
     +to_crs(to_epsg)
+    +plot(band, rgb_options, basemap, ...)
+    +_resolve_plot_band(band, rgb)
   }
   class NetCDF {
     +variables
     +get_variable(name)
     +read_array(band, window, unpack)
     +time_stamp
+    +plot(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
   }
   class _Engine {
     <<abstract>>
@@ -140,7 +162,11 @@ classDiagram
   class IO
   class Spatial
   class Bands
-  class Analysis
+  class Analysis {
+    +stats()
+    +histogram()
+    +plot(band, ...)
+  }
   class Cell
   class Vectorize
   class COG
@@ -161,6 +187,112 @@ classDiagram
   Dataset *-- Cell : ds.cell
   Dataset *-- Vectorize : ds.vectorize
   Dataset *-- COG : ds.cog
+```
+
+## UML Class: Plotting layer
+
+`Dataset.plot` / `NetCDF.plot` / `DatasetCollection.plot` / `UgridDataset.plot` are thin facades.
+The shared `pyramids.dataset._plot_helpers` module owns the cleopatra dispatch (`render_array` for
+arrays, `mesh_render` for meshes); `pyramids.netcdf._plot.NetCDFPlot` does the NetCDF-specific
+variable/selector/curvilinear/facet/animate resolution and feeds `render_array`; `Selectors` /
+`ColourOpts` / `FacetSpec` (in `pyramids.netcdf._plot_options`, re-exported from `pyramids` and
+`pyramids.netcdf`) are the grouped option dataclasses; `pyramids.basemap.add_basemap` is a thin
+wrapper over `cleopatra.tiles.add_tiles`.
+
+```mermaid
+classDiagram
+  class Dataset {
+    +plot(band, rgb_options, basemap, ...)
+    +_resolve_plot_band(band, rgb)
+  }
+  class NetCDF {
+    +plot(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
+  }
+  class DatasetCollection {
+    +plot(...)
+  }
+  class UgridDataset {
+    +plot(variable_name, ...)
+    +plot_outline(...)
+  }
+  class Analysis {
+    +plot(band, ...)
+  }
+  class NetCDFPlot {
+    +run(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
+    -_resolve_selectors()
+    -_build_render_kwargs()
+    -_build_facet_stack()
+    -_resolve_animate_dim()
+    -_render_animate()
+    -_resolve_curvilinear_coords()
+    -_remove_colorbar()
+  }
+  class plot_helpers {
+    <<module pyramids.dataset._plot_helpers>>
+    +render_array(arr, extent, coords, mode, facet_kwargs, data_getter, basemap, ...)
+    +mesh_render(mesh, data, location, basemap, ...)
+  }
+  class Selectors {
+    <<frozen dataclass>>
+    +time
+    +level
+    +member
+    +sel
+    +isel
+  }
+  class ColourOpts {
+    <<frozen dataclass>>
+    +cmap
+    +vmin
+    +vmax
+    +robust
+    +levels
+    +norm
+    +center
+    +extend
+    +add_colorbar
+    +cbar_kwargs
+  }
+  class FacetSpec {
+    <<frozen dataclass>>
+    +col
+    +row
+    +col_wrap
+  }
+  class add_basemap {
+    <<pyramids.basemap>>
+    +add_basemap(ax, crs, source, ...)
+    +get_provider(name)
+  }
+  class ArrayGlyph {
+    <<cleopatra>>
+    +plot(kind)
+    +facet(col, row, col_wrap)
+    +animate(values, data_getter)
+  }
+  class MeshGlyph {
+    <<cleopatra>>
+  }
+  class cleopatra_tiles {
+    <<cleopatra.tiles>>
+    +add_tiles(ax, source, crs, ...)
+    +get_provider(name)
+  }
+
+  Dataset ..> Analysis : ds.analysis.plot
+  Analysis ..> plot_helpers : render_array
+  NetCDF ..> NetCDFPlot : delegates plot
+  NetCDFPlot ..> plot_helpers : render_array
+  NetCDFPlot ..> Selectors : uses
+  NetCDFPlot ..> ColourOpts : uses
+  NetCDFPlot ..> FacetSpec : uses
+  DatasetCollection ..> plot_helpers : render_array(mode="animate")
+  UgridDataset ..> plot_helpers : mesh_render
+  plot_helpers ..> ArrayGlyph : builds
+  plot_helpers ..> MeshGlyph : builds (mesh_render)
+  plot_helpers ..> add_basemap : basemap overlay
+  add_basemap ..> cleopatra_tiles : delegates
 ```
 
 ## UML Class: Vector Core
@@ -286,6 +418,8 @@ sequenceDiagram
 
 ## Dependency Graph (Modules)
 
+An arrow `X --> Y` reads "module `X` is imported by `Y`".
+
 ```mermaid
 flowchart LR
   abstract_dataset --> dataset
@@ -307,6 +441,18 @@ flowchart LR
   feature_geometry[feature.geometry] --> feature
   reduce_ops[dataset._reduce_ops] --> dataset_collection
   merge_mod[dataset.merge] --> dataset_collection
+  plot_helpers[dataset._plot_helpers] --> engines
+  plot_helpers --> dataset_collection
+  plot_helpers --> ugrid
+  netcdf_plot_options[netcdf._plot_options] --> netcdf_plot
+  netcdf_plot_options --> netcdf
+  plot_helpers --> netcdf_plot[netcdf._plot]
+  netcdf_plot --> netcdf
+  basemap_mod[basemap] --> plot_helpers
+  basemap_mod --> feature
+  cleopatra_pkg([cleopatra · cleopatra.tiles]) --> plot_helpers
+  cleopatra_pkg --> basemap_mod
+  cleopatra_pkg --> ugrid
 ```
 
 ## Detailed Class Diagram
@@ -364,6 +510,8 @@ classDiagram
         +crop(mask, touch)
         +apply(ufunc)
         +overlay(classes_map, exclude_value)
+        +plot(band, rgb_options, basemap, ...)
+        +_resolve_plot_band(band, rgb)
     }
 
     %% NetCDF: raster class specialised for NetCDF variables
@@ -381,6 +529,7 @@ classDiagram
         +create_from_array(arr, geo, ...)
         +add_variable(dataset, variable_name)
         +remove_variable(variable_name)
+        +plot(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
     }
 
     %% UgridDataset
@@ -392,7 +541,8 @@ classDiagram
         +create_from_arrays(...)
         +to_dataset(...)
         +to_geodataframe()
-        +plot()
+        +plot(variable_name, ...)
+        +plot_outline(...)
     }
 
     %% DatasetCollection: lazy temporal stack
@@ -406,6 +556,49 @@ classDiagram
         +groupby(labels)
         +crop · to_crs · align · apply
         +to_file · to_zarr · to_kerchunk · merge
+        +plot(...)
+    }
+
+    %% Plotting layer (shared cleopatra dispatch + NetCDF resolver + option dataclasses)
+    class plot_helpers_module {
+        <<module pyramids.dataset._plot_helpers>>
+        +render_array(arr, extent, coords, mode, facet_kwargs, data_getter, basemap, ...)
+        +mesh_render(mesh, data, location, basemap, ...)
+    }
+    class netcdf_NetCDFPlot {
+        +run(variable, *, selectors, colour, facet, coords, kind, animate, chunks, ...)
+        -_resolve_selectors()
+        -_build_render_kwargs()
+        -_build_facet_stack()
+        -_resolve_animate_dim()
+        -_render_animate()
+        -_resolve_curvilinear_coords()
+        -_remove_colorbar()
+    }
+    class netcdf_Selectors {
+        <<frozen dataclass>>
+        +time · level · member · sel · isel
+    }
+    class netcdf_ColourOpts {
+        <<frozen dataclass>>
+        +cmap · vmin · vmax · robust · levels
+        +norm · center · extend · add_colorbar · cbar_kwargs
+    }
+    class netcdf_FacetSpec {
+        <<frozen dataclass>>
+        +col · row · col_wrap
+    }
+    class basemap_module {
+        <<module pyramids.basemap>>
+        +add_basemap(ax, crs, source, ...)
+        +get_provider(name)
+    }
+    class cleopatra_pkg {
+        <<external cleopatra>>
+        +ArrayGlyph.plot(kind) · ArrayGlyph.facet() · ArrayGlyph.animate(data_getter)
+        +MeshGlyph
+        +styles.ColorScale
+        +tiles.add_tiles() · tiles.get_provider()
     }
 
     %% Engines (Dataset collaborators)
@@ -487,4 +680,18 @@ classDiagram
     feature_FeatureCollection ..> feature_Coords : uses
     feature_FeatureCollection ..> feature_GeometryCoords : uses
     config_Config ..> dataset_Dataset : initialises GDAL settings
+
+    %% plotting layer relations
+    netcdf_NetCDF ..> netcdf_NetCDFPlot : delegates plot()
+    netcdf_NetCDFPlot ..> netcdf_Selectors : uses
+    netcdf_NetCDFPlot ..> netcdf_ColourOpts : uses
+    netcdf_NetCDFPlot ..> netcdf_FacetSpec : uses
+    netcdf_NetCDFPlot ..> plot_helpers_module : render_array
+    engines_Analysis ..> plot_helpers_module : render_array
+    collection_DatasetCollection ..> plot_helpers_module : render_array(mode="animate")
+    ugrid_UgridDataset ..> plot_helpers_module : mesh_render
+    feature_FeatureCollection ..> basemap_module : add_basemap
+    plot_helpers_module ..> basemap_module : basemap overlay
+    plot_helpers_module ..> cleopatra_pkg : ArrayGlyph / MeshGlyph
+    basemap_module ..> cleopatra_pkg : cleopatra.tiles
 ```

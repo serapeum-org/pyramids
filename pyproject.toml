@@ -38,14 +38,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# `cleopatra` is pinned to the open PR branch (serapeum-org/cleopatra#112) carrying the NetCDF
-# plotting work; revert to a versioned `cleopatra>=...` spec once that PR is released to PyPI.
-viz = [
-    "cleopatra @ git+https://github.com/serapeum-org/cleopatra.git@netcdf/add-netcdf-plotting-logic",
-    "mercantile>=1.2.0",
-    "xyzservices>=2024.4.0",
-    "Pillow>=9.0.0",
-]
+viz = ["cleopatra[tiles]>=0.8.0"]
 lazy = [
     "dask>=2024.1.0",
     "distributed>=2024.1.0",

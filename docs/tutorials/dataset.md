@@ -37,7 +37,7 @@ to start exploring the functionality of the dataset module `read_file` method to
 
 path = "examples/data/dem/DEM5km_Rhine_burned_fill.tif"
 dataset = Dataset.read_file(path)
-dataset.plot(title="Rhine river basin", ticks_spacing=500,cmap="terrain", color_scale=1, vmin=0,
+dataset.plot(title="Rhine river basin", ticks_spacing=500,cmap="terrain", color_scale="linear", vmin=0,
          cbar_label="Elevation (m)")
 ```
 ![rhine_dem](./../_images/dataset/rhine_dem.png)
@@ -53,7 +53,7 @@ dataset.plot(title="Rhine river basin", ticks_spacing=500,cmap="terrain", color_
 
 path = "examples/data/dem/dem5km_rhine.asc"
 dataset = Dataset.read_file(path)
-dataset.plot(title="Rhine river basin", ticks_spacing=500,cmap="terrain", color_scale=1, vmin=0,
+dataset.plot(title="Rhine river basin", ticks_spacing=500,cmap="terrain", color_scale="linear", vmin=0,
             cbar_label="Elevation (m)")
 ```
 - For netcdf file
@@ -62,7 +62,7 @@ dataset.plot(title="Rhine river basin", ticks_spacing=500,cmap="terrain", color_
 
 path = "examples/data/dem/dem5km_rhine.nc"
 dataset = Dataset.read_file(path)
-dataset.plot(title="Rhine river basin", ticks_spacing=500,cmap="terrain", color_scale=1, vmin=0,
+dataset.plot(title="Rhine river basin", ticks_spacing=500,cmap="terrain", color_scale="linear", vmin=0,
             cbar_label="Elevation (m)")
 ```
 
@@ -392,7 +392,7 @@ Raster.rasterLike(src, arr2, path)
 ```python
 
 dst = gdal.Open(path)
-Map.plot(dst, title="Flow Accumulation", color_scale=1)
+Map.plot(dst, title="Flow Accumulation", color_scale="linear")
 ```
 
 ![](./../_images/dataset/raster_like.png)
@@ -593,7 +593,8 @@ dataset.to_file("examples/data/dem/dem5km_rhine.nc", driver="netcdf")
 ```python
 
 dataset = Dataset.read_file(path)
-fig, ax = dataset.plot(
+# Dataset.plot returns a cleopatra ArrayGlyph; use cleo.fig / cleo.ax to drop down to matplotlib.
+cleo = dataset.plot(
     band=0, figsize=(10, 5), title="Noah daily Precipitation 1979-01-01", cbar_label="Raindall mm/day", vmax=30,
     cbar_length=0.85
 )
@@ -737,7 +738,7 @@ Map.plot(
     dst_arr,
     nodataval=dst_nodataval,
     title="Before Cropping-Evapotranspiration",
-    color_scale=1,
+    color_scale="linear",
     ticks_spacing=0.01,
 )
 ```
@@ -751,7 +752,7 @@ Map.plot(
     dst_arr_cropped,
     nodataval=nodataval,
     title="Cropped array",
-    color_scale=1,
+    color_scale="linear",
     ticks_spacing=0.01,
 )
 ```
@@ -765,7 +766,7 @@ Map.plot(
 ```python
 
 dst_cropped = Raster.cropAlligned(dst, src)
-Map.plot(dst_cropped, title="Cropped raster", color_scale=1, ticks_spacing=0.01)
+Map.plot(dst_cropped, title="Cropped raster", color_scale="linear", ticks_spacing=0.01)
 ```
 
 ![](./../_images/dataset/cropped_aligned_raster.png)
@@ -776,7 +777,7 @@ Map.plot(dst_cropped, title="Cropped raster", color_scale=1, ticks_spacing=0.01)
 ```python
 
 dst_cropped = Raster.cropAlligned(dst, arr, mask_noval=nodataval)
-Map.plot(dst_cropped, title="Cropped array", color_scale=1, ticks_spacing=0.01)
+Map.plot(dst_cropped, title="Cropped array", color_scale="linear", ticks_spacing=0.01)
 ```
 ![](./../_images/dataset/crop_raster_using_array.png)
 
@@ -805,7 +806,7 @@ RasterA = gdal.Open(aligned_raster)
 epsg, geotransform = Raster.getProjectionData(RasterA)
 print("Raster EPSG = " + str(epsg))
 print("Raster Geotransform = " + str(geotransform))
-Map.plot(RasterA, title="Raster to be cropped", color_scale=1, ticks_spacing=1)
+Map.plot(RasterA, title="Raster to be cropped", color_scale="linear", ticks_spacing=1)
 
 Raster EPSG = 32618
 Raster Geotransform = (432968.1206170588, 4000.0, 0.0, 520007.787999178, 0.0, -4000.0)
@@ -822,7 +823,7 @@ dst = Raster.crop(RasterA, soil_raster)
 dst_epsg, dst_geotransform = Raster.getProjectionData(dst)
 print("resulted EPSG = " + str(dst_epsg))
 print("resulted Geotransform = " + str(dst_geotransform))
-Map.plot(dst, title="Cropped Raster", color_scale=1, ticks_spacing=1)
+Map.plot(dst, title="Cropped Raster", color_scale="linear", ticks_spacing=1)
 
 resulted EPSG = 32618
 resulted Geotransform = (432968.1206170588, 4000.0, 0.0, 520007.787999178, 0.0, -4000.0)
@@ -854,7 +855,7 @@ epsg, geotransform = Raster.getProjectionData(soil_raster)
 print("Before alignment EPSG = " + str(epsg))
 print("Before alignment Geotransform = " + str(geotransform))
 # cell_size = geotransform[1]
-Map.plot(soil_raster, title="To be aligned", color_scale=1, ticks_spacing=1)
+Map.plot(soil_raster, title="To be aligned", color_scale="linear", ticks_spacing=1)
 
 Before alignment EPSG = 3116
 Before alignment Geotransform = (830606.744300001, 30.0, 0.0, 1011325.7178760837, 0.0, -30.0)
@@ -868,7 +869,7 @@ soil_aligned = Raster.matchRasterAlignment(src, soil_raster)
 New_epsg, New_geotransform = Raster.getProjectionData(soil_aligned)
 print("After alignment EPSG = " + str(New_epsg))
 print("After alignment Geotransform = " + str(New_geotransform))
-Map.plot(soil_aligned, title="After alignment", color_scale=1, ticks_spacing=1)
+Map.plot(soil_aligned, title="After alignment", color_scale="linear", ticks_spacing=1)
 
 After alignment EPSG = 32618
 After alignment Geotransform = (432968.1206170588, 4000.0, 0.0, 520007.787999178, 0.0, -4000.0)
@@ -1043,7 +1044,7 @@ def classify(val):
 ```
 
     dst = Raster.mapAlgebra(src, classify)
-    Map.plot(dst, title="Classes", color_scale=4, ticks_spacing=1)
+    Map.plot(dst, title="Classes", color_scale="boundary-norm", ticks_spacing=1)
 
 ![](./../_images/dataset/map_algebra.png)
 
