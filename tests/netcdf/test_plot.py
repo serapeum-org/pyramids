@@ -2295,10 +2295,22 @@ class TestNetCDFPlotAnimate:
         assert isinstance(result, ArrayGlyph)
 
     def test_animate_unknown_dim_raises(self):
-        """``animate="bogus"`` lists available band dims in the error message."""
+        """``animate="bogus"`` raises ``KeyError`` (unknown dim name, xarray-style) (N4).
+
+        Test scenario:
+            N4 — an unknown *dim name* on ``animate=`` is a missing-key
+            error, so it raises ``KeyError`` (mirroring xarray's
+            ``ds.sel(unknown_dim=...)``), distinct from the ``ValueError``
+            used for invalid *combinations* (pin conflict, faceting
+            conflict, ``animate=True`` ambiguity). The message still
+            lists the available band dims.
+        """
         nc = _make_3d_nc()
-        with pytest.raises(ValueError, match=r"animate='bogus'"):
+        with pytest.raises(KeyError, match=r"animate='bogus'") as exc_info:
             nc.plot(variable="t2m", animate="bogus")
+        assert "time" in str(exc_info.value), (
+            f"error should list the available band dims, got: {exc_info.value}"
+        )
 
     def test_animate_with_col_raises_mutually_exclusive(self):
         """``animate=True`` together with ``col=`` is rejected up-front."""

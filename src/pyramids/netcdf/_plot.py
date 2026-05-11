@@ -714,10 +714,13 @@ class NetCDFPlot:
             str: The resolved band-dim name to animate along.
 
         Raises:
-            ValueError: On any of the failure modes documented above —
-                empty band dims, ``animate=True`` with multiple band
-                dims, unknown string name, conflict with faceting, or
-                conflict with a selector pin.
+            KeyError: When ``animate`` is a string that does not name
+                one of the variable's band dims (mirrors xarray's
+                ``KeyError`` for an unknown dimension name).
+            ValueError: On the other failure modes — empty band dims,
+                ``animate=True`` with multiple/zero free band dims, a
+                non-``True``/non-``str`` value, conflict with faceting,
+                or conflict with a selector pin.
 
         Examples:
             - ``animate=True`` resolves to the variable's only free
@@ -744,8 +747,7 @@ class NetCDFPlot:
 
             - A string ``animate=`` value is validated against the
               variable's band-dim names. An unknown name raises
-              :class:`ValueError`; a matching name is returned
-              unchanged:
+              :class:`KeyError`; a matching name is returned unchanged:
 
                 ```python
                 >>> import numpy as np
@@ -763,7 +765,7 @@ class NetCDFPlot:
                 ... )
                 Traceback (most recent call last):
                     ...
-                ValueError: `animate='bogus'` is not a band dim...
+                KeyError: ...not a band dim...
 
                 ```
         """
@@ -797,7 +799,12 @@ class NetCDFPlot:
                     f"or `None`. Got {animate!r}."
                 )
             if animate not in nc._band_dim_names:
-                raise ValueError(
+                # Unknown *dim name* — KeyError, mirroring xarray's
+                # convention for `ds.sel(unknown_dim=...)`. (Pin
+                # conflicts and disambiguation failures below stay
+                # ValueError — those are invalid *combinations*, not
+                # missing names.)
+                raise KeyError(
                     f"`animate={animate!r}` is not a band dim of this "
                     f"variable. Available: {list(nc._band_dim_names)}."
                 )
