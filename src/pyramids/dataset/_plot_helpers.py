@@ -386,9 +386,11 @@ def mesh_render(
             ``None``.
 
     Examples:
-        Render a single-triangle mesh with face-centred data. Tagged
-        ``+SKIP`` because the call requires the optional ``[viz]`` extra
-        and a real matplotlib backend:
+        - Render a single-triangle mesh with face-centred data,
+          mirroring the dispatch :meth:`UgridDataset.plot
+          <pyramids.netcdf.ugrid.dataset.UgridDataset.plot>` performs
+          internally. Tagged ``+SKIP`` because the call requires the
+          optional ``[viz]`` extra and a real matplotlib backend:
 
             ```python
             >>> import numpy as np
@@ -404,6 +406,26 @@ def mesh_render(
             ...     data=np.array([1.5]),
             ...     location="face",
             ... )
+
+            ```
+
+        - The ``basemap=`` preconditions fire before any cleopatra
+          import, so the missing-``basemap_epsg`` guard is runnable
+          even without the ``[viz]`` extra. Forgetting the CRS while
+          asking for a basemap raises :class:`ValueError`:
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset._plot_helpers import mesh_render
+            >>> mesh_render(  # doctest: +IGNORE_EXCEPTION_DETAIL
+            ...     mesh=object(),
+            ...     data=np.array([1.0]),
+            ...     basemap=True,
+            ...     basemap_epsg=None,
+            ... )
+            Traceback (most recent call last):
+                ...
+            ValueError: Dataset must have a CRS (epsg) to use basemap.
 
             ```
     """

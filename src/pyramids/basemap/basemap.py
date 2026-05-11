@@ -236,6 +236,12 @@ def add_basemap(
     them into a single image, optionally reprojects to the data's CRS,
     and renders the image underneath the data layer.
 
+    Note:
+        Planned to delegate to :func:`cleopatra.tiles.add_tiles` once
+        the cleopatra release shipping the C-6 helper is pinned in the
+        ``[viz]`` extra; see the module docstring's PR-6 / C-6
+        migration note for details.
+
     Args:
         ax (matplotlib.axes.Axes):
             The axes to add the basemap to. Must have data already

@@ -961,6 +961,74 @@ class NetCDF(Dataset):
               ValueError: Cannot facet on 'time'...
 
               ```
+
+            - Animate along the primary band dim with ``animate=True``.
+              The facade resolves the single free band dim (``time``
+              here) and streams frames lazily via a per-frame
+              ``data_getter`` so the animation never builds a 3-D stack:
+
+              ```python
+              >>> cleo = nc_t.plot(  # doctest: +SKIP
+              ...     variable="t2m", animate=True,
+              ... )
+
+              ```
+
+            - Name the animation dim explicitly. The string must match
+              one of the variable's band-dim names. ``animate="time"``
+              is equivalent to ``animate=True`` when ``time`` is the
+              only free band dim; the explicit form is required on
+              variables with more than one free band dim:
+
+              ```python
+              >>> cleo = nc_t.plot(  # doctest: +SKIP
+              ...     variable="t2m", animate="time",
+              ... )
+
+              ```
+
+            - An unknown ``animate=`` dim name is rejected before any
+              I/O. The error message lists the available band dims so
+              typos are easy to spot:
+
+              ```python
+              >>> nc_t.plot(  # doctest: +IGNORE_EXCEPTION_DETAIL
+              ...     variable="t2m", animate="bogus",
+              ... )
+              Traceback (most recent call last):
+                  ...
+              ValueError: `animate='bogus'` is not a band dim...
+
+              ```
+
+            - Pinning a dim and then asking to animate over it
+              raises :class:`ValueError`. The selector would collapse
+              the dim before the animation could iterate over it, so
+              the conflict is rejected up-front:
+
+              ```python
+              >>> nc_t.plot(  # doctest: +IGNORE_EXCEPTION_DETAIL
+              ...     variable="t2m", time=0, animate="time",
+              ... )
+              Traceback (most recent call last):
+                  ...
+              ValueError: Cannot animate on 'time'...
+
+              ```
+
+            - Switch the static-plot path to a lazy dask read with
+              ``chunks=``. Only the rendered slice is materialised —
+              useful when the variable is very large and a full eager
+              read would waste memory. ``chunks=`` accepts any spec
+              that :meth:`read_array` understands (int, tuple, dict,
+              or ``"auto"``):
+
+              ```python
+              >>> cleo = nc_t.plot(  # doctest: +SKIP
+              ...     variable="t2m", chunks={"x": 5, "y": 5},
+              ... )
+
+              ```
         """
         forbidden_kwargs = {
             "rgb": (
@@ -1481,6 +1549,50 @@ class NetCDF(Dataset):
                 empty band dims, ``animate=True`` with multiple band
                 dims, unknown string name, conflict with faceting, or
                 conflict with a selector pin.
+
+        Examples:
+            - ``animate=True`` resolves to the variable's only free
+              band dim. On a 3-D ``(time, y, x)`` variable that is
+              ``"time"``:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+                >>> nc = NetCDF.create_from_array(
+                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     variable_name="t2m",
+                ... )
+                >>> sub = nc.get_variable("t2m")
+                >>> sub._resolve_animate_dim(
+                ...     animate=True, faceting_active=False, resolved_sel={},
+                ... )
+                'time'
+
+                ```
+
+            - A string ``animate=`` value is validated against the
+              variable's band-dim names. An unknown name raises
+              :class:`ValueError`; a matching name is returned
+              unchanged:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+                >>> nc = NetCDF.create_from_array(
+                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     variable_name="t2m",
+                ... )
+                >>> sub = nc.get_variable("t2m")
+                >>> sub._resolve_animate_dim(  # doctest: +IGNORE_EXCEPTION_DETAIL
+                ...     animate="bogus", faceting_active=False, resolved_sel={},
+                ... )
+                Traceback (most recent call last):
+                    ...
+                ValueError: `animate='bogus'` is not a band dim...
+
+                ```
         """
         if faceting_active:
             raise ValueError(
@@ -1562,6 +1674,55 @@ class NetCDF(Dataset):
                 wrapping the streamed ``FuncAnimation``. The matplotlib
                 animation object is reachable via the glyph's matplotlib
                 figure.
+
+        Examples:
+            - Basic per-frame lazy animation over a 3-D variable.
+              Tagged ``+SKIP`` because the render call touches
+              cleopatra; the surrounding setup runs eagerly so the
+              ``data_getter`` plumbing can be verified without
+              materialising the full stack:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+                >>> nc = NetCDF.create_from_array(
+                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     variable_name="t2m",
+                ... )
+                >>> sub = nc.get_variable("t2m")
+                >>> cleo = sub._render_animate(  # doctest: +SKIP
+                ...     animate_dim="time",
+                ...     analysis_kwargs={},
+                ...     exclude_value=None,
+                ...     basemap=None,
+                ... )
+
+                ```
+
+            - When the animation dim is a CF-decoded time axis the
+              helper hands ``cftime``/``datetime`` labels to cleopatra
+              so the animation tick labels render as dates instead of
+              raw integers. Same ``+SKIP`` rationale — the render is
+              cleopatra-bound:
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+                >>> nc = NetCDF.create_from_array(
+                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     variable_name="t2m",
+                ... )
+                >>> sub = nc.get_variable("t2m")
+                >>> cleo = sub._render_animate(  # doctest: +SKIP
+                ...     animate_dim="time",
+                ...     analysis_kwargs={"cmap": "viridis"},
+                ...     exclude_value=None,
+                ...     basemap=None,
+                ... )
+
+                ```
         """
         dim_values_raw = self._band_dim_values_map.get(animate_dim)
         if dim_values_raw is None:
@@ -1648,6 +1809,68 @@ class NetCDF(Dataset):
 
         Returns:
             None
+
+        Examples:
+            - Small variables stay silent. The 3x4x4 float32 array
+              is far below the 100 MB threshold so no log record is
+              emitted (the helper returns ``None`` either way):
+
+                ```python
+                >>> import logging
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+                >>> nc = NetCDF.create_from_array(
+                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     variable_name="t2m",
+                ... )
+                >>> sub = nc.get_variable("t2m")
+                >>> logger = logging.getLogger("pyramids.netcdf.netcdf")
+                >>> records: list[logging.LogRecord] = []
+                >>> handler = logging.Handler()
+                >>> handler.emit = records.append
+                >>> logger.addHandler(handler)
+                >>> logger.setLevel(logging.INFO)
+                >>> sub._maybe_log_lazy_hint() is None
+                True
+                >>> logger.removeHandler(handler)
+                >>> [r for r in records if "chunks=" in r.getMessage()]
+                []
+
+                ```
+
+            - Variables above the 100 MB threshold trigger one INFO
+              log record naming the variable and shape. The hint
+              points the caller at ``chunks=`` but does not change
+              the read path — opt-in stays the contract:
+
+                ```python
+                >>> import logging
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> from pyramids.netcdf import netcdf as netcdf_mod
+                >>> arr = np.random.rand(3, 4, 4).astype(np.float32)
+                >>> nc = NetCDF.create_from_array(
+                ...     arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ...     variable_name="t2m",
+                ... )
+                >>> sub = nc.get_variable("t2m")
+                >>> original = netcdf_mod._LAZY_HINT_THRESHOLD_BYTES
+                >>> netcdf_mod._LAZY_HINT_THRESHOLD_BYTES = 1
+                >>> logger = logging.getLogger("pyramids.netcdf.netcdf")
+                >>> records: list[logging.LogRecord] = []
+                >>> handler = logging.Handler()
+                >>> handler.emit = records.append
+                >>> logger.addHandler(handler)
+                >>> logger.setLevel(logging.INFO)
+                >>> sub._maybe_log_lazy_hint() is None
+                True
+                >>> logger.removeHandler(handler)
+                >>> netcdf_mod._LAZY_HINT_THRESHOLD_BYTES = original
+                >>> any("chunks=" in r.getMessage() for r in records)
+                True
+
+                ```
         """
         try:
             shape = self.shape
