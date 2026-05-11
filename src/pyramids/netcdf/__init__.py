@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pyramids.netcdf._plot_options import ColourOpts, FacetSpec, Selectors
 from pyramids.netcdf.metadata import from_json, get_metadata, to_dict, to_json
 from pyramids.netcdf.models import (
     CFInfo,
@@ -23,6 +24,9 @@ __all__ = [
     "VariableInfo",
     "GroupInfo",
     "StructuralInfo",
+    "Selectors",
+    "ColourOpts",
+    "FacetSpec",
     "get_metadata",
     "to_json",
     "from_json",

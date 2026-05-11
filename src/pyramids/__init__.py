@@ -7,6 +7,7 @@ from importlib.metadata import version as _get_version
 
 from pyramids._configure import configure, configure_lazy_vector
 from pyramids.base.config import Config
+from pyramids.netcdf._plot_options import ColourOpts, FacetSpec, Selectors
 
 try:
     __version__ = _get_version(__name__)
@@ -16,4 +17,12 @@ except PackageNotFoundError:  # pragma: no cover
 config = Config()
 
 
-__all__ = ["configure", "configure_lazy_vector", "config", "__version__"]
+__all__ = [
+    "configure",
+    "configure_lazy_vector",
+    "config",
+    "__version__",
+    "Selectors",
+    "ColourOpts",
+    "FacetSpec",
+]
