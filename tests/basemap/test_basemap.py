@@ -507,3 +507,82 @@ class TestCleopatraDelegation:
             f"{extra}. The PR-6 one-line delegation will not work until "
             "these are pushed upstream."
         )
+
+
+class TestAddBasemapSignatureStability:
+    """PR-6 — assert ``add_basemap``'s signature has not drifted.
+
+    Existing tests across the suite patch ``pyramids.basemap.basemap.
+    add_basemap`` with positional/kwargs combinations. Any signature
+    change here breaks those patches silently — pin the parameter set
+    so a future drift surfaces with a clear test failure.
+    """
+
+    EXPECTED_PARAMS = (
+        "ax",
+        "crs",
+        "source",
+        "zoom",
+        "alpha",
+        "attribution",
+        "zorder",
+        "interpolation",
+        "timeout",
+        "retries",
+    )
+
+    def test_add_basemap_parameter_names(self):
+        """Parameter names match the documented PR-6 contract.
+
+        Test scenario:
+            Compare the parameter names of ``add_basemap`` against the
+            frozen list in ``EXPECTED_PARAMS``. The order matters because
+            most call sites pass ``ax`` positionally — a rename or
+            reorder must surface here, not at a downstream caller.
+        """
+        import inspect
+
+        from pyramids.basemap.basemap import add_basemap
+
+        params = tuple(inspect.signature(add_basemap).parameters.keys())
+        assert params == self.EXPECTED_PARAMS, (
+            f"add_basemap signature changed; expected {self.EXPECTED_PARAMS}, "
+            f"got {params}. Update the PR-6 C-6 delegation contract."
+        )
+
+    def test_add_basemap_default_values(self):
+        """Default values for each parameter match the PR-6 contract.
+
+        Test scenario:
+            Confirm the documented defaults — ``crs=3857``,
+            ``zoom='auto'``, ``alpha=1.0``, ``attribution=True``,
+            ``zorder=-1``, ``interpolation='bilinear'``, ``timeout=10``,
+            ``retries=2``. A regression here means a caller's omitted
+            kwarg silently picks up a different value than before PR-6.
+        """
+        import inspect
+
+        from pyramids.basemap.basemap import add_basemap
+
+        sig = inspect.signature(add_basemap)
+        defaults = {
+            name: param.default
+            for name, param in sig.parameters.items()
+            if param.default is not inspect.Parameter.empty
+        }
+        expected = {
+            "crs": 3857,
+            "source": None,
+            "zoom": "auto",
+            "alpha": 1.0,
+            "attribution": True,
+            "zorder": -1,
+            "interpolation": "bilinear",
+            "timeout": 10,
+            "retries": 2,
+        }
+        for key, value in expected.items():
+            assert defaults.get(key) == value, (
+                f"Default for `{key}` drifted: expected {value!r}, got "
+                f"{defaults.get(key)!r}"
+            )

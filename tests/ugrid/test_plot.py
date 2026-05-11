@@ -125,3 +125,71 @@ class TestUgridDatasetPlotMethods:
         kw = mock_render.call_args.kwargs
         assert kw.get("location") == "face"
         assert kw.get("title") == "depth"
+
+    def test_dataset_plot_forwards_mesh_data_basemap_kwargs(self):
+        """Mesh, data and basemap kwargs all reach the helper.
+
+        Test scenario:
+            Patch ``mesh_render`` and verify the helper receives the
+            exact mesh topology and data array from the dataset, plus
+            forwarded ``cmap``/``basemap``/``basemap_epsg`` kwargs. This
+            guards the contract that ``UgridDataset.plot`` is a thin
+            facade over the shared backend.
+        """
+        from unittest.mock import patch
+
+        ds = UgridDataset.create_from_arrays(
+            node_x=np.array([0.0, 1.0, 0.5]),
+            node_y=np.array([0.0, 0.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2]]),
+            data={"depth": np.array([5.0])},
+            data_locations={"depth": "face"},
+            epsg=4326,
+        )
+        with patch(
+            "pyramids.netcdf.ugrid.dataset._mesh_render",
+            return_value="sentinel",
+        ) as mock_render:
+            ds.plot("depth", cmap="plasma", basemap=True)
+        kw = mock_render.call_args.kwargs
+        assert kw.get("cmap") == "plasma", (
+            f"`cmap` must reach mesh_render; got {kw}"
+        )
+        assert kw.get("basemap") is True, (
+            f"`basemap=True` must reach mesh_render; got {kw}"
+        )
+        assert kw.get("basemap_epsg") == 4326, (
+            f"basemap_epsg should be the dataset's EPSG (4326); got {kw}"
+        )
+        assert kw.get("mesh") is ds._mesh, (
+            "mesh argument must be the dataset's Mesh2d instance"
+        )
+
+    def test_dataset_plot_basemap_without_epsg_raises(self):
+        """``basemap=True`` on a CRS-less dataset raises before dispatch.
+
+        Test scenario:
+            ``UgridDataset.plot`` short-circuits the basemap path when
+            ``self.epsg is None`` to surface the missing CRS error with
+            a UGRID-specific message. ``_mesh_render`` must not be
+            entered at all. Patch the ``epsg`` property to ``None`` to
+            simulate a dataset without a registered CRS.
+        """
+        from unittest.mock import patch
+
+        ds = UgridDataset.create_from_arrays(
+            node_x=np.array([0.0, 1.0, 0.5]),
+            node_y=np.array([0.0, 0.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2]]),
+            data={"depth": np.array([5.0])},
+            data_locations={"depth": "face"},
+        )
+        with patch.object(
+            UgridDataset, "epsg", new_callable=lambda: property(lambda s: None)
+        ):
+            with patch(
+                "pyramids.netcdf.ugrid.dataset._mesh_render",
+            ) as mock_render:
+                with pytest.raises(ValueError, match=r"CRS"):
+                    ds.plot("depth", basemap=True)
+            mock_render.assert_not_called()

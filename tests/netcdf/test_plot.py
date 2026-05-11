@@ -2283,3 +2283,286 @@ class TestNetCDFPlotLazy:
         assert not any("chunks=" in m for m in msgs), (
             f"Hint must not fire when chunks= is supplied; got: {msgs}"
         )
+
+
+class TestNetCDFPlotAnimateEdges:
+    """Extra animate-path coverage beyond the original 11 PR-5 cases."""
+
+    def test_animate_with_sel_pin_other_dim_picks_remaining_time(self):
+        """4-D variable: ``animate=True`` + ``sel={'pressure_level': v}``.
+
+        Test scenario:
+            Pinning the ``pressure_level`` dim via ``sel=`` (rather than
+            via ``level=``) must leave ``time`` as the only free band
+            dim. ``animate=True`` then unambiguously resolves ``time``.
+        """
+        nc = _make_4d_nc()
+        captured: dict = {}
+
+        def _fake_render(**kw):
+            captured["kw"] = kw
+            return "ok"
+
+        with patch(
+            "pyramids.netcdf.netcdf._render_array",
+            side_effect=_fake_render,
+        ):
+            nc.plot(
+                variable="temperature",
+                sel={"pressure_level": 500},
+                animate=True,
+            )
+        assert captured["kw"]["mode"] == "animate", (
+            f"Pinning level via sel must still resolve animate, got "
+            f"mode={captured['kw'].get('mode')!r}"
+        )
+        labels = captured["kw"]["animation_axis_values"]
+        assert list(labels) == [0, 6, 12], (
+            f"animation labels must come from the time coord values, "
+            f"got {labels}"
+        )
+
+    def test_animate_with_isel_pin_animated_dim_raises(self):
+        """``animate='time'`` rejects an ``isel`` pin on the same dim.
+
+        Test scenario:
+            ``isel={'time': 0}`` collapses the time dim before the
+            animate walker can iterate. The pin must lose to a clear
+            ValueError that names the already-pinned dim.
+        """
+        nc = _make_3d_nc()
+        with pytest.raises(ValueError, match=r"already pinned"):
+            nc.plot(
+                variable="t2m",
+                animate="time",
+                isel={"time": 0},
+            )
+
+    def test_animate_string_when_other_band_dims_free(self):
+        """4-D variable: ``animate='pressure_level'`` walks the named dim.
+
+        Test scenario:
+            On a 4-D variable both ``time`` and ``pressure_level`` are
+            free. ``animate='pressure_level'`` must resolve and the
+            frame labels come straight from the dim's coord values
+            (1000, 500) — no CF time decoding for non-time dims.
+        """
+        nc = _make_4d_nc()
+        captured: dict = {}
+
+        def _fake_render(**kw):
+            captured["kw"] = kw
+            return "ok"
+
+        with patch(
+            "pyramids.netcdf.netcdf._render_array",
+            side_effect=_fake_render,
+        ):
+            nc.plot(
+                variable="temperature",
+                time=0,
+                animate="pressure_level",
+            )
+        labels = captured["kw"]["animation_axis_values"]
+        assert list(labels) == [1000, 500], (
+            f"Non-time dim labels must be raw coord values, got {labels}"
+        )
+
+    def test_animate_false_takes_static_path(self):
+        """``animate=False`` is treated like the default; no animate dispatch.
+
+        Test scenario:
+            The plot façade guards on ``animate is not None and animate
+            is not False``, so ``animate=False`` must fall through to
+            the static-plot path. Patch the engine to capture the
+            kwargs and verify there is no ``animation_axis_values`` key.
+        """
+        nc = _make_3d_nc()
+        var = nc.get_variable("t2m")
+        with patch.object(
+            type(var.analysis), "plot", autospec=True
+        ) as mock_plot:
+            mock_plot.return_value = "ok"
+            nc.plot(variable="t2m", time=0, animate=False)
+        kw = mock_plot.call_args.kwargs
+        assert "animation_axis_values" not in kw, (
+            f"animate=False must not engage the animate path; got {kw}"
+        )
+
+    def test_animate_data_getter_propagates_inner_exception(self):
+        """A ``data_getter`` failure on frame N bubbles out of the call.
+
+        Test scenario:
+            Capture the ``data_getter`` callable cleopatra would receive
+            and replace the underlying ``sel`` call with one that raises
+            on the third frame. Invoking ``data_getter(2)`` directly
+            (the equivalent of cleopatra's frame iteration) must
+            propagate that exception unchanged so caller-facing errors
+            surface with the original traceback.
+        """
+        nc = _make_3d_nc(n_times=4)
+        captured: dict = {}
+
+        def _fake_render(**kw):
+            captured["kw"] = kw
+            return "ok"
+
+        with patch(
+            "pyramids.netcdf.netcdf._render_array",
+            side_effect=_fake_render,
+        ):
+            nc.plot(variable="t2m", animate=True)
+        getter = captured["kw"]["data_getter"]
+        orig_sel = type(nc.get_variable("t2m")).sel
+
+        def _broken_sel(self, **selectors):
+            if selectors.get("time") == 2:
+                raise RuntimeError("simulated frame-3 failure")
+            return orig_sel(self, **selectors)
+
+        with patch.object(
+            type(nc.get_variable("t2m")),
+            "sel",
+            _broken_sel,
+        ):
+            getter(0)
+            with pytest.raises(RuntimeError, match=r"frame-3"):
+                getter(2)
+
+    def test_animate_4d_with_two_free_band_dims_lists_both(self):
+        """Error message names both free band dims for the 4-D case.
+
+        Test scenario:
+            ``animate=True`` on a 4-D variable with no selectors must
+            mention ``time`` and ``pressure_level`` in the error so the
+            user knows which names are valid for ``animate=<dim>``.
+        """
+        nc = _make_4d_nc()
+        with pytest.raises(ValueError, match=r"exactly one free band dim") as exc:
+            nc.plot(variable="temperature", animate=True)
+        msg = str(exc.value)
+        assert "time" in msg and "pressure_level" in msg, (
+            f"Error must list both free dims, got {msg!r}"
+        )
+
+    def test_animate_2d_variable_with_no_band_dims_raises(self):
+        """``animate=True`` on a pure 2-D variable raises a clear error.
+
+        Test scenario:
+            Build a 2-D variable, then ``animate=True`` must reject the
+            request because there is no band dim to iterate. The error
+            mentions either "no band" or "exactly one free band dim".
+        """
+        rng = np.random.default_rng(11)
+        arr = rng.random((4, 4)).astype(np.float32)
+        nc = NetCDF.create_from_array(
+            arr=arr,
+            geo=(0.0, 1.0, 0, 4.0, 0, -1.0),
+            epsg=4326,
+            variable_name="flat",
+        )
+        with pytest.raises(ValueError, match=r"(?:no band|free band dim)"):
+            nc.plot(variable="flat", animate=True)
+
+
+class TestNetCDFPlotLazyEdges:
+    """Extra ``chunks=`` coverage beyond the original 5 PR-5 cases."""
+
+    def test_chunks_string_value_forwarded(self):
+        """``chunks="auto"`` is forwarded into ``_chunks`` unchanged.
+
+        Test scenario:
+            String chunk specs (``"auto"``) are accepted alongside dicts;
+            the NetCDF.plot façade only checks ``chunks is not None``
+            before injecting the engine's ``_chunks`` kwarg. The string
+            must be preserved verbatim — the engine decides how to
+            interpret it on the dask side.
+        """
+        nc = _make_3d_nc()
+        var = nc.get_variable("t2m")
+        with patch.object(
+            type(var.analysis), "plot", autospec=True
+        ) as mock_plot:
+            mock_plot.return_value = "ok"
+            nc.plot(variable="t2m", time=0, chunks="auto")
+        kw = mock_plot.call_args.kwargs
+        assert kw.get("_chunks") == "auto", (
+            f"String chunks value must be forwarded verbatim; got {kw}"
+        )
+
+    def test_lazy_hint_does_not_fire_for_small_variable(self, caplog):
+        """Variables under 100 MB never trigger the hint.
+
+        Test scenario:
+            The default ``_make_3d_nc`` fixture builds a tiny 4x5x5
+            float32 variable (~400 bytes). The hint is gated on a
+            100 MB threshold, so no log record must mention ``chunks=``.
+        """
+        nc = _make_3d_nc()
+        with patch(
+            "pyramids.netcdf.netcdf._render_array",
+            return_value="ok",
+        ):
+            with caplog.at_level("INFO", logger="pyramids.netcdf.netcdf"):
+                nc.plot(variable="t2m", time=0)
+        msgs = [r.getMessage() for r in caplog.records]
+        assert not any("chunks=" in m for m in msgs), (
+            f"Small variable must not log lazy hint; got {msgs}"
+        )
+
+    def test_lazy_hint_message_contains_chunks_keyword(self, caplog):
+        """Hint message names the ``chunks=`` kwarg explicitly.
+
+        Test scenario:
+            Force a huge shape so the size > 100 MB and the hint fires.
+            The message must contain the literal ``chunks=`` token so
+            users can search docs and run-time output for it.
+        """
+        nc = _make_3d_nc()
+        var = nc.get_variable("t2m")
+        large_shape = (60, 4000, 4000)
+        with patch.object(
+            type(var), "shape", new_callable=lambda: property(lambda s: large_shape)
+        ):
+            with patch.object(
+                type(var.analysis), "plot", autospec=True
+            ) as mock_plot:
+                mock_plot.return_value = "ok"
+                with caplog.at_level("INFO", logger="pyramids.netcdf.netcdf"):
+                    nc.plot(variable="t2m", time=0)
+        hint_msgs = [r.getMessage() for r in caplog.records if "chunks=" in r.getMessage()]
+        assert hint_msgs, "Expected at least one hint log record"
+        joined = " ".join(hint_msgs)
+        assert "chunks=" in joined, (
+            f"Hint must contain literal `chunks=` token; got {joined!r}"
+        )
+
+    def test_lazy_hint_threshold_boundary_one_byte_below(self, caplog):
+        """One byte below the 100 MB threshold: hint stays silent.
+
+        Test scenario:
+            Pick a shape whose total byte size lands just under
+            ``_LAZY_HINT_THRESHOLD_BYTES``. The guard uses strict ``>``
+            so the boundary case must NOT log the hint — a regression
+            here would fire the hint on every plot of a 99-MB variable.
+        """
+        from pyramids.netcdf.netcdf import _LAZY_HINT_THRESHOLD_BYTES
+
+        nc = _make_3d_nc()
+        var = nc.get_variable("t2m")
+        itemsize = int(np.dtype(var.dtype[0]).itemsize)
+        total_elems = _LAZY_HINT_THRESHOLD_BYTES // itemsize
+        shape_below = (1, 1, int(total_elems))
+        with patch.object(
+            type(var), "shape", new_callable=lambda: property(lambda s: shape_below)
+        ):
+            with patch.object(
+                type(var.analysis), "plot", autospec=True
+            ) as mock_plot:
+                mock_plot.return_value = "ok"
+                with caplog.at_level("INFO", logger="pyramids.netcdf.netcdf"):
+                    nc.plot(variable="t2m", time=0)
+        msgs = [r.getMessage() for r in caplog.records if "chunks=" in r.getMessage()]
+        assert not msgs, (
+            f"Boundary at threshold (size == 100 MB) must not fire hint; got {msgs}"
+        )

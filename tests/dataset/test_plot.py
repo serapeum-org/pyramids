@@ -1102,4 +1102,429 @@ class TestPlotPR6Cleanups:
         )
 
 
+class TestRenderArrayKwargRouting:
+    """D-4 — fine-grained checks on which kwargs land where."""
+
+    @staticmethod
+    def _capture_calls():
+        """Build a fake ``ArrayGlyph`` that records ctor/plot kwargs.
+
+        Returns:
+            tuple[type, dict, dict, dict, list]: A ``_FakeGlyph`` class
+                wrapping ``__init__`` / ``plot`` / ``animate`` / ``facet``,
+                plus dicts capturing each call's kwargs and an
+                ``animate_args`` list capturing positional args.
+        """
+        ctor_seen: dict = {}
+        plot_seen: dict = {}
+        animate_seen: dict = {}
+        facet_seen: dict = {}
+        animate_args: list = []
+
+        class _FakeAxes:
+            def __init__(self):
+                self.aspect = "auto"
+
+            def get_xlim(self):
+                return (0.0, 1.0)
+
+            def get_ylim(self):
+                return (0.0, 1.0)
+
+        class _FakeGlyph:
+            def __init__(self, array, **kwargs):
+                ctor_seen.clear()
+                ctor_seen.update(kwargs)
+                self.arr = array
+                self.ax = _FakeAxes()
+                self.fig = None
+
+            def plot(self, **kwargs):
+                plot_seen.clear()
+                plot_seen.update(kwargs)
+                return (None, self.ax)
+
+            def animate(self, axis_values, **kwargs):
+                animate_args.append(axis_values)
+                animate_seen.clear()
+                animate_seen.update(kwargs)
+                return self
+
+            def facet(self, **kwargs):
+                facet_seen.clear()
+                facet_seen.update(kwargs)
+                return self
+
+        return _FakeGlyph, ctor_seen, plot_seen, animate_seen, facet_seen, animate_args
+
+    def test_constructor_owns_cmap_vmin_vmax_levels_cbar(self):
+        """Style/scale kwargs all land on the constructor for plot mode.
+
+        Test scenario:
+            ``cmap``, ``vmin``, ``vmax``, ``levels``, ``cbar_kwargs``
+            must reach ``ArrayGlyph.__init__`` so cleopatra's
+            ``default_options`` is set in one place. None of them may
+            also reach ``ArrayGlyph.plot``; otherwise the value would be
+            overwritten twice (the PR-6 D-4 fix).
+        """
+        fake_cls, ctor, plot, _, _, _ = self._capture_calls()
+        rng = np.random.default_rng(101)
+        arr = rng.random((4, 4)).astype("float32")
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                cmap="plasma",
+                vmin=-1.0,
+                vmax=2.0,
+                levels=10,
+                cbar_kwargs={"orientation": "horizontal"},
+            )
+        for key in ("cmap", "vmin", "vmax", "levels", "cbar_kwargs"):
+            assert key in ctor, f"`{key}` must land on the constructor; ctor={ctor}"
+            assert key not in plot, (
+                f"`{key}` must NOT also reach cleo.plot; plot={plot}"
+            )
+
+    def test_render_call_only_kwargs_reach_plot(self):
+        """``points``/``point_color``/``point_size``/``pid_color``/``pid_size``/``kind``.
+
+        Test scenario:
+            Every render-call-only kwarg in the D-4 list must reach
+            ``ArrayGlyph.plot`` exclusively. The cleanup added the
+            ``plot_call_only`` set in ``_plot_helpers.render_array``; a
+            regression here would resurrect the double-forward bug.
+        """
+        fake_cls, ctor, plot, _, _, _ = self._capture_calls()
+        rng = np.random.default_rng(202)
+        arr = rng.random((4, 4)).astype("float32")
+        render_only_kwargs = {
+            "points": None,
+            "point_color": "red",
+            "point_size": 5,
+            "pid_color": "blue",
+            "pid_size": 7,
+            "kind": "imshow",
+        }
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                **render_only_kwargs,
+            )
+        for key in render_only_kwargs:
+            assert key in plot, (
+                f"`{key}` must reach cleo.plot; plot={plot}"
+            )
+            assert key not in ctor, (
+                f"`{key}` must NOT also be on the constructor; ctor={ctor}"
+            )
+
+    def test_animate_mode_merges_both_buckets_into_animate_call(self):
+        """``mode='animate'`` — every kwarg flows into ``cleo.animate(...)``.
+
+        Test scenario:
+            cleopatra's ``ArrayGlyph.animate`` re-validates every kwarg
+            against ``DEFAULT_OPTIONS``, so the D-4 documentation calls
+            out the animate path as the exception: both render-call-only
+            and constructor buckets merge into a single ``animate_kwargs``
+            dict, and the constructor receives nothing.
+        """
+        fake_cls, ctor, _, animate, _, anim_args = self._capture_calls()
+        rng = np.random.default_rng(303)
+        arr = rng.random((4, 4)).astype("float32")
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="animate",
+                animation_axis_values=[0, 1, 2],
+                cmap="viridis",
+                kind="imshow",
+                interval=50,
+            )
+        for key in ("cmap", "kind", "interval"):
+            assert key in animate, (
+                f"In animate mode, `{key}` must reach cleo.animate; "
+                f"animate kwargs={animate}"
+            )
+            assert key not in ctor, (
+                f"In animate mode, `{key}` must NOT be on the constructor; "
+                f"ctor={ctor}"
+            )
+        assert anim_args == [[0, 1, 2]], (
+            f"animation_axis_values must be positional; got {anim_args}"
+        )
+
+    def test_facet_mode_routes_kind_to_facet_call(self):
+        """``kind`` (render-call-only) reaches ``cleo.facet``, not the ctor.
+
+        Test scenario:
+            The facet branch in ``render_array`` calls
+            ``cleo.facet(**facet_kwargs, **render_kwargs)``. ``kind`` is
+            a render-call-only kwarg, so it must surface inside the
+            facet call's kwargs while ``cmap`` (constructor bucket)
+            lands on ``__init__``.
+        """
+        fake_cls, ctor, _, _, facet, _ = self._capture_calls()
+        rng = np.random.default_rng(404)
+        arr = rng.random((3, 4, 4)).astype("float32")
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="facet",
+                facet_kwargs={"col": "time", "col_coords": [0, 1, 2]},
+                cmap="magma",
+                kind="contourf",
+            )
+        assert "kind" in facet, (
+            f"`kind` should reach cleo.facet; facet kwargs={facet}"
+        )
+        assert "cmap" in ctor, (
+            f"`cmap` should remain on the constructor; ctor={ctor}"
+        )
+        assert facet.get("col") == "time", (
+            f"facet_kwargs must reach cleo.facet via merge; got {facet}"
+        )
+
+
+class TestMeshRenderHelper:
+    """Direct unit tests for the N-6 ``mesh_render`` sibling helper."""
+
+    def test_mesh_render_basemap_without_epsg_raises(self):
+        """``basemap=True`` + ``basemap_epsg=None`` raises ValueError.
+
+        Test scenario:
+            The mesh helper mirrors :func:`render_array`'s precondition:
+            requesting a basemap without an EPSG must fail fast with a
+            "CRS" hint before any rendering happens.
+        """
+        from pyramids.dataset._plot_helpers import mesh_render
+
+        with pytest.raises(ValueError, match=r"CRS"):
+            mesh_render(
+                mesh=object(),
+                data=np.array([1.0]),
+                basemap=True,
+                basemap_epsg=None,
+            )
+
+    def test_mesh_render_basemap_false_skips_add_basemap(self):
+        """``basemap=False`` short-circuits before ``add_basemap`` is called.
+
+        Test scenario:
+            Patch ``plot_mesh_data`` to return a sentinel and patch the
+            basemap module's ``add_basemap`` to record calls. With
+            ``basemap=None`` the helper must return the sentinel without
+            ever calling ``add_basemap``.
+        """
+        from pyramids.dataset._plot_helpers import mesh_render
+
+        sentinel = object()
+        with patch(
+            "pyramids.netcdf.ugrid.plot.plot_mesh_data",
+            return_value=sentinel,
+        ):
+            with patch(
+                "pyramids.basemap.basemap.add_basemap",
+            ) as mock_add:
+                result = mesh_render(
+                    mesh=object(),
+                    data=np.array([1.0]),
+                    location="face",
+                )
+        assert result is sentinel, (
+            f"mesh_render must return plot_mesh_data's result; got {result!r}"
+        )
+        mock_add.assert_not_called()
+
+    def test_mesh_render_forwards_kwargs_to_plot_mesh_data(self):
+        """Kwargs (``cmap``, ``vmin``, ``vmax``, ``title``) flow through.
+
+        Test scenario:
+            ``mesh_render`` is a thin dispatcher — every kwarg except
+            ``basemap``/``basemap_epsg`` is forwarded to
+            ``plot_mesh_data``. Capture the call and verify each kwarg
+            is preserved with the same value the caller supplied.
+        """
+        from pyramids.dataset._plot_helpers import mesh_render
+
+        captured: dict = {}
+
+        def _fake_plot(mesh, data, **kwargs):
+            captured["mesh"] = mesh
+            captured["data"] = data
+            captured.update(kwargs)
+            return "glyph"
+
+        with patch(
+            "pyramids.netcdf.ugrid.plot.plot_mesh_data",
+            side_effect=_fake_plot,
+        ):
+            mesh = object()
+            data = np.array([1.0, 2.0])
+            mesh_render(
+                mesh=mesh,
+                data=data,
+                location="node",
+                cmap="plasma",
+                vmin=0.0,
+                vmax=10.0,
+                title="t",
+            )
+        assert captured.get("location") == "node"
+        assert captured.get("cmap") == "plasma"
+        assert captured.get("vmin") == 0.0
+        assert captured.get("vmax") == 10.0
+        assert captured.get("title") == "t"
+
+    def test_mesh_render_basemap_triggers_add_basemap_with_crs(self):
+        """``basemap=True`` calls ``add_basemap`` with the supplied EPSG.
+
+        Test scenario:
+            With ``basemap=True`` and ``basemap_epsg=3857`` the helper
+            must call ``pyramids.basemap.basemap.add_basemap`` once,
+            forwarding the EPSG as the ``crs`` kwarg. The ax it picks up
+            comes from the returned glyph's ``ax`` attribute, mirroring
+            the raster path's behaviour.
+        """
+        from pyramids.dataset._plot_helpers import mesh_render
+
+        fake_glyph = type("G", (), {"ax": object()})()
+        with patch(
+            "pyramids.netcdf.ugrid.plot.plot_mesh_data",
+            return_value=fake_glyph,
+        ):
+            with patch(
+                "pyramids.basemap.basemap.add_basemap",
+            ) as mock_add:
+                mesh_render(
+                    mesh=object(),
+                    data=np.array([1.0]),
+                    basemap=True,
+                    basemap_epsg=3857,
+                )
+        mock_add.assert_called_once()
+        kwargs = mock_add.call_args.kwargs
+        assert kwargs.get("crs") == 3857, (
+            f"`crs` must equal basemap_epsg; got {kwargs}"
+        )
+        assert kwargs.get("source") is None, (
+            f"`source` should be None when basemap=True (no provider); "
+            f"got {kwargs}"
+        )
+
+    def test_mesh_render_basemap_string_passes_source(self):
+        """``basemap='CartoDB.Positron'`` forwards the string as ``source=``.
+
+        Test scenario:
+            The mesh helper mirrors the raster path: a basemap string is
+            forwarded as the contextily provider name via the ``source``
+            kwarg. Boolean ``True`` passes ``source=None`` (already
+            covered above); the string variant is verified here.
+        """
+        from pyramids.dataset._plot_helpers import mesh_render
+
+        fake_glyph = type("G", (), {"ax": object()})()
+        with patch(
+            "pyramids.netcdf.ugrid.plot.plot_mesh_data",
+            return_value=fake_glyph,
+        ):
+            with patch(
+                "pyramids.basemap.basemap.add_basemap",
+            ) as mock_add:
+                mesh_render(
+                    mesh=object(),
+                    data=np.array([1.0]),
+                    basemap="CartoDB.Positron",
+                    basemap_epsg=4326,
+                )
+        kwargs = mock_add.call_args.kwargs
+        assert kwargs.get("source") == "CartoDB.Positron", (
+            f"`source` must equal the basemap string; got {kwargs}"
+        )
+
+
+class TestPR6CleanupGrepGuards:
+    """Belt-and-braces D-5 regression scan complementing TestPlotPR6Cleanups."""
+
+    def test_import_cleopatra_definition_still_exists(self):
+        """The legacy ``import_cleopatra`` function stays importable.
+
+        Test scenario:
+            D-5 consolidated the call sites onto ``require_cleopatra``
+            but kept the original ``import_cleopatra`` symbol around for
+            downstream consumers. The PR-6 docstring explicitly promises
+            back-compat — this test asserts the symbol is still
+            importable and callable.
+        """
+        from pyramids.base._utils import import_cleopatra
+
+        import_cleopatra("legacy back-compat call")
+
+    def test_import_cleopatra_not_called_outside_definition(self):
+        """Grep-style: ``import_cleopatra(`` only fires inside its own module.
+
+        Test scenario:
+            Sweep every ``.py`` file under ``src/pyramids`` and confirm
+            no module outside ``base/_utils.py`` contains a call-style
+            usage of ``import_cleopatra(...)``. The function definition
+            and its internal forwarding call live in ``_utils.py``; any
+            *other* module hit means a caller slipped through D-5.
+        """
+        import re
+        from pathlib import Path
+
+        repo = Path(__file__).parents[2]
+        src = repo / "src" / "pyramids"
+        pattern = re.compile(r"import_cleopatra\s*\(")
+        offenders: list[str] = []
+        for path in src.rglob("*.py"):
+            if path.name == "_utils.py":
+                continue
+            text = path.read_text(encoding="utf-8")
+            for lineno, raw in enumerate(text.splitlines(), start=1):
+                if not pattern.search(raw):
+                    continue
+                stripped = raw.strip()
+                if stripped.startswith("#"):
+                    continue
+                rel = path.relative_to(repo).as_posix()
+                offenders.append(f"{rel}:{lineno}: {stripped}")
+        assert not offenders, (
+            "D-5 — `import_cleopatra(` must only appear in "
+            "`base/_utils.py`. Use `require_cleopatra()` elsewhere. "
+            "Offenders:\n  " + "\n  ".join(offenders)
+        )
+
+    def test_require_cleopatra_used_by_plot_modules(self):
+        """Plot-adjacent modules import ``require_cleopatra`` (positive check).
+
+        Test scenario:
+            The D-5 cleanup replaced the per-module ``import_cleopatra``
+            calls with ``require_cleopatra``. Confirm each plot-adjacent
+            module imports the new helper so a future regression that
+            silently drops the guard surfaces here, not at runtime.
+        """
+        from pathlib import Path
+
+        repo = Path(__file__).parents[2]
+        targets = [
+            "src/pyramids/dataset/_plot_helpers.py",
+            "src/pyramids/dataset/engines/analysis.py",
+            "src/pyramids/dataset/engines/bands.py",
+            "src/pyramids/netcdf/ugrid/plot.py",
+        ]
+        missing: list[str] = []
+        for rel in targets:
+            text = (repo / rel).read_text(encoding="utf-8")
+            if "require_cleopatra" not in text:
+                missing.append(rel)
+        assert not missing, (
+            f"Modules missing `require_cleopatra` import/usage: {missing}"
+        )
+
 
