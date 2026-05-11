@@ -8,24 +8,20 @@ data's CRS via GDAL, and rendered underneath the data layer.
 PR-6 / C-6 migration note
 -------------------------
 
-The cleopatra package now ships an equivalent
-:func:`cleopatra.tiles.add_tiles` helper (cleopatra C-6 task) with
-the same external contract — same kwarg names, same return shape,
-same provider resolution. Once the cleopatra release containing C-6
-is pinned in ``pyproject.toml``'s ``[viz]`` extra,
-:func:`add_basemap` here can become a one-line wrapper around
-``cleopatra.add_tiles``. Until the release is published the
-implementation stays inline so the existing pinned versions in the
-``[viz]`` extra (``mercantile``, ``xyzservices``, ``Pillow``)
-continue to work without depending on an unreleased cleopatra. The
-public symbol :func:`add_basemap` continues to work either way — that
-is the contract every existing test patches against.
+cleopatra ships an equivalent :func:`cleopatra.tiles.add_tiles` helper
+(cleopatra C-6 task) with the same external contract — same kwarg
+names, same return shape, same provider resolution — and it is pinned
+via ``pyproject.toml``'s ``[viz]`` extra (``cleopatra[tiles]>=0.8.0``).
+:func:`add_basemap` here still runs the inline implementation so the
+existing ``[viz]`` deps (``mercantile``, ``xyzservices``, ``Pillow``)
+keep working unchanged; the public symbol :func:`add_basemap` is the
+contract every existing test patches against, so the swap is
+backwards-compatible whenever it happens.
 
-# TODO: bump to cleopatra release containing C-6 (add_tiles) and
-# turn the body of :func:`add_basemap` into
-#     ``return cleopatra.add_tiles(ax, source=source, crs=crs, ...)``.
+# TODO: turn the body of :func:`add_basemap` into
+#     ``return cleopatra.tiles.add_tiles(ax, source=source, crs=crs, ...)``.
 # Then drop ``mercantile`` / ``xyzservices`` / ``Pillow`` from the
-# ``[viz]`` extra in ``pyproject.toml``.
+# ``[viz]`` extra in ``pyproject.toml`` (``cleopatra[tiles]`` pulls them).
 #
 # Import-direction constraint
 # ---------------------------
@@ -246,10 +242,9 @@ def add_basemap(
     and renders the image underneath the data layer.
 
     Note:
-        Planned to delegate to :func:`cleopatra.tiles.add_tiles` once
-        the cleopatra release shipping the C-6 helper is pinned in the
-        ``[viz]`` extra; see the module docstring's PR-6 / C-6
-        migration note for details.
+        Planned to delegate to :func:`cleopatra.tiles.add_tiles` (now
+        pinned via ``cleopatra[tiles]>=0.8.0`` in the ``[viz]`` extra);
+        see the module docstring's PR-6 / C-6 migration note for details.
 
     Args:
         ax (matplotlib.axes.Axes):
@@ -296,18 +291,20 @@ def add_basemap(
             provider.
 
     Examples:
-        - Add a default OpenStreetMap basemap to a Dataset plot:
+        - Add a default OpenStreetMap basemap to a Dataset plot
+          (``+SKIP`` — needs a real raster, the ``[viz]`` extra, and
+          network access to the tile provider):
             ```python
             >>> from pyramids.basemap import add_basemap
             >>> from pyramids.dataset import Dataset
-            >>> ds = Dataset.read_file("dem.tif")
-            >>> glyph = ds.plot(band=0)
-            >>> add_basemap(glyph.ax, crs=ds.epsg)
+            >>> ds = Dataset.read_file("dem.tif")           # doctest: +SKIP
+            >>> glyph = ds.plot(band=0)                     # doctest: +SKIP
+            >>> add_basemap(glyph.ax, crs=ds.epsg)          # doctest: +SKIP
 
             ```
         - Use a different tile provider with transparency:
             ```python
-            >>> add_basemap(
+            >>> add_basemap(                                # doctest: +SKIP
             ...     glyph.ax,
             ...     crs=ds.epsg,
             ...     source="CartoDB.Positron",

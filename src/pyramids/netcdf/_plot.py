@@ -3,7 +3,7 @@
 :meth:`NetCDF.plot` is a thin facade that constructs a :class:`NetCDFPlot`
 and calls :meth:`NetCDFPlot.run`. All the variable-resolution,
 selector-resolution, faceting, animation, lazy-read, and curvilinear-coord
-logic that used to live as private methods on ``NetCDF`` lives here. The
+logic that used to live as private methods on `NetCDF` lives here. The
 public docstring stays on :meth:`NetCDF.plot`; this module is implementation.
 """
 
@@ -23,17 +23,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 # Size threshold (bytes) above which `NetCDF.plot` logs a hint
-# suggesting the caller pass an explicit ``chunks=`` spec to switch
+# suggesting the caller pass an explicit `chunks=` spec to switch
 # the static-plot read path to dask. 100 MB matches xarray's default
 # rule of thumb for "this should be lazy".
 _LAZY_HINT_THRESHOLD_BYTES = 100 * 1024 * 1024
 
-# GeoTIFF/Sentinel-imagery kwargs that ``NetCDF.plot`` rejects up-front
+# GeoTIFF/Sentinel-imagery kwargs that `NetCDF.plot` rejects up-front
 # with a migration hint. They are absent from the public signature and
-# only ever arrive via ``**kwargs``; the gate runs first so the user
+# only ever arrive via `**kwargs`; the gate runs first so the user
 # sees a helpful TypeError instead of an opaque cleopatra error (or, for
 # `overview`, no error at all). Module-level so it's greppable / testable
-# without instantiating ``NetCDFPlot``.
+# without instantiating `NetCDFPlot`.
 _FORBIDDEN_PLOT_KWARGS: dict[str, str] = {
     "band": (
         "NetCDF.plot() does not accept `band=`: a flat band index is the wrong "
@@ -71,10 +71,10 @@ _FORBIDDEN_PLOT_KWARGS: dict[str, str] = {
 
 
 def _reject_forbidden_kwargs(kwargs: dict[str, Any]) -> None:
-    """Raise ``TypeError`` if any GeoTIFF/Sentinel-only kwarg slipped in.
+    """Raise `TypeError` if any GeoTIFF/Sentinel-only kwarg slipped in.
 
     Args:
-        kwargs: The ``**kwargs`` dict passed to :meth:`NetCDFPlot.run`.
+        kwargs: The `**kwargs`` dict passed to :meth:`NetCDFPlot.run`.
 
     Raises:
         TypeError: With a migration hint, for the first key in

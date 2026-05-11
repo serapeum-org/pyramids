@@ -136,9 +136,9 @@ COLOR_NAMES = [
     "YCbCr_CrBand",
 ]
 # Human-readable name for GDAL's "no colour interpretation set" sentinel
-# (``gdal.GCI_Undefined`` -> ``COLOR_NAMES[0]``). Use this constant instead
+# (`gdal.GCI_Undefined` -> `COLOR_NAMES[0]`). Use this constant instead
 # of the bare string literal so a name change can't silently break the
-# "is this band an RGB channel?" checks (e.g. ``Dataset._resolve_plot_band``).
+# "is this band an RGB channel?" checks (e.g. `Dataset._resolve_plot_band`).
 UNDEFINED_COLOR_INTERP = COLOR_NAMES[0]
 
 COLOR_TABLE = DataFrame(
@@ -411,17 +411,17 @@ def import_cleopatra(message: str):
 def require_cleopatra(msg: str | None = None) -> None:
     """Single guard for the optional cleopatra dependency.
 
-    Consolidates the scattered ``import_cleopatra(<bespoke message>)``
+    Consolidates the scattered `import_cleopatra(<bespoke message>)`
     calls that used to live next to every plot / colour helper. The
-    default error message points at the ``[viz]`` install extra; callers
-    that want a domain-specific hint pass ``msg`` and override it. The
-    helper returns ``None`` when cleopatra is importable and raises
+    default error message points at the `[viz]` install extra; callers
+    that want a domain-specific hint pass `msg` and override it. The
+    helper returns `None` when cleopatra is importable and raises
     :class:`OptionalPackageDoesNotExist` otherwise — no side effects
     beyond the import check.
 
     Args:
-        msg: Override for the default error message. ``None`` uses the
-            shared default that points at the ``[viz]`` install extra.
+        msg: Override for the default error message. `None` uses the
+            shared default that points at the `[viz]`` install extra.
 
     Raises:
         OptionalPackageDoesNotExist: When cleopatra is not importable.

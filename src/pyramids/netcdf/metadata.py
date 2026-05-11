@@ -28,7 +28,7 @@ from pyramids.netcdf.utils import (
 )
 
 # Module-level logger so swallowed GDAL traversal errors surface at
-# DEBUG instead of disappearing entirely. Every ``except RuntimeError``
+# DEBUG instead of disappearing entirely. Every `except RuntimeError`
 # in this file logs through it. Real failures during MDIM traversal
 # (corrupted file, missing driver, deleted variable mid-walk) are now
 # observable; only the documented fallback path is silent at INFO.
