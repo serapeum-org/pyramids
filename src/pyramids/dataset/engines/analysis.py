@@ -978,7 +978,16 @@ class Analysis(_Engine):
             # safe to issue.
             lazy = self._ds.read_array(chunks=chunks)
             if hasattr(lazy, "compute"):
-                if lazy.ndim == 3:
+                if lazy.ndim > 2:
+                    # `read_array(chunks=...)` returns the variable's
+                    # native `(d0, d1, ..., rows, cols)` shape, whereas
+                    # the eager `read_array()` flattens the non-spatial
+                    # dims into a single bands axis. Match that flatten so
+                    # `band` indexes the same slice. The reshape stays
+                    # lazy — `read_array(chunks=...)` already chunks the
+                    # non-spatial dims at size 1, so it's a pure relabel —
+                    # and only the chosen band's chunks get computed.
+                    lazy = lazy.reshape(-1, *lazy.shape[-2:])
                     arr = np.asarray(lazy[band].compute())
                 else:
                     arr = np.asarray(lazy.compute())

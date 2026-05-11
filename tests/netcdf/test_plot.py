@@ -2562,6 +2562,37 @@ class TestNetCDFPlotLazy:
             f"Hint must not fire when chunks= is supplied; got: {msgs}"
         )
 
+    def test_chunks_with_unpinned_band_dims_renders_2d_slice(self, tmp_path):
+        """`chunks=` on a multi-band-dim variable renders a 2-D slice, not the whole cube (L3).
+
+        Test scenario:
+            L3 fix — `read_array(chunks=...)` returns the variable's
+            *native* N-D shape (4-D `(time, pressure_level, lat, lon)`
+            for ``_make_4d_nc``), whereas the eager `read_array()`
+            flattens the non-spatial dims into a bands axis. The lazy
+            branch must flatten to match and index `band=0`, yielding a
+            2-D `(rows, cols)` array — not `.compute()` the full 4-D
+            cube (which would hand cleopatra a 4-D array and break the
+            render). Plotted with no selectors, the rendered slice has
+            the same shape as the eager band-0 read.
+        """
+        pytest.importorskip("dask", reason="dask not installed")
+        nc_mem = _make_4d_nc()
+        out = tmp_path / "cube4d.nc"
+        nc_mem.to_file(out)
+        nc = NetCDF.read_file(str(out))
+        eager = nc.get_variable("temperature").read_array(band=0)
+        result = nc.plot(variable="temperature", chunks={"cols": 1, "rows": 1})
+        assert isinstance(result, ArrayGlyph)
+        rendered = np.asarray(result.arr)
+        assert rendered.ndim == 2, (
+            f"lazy 4-D read must flatten + index a 2-D slice, got "
+            f"{rendered.ndim}-D shape {rendered.shape}"
+        )
+        assert rendered.shape == eager.shape, (
+            f"lazy slice shape {rendered.shape} != eager band-0 shape {eager.shape}"
+        )
+
 
 class TestNetCDFPlotAnimateEdges:
     """Extra animate-path coverage beyond the original 11 PR-5 cases."""
