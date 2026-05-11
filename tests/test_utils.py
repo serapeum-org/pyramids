@@ -201,10 +201,14 @@ class TestRequireCleopatra:
 
         Test scenario:
             The shared D-5 guard is a thin wrapper around
-            ``import_cleopatra`` with a default message pointing at the
-            ``[viz]`` extra. When cleopatra is installed (as in the test
-            env) the call returns ``None`` silently.
+            `import_cleopatra` with a default message pointing at the
+            `[viz]` extra. When cleopatra is installed (as in the test
+            env) the call returns `None` silently. Auto-skips when the
+            `[viz]` extra is not installed (bare-wheel CI job, etc.).
         """
+        pytest.importorskip(
+            "cleopatra", reason="cleopatra not installed (viz extra)"
+        )
         from pyramids.base._utils import require_cleopatra
 
         result = require_cleopatra()
@@ -217,10 +221,14 @@ class TestRequireCleopatra:
 
         Test scenario:
             A caller-supplied override message only matters on the
-            failure path. With cleopatra installed, ``require_cleopatra``
-            must still return ``None`` regardless of the message
-            argument.
+            failure path. With cleopatra installed, `require_cleopatra`
+            must still return `None` regardless of the message
+            argument. Auto-skips when the `[viz]` extra is not
+            installed.
         """
+        pytest.importorskip(
+            "cleopatra", reason="cleopatra not installed (viz extra)"
+        )
         from pyramids.base._utils import require_cleopatra
 
         result = require_cleopatra("custom override")
