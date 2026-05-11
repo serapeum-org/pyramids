@@ -2563,11 +2563,12 @@ class TestNetCDFPlotAnimateEdges:
 
         Test scenario:
             Capture the ``data_getter`` callable cleopatra would receive
-            and replace the underlying ``sel`` call with one that raises
-            on the third frame. Invoking ``data_getter(2)`` directly
-            (the equivalent of cleopatra's frame iteration) must
-            propagate that exception unchanged so caller-facing errors
-            surface with the original traceback.
+            (post-M3 it reads a flat band index directly — no per-frame
+            ``sel()``), then replace ``read_array`` with one that raises
+            for the third frame's band. Invoking ``data_getter(2)``
+            directly (the equivalent of cleopatra's frame iteration)
+            must propagate that exception unchanged so caller-facing
+            errors surface with the original traceback.
         """
         nc = _make_3d_nc(n_times=4)
         captured: dict = {}
@@ -2582,21 +2583,59 @@ class TestNetCDFPlotAnimateEdges:
         ):
             nc.plot(variable="t2m", animate=True)
         getter = captured["kw"]["data_getter"]
-        orig_sel = type(nc.get_variable("t2m")).sel
+        var_cls = type(nc.get_variable("t2m"))
+        orig_read = var_cls.read_array
 
-        def _broken_sel(self, **selectors):
-            if selectors.get("time") == 2:
+        def _broken_read(self, *args, **kwargs):
+            if kwargs.get("band") == 2:
                 raise RuntimeError("simulated frame-3 failure")
-            return orig_sel(self, **selectors)
+            return orig_read(self, *args, **kwargs)
 
-        with patch.object(
-            type(nc.get_variable("t2m")),
-            "sel",
-            _broken_sel,
-        ):
+        with patch.object(var_cls, "read_array", _broken_read):
             getter(0)
             with pytest.raises(RuntimeError, match=r"frame-3"):
                 getter(2)
+
+    def test_animate_does_not_allocate_per_frame_sel_subsets(self):
+        """The animate ``data_getter`` reads flat band indices, never calls ``sel`` (M3).
+
+        Test scenario:
+            M3 fix — the per-frame fetch used to allocate a fresh
+            ``NetCDF`` subset via ``self.sel(...)`` for every frame
+            (re-resolving + re-opening the GDAL MDArray view). It now
+            computes the flat band index and calls ``read_array(band=N)``
+            on the existing handle. Patch ``NetCDF.sel`` and confirm the
+            animate render path never touches it; then exercise the
+            captured ``data_getter`` for every frame and confirm it
+            returns the correct slices.
+        """
+        nc = _make_3d_nc(n_times=4)
+        captured: dict = {}
+
+        def _fake_render(**kw):
+            captured["kw"] = kw
+            return "ok"
+
+        from pyramids.netcdf.netcdf import NetCDF
+
+        with patch.object(NetCDF, "sel", autospec=True) as sel_mock:
+            with patch(
+                "pyramids.netcdf._plot._render_array",
+                side_effect=_fake_render,
+            ):
+                nc.plot(variable="t2m", animate=True)
+            assert not sel_mock.called, (
+                "animate path must not allocate per-frame sel() subsets; "
+                f"sel was called {sel_mock.call_count} time(s)"
+            )
+        getter = captured["kw"]["data_getter"]
+        var = nc.get_variable("t2m")
+        for i in range(4):
+            assert_array_equal(
+                np.asarray(getter(i)),
+                np.asarray(var.read_array(band=i)),
+                err_msg=f"frame {i} should equal band {i} of the variable",
+            )
 
     def test_animate_4d_with_two_free_band_dims_lists_both(self):
         """Error message names both free band dims for the 4-D case.

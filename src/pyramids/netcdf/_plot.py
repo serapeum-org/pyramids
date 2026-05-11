@@ -10,6 +10,7 @@ public docstring stays on :meth:`NetCDF.plot`; this module is implementation.
 from __future__ import annotations
 
 import logging
+import math
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -859,14 +860,13 @@ class NetCDFPlot:
 
                 ```
         """
+        animate_axis = nc._band_dim_names.index(animate_dim)
         dim_values_raw = nc._band_dim_values_map.get(animate_dim)
         if dim_values_raw is None:
-            dim_index = nc._band_dim_names.index(animate_dim)
-            dim_size = nc._band_dim_sizes[dim_index]
-            frame_labels: list[Any] = list(range(dim_size))
-            frame_keys: list[Any] = list(range(dim_size))
+            frame_labels: list[Any] = list(
+                range(nc._band_dim_sizes[animate_axis])
+            )
         else:
-            frame_keys = list(dim_values_raw)
             decoded = (
                 nc.get_time_variable(animate_dim)
                 if animate_dim.lower() in ("time", "valid_time", "t")
@@ -885,11 +885,18 @@ class NetCDFPlot:
             else [no_data_value[0]]
         )
 
+        # Per-frame data fetch. Rather than allocating a fresh `sel()`
+        # subset for every frame — which re-resolves the variable and
+        # re-opens the GDAL MDArray view, ~N× the open/close overhead —
+        # compute the flat band index directly: pin the animate dim to
+        # its i-th coord and every other free band dim to index 0. With
+        # GDAL's row-major flatten (last band dim varies fastest) that's
+        # `i * stride`, `stride = prod(_band_dim_sizes[axis+1:])`. One
+        # stable handle, one disk read per frame.
+        frame_stride = math.prod(nc._band_dim_sizes[animate_axis + 1:])
+
         def _data_getter(i: int) -> np.ndarray:
-            frame = nc.sel(**{animate_dim: frame_keys[i]}).read_array(
-                band=0
-            )
-            return frame
+            return nc.read_array(band=i * frame_stride)
 
         template = np.asarray(_data_getter(0))
 
