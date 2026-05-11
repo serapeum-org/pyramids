@@ -497,11 +497,18 @@ class TestCleopatraDelegation:
         pyr_params = set(pyr_sig.parameters) - {"ax"}
         missing = cleo_params - pyr_params
         extra = pyr_params - cleo_params
-        assert not missing, (
-            f"cleopatra.add_tiles has params not in pyramids.add_basemap: "
-            f"{missing}. Either add them to pyramids or update the C-6 "
-            "delegation contract."
-        )
+        # Cleopatra is allowed to grow its surface: a new *optional* param
+        # (e.g. `user_agent=`) doesn't break the planned
+        # `add_basemap(ax, **kwargs) -> cleopatra.add_tiles(ax, **kwargs)`
+        # delegation — pyramids just won't expose it. What *would* break
+        # the delegation is cleopatra making a previously-shared (or any)
+        # param *required* while pyramids lacks it.
+        for name in missing:
+            param = cleo_sig.parameters[name]
+            assert param.default is not inspect.Parameter.empty, (
+                f"cleopatra.add_tiles added a *required* param {name!r} not in "
+                "pyramids.add_basemap — the C-6 delegation contract is broken."
+            )
         assert not extra, (
             f"pyramids.add_basemap has params not in cleopatra.add_tiles: "
             f"{extra}. The PR-6 one-line delegation will not work until "
