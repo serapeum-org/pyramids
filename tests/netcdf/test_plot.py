@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import types
 import warnings
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -867,6 +868,78 @@ class TestNetCDFPlotForwardingExtra:
         with patch.object(type(nc), "get_variable", _spy):
             with pytest.raises(ValueError, match=r"CRS"):
                 nc.plot(variable="t2m", basemap=True)
+
+
+@pytest.mark.plot
+class TestNetCDFPlotAddColorbar:
+    """Regression coverage for H1 — ``add_colorbar`` is now honoured."""
+
+    def test_add_colorbar_true_default_keeps_cbar(self):
+        """``add_colorbar=True`` (default) leaves the cleopatra colorbar in place.
+
+        Test scenario:
+            Render a small 3-D variable without touching ``add_colorbar``.
+            The returned ArrayGlyph must still expose a non-``None``
+            ``.cbar`` attribute (cleopatra attaches one by default).
+        """
+        nc = _make_3d_nc()
+        cleo = nc.plot(variable="t2m")
+        assert getattr(cleo, "cbar", None) is not None, (
+            "Default add_colorbar=True must preserve cleopatra's colorbar; "
+            f"got cbar={getattr(cleo, 'cbar', None)!r}"
+        )
+
+    def test_add_colorbar_false_removes_cbar(self):
+        """``add_colorbar=False`` removes the colorbar from the rendered result.
+
+        Test scenario:
+            The xarray-aligned contract: a user who passes
+            ``add_colorbar=False`` expects no colorbar in the output.
+            Cleopatra always attaches one; the pyramids facade must
+            remove it post-render. We assert the ``.cbar`` attribute
+            is dropped to ``None``.
+        """
+        nc = _make_3d_nc()
+        cleo = nc.plot(variable="t2m", add_colorbar=False)
+        assert getattr(cleo, "cbar", None) is None, (
+            "add_colorbar=False must remove the colorbar; "
+            f"got cbar={getattr(cleo, 'cbar', None)!r}"
+        )
+
+    def test_add_colorbar_false_engine_call_does_not_receive_kwarg(self):
+        """The facade applies removal post-render; cleopatra is not asked.
+
+        Test scenario:
+            Cleopatra's ArrayGlyph signature does not accept
+            ``add_colorbar=``. The facade must not forward it to
+            ``Analysis.plot`` (which would forward to cleopatra and
+            raise ``"Unknown option"``). Patch the engine and confirm
+            ``add_colorbar`` never appears in its kwargs.
+        """
+        nc = _make_3d_nc()
+        var = nc.get_variable("t2m")
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = SimpleNamespace(cbar=None)
+            nc.plot(variable="t2m", add_colorbar=False)
+        kw = mock_plot.call_args.kwargs
+        assert "add_colorbar" not in kw, (
+            "add_colorbar must not be forwarded to cleopatra; "
+            f"engine call kwargs were: {kw}"
+        )
+
+    def test_remove_colorbar_is_defensive_when_cbar_missing(self):
+        """``_remove_colorbar`` is a silent no-op when ``.cbar`` is absent.
+
+        Test scenario:
+            Future cleopatra releases may drop or rename ``.cbar``.
+            The helper must not raise — it returns silently so the
+            user's render call still succeeds even if the colorbar
+            cannot be removed.
+        """
+        from pyramids.netcdf.netcdf import NetCDF
+
+        NetCDF._remove_colorbar(SimpleNamespace())
+        NetCDF._remove_colorbar(SimpleNamespace(cbar=None))
 
 
 class TestNetCDFPlotContainerBehaviour:

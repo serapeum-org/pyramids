@@ -1218,13 +1218,12 @@ class NetCDF(Dataset):
             if value is not None:
                 analysis_kwargs[key] = value
         # `robust` carries a default of False; only forward when the caller
-        # explicitly enables it. `add_colorbar` is part of the xarray-aligned
-        # surface but is not yet honoured by the current cleopatra release;
-        # the kwarg is accepted on the signature for forward compatibility
-        # but silently dropped before reaching the renderer.
+        # explicitly enables it. `add_colorbar` is the xarray-aligned switch
+        # for hiding the colorbar; cleopatra does not accept the kwarg
+        # directly, so we forward `True` as a no-op and apply
+        # ``add_colorbar=False`` post-render via :meth:`_remove_colorbar`.
         if robust:
             analysis_kwargs["robust"] = True
-        _ = add_colorbar
 
         # Curvilinear coord resolution. Priority (highest first):
         # 1. Explicit user `x=` / `y=` (PR-2 signature).
@@ -1260,32 +1259,72 @@ class NetCDF(Dataset):
             )
             analysis_kwargs["facet_kwargs"] = facet_kwargs
             analysis_kwargs["_facet_stack"] = stack
-            return pinned.analysis.plot(
+            result = pinned.analysis.plot(
+                band=flat_band,
+                exclude_value=exclude_value,
+                basemap=basemap,
+                **analysis_kwargs,
+            )
+        elif animate_dim is not None:
+            result = pinned._render_animate(
+                animate_dim=animate_dim,
+                analysis_kwargs=analysis_kwargs,
+                exclude_value=exclude_value,
+                basemap=basemap,
+            )
+        else:
+            if chunks is not None:
+                analysis_kwargs["_chunks"] = chunks
+            else:
+                pinned._maybe_log_lazy_hint()
+            result = pinned.analysis.plot(
                 band=flat_band,
                 exclude_value=exclude_value,
                 basemap=basemap,
                 **analysis_kwargs,
             )
 
-        if animate_dim is not None:
-            return pinned._render_animate(
-                animate_dim=animate_dim,
-                analysis_kwargs=analysis_kwargs,
-                exclude_value=exclude_value,
-                basemap=basemap,
-            )
+        if not add_colorbar:
+            self._remove_colorbar(result)
+        return result
 
-        if chunks is not None:
-            analysis_kwargs["_chunks"] = chunks
-        else:
-            pinned._maybe_log_lazy_hint()
+    @staticmethod
+    def _remove_colorbar(result: Any) -> None:
+        """Drop the colorbar from a rendered cleopatra result.
 
-        return pinned.analysis.plot(
-            band=flat_band,
-            exclude_value=exclude_value,
-            basemap=basemap,
-            **analysis_kwargs,
-        )
+        Honours the xarray-aligned ``add_colorbar=False`` switch on
+        :meth:`plot`. Cleopatra always attaches a colorbar to its
+        :class:`~cleopatra.array_glyph.ArrayGlyph` /
+        :class:`~cleopatra.array_glyph.FacetGrid` results, so pyramids
+        applies the removal here after the render returns. The helper
+        is defensive — it leaves ``result`` untouched when no
+        ``.cbar`` attribute exists, when the attribute is already
+        ``None``, when the underlying matplotlib :class:`Colorbar` has
+        already been removed, or when ``.cbar`` is a read-only
+        property.
+
+        Args:
+            result: Whatever cleopatra returned (typically an
+                ``ArrayGlyph`` for static / animate plots or a
+                ``FacetGrid`` for facets). Must not be ``None``.
+
+        Returns:
+            None
+        """
+        cbar = getattr(result, "cbar", None)
+        if cbar is None:
+            return
+        remove = getattr(cbar, "remove", None)
+        if remove is None:
+            return
+        try:
+            remove()
+        except Exception:
+            return
+        try:
+            result.cbar = None
+        except AttributeError:
+            return
 
     def _validate_facet_dims(
         self,
