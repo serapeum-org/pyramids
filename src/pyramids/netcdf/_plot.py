@@ -353,13 +353,14 @@ class NetCDFPlot:
         if resolved_coords is not None:
             out["coords"] = resolved_coords
 
-        # `kind` forwards to cleopatra's `ArrayGlyph.plot(kind=...)`.
-        # Forward non-defaults; forward "auto" too when curvilinear coords
-        # are present so the routing decision shows up in the kwargs trail.
-        if kind != "auto":
-            out["kind"] = kind
-        elif resolved_coords is not None:
-            out["kind"] = "auto"
+        # `kind` always forwards to cleopatra's `ArrayGlyph.plot(kind=...)`,
+        # including the `"auto"` default. Forwarding it unconditionally
+        # keeps the rendering contract pinned to *pyramids'* default rather
+        # than cleopatra's — a future change to cleopatra's default would
+        # otherwise silently alter behaviour for callers who never touched
+        # `kind=`. Cleopatra accepts `"auto"` as a no-op default, so the
+        # extra kwargs-dict entry is harmless.
+        out["kind"] = kind
 
         out.setdefault("rgb", None)
         return out
