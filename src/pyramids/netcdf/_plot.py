@@ -28,6 +28,56 @@ logger = logging.getLogger(__name__)
 # rule of thumb for "this should be lazy".
 _LAZY_HINT_THRESHOLD_BYTES = 100 * 1024 * 1024
 
+# GeoTIFF/Sentinel-imagery kwargs that ``NetCDF.plot`` rejects up-front
+# with a migration hint. They are absent from the public signature and
+# only ever arrive via ``**kwargs``; the gate runs first so the user
+# sees a helpful TypeError instead of an opaque cleopatra error (or, for
+# `overview`, no error at all). Module-level so it's greppable / testable
+# without instantiating ``NetCDFPlot``.
+_FORBIDDEN_PLOT_KWARGS: dict[str, str] = {
+    "rgb": (
+        "NetCDF.plot() does not accept `rgb=`: NetCDF data is not RGB. "
+        "Use `Selectors(time=...)`, `Selectors(level=...)`, "
+        "`Selectors(isel=...)`, or `band=` to select a slice."
+    ),
+    "surface_reflectance": (
+        "NetCDF.plot() does not accept `surface_reflectance=`: "
+        "`surface_reflectance` is Sentinel-only; not meaningful for NetCDF."
+    ),
+    "cutoff": (
+        "NetCDF.plot() does not accept `cutoff=`: `cutoff` is Sentinel-only; "
+        "use `ColourOpts(vmin=, vmax=, robust=True)` instead."
+    ),
+    "percentile": (
+        "NetCDF.plot() does not accept `percentile=`: `percentile` is "
+        "Sentinel-only; use `ColourOpts(robust=True)` (2nd/98th percentile, "
+        "xarray-style)."
+    ),
+    "overview": (
+        "NetCDF.plot() does not accept `overview=`: Overviews are a "
+        "GeoTIFF/COG concept; not applicable to NetCDF."
+    ),
+    "overview_index": (
+        "NetCDF.plot() does not accept `overview_index=`: Overviews are a "
+        "GeoTIFF/COG concept; not applicable to NetCDF."
+    ),
+}
+
+
+def _reject_forbidden_kwargs(kwargs: dict[str, Any]) -> None:
+    """Raise ``TypeError`` if any GeoTIFF/Sentinel-only kwarg slipped in.
+
+    Args:
+        kwargs: The ``**kwargs`` dict passed to :meth:`NetCDFPlot.run`.
+
+    Raises:
+        TypeError: With a migration hint, for the first key in
+            :data:`_FORBIDDEN_PLOT_KWARGS` that appears in ``kwargs``.
+    """
+    for name, message in _FORBIDDEN_PLOT_KWARGS.items():
+        if name in kwargs:
+            raise TypeError(message)
+
 
 class NetCDFPlot:
     """Owns the plotting pipeline for a :class:`~pyramids.netcdf.netcdf.NetCDF`.
@@ -73,37 +123,7 @@ class NetCDFPlot:
     ):
         """Implement :meth:`NetCDF.plot`. See there for the public docstring."""
         nc = self.nc
-        forbidden_kwargs = {
-            "rgb": (
-                "NetCDF.plot() does not accept `rgb=`: NetCDF data is not RGB. "
-                "Use `Selectors(time=...)`, `Selectors(level=...)`, "
-                "`Selectors(isel=...)`, or `band=` to select a slice."
-            ),
-            "surface_reflectance": (
-                "NetCDF.plot() does not accept `surface_reflectance=`: "
-                "`surface_reflectance` is Sentinel-only; not meaningful for NetCDF."
-            ),
-            "cutoff": (
-                "NetCDF.plot() does not accept `cutoff=`: `cutoff` is Sentinel-only; "
-                "use `ColourOpts(vmin=, vmax=, robust=True)` instead."
-            ),
-            "percentile": (
-                "NetCDF.plot() does not accept `percentile=`: `percentile` is "
-                "Sentinel-only; use `ColourOpts(robust=True)` (2nd/98th percentile, "
-                "xarray-style)."
-            ),
-            "overview": (
-                "NetCDF.plot() does not accept `overview=`: Overviews are a "
-                "GeoTIFF/COG concept; not applicable to NetCDF."
-            ),
-            "overview_index": (
-                "NetCDF.plot() does not accept `overview_index=`: Overviews are a "
-                "GeoTIFF/COG concept; not applicable to NetCDF."
-            ),
-        }
-        for name, message in forbidden_kwargs.items():
-            if name in kwargs:
-                raise TypeError(message)
+        _reject_forbidden_kwargs(kwargs)
 
         selectors = selectors or Selectors()
         colour = colour or ColourOpts()
