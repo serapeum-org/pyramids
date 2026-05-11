@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.18.0 (2026-05-11)
+
+### Feat
+
+- **plot**: xarray-aligned NetCDF.plot API and unified plotting layer (#316)
+
 ## 0.17.0 (2026-05-10)
 
 ### Feat
