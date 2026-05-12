@@ -10,10 +10,9 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 import pandas as pd
-from osgeo import gdal
 
-from pyramids.base._domain import inside_domain
-from pyramids.base._errors import DatasetNotFoundError, OptionalPackageDoesNotExist
+from pyramids import _io
+from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._raster_meta import RasterMeta
 from pyramids.base._utils import import_flox, import_zarr
@@ -839,6 +838,58 @@ class DatasetCollection:
         return cls(template, len(resolved), files=resolved, meta=meta)
 
     @classmethod
+    def from_archive(
+        cls,
+        url_or_path: str | Path,
+        *,
+        kind: str = "auto",
+        member_glob: str = "*",
+        meta: RasterMeta | None = None,
+    ) -> DatasetCollection:
+        """Build a collection from the raster members of an archive.
+
+        Lists the archive's members (locally or over the network — a remote ZIP
+        is read via the chained ``/vsizip//vsicurl/…`` path) and hands them to
+        :meth:`from_files`, so each matching member becomes one timestep. Only
+        the first member is opened eagerly; the rest are opened on demand.
+
+        For "merge all members into one multi-band :class:`Dataset`" (bands,
+        not timesteps) use :meth:`pyramids.dataset.Dataset.from_archive`.
+
+        The archive's file name must carry a recognised extension (``.zip`` /
+        ``.tar`` / ``.tar.gz`` / ``.gz``) — GDAL's archive handlers key off the
+        extension. An extension-less download URL (e.g. an Earth Engine
+        ``getDownloadURL`` ending in ``:getPixels``) must first be fetched and
+        saved with a ``.zip`` name (or written to ``/vsimem/<name>.zip`` via
+        :func:`osgeo.gdal.FileFromMemBuffer`) before calling this.
+
+        Args:
+            url_or_path: Path or URL of the archive (``.zip`` / ``.tar`` /
+                ``.tar.gz`` / ``.gz``).
+            kind: Archive kind — ``"zip"``, ``"tar"`` (also ``"tar.gz"`` /
+                ``"tgz"``), ``"gzip"`` (also ``"gz"``), or ``"auto"`` (default,
+                infer from the extension).
+            member_glob: :mod:`fnmatch` pattern selecting which members to
+                include, applied to top-level member names and sorted. Default
+                ``"*"`` (all). Pass e.g. ``"*.tif"`` to skip sidecar files.
+            meta: Optional pre-computed :class:`RasterMeta` for the timesteps.
+
+        Returns:
+            DatasetCollection: A collection whose ``time_length`` is the number
+            of matching members.
+
+        Raises:
+            FileFormatNotSupportedError: ``kind="auto"`` and the extension is
+                not recognised, or the archive could not be listed.
+            FileNotFoundError: No member matched ``member_glob``.
+            ValueError: ``kind`` is not a recognised archive kind.
+        """
+        dir_vsi = _io._archive_dir_vsi(url_or_path, kind)
+        members = _io._archive_members(dir_vsi, member_glob)
+        member_paths = [f"{dir_vsi}/{m}" for m in members]
+        return cls.from_files(member_paths, meta=meta)
+
+    @classmethod
     def read_multiple_files(
         cls,
         path: str | Path | list[str | Path],
@@ -1028,9 +1079,7 @@ class DatasetCollection:
             np.ndarray: A fresh ``(time_length, rows, cols)`` float
                 array each call.
         """
-        return np.stack(
-            [ds.read_array(band=0) for ds in self.datasets], axis=0
-        )
+        return np.stack([ds.read_array(band=0) for ds in self.datasets], axis=0)
 
     @values.setter
     def values(self, val: np.ndarray) -> None:
@@ -1294,9 +1343,7 @@ class DatasetCollection:
         # Dataset's band into one stacked array is fine for a plot call
         # (the user explicitly asked to render). Delegates the cleopatra
         # call to :func:`render_array` (D-2 — shared with `Analysis.plot`).
-        data = np.stack(
-            [ds.read_array(band=band) for ds in self.datasets], axis=0
-        )
+        data = np.stack([ds.read_array(band=band) for ds in self.datasets], axis=0)
         exclude_value = (
             [self.base.no_data_value[band], exclude_value]
             if exclude_value is not None
@@ -1484,10 +1531,7 @@ class DatasetCollection:
                 output of calling the named method on the corresponding
                 input handle.
         """
-        return [
-            getattr(ds, method_name)(*args, **kwargs)
-            for ds in self.datasets
-        ]
+        return [getattr(ds, method_name)(*args, **kwargs) for ds in self.datasets]
 
     def to_crs(
         self,

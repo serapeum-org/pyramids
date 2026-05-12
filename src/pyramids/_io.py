@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import gzip
 import random
 import tarfile
@@ -16,6 +17,18 @@ from pyramids.base._errors import FileFormatNotSupportedError
 
 COMPRESSED_FILES_EXTENSIONS = [".zip", ".gz", ".tar"]
 DOES_NOT_SUPPORT_INTERNAL = [".gz"]
+
+# User-facing archive ``kind`` -> GDAL VSI handler prefix. ``"tar.gz"`` /
+# ``"tgz"`` go through ``/vsitar/`` (GDAL's tar handler decompresses gzip
+# inline); ``"gz"`` / ``"gzip"`` is for a single gzip-compressed file.
+_VSI_ARCHIVE_KINDS: dict[str, str] = {
+    "zip": "/vsizip/",
+    "tar": "/vsitar/",
+    "tar.gz": "/vsitar/",
+    "tgz": "/vsitar/",
+    "gz": "/vsigzip/",
+    "gzip": "/vsigzip/",
+}
 
 
 def new_vsimem_path(suffix: str = ".tif") -> str:
@@ -254,6 +267,123 @@ def _parse_path(path: str | Path, file_i: int = 0) -> str:
     return str(new_path)
 
 
+def _infer_archive_kind(path: str) -> str | None:
+    """Best-effort archive kind (``"zip"`` / ``"tar"`` / ``"gzip"``) from a path.
+
+    Returns ``None`` when the extension is not a recognised archive type — e.g.
+    an extension-less download URL, in which case the caller must pass an
+    explicit ``kind``.
+
+    Args:
+        path: Path or URL to sniff.
+
+    Returns:
+        str | None: ``"zip"``, ``"tar"``, ``"gzip"``, or ``None``.
+    """
+    result: str | None
+    if _is_zip(path):
+        result = "zip"
+    elif _is_tar(path):
+        result = "tar"
+    elif _is_gzip(path):
+        result = "gzip"
+    else:
+        result = None
+    return result
+
+
+def _archive_dir_vsi(path: str | Path, kind: str = "auto") -> str:
+    """Return the GDAL ``/vsizip|tar|gzip/`` *directory* path for an archive.
+
+    Unlike :func:`_parse_path` (which, for a bare ``.zip``, resolves to the
+    *first member*), this returns the archive directory itself so callers can
+    :func:`osgeo.gdal.ReadDir` it. The path is first normalised to ``/vsi*``
+    form via :func:`pyramids.base.remote._to_vsi` — so ``s3://`` / ``https://``
+    URLs work — and then the archive handler prefix is prepended:
+
+    * ``_archive_dir_vsi("https://h/x.zip", "zip")`` →
+      ``/vsizip//vsicurl/https://h/x.zip``
+    * ``_archive_dir_vsi("/data/x.zip")`` (kind inferred) → ``/vsizip//data/x.zip``
+    * ``_archive_dir_vsi("/vsizip//data/x.zip", "zip")`` → unchanged (idempotent)
+
+    Args:
+        path: Path or URL of the archive. May be extension-less (e.g. an Earth
+            Engine ``getDownloadURL`` ZIP whose URL ends in ``:getPixels``) — in
+            that case ``kind`` must be given explicitly.
+        kind: One of ``"zip"``, ``"tar"`` (also ``"tar.gz"`` / ``"tgz"``),
+            ``"gzip"`` (also ``"gz"``), or ``"auto"`` (default) to infer from the
+            extension.
+
+    Returns:
+        str: The ``/vsi*`` directory path.
+
+    Raises:
+        FileFormatNotSupportedError: ``kind="auto"`` and the extension is not a
+            recognised archive type.
+        ValueError: ``kind`` is not a recognised archive kind.
+    """
+    path = str(path)
+    if kind == "auto":
+        inferred = _infer_archive_kind(path)
+        if inferred is None:
+            raise FileFormatNotSupportedError(
+                f"could not infer the archive kind from {path!r}; pass kind='zip', "
+                "'tar', or 'gzip' explicitly (needed for extension-less URLs)"
+            )
+        kind = inferred
+    prefix = _VSI_ARCHIVE_KINDS.get(kind)
+    if prefix is None:
+        raise ValueError(
+            f"unknown archive kind {kind!r}; expected one of "
+            f"{sorted(_VSI_ARCHIVE_KINDS)} or 'auto'"
+        )
+    vsi_path = remote._to_vsi(path)
+    if vsi_path.startswith(("/vsizip/", "/vsitar/", "/vsigzip/")):
+        return vsi_path
+    return f"{prefix}{vsi_path}"
+
+
+def _archive_members(dir_vsi: str, member_glob: str = "*") -> list[str]:
+    """List a ``/vsi*`` archive directory's members, filtered and sorted.
+
+    Only top-level members are returned — recursive listing of nested
+    directories inside the archive is not supported.
+
+    Args:
+        dir_vsi: An archive directory path as returned by :func:`_archive_dir_vsi`.
+        member_glob: :mod:`fnmatch` pattern; only matching members are returned.
+            Default ``"*"`` (all). Pass e.g. ``"*.tif"`` for an archive that also
+            contains sidecar files.
+
+    Returns:
+        list[str]: Member names (not full paths), sorted.
+
+    Raises:
+        FileFormatNotSupportedError: GDAL could not list the archive (unreachable
+            path/URL, not an archive of that kind, …).
+        FileNotFoundError: No member matched ``member_glob``.
+    """
+    entries = gdal.ReadDir(dir_vsi)
+    if entries is None:
+        raise FileFormatNotSupportedError(
+            f"could not list archive members at {dir_vsi!r}. Check the path/URL is "
+            "reachable and really is an archive of the given kind. Note: GDAL's "
+            "archive handlers need a recognised extension (.zip / .tar / .tar.gz / "
+            ".gz) on the *file name* — an extension-less download URL will not work "
+            "directly; fetch the bytes and write them to a '.zip'-named file (or to "
+            "'/vsimem/<name>.zip' via gdal.FileFromMemBuffer) first. Nested archives "
+            "are also not supported."
+        )
+    listed = [e for e in entries if e not in (".", "..")]
+    members = sorted(e for e in listed if fnmatch.fnmatch(e, member_glob))
+    if not members:
+        raise FileNotFoundError(
+            f"no members matching {member_glob!r} in {dir_vsi!r}; "
+            f"available: {sorted(listed)[:10]}"
+        )
+    return members
+
+
 def extract_from_gz(input_file: str | Path, output_file: str | Path, delete=False):
     """Extract data from zip/.gz files and save the data.
 
@@ -281,6 +411,8 @@ def read_file(
     read_only: bool = True,
     open_as_multi_dimensional: bool = False,
     file_i: int = 0,
+    *,
+    vsi: str | None = None,
 ):
     """Open file (GeoTIFF and ASCII).
 
@@ -291,6 +423,11 @@ def read_file(
         read_only (bool): File mode; set to False to open in "update" mode.
         open_as_multi_dimensional (bool): If True, opens using OF_MULTIDIM_RASTER for multi-dimensional formats. Default is False.
         file_i (int): Index to the file inside the compressed file you want to read (default 0). If the compressed file has only one file, the first file is used.
+        vsi (str | None): When given, treat ``path`` as an archive of this kind
+            (``"zip"`` / ``"tar"`` / ``"gzip"`` / ``"auto"``) and open member
+            ``file_i`` from inside it — even when the path/URL has no archive
+            extension (e.g. an Earth Engine download URL). Default ``None``
+            (path opened directly / extension-sniffed as today).
 
     Returns:
         gdal.Dataset: Opened dataset.
@@ -299,7 +436,17 @@ def read_file(
         raise TypeError(
             f"the path parameter should be of string or Path type, given: {type(path)}"
         )
-    path = _parse_path(path, file_i=file_i)
+    if vsi is not None:
+        dir_vsi = _archive_dir_vsi(path, vsi)
+        members = _archive_members(dir_vsi)
+        if not 0 <= file_i < len(members):
+            raise FileNotFoundError(
+                f"archive {path!r} has {len(members)} member(s); file_i={file_i} "
+                "is out of range"
+            )
+        path = f"{dir_vsi}/{members[file_i]}"
+    else:
+        path = _parse_path(path, file_i=file_i)
     access = gdal.GA_ReadOnly if read_only else gdal.GA_Update
     try:
         # get the file extension

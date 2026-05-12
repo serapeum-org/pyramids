@@ -1476,26 +1476,52 @@ class Dataset(RasterBase):
         path: str | Path,
         read_only=True,
         file_i: int = 0,
+        *,
+        vsi: str | None = None,
     ) -> Dataset:
-        """read_file.
+        """Open a raster from a path, URL, or archive member.
+
+        Plain local paths, ``/vsi*`` paths, and URL schemes
+        (``http(s)://``, ``s3://``, ``gs://``, ``az://`` / ``abfs://``,
+        ``file://``) are all accepted — URLs are transparently rewritten to
+        GDAL's virtual filesystem (GDAL fetches via HTTP range requests for
+        ``http(s)``). Compressed archives are detected from the extension; pass
+        ``vsi=`` to be explicit about it (e.g. an archive with an unusual
+        extension, or to open a specific member by index).
 
         Args:
-            path (str):
-                Path of file to open.
+            path (str | Path):
+                Path or URL of the file to open.
             read_only (bool):
-                File mode, set to False, to open in "update" mode.
+                File mode; set to ``False`` to open in update mode.
             file_i (int):
-                Index to the file inside the compressed file you want to read, if the compressed file
-                has only one file. Default is 0.
+                Which member to open when ``path`` is (or is forced to be) a
+                multi-file archive. Default ``0``.
+            vsi (str | None):
+                Treat ``path`` as an archive of this kind and open member
+                ``file_i`` from inside it: ``"zip"``, ``"tar"`` (also
+                ``"tar.gz"`` / ``"tgz"``), ``"gzip"`` (also ``"gz"``), or
+                ``"auto"`` (infer from the extension). Default ``None`` —
+                ``path`` is opened directly / extension-sniffed as before.
+                Works for archives reachable locally or over the network
+                (``/vsizip//vsicurl/…`` is built automatically) **provided the
+                file name carries a recognised archive extension** — GDAL's
+                archive handlers key off the extension, so an extension-less
+                download URL must first be fetched and saved with a ``.zip``
+                name (or written to ``/vsimem/<name>.zip`` via
+                :func:`osgeo.gdal.FileFromMemBuffer`).
 
         Returns:
             Dataset:
                 Opened dataset instance.
 
         See Also:
-            - Dataset.read_array: Read the values stored in a dataset band.
+            - :meth:`read_array`: read the values stored in a dataset band.
+            - :meth:`from_bytes`: open a raster held in memory.
+            - :meth:`pyramids.dataset.DatasetCollection.from_archive`: open
+              *every* member of an archive as a temporal stack.
         """
-        src = _io.read_file(path, read_only=read_only, file_i=file_i)
+        src = _io.read_file(path, read_only=read_only, file_i=file_i, vsi=vsi)
         return cls(src, access="read_only" if read_only else "write")
 
     @classmethod
@@ -2246,3 +2272,101 @@ class Dataset(RasterBase):
         obj.band_names = out_names
         obj._raster.FlushCache()
         return obj
+
+    @classmethod
+    def from_archive(
+        cls,
+        url_or_path: str | Path,
+        *,
+        kind: str = "auto",
+        member_glob: str = "*",
+        band_names: list[str] | None = None,
+        align: bool = False,
+        no_data_value: Any = _INHERIT_NO_DATA,
+        path: str | Path | None = None,
+    ) -> Dataset:
+        """Open every raster in an archive and merge them into one multi-band Dataset.
+
+        Lists the archive's members (locally or over the network — a remote ZIP
+        is read via the chained ``/vsizip//vsicurl/…`` path) and hands them to
+        :meth:`from_band_files`. For "one Dataset per member" (a temporal stack)
+        use :meth:`pyramids.dataset.DatasetCollection.from_archive` instead.
+
+        The archive's file name must carry a recognised extension (``.zip`` /
+        ``.tar`` / ``.tar.gz`` / ``.gz``) — GDAL's archive handlers key off the
+        extension. An extension-less download URL (e.g. an Earth Engine
+        ``getDownloadURL`` ending in ``:getPixels``) must first be fetched and
+        saved with a ``.zip`` name (or written to ``/vsimem/<name>.zip`` via
+        :func:`osgeo.gdal.FileFromMemBuffer`) before calling this.
+
+        Args:
+            url_or_path: Path or URL of the archive (``.zip`` / ``.tar`` /
+                ``.tar.gz`` / ``.gz``).
+            kind: Archive kind — ``"zip"``, ``"tar"`` (also ``"tar.gz"`` /
+                ``"tgz"``), ``"gzip"`` (also ``"gz"``), or ``"auto"`` (default,
+                infer from the extension).
+            member_glob: :mod:`fnmatch` pattern selecting which members to stack.
+                Default ``"*"`` (all top-level members, sorted by name). Pass e.g.
+                ``"*.tif"`` for an archive that also ships sidecar files.
+            band_names: Explicit per-band names; ``None`` derives them from the
+                member names (see :meth:`from_band_files`).
+            align: When ``True``, resample mismatched members onto the first
+                member's grid instead of raising :class:`AlignmentError`.
+            no_data_value: No-data value for the output bands; omitted means
+                "inherit from the members".
+            path: Output ``.tif`` path; ``None`` keeps the result in memory.
+
+        Returns:
+            Dataset: A multi-band dataset, one band per matching archive member.
+
+        Raises:
+            FileFormatNotSupportedError: ``kind="auto"`` and the extension is
+                not recognised, or the archive could not be listed.
+            FileNotFoundError: No member matched ``member_glob``.
+            ValueError / AlignmentError / CRSError: As for :meth:`from_band_files`.
+
+        Examples:
+            - Stack the raster members of a local ZIP into one multi-band dataset
+              (band names come from the member names):
+                ```python
+                >>> import os, tempfile, zipfile
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> d = tempfile.mkdtemp()
+                >>> members = []
+                >>> for name, val in [("scene.B2.tif", 2), ("scene.B3.tif", 3)]:
+                ...     p = os.path.join(d, name)
+                ...     _ = Dataset.create_from_array(
+                ...         np.full((4, 5), val, dtype="int16"),
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326, path=p,
+                ...     ).close()
+                ...     members.append(p)
+                >>> zip_path = os.path.join(d, "download.zip")
+                >>> with zipfile.ZipFile(zip_path, "w") as zf:
+                ...     for m in members:
+                ...         zf.write(m, arcname=os.path.basename(m))
+                >>> ds = Dataset.from_archive(zip_path, member_glob="*.tif")
+                >>> ds.band_count
+                2
+                >>> ds.band_names
+                ['B2', 'B3']
+                >>> [int(ds.read_array(band=i).flat[0]) for i in range(2)]
+                [2, 3]
+
+                ```
+
+        See Also:
+            - :meth:`from_band_files`: stack a known list of single-band rasters.
+            - :meth:`pyramids.dataset.DatasetCollection.from_archive`: open each
+              member as a separate timestep instead of merging them into bands.
+        """
+        dir_vsi = _io._archive_dir_vsi(url_or_path, kind)
+        members = _io._archive_members(dir_vsi, member_glob)
+        member_paths = [f"{dir_vsi}/{m}" for m in members]
+        return cls.from_band_files(
+            member_paths,
+            band_names=band_names,
+            align=align,
+            no_data_value=no_data_value,
+            path=path,
+        )
