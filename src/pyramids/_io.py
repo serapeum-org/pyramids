@@ -33,6 +33,36 @@ def new_vsimem_path(suffix: str = ".tif") -> str:
 
     Returns:
         str: A ``/vsimem/<time>_<rand><suffix>`` path.
+
+    Examples:
+        - A path with no explicit suffix lives under ``/vsimem/`` and ends in ``.tif``:
+            ```python
+            >>> from pyramids._io import new_vsimem_path
+            >>> p = new_vsimem_path()
+            >>> p.startswith("/vsimem/")
+            True
+            >>> p.endswith(".tif")
+            True
+
+            ```
+        - A custom extension is appended verbatim (handy as a GDAL driver hint):
+            ```python
+            >>> from pyramids._io import new_vsimem_path
+            >>> new_vsimem_path(".nc").endswith(".nc")
+            True
+
+            ```
+        - Two calls never collide, so concurrent conversions stay isolated:
+            ```python
+            >>> from pyramids._io import new_vsimem_path
+            >>> new_vsimem_path() != new_vsimem_path()
+            True
+
+            ```
+
+    See Also:
+        bytes_to_gdal: Uses this to back an in-memory dataset.
+        silent_unlink: Removes the path once the dataset is gone.
     """
     return f"/vsimem/{time.time_ns()}_{random.randint(0, 999_999)}{suffix}"
 
@@ -48,6 +78,31 @@ def silent_unlink(path: str) -> None:
 
     Args:
         path: The ``/vsimem/`` (or other VSI) path to remove.
+
+    Examples:
+        - An existing ``/vsimem/`` file is removed:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids._io import new_vsimem_path, silent_unlink
+            >>> path = new_vsimem_path()
+            >>> _ = gdal.FileFromMemBuffer(path, b"hello")
+            >>> gdal.VSIStatL(path) is not None
+            True
+            >>> silent_unlink(path)
+            >>> gdal.VSIStatL(path) is None
+            True
+
+            ```
+        - Unlinking a path that does not exist is a quiet no-op (safe inside
+          :func:`weakref.finalize`):
+            ```python
+            >>> from pyramids._io import silent_unlink
+            >>> silent_unlink("/vsimem/this-path-never-existed.tif")
+
+            ```
+
+    See Also:
+        new_vsimem_path: Mints the paths this cleans up.
     """
     try:
         gdal.Unlink(path)
@@ -324,6 +379,49 @@ def bytes_to_gdal(
     Raises:
         TypeError: ``data`` is not a bytes-like object.
         ValueError: GDAL could not open the bytes as a dataset.
+
+    Examples:
+        - Open the bytes of a GeoTIFF and inspect the GDAL dataset, then clean up:
+            ```python
+            >>> from pathlib import Path
+            >>> from pyramids._io import bytes_to_gdal, silent_unlink
+            >>> data = Path("tests/data/acc4000.tif").read_bytes()
+            >>> src, vsi_path = bytes_to_gdal(data)
+            >>> src.RasterCount
+            1
+            >>> (src.RasterXSize, src.RasterYSize)
+            (14, 13)
+            >>> vsi_path.startswith("/vsimem/")
+            True
+            >>> src = None
+            >>> silent_unlink(vsi_path)
+
+            ```
+        - Non bytes-like input is rejected before any ``/vsimem/`` file is written:
+            ```python
+            >>> from pyramids._io import bytes_to_gdal
+            >>> try:
+            ...     bytes_to_gdal("a string, not bytes")
+            ... except TypeError as exc:
+            ...     print("bytes-like" in str(exc))
+            True
+
+            ```
+        - Bytes GDAL cannot parse raise ``ValueError`` (and leak nothing):
+            ```python
+            >>> from pyramids._io import bytes_to_gdal
+            >>> try:
+            ...     bytes_to_gdal(b"definitely not a raster")
+            ... except ValueError as exc:
+            ...     print("suffix" in str(exc))
+            True
+
+            ```
+
+    See Also:
+        new_vsimem_path: Mints the backing path.
+        silent_unlink: How the caller releases the returned path.
+        pyramids.dataset.Dataset.from_bytes: The public wrapper around this helper.
     """
     if not isinstance(data, (bytes, bytearray, memoryview)):
         raise TypeError(

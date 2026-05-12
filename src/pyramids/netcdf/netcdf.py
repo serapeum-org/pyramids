@@ -1638,8 +1638,39 @@ class NetCDF(Dataset):
             TypeError: ``data`` is not a bytes-like object.
             ValueError: GDAL could not open the bytes as a NetCDF.
 
+        Examples:
+            - Open the bytes of a NetCDF and list its variables (the bytes
+              here come from a file, but could be ``requests.get(url).content``):
+                ```python
+                >>> from pathlib import Path
+                >>> from pyramids.netcdf import NetCDF
+                >>> data = Path("tests/data/netcdf/noah-precipitation-1979.nc").read_bytes()
+                >>> nc = NetCDF.from_bytes(data, name="downloaded.nc")
+                >>> list(nc.variables)
+                ['Band1', 'Band2', 'Band3', 'Band4']
+                >>> nc.epsg
+                4326
+                >>> nc.file_name
+                'downloaded.nc'
+
+                ```
+            - An in-memory NetCDF cannot be pickled — anchor it to disk first:
+                ```python
+                >>> import pickle
+                >>> from pathlib import Path
+                >>> from pyramids.netcdf import NetCDF
+                >>> data = Path("tests/data/netcdf/noah-precipitation-1979.nc").read_bytes()
+                >>> try:
+                ...     pickle.dumps(NetCDF.from_bytes(data))
+                ... except TypeError as exc:
+                ...     print("to_file" in str(exc))
+                True
+
+                ```
+
         See Also:
             - :meth:`read_file`: open a NetCDF from a path or URL.
+            - :meth:`pyramids.dataset.Dataset.from_bytes`: the GeoTIFF variant.
         """
         src, vsi_path = _io.bytes_to_gdal(
             data,

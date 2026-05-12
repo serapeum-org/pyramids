@@ -1478,9 +1478,57 @@ class Dataset(RasterBase):
                 truncated payload, or a headerless format without a
                 ``suffix`` hint).
 
+        Examples:
+            - Open the bytes of a downloaded GeoTIFF and inspect it (the
+              bytes here come from a file, but they could just as well be
+              ``requests.get(url).content``):
+                ```python
+                >>> from pathlib import Path
+                >>> from pyramids.dataset import Dataset
+                >>> data = Path("tests/data/acc4000.tif").read_bytes()
+                >>> ds = Dataset.from_bytes(data, name="downloaded-scene")
+                >>> ds.band_count
+                1
+                >>> ds.shape
+                (1, 13, 14)
+                >>> ds.epsg
+                32618
+                >>> ds.file_name
+                'downloaded-scene'
+                >>> ds.close()
+
+                ```
+            - The bytes path yields the same data as opening the file directly:
+                ```python
+                >>> from pathlib import Path
+                >>> from pyramids.dataset import Dataset
+                >>> data = Path("tests/data/acc4000.tif").read_bytes()
+                >>> from_bytes = Dataset.from_bytes(data)
+                >>> from_file = Dataset.read_file("tests/data/acc4000.tif")
+                >>> from_bytes.shape == from_file.shape
+                True
+                >>> from_bytes.epsg == from_file.epsg
+                True
+
+                ```
+            - An in-memory dataset cannot be pickled — anchor it to disk first:
+                ```python
+                >>> import pickle
+                >>> from pathlib import Path
+                >>> from pyramids.dataset import Dataset
+                >>> data = Path("tests/data/acc4000.tif").read_bytes()
+                >>> try:
+                ...     pickle.dumps(Dataset.from_bytes(data))
+                ... except TypeError as exc:
+                ...     print("to_file" in str(exc))
+                True
+
+                ```
+
         See Also:
             - :meth:`read_file`: open a raster from a path or URL.
             - :meth:`to_file`: write an in-memory dataset to disk.
+            - :meth:`pyramids.netcdf.NetCDF.from_bytes`: the NetCDF variant.
         """
         src, vsi_path = _io.bytes_to_gdal(data, suffix=suffix, read_only=read_only)
         try:
