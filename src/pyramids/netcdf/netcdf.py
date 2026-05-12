@@ -1647,11 +1647,19 @@ class NetCDF(Dataset):
             read_only=read_only,
             open_as_multi_dimensional=open_as_multi_dimensional,
         )
-        obj = cls(
-            src,
-            access="read_only" if read_only else "write",
-            open_as_multi_dimensional=open_as_multi_dimensional,
-        )
+        try:
+            obj = cls(
+                src,
+                access="read_only" if read_only else "write",
+                open_as_multi_dimensional=open_as_multi_dimensional,
+            )
+        except Exception as e:
+            src = None
+            _io.silent_unlink(vsi_path)
+            raise ValueError(
+                "could not open the supplied bytes as a NetCDF dataset "
+                f"(the data may be corrupt or truncated): {e}"
+            ) from e
         obj._vsimem_path = vsi_path
         weakref.finalize(obj, _io.silent_unlink, vsi_path)
         if name is not None:

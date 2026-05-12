@@ -1483,7 +1483,15 @@ class Dataset(RasterBase):
             - :meth:`to_file`: write an in-memory dataset to disk.
         """
         src, vsi_path = _io.bytes_to_gdal(data, suffix=suffix, read_only=read_only)
-        obj = cls(src, access="read_only" if read_only else "write")
+        try:
+            obj = cls(src, access="read_only" if read_only else "write")
+        except Exception as e:
+            src = None
+            _io.silent_unlink(vsi_path)
+            raise ValueError(
+                "could not open the supplied bytes as a raster dataset "
+                f"(the data may be corrupt or truncated): {e}"
+            ) from e
         obj._vsimem_path = vsi_path
         weakref.finalize(obj, _io.silent_unlink, vsi_path)
         if name is not None:

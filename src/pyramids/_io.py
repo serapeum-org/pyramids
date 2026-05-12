@@ -345,7 +345,7 @@ def bytes_to_gdal(
             "format has no magic header (e.g. ESRI ASCII grid) pass an "
             f"explicit `suffix=` hint. Underlying error: {e}"
         ) from e
-    if src is None:
+    if src is None:  # pragma: no cover - gdal.UseExceptions() makes this unreachable
         silent_unlink(vsi_path)
         raise ValueError(
             "could not open the supplied bytes as a raster dataset; if the "
