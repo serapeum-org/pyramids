@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import gzip
+import random
 import tarfile
+import time
 import warnings
 import zipfile
 from pathlib import Path
@@ -14,6 +16,43 @@ from pyramids.base._errors import FileFormatNotSupportedError
 
 COMPRESSED_FILES_EXTENSIONS = [".zip", ".gz", ".tar"]
 DOES_NOT_SUPPORT_INTERNAL = [".gz"]
+
+
+def new_vsimem_path(suffix: str = ".tif") -> str:
+    """Return a fresh, unique GDAL ``/vsimem/`` path.
+
+    Mirrors :func:`pyramids.feature._ogr._new_vsimem_path` but takes an
+    arbitrary extension so the same scheme can back rasters, NetCDFs, or
+    anything else. The ``<time_ns>_<rand>`` body is collision-proof
+    within a single process run.
+
+    Args:
+        suffix: Extension to append (including the leading dot). Used by
+            GDAL as a driver hint when the in-memory bytes have no magic
+            header. Defaults to ``".tif"``.
+
+    Returns:
+        str: A ``/vsimem/<time>_<rand><suffix>`` path.
+    """
+    return f"/vsimem/{time.time_ns()}_{random.randint(0, 999_999)}{suffix}"
+
+
+def silent_unlink(path: str) -> None:
+    """:func:`osgeo.gdal.Unlink` that never raises.
+
+    Safe to register with :func:`weakref.finalize` — under
+    ``gdal.UseExceptions()`` an ``Unlink`` on a path that is already gone
+    raises ``RuntimeError``, which would surface as an "Exception ignored
+    in" message during garbage collection. Swallowing it keeps cleanup
+    quiet and idempotent.
+
+    Args:
+        path: The ``/vsimem/`` (or other VSI) path to remove.
+    """
+    try:
+        gdal.Unlink(path)
+    except Exception:  # pragma: no cover - cleanup must never raise
+        pass
 
 
 def _is_zip(path: str):
@@ -247,6 +286,73 @@ def read_file(
     #         f"the raster is being used by other software"
     #     )
     return src
+
+
+def bytes_to_gdal(
+    data: bytes | bytearray | memoryview,
+    *,
+    suffix: str = ".tif",
+    read_only: bool = True,
+    open_as_multi_dimensional: bool = False,
+) -> tuple[gdal.Dataset, str]:
+    """Open an in-memory byte string as a GDAL dataset via ``/vsimem/``.
+
+    Writes ``data`` to a fresh ``/vsimem/`` path with
+    :func:`osgeo.gdal.FileFromMemBuffer`, then opens it through
+    :func:`read_file`. On any failure the ``/vsimem/`` entry is removed
+    before the error propagates, so a bad payload never leaks an
+    in-memory file. On success the caller owns the returned path and is
+    responsible for calling :func:`silent_unlink` (typically via
+    :func:`weakref.finalize`) when the dataset is no longer needed.
+
+    Args:
+        data: Raw bytes of a raster (GeoTIFF, NetCDF, ASCII grid, ...).
+        suffix: Extension hint for GDAL's driver detection. Needed only
+            for headerless formats (ESRI ASCII grid); for anything with
+            a magic header GDAL sniffs the format regardless. Defaults
+            to ``".tif"``.
+        read_only: Open the dataset read-only. ``/vsimem/`` files are
+            always writable at the GDAL level; pyramids enforces the
+            access flag itself. Defaults to ``True``.
+        open_as_multi_dimensional: Pass ``gdal.OF_MULTIDIM_RASTER`` (used
+            by :class:`~pyramids.netcdf.NetCDF`). Defaults to ``False``.
+
+    Returns:
+        tuple[gdal.Dataset, str]: The opened GDAL dataset and the
+        ``/vsimem/`` path backing it.
+
+    Raises:
+        TypeError: ``data`` is not a bytes-like object.
+        ValueError: GDAL could not open the bytes as a dataset.
+    """
+    if not isinstance(data, (bytes, bytearray, memoryview)):
+        raise TypeError(
+            f"data should be a bytes-like object (bytes/bytearray/memoryview), "
+            f"given: {type(data)}"
+        )
+    vsi_path = new_vsimem_path(suffix)
+    gdal.FileFromMemBuffer(vsi_path, bytes(data))
+    try:
+        src = read_file(
+            vsi_path,
+            read_only=read_only,
+            open_as_multi_dimensional=open_as_multi_dimensional,
+        )
+    except Exception as e:
+        silent_unlink(vsi_path)
+        raise ValueError(
+            "could not open the supplied bytes as a raster dataset; if the "
+            "format has no magic header (e.g. ESRI ASCII grid) pass an "
+            f"explicit `suffix=` hint. Underlying error: {e}"
+        ) from e
+    if src is None:
+        silent_unlink(vsi_path)
+        raise ValueError(
+            "could not open the supplied bytes as a raster dataset; if the "
+            "format has no magic header (e.g. ESRI ASCII grid) pass an "
+            "explicit `suffix=` hint."
+        )
+    return src, vsi_path
 
 
 def insert_space(inp):

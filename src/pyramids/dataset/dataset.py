@@ -370,9 +370,7 @@ class Dataset(RasterBase):
             resolved_rgb = rgb
         else:
             band_colors = list(self.band_color.values())
-            has_color_interp = any(
-                c != UNDEFINED_COLOR_INTERP for c in band_colors
-            )
+            has_color_interp = any(c != UNDEFINED_COLOR_INTERP for c in band_colors)
             if not has_color_interp:
                 resolved_band = 0
                 resolved_rgb = rgb
@@ -1428,6 +1426,69 @@ class Dataset(RasterBase):
         """
         src = _io.read_file(path, read_only=read_only, file_i=file_i)
         return cls(src, access="read_only" if read_only else "write")
+
+    @classmethod
+    def from_bytes(
+        cls,
+        data: bytes | bytearray | memoryview,
+        *,
+        suffix: str = ".tif",
+        name: str | None = None,
+        read_only: bool = True,
+    ) -> Dataset:
+        """Open a raster held in memory as a byte string.
+
+        Writes ``data`` to a temporary GDAL ``/vsimem/`` path and opens
+        it — no on-disk temp file needed. Useful for HTTP response
+        bodies (``requests.get(url).content``), object-store
+        ``get_object`` payloads, database blobs, and test fixtures.
+
+        This is **not** a URL helper. Reading from a URL is already
+        supported by :meth:`read_file`, which rewrites ``http(s)://``,
+        ``s3://``, ``gs://``, ``az://`` / ``abfs://`` and ``file://``
+        to GDAL ``/vsi*`` paths. Use ``from_bytes`` only when you
+        already hold the bytes.
+
+        The ``/vsimem/`` entry is removed automatically when the
+        returned :class:`Dataset` is garbage-collected
+        (:func:`weakref.finalize`); :meth:`close` does not need to be
+        called for cleanup. Note that an in-memory dataset is **not
+        picklable** — :meth:`__reduce__` raises ``TypeError`` for
+        ``/vsimem/`` paths; call :meth:`to_file` first to anchor it to
+        disk before sending it to another process.
+
+        Args:
+            data: Raw bytes of a raster (GeoTIFF, ASCII grid, ...). For
+                NetCDF bytes use :meth:`pyramids.netcdf.NetCDF.from_bytes`.
+            suffix: Extension hint for GDAL's driver detection. Needed
+                only for headerless formats (e.g. ESRI ASCII grid:
+                ``suffix=".asc"``); GDAL sniffs anything with a magic
+                header regardless. Defaults to ``".tif"``.
+            name: Optional label recorded as the dataset's
+                :attr:`file_name` (cosmetic only — it is still an
+                in-memory dataset). Defaults to ``None``.
+            read_only: Open the dataset read-only. Defaults to ``True``.
+
+        Returns:
+            Dataset: The opened in-memory dataset.
+
+        Raises:
+            TypeError: ``data`` is not a bytes-like object.
+            ValueError: GDAL could not open the bytes (corrupt /
+                truncated payload, or a headerless format without a
+                ``suffix`` hint).
+
+        See Also:
+            - :meth:`read_file`: open a raster from a path or URL.
+            - :meth:`to_file`: write an in-memory dataset to disk.
+        """
+        src, vsi_path = _io.bytes_to_gdal(data, suffix=suffix, read_only=read_only)
+        obj = cls(src, access="read_only" if read_only else "write")
+        obj._vsimem_path = vsi_path
+        weakref.finalize(obj, _io.silent_unlink, vsi_path)
+        if name is not None:
+            obj._file_name = str(name)
+        return obj
 
     def copy(self, path: str | Path | None = None) -> Dataset:
         """Deep copy.

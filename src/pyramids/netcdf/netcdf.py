@@ -1509,8 +1509,7 @@ class NetCDF(Dataset):
 
         if not dim_indices:
             raise ValueError(
-                f"No bands match {dim_name}={selector}. "
-                f"Available values: {coords}"
+                f"No bands match {dim_name}={selector}. " f"Available values: {coords}"
             )
 
         # Map (pinned dim index along dim_name) -> classic-band indices.
@@ -1523,7 +1522,7 @@ class NetCDF(Dataset):
         # dim_indices) when there is exactly one band dim.
         dim_axis = self._band_dim_names.index(dim_name)
         sizes = self._band_dim_sizes
-        stride = math.prod(sizes[dim_axis + 1:])
+        stride = math.prod(sizes[dim_axis + 1 :])
         block = stride * sizes[dim_axis]
         total = math.prod(sizes)
 
@@ -1555,8 +1554,7 @@ class NetCDF(Dataset):
         )
         result = self._preserve_netcdf_metadata(ds_result)
         new_sizes = tuple(
-            len(dim_indices) if i == dim_axis else s
-            for i, s in enumerate(sizes)
+            len(dim_indices) if i == dim_axis else s for i, s in enumerate(sizes)
         )
         result._band_dim_sizes = new_sizes
         result._band_dim_values_map = dict(self._band_dim_values_map)
@@ -1566,9 +1564,7 @@ class NetCDF(Dataset):
         # guaranteed non-None here: entry to `sel()` requires
         # `_band_dim_names` to be non-empty, and the build path always
         # sets `_band_dim_name = _band_dim_names[0]`.
-        result._band_dim_values = result._band_dim_values_map.get(
-            result._band_dim_name
-        )
+        result._band_dim_values = result._band_dim_values_map.get(result._band_dim_name)
 
         return result
 
@@ -1602,6 +1598,65 @@ class NetCDF(Dataset):
         return cls(
             src, access=read_only, open_as_multi_dimensional=open_as_multi_dimensional
         )
+
+    @classmethod
+    def from_bytes(  # type: ignore[override]
+        cls,
+        data: bytes | bytearray | memoryview,
+        *,
+        suffix: str = ".nc",
+        name: str | None = None,
+        read_only: bool = True,
+        open_as_multi_dimensional: bool = True,
+    ) -> NetCDF:
+        """Open a NetCDF held in memory as a byte string.
+
+        Writes ``data`` to a temporary GDAL ``/vsimem/`` path and opens
+        it as a NetCDF — no on-disk temp file needed. Useful for HTTP
+        response bodies, object-store payloads, and test fixtures.
+
+        This is **not** a URL helper — see
+        :meth:`pyramids.dataset.Dataset.from_bytes` for the rationale.
+        The ``/vsimem/`` entry is removed automatically when the
+        returned :class:`NetCDF` is garbage-collected.
+
+        Args:
+            data: Raw bytes of a NetCDF file.
+            suffix: Extension hint for GDAL's driver detection. Defaults
+                to ``".nc"``.
+            name: Optional label recorded as :attr:`file_name`
+                (cosmetic). Defaults to ``None``.
+            read_only: Open read-only. Defaults to ``True``.
+            open_as_multi_dimensional: Open with
+                ``gdal.OF_MULTIDIM_RASTER`` to access the full group /
+                dimension / variable hierarchy. Defaults to ``True``.
+
+        Returns:
+            NetCDF: The opened in-memory dataset.
+
+        Raises:
+            TypeError: ``data`` is not a bytes-like object.
+            ValueError: GDAL could not open the bytes as a NetCDF.
+
+        See Also:
+            - :meth:`read_file`: open a NetCDF from a path or URL.
+        """
+        src, vsi_path = _io.bytes_to_gdal(
+            data,
+            suffix=suffix,
+            read_only=read_only,
+            open_as_multi_dimensional=open_as_multi_dimensional,
+        )
+        obj = cls(
+            src,
+            access="read_only" if read_only else "write",
+            open_as_multi_dimensional=open_as_multi_dimensional,
+        )
+        obj._vsimem_path = vsi_path
+        weakref.finalize(obj, _io.silent_unlink, vsi_path)
+        if name is not None:
+            obj._file_name = str(name)
+        return obj
 
     def to_kerchunk(
         self,
@@ -2740,10 +2795,7 @@ class NetCDF(Dataset):
         # 4-D+ array with no `extra_dims` and no legacy values: fall
         # back to anonymous dim names and integer indices so the array
         # can still be written.
-        return [
-            (f"dim_{i}", list(range(int(arr.shape[i]))))
-            for i in range(expected)
-        ]
+        return [(f"dim_{i}", list(range(int(arr.shape[i])))) for i in range(expected)]
 
     @staticmethod
     def _create_netcdf_from_array(
