@@ -5,6 +5,8 @@ from __future__ import annotations
 import datetime as dt
 import re
 import tempfile
+import warnings
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -762,6 +764,183 @@ class DatasetCollection:
                 self._files,
             )
         return result
+
+    def to_netcdf(
+        self,
+        path: str | Path,
+        *,
+        time_dim: str = "time",
+        time_coords: "Sequence[Any] | None" = None,
+        var_per_band: bool = True,
+    ) -> None:
+        """Write the collection's ``(T, B, Y, X)`` cube to a single NetCDF.
+
+        Materialises every timestep in memory, builds an
+        :class:`xarray.Dataset`, and hands it to
+        :meth:`pyramids.netcdf.NetCDF.from_xarray` (which routes through
+        pyramids' own GDAL multidimensional NetCDF writer — no
+        ``netcdf4`` / ``h5netcdf`` engine plug-in needed). The result is
+        a self-describing NetCDF with one variable per band (``CF-1.8``
+        ``Conventions`` attr; geobox attached as ``crs_wkt`` /
+        ``GeoTransform`` root attrs in the rioxarray style).
+
+        For huge cubes prefer :meth:`to_zarr` — this writer is
+        eager (materialises the full T×B×Y×X array) since
+        ``NetCDF.from_xarray`` itself materialises.
+
+        Args:
+            path: Output ``.nc`` path.
+            time_dim: Name of the time dimension. Default ``"time"``.
+            time_coords: Sequence of length ``time_length`` for the
+                time axis values (e.g. ``pd.date_range(...)``). ``None``
+                (default) emits a 0..T-1 integer index with a ``note``
+                attr explaining it is positional, not calendar.
+            var_per_band: When ``True`` (default), each band becomes its
+                own data variable named after :attr:`meta.band_names`
+                — CF-friendly and what :func:`aggregate_netcdf`-style
+                consumers usually expect. When ``False``, one 4-D
+                ``data`` variable is written with a ``band`` coordinate
+                — saner for hyperspectral cubes with hundreds of bands.
+
+        Raises:
+            OptionalPackageDoesNotExist: When ``xarray`` is not
+                installed. Install with ``pip install
+                'pyramids-gis[xarray]'``.
+            ValueError: When ``len(time_coords) != self.time_length``.
+            RuntimeError: When :meth:`NetCDF.from_xarray` fails to write
+                the file.
+
+        See Also:
+            - :meth:`to_zarr`: parallel chunk-by-chunk writer; preferred
+              for very large cubes.
+            - :meth:`to_kerchunk`: emit a sidecar that points back at
+              the source files without rewriting data.
+            - :meth:`pyramids.netcdf.NetCDF.from_xarray`: the underlying
+              writer.
+        """
+        try:
+            import xarray as xr
+        except ImportError as exc:
+            raise OptionalPackageDoesNotExist(
+                "DatasetCollection.to_netcdf requires the optional 'xarray' "
+                "dependency. Install with: pip install 'pyramids-gis[xarray]'"
+            ) from exc
+
+        if time_coords is not None:
+            time_values = np.asarray(time_coords)
+            if time_values.dtype.kind == "O":
+                # pd.DatetimeIndex → datetime64 via asarray, but lists of
+                # datetime / Timestamp objects come through as dtype=object.
+                # Coerce so the datetime branch below picks them up.
+                try:
+                    time_values = np.asarray(time_values, dtype="datetime64[ns]")
+                except (TypeError, ValueError):
+                    pass
+            if time_values.shape[0] != self.time_length:
+                raise ValueError(
+                    f"time_coords has {time_values.shape[0]} entries but "
+                    f"the collection has {self.time_length} timesteps"
+                )
+            time_attrs: dict = {}
+            if time_values.shape[0] > 1 and time_values.dtype.kind in "iufM":
+                ordered = np.sort(time_values)
+                if not np.array_equal(time_values, ordered):
+                    warnings.warn(
+                        "time_coords is not monotonically increasing; some "
+                        "downstream tools (xr.open_dataset, aggregate_netcdf) "
+                        "may reorder or refuse the axis",
+                        stacklevel=2,
+                    )
+                if np.unique(time_values).size != time_values.size:
+                    warnings.warn(
+                        "time_coords contains duplicate values; downstream "
+                        "indexers may pick an arbitrary timestep",
+                        stacklevel=2,
+                    )
+            if time_values.dtype.kind == "M":
+                # GDAL's multidim writer has no native datetime64 type; encode
+                # as an int64 offset with CF `units` so xr.open_dataset can
+                # decode it back to a calendar axis on read.
+                epoch = np.datetime64("1970-01-01", "ns")
+                ns = (time_values.astype("datetime64[ns]") - epoch).astype("int64")
+                time_values = (ns // 1_000_000_000).astype("int64")
+                time_attrs["units"] = "seconds since 1970-01-01 00:00:00"
+                time_attrs["calendar"] = "proleptic_gregorian"
+        else:
+            time_values = np.arange(self.time_length, dtype="int64")
+            time_attrs = {
+                "long_name": "time index",
+                "note": "positional index, not a calendar time",
+            }
+
+        meta = self._meta
+        nodata = (meta.nodata or (None,))[0]
+        band_count = int(meta.shape[0])
+        names: list[str] = (
+            list(meta.band_names)
+            if meta.band_names
+            else [f"band_{i + 1}" for i in range(band_count)]
+        )
+
+        cube = np.stack([np.asarray(ds.read_array()) for ds in self.datasets], axis=0)
+        if cube.ndim == 3:
+            cube = cube[:, np.newaxis, :, :]
+        if cube.shape[1] != band_count:
+            cube = cube.reshape((self.time_length, band_count, meta.rows, meta.columns))
+
+        y_coord = np.asarray(self._base.y)
+        x_coord = np.asarray(self._base.x)
+
+        if var_per_band:
+            data_vars = {
+                names[i]: ((time_dim, "y", "x"), cube[:, i, :, :])
+                for i in range(band_count)
+            }
+            coords = {
+                time_dim: (time_dim, time_values, time_attrs),
+                "y": ("y", y_coord),
+                "x": ("x", x_coord),
+            }
+        else:
+            # GDAL's multidim NetCDF writer can't write a string coord, so the
+            # band axis carries an integer index and the human names ride along
+            # on the root group as a ``band_names`` attribute. Round-trips are
+            # lossless via ``xr.open_dataset``: caller reads
+            # ``ds.attrs["band_names"]`` to recover the labels.
+            data_vars = {"data": ((time_dim, "band", "y", "x"), cube)}
+            coords = {
+                time_dim: (time_dim, time_values, time_attrs),
+                "band": ("band", np.arange(band_count)),
+                "y": ("y", y_coord),
+                "x": ("x", x_coord),
+            }
+
+        root_attrs: dict = {"Conventions": "CF-1.8"}
+        try:
+            crs_wkt = meta.crs.to_wkt() if meta.crs is not None else None
+        except AttributeError:
+            crs_wkt = None
+        if crs_wkt:
+            root_attrs["crs_wkt"] = crs_wkt
+        if meta.epsg is not None:
+            root_attrs["epsg"] = int(meta.epsg)
+        root_attrs["GeoTransform"] = " ".join(str(v) for v in meta.geotransform)
+        if not var_per_band:
+            root_attrs["band_names"] = ",".join(names)
+
+        ds = xr.Dataset(data_vars=data_vars, coords=coords, attrs=root_attrs)
+        if nodata is not None:
+            target_vars = names if var_per_band else ["data"]
+            typed_nodata = np.asarray(nodata, dtype=cube.dtype).item()
+            for v_name in target_vars:
+                # GDAL's multidim NetCDF writer only honours _FillValue when it
+                # comes through xarray.encoding (the netcdf4 convention); setting
+                # it on .attrs trips a libnetcdf type-mismatch error.
+                ds[v_name].encoding["_FillValue"] = typed_nodata
+
+        from pyramids.netcdf import NetCDF
+
+        NetCDF.from_xarray(ds, path)
 
     @classmethod
     def from_stac(
