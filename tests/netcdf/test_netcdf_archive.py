@@ -4,7 +4,14 @@ The kwargs ``vsi=`` and ``file_i=`` are forwarded to
 :func:`pyramids._io.read_file`. GDAL's netCDF driver requires Linux
 ``userfaultfd`` to open a ``.nc`` from any ``/vsi*`` path (archive,
 ``/vsicurl/``, ``/vsimem/`` via this route), so the end-to-end zip
-round-trip is Linux-only. The forwarding tests run cross-platform.
+round-trip lives in ``TestNetCDFReadFileArchiveLinux`` and is gated by
+``@pytest.mark.skipif(not sys.platform.startswith("linux"), ...)``. The
+forwarding tests in ``TestNetCDFReadFileArchiveForwarding`` run
+cross-platform.
+
+CI matrix coverage: ``.github/workflows/tests.yml`` runs
+``ubuntu-latest`` on every push / PR across ``py311``, ``py312``,
+``py313``. The Linux-only class is exercised on those three shards.
 """
 
 from __future__ import annotations

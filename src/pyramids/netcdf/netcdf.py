@@ -1062,6 +1062,12 @@ class NetCDF(Dataset):
                     "drop `chunks=` or convert the bbox to a pixel `window=` "
                     "manually."
                 )
+            if epsg is None and self.epsg is None:
+                raise ValueError(
+                    "read_array(bbox=…) requires an explicit `epsg=` when "
+                    "the NetCDF itself has no CRS (self.epsg is None) — a "
+                    "bbox without a CRS is ambiguous"
+                )
         is_container = (
             self._is_md_array and not self._is_subset and self.band_count == 0
         )
@@ -1304,6 +1310,12 @@ class NetCDF(Dataset):
             if mask is not None:
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
             crs = epsg if epsg is not None else self.epsg
+            if crs is None:
+                raise ValueError(
+                    "crop(bbox=…) requires an explicit `epsg=` when the "
+                    "NetCDF itself has no CRS (self.epsg is None) — a "
+                    "bbox without a CRS is ambiguous"
+                )
             mask = FeatureCollection.from_bbox(bbox, epsg=crs)
         if mask is None:
             raise TypeError(

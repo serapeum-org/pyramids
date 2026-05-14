@@ -97,23 +97,89 @@ class TestNetCDFCropBbox:
         assert sorted(cropped.variables) == sorted(root_nc.variables)
 
 
+class TestNetCDFCropForeignCRS:
+    """Foreign-CRS bbox crop — the reprojection path inside crop's polygon warp."""
+
+    def test_mercator_bbox_against_wgs84_netcdf(self, root_nc: NetCDF):
+        """Test bbox in EPSG:3857 against an EPSG:4326 NetCDF (root container).
+
+        Args:
+            root_nc: Module-scope root NetCDF fixture (EPSG:4326).
+
+        Test scenario:
+            A Mercator bbox covering roughly 27..36°E and -33..-27°N
+            (after reprojection) lands inside the fixture's extent. The
+            shared FC reprojection path inside ``_crop_with_polygon_warp``
+            must succeed and produce a cropped container smaller than
+            the source.
+        """
+        # EPSG:3857 metres — corners roughly (30°E, -30°N) ± a few degrees
+        mercator_bbox = (3_000_000.0, -4_000_000.0, 4_000_000.0, -3_000_000.0)
+        cropped = root_nc.crop(bbox=mercator_bbox, epsg=3857)
+        assert sorted(cropped.variables) == sorted(root_nc.variables), (
+            f"Variables changed: {sorted(cropped.variables)!r}"
+        )
+        full_arr = root_nc.get_variable("Band1").read_array()
+        cropped_arr = cropped.get_variable("Band1").read_array()
+        assert cropped_arr.size < full_arr.size, (
+            f"Foreign-CRS bbox didn't reduce size: full={full_arr.size} "
+            f"cropped={cropped_arr.size}"
+        )
+
+    def test_mercator_bbox_read_array(self, root_nc: NetCDF):
+        """Test ``read_array(bbox=…, epsg=3857)`` on a WGS84 NetCDF variable.
+
+        Args:
+            root_nc: Module-scope root NetCDF fixture (EPSG:4326).
+
+        Test scenario:
+            The reprojection path inside ``Dataset.read_array`` must
+            fire on a NetCDF subset too — the override forwards
+            ``bbox`` / ``epsg`` to ``super().read_array``.
+        """
+        mercator_bbox = (3_000_000.0, -4_000_000.0, 4_000_000.0, -3_000_000.0)
+        full = root_nc.read_array(variable="Band1")
+        windowed = root_nc.read_array(
+            variable="Band1", bbox=mercator_bbox, epsg=3857,
+        )
+        assert windowed.shape != full.shape, (
+            f"Foreign-CRS bbox was a no-op: full={full.shape} "
+            f"windowed={windowed.shape}"
+        )
+        assert windowed.size < full.size, (
+            f"Foreign-CRS bbox didn't reduce size: full={full.size} "
+            f"windowed={windowed.size}"
+        )
+
+
 class TestNetCDFCropVariableSubset:
     """Bbox crop on a single variable (delegates to ``super().crop``)."""
 
     def test_variable_subset_accepts_bbox(self, root_nc: NetCDF):
-        """Test ``nc.get_variable(...).crop(bbox=...)`` works.
+        """Test ``nc.get_variable(...).crop(bbox=...)`` actually reduces shape.
 
         Args:
             root_nc: Module-scope root NetCDF fixture.
 
         Test scenario:
             The variable-subset branch must accept the same ``bbox=`` /
-            ``epsg=`` kwargs and route through ``super().crop``.
+            ``epsg=`` kwargs and route through ``super().crop`` —
+            **and the cropped result must be smaller than the source**
+            (so a silent no-op bbox would fail this test).
         """
         var = root_nc.get_variable("Band1")
+        full_arr = var.read_array()
         cropped = var.crop(bbox=INSIDE_BBOX)
-        arr = cropped.read_array()
-        assert arr.ndim in (2, 3), f"Unexpected ndim: {arr.ndim}"
+        cropped_arr = cropped.read_array()
+        assert cropped_arr.ndim in (2, 3), f"Unexpected ndim: {cropped_arr.ndim}"
+        assert cropped_arr.shape != full_arr.shape, (
+            f"bbox crop was a no-op: full={full_arr.shape} "
+            f"cropped={cropped_arr.shape}"
+        )
+        assert cropped_arr.size < full_arr.size, (
+            f"bbox crop didn't reduce size: full={full_arr.size} "
+            f"cropped={cropped_arr.size}"
+        )
 
 
 class TestNetCDFCropMutex:
@@ -157,6 +223,57 @@ class TestNetCDFCropMutex:
         with pytest.raises(ValueError):
             root_nc.crop(bbox=(50.0, -50.0, 10.0, -20.0))  # west >= east
 
+    def test_crs_less_netcdf_without_epsg_raises(self, root_nc: NetCDF, mocker):
+        """Test ``crop(bbox=…)`` on a CRS-less NetCDF raises a clear ``ValueError``.
+
+        Args:
+            root_nc: Module-scope root NetCDF fixture.
+            mocker: pytest-mock fixture.
+
+        Test scenario:
+            When the dataset has no CRS (``self.epsg is None``) and the
+            caller didn't pass ``epsg=``, the upfront guard must fire
+            with a message that names ``epsg=`` and ``self.epsg``
+            (better than the deeper ``from_bbox`` ``ValueError``).
+        """
+        mocker.patch.object(
+            type(root_nc),
+            "epsg",
+            new_callable=mocker.PropertyMock,
+            return_value=None,
+        )
+        with pytest.raises(ValueError, match=r"explicit `epsg=`.*self\.epsg is None"):
+            root_nc.crop(bbox=INSIDE_BBOX)
+
+    def test_crs_less_netcdf_explicit_epsg_works(self, root_nc: NetCDF, mocker):
+        """Test ``crop(bbox=…, epsg=4326)`` on CRS-less NetCDF still works.
+
+        Args:
+            root_nc: Module-scope root NetCDF fixture.
+            mocker: pytest-mock fixture.
+
+        Test scenario:
+            With an explicit ``epsg=`` the guard must NOT fire — the
+            caller has resolved the ambiguity.
+        """
+        mocker.patch.object(
+            type(root_nc),
+            "epsg",
+            new_callable=mocker.PropertyMock,
+            return_value=None,
+        )
+        # The guard should not fire; from_bbox builds the FC successfully.
+        # The downstream crop may still fail (no CRS = no reprojection),
+        # but that's a separate concern — we only check the guard.
+        try:
+            root_nc.crop(bbox=INSIDE_BBOX, epsg=4326)
+        except ValueError as exc:
+            assert "explicit `epsg=`" not in str(exc), (
+                f"Guard fired despite explicit epsg=: {exc}"
+            )
+        except Exception:
+            pass  # other downstream errors are out-of-scope here
+
 
 class TestNetCDFReadArrayBbox:
     """Tests for the ``bbox=`` / ``epsg=`` kwargs on ``read_array``."""
@@ -185,18 +302,27 @@ class TestNetCDFReadArrayBbox:
         )
 
     def test_variable_subset_bbox(self, root_nc: NetCDF):
-        """Test ``read_array(bbox=…)`` on a pinned variable subset.
+        """Test ``read_array(bbox=…)`` on a pinned variable subset reduces shape.
 
         Args:
             root_nc: Module-scope root NetCDF fixture.
 
         Test scenario:
             On a variable subset the call forwards bbox/epsg to
-            ``super().read_array`` (Dataset eager path).
+            ``super().read_array`` (Dataset eager path) — **and the
+            windowed result must be smaller than the full read** so a
+            silent no-op bbox would fail this test.
         """
         var = root_nc.get_variable("Band1")
-        arr = var.read_array(bbox=(10.0, -50.0, 50.0, -20.0))
-        assert arr.ndim in (2, 3), f"Unexpected ndim: {arr.ndim}"
+        full = var.read_array()
+        windowed = var.read_array(bbox=(10.0, -50.0, 50.0, -20.0))
+        assert windowed.ndim in (2, 3), f"Unexpected ndim: {windowed.ndim}"
+        assert windowed.shape != full.shape, (
+            f"bbox was a no-op: full={full.shape} windowed={windowed.shape}"
+        )
+        assert windowed.size < full.size, (
+            f"bbox didn't reduce size: full={full.size} windowed={windowed.size}"
+        )
 
     def test_window_and_bbox_together_raises(self, root_nc: NetCDF):
         """Test ``window=`` + ``bbox=`` together raises ``ValueError``.
@@ -230,3 +356,25 @@ class TestNetCDFReadArrayBbox:
                 bbox=(10.0, -50.0, 50.0, -20.0),
                 chunks="auto",
             )
+
+    def test_crs_less_netcdf_without_epsg_raises(self, root_nc: NetCDF, mocker):
+        """Test ``read_array(bbox=…)`` on a CRS-less NetCDF raises ``ValueError``.
+
+        Args:
+            root_nc: Module-scope root NetCDF fixture.
+            mocker: pytest-mock fixture.
+
+        Test scenario:
+            The same guard as ``crop`` — if ``self.epsg is None`` and
+            the caller didn't pass ``epsg=``, fail fast at the override
+            boundary rather than letting the deeper ``from_bbox``
+            ``ValueError`` surface.
+        """
+        mocker.patch.object(
+            type(root_nc),
+            "epsg",
+            new_callable=mocker.PropertyMock,
+            return_value=None,
+        )
+        with pytest.raises(ValueError, match=r"explicit `epsg=`.*self\.epsg is None"):
+            root_nc.read_array(variable="Band1", bbox=INSIDE_BBOX)
