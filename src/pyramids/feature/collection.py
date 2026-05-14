@@ -465,6 +465,49 @@ class FeatureCollection(GeoDataFrame):
             ValueError: ``bbox`` is not a 4-element sequence, or violates
                 ``west < east`` / ``south < north``, or ``epsg`` is ``None``.
             TypeError: ``bbox`` elements are not numbers.
+
+        Examples:
+            - Build a one-row FC from a bbox and inspect it:
+                ```python
+                >>> from pyramids.feature import FeatureCollection
+                >>> fc = FeatureCollection.from_bbox((31.0, 30.0, 31.1, 30.1), epsg=4326)
+                >>> len(fc)
+                1
+                >>> tuple(float(v) for v in fc.total_bounds)
+                (31.0, 30.0, 31.1, 30.1)
+                >>> fc.crs.to_epsg()
+                4326
+
+                ```
+            - Use it as a mask to crop a raster:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.feature import FeatureCollection
+                >>> arr = np.arange(100, dtype="int16").reshape(10, 10)
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+                ... )
+                >>> fc = FeatureCollection.from_bbox((0.1, -0.2, 0.2, -0.1), epsg=4326)
+                >>> ds.crop(mask=fc).shape
+                (1, 2, 2)
+
+                ```
+            - ``epsg=None`` is rejected — a bbox without a CRS is ambiguous:
+                ```python
+                >>> from pyramids.feature import FeatureCollection
+                >>> try:
+                ...     FeatureCollection.from_bbox((0, 0, 1, 1), epsg=None)
+                ... except ValueError as exc:
+                ...     print("epsg" in str(exc))
+                True
+
+                ```
+
+        See Also:
+            - :meth:`pyramids.dataset.engines.spatial.Spatial.crop`: accepts
+              ``bbox=`` / ``epsg=`` directly and routes through this helper.
+            - :meth:`pyramids.dataset.engines.io.IO.read_array`: same.
         """
         if epsg is None:
             raise ValueError(

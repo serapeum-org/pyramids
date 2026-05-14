@@ -1633,6 +1633,31 @@ class DatasetCollection:
               >>> DatasetCollection.crop(dem_path, src_path, out_path)
 
               ```
+
+            - Crop every timestep using a ``(W, S, E, N)`` bbox tuple — the FC
+              is built once and reused across timesteps:
+
+              ```python
+              >>> import os, tempfile
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, DatasetCollection
+              >>> d = tempfile.mkdtemp()
+              >>> paths = []
+              >>> for t in range(2):
+              ...     p = os.path.join(d, f"t{t}.tif")
+              ...     _ = Dataset.create_from_array(
+              ...         (np.arange(100, dtype="int16").reshape(10, 10) * (t + 1)),
+              ...         top_left_corner=(0, 0), cell_size=0.05, epsg=4326, path=p,
+              ...     ).close()
+              ...     paths.append(p)
+              >>> col = DatasetCollection.from_files(paths)
+              >>> cropped = col.crop(bbox=(0.1, -0.2, 0.2, -0.1))
+              >>> cropped.time_length
+              2
+              >>> cropped.base.shape
+              (1, 2, 2)
+
+              ```
         """
         if bbox is not None:
             if mask is not None:
