@@ -788,6 +788,11 @@ class DatasetCollection:
         eager (materialises the full T×B×Y×X array) since
         ``NetCDF.from_xarray`` itself materialises.
 
+        No-data values are written as a ``nodata`` attribute on the root
+        group and on each data variable. GDAL's multidim NetCDF writer
+        rejects CF's standard ``_FillValue`` attribute via this code
+        path, so the round-trip uses ``nodata`` for compatibility.
+
         Args:
             path: Output ``.nc`` path.
             time_dim: Name of the time dimension. Default ``"time"``.
@@ -809,6 +814,34 @@ class DatasetCollection:
             ValueError: When ``len(time_coords) != self.time_length``.
             RuntimeError: When :meth:`NetCDF.from_xarray` fails to write
                 the file.
+
+        Examples:
+            - Stack two single-band rasters into one NetCDF and reopen it:
+                ```python
+                >>> import os, tempfile
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset, DatasetCollection
+                >>> from pyramids.netcdf import NetCDF
+                >>> d = tempfile.mkdtemp()
+                >>> paths = []
+                >>> for i in range(2):
+                ...     arr = (np.arange(20, dtype="int16").reshape(4, 5) + 100 * i)
+                ...     p = os.path.join(d, f"t{i}.tif")
+                ...     _ = Dataset.create_from_array(
+                ...         arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+                ...         no_data_value=-9999, path=p,
+                ...     ).close()
+                ...     paths.append(p)
+                >>> col = DatasetCollection.from_files(paths)
+                >>> out = os.path.join(d, "cube.nc")
+                >>> col.to_netcdf(out)
+                >>> nc = NetCDF.read_file(out)
+                >>> "Band_1" in nc.variables
+                True
+                >>> nc.epsg
+                4326
+
+                ```
 
         See Also:
             - :meth:`to_zarr`: parallel chunk-by-chunk writer; preferred
@@ -928,15 +961,21 @@ class DatasetCollection:
         if not var_per_band:
             root_attrs["band_names"] = ",".join(names)
 
+        if nodata is not None:
+            typed_nodata = np.asarray(nodata, dtype=cube.dtype).item()
+            # GDAL's multidim NetCDF writer rejects ``_FillValue`` as an
+            # attribute (libnetcdf wants it set via the dedicated typed-fill
+            # API the writer doesn't expose) and silently drops anything set
+            # through ``xr.encoding``. Surface the no-data value under a
+            # ``nodata`` attribute instead — both on the root group (matches
+            # the rioxarray-style root attrs ``to_zarr`` writes) and on every
+            # data variable, so consumers can recover it.
+            root_attrs["nodata"] = typed_nodata
         ds = xr.Dataset(data_vars=data_vars, coords=coords, attrs=root_attrs)
         if nodata is not None:
             target_vars = names if var_per_band else ["data"]
-            typed_nodata = np.asarray(nodata, dtype=cube.dtype).item()
             for v_name in target_vars:
-                # GDAL's multidim NetCDF writer only honours _FillValue when it
-                # comes through xarray.encoding (the netcdf4 convention); setting
-                # it on .attrs trips a libnetcdf type-mismatch error.
-                ds[v_name].encoding["_FillValue"] = typed_nodata
+                ds[v_name].attrs["nodata"] = typed_nodata
 
         from pyramids.netcdf import NetCDF
 
