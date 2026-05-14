@@ -23,6 +23,7 @@ from pyramids.base._utils import numpy_to_gdal_dtype
 from pyramids.base.crs import sr_from_epsg
 from pyramids.base.protocols import ArrayLike
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
+from pyramids.feature import FeatureCollection
 from pyramids.netcdf._kerchunk import combine_kerchunk, to_kerchunk
 from pyramids.netcdf._lazy import _apply_unpack, build_lazy_array
 from pyramids.netcdf._mfdataset import open_mfdataset
@@ -958,6 +959,8 @@ class NetCDF(Dataset):
         window: list[int] | None = None,
         unpack: bool = False,
         *,
+        bbox: tuple[float, float, float, float] | list[float] | None = None,
+        epsg: Any = None,
         chunks: Any = None,
         lock: Any = None,
     ) -> ArrayLike:
@@ -972,13 +975,26 @@ class NetCDF(Dataset):
             band: Band index to read, or None for all bands. Only
                 honored on the eager path (`chunks=None`).
             window: Spatial window to read. Only honored on the
-                eager path.
+                eager path. Mutually exclusive with ``bbox``.
             unpack: If True and the variable has CF `scale_factor`
                 and/or `add_offset`, apply the transformation
                 `real = raw * scale + offset`. Defaults to False.
                 Applied lazily via :mod:`dask.array` arithmetic when
                 `chunks` is given — the compute graph stays lazy
                 until the caller materializes it.
+            bbox (keyword-only): ``(west, south, east, north)`` quadruple
+                in the CRS named by ``epsg``. Internally wrapped in a
+                one-row :class:`pyramids.feature.FeatureCollection` via
+                :meth:`pyramids.feature.FeatureCollection.from_bbox`
+                and routed through the same window path. Honored on
+                the **eager path only** — same constraint as ``window``.
+                Mutually exclusive with ``window``; combining with
+                ``chunks`` raises :class:`TypeError`.
+            epsg (keyword-only): CRS for ``bbox`` — anything geopandas
+                accepts for ``crs=`` (EPSG int, ``"EPSG:4326"``, WKT,
+                :class:`pyproj.CRS`). Defaults to the dataset's own
+                CRS, so a bbox in the dataset's native CRS needs no
+                extra argument.
             chunks: Chunking spec for a lazy return. `None` (the
                 default) returns an eager :class:`numpy.ndarray` and
                 preserves the legacy behavior. Any of `int`,
@@ -1005,11 +1021,47 @@ class NetCDF(Dataset):
 
         Raises:
             ValueError: If called on a root MDIM container without a
-                `variable` argument, or when a subset is called
-                with a conflicting `variable` name.
+                `variable` argument, when a subset is called with a
+                conflicting `variable` name, or when both ``window``
+                and ``bbox`` are supplied.
+            TypeError: If both ``chunks`` and ``bbox`` are supplied —
+                the lazy path doesn't yet honour bbox windowing.
             ImportError: If `chunks` is given but `dask` is not
                 installed. Install the `[lazy]` extra.
+
+        Examples:
+            - Eager bbox read on a root container — the container
+              auto-routes to the named variable:
+                ```python
+                >>> from pyramids.netcdf import NetCDF
+                >>> nc = NetCDF.read_file(
+                ...     "tests/data/netcdf/noah-precipitation-1979.nc"
+                ... )
+                >>> arr = nc.read_array(
+                ...     variable="Band1",
+                ...     bbox=(10.0, -50.0, 50.0, -20.0),
+                ... )
+                >>> arr.ndim in (2, 3)
+                True
+
+                ```
+
+        See Also:
+            - :meth:`pyramids.dataset.Dataset.read_array`: the same
+              ``bbox=`` / ``epsg=`` surface for plain rasters.
+            - :meth:`crop`: clip the whole dataset by bbox.
         """
+        if bbox is not None:
+            if window is not None:
+                raise ValueError(
+                    "read_array accepts either `window` or `bbox`, not both"
+                )
+            if chunks is not None:
+                raise TypeError(
+                    "read_array: `bbox=` is only supported on the eager path; "
+                    "drop `chunks=` or convert the bbox to a pixel `window=` "
+                    "manually."
+                )
         is_container = (
             self._is_md_array and not self._is_subset and self.band_count == 0
         )
@@ -1021,6 +1073,8 @@ class NetCDF(Dataset):
                 band=band,
                 window=window,
                 unpack=unpack,
+                bbox=bbox,
+                epsg=epsg,
                 chunks=chunks,
                 lock=lock,
             )
@@ -1032,7 +1086,9 @@ class NetCDF(Dataset):
                 "instead."
             )
         if chunks is None:
-            result = super().read_array(band=band, window=window)
+            result = super().read_array(
+                band=band, window=window, bbox=bbox, epsg=epsg,
+            )
             if unpack:
                 result = _apply_unpack(
                     result,
@@ -1162,25 +1218,98 @@ class NetCDF(Dataset):
         wrapped._gdal_rg_ref = None
         return wrapped
 
-    def crop(self, mask: Any, touch: bool = True) -> NetCDF:
-        """Crop the dataset using a polygon or raster mask.
+    def crop(
+        self,
+        mask: Any = None,
+        touch: bool = True,
+        *,
+        bbox: tuple[float, float, float, float] | list[float] | None = None,
+        epsg: Any = None,
+    ) -> NetCDF:
+        """Crop the dataset using a polygon mask, a raster mask, or a bbox tuple.
 
         On a **root MDIM container** this crops every variable and
         returns a new in-memory NetCDF container with the cropped
-        results. On a **variable subset** it delegates to the
-        parent `Dataset.crop()` and wraps the result as `NetCDF`
-        to preserve variable metadata (`_band_dim_name`,
-        `_band_dim_values`, `sel()`, etc.).
+        results. On a **variable subset** it delegates to the parent
+        :meth:`pyramids.dataset.Dataset.crop` and re-wraps the result
+        as :class:`NetCDF` to preserve variable metadata
+        (``_band_dim_name``, ``_band_dim_values``, :meth:`sel`).
 
         Args:
             mask: GeoDataFrame with polygon geometry, or a Dataset
-                to use as a spatial mask.
+                to use as a spatial mask. Mutually exclusive with
+                ``bbox``; exactly one of the two must be supplied.
             touch: If True, include cells that touch the mask
                 boundary. Defaults to True.
+            bbox (keyword-only): ``(west, south, east, north)``
+                quadruple in the CRS named by ``epsg``. Internally
+                wrapped in a one-row :class:`FeatureCollection` via
+                :meth:`FeatureCollection.from_bbox` and routed through
+                the same polygon path. The FC is built **once** so a
+                root-container crop does not rebuild it for every
+                variable. Mutually exclusive with ``mask``.
+            epsg (keyword-only): CRS for ``bbox`` — anything geopandas
+                accepts for ``crs=`` (EPSG int, ``"EPSG:4326"``, WKT,
+                :class:`pyproj.CRS`). Defaults to the dataset's own
+                CRS, so a bbox in the dataset's native CRS needs no
+                extra argument; pass it explicitly for a bbox in a
+                different CRS (the standard reprojection path handles
+                it).
 
         Returns:
             NetCDF: Cropped container or variable subset.
+
+        Raises:
+            ValueError: Both ``mask`` and ``bbox`` were supplied.
+            TypeError: Neither ``mask`` nor ``bbox`` was supplied.
+
+        Examples:
+            - Crop every variable of a root NetCDF container by a
+              bbox in the dataset's own CRS (`epsg` is inferred):
+                ```python
+                >>> from pyramids.netcdf import NetCDF
+                >>> nc = NetCDF.read_file(
+                ...     "tests/data/netcdf/noah-precipitation-1979.nc"
+                ... )
+                >>> cropped = nc.crop(bbox=(10.0, -50.0, 50.0, -20.0))
+                >>> sorted(cropped.variables) == sorted(nc.variables)
+                True
+
+                ```
+            - Mutual-exclusion guard:
+                ```python
+                >>> from pyramids.feature import FeatureCollection
+                >>> from pyramids.netcdf import NetCDF
+                >>> nc = NetCDF.read_file(
+                ...     "tests/data/netcdf/noah-precipitation-1979.nc"
+                ... )
+                >>> fc = FeatureCollection.from_bbox(
+                ...     (10.0, -50.0, 50.0, -20.0), epsg=nc.epsg,
+                ... )
+                >>> try:
+                ...     nc.crop(mask=fc, bbox=(10.0, -50.0, 50.0, -20.0))
+                ... except ValueError as exc:
+                ...     print("not both" in str(exc))
+                True
+
+                ```
+
+        See Also:
+            - :meth:`pyramids.dataset.Dataset.crop`: same ``bbox=`` /
+              ``epsg=`` surface for plain rasters.
+            - :meth:`pyramids.feature.FeatureCollection.from_bbox`: the
+              shared primitive that builds the one-row FC.
         """
+        if bbox is not None:
+            if mask is not None:
+                raise ValueError("crop accepts either `mask` or `bbox`, not both")
+            crs = epsg if epsg is not None else self.epsg
+            mask = FeatureCollection.from_bbox(bbox, epsg=crs)
+        if mask is None:
+            raise TypeError(
+                "crop requires a `mask` (GeoDataFrame / FeatureCollection / "
+                "Dataset) or a `bbox` (west, south, east, north) tuple"
+            )
         if self._is_md_array and not self._is_subset and self.band_count == 0:
             result = self._apply_to_all_variables(
                 "crop",
@@ -1574,29 +1703,92 @@ class NetCDF(Dataset):
         path: str | Path,
         read_only: bool = True,
         open_as_multi_dimensional: bool = True,
+        file_i: int = 0,
+        *,
+        vsi: str | None = None,
     ) -> NetCDF:
-        """Open a NetCDF file from disk.
+        """Open a NetCDF file from a path, URL, or archive member.
+
+        Plain local paths, ``/vsi*`` paths, and URL schemes
+        (``http(s)://``, ``s3://``, ``gs://``, ``az://`` / ``abfs://``,
+        ``file://``) are all accepted — URLs are transparently rewritten
+        to GDAL's virtual filesystem. Compressed archives (``.zip`` /
+        ``.tar`` / ``.tar.gz`` / ``.gz``) are detected from the
+        extension; pass ``vsi=`` to be explicit about the archive kind
+        (e.g. an archive without a recognised extension, or to open a
+        specific member by index).
 
         Args:
-            path: Path to the `.nc` file.
+            path: Path or URL of the ``.nc`` file or archive.
             read_only: If True, open in read-only mode. Set to False for
                 write access. Defaults to True.
             open_as_multi_dimensional: If True, open with
-                `gdal.OF_MULTIDIM_RASTER` to access the full group /
-                dimension / variable hierarchy. If False, open in classic
-                raster mode where each variable is a subdataset.
+                ``gdal.OF_MULTIDIM_RASTER`` to access the full group /
+                dimension / variable hierarchy. If False, open in
+                classic raster mode where each variable is a subdataset.
                 Defaults to True.
+            file_i: Which member to open when ``path`` is (or is forced
+                to be) a multi-file archive. Default ``0``.
+            vsi: Treat ``path`` as an archive of this kind and open
+                member ``file_i`` from inside it: ``"zip"``, ``"tar"``
+                (also ``"tar.gz"`` / ``"tgz"``), ``"gzip"`` (also
+                ``"gz"``), or ``"auto"`` (infer from the extension).
+                Default ``None`` — ``path`` is opened directly /
+                extension-sniffed as before. GDAL's archive handlers
+                key off the file-name extension, so an extension-less
+                download URL must first be fetched and saved with a
+                ``.zip`` name (or written to ``/vsimem/<name>.zip`` via
+                :func:`osgeo.gdal.FileFromMemBuffer`).
+
+                **Platform caveat for NetCDF:** GDAL's netCDF driver
+                requires Linux ``userfaultfd`` to open a ``.nc`` from
+                any ``/vsi*`` path (archive, ``/vsicurl/``, ``/vsimem/``
+                via this route). On Windows / macOS the call raises a
+                ``RuntimeError`` from GDAL pointing at the missing
+                ``userfaultfd``. Use :meth:`from_bytes` to read a
+                downloaded ``.nc`` from memory on those platforms.
 
         Returns:
             NetCDF: The opened dataset.
+
+        Examples:
+            - Open a plain ``.nc`` from disk and list its variables:
+                ```python
+                >>> from pyramids.netcdf import NetCDF
+                >>> nc = NetCDF.read_file(
+                ...     "tests/data/netcdf/noah-precipitation-1979.nc"
+                ... )
+                >>> sorted(nc.variables)
+                ['Band1', 'Band2', 'Band3', 'Band4']
+
+                ```
+            - Open a NetCDF held inside a zip — ``vsi="auto"`` infers
+              the archive kind from the ``.zip`` extension. Linux-only
+              because GDAL's netCDF driver needs ``userfaultfd`` to read
+              through ``/vsizip/``:
+                ```python
+                >>> from pyramids.netcdf import NetCDF
+                >>> nc = NetCDF.read_file(  # doctest: +SKIP
+                ...     "scene.zip", vsi="auto", file_i=0,
+                ... )
+
+                ```
+
+        See Also:
+            - :meth:`from_bytes`: open a NetCDF from in-memory bytes.
+            - :meth:`pyramids.dataset.Dataset.read_file`: the same
+              ``vsi=`` / ``file_i=`` surface for GeoTIFFs.
         """
-        src = _io.read_file(path, read_only, open_as_multi_dimensional)
-        if read_only:
-            read_only = "read_only"
-        else:
-            read_only = "write"
+        src = _io.read_file(
+            path,
+            read_only,
+            open_as_multi_dimensional,
+            file_i=file_i,
+            vsi=vsi,
+        )
+        access = "read_only" if read_only else "write"
         return cls(
-            src, access=read_only, open_as_multi_dimensional=open_as_multi_dimensional
+            src, access=access, open_as_multi_dimensional=open_as_multi_dimensional
         )
 
     @classmethod
