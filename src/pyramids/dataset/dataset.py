@@ -131,6 +131,44 @@ def _same_grid(a: "Dataset", b: "Dataset") -> bool:
     )
 
 
+def _remap_nodata_to(arr: np.ndarray, src_nd: Any, dst_nd: Any) -> np.ndarray:
+    """Replace ``src_nd`` cells in ``arr`` with ``dst_nd`` when the two differ.
+
+    Used by :meth:`Dataset.from_band_files` (``align=True`` branch) so that
+    each per-source aligned band's fringe — filled by GDAL with the source's
+    own no-data sentinel — matches the resolved output no-data after the
+    "first-source-wins" reconciliation. The ``np.nan == np.nan -> False``
+    quirk is handled so float-NaN sentinels are treated as equal.
+
+    Args:
+        arr: The aligned-band array to remap in place semantically (a new
+            array is returned; ``arr`` is not mutated).
+        src_nd: No-data sentinel currently in ``arr`` (this band's source).
+        dst_nd: No-data sentinel the output band will declare.
+
+    Returns:
+        np.ndarray: ``arr`` unchanged when ``src_nd == dst_nd`` (incl. the
+        both-NaN case) or when either is ``None`` (no sentinel to remap);
+        otherwise a copy with the source sentinel rewritten to ``dst_nd``.
+    """
+    if src_nd is None or dst_nd is None:
+        return arr
+    src_is_nan = isinstance(src_nd, float) and np.isnan(src_nd)
+    dst_is_nan = isinstance(dst_nd, float) and np.isnan(dst_nd)
+    if src_is_nan and dst_is_nan:
+        return arr
+    if not src_is_nan and not dst_is_nan and src_nd == dst_nd:
+        return arr
+    try:
+        dst_typed = np.asarray(dst_nd, dtype=arr.dtype).item()
+    except (ValueError, OverflowError):
+        # Sentinel doesn't fit the array dtype; leave the array alone (the
+        # UserWarning from from_band_files already flagged the disagreement).
+        return arr
+    mask = np.isnan(arr) if src_is_nan else (arr == src_nd)
+    return np.where(mask, dst_typed, arr)
+
+
 if TYPE_CHECKING:
     from geopandas import GeoDataFrame
 
@@ -2186,7 +2224,15 @@ class Dataset(RasterBase):
                 resolved_nd: Any | None = None
             else:
                 resolved_nd = source_nd[0] if source_nd[0] is not None else present[0]
-                if len(set(present)) > 1:
+                # NaN != NaN, so plain set() over-reports disagreement for
+                # float-NaN sentinels (the GeoTIFF default for float rasters).
+                # Normalise NaN to a single key so we only warn when distinct
+                # *real* values are present.
+                distinct = {
+                    "__nan__" if isinstance(v, float) and np.isnan(v) else v
+                    for v in present
+                }
+                if len(distinct) > 1:
                     warnings.warn(
                         f"source rasters disagree on no-data value ({sorted(set(present))}); "
                         f"using {resolved_nd!r}",
@@ -2227,9 +2273,19 @@ class Dataset(RasterBase):
                     geo=template.geotransform,
                     epsg=template.epsg,
                 )
-                band_arrays = [
-                    ds.align(grid_template).read_array(band=0) for ds in datasets
-                ]
+                # Dataset.align uses the source's no_data_value to fill the warp
+                # destination, so the aligned fringe carries the SOURCE's sentinel.
+                # When sources disagree on nodata (resolved_nd is the first one
+                # by "first-wins" policy + a UserWarning), bands whose source's
+                # sentinel != resolved_nd would still have that sentinel in the
+                # fringe, which would no longer match the output band's declared
+                # nodata. Remap so what's in the array matches what's declared.
+                band_arrays = []
+                for ds_i in datasets:
+                    arr = ds_i.align(grid_template).read_array(band=0)
+                    band_arrays.append(
+                        _remap_nodata_to(arr, ds_i.no_data_value[0], resolved_nd)
+                    )
             else:
                 band_arrays = [ds.read_array(band=0) for ds in datasets]
             stacked = np.stack(band_arrays, axis=0)

@@ -501,6 +501,175 @@ class TestFromBandFiles:
             0.25
         ), "float value lost"
 
+    def test_align_disagreeing_nodata_remaps_fringe_to_resolved(self, tmp_path):
+        """``align=True`` with disagreeing source no-data: out-of-coverage fringe matches declared no-data.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Source A on a coarse grid with ``no_data_value=0``; source B on a
+            FINER grid (so it covers a subset of A's extent) with
+            ``no_data_value=65535``. The first-wins policy resolves to ``0``
+            and a ``UserWarning`` fires. After ``align=True``, band 1 (from B)
+            is aligned onto A's coarse grid — out-of-coverage cells used to
+            carry B's ``65535`` sentinel while the output's declared no-data
+            was ``0`` (mismatch). Expected after the fix: band 1's fringe is
+            remapped to ``0`` so the array matches the declared no-data, while
+            the in-coverage data cells keep their real value (``9``).
+        """
+        pA = _make_band(
+            tmp_path,
+            "a.tif",
+            7,
+            dtype="int32",
+            top_left=(0.0, 0.0),
+            cell_size=0.05,
+            shape=(10, 10),
+            no_data_value=0,
+        )
+        pB = _make_band(
+            tmp_path,
+            "b.tif",
+            9,
+            dtype="int32",
+            top_left=(0.1, -0.1),
+            cell_size=0.025,
+            shape=(8, 8),
+            no_data_value=65535,
+        )
+        with pytest.warns(UserWarning, match="disagree on no-data"):
+            ds = Dataset.from_band_files([pA, pB], align=True)
+        band1 = ds.read_array(band=1)
+        uniques = sorted(set(band1.flatten().tolist()))
+        assert ds.no_data_value == (0.0, 0.0), f"declared no-data: {ds.no_data_value}"
+        assert (
+            65535 not in uniques
+        ), f"B's original no-data leaked into the aligned fringe: {uniques}"
+        assert (
+            0 in uniques and 9 in uniques
+        ), f"expected the resolved no-data (0) and the real value (9): {uniques}"
+
+    def test_align_agreeing_nodata_preserved(self, tmp_path):
+        """``align=True`` with agreeing source no-data: fringe equals declared no-data (regression).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Both sources share ``no_data_value=0``. After ``align=True`` the
+            aligned fringe must still be ``0`` (no extra remap, no regression
+            from the disagreement fix above).
+        """
+        pA = _make_band(
+            tmp_path,
+            "a.tif",
+            7,
+            dtype="int32",
+            top_left=(0.0, 0.0),
+            cell_size=0.05,
+            shape=(10, 10),
+            no_data_value=0,
+        )
+        pB = _make_band(
+            tmp_path,
+            "b.tif",
+            9,
+            dtype="int32",
+            top_left=(0.1, -0.1),
+            cell_size=0.025,
+            shape=(8, 8),
+            no_data_value=0,
+        )
+        ds = Dataset.from_band_files([pA, pB], align=True)
+        band1 = ds.read_array(band=1)
+        uniques = sorted(set(band1.flatten().tolist()))
+        assert ds.no_data_value == (0.0, 0.0), f"declared no-data: {ds.no_data_value}"
+        assert uniques == [0, 9], f"aligned-agree case unexpected: {uniques}"
+
+    def test_align_with_explicit_override_remaps_fringe(self, tmp_path):
+        """An explicit ``no_data_value=`` override is propagated into every band's fringe.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Both sources use ``no_data_value=0``; caller passes
+            ``no_data_value=42`` to override. After ``align=True`` band 1's
+            fringe must contain the override value (``42``), not the source's
+            (``0``).
+        """
+        pA = _make_band(
+            tmp_path,
+            "a.tif",
+            7,
+            dtype="int32",
+            top_left=(0.0, 0.0),
+            cell_size=0.05,
+            shape=(10, 10),
+            no_data_value=0,
+        )
+        pB = _make_band(
+            tmp_path,
+            "b.tif",
+            9,
+            dtype="int32",
+            top_left=(0.1, -0.1),
+            cell_size=0.025,
+            shape=(8, 8),
+            no_data_value=0,
+        )
+        ds = Dataset.from_band_files([pA, pB], align=True, no_data_value=42)
+        band1 = ds.read_array(band=1)
+        uniques = sorted(set(band1.flatten().tolist()))
+        assert ds.no_data_value == (42.0, 42.0), f"declared no-data: {ds.no_data_value}"
+        assert 0 not in uniques, f"source no-data leaked into fringe: {uniques}"
+        assert uniques == [9, 42], f"unexpected band1 values: {uniques}"
+
+    def test_all_nan_nodata_does_not_warn(self, tmp_path):
+        """Float NaN sentinels in every source don't spuriously trigger the disagreement warning.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Both sources are float32 with ``no_data_value=NaN``. Even though
+            ``NaN != NaN`` in Python, the "first-wins" reconciliation must
+            treat both as equal — no ``UserWarning``, no remap needed.
+        """
+        pE = _make_band(
+            tmp_path,
+            "e.tif",
+            1.5,
+            dtype="float32",
+            top_left=(0.0, 0.0),
+            cell_size=0.05,
+            shape=(10, 10),
+            no_data_value=float("nan"),
+        )
+        pF = _make_band(
+            tmp_path,
+            "f.tif",
+            2.5,
+            dtype="float32",
+            top_left=(0.1, -0.1),
+            cell_size=0.025,
+            shape=(8, 8),
+            no_data_value=float("nan"),
+        )
+        import warnings as _warnings
+
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always")
+            ds = Dataset.from_band_files([pE, pF], align=True)
+        assert not any(
+            "disagree on no-data" in str(w.message) for w in caught
+        ), "spurious NaN-vs-NaN disagreement warning fired"
+        band1 = ds.read_array(band=1)
+        # The fringe must still be NaN (declared) and the centre = 2.5 (real).
+        assert np.isnan(band1[0, 0]), f"fringe should be NaN, got {band1[0, 0]}"
+        assert float(band1[5, 5]) == pytest.approx(2.5), f"centre lost: {band1[5, 5]}"
+
 
 class TestStackBandsAlias:
     """Tests for :func:`pyramids.dataset.merge.stack_bands`."""
