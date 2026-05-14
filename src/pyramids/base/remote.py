@@ -346,8 +346,19 @@ class CloudConfig:
     `azure_storage_account`          `AZURE_STORAGE_ACCOUNT`
     `azure_storage_access_key`       `AZURE_STORAGE_ACCESS_KEY`
     `azure_storage_sas_token`        `AZURE_STORAGE_SAS_TOKEN`
+    `http_max_retry`                 `GDAL_HTTP_MAX_RETRY`
+    `http_retry_delay`               `GDAL_HTTP_RETRY_DELAY` (seconds)
+    `http_timeout`                   `GDAL_HTTP_TIMEOUT` (seconds)
+    `vsi_cache=True`                 `VSI_CACHE=TRUE` (False -> `FALSE`)
     `extra={"KEY": "VALUE",...}`      verbatim passthrough
     ================================ ==================================
+
+    The HTTP knobs apply to GDAL's `/vsicurl/` family (so `s3://`,
+    `gs://`, `az://`, `abfs://`, `http(s)://` all benefit). `vsi_cache`
+    toggles GDAL's in-memory range cache for `/vsicurl/`-style readers
+    — useful when re-reading the same remote chunks (e.g. iterating over
+    blocks of a single COG). Set `vsi_cache=None` (default) to leave
+    whatever the process-wide setting is in place.
 
     Examples:
         - Override the AWS region for a single operation:
@@ -386,6 +397,10 @@ class CloudConfig:
     azure_storage_account: str | None = None
     azure_storage_access_key: str | None = None
     azure_storage_sas_token: str | None = None
+    http_max_retry: int | None = None
+    http_retry_delay: float | None = None
+    http_timeout: int | None = None
+    vsi_cache: bool | None = None
     extra: Mapping[str, str] = field(default_factory=dict)
     _ctx: Any = field(default=None, init=False, repr=False, compare=False)
 
@@ -415,14 +430,43 @@ class CloudConfig:
                 ```python
                 >>> cfg = CloudConfig(
                 ...     aws_region="eu-west-1",
-                ...     extra={"VSI_CACHE": "TRUE"},
+                ...     extra={"CPL_CURL_VERBOSE": "YES"},
                 ... ).as_gdal_config()
                 >>> sorted(cfg.items())
-                [('AWS_REGION', 'eu-west-1'), ('VSI_CACHE', 'TRUE')]
+                [('AWS_REGION', 'eu-west-1'), ('CPL_CURL_VERBOSE', 'YES')]
+
+                ```
+            - HTTP retry/timeout knobs apply to every `/vsicurl/`-backed reader:
+                ```python
+                >>> cfg = CloudConfig(
+                ...     http_max_retry=5,
+                ...     http_retry_delay=2.0,
+                ...     http_timeout=60,
+                ... ).as_gdal_config()
+                >>> sorted(cfg.items())
+                [('GDAL_HTTP_MAX_RETRY', '5'), ('GDAL_HTTP_RETRY_DELAY', '2.0'), ('GDAL_HTTP_TIMEOUT', '60')]
+
+                ```
+            - ``vsi_cache=True`` / ``False`` maps to ``VSI_CACHE=TRUE`` / ``FALSE``:
+                ```python
+                >>> CloudConfig(vsi_cache=True).as_gdal_config()
+                {'VSI_CACHE': 'TRUE'}
+                >>> CloudConfig(vsi_cache=False).as_gdal_config()
+                {'VSI_CACHE': 'FALSE'}
+
+                ```
+            - ``extra`` overrides any explicit field on key conflict (the
+                escape hatch wins):
+                ```python
+                >>> CloudConfig(
+                ...     http_max_retry=3,
+                ...     extra={"GDAL_HTTP_MAX_RETRY": "9"},
+                ... ).as_gdal_config()
+                {'GDAL_HTTP_MAX_RETRY': '9'}
 
                 ```
         """
-        mapping: dict[str, str | None] = {
+        mapping: dict[str, Any] = {
             "AWS_ACCESS_KEY_ID": self.aws_access_key_id,
             "AWS_SECRET_ACCESS_KEY": self.aws_secret_access_key,
             "AWS_SESSION_TOKEN": self.aws_session_token,
@@ -433,10 +477,15 @@ class CloudConfig:
             "AZURE_STORAGE_ACCOUNT": self.azure_storage_account,
             "AZURE_STORAGE_ACCESS_KEY": self.azure_storage_access_key,
             "AZURE_STORAGE_SAS_TOKEN": self.azure_storage_sas_token,
+            "GDAL_HTTP_MAX_RETRY": self.http_max_retry,
+            "GDAL_HTTP_RETRY_DELAY": self.http_retry_delay,
+            "GDAL_HTTP_TIMEOUT": self.http_timeout,
         }
-        out: dict[str, str] = {k: v for k, v in mapping.items() if v is not None}
+        out: dict[str, str] = {k: str(v) for k, v in mapping.items() if v is not None}
         if self.aws_no_sign_request:
             out["AWS_NO_SIGN_REQUEST"] = "YES"
+        if self.vsi_cache is not None:
+            out["VSI_CACHE"] = "TRUE" if self.vsi_cache else "FALSE"
         out.update({k: str(v) for k, v in self.extra.items()})
         return out
 
