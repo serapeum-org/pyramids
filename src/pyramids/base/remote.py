@@ -380,10 +380,32 @@ class CloudConfig:
             {'AWS_REGION': 'eu-west-1'}
 
             ```
+        - Inspect the HTTP retry / timeout knobs without entering the block —
+          useful for flaky cloud sources (e.g. large COG reads over /vsicurl/):
+            ```python
+            >>> cfg = CloudConfig(
+            ...     http_max_retry=5,
+            ...     http_retry_delay=2.0,
+            ...     http_timeout=60,
+            ...     vsi_cache=True,
+            ... ).as_gdal_config()
+            >>> sorted(cfg.items())
+            [('GDAL_HTTP_MAX_RETRY', '5'), ('GDAL_HTTP_RETRY_DELAY', '2.0'), ('GDAL_HTTP_TIMEOUT', '60'), ('VSI_CACHE', 'TRUE')]
+
+            ```
 
     Note:
         :func:`gdal.config_options` is thread-local; each thread that
         opens cloud assets needs its own `with CloudConfig(...)`.
+
+    See Also:
+        - :meth:`as_gdal_config`: the mapping function that this context
+          manager passes to :func:`gdal.config_options`.
+        - GDAL's :file:`gdal.org/user/configoptions.html` and the
+          :file:`gdal.org/user/virtual_file_systems.html#vsicurl-http-https-ftp-files-random-access`
+          pages for the full list of HTTP / VSI knobs that ``extra=`` can
+          forward (``GDAL_HTTP_USERAGENT``, ``GDAL_HTTP_PROXY``,
+          ``CPL_VSIL_CURL_USE_HEAD``, ``CPL_VSIL_CURL_CACHE_SIZE``, …).
     """
 
     aws_access_key_id: str | None = None
