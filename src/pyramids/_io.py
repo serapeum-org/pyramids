@@ -366,20 +366,24 @@ def _archive_members(dir_vsi: str, member_glob: str = "*") -> list[str]:
     entries = gdal.ReadDir(dir_vsi)
     if entries is None:
         raise FileFormatNotSupportedError(
-            f"could not list archive members at {dir_vsi!r}. Check the path/URL is "
-            "reachable and really is an archive of the given kind. Note: GDAL's "
-            "archive handlers need a recognised extension (.zip / .tar / .tar.gz / "
-            ".gz) on the *file name* — an extension-less download URL will not work "
-            "directly; fetch the bytes and write them to a '.zip'-named file (or to "
-            "'/vsimem/<name>.zip' via gdal.FileFromMemBuffer) first. Nested archives "
-            "are also not supported."
+            f"could not list archive members at {dir_vsi!r}; GDAL's archive handlers "
+            "need a recognised extension (.zip / .tar / .tar.gz / .gz) on the file "
+            "name, and nested archives are not supported. See "
+            "DatasetCollection.from_archive's docstring for the extension-less-URL "
+            "workaround (write bytes to '/vsimem/<name>.zip' first)."
         )
-    listed = [e for e in entries if e not in (".", "..")]
-    members = sorted(e for e in listed if fnmatch.fnmatch(e, member_glob))
+    listed = sorted(e for e in entries if e not in (".", ".."))
+    members = [e for e in listed if fnmatch.fnmatch(e, member_glob)]
     if not members:
+        preview = listed[:10]
+        more = (
+            ""
+            if len(listed) <= len(preview)
+            else f" (showing {len(preview)} of {len(listed)})"
+        )
         raise FileNotFoundError(
             f"no members matching {member_glob!r} in {dir_vsi!r}; "
-            f"available: {sorted(listed)[:10]}"
+            f"available: {preview}{more}"
         )
     return members
 

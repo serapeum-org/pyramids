@@ -860,6 +860,11 @@ class DatasetCollection:
             ) from exc
 
         if time_coords is not None:
+            # Materialise generators / iterators up front so np.asarray gets a
+            # sized sequence (an iterator yields a 0-d object array, which
+            # would trip a cryptic IndexError below).
+            if not hasattr(time_coords, "__len__"):
+                time_coords = list(time_coords)
             time_values = np.asarray(time_coords)
             if time_values.dtype.kind == "O":
                 # pd.DatetimeIndex → datetime64 via asarray, but lists of
@@ -893,11 +898,14 @@ class DatasetCollection:
             if time_values.dtype.kind == "M":
                 # GDAL's multidim writer has no native datetime64 type; encode
                 # as an int64 offset with CF `units` so xr.open_dataset can
-                # decode it back to a calendar axis on read.
+                # decode it back to a calendar axis on read. Use nanosecond
+                # resolution so the round-trip is lossless for the full
+                # datetime64[ns] range (xarray / udunits accept "nanoseconds
+                # since …" as a CF time unit).
                 epoch = np.datetime64("1970-01-01", "ns")
                 ns = (time_values.astype("datetime64[ns]") - epoch).astype("int64")
-                time_values = (ns // 1_000_000_000).astype("int64")
-                time_attrs["units"] = "seconds since 1970-01-01 00:00:00"
+                time_values = ns
+                time_attrs["units"] = "nanoseconds since 1970-01-01 00:00:00"
                 time_attrs["calendar"] = "proleptic_gregorian"
         else:
             time_values = np.arange(self.time_length, dtype="int64")
@@ -915,11 +923,14 @@ class DatasetCollection:
             else [f"band_{i + 1}" for i in range(band_count)]
         )
 
+        # Per-timestep read_array() returns (rows, cols) for a single-band
+        # dataset and (bands, rows, cols) for multi-band, so np.stack gives
+        # (T, rows, cols) or (T, bands, rows, cols). Insert a length-1 band
+        # axis on the single-band path so the rest of this method can treat
+        # the cube uniformly as (T, B, Y, X).
         cube = np.stack([np.asarray(ds.read_array()) for ds in self.datasets], axis=0)
         if cube.ndim == 3:
             cube = cube[:, np.newaxis, :, :]
-        if cube.shape[1] != band_count:
-            cube = cube.reshape((self.time_length, band_count, meta.rows, meta.columns))
 
         y_coord = np.asarray(self._base.y)
         x_coord = np.asarray(self._base.x)
@@ -977,7 +988,12 @@ class DatasetCollection:
             for v_name in target_vars:
                 ds[v_name].attrs["nodata"] = typed_nodata
 
-        from pyramids.netcdf import NetCDF
+        # Inline import: pyramids.netcdf depends on pyramids.dataset.Dataset,
+        # so hoisting this to the module top would form a circular import
+        # through pyramids.dataset.__init__. Matches the to_kerchunk pattern
+        # (see ``to_kerchunk`` above) and CLAUDE.md's circular-import
+        # carveout in "Code Style".
+        from pyramids.netcdf import NetCDF  # noqa: E402
 
         NetCDF.from_xarray(ds, path)
 

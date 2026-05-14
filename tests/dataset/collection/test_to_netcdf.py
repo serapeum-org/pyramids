@@ -253,17 +253,18 @@ class TestToNetcdfTimeCoords:
         values = _array_values(str(out), "time")
         assert np.allclose(values, [0.5, 1.5]), f"float time_coords mangled: {values!r}"
 
-    def test_pd_daterange_encoded_as_cf_seconds(self, tmp_path):
-        """A :class:`pandas.DatetimeIndex` is encoded as int64 seconds + CF units.
+    def test_pd_daterange_encoded_as_cf_nanoseconds(self, tmp_path):
+        """A :class:`pandas.DatetimeIndex` is encoded as int64 nanoseconds + CF units.
 
         Args:
             tmp_path: pytest temp directory.
 
         Test scenario:
             ``time_coords=pd.date_range("2020-01-01", periods=2, freq="D")`` —
-            expected: values are ``[1577836800, 1577923200]`` (Unix seconds);
-            GDAL stores CF ``units`` via :meth:`MDArray.SetUnit` (not in the
-            attribute dict), so probe it there; ``calendar`` stays in attrs.
+            expected: int64 nanoseconds since the Unix epoch (so the round-trip
+            preserves the full ``datetime64[ns]`` resolution); GDAL stores CF
+            ``units`` via :meth:`MDArray.SetUnit` (not in the attribute dict),
+            so probe it there; ``calendar`` stays in attrs.
         """
         col, _ = _make_int16_collection(tmp_path)
         out = tmp_path / "dates.nc"
@@ -271,14 +272,14 @@ class TestToNetcdfTimeCoords:
             str(out), time_coords=pd.date_range("2020-01-01", periods=2, freq="D")
         )
         values = _array_values(str(out), "time")
-        assert values.tolist() == [
-            1577836800,
-            1577923200,
-        ], f"unexpected time values: {values!r}"
+        expected_ns = [1577836800 * 1_000_000_000, 1577923200 * 1_000_000_000]
+        assert values.tolist() == expected_ns, f"unexpected time values: {values!r}"
         g = gdal.OpenEx(str(out), gdal.OF_MULTIDIM_RASTER).GetRootGroup()
         time_arr = g.OpenMDArray("time")
         unit = time_arr.GetUnit()
-        assert unit == "seconds since 1970-01-01 00:00:00", f"missing CF unit: {unit!r}"
+        assert (
+            unit == "nanoseconds since 1970-01-01 00:00:00"
+        ), f"missing CF unit: {unit!r}"
         attrs = {a.GetName(): a.Read() for a in time_arr.GetAttributes()}
         assert (
             attrs.get("calendar") == "proleptic_gregorian"
@@ -292,7 +293,8 @@ class TestToNetcdfTimeCoords:
 
         Test scenario:
             ``time_coords=[datetime(2020, 1, 1), datetime(2020, 1, 2)]`` —
-            expected: same encoded values as the equivalent ``date_range``.
+            expected: same encoded int64-nanoseconds values as the equivalent
+            ``date_range``.
         """
         col, _ = _make_int16_collection(tmp_path)
         out = tmp_path / "list_dates.nc"
@@ -301,7 +303,48 @@ class TestToNetcdfTimeCoords:
             time_coords=[dt.datetime(2020, 1, 1), dt.datetime(2020, 1, 2)],
         )
         values = _array_values(str(out), "time")
-        assert values.tolist() == [1577836800, 1577923200], f"unexpected: {values!r}"
+        expected_ns = [1577836800 * 1_000_000_000, 1577923200 * 1_000_000_000]
+        assert values.tolist() == expected_ns, f"unexpected: {values!r}"
+
+    def test_subsecond_datetime_roundtrips(self, tmp_path):
+        """Sub-second timestamps survive the nanosecond CF encoding (L1 regression).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Two datetimes 500ms apart — expected: the on-disk int64 values
+            preserve the millisecond delta exactly.
+        """
+        col, _ = _make_int16_collection(tmp_path)
+        out = tmp_path / "subsec.nc"
+        t0 = np.datetime64("2020-01-01T00:00:00.000", "ns")
+        t1 = np.datetime64("2020-01-01T00:00:00.500", "ns")
+        col.to_netcdf(str(out), time_coords=np.array([t0, t1], dtype="datetime64[ns]"))
+        values = _array_values(str(out), "time")
+        # 500ms in nanoseconds:
+        assert (
+            int(values[1] - values[0]) == 500_000_000
+        ), f"sub-second delta lost: {values!r}"
+
+    def test_generator_time_coords_materialised(self, tmp_path):
+        """Generator ``time_coords`` are materialised via ``list()`` (L3 regression).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            Pass an iterator (no ``__len__``) — expected: ``to_netcdf``
+            consumes it and writes the right values, instead of raising a
+            cryptic IndexError from ``np.asarray(generator)``.
+        """
+        col, _ = _make_int16_collection(tmp_path)
+        out = tmp_path / "gen.nc"
+        col.to_netcdf(str(out), time_coords=iter([10, 20]))
+        assert _array_values(str(out), "time").tolist() == [
+            10,
+            20,
+        ], "generator time_coords were not materialised"
 
     def test_length_mismatch_raises_value_error(self, tmp_path):
         """``len(time_coords) != self.time_length`` raises ``ValueError``.

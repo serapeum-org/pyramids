@@ -463,16 +463,16 @@ class TestFromBandFiles:
         ], "values changed on round-trip"
 
     def test_path_without_tif_extension_raises(self, band_files):
-        """A non ``.tif`` output path is rejected.
+        """A non ``.tif`` output path is rejected with the same ``TypeError`` as ``_create_dataset``.
 
         Args:
             band_files: The three source bands.
 
         Test scenario:
-            ``from_band_files(..., path="out.png")`` — expected: ``ValueError``
-            mentioning ``.tif``.
+            ``from_band_files(..., path="out.png")`` — expected: ``TypeError``
+            mentioning ``.tif`` (matches ``create_from_array`` / ``dataset_like``).
         """
-        with pytest.raises(ValueError, match=r"\.tif"):
+        with pytest.raises(TypeError, match=r"\.tif"):
             Dataset.from_band_files(band_files, path="out.png")
 
     def test_align_with_mixed_dtypes(self, tmp_path, band_files):

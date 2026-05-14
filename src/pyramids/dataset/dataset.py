@@ -2242,7 +2242,10 @@ class Dataset(RasterBase):
             resolved_nd = no_data_value
 
         if path is not None and not str(path).lower().endswith(".tif"):
-            raise ValueError("the path to save the stacked raster should end with .tif")
+            # TypeError to match ``_create_dataset`` (used by every other
+            # factory: ``create_from_array``, ``dataset_like`` etc.) — keeping
+            # one convention across the public surface.
+            raise TypeError("the path to save the stacked raster should end with .tif")
 
         if not align:
             for p, ds in zip(resolved_paths[1:], datasets[1:]):
@@ -2280,9 +2283,16 @@ class Dataset(RasterBase):
                 # sentinel != resolved_nd would still have that sentinel in the
                 # fringe, which would no longer match the output band's declared
                 # nodata. Remap so what's in the array matches what's declared.
+                # Sources that already match the template grid skip the full
+                # gdal.Warp round-trip and just astype, which is lossless.
                 band_arrays = []
                 for ds_i in datasets:
-                    arr = ds_i.align(grid_template).read_array(band=0)
+                    if _same_grid(template, ds_i):
+                        arr = ds_i.read_array(band=0).astype(
+                            target_np_dtype, copy=False
+                        )
+                    else:
+                        arr = ds_i.align(grid_template).read_array(band=0)
                     band_arrays.append(
                         _remap_nodata_to(arr, ds_i.no_data_value[0], resolved_nd)
                     )
