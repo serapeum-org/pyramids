@@ -49,8 +49,7 @@ def _validate_band_index(band: int | None, band_count: int) -> None:
         return
     if band < 0 or band > band_count - 1:
         raise ValueError(
-            f"band index should be between 0 and {band_count - 1}, "
-            f"got {band}"
+            f"band index should be between 0 and {band_count - 1}, " f"got {band}"
         )
 
 
@@ -63,6 +62,8 @@ class IO(_Engine):
         *,
         chunks: int | tuple | dict | str | None = None,
         lock: Any = None,
+        bbox: tuple[float, float, float, float] | list[float] | None = None,
+        epsg: Any = None,
     ) -> ArrayLike:
         """Read the values stored in a given band (eager or lazy).
 
@@ -209,6 +210,13 @@ class IO(_Engine):
             - Dataset.get_tile: Read the dataset in chunks.
             - Dataset.get_block_arrangement: Get block arrangement to read the dataset in chunks.
         """
+        if bbox is not None:
+            if window is not None:
+                raise ValueError(
+                    "read_array accepts either `window` or `bbox`, not both"
+                )
+            crs = epsg if epsg is not None else self._ds.epsg
+            window = FeatureCollection.from_bbox(bbox, epsg=crs)
         if chunks is not None:
             if window is not None:
                 raise ValueError(

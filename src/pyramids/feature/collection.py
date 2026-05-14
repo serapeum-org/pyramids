@@ -39,14 +39,10 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 from geopandas import GeoDataFrame
-from osgeo import gdal, ogr, osr
-from shapely.geometry import LineString, Point, Polygon, box
-from shapely.geometry.multilinestring import MultiLineString
-from shapely.geometry.multipoint import MultiPoint
-from shapely.geometry.multipolygon import MultiPolygon
+from osgeo import gdal, ogr
+from shapely.geometry import Point, box
 
 from pyramids import _io as _pyramids_io
-from pyramids.base import crs as _crs
 from pyramids.base._errors import CRSError, FeatureError, GeometryWarning
 from pyramids.base._utils import Catalog, import_pyarrow
 from pyramids.base.remote import is_remote
@@ -429,6 +425,75 @@ class FeatureCollection(GeoDataFrame):
             )
         gdf = gpd.GeoDataFrame.from_features(features_list, crs=crs, columns=columns)
         return cls(gdf)
+
+    @classmethod
+    def from_bbox(
+        cls,
+        bbox: tuple[float, float, float, float] | list[float],
+        *,
+        epsg: Any,
+    ) -> FeatureCollection:
+        """Build a one-row FeatureCollection from a geographic bounding box.
+
+        The bbox is the canonical ``(west, south, east, north)`` quadruple in
+        the CRS named by ``epsg``. The result is a single-row FC whose only
+        geometry is a rectangular Polygon — handy for cropping a raster or
+        windowed-reading it without writing out the polygon vertices by hand:
+
+        .. code-block:: python
+
+            mask = FeatureCollection.from_bbox((31.0, 30.0, 31.1, 30.1), epsg=4326)
+            cropped = dataset.crop(mask)
+
+        Most callers do not need to build this themselves — :meth:`Dataset.crop`
+        and :meth:`Dataset.read_array` (via :meth:`pyramids.dataset.engines.io.IO.read_array`)
+        accept the bbox/``epsg`` pair directly and call this helper internally.
+
+        Args:
+            bbox: A 4-element ``(west, south, east, north)`` tuple / list of
+                numbers. Must satisfy ``west < east`` and ``south < north``.
+            epsg: CRS for the bbox coordinates — anything ``geopandas`` accepts
+                for ``crs=`` (EPSG int such as ``4326``, ``"EPSG:4326"`` string,
+                WKT, Proj, or a :class:`pyproj.CRS`). Required (a bbox without
+                a CRS is ambiguous).
+
+        Returns:
+            FeatureCollection: A one-row FC carrying the rectangular polygon,
+            in the supplied CRS.
+
+        Raises:
+            ValueError: ``bbox`` is not a 4-element sequence, or violates
+                ``west < east`` / ``south < north``, or ``epsg`` is ``None``.
+            TypeError: ``bbox`` elements are not numbers.
+        """
+        if epsg is None:
+            raise ValueError(
+                "from_bbox requires an explicit epsg= for the bbox CRS; "
+                "a bbox without a CRS is ambiguous"
+            )
+        try:
+            seq = list(bbox)
+        except TypeError as exc:
+            raise ValueError(
+                f"bbox must be a 4-element (west, south, east, north) sequence; "
+                f"got {bbox!r}"
+            ) from exc
+        if len(seq) != 4:
+            raise ValueError(
+                f"bbox must have exactly 4 elements (west, south, east, north); "
+                f"got {len(seq)}: {seq!r}"
+            )
+        try:
+            w, s, e, n = (float(v) for v in seq)
+        except (TypeError, ValueError) as exc:
+            raise TypeError(f"bbox elements must be numbers; got {seq!r}") from exc
+        if not (w < e):
+            raise ValueError(f"bbox must satisfy west < east; got west={w}, east={e}")
+        if not (s < n):
+            raise ValueError(
+                f"bbox must satisfy south < north; got south={s}, north={n}"
+            )
+        return cls(geometry=[box(w, s, e, n)], crs=epsg)
 
     @classmethod
     def from_records(

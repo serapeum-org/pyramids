@@ -873,19 +873,38 @@ class Spatial(_Engine):
 
     def crop(
         self,
-        mask: GeoDataFrame | FeatureCollection,
+        mask: GeoDataFrame | FeatureCollection | None = None,
         touch: bool = True,
+        *,
+        bbox: tuple[float, float, float, float] | list[float] | None = None,
+        epsg: Any = None,
     ) -> Dataset:
-        """Crop dataset using dataset/feature collection.
+        """Crop dataset using a polygon mask, a raster mask, or a bbox tuple.
 
-            Crop/Clip the Dataset object using a polygon/raster.
+            Crop/Clip the Dataset object using a polygon/raster — or, as a
+            convenience, a plain ``(west, south, east, north)`` bbox tuple
+            in some EPSG (no need to wrap it in a :class:`FeatureCollection`
+            by hand).
 
         Args:
-            mask (GeoDataFrame | Dataset):
+            mask (GeoDataFrame | Dataset | None):
                 GeoDataFrame with a polygon geometry, or a Dataset object.
+                Mutually exclusive with ``bbox``; exactly one of the two must
+                be supplied.
             touch (bool):
                 Include the cells that touch the polygon, not only those that lie entirely inside the polygon mask.
                 Default is True.
+            bbox (tuple[float, float, float, float] | None, keyword-only):
+                ``(west, south, east, north)`` quadruple in the CRS named by
+                ``epsg``. Internally wrapped in a one-row
+                :class:`FeatureCollection` and routed through the same polygon
+                path. Mutually exclusive with ``mask``.
+            epsg (Any, keyword-only):
+                CRS for ``bbox`` — anything ``geopandas`` accepts for ``crs=``
+                (EPSG int, ``"EPSG:4326"``, WKT, ``pyproj.CRS``). Defaults to
+                the dataset's own CRS, so a bbox in the dataset's native CRS
+                needs no extra argument; pass it explicitly for a bbox in a
+                different CRS (the standard reprojection path takes care of it).
 
         Returns:
             Dataset:
@@ -974,6 +993,16 @@ class Spatial(_Engine):
               ```
 
         """
+        if bbox is not None:
+            if mask is not None:
+                raise ValueError("crop accepts either `mask` or `bbox`, not both")
+            crs = epsg if epsg is not None else self._ds.epsg
+            mask = FeatureCollection.from_bbox(bbox, epsg=crs)
+        if mask is None:
+            raise TypeError(
+                "crop requires a `mask` (GeoDataFrame / FeatureCollection / "
+                "Dataset) or a `bbox` (west, south, east, north) tuple"
+            )
         if isinstance(mask, GeoDataFrame):
             dst = self._crop_with_polygon_warp(mask, touch=touch)
         elif isinstance(mask, RasterBase):

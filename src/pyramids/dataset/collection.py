@@ -23,6 +23,7 @@ from pyramids.dataset.abstract_dataset import CATALOG
 from pyramids.dataset.dataset import Dataset
 from pyramids.dataset.merge import merge_rasters
 from pyramids.dataset.ops._zarr import _resolve_store
+from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
     from cleopatra.array_glyph import ArrayGlyph
@@ -1584,21 +1585,39 @@ class DatasetCollection:
         return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
 
     def crop(
-        self, mask: Dataset | str, inplace: bool = False, touch: bool = True
+        self,
+        mask: Dataset | str | None = None,
+        inplace: bool = False,
+        touch: bool = True,
+        *,
+        bbox: tuple[float, float, float, float] | list[float] | None = None,
+        epsg: Any = None,
     ) -> DatasetCollection | None:
-        """Crop every timestep against `mask`.
+        """Crop every timestep against ``mask`` or a ``bbox``.
 
         Args:
-            mask (Dataset):
-                Dataset object of the mask raster to crop the rasters (to get the NoData value and its location in the
-                array). Mask should include the name of the raster and the extension like "data/dem.tif", or you can
-                read the mask raster using gdal and use it as the first parameter to the function.
+            mask (Dataset | None):
+                Dataset object of the mask raster to crop the rasters (to get
+                the NoData value and its location in the array). Mask should
+                include the name of the raster and the extension like
+                "data/dem.tif", or you can read the mask raster using gdal
+                and use it as the first parameter to the function. Mutually
+                exclusive with ``bbox``; exactly one of the two must be
+                supplied.
             inplace (bool):
                 If True, mutate this collection in place and return None.
                 If False (default), return a new `DatasetCollection`.
             touch (bool):
                 Include the cells that touch the polygon, not only those that lie entirely inside the polygon mask.
                 Default is True.
+            bbox (tuple[float, float, float, float] | None, keyword-only):
+                ``(west, south, east, north)`` quadruple in the CRS named by
+                ``epsg``. Internally wrapped in a one-row
+                :class:`FeatureCollection` (built once and reused across
+                timesteps). Mutually exclusive with ``mask``.
+            epsg (Any, keyword-only):
+                CRS for ``bbox`` — anything ``geopandas`` accepts. Defaults to
+                the collection's own CRS.
 
         Returns:
             DatasetCollection | None: New collection when
@@ -1615,6 +1634,15 @@ class DatasetCollection:
 
               ```
         """
+        if bbox is not None:
+            if mask is not None:
+                raise ValueError("crop accepts either `mask` or `bbox`, not both")
+            crs = epsg if epsg is not None else self._base.epsg
+            mask = FeatureCollection.from_bbox(bbox, epsg=crs)
+        if mask is None:
+            raise TypeError(
+                "crop requires a `mask` or a `bbox` (west, south, east, north)"
+            )
         new_datasets = self._apply_per_timestep("crop", mask, touch=touch)
         return self._finalize_per_timestep_result(new_datasets, inplace=inplace)
 
