@@ -30,9 +30,23 @@ Supported Python versions: 3.11+ (requires Python >=3.11,<4)
     section below for platform-specific instructions.
 
 ### Optional extras
-- viz: cleopatra >=0.6.0
-- dev: nbval, pre-commit, pytest, coverage, build, twine, etc.
-- docs: mkdocs, mkdocs-material, mkdocstrings, mike, etc.
+- `viz`: `cleopatra[tiles]` (plotting + basemap tiles via mercantile /
+  xyzservices / Pillow)
+- `lazy`: dask / distributed / zarr / fsspec / flox (powers
+  `Dataset.read_array(chunks=…)`, `DatasetCollection.data`,
+  `DatasetCollection.to_zarr`)
+- `xarray`: xarray (required for `DatasetCollection.to_netcdf` and
+  `NetCDF.from_xarray`)
+- `netcdf-lazy`: `[lazy]` + kerchunk + h5py (HDF5/NetCDF chunked reads
+  via kerchunk references)
+- `parquet`: pyarrow (vector parquet I/O)
+- `parquet-lazy`: `[lazy]` + `[parquet]` + dask-geopandas (lazy vector
+  reads)
+- `dev`: nbval, pre-commit, pytest, coverage, build, twine, etc.
+- `docs`: mkdocs, mkdocs-material, mkdocstrings, mike, etc.
+
+Combine extras with commas, e.g.
+`pip install 'pyramids-gis[viz,lazy,xarray]'`.
 
 ## Recommended: Pixi/Conda environment
 This repository includes a Pixi configuration to create fully-solvable environments with the right GDAL build from conda-forge.

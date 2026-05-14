@@ -126,6 +126,25 @@ distributed scheduler with `pyramids.configure_lazy_vector`.
 
 Install: `pip install 'pyramids-gis[parquet-lazy]'`.
 
+## Build a one-row FC from a bbox — `from_bbox`
+
+`FeatureCollection.from_bbox((W, S, E, N), epsg=…)` is the shared
+primitive behind `Dataset.crop(bbox=…)`, `Dataset.read_array(bbox=…)`,
+and `DatasetCollection.crop(bbox=…)`. It returns a single-row FC whose
+only geometry is the rectangular polygon — convenient when you want to
+hand the same mask to multiple downstream operations, or when you need
+the polygon for some other geopandas / shapely call.
+
+```python
+from pyramids.feature import FeatureCollection
+
+mask = FeatureCollection.from_bbox((6.8, 50.3, 7.2, 50.6), epsg=4326)
+mask.to_file("aoi.geojson")
+```
+
+`epsg` is required (a bbox without a CRS is ambiguous); the bbox must
+satisfy `west < east` and `south < north`.
+
 ## FeatureCollection Class
 
 ::: pyramids.feature.FeatureCollection
