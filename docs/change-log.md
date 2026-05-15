@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.19.0 (2026-05-15)
+
+### Feat
+
+- add bytes/archive/band-stack/bbox/NetCDF/HTTP-knob entry points (#322)
+
 ## 0.18.0 (2026-05-11)
 
 ### Feat
