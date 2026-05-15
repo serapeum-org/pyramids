@@ -94,6 +94,7 @@ def _make_int16_collection(tmp_path, count: int = 2, no_data_value: int = -9999)
     return DatasetCollection.from_files(paths), paths
 
 
+@pytest.mark.xarray
 class TestToNetcdfDefaults:
     """Default-path tests (positional time index, var-per-band, CF root attrs)."""
 
@@ -214,6 +215,7 @@ class TestToNetcdfDefaults:
             ), f"timestep {i} disk-array mismatch"
 
 
+@pytest.mark.xarray
 class TestToNetcdfTimeCoords:
     """``time_coords`` plumbing: explicit values, datetime coercion, warnings, errors."""
 
@@ -418,6 +420,7 @@ class TestToNetcdfTimeCoords:
         assert "time" not in names, f"default 'time' should not appear: {names}"
 
 
+@pytest.mark.xarray
 class TestToNetcdfVarPerBand:
     """``var_per_band`` branch behaviour."""
 
@@ -479,6 +482,7 @@ class TestToNetcdfVarPerBand:
         ), f"unwanted band dim leaked into var_per_band=True: {names}"
 
 
+@pytest.mark.xarray
 class TestToNetcdfNoData:
     """No-data propagation through the writer (the ``_FillValue`` workaround)."""
 
@@ -564,6 +568,7 @@ class TestToNetcdfNoData:
         ), "per-var nodata leaked when source has no nodata"
 
 
+@pytest.mark.xarray
 class TestToNetcdfNoFilesPath:
     """Support for collections that have no ``_files`` (e.g. ``create_cube``)."""
 
@@ -618,6 +623,7 @@ class TestToNetcdfMissingXarray:
             col.to_netcdf(str(tmp_path / "noxr.nc"))
 
 
+@pytest.mark.xarray
 class TestToNetcdfRoundTrip:
     """End-to-end: re-open the written file via :class:`NetCDF` and compare."""
 
