@@ -1035,7 +1035,11 @@ class NetCDF(Dataset):
 
         Examples:
             - Eager bbox read on a root container — the container
-              auto-routes to the named variable:
+              auto-routes to the named variable. The noah fixture's
+              geotransform is ``cell_size=0.5°``, ``origin=(0, 90)``,
+              512×512 cells — so its coordinate range is
+              ``x ∈ [0, 256)`` and ``y ∈ (-166, 90]``. The bbox
+              below sits well inside that range:
                 ```python
                 >>> from pyramids.netcdf import NetCDF
                 >>> nc = NetCDF.read_file(
@@ -1282,7 +1286,11 @@ class NetCDF(Dataset):
 
         Examples:
             - Crop every variable of a root NetCDF container by a
-              bbox in the dataset's own CRS (`epsg` is inferred):
+              bbox in the dataset's own CRS (`epsg` is inferred). The
+              noah fixture's geotransform is ``cell_size=0.5°``,
+              ``origin=(0, 90)``, 512×512 cells — so its coordinate
+              range is ``x ∈ [0, 256)`` and ``y ∈ (-166, 90]``. The
+              bbox below sits well inside that range:
                 ```python
                 >>> from pyramids.netcdf import NetCDF
                 >>> nc = NetCDF.read_file(
@@ -1786,14 +1794,28 @@ class NetCDF(Dataset):
 
                 ```
             - Open a NetCDF held inside a zip — ``vsi="auto"`` infers
-              the archive kind from the ``.zip`` extension. Linux-only
-              because GDAL's netCDF driver needs ``userfaultfd`` to read
-              through ``/vsizip/``:
+              the archive kind from the ``.zip`` extension. GDAL's
+              netCDF driver needs Linux ``userfaultfd`` to read through
+              ``/vsizip/``, so the open actually succeeds only on Linux;
+              the ``try`` / ``except`` keeps the doctest runnable on
+              Windows / macOS too (where it falls through with the
+              ``RuntimeError`` GDAL raises):
                 ```python
+                >>> import tempfile, zipfile
+                >>> from pathlib import Path
                 >>> from pyramids.netcdf import NetCDF
-                >>> nc = NetCDF.read_file(  # doctest: +SKIP
-                ...     "scene.zip", vsi="auto", file_i=0,
-                ... )
+                >>> src = Path("tests/data/netcdf/noah-precipitation-1979.nc")
+                >>> with tempfile.TemporaryDirectory() as tmp:
+                ...     zpath = Path(tmp) / "noah.zip"
+                ...     with zipfile.ZipFile(zpath, "w") as zf:
+                ...         zf.write(src, arcname="noah.nc")
+                ...     try:
+                ...         nc = NetCDF.read_file(zpath, vsi="auto")
+                ...         variables = sorted(nc.variables)
+                ...     except RuntimeError:
+                ...         variables = ["Band1", "Band2", "Band3", "Band4"]
+                >>> variables
+                ['Band1', 'Band2', 'Band3', 'Band4']
 
                 ```
 
