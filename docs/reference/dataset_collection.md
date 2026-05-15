@@ -16,17 +16,20 @@ cube = DatasetCollection.from_files(sorted_tifs)
 cube.data                   # dask.array.Array, (T, B, R, C)
 cube.mean(skipna=True)      # numpy array (B, R, C)
 cube.groupby(months).mean() # dict {month: ndarray}
+cube.crop(bbox=(W, S, E, N), epsg=4326)  # bbox crop per timestep
 cube.to_zarr("out.zarr")    # parallel write
+cube.to_netcdf("out.nc")    # eager CF-1.8 NetCDF (one variable per band)
 cube.to_kerchunk("idx.json")  # NetCDF/HDF5 only
 ```
 
 See [Lazy collections](../tutorials/lazy/lazy-collection.md) for construction
-(`from_files`, `from_stac`, `read_multiple_files`), reductions,
-`groupby` via flox, and the two serialisation formats (Zarr +
-kerchunk).
+(`from_files`, `from_archive`, `from_stac`, `read_multiple_files`),
+reductions, `groupby` via flox, and the three serialisation formats
+(Zarr / NetCDF / kerchunk).
 
 Install: `pip install 'pyramids-gis[lazy,stac,netcdf-lazy]'` for the
-full surface; the core reductions require only `[lazy]`.
+full surface; the core reductions require only `[lazy]`, and
+`to_netcdf` requires `[xarray]`.
 
 ::: pyramids.dataset.DatasetCollection
     options:

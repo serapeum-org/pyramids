@@ -19,6 +19,7 @@ import numpy as np
 from osgeo import gdal
 
 from pyramids import _io
+from pyramids.base._errors import AlignmentError, CRSError
 from pyramids.base._utils import (
     DTYPE_CONVERSION_DF,
     UNDEFINED_COLOR_INTERP,
@@ -59,6 +60,114 @@ from pyramids.feature import FeatureCollection, create_polygon
 # `_update_inplace` to re-bind their `_ds` back-references after
 # `__dict__.update` (see audit §3.3).
 _COLLABORATOR_ATTRS = ("io", "spatial", "bands", "analysis", "cell", "vectorize", "cog")
+
+# Sentinel for `Dataset.from_band_files(no_data_value=...)` so the helper can
+# tell "caller didn't pass one — inherit from the source rasters" apart from
+# "caller explicitly passed `None`" (which means "stamp no no-data sentinel").
+_INHERIT_NO_DATA = object()
+
+
+def _derive_band_names(paths: list[str]) -> list[str]:
+    """Derive band names from a list of single-band raster paths.
+
+    For the common one-file-per-band layouts:
+
+    * Earth Engine downloads — ``<assetSlug>.<bandName>.tif`` → ``<bandName>``
+      (the part after the last dot in the file stem).
+    * Landsat / Sentinel per-band files — ``..._SR_B4.TIF`` (no extra dots) →
+      the whole stem ``..._SR_B4``.
+
+    Duplicate names get a ``_<n>`` suffix so the result always has one unique
+    name per input path.
+
+    Args:
+        paths: Resolved raster paths (already VSI-normalised).
+
+    Returns:
+        list[str]: One band name per input path, in order, all unique.
+    """
+    raw = []
+    for path in paths:
+        stem = Path(path).stem
+        token = stem.rsplit(".", 1)[-1] if "." in stem else stem
+        raw.append(token or stem)
+    seen: dict[str, int] = {}
+    names: list[str] = []
+    for name in raw:
+        if name in seen:
+            seen[name] += 1
+            names.append(f"{name}_{seen[name]}")
+        else:
+            seen[name] = 0
+            names.append(name)
+    return names
+
+
+def _same_grid(a: "Dataset", b: "Dataset") -> bool:
+    """Return True if datasets ``a`` and ``b`` share CRS, size, and geotransform.
+
+    Geotransform components are compared with a small relative tolerance so
+    that byte-for-byte-identical grids (the normal case for per-band files of
+    one scene) compare equal even after the round-trip through GDAL's
+    floating-point geotransform.
+
+    Args:
+        a: Reference dataset.
+        b: Dataset to compare against ``a``.
+
+    Returns:
+        bool: ``True`` iff both rasters occupy the same pixel grid in the
+        same CRS.
+    """
+    return (
+        a.epsg == b.epsg
+        and a.rows == b.rows
+        and a.columns == b.columns
+        and bool(
+            np.allclose(
+                np.asarray(a.geotransform), np.asarray(b.geotransform), rtol=1e-7
+            )
+        )
+    )
+
+
+def _remap_nodata_to(arr: np.ndarray, src_nd: Any, dst_nd: Any) -> np.ndarray:
+    """Replace ``src_nd`` cells in ``arr`` with ``dst_nd`` when the two differ.
+
+    Used by :meth:`Dataset.from_band_files` (``align=True`` branch) so that
+    each per-source aligned band's fringe — filled by GDAL with the source's
+    own no-data sentinel — matches the resolved output no-data after the
+    "first-source-wins" reconciliation. The ``np.nan == np.nan -> False``
+    quirk is handled so float-NaN sentinels are treated as equal.
+
+    Args:
+        arr: The aligned-band array to remap in place semantically (a new
+            array is returned; ``arr`` is not mutated).
+        src_nd: No-data sentinel currently in ``arr`` (this band's source).
+        dst_nd: No-data sentinel the output band will declare.
+
+    Returns:
+        np.ndarray: ``arr`` unchanged when ``src_nd == dst_nd`` (incl. the
+        both-NaN case) or when either is ``None`` (no sentinel to remap);
+        otherwise a copy with the source sentinel rewritten to ``dst_nd``.
+    """
+    if src_nd is None or dst_nd is None:
+        return arr
+    src_is_nan = isinstance(src_nd, float) and np.isnan(src_nd)
+    dst_is_nan = isinstance(dst_nd, float) and np.isnan(dst_nd)
+    if src_is_nan and dst_is_nan:
+        return arr
+    if not src_is_nan and not dst_is_nan and src_nd == dst_nd:
+        return arr
+    try:
+        dst_typed = np.asarray(dst_nd, dtype=arr.dtype).item()
+    except (ValueError, OverflowError):
+        # Sentinel doesn't fit the array dtype; leave the array alone (the
+        # UserWarning from from_band_files already flagged the disagreement).
+        return arr
+    mask = np.isnan(arr) if src_is_nan else (arr == src_nd)
+    return np.where(mask, dst_typed, arr)
+
 
 if TYPE_CHECKING:
     from geopandas import GeoDataFrame
@@ -370,9 +479,7 @@ class Dataset(RasterBase):
             resolved_rgb = rgb
         else:
             band_colors = list(self.band_color.values())
-            has_color_interp = any(
-                c != UNDEFINED_COLOR_INTERP for c in band_colors
-            )
+            has_color_interp = any(c != UNDEFINED_COLOR_INTERP for c in band_colors)
             if not has_color_interp:
                 resolved_band = 0
                 resolved_rgb = rgb
@@ -1407,27 +1514,172 @@ class Dataset(RasterBase):
         path: str | Path,
         read_only=True,
         file_i: int = 0,
+        *,
+        vsi: str | None = None,
     ) -> Dataset:
-        """read_file.
+        """Open a raster from a path, URL, or archive member.
+
+        Plain local paths, ``/vsi*`` paths, and URL schemes
+        (``http(s)://``, ``s3://``, ``gs://``, ``az://`` / ``abfs://``,
+        ``file://``) are all accepted — URLs are transparently rewritten to
+        GDAL's virtual filesystem (GDAL fetches via HTTP range requests for
+        ``http(s)``). Compressed archives are detected from the extension; pass
+        ``vsi=`` to be explicit about it (e.g. an archive with an unusual
+        extension, or to open a specific member by index).
 
         Args:
-            path (str):
-                Path of file to open.
+            path (str | Path):
+                Path or URL of the file to open.
             read_only (bool):
-                File mode, set to False, to open in "update" mode.
+                File mode; set to ``False`` to open in update mode.
             file_i (int):
-                Index to the file inside the compressed file you want to read, if the compressed file
-                has only one file. Default is 0.
+                Which member to open when ``path`` is (or is forced to be) a
+                multi-file archive. Default ``0``.
+            vsi (str | None):
+                Treat ``path`` as an archive of this kind and open member
+                ``file_i`` from inside it: ``"zip"``, ``"tar"`` (also
+                ``"tar.gz"`` / ``"tgz"``), ``"gzip"`` (also ``"gz"``), or
+                ``"auto"`` (infer from the extension). Default ``None`` —
+                ``path`` is opened directly / extension-sniffed as before.
+                Works for archives reachable locally or over the network
+                (``/vsizip//vsicurl/…`` is built automatically) **provided the
+                file name carries a recognised archive extension** — GDAL's
+                archive handlers key off the extension, so an extension-less
+                download URL must first be fetched and saved with a ``.zip``
+                name (or written to ``/vsimem/<name>.zip`` via
+                :func:`osgeo.gdal.FileFromMemBuffer`).
 
         Returns:
             Dataset:
                 Opened dataset instance.
 
         See Also:
-            - Dataset.read_array: Read the values stored in a dataset band.
+            - :meth:`read_array`: read the values stored in a dataset band.
+            - :meth:`from_bytes`: open a raster held in memory.
+            - :meth:`pyramids.dataset.DatasetCollection.from_archive`: open
+              *every* member of an archive as a temporal stack.
         """
-        src = _io.read_file(path, read_only=read_only, file_i=file_i)
+        src = _io.read_file(path, read_only=read_only, file_i=file_i, vsi=vsi)
         return cls(src, access="read_only" if read_only else "write")
+
+    @classmethod
+    def from_bytes(
+        cls,
+        data: bytes | bytearray | memoryview,
+        *,
+        suffix: str = ".tif",
+        name: str | None = None,
+        read_only: bool = True,
+    ) -> Dataset:
+        """Open a raster held in memory as a byte string.
+
+        Writes ``data`` to a temporary GDAL ``/vsimem/`` path and opens
+        it — no on-disk temp file needed. Useful for HTTP response
+        bodies (``requests.get(url).content``), object-store
+        ``get_object`` payloads, database blobs, and test fixtures.
+
+        This is **not** a URL helper. Reading from a URL is already
+        supported by :meth:`read_file`, which rewrites ``http(s)://``,
+        ``s3://``, ``gs://``, ``az://`` / ``abfs://`` and ``file://``
+        to GDAL ``/vsi*`` paths. Use ``from_bytes`` only when you
+        already hold the bytes.
+
+        The ``/vsimem/`` entry is removed automatically when the
+        returned :class:`Dataset` is garbage-collected
+        (:func:`weakref.finalize`); :meth:`close` does not need to be
+        called for cleanup. Note that an in-memory dataset is **not
+        picklable** — :meth:`__reduce__` raises ``TypeError`` for
+        ``/vsimem/`` paths; call :meth:`to_file` first to anchor it to
+        disk before sending it to another process.
+
+        Args:
+            data: Raw bytes of a raster (GeoTIFF, ASCII grid, ...). For
+                NetCDF bytes use :meth:`pyramids.netcdf.NetCDF.from_bytes`.
+            suffix: Extension hint for GDAL's driver detection. Needed
+                only for headerless formats (e.g. ESRI ASCII grid:
+                ``suffix=".asc"``); GDAL sniffs anything with a magic
+                header regardless. Defaults to ``".tif"``.
+            name: Optional label recorded as the dataset's
+                :attr:`file_name` (cosmetic only — it is still an
+                in-memory dataset). Defaults to ``None``.
+            read_only: Open the dataset read-only. Defaults to ``True``.
+
+        Returns:
+            Dataset: The opened in-memory dataset.
+
+        Raises:
+            TypeError: ``data`` is not a bytes-like object.
+            ValueError: GDAL could not open the bytes (corrupt /
+                truncated payload, or a headerless format without a
+                ``suffix`` hint).
+
+        Examples:
+            - Open the bytes of a downloaded GeoTIFF and inspect it (the
+              bytes here come from a file, but they could just as well be
+              ``requests.get(url).content``):
+                ```python
+                >>> from pathlib import Path
+                >>> from pyramids.dataset import Dataset
+                >>> data = Path("tests/data/acc4000.tif").read_bytes()
+                >>> ds = Dataset.from_bytes(data, name="downloaded-scene")
+                >>> ds.band_count
+                1
+                >>> ds.shape
+                (1, 13, 14)
+                >>> ds.epsg
+                32618
+                >>> ds.file_name
+                'downloaded-scene'
+                >>> ds.close()
+
+                ```
+            - The bytes path yields the same data as opening the file directly:
+                ```python
+                >>> from pathlib import Path
+                >>> from pyramids.dataset import Dataset
+                >>> data = Path("tests/data/acc4000.tif").read_bytes()
+                >>> from_bytes = Dataset.from_bytes(data)
+                >>> from_file = Dataset.read_file("tests/data/acc4000.tif")
+                >>> from_bytes.shape == from_file.shape
+                True
+                >>> from_bytes.epsg == from_file.epsg
+                True
+
+                ```
+            - An in-memory dataset cannot be pickled — anchor it to disk first:
+                ```python
+                >>> import pickle
+                >>> from pathlib import Path
+                >>> from pyramids.dataset import Dataset
+                >>> data = Path("tests/data/acc4000.tif").read_bytes()
+                >>> try:
+                ...     pickle.dumps(Dataset.from_bytes(data))
+                ... except TypeError as exc:
+                ...     print("to_file" in str(exc))
+                True
+
+                ```
+
+        See Also:
+            - :meth:`read_file`: open a raster from a path or URL.
+            - :meth:`to_file`: write an in-memory dataset to disk.
+            - :meth:`pyramids.netcdf.NetCDF.from_bytes`: the NetCDF variant.
+        """
+        src, vsi_path = _io.bytes_to_gdal(data, suffix=suffix, read_only=read_only)
+        try:
+            obj = cls(src, access="read_only" if read_only else "write")
+        except Exception as e:
+            src = None
+            _io.silent_unlink(vsi_path)
+            raise ValueError(
+                "could not open the supplied bytes as a raster dataset "
+                f"(the data may be corrupt or truncated): {e}"
+            ) from e
+        obj._vsimem_path = vsi_path
+        weakref.finalize(obj, _io.silent_unlink, vsi_path)
+        if name is not None:
+            obj._file_name = str(name)
+        return obj
 
     def copy(self, path: str | Path | None = None) -> Dataset:
         """Deep copy.
@@ -1821,4 +2073,366 @@ class Dataset(RasterBase):
             src.no_data_value[0],
             path=path,
             array=array,
+        )
+
+    @classmethod
+    def from_band_files(
+        cls,
+        files: list[str | Path],
+        *,
+        band_names: list[str] | None = None,
+        align: bool = False,
+        no_data_value: Any = _INHERIT_NO_DATA,
+        path: str | Path | None = None,
+    ) -> Dataset:
+        """Stack N single-band rasters into one multi-band :class:`Dataset`.
+
+        Each input file becomes one band, in order, with its name preserved.
+        This is the natural target for an Earth Engine default download
+        (``<assetSlug>.<bandName>.tif`` — one file per band), a Landsat
+        Collection-2 scene (per-band ``.TIF``), or a Sentinel-2 SAFE
+        (per-band JP2s).
+
+        By default all inputs must already share the same grid and CRS;
+        pass ``align=True`` to resample mismatched rasters onto the first
+        file's grid (nearest-neighbour, via :meth:`align`). When the inputs
+        have different numpy dtypes the output dtype is the smallest type
+        that holds every input without a lossy cast.
+
+        Args:
+            files: Paths (or URLs / ``/vsi*`` strings) of the single-band
+                rasters to stack. Order is preserved as band order.
+            band_names: Explicit band names, one per file. When ``None``
+                (default) names are derived from the file names
+                (``<slug>.<band>.tif`` → ``<band>``; dotless stems are kept
+                whole; duplicates get a ``_<n>`` suffix).
+            align: When ``False`` (default), a grid/CRS mismatch among the
+                inputs raises :class:`AlignmentError`. When ``True``, every
+                input is resampled onto ``files[0]``'s grid first.
+            no_data_value: No-data value stamped on the output bands. When
+                omitted, it is inherited from the source rasters (a warning
+                is issued if they disagree, and the first file's value
+                wins; if no source declares one, the output has none). Pass
+                an explicit value (including ``None`` for "no no-data
+                sentinel") to override.
+            path: Output ``.tif`` path. When ``None`` (default) the result
+                is an in-memory dataset.
+
+        Returns:
+            Dataset: A multi-band dataset with ``band_count == len(files)``
+            and ``band_names`` set.
+
+        Raises:
+            ValueError: ``files`` is empty, ``band_names`` length does not
+                match ``files``, an input has more than one band, or ``path``
+                does not end in ``.tif``.
+            AlignmentError: ``align=False`` and the inputs do not share a
+                grid/CRS.
+            CRSError: An input raster has no CRS.
+
+        Examples:
+            - Stack three per-band GeoTIFFs into one 3-band dataset; band
+              names come from the file names:
+                ```python
+                >>> import numpy as np
+                >>> import tempfile, os
+                >>> from pyramids.dataset import Dataset
+                >>> d = tempfile.mkdtemp()
+                >>> paths = []
+                >>> for name, val in [("scene.B2.tif", 2), ("scene.B3.tif", 3), ("scene.B4.tif", 4)]:
+                ...     p = os.path.join(d, name)
+                ...     _ = Dataset.create_from_array(
+                ...         np.full((4, 5), val, dtype="int16"),
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326, path=p,
+                ...     ).close()
+                ...     paths.append(p)
+                >>> ds = Dataset.from_band_files(paths)
+                >>> ds.band_count
+                3
+                >>> ds.band_names
+                ['B2', 'B3', 'B4']
+                >>> [int(ds.read_array(band=i).flat[0]) for i in range(3)]
+                [2, 3, 4]
+
+                ```
+            - Override the band names explicitly:
+                ```python
+                >>> ds = Dataset.from_band_files(paths, band_names=["blue", "green", "red"])
+                >>> ds.band_names
+                ['blue', 'green', 'red']
+
+                ```
+            - Mismatched grids are rejected unless ``align=True``:
+                ```python
+                >>> odd = os.path.join(d, "odd.tif")
+                >>> _ = Dataset.create_from_array(
+                ...     np.zeros((8, 9), dtype="int16"),
+                ...     top_left_corner=(0, 0), cell_size=0.5, epsg=4326, path=odd,
+                ... ).close()
+                >>> try:
+                ...     Dataset.from_band_files([paths[0], odd])
+                ... except AlignmentError as exc:
+                ...     print("align=True" in str(exc))
+                True
+                >>> aligned = Dataset.from_band_files([paths[0], odd], align=True)
+                >>> aligned.band_count
+                2
+                >>> (aligned.rows, aligned.columns) == (
+                ...     Dataset.read_file(paths[0]).rows,
+                ...     Dataset.read_file(paths[0]).columns,
+                ... )
+                True
+
+                ```
+
+        See Also:
+            - :meth:`align`: resample one dataset onto another's grid.
+            - :meth:`create_from_array`: build a dataset from a numpy array.
+            - :meth:`pyramids.dataset.DatasetCollection.from_files`: stack
+              rasters along *time* instead of along *bands*.
+        """
+        resolved_paths = [str(_io._parse_path(str(p))) for p in files]
+        if not resolved_paths:
+            raise ValueError("from_band_files requires at least one file")
+
+        datasets = [cls.read_file(p) for p in resolved_paths]
+        for p, ds in zip(resolved_paths, datasets):
+            if ds.band_count != 1:
+                raise ValueError(
+                    f"{p!r} has {ds.band_count} bands; from_band_files expects exactly "
+                    "one band per file"
+                )
+            if not ds.crs:
+                raise CRSError(f"{p!r} has no CRS; cannot stack rasters without a CRS")
+
+        template = datasets[0]
+
+        if band_names is not None:
+            out_names = list(band_names)
+            if len(out_names) != len(resolved_paths):
+                raise ValueError(
+                    f"band_names has {len(out_names)} entries but {len(resolved_paths)} "
+                    "files were given"
+                )
+        else:
+            out_names = _derive_band_names(resolved_paths)
+
+        if no_data_value is _INHERIT_NO_DATA:
+            source_nd = [ds.no_data_value[0] for ds in datasets]
+            present = [v for v in source_nd if v is not None]
+            if not present:
+                resolved_nd: Any | None = None
+            else:
+                resolved_nd = source_nd[0] if source_nd[0] is not None else present[0]
+                # NaN != NaN, so plain set() over-reports disagreement for
+                # float-NaN sentinels (the GeoTIFF default for float rasters).
+                # Normalise NaN to a single key so we only warn when distinct
+                # *real* values are present.
+                distinct = {
+                    "__nan__" if isinstance(v, float) and np.isnan(v) else v
+                    for v in present
+                }
+                if len(distinct) > 1:
+                    warnings.warn(
+                        f"source rasters disagree on no-data value ({sorted(set(present))}); "
+                        f"using {resolved_nd!r}",
+                        stacklevel=2,
+                    )
+        else:
+            resolved_nd = no_data_value
+
+        if path is not None and not str(path).lower().endswith(".tif"):
+            # TypeError to match ``_create_dataset`` (used by every other
+            # factory: ``create_from_array``, ``dataset_like`` etc.) — keeping
+            # one convention across the public surface.
+            raise TypeError("the path to save the stacked raster should end with .tif")
+
+        if not align:
+            for p, ds in zip(resolved_paths[1:], datasets[1:]):
+                if not _same_grid(template, ds):
+                    raise AlignmentError(
+                        f"{p!r} does not share the grid/CRS of {resolved_paths[0]!r}; "
+                        "pass align=True to resample mismatched rasters onto the first "
+                        "file's grid"
+                    )
+
+        # gdal.BuildVRT(separate=True) does not promote dtypes (it truncates the
+        # wider bands) — take that low-memory band-by-band path only when the
+        # grids already match and every input shares one dtype. Otherwise read
+        # the (possibly resampled) band arrays and let numpy pick the common dtype.
+        uniform_dtype = len({ds.gdal_dtype[0] for ds in datasets}) == 1
+
+        if align or not uniform_dtype:
+            if align:
+                # Resample every input onto the first file's grid in the
+                # promoted dtype. Dataset.align adopts the alignment source's
+                # dtype, so cast the template first to avoid truncating wider
+                # inputs (e.g. a float band onto an int template).
+                target_np_dtype = np.result_type(
+                    *(ds.numpy_dtype[0] for ds in datasets)
+                )
+                grid_template = cls.create_from_array(
+                    template.read_array(band=0).astype(target_np_dtype, copy=False),
+                    geo=template.geotransform,
+                    epsg=template.epsg,
+                )
+                # Dataset.align uses the source's no_data_value to fill the warp
+                # destination, so the aligned fringe carries the SOURCE's sentinel.
+                # When sources disagree on nodata (resolved_nd is the first one
+                # by "first-wins" policy + a UserWarning), bands whose source's
+                # sentinel != resolved_nd would still have that sentinel in the
+                # fringe, which would no longer match the output band's declared
+                # nodata. Remap so what's in the array matches what's declared.
+                # Sources that already match the template grid skip the full
+                # gdal.Warp round-trip and just astype, which is lossless.
+                band_arrays = []
+                for ds_i in datasets:
+                    if _same_grid(template, ds_i):
+                        arr = ds_i.read_array(band=0).astype(
+                            target_np_dtype, copy=False
+                        )
+                    else:
+                        arr = ds_i.align(grid_template).read_array(band=0)
+                    band_arrays.append(
+                        _remap_nodata_to(arr, ds_i.no_data_value[0], resolved_nd)
+                    )
+            else:
+                band_arrays = [ds.read_array(band=0) for ds in datasets]
+            stacked = np.stack(band_arrays, axis=0)
+            obj = cls._build_dataset(
+                template.columns,
+                template.rows,
+                len(resolved_paths),
+                numpy_to_gdal_dtype(stacked),
+                template.geotransform,
+                template.crs,
+                resolved_nd,
+                path=path,
+                array=stacked,
+            )
+        else:
+            vrt = gdal.BuildVRT("", resolved_paths, separate=True)
+            if (
+                vrt is None
+            ):  # pragma: no cover - BuildVRT returns None only on bad input
+                raise AlignmentError(
+                    f"gdal.BuildVRT could not stack {resolved_paths!r}"
+                )
+            if path is not None:
+                dst = gdal.GetDriverByName("GTiff").CreateCopy(
+                    str(path), vrt, strict=1, options=["COMPRESS=LZW"]
+                )
+            else:
+                dst = gdal.GetDriverByName("MEM").CreateCopy("", vrt, strict=1)
+            vrt = None
+            # BuildVRT(separate=True) carries each source band's no-data through;
+            # honour an explicit override (including ``None`` = drop it).
+            for i in range(dst.RasterCount):
+                band = dst.GetRasterBand(i + 1)
+                if resolved_nd is None:
+                    band.DeleteNoDataValue()
+                else:
+                    band.SetNoDataValue(float(resolved_nd))
+            obj = cls(dst, access="write")
+
+        obj.band_names = out_names
+        obj._raster.FlushCache()
+        return obj
+
+    @classmethod
+    def from_archive(
+        cls,
+        url_or_path: str | Path,
+        *,
+        kind: str = "auto",
+        member_glob: str = "*",
+        band_names: list[str] | None = None,
+        align: bool = False,
+        no_data_value: Any = _INHERIT_NO_DATA,
+        path: str | Path | None = None,
+    ) -> Dataset:
+        """Open every raster in an archive and merge them into one multi-band Dataset.
+
+        Lists the archive's members (locally or over the network — a remote ZIP
+        is read via the chained ``/vsizip//vsicurl/…`` path) and hands them to
+        :meth:`from_band_files`. For "one Dataset per member" (a temporal stack)
+        use :meth:`pyramids.dataset.DatasetCollection.from_archive` instead.
+
+        The archive's file name must carry a recognised extension (``.zip`` /
+        ``.tar`` / ``.tar.gz`` / ``.gz``) — GDAL's archive handlers key off the
+        extension. An extension-less download URL (e.g. an Earth Engine
+        ``getDownloadURL`` ending in ``:getPixels``) must first be fetched and
+        saved with a ``.zip`` name (or written to ``/vsimem/<name>.zip`` via
+        :func:`osgeo.gdal.FileFromMemBuffer`) before calling this.
+
+        Args:
+            url_or_path: Path or URL of the archive (``.zip`` / ``.tar`` /
+                ``.tar.gz`` / ``.gz``).
+            kind: Archive kind — ``"zip"``, ``"tar"`` (also ``"tar.gz"`` /
+                ``"tgz"``), ``"gzip"`` (also ``"gz"``), or ``"auto"`` (default,
+                infer from the extension).
+            member_glob: :mod:`fnmatch` pattern selecting which members to stack.
+                Default ``"*"`` (all top-level members, sorted by name). Pass e.g.
+                ``"*.tif"`` for an archive that also ships sidecar files.
+            band_names: Explicit per-band names; ``None`` derives them from the
+                member names (see :meth:`from_band_files`).
+            align: When ``True``, resample mismatched members onto the first
+                member's grid instead of raising :class:`AlignmentError`.
+            no_data_value: No-data value for the output bands; omitted means
+                "inherit from the members".
+            path: Output ``.tif`` path; ``None`` keeps the result in memory.
+
+        Returns:
+            Dataset: A multi-band dataset, one band per matching archive member.
+
+        Raises:
+            FileFormatNotSupportedError: ``kind="auto"`` and the extension is
+                not recognised, or the archive could not be listed.
+            FileNotFoundError: No member matched ``member_glob``.
+            ValueError / AlignmentError / CRSError: As for :meth:`from_band_files`.
+
+        Examples:
+            - Stack the raster members of a local ZIP into one multi-band dataset
+              (band names come from the member names):
+                ```python
+                >>> import os, tempfile, zipfile
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> d = tempfile.mkdtemp()
+                >>> members = []
+                >>> for name, val in [("scene.B2.tif", 2), ("scene.B3.tif", 3)]:
+                ...     p = os.path.join(d, name)
+                ...     _ = Dataset.create_from_array(
+                ...         np.full((4, 5), val, dtype="int16"),
+                ...         top_left_corner=(0, 0), cell_size=1.0, epsg=4326, path=p,
+                ...     ).close()
+                ...     members.append(p)
+                >>> zip_path = os.path.join(d, "download.zip")
+                >>> with zipfile.ZipFile(zip_path, "w") as zf:
+                ...     for m in members:
+                ...         zf.write(m, arcname=os.path.basename(m))
+                >>> ds = Dataset.from_archive(zip_path, member_glob="*.tif")
+                >>> ds.band_count
+                2
+                >>> ds.band_names
+                ['B2', 'B3']
+                >>> [int(ds.read_array(band=i).flat[0]) for i in range(2)]
+                [2, 3]
+
+                ```
+
+        See Also:
+            - :meth:`from_band_files`: stack a known list of single-band rasters.
+            - :meth:`pyramids.dataset.DatasetCollection.from_archive`: open each
+              member as a separate timestep instead of merging them into bands.
+        """
+        dir_vsi = _io._archive_dir_vsi(url_or_path, kind)
+        members = _io._archive_members(dir_vsi, member_glob)
+        member_paths = [f"{dir_vsi}/{m}" for m in members]
+        return cls.from_band_files(
+            member_paths,
+            band_names=band_names,
+            align=align,
+            no_data_value=no_data_value,
+            path=path,
         )

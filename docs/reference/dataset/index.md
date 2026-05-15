@@ -281,10 +281,27 @@ classDiagram
         +read_file()
         +create_from_array()
         +dataset_like()
+        +from_bytes()
+        +from_band_files()
+        +from_archive()
     }
     Dataset --> CreateObject : «object factory»
 
 ```
+
+## Factory methods at a glance
+
+| Method | Use when |
+|---|---|
+| `read_file(path, vsi=…, file_i=…)` | Open a path, URL, or archive member (zip/tar/gzip). URLs auto-rewrite to `/vsi*`. |
+| `from_bytes(data, suffix=".tif")` | The caller already holds the bytes (HTTP body, DB blob, S3 `get_object` payload). Backed by `/vsimem/`. |
+| `from_band_files(paths)` | Stack N single-band rasters (one file per band) into one multi-band Dataset — the natural target for the `<asset>.<band>.tif` layout of GEE / Landsat / Sentinel downloads. |
+| `from_archive(url_or_path, member_glob=…)` | Merge every matching member of a local or remote archive into one multi-band Dataset (composes `from_band_files` over `gdal.ReadDir`). For one-Dataset-per-member use `DatasetCollection.from_archive`. |
+| `create_from_array(arr, …)` | Build a Dataset from a numpy array + geobox. |
+| `dataset_like(template, arr)` | Stamp a new Dataset that inherits its grid / CRS from `template`. |
+
+See the [Recipes](../../how-to/recipes.md) page for runnable examples
+of each.
 
 ::: pyramids.dataset.Dataset
     options:
