@@ -378,3 +378,26 @@ class TestNetCDFReadArrayBbox:
         )
         with pytest.raises(ValueError, match=r"explicit `epsg=`.*self\.epsg is None"):
             root_nc.read_array(variable="Band1", bbox=INSIDE_BBOX)
+
+    def test_fc_built_once_at_netcdf_level(self, root_nc: NetCDF, mocker):
+        """Test ``bbox=`` is converted to FC exactly once at the NetCDF layer (L2).
+
+        Args:
+            root_nc: Module-scope root NetCDF fixture.
+            mocker: pytest-mock fixture.
+
+        Test scenario:
+            After the L2 fix, ``NetCDF.read_array`` builds the FC at
+            the top and forwards ``window=fc, bbox=None`` to both the
+            recursive subset call and ``super().read_array``. The
+            deeper ``Dataset.read_array`` ``from_bbox`` branch (in
+            ``engines/io.py``) must NOT fire — proven by spying on
+            ``FeatureCollection.from_bbox`` and confirming it's called
+            exactly once.
+        """
+        spy = mocker.spy(FeatureCollection, "from_bbox")
+        root_nc.read_array(variable="Band1", bbox=INSIDE_BBOX)
+        assert spy.call_count == 1, (
+            f"Expected exactly one FC build (at the NetCDF layer); "
+            f"got {spy.call_count} — likely the dedupe (L2) regressed."
+        )

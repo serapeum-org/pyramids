@@ -1062,12 +1062,20 @@ class NetCDF(Dataset):
                     "drop `chunks=` or convert the bbox to a pixel `window=` "
                     "manually."
                 )
-            if epsg is None and self.epsg is None:
+            crs = epsg if epsg is not None else self.epsg
+            if crs is None:
                 raise ValueError(
                     "read_array(bbox=…) requires an explicit `epsg=` when "
                     "the NetCDF itself has no CRS (self.epsg is None) — a "
                     "bbox without a CRS is ambiguous"
                 )
+            # Build the FC once at the override boundary and forward as
+            # `window=fc, bbox=None` so the guards never re-fire on the
+            # recursive container→subset call or on super().read_array.
+            # Mirrors NetCDF.crop's "build mask once at the top" pattern.
+            window = FeatureCollection.from_bbox(bbox, epsg=crs)
+            bbox = None
+            epsg = None
         is_container = (
             self._is_md_array and not self._is_subset and self.band_count == 0
         )
