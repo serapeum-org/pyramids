@@ -989,7 +989,9 @@ class NetCDF(Dataset):
                 and routed through the same window path. Honored on
                 the **eager path only** — same constraint as ``window``.
                 Mutually exclusive with ``window``; combining with
-                ``chunks`` raises :class:`TypeError`.
+                ``chunks`` raises :class:`ValueError` (mirroring
+                :class:`pyramids.dataset.engines.IO.read_array`'s
+                ``chunks=`` + ``window=`` rule).
             epsg (keyword-only): CRS for ``bbox`` — anything geopandas
                 accepts for ``crs=`` (EPSG int, ``"EPSG:4326"``, WKT,
                 :class:`pyproj.CRS`). Defaults to the dataset's own
@@ -1022,10 +1024,12 @@ class NetCDF(Dataset):
         Raises:
             ValueError: If called on a root MDIM container without a
                 `variable` argument, when a subset is called with a
-                conflicting `variable` name, or when both ``window``
-                and ``bbox`` are supplied.
-            TypeError: If both ``chunks`` and ``bbox`` are supplied —
-                the lazy path doesn't yet honour bbox windowing.
+                conflicting `variable` name, when both ``window`` and
+                ``bbox`` are supplied, or when both ``chunks`` and
+                ``bbox`` are supplied (the lazy path doesn't yet
+                honour bbox windowing — matching
+                :class:`pyramids.dataset.engines.IO.read_array`'s
+                ``chunks=`` + ``window=`` rule).
             ImportError: If `chunks` is given but `dask` is not
                 installed. Install the `[lazy]` extra.
 
@@ -1057,10 +1061,9 @@ class NetCDF(Dataset):
                     "read_array accepts either `window` or `bbox`, not both"
                 )
             if chunks is not None:
-                raise TypeError(
-                    "read_array: `bbox=` is only supported on the eager path; "
-                    "drop `chunks=` or convert the bbox to a pixel `window=` "
-                    "manually."
+                raise ValueError(
+                    "read_array(chunks=..., bbox=...) is not supported; "
+                    "read lazily and slice the resulting dask array instead."
                 )
             crs = epsg if epsg is not None else self.epsg
             if crs is None:

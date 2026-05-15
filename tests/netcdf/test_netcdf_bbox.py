@@ -340,17 +340,19 @@ class TestNetCDFReadArrayBbox:
                 bbox=(10.0, -50.0, 50.0, -20.0),
             )
 
-    def test_chunks_and_bbox_together_raises_type_error(self, root_nc: NetCDF):
-        """Test ``chunks=`` + ``bbox=`` together raises ``TypeError``.
+    def test_chunks_and_bbox_together_raises_value_error(self, root_nc: NetCDF):
+        """Test ``chunks=`` + ``bbox=`` together raises ``ValueError``.
 
         Args:
             root_nc: Module-scope root NetCDF fixture.
 
         Test scenario:
-            The lazy path doesn't yet honour bbox windowing; the error
-            must be clear and actionable.
+            The lazy path doesn't yet honour bbox windowing. The error
+            class must match ``Dataset.read_array``'s existing
+            ``chunks=`` + ``window=`` ``ValueError`` so callers can
+            ``except ValueError`` both mutex cases uniformly.
         """
-        with pytest.raises(TypeError, match=r"eager path|drop `chunks`"):
+        with pytest.raises(ValueError, match=r"chunks=.*bbox=.*not supported"):
             root_nc.read_array(
                 variable="Band1",
                 bbox=(10.0, -50.0, 50.0, -20.0),
