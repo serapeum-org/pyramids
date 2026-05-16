@@ -97,21 +97,31 @@ def install_gdal_python_bindings() -> None:
         bin_dir, _, _ = _data_layout_roots(prefix)
         env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
 
-    # On macOS, the build venv that pip's isolation creates installs
-    # numpy>=2 per GDAL's build-system.requires. numpy 2.x on macos-14
-    # has the Accelerate ILP64 symbol bug — fails to import — and then
-    # GDAL's setup.py errors with "numpy not available". Constrain the
-    # build env to numpy<2 via PIP_CONSTRAINT, which pip respects for
-    # build-isolation envs too.
-    constraint_file: Path | None = None
+    # On macOS, pip's build isolation installs numpy>=2 (per GDAL's
+    # build-system.requires) into a fresh build venv. numpy 2.x on
+    # macos-14 has the Accelerate ILP64 symbol bug — _multiarray_umath
+    # fails to dlopen — and then GDAL's setup.py errors with "numpy
+    # not available".
+    #
+    # PIP_CONSTRAINT can't override build-system.requires (it can only
+    # ADD constraints, not replace deps), so we pre-install
+    # setuptools>=77 + numpy<2 + wheel in the build venv and then
+    # install GDAL with --no-build-isolation, which makes pip use the
+    # ambient (already-installed) build deps.
+    extra_pip_args: list[str] = []
     if is_macos:
-        constraint_file = REPO_ROOT / "ci" / "_macos_build_constraints.txt"
-        constraint_file.write_text("numpy<2\n", encoding="utf-8")
-        env["PIP_CONSTRAINT"] = str(constraint_file)
+        pre = [
+            sys.executable, "-m", "pip", "install", "--no-cache-dir",
+            "setuptools>=77.0.3", "wheel", "numpy<2",
+        ]
+        print(f"[install-and-vendor-osgeo] pre-install (macOS): {' '.join(pre)}", flush=True)
+        subprocess.check_call(pre, env=env)
+        extra_pip_args.append("--no-build-isolation")
 
     cmd = [
         sys.executable, "-m", "pip", "install",
         "--no-cache-dir",
+        *extra_pip_args,
         f"GDAL=={version}",
     ]
     print(f"[install-and-vendor-osgeo] platform: {sys.platform}", flush=True)
@@ -120,14 +130,8 @@ def install_gdal_python_bindings() -> None:
     if is_windows:
         print(f"[install-and-vendor-osgeo] INCLUDE: {env.get('INCLUDE', '')}", flush=True)
         print(f"[install-and-vendor-osgeo] LIB: {env.get('LIB', '')}", flush=True)
-    if is_macos:
-        print(f"[install-and-vendor-osgeo] PIP_CONSTRAINT: {env.get('PIP_CONSTRAINT', '')}", flush=True)
     print(f"[install-and-vendor-osgeo] running: {' '.join(cmd)}", flush=True)
-    try:
-        subprocess.check_call(cmd, env=env)
-    finally:
-        if constraint_file is not None and constraint_file.exists():
-            constraint_file.unlink()
+    subprocess.check_call(cmd, env=env)
 
 
 def _copy_tree_replacing(src: Path, dst: Path) -> None:
@@ -141,11 +145,25 @@ def _copy_tree_replacing(src: Path, dst: Path) -> None:
 
 def vendor_osgeo_into_package() -> None:
     """Copy osgeo and osgeo_utils modules + GDAL/PROJ data files into src/pyramids/."""
+    prefix = _build_prefix()
+
+    # On Windows, the freshly built _gdal.pyd dynamically links to
+    # gdal.dll from <prefix>/Library/bin. Python's DLL resolution
+    # doesn't consult subprocess env vars — we only set PATH in the
+    # subprocess env above. We need to register the directory with
+    # os.add_dll_directory in THIS process before `import osgeo`,
+    # otherwise Python picks up a stale/wrong gdal.dll (or fails to
+    # find one) and reports 'DLL load failed: specified procedure
+    # could not be found'.
+    if sys.platform == "win32" or os.name == "nt":
+        bin_dir, _, _ = _data_layout_roots(prefix)
+        if bin_dir.is_dir():
+            os.add_dll_directory(str(bin_dir))
+
     import osgeo  # imported lazily so install step runs first
 
     src_pyramids = REPO_ROOT / "src" / "pyramids"
     osgeo_src = Path(osgeo.__file__).parent
-    prefix = _build_prefix()
 
     # 1. Vendor osgeo/
     vendor_dir = src_pyramids / "_vendor"
