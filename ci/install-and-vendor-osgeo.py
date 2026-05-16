@@ -58,12 +58,26 @@ def install_gdal_python_bindings() -> None:
     env["GDAL_CONFIG"] = str(prefix / "bin" / "gdal-config")
     env["CPPFLAGS"] = f"-I{prefix}/include " + env.get("CPPFLAGS", "")
     env["LDFLAGS"] = f"-L{prefix}/lib " + env.get("LDFLAGS", "")
+
     # numpy's include path is needed by GDAL's swig/python/setup.py.
-    try:
-        import numpy
-        env["CPPFLAGS"] = f"-I{numpy.get_include()} " + env["CPPFLAGS"]
-    except ImportError:  # pragma: no cover — numpy is pre-installed by CIBW_BEFORE_BUILD
-        pass
+    # We invoke sys.executable to ask numpy where its headers live
+    # rather than importing numpy in this script — that's because on
+    # macOS, the script's `import numpy` can fail even when numpy IS
+    # installed in the same venv (the macOS Python framework loader
+    # has subtle search-path quirks). Going via the same interpreter
+    # that pip will use ensures we get a consistent answer.
+    numpy_include = subprocess.run(
+        [sys.executable, "-c", "import numpy; print(numpy.get_include())"],
+        capture_output=True, text=True, check=False,
+    )
+    if numpy_include.returncode == 0:
+        env["CPPFLAGS"] = f"-I{numpy_include.stdout.strip()} " + env["CPPFLAGS"]
+    else:
+        print(
+            f"[install-and-vendor-osgeo] WARNING: numpy not importable via "
+            f"{sys.executable}: {numpy_include.stderr.strip()}",
+            flush=True,
+        )
 
     cmd = [
         sys.executable, "-m", "pip", "install",
