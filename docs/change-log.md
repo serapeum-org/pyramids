@@ -1,6 +1,18 @@
 ﻿# Change log
 
 
+## 0.19.0 (2026-05-15)
+
+### Feat
+
+- add bytes/archive/band-stack/bbox/NetCDF/HTTP-knob entry points (#322)
+
+## 0.18.0 (2026-05-11)
+
+### Feat
+
+- **plot**: xarray-aligned NetCDF.plot API and unified plotting layer (#316)
+
 ## 0.17.0 (2026-05-10)
 
 ### Feat

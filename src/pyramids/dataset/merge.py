@@ -1,10 +1,20 @@
-"""Free-function entry point for merging a list of rasters into one file."""
+"""Free-function entry points for merging a list of rasters.
+
+* :func:`merge_rasters` — mosaic rasters that tile the *same area* into one
+  raster (spatial merge).
+* :func:`stack_bands` — stack N single-band rasters that cover the *same
+  grid* into one multi-band raster (band-wise merge). Thin alias for
+  :meth:`pyramids.dataset.Dataset.from_band_files`.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from osgeo import gdal
+
+from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
 
 
 def merge_rasters(
@@ -71,5 +81,41 @@ def merge_rasters(
         noData=str(no_data_value),
     )
     out_ds = gdal.Translate(str(dst), vrt_ds, options=translate_opts)
+    out_ds.FlushCache()
     out_ds = None
     vrt_ds = None
+
+
+def stack_bands(
+    files: list[str | Path],
+    *,
+    band_names: list[str] | None = None,
+    align: bool = False,
+    no_data_value: Any = _INHERIT_NO_DATA,
+    path: str | Path | None = None,
+) -> Dataset:
+    """Stack N single-band rasters into one multi-band :class:`Dataset`.
+
+    Free-function alias for :meth:`pyramids.dataset.Dataset.from_band_files`
+    — see that method for the full contract, edge cases, and examples.
+
+    Args:
+        files: Single-band raster paths/URLs to stack (order = band order).
+        band_names: Explicit per-band names; ``None`` derives them from the
+            file names.
+        align: When ``True``, resample mismatched inputs onto ``files[0]``'s
+            grid instead of raising :class:`~pyramids.base._errors.AlignmentError`.
+        no_data_value: No-data value for the output bands; omitted means
+            "inherit from the source rasters".
+        path: Output ``.tif`` path; ``None`` keeps the result in memory.
+
+    Returns:
+        Dataset: A multi-band dataset, one band per input file.
+    """
+    return Dataset.from_band_files(
+        files,
+        band_names=band_names,
+        align=align,
+        no_data_value=no_data_value,
+        path=path,
+    )

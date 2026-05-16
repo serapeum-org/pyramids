@@ -20,11 +20,28 @@ That's it. The wheel includes GDAL 3.12, PROJ, GEOS, HDF4/5, NetCDF,
 libtiff, and all other native dependencies. No `gdal-config`, no
 `apt install libgdal-dev`, no OSGeo4W installer needed.
 
-Optional extras:
+### Optional extras
+
+- `viz`: `cleopatra[tiles]` (plotting + basemap tiles via mercantile /
+  xyzservices / Pillow)
+- `lazy`: dask / distributed / zarr / fsspec / flox (powers
+  `Dataset.read_array(chunks=…)`, `DatasetCollection.data`,
+  `DatasetCollection.to_zarr`)
+- `xarray`: xarray (required for `DatasetCollection.to_netcdf` and
+  `NetCDF.from_xarray`)
+- `netcdf-lazy`: `[lazy]` + kerchunk + h5py (HDF5/NetCDF chunked reads
+  via kerchunk references)
+- `parquet`: pyarrow (vector parquet I/O)
+- `parquet-lazy`: `[lazy]` + `[parquet]` + dask-geopandas (lazy vector
+  reads)
+- `dev`: nbval, pre-commit, pytest, coverage, build, twine, etc.
+- `docs`: mkdocs, mkdocs-material, mkdocstrings, mike, etc.
 
 ```console
-pip install "pyramids-gis[viz]"      # cleopatra plotting support
-pip install "pyramids-gis[xarray]"   # xarray / NetCDF4 interop
+pip install "pyramids-gis[viz]"                  # plotting
+pip install "pyramids-gis[xarray]"               # xarray / NetCDF4 interop
+pip install "pyramids-gis[lazy]"                 # dask-backed chunked I/O
+pip install "pyramids-gis[viz,lazy,xarray]"      # combine extras with commas
 ```
 
 ### With conda-forge

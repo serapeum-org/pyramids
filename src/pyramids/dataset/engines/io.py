@@ -49,8 +49,7 @@ def _validate_band_index(band: int | None, band_count: int) -> None:
         return
     if band < 0 or band > band_count - 1:
         raise ValueError(
-            f"band index should be between 0 and {band_count - 1}, "
-            f"got {band}"
+            f"band index should be between 0 and {band_count - 1}, " f"got {band}"
         )
 
 
@@ -63,6 +62,8 @@ class IO(_Engine):
         *,
         chunks: int | tuple | dict | str | None = None,
         lock: Any = None,
+        bbox: tuple[float, float, float, float] | list[float] | None = None,
+        epsg: Any = None,
     ) -> ArrayLike:
         """Read the values stored in a given band (eager or lazy).
 
@@ -205,10 +206,53 @@ class IO(_Engine):
 
               ```
 
+            - Read the same window via a ``(W, S, E, N)`` bbox tuple — no need
+              to build a ``GeoDataFrame``; ``epsg`` defaults to the dataset's
+              own CRS:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> arr_int = np.arange(100, dtype="int16").reshape(10, 10)
+              >>> dataset_bbox = Dataset.create_from_array(
+              ...     arr_int, top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ... )
+              >>> block = dataset_bbox.read_array(bbox=(0.1, -0.2, 0.2, -0.1))
+              >>> block.shape
+              (2, 2)
+
+              ```
+
+            - ``window`` and ``bbox`` are mutually exclusive:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.feature import FeatureCollection
+              >>> dataset_x = Dataset.create_from_array(
+              ...     np.zeros((4, 5), dtype="int16"),
+              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ... )
+              >>> fc = FeatureCollection.from_bbox((0.0, -0.1, 0.1, 0.0), epsg=4326)
+              >>> try:
+              ...     dataset_x.read_array(window=fc, bbox=(0.0, -0.1, 0.1, 0.0))
+              ... except ValueError as exc:
+              ...     print("not both" in str(exc))
+              True
+
+              ```
+
         See Also:
             - Dataset.get_tile: Read the dataset in chunks.
             - Dataset.get_block_arrangement: Get block arrangement to read the dataset in chunks.
         """
+        if bbox is not None:
+            if window is not None:
+                raise ValueError(
+                    "read_array accepts either `window` or `bbox`, not both"
+                )
+            crs = epsg if epsg is not None else self._ds.epsg
+            window = FeatureCollection.from_bbox(bbox, epsg=crs)
         if chunks is not None:
             if window is not None:
                 raise ValueError(

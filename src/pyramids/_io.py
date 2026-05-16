@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import fnmatch
 import gzip
+import random
 import tarfile
+import time
 import warnings
 import zipfile
 from pathlib import Path
@@ -14,6 +17,110 @@ from pyramids.base._errors import FileFormatNotSupportedError
 
 COMPRESSED_FILES_EXTENSIONS = [".zip", ".gz", ".tar"]
 DOES_NOT_SUPPORT_INTERNAL = [".gz"]
+
+# User-facing archive ``kind`` -> GDAL VSI handler prefix. ``"tar.gz"`` /
+# ``"tgz"`` go through ``/vsitar/`` (GDAL's tar handler decompresses gzip
+# inline); ``"gz"`` / ``"gzip"`` is for a single gzip-compressed file.
+_VSI_ARCHIVE_KINDS: dict[str, str] = {
+    "zip": "/vsizip/",
+    "tar": "/vsitar/",
+    "tar.gz": "/vsitar/",
+    "tgz": "/vsitar/",
+    "gz": "/vsigzip/",
+    "gzip": "/vsigzip/",
+}
+
+
+def new_vsimem_path(suffix: str = ".tif") -> str:
+    """Return a fresh, unique GDAL ``/vsimem/`` path.
+
+    Mirrors :func:`pyramids.feature._ogr._new_vsimem_path` but takes an
+    arbitrary extension so the same scheme can back rasters, NetCDFs, or
+    anything else. The ``<time_ns>_<rand>`` body is collision-proof
+    within a single process run.
+
+    Args:
+        suffix: Extension to append (including the leading dot). Used by
+            GDAL as a driver hint when the in-memory bytes have no magic
+            header. Defaults to ``".tif"``.
+
+    Returns:
+        str: A ``/vsimem/<time>_<rand><suffix>`` path.
+
+    Examples:
+        - A path with no explicit suffix lives under ``/vsimem/`` and ends in ``.tif``:
+            ```python
+            >>> from pyramids._io import new_vsimem_path
+            >>> p = new_vsimem_path()
+            >>> p.startswith("/vsimem/")
+            True
+            >>> p.endswith(".tif")
+            True
+
+            ```
+        - A custom extension is appended verbatim (handy as a GDAL driver hint):
+            ```python
+            >>> from pyramids._io import new_vsimem_path
+            >>> new_vsimem_path(".nc").endswith(".nc")
+            True
+
+            ```
+        - Two calls never collide, so concurrent conversions stay isolated:
+            ```python
+            >>> from pyramids._io import new_vsimem_path
+            >>> new_vsimem_path() != new_vsimem_path()
+            True
+
+            ```
+
+    See Also:
+        bytes_to_gdal: Uses this to back an in-memory dataset.
+        silent_unlink: Removes the path once the dataset is gone.
+    """
+    return f"/vsimem/{time.time_ns()}_{random.randint(0, 999_999)}{suffix}"
+
+
+def silent_unlink(path: str) -> None:
+    """:func:`osgeo.gdal.Unlink` that never raises.
+
+    Safe to register with :func:`weakref.finalize` — under
+    ``gdal.UseExceptions()`` an ``Unlink`` on a path that is already gone
+    raises ``RuntimeError``, which would surface as an "Exception ignored
+    in" message during garbage collection. Swallowing it keeps cleanup
+    quiet and idempotent.
+
+    Args:
+        path: The ``/vsimem/`` (or other VSI) path to remove.
+
+    Examples:
+        - An existing ``/vsimem/`` file is removed:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids._io import new_vsimem_path, silent_unlink
+            >>> path = new_vsimem_path()
+            >>> _ = gdal.FileFromMemBuffer(path, b"hello")
+            >>> gdal.VSIStatL(path) is not None
+            True
+            >>> silent_unlink(path)
+            >>> gdal.VSIStatL(path) is None
+            True
+
+            ```
+        - Unlinking a path that does not exist is a quiet no-op (safe inside
+          :func:`weakref.finalize`):
+            ```python
+            >>> from pyramids._io import silent_unlink
+            >>> silent_unlink("/vsimem/this-path-never-existed.tif")
+
+            ```
+
+    See Also:
+        new_vsimem_path: Mints the paths this cleans up.
+    """
+    try:
+        gdal.Unlink(path)
+    except Exception:  # pragma: no cover - cleanup must never raise
+        pass
 
 
 def _is_zip(path: str):
@@ -160,6 +267,127 @@ def _parse_path(path: str | Path, file_i: int = 0) -> str:
     return str(new_path)
 
 
+def _infer_archive_kind(path: str) -> str | None:
+    """Best-effort archive kind (``"zip"`` / ``"tar"`` / ``"gzip"``) from a path.
+
+    Returns ``None`` when the extension is not a recognised archive type — e.g.
+    an extension-less download URL, in which case the caller must pass an
+    explicit ``kind``.
+
+    Args:
+        path: Path or URL to sniff.
+
+    Returns:
+        str | None: ``"zip"``, ``"tar"``, ``"gzip"``, or ``None``.
+    """
+    result: str | None
+    if _is_zip(path):
+        result = "zip"
+    elif _is_tar(path):
+        result = "tar"
+    elif _is_gzip(path):
+        result = "gzip"
+    else:
+        result = None
+    return result
+
+
+def _archive_dir_vsi(path: str | Path, kind: str = "auto") -> str:
+    """Return the GDAL ``/vsizip|tar|gzip/`` *directory* path for an archive.
+
+    Unlike :func:`_parse_path` (which, for a bare ``.zip``, resolves to the
+    *first member*), this returns the archive directory itself so callers can
+    :func:`osgeo.gdal.ReadDir` it. The path is first normalised to ``/vsi*``
+    form via :func:`pyramids.base.remote._to_vsi` — so ``s3://`` / ``https://``
+    URLs work — and then the archive handler prefix is prepended:
+
+    * ``_archive_dir_vsi("https://h/x.zip", "zip")`` →
+      ``/vsizip//vsicurl/https://h/x.zip``
+    * ``_archive_dir_vsi("/data/x.zip")`` (kind inferred) → ``/vsizip//data/x.zip``
+    * ``_archive_dir_vsi("/vsizip//data/x.zip", "zip")`` → unchanged (idempotent)
+
+    Args:
+        path: Path or URL of the archive. May be extension-less (e.g. an Earth
+            Engine ``getDownloadURL`` ZIP whose URL ends in ``:getPixels``) — in
+            that case ``kind`` must be given explicitly.
+        kind: One of ``"zip"``, ``"tar"`` (also ``"tar.gz"`` / ``"tgz"``),
+            ``"gzip"`` (also ``"gz"``), or ``"auto"`` (default) to infer from the
+            extension.
+
+    Returns:
+        str: The ``/vsi*`` directory path.
+
+    Raises:
+        FileFormatNotSupportedError: ``kind="auto"`` and the extension is not a
+            recognised archive type.
+        ValueError: ``kind`` is not a recognised archive kind.
+    """
+    path = str(path)
+    if kind == "auto":
+        inferred = _infer_archive_kind(path)
+        if inferred is None:
+            raise FileFormatNotSupportedError(
+                f"could not infer the archive kind from {path!r}; pass kind='zip', "
+                "'tar', or 'gzip' explicitly (needed for extension-less URLs)"
+            )
+        kind = inferred
+    prefix = _VSI_ARCHIVE_KINDS.get(kind)
+    if prefix is None:
+        raise ValueError(
+            f"unknown archive kind {kind!r}; expected one of "
+            f"{sorted(_VSI_ARCHIVE_KINDS)} or 'auto'"
+        )
+    vsi_path = remote._to_vsi(path)
+    if vsi_path.startswith(("/vsizip/", "/vsitar/", "/vsigzip/")):
+        return vsi_path
+    return f"{prefix}{vsi_path}"
+
+
+def _archive_members(dir_vsi: str, member_glob: str = "*") -> list[str]:
+    """List a ``/vsi*`` archive directory's members, filtered and sorted.
+
+    Only top-level members are returned — recursive listing of nested
+    directories inside the archive is not supported.
+
+    Args:
+        dir_vsi: An archive directory path as returned by :func:`_archive_dir_vsi`.
+        member_glob: :mod:`fnmatch` pattern; only matching members are returned.
+            Default ``"*"`` (all). Pass e.g. ``"*.tif"`` for an archive that also
+            contains sidecar files.
+
+    Returns:
+        list[str]: Member names (not full paths), sorted.
+
+    Raises:
+        FileFormatNotSupportedError: GDAL could not list the archive (unreachable
+            path/URL, not an archive of that kind, …).
+        FileNotFoundError: No member matched ``member_glob``.
+    """
+    entries = gdal.ReadDir(dir_vsi)
+    if entries is None:
+        raise FileFormatNotSupportedError(
+            f"could not list archive members at {dir_vsi!r}; GDAL's archive handlers "
+            "need a recognised extension (.zip / .tar / .tar.gz / .gz) on the file "
+            "name, and nested archives are not supported. See "
+            "DatasetCollection.from_archive's docstring for the extension-less-URL "
+            "workaround (write bytes to '/vsimem/<name>.zip' first)."
+        )
+    listed = sorted(e for e in entries if e not in (".", ".."))
+    members = [e for e in listed if fnmatch.fnmatch(e, member_glob)]
+    if not members:
+        preview = listed[:10]
+        more = (
+            ""
+            if len(listed) <= len(preview)
+            else f" (showing {len(preview)} of {len(listed)})"
+        )
+        raise FileNotFoundError(
+            f"no members matching {member_glob!r} in {dir_vsi!r}; "
+            f"available: {preview}{more}"
+        )
+    return members
+
+
 def extract_from_gz(input_file: str | Path, output_file: str | Path, delete=False):
     """Extract data from zip/.gz files and save the data.
 
@@ -187,6 +415,8 @@ def read_file(
     read_only: bool = True,
     open_as_multi_dimensional: bool = False,
     file_i: int = 0,
+    *,
+    vsi: str | None = None,
 ):
     """Open file (GeoTIFF and ASCII).
 
@@ -197,6 +427,11 @@ def read_file(
         read_only (bool): File mode; set to False to open in "update" mode.
         open_as_multi_dimensional (bool): If True, opens using OF_MULTIDIM_RASTER for multi-dimensional formats. Default is False.
         file_i (int): Index to the file inside the compressed file you want to read (default 0). If the compressed file has only one file, the first file is used.
+        vsi (str | None): When given, treat ``path`` as an archive of this kind
+            (``"zip"`` / ``"tar"`` / ``"gzip"`` / ``"auto"``) and open member
+            ``file_i`` from inside it — even when the path/URL has no archive
+            extension (e.g. an Earth Engine download URL). Default ``None``
+            (path opened directly / extension-sniffed as today).
 
     Returns:
         gdal.Dataset: Opened dataset.
@@ -205,7 +440,17 @@ def read_file(
         raise TypeError(
             f"the path parameter should be of string or Path type, given: {type(path)}"
         )
-    path = _parse_path(path, file_i=file_i)
+    if vsi is not None:
+        dir_vsi = _archive_dir_vsi(path, vsi)
+        members = _archive_members(dir_vsi)
+        if not 0 <= file_i < len(members):
+            raise FileNotFoundError(
+                f"archive {path!r} has {len(members)} member(s); file_i={file_i} "
+                "is out of range"
+            )
+        path = f"{dir_vsi}/{members[file_i]}"
+    else:
+        path = _parse_path(path, file_i=file_i)
     access = gdal.GA_ReadOnly if read_only else gdal.GA_Update
     try:
         # get the file extension
@@ -247,6 +492,116 @@ def read_file(
     #         f"the raster is being used by other software"
     #     )
     return src
+
+
+def bytes_to_gdal(
+    data: bytes | bytearray | memoryview,
+    *,
+    suffix: str = ".tif",
+    read_only: bool = True,
+    open_as_multi_dimensional: bool = False,
+) -> tuple[gdal.Dataset, str]:
+    """Open an in-memory byte string as a GDAL dataset via ``/vsimem/``.
+
+    Writes ``data`` to a fresh ``/vsimem/`` path with
+    :func:`osgeo.gdal.FileFromMemBuffer`, then opens it through
+    :func:`read_file`. On any failure the ``/vsimem/`` entry is removed
+    before the error propagates, so a bad payload never leaks an
+    in-memory file. On success the caller owns the returned path and is
+    responsible for calling :func:`silent_unlink` (typically via
+    :func:`weakref.finalize`) when the dataset is no longer needed.
+
+    Args:
+        data: Raw bytes of a raster (GeoTIFF, NetCDF, ASCII grid, ...).
+        suffix: Extension hint for GDAL's driver detection. Needed only
+            for headerless formats (ESRI ASCII grid); for anything with
+            a magic header GDAL sniffs the format regardless. Defaults
+            to ``".tif"``.
+        read_only: Open the dataset read-only. ``/vsimem/`` files are
+            always writable at the GDAL level; pyramids enforces the
+            access flag itself. Defaults to ``True``.
+        open_as_multi_dimensional: Pass ``gdal.OF_MULTIDIM_RASTER`` (used
+            by :class:`~pyramids.netcdf.NetCDF`). Defaults to ``False``.
+
+    Returns:
+        tuple[gdal.Dataset, str]: The opened GDAL dataset and the
+        ``/vsimem/`` path backing it.
+
+    Raises:
+        TypeError: ``data`` is not a bytes-like object.
+        ValueError: GDAL could not open the bytes as a dataset.
+
+    Examples:
+        - Open the bytes of a GeoTIFF and inspect the GDAL dataset, then clean up:
+            ```python
+            >>> from pathlib import Path
+            >>> from pyramids._io import bytes_to_gdal, silent_unlink
+            >>> data = Path("tests/data/acc4000.tif").read_bytes()
+            >>> src, vsi_path = bytes_to_gdal(data)
+            >>> src.RasterCount
+            1
+            >>> (src.RasterXSize, src.RasterYSize)
+            (14, 13)
+            >>> vsi_path.startswith("/vsimem/")
+            True
+            >>> src = None
+            >>> silent_unlink(vsi_path)
+
+            ```
+        - Non bytes-like input is rejected before any ``/vsimem/`` file is written:
+            ```python
+            >>> from pyramids._io import bytes_to_gdal
+            >>> try:
+            ...     bytes_to_gdal("a string, not bytes")
+            ... except TypeError as exc:
+            ...     print("bytes-like" in str(exc))
+            True
+
+            ```
+        - Bytes GDAL cannot parse raise ``ValueError`` (and leak nothing):
+            ```python
+            >>> from pyramids._io import bytes_to_gdal
+            >>> try:
+            ...     bytes_to_gdal(b"definitely not a raster")
+            ... except ValueError as exc:
+            ...     print("suffix" in str(exc))
+            True
+
+            ```
+
+    See Also:
+        new_vsimem_path: Mints the backing path.
+        silent_unlink: How the caller releases the returned path.
+        pyramids.dataset.Dataset.from_bytes: The public wrapper around this helper.
+    """
+    if not isinstance(data, (bytes, bytearray, memoryview)):
+        raise TypeError(
+            f"data should be a bytes-like object (bytes/bytearray/memoryview), "
+            f"given: {type(data)}"
+        )
+    vsi_path = new_vsimem_path(suffix)
+    gdal.FileFromMemBuffer(vsi_path, bytes(data))
+    try:
+        src = read_file(
+            vsi_path,
+            read_only=read_only,
+            open_as_multi_dimensional=open_as_multi_dimensional,
+        )
+    except Exception as e:
+        silent_unlink(vsi_path)
+        raise ValueError(
+            "could not open the supplied bytes as a raster dataset; if the "
+            "format has no magic header (e.g. ESRI ASCII grid) pass an "
+            f"explicit `suffix=` hint. Underlying error: {e}"
+        ) from e
+    if src is None:  # pragma: no cover - gdal.UseExceptions() makes this unreachable
+        silent_unlink(vsi_path)
+        raise ValueError(
+            "could not open the supplied bytes as a raster dataset; if the "
+            "format has no magic header (e.g. ESRI ASCII grid) pass an "
+            "explicit `suffix=` hint."
+        )
+    return src, vsi_path
 
 
 def insert_space(inp):
