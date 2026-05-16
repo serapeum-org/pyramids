@@ -18,6 +18,30 @@ echo "=== setup-gdal-from-pixi.sh ==="
 echo "BUILD_PREFIX=${BUILD_PREFIX}"
 
 # ---------------------------------------------------------------------------
+# 0. (macOS) Switch the system-wide active Xcode to the newest installed
+# version.
+#
+# The macos-14 runner ships multiple Xcodes (15.4, 16.2 at time of
+# writing) but xcode-select points at the older 15.4 by default. On that
+# runner, xcodebuild on Xcode 15.4 is reliably SIGKILLed when invoked by
+# any /usr/bin shim that goes through xcrun (clang, otool,
+# install_name_tool, codesign...). Symptoms:
+#   - GDAL compile: "xcode-select: Failed to locate 'clang++'"
+#   - delocate-wheel: "InstallNameError: Unexpected first line:
+#     sh: ... Killed: 9 ... -find otool"
+# Pointing xcode-select at the newer Xcode (e.g. 16.2) makes every
+# downstream xcrun call hit a working xcodebuild.
+# ---------------------------------------------------------------------------
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    NEWEST_XCODE="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -r | head -1)"
+    if [ -n "${NEWEST_XCODE:-}" ] && [ -d "${NEWEST_XCODE}/Contents/Developer" ]; then
+        echo "--- Switching active Xcode to ${NEWEST_XCODE} ---"
+        sudo xcode-select -s "${NEWEST_XCODE}/Contents/Developer"
+        xcode-select -p
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # 1. Install pixi (static binary, ~50 MB, ~5 seconds)
 # ---------------------------------------------------------------------------
 if ! command -v pixi >/dev/null 2>&1; then
