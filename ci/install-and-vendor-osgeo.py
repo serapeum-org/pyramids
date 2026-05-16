@@ -180,7 +180,12 @@ def install_gdal_python_bindings() -> None:
     # applications in this cross environment"). numpy 2.x ships cp313
     # x86_64 wheels and the Accelerate ILP64 bug doesn't affect x86_64.
     extra_pip_args: list[str] = []
-    target_arch = os.environ.get("CIBW_ARCHS", "")
+    target_arch = (
+        os.environ.get("CIBW_ARCHS")
+        or os.environ.get("CIBW_ARCHS_MACOS")
+        or ""
+    )
+    print(f"[install-and-vendor-osgeo] target arch: {target_arch!r}", flush=True)
     if is_macos and target_arch == "arm64":
         pre = [
             sys.executable, "-m", "pip", "install", "--no-cache-dir",
