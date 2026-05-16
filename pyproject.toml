@@ -378,7 +378,17 @@ before-build = [
     # Windows (pip.exe is locked while running) and on macOS it can
     # leave pip in a new location where subsequent commands lose sight
     # of just-installed packages like numpy.
-    "python -m pip install setuptools wheel numpy",
+    #
+    # Pins:
+    #   setuptools<77 — GDAL 3.12.3 pyproject.toml uses the deprecated
+    #     project.license = {text=...} table form. Setuptools >=77
+    #     hard-rejects this (PEP 639 enforcement). Until GDAL ships a
+    #     fixed pyproject.toml, we have to install with older setuptools.
+    #   numpy<2.4 — numpy 2.4.x has a macOS Accelerate symbol bug on
+    #     Apple Silicon runners (Symbol not found:
+    #     _cblas_caxpy$NEWLAPACK$ILP64). Pinning <2.4 across all platforms
+    #     keeps the build set consistent.
+    "python -m pip install 'setuptools<77' wheel 'numpy<2.4'",
     "python ./ci/install-and-vendor-osgeo.py",
 ]
 # Linux wheel repair: auditwheel walks the .so dep graph, bundles
@@ -423,7 +433,17 @@ before-build = [
     # Windows (pip.exe is locked while running) and on macOS it can
     # leave pip in a new location where subsequent commands lose sight
     # of just-installed packages like numpy.
-    "python -m pip install setuptools wheel numpy",
+    #
+    # Pins:
+    #   setuptools<77 — GDAL 3.12.3 pyproject.toml uses the deprecated
+    #     project.license = {text=...} table form. Setuptools >=77
+    #     hard-rejects this (PEP 639 enforcement). Until GDAL ships a
+    #     fixed pyproject.toml, we have to install with older setuptools.
+    #   numpy<2.4 — numpy 2.4.x has a macOS Accelerate symbol bug on
+    #     Apple Silicon runners (Symbol not found:
+    #     _cblas_caxpy$NEWLAPACK$ILP64). Pinning <2.4 across all platforms
+    #     keeps the build set consistent.
+    "python -m pip install 'setuptools<77' wheel 'numpy<2.4'",
     "python ./ci/install-and-vendor-osgeo.py",
 ]
 # delocate-wheel is the macOS equivalent of auditwheel: it walks the
@@ -462,7 +482,9 @@ before-build = [
     # before-build above for rationale. On Windows specifically, pip.exe
     # refuses self-upgrade ("ERROR: To modify pip, please run the
     # following command: python.exe -m pip install --upgrade pip").
-    "python -m pip install setuptools wheel numpy delvewheel",
+    # Same setuptools/numpy pins as Linux/macOS — see those sections for
+    # the rationale (GDAL pyproject.toml license, numpy Accelerate bug).
+    "python -m pip install 'setuptools<77' wheel 'numpy<2.4' delvewheel",
     "python ci/install-and-vendor-osgeo.py",
 ]
 # delvewheel is the Windows equivalent of auditwheel: it bundles required
