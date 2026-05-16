@@ -162,24 +162,31 @@ def install_gdal_python_bindings() -> None:
         env.setdefault("CMAKE_BUILD_PARALLEL_LEVEL", "2")
         env.setdefault("NPY_NUM_BUILD_JOBS", "2")
 
-    # On macOS, pip's build isolation installs numpy>=2 (per GDAL's
-    # build-system.requires) into a fresh build venv. numpy 2.x on
-    # macos-14 has the Accelerate ILP64 symbol bug — _multiarray_umath
-    # fails to dlopen — and then GDAL's setup.py errors with "numpy
-    # not available".
+    # On macOS arm64, pip's build isolation installs numpy>=2 (per
+    # GDAL's build-system.requires) into a fresh build venv. numpy 2.x
+    # on macos-14 arm64 has the Accelerate ILP64 symbol bug —
+    # _multiarray_umath fails to dlopen — and then GDAL's setup.py
+    # errors with "numpy not available".
     #
     # PIP_CONSTRAINT can't override build-system.requires (it can only
     # ADD constraints, not replace deps), so we pre-install
     # setuptools>=77 + numpy<2 + wheel in the build venv and then
-    # install GDAL with --no-build-isolation, which makes pip use the
-    # ambient (already-installed) build deps.
+    # install GDAL with --no-build-isolation.
+    #
+    # This is arm64-specific. For x86_64 cross-compile builds (macos-14
+    # host targeting x86_64) we leave build isolation on: numpy 1.x has
+    # no cp313 wheels, and pip would try to compile it from source in a
+    # cross-environment where meson refuses ("Can not run test
+    # applications in this cross environment"). numpy 2.x ships cp313
+    # x86_64 wheels and the Accelerate ILP64 bug doesn't affect x86_64.
     extra_pip_args: list[str] = []
-    if is_macos:
+    target_arch = os.environ.get("CIBW_ARCHS", "")
+    if is_macos and target_arch == "arm64":
         pre = [
             sys.executable, "-m", "pip", "install", "--no-cache-dir",
             "setuptools>=77.0.3", "wheel", "numpy<2",
         ]
-        print(f"[install-and-vendor-osgeo] pre-install (macOS): {' '.join(pre)}", flush=True)
+        print(f"[install-and-vendor-osgeo] pre-install (macOS arm64): {' '.join(pre)}", flush=True)
         subprocess.check_call(pre, env=env)
         extra_pip_args.append("--no-build-isolation")
 
