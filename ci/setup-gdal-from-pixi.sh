@@ -92,8 +92,9 @@ fi
 if [ "${CROSS_COMPILE}" = "1" ]; then
     echo "--- Cross-compile: installing osx-64 env via micromamba ---"
     MAMBA_BIN="${BUILD_PREFIX}/bin/micromamba"
+    mkdir -p "${BUILD_PREFIX}/bin"
     curl -fsSL https://micro.mamba.pm/api/micromamba/osx-arm64/latest \
-        | tar -xj -C "${BUILD_PREFIX}" --strip-components=1 bin/micromamba
+        | tar -xj -C "${BUILD_PREFIX}" bin/micromamba
     chmod +x "${MAMBA_BIN}"
     "${MAMBA_BIN}" --version
     export MAMBA_ROOT_PREFIX="${HOME}/micromamba-root"
