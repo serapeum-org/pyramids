@@ -212,11 +212,27 @@ jobs:
 
       - name: Install wheel (no conda, no system GDAL)
         shell: bash
+        # --no-deps: the wheel's metadata declares `GDAL >=3.10.0,<4`
+        # (kept for sdist/conda-forge users), but the platform wheel
+        # vendors GDAL's Python bindings under pyramids/_vendor/osgeo/.
+        # Without --no-deps, pip would try to install GDAL from PyPI,
+        # which has no Windows wheels and would force a from-source
+        # compile in the test runner. The remaining runtime deps
+        # (geopandas, numpy, pandas, ...) are installed explicitly.
         run: |
           PYTAG=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')")
           WHEEL=$(ls dist/pyramids_gis-*-${PYTAG}-${PYTAG}-*${{ matrix.wheel-tag }}*.whl | head -1)
           echo "Installing: $WHEEL"
-          pip install "$WHEEL"
+          pip install --no-deps "$WHEEL"
+          pip install \
+            "geopandas>=1.0.0" \
+            "hpc-utils>=0.1.5" \
+            "numpy>=2.0.0" \
+            "pandas>=2.0.0" \
+            "pyproj>=3.7.0" \
+            "PyYAML>=6.0.0" \
+            "Shapely>=2.0.0" \
+            "scipy>=1.10.0"
           pip install pytest pytest-env pytest-mock
 
       - name: Verify GDAL import (exercises vendor bootstrap)
