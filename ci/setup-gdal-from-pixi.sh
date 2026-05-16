@@ -71,32 +71,50 @@ fi
 pixi --version
 
 # ---------------------------------------------------------------------------
-# 2. Install the wheel-build environment using the committed pixi.lock.
+# 2. Install the wheel-build environment.
 #
-# `--frozen` forces pixi to use exactly what's in pixi.lock (no re-solving)
-# which (a) keeps builds reproducible and (b) avoids pixi trying to solve
-# other envs like 'docs' for platforms not available in the container.
+# Native (host arch == target arch): use pixi with --frozen for
+# reproducibility — exactly what's in pixi.lock, no re-solving.
 #
-# On macOS we may cross-compile (e.g. macos-14 / arm64 host building an
-# x86_64 wheel because GitHub's macos-13 queue is unusable). CIBW_ARCHS
-# (set by cibuildwheel) tells us the target arch. We translate that into
-# a pixi --platform flag so the conda packages we extract match the
-# wheel's target ABI, not the host's.
+# Cross-compile (e.g. macos-14 / arm64 host building an x86_64 wheel
+# because GitHub's macos-13 queue is unusable): pixi can't install for
+# a non-host platform, so fall back to micromamba, which natively
+# supports `--platform osx-64`. Packages and versions track
+# [tool.pixi.feature.wheel-build.dependencies] in pyproject.toml.
 # ---------------------------------------------------------------------------
-PIXI_PLATFORM_ARGS=()
-if [[ "$(uname -s)" == "Darwin" ]]; then
-    TARGET_ARCH="${CIBW_ARCHS:-${CIBW_ARCHS_MACOS:-}}"
-    case "${TARGET_ARCH}" in
-        x86_64) PIXI_PLATFORM_ARGS=(--platform osx-64) ;;
-        arm64)  PIXI_PLATFORM_ARGS=(--platform osx-arm64) ;;
-    esac
-fi
-echo "--- Resolving wheel-build environment ${PIXI_PLATFORM_ARGS[*]:-(host platform)} ---"
-pixi install -e wheel-build --frozen "${PIXI_PLATFORM_ARGS[@]}"
-
 PIXI_ENV="$(pwd)/.pixi/envs/wheel-build"
+TARGET_ARCH="${CIBW_ARCHS:-${CIBW_ARCHS_MACOS:-}}"
+CROSS_COMPILE=0
+if [[ "$(uname -s)" == "Darwin" ]] && [[ "${TARGET_ARCH}" == "x86_64" ]]; then
+    CROSS_COMPILE=1
+fi
+
+if [ "${CROSS_COMPILE}" = "1" ]; then
+    echo "--- Cross-compile: installing osx-64 env via micromamba ---"
+    MAMBA_BIN="${BUILD_PREFIX}/bin/micromamba"
+    curl -fsSL https://micro.mamba.pm/api/micromamba/osx-arm64/latest \
+        | tar -xj -C "${BUILD_PREFIX}" --strip-components=1 bin/micromamba
+    chmod +x "${MAMBA_BIN}"
+    "${MAMBA_BIN}" --version
+    export MAMBA_ROOT_PREFIX="${HOME}/micromamba-root"
+    mkdir -p "${MAMBA_ROOT_PREFIX}"
+    rm -rf "${PIXI_ENV}"
+    mkdir -p "${PIXI_ENV}"
+    "${MAMBA_BIN}" create -p "${PIXI_ENV}" \
+        --platform osx-64 \
+        -c conda-forge \
+        -y \
+        "gdal=3.12.*" \
+        "libgdal-netcdf=3.12.*" \
+        "libgdal-hdf4=3.12.*" \
+        "swig>=4.3,<5"
+else
+    echo "--- Resolving wheel-build environment (host platform) ---"
+    pixi install -e wheel-build --frozen
+fi
+
 if [ ! -d "${PIXI_ENV}" ]; then
-    echo "ERROR: ${PIXI_ENV} does not exist after pixi install" >&2
+    echo "ERROR: ${PIXI_ENV} does not exist after env install" >&2
     exit 1
 fi
 echo "wheel-build env: ${PIXI_ENV}"
