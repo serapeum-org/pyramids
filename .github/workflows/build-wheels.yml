@@ -174,17 +174,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # macOS x86_64 testing is omitted here: the wheel is cross-compiled
+        # on macos-14 (arm64) so we can't install it on the same runner,
+        # and macos-13 (Intel) GitHub runners queue indefinitely. Native
+        # arm64 testing below covers the import-time vendor bootstrap on
+        # macOS; x86_64 runtime gets exercised by downstream users on
+        # their own Intel machines.
+        os: [ubuntu-latest, macos-14, windows-2022]
+        python-version: ["3.11", "3.12", "3.13"]
         include:
           - os: ubuntu-latest
             arch: x86_64
             artifact: wheels-linux-x86_64
             wheel-tag: manylinux
-          # macOS x86_64 testing is skipped here: the wheel is cross-compiled
-          # on macos-14 (arm64) so we can't install it on the same runner,
-          # and macos-13 (Intel) GitHub runners queue indefinitely. Native
-          # arm64 testing below covers the import-time vendor bootstrap on
-          # macOS; x86_64 runtime gets exercised by downstream users on
-          # their own Intel machines.
           - os: macos-14
             arch: arm64
             artifact: wheels-macos-arm64
@@ -193,7 +195,6 @@ jobs:
             arch: AMD64
             artifact: wheels-windows-AMD64
             wheel-tag: win_amd64
-        python-version: ["3.11", "3.12", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
