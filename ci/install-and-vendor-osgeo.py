@@ -22,6 +22,7 @@ import os
 import shutil
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -97,6 +98,49 @@ def install_gdal_python_bindings() -> None:
         bin_dir, _, _ = _data_layout_roots(prefix)
         env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
 
+    # On macOS, /usr/bin/clang(++) is a stub that calls xcrun -find via
+    # xcodebuild. Under the heavy parallel compilation that GDAL's
+    # setup.py drives, the macos-14 runner (7 GB RAM) frequently OOM-kills
+    # xcodebuild processes with signal 9, surfacing as
+    #   "xcode-select: Failed to locate 'clang++'".
+    # Resolve clang/clang++ once via xcrun and pin CC/CXX to the absolute
+    # toolchain paths to bypass the per-invocation xcrun dispatch. Also
+    # cap parallel jobs (MAKEFLAGS, CMAKE_BUILD_PARALLEL_LEVEL) to keep
+    # peak memory below the runner ceiling.
+    if is_macos:
+        try:
+            cc_path = subprocess.check_output(
+                ["xcrun", "--find", "clang"], text=True
+            ).strip()
+            cxx_path = subprocess.check_output(
+                ["xcrun", "--find", "clang++"], text=True
+            ).strip()
+            sdk_path = subprocess.check_output(
+                ["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True
+            ).strip()
+            env["CC"] = cc_path
+            env["CXX"] = cxx_path
+            env["SDKROOT"] = sdk_path
+            print(
+                f"[install-and-vendor-osgeo] resolved CC={cc_path}", flush=True
+            )
+            print(
+                f"[install-and-vendor-osgeo] resolved CXX={cxx_path}", flush=True
+            )
+            print(
+                f"[install-and-vendor-osgeo] resolved SDKROOT={sdk_path}",
+                flush=True,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            print(
+                f"[install-and-vendor-osgeo] xcrun lookup failed: {exc}; "
+                "falling back to default toolchain",
+                flush=True,
+            )
+        env.setdefault("MAKEFLAGS", "-j2")
+        env.setdefault("CMAKE_BUILD_PARALLEL_LEVEL", "2")
+        env.setdefault("NPY_NUM_BUILD_JOBS", "2")
+
     # On macOS, pip's build isolation installs numpy>=2 (per GDAL's
     # build-system.requires) into a fresh build venv. numpy 2.x on
     # macos-14 has the Accelerate ILP64 symbol bug — _multiarray_umath
@@ -143,27 +187,37 @@ def _copy_tree_replacing(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst)
 
 
+def _locate_site_packages_dir(name: str) -> Path | None:
+    """Return the on-disk directory of an installed top-level package.
+
+    We deliberately do NOT ``import`` the package: on Windows the GDAL
+    SWIG extension loads ``gdal.dll`` and its transitive dep DLLs at
+    import time, and a runtime symbol mismatch between Python 3.13's
+    bundled vcruntime and conda-forge's bundled vcruntime triggers
+    "DLL load failed: specified procedure could not be found" (cp311/
+    cp312 don't hit this). The vendoring step only needs the on-disk
+    location of the package — no Python code from it actually runs —
+    so we look it up via the active environment's purelib path.
+    """
+    purelib = Path(sysconfig.get_paths()["purelib"])
+    candidate = purelib / name
+    if candidate.is_dir():
+        return candidate
+    return None
+
+
 def vendor_osgeo_into_package() -> None:
     """Copy osgeo and osgeo_utils modules + GDAL/PROJ data files into src/pyramids/."""
     prefix = _build_prefix()
 
-    # On Windows, the freshly built _gdal.pyd dynamically links to
-    # gdal.dll from <prefix>/Library/bin. Python's DLL resolution
-    # doesn't consult subprocess env vars — we only set PATH in the
-    # subprocess env above. We need to register the directory with
-    # os.add_dll_directory in THIS process before `import osgeo`,
-    # otherwise Python picks up a stale/wrong gdal.dll (or fails to
-    # find one) and reports 'DLL load failed: specified procedure
-    # could not be found'.
-    if sys.platform == "win32" or os.name == "nt":
-        bin_dir, _, _ = _data_layout_roots(prefix)
-        if bin_dir.is_dir():
-            os.add_dll_directory(str(bin_dir))
-
-    import osgeo  # imported lazily so install step runs first
+    osgeo_src = _locate_site_packages_dir("osgeo")
+    if osgeo_src is None:
+        raise RuntimeError(
+            "osgeo/ not found in site-packages after pip install GDAL. "
+            f"Searched {sysconfig.get_paths()['purelib']}."
+        )
 
     src_pyramids = REPO_ROOT / "src" / "pyramids"
-    osgeo_src = Path(osgeo.__file__).parent
 
     # 1. Vendor osgeo/
     vendor_dir = src_pyramids / "_vendor"
@@ -173,11 +227,10 @@ def vendor_osgeo_into_package() -> None:
     # 1b. Vendor osgeo_utils/ — GDAL's pip package ships a sibling
     # top-level package for utility scripts (gdal_polygonize, etc.).
     # Some of pyramids' tests / third-party code imports it.
-    try:
-        import osgeo_utils
-        osgeo_utils_src = Path(osgeo_utils.__file__).parent
+    osgeo_utils_src = _locate_site_packages_dir("osgeo_utils")
+    if osgeo_utils_src is not None:
         _copy_tree_replacing(osgeo_utils_src, vendor_dir / "osgeo_utils")
-    except ImportError:
+    else:
         print("[install-and-vendor-osgeo] osgeo_utils not found; skipping", flush=True)
 
     # Conda Windows packages nest data under <prefix>/Library/share and
