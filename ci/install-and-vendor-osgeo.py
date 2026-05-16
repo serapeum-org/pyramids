@@ -18,6 +18,7 @@ See planning/bundle/option-1-implementation-plan.md Task 1.5.
 """
 from __future__ import annotations
 
+import glob
 import os
 import shutil
 import subprocess
@@ -98,43 +99,63 @@ def install_gdal_python_bindings() -> None:
         bin_dir, _, _ = _data_layout_roots(prefix)
         env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
 
-    # On macOS, /usr/bin/clang(++) is a stub that calls xcrun -find via
-    # xcodebuild. Under the heavy parallel compilation that GDAL's
-    # setup.py drives, the macos-14 runner (7 GB RAM) frequently OOM-kills
-    # xcodebuild processes with signal 9, surfacing as
+    # On macOS, /usr/bin/clang(++) is a stub that asks xcrun to dispatch
+    # via xcodebuild for every invocation. On the macos-14 GitHub runner
+    # we've observed xcodebuild getting SIGKILLed even on a single
+    # upfront probe, with xcrun then reporting
+    #   "unable to find utility 'clang', not a developer tool or in PATH"
+    # and downstream compiles failing with
     #   "xcode-select: Failed to locate 'clang++'".
-    # Resolve clang/clang++ once via xcrun and pin CC/CXX to the absolute
-    # toolchain paths to bypass the per-invocation xcrun dispatch. Also
-    # cap parallel jobs (MAKEFLAGS, CMAKE_BUILD_PARALLEL_LEVEL) to keep
-    # peak memory below the runner ceiling.
+    # The fix is to bypass xcrun/xcodebuild entirely: glob the Xcode app
+    # bundle for the toolchain clang directly and pin CC/CXX/SDKROOT to
+    # those absolute paths. Falls back to CommandLineTools and then to
+    # /usr/bin if no Xcode bundle is present. Also caps parallel build
+    # jobs to keep peak memory below the runner ceiling.
     if is_macos:
-        try:
-            cc_path = subprocess.check_output(
-                ["xcrun", "--find", "clang"], text=True
-            ).strip()
-            cxx_path = subprocess.check_output(
-                ["xcrun", "--find", "clang++"], text=True
-            ).strip()
-            sdk_path = subprocess.check_output(
-                ["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True
-            ).strip()
+        toolchain_clang_candidates = sorted(
+            glob.glob(
+                "/Applications/Xcode*.app/Contents/Developer/Toolchains/"
+                "XcodeDefault.xctoolchain/usr/bin/clang"
+            ),
+            reverse=True,
+        )
+        toolchain_clang_candidates.append(
+            "/Library/Developer/CommandLineTools/usr/bin/clang"
+        )
+        cc_path: str | None = None
+        for candidate in toolchain_clang_candidates:
+            if Path(candidate).is_file():
+                cc_path = candidate
+                break
+        if cc_path is not None:
+            cxx_path = cc_path + "++"
             env["CC"] = cc_path
             env["CXX"] = cxx_path
-            env["SDKROOT"] = sdk_path
+            developer_dir = cc_path.split("/Toolchains/")[0]
+            if developer_dir.endswith("/Developer"):
+                env["DEVELOPER_DIR"] = developer_dir
+                sdk_candidates = sorted(
+                    glob.glob(
+                        f"{developer_dir}/Platforms/MacOSX.platform/"
+                        "Developer/SDKs/MacOSX*.sdk"
+                    ),
+                    reverse=True,
+                )
+                if sdk_candidates:
+                    env["SDKROOT"] = sdk_candidates[0]
+            print(f"[install-and-vendor-osgeo] resolved CC={env['CC']}", flush=True)
+            print(f"[install-and-vendor-osgeo] resolved CXX={env['CXX']}", flush=True)
+            if "DEVELOPER_DIR" in env:
+                print(
+                    f"[install-and-vendor-osgeo] DEVELOPER_DIR={env['DEVELOPER_DIR']}",
+                    flush=True,
+                )
+            if "SDKROOT" in env:
+                print(f"[install-and-vendor-osgeo] SDKROOT={env['SDKROOT']}", flush=True)
+        else:
             print(
-                f"[install-and-vendor-osgeo] resolved CC={cc_path}", flush=True
-            )
-            print(
-                f"[install-and-vendor-osgeo] resolved CXX={cxx_path}", flush=True
-            )
-            print(
-                f"[install-and-vendor-osgeo] resolved SDKROOT={sdk_path}",
-                flush=True,
-            )
-        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-            print(
-                f"[install-and-vendor-osgeo] xcrun lookup failed: {exc}; "
-                "falling back to default toolchain",
+                "[install-and-vendor-osgeo] no Xcode/CLT toolchain found; "
+                "leaving CC/CXX unset",
                 flush=True,
             )
         env.setdefault("MAKEFLAGS", "-j2")
