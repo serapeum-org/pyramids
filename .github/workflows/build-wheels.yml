@@ -3,8 +3,13 @@ name: Build Platform Wheels
 on:
   workflow_dispatch:
     inputs:
+      branch:
+        description: "Branch / ref to build wheels from (defaults to the ref selected in the UI)"
+        required: false
+        default: ""
+        type: string
       upload-to-pypi:
-        description: "Upload to PyPI"
+        description: "Upload to PyPI (leave false to dry-run; publish job is also commented out by default)"
         type: boolean
         default: false
   release:
@@ -30,6 +35,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ inputs.branch || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -58,6 +64,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ inputs.branch || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -105,6 +112,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ inputs.branch || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -134,6 +142,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ inputs.branch || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -180,6 +189,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.branch || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
