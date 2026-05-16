@@ -76,9 +76,23 @@ pixi --version
 # `--frozen` forces pixi to use exactly what's in pixi.lock (no re-solving)
 # which (a) keeps builds reproducible and (b) avoids pixi trying to solve
 # other envs like 'docs' for platforms not available in the container.
+#
+# On macOS we may cross-compile (e.g. macos-14 / arm64 host building an
+# x86_64 wheel because GitHub's macos-13 queue is unusable). CIBW_ARCHS
+# (set by cibuildwheel) tells us the target arch. We translate that into
+# a pixi --platform flag so the conda packages we extract match the
+# wheel's target ABI, not the host's.
 # ---------------------------------------------------------------------------
-echo "--- Resolving wheel-build environment ---"
-pixi install -e wheel-build --frozen
+PIXI_PLATFORM_ARGS=()
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    TARGET_ARCH="${CIBW_ARCHS:-${CIBW_ARCHS_MACOS:-}}"
+    case "${TARGET_ARCH}" in
+        x86_64) PIXI_PLATFORM_ARGS=(--platform osx-64) ;;
+        arm64)  PIXI_PLATFORM_ARGS=(--platform osx-arm64) ;;
+    esac
+fi
+echo "--- Resolving wheel-build environment ${PIXI_PLATFORM_ARGS[*]:-(host platform)} ---"
+pixi install -e wheel-build --frozen "${PIXI_PLATFORM_ARGS[@]}"
 
 PIXI_ENV="$(pwd)/.pixi/envs/wheel-build"
 if [ ! -d "${PIXI_ENV}" ]; then

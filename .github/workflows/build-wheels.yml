@@ -100,19 +100,20 @@ jobs:
           path: wheelhouse/*.whl
 
   # -------------------------------------------------------------------------
-  # Build macOS platform wheels (x86_64 + arm64) via pixi + conda-forge.
-  # x86_64 runs on macos-13 (Intel), arm64 runs on macos-14 (Apple Silicon).
+  # Build macOS platform wheels (arm64 native + x86_64 cross-compiled).
+  # Both run on macos-14 (Apple Silicon) because GitHub's macos-13 (Intel)
+  # runner queue is unusable in practice — jobs sit queued for hours.
+  # cibuildwheel handles x86_64 cross-compile on arm64 via Rosetta + ARCHFLAGS.
+  # The pixi wheel-build env is installed for the target platform via
+  # --platform osx-64 / --platform osx-arm64, so we link against the right
+  # libgdal regardless of host arch.
   # -------------------------------------------------------------------------
   build-macos-wheels:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-13
-            arch: x86_64
-          - os: macos-14
-            arch: arm64
-    runs-on: ${{ matrix.os }}
+        arch: [arm64, x86_64]
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v5
         with:
@@ -178,10 +179,12 @@ jobs:
             arch: x86_64
             artifact: wheels-linux-x86_64
             wheel-tag: manylinux
-          - os: macos-13
-            arch: x86_64
-            artifact: wheels-macos-x86_64
-            wheel-tag: macosx
+          # macOS x86_64 testing is skipped here: the wheel is cross-compiled
+          # on macos-14 (arm64) so we can't install it on the same runner,
+          # and macos-13 (Intel) GitHub runners queue indefinitely. Native
+          # arm64 testing below covers the import-time vendor bootstrap on
+          # macOS; x86_64 runtime gets exercised by downstream users on
+          # their own Intel machines.
           - os: macos-14
             arch: arm64
             artifact: wheels-macos-arm64
