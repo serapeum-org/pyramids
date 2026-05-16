@@ -12,6 +12,11 @@ on:
         description: "Upload to PyPI (leave false to dry-run; publish job is also commented out by default)"
         type: boolean
         default: false
+  pull_request:
+    # Auto-run on every push to a PR — primary path for branch testing
+    # while this workflow isn't yet on the default branch. Remove or
+    # narrow (e.g. `paths:`) once the workflow lands on main.
+    branches: [main]
   release:
     types: [released]
   workflow_call:
