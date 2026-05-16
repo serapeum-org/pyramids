@@ -18,19 +18,21 @@ echo "=== setup-gdal-from-pixi.sh ==="
 echo "BUILD_PREFIX=${BUILD_PREFIX}"
 
 # ---------------------------------------------------------------------------
-# 0. (macOS) Switch the system-wide active Xcode to the newest installed
-# version.
+# 0. (macOS) Bypass the /usr/bin xcrun shims.
 #
-# The macos-14 runner ships multiple Xcodes (15.4, 16.2 at time of
-# writing) but xcode-select points at the older 15.4 by default. On that
-# runner, xcodebuild on Xcode 15.4 is reliably SIGKILLed when invoked by
-# any /usr/bin shim that goes through xcrun (clang, otool,
-# install_name_tool, codesign...). Symptoms:
+# On the macos-14 runner, xcodebuild is reliably SIGKILLed regardless of
+# which Xcode is selected (both 15.4 and 16.2 die identically). Every
+# /usr/bin/{clang,otool,install_name_tool,codesign,lipo,strip,...} is a
+# stub that calls `xcrun -find <tool>` which spawns xcodebuild — so each
+# one fails:
 #   - GDAL compile: "xcode-select: Failed to locate 'clang++'"
 #   - delocate-wheel: "InstallNameError: Unexpected first line:
 #     sh: ... Killed: 9 ... -find otool"
-# Pointing xcode-select at the newer Xcode (e.g. 16.2) makes every
-# downstream xcrun call hit a working xcodebuild.
+# Install symlinks pointing directly at the real binaries inside the
+# Xcode toolchain (no /usr/bin indirection) into /usr/local/bin, which
+# is on PATH ahead of /usr/bin on macOS. Every subsequent PATH lookup
+# for those tools resolves to the real binary and never spawns
+# xcodebuild.
 # ---------------------------------------------------------------------------
 if [[ "$(uname -s)" == "Darwin" ]]; then
     NEWEST_XCODE="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -r | head -1)"
@@ -38,6 +40,21 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
         echo "--- Switching active Xcode to ${NEWEST_XCODE} ---"
         sudo xcode-select -s "${NEWEST_XCODE}/Contents/Developer"
         xcode-select -p
+
+        TOOLCHAIN_BIN="${NEWEST_XCODE}/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin"
+        DEVELOPER_USR_BIN="${NEWEST_XCODE}/Contents/Developer/usr/bin"
+        CLT_BIN="/Library/Developer/CommandLineTools/usr/bin"
+        echo "--- Installing direct toolchain symlinks into /usr/local/bin ---"
+        sudo mkdir -p /usr/local/bin
+        for tool in clang clang++ otool install_name_tool codesign lipo strip ld ar ranlib nm libtool dsymutil; do
+            for src in "${TOOLCHAIN_BIN}/${tool}" "${DEVELOPER_USR_BIN}/${tool}" "${CLT_BIN}/${tool}"; do
+                if [ -x "${src}" ]; then
+                    sudo ln -sf "${src}" "/usr/local/bin/${tool}"
+                    echo "  /usr/local/bin/${tool} -> ${src}"
+                    break
+                fi
+            done
+        done
     fi
 fi
 
