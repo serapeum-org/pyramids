@@ -43,6 +43,19 @@ def _build_prefix() -> Path:
     return Path(os.environ.get("BUILD_PREFIX", "/usr/local"))
 
 
+def _data_layout_roots(prefix: Path) -> tuple[Path, Path, Path]:
+    """Return (bin_dir, share_dir, lib_dir) for the current OS.
+
+    Conda Windows packages nest under ``<prefix>/Library/`` (Anaconda's
+    Windows convention). Linux and macOS use the standard Unix layout
+    directly under ``<prefix>/``.
+    """
+    if sys.platform == "win32" or os.name == "nt":
+        win_lib_root = prefix / "Library"
+        return win_lib_root / "bin", win_lib_root / "share", win_lib_root / "lib"
+    return prefix / "bin", prefix / "share", prefix / "lib"
+
+
 def install_gdal_python_bindings() -> None:
     """pip install ``GDAL==$GDAL_VERSION`` linking against $BUILD_PREFIX.
 
@@ -59,31 +72,42 @@ def install_gdal_python_bindings() -> None:
       ``${BUILD_PREFIX}/Library/`` so we point INCLUDE/LIB there.
 
     We let pip use build isolation so it pulls in the right setuptools
-    (>=77 per GDAL's build-system.requires) and a compatible numpy
-    automatically. Without build isolation, manylinux's pre-installed
-    setuptools 75.5.0 is used — which can't parse GDAL 3.12.3's
-    PEP 639 license string and errors out.
+    (>=77 per GDAL's build-system.requires). On macOS we additionally
+    apply a PIP_CONSTRAINT pinning numpy<2, because GDAL's build-system
+    requires numpy>=2 by default and numpy 2.x on macos-14 runners has
+    the Accelerate `_cblas_caxpy$NEWLAPACK$ILP64` symbol bug — the
+    build venv's numpy fails to import, and GDAL's setup.py then
+    raises "numpy not available".
     """
     version = _gdal_version()
     prefix = _build_prefix()
     is_windows = sys.platform == "win32" or os.name == "nt"
+    is_macos = sys.platform == "darwin"
 
     env = os.environ.copy()
 
     if is_windows:
-        # Conda Windows layout: <prefix>/Library/{bin,include,lib}
-        win_lib_root = prefix / "Library"
-        bin_dir = win_lib_root / "bin"
-        include_dir = win_lib_root / "include"
-        lib_dir = win_lib_root / "lib"
+        bin_dir, _, lib_dir = _data_layout_roots(prefix)
+        include_dir = prefix / "Library" / "include"
         # MSVC convention: ';'-separated INCLUDE / LIB env vars
         env["INCLUDE"] = f"{include_dir};{env.get('INCLUDE', '')}"
         env["LIB"] = f"{lib_dir};{env.get('LIB', '')}"
         env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
     else:
-        # Unix layout: <prefix>/{bin,include,lib}
-        bin_dir = prefix / "bin"
+        bin_dir, _, _ = _data_layout_roots(prefix)
         env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+
+    # On macOS, the build venv that pip's isolation creates installs
+    # numpy>=2 per GDAL's build-system.requires. numpy 2.x on macos-14
+    # has the Accelerate ILP64 symbol bug — fails to import — and then
+    # GDAL's setup.py errors with "numpy not available". Constrain the
+    # build env to numpy<2 via PIP_CONSTRAINT, which pip respects for
+    # build-isolation envs too.
+    constraint_file: Path | None = None
+    if is_macos:
+        constraint_file = REPO_ROOT / "ci" / "_macos_build_constraints.txt"
+        constraint_file.write_text("numpy<2\n", encoding="utf-8")
+        env["PIP_CONSTRAINT"] = str(constraint_file)
 
     cmd = [
         sys.executable, "-m", "pip", "install",
@@ -92,12 +116,18 @@ def install_gdal_python_bindings() -> None:
     ]
     print(f"[install-and-vendor-osgeo] platform: {sys.platform}", flush=True)
     print(f"[install-and-vendor-osgeo] BUILD_PREFIX: {prefix}", flush=True)
-    print(f"[install-and-vendor-osgeo] PATH: {env.get('PATH', '')[:300]}...", flush=True)
+    print(f"[install-and-vendor-osgeo] PATH (head): {env.get('PATH', '')[:300]}", flush=True)
     if is_windows:
         print(f"[install-and-vendor-osgeo] INCLUDE: {env.get('INCLUDE', '')}", flush=True)
         print(f"[install-and-vendor-osgeo] LIB: {env.get('LIB', '')}", flush=True)
+    if is_macos:
+        print(f"[install-and-vendor-osgeo] PIP_CONSTRAINT: {env.get('PIP_CONSTRAINT', '')}", flush=True)
     print(f"[install-and-vendor-osgeo] running: {' '.join(cmd)}", flush=True)
-    subprocess.check_call(cmd, env=env)
+    try:
+        subprocess.check_call(cmd, env=env)
+    finally:
+        if constraint_file is not None and constraint_file.exists():
+            constraint_file.unlink()
 
 
 def _copy_tree_replacing(src: Path, dst: Path) -> None:
@@ -132,21 +162,26 @@ def vendor_osgeo_into_package() -> None:
     except ImportError:
         print("[install-and-vendor-osgeo] osgeo_utils not found; skipping", flush=True)
 
+    # Conda Windows packages nest data under <prefix>/Library/share and
+    # plugins under <prefix>/Library/lib/gdalplugins. Linux/macOS use
+    # <prefix>/share and <prefix>/lib/gdalplugins directly.
+    _, share_dir, lib_dir = _data_layout_roots(prefix)
+
     # 2. Vendor GDAL_DATA
-    gdal_data_src = prefix / "share" / "gdal"
+    gdal_data_src = share_dir / "gdal"
     if not gdal_data_src.is_dir():
         raise RuntimeError(f"GDAL_DATA not found at {gdal_data_src}")
     _copy_tree_replacing(gdal_data_src, src_pyramids / "_data" / "gdal_data")
 
     # 3. Vendor PROJ_DATA
-    proj_data_src = prefix / "share" / "proj"
+    proj_data_src = share_dir / "proj"
     if not proj_data_src.is_dir():
         raise RuntimeError(f"PROJ_DATA not found at {proj_data_src}")
     _copy_tree_replacing(proj_data_src, src_pyramids / "_data" / "proj_data")
 
     # 4. Vendor GDAL plugins (NetCDF / HDF4 / HDF5 drivers).
     # GDAL loads these at runtime when GDAL_DRIVER_PATH points here.
-    plugins_src = prefix / "lib" / "gdalplugins"
+    plugins_src = lib_dir / "gdalplugins"
     if plugins_src.is_dir():
         _copy_tree_replacing(plugins_src, src_pyramids / "_data" / "gdalplugins")
 
