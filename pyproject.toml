@@ -373,30 +373,11 @@ before-all = [
 # GDAL_DATA/PROJ_DATA into the pyramids source tree so setuptools
 # includes them in the wheel.
 before-build = [
-    # Pinning notes (learned the hard way over several CI iterations):
-    #
-    # 1. NO setuptools pin. The manylinux container ships setuptools
-    #    75.5.0 pre-installed; pinning <77 left us with that older
-    #    version, which has PEP 621 license schema validation that
-    #    rejects GDAL 3.12.3's pyproject.toml ("project.license must
-    #    be valid exactly by one definition"). Latest setuptools (82+)
-    #    accepts GDAL's format. So we install latest, unpinned.
-    #
-    # 2. numpy<2 — numpy 2.x wheels on macos-14 (Apple Silicon) ship
-    #    with Accelerate ILP64 symbol references that the runner's
-    #    Accelerate framework doesn't have: "Symbol not found:
-    #    _cblas_caxpy$NEWLAPACK$ILP64". numpy 1.26.x doesn't use those
-    #    symbols. GDAL still supports numpy 1.x.
-    #
-    # 3. Quoting uses DOUBLE quotes (not single) so the same string
-    #    works on Linux bash AND Windows cmd.exe. Single quotes are
-    #    literal in cmd, and cmd parses `<` as a stdin-redirect
-    #    operator before the quoted arg reaches pip.
-    #
-    # 4. Use `python -m pip` not bare `pip` so `pip.exe` self-locking
-    #    on Windows + macOS pip-location drift after self-upgrade
-    #    don't bite us.
-    'python -m pip install setuptools wheel "numpy<2"',
+    # install-and-vendor-osgeo.py uses pip WITH build isolation so pip
+    # pulls in the right setuptools (>=77 per GDAL 3.12.3's
+    # build-system.requires) and a compatible numpy automatically.
+    # Without isolation, manylinux's pre-installed setuptools 75.5.0
+    # is used and rejects GDAL's PEP 639 license string.
     "python ./ci/install-and-vendor-osgeo.py",
 ]
 # Linux wheel repair: auditwheel walks the .so dep graph, bundles
@@ -436,30 +417,11 @@ before-all = [
     "bash ./ci/setup-gdal-from-pixi.sh",
 ]
 before-build = [
-    # Pinning notes (learned the hard way over several CI iterations):
-    #
-    # 1. NO setuptools pin. The manylinux container ships setuptools
-    #    75.5.0 pre-installed; pinning <77 left us with that older
-    #    version, which has PEP 621 license schema validation that
-    #    rejects GDAL 3.12.3's pyproject.toml ("project.license must
-    #    be valid exactly by one definition"). Latest setuptools (82+)
-    #    accepts GDAL's format. So we install latest, unpinned.
-    #
-    # 2. numpy<2 — numpy 2.x wheels on macos-14 (Apple Silicon) ship
-    #    with Accelerate ILP64 symbol references that the runner's
-    #    Accelerate framework doesn't have: "Symbol not found:
-    #    _cblas_caxpy$NEWLAPACK$ILP64". numpy 1.26.x doesn't use those
-    #    symbols. GDAL still supports numpy 1.x.
-    #
-    # 3. Quoting uses DOUBLE quotes (not single) so the same string
-    #    works on Linux bash AND Windows cmd.exe. Single quotes are
-    #    literal in cmd, and cmd parses `<` as a stdin-redirect
-    #    operator before the quoted arg reaches pip.
-    #
-    # 4. Use `python -m pip` not bare `pip` so `pip.exe` self-locking
-    #    on Windows + macOS pip-location drift after self-upgrade
-    #    don't bite us.
-    'python -m pip install setuptools wheel "numpy<2"',
+    # install-and-vendor-osgeo.py uses pip WITH build isolation so pip
+    # pulls in the right setuptools (>=77 per GDAL 3.12.3's
+    # build-system.requires) and a compatible numpy automatically.
+    # Without isolation, manylinux's pre-installed setuptools 75.5.0
+    # is used and rejects GDAL's PEP 639 license string.
     "python ./ci/install-and-vendor-osgeo.py",
 ]
 # delocate-wheel is the macOS equivalent of auditwheel: it walks the
@@ -494,14 +456,10 @@ before-all = [
     "powershell -File ci/setup-gdal-from-pixi.ps1",
 ]
 before-build = [
-    # Use `python -m pip` (not bare `pip`) — see the Linux/macOS
-    # before-build above for rationale. On Windows specifically, pip.exe
-    # refuses self-upgrade ("ERROR: To modify pip, please run the
-    # following command: python.exe -m pip install --upgrade pip").
-    # Same pinning rules as Linux/macOS (see those sections for full
-    # rationale): no setuptools pin, numpy<2 for Accelerate, double
-    # quotes to work in both bash and cmd.exe.
-    'python -m pip install setuptools wheel "numpy<2" delvewheel',
+    # delvewheel is the only tool we explicitly install — it's needed for
+    # the repair-wheel-command. setuptools/wheel/numpy come in through
+    # pip's build isolation when install-and-vendor-osgeo.py runs.
+    "python -m pip install delvewheel",
     "python ci/install-and-vendor-osgeo.py",
 ]
 # delvewheel is the Windows equivalent of auditwheel: it bundles required

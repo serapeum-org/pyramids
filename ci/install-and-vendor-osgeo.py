@@ -46,49 +46,57 @@ def _build_prefix() -> Path:
 def install_gdal_python_bindings() -> None:
     """pip install ``GDAL==$GDAL_VERSION`` linking against $BUILD_PREFIX.
 
-    Uses environment variables (CPPFLAGS / LDFLAGS / GDAL_CONFIG) rather
-    than pip's deprecated ``--global-option``. GDAL's setup.py consults
-    ``gdal-config`` first, so as long as that points at our extracted
-    binary, headers and libs are discovered correctly.
+    GDAL 3.12.x setup.py uses two different discovery mechanisms:
+
+    * Unix (Linux/macOS, ``unix`` compiler): runs ``gdal-config`` via PATH
+      lookup. GDAL does NOT read the ``GDAL_CONFIG`` env var — only the
+      ``--gdal-config=PATH`` setup option or the binary on PATH. So we
+      prepend ``${BUILD_PREFIX}/bin`` to PATH.
+
+    * Windows (``msvc`` compiler): SKIPS gdal-config entirely and relies
+      on MSVC conventions — ``INCLUDE`` env var for headers, ``LIB`` env
+      var for library dirs. Conda Windows packages nest under
+      ``${BUILD_PREFIX}/Library/`` so we point INCLUDE/LIB there.
+
+    We let pip use build isolation so it pulls in the right setuptools
+    (>=77 per GDAL's build-system.requires) and a compatible numpy
+    automatically. Without build isolation, manylinux's pre-installed
+    setuptools 75.5.0 is used — which can't parse GDAL 3.12.3's
+    PEP 639 license string and errors out.
     """
     version = _gdal_version()
     prefix = _build_prefix()
+    is_windows = sys.platform == "win32" or os.name == "nt"
 
     env = os.environ.copy()
-    env["GDAL_CONFIG"] = str(prefix / "bin" / "gdal-config")
-    env["CPPFLAGS"] = f"-I{prefix}/include " + env.get("CPPFLAGS", "")
-    env["LDFLAGS"] = f"-L{prefix}/lib " + env.get("LDFLAGS", "")
 
-    # numpy's include path is needed by GDAL's swig/python/setup.py.
-    # We invoke sys.executable to ask numpy where its headers live
-    # rather than importing numpy in this script — that's because on
-    # macOS, the script's `import numpy` can fail even when numpy IS
-    # installed in the same venv (the macOS Python framework loader
-    # has subtle search-path quirks). Going via the same interpreter
-    # that pip will use ensures we get a consistent answer.
-    numpy_include = subprocess.run(
-        [sys.executable, "-c", "import numpy; print(numpy.get_include())"],
-        capture_output=True, text=True, check=False,
-    )
-    if numpy_include.returncode == 0:
-        env["CPPFLAGS"] = f"-I{numpy_include.stdout.strip()} " + env["CPPFLAGS"]
+    if is_windows:
+        # Conda Windows layout: <prefix>/Library/{bin,include,lib}
+        win_lib_root = prefix / "Library"
+        bin_dir = win_lib_root / "bin"
+        include_dir = win_lib_root / "include"
+        lib_dir = win_lib_root / "lib"
+        # MSVC convention: ';'-separated INCLUDE / LIB env vars
+        env["INCLUDE"] = f"{include_dir};{env.get('INCLUDE', '')}"
+        env["LIB"] = f"{lib_dir};{env.get('LIB', '')}"
+        env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
     else:
-        print(
-            f"[install-and-vendor-osgeo] WARNING: numpy not importable via "
-            f"{sys.executable}: {numpy_include.stderr.strip()}",
-            flush=True,
-        )
+        # Unix layout: <prefix>/{bin,include,lib}
+        bin_dir = prefix / "bin"
+        env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
 
     cmd = [
         sys.executable, "-m", "pip", "install",
         "--no-cache-dir",
-        "--no-build-isolation",
         f"GDAL=={version}",
     ]
+    print(f"[install-and-vendor-osgeo] platform: {sys.platform}", flush=True)
+    print(f"[install-and-vendor-osgeo] BUILD_PREFIX: {prefix}", flush=True)
+    print(f"[install-and-vendor-osgeo] PATH: {env.get('PATH', '')[:300]}...", flush=True)
+    if is_windows:
+        print(f"[install-and-vendor-osgeo] INCLUDE: {env.get('INCLUDE', '')}", flush=True)
+        print(f"[install-and-vendor-osgeo] LIB: {env.get('LIB', '')}", flush=True)
     print(f"[install-and-vendor-osgeo] running: {' '.join(cmd)}", flush=True)
-    print(f"[install-and-vendor-osgeo] GDAL_CONFIG={env['GDAL_CONFIG']}", flush=True)
-    print(f"[install-and-vendor-osgeo] CPPFLAGS={env['CPPFLAGS']}", flush=True)
-    print(f"[install-and-vendor-osgeo] LDFLAGS={env['LDFLAGS']}", flush=True)
     subprocess.check_call(cmd, env=env)
 
 
