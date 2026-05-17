@@ -464,9 +464,16 @@ before-build = [
     "python ci/install-and-vendor-osgeo.py",
 ]
 # delvewheel is the Windows equivalent of auditwheel: it bundles required
-# DLLs into the wheel. --add-path tells it where to find the DLLs to bundle.
+# DLLs into the wheel.
+# --add-path: tells delvewheel where to find DLLs to bundle.
+# --analyze-existing: also walk the dep graph of DLLs already inside the
+#   wheel (like the GDAL plugins at pyramids/_data/gdalplugins/*.dll).
+#   Without this, gdal_netCDF.dll / gdal_HDF*.dll are shipped without
+#   their transitive deps (netcdf.dll, hdf5.dll, ...) and NetCDF/HDF
+#   open fails at runtime with "not recognized as being in a supported
+#   file format".
 repair-wheel-command = [
-    "delvewheel repair --add-path C:/gdal-prefix/Library/bin -w {dest_dir} {wheel}",
+    "delvewheel repair --analyze-existing --add-path C:/gdal-prefix/Library/bin -w {dest_dir} {wheel}",
 ]
 
 [tool.cibuildwheel.windows.environment]
