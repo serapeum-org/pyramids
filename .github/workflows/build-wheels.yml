@@ -85,7 +85,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.22
+        uses: pypa/cibuildwheel@v3
         env:
           # Python-version selection lives in pyproject.toml's
           # [tool.cibuildwheel].build = ["cp311-*", "cp312-*", "cp313-*"]
@@ -127,7 +127,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.22
+        uses: pypa/cibuildwheel@v3
         env:
           # Python-version selection lives in pyproject.toml's
           # [tool.cibuildwheel].build = ["cp311-*", "cp312-*", "cp313-*"]
@@ -159,7 +159,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.22
+        uses: pypa/cibuildwheel@v3
         env:
           # Python-version selection lives in pyproject.toml's
           # [tool.cibuildwheel].build = ["cp311-*", "cp312-*", "cp313-*"]
@@ -193,7 +193,7 @@ jobs:
         # macOS; x86_64 runtime gets exercised by downstream users on
         # their own Intel machines.
         os: [ubuntu-latest, macos-14, windows-2022]
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
         include:
           - os: ubuntu-latest
             arch: x86_64

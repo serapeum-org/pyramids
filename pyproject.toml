@@ -1,6 +1,6 @@
 [project]
 name = "pyramids-gis"
-version = "0.20.0"
+version = "0.19.0"
 description = "GIS utility package"
 readme = {file = "README.md", content-type = "text/markdown"}
 authors = [
@@ -18,6 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: GIS",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
@@ -357,7 +358,7 @@ pyogrio = ">=0.7"
 # (linux / macos / windows) used to spell this out individually via
 # CIBW_BUILD env vars; centralising here means a new Python release
 # only needs one line bumped instead of three.
-build = ["cp311-*", "cp312-*", "cp313-*"]
+build = ["cp311-*", "cp312-*", "cp313-*", "cp314-*"]
 # Belt-and-braces excludes for build IDs that match `build` patterns
 # but we explicitly don't want (PyPy, musllinux, free-threaded 3.14).
 skip = ["*pp*", "*musllinux*", "cp314t-*"]

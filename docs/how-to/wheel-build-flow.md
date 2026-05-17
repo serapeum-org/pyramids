@@ -5,17 +5,17 @@ the right one.
 
 ## What gets built per release
 
-`build-wheels.yml` produces **12 platform wheels + 1 sdist** per release:
+`build-wheels.yml` produces **16 platform wheels + 1 sdist** per release:
 
-| Platform | Architecture | Python versions | Wheels |
-|----------|--------------|-----------------|--------|
-| Linux | x86_64 | 3.11, 3.12, 3.13 | 3 |
-| macOS | arm64 (Apple Silicon) | 3.11, 3.12, 3.13 | 3 |
-| macOS | x86_64 (Intel, cross-compiled) | 3.11, 3.12, 3.13 | 3 |
-| Windows | AMD64 (x64) | 3.11, 3.12, 3.13 | 3 |
-| (any) | sdist | — | 1 |
+| Platform | Architecture                   | Python versions        | Wheels |
+|----------|--------------------------------|------------------------|--------|
+| Linux    | x86_64                         | 3.11, 3.12, 3.13, 3.14 | 4      |
+| macOS    | arm64 (Apple Silicon)          | 3.11, 3.12, 3.13, 3.14 | 4      |
+| macOS    | x86_64 (Intel, cross-compiled) | 3.11, 3.12, 3.13, 3.14 | 4      |
+| Windows  | AMD64 (x64)                    | 3.11, 3.12, 3.13, 3.14 | 4      |
+| (any)    | sdist                          | —                      | 1      |
 
-**Total: 12 wheels + 1 sdist.**
+**Total: 16 wheels + 1 sdist.**
 
 The macOS x86_64 wheels are cross-compiled on a `macos-14` (arm64)
 runner via Rosetta + ARCHFLAGS — GitHub's `macos-13` (Intel) runner
@@ -76,7 +76,7 @@ Python C API ABI.
 ├── build-sdist (1 job, ubuntu-latest)
 │   └── python -m build --sdist → pyramids_gis-X.Y.Z.tar.gz
 │
-├── build-linux-wheels (1 job, ubuntu-latest, builds 3 wheels)
+├── build-linux-wheels (1 job, ubuntu-latest, builds 4 wheels)
 │   └── cibuildwheel:
 │       ├── CIBW_BEFORE_ALL (once):
 │       │   bash ci/setup-gdal-from-pixi.sh
@@ -84,7 +84,7 @@ Python C API ABI.
 │       │   → extracts libgdal.so + transitive deps into /usr/local
 │       │   → writes ${BUILD_PREFIX}/GDAL_VERSION (read from
 │       │     gdal-config — single source of truth = pixi.lock)
-│       ├── For each of cp311, cp312, cp313:
+│       ├── For each of cp311, cp312, cp313, cp314:
 │       │   ├── CIBW_BEFORE_BUILD (per Python version):
 │       │   │   python ci/install-and-vendor-osgeo.py
 │       │   │   → reads GDAL version from
@@ -123,14 +123,14 @@ Python C API ABI.
 │   │   (macOS equivalent of auditwheel — patches @loader_path)
 │   └── upload-artifact: wheels-macos-arm64 / wheels-macos-x86_64
 │
-└── build-windows-wheels (1 job, windows-2022, builds 3 wheels)
+└── build-windows-wheels (1 job, windows-2022, builds 4 wheels)
     └── cibuildwheel:
         ├── CIBW_BEFORE_ALL: powershell -File ci/setup-gdal-from-pixi.ps1
         │   → installs pixi → extracts Library/bin DLLs → C:/gdal-prefix
         │   → writes ${BuildPrefix}/GDAL_VERSION (parsed from
         │     conda-meta/gdal-X.Y.Z-*.json — Windows conda-forge gdal
         │     doesn't ship a usable gdal-config)
-        ├── For each of cp311, cp312, cp313: same vendor + build steps
+        ├── For each of cp311, cp312, cp313, cp314: same vendor + build steps
         └── CIBW_REPAIR_WHEEL_COMMAND uses
             `delvewheel repair --analyze-existing`
             → bundles _gdal.pyd's direct deps AND the GDAL plugin
@@ -139,8 +139,8 @@ Python C API ABI.
     └── upload-artifact: wheels-windows-AMD64
 ```
 
-After all build jobs finish, `test-wheels` runs a 9-cell matrix
-(3 OSes × 3 Python versions) installing each wheel in a clean Python
+After all build jobs finish, `test-wheels` runs a 12-cell matrix
+(3 OSes × 4 Python versions) installing each wheel in a clean Python
 env and running `pytest -m core`. macOS x86_64 testing is skipped —
 the wheel is cross-compiled on an arm64 host so we can't install it
 on the same runner, and GitHub's macos-13 queue is unusable.
@@ -194,11 +194,11 @@ On GitHub-hosted runners (jobs parallel where possible):
 | Job | Duration |
 |-----|----------|
 | `build-sdist` | ~2 min |
-| `build-linux-wheels` | ~10 min (3 wheels) |
-| `build-macos-wheels` (arm64, native) | ~5 min (3 wheels) |
-| `build-macos-wheels` (x86_64, cross-compiled) | ~6 min (3 wheels) |
-| `build-windows-wheels` | ~10 min (3 wheels) |
-| `test-wheels` matrix (9 jobs) | ~3 min (parallel, after builds) |
+| `build-linux-wheels` | ~12 min (4 wheels) |
+| `build-macos-wheels` (arm64, native) | ~6 min (4 wheels) |
+| `build-macos-wheels` (x86_64, cross-compiled) | ~7 min (4 wheels) |
+| `build-windows-wheels` | ~12 min (4 wheels) |
+| `test-wheels` matrix (12 jobs) | ~3 min (parallel, after builds) |
 
 **Total wall-clock per release: ~15 min** — all build jobs run in
 parallel, then the test matrix.
