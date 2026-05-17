@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import sysconfig
+import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -114,21 +115,25 @@ def install_gdal_python_bindings() -> None:
         env.setdefault("CMAKE_BUILD_PARALLEL_LEVEL", "2")
         env.setdefault("NPY_NUM_BUILD_JOBS", "2")
 
-    # macOS arm64: pin numpy>=2.1 in the build venv so the SWIG bindings
-    # are compiled against the numpy 2.x C API. Wheels built against
-    # numpy 1.x raise
+    # macOS arm64 needs special handling for the build-venv numpy:
+    #
+    # * We can't use numpy 1.x — wheels compiled against numpy 1.x raise
     #   "A module that was compiled using NumPy 1.x cannot be run in
-    #    NumPy 2.x"
-    # at import time on any end-user machine that has numpy 2.x — which
-    # is everyone, since numpy 2.0 shipped in mid-2024. numpy >=2.1 is
-    # the earliest 2.x version that avoids the macos-14 Accelerate
-    # ILP64 symbol bug (_cblas_caxpy$NEWLAPACK$ILP64 not found) that
-    # made earlier 2.x wheels fail to import on this runner.
-    # We use --no-build-isolation so pip uses the ambient build venv
-    # (where we've just installed numpy>=2.1) instead of pulling
-    # whatever GDAL's build-system.requires lists.
-    # x86_64 cross-compile is unaffected: numpy 2.x ships cp313 wheels
-    # and meson refuses to cross-build numpy 1.x from source.
+    #   NumPy 2.x" on any end-user machine with numpy 2.x.
+    # * We can't let pip pick a numpy 2.x wheel for the host either —
+    #   cibuildwheel's framework Python identifies as macosx-14, so pip
+    #   downloads numpy-X.Y.Z-cpNNN-cpNNN-macosx_14_0_arm64.whl. That
+    #   wheel uses Accelerate ILP64 symbols that aren't actually present
+    #   on the runner, so numpy fails to import and GDAL's setup.py
+    #   then reports "numpy not available".
+    #
+    # Force-download the macosx_11_0_arm64 numpy wheel (built against
+    # the older non-ILP64 Accelerate) and install it without deps. That
+    # gives the build venv a working numpy 2.x ABI, and the resulting
+    # _gdal_array.so is forward-compatible with any numpy 2.x runtime.
+    #
+    # x86_64 cross-compile takes the standard path: numpy 2.x ships cp
+    # wheels for osx-64 and meson refuses to cross-build numpy 1.x.
     extra_pip_args: list[str] = []
     target_arch = (
         os.environ.get("CIBW_ARCHS")
@@ -137,12 +142,30 @@ def install_gdal_python_bindings() -> None:
     )
     print(f"[install-and-vendor-osgeo] target arch: {target_arch!r}", flush=True)
     if is_macos and target_arch == "arm64":
-        pre = [
-            sys.executable, "-m", "pip", "install", "--no-cache-dir",
-            "setuptools>=77.0.3", "wheel", "numpy>=2.1,<3",
-        ]
-        print(f"[install-and-vendor-osgeo] pre-install (macOS arm64): {' '.join(pre)}", flush=True)
-        subprocess.check_call(pre, env=env)
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--no-cache-dir",
+             "setuptools>=77.0.3", "wheel"],
+            env=env,
+        )
+        py_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
+        download_dir = Path(tempfile.mkdtemp(prefix="numpy-dl-"))
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "download",
+             "--no-deps", "--only-binary=:all:",
+             "--platform", "macosx_11_0_arm64",
+             "--python-version", f"{sys.version_info.major}.{sys.version_info.minor}",
+             "--implementation", "cp",
+             "--abi", py_tag,
+             "-d", str(download_dir),
+             "numpy>=2.1,<3"],
+            env=env,
+        )
+        numpy_whl = next(download_dir.glob("numpy-*.whl"))
+        print(f"[install-and-vendor-osgeo] using {numpy_whl.name}", flush=True)
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--no-deps", str(numpy_whl)],
+            env=env,
+        )
         extra_pip_args.append("--no-build-isolation")
 
     cmd = [
