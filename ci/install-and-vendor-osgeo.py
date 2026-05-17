@@ -114,13 +114,21 @@ def install_gdal_python_bindings() -> None:
         env.setdefault("CMAKE_BUILD_PARALLEL_LEVEL", "2")
         env.setdefault("NPY_NUM_BUILD_JOBS", "2")
 
-    # macOS arm64 only: numpy 2.x on macos-14 hits an Accelerate ILP64
-    # symbol bug (_multiarray_umath fails to dlopen) and GDAL's setup.py
-    # then errors with "numpy not available". Pre-install
-    # setuptools>=77 + wheel + numpy<2 and install GDAL with
-    # --no-build-isolation so pip uses the ambient build deps.
-    # x86_64 cross-compile is unaffected (numpy 2.x ships cp313 wheels;
-    # numpy 1.x doesn't, and meson refuses cross-builds anyway).
+    # macOS arm64: pin numpy>=2.1 in the build venv so the SWIG bindings
+    # are compiled against the numpy 2.x C API. Wheels built against
+    # numpy 1.x raise
+    #   "A module that was compiled using NumPy 1.x cannot be run in
+    #    NumPy 2.x"
+    # at import time on any end-user machine that has numpy 2.x — which
+    # is everyone, since numpy 2.0 shipped in mid-2024. numpy >=2.1 is
+    # the earliest 2.x version that avoids the macos-14 Accelerate
+    # ILP64 symbol bug (_cblas_caxpy$NEWLAPACK$ILP64 not found) that
+    # made earlier 2.x wheels fail to import on this runner.
+    # We use --no-build-isolation so pip uses the ambient build venv
+    # (where we've just installed numpy>=2.1) instead of pulling
+    # whatever GDAL's build-system.requires lists.
+    # x86_64 cross-compile is unaffected: numpy 2.x ships cp313 wheels
+    # and meson refuses to cross-build numpy 1.x from source.
     extra_pip_args: list[str] = []
     target_arch = (
         os.environ.get("CIBW_ARCHS")
@@ -131,7 +139,7 @@ def install_gdal_python_bindings() -> None:
     if is_macos and target_arch == "arm64":
         pre = [
             sys.executable, "-m", "pip", "install", "--no-cache-dir",
-            "setuptools>=77.0.3", "wheel", "numpy<2",
+            "setuptools>=77.0.3", "wheel", "numpy>=2.1,<3",
         ]
         print(f"[install-and-vendor-osgeo] pre-install (macOS arm64): {' '.join(pre)}", flush=True)
         subprocess.check_call(pre, env=env)
