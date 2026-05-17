@@ -357,18 +357,14 @@ build-verbosity = 3
 # cibuildwheel via wheel-test.yml (Phase 3 / Task 3.1).
 test-skip = "*"
 
-# Shared environment for every platform. cibuildwheel merges this table
-# with [tool.cibuildwheel.<platform>.environment] so each per-platform
-# block only needs to add the keys that differ (BUILD_PREFIX, GDAL_DATA,
-# library-search paths, etc.).
-#   PACKAGE_DATA = "1": activation flag read by
-#     ci/install-and-vendor-osgeo.py to guard against running during
-#     local editable installs.
-#   PIXI_NO_PATH_UPDATE = "1": stops pixi's installer from rewriting
-#     the runner's shell rc files.
-[tool.cibuildwheel.environment]
-PACKAGE_DATA = "1"
-PIXI_NO_PATH_UPDATE = "1"
+# NOTE: PACKAGE_DATA and PIXI_NO_PATH_UPDATE are duplicated in each
+# per-platform [tool.cibuildwheel.<platform>.environment] block below.
+# Despite the docs suggesting otherwise, cibuildwheel's `environment`
+# option uses REPLACE semantics across platform overrides — keys in
+# the global [tool.cibuildwheel.environment] are NOT merged into the
+# per-platform tables. We left a top-level shared block in 607d3153
+# and every build broke with "PACKAGE_DATA != 1; skipping". Keep the
+# duplication unless cibuildwheel grows real table-merge semantics.
 
 [tool.cibuildwheel.linux]
 # manylinux_2_28 == glibc 2.28; covers Ubuntu 20.04+, RHEL 8+, Debian 11+.
@@ -408,15 +404,17 @@ repair-wheel-command = [
 ]
 
 [tool.cibuildwheel.linux.environment]
-# Platform-specific paths only. PACKAGE_DATA and PIXI_NO_PATH_UPDATE
-# live in [tool.cibuildwheel.environment]. GDAL_VERSION is resolved at
-# runtime by ci/setup-gdal-from-pixi.sh and written to
-# ${BUILD_PREFIX}/GDAL_VERSION (single source of truth = pixi.lock).
+# GDAL_VERSION is resolved at runtime by ci/setup-gdal-from-pixi.sh and
+# written to ${BUILD_PREFIX}/GDAL_VERSION (single source of truth =
+# pixi.lock). PACKAGE_DATA + PIXI_NO_PATH_UPDATE are duplicated across
+# all three platform blocks — see the note above [tool.cibuildwheel.linux].
 BUILD_PREFIX = "/usr/local"
 GDAL_DATA = "/usr/local/share/gdal"
 PROJ_DATA = "/usr/local/share/proj"
 PROJ_LIB = "/usr/local/share/proj"
+PACKAGE_DATA = "1"
 LD_LIBRARY_PATH = "/usr/local/lib:/usr/local/lib64"
+PIXI_NO_PATH_UPDATE = "1"
 
 
 # ---------------------------------------------------------------------------
@@ -444,15 +442,16 @@ repair-wheel-command = [
 ]
 
 [tool.cibuildwheel.macos.environment]
-# Platform-specific paths only. PACKAGE_DATA and PIXI_NO_PATH_UPDATE
-# live in [tool.cibuildwheel.environment]. GDAL_VERSION is resolved at
-# runtime — see Linux block above. macOS can't write to /usr/local
-# without sudo on GitHub runners; use a writable prefix under $HOME.
+# GDAL_VERSION is resolved at runtime — see Linux block above. macOS
+# can't write to /usr/local without sudo on GitHub runners; use a
+# writable prefix under $HOME instead.
 BUILD_PREFIX = "/Users/runner/gdal-prefix"
 GDAL_DATA = "/Users/runner/gdal-prefix/share/gdal"
 PROJ_DATA = "/Users/runner/gdal-prefix/share/proj"
 PROJ_LIB = "/Users/runner/gdal-prefix/share/proj"
+PACKAGE_DATA = "1"
 DYLD_LIBRARY_PATH = "/Users/runner/gdal-prefix/lib"
+PIXI_NO_PATH_UPDATE = "1"
 # Minimum macOS version: 11.0 for arm64, 10.15 for x86_64.
 # cibuildwheel sets this based on runner; these are safe defaults.
 MACOSX_DEPLOYMENT_TARGET = "11.0"
@@ -487,10 +486,9 @@ repair-wheel-command = [
 ]
 
 [tool.cibuildwheel.windows.environment]
-# Platform-specific paths only. PACKAGE_DATA and PIXI_NO_PATH_UPDATE
-# live in [tool.cibuildwheel.environment]. GDAL_VERSION is resolved at
-# runtime — see Linux block above. Windows pixi envs put DLLs/headers
-# under .pixi/envs/<env>/Library/ (Anaconda Windows convention).
+# GDAL_VERSION is resolved at runtime — see Linux block above. Windows
+# pixi envs put DLLs/headers under .pixi/envs/<env>/Library/ (Anaconda
+# Windows convention).
 # NOTE: Use forward slashes so values survive bash/PowerShell/cmd
 # interpolation without double-backslash escaping surprises. Windows
 # treats /, \, and mixed paths equivalently for built-in APIs.
@@ -498,4 +496,6 @@ BUILD_PREFIX = "C:/gdal-prefix"
 GDAL_DATA = "C:/gdal-prefix/Library/share/gdal"
 PROJ_DATA = "C:/gdal-prefix/Library/share/proj"
 PROJ_LIB = "C:/gdal-prefix/Library/share/proj"
+PACKAGE_DATA = "1"
 PATH = "C:/gdal-prefix/Library/bin;$PATH"
+PIXI_NO_PATH_UPDATE = "1"
