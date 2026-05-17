@@ -37,7 +37,16 @@ echo "wheel:    ${WHEEL}"
 echo "dest_dir: ${DEST_DIR}"
 echo "arch:     ${AUDITWHEEL_ARCH:-?}"
 
-python <<'PY'
+# cibuildwheel's manylinux image installs auditwheel via pipx into its
+# own private virtualenv, so plain `python` on PATH (which is some
+# generic CPython) doesn't import auditwheel. Read auditwheel's
+# shebang to find the interpreter that DOES.
+AUDITWHEEL_BIN="$(command -v auditwheel)"
+AUDITWHEEL_PYTHON="$(head -1 "${AUDITWHEEL_BIN}" | sed -E 's|^#!\s*||')"
+echo "auditwheel:        ${AUDITWHEEL_BIN}"
+echo "auditwheel python: ${AUDITWHEEL_PYTHON}"
+
+"${AUDITWHEEL_PYTHON}" <<'PY'
 """Mutate auditwheel's bundled manylinux policy to drop libstdc++.so.6.
 
 Loads every JSON file shipped alongside auditwheel.policy, finds the
