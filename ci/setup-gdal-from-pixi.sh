@@ -73,42 +73,21 @@ pixi --version
 # ---------------------------------------------------------------------------
 # 2. Install the wheel-build environment.
 #
-# Native (host arch == target arch): use pixi with --frozen for
-# reproducibility — exactly what's in pixi.lock, no re-solving.
+# Native (host arch == target arch): use pixi with --frozen against
+# pixi.lock for full reproducibility.
 #
-# Cross-compile (e.g. macos-14 / arm64 host building an x86_64 wheel
-# because GitHub's macos-13 queue is unusable): pixi can't install for
-# a non-host platform, so fall back to micromamba, which natively
-# supports `--platform osx-64`. Packages and versions track
-# [tool.pixi.feature.wheel-build.dependencies] in pyproject.toml.
+# Cross-compile (currently only macos-14 / arm64 host targeting
+# osx-64): delegate to ci/setup-gdal-micromamba.sh. pixi has no
+# --platform install flag; the dedicated micromamba script
+# re-resolves the same dependency range pin against conda-forge.
 # ---------------------------------------------------------------------------
 PIXI_ENV="$(pwd)/.pixi/envs/wheel-build"
 TARGET_ARCH="${CIBW_ARCHS:-${CIBW_ARCHS_MACOS:-}}"
-CROSS_COMPILE=0
-if [[ "$(uname -s)" == "Darwin" ]] && [[ "${TARGET_ARCH}" == "x86_64" ]]; then
-    CROSS_COMPILE=1
-fi
 
-if [ "${CROSS_COMPILE}" = "1" ]; then
-    echo "--- Cross-compile: installing osx-64 env via micromamba ---"
-    MAMBA_BIN="${BUILD_PREFIX}/bin/micromamba"
-    mkdir -p "${BUILD_PREFIX}/bin"
-    curl -fsSL https://micro.mamba.pm/api/micromamba/osx-arm64/latest \
-        | tar -xj -C "${BUILD_PREFIX}" bin/micromamba
-    chmod +x "${MAMBA_BIN}"
-    "${MAMBA_BIN}" --version
-    export MAMBA_ROOT_PREFIX="${HOME}/micromamba-root"
-    mkdir -p "${MAMBA_ROOT_PREFIX}"
-    rm -rf "${PIXI_ENV}"
-    mkdir -p "${PIXI_ENV}"
-    "${MAMBA_BIN}" create -p "${PIXI_ENV}" \
-        --platform osx-64 \
-        -c conda-forge \
-        -y \
-        "gdal=3.12.*" \
-        "libgdal-netcdf=3.12.*" \
-        "libgdal-hdf4=3.12.*" \
-        "swig>=4.3,<5"
+if [[ "$(uname -s)" == "Darwin" ]] && [[ "${TARGET_ARCH}" == "x86_64" ]]; then
+    export PIXI_ENV BUILD_PREFIX
+    export TARGET_PLATFORM="osx-64"
+    bash "$(dirname "$0")/setup-gdal-micromamba.sh"
 else
     echo "--- Resolving wheel-build environment (host platform) ---"
     pixi install -e wheel-build --frozen
