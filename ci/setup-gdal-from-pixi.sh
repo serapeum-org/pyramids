@@ -41,12 +41,36 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
         sudo xcode-select -s "${NEWEST_XCODE}/Contents/Developer"
         xcode-select -p
 
-        TOOLCHAIN_BIN="${NEWEST_XCODE}/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin"
-        DEVELOPER_USR_BIN="${NEWEST_XCODE}/Contents/Developer/usr/bin"
+        DEVELOPER_DIR="${NEWEST_XCODE}/Contents/Developer"
+        SDKROOT="${DEVELOPER_DIR}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
+        TOOLCHAIN_BIN="${DEVELOPER_DIR}/Toolchains/XcodeDefault.xctoolchain/usr/bin"
+        DEVELOPER_USR_BIN="${DEVELOPER_DIR}/usr/bin"
         CLT_BIN="/Library/Developer/CommandLineTools/usr/bin"
-        echo "--- Installing direct toolchain symlinks into /usr/local/bin ---"
+
+        # clang / clang++: install wrapper scripts (not plain symlinks)
+        # that export SDKROOT + DEVELOPER_DIR before exec'ing the real
+        # toolchain binary. Plain symlinks invoke the toolchain clang
+        # directly without xcrun's SDKROOT auto-detection, and clang
+        # then can't find system headers ('stdlib.h' file not found).
+        # Wrappers fix that without leaking env vars into the rest of
+        # the build.
+        echo "--- Installing clang/clang++ wrappers into /usr/local/bin ---"
         sudo mkdir -p /usr/local/bin
-        for tool in clang clang++ otool install_name_tool codesign lipo strip ld ar ranlib nm libtool dsymutil; do
+        for compiler in clang clang++; do
+            sudo tee "/usr/local/bin/${compiler}" >/dev/null <<EOF
+#!/bin/bash
+export SDKROOT="\${SDKROOT:-${SDKROOT}}"
+export DEVELOPER_DIR="\${DEVELOPER_DIR:-${DEVELOPER_DIR}}"
+exec "${TOOLCHAIN_BIN}/${compiler}" "\$@"
+EOF
+            sudo chmod +x "/usr/local/bin/${compiler}"
+            echo "  /usr/local/bin/${compiler} -> ${TOOLCHAIN_BIN}/${compiler} (with SDKROOT)"
+        done
+
+        # Everything else (otool, install_name_tool, codesign, ...) is
+        # binary-only — no header lookup, so plain symlinks suffice.
+        echo "--- Installing direct toolchain symlinks into /usr/local/bin ---"
+        for tool in otool install_name_tool codesign lipo strip ld ar ranlib nm libtool dsymutil; do
             for src in "${TOOLCHAIN_BIN}/${tool}" "${DEVELOPER_USR_BIN}/${tool}" "${CLT_BIN}/${tool}"; do
                 if [ -x "${src}" ]; then
                     sudo ln -sf "${src}" "/usr/local/bin/${tool}"
