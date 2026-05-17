@@ -2,9 +2,11 @@
 
 Runs once per target Python version in ``CIBW_BEFORE_BUILD``:
 
-1. ``pip install GDAL==$GDAL_VERSION`` against the pixi-extracted libgdal
+1. ``pip install GDAL==<version>`` against the pixi-extracted libgdal
    sitting under ``$BUILD_PREFIX/lib`` (populated by
-   ``ci/setup-gdal-from-pixi.sh`` in ``CIBW_BEFORE_ALL``).
+   ``ci/setup-gdal-from-pixi.{sh,ps1}`` in ``CIBW_BEFORE_ALL``). The
+   concrete version is read from ``${BUILD_PREFIX}/GDAL_VERSION`` which
+   those scripts write at the resolution of pixi.lock / micromamba.
 2. Copy the freshly-built ``osgeo`` package from the target Python's
    ``site-packages/`` into ``src/pyramids/_vendor/osgeo/``.
 3. Copy ``$BUILD_PREFIX/share/gdal`` and ``$BUILD_PREFIX/share/proj``
@@ -13,8 +15,6 @@ Runs once per target Python version in ``CIBW_BEFORE_BUILD``:
 
 Activation is gated by ``PACKAGE_DATA=1`` to avoid accidentally running
 during local editable installs.
-
-See planning/bundle/option-1-implementation-plan.md Task 1.5.
 """
 from __future__ import annotations
 
