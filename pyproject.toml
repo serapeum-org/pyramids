@@ -410,16 +410,15 @@ before-build = [
 # libgdal and all transitive native deps into pyramids_gis.libs/,
 # and patches RPATH so the extensions find their bundled libs at runtime.
 #
-# auditwheel --plat manylinux_2_28_<arch> (glibc 2.28; covers
-# Ubuntu 20.04+, Debian 11+, RHEL 8+, Amazon Linux 2023+). We bundle
-# conda-forge's libstdcxx-ng (GCC 13 libstdc++.so.6 with GLIBCXX_3.4.32)
-# into the wheel via auditwheel, so the wheel doesn't depend on the
-# system's libstdc++. ${AUDITWHEEL_ARCH} is exported by cibuildwheel
-# inside the manylinux container ("x86_64" or "aarch64").
-# See planning/bundle/m8-lower-glibc-floor-plan.md for the full
-# rationale + escalation path if auditwheel rejects this default tag.
+# auditwheel --plat manylinux_2_39_<arch> (glibc 2.39, Ubuntu 24.04+)
+# because conda-forge's GDAL is compiled with GCC 13, which references
+# GLIBCXX_3.4.32. The manylinux_2_28 image itself is fine as a BUILD
+# environment; the output wheel's compatibility tag just reflects the
+# newer symbols bundled inside. Tighten this as conda-forge releases
+# packages compiled with older GCC. ${AUDITWHEEL_ARCH} is exported by
+# cibuildwheel inside the manylinux container ("x86_64" or "aarch64").
 repair-wheel-command = [
-    "LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 auditwheel repair --plat manylinux_2_28_${AUDITWHEEL_ARCH} -w {dest_dir} {wheel}",
+    "LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 auditwheel repair --plat manylinux_2_39_${AUDITWHEEL_ARCH} -w {dest_dir} {wheel}",
 ]
 
 [tool.cibuildwheel.linux.environment]
