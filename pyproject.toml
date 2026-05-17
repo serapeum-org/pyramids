@@ -415,10 +415,10 @@ before-build = [
 # GLIBCXX_3.4.32. The manylinux_2_28 image itself is fine as a BUILD
 # environment; the output wheel's compatibility tag just reflects the
 # newer symbols bundled inside. Tighten this as conda-forge releases
-# packages compiled with older GCC. ${CIBW_ARCHS} is set by
-# cibuildwheel to "x86_64" or "aarch64" per build.
+# packages compiled with older GCC. ${AUDITWHEEL_ARCH} is exported by
+# cibuildwheel inside the manylinux container ("x86_64" or "aarch64").
 repair-wheel-command = [
-    "LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 auditwheel repair --plat manylinux_2_39_${CIBW_ARCHS} -w {dest_dir} {wheel}",
+    "LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 auditwheel repair --plat manylinux_2_39_${AUDITWHEEL_ARCH} -w {dest_dir} {wheel}",
 ]
 
 [tool.cibuildwheel.linux.environment]
