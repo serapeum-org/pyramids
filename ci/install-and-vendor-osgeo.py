@@ -341,8 +341,14 @@ def vendor_osgeo_into_package() -> None:
         raise RuntimeError(f"PROJ_DATA not found at {proj_data_src}")
     _copy_tree_replacing(proj_data_src, src_pyramids / "_data" / "proj_data")
 
-    # 4. Vendor GDAL plugins (NetCDF / HDF4 / HDF5 drivers).
-    # GDAL loads these at runtime when GDAL_DRIVER_PATH points here.
+    # 4. Vendor GDAL plugins (NetCDF / HDF4 / HDF5 drivers). On
+    # Windows, conda-forge ships these as separate .dll files under
+    # ``lib/gdalplugins/`` (or ``Library/lib/gdalplugins/`` on the
+    # nested layout) and libgdal loads them at runtime via
+    # ``GDAL_DRIVER_PATH``. On Linux/macOS the same drivers are linked
+    # statically into libgdal, so ``lib/gdalplugins/`` doesn't exist
+    # and the ``is_dir()`` guard turns this into a no-op. The runtime
+    # bootstrap in ``src/pyramids/__init__.py`` mirrors this guard.
     plugins_src = lib_dir / "gdalplugins"
     if plugins_src.is_dir():
         _copy_tree_replacing(plugins_src, src_pyramids / "_data" / "gdalplugins")

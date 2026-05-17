@@ -9,7 +9,7 @@
 # Runs once per cibuildwheel platform invocation (CIBW_BEFORE_ALL), i.e.
 # shared across all Python versions in the matrix.
 #
-# See planning/bundle/option-1-implementation-plan.md Tasks 1.3–1.4.
+# See docs/how-to/wheel-build-flow.md for the end-to-end pipeline.
 set -euo pipefail
 
 BUILD_PREFIX="${BUILD_PREFIX:-/usr/local}"
@@ -84,11 +84,25 @@ fi
 
 # ---------------------------------------------------------------------------
 # 1. Install pixi (static binary, ~50 MB, ~5 seconds)
+#
+# Pin the version via .pixi-version at the repo root so CI, local
+# developers, and the cibuildwheel container all agree. PIXI_VERSION
+# is consumed by pixi.sh/install.sh — the install script verifies the
+# downloaded binary's SHA256 against its built-in checksum table, so
+# pinning makes the installer reproducible. Override locally with
+# `PIXI_VERSION=X.Y.Z bash ci/setup-gdal-from-pixi.sh` if you need to
+# test against a different pixi version.
 # ---------------------------------------------------------------------------
 if ! command -v pixi >/dev/null 2>&1; then
-    echo "--- Installing pixi ---"
+    PIXI_VERSION_FILE="$(cd "$(dirname "$0")/.." && pwd)/.pixi-version"
+    if [[ -z "${PIXI_VERSION:-}" && -f "${PIXI_VERSION_FILE}" ]]; then
+        PIXI_VERSION="$(tr -d '[:space:]' < "${PIXI_VERSION_FILE}")"
+    fi
+    PIXI_VERSION="${PIXI_VERSION:?PIXI_VERSION not set and .pixi-version missing}"
+    echo "--- Installing pixi ${PIXI_VERSION} ---"
     export PIXI_HOME="${BUILD_PREFIX}"
     export PIXI_NO_PATH_UPDATE=1
+    export PIXI_VERSION
     curl -fsSL https://pixi.sh/install.sh | bash
     export PATH="${BUILD_PREFIX}/bin:${PATH}"
 fi
@@ -148,12 +162,24 @@ mkdir -p "${BUILD_PREFIX}/lib" "${BUILD_PREFIX}/lib64" \
 
 # Shared libraries — preserve symlinks with -a.
 # Linux uses .so, macOS uses .dylib; glob both so the script is cross-platform.
-cp -a "${PIXI_ENV}/lib/"*.so* "${BUILD_PREFIX}/lib/" 2>/dev/null || true
-cp -a "${PIXI_ENV}/lib/"*.dylib* "${BUILD_PREFIX}/lib/" 2>/dev/null || true
+# nullglob lets a non-matching glob expand to nothing (instead of being
+# left as a literal string), so the conditional `cp` only runs when
+# there's something to copy. Previous form was
+# `cp -a glob 2>/dev/null || true` which also hid real failures
+# (permission denied, disk full, etc.) — the explicit length-check
+# preserves those failure modes.
+shopt -s nullglob
+_so_files=( "${PIXI_ENV}/lib/"*.so* )
+_dylib_files=( "${PIXI_ENV}/lib/"*.dylib* )
+(( ${#_so_files[@]} )) && cp -a "${_so_files[@]}" "${BUILD_PREFIX}/lib/"
+(( ${#_dylib_files[@]} )) && cp -a "${_dylib_files[@]}" "${BUILD_PREFIX}/lib/"
 if [ -d "${PIXI_ENV}/lib64" ]; then
-    cp -a "${PIXI_ENV}/lib64/"*.so* "${BUILD_PREFIX}/lib64/" 2>/dev/null || true
-    cp -a "${PIXI_ENV}/lib64/"*.dylib* "${BUILD_PREFIX}/lib64/" 2>/dev/null || true
+    _so64_files=( "${PIXI_ENV}/lib64/"*.so* )
+    _dylib64_files=( "${PIXI_ENV}/lib64/"*.dylib* )
+    (( ${#_so64_files[@]} )) && cp -a "${_so64_files[@]}" "${BUILD_PREFIX}/lib64/"
+    (( ${#_dylib64_files[@]} )) && cp -a "${_dylib64_files[@]}" "${BUILD_PREFIX}/lib64/"
 fi
+shopt -u nullglob
 
 # Headers
 cp -a "${PIXI_ENV}/include/." "${BUILD_PREFIX}/include/"
@@ -181,7 +207,10 @@ done
 # pkg-config files (some build tools consult pkg-config)
 if [ -d "${PIXI_ENV}/lib/pkgconfig" ]; then
     mkdir -p "${BUILD_PREFIX}/lib/pkgconfig"
-    cp "${PIXI_ENV}/lib/pkgconfig/"*.pc "${BUILD_PREFIX}/lib/pkgconfig/" 2>/dev/null || true
+    shopt -s nullglob
+    _pc_files=( "${PIXI_ENV}/lib/pkgconfig/"*.pc )
+    (( ${#_pc_files[@]} )) && cp "${_pc_files[@]}" "${BUILD_PREFIX}/lib/pkgconfig/"
+    shopt -u nullglob
 fi
 
 # ---------------------------------------------------------------------------

@@ -57,7 +57,14 @@ if _vendor_abi_match:
         _os.environ.setdefault("PROJ_DATA", str(_proj_data))
         _os.environ.setdefault("PROJ_LIB", str(_proj_data))
     if _gdal_plugins.is_dir():
-        # GDAL loads NetCDF / HDF4 / HDF5 drivers from this dir.
+        # GDAL loads NetCDF / HDF4 / HDF5 drivers from this dir on
+        # Windows. The directory is populated by
+        # install-and-vendor-osgeo only on Windows builds —
+        # conda-forge's libgdal on Linux/macOS links those drivers in
+        # statically, so the dir is absent there and the is_dir()
+        # guard makes the bootstrap cross-platform. Setting
+        # GDAL_DRIVER_PATH against a directory that doesn't exist
+        # would still work but is a smell; the guard avoids it.
         _os.environ.setdefault("GDAL_DRIVER_PATH", str(_gdal_plugins))
 
     if _sys.platform == "win32":  # pragma: no cover

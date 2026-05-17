@@ -8,8 +8,8 @@
 # pixi. The new path is ~6x faster (6–10 min vs 45–60 min), doesn't trigger
 # Docker OOM crashes, and uses pixi.lock for reproducibility.
 #
-# See planning/bundle/build-strategy-alternatives.md and
-# planning/bundle/option-1-implementation-plan.md for rationale.
+# See docs/how-to/wheel-build-flow.md for the active pipeline that
+# replaced this script.
 #
 # This script is kept as a fallback in case conda-forge ever drops a
 # feature we need, or if we need tight control over compile flags that

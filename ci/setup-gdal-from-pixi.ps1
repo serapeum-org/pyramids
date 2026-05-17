@@ -4,7 +4,7 @@
 #
 # Runs once per cibuildwheel Windows invocation (CIBW_BEFORE_ALL).
 #
-# See planning/bundle/option-1-implementation-plan.md Task 5.2.
+# See docs/how-to/wheel-build-flow.md for the end-to-end pipeline.
 
 $ErrorActionPreference = "Stop"
 
@@ -14,9 +14,23 @@ Write-Host "BUILD_PREFIX=$BuildPrefix"
 
 # ---------------------------------------------------------------------------
 # 1. Install pixi
+#
+# Pin the version via .pixi-version at the repo root so CI, local
+# developers, and the cibuildwheel container all agree. PIXI_VERSION
+# is consumed by pixi.sh/install.ps1 — the install script verifies
+# the downloaded binary's SHA256 against its built-in checksum table,
+# so pinning makes the installer reproducible. Override locally with
+# `$env:PIXI_VERSION = "X.Y.Z"; .\ci\setup-gdal-from-pixi.ps1`.
 # ---------------------------------------------------------------------------
 if (-not (Get-Command pixi -ErrorAction SilentlyContinue)) {
-    Write-Host "--- Installing pixi ---"
+    $PixiVersionFile = Join-Path (Split-Path -Parent $PSScriptRoot) ".pixi-version"
+    if (-not $env:PIXI_VERSION -and (Test-Path $PixiVersionFile)) {
+        $env:PIXI_VERSION = (Get-Content $PixiVersionFile -Raw).Trim()
+    }
+    if (-not $env:PIXI_VERSION) {
+        throw "PIXI_VERSION not set and .pixi-version missing at $PixiVersionFile"
+    }
+    Write-Host "--- Installing pixi $($env:PIXI_VERSION) ---"
     $env:PIXI_HOME = $BuildPrefix
     $env:PIXI_NO_PATH_UPDATE = "1"
     Invoke-WebRequest -Uri "https://pixi.sh/install.ps1" -OutFile "$env:TEMP\install-pixi.ps1"
