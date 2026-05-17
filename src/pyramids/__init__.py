@@ -32,9 +32,20 @@ if _vendored_osgeo.is_dir():
         _os.environ.setdefault("GDAL_DRIVER_PATH", str(_gdal_plugins))
 
     if _sys.platform == "win32":  # pragma: no cover
-        _libs_dir = _pkg_dir / ".libs"
-        if _libs_dir.is_dir():
-            _os.add_dll_directory(str(_libs_dir))
+        # delvewheel places DLLs at <site-packages>/pyramids_gis.libs/
+        # (one level up from this package) and injects its own
+        # add_dll_directory call near the top of this file. The block
+        # below is a safety net for both that layout and the older
+        # pyramids/.libs/ convention; the vendored osgeo/__init__.py
+        # also sets the DLL directory on import so spawn workers that
+        # import osgeo without pyramids first still resolve gdal.dll.
+        # The returned handle is stored module-level so GC can't
+        # silently remove the directory from the search path.
+        _PYRAMIDS_DLL_HANDLE = None
+        for _candidate in (_pkg_dir / ".libs", _pkg_dir.parent / "pyramids_gis.libs"):
+            if _candidate.is_dir():
+                _PYRAMIDS_DLL_HANDLE = _os.add_dll_directory(str(_candidate))
+                break
 
     if _os.environ.get("PYRAMIDS_DEBUG_BOOTSTRAP"):  # pragma: no cover
         print(f"[pyramids] vendor dir: {_vendor_str}")

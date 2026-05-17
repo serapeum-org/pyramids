@@ -193,6 +193,51 @@ def _copy_tree_replacing(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst)
 
 
+_OSGEO_DLL_BOOTSTRAP = '''\
+# pyramids vendor patch: ensure GDAL's bundled DLLs are loadable when
+# osgeo is imported directly (i.e. without pyramids being imported
+# first). The delvewheel patch in pyramids/__init__.py only runs when
+# the parent pyramids package is imported, but multiprocessing.spawn
+# workers replay sys.path from the parent so osgeo at
+# pyramids/_vendor/osgeo/ becomes importable without pyramids itself
+# being imported — and os.add_dll_directory state is process-local
+# so the parent's call doesn't carry across. Run the DLL setup here
+# unconditionally on Windows so every interpreter that imports osgeo
+# gets it.
+import os as _pyramids_os
+import sys as _pyramids_sys
+if _pyramids_sys.platform == "win32":
+    _pyramids_libs = _pyramids_os.path.abspath(
+        _pyramids_os.path.join(
+            _pyramids_os.path.dirname(__file__),
+            "..", "..", "..", "pyramids_gis.libs",
+        )
+    )
+    if _pyramids_os.path.isdir(_pyramids_libs):
+        _pyramids_os.add_dll_directory(_pyramids_libs)
+    del _pyramids_libs
+del _pyramids_os, _pyramids_sys
+'''
+
+
+def _patch_vendored_osgeo_init(init_path: Path) -> None:
+    """Prepend a Windows DLL bootstrap to the vendored osgeo/__init__.py.
+
+    Without this, importing ``osgeo`` in a multiprocessing.spawn worker
+    fails with ``ImportError: DLL load failed while importing _gdal``
+    because the parent's ``os.add_dll_directory`` call doesn't carry to
+    spawn children, and the worker imports osgeo before pyramids.
+    """
+    original = init_path.read_text(encoding="utf-8")
+    if "pyramids vendor patch" in original:
+        return
+    init_path.write_text(_OSGEO_DLL_BOOTSTRAP + original, encoding="utf-8")
+    print(
+        f"[install-and-vendor-osgeo] patched {init_path} with Windows DLL bootstrap",
+        flush=True,
+    )
+
+
 def _locate_site_packages_dir(name: str) -> Path | None:
     """Return the on-disk directory of an installed top-level package.
 
@@ -229,6 +274,7 @@ def vendor_osgeo_into_package() -> None:
     vendor_dir = src_pyramids / "_vendor"
     _copy_tree_replacing(osgeo_src, vendor_dir / "osgeo")
     (vendor_dir / "__init__.py").touch()
+    _patch_vendored_osgeo_init(vendor_dir / "osgeo" / "__init__.py")
 
     # 1b. Vendor osgeo_utils/ — GDAL's pip package ships a sibling
     # top-level package for utility scripts (gdal_polygonize, etc.).
