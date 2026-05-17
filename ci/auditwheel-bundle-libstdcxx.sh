@@ -49,11 +49,18 @@ echo "auditwheel python: ${AUDITWHEEL_PYTHON}"
 "${AUDITWHEEL_PYTHON}" <<'PY'
 """Mutate auditwheel's bundled manylinux policy to drop libstdc++.so.6.
 
-Loads every JSON file shipped alongside auditwheel.policy, finds the
-entries whose `name` starts with `manylinux_2_28`, removes
-`libstdc++.so.6` from each entry's `lib_whitelist`, and writes the
-file back. Works against auditwheel 6.x's policy schema. Fails loudly
-if the schema changes (no silent no-op).
+Loads every JSON file shipped alongside auditwheel.policy and removes
+`libstdc++.so.6` from EVERY manylinux entry's `lib_whitelist`.
+
+Why every entry, not just manylinux_2_28: auditwheel's PEP 600
+compliance validator (`_validate_pep600_compliance`) requires each
+newer manylinux policy's `lib_whitelist` to be a SUPERSET of older
+ones. Removing libstdc++.so.6 from manylinux_2_28 alone trips that
+check ("Missing whitelist libraries in manylinux_2_28 compared to
+previous policies"). Remove from all so the policies stay consistent.
+
+We don't touch musllinux entries — they're unrelated to our use case
+and removing libs there would be over-reach.
 """
 import json
 import sys
@@ -84,8 +91,10 @@ for pf in policy_files:
         if not isinstance(entry, dict):
             continue
         name = entry.get('name', '')
+        if not name.startswith('manylinux'):
+            continue
         whitelist = entry.get('lib_whitelist')
-        if 'manylinux_2_28' in name and isinstance(whitelist, list) and 'libstdc++.so.6' in whitelist:
+        if isinstance(whitelist, list) and 'libstdc++.so.6' in whitelist:
             whitelist.remove('libstdc++.so.6')
             file_muts += 1
             print(f"  removed libstdc++.so.6 from {name}'s lib_whitelist")
@@ -94,7 +103,7 @@ for pf in policy_files:
         mutations += file_muts
 
 if not mutations:
-    sys.exit("ERROR: did not find any manylinux_2_28 policy with libstdc++.so.6 "
+    sys.exit("ERROR: did not find any manylinux policy with libstdc++.so.6 "
              "in its lib_whitelist. auditwheel policy schema may have changed.")
 
 print(f"Applied {mutations} mutation(s) to auditwheel's bundled policy")
