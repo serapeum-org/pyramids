@@ -276,47 +276,6 @@ jobs:
         timeout-minutes: 10
         run: pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m core tests/
 
-  # -------------------------------------------------------------------------
-  # Publish to PyPI using the PYPI_PUBLISH token (same secret as
-  # pypi-release.yml, same tooling pattern — twine via pixi).
-  #
-  # Gate: only runs on `release` events or `workflow_dispatch` with
-  # `upload-to-pypi=true`. Disabled by default — uncomment to enable.
-  # -------------------------------------------------------------------------
-#   publish:
-#     needs: [build-sdist, build-linux-wheels, build-macos-wheels, build-windows-wheels, test-wheels]
-#     if: >-
-#       github.event_name == 'release' ||
-#       (github.event_name == 'workflow_dispatch' && inputs.upload-to-pypi)
-#     runs-on: ubuntu-latest
-#     steps:
-#       - uses: actions/checkout@v5
-#         with:
-#           fetch-depth: 0
-#
-#       - name: Download all build artifacts (sdist + all platform wheels)
-#         uses: actions/download-artifact@v4
-#         with:
-#           pattern: "*"
-#           merge-multiple: true
-#           path: dist/
-#
-#       - name: List artifacts to be published
-#         run: ls -la dist/
-#
-#       # Use the same pixi + twine pattern as pypi-release.yml's custom
-#       # action, but WITHOUT the `python -m build` step (wheels are
-#       # already built by cibuildwheel above).
-#       - name: Set up Pixi
-#         uses: serapeum-org/github-actions/actions/python-setup/pixi@pixi/v1
-#         with:
-#           environments: dev
-#           activate-environment: dev
-#           verify-lock: 'false'
-#
-#       - name: Publish pre-built wheels + sdist to PyPI
-#         env:
-#           TWINE_USERNAME: __token__
-#           TWINE_PASSWORD: ${{ secrets.PYPI_PUBLISH }}
-#         run: |
-#           pixi run -e dev twine upload --non-interactive dist/*
+  # Publishing to PyPI happens in .github/workflows/pypi-release.yml
+  # (token-based twine via pixi). This workflow only builds + tests the
+  # wheels and uploads them as run artifacts.
