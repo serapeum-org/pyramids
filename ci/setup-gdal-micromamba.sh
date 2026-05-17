@@ -59,16 +59,46 @@ mkdir -p "${MAMBA_ROOT_PREFIX}"
 rm -rf "${PIXI_ENV}"
 mkdir -p "${PIXI_ENV}"
 
-# Package set mirrors [tool.pixi.feature.wheel-build.dependencies] in
-# pyproject.toml — keep the two in sync.
+# Package set is the single source of truth in
+# [tool.pixi.feature.wheel-build.dependencies] in pyproject.toml; read
+# the four pins at runtime so a tightening of the pyproject range can
+# never drift away from this cross-compile branch unnoticed. micromamba
+# accepts a conda match-spec when concatenated as ``<name><spec>``
+# (e.g. ``gdal>=3.12,<3.13``) — the same form pyproject uses.
+PYPROJECT="$(cd "$(dirname "$0")/.." && pwd)/pyproject.toml"
+if [[ ! -f "${PYPROJECT}" ]]; then
+    echo "ERROR: pyproject.toml not found at ${PYPROJECT}" >&2
+    exit 1
+fi
+
+read_pin() {
+    python3 - "${PYPROJECT}" "$1" <<'PY'
+import sys, tomllib
+with open(sys.argv[1], "rb") as f:
+    data = tomllib.load(f)
+print(data["tool"]["pixi"]["feature"]["wheel-build"]["dependencies"][sys.argv[2]])
+PY
+}
+
+GDAL_SPEC=$(read_pin gdal)
+LIBGDAL_NETCDF_SPEC=$(read_pin libgdal-netcdf)
+LIBGDAL_HDF4_SPEC=$(read_pin libgdal-hdf4)
+SWIG_SPEC=$(read_pin swig)
+
+echo "--- Wheel-build pins (from pyproject.toml) ---"
+echo "  gdal${GDAL_SPEC}"
+echo "  libgdal-netcdf${LIBGDAL_NETCDF_SPEC}"
+echo "  libgdal-hdf4${LIBGDAL_HDF4_SPEC}"
+echo "  swig${SWIG_SPEC}"
+
 echo "--- Creating ${TARGET_PLATFORM} env at ${PIXI_ENV} ---"
 "${MAMBA_BIN}" create -p "${PIXI_ENV}" \
     --platform "${TARGET_PLATFORM}" \
     -c conda-forge \
     -y \
-    "gdal=3.12.*" \
-    "libgdal-netcdf=3.12.*" \
-    "libgdal-hdf4=3.12.*" \
-    "swig>=4.3,<5"
+    "gdal${GDAL_SPEC}" \
+    "libgdal-netcdf${LIBGDAL_NETCDF_SPEC}" \
+    "libgdal-hdf4${LIBGDAL_HDF4_SPEC}" \
+    "swig${SWIG_SPEC}"
 
 echo "=== setup-gdal-micromamba.sh complete ==="
