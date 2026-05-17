@@ -237,17 +237,40 @@ del _pyramids_os, _pyramids_sys
 
 
 def _patch_vendored_osgeo_init(init_path: Path) -> None:
-    """Prepend a Windows DLL bootstrap to the vendored osgeo/__init__.py.
+    """Inject a Windows DLL bootstrap into the vendored osgeo/__init__.py.
 
     Without this, importing ``osgeo`` in a multiprocessing.spawn worker
     fails with ``ImportError: DLL load failed while importing _gdal``
     because the parent's ``os.add_dll_directory`` call doesn't carry to
     spawn children, and the worker imports osgeo before pyramids.
+
+    The bootstrap is spliced AFTER any leading comments, blank lines,
+    and ``from __future__`` imports so the patch stays valid if
+    upstream osgeo ever adds a future-import (PEP 236 requires
+    __future__ imports to precede any other statement). The current
+    conda-forge osgeo doesn't use __future__, but ``gdal=3.12.*`` is
+    intentionally loose and a 3.12.x bump could add one without our
+    pin moving.
     """
     original = init_path.read_text(encoding="utf-8")
     if "pyramids vendor patch" in original:
         return
-    init_path.write_text(_OSGEO_DLL_BOOTSTRAP + original, encoding="utf-8")
+    lines = original.splitlines(keepends=True)
+    insert_at = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if (not stripped
+                or stripped.startswith("#")
+                or stripped.startswith("from __future__")):
+            insert_at = i + 1
+            continue
+        break
+    patched = (
+        "".join(lines[:insert_at])
+        + _OSGEO_DLL_BOOTSTRAP
+        + "".join(lines[insert_at:])
+    )
+    init_path.write_text(patched, encoding="utf-8")
     print(
         f"[install-and-vendor-osgeo] patched {init_path} with Windows DLL bootstrap",
         flush=True,
