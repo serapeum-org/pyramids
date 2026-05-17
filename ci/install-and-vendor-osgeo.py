@@ -30,15 +30,26 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _gdal_version() -> str:
-    """Return the GDAL_VERSION env var, failing fast if unset."""
-    version = os.environ.get("GDAL_VERSION")
-    if not version:
-        raise RuntimeError(
-            "GDAL_VERSION env var is required. Set it in "
-            "[tool.cibuildwheel.linux.environment] to the version pixi/"
-            "conda-forge delivered (check `gdal-config --version`)."
-        )
-    return version
+    """Return the concrete GDAL version that BEFORE_ALL resolved.
+
+    ``ci/setup-gdal-from-pixi.{sh,ps1}`` writes the version pixi /
+    micromamba actually installed into ``${BUILD_PREFIX}/GDAL_VERSION``
+    so this script can ``pip install GDAL==X.Y.Z`` against the exact
+    libgdal binary we bundle. Falls back to the ``GDAL_VERSION`` env
+    var for transitional / out-of-band invocations.
+    """
+    version_file = _build_prefix() / "GDAL_VERSION"
+    if version_file.is_file():
+        version = version_file.read_text().strip()
+        if version:
+            return version
+    version = os.environ.get("GDAL_VERSION", "").strip()
+    if version:
+        return version
+    raise RuntimeError(
+        f"GDAL version not resolved: expected {version_file} written by "
+        "ci/setup-gdal-from-pixi.{sh,ps1} or GDAL_VERSION env var set."
+    )
 
 
 def _build_prefix() -> Path:

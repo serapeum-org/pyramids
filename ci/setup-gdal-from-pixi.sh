@@ -120,6 +120,21 @@ if [ ! -d "${PIXI_ENV}" ]; then
 fi
 echo "wheel-build env: ${PIXI_ENV}"
 
+# Resolve the concrete GDAL version from the env we just materialized
+# and persist it for install-and-vendor-osgeo.py (which needs an exact
+# version to pin `pip install GDAL==X.Y.Z`). Single source of truth =
+# pixi.lock / micromamba solver output — no more hardcoded duplicates
+# in pyproject.toml or build-wheels.yml.
+GDAL_CONFIG="${PIXI_ENV}/bin/gdal-config"
+if [ ! -x "${GDAL_CONFIG}" ]; then
+    echo "ERROR: ${GDAL_CONFIG} missing or not executable" >&2
+    exit 1
+fi
+GDAL_VERSION="$("${GDAL_CONFIG}" --version)"
+mkdir -p "${BUILD_PREFIX}"
+printf "%s" "${GDAL_VERSION}" > "${BUILD_PREFIX}/GDAL_VERSION"
+echo "resolved GDAL_VERSION=${GDAL_VERSION}"
+
 # ---------------------------------------------------------------------------
 # 3. Extract native artifacts into ${BUILD_PREFIX}
 # ---------------------------------------------------------------------------

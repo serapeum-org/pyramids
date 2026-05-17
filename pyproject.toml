@@ -395,9 +395,10 @@ repair-wheel-command = [
 ]
 
 [tool.cibuildwheel.linux.environment]
-# GDAL_VERSION must match the version conda-forge ships for the pin in
-# [tool.pixi.feature.wheel-build.dependencies]. Currently GDAL 3.12.3.
-GDAL_VERSION = "3.12.3"
+# GDAL_VERSION is NOT pinned here: ci/setup-gdal-from-pixi.sh writes
+# the concrete version it actually installed into
+# ${BUILD_PREFIX}/GDAL_VERSION, and install-and-vendor-osgeo.py reads
+# it from there. Single source of truth = pixi.lock.
 BUILD_PREFIX = "/usr/local"
 GDAL_DATA = "/usr/local/share/gdal"
 PROJ_DATA = "/usr/local/share/proj"
@@ -432,7 +433,7 @@ repair-wheel-command = [
 ]
 
 [tool.cibuildwheel.macos.environment]
-GDAL_VERSION = "3.12.3"
+# GDAL_VERSION is resolved at runtime — see Linux block above.
 # macOS can't write to /usr/local without sudo on GitHub runners; use a
 # writable prefix under $HOME instead.
 BUILD_PREFIX = "/Users/runner/gdal-prefix"
@@ -469,7 +470,7 @@ repair-wheel-command = [
 ]
 
 [tool.cibuildwheel.windows.environment]
-GDAL_VERSION = "3.12.3"
+# GDAL_VERSION is resolved at runtime — see Linux block above.
 # Windows pixi envs put DLLs/headers under .pixi/envs/<env>/Library/
 # following conda/Anaconda Windows conventions.
 # NOTE: Use forward slashes so the values survive bash/PowerShell/cmd

@@ -24,10 +24,10 @@ on:
 permissions:
   contents: read
 
-env:
-  # Must match [tool.pixi.feature.wheel-build.dependencies] GDAL pin
-  # and GDAL_VERSION in [tool.cibuildwheel.linux.environment].
-  GDAL_VERSION: "3.12.3"
+# GDAL_VERSION is resolved at runtime by ci/setup-gdal-from-pixi.{sh,ps1}
+# from the actual pixi/micromamba env (written to ${BUILD_PREFIX}/GDAL_VERSION).
+# Single source of truth = pixi.lock. The pin range lives in
+# [tool.pixi.feature.wheel-build.dependencies] in pyproject.toml.
 
 jobs:
   # -------------------------------------------------------------------------

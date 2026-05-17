@@ -38,6 +38,25 @@ if (-not (Test-Path $PixiEnv)) {
 }
 Write-Host "wheel-build env: $PixiEnv"
 
+# Resolve the concrete GDAL version from the env we just materialized
+# and persist it for install-and-vendor-osgeo.py. Single source of truth
+# = pixi.lock — no more hardcoded duplicates in pyproject.toml or
+# build-wheels.yml. conda-forge's Windows gdal package doesn't ship a
+# usable gdal-config, so parse the version from conda-meta\gdal-X.Y.Z-*.json
+# instead (the same file conda/pixi/micromamba all populate).
+$GdalMeta = Get-ChildItem -Path (Join-Path $PixiEnv "conda-meta\gdal-*.json") -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $GdalMeta) {
+    throw "gdal package not found in $PixiEnv\conda-meta"
+}
+if ($GdalMeta.BaseName -match '^gdal-(\d+\.\d+\.\d+)') {
+    $GdalVersion = $Matches[1]
+} else {
+    throw "could not parse version from $($GdalMeta.Name)"
+}
+New-Item -ItemType Directory -Force -Path $BuildPrefix | Out-Null
+[System.IO.File]::WriteAllText((Join-Path $BuildPrefix "GDAL_VERSION"), $GdalVersion)
+Write-Host "resolved GDAL_VERSION=$GdalVersion"
+
 # ---------------------------------------------------------------------------
 # 3. Extract native artifacts into $BuildPrefix
 #
