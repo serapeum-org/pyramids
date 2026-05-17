@@ -36,6 +36,7 @@ jobs:
   # -------------------------------------------------------------------------
   build-sdist:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
         with:
@@ -61,6 +62,7 @@ jobs:
   # -------------------------------------------------------------------------
   build-linux-wheels:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -114,6 +116,7 @@ jobs:
       matrix:
         arch: [arm64, x86_64]
     runs-on: macos-14
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
         with:
@@ -140,6 +143,7 @@ jobs:
   # -------------------------------------------------------------------------
   build-windows-wheels:
     runs-on: windows-2022
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -171,6 +175,7 @@ jobs:
   # -------------------------------------------------------------------------
   test-wheels:
     needs: [build-linux-wheels, build-macos-wheels, build-windows-wheels]
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -233,7 +238,7 @@ jobs:
             "PyYAML>=6.0.0" \
             "Shapely>=2.0.0" \
             "scipy>=1.10.0"
-          pip install pytest pytest-env pytest-mock
+          pip install pytest pytest-env pytest-mock pytest-timeout
 
       - name: Verify GDAL import (exercises vendor bootstrap)
         run: |
@@ -259,7 +264,17 @@ jobs:
         # convention as wheel-test.yml::test-wheel-core. Extras-gated
         # tests auto-skip when their extra isn't installed (we install
         # the bare wheel only).
-        run: pytest -vvv -sv -o "pythonpath=" -m core tests/
+        #
+        # --timeout=60: pytest-timeout aborts any single test that runs
+        #   longer than 60 seconds. Caps the blast radius of a hung
+        #   test (we saw a real hang on windows-2022 in run
+        #   25988610633 — the step burned 17+ minutes with no progress).
+        # --timeout-method=thread: signal-based timeouts don't work on
+        #   Windows, so use the thread-based method which is portable.
+        # Step-level timeout-minutes is a backstop in case pytest
+        #   itself deadlocks before reaching a test.
+        timeout-minutes: 10
+        run: pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m core tests/
 
   # -------------------------------------------------------------------------
   # Publish to PyPI using the PYPI_PUBLISH token (same secret as
