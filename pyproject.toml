@@ -230,7 +230,7 @@ markers = [
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["win-64", "linux-64", "osx-arm64", "osx-64"]
+platforms = ["win-64", "linux-64", "linux-aarch64", "osx-arm64", "osx-64"]
 
 [tool.pixi.pypi-dependencies]
 pyramids-gis = { path = ".", editable = true }
@@ -340,6 +340,9 @@ swig = ">=4.3,<5"
 [tool.pixi.feature.wheel-build.target.linux-64.dependencies]
 libstdcxx-ng = "*"
 
+[tool.pixi.feature.wheel-build.target.linux-aarch64.dependencies]
+libstdcxx-ng = "*"
+
 
 [tool.pixi.dependencies]
 gdal = ">=3.10.0,<4"
@@ -384,6 +387,7 @@ test-skip = "*"
 # We use 2_28 instead of 2014 because conda-forge's GDAL binaries link
 # to glibc symbols newer than 2.17. See auditwheel output on first build.
 manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
 # CIBW_BEFORE_ALL runs ONCE per platform (shared across Python versions).
 # Installs pixi, runs pixi install -e wheel-build, extracts conda-forge
 # binaries into /usr/local.
@@ -406,14 +410,15 @@ before-build = [
 # libgdal and all transitive native deps into pyramids_gis.libs/,
 # and patches RPATH so the extensions find their bundled libs at runtime.
 #
-# auditwheel --plat manylinux_2_39_x86_64 (glibc 2.39, Ubuntu 24.04+)
+# auditwheel --plat manylinux_2_39_<arch> (glibc 2.39, Ubuntu 24.04+)
 # because conda-forge's GDAL is compiled with GCC 13, which references
 # GLIBCXX_3.4.32. The manylinux_2_28 image itself is fine as a BUILD
 # environment; the output wheel's compatibility tag just reflects the
 # newer symbols bundled inside. Tighten this as conda-forge releases
-# packages compiled with older GCC.
+# packages compiled with older GCC. ${CIBW_ARCHS} is set by
+# cibuildwheel to "x86_64" or "aarch64" per build.
 repair-wheel-command = [
-    "LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 auditwheel repair --plat manylinux_2_39_x86_64 -w {dest_dir} {wheel}",
+    "LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 auditwheel repair --plat manylinux_2_39_${CIBW_ARCHS} -w {dest_dir} {wheel}",
 ]
 
 [tool.cibuildwheel.linux.environment]
