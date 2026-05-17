@@ -5,17 +5,19 @@ the right one.
 
 ## What gets built per release
 
-`build-wheels.yml` produces **16 platform wheels + 1 sdist** per release:
+`build-wheels.yml` produces **20 platform wheels + 1 sdist** per
+release:
 
-| Platform | Architecture                   | Python versions        | Wheels |
-|----------|--------------------------------|------------------------|--------|
-| Linux    | x86_64                         | 3.11, 3.12, 3.13, 3.14 | 4      |
-| macOS    | arm64 (Apple Silicon)          | 3.11, 3.12, 3.13, 3.14 | 4      |
-| macOS    | x86_64 (Intel, cross-compiled) | 3.11, 3.12, 3.13, 3.14 | 4      |
-| Windows  | AMD64 (x64)                    | 3.11, 3.12, 3.13, 3.14 | 4      |
-| (any)    | sdist                          | —                      | 1      |
+| Platform | Architecture                       | Python versions        | Wheels |
+|----------|------------------------------------|------------------------|--------|
+| Linux    | x86_64 (`manylinux_2_39`)          | 3.11, 3.12, 3.13, 3.14 | 4      |
+| Linux    | aarch64 (`manylinux_2_39`)         | 3.11, 3.12, 3.13, 3.14 | 4      |
+| macOS    | arm64 (Apple Silicon, `macosx_11_0`)| 3.11, 3.12, 3.13, 3.14 | 4      |
+| macOS    | x86_64 (Intel, cross-compiled)     | 3.11, 3.12, 3.13, 3.14 | 4      |
+| Windows  | AMD64 (x64)                        | 3.11, 3.12, 3.13, 3.14 | 4      |
+| (any)    | sdist                              | —                      | 1      |
 
-**Total: 16 wheels + 1 sdist.**
+**Total: 20 wheels + 1 sdist.**
 
 The macOS x86_64 wheels are cross-compiled on a `macos-14` (arm64)
 runner via Rosetta + ARCHFLAGS — GitHub's `macos-13` (Intel) runner
@@ -23,24 +25,126 @@ queue is unusable in practice (jobs sit queued for hours), so we
 dropped that runner and use cibuildwheel's cross-compile path
 instead.
 
+Linux aarch64 wheels build natively on GitHub's
+`ubuntu-24.04-arm` runner (no emulation), so build time is comparable
+to x86_64 rather than the 8–10× hit you'd get under QEMU.
+
 ## Wheel filenames
 
 Each wheel is tagged with its compatibility info:
 
 ```
-pyramids_gis-0.20.0-cp311-cp311-manylinux_2_39_x86_64.whl     # Linux 3.11
-pyramids_gis-0.20.0-cp312-cp312-manylinux_2_39_x86_64.whl     # Linux 3.12
-pyramids_gis-0.20.0-cp313-cp313-manylinux_2_39_x86_64.whl     # Linux 3.13
+pyramids_gis-0.20.0-cp311-cp311-manylinux_2_39_x86_64.whl     # Linux x86_64 3.11
+pyramids_gis-0.20.0-cp312-cp312-manylinux_2_39_x86_64.whl     # Linux x86_64 3.12
+pyramids_gis-0.20.0-cp313-cp313-manylinux_2_39_x86_64.whl     # Linux x86_64 3.13
+pyramids_gis-0.20.0-cp314-cp314-manylinux_2_39_x86_64.whl     # Linux x86_64 3.14
+pyramids_gis-0.20.0-cp311-cp311-manylinux_2_39_aarch64.whl    # Linux aarch64 3.11
+pyramids_gis-0.20.0-cp312-cp312-manylinux_2_39_aarch64.whl    # Linux aarch64 3.12
+pyramids_gis-0.20.0-cp313-cp313-manylinux_2_39_aarch64.whl    # Linux aarch64 3.13
+pyramids_gis-0.20.0-cp314-cp314-manylinux_2_39_aarch64.whl    # Linux aarch64 3.14
 pyramids_gis-0.20.0-cp311-cp311-macosx_11_0_arm64.whl         # macOS arm64 3.11
 pyramids_gis-0.20.0-cp311-cp311-macosx_11_0_x86_64.whl        # macOS x86_64 3.11
 ...
-pyramids_gis-0.20.0-cp313-cp313-win_amd64.whl                 # Windows 3.13
+pyramids_gis-0.20.0-cp314-cp314-win_amd64.whl                 # Windows 3.14
 pyramids_gis-0.20.0.tar.gz                                    # sdist
 ```
 
 The compatibility tag (e.g. `cp312-cp312-manylinux_2_39_x86_64`) tells
 pip exactly which Python ABI + OS + architecture this wheel was built
 for.
+
+## Platform coverage status
+
+Last reviewed: 2026-05-17 (after the M7 aarch64 + L6 py314 landings
+and the M8 manylinux floor-lowering attempts).
+
+### What the wheels cover today
+
+Users on the rows below get a **native, ready-to-import wheel** from
+PyPI — no compiler, no system GDAL, no conda required:
+
+| OS / arch | Compatibility tag | Distros / versions that match |
+|---|---|---|
+| Linux x86_64, glibc ≥ 2.39 | `manylinux_2_39_x86_64` | Ubuntu 24.04+, Debian 13+, RHEL 10+, Fedora 39+ |
+| Linux aarch64, glibc ≥ 2.39 | `manylinux_2_39_aarch64` | Graviton / Ampere / RPi 5 64-bit on Ubuntu 24.04+, RHEL 10+ |
+| macOS arm64, ≥ 11.0 | `macosx_11_0_arm64` | M1 / M2 / M3 / M4 Macs on macOS 11+ |
+| macOS x86_64, ≥ 11.0 | `macosx_11_0_x86_64` | Intel Macs on macOS 11+ (cross-compiled — see note) |
+| Windows AMD64 | `win_amd64` | Windows 10+ on x64 hardware |
+
+All five platform wheels exist for Python **3.11, 3.12, 3.13, and 3.14**.
+
+> **macOS x86_64 caveat**: the wheel is cross-compiled on the
+> `macos-14` (arm64) runner because GitHub's `macos-13` (Intel) queue
+> sits idle for hours. We can't install + import the cross-compiled
+> wheel on the same runner, so the CI test matrix doesn't exercise it.
+> If you're on an Intel Mac and the wheel fails to load, please open
+> an issue.
+
+### What the wheels DON'T cover
+
+Users on these rows fall back to the **sdist** (which then needs system
+GDAL ≥ 3.10 + a C/C++ compiler at install time — usually painful) or
+the **conda-forge install path** (which is glibc-agnostic and just
+works):
+
+| OS / arch | Why no wheel | Recommended install path |
+|---|---|---|
+| Linux x86_64, glibc 2.28–2.38 | `manylinux_2_39` requires glibc ≥ 2.39 | `conda install -c conda-forge pyramids-gis` |
+| Linux aarch64, glibc 2.28–2.38 | same | `conda install -c conda-forge pyramids-gis` |
+| Alpine / musl Linux | no `musllinux_*`; needs from-source GDAL | `conda install -c conda-forge pyramids-gis` |
+| Windows on ARM64 | no `win_arm64`; conda-forge GDAL is x64-only on Windows | run AMD64 wheel under x86 emulation |
+| Python 3.10 or earlier | excluded by `requires-python = ">= 3.11"` | upgrade Python, or pin `pyramids-gis < 0.20` |
+| Python 3.15+ (future) | not yet released by CPython | wheels ship once conda-forge has matching `gdal` |
+
+Concretely, the glibc gap excludes a large slice of production Linux:
+
+| Distro | glibc | Wheel matches today? |
+|---|---|---|
+| Ubuntu 22.04 LTS | 2.35 | ❌ — use conda-forge |
+| Ubuntu 24.04 LTS | 2.39 | ✓ |
+| Debian 12 (bookworm) | 2.36 | ❌ — use conda-forge |
+| Debian 13 (trixie) | 2.39 | ✓ |
+| RHEL / Rocky / Alma 9 | 2.34 | ❌ — use conda-forge |
+| RHEL / Rocky / Alma 10 | 2.39 | ✓ |
+| Fedora 38 | 2.37 | ❌ — use conda-forge |
+| Amazon Linux 2023 | 2.34 | ❌ — use conda-forge |
+
+### Why the glibc floor is 2.39 (and not 2.28)
+
+conda-forge's GDAL is compiled with **GCC 13**, whose `libstdc++.so.6`
+exports `GLIBCXX_3.4.32` (a symbol absent from the system libstdc++ on
+every ❌ row above). `auditwheel` correctly refuses to tag the wheel
+below `manylinux_2_39` because the SWIG `.so` extensions
+(`_gdal.cpython-3XX-…-linux-gnu.so`) reference that symbol directly.
+
+Three escalating attempts to lower the floor to `manylinux_2_28` —
+dropping `--plat`, mutating auditwheel's policy `lib_whitelist`, and
+`auditwheel repair --exclude libstdc++.so.6` + manual bundle + RPATH
+patch — **all rejected by auditwheel** on `feat/cog` (commits
+`95e067f8`, `47515b85`, `54252a2f`, all reverted). Root cause:
+auditwheel's policy-level symbol-version scan inspects the wheel's own
+`.so` files independently of `--exclude` or `lib_whitelist`. The full
+diagnostic table (`GLIBCXX_3.4.26 … 3.4.32`, `CXXABI_1.3.13 / 1.3.15`,
+`GCC_12.0.0`) and the recipe that *would* work
+("Step 2c" — full policy mutation: extend `symbol_versions` AND drop
+`libstdc++.so.6` + `libgcc_s.so.1` from `lib_whitelist`) is documented
+in the standalone-repo project spec at
+`planning/bundle/lower-manylinux-glibc-floor-with-bundled-libstdcxx.md`
+(within this repo, but `planning/` is gitignored).
+
+That work is **scoped out of `pyramids` itself** and is not on the
+roadmap for this repo — pyramids defers it to that separate project.
+In the meantime, conda-forge covers every glibc-< 2.39 user
+out-of-the-box.
+
+### Coverage roadmap (not committed)
+
+| Gap | Status | Notes |
+|---|---|---|
+| Lower glibc floor to `manylinux_2_28` | **Spun out** to separate repo | not on roadmap; conda-forge is the fallback |
+| musllinux (Alpine) | Won't-do for now | needs from-source GDAL (~1 week); conda-forge covers Alpine |
+| Windows ARM64 | Won't-do for now | blocked on conda-forge `gdal` win-arm64; <2% of Windows |
+| Python 3.15+ | Ships when CPython 3.15 + conda-forge `gdal` are out | one-line bump to `[tool.cibuildwheel].build` |
 
 ## Why separate wheels per OS / arch / Python version?
 
@@ -76,11 +180,14 @@ Python C API ABI.
 ├── build-sdist (1 job, ubuntu-latest)
 │   └── python -m build --sdist → pyramids_gis-X.Y.Z.tar.gz
 │
-├── build-linux-wheels (1 job, ubuntu-latest, builds 4 wheels)
-│   └── cibuildwheel:
-│       ├── CIBW_BEFORE_ALL (once):
+├── build-linux-wheels (2 jobs in matrix: x86_64 + aarch64, builds 4 wheels each)
+│   ├── For arch == x86_64 → runs on ubuntu-latest
+│   ├── For arch == aarch64 → runs on ubuntu-24.04-arm (native ARM runner; no QEMU)
+│   └── cibuildwheel (shared logic across both arches):
+│       ├── CIBW_BEFORE_ALL (once per job):
 │       │   bash ci/setup-gdal-from-pixi.sh
-│       │   → installs pixi → installs wheel-build env
+│       │   → installs pixi → installs wheel-build env (linux-64 or
+│       │     linux-aarch64 platform pin, matching the runner)
 │       │   → extracts libgdal.so + transitive deps into /usr/local
 │       │   → writes ${BUILD_PREFIX}/GDAL_VERSION (read from
 │       │     gdal-config — single source of truth = pixi.lock)
@@ -93,11 +200,11 @@ Python C API ABI.
 │       │   │   → vendors osgeo/ + osgeo_utils/ → src/pyramids/_vendor/
 │       │   │   → vendors GDAL_DATA + PROJ_DATA → src/pyramids/_data/
 │       │   ├── CIBW_BUILD:
-│       │   │   pip wheel . → pyramids_gis-X.Y.Z-cp3NN-cp3NN-linux_x86_64.whl
+│       │   │   pip wheel . → pyramids_gis-X.Y.Z-cp3NN-cp3NN-linux_<arch>.whl
 │       │   └── CIBW_REPAIR_WHEEL_COMMAND:
-│       │       auditwheel repair → manylinux_2_39_x86_64.whl
+│       │       auditwheel repair → manylinux_2_39_<arch>.whl
 │       │       (bundles libgdal.so + transitive deps, patches RPATH)
-│       └── upload-artifact: wheels-linux-x86_64
+│       └── upload-artifact: wheels-linux-<arch> (one artifact per arch)
 │
 ├── build-macos-wheels (2 jobs in matrix: arm64 + x86_64, both on macos-14)
 │   ├── CIBW_BEFORE_ALL: ci/setup-gdal-from-pixi.sh
@@ -139,17 +246,19 @@ Python C API ABI.
     └── upload-artifact: wheels-windows-AMD64
 ```
 
-After all build jobs finish, `test-wheels` runs a 12-cell matrix
-(3 OSes × 4 Python versions) installing each wheel in a clean Python
-env and running `pytest -m core`. macOS x86_64 testing is skipped —
+After all build jobs finish, `test-wheels` runs a 16-cell matrix
+(4 OSes × 4 Python versions) installing each wheel in a clean Python
+env and running `pytest -m core`. The 4 OSes are
+`ubuntu-latest` (x86_64), `ubuntu-24.04-arm` (aarch64), `macos-14`
+(arm64), and `windows-2022` (AMD64). macOS x86_64 testing is skipped —
 the wheel is cross-compiled on an arm64 host so we can't install it
 on the same runner, and GitHub's macos-13 queue is unusable.
 
-The matrix uses `os` as a real axis (`os: [ubuntu-latest, macos-14,
-windows-2022]`) and `include:` adds per-OS properties (`arch`,
-`artifact`, `wheel-tag`). An earlier `include`-only shape silently
-collapsed all 9 combos to 3 Windows-only jobs, which masked real
-test failures.
+The matrix uses `os` as a real axis (`os: [ubuntu-latest,
+ubuntu-24.04-arm, macos-14, windows-2022]`) and `include:` adds per-OS
+properties (`arch`, `artifact`, `wheel-tag`). An earlier
+`include`-only shape silently collapsed all combos to Windows-only
+jobs, which masked real test failures.
 
 Wheels are installed with `pip install --no-deps <wheel>` and the
 remaining runtime deps (geopandas, numpy, pandas, …) are installed
@@ -178,14 +287,20 @@ When a user runs `pip install pyramids-gis`, pip:
 
 Examples:
 
-| User environment | Wheel pip picks |
-|------------------|-----------------|
-| Ubuntu 24.04 + Python 3.12 | `cp312-cp312-manylinux_2_39_x86_64` |
-| M2 Mac + Python 3.13 | `cp313-cp313-macosx_11_0_arm64` |
-| Intel Mac + Python 3.13 | `cp313-cp313-macosx_11_0_x86_64` |
-| Windows 11 + Python 3.11 | `cp311-cp311-win_amd64` |
-| Alpine Linux (musl) | no wheel matches → sdist → fails without system GDAL |
-| Ubuntu 22.04 (glibc 2.35) | no wheel matches → sdist → fails without system GDAL |
+| User environment | What pip picks / what happens |
+|------------------|-------------------------------|
+| Ubuntu 24.04 (x86_64) + Python 3.12 | `cp312-cp312-manylinux_2_39_x86_64` wheel |
+| Graviton (aarch64) + Ubuntu 24.04 + Python 3.13 | `cp313-cp313-manylinux_2_39_aarch64` wheel |
+| Raspberry Pi 5 + 64-bit Ubuntu 24.04 + Python 3.12 | `cp312-cp312-manylinux_2_39_aarch64` wheel |
+| M2 Mac + Python 3.13 | `cp313-cp313-macosx_11_0_arm64` wheel |
+| Intel Mac + Python 3.13 | `cp313-cp313-macosx_11_0_x86_64` wheel (cross-compiled) |
+| Windows 11 (x64) + Python 3.11 | `cp311-cp311-win_amd64` wheel |
+| Ubuntu 22.04 (glibc 2.35) | no wheel matches → sdist fails without system GDAL → use conda-forge |
+| RHEL 9 (glibc 2.34) | same as above → use conda-forge |
+| Amazon Linux 2023 (glibc 2.34) | same as above → use conda-forge |
+| Alpine Linux (musl) | no wheel matches → use conda-forge |
+| Windows on ARM64 | no `win_arm64` wheel → run AMD64 wheel under x86 emulation |
+| Python 3.10 | excluded by `requires-python = ">= 3.11"` — upgrade, or pin `< 0.20` |
 
 ## CI timing
 
@@ -194,11 +309,12 @@ On GitHub-hosted runners (jobs parallel where possible):
 | Job | Duration |
 |-----|----------|
 | `build-sdist` | ~2 min |
-| `build-linux-wheels` | ~12 min (4 wheels) |
+| `build-linux-wheels` (x86_64, ubuntu-latest) | ~12 min (4 wheels) |
+| `build-linux-wheels` (aarch64, ubuntu-24.04-arm, native ARM) | ~12 min (4 wheels) |
 | `build-macos-wheels` (arm64, native) | ~6 min (4 wheels) |
 | `build-macos-wheels` (x86_64, cross-compiled) | ~7 min (4 wheels) |
 | `build-windows-wheels` | ~12 min (4 wheels) |
-| `test-wheels` matrix (12 jobs) | ~3 min (parallel, after builds) |
+| `test-wheels` matrix (16 jobs) | ~3 min (parallel, after builds) |
 
 **Total wall-clock per release: ~15 min** — all build jobs run in
 parallel, then the test matrix.
@@ -224,9 +340,14 @@ You can replicate any single OS's wheel build locally if you have
 Docker (for Linux) or the host OS (for macOS / Windows):
 
 ```bash
-# Linux (Docker; can run from any host OS)
+# Linux x86_64 (Docker; can run from any host OS)
 pip install cibuildwheel
 cibuildwheel --only cp312-manylinux_x86_64
+
+# Linux aarch64 — runs natively on an ARM host (e.g. an M-series Mac,
+# AWS Graviton dev box, or Raspberry Pi). On an x86 host, this would
+# need QEMU emulation (~8–10× slower than native ARM).
+cibuildwheel --only cp312-manylinux_aarch64
 
 # macOS (must run on macOS)
 cibuildwheel --only cp312-macosx_arm64
@@ -242,15 +363,15 @@ cibuildwheel --only cp312-win_amd64
 |------|------|
 | `.github/workflows/build-wheels.yml` | The full pipeline (build + test) |
 | `.github/workflows/pypi-release.yml` | PyPI publish (token-based twine) |
-| `ci/setup-gdal-from-pixi.sh` | Linux + macOS native: install pixi, extract conda-forge binaries, install macOS toolchain symlinks |
+| `ci/setup-gdal-from-pixi.sh` | Linux + macOS native: pixi install, extract conda-forge binaries, toolchain shims |
 | `ci/setup-gdal-micromamba.sh` | macOS cross-compile: install micromamba and resolve target-platform env |
 | `ci/setup-gdal-from-pixi.ps1` | Windows: PowerShell version of the pixi setup |
-| `ci/install-and-vendor-osgeo.py` | Per-Python: build GDAL SWIG bindings + vendor osgeo + data + patch vendored `osgeo/__init__.py` for Windows DLL bootstrap |
+| `ci/install-and-vendor-osgeo.py` | Per-Python: build GDAL SWIG bindings + vendor osgeo + data + DLL-bootstrap patch |
 | `ci/check-wheel-size.sh` | Enforces the `WHEEL_SIZE_BUDGET_MB` ceiling per built wheel |
 | `pyproject.toml` `[tool.cibuildwheel.*]` | cibuildwheel config per OS |
 | `pyproject.toml` `[tool.pixi.feature.wheel-build]` | Minimal pixi env with GDAL native deps |
 | `setup.py` | `BinaryDistribution` override to force platform-specific wheel |
-| `src/pyramids/__init__.py` | Runtime bootstrap that loads the vendored osgeo + prepends `pyramids_gis.libs` to PATH on Windows |
+| `src/pyramids/__init__.py` | Runtime bootstrap: loads vendored osgeo + prepends `pyramids_gis.libs` to Windows PATH |
 
 ## Pitfalls worth remembering
 
