@@ -356,7 +356,14 @@ pyogrio = ">=0.7"
 # cibuildwheel: platform wheel builds with bundled GDAL
 # ---------------------------------------------------------------------------
 [tool.cibuildwheel]
-skip = ["*pp*", "*musllinux*", "cp310-*", "cp39-*", "cp38-*", "cp314t-*"]
+# Positive Python-version selection — the workflow's three build jobs
+# (linux / macos / windows) used to spell this out individually via
+# CIBW_BUILD env vars; centralising here means a new Python release
+# only needs one line bumped instead of three.
+build = ["cp311-*", "cp312-*", "cp313-*"]
+# Belt-and-braces excludes for build IDs that match `build` patterns
+# but we explicitly don't want (PyPy, musllinux, free-threaded 3.14).
+skip = ["*pp*", "*musllinux*", "cp314t-*"]
 archs = ["auto64"]
 build-verbosity = 3
 # NOTE: CIBW_TEST_SKIP = "*" is a temporary Phase 1 workaround. The wheel
