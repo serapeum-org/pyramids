@@ -173,6 +173,12 @@ jobs:
   # -------------------------------------------------------------------------
   # Test the built wheels in a clean environment (no conda, no system GDAL).
   # Covers Linux / macOS / Windows across cp311/cp312/cp313.
+  #
+  # This is the PyPI install-path test: install the platform wheel into
+  # a vanilla pip env and confirm the vendored osgeo / bundled DLLs are
+  # discoverable. The conda-forge install-path test (sdist + system
+  # GDAL) lives in .github/workflows/wheel-test.yml — the two together
+  # cover both shapes end users actually install pyramids-gis in.
   # -------------------------------------------------------------------------
   test-wheels:
     needs: [build-linux-wheels, build-macos-wheels, build-windows-wheels]
