@@ -24,10 +24,17 @@ on:
 permissions:
   contents: read
 
-# GDAL_VERSION is resolved at runtime by ci/setup-gdal-from-pixi.{sh,ps1}
-# from the actual pixi/micromamba env (written to ${BUILD_PREFIX}/GDAL_VERSION).
-# Single source of truth = pixi.lock. The pin range lives in
-# [tool.pixi.feature.wheel-build.dependencies] in pyproject.toml.
+# Named constants used by the build / test steps below. GDAL_VERSION is
+# NOT here — it's resolved at runtime by ci/setup-gdal-from-pixi.{sh,ps1}
+# from the actual pixi/micromamba env (single source of truth =
+# pixi.lock). The manylinux-build-platform tag lives in pyproject.toml
+# under [tool.cibuildwheel.linux].repair-wheel-command — cibuildwheel
+# doesn't expand workflow env vars into that string, so it stays there.
+env:
+  # Hard ceiling on wheel size. Enforced per-platform by the "Report
+  # wheel sizes" step on the Linux job. See
+  # planning/bundle/wheel-size-analysis.md for the rationale.
+  WHEEL_SIZE_BUDGET_MB: "120"
 
 jobs:
   # -------------------------------------------------------------------------
@@ -86,12 +93,13 @@ jobs:
       - name: Report wheel sizes
         shell: bash
         run: |
+          budget_bytes=$(( WHEEL_SIZE_BUDGET_MB * 1024 * 1024 ))
           for whl in wheelhouse/*.whl; do
             size=$(stat -c%s "$whl")
             size_mb=$(awk "BEGIN {printf \"%.1f\", $size/1048576}")
             echo "::notice::$(basename $whl): ${size_mb} MB"
-            if [ "$size" -gt $((120 * 1024 * 1024)) ]; then
-              echo "::error::Wheel exceeds 120 MB size budget — see planning/bundle/wheel-size-analysis.md"
+            if [ "$size" -gt "$budget_bytes" ]; then
+              echo "::error::Wheel exceeds ${WHEEL_SIZE_BUDGET_MB} MB size budget — see planning/bundle/wheel-size-analysis.md"
               exit 1
             fi
           done
