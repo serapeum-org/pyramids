@@ -18,7 +18,6 @@ See planning/bundle/option-1-implementation-plan.md Task 1.5.
 """
 from __future__ import annotations
 
-import glob
 import os
 import shutil
 import subprocess
@@ -70,27 +69,20 @@ def _data_layout_roots(prefix: Path) -> tuple[Path, Path, Path]:
 
 
 def install_gdal_python_bindings() -> None:
-    """pip install ``GDAL==$GDAL_VERSION`` linking against $BUILD_PREFIX.
+    """pip install ``GDAL==<resolved version>`` linking against $BUILD_PREFIX.
 
-    GDAL 3.12.x setup.py uses two different discovery mechanisms:
+    GDAL 3.12.x's setup.py uses two discovery mechanisms:
 
     * Unix (Linux/macOS, ``unix`` compiler): runs ``gdal-config`` via PATH
-      lookup. GDAL does NOT read the ``GDAL_CONFIG`` env var — only the
-      ``--gdal-config=PATH`` setup option or the binary on PATH. So we
-      prepend ``${BUILD_PREFIX}/bin`` to PATH.
+      lookup. So we prepend ``${BUILD_PREFIX}/bin`` to PATH.
+    * Windows (``msvc`` compiler): skips ``gdal-config`` and reads the
+      MSVC ``INCLUDE`` / ``LIB`` env vars. Conda's Windows packages nest
+      under ``${BUILD_PREFIX}/Library/`` so we point INCLUDE/LIB there.
 
-    * Windows (``msvc`` compiler): SKIPS gdal-config entirely and relies
-      on MSVC conventions — ``INCLUDE`` env var for headers, ``LIB`` env
-      var for library dirs. Conda Windows packages nest under
-      ``${BUILD_PREFIX}/Library/`` so we point INCLUDE/LIB there.
-
-    We let pip use build isolation so it pulls in the right setuptools
-    (>=77 per GDAL's build-system.requires). On macOS we additionally
-    apply a PIP_CONSTRAINT pinning numpy<2, because GDAL's build-system
-    requires numpy>=2 by default and numpy 2.x on macos-14 runners has
-    the Accelerate `_cblas_caxpy$NEWLAPACK$ILP64` symbol bug — the
-    build venv's numpy fails to import, and GDAL's setup.py then
-    raises "numpy not available".
+    On macOS we cap parallel build jobs to keep peak memory below the
+    macos-14 runner's ~7 GB ceiling, and on arm64 we pre-install a
+    setuptools/numpy build venv (see the inline comment below the
+    parallelism caps for the Accelerate-ILP64 carve-out).
     """
     version = _gdal_version()
     prefix = _build_prefix()
@@ -110,86 +102,25 @@ def install_gdal_python_bindings() -> None:
         bin_dir, _, _ = _data_layout_roots(prefix)
         env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
 
-    # On macOS, /usr/bin/clang(++) is a stub that asks xcrun to dispatch
-    # via xcodebuild for every invocation. On the macos-14 GitHub runner
-    # we've observed xcodebuild getting SIGKILLed even on a single
-    # upfront probe, with xcrun then reporting
-    #   "unable to find utility 'clang', not a developer tool or in PATH"
-    # and downstream compiles failing with
-    #   "xcode-select: Failed to locate 'clang++'".
-    # The fix is to bypass xcrun/xcodebuild entirely: glob the Xcode app
-    # bundle for the toolchain clang directly and pin CC/CXX/SDKROOT to
-    # those absolute paths. Falls back to CommandLineTools and then to
-    # /usr/bin if no Xcode bundle is present. Also caps parallel build
-    # jobs to keep peak memory below the runner ceiling.
+    # macos-14 GitHub runners SIGKILL xcodebuild on every /usr/bin shim
+    # invocation (clang, otool, install_name_tool, codesign, ...).
+    # CIBW_BEFORE_ALL (setup-gdal-from-pixi.sh) plants symlinks in
+    # /usr/local/bin pointing at the real Xcode toolchain binaries, so
+    # PATH resolution skips the /usr/bin shims entirely. No CC / CXX /
+    # DEVELOPER_DIR plumbing is needed here — just cap parallel build
+    # jobs to keep peak RAM under the runner ceiling.
     if is_macos:
-        toolchain_clang_candidates = sorted(
-            glob.glob(
-                "/Applications/Xcode*.app/Contents/Developer/Toolchains/"
-                "XcodeDefault.xctoolchain/usr/bin/clang"
-            ),
-            reverse=True,
-        )
-        toolchain_clang_candidates.append(
-            "/Library/Developer/CommandLineTools/usr/bin/clang"
-        )
-        cc_path: str | None = None
-        for candidate in toolchain_clang_candidates:
-            if Path(candidate).is_file():
-                cc_path = candidate
-                break
-        if cc_path is not None:
-            cxx_path = cc_path + "++"
-            env["CC"] = cc_path
-            env["CXX"] = cxx_path
-            developer_dir = cc_path.split("/Toolchains/")[0]
-            if developer_dir.endswith("/Developer"):
-                env["DEVELOPER_DIR"] = developer_dir
-                sdk_candidates = sorted(
-                    glob.glob(
-                        f"{developer_dir}/Platforms/MacOSX.platform/"
-                        "Developer/SDKs/MacOSX*.sdk"
-                    ),
-                    reverse=True,
-                )
-                if sdk_candidates:
-                    env["SDKROOT"] = sdk_candidates[0]
-            print(f"[install-and-vendor-osgeo] resolved CC={env['CC']}", flush=True)
-            print(f"[install-and-vendor-osgeo] resolved CXX={env['CXX']}", flush=True)
-            if "DEVELOPER_DIR" in env:
-                print(
-                    f"[install-and-vendor-osgeo] DEVELOPER_DIR={env['DEVELOPER_DIR']}",
-                    flush=True,
-                )
-            if "SDKROOT" in env:
-                print(f"[install-and-vendor-osgeo] SDKROOT={env['SDKROOT']}", flush=True)
-        else:
-            print(
-                "[install-and-vendor-osgeo] no Xcode/CLT toolchain found; "
-                "leaving CC/CXX unset",
-                flush=True,
-            )
         env.setdefault("MAKEFLAGS", "-j2")
         env.setdefault("CMAKE_BUILD_PARALLEL_LEVEL", "2")
         env.setdefault("NPY_NUM_BUILD_JOBS", "2")
 
-    # On macOS arm64, pip's build isolation installs numpy>=2 (per
-    # GDAL's build-system.requires) into a fresh build venv. numpy 2.x
-    # on macos-14 arm64 has the Accelerate ILP64 symbol bug —
-    # _multiarray_umath fails to dlopen — and then GDAL's setup.py
-    # errors with "numpy not available".
-    #
-    # PIP_CONSTRAINT can't override build-system.requires (it can only
-    # ADD constraints, not replace deps), so we pre-install
-    # setuptools>=77 + numpy<2 + wheel in the build venv and then
-    # install GDAL with --no-build-isolation.
-    #
-    # This is arm64-specific. For x86_64 cross-compile builds (macos-14
-    # host targeting x86_64) we leave build isolation on: numpy 1.x has
-    # no cp313 wheels, and pip would try to compile it from source in a
-    # cross-environment where meson refuses ("Can not run test
-    # applications in this cross environment"). numpy 2.x ships cp313
-    # x86_64 wheels and the Accelerate ILP64 bug doesn't affect x86_64.
+    # macOS arm64 only: numpy 2.x on macos-14 hits an Accelerate ILP64
+    # symbol bug (_multiarray_umath fails to dlopen) and GDAL's setup.py
+    # then errors with "numpy not available". Pre-install
+    # setuptools>=77 + wheel + numpy<2 and install GDAL with
+    # --no-build-isolation so pip uses the ambient build deps.
+    # x86_64 cross-compile is unaffected (numpy 2.x ships cp313 wheels;
+    # numpy 1.x doesn't, and meson refuses cross-builds anyway).
     extra_pip_args: list[str] = []
     target_arch = (
         os.environ.get("CIBW_ARCHS")
