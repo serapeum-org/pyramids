@@ -92,17 +92,7 @@ jobs:
 
       - name: Report wheel sizes
         shell: bash
-        run: |
-          budget_bytes=$(( WHEEL_SIZE_BUDGET_MB * 1024 * 1024 ))
-          for whl in wheelhouse/*.whl; do
-            size=$(stat -c%s "$whl")
-            size_mb=$(awk "BEGIN {printf \"%.1f\", $size/1048576}")
-            echo "::notice::$(basename $whl): ${size_mb} MB"
-            if [ "$size" -gt "$budget_bytes" ]; then
-              echo "::error::Wheel exceeds ${WHEEL_SIZE_BUDGET_MB} MB size budget — see planning/bundle/wheel-size-analysis.md"
-              exit 1
-            fi
-          done
+        run: bash ci/check-wheel-size.sh wheelhouse
 
       - uses: actions/upload-artifact@v4
         with:
