@@ -109,13 +109,9 @@ if not mutations:
 print(f"Applied {mutations} mutation(s) to auditwheel's bundled policy")
 PY
 
-echo "--- auditwheel show (which symbols / libs / manylinux level the wheel actually needs) ---"
+echo "--- Running auditwheel repair ---"
 LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 \
-    auditwheel show "${WHEEL}" || true
-
-echo "--- Running auditwheel repair (verbose) ---"
-LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 \
-    auditwheel -v repair --plat "manylinux_2_28_${AUDITWHEEL_ARCH}" \
-                         -w "${DEST_DIR}" \
-                         "${WHEEL}"
+    auditwheel repair --plat "manylinux_2_28_${AUDITWHEEL_ARCH}" \
+                      -w "${DEST_DIR}" \
+                      "${WHEEL}"
 echo "=== auditwheel-bundle-libstdcxx.sh complete ==="
