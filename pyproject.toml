@@ -122,8 +122,13 @@ where = ["src"]
 include = ["pyramids", "pyramids.*"]
 
 [tool.setuptools.package-data]
+# YAML payload is scoped to base/data/ (the only directory with YAML
+# files today: config.yaml, gdal_drivers.yaml, ogr_drivers.yaml). A
+# recursive ``**/*.yaml`` would silently ship any future test fixture
+# or plot config dropped under src/pyramids/ — tighten as new YAMLs
+# appear rather than blanket-include.
 pyramids = [
-    "**/*.yaml",
+    "base/data/*.yaml",
     "_vendor/osgeo/**/*",
     "_vendor/osgeo_utils/**/*",
     "_data/gdal_data/*",
@@ -257,6 +262,14 @@ parquet = { features = ["viz", "dev", "xarray", "lazy", "parquet"], solve-group 
 parquet-lazy = { features = ["viz", "dev", "xarray", "lazy", "parquet", "parquet-lazy"], solve-group = "default" }
 notebook = { features = ["viz", "notebook"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "docs" }
+# py3XX envs run the Python-version matrix in tests.yml. They
+# intentionally OMIT the `lazy` feature: lazy code paths (dask,
+# distributed, zarr, fsspec, flox) are exercised in the separate
+# `extras-package` matrix via the `netcdf-lazy` and `parquet-lazy`
+# envs (both include `lazy` transitively). Including `lazy` here too
+# would duplicate that coverage and double the env-resolve time per
+# matrix cell. `dev` keeps `lazy` because that env is for local
+# development convenience, not the CI matrix.
 py311 = { features = ["py311", "viz", "dev", "xarray"], solve-group = "py311" }
 py312 = { features = ["py312", "viz", "dev", "xarray"], solve-group = "py312" }
 py313 = { features = ["py313", "viz", "dev", "xarray"], solve-group = "py313" }

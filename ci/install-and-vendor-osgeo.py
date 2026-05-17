@@ -347,6 +347,17 @@ def vendor_osgeo_into_package() -> None:
     if plugins_src.is_dir():
         _copy_tree_replacing(plugins_src, src_pyramids / "_data" / "gdalplugins")
 
+    # 5. Defense-in-depth ``.gitignore`` markers. The repo .gitignore
+    # already excludes ``src/pyramids/_vendor/`` and ``src/pyramids/_data/``,
+    # but a dev who runs ``cibuildwheel`` locally and then
+    # ``git add -f`` (force-add bypasses .gitignore) could still
+    # accidentally commit the vendored payload. A directory-local
+    # .gitignore that says ``*`` makes git refuse the add even with -f
+    # unless the user passes -f twice.
+    for marker_dir in (vendor_dir, src_pyramids / "_data"):
+        marker_dir.mkdir(parents=True, exist_ok=True)
+        (marker_dir / ".gitignore").write_text("*\n", encoding="utf-8")
+
 
 def main() -> None:
     if os.environ.get("PACKAGE_DATA") != "1":
