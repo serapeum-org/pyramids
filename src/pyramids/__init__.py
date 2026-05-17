@@ -41,10 +41,19 @@ if _vendored_osgeo.is_dir():
         # import osgeo without pyramids first still resolve gdal.dll.
         # The returned handle is stored module-level so GC can't
         # silently remove the directory from the search path.
+        #
+        # We also prepend the libs dir to PATH because GDAL's native
+        # plugin loader uses raw LoadLibrary (no SEARCH_USER_DIRS
+        # flag), which doesn't honor add_dll_directory. PATH is the
+        # only env-controlled fallback in the legacy DLL search order.
         _PYRAMIDS_DLL_HANDLE = None
         for _candidate in (_pkg_dir / ".libs", _pkg_dir.parent / "pyramids_gis.libs"):
             if _candidate.is_dir():
                 _PYRAMIDS_DLL_HANDLE = _os.add_dll_directory(str(_candidate))
+                _candidate_str = str(_candidate)
+                _path = _os.environ.get("PATH", "")
+                if _candidate_str not in _path.split(_os.pathsep):
+                    _os.environ["PATH"] = _candidate_str + _os.pathsep + _path
                 break
 
     if _os.environ.get("PYRAMIDS_DEBUG_BOOTSTRAP"):  # pragma: no cover
