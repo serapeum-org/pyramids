@@ -26,10 +26,15 @@ classifiers = [
 requires-python = ">= 3.11, <4"
 
 dependencies = [
-    # GDAL is NOT listed as a pip dep: it's vendored into the wheel
-    # (see src/pyramids/_vendor/osgeo/ after build). conda-forge users
-    # still get GDAL via conda dependency in the feedstock.
-    "GDAL >=3.10.0,<4",
+    # GDAL is intentionally omitted from runtime deps. The platform
+    # wheel vendors GDAL's Python bindings under
+    # pyramids/_vendor/osgeo/, so wheel users don't need pip's GDAL.
+    # conda-forge users get gdal via the feedstock's conda requirement.
+    # sdist users without a matching wheel must install native GDAL
+    # themselves (see docs/installation.md) — pip's PyPI GDAL has no
+    # Windows wheel and forces a from-source build that fails on most
+    # end-user machines anyway, so listing it here would be a worse
+    # default than telling the user to install GDAL out-of-band.
     "geopandas >=1.0.0",
     "hpc-utils >=0.1.5",
     "numpy >=2.0.0",
