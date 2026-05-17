@@ -226,6 +226,14 @@ markers = [
 channels = ["conda-forge"]
 platforms = ["win-64", "linux-64", "osx-arm64", "osx-64"]
 
+# Default pixi pulls in pre-release Python (3.14 alpha) when resolving
+# the default environment, which then leaks py314 builds of gdal/numpy/
+# pandas into the linux-64 and osx-64 entries of pixi.lock. Pin the
+# pypi-prerelease policy to "disallow" so re-locking gives the same
+# stable resolution across machines.
+[tool.pixi.pypi-options]
+prerelease-mode = "disallow"
+
 [tool.pixi.pypi-dependencies]
 pyramids-gis = { path = ".", editable = true }
 
