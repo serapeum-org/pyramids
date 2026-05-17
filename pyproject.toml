@@ -226,14 +226,6 @@ markers = [
 channels = ["conda-forge"]
 platforms = ["win-64", "linux-64", "osx-arm64", "osx-64"]
 
-# Default pixi pulls in pre-release Python (3.14 alpha) when resolving
-# the default environment, which then leaks py314 builds of gdal/numpy/
-# pandas into the linux-64 and osx-64 entries of pixi.lock. Pin the
-# pypi-prerelease policy to "disallow" so re-locking gives the same
-# stable resolution across machines.
-[tool.pixi.pypi-options]
-prerelease-mode = "disallow"
-
 [tool.pixi.pypi-dependencies]
 pyramids-gis = { path = ".", editable = true }
 
@@ -452,8 +444,11 @@ before-build = [
 # delocate-wheel is the macOS equivalent of auditwheel: it walks the
 # .dylib dep graph, bundles transitive deps into the wheel, and patches
 # @loader_path install names so dylibs find each other at runtime.
+# DYLD_LIBRARY_PATH is set in [tool.cibuildwheel.macos.environment] so
+# every macOS subprocess (BEFORE_BUILD + the build itself + this
+# repair command) sees the same value — no need to inline-prefix it.
 repair-wheel-command = [
-    "DYLD_LIBRARY_PATH=$BUILD_PREFIX/lib delocate-wheel --require-archs {delocate_archs} -w {dest_dir} {wheel}",
+    "delocate-wheel --require-archs {delocate_archs} -w {dest_dir} {wheel}",
 ]
 
 [tool.cibuildwheel.macos.environment]
