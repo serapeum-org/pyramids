@@ -85,7 +85,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v3
+        uses: pypa/cibuildwheel@v3.4
         env:
           # Python-version selection lives in pyproject.toml's
           # [tool.cibuildwheel].build = ["cp311-*", "cp312-*", "cp313-*"]
@@ -127,7 +127,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v3
+        uses: pypa/cibuildwheel@v3.4
         env:
           # Python-version selection lives in pyproject.toml's
           # [tool.cibuildwheel].build = ["cp311-*", "cp312-*", "cp313-*"]
@@ -159,7 +159,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v3
+        uses: pypa/cibuildwheel@v3.4
         env:
           # Python-version selection lives in pyproject.toml's
           # [tool.cibuildwheel].build = ["cp311-*", "cp312-*", "cp313-*"]
