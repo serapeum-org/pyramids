@@ -190,3 +190,18 @@ repos:
         language: system
         files: .*\.ipynb$
         always_run: true
+
+  - repo: local
+    hooks:
+      # Fail the commit if pixi.lock is stale relative to pyproject.toml.
+      # `pixi lock --check` re-solves from the manifest and exits non-zero
+      # if the lockfile would change — exactly the silent-drift bug from
+      # PR review M4. Only fires when pyproject.toml or pixi.lock is
+      # staged so unrelated commits don't pay the network round-trip;
+      # skip locally with `SKIP=pixi-lock-check git commit ...`.
+      - id: pixi-lock-check
+        name: "[pixi -  check] pixi.lock up to date"
+        entry: pixi lock --check
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|pixi\.lock)$

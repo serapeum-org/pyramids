@@ -244,21 +244,7 @@ jobs:
           pip install pytest pytest-env pytest-mock pytest-timeout
 
       - name: Verify GDAL import (exercises vendor bootstrap)
-        run: |
-          python -c "
-          import pyramids
-          from osgeo import gdal, ogr, osr
-          print(f'pyramids {pyramids.__version__}')
-          print(f'GDAL {gdal.__version__}')
-          sr = osr.SpatialReference(); sr.ImportFromEPSG(4326)
-          assert sr.GetAttrValue('AUTHORITY', 1) == '4326'
-          ds = gdal.GetDriverByName('MEM').Create('', 10, 10, 1, gdal.GDT_Byte)
-          ds.SetGeoTransform([0, 1, 0, 0, 0, -1])
-          ds.SetProjection(sr.ExportToWkt())
-          import osgeo
-          assert '_vendor' in osgeo.__file__, f'osgeo not from vendor: {osgeo.__file__}'
-          print('All runtime checks passed.')
-          "
+        run: python ci/verify-wheel.py
 
       - name: Run core test suite
         shell: bash

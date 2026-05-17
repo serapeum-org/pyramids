@@ -2,9 +2,13 @@ import random
 from pathlib import Path
 from typing import List, Tuple
 
-# Import pyramids FIRST so its vendor bootstrap adds _vendor/ to sys.path
-# when running against a platform wheel. No-op on editable/dev installs.
-import pyramids  # noqa: F401
+# pyramids.__init__ activates the vendored osgeo if present (sys.path
+# injection, GDAL_DATA / PROJ_DATA / GDAL_DRIVER_PATH env vars, Windows
+# add_dll_directory + PATH prepend). Must run BEFORE any
+# `from osgeo import ...` anywhere in the test tree. The alias makes
+# the side-effect-only intent obvious so this isn't mistaken for an
+# unused import.
+import pyramids as _pyramids_bootstrap  # noqa: F401
 
 import geopandas as gpd
 import numpy as np
