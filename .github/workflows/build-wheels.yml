@@ -12,6 +12,13 @@ on:
         description: "Upload built wheels + sdist to PyPI. Set to false for a build-only dry-run."
         type: boolean
         default: false
+      target:
+        description: "Which PyPI instance to publish to (used only when upload-to-pypi=true)."
+        type: choice
+        options:
+          - pypi
+          - testpypi
+        default: pypi
   pull_request:
     # Auto-run on every push to a PR — primary path for branch testing
     # while this workflow isn't yet on the default branch. Remove or
@@ -301,10 +308,20 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          # Token auth via the same PYPI_PUBLISH secret pypi-release.yml
-          # has always used; trusted publishing (OIDC) is a future
-          # hardening that needs PyPI-side project config.
-          password: ${{ secrets.PYPI_PUBLISH }}
+          # Token + repository-url switch by `target` input. On release
+          # events `target` is unset → the `== 'testpypi'` check is
+          # falsy → defaults to production PyPI + PYPI_PUBLISH token,
+          # matching the original C1 behavior. workflow_dispatch with
+          # `target: testpypi` requires a TEST_PYPI_PUBLISH secret
+          # configured in repo settings.
+          password: >-
+            ${{ inputs.target == 'testpypi'
+                && secrets.TEST_PYPI_PUBLISH
+                || secrets.PYPI_PUBLISH }}
+          repository-url: >-
+            ${{ inputs.target == 'testpypi'
+                && 'https://test.pypi.org/legacy/'
+                || '' }}
           packages-dir: dist/
           # skip-existing lets a re-run after a partial-failed upload
           # succeed — PyPI rejects re-uploads of an existing file.
