@@ -9,7 +9,7 @@ on:
         default: ""
         type: string
       upload-to-pypi:
-        description: "Upload to PyPI (leave false to dry-run; publish job is also commented out by default)"
+        description: "Upload built wheels + sdist to PyPI. Set to false for a build-only dry-run."
         type: boolean
         default: false
   pull_request:
@@ -265,6 +265,48 @@ jobs:
         timeout-minutes: 10
         run: pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m core tests/
 
-  # Publishing to PyPI happens in .github/workflows/pypi-release.yml
-  # (token-based twine via pixi). This workflow only builds + tests the
-  # wheels and uploads them as run artifacts.
+  # Publish all built artifacts (sdist + 20 platform wheels) to PyPI.
+  # Triggered by:
+  #   - release: types: [released]  → fires after github-release.yml's
+  #     commitizen-driven tag publishes the GitHub release.
+  #   - workflow_dispatch with upload-to-pypi == true  → manual override.
+  # Skipped on pull_request / workflow_call so a PR push never publishes.
+  #
+  # All 6 artifacts (sdist + wheels-linux-x86_64 + wheels-linux-aarch64
+  # + wheels-macos-arm64 + wheels-macos-x86_64 + wheels-windows-AMD64)
+  # come from the same workflow run via download-artifact's default
+  # scope. `needs:` ensures publish never fires after a partial build.
+  publish:
+    name: Publish to PyPI
+    needs: [build-sdist, build-linux-wheels, build-macos-wheels, build-windows-wheels, test-wheels]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: |
+      github.event_name == 'release' ||
+      (github.event_name == 'workflow_dispatch' && inputs.upload-to-pypi)
+    permissions:
+      contents: read
+    steps:
+      - name: Download all artifacts from this run
+        uses: actions/download-artifact@v4
+        with:
+          # merge-multiple collapses the 6 per-artifact directories into
+          # a single dist/ that pypa/gh-action-pypi-publish expects.
+          path: dist/
+          merge-multiple: true
+
+      - name: List artifacts about to be published
+        run: ls -lah dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Token auth via the same PYPI_PUBLISH secret pypi-release.yml
+          # has always used; trusted publishing (OIDC) is a future
+          # hardening that needs PyPI-side project config.
+          password: ${{ secrets.PYPI_PUBLISH }}
+          packages-dir: dist/
+          # skip-existing lets a re-run after a partial-failed upload
+          # succeed — PyPI rejects re-uploads of an existing file.
+          skip-existing: true
+          verbose: true

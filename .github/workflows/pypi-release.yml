@@ -1,21 +1,19 @@
-name: pypi-release
+name: pypi-release (emergency sdist-only fallback)
 
-# SUPERSEDED (2026-04-13): build-wheels.yml is now the canonical publish
-# entry point — it builds sdist + 9 platform wheels (Linux/macOS/Windows
-# × cp311/312/313) and publishes all of them with the same PYPI_PUBLISH
-# token this workflow used. See planning/bundle/task-6.3-pypi-trusted-publishing.md.
+# Emergency manual fallback that ships ONLY the sdist to PyPI. Use this
+# when build-wheels.yml is broken and conda-forge needs a new tarball
+# to pick up; do NOT use it for normal releases.
 #
-# This workflow is kept for emergency sdist-only releases (e.g., if the
-# platform wheel build breaks and you need to ship just the sdist so
-# conda-forge can continue to update). Trigger manually via
-# `gh workflow run pypi-release.yml` when needed.
+# The canonical release path is build-wheels.yml's `publish:` job,
+# which builds + tests + publishes sdist plus 20 platform wheels in
+# one workflow. That job fires automatically on `release: types:
+# [released]` (which github-release.yml's commitizen tag emits) and on
+# manual `workflow_dispatch` with `upload-to-pypi: true`.
+#
+# Trigger this workflow manually: `gh workflow run pypi-release.yml`.
 
 on:
   workflow_dispatch:
-  # workflow_run trigger disabled; build-wheels.yml now handles releases.
-  # workflow_run:
-  #   workflows: ['github-release']
-  #   types: [completed]
 
 permissions:
   contents: read
@@ -23,12 +21,11 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_branch || github.ref }}
+          ref: ${{ github.ref }}
 
       - name: Build and publish sdist only (emergency fallback)
         uses: serapeum-org/github-actions/actions/release/pypi@pypi-release/v1
