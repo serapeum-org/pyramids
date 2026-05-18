@@ -1,19 +1,19 @@
 """Smoke test for built platform wheels — exercises the vendor bootstrap.
 
-Invoked by ``.github/workflows/build-wheels.yml`` once per ``test-wheels``
+Invoked by `.github/workflows/build-wheels.yml` once per `test-wheels`
 matrix cell after the wheel is pip-installed into a clean Python env. The
 checks mirror what an end user does on first import:
 
-1. ``import pyramids`` triggers ``pyramids/__init__.py``'s vendor bootstrap
-   (sys.path injection, ``GDAL_DATA``/``PROJ_DATA``/``GDAL_DRIVER_PATH``
-   env vars, Windows ``add_dll_directory`` + ``PATH`` prepend).
-2. ``from osgeo import gdal, ogr, osr`` then resolves to the bundled
-   ``pyramids/_vendor/osgeo`` rather than any system osgeo — verified by
-   asserting ``"_vendor" in osgeo.__file__``.
-3. A round-trip ``SpatialReference(4326)`` + ``MEM`` raster creation
+1. `import pyramids` triggers `pyramids/__init__.py`'s vendor bootstrap
+   (sys.path injection, `GDAL_DATA`/`PROJ_DATA`/`GDAL_DRIVER_PATH`
+   env vars, Windows `add_dll_directory` + `PATH` prepend).
+2. `from osgeo import gdal, ogr, osr` then resolves to the bundled
+   `pyramids/_vendor/osgeo` rather than any system osgeo — verified by
+   asserting `"_vendor" in osgeo.__file__`.
+3. A round-trip `SpatialReference(4326)` + `MEM` raster creation
    exercises the live libgdal/libproj that the wheel ships.
 
-Kept as a standalone file (rather than an inline ``python -c "..."``
+Kept as a standalone file (rather than an inline `python -c "..."`
 heredoc in the workflow) so the script reads cleanly and adding a check
 doesn't require fighting YAML + shell quoting.
 """

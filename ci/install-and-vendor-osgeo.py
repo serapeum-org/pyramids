@@ -1,19 +1,19 @@
 """Install GDAL Python bindings and vendor them into src/pyramids/_vendor/.
 
-Runs once per target Python version in ``CIBW_BEFORE_BUILD``:
+Runs once per target Python version in `CIBW_BEFORE_BUILD`:
 
-1. ``pip install GDAL==<version>`` against the pixi-extracted libgdal
-   sitting under ``$BUILD_PREFIX/lib`` (populated by
-   ``ci/setup-gdal-from-pixi.{sh,ps1}`` in ``CIBW_BEFORE_ALL``). The
-   concrete version is read from ``${BUILD_PREFIX}/GDAL_VERSION`` which
+1. `pip install GDAL==<version>` against the pixi-extracted libgdal
+   sitting under `$BUILD_PREFIX/lib` (populated by
+   `ci/setup-gdal-from-pixi.{sh,ps1}` in `CIBW_BEFORE_ALL`). The
+   concrete version is read from `${BUILD_PREFIX}/GDAL_VERSION` which
    those scripts write at the resolution of pixi.lock / micromamba.
-2. Copy the freshly-built ``osgeo`` package from the target Python's
-   ``site-packages/`` into ``src/pyramids/_vendor/osgeo/``.
-3. Copy ``$BUILD_PREFIX/share/gdal`` and ``$BUILD_PREFIX/share/proj``
-   into ``src/pyramids/_data/`` so setuptools includes them as
+2. Copy the freshly-built `osgeo` package from the target Python's
+   `site-packages/` into `src/pyramids/_vendor/osgeo/`.
+3. Copy `$BUILD_PREFIX/share/gdal` and `$BUILD_PREFIX/share/proj`
+   into `src/pyramids/_data/` so setuptools includes them as
    package-data in the wheel.
 
-Activation is gated by ``PACKAGE_DATA=1`` to avoid accidentally running
+Activation is gated by `PACKAGE_DATA=1` to avoid accidentally running
 during local editable installs.
 """
 from __future__ import annotations
@@ -33,10 +33,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def _gdal_version() -> str:
     """Return the concrete GDAL version that BEFORE_ALL resolved.
 
-    ``ci/setup-gdal-from-pixi.{sh,ps1}`` writes the version pixi /
-    micromamba actually installed into ``${BUILD_PREFIX}/GDAL_VERSION``
-    so this script can ``pip install GDAL==X.Y.Z`` against the exact
-    libgdal binary we bundle. Falls back to the ``GDAL_VERSION`` env
+    `ci/setup-gdal-from-pixi.{sh,ps1}` writes the version pixi /
+    micromamba actually installed into `${BUILD_PREFIX}/GDAL_VERSION`
+    so this script can `pip install GDAL==X.Y.Z` against the exact
+    libgdal binary we bundle. Falls back to the `GDAL_VERSION` env
     var for transitional / out-of-band invocations.
     """
     version_file = _build_prefix() / "GDAL_VERSION"
@@ -60,9 +60,9 @@ def _build_prefix() -> Path:
 def _data_layout_roots(prefix: Path) -> tuple[Path, Path, Path]:
     """Return (bin_dir, share_dir, lib_dir) for the current OS.
 
-    Conda Windows packages nest under ``<prefix>/Library/`` (Anaconda's
+    Conda Windows packages nest under `<prefix>/Library/` (Anaconda's
     Windows convention). Linux and macOS use the standard Unix layout
-    directly under ``<prefix>/``.
+    directly under `<prefix>/`.
     """
     if sys.platform == "win32" or os.name == "nt":
         win_lib_root = prefix / "Library"
@@ -71,15 +71,15 @@ def _data_layout_roots(prefix: Path) -> tuple[Path, Path, Path]:
 
 
 def install_gdal_python_bindings() -> None:
-    """pip install ``GDAL==<resolved version>`` linking against $BUILD_PREFIX.
+    """pip install `GDAL==<resolved version>` linking against $BUILD_PREFIX.
 
     GDAL 3.12.x's setup.py uses two discovery mechanisms:
 
-    * Unix (Linux/macOS, ``unix`` compiler): runs ``gdal-config`` via PATH
-      lookup. So we prepend ``${BUILD_PREFIX}/bin`` to PATH.
-    * Windows (``msvc`` compiler): skips ``gdal-config`` and reads the
-      MSVC ``INCLUDE`` / ``LIB`` env vars. Conda's Windows packages nest
-      under ``${BUILD_PREFIX}/Library/`` so we point INCLUDE/LIB there.
+    * Unix (Linux/macOS, `unix` compiler): runs `gdal-config` via PATH
+      lookup. So we prepend `${BUILD_PREFIX}/bin` to PATH.
+    * Windows (`msvc` compiler): skips `gdal-config` and reads the
+      MSVC `INCLUDE` / `LIB` env vars. Conda's Windows packages nest
+      under `${BUILD_PREFIX}/Library/` so we point INCLUDE/LIB there.
 
     On macOS we cap parallel build jobs to keep peak memory below the
     macos-14 runner's ~7 GB ceiling, and on arm64 we pre-install a
@@ -240,16 +240,16 @@ del _pyramids_os, _pyramids_sys
 def _patch_vendored_osgeo_init(init_path: Path) -> None:
     """Inject a Windows DLL bootstrap into the vendored osgeo/__init__.py.
 
-    Without this, importing ``osgeo`` in a multiprocessing.spawn worker
-    fails with ``ImportError: DLL load failed while importing _gdal``
-    because the parent's ``os.add_dll_directory`` call doesn't carry to
+    Without this, importing `osgeo` in a multiprocessing.spawn worker
+    fails with `ImportError: DLL load failed while importing _gdal`
+    because the parent's `os.add_dll_directory` call doesn't carry to
     spawn children, and the worker imports osgeo before pyramids.
 
     The bootstrap is spliced AFTER any leading comments, blank lines,
-    and ``from __future__`` imports so the patch stays valid if
+    and `from __future__` imports so the patch stays valid if
     upstream osgeo ever adds a future-import (PEP 236 requires
     __future__ imports to precede any other statement). The current
-    conda-forge osgeo doesn't use __future__, but ``gdal=3.12.*`` is
+    conda-forge osgeo doesn't use __future__, but `gdal=3.12.*` is
     intentionally loose and a 3.12.x bump could add one without our
     pin moving.
     """
@@ -281,8 +281,8 @@ def _patch_vendored_osgeo_init(init_path: Path) -> None:
 def _locate_site_packages_dir(name: str) -> Path | None:
     """Return the on-disk directory of an installed top-level package.
 
-    We deliberately do NOT ``import`` the package: on Windows the GDAL
-    SWIG extension loads ``gdal.dll`` and its transitive dep DLLs at
+    We deliberately do NOT `import` the package: on Windows the GDAL
+    SWIG extension loads `gdal.dll` and its transitive dep DLLs at
     import time, and a runtime symbol mismatch between Python 3.13's
     bundled vcruntime and conda-forge's bundled vcruntime triggers
     "DLL load failed: specified procedure could not be found" (cp311/
@@ -344,22 +344,22 @@ def vendor_osgeo_into_package() -> None:
 
     # 4. Vendor GDAL plugins (NetCDF / HDF4 / HDF5 drivers). On
     # Windows, conda-forge ships these as separate .dll files under
-    # ``lib/gdalplugins/`` (or ``Library/lib/gdalplugins/`` on the
+    # `lib/gdalplugins/` (or `Library/lib/gdalplugins/` on the
     # nested layout) and libgdal loads them at runtime via
-    # ``GDAL_DRIVER_PATH``. On Linux/macOS the same drivers are linked
-    # statically into libgdal, so ``lib/gdalplugins/`` doesn't exist
-    # and the ``is_dir()`` guard turns this into a no-op. The runtime
-    # bootstrap in ``src/pyramids/__init__.py`` mirrors this guard.
+    # `GDAL_DRIVER_PATH`. On Linux/macOS the same drivers are linked
+    # statically into libgdal, so `lib/gdalplugins/` doesn't exist
+    # and the `is_dir()` guard turns this into a no-op. The runtime
+    # bootstrap in `src/pyramids/__init__.py` mirrors this guard.
     plugins_src = lib_dir / "gdalplugins"
     if plugins_src.is_dir():
         _copy_tree_replacing(plugins_src, src_pyramids / "_data" / "gdalplugins")
 
     # 5. Vendor third-party license texts. Each conda-forge package
-    # ships its LICENSE under ``info/licenses/`` inside its extracted
+    # ships its LICENSE under `info/licenses/` inside its extracted
     # package dir; the MIT / BSD / LGPL / Apache licenses all require
     # the copyright + permission notice to travel with the binary
     # wherever it's redistributed. Mirror them under
-    # ``pyramids/_licenses/<pkg>/`` so the wheel physically ships each
+    # `pyramids/_licenses/<pkg>/` so the wheel physically ships each
     # license alongside the libgdal / libproj / libgeos / … binaries
     # it bundles.
     _vendor_license_texts(
@@ -367,12 +367,12 @@ def vendor_osgeo_into_package() -> None:
         src_pyramids / "_licenses",
     )
 
-    # 6. Defense-in-depth ``.gitignore`` markers. The repo .gitignore
-    # already excludes ``src/pyramids/_vendor/`` and ``src/pyramids/_data/``,
-    # but a dev who runs ``cibuildwheel`` locally and then
-    # ``git add -f`` (force-add bypasses .gitignore) could still
+    # 6. Defense-in-depth `.gitignore` markers. The repo .gitignore
+    # already excludes `src/pyramids/_vendor/` and `src/pyramids/_data/`,
+    # but a dev who runs `cibuildwheel` locally and then
+    # `git add -f` (force-add bypasses .gitignore) could still
     # accidentally commit the vendored payload. A directory-local
-    # .gitignore that says ``*`` makes git refuse the add even with -f
+    # .gitignore that says `*` makes git refuse the add even with -f
     # unless the user passes -f twice.
     for marker_dir in (vendor_dir, src_pyramids / "_data", src_pyramids / "_licenses"):
         marker_dir.mkdir(parents=True, exist_ok=True)
@@ -380,13 +380,13 @@ def vendor_osgeo_into_package() -> None:
 
 
 def _vendor_license_texts(pixi_env: Path, dst: Path) -> None:
-    """Mirror each conda-forge package's ``info/licenses/`` under ``dst/<pkg>/``.
+    """Mirror each conda-forge package's `info/licenses/` under `dst/<pkg>/`.
 
-    Walks every ``${pixi_env}/conda-meta/*.json`` file, extracts the
+    Walks every `${pixi_env}/conda-meta/*.json` file, extracts the
     package's name + extracted-package directory, and copies the contents
-    of ``<extracted>/info/licenses/`` into ``dst/<pkg-name>/`` so the
+    of `<extracted>/info/licenses/` into `dst/<pkg-name>/` so the
     wheel can ship the LICENSE text alongside the binary it applies to.
-    Skips packages with no ``info/licenses/`` directory (typically pure
+    Skips packages with no `info/licenses/` directory (typically pure
     python helpers that don't ship third-party native code).
     """
     if not pixi_env.is_dir():
