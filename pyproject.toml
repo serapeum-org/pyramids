@@ -123,6 +123,13 @@ pyramids = [
     "_data/gdal_data/*",
     "_data/proj_data/*",
     "_data/gdalplugins/*",
+    # Third-party license texts auto-vendored by
+    # ci/install-and-vendor-osgeo.py from each conda-forge package's
+    # info/licenses/. Required by MIT/BSD/LGPL attribution clauses for
+    # every native lib bundled in pyramids_gis.libs/. See
+    # THIRD_PARTY_LICENSES.md at the repo root for the human-readable
+    # index.
+    "_licenses/**/*",
 ]
 
 [tool.flake8]

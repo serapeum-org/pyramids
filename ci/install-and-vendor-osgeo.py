@@ -18,6 +18,7 @@ during local editable installs.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -353,16 +354,95 @@ def vendor_osgeo_into_package() -> None:
     if plugins_src.is_dir():
         _copy_tree_replacing(plugins_src, src_pyramids / "_data" / "gdalplugins")
 
-    # 5. Defense-in-depth ``.gitignore`` markers. The repo .gitignore
+    # 5. Vendor third-party license texts. Each conda-forge package
+    # ships its LICENSE under ``info/licenses/`` inside its extracted
+    # package dir; the MIT / BSD / LGPL / Apache licenses all require
+    # the copyright + permission notice to travel with the binary
+    # wherever it's redistributed. Mirror them under
+    # ``pyramids/_licenses/<pkg>/`` so the wheel physically ships each
+    # license alongside the libgdal / libproj / libgeos / … binaries
+    # it bundles.
+    _vendor_license_texts(
+        REPO_ROOT / ".pixi" / "envs" / "wheel-build",
+        src_pyramids / "_licenses",
+    )
+
+    # 6. Defense-in-depth ``.gitignore`` markers. The repo .gitignore
     # already excludes ``src/pyramids/_vendor/`` and ``src/pyramids/_data/``,
     # but a dev who runs ``cibuildwheel`` locally and then
     # ``git add -f`` (force-add bypasses .gitignore) could still
     # accidentally commit the vendored payload. A directory-local
     # .gitignore that says ``*`` makes git refuse the add even with -f
     # unless the user passes -f twice.
-    for marker_dir in (vendor_dir, src_pyramids / "_data"):
+    for marker_dir in (vendor_dir, src_pyramids / "_data", src_pyramids / "_licenses"):
         marker_dir.mkdir(parents=True, exist_ok=True)
         (marker_dir / ".gitignore").write_text("*\n", encoding="utf-8")
+
+
+def _vendor_license_texts(pixi_env: Path, dst: Path) -> None:
+    """Mirror each conda-forge package's ``info/licenses/`` under ``dst/<pkg>/``.
+
+    Walks every ``${pixi_env}/conda-meta/*.json`` file, extracts the
+    package's name + extracted-package directory, and copies the contents
+    of ``<extracted>/info/licenses/`` into ``dst/<pkg-name>/`` so the
+    wheel can ship the LICENSE text alongside the binary it applies to.
+    Skips packages with no ``info/licenses/`` directory (typically pure
+    python helpers that don't ship third-party native code).
+    """
+    if not pixi_env.is_dir():
+        print(
+            f"[install-and-vendor-osgeo] pixi env {pixi_env} missing; "
+            "skipping license vendoring",
+            flush=True,
+        )
+        return
+    conda_meta = pixi_env / "conda-meta"
+    if not conda_meta.is_dir():
+        print(
+            f"[install-and-vendor-osgeo] {conda_meta} missing; "
+            "skipping license vendoring",
+            flush=True,
+        )
+        return
+
+    if dst.exists():
+        shutil.rmtree(dst)
+    dst.mkdir(parents=True)
+
+    count = 0
+    skipped = 0
+    for meta_file in sorted(conda_meta.glob("*.json")):
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            print(
+                f"[install-and-vendor-osgeo] could not parse {meta_file.name}: "
+                f"{exc!r}",
+                flush=True,
+            )
+            continue
+        pkg_name = meta.get("name")
+        extracted = meta.get("extracted_package_dir")
+        if not pkg_name or not extracted:
+            continue
+        licenses_src = Path(extracted) / "info" / "licenses"
+        if not licenses_src.is_dir():
+            skipped += 1
+            continue
+        pkg_dst = dst / pkg_name
+        pkg_dst.mkdir(parents=True, exist_ok=True)
+        for src_file in licenses_src.rglob("*"):
+            if src_file.is_file():
+                rel = src_file.relative_to(licenses_src)
+                tgt = pkg_dst / rel
+                tgt.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_file, tgt)
+        count += 1
+    print(
+        f"[install-and-vendor-osgeo] vendored licenses for {count} "
+        f"conda-forge packages ({skipped} had no info/licenses) -> {dst}",
+        flush=True,
+    )
 
 
 def main() -> None:

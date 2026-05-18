@@ -203,9 +203,43 @@ pre-installed-native-GDAL caveat applies.
 See [troubleshooting.md](troubleshooting.md) for common install and
 runtime issues.
 
+## Bundled software and attribution
+
+`pyramids-gis` is licensed under GPLv3. The platform wheels published on
+PyPI bundle **GDAL** and its native dependencies — PROJ, GEOS, libtiff,
+libgeotiff, NetCDF-C, HDF5 / HDF4, libcurl, OpenSSL, libxml2, libpng,
+libjpeg-turbo, libwebp, zlib / libdeflate / zstd / lz4 / bzip2 / liblzma,
+and on Linux the GCC 13 libstdc++ — each under its own MIT, BSD, LGPL,
+or Apache license.
+
+The full license text for every bundled library ships inside the wheel
+under `pyramids/_licenses/<package>/` and stays bound to that wheel even
+when it's redistributed. A human-readable index of what's bundled and
+the SPDX identifier for each component lives in
+[`THIRD_PARTY_LICENSES.md`](https://github.com/Serapieum-of-alex/pyramids/blob/main/THIRD_PARTY_LICENSES.md)
+at the repo root.
+
+If you redistribute a `pyramids-gis` platform wheel — directly or as
+part of a larger product — the MIT / BSD / LGPL / Apache attribution
+notices in `pyramids/_licenses/` must travel with it. The practical
+way to satisfy this is to leave that directory untouched inside the
+wheel.
+
+The **sdist** does not bundle any third-party binaries (you build your
+own GDAL out-of-band), so none of the above applies to sdist installs;
+only platform wheels carry the bundled native libraries and the
+corresponding attribution obligation.
+
+If you use `pyramids-gis` in academic or publication contexts, please
+also cite GDAL itself per
+[gdal.org/cite_gdal.html](https://gdal.org/cite_gdal.html). Pyramids
+stands on GDAL's shoulders — that project deserves the credit.
+
 ## Further reading
 
 - Documentation: <https://serapeum-org.github.io/pyramids/latest>
 - Source: <https://github.com/Serapieum-of-alex/pyramids>
 - PyPI: <https://pypi.org/project/pyramids-gis/>
 - conda-forge: <https://anaconda.org/conda-forge/pyramids>
+- Third-party licenses: <https://github.com/Serapieum-of-alex/pyramids/blob/main/THIRD_PARTY_LICENSES.md>
+- GDAL upstream: <https://gdal.org>

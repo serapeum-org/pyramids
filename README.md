@@ -27,6 +27,14 @@ pyramids - GIS utility package
 **pyramids** is a GIS utility package built on top of GDAL/OGR for working with raster data (GeoTIFF, NetCDF),
 vector data (shapefiles, GeoJSON), and multi-temporal datacubes.
 
+`pyramids-gis` is licensed under GPLv3 (see [LICENSE.md](LICENSE.md)). The
+platform wheels published on PyPI bundle [GDAL](https://gdal.org/) and its
+native dependencies (PROJ, GEOS, libtiff, NetCDF-C, HDF5, libcurl, …) — each
+under its own MIT, BSD, LGPL, or Apache license. The full attribution list and
+shipped license texts are documented in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md);
+if you use `pyramids-gis` in publications please also cite GDAL itself per
+[gdal.org/cite_gdal.html](https://gdal.org/cite_gdal.html).
+
 ```mermaid
 graph LR
     GeoTIFF & NetCDF & Shapefile & UGRID -->|read| pyramids
