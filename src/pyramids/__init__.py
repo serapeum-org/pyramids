@@ -105,7 +105,11 @@ from pyramids.base.config import Config
 from pyramids.netcdf._plot_options import ColourOpts, FacetSpec, Selectors
 
 try:
-    __version__ = _get_version(__name__)
+    # The distribution name on PyPI is `pyramids-gis`, but the import
+    # name is `pyramids`. importlib.metadata.version() needs the dist
+    # name; passing __name__ would always raise PackageNotFoundError
+    # and quietly set __version__ to "unknown".
+    __version__ = _get_version("pyramids-gis")
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "unknown"
 
