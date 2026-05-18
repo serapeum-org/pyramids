@@ -312,11 +312,11 @@ jobs:
           # events `target` is unset → the `== 'testpypi'` check is
           # falsy → defaults to production PyPI + PYPI_PUBLISH token,
           # matching the original C1 behavior. workflow_dispatch with
-          # `target: testpypi` requires a TEST_PYPI_PUBLISH secret
+          # `target: testpypi` requires a PYPI_TEST_PUBLISH secret
           # configured in repo settings.
           password: >-
             ${{ inputs.target == 'testpypi'
-                && secrets.TEST_PYPI_PUBLISH
+                && secrets.PYPI_TEST_PUBLISH
                 || secrets.PYPI_PUBLISH }}
           repository-url: >-
             ${{ inputs.target == 'testpypi'
