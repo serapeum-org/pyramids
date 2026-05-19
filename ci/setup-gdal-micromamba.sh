@@ -65,25 +65,26 @@ mkdir -p "${PIXI_ENV}"
 # never drift away from this cross-compile branch unnoticed. micromamba
 # accepts a conda match-spec when concatenated as ``<name><spec>``
 # (e.g. ``gdal>=3.12,<3.13``) — the same form pyproject uses.
+#
+# Read all four pins in one Python subprocess (previous form spawned
+# four separate Python processes for ~80 ms each = ~300 ms wasted per
+# cross-compile run). Newline-separated stdout maps deterministically
+# onto the four bash variables via `read`.
 PYPROJECT="$(cd "$(dirname "$0")/.." && pwd)/pyproject.toml"
 if [[ ! -f "${PYPROJECT}" ]]; then
     echo "ERROR: pyproject.toml not found at ${PYPROJECT}" >&2
     exit 1
 fi
 
-read_pin() {
-    python3 - "${PYPROJECT}" "$1" <<'PY'
+{ read -r GDAL_SPEC; read -r LIBGDAL_NETCDF_SPEC; \
+  read -r LIBGDAL_HDF4_SPEC; read -r SWIG_SPEC; } < <(python3 - "${PYPROJECT}" <<'PY'
 import sys, tomllib
 with open(sys.argv[1], "rb") as f:
-    data = tomllib.load(f)
-print(data["tool"]["pixi"]["feature"]["wheel-build"]["dependencies"][sys.argv[2]])
+    deps = tomllib.load(f)["tool"]["pixi"]["feature"]["wheel-build"]["dependencies"]
+for name in ("gdal", "libgdal-netcdf", "libgdal-hdf4", "swig"):
+    print(deps[name])
 PY
-}
-
-GDAL_SPEC=$(read_pin gdal)
-LIBGDAL_NETCDF_SPEC=$(read_pin libgdal-netcdf)
-LIBGDAL_HDF4_SPEC=$(read_pin libgdal-hdf4)
-SWIG_SPEC=$(read_pin swig)
+)
 
 echo "--- Wheel-build pins (from pyproject.toml) ---"
 echo "  gdal${GDAL_SPEC}"
