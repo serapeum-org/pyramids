@@ -47,7 +47,17 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
         echo "want to install Xcode symlinks into /usr/local/bin locally." >&2
         exit 1
     fi
-    NEWEST_XCODE="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -r | head -1)"
+    # Pick the newest /Applications/Xcode*.app by semver, not lexically.
+    # `sort -r` would sort Xcode_15.10.app before Xcode_15.9.app — fine
+    # today because Xcode minor versions stay single-digit (15.4, 16.2),
+    # broken the moment 15.10+ ships. `sort -V` is version-aware.
+    NEWEST_XCODE=""
+    shopt -s nullglob
+    _xcodes=(/Applications/Xcode*.app)
+    shopt -u nullglob
+    if (( ${#_xcodes[@]} )); then
+        NEWEST_XCODE=$(printf '%s\n' "${_xcodes[@]}" | sort -V | tail -1)
+    fi
     if [ -n "${NEWEST_XCODE:-}" ] && [ -d "${NEWEST_XCODE}/Contents/Developer" ]; then
         echo "--- Switching active Xcode to ${NEWEST_XCODE} ---"
         sudo xcode-select -s "${NEWEST_XCODE}/Contents/Developer"
