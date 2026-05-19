@@ -74,8 +74,11 @@ chmod +x "${MAMBA_BIN}"
 
 export MAMBA_ROOT_PREFIX="${HOME}/micromamba-root"
 mkdir -p "${MAMBA_ROOT_PREFIX}"
+# Remove ${PIXI_ENV} cleanly — micromamba 2.x's `create -p` creates
+# the prefix dir itself and refuses if the path already exists as a
+# non-conda directory ("Non-conda folder exists at prefix"). Do NOT
+# pre-mkdir.
 rm -rf "${PIXI_ENV}"
-mkdir -p "${PIXI_ENV}"
 
 # Package set is the single source of truth in
 # [tool.pixi.feature.wheel-build.dependencies] in pyproject.toml; read
