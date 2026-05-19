@@ -108,9 +108,14 @@ fi
 #
 # Pin the version via .pixi-version at the repo root so CI, local
 # developers, and the cibuildwheel container all agree. PIXI_VERSION
-# is consumed by pixi.sh/install.sh — the install script verifies the
-# downloaded binary's SHA256 against its built-in checksum table, so
-# pinning makes the installer reproducible. Override locally with
+# is also consumed by the install script itself — it verifies the
+# downloaded binary's SHA256 against its built-in checksum table.
+#
+# Fetch the install script from the **versioned GitHub source** rather
+# than the rolling https://pixi.sh/install.sh redirect: the
+# raw.githubusercontent.com URL is content-addressed through the
+# `v<version>` tag, so a compromise of pixi.sh can no longer change
+# which install script we run. Override locally with
 # `PIXI_VERSION=X.Y.Z bash ci/setup-gdal-from-pixi.sh` if you need to
 # test against a different pixi version.
 if ! command -v pixi >/dev/null 2>&1; then
@@ -119,11 +124,12 @@ if ! command -v pixi >/dev/null 2>&1; then
         PIXI_VERSION="$(tr -d '[:space:]' < "${PIXI_VERSION_FILE}")"
     fi
     PIXI_VERSION="${PIXI_VERSION:?PIXI_VERSION not set and .pixi-version missing}"
-    echo "--- Installing pixi ${PIXI_VERSION} ---"
+    PIXI_INSTALL_URL="https://raw.githubusercontent.com/prefix-dev/pixi/v${PIXI_VERSION}/install/install.sh"
+    echo "--- Installing pixi ${PIXI_VERSION} from ${PIXI_INSTALL_URL} ---"
     export PIXI_HOME="${BUILD_PREFIX}"
     export PIXI_NO_PATH_UPDATE=1
     export PIXI_VERSION
-    curl -fsSL https://pixi.sh/install.sh | bash
+    curl -fsSL "${PIXI_INSTALL_URL}" | bash
     export PATH="${BUILD_PREFIX}/bin:${PATH}"
 fi
 pixi --version

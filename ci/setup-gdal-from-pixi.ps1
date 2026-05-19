@@ -23,9 +23,14 @@ Write-Host "BUILD_PREFIX=$BuildPrefix"
 #
 # Pin the version via .pixi-version at the repo root so CI, local
 # developers, and the cibuildwheel container all agree. PIXI_VERSION
-# is consumed by pixi.sh/install.ps1 — the install script verifies
-# the downloaded binary's SHA256 against its built-in checksum table,
-# so pinning makes the installer reproducible. Override locally with
+# is also consumed by the install script itself — it verifies the
+# downloaded binary's SHA256 against its built-in checksum table.
+#
+# Fetch the install script from the **versioned GitHub source** rather
+# than the rolling https://pixi.sh/install.ps1 redirect: the
+# raw.githubusercontent.com URL is content-addressed through the
+# `v<version>` tag, so a compromise of pixi.sh can no longer change
+# which install script we run. Override locally with
 # `$env:PIXI_VERSION = "X.Y.Z"; .\ci\setup-gdal-from-pixi.ps1`.
 if (-not (Get-Command pixi -ErrorAction SilentlyContinue)) {
     $PixiVersionFile = Join-Path (Split-Path -Parent $PSScriptRoot) ".pixi-version"
@@ -35,10 +40,11 @@ if (-not (Get-Command pixi -ErrorAction SilentlyContinue)) {
     if (-not $env:PIXI_VERSION) {
         throw "PIXI_VERSION not set and .pixi-version missing at $PixiVersionFile"
     }
-    Write-Host "--- Installing pixi $($env:PIXI_VERSION) ---"
+    $PixiInstallUrl = "https://raw.githubusercontent.com/prefix-dev/pixi/v$($env:PIXI_VERSION)/install/install.ps1"
+    Write-Host "--- Installing pixi $($env:PIXI_VERSION) from $PixiInstallUrl ---"
     $env:PIXI_HOME = $BuildPrefix
     $env:PIXI_NO_PATH_UPDATE = "1"
-    Invoke-WebRequest -Uri "https://pixi.sh/install.ps1" -OutFile "$env:TEMP\install-pixi.ps1"
+    Invoke-WebRequest -Uri $PixiInstallUrl -OutFile "$env:TEMP\install-pixi.ps1"
     & "$env:TEMP\install-pixi.ps1"
     $env:PATH = "$BuildPrefix\bin;$env:PATH"
 }
