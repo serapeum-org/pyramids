@@ -32,7 +32,21 @@ echo "BUILD_PREFIX=${BUILD_PREFIX}"
 # is on PATH ahead of /usr/bin on macOS. Every subsequent PATH lookup
 # for those tools resolves to the real binary and never spawns
 # xcodebuild.
+#
+# This block uses sudo to write into /usr/local/bin. Refuse to run
+# outside CI (or unless the user explicitly opts in) — a developer
+# running this locally on their own Mac would otherwise be prompted
+# for a sudo password (and hang in non-tty contexts) plus pollute
+# /usr/local/bin with clang wrappers pointing at their personal Xcode.
+# GitHub Actions sets CI=true automatically, so the guard is invisible
+# on runners. Set FORCE_LOCAL_SUDO=1 to bypass when you really mean it.
 if [[ "$(uname -s)" == "Darwin" ]]; then
+    if [[ "${CI:-}" != "true" ]] && [[ -z "${FORCE_LOCAL_SUDO:-}" ]]; then
+        echo "ERROR: setup-gdal-from-pixi.sh's macOS path requires sudo and is" >&2
+        echo "intended for CI use. Re-run with FORCE_LOCAL_SUDO=1 if you really" >&2
+        echo "want to install Xcode symlinks into /usr/local/bin locally." >&2
+        exit 1
+    fi
     NEWEST_XCODE="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -r | head -1)"
     if [ -n "${NEWEST_XCODE:-}" ] && [ -d "${NEWEST_XCODE}/Contents/Developer" ]; then
         echo "--- Switching active Xcode to ${NEWEST_XCODE} ---"
