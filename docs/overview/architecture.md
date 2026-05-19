@@ -98,7 +98,7 @@ for meshes), which builds a [cleopatra](https://github.com/serapeum-org/cleopatr
 dispatches to `plot` / `facet` / `animate`. `NetCDF.plot` adds the NetCDF-specific resolver
 `pyramids.netcdf._plot.NetCDFPlot` (variable / selector / curvilinear-coord / facet / animate
 resolution) and the grouped option dataclasses `Selectors` / `ColourOpts` / `FacetSpec`
-(`pyramids.netcdf._plot_options`, re-exported from `pyramids` and `pyramids.netcdf`).
+(`pyramids.netcdf.plot_options`, re-exported from `pyramids.netcdf`).
 `pyramids.basemap.add_basemap` / `get_provider` are thin wrappers over `cleopatra.tiles`.
 
 ```mermaid
@@ -110,7 +110,7 @@ graph LR
     AN["Analysis.plot<br/>(generic engine)"]
 
     NCP["netcdf._plot.NetCDFPlot<br/>resolve variable · selectors<br/>curvilinear coords · facet · animate"]
-    OPTS["netcdf._plot_options<br/>Selectors · ColourOpts · FacetSpec"]
+    OPTS["netcdf.plot_options<br/>Selectors · ColourOpts · FacetSpec"]
     RC["dataset._plot_helpers<br/>render_array · mesh_render"]
     BM["basemap<br/>add_basemap · get_provider"]
     CLEO(["cleopatra<br/>ArrayGlyph (plot · facet · animate)<br/>MeshGlyph · styles.ColorScale · tiles"])

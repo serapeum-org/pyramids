@@ -7,7 +7,7 @@ first-class support for selecting along non-spatial dimensions, curvilinear grid
 artists, small-multiples (facets), animation, and lazy (dask-backed) reads.
 
 ```python
-from pyramids import Selectors, ColourOpts, FacetSpec
+from pyramids.netcdf import Selectors, ColourOpts, FacetSpec
 from pyramids.netcdf import NetCDF
 
 nc = NetCDF.read_file("era5.nc")
@@ -61,7 +61,7 @@ the common CF dimensions, and `sel=` / `isel=` are the generic label- and intege
 hatches (mirroring `xarray.Dataset.sel` / `.isel`):
 
 ```python
-from pyramids import Selectors
+from pyramids.netcdf import Selectors
 
 # label-based: a timestamp and a pressure level
 nc.plot("t", selectors=Selectors(time="2020-07-01", level=850))
@@ -81,7 +81,7 @@ it becomes the frame axis — see below).
 Group all colour options under `ColourOpts` — these mirror xarray's plotting kwargs:
 
 ```python
-from pyramids import ColourOpts
+from pyramids.netcdf import ColourOpts
 
 # robust limits (2nd / 98th percentile), a diverging cmap centred on zero
 nc.plot("t2m_anomaly", colour=ColourOpts(cmap="RdBu_r", robust=True, center=0.0))
@@ -138,7 +138,7 @@ Render one panel per coordinate value along a dimension with `FacetSpec` — the
 colorbar and colour scale:
 
 ```python
-from pyramids import FacetSpec
+from pyramids.netcdf import FacetSpec
 
 # one column per month, wrap after 4
 nc.plot("t2m", facet=FacetSpec(col="time", col_wrap=4))

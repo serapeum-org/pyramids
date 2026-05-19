@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from pyramids.dataset._plot_helpers import render_array as _render_array
-from pyramids.netcdf._plot_options import ColourOpts, FacetSpec, Selectors
+from pyramids.netcdf.plot_options import ColourOpts, FacetSpec, Selectors
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF

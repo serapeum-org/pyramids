@@ -127,20 +127,25 @@ class TestPlotOptionDataclasses:
 
 
 class TestPlotOptionReExports:
-    """The three dataclasses are re-exported at package level."""
+    """The three dataclasses are re-exported from the netcdf subpackage."""
 
-    def test_top_level_re_export(self):
-        """``from pyramids import Selectors, ColourOpts, FacetSpec`` works.
+    def test_not_re_exported_at_top_level(self):
+        """``from pyramids import Selectors`` is intentionally NOT supported.
 
         Test scenario:
-            Users build the option bags at the call site, so the names
-            must be importable from the top-level package alongside
-            ``NetCDF`` — not just from ``pyramids.netcdf``.
+            Earlier versions exposed ``Selectors`` / ``ColourOpts`` /
+            ``FacetSpec`` directly on ``pyramids`` — an inconsistency
+            because every other class (``Dataset``, ``NetCDF``,
+            ``FeatureCollection``, …) required its full subpackage
+            path. The plot dataclasses now follow the same convention
+            and only live under ``pyramids.netcdf``.
         """
-        assert pyramids.Selectors is Selectors
-        assert pyramids.ColourOpts is ColourOpts
-        assert pyramids.FacetSpec is FacetSpec
-        assert {"Selectors", "ColourOpts", "FacetSpec"} <= set(pyramids.__all__)
+        assert not hasattr(pyramids, "Selectors")
+        assert not hasattr(pyramids, "ColourOpts")
+        assert not hasattr(pyramids, "FacetSpec")
+        assert {"Selectors", "ColourOpts", "FacetSpec"}.isdisjoint(
+            set(pyramids.__all__)
+        )
 
     def test_netcdf_subpackage_re_export(self):
         """The names are also exported from ``pyramids.netcdf``.
