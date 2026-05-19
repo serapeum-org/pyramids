@@ -29,22 +29,19 @@ try:
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "unknown"
 
-config = Config()
+# Run Config() purely for its constructor side effects:
+#   - installs Python logging handlers + formatters
+#   - parses pyramids/base/data/config.yaml
+#   - applies GDAL/OGR options and registers drivers
+# Nothing in the codebase reads a top-level `pyramids.config`
+# instance, so we don't bind one. Users who want their own configured
+# Config instance can still import `pyramids.base.config.Config`
+# directly.
+Config()
 
 
-# NetCDF plot-config dataclasses (Selectors, ColourOpts, FacetSpec)
-# used to be re-exported from this module. They're now in
-# `pyramids.netcdf.plot_options` (no longer underscore-prefixed) and
-# re-exported by `pyramids.netcdf` itself — so the canonical import is
-#   from pyramids.netcdf import Selectors, ColourOpts, FacetSpec
-# rather than `from pyramids import Selectors, ...`. The top-level
-# re-export was an inconsistency: every other class in the package
-# (Dataset, NetCDF, FeatureCollection, DatasetCollection) has always
-# required its full sub-module path. Aligning these three with that
-# convention.
 __all__ = [
     "configure",
     "configure_lazy_vector",
-    "config",
     "__version__",
 ]
