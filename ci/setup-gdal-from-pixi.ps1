@@ -1,8 +1,15 @@
+#Requires -Version 5.1
 # Install GDAL + native dependencies via pixi (conda-forge), then extract
 # DLLs, headers, and data files into $env:BUILD_PREFIX so downstream steps
 # (install-and-vendor-osgeo.py, setuptools, delvewheel) can find them.
 #
 # Runs once per cibuildwheel Windows invocation (CIBW_BEFORE_ALL).
+#
+# build-wheels.yml invokes this via `powershell -File ...` which uses
+# Windows PowerShell 5.1 on the windows-2022 runner — the `#Requires`
+# above documents that minimum so any future move to `pwsh` (PS 7)
+# still passes, but a regression to an older PowerShell would fail
+# fast instead of silently miscompiling somewhere downstream.
 #
 # See docs/how-to/wheel-build-flow.md for the end-to-end pipeline.
 
