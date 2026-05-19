@@ -81,8 +81,10 @@ def install_gdal_python_bindings() -> None:
       MSVC `INCLUDE` / `LIB` env vars. Conda's Windows packages nest
       under `${BUILD_PREFIX}/Library/` so we point INCLUDE/LIB there.
 
-    On macOS we cap parallel build jobs to keep peak memory below the
-    macos-14 runner's ~7 GB ceiling, and on arm64 we pre-install a
+    On Linux and macOS we cap parallel build jobs (MAKEFLAGS=-j2) to
+    keep peak memory below the GitHub runner's ~16 GB ceiling on
+    ubuntu-latest / ubuntu-24.04-arm and the macos-14 runner's ~7 GB
+    ceiling. On macOS arm64 we additionally pre-install a
     setuptools/numpy build venv (see the inline comment below the
     parallelism caps for the Accelerate-ILP64 carve-out).
     """
@@ -156,6 +158,11 @@ def install_gdal_python_bindings() -> None:
         )
         py_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
         download_dir = Path(tempfile.mkdtemp(prefix="numpy-dl-"))
+        # numpy>=2.1 is tighter than [project.dependencies]'s numpy>=2.0
+        # on purpose: 2.0 had bugs in the macosx_11_0_arm64 wheel that
+        # interact badly with GDAL's setup.py. The build-pin can be
+        # tighter than the runtime-pin since the build numpy never
+        # ships in the wheel. Bump the cap when numpy 3.x lands.
         subprocess.check_call(
             [sys.executable, "-m", "pip", "download",
              "--no-deps", "--only-binary=:all:",
@@ -271,13 +278,19 @@ def _locate_site_packages_dir(name: str) -> Path | None:
     "DLL load failed: specified procedure could not be found" (cp311/
     cp312 don't hit this). The vendoring step only needs the on-disk
     location of the package — no Python code from it actually runs —
-    so we look it up via the active environment's purelib path.
+    so we look it up via the active environment's purelib + platlib
+    paths. For venvs purelib == platlib (single site-packages dir),
+    but packages with C extensions like osgeo land under platlib in
+    custom layouts (PEP 668, Debian's split site-packages, …).
     """
-    purelib = Path(sysconfig.get_paths()["purelib"])
-    candidate = purelib / name
-    if candidate.is_dir():
-        return candidate
-    return None
+    sysconfig_paths = sysconfig.get_paths()
+    candidates: list[Path] = []
+    for key in ("purelib", "platlib"):
+        if key in sysconfig_paths:
+            candidate = Path(sysconfig_paths[key]) / name
+            if candidate.is_dir() and candidate not in candidates:
+                candidates.append(candidate)
+    return candidates[0] if candidates else None
 
 
 def vendor_osgeo_into_package() -> None:

@@ -23,8 +23,9 @@
 #   PIXI_ENV         path where the env will be created (kept as
 #                    .pixi/envs/wheel-build/ so downstream extraction
 #                    logic is identical to the pixi branch)
-#   TARGET_PLATFORM  conda platform tag for the wheel (e.g. "osx-64",
-#                    "osx-arm64")
+#   TARGET_PLATFORM  conda platform tag for the wheel (currently only
+#                    "osx-64" is reached — the cross-compile target
+#                    for macos-14 / arm64 host)
 set -euo pipefail
 
 : "${BUILD_PREFIX:?BUILD_PREFIX must be set}"

@@ -32,9 +32,22 @@ if [ "${#wheels[@]}" -eq 0 ]; then
     exit 1
 fi
 
+# stat flag differs by platform: GNU stat is `-c%s`, BSD/macOS stat is
+# `-f%z`. Linux-only callsite today (build-wheels.yml only invokes
+# this script from the build-linux-wheels job), so plain `-c%s` works,
+# but the per-platform branch is here for local invocation.
+case "$(uname -s)" in
+    Linux)  stat_size_flag=("-c%s") ;;
+    Darwin) stat_size_flag=("-f%z") ;;
+    *)      stat_size_flag=("-c%s") ;;
+esac
+
 for whl in "${wheels[@]}"; do
-    size=$(stat -c%s "${whl}")
-    size_mb=$(awk "BEGIN {printf \"%.1f\", $size/1048576}")
+    size=$(stat "${stat_size_flag[@]}" "${whl}")
+    # Pass size via -v rather than embedding it in the awk script
+    # source. The current input is digit-only (stat output) so injection
+    # isn't a real risk today, but -v keeps it disciplined.
+    size_mb=$(awk -v size="${size}" 'BEGIN {printf "%.1f", size/1048576}')
     echo "::notice::$(basename "${whl}"): ${size_mb} MB"
     if [ "${size}" -gt "${budget_bytes}" ]; then
         echo "::error::Wheel exceeds ${WHEEL_SIZE_BUDGET_MB} MB size budget — see planning/bundle/wheel-size-analysis.md"
