@@ -200,47 +200,23 @@ def _copy_tree_replacing(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst)
 
 
-_OSGEO_DLL_BOOTSTRAP = '''\
-# pyramids vendor patch: ensure GDAL's bundled DLLs are loadable when
-# osgeo is imported directly (i.e. without pyramids being imported
-# first). The delvewheel patch in pyramids/__init__.py only runs when
-# the parent pyramids package is imported, but multiprocessing.spawn
-# workers replay sys.path from the parent so osgeo at
-# pyramids/_vendor/osgeo/ becomes importable without pyramids itself
-# being imported — and os.add_dll_directory state is process-local
-# so the parent's call doesn't carry across. Run the DLL setup here
-# unconditionally on Windows so every interpreter that imports osgeo
-# gets it.
-#
-# Both mechanisms are needed:
-#   - os.add_dll_directory: Python's import machinery uses
-#     LoadLibraryEx(LOAD_LIBRARY_SEARCH_USER_DIRS), which honors it
-#     when loading _gdal.pyd and friends.
-#   - PATH prepend: GDAL's native plugin loader uses raw LoadLibrary
-#     (no SEARCH_USER_DIRS flag), so add_dll_directory is invisible
-#     to it. The legacy DLL search order still walks PATH, so the
-#     bundled netcdf/hdf5/hdf4 deps of the GDAL plugins become
-#     findable.
-import os as _pyramids_os
-import sys as _pyramids_sys
-if _pyramids_sys.platform == "win32":
-    _pyramids_libs = _pyramids_os.path.abspath(
-        _pyramids_os.path.join(
-            _pyramids_os.path.dirname(__file__),
-            "..", "..", "..", "pyramids_gis.libs",
+_BOOTSTRAP_TEMPLATE_PATH = Path(__file__).resolve().parent / "_osgeo_bootstrap.py"
+
+
+def _read_osgeo_bootstrap() -> str:
+    """Load the Windows DLL bootstrap source from the sibling template file.
+
+    Kept as a separate ``.py`` file (not an embedded triple-quoted string)
+    so the bootstrap code is syntax-highlighted, statically analysable,
+    and unit-testable. The file is never imported as a module — it's
+    read at vendor time and spliced into the vendored
+    ``osgeo/__init__.py``.
+    """
+    if not _BOOTSTRAP_TEMPLATE_PATH.is_file():
+        raise RuntimeError(
+            f"osgeo bootstrap template missing: {_BOOTSTRAP_TEMPLATE_PATH}"
         )
-    )
-    if _pyramids_os.path.isdir(_pyramids_libs):
-        _pyramids_os.add_dll_directory(_pyramids_libs)
-        _pyramids_path = _pyramids_os.environ.get("PATH", "")
-        if _pyramids_libs not in _pyramids_path.split(_pyramids_os.pathsep):
-            _pyramids_os.environ["PATH"] = (
-                _pyramids_libs + _pyramids_os.pathsep + _pyramids_path
-            )
-        del _pyramids_path
-    del _pyramids_libs
-del _pyramids_os, _pyramids_sys
-'''
+    return _BOOTSTRAP_TEMPLATE_PATH.read_text(encoding="utf-8")
 
 
 def _patch_vendored_osgeo_init(init_path: Path) -> None:
@@ -262,6 +238,7 @@ def _patch_vendored_osgeo_init(init_path: Path) -> None:
     original = init_path.read_text(encoding="utf-8")
     if "pyramids vendor patch" in original:
         return
+    bootstrap = _read_osgeo_bootstrap()
     lines = original.splitlines(keepends=True)
     insert_at = 0
     for i, line in enumerate(lines):
@@ -274,7 +251,7 @@ def _patch_vendored_osgeo_init(init_path: Path) -> None:
         break
     patched = (
         "".join(lines[:insert_at])
-        + _OSGEO_DLL_BOOTSTRAP
+        + bootstrap
         + "".join(lines[insert_at:])
     )
     init_path.write_text(patched, encoding="utf-8")
