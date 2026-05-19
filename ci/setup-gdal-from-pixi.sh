@@ -17,7 +17,6 @@ BUILD_PREFIX="${BUILD_PREFIX:-/usr/local}"
 echo "=== setup-gdal-from-pixi.sh ==="
 echo "BUILD_PREFIX=${BUILD_PREFIX}"
 
-# ---------------------------------------------------------------------------
 # 0. (macOS) Bypass the /usr/bin xcrun shims.
 #
 # On the macos-14 runner, xcodebuild is reliably SIGKILLed regardless of
@@ -33,7 +32,6 @@ echo "BUILD_PREFIX=${BUILD_PREFIX}"
 # is on PATH ahead of /usr/bin on macOS. Every subsequent PATH lookup
 # for those tools resolves to the real binary and never spawns
 # xcodebuild.
-# ---------------------------------------------------------------------------
 if [[ "$(uname -s)" == "Darwin" ]]; then
     NEWEST_XCODE="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -r | head -1)"
     if [ -n "${NEWEST_XCODE:-}" ] && [ -d "${NEWEST_XCODE}/Contents/Developer" ]; then
@@ -82,8 +80,7 @@ EOF
     fi
 fi
 
-# ---------------------------------------------------------------------------
-# 1. Install pixi (static binary, ~50 MB, ~5 seconds)
+# 1. Install pixi (static binary, ~50 MB, ~5 seconds).
 #
 # Pin the version via .pixi-version at the repo root so CI, local
 # developers, and the cibuildwheel container all agree. PIXI_VERSION
@@ -92,7 +89,6 @@ fi
 # pinning makes the installer reproducible. Override locally with
 # `PIXI_VERSION=X.Y.Z bash ci/setup-gdal-from-pixi.sh` if you need to
 # test against a different pixi version.
-# ---------------------------------------------------------------------------
 if ! command -v pixi >/dev/null 2>&1; then
     PIXI_VERSION_FILE="$(cd "$(dirname "$0")/.." && pwd)/.pixi-version"
     if [[ -z "${PIXI_VERSION:-}" && -f "${PIXI_VERSION_FILE}" ]]; then
@@ -108,7 +104,6 @@ if ! command -v pixi >/dev/null 2>&1; then
 fi
 pixi --version
 
-# ---------------------------------------------------------------------------
 # 2. Install the wheel-build environment.
 #
 # Native (host arch == target arch): use pixi with --frozen against
@@ -118,7 +113,6 @@ pixi --version
 # osx-64): delegate to ci/setup-gdal-micromamba.sh. pixi has no
 # --platform install flag; the dedicated micromamba script
 # re-resolves the same dependency range pin against conda-forge.
-# ---------------------------------------------------------------------------
 PIXI_ENV="$(pwd)/.pixi/envs/wheel-build"
 TARGET_ARCH="${CIBW_ARCHS:-${CIBW_ARCHS_MACOS:-}}"
 
@@ -152,9 +146,7 @@ mkdir -p "${BUILD_PREFIX}"
 printf "%s" "${GDAL_VERSION}" > "${BUILD_PREFIX}/GDAL_VERSION"
 echo "resolved GDAL_VERSION=${GDAL_VERSION}"
 
-# ---------------------------------------------------------------------------
-# 3. Extract native artifacts into ${BUILD_PREFIX}
-# ---------------------------------------------------------------------------
+# 3. Extract native artifacts into ${BUILD_PREFIX}.
 echo "--- Extracting native artifacts into ${BUILD_PREFIX} ---"
 mkdir -p "${BUILD_PREFIX}/lib" "${BUILD_PREFIX}/lib64" \
          "${BUILD_PREFIX}/include" "${BUILD_PREFIX}/share" \
@@ -213,12 +205,10 @@ if [ -d "${PIXI_ENV}/lib/pkgconfig" ]; then
     shopt -u nullglob
 fi
 
-# ---------------------------------------------------------------------------
-# 4. Strip debug symbols to reduce wheel size
+# 4. Strip debug symbols to reduce wheel size.
 #
 # `strip --strip-unneeded` is Linux/GNU. macOS strip uses `-S` for the
 # equivalent "strip debug symbols only, keep the dynamic symbol table".
-# ---------------------------------------------------------------------------
 echo "--- Stripping shared libraries ---"
 if [[ "$(uname -s)" == "Darwin" ]]; then
     find "${BUILD_PREFIX}/lib" -name '*.dylib*' -type f \
@@ -228,9 +218,7 @@ else
         -exec strip --strip-unneeded {} + 2>/dev/null || true
 fi
 
-# ---------------------------------------------------------------------------
-# 5. Diagnostic output
-# ---------------------------------------------------------------------------
+# 5. Diagnostic output.
 echo "=== setup-gdal-from-pixi.sh complete ==="
 echo "GDAL version: $("${BUILD_PREFIX}/bin/gdal-config" --version)"
 echo "libgdal: $(ls "${BUILD_PREFIX}/lib/libgdal.so"* 2>/dev/null | head -1)"
