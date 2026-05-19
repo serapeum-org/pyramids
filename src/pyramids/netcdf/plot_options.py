@@ -21,7 +21,7 @@ Examples:
     - Build a label-based selector and forward it to ``NetCDF.plot``:
 
         ```python
-        >>> from pyramids.netcdf._plot_options import Selectors
+        >>> from pyramids.netcdf.plot_options import Selectors
         >>> sel = Selectors(time=0, level=500)
         >>> sel.time
         0
@@ -70,7 +70,7 @@ class Selectors:
           that is safe to forward to ``plot`` unchanged:
 
             ```python
-            >>> from pyramids.netcdf._plot_options import Selectors
+            >>> from pyramids.netcdf.plot_options import Selectors
             >>> empty = Selectors()
             >>> empty.time is None
             True
@@ -82,7 +82,7 @@ class Selectors:
         - Pin both the time and pressure-level dims of a 4-D variable:
 
             ```python
-            >>> from pyramids.netcdf._plot_options import Selectors
+            >>> from pyramids.netcdf.plot_options import Selectors
             >>> sel = Selectors(time=12, level=500)
             >>> sel.time
             12
@@ -96,7 +96,7 @@ class Selectors:
 
             ```python
             >>> from dataclasses import FrozenInstanceError
-            >>> from pyramids.netcdf._plot_options import Selectors
+            >>> from pyramids.netcdf.plot_options import Selectors
             >>> sel = Selectors(time=0)
             >>> try:
             ...     sel.time = 1
@@ -148,7 +148,7 @@ class ColourOpts:
           control is left at its cleopatra default:
 
             ```python
-            >>> from pyramids.netcdf._plot_options import ColourOpts
+            >>> from pyramids.netcdf.plot_options import ColourOpts
             >>> opts = ColourOpts()
             >>> opts.cmap is None
             True
@@ -161,7 +161,7 @@ class ColourOpts:
           centre at zero:
 
             ```python
-            >>> from pyramids.netcdf._plot_options import ColourOpts
+            >>> from pyramids.netcdf.plot_options import ColourOpts
             >>> opts = ColourOpts(cmap="RdBu_r", robust=True, center=0.0)
             >>> opts.cmap
             'RdBu_r'
@@ -175,7 +175,7 @@ class ColourOpts:
         - Disable the colorbar — the facade removes it post-render:
 
             ```python
-            >>> from pyramids.netcdf._plot_options import ColourOpts
+            >>> from pyramids.netcdf.plot_options import ColourOpts
             >>> opts = ColourOpts(add_colorbar=False)
             >>> opts.add_colorbar
             False
@@ -218,7 +218,7 @@ class FacetSpec:
         - A column-only facet over the time dim:
 
             ```python
-            >>> from pyramids.netcdf._plot_options import FacetSpec
+            >>> from pyramids.netcdf.plot_options import FacetSpec
             >>> spec = FacetSpec(col="time")
             >>> spec.col
             'time'
@@ -231,7 +231,7 @@ class FacetSpec:
           (rows):
 
             ```python
-            >>> from pyramids.netcdf._plot_options import FacetSpec
+            >>> from pyramids.netcdf.plot_options import FacetSpec
             >>> spec = FacetSpec(col="time", row="pressure_level")
             >>> spec.col
             'time'
@@ -243,7 +243,7 @@ class FacetSpec:
         - Column-wrap layout — 4 panels in a 2x3 grid:
 
             ```python
-            >>> from pyramids.netcdf._plot_options import FacetSpec
+            >>> from pyramids.netcdf.plot_options import FacetSpec
             >>> spec = FacetSpec(col="time", col_wrap=3)
             >>> spec.col_wrap
             3

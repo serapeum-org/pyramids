@@ -27,6 +27,14 @@ pyramids - GIS utility package
 **pyramids** is a GIS utility package built on top of GDAL/OGR for working with raster data (GeoTIFF, NetCDF),
 vector data (shapefiles, GeoJSON), and multi-temporal datacubes.
 
+`pyramids-gis` is licensed under GPLv3 (see [LICENSE.md](LICENSE.md)). The
+platform wheels published on PyPI bundle [GDAL](https://gdal.org/) and its
+native dependencies (PROJ, GEOS, libtiff, NetCDF-C, HDF5, libcurl, …) — each
+under its own MIT, BSD, LGPL, or Apache license. The full attribution list and
+shipped license texts are documented in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md);
+if you use `pyramids-gis` in publications please also cite GDAL itself per
+[gdal.org/cite_gdal.html](https://gdal.org/cite_gdal.html).
+
 ```mermaid
 graph LR
     GeoTIFF & NetCDF & Shapefile & UGRID -->|read| pyramids
@@ -99,13 +107,16 @@ It is possible to list all the versions of `pyramids` available on your platform
 conda search pyramids --channel conda-forge
 ```
 
-## Install from GitHub
+### Install from GitHub (development)
 
 To install the latest development version, you can install the library from GitHub:
 
 ```
 pip install git+https://github.com/serapeum-org/pyramids
 ```
+Note: installing from GitHub uses the sdist and requires a pre-installed
+system GDAL. See the full [installation guide](docs/installation.md)
+and [troubleshooting](docs/troubleshooting.md) for details.
 
 ## pip
 
@@ -115,12 +126,12 @@ To install the latest release from PyPI:
 pip install pyramids-gis
 ```
 
+
 ## Optional extras
 
 ```
-pip install pyramids-gis[viz]      # cleopatra plotting + web-tile basemaps (cleopatra[tiles])
+pip install pyramids-gis[viz]      # cleopatra plotting support
 pip install pyramids-gis[xarray]   # xarray/NetCDF4 interoperability
-pip install pyramids-gis[lazy]     # dask-backed lazy reads (and animation frame streaming)
 ```
 
 Quick start

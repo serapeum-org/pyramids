@@ -165,6 +165,10 @@ tests/data/not-used/*
 /tests/data/delete/*
 /write_array.tif
 /my-dataset.tif
+# Vendored GDAL (populated during platform wheel builds only)
+src/pyramids/_vendor/
+src/pyramids/_data/
+
 # pixi environments
 .pixi
 /site/*

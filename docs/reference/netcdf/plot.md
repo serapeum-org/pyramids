@@ -7,12 +7,10 @@
 `NetCDF.plot` has its own, xarray-aligned plotting surface — it does **not** inherit the
 GeoTIFF / Sentinel-imagery semantics of `Dataset.plot`. You pick a *variable*, slice along the
 non-spatial dimensions, and pass colour / faceting / coordinate options through small grouped,
-frozen dataclasses (`Selectors`, `ColourOpts`, `FacetSpec`) re-exported from both `pyramids` and
-`pyramids.netcdf`.
+frozen dataclasses (`Selectors`, `ColourOpts`, `FacetSpec`) re-exported from `pyramids.netcdf`.
 
 ```python
-from pyramids import Selectors, ColourOpts, FacetSpec
-from pyramids.netcdf import NetCDF
+from pyramids.netcdf import NetCDF, Selectors, ColourOpts, FacetSpec
 
 nc = NetCDF.read_file("era5.nc")
 

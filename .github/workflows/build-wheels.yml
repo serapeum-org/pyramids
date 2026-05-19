@@ -1,0 +1,248 @@
+name: Build Platform Wheels
+
+on:
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: ["github-release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch / ref to build wheels from (defaults to the ref selected in the UI)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  WHEEL_SIZE_BUDGET_MB: "120"
+
+jobs:
+  build-sdist:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          # head_branch (not head_sha) — github-release pushes the bump + lockfile commits AFTER
+          # the workflow_run head_sha is captured; we need the branch tip to see them.
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist
+        run: |
+          pip install build
+          python -m build --sdist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          retention-days: 3
+
+  build-linux-wheels:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runs-on: ubuntu-latest
+          - arch: aarch64
+            runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v3.4
+        env:
+          CIBW_ARCHS_LINUX: ${{ matrix.arch }}
+
+      - name: Report wheel sizes
+        shell: bash
+        run: bash ci/check-wheel-size.sh wheelhouse
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.arch }}
+          path: wheelhouse/*.whl
+          retention-days: 3
+
+  build-macos-wheels:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v3.4
+        env:
+          CIBW_ARCHS_MACOS: ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.arch }}
+          path: wheelhouse/*.whl
+          retention-days: 3
+
+  build-windows-wheels:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: windows-2022
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [AMD64]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v3.4
+        env:
+          CIBW_ARCHS_WINDOWS: ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-${{ matrix.arch }}
+          path: wheelhouse/*.whl
+          retention-days: 3
+
+  test-wheels:
+    needs: [build-linux-wheels, build-macos-wheels, build-windows-wheels]
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14, windows-2022]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+            artifact: wheels-linux-x86_64
+            wheel-tag: manylinux
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+            artifact: wheels-linux-aarch64
+            wheel-tag: manylinux
+          - os: macos-14
+            arch: arm64
+            artifact: wheels-macos-arm64
+            wheel-tag: macosx
+          - os: windows-2022
+            arch: AMD64
+            artifact: wheels-windows-AMD64
+            wheel-tag: win_amd64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/
+
+      - name: Install wheel
+        shell: bash
+        run: |
+          PYTAG=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')")
+          WHEEL=$(ls dist/pyramids_gis-*-${PYTAG}-${PYTAG}-*${{ matrix.wheel-tag }}*.whl | head -1)
+          echo "Installing: $WHEEL"
+          pip install "$WHEEL"
+          pip install pytest pytest-env pytest-mock pytest-timeout
+
+      - name: Verify GDAL import
+        run: python ci/verify-wheel.py
+
+      - name: Run core test suite
+        shell: bash
+        # --timeout-method=thread: signal-based timeouts don't work on Windows.
+        timeout-minutes: 10
+        run: pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m core tests/
+
+  release:
+    name: Publish to PyPI + attach to GitHub release
+    needs: [build-sdist, build-linux-wheels, build-macos-wheels, build-windows-wheels, test-wheels]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts from this run
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+
+      - name: List artifacts about to be released
+        run: ls -lah dist/
+
+      - name: Resolve target release tag
+        id: release-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG=$(gh release view --repo '${{ github.repository }}' --json tagName --jq '.tagName')
+          echo "Resolved release tag: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Attach wheels + sdist to the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release upload '${{ steps.release-tag.outputs.tag }}' \
+              dist/*.whl dist/*.tar.gz \
+              --repo '${{ github.repository }}' \
+              --clobber
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_PUBLISH }}
+          packages-dir: dist/
+          skip-existing: true
+          verbose: true

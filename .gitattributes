@@ -1,2 +1,8 @@
 # SCM syntax highlighting & preventing 3-way merges
 pixi.lock merge=binary linguist-language=YAML linguist-generated=true
+
+# Shell scripts executed inside Linux containers must use LF line endings
+# even on Windows checkouts. Prevents `set: pipefail: invalid option name`
+# when Windows CRLF endings trip up bash inside the manylinux container.
+*.sh text eol=lf
+ci/**/*.sh text eol=lf

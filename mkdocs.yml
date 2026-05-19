@@ -110,6 +110,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Installation: installation.md
+  - Troubleshooting: troubleshooting.md
   - Overview:
     - Codebase Map: overview/codebase-map.md
     - How it works: overview/how-it-works.md
@@ -189,6 +190,7 @@ nav:
       - Docker & GHCR: how-to/docker.md
       - Recipes: how-to/recipes.md
       - Testing & CI: how-to/testing.md
+      - Wheel Build Flow: how-to/wheel-build-flow.md
       - FAQ & Troubleshooting: how-to/faq.md
   - About:
     - Change-log: change-log.md

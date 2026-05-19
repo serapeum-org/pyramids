@@ -78,7 +78,7 @@ flowchart LR
 
   nc[netcdf.NetCDF]
   ncplot[netcdf._plot.NetCDFPlot]
-  plotopts[netcdf._plot_options: Selectors · ColourOpts · FacetSpec]
+  plotopts[netcdf.plot_options: Selectors · ColourOpts · FacetSpec]
   ugds[netcdf.ugrid.UgridDataset]
   ugplot[netcdf.ugrid.plot: plot_mesh_data · plot_mesh_outline]
   lazy[netcdf._lazy._apply_unpack]
@@ -195,7 +195,7 @@ classDiagram
 The shared `pyramids.dataset._plot_helpers` module owns the cleopatra dispatch (`render_array` for
 arrays, `mesh_render` for meshes); `pyramids.netcdf._plot.NetCDFPlot` does the NetCDF-specific
 variable/selector/curvilinear/facet/animate resolution and feeds `render_array`; `Selectors` /
-`ColourOpts` / `FacetSpec` (in `pyramids.netcdf._plot_options`, re-exported from `pyramids` and
+`ColourOpts` / `FacetSpec` (in `pyramids.netcdf.plot_options`, re-exported from
 `pyramids.netcdf`) are the grouped option dataclasses; `pyramids.basemap.add_basemap` is a thin
 wrapper over `cleopatra.tiles.add_tiles`.
 
@@ -444,8 +444,8 @@ flowchart LR
   plot_helpers[dataset._plot_helpers] --> engines
   plot_helpers --> dataset_collection
   plot_helpers --> ugrid
-  netcdf_plot_options[netcdf._plot_options] --> netcdf_plot
-  netcdf_plot_options --> netcdf
+  netcdfplot_options[netcdf.plot_options] --> netcdf_plot
+  netcdfplot_options --> netcdf
   plot_helpers --> netcdf_plot[netcdf._plot]
   netcdf_plot --> netcdf
   basemap_mod[basemap] --> plot_helpers

@@ -28,7 +28,7 @@ from pyramids.netcdf._kerchunk import combine_kerchunk, to_kerchunk
 from pyramids.netcdf._lazy import _apply_unpack, build_lazy_array
 from pyramids.netcdf._mfdataset import open_mfdataset
 from pyramids.netcdf._plot import NetCDFPlot
-from pyramids.netcdf._plot_options import ColourOpts, FacetSpec, Selectors
+from pyramids.netcdf.plot_options import ColourOpts, FacetSpec, Selectors
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     srs_to_grid_mapping,
@@ -516,7 +516,7 @@ class NetCDF(Dataset):
         On a **root MDIM container** the ``variable=`` argument is required:
 
         ```python
-        from pyramids import NetCDF, Selectors
+        from pyramids.netcdf import NetCDF, Selectors
         nc.plot(variable="t2m", selectors=Selectors(time="2024-01-15"))
         ```
 
@@ -771,7 +771,7 @@ class NetCDF(Dataset):
               levels live on :class:`ColourOpts`:
 
               ```python
-              >>> from pyramids import ColourOpts
+              >>> from pyramids.netcdf import ColourOpts
               >>> cleo = nc.plot(  # doctest: +SKIP
               ...     variable="t2m",
               ...     kind="contourf",
@@ -806,7 +806,7 @@ class NetCDF(Dataset):
               on :class:`ColourOpts`:
 
               ```python
-              >>> from pyramids import ColourOpts
+              >>> from pyramids.netcdf import ColourOpts
               >>> cleo = nc.plot(  # doctest: +SKIP
               ...     variable="t2m",
               ...     colour=ColourOpts(cmap="viridis", robust=True),
@@ -818,7 +818,7 @@ class NetCDF(Dataset):
               because cleopatra always attaches one:
 
               ```python
-              >>> from pyramids import ColourOpts
+              >>> from pyramids.netcdf import ColourOpts
               >>> cleo = nc.plot(  # doctest: +SKIP
               ...     variable="t2m", colour=ColourOpts(add_colorbar=False),
               ... )
@@ -831,7 +831,7 @@ class NetCDF(Dataset):
               :class:`cleopatra.array_glyph.FacetGrid`:
 
               ```python
-              >>> from pyramids import FacetSpec
+              >>> from pyramids.netcdf import FacetSpec
               >>> grid = nc.plot(  # doctest: +SKIP
               ...     variable="t2m", facet=FacetSpec(col="time"),
               ... )

@@ -3,9 +3,7 @@ name = "pyramids-gis"
 version = "0.19.0"
 description = "GIS utility package"
 readme = {file = "README.md", content-type = "text/markdown"}
-authors = [
-    { name = "Mostafa Farrag", email = "moah.farag@gmail.com" }
-]
+authors = [{ name = "Mostafa Farrag", email = "moah.farag@gmail.com" }]
 license = {text = "GNU General Public License v3"}
 keywords = ["GIS", "gdal"]
 
@@ -18,6 +16,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: GIS",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
@@ -25,8 +24,12 @@ classifiers = [
 
 requires-python = ">= 3.11, <4"
 
+# GDAL is intentionally omitted from runtime deps: the platform wheel
+# vendors osgeo, conda-forge users get gdal via the feedstock, sdist
+# users install native GDAL out-of-band (see docs/installation.md).
+# Listing pip's PyPI GDAL would force a from-source build on Windows
+# (no wheel exists) and break most end-user pip installs.
 dependencies = [
-    "GDAL >=3.10.0,<4",
     "geopandas >=1.0.0",
     "hpc-utils >=0.1.5",
     "numpy >=2.0.0",
@@ -106,14 +109,28 @@ Changelog = "https://github.com/serapeum-org/pyramids/blob/main/docs/change-log.
 requires = ["setuptools>=80.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["pyramids", "pyramids.*"]
 
 [tool.setuptools.package-data]
-pyramids = ["base/data/*.yaml"]
+# YAML glob scoped to base/data/ so future test fixtures or plot
+# configs dropped under src/pyramids/ don't auto-ship in every wheel.
+pyramids = [
+    "base/data/*.yaml",
+    "_vendor/osgeo/**/*",
+    "_vendor/osgeo_utils/**/*",
+    "_data/gdal_data/*",
+    "_data/proj_data/*",
+    "_data/gdalplugins/*",
+    # Third-party license texts auto-vendored by
+    # ci/install-and-vendor-osgeo.py from each conda-forge package's
+    # info/licenses/. Required by MIT/BSD/LGPL attribution clauses for
+    # every native lib bundled in pyramids_gis.libs/. See
+    # THIRD_PARTY_LICENSES.md at the repo root for the human-readable
+    # index.
+    "_licenses/**/*",
+]
 
 [tool.flake8]
 ignore = ["E203", "E266", "E501", "W503", "E722", "C901", "E741", "E731"]
@@ -197,13 +214,10 @@ markers = [
     "fast: mark test as fast (deselect with '-m \"not fast\"')",
     "core: extras-free test (auto-applied when no extras marker is present)",
     "plot: tests requiring the [viz] extra (cleopatra) — plotting tests (deselect with '-m \"not plot\"')",
-    # One marker per remaining [project.optional-dependencies] group.
-    # Each marker auto-skips when the extra's headline dep is not
-    # importable (see ``tests/_marks.py`` + ``pytest_collection_modifyitems``
-    # in ``tests/conftest.py``) so test authors declare intent once via
-    # ``@pytest.mark.<extra>`` rather than repeating ``try/except
-    # ImportError`` boilerplate. The [viz] extra is already covered by
-    # the ``plot`` marker above — don't register a duplicate ``viz`` one.
+    # One marker per [project.optional-dependencies] group. Each marker
+    # auto-skips when the extra's headline dep isn't importable — see
+    # ``tests/_marks.py`` + ``pytest_collection_modifyitems``. ``viz`` is
+    # spelled ``plot`` above; don't register a duplicate.
     "lazy: tests requiring the [lazy] extra (dask, distributed, zarr, fsspec, flox)",
     "xarray: tests requiring the [xarray] extra (xarray)",
     "netcdf_lazy: tests requiring the [netcdf-lazy] extra (kerchunk, h5py, + lazy)",
@@ -214,7 +228,7 @@ markers = [
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["win-64", "linux-64", "osx-arm64"]
+platforms = ["win-64", "linux-64", "linux-aarch64", "osx-arm64", "osx-64"]
 
 [tool.pixi.pypi-dependencies]
 pyramids-gis = { path = ".", editable = true }
@@ -241,10 +255,19 @@ parquet = { features = ["viz", "dev", "xarray", "lazy", "parquet"], solve-group 
 parquet-lazy = { features = ["viz", "dev", "xarray", "lazy", "parquet", "parquet-lazy"], solve-group = "default" }
 notebook = { features = ["viz", "notebook"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "docs" }
-py311 = { features = ["py311", "viz", "dev", "xarray", "lazy"], solve-group = "py311" }
-py312 = { features = ["py312", "viz", "dev", "xarray", "lazy"], solve-group = "py312" }
-py313 = { features = ["py313", "viz", "dev", "xarray", "lazy"], solve-group = "py313" }
-py314 = { features = ["py314", "viz", "dev", "xarray", "lazy"], solve-group = "py314" }
+# py3XX envs (tests.yml matrix) intentionally OMIT `lazy`; the
+# `netcdf-lazy` / `parquet-lazy` envs in the extras-package matrix
+# already exercise dask/distributed/zarr transitively. `dev` keeps
+# `lazy` because that env is for local development convenience.
+py311 = { features = ["py311", "viz", "dev", "xarray"], solve-group = "py311" }
+py312 = { features = ["py312", "viz", "dev", "xarray"], solve-group = "py312" }
+py313 = { features = ["py313", "viz", "dev", "xarray"], solve-group = "py313" }
+py314 = { features = ["py314", "viz", "dev", "xarray"], solve-group = "py314" }
+# wheel-build: lean env inside the cibuildwheel container.
+# no-default-feature = true keeps pyramids-gis (and its pandas/numpy
+# transitive deps) out of the build container so cibuildwheel's pip
+# can resolve them against the target Python's manylinux wheels.
+wheel-build = { features = ["wheel-build"], solve-group = "wheel-build", no-default-feature = true }
 
 
 [tool.pixi.feature.py311.dependencies]
@@ -297,6 +320,27 @@ pyarrow = ">=10.0.0"
 [tool.pixi.feature.parquet-lazy.dependencies]
 dask-geopandas = ">=0.5.0"
 
+# Pinned tighter than [tool.pixi.dependencies] because the SWIG Python
+# bindings are version-locked to libgdal. ci/setup-gdal-micromamba.sh
+# reads these pins via tomllib for the macOS x86_64 cross-compile path,
+# so this block is the single source of truth.
+[tool.pixi.feature.wheel-build.dependencies]
+gdal = ">=3.12,<3.13"
+libgdal-netcdf = ">=3.12,<3.13"
+libgdal-hdf4 = ">=3.12,<3.13"
+swig = ">=4.3,<5"
+
+# libstdcxx-ng provides the GCC-13 libstdc++.so.6 that conda-forge's GDAL
+# is built against (GLIBCXX_3.4.32). Linux-only — Apple Clang and MSVC
+# don't use libstdc++. Without this, auditwheel can't resolve the
+# SWIG ext's GLIBCXX deps and the manylinux_2_39 tag fails to apply.
+[tool.pixi.feature.wheel-build.target.linux-64.dependencies]
+libstdcxx-ng = "*"
+
+[tool.pixi.feature.wheel-build.target.linux-aarch64.dependencies]
+libstdcxx-ng = "*"
+
+
 [tool.pixi.dependencies]
 gdal = ">=3.10.0,<4"
 libgdal-netcdf = ">=3.10.0,<4"
@@ -304,3 +348,114 @@ libgdal-hdf4 = ">=3.10.0,<4"
 # Conda-forge's geopandas-base no longer pulls in a vector-IO backend.
 # pyogrio is required for GeoDataFrame.to_file / read_file on every env.
 pyogrio = ">=0.7"
+
+
+[tool.cibuildwheel]
+# Single place to add a new Python version — beats juggling CIBW_BUILD
+# across the three per-OS workflow jobs.
+build = ["cp311-*", "cp312-*", "cp313-*", "cp314-*"]
+# Excludes for build IDs that match `build` but we don't want (PyPy,
+# musllinux, free-threaded 3.14).
+skip = ["*pp*", "*musllinux*", "cp314t-*"]
+archs = ["auto64"]
+build-verbosity = 3
+# manylinux_2_39 wheel can't be installed in manylinux_2_28 build
+# container (glibc too old), so cibuildwheel can't run a self-test.
+# Real wheel tests live in .github/workflows/build-wheels.yml's
+# test-wheels matrix instead.
+test-skip = "*"
+
+# PACKAGE_DATA + PIXI_NO_PATH_UPDATE are duplicated in each per-platform
+# [tool.cibuildwheel.<platform>.environment] block below. Despite docs
+# suggesting otherwise, cibuildwheel's `environment` table uses REPLACE
+# semantics across overrides, not merge. Hoisting them to a shared
+# top-level block silently broke every build with
+# "PACKAGE_DATA != 1; skipping" (commit 607d3153).
+
+[tool.cibuildwheel.linux]
+# manylinux_2_28 build image covers Ubuntu 20.04+ / RHEL 8+. Need 2_28
+# (not 2014) because conda-forge GDAL links symbols newer than glibc 2.17.
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+before-all = ["bash ./ci/setup-gdal-from-pixi.sh"]
+# install-and-vendor-osgeo.py runs pip WITH build isolation so it picks
+# up setuptools>=77 (GDAL 3.12.3's build-system.requires) and a matching
+# numpy. Without isolation, the manylinux container's pre-installed
+# setuptools 75.5.0 rejects GDAL's PEP 639 license string.
+before-build = ["python ./ci/install-and-vendor-osgeo.py"]
+# auditwheel walks the .so dep graph, bundles libgdal + transitive deps
+# into pyramids_gis.libs/, and rewrites RPATH. Output tagged
+# manylinux_2_39 because conda-forge's GDAL is GCC-13 (GLIBCXX_3.4.32);
+# tighten when conda-forge ships with older GCC. ${AUDITWHEEL_ARCH} is
+# auto-exported by cibuildwheel inside the container (x86_64/aarch64).
+repair-wheel-command = [
+    "LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 auditwheel repair --plat manylinux_2_39_${AUDITWHEEL_ARCH} -w {dest_dir} {wheel}",
+]
+
+[tool.cibuildwheel.linux.environment]
+# GDAL_VERSION resolved at runtime by setup-gdal-from-pixi.sh and written
+# to ${BUILD_PREFIX}/GDAL_VERSION (source of truth = pixi.lock).
+BUILD_PREFIX = "/usr/local"
+GDAL_DATA = "/usr/local/share/gdal"
+PROJ_DATA = "/usr/local/share/proj"
+PROJ_LIB = "/usr/local/share/proj"
+PACKAGE_DATA = "1"
+LD_LIBRARY_PATH = "/usr/local/lib:/usr/local/lib64"
+PIXI_NO_PATH_UPDATE = "1"
+
+
+# macOS: same pixi/conda-forge flow as Linux, but with .dylib +
+# delocate-wheel (macOS equivalent of auditwheel) instead of patchelf.
+# Pip build-isolation rationale is the same as the Linux block above.
+[tool.cibuildwheel.macos]
+before-all = ["bash ./ci/setup-gdal-from-pixi.sh"]
+before-build = ["python ./ci/install-and-vendor-osgeo.py"]
+# DYLD_LIBRARY_PATH lives in the .macos.environment block so every
+# subprocess (before-build, build, repair) inherits the same value.
+repair-wheel-command = [
+    "delocate-wheel --require-archs {delocate_archs} -w {dest_dir} {wheel}",
+]
+
+[tool.cibuildwheel.macos.environment]
+# /usr/local needs sudo on GitHub macOS runners — use $HOME instead.
+BUILD_PREFIX = "/Users/runner/gdal-prefix"
+GDAL_DATA = "/Users/runner/gdal-prefix/share/gdal"
+PROJ_DATA = "/Users/runner/gdal-prefix/share/proj"
+PROJ_LIB = "/Users/runner/gdal-prefix/share/proj"
+PACKAGE_DATA = "1"
+DYLD_LIBRARY_PATH = "/Users/runner/gdal-prefix/lib"
+PIXI_NO_PATH_UPDATE = "1"
+# 11.0 = Big Sur; required floor for the arm64 build, safe for x86_64.
+MACOSX_DEPLOYMENT_TARGET = "11.0"
+
+
+# Windows: conda's Library/ nesting + delvewheel for repair.
+[tool.cibuildwheel.windows]
+before-all = ["powershell -File ci/setup-gdal-from-pixi.ps1"]
+before-build = [
+    # delvewheel is the only tool we install explicitly (needed for the
+    # repair command); setuptools/wheel/numpy arrive via pip's build
+    # isolation when install-and-vendor-osgeo.py runs.
+    "python -m pip install delvewheel",
+    "python ci/install-and-vendor-osgeo.py",
+]
+# --analyze-existing makes delvewheel walk the dep graph of DLLs ALREADY
+# inside the wheel (the GDAL plugins at pyramids/_data/gdalplugins/).
+# Without it, gdal_netCDF.dll / gdal_HDF*.dll ship without their
+# transitive deps (netcdf.dll, hdf5.dll, …) and NetCDF/HDF open fails at
+# runtime with "not recognized as being in a supported file format".
+repair-wheel-command = [
+    "delvewheel repair --analyze-existing --add-path C:/gdal-prefix/Library/bin -w {dest_dir} {wheel}",
+]
+
+[tool.cibuildwheel.windows.environment]
+# Forward slashes survive bash/PowerShell/cmd interpolation without
+# double-backslash escaping; Windows treats /, \, and mixed paths
+# equivalently for built-in APIs.
+BUILD_PREFIX = "C:/gdal-prefix"
+GDAL_DATA = "C:/gdal-prefix/Library/share/gdal"
+PROJ_DATA = "C:/gdal-prefix/Library/share/proj"
+PROJ_LIB = "C:/gdal-prefix/Library/share/proj"
+PACKAGE_DATA = "1"
+PATH = "C:/gdal-prefix/Library/bin;$PATH"
+PIXI_NO_PATH_UPDATE = "1"
