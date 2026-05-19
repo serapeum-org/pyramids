@@ -234,26 +234,28 @@ fi
 # `strip --strip-unneeded` is Linux/GNU. macOS strip uses `-S` for the
 # equivalent "strip debug symbols only, keep the dynamic symbol table".
 # Previous form `find … -exec strip … 2>/dev/null || true` swallowed
-# both per-file "file format not recognized" (legitimate skip for
-# non-strippable files) and real errors like "strip: command not found"
-# or "permission denied". Run strip per-file so each file's exit code
-# is visible; a failing strip on any single .so/.dylib prints to
-# stderr but doesn't fail the whole script.
+# all output (real failures included). Replace with batched `-exec +`
+# (one strip invocation for the whole batch — fast) and capture the
+# exit with `if !` so set -e doesn't kill us on per-file errors like
+# "file format not recognized" or even strip's own SIGSEGV on certain
+# manylinux libs. Errors reach the log, the script continues.
+#
+# Earlier attempt (commit 2bfbff64) used `find -exec bash -c …` per
+# file to log skipped files individually, but the bash subshell
+# segfaulted on manylinux containers and crashed both Linux builds.
+# Per-file logging isn't worth the fragility — strip itself prints
+# enough context on its stderr.
 echo "--- Stripping shared libraries ---"
-strip_one() {
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        strip -S "$1" 2>&1 || echo "  (skipped: $1)"
-    else
-        strip --strip-unneeded "$1" 2>&1 || echo "  (skipped: $1)"
-    fi
-}
-export -f strip_one
 if [[ "$(uname -s)" == "Darwin" ]]; then
-    find "${BUILD_PREFIX}/lib" -name '*.dylib*' -type f \
-        -exec bash -c 'strip_one "$0"' {} \;
+    if ! find "${BUILD_PREFIX}/lib" -name '*.dylib*' -type f \
+            -exec strip -S {} +; then
+        echo "  (some files not strippable — see strip output above)"
+    fi
 else
-    find "${BUILD_PREFIX}/lib" "${BUILD_PREFIX}/lib64" -name '*.so*' -type f \
-        -exec bash -c 'strip_one "$0"' {} \;
+    if ! find "${BUILD_PREFIX}/lib" "${BUILD_PREFIX}/lib64" -name '*.so*' \
+            -type f -exec strip --strip-unneeded {} +; then
+        echo "  (some files not strippable — see strip output above)"
+    fi
 fi
 
 # 5. Diagnostic output. Uses `nullglob` + first-match-from-array to
