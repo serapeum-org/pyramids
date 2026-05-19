@@ -46,10 +46,27 @@ case "$(uname -s)/$(uname -m)" in
     *) echo "ERROR: unsupported host $(uname -s)/$(uname -m)" >&2; exit 1 ;;
 esac
 
+# Pin micromamba version via .micromamba-version at the repo root so
+# the cross-compile path is reproducible. The previous `…/latest`
+# endpoint was a rolling target — a new micromamba release with a
+# regressed `--platform osx-64` would have silently broken CI.
+# TODO: pinning the version doesn't fully close the supply-chain gap;
+# micro.mamba.pm + the S3 backing store could still serve a tampered
+# tarball. A follow-up should add SHA256 verification per platform
+# (4 SHAs: linux-64, linux-aarch64, osx-arm64, osx-64) committed to a
+# `.micromamba-sha256.txt` manifest.
+MICROMAMBA_VERSION_FILE="$(cd "$(dirname "$0")/.." && pwd)/.micromamba-version"
+if [[ -z "${MICROMAMBA_VERSION:-}" && -f "${MICROMAMBA_VERSION_FILE}" ]]; then
+    MICROMAMBA_VERSION="$(tr -d '[:space:]' < "${MICROMAMBA_VERSION_FILE}")"
+fi
+: "${MICROMAMBA_VERSION:?MICROMAMBA_VERSION not set and .micromamba-version missing}"
+
 MAMBA_BIN="${BUILD_PREFIX}/bin/micromamba"
 mkdir -p "${BUILD_PREFIX}/bin"
-echo "--- Installing micromamba for ${HOST_PLATFORM} ---"
-curl -fsSL "https://micro.mamba.pm/api/micromamba/${HOST_PLATFORM}/latest" \
+MICROMAMBA_URL="https://micro.mamba.pm/api/micromamba/${HOST_PLATFORM}/${MICROMAMBA_VERSION}"
+echo "--- Installing micromamba ${MICROMAMBA_VERSION} for ${HOST_PLATFORM} ---"
+echo "    from ${MICROMAMBA_URL}"
+curl -fsSL "${MICROMAMBA_URL}" \
     | tar -xj -C "${BUILD_PREFIX}" bin/micromamba
 chmod +x "${MAMBA_BIN}"
 "${MAMBA_BIN}" --version
