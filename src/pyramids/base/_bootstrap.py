@@ -1,24 +1,25 @@
 """Runtime vendor bootstrap for the pyramids platform wheel.
 
-When `pyramids` is installed from a platform wheel, `_vendor/osgeo/`
-ships GDAL's Python SWIG bindings and `_data/` ships GDAL_DATA +
-PROJ_DATA. `activate_vendored_osgeo()` injects `_vendor/` into
-`sys.path` and configures the env vars + Windows DLL directories
-that the bundled GDAL needs. It is called once from
-`pyramids/__init__.py` BEFORE any `from osgeo import ...` anywhere
-downstream — `pyramids._configure` does that import at module load
-and would fail without the bootstrap.
+When `pyramids` is installed from a platform wheel,
+`pyramids/_vendor/osgeo/` ships GDAL's Python SWIG bindings and
+`pyramids/_data/` ships GDAL_DATA + PROJ_DATA.
+`activate_vendored_osgeo(pkg_dir)` injects `_vendor/` into `sys.path`
+and configures the env vars + Windows DLL directories that the bundled
+GDAL needs. It is called once from `pyramids/__init__.py` BEFORE any
+`from osgeo import ...` anywhere downstream — `pyramids.base._configure`
+does that import at module load and would fail without the bootstrap.
 
 The bootstrap is a no-op on editable / dev installs that don't have
-`_vendor/` populated (the normal `pixi shell -e dev` setup) and
-skips with a warning if the vendored `_gdal.<EXT>` doesn't match the
+`_vendor/` populated (the normal `pixi shell -e dev` setup) and skips
+with a warning if the vendored `_gdal.<EXT>` doesn't match the
 current Python ABI (defensive against stale leftover dirs from a
 prior local cibuildwheel run).
 
-Kept as a separate module (not inline in `__init__.py`) so the
-bootstrap mechanism is testable in isolation and so the package's
-public API surface — what `from pyramids import …` actually exposes
-— is readable without scrolling past 95 lines of CPython internals.
+Lives under `pyramids/base/` (not at the package root) so internal
+infrastructure modules are grouped together. `pkg_dir` is passed
+explicitly by the caller (resolved via `pyramids.__path__`) rather
+than derived from `__file__`, so this module can move anywhere within
+the package without the vendor-dir resolution breaking.
 """
 from __future__ import annotations
 
@@ -37,14 +38,17 @@ from pathlib import Path
 _DLL_HANDLE = None
 
 
-def activate_vendored_osgeo(pkg_dir: Path | None = None) -> bool:
+def activate_vendored_osgeo(pkg_dir: Path) -> bool:
     """Activate the vendored osgeo if `_vendor/osgeo/` exists + ABI-matches.
 
     Args:
-        pkg_dir: directory containing `_vendor/` and `_data/`. Defaults
-            to the directory of `pyramids/__init__.py` (= the parent
-            of this `_bootstrap.py` file, since both live directly
-            under `pyramids/`). Override for unit tests.
+        pkg_dir: directory of the `pyramids` package (containing
+            `_vendor/` and `_data/`). The caller is responsible for
+            resolving this — typically ``Path(pyramids.__path__[0])``
+            from `pyramids/__init__.py`. No default is provided so the
+            resolution stays at the caller and this module never has
+            to guess its own location (which would be wrong now that
+            it lives under `pyramids/base/`).
 
     Returns:
         ``True`` if the vendor bootstrap activated (sys.path was
@@ -53,8 +57,6 @@ def activate_vendored_osgeo(pkg_dir: Path | None = None) -> bool:
         current Python ABI.
     """
     global _DLL_HANDLE
-    if pkg_dir is None:
-        pkg_dir = Path(__file__).parent
     vendored_osgeo = pkg_dir / "_vendor" / "osgeo"
 
     if not vendored_osgeo.is_dir():

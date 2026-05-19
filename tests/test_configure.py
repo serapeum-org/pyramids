@@ -12,7 +12,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids import configure
-from pyramids._configure import GDAL_CLOUD_DEFAULTS, _expand_credentials
+from pyramids.base._configure import GDAL_CLOUD_DEFAULTS, _expand_credentials
 
 pytestmark = pytest.mark.core
 
@@ -95,7 +95,7 @@ class TestImportSurface:
 
 
 class TestWorkerPlugin:
-    """Tests for :func:`pyramids._configure._register_worker_plugin`.
+    """Tests for :func:`pyramids.base._configure._register_worker_plugin`.
 
     ``configure(..., client=<dask client>)`` replays the chosen GDAL
     options on every worker via a :class:`WorkerPlugin` so distributed
