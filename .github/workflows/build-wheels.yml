@@ -1,6 +1,11 @@
 name: Build Platform Wheels
 
 on:
+  push:
+    branches: [main]
+  workflow_run:
+    workflows: ["github-release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       branch:
@@ -8,54 +13,25 @@ on:
         required: false
         default: ""
         type: string
-      upload-to-pypi:
-        description: "Upload built wheels + sdist to PyPI. Set to false for a build-only dry-run."
-        type: boolean
-        default: false
-      target:
-        description: "Which PyPI instance to publish to (used only when upload-to-pypi=true)."
-        type: choice
-        options:
-          - pypi
-          - testpypi
-        default: pypi
-  pull_request:
-    # Auto-run on every push to a PR — primary path for branch testing
-    # while this workflow isn't yet on the default branch. Remove or
-    # narrow (e.g. `paths:`) once the workflow lands on main.
-    branches: [main]
-  release:
-    types: [released]
-  workflow_call:
 
 permissions:
   contents: read
 
-# Named constants used by the build / test steps below. GDAL_VERSION is
-# NOT here — it's resolved at runtime by ci/setup-gdal-from-pixi.{sh,ps1}
-# from the actual pixi/micromamba env (single source of truth =
-# pixi.lock). The manylinux-build-platform tag lives in pyproject.toml
-# under [tool.cibuildwheel.linux].repair-wheel-command — cibuildwheel
-# doesn't expand workflow env vars into that string, so it stays there.
 env:
-  # Hard ceiling on wheel size. Enforced per-platform by the "Report
-  # wheel sizes" step on the Linux job. See
-  # planning/bundle/wheel-size-analysis.md for the rationale.
   WHEEL_SIZE_BUDGET_MB: "120"
 
 jobs:
-  # -------------------------------------------------------------------------
-  # Build source distribution (pure Python, no vendored GDAL).
-  # Kept for conda-forge feedstock which compiles from sdist.
-  # -------------------------------------------------------------------------
   build-sdist:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ inputs.branch || github.ref }}
+          # head_branch (not head_sha) — github-release pushes the bump + lockfile commits AFTER
+          # the workflow_run head_sha is captured; we need the branch tip to see them.
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -70,11 +46,10 @@ jobs:
         with:
           name: sdist
           path: dist/*.tar.gz
+          retention-days: 3
 
-  # -------------------------------------------------------------------------
-  # Build Linux platform wheels with bundled GDAL via pixi + conda-forge.
-  # -------------------------------------------------------------------------
   build-linux-wheels:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ${{ matrix.runs-on }}
     timeout-minutes: 30
     strategy:
@@ -89,7 +64,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -98,8 +73,6 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.4
         env:
-          # Python-version selection lives in pyproject.toml's
-          # [tool.cibuildwheel].build = ["cp311-*", "cp312-*", "cp313-*"]
           CIBW_ARCHS_LINUX: ${{ matrix.arch }}
 
       - name: Report wheel sizes
@@ -110,17 +83,10 @@ jobs:
         with:
           name: wheels-linux-${{ matrix.arch }}
           path: wheelhouse/*.whl
+          retention-days: 3
 
-  # -------------------------------------------------------------------------
-  # Build macOS platform wheels (arm64 native + x86_64 cross-compiled).
-  # Both run on macos-14 (Apple Silicon) because GitHub's macos-13 (Intel)
-  # runner queue is unusable in practice — jobs sit queued for hours.
-  # cibuildwheel handles x86_64 cross-compile on arm64 via Rosetta + ARCHFLAGS.
-  # The pixi wheel-build env is installed for the target platform via
-  # --platform osx-64 / --platform osx-arm64, so we link against the right
-  # libgdal regardless of host arch.
-  # -------------------------------------------------------------------------
   build-macos-wheels:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     strategy:
       fail-fast: false
       matrix:
@@ -131,7 +97,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -140,19 +106,16 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.4
         env:
-          # Python-version selection lives in pyproject.toml's
-          # [tool.cibuildwheel].build = ["cp311-*", "cp312-*", "cp313-*"]
           CIBW_ARCHS_MACOS: ${{ matrix.arch }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-macos-${{ matrix.arch }}
           path: wheelhouse/*.whl
+          retention-days: 3
 
-  # -------------------------------------------------------------------------
-  # Build Windows platform wheels via pixi + conda-forge.
-  # -------------------------------------------------------------------------
   build-windows-wheels:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: windows-2022
     timeout-minutes: 30
     strategy:
@@ -163,7 +126,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -172,37 +135,20 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v3.4
         env:
-          # Python-version selection lives in pyproject.toml's
-          # [tool.cibuildwheel].build = ["cp311-*", "cp312-*", "cp313-*"]
           CIBW_ARCHS_WINDOWS: ${{ matrix.arch }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-windows-${{ matrix.arch }}
           path: wheelhouse/*.whl
+          retention-days: 3
 
-  # -------------------------------------------------------------------------
-  # Test the built wheels in a clean environment (no conda, no system GDAL).
-  # Covers Linux / macOS / Windows across cp311/cp312/cp313.
-  #
-  # This is the PyPI install-path test: install the platform wheel into
-  # a vanilla pip env and confirm the vendored osgeo / bundled DLLs are
-  # discoverable. The conda-forge install-path test (sdist + system
-  # GDAL) lives in .github/workflows/wheel-test.yml — the two together
-  # cover both shapes end users actually install pyramids-gis in.
-  # -------------------------------------------------------------------------
   test-wheels:
     needs: [build-linux-wheels, build-macos-wheels, build-windows-wheels]
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        # macOS x86_64 testing is omitted here: the wheel is cross-compiled
-        # on macos-14 (arm64) so we can't install it on the same runner,
-        # and macos-13 (Intel) GitHub runners queue indefinitely. Native
-        # arm64 testing below covers the import-time vendor bootstrap on
-        # macOS; x86_64 runtime gets exercised by downstream users on
-        # their own Intel machines.
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-14, windows-2022]
         python-version: ["3.11", "3.12", "3.13", "3.14"]
         include:
@@ -226,7 +172,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -237,12 +183,8 @@ jobs:
           name: ${{ matrix.artifact }}
           path: dist/
 
-      - name: Install wheel (no conda, no system GDAL)
+      - name: Install wheel
         shell: bash
-        # Plain `pip install <wheel>` — same command end users run.
-        # GDAL is intentionally NOT in the wheel's runtime deps (the
-        # platform wheel vendors GDAL's Python bindings), so pip
-        # resolves only the rest (geopandas, numpy, ...) from PyPI.
         run: |
           PYTAG=$(python -c "import sys; print(f'cp{sys.version_info.major}{sys.version_info.minor}')")
           WHEEL=$(ls dist/pyramids_gis-*-${PYTAG}-${PYTAG}-*${{ matrix.wheel-tag }}*.whl | head -1)
@@ -250,80 +192,57 @@ jobs:
           pip install "$WHEEL"
           pip install pytest pytest-env pytest-mock pytest-timeout
 
-      - name: Verify GDAL import (exercises vendor bootstrap)
+      - name: Verify GDAL import
         run: python ci/verify-wheel.py
 
       - name: Run core test suite
         shell: bash
-        # `core` is auto-applied by tests/conftest.py to every test that
-        # doesn't carry an extras marker (plot/xarray/lazy/etc.). Same
-        # convention as wheel-test.yml::test-wheel-core. Extras-gated
-        # tests auto-skip when their extra isn't installed (we install
-        # the bare wheel only).
-        #
-        # --timeout=60: pytest-timeout aborts any single test that runs
-        #   longer than 60 seconds. Caps the blast radius of a hung
-        #   test (we saw a real hang on windows-2022 in run
-        #   25988610633 — the step burned 17+ minutes with no progress).
-        # --timeout-method=thread: signal-based timeouts don't work on
-        #   Windows, so use the thread-based method which is portable.
-        # Step-level timeout-minutes is a backstop in case pytest
-        #   itself deadlocks before reaching a test.
+        # --timeout-method=thread: signal-based timeouts don't work on Windows.
         timeout-minutes: 10
         run: pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m core tests/
 
-  # Publish all built artifacts (sdist + 20 platform wheels) to PyPI.
-  # Triggered by:
-  #   - release: types: [released]  → fires after github-release.yml's
-  #     commitizen-driven tag publishes the GitHub release.
-  #   - workflow_dispatch with upload-to-pypi == true  → manual override.
-  # Skipped on pull_request / workflow_call so a PR push never publishes.
-  #
-  # All 6 artifacts (sdist + wheels-linux-x86_64 + wheels-linux-aarch64
-  # + wheels-macos-arm64 + wheels-macos-x86_64 + wheels-windows-AMD64)
-  # come from the same workflow run via download-artifact's default
-  # scope. `needs:` ensures publish never fires after a partial build.
-  publish:
-    name: Publish to PyPI
+  release:
+    name: Publish to PyPI + attach to GitHub release
     needs: [build-sdist, build-linux-wheels, build-macos-wheels, build-windows-wheels, test-wheels]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: |
-      github.event_name == 'release' ||
-      (github.event_name == 'workflow_dispatch' && inputs.upload-to-pypi)
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Download all artifacts from this run
         uses: actions/download-artifact@v4
         with:
-          # merge-multiple collapses the 6 per-artifact directories into
-          # a single dist/ that pypa/gh-action-pypi-publish expects.
           path: dist/
           merge-multiple: true
 
-      - name: List artifacts about to be published
+      - name: List artifacts about to be released
         run: ls -lah dist/
+
+      - name: Resolve target release tag
+        id: release-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG=$(gh release view --repo '${{ github.repository }}' --json tagName --jq '.tagName')
+          echo "Resolved release tag: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Attach wheels + sdist to the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release upload '${{ steps.release-tag.outputs.tag }}' \
+              dist/*.whl dist/*.tar.gz \
+              --repo '${{ github.repository }}' \
+              --clobber
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          # Token + repository-url switch by `target` input. On release
-          # events `target` is unset → the `== 'testpypi'` check is
-          # falsy → defaults to production PyPI + PYPI_PUBLISH token,
-          # matching the original C1 behavior. workflow_dispatch with
-          # `target: testpypi` requires a PYPI_TEST_PUBLISH secret
-          # configured in repo settings.
-          password: >-
-            ${{ inputs.target == 'testpypi'
-                && secrets.PYPI_TEST_PUBLISH
-                || secrets.PYPI_PUBLISH }}
-          repository-url: >-
-            ${{ inputs.target == 'testpypi'
-                && 'https://test.pypi.org/legacy/'
-                || '' }}
+          password: ${{ secrets.PYPI_PUBLISH }}
           packages-dir: dist/
-          # skip-existing lets a re-run after a partial-failed upload
-          # succeed — PyPI rejects re-uploads of an existing file.
           skip-existing: true
           verbose: true
