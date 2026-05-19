@@ -110,8 +110,14 @@ def install_gdal_python_bindings() -> None:
     # /usr/local/bin pointing at the real Xcode toolchain binaries, so
     # PATH resolution skips the /usr/bin shims entirely. No CC / CXX /
     # DEVELOPER_DIR plumbing is needed here — just cap parallel build
-    # jobs to keep peak RAM under the runner ceiling.
-    if is_macos:
+    # jobs to keep peak RAM under the runner ceiling (~7 GB on macos-14).
+    #
+    # Linux runners (ubuntu-latest, ubuntu-24.04-arm) have the same
+    # 4-core / 16 GB shape and the GDAL build's peak RAM can reach 6-8
+    # GB with `-j$(nproc)`. Apply the same -j2 cap so a future GDAL
+    # release with higher parallel-build memory pressure doesn't OOM.
+    # Windows uses MSVC and doesn't honor MAKEFLAGS; leave it alone.
+    if is_macos or sys.platform == "linux":
         env.setdefault("MAKEFLAGS", "-j2")
         env.setdefault("CMAKE_BUILD_PARALLEL_LEVEL", "2")
         env.setdefault("NPY_NUM_BUILD_JOBS", "2")
