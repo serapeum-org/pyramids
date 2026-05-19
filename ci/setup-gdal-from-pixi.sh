@@ -233,20 +233,44 @@ fi
 #
 # `strip --strip-unneeded` is Linux/GNU. macOS strip uses `-S` for the
 # equivalent "strip debug symbols only, keep the dynamic symbol table".
+# Previous form `find … -exec strip … 2>/dev/null || true` swallowed
+# both per-file "file format not recognized" (legitimate skip for
+# non-strippable files) and real errors like "strip: command not found"
+# or "permission denied". Run strip per-file so each file's exit code
+# is visible; a failing strip on any single .so/.dylib prints to
+# stderr but doesn't fail the whole script.
 echo "--- Stripping shared libraries ---"
+strip_one() {
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        strip -S "$1" 2>&1 || echo "  (skipped: $1)"
+    else
+        strip --strip-unneeded "$1" 2>&1 || echo "  (skipped: $1)"
+    fi
+}
+export -f strip_one
 if [[ "$(uname -s)" == "Darwin" ]]; then
     find "${BUILD_PREFIX}/lib" -name '*.dylib*' -type f \
-        -exec strip -S {} + 2>/dev/null || true
+        -exec bash -c 'strip_one "$0"' {} \;
 else
     find "${BUILD_PREFIX}/lib" "${BUILD_PREFIX}/lib64" -name '*.so*' -type f \
-        -exec strip --strip-unneeded {} + 2>/dev/null || true
+        -exec bash -c 'strip_one "$0"' {} \;
 fi
 
-# 5. Diagnostic output.
+# 5. Diagnostic output. Uses `nullglob` + first-match-from-array to
+# avoid the `ls "..."* 2>/dev/null | head -1` anti-pattern that hides
+# all errors (not just "no match"). Each `_*` array can be empty if no
+# matching libs were extracted; the `:-(not found)` fallback keeps the
+# output readable without failing the script.
 echo "=== setup-gdal-from-pixi.sh complete ==="
 echo "GDAL version: $("${BUILD_PREFIX}/bin/gdal-config" --version)"
-echo "libgdal: $(ls "${BUILD_PREFIX}/lib/libgdal.so"* 2>/dev/null | head -1)"
-echo "libproj: $(ls "${BUILD_PREFIX}/lib/libproj.so"* 2>/dev/null | head -1)"
-echo "libgeos: $(ls "${BUILD_PREFIX}/lib/libgeos.so"* 2>/dev/null | head -1)"
-echo "Total .so files: $(find "${BUILD_PREFIX}/lib" "${BUILD_PREFIX}/lib64" -name '*.so*' -type f 2>/dev/null | wc -l)"
+shopt -s nullglob
+_gdal_libs=( "${BUILD_PREFIX}/lib/libgdal.so"* )
+_proj_libs=( "${BUILD_PREFIX}/lib/libproj.so"* )
+_geos_libs=( "${BUILD_PREFIX}/lib/libgeos.so"* )
+_all_sos=( "${BUILD_PREFIX}/lib/"*.so* "${BUILD_PREFIX}/lib64/"*.so* )
+shopt -u nullglob
+echo "libgdal: ${_gdal_libs[0]:-(not found)}"
+echo "libproj: ${_proj_libs[0]:-(not found)}"
+echo "libgeos: ${_geos_libs[0]:-(not found)}"
+echo "Total .so files: ${#_all_sos[@]}"
 echo "Total size: $(du -sh "${BUILD_PREFIX}/lib" 2>/dev/null | cut -f1)"
