@@ -1,28 +1,32 @@
-"""Minimal setup.py that forces setuptools to produce a platform-specific wheel.
+"""Minimal setup.py: conditional platform-wheel tagging.
 
-pyramids has no C extensions of its own, but when built via cibuildwheel we
-vendor the `osgeo` package (compiled SWIG bindings) and bundled native
-libraries into the wheel. Without this override, setuptools produces a
-``py3-none-any`` wheel and cibuildwheel rightly refuses it.
+pyramids has no C extensions of its own, but the cibuildwheel path vendors the
+`osgeo` package (compiled SWIG bindings) + bundled native libs into the wheel,
+which needs platform tags (cp3NN-cp3NN-<plat>) — otherwise cibuildwheel rejects
+the wheel.
 
-See planning/bundle/option-1-implementation-plan.md Task 1.10 for context.
+Gate that behavior on `PACKAGE_DATA=1`, the same env var cibuildwheel exports
+via `[tool.cibuildwheel.{linux,macos,windows}.environment]` blocks in
+pyproject.toml (also keys ci/install-and-vendor-osgeo.py). Outside cibuildwheel
+the var is unset, so plain `python -m build --wheel` (wheel-test.yml,
+conda-forge sdist build) emits a `py3-none-any` wheel as expected.
+
 All other config lives in pyproject.toml.
 """
 from __future__ import annotations
+
+import os
 
 from setuptools import setup
 from setuptools.dist import Distribution
 
 
 class BinaryDistribution(Distribution):
-    """Tell setuptools this wheel is platform-specific.
-
-    We return True unconditionally because the wheel always ships vendored
-    C extensions from the GDAL SWIG bindings + bundled shared libraries.
-    """
-
-    def has_ext_modules(self) -> bool:  # noqa: D401
+    def has_ext_modules(self) -> bool:
         return True
 
 
-setup(distclass=BinaryDistribution)
+if os.environ.get("PACKAGE_DATA") == "1":
+    setup(distclass=BinaryDistribution)
+else:
+    setup()
