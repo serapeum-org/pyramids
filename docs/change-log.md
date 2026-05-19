@@ -1,6 +1,16 @@
 ﻿# Change log
 
 
+## 0.20.0 (2026-05-19)
+
+### Feat
+
+- **wheels**: bundle GDAL into pip-installable platform wheels (#243)
+
+### Fix
+
+- **wheels**: only force platform tag in setup.py when PACKAGE_DATA=1
+
 ## 0.19.0 (2026-05-15)
 
 ### Feat
