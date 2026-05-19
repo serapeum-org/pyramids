@@ -58,7 +58,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     if (( ${#_xcodes[@]} )); then
         NEWEST_XCODE=$(printf '%s\n' "${_xcodes[@]}" | sort -V | tail -1)
     fi
-    if [ -n "${NEWEST_XCODE:-}" ] && [ -d "${NEWEST_XCODE}/Contents/Developer" ]; then
+    if [[ -n "${NEWEST_XCODE:-}" ]] && [[ -d "${NEWEST_XCODE}/Contents/Developer" ]]; then
         echo "--- Switching active Xcode to ${NEWEST_XCODE} ---"
         sudo xcode-select -s "${NEWEST_XCODE}/Contents/Developer"
         xcode-select -p
@@ -94,7 +94,7 @@ EOF
         echo "--- Installing direct toolchain symlinks into /usr/local/bin ---"
         for tool in otool install_name_tool codesign lipo strip ld ar ranlib nm libtool dsymutil; do
             for src in "${TOOLCHAIN_BIN}/${tool}" "${DEVELOPER_USR_BIN}/${tool}" "${CLT_BIN}/${tool}"; do
-                if [ -x "${src}" ]; then
+                if [[ -x "${src}" ]]; then
                     sudo ln -sf "${src}" "/usr/local/bin/${tool}"
                     echo "  /usr/local/bin/${tool} -> ${src}"
                     break
@@ -155,7 +155,7 @@ else
     pixi install -e wheel-build --frozen
 fi
 
-if [ ! -d "${PIXI_ENV}" ]; then
+if [[ ! -d "${PIXI_ENV}" ]]; then
     echo "ERROR: ${PIXI_ENV} does not exist after env install" >&2
     exit 1
 fi
@@ -167,7 +167,7 @@ echo "wheel-build env: ${PIXI_ENV}"
 # pixi.lock / micromamba solver output — no more hardcoded duplicates
 # in pyproject.toml or build-wheels.yml.
 GDAL_CONFIG="${PIXI_ENV}/bin/gdal-config"
-if [ ! -x "${GDAL_CONFIG}" ]; then
+if [[ ! -x "${GDAL_CONFIG}" ]]; then
     echo "ERROR: ${GDAL_CONFIG} missing or not executable" >&2
     exit 1
 fi
@@ -195,7 +195,7 @@ _so_files=( "${PIXI_ENV}/lib/"*.so* )
 _dylib_files=( "${PIXI_ENV}/lib/"*.dylib* )
 (( ${#_so_files[@]} )) && cp -a "${_so_files[@]}" "${BUILD_PREFIX}/lib/"
 (( ${#_dylib_files[@]} )) && cp -a "${_dylib_files[@]}" "${BUILD_PREFIX}/lib/"
-if [ -d "${PIXI_ENV}/lib64" ]; then
+if [[ -d "${PIXI_ENV}/lib64" ]]; then
     _so64_files=( "${PIXI_ENV}/lib64/"*.so* )
     _dylib64_files=( "${PIXI_ENV}/lib64/"*.dylib* )
     (( ${#_so64_files[@]} )) && cp -a "${_so64_files[@]}" "${BUILD_PREFIX}/lib64/"
@@ -213,7 +213,7 @@ cp -a "${PIXI_ENV}/share/proj" "${BUILD_PREFIX}/share/"
 # GDAL plugins (libgdal-netcdf / libgdal-hdf4) live in a separate
 # subdirectory and are loaded at runtime via GDAL_DRIVER_PATH. These
 # MUST be bundled or NetCDF/HDF4/HDF5 drivers will be unavailable.
-if [ -d "${PIXI_ENV}/lib/gdalplugins" ]; then
+if [[ -d "${PIXI_ENV}/lib/gdalplugins" ]]; then
     mkdir -p "${BUILD_PREFIX}/lib/gdalplugins"
     cp -a "${PIXI_ENV}/lib/gdalplugins/." "${BUILD_PREFIX}/lib/gdalplugins/"
 fi
@@ -221,13 +221,13 @@ fi
 # Build tooling needed downstream
 for tool in gdal-config swig ogrinfo gdalinfo; do
     src="${PIXI_ENV}/bin/${tool}"
-    if [ -f "${src}" ]; then
+    if [[ -f "${src}" ]]; then
         cp "${src}" "${BUILD_PREFIX}/bin/"
     fi
 done
 
 # pkg-config files (some build tools consult pkg-config)
-if [ -d "${PIXI_ENV}/lib/pkgconfig" ]; then
+if [[ -d "${PIXI_ENV}/lib/pkgconfig" ]]; then
     mkdir -p "${BUILD_PREFIX}/lib/pkgconfig"
     shopt -s nullglob
     _pc_files=( "${PIXI_ENV}/lib/pkgconfig/"*.pc )

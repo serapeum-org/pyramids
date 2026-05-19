@@ -72,7 +72,12 @@ curl -fsSL "${MICROMAMBA_URL}" \
 chmod +x "${MAMBA_BIN}"
 "${MAMBA_BIN}" --version
 
-export MAMBA_ROOT_PREFIX="${HOME}/micromamba-root"
+# MAMBA_ROOT_PREFIX is where micromamba stashes its package cache.
+# Use a BUILD_PREFIX-local dir rather than $HOME/micromamba-root so a
+# developer running this script locally doesn't end up with a stray
+# ~/micromamba-root. The CI runner is ephemeral so location doesn't
+# matter there.
+export MAMBA_ROOT_PREFIX="${BUILD_PREFIX}/micromamba-root"
 mkdir -p "${MAMBA_ROOT_PREFIX}"
 # Remove ${PIXI_ENV} cleanly — micromamba 2.x's `create -p` creates
 # the prefix dir itself and refuses if the path already exists as a

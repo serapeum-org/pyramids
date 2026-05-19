@@ -77,7 +77,7 @@ if ($GdalMeta.BaseName -match '^gdal-(\d+\.\d+\.\d+)') {
     throw "could not parse version from $($GdalMeta.Name)"
 }
 New-Item -ItemType Directory -Force -Path $BuildPrefix | Out-Null
-[System.IO.File]::WriteAllText((Join-Path $BuildPrefix "GDAL_VERSION"), $GdalVersion)
+Set-Content -Path (Join-Path $BuildPrefix "GDAL_VERSION") -Value $GdalVersion -NoNewline
 Write-Host "resolved GDAL_VERSION=$GdalVersion"
 
 # 3. Extract native artifacts into $BuildPrefix.

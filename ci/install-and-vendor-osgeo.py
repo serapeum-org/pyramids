@@ -144,17 +144,25 @@ def install_gdal_python_bindings() -> None:
     # x86_64 cross-compile takes the standard path: numpy 2.x ships cp
     # wheels for osx-64 and meson refuses to cross-build numpy 1.x.
     extra_pip_args: list[str] = []
-    target_arch = (
-        os.environ.get("CIBW_ARCHS")
-        or os.environ.get("CIBW_ARCHS_MACOS")
+    # Only macOS uses target_arch here: the arm64 carve-out below
+    # pre-installs an Accelerate-friendly numpy. CIBW_ARCHS_MACOS is
+    # the cibuildwheel-emitted env var; CIBW_ARCHS is the user-facing
+    # one set via workflow inputs. Linux / Windows builds simply leave
+    # this empty and skip the arm64 branch.
+    macos_target_arch = (
+        os.environ.get("CIBW_ARCHS_MACOS")
+        or os.environ.get("CIBW_ARCHS")
         or ""
+    ) if is_macos else ""
+    print(
+        f"[install-and-vendor-osgeo] macos_target_arch: {macos_target_arch!r}",
+        flush=True,
     )
-    print(f"[install-and-vendor-osgeo] target arch: {target_arch!r}", flush=True)
-    if is_macos and target_arch == "arm64":
-        subprocess.check_call(
+    if is_macos and macos_target_arch == "arm64":
+        subprocess.run(
             [sys.executable, "-m", "pip", "install", "--no-cache-dir",
              "setuptools>=77.0.3", "wheel"],
-            env=env,
+            env=env, check=True,
         )
         py_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
         download_dir = Path(tempfile.mkdtemp(prefix="numpy-dl-"))
@@ -163,7 +171,7 @@ def install_gdal_python_bindings() -> None:
         # interact badly with GDAL's setup.py. The build-pin can be
         # tighter than the runtime-pin since the build numpy never
         # ships in the wheel. Bump the cap when numpy 3.x lands.
-        subprocess.check_call(
+        subprocess.run(
             [sys.executable, "-m", "pip", "download",
              "--no-deps", "--only-binary=:all:",
              "--platform", "macosx_11_0_arm64",
@@ -172,13 +180,13 @@ def install_gdal_python_bindings() -> None:
              "--abi", py_tag,
              "-d", str(download_dir),
              "numpy>=2.1,<3"],
-            env=env,
+            env=env, check=True,
         )
         numpy_whl = next(download_dir.glob("numpy-*.whl"))
         print(f"[install-and-vendor-osgeo] using {numpy_whl.name}", flush=True)
-        subprocess.check_call(
+        subprocess.run(
             [sys.executable, "-m", "pip", "install", "--no-deps", str(numpy_whl)],
-            env=env,
+            env=env, check=True,
         )
         extra_pip_args.append("--no-build-isolation")
 
@@ -195,7 +203,7 @@ def install_gdal_python_bindings() -> None:
         print(f"[install-and-vendor-osgeo] INCLUDE: {env.get('INCLUDE', '')}", flush=True)
         print(f"[install-and-vendor-osgeo] LIB: {env.get('LIB', '')}", flush=True)
     print(f"[install-and-vendor-osgeo] running: {' '.join(cmd)}", flush=True)
-    subprocess.check_call(cmd, env=env)
+    subprocess.run(cmd, env=env, check=True)
 
 
 def _copy_tree_replacing(src: Path, dst: Path) -> None:
