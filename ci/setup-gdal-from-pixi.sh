@@ -76,15 +76,27 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
         # then can't find system headers ('stdlib.h' file not found).
         # Wrappers fix that without leaking env vars into the rest of
         # the build.
+        #
+        # Wrapper body lives in ci/_clang_wrapper.sh.tmpl with @@…@@
+        # placeholders that `sed` substitutes at install time. The
+        # earlier heredoc form mixed `\${VAR}` (literal in wrapper) and
+        # `${VAR}` (expanded by outer shell) — easy to misread and
+        # easy to break with a missing backslash. Template separation
+        # makes the two layers obvious.
         echo "--- Installing clang/clang++ wrappers into /usr/local/bin ---"
         sudo mkdir -p /usr/local/bin
+        WRAPPER_TEMPLATE="$(cd "$(dirname "$0")" && pwd)/_clang_wrapper.sh.tmpl"
+        if [[ ! -f "${WRAPPER_TEMPLATE}" ]]; then
+            echo "ERROR: clang wrapper template missing at ${WRAPPER_TEMPLATE}" >&2
+            exit 1
+        fi
         for compiler in clang clang++; do
-            sudo tee "/usr/local/bin/${compiler}" >/dev/null <<EOF
-#!/bin/bash
-export SDKROOT="\${SDKROOT:-${SDKROOT}}"
-export DEVELOPER_DIR="\${DEVELOPER_DIR:-${DEVELOPER_DIR}}"
-exec "${TOOLCHAIN_BIN}/${compiler}" "\$@"
-EOF
+            sed \
+                -e "s|@@SDKROOT@@|${SDKROOT}|g" \
+                -e "s|@@DEVELOPER_DIR@@|${DEVELOPER_DIR}|g" \
+                -e "s|@@TOOLCHAIN_BIN@@|${TOOLCHAIN_BIN}|g" \
+                -e "s|@@COMPILER@@|${compiler}|g" \
+                "${WRAPPER_TEMPLATE}" | sudo tee "/usr/local/bin/${compiler}" >/dev/null
             sudo chmod +x "/usr/local/bin/${compiler}"
             echo "  /usr/local/bin/${compiler} -> ${TOOLCHAIN_BIN}/${compiler} (with SDKROOT)"
         done

@@ -1,0 +1,10 @@
+#!/bin/bash
+# pyramids macOS clang/clang++ wrapper template — see
+# ci/setup-gdal-from-pixi.sh's macOS section for how this is
+# installed. The @@…@@ placeholders are replaced at install time
+# via sed; the wrapper itself runs in the build's clang/clang++
+# subshell with SDKROOT / DEVELOPER_DIR exported so the toolchain
+# clang can find system headers without going through xcrun.
+export SDKROOT="${SDKROOT:-@@SDKROOT@@}"
+export DEVELOPER_DIR="${DEVELOPER_DIR:-@@DEVELOPER_DIR@@}"
+exec "@@TOOLCHAIN_BIN@@/@@COMPILER@@" "$@"
