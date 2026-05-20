@@ -3,6 +3,8 @@ name: Build Platform Wheels
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_run:
     workflows: ["github-release"]
     types: [completed]
