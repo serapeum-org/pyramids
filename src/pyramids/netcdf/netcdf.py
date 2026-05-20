@@ -9,12 +9,14 @@ from __future__ import annotations
 import math
 import os
 import tempfile
+import warnings
 import weakref
 from numbers import Number
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from osgeo import gdal
 
 from pyramids import _io
@@ -28,7 +30,6 @@ from pyramids.netcdf._kerchunk import combine_kerchunk, to_kerchunk
 from pyramids.netcdf._lazy import _apply_unpack, build_lazy_array
 from pyramids.netcdf._mfdataset import open_mfdataset
 from pyramids.netcdf._plot import NetCDFPlot
-from pyramids.netcdf.plot_options import ColourOpts, FacetSpec, Selectors
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     srs_to_grid_mapping,
@@ -38,6 +39,7 @@ from pyramids.netcdf.cf import (
 from pyramids.netcdf.dimensions import DimMetaData
 from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import NetCDFMetadata
+from pyramids.netcdf.plot_options import ColourOpts, FacetSpec, Selectors
 from pyramids.netcdf.utils import create_time_conversion_func
 
 
@@ -133,6 +135,17 @@ def _reconstruct_netcdf(
     else:
         result = container
     return result
+
+
+_REDUCERS: dict[str, tuple[Any, Any]] = {
+    "mean": (np.nanmean, np.mean),
+    "sum": (np.nansum, np.sum),
+    "min": (np.nanmin, np.min),
+    "max": (np.nanmax, np.max),
+    "std": (np.nanstd, np.std),
+    "var": (np.nanvar, np.var),
+}
+"""Per-operation `(skipna_func, plain_func)` pairs for :meth:`NetCDF.reduce`."""
 
 
 class NetCDF(Dataset):
@@ -1108,7 +1121,10 @@ class NetCDF(Dataset):
             )
         if chunks is None:
             result = super().read_array(
-                band=band, window=window, bbox=bbox, epsg=epsg,
+                band=band,
+                window=window,
+                bbox=bbox,
+                epsg=epsg,
             )
             if unpack:
                 result = _apply_unpack(
@@ -1442,6 +1458,279 @@ class NetCDF(Dataset):
                 ds._band_dim_sizes = var._band_dim_sizes
                 result.set_variable(var_name, ds)
 
+        return result
+
+    def reduce(
+        self,
+        dim: str,
+        how: str = "mean",
+        *,
+        groupby: list | tuple | str | None = None,
+        skipna: bool = True,
+    ) -> NetCDF:
+        """Reduce every variable along a named dimension and return a new NetCDF.
+
+        Collapses or coarsens one non-spatial dimension (`time`,
+        `pressure_level`, `depth`, an ensemble member, …) of every variable
+        that has it, leaving variables without `dim` and all other dimensions,
+        coordinates, CRS, and the grid untouched. The result is a new
+        :class:`NetCDF` container — no xarray involved.
+
+        Args:
+            dim: Name of the non-spatial dimension to reduce. Must be one of a
+                variable's band dimensions (as exposed by ``sel``); spatial
+                ``lat`` / ``lon`` dimensions are not reducible here.
+            how: Reduction operation — one of ``"mean"``, ``"sum"``, ``"min"``,
+                ``"max"``, ``"std"``, ``"var"``.
+            groupby: Controls collapse vs. windowed reduction:
+
+                - ``None`` (default): collapse `dim` entirely (it is removed
+                  from the output).
+                - a sequence of per-index labels (length = the size of `dim`):
+                  reduce each group of equal labels; `dim` is coarsened to one
+                  slice per distinct label, in first-appearance order.
+                - a pandas offset alias (e.g. ``"1MS"``, ``"1D"``, ``"YS"``):
+                  group `dim` by calendar window. Only valid when `dim` carries
+                  a decodable CF time coordinate.
+            skipna: When ``True`` (default), mask each variable's NoData value to
+                ``NaN`` and reduce with the ``nan``-aware operation, then refill
+                ``NaN`` results with NoData. The output is float64. When
+                ``False``, reduce the raw values with the plain operation.
+
+        Returns:
+            NetCDF: A new container with `dim` removed (``groupby=None``) or
+            coarsened (windowed). When the windowed dimension keeps a numeric
+            coordinate, each output slice is labelled with the first source
+            coordinate value of its window.
+
+        Raises:
+            ValueError: When `how` is unknown, the container has no data
+                variables, `dim` is not a non-spatial dimension of any variable,
+                a frequency `groupby` is given but `dim` has no decodable time
+                coordinate, or the grouping does not cover `dim` exactly.
+
+        Examples:
+            - Monthly mean of an ERA5-style ``(time, lat, lon)`` file:
+                ```python
+                >>> from pyramids.netcdf import NetCDF  # doctest: +SKIP
+                >>> nc = NetCDF.read_file("era5_t2m_hourly.nc")  # doctest: +SKIP
+                >>> monthly = nc.reduce("time", "mean", groupby="1MS")  # doctest: +SKIP
+                >>> monthly.get_variable("t2m").band_count  # doctest: +SKIP
+                12
+
+                ```
+            - Collapse a pressure-level axis to its column mean:
+                ```python
+                >>> column = nc.reduce("pressure_level", "mean")  # doctest: +SKIP
+                >>> "pressure_level" in column.get_variable("t").dimensions  # doctest: +SKIP
+                False
+
+                ```
+        """
+        if how not in _REDUCERS:
+            raise ValueError(f"how must be one of {sorted(_REDUCERS)}; got {how!r}")
+        if not self.variable_names:
+            raise ValueError("Cannot reduce an empty container (no data variables).")
+
+        group_positions = self._resolve_group_positions(dim, groupby)
+
+        result = None
+        found = False
+        for var_name in self.variable_names:
+            var = self.get_variable(var_name)
+            arr = self._materialize_variable_array(var)
+            band_names = list(var._band_dim_names)
+            values_map = dict(var._band_dim_values_map)
+            ndv = self._scalar_no_data_value(var.no_data_value)
+
+            if dim in band_names:
+                found = True
+                axis = band_names.index(dim)
+                arr, band_names, values_map = self._reduce_variable_array(
+                    arr,
+                    axis,
+                    dim,
+                    band_names,
+                    values_map,
+                    how,
+                    skipna,
+                    ndv,
+                    groupby,
+                    group_positions,
+                )
+
+            result = self._stack_reduced_variable(
+                result,
+                var_name,
+                arr,
+                var.geotransform,
+                var.epsg,
+                ndv,
+                band_names,
+                values_map,
+            )
+
+        if not found:
+            raise ValueError(
+                f"Dimension {dim!r} is not a non-spatial dimension of any "
+                f"variable in this container."
+            )
+        return result
+
+    @staticmethod
+    def _scalar_no_data_value(no_data_value: Any) -> Any:
+        """Return a single NoData value from a per-band list/tuple or scalar."""
+        result = no_data_value
+        if isinstance(no_data_value, (list, tuple)) and no_data_value:
+            result = no_data_value[0]
+        return result
+
+    @staticmethod
+    def _materialize_variable_array(var: NetCDF) -> np.ndarray:
+        """Read a variable as `(*band_dim_sizes, rows, cols)` (or `(rows, cols)`).
+
+        Undoes ``read_array``'s singleton-band squeeze and GDAL's row-major
+        flatten of multi-dim band axes, mirroring `_apply_to_all_variables`.
+        """
+        arr = var.read_array()
+        if var._band_dim_names:
+            if arr.ndim == 2:
+                arr = np.expand_dims(arr, axis=0)
+            if len(var._band_dim_names) > 1 and arr.ndim == 3 and var._band_dim_sizes:
+                arr = arr.reshape(*var._band_dim_sizes, arr.shape[-2], arr.shape[-1])
+        return arr
+
+    def _resolve_group_positions(
+        self, dim: str, groupby: list | tuple | str | None
+    ) -> list[np.ndarray] | None:
+        """Resolve `groupby` into ordered lists of source index positions.
+
+        Returns ``None`` for the collapse case (``groupby is None``).
+        """
+        positions: list[np.ndarray] | None = None
+        if isinstance(groupby, str):
+            times = self.get_time_variable(var_name=dim)
+            if times is None:
+                raise ValueError(
+                    f"Cannot group dimension {dim!r} by frequency {groupby!r}: "
+                    f"no decodable time coordinate found."
+                )
+            index = pd.DatetimeIndex(pd.to_datetime(times))
+            series = pd.Series(np.arange(len(index)), index=index)
+            positions = [
+                np.sort(members.to_numpy())
+                for _, members in series.groupby(pd.Grouper(freq=groupby))
+                if len(members) > 0
+            ]
+        elif groupby is not None:
+            labels = list(groupby)
+            order: list[Any] = []
+            members: dict[Any, list[int]] = {}
+            for i, label in enumerate(labels):
+                if label not in members:
+                    members[label] = []
+                    order.append(label)
+                members[label].append(i)
+            positions = [np.array(members[label]) for label in order]
+        return positions
+
+    def _reduce_variable_array(
+        self,
+        arr,
+        axis,
+        dim,
+        band_names,
+        values_map,
+        how,
+        skipna,
+        ndv,
+        groupby,
+        group_positions,
+    ):
+        """Reduce one variable's array along `axis`; return new array + dims."""
+        if group_positions is None:
+            new_arr = self._reduce_axis(arr, axis, how, skipna, ndv)
+            new_band_names = [name for name in band_names if name != dim]
+            new_values_map = {name: values_map.get(name) for name in new_band_names}
+        else:
+            covered = sum(len(positions) for positions in group_positions)
+            if covered != arr.shape[axis]:
+                raise ValueError(
+                    f"groupby covers {covered} positions but dimension {dim!r} "
+                    f"has size {arr.shape[axis]}."
+                )
+            slices = [
+                self._reduce_axis(
+                    np.take(arr, positions, axis=axis), axis, how, skipna, ndv
+                )
+                for positions in group_positions
+            ]
+            new_arr = np.stack(slices, axis=axis)
+            coord = values_map.get(dim)
+            new_band_names = list(band_names)
+            new_values_map = dict(values_map)
+            new_values_map[dim] = (
+                [coord[int(positions[0])] for positions in group_positions]
+                if coord is not None
+                else None
+            )
+        return new_arr, new_band_names, new_values_map
+
+    @staticmethod
+    def _reduce_axis(arr, axis, how, skipna, ndv):
+        """Apply one reduction over `axis`, masking NoData when `skipna`."""
+        nan_func, plain_func = _REDUCERS[how]
+        if skipna:
+            data = arr.astype("float64")
+            if ndv is not None:
+                data = np.where(data == ndv, np.nan, data)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                out = nan_func(data, axis=axis)
+            if ndv is not None:
+                out = np.where(np.isnan(out), ndv, out)
+            result = out
+        else:
+            result = plain_func(arr, axis=axis)
+        return result
+
+    def _stack_reduced_variable(
+        self, result, var_name, arr, geo, epsg, ndv, band_names, values_map
+    ):
+        """Add a reduced variable into the result container, building it lazily."""
+        extra = (
+            [(name, values_map.get(name)) for name in band_names]
+            if band_names
+            else None
+        )
+        if result is None:
+            if extra is not None:
+                result = NetCDF.create_from_array(
+                    arr=arr,
+                    geo=geo,
+                    epsg=epsg,
+                    no_data_value=ndv,
+                    variable_name=var_name,
+                    extra_dims=extra,
+                )
+            else:
+                result = NetCDF.create_from_array(
+                    arr=arr,
+                    geo=geo,
+                    epsg=epsg,
+                    no_data_value=ndv,
+                    variable_name=var_name,
+                )
+        else:
+            ds = Dataset.create_from_array(arr, geo=geo, epsg=epsg, no_data_value=ndv)
+            ds._band_dim_name = band_names[0] if band_names else None
+            ds._band_dim_values = values_map.get(band_names[0]) if band_names else None
+            ds._band_dim_names = tuple(band_names)
+            ds._band_dim_values_map = {
+                name: values_map.get(name) for name in band_names
+            }
+            ds._band_dim_sizes = tuple(arr.shape[i] for i in range(len(band_names)))
+            result.set_variable(var_name, ds)
         return result
 
     def to_crs(
