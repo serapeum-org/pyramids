@@ -756,6 +756,114 @@ class Analysis(_Engine):
         dst_band.FlushCache()
         return self._ds.__class__(out_ds, access="write")
 
+    def proximity(
+        self,
+        *,
+        band: int = 0,
+        target_values: list[int] | None = None,
+        distance_units: str = "GEO",
+        max_distance: float | None = None,
+        nodata: float | None = None,
+    ) -> Dataset:
+        """Compute per-pixel distance to the nearest target pixel (``gdal.ComputeProximity``).
+
+        The GDAL-native equivalent of ``gdal_proximity``: every output pixel
+        holds the Euclidean distance to the closest "target" pixel in the source
+        band. Targets are the pixels whose value is in ``target_values`` (or any
+        non-zero pixel when ``target_values`` is ``None``). Useful for
+        distance-to-coast, distance-to-river, buffer analyses, etc.
+
+        Args:
+            band (int):
+                Zero-based index of the source band. Defaults to ``0``.
+            target_values (list[int] | None):
+                Pixel values that count as targets. ``None`` (default) treats
+                every non-zero pixel as a target.
+            distance_units (str):
+                ``"GEO"`` (default) measures distance in the CRS's georeferenced
+                units; ``"PIXEL"`` measures it in pixels.
+            max_distance (float | None):
+                Stop searching beyond this distance. Pixels farther than this get
+                ``nodata`` when given, otherwise ``max_distance``. ``None``
+                (default) searches the whole raster.
+            nodata (float | None):
+                Value written to the output band's no-data slot and used to fill
+                pixels beyond ``max_distance``. ``None`` (default) sets no
+                no-data value.
+
+        Returns:
+            Dataset:
+                A new single-band ``Float32`` dataset of distances, sharing the
+                source geotransform and CRS.
+
+        Raises:
+            ValueError: ``distance_units`` is not ``"GEO"``/``"PIXEL"``,
+                ``band`` is out of range, or ``max_distance`` is negative.
+
+        Examples:
+            - Distance (in pixels) from every cell to a single target pixel:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.zeros((5, 5), dtype="int32")
+                >>> arr[2, 2] = 1
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
+                ... )
+                >>> dist = ds.proximity(distance_units="PIXEL").read_array()
+                >>> float(dist[2, 2])      # the target itself
+                0.0
+                >>> float(dist[2, 0])      # two cells to the left
+                2.0
+
+                ```
+            - GEO units scale distances by the cell size:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.zeros((5, 5), dtype="int32")
+                >>> arr[2, 2] = 1
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0, 10), cell_size=2.0, epsg=4326
+                ... )
+                >>> dist = ds.proximity(distance_units="GEO").read_array()
+                >>> float(dist[2, 0])      # two cells x 2.0 units
+                4.0
+
+                ```
+        """
+        if distance_units not in ("GEO", "PIXEL"):
+            raise ValueError(
+                f"distance_units must be 'GEO' or 'PIXEL', got {distance_units!r}."
+            )
+        if band < 0 or band >= self._ds.band_count:
+            raise ValueError(
+                f"band {band} is out of range for a {self._ds.band_count}-band dataset."
+            )
+        if max_distance is not None and max_distance < 0:
+            raise ValueError(f"max_distance must be >= 0, got {max_distance}.")
+
+        src_band = self._ds.raster.GetRasterBand(band + 1)
+        out_ds = gdal.GetDriverByName("MEM").Create(
+            "", self._ds.columns, self._ds.rows, 1, gdal.GDT_Float32
+        )
+        out_ds.SetGeoTransform(self._ds.geotransform)
+        out_ds.SetProjection(self._ds.crs)
+        prox_band = out_ds.GetRasterBand(1)
+
+        options = [f"DISTUNITS={distance_units}"]
+        if target_values is not None:
+            options.append("VALUES=" + ",".join(str(v) for v in target_values))
+        if max_distance is not None:
+            options.append(f"MAXDIST={max_distance}")
+        if nodata is not None:
+            options.append(f"NODATA={nodata}")
+            prox_band.SetNoDataValue(float(nodata))
+
+        gdal.ComputeProximity(src_band, prox_band, options=options)
+        prox_band.FlushCache()
+        return self._ds.__class__(out_ds, access="write")
+
     def overlay(
         self: Dataset,
         classes_map,
