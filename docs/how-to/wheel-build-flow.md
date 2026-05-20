@@ -372,29 +372,35 @@ cibuildwheel --only cp312-win_amd64
 | `pyproject.toml` `[tool.pixi.feature.wheel-build]` | Minimal pixi env with GDAL native deps |
 | `setup.py` | `BinaryDistribution` override to force platform-specific wheel |
 | `src/pyramids/__init__.py` | Runtime bootstrap: loads vendored osgeo + prepends `pyramids_gis.libs` to Windows PATH |
-| `.pixi-version` | Pinned pixi version read by `setup-gdal-from-pixi.{sh,ps1}` so CI + locals match |
+| `build-wheels.yml` `env:` | `PIXI_VERSION` / `MICROMAMBA_VERSION` toolchain pins consumed by the `ci/setup-gdal-*` scripts |
 
-## Pixi version pinning
+## Toolchain version pinning
 
-`.pixi-version` at the repo root holds the single canonical pixi
-version (currently `0.68.1`). Both `ci/setup-gdal-from-pixi.sh` and
-`ci/setup-gdal-from-pixi.ps1` read it and pass `PIXI_VERSION` through
-to `pixi.sh/install.{sh,ps1}` so the installer always pulls the same
-binary — making wheel builds reproducible across CI runs and local
-re-runs.
+`PIXI_VERSION` (currently `0.68.1`) and `MICROMAMBA_VERSION` (currently
+`2.6.1`) are pinned in the `env:` block of
+`.github/workflows/build-wheels.yml`. The `ci/setup-gdal-from-pixi.{sh,ps1}`
+and `ci/setup-gdal-micromamba.sh` scripts read them and pass the version
+through to `pixi.sh/install.{sh,ps1}` / `micro.mamba.pm`, so the installer
+always pulls the same binary — making wheel builds reproducible across CI
+runs.
+
+macOS and Windows cibuildwheel runs `before-all` on the host and inherits
+these env vars directly. The Linux build runs `before-all` inside the
+manylinux container, which doesn't auto-inherit host env, so they're
+forwarded via `[tool.cibuildwheel.linux].environment-pass` in
+`pyproject.toml`.
 
 For local development, install the same pixi version with:
 
 ```bash
-# Read the pinned version and install pixi from pixi.sh.
-PIXI_VERSION="$(cat .pixi-version)" curl -fsSL https://pixi.sh/install.sh | bash
+PIXI_VERSION="0.68.1" curl -fsSL https://pixi.sh/install.sh | bash
 ```
 
-To bump pixi: edit `.pixi-version`, push, let CI re-build wheels with
-the new version. `pixi lock` produces different lock-file headers
-across versions (0.63 emits `pypi-prerelease-mode: ...`, 0.68 prefers
-the v7 lock format), so coordinating the bump in one file avoids
-"why does my lock diff have 35 k of churn?" surprises.
+To bump pixi: edit `PIXI_VERSION` in `build-wheels.yml`, push, let CI
+re-build wheels with the new version. `pixi lock` produces different
+lock-file headers across versions (0.63 emits `pypi-prerelease-mode: ...`,
+0.68 prefers the v7 lock format), so coordinating the bump in one place
+avoids "why does my lock diff have 35 k of churn?" surprises.
 
 ## Pitfalls worth remembering
 

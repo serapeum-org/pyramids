@@ -21,24 +21,19 @@ Write-Host "BUILD_PREFIX=$BuildPrefix"
 
 # 1. Install pixi.
 #
-# Pin the version via .pixi-version at the repo root so CI, local
-# developers, and the cibuildwheel container all agree. PIXI_VERSION
-# is also consumed by the install script itself — it verifies the
-# downloaded binary's SHA256 against its built-in checksum table.
+# Pin the version via the PIXI_VERSION env var (set in build-wheels.yml's
+# env block; on Windows cibuildwheel runs before-all on the host so it
+# inherits it directly). Run locally with
+# `$env:PIXI_VERSION = "X.Y.Z"; .\ci\setup-gdal-from-pixi.ps1`.
 #
 # Fetch the install script from the **versioned GitHub source** rather
 # than the rolling https://pixi.sh/install.ps1 redirect: the
 # raw.githubusercontent.com URL is content-addressed through the
 # `v<version>` tag, so a compromise of pixi.sh can no longer change
-# which install script we run. Override locally with
-# `$env:PIXI_VERSION = "X.Y.Z"; .\ci\setup-gdal-from-pixi.ps1`.
+# which install script we run.
 if (-not (Get-Command pixi -ErrorAction SilentlyContinue)) {
-    $PixiVersionFile = Join-Path (Split-Path -Parent $PSScriptRoot) ".pixi-version"
-    if (-not $env:PIXI_VERSION -and (Test-Path $PixiVersionFile)) {
-        $env:PIXI_VERSION = (Get-Content $PixiVersionFile -Raw).Trim()
-    }
     if (-not $env:PIXI_VERSION) {
-        throw "PIXI_VERSION not set and .pixi-version missing at $PixiVersionFile"
+        throw "PIXI_VERSION not set"
     }
     $PixiInstallUrl = "https://raw.githubusercontent.com/prefix-dev/pixi/v$($env:PIXI_VERSION)/install/install.ps1"
     Write-Host "--- Installing pixi $($env:PIXI_VERSION) from $PixiInstallUrl ---"

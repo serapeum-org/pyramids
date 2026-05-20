@@ -118,24 +118,18 @@ fi
 
 # 1. Install pixi (static binary, ~50 MB, ~5 seconds).
 #
-# Pin the version via .pixi-version at the repo root so CI, local
-# developers, and the cibuildwheel container all agree. PIXI_VERSION
-# is also consumed by the install script itself — it verifies the
-# downloaded binary's SHA256 against its built-in checksum table.
+# Pin the version via the PIXI_VERSION env var (set in build-wheels.yml's
+# env block, forwarded into the manylinux container via
+# [tool.cibuildwheel.linux].environment-pass). Run locally with
+# `PIXI_VERSION=X.Y.Z bash ci/setup-gdal-from-pixi.sh`.
 #
 # Fetch the install script from the **versioned GitHub source** rather
 # than the rolling https://pixi.sh/install.sh redirect: the
 # raw.githubusercontent.com URL is content-addressed through the
 # `v<version>` tag, so a compromise of pixi.sh can no longer change
-# which install script we run. Override locally with
-# `PIXI_VERSION=X.Y.Z bash ci/setup-gdal-from-pixi.sh` if you need to
-# test against a different pixi version.
+# which install script we run.
 if ! command -v pixi >/dev/null 2>&1; then
-    PIXI_VERSION_FILE="$(cd "$(dirname "$0")/.." && pwd)/.pixi-version"
-    if [[ -z "${PIXI_VERSION:-}" && -f "${PIXI_VERSION_FILE}" ]]; then
-        PIXI_VERSION="$(tr -d '[:space:]' < "${PIXI_VERSION_FILE}")"
-    fi
-    PIXI_VERSION="${PIXI_VERSION:?PIXI_VERSION not set and .pixi-version missing}"
+    PIXI_VERSION="${PIXI_VERSION:?PIXI_VERSION not set}"
     PIXI_INSTALL_URL="https://raw.githubusercontent.com/prefix-dev/pixi/v${PIXI_VERSION}/install/install.sh"
     echo "--- Installing pixi ${PIXI_VERSION} from ${PIXI_INSTALL_URL} ---"
     export PIXI_HOME="${BUILD_PREFIX}"
