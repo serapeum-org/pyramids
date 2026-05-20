@@ -18,8 +18,8 @@ from hpc.indexing import get_indices2, get_pixels2
 from pandas import DataFrame
 
 from pyramids.base._domain import inside_domain, is_no_data
-from pyramids.base._errors import AlignmentError
-from pyramids.base._utils import require_cleopatra
+from pyramids.base._errors import AlignmentError, OutOfBoundsError
+from pyramids.base._utils import gdal_to_numpy_dtype, require_cleopatra
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.feature import FeatureCollection
 
@@ -443,6 +443,218 @@ class Analysis(_Engine):
                 values = arr[indices[:, 0], indices[:, 1]]
 
         return np.asarray(values)
+
+    def _points_to_xy(
+        self, points: FeatureCollection | GeoDataFrame | DataFrame
+    ) -> np.ndarray:
+        """Extract an ``(N, 2)`` float array of ``(x, y)`` coordinates from points.
+
+        Args:
+            points: A point :class:`~pyramids.feature.FeatureCollection` /
+                :class:`~geopandas.GeoDataFrame`, or a :class:`~pandas.DataFrame`
+                carrying ``x`` and ``y`` columns.
+
+        Returns:
+            np.ndarray: Coordinates with shape ``(N, 2)`` as ``float``.
+
+        Raises:
+            ValueError: A ``DataFrame`` lacking ``x``/``y`` columns.
+            TypeError: ``points`` is not a supported type.
+        """
+        if isinstance(points, FeatureCollection):
+            verts = points.with_coordinates()
+            return verts.loc[:, ["x", "y"]].to_numpy(dtype=float)
+        if isinstance(points, GeoDataFrame):
+            verts = FeatureCollection(points).with_coordinates()
+            return verts.loc[:, ["x", "y"]].to_numpy(dtype=float)
+        if isinstance(points, DataFrame):
+            if not all(col in points.columns for col in ("x", "y")):
+                raise ValueError(
+                    "If the input is a DataFrame, it must have 'x' and 'y' columns."
+                )
+            return points.loc[:, ["x", "y"]].to_numpy(dtype=float)
+        raise TypeError(
+            "points must be a FeatureCollection, GeoDataFrame, or DataFrame with "
+            f"x/y columns - given {type(points)}."
+        )
+
+    def sample(
+        self,
+        points: FeatureCollection | GeoDataFrame | DataFrame,
+        *,
+        bands: int | list[int] | None = None,
+        masked: bool = False,
+        on_out_of_bounds: str = "nodata",
+    ) -> np.ndarray:
+        """Sample band values at point coordinates (rasterio ``sample`` parity).
+
+        The memory- and out-of-bounds-safe counterpart to
+        :meth:`extract` with a point mask. Each point is mapped to its
+        containing pixel with a **vectorised inverse geotransform** (``O(1)`` per
+        point) and read with a **1x1 windowed read** — so a handful of points on
+        a multi-gigabyte raster touches only those pixels, never the whole array.
+        Points falling outside the raster are handled explicitly instead of being
+        silently snapped to the nearest edge cell.
+
+        Args:
+            points (FeatureCollection | GeoDataFrame | DataFrame):
+                Point locations to sample. A ``FeatureCollection`` /
+                ``GeoDataFrame`` with point geometry, or a ``DataFrame`` with
+                ``x`` and ``y`` columns. Coordinates must already be in the
+                raster's CRS (no reprojection is performed).
+            bands (int | list[int] | None):
+                Which band(s) to sample, zero-based. ``None`` (default) samples
+                every band and returns a ``(n_bands, n_points)`` array; a single
+                ``int`` returns a 1-D ``(n_points,)`` array; a list returns a
+                ``(len(bands), n_points)`` array in the requested order.
+            masked (bool):
+                When ``True`` return a :class:`numpy.ma.MaskedArray` with
+                out-of-bounds points masked. Defaults to ``False``.
+            on_out_of_bounds (str):
+                How to treat points outside the raster extent:
+
+                - ``"nodata"`` (default): fill with the band's no-data value
+                  (``NaN`` when the band has none).
+                - ``"raise"``: raise :class:`OutOfBoundsError`.
+                - ``"snap"``: clamp to the nearest edge pixel (the legacy
+                  :meth:`extract` behaviour).
+
+        Returns:
+            np.ndarray:
+                Sampled values, ordered to match ``points``. Shape is
+                ``(n_points,)`` for a single ``int`` band, otherwise
+                ``(n_bands, n_points)``. A :class:`numpy.ma.MaskedArray` when
+                ``masked=True``.
+
+        Raises:
+            ValueError: ``on_out_of_bounds`` is not one of the allowed values, or
+                ``bands`` references a band outside the raster.
+            OutOfBoundsError: ``on_out_of_bounds="raise"`` and a point lies
+                outside the raster extent.
+            TypeError: ``points`` is not a supported type.
+
+        Examples:
+            - Sample a 2-band raster at three points and read the per-band values:
+                ```python
+                >>> import numpy as np
+                >>> from geopandas import GeoDataFrame
+                >>> from shapely.geometry import Point
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.arange(2 * 5 * 5, dtype="float32").reshape(2, 5, 5)
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
+                ... )
+                >>> pts = GeoDataFrame(
+                ...     geometry=[Point(0.5, 4.5), Point(2.5, 2.5)], crs=4326
+                ... )
+                >>> ds.sample(pts).tolist()
+                [[0.0, 12.0], [25.0, 37.0]]
+
+                ```
+            - Sample a single band and get a flat array of values:
+                ```python
+                >>> import numpy as np
+                >>> from geopandas import GeoDataFrame
+                >>> from shapely.geometry import Point
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.arange(25, dtype="float32").reshape(1, 5, 5)
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
+                ... )
+                >>> pts = GeoDataFrame(geometry=[Point(0.5, 4.5), Point(4.5, 0.5)], crs=4326)
+                >>> ds.sample(pts, bands=0).tolist()
+                [0.0, 24.0]
+
+                ```
+            - Points outside the extent become no-data instead of snapping:
+                ```python
+                >>> import numpy as np
+                >>> from geopandas import GeoDataFrame
+                >>> from shapely.geometry import Point
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.arange(25, dtype="float32").reshape(1, 5, 5)
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
+                ...     no_data_value=-9999.0,
+                ... )
+                >>> pts = GeoDataFrame(geometry=[Point(2.5, 2.5), Point(100, 100)], crs=4326)
+                >>> ds.sample(pts, bands=0).tolist()
+                [12.0, -9999.0]
+
+                ```
+        """
+        if on_out_of_bounds not in ("nodata", "raise", "snap"):
+            raise ValueError(
+                "on_out_of_bounds must be one of 'nodata', 'raise', 'snap'; got "
+                f"{on_out_of_bounds!r}."
+            )
+
+        band_count = self._ds.band_count
+        if bands is None:
+            band_list = list(range(band_count))
+            squeeze = False
+        elif isinstance(bands, int):
+            band_list = [bands]
+            squeeze = True
+        else:
+            band_list = list(bands)
+            squeeze = False
+        for b in band_list:
+            if b < 0 or b >= band_count:
+                raise ValueError(
+                    f"band {b} is out of range for a {band_count}-band dataset."
+                )
+
+        xy = self._points_to_xy(points)
+        n_points = xy.shape[0]
+
+        x0, dx, rxy, y0, ryx, dy = self._ds.geotransform
+        det = dx * dy - rxy * ryx
+        delta_x = xy[:, 0] - x0
+        delta_y = xy[:, 1] - y0
+        col = np.floor((dy * delta_x - rxy * delta_y) / det).astype(int)
+        row = np.floor((-ryx * delta_x + dx * delta_y) / det).astype(int)
+
+        n_rows, n_cols = self._ds.rows, self._ds.columns
+        out_of_bounds = (row < 0) | (row >= n_rows) | (col < 0) | (col >= n_cols)
+        if on_out_of_bounds == "raise" and out_of_bounds.any():
+            raise OutOfBoundsError(
+                f"{int(out_of_bounds.sum())} of {n_points} points fall outside the "
+                "raster extent."
+            )
+        if on_out_of_bounds == "snap":
+            row = np.clip(row, 0, n_rows - 1)
+            col = np.clip(col, 0, n_cols - 1)
+            out_of_bounds = np.zeros(n_points, dtype=bool)
+
+        in_bounds_idx = np.flatnonzero(~out_of_bounds)
+        rows_out: list[np.ndarray] = []
+        for b in band_list:
+            gdal_band = self._ds.raster.GetRasterBand(b + 1)
+            no_data_value = gdal_band.GetNoDataValue()
+            band_dtype = np.dtype(gdal_to_numpy_dtype(gdal_band.DataType))
+            if no_data_value is None:
+                fill: Any = np.nan
+                out_dtype = (
+                    band_dtype
+                    if np.issubdtype(band_dtype, np.floating)
+                    else np.dtype("float64")
+                )
+            else:
+                fill = no_data_value
+                out_dtype = band_dtype
+            band_values = np.full(n_points, fill, dtype=out_dtype)
+            for i in in_bounds_idx:
+                window = gdal_band.ReadAsArray(int(col[i]), int(row[i]), 1, 1)
+                band_values[i] = window[0, 0]
+            rows_out.append(band_values)
+
+        stacked = np.vstack(rows_out) if rows_out else np.empty((0, n_points))
+        result: np.ndarray = stacked[0] if squeeze else stacked
+        if masked:
+            mask = out_of_bounds if squeeze else np.broadcast_to(out_of_bounds, result.shape)
+            result = np.ma.masked_array(result, mask=np.array(mask))
+        return result
 
     def overlay(
         self: Dataset,
