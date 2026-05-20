@@ -28,6 +28,10 @@ env:
   PIXI_VERSION: "0.68.1"
   MICROMAMBA_VERSION: "2.6.1"
   CIBW_ENVIRONMENT_PASS_LINUX: "PIXI_VERSION MICROMAMBA_VERSION"
+  # #332: lower the Linux floor to manylinux_2_28 by mutating auditwheel's
+  # policy + bundling the GCC-13 C++ runtime. Set via env (not pyproject)
+  # to keep pixi.lock valid. The build image stays manylinux_2_28.
+  CIBW_REPAIR_WHEEL_COMMAND_LINUX: "bash ./ci/auditwheel-bundle-cpp-runtime.sh {dest_dir} {wheel}"
 
 jobs:
   build-sdist:
@@ -202,7 +206,27 @@ jobs:
           pip install pytest pytest-env pytest-mock pytest-timeout
 
       - name: Verify GDAL import
-        run: python ci/verify-wheel.py
+        shell: bash
+        # #332 debug: on Linux, capture the dual-libstdc++/libgcc_s
+        # segfault — which libs load + a gdb backtrace of the crash.
+        # Other OSes just run the smoke test.
+        run: |
+          if [[ "$RUNNER_OS" != "Linux" ]]; then
+            python ci/verify-wheel.py
+            exit 0
+          fi
+          sudo apt-get update -qq && sudo apt-get install -y -qq gdb >/dev/null 2>&1 || true
+          rm -f /tmp/ld.*
+          if LD_DEBUG=libs LD_DEBUG_OUTPUT=/tmp/ld python ci/verify-wheel.py; then
+            exit 0
+          fi
+          echo "=== verify-wheel.py crashed; diagnostics follow ==="
+          echo "--- libstdc++ / libgcc_s loads (which file won) ---"
+          grep -hE "calling init|trying file=.*(libstdc\+\+|libgcc_s)" /tmp/ld.* 2>/dev/null \
+            | grep -E "libstdc\+\+|libgcc_s" | sort -u || true
+          echo "--- gdb backtrace ---"
+          gdb -batch -ex run -ex 'bt 30' --args python ci/verify-wheel.py 2>&1 | tail -50 || true
+          exit 1
 
       - name: Run core test suite
         shell: bash
