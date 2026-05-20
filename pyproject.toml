@@ -383,6 +383,9 @@ test-skip = "*"
 # (not 2014) because conda-forge GDAL links symbols newer than glibc 2.17.
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
+# Forward the toolchain pins (set in build-wheels.yml's env block) into
+# the manylinux container — host env vars don't auto-propagate there.
+environment-pass = ["PIXI_VERSION", "MICROMAMBA_VERSION"]
 before-all = ["bash ./ci/setup-gdal-from-pixi.sh"]
 # install-and-vendor-osgeo.py runs pip WITH build isolation so it picks
 # up setuptools>=77 (GDAL 3.12.3's build-system.requires) and a matching
