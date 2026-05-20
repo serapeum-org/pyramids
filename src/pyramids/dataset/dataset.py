@@ -52,6 +52,7 @@ from pyramids.dataset.ops._zarr import (
     write_dataset_to_zarr,
 )
 from pyramids.dataset.ops._zonal import zonal_stats as _zonal_stats
+from pyramids.dataset.ops.interpolate import grid_points
 from pyramids.dataset.ops.vectorize import rasterize_features
 from pyramids.feature import FeatureCollection, create_polygon
 
@@ -1956,6 +1957,107 @@ class Dataset(RasterBase):
             cell_size=cell_size,
             template=template,
             column_name=column_name,
+        )
+
+    @classmethod
+    def from_points(
+        cls,
+        points: FeatureCollection,
+        value_column: str,
+        *,
+        algorithm: str = "invdist:power=2.0:smoothing=0.0",
+        cell_size: float | None = None,
+        width: int | None = None,
+        height: int | None = None,
+        bbox: tuple[float, float, float, float] | None = None,
+        epsg: Any | None = None,
+    ) -> Dataset:
+        """Interpolate scattered point samples onto a regular grid (``gdal.Grid``).
+
+        The GDAL-native equivalent of ``gdal_grid`` — turns an irregular point
+        layer (gauge readings, soundings, station observations) into a
+        continuous single-band raster. The output extent defaults to the points'
+        bounding box and the resolution is set by ``cell_size`` (or an explicit
+        ``width``/``height``).
+
+        Args:
+            points (FeatureCollection):
+                A point :class:`FeatureCollection` carrying ``value_column``.
+            value_column (str):
+                Numeric attribute column to interpolate (the Z field).
+            algorithm (str):
+                A ``gdal.Grid`` algorithm string. Defaults to inverse-distance
+                weighting (``"invdist:power=2.0:smoothing=0.0"``). Other options
+                include ``"invdistnn"``, ``"nearest"``, ``"linear"``, and
+                ``"average"``.
+            cell_size (float | None):
+                Output pixel size in the points' CRS units. Required unless both
+                ``width`` and ``height`` are given.
+            width (int | None):
+                Output width in pixels. Overrides ``cell_size`` on the x axis.
+            height (int | None):
+                Output height in pixels. Overrides ``cell_size`` on the y axis.
+            bbox (tuple[float, float, float, float] | None):
+                ``(minx, miny, maxx, maxy)`` output extent. Defaults to the
+                points' total bounds.
+            epsg (int | None):
+                Output EPSG code. Defaults to the points' CRS.
+
+        Returns:
+            Dataset: A single-band raster of the interpolated surface.
+
+        Raises:
+            ValueError: ``value_column`` missing, output bounds degenerate, or
+                neither ``cell_size`` nor ``width``+``height`` provided.
+            FailedToSaveError: ``gdal.Grid`` produced no dataset.
+
+        Examples:
+            - Inverse-distance interpolate four corner readings onto a 1-degree
+              grid and read back the surface shape:
+                ```python
+                >>> from shapely.geometry import Point
+                >>> from geopandas import GeoDataFrame
+                >>> from pyramids.feature import FeatureCollection
+                >>> from pyramids.dataset import Dataset
+                >>> gdf = GeoDataFrame(
+                ...     {"rain": [10.0, 20.0, 30.0, 40.0]},
+                ...     geometry=[Point(0, 0), Point(10, 0), Point(0, 10), Point(10, 10)],
+                ...     crs="EPSG:4326",
+                ... )
+                >>> ds = Dataset.from_points(FeatureCollection(gdf), "rain", cell_size=1.0)
+                >>> (ds.rows, ds.columns, ds.band_count)
+                (10, 10, 1)
+
+                ```
+            - Use nearest-neighbour with an explicit output size:
+                ```python
+                >>> from shapely.geometry import Point
+                >>> from geopandas import GeoDataFrame
+                >>> from pyramids.feature import FeatureCollection
+                >>> from pyramids.dataset import Dataset
+                >>> gdf = GeoDataFrame(
+                ...     {"z": [1.0, 2.0, 3.0, 4.0]},
+                ...     geometry=[Point(0, 0), Point(5, 0), Point(0, 5), Point(5, 5)],
+                ...     crs="EPSG:4326",
+                ... )
+                >>> ds = Dataset.from_points(
+                ...     FeatureCollection(gdf), "z", algorithm="nearest", width=5, height=5
+                ... )
+                >>> ds.columns
+                5
+
+                ```
+        """
+        return grid_points(
+            points,
+            value_column,
+            cls,
+            algorithm=algorithm,
+            cell_size=cell_size,
+            width=width,
+            height=height,
+            bbox=bbox,
+            epsg=epsg,
         )
 
     @classmethod
