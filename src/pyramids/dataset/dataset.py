@@ -382,6 +382,10 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Analysis.sample <pyramids.dataset.engines.Analysis.sample>`."""
         return self.analysis.sample(*args, **kwargs)
 
+    def sieve(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.sieve <pyramids.dataset.engines.Analysis.sieve>`."""
+        return self.analysis.sieve(*args, **kwargs)
+
     def overlay(self, *args, **kwargs):
         """Facade — delegates to :meth:`Analysis.overlay <pyramids.dataset.engines.Analysis.overlay>`."""
         return self.analysis.overlay(*args, **kwargs)

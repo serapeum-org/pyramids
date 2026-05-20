@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 from geopandas.geodataframe import GeoDataFrame
 from hpc.indexing import get_indices2, get_pixels2
+from osgeo import gdal
 from pandas import DataFrame
 
 from pyramids.base._domain import inside_domain, is_no_data
@@ -655,6 +656,105 @@ class Analysis(_Engine):
             mask = out_of_bounds if squeeze else np.broadcast_to(out_of_bounds, result.shape)
             result = np.ma.masked_array(result, mask=np.array(mask))
         return result
+
+    def sieve(
+        self,
+        threshold: int,
+        *,
+        band: int = 0,
+        connectedness: int = 4,
+        mask: Dataset | None = None,
+    ) -> Dataset:
+        """Remove small pixel clumps with ``gdal.SieveFilter`` (rasterio ``sieve``).
+
+        Raster polygons — connected groups of identical-value pixels — smaller
+        than ``threshold`` pixels are dissolved into their largest neighbour.
+        This is the standard clean-up for "salt-and-pepper" speckle in
+        classification rasters. Implemented natively via GDAL; returns a new
+        single-band :class:`~pyramids.dataset.Dataset`.
+
+        Args:
+            threshold (int):
+                Minimum polygon size to keep, in pixels. Clumps with fewer
+                pixels are merged away. Must be ``>= 1``.
+            band (int):
+                Zero-based index of the band to sieve. Defaults to ``0``.
+            connectedness (int):
+                Pixel connectivity used to define a clump: ``4`` (edge-adjacent,
+                the default) or ``8`` (edge- and diagonal-adjacent).
+            mask (Dataset | None):
+                Optional single-band mask. Pixels where the mask is zero are
+                excluded from sieving. ``None`` (default) uses the source band's
+                no-data mask.
+
+        Returns:
+            Dataset:
+                A new single-band dataset with small clumps removed, sharing the
+                source geotransform, CRS, and no-data value.
+
+        Raises:
+            ValueError: ``threshold < 1``, ``connectedness`` is not 4 or 8, or
+                ``band`` is out of range.
+
+        Examples:
+            - Remove an isolated speckle pixel from a classified raster:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.ones((6, 6), dtype="int32")
+                >>> arr[0:3, 0:3] = 2      # a 9-pixel clump (kept)
+                >>> arr[5, 5] = 2          # a lone pixel (removed)
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326
+                ... )
+                >>> cleaned = ds.sieve(threshold=4).read_array()
+                >>> int(cleaned[5, 5])     # merged into the background
+                1
+                >>> int(cleaned[0, 0])     # large clump survives
+                2
+
+                ```
+            - 8-connectivity joins diagonal neighbours that 4-connectivity keeps
+              separate:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.ones((5, 5), dtype="int32")
+                >>> arr[1, 1] = 2
+                >>> arr[2, 2] = 2          # touches (1,1) only diagonally
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
+                ... )
+                >>> int(ds.sieve(threshold=2, connectedness=8).read_array()[1, 1])
+                2
+
+                ```
+        """
+        if threshold < 1:
+            raise ValueError(f"threshold must be >= 1, got {threshold}.")
+        if connectedness not in (4, 8):
+            raise ValueError(f"connectedness must be 4 or 8, got {connectedness}.")
+        if band < 0 or band >= self._ds.band_count:
+            raise ValueError(
+                f"band {band} is out of range for a {self._ds.band_count}-band dataset."
+            )
+
+        src_band = self._ds.raster.GetRasterBand(band + 1)
+        out_ds = gdal.GetDriverByName("MEM").Create(
+            "", self._ds.columns, self._ds.rows, 1, src_band.DataType
+        )
+        out_ds.SetGeoTransform(self._ds.geotransform)
+        out_ds.SetProjection(self._ds.crs)
+        dst_band = out_ds.GetRasterBand(1)
+        dst_band.WriteArray(src_band.ReadAsArray())
+        no_data_value = src_band.GetNoDataValue()
+        if no_data_value is not None:
+            dst_band.SetNoDataValue(no_data_value)
+
+        mask_band = mask.raster.GetRasterBand(1) if mask is not None else None
+        gdal.SieveFilter(dst_band, mask_band, dst_band, threshold, connectedness)
+        dst_band.FlushCache()
+        return self._ds.__class__(out_ds, access="write")
 
     def overlay(
         self: Dataset,
