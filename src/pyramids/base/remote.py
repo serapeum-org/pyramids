@@ -19,7 +19,11 @@ Two concerns live in this module:
 from __future__ import annotations
 
 import logging
+import os
 import re
+import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 from urllib.parse import urlparse
@@ -340,6 +344,7 @@ class CloudConfig:
     `aws_session_token`              `AWS_SESSION_TOKEN`
     `aws_region`                     `AWS_REGION`
     `aws_no_sign_request=True`       `AWS_NO_SIGN_REQUEST=YES`
+    `aws_request_payer=True`         `AWS_REQUEST_PAYER=requester`
     `gs_oauth2_refresh_token`        `GS_OAUTH2_REFRESH_TOKEN`
     `gs_access_key_id`               `GS_ACCESS_KEY_ID`
     `gs_secret_access_key`           `GS_SECRET_ACCESS_KEY`
@@ -413,6 +418,7 @@ class CloudConfig:
     aws_session_token: str | None = None
     aws_region: str | None = None
     aws_no_sign_request: bool = False
+    aws_request_payer: bool = False
     gs_oauth2_refresh_token: str | None = None
     gs_access_key_id: str | None = None
     gs_secret_access_key: str | None = None
@@ -425,6 +431,21 @@ class CloudConfig:
     vsi_cache: bool | None = None
     extra: Mapping[str, str] = field(default_factory=dict)
     _ctx: Any = field(default=None, init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        """Reject the mutually-exclusive anonymous + Requester-Pays combination.
+
+        Raises:
+            ValueError: When both `aws_no_sign_request` and
+                `aws_request_payer` are set — AWS rejects anonymous requests
+                to Requester-Pays buckets, so the pair can never succeed.
+        """
+        if self.aws_no_sign_request and self.aws_request_payer:
+            raise ValueError(
+                "aws_no_sign_request and aws_request_payer are mutually "
+                "exclusive: AWS rejects anonymous access to Requester-Pays "
+                "buckets."
+            )
 
     def as_gdal_config(self) -> dict[str, str]:
         """Map dataclass fields to GDAL config option keys.
@@ -506,6 +527,8 @@ class CloudConfig:
         out: dict[str, str] = {k: str(v) for k, v in mapping.items() if v is not None}
         if self.aws_no_sign_request:
             out["AWS_NO_SIGN_REQUEST"] = "YES"
+        if self.aws_request_payer:
+            out["AWS_REQUEST_PAYER"] = "requester"
         if self.vsi_cache is not None:
             out["VSI_CACHE"] = "TRUE" if self.vsi_cache else "FALSE"
         out.update({k: str(v) for k, v in self.extra.items()})
@@ -525,3 +548,139 @@ class CloudConfig:
         self._ctx = None
         logger.debug("CloudConfig exited")
         return result
+
+
+_REQUESTER_PAYS_ACK_ENV = "PYRAMIDS_REQUESTER_PAYS_ACK"
+
+_REQUESTER_PAYS_GDAL_KNOBS: dict[str, str] = {
+    "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+    "CPL_VSIL_CURL_USE_HEAD": "NO",
+    "GDAL_HTTP_MULTIPLEX": "YES",
+    "GDAL_HTTP_VERSION": "2",
+}
+"""GDAL knobs paired with Requester-Pays reads to trim extra billable calls."""
+
+
+def requester_pays_kwargs() -> dict[str, str]:
+    """Return the boto3/botocore kwarg that opts a call into Requester-Pays.
+
+    AWS Requester-Pays has no global client toggle — the ``RequestPayer``
+    parameter must be supplied on each operation. Splat this into a boto3
+    call (e.g. ``s3.get_object(Bucket=..., Key=..., **requester_pays_kwargs())``).
+
+    Returns:
+        ``{"RequestPayer": "requester"}``.
+
+    Examples:
+        - Acknowledge charges on a single boto3 operation:
+            ```python
+            >>> from pyramids.base.remote import requester_pays_kwargs
+            >>> requester_pays_kwargs()
+            {'RequestPayer': 'requester'}
+
+            ```
+    """
+    return {"RequestPayer": "requester"}
+
+
+def s3fs_requester_pays_kwargs(region: str | None = None) -> dict[str, Any]:
+    """Return fsspec/s3fs constructor kwargs for Requester-Pays reads.
+
+    Use for ``xarray.open_zarr(..., storage_options=...)`` or a direct
+    :class:`s3fs.S3FileSystem` whose bucket is Requester-Pays. Anonymous access
+    is disabled (AWS rejects anonymous Requester-Pays requests).
+
+    Args:
+        region: AWS region of the bucket. When given, pins
+            ``client_kwargs={"region_name": region}`` to avoid cross-region
+            egress (Requester-Pays bills per byte, so wrong-region is costly).
+
+    Returns:
+        A mapping with ``requester_pays=True`` and ``anon=False`` (plus
+        ``client_kwargs`` when ``region`` is given).
+
+    Examples:
+        - Default kwargs opt in and forbid anonymous access:
+            ```python
+            >>> from pyramids.base.remote import s3fs_requester_pays_kwargs
+            >>> s3fs_requester_pays_kwargs()
+            {'requester_pays': True, 'anon': False}
+
+            ```
+        - Pinning a region adds the boto3 client kwargs:
+            ```python
+            >>> s3fs_requester_pays_kwargs(region="us-west-2")["client_kwargs"]
+            {'region_name': 'us-west-2'}
+
+            ```
+    """
+    out: dict[str, Any] = {"requester_pays": True, "anon": False}
+    if region is not None:
+        out["client_kwargs"] = {"region_name": region}
+    return out
+
+
+@contextmanager
+def RequesterPays(
+    *,
+    region: str | None = None,
+    aws_access_key_id: str | None = None,
+    aws_secret_access_key: str | None = None,
+    aws_session_token: str | None = None,
+    ack_charges: bool = False,
+) -> Iterator[CloudConfig]:
+    """Enable AWS Requester-Pays GDAL reads for the duration of a block.
+
+    A thin, named alias over :class:`CloudConfig` that sets
+    ``AWS_REQUEST_PAYER=requester`` plus the standard cloud-read knobs
+    (``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR``, ``CPL_VSIL_CURL_USE_HEAD=NO``,
+    ``GDAL_HTTP_MULTIPLEX=YES``, ``GDAL_HTTP_VERSION=2``) so
+    :meth:`pyramids.dataset.Dataset.read_file` reads from Requester-Pays buckets
+    such as ``s3://usgs-landsat`` or ``s3://sentinel-1-grd``. For direct boto3 /
+    s3fs use, splat :func:`requester_pays_kwargs` / :func:`s3fs_requester_pays_kwargs`.
+
+    Args:
+        region: AWS region of the bucket. Pin it for non-us-east-1 buckets to
+            avoid the most expensive mistake — cross-region egress (these
+            buckets bill per byte).
+        aws_access_key_id: Optional explicit AWS access key id.
+        aws_secret_access_key: Optional explicit AWS secret key.
+        aws_session_token: Optional explicit AWS session token.
+        ack_charges: Set ``True`` to silence the cost-surprise warning;
+            ``PYRAMIDS_REQUESTER_PAYS_ACK=1`` does the same process-wide.
+
+    Yields:
+        The :class:`CloudConfig` in effect for the block.
+
+    Warns:
+        UserWarning: On entry, unless ``ack_charges`` is ``True`` or
+            ``PYRAMIDS_REQUESTER_PAYS_ACK=1`` — Requester-Pays bills the reader.
+
+    Examples:
+        - Read a Requester-Pays asset, acknowledging charges:
+            ```python
+            >>> from pyramids.base.remote import RequesterPays  # doctest: +SKIP
+            >>> with RequesterPays(region="us-west-2", ack_charges=True) as cfg:
+            ...     cfg.as_gdal_config()["AWS_REQUEST_PAYER"]
+            'requester'
+
+            ```
+    """
+    if not ack_charges and os.environ.get(_REQUESTER_PAYS_ACK_ENV) != "1":
+        warnings.warn(
+            "Requester-Pays is enabled: you will be billed per byte and per "
+            "request for transfers from this bucket. Pass ack_charges=True or "
+            f"set {_REQUESTER_PAYS_ACK_ENV}=1 to silence.",
+            UserWarning,
+            stacklevel=2,
+        )
+    cfg = CloudConfig(
+        aws_request_payer=True,
+        aws_region=region,
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key,
+        aws_session_token=aws_session_token,
+        extra=dict(_REQUESTER_PAYS_GDAL_KNOBS),
+    )
+    with cfg:
+        yield cfg
