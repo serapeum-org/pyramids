@@ -333,6 +333,7 @@ pystac-client = ">=0.8.0"
 gdal = ">=3.12,<3.13"
 libgdal-netcdf = ">=3.12,<3.13"
 libgdal-hdf4 = ">=3.12,<3.13"
+libgdal-grib = ">=3.12,<3.13"
 swig = ">=4.3,<5"
 
 # libstdcxx-ng provides the GCC-13 libstdc++.so.6 that conda-forge's GDAL
@@ -350,6 +351,7 @@ libstdcxx-ng = "*"
 gdal = ">=3.10.0,<4"
 libgdal-netcdf = ">=3.10.0,<4"
 libgdal-hdf4 = ">=3.10.0,<4"
+libgdal-grib = ">=3.10.0,<4"
 # Conda-forge's geopandas-base no longer pulls in a vector-IO backend.
 # pyogrio is required for GeoDataFrame.to_file / read_file on every env.
 pyogrio = ">=0.7"
