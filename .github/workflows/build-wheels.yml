@@ -21,10 +21,11 @@ env:
   WHEEL_SIZE_BUDGET_MB: "120"
   # Toolchain pins for the GDAL-extraction scripts (ci/setup-gdal-*.sh,
   # .ps1). macOS / Windows cibuildwheel runs before-all on the host and
-  # inherits these directly; the Linux container build forwards them via
-  # [tool.cibuildwheel.linux].environment-pass in pyproject.toml.
+  # inherits these directly; CIBW_ENVIRONMENT_PASS_LINUX forwards them
+  # into the manylinux container, where host env doesn't auto-propagate.
   PIXI_VERSION: "0.68.1"
   MICROMAMBA_VERSION: "2.6.1"
+  CIBW_ENVIRONMENT_PASS_LINUX: "PIXI_VERSION MICROMAMBA_VERSION"
 
 jobs:
   build-sdist:

@@ -387,8 +387,8 @@ runs.
 macOS and Windows cibuildwheel runs `before-all` on the host and inherits
 these env vars directly. The Linux build runs `before-all` inside the
 manylinux container, which doesn't auto-inherit host env, so they're
-forwarded via `[tool.cibuildwheel.linux].environment-pass` in
-`pyproject.toml`.
+forwarded with `CIBW_ENVIRONMENT_PASS_LINUX` (also in the workflow `env:`
+block).
 
 For local development, install the same pixi version with:
 
