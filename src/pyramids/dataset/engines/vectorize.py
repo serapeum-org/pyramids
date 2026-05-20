@@ -21,6 +21,7 @@ from pandas import DataFrame
 
 from pyramids.base._utils import gdal_to_ogr_dtype
 from pyramids.base.crs import sr_from_wkt
+from pyramids.feature import FeatureCollection
 from pyramids.feature import _ogr as _feature_ogr
 
 if TYPE_CHECKING:
@@ -49,6 +50,135 @@ class Vectorize(_Engine):
         gdal.Polygonize(gdal_band, gdal_band, dst_layer, 0, [], callback=None)
 
         return _feature_ogr.datasource_to_gdf(dst_ds)
+
+    def contour(
+        self,
+        *,
+        interval: float | None = None,
+        fixed_levels: list[float] | None = None,
+        base: float = 0.0,
+        band: int = 0,
+        attribute: str = "elev",
+        polygonize: bool = False,
+    ) -> FeatureCollection:
+        """Trace iso-value contours from a raster band into a vector layer.
+
+        The GDAL-native equivalent of ``gdal_contour``: it walks one band of the
+        raster and emits either contour *lines* at each level (the default) or
+        filled contour *polygons* between successive levels (``polygonize=True``).
+        Levels are set either by a regular ``interval`` (anchored at ``base``) or
+        by an explicit ``fixed_levels`` list — supply exactly one of the two.
+
+        Args:
+            interval (float | None):
+                Spacing between contour levels, anchored at ``base`` (e.g.
+                ``interval=10`` with ``base=0`` yields levels …, -10, 0, 10, …).
+                Mutually exclusive with ``fixed_levels``.
+            fixed_levels (list[float] | None):
+                Explicit list of levels to contour. Mutually exclusive with
+                ``interval``.
+            base (float):
+                The level the regular ``interval`` is anchored to. Ignored when
+                ``fixed_levels`` is given. Defaults to ``0.0``.
+            band (int):
+                Zero-based index of the band to contour. Defaults to ``0``.
+            attribute (str):
+                Name of the elevation attribute written to each feature. In
+                ``polygonize`` mode two columns ``<attribute>_min`` and
+                ``<attribute>_max`` are written instead. Defaults to ``"elev"``.
+            polygonize (bool):
+                When ``True`` emit filled polygons between levels rather than
+                contour lines. Defaults to ``False``.
+
+        Returns:
+            FeatureCollection:
+                A :class:`~pyramids.feature.FeatureCollection` of contour
+                ``LineString`` features (or ``Polygon`` features when
+                ``polygonize=True``), carrying the source CRS and the elevation
+                attribute(s). An empty collection is returned when no contours
+                are produced.
+
+        Raises:
+            ValueError: Neither or both of ``interval`` / ``fixed_levels`` were
+                given, ``interval`` is non-positive, ``fixed_levels`` is empty,
+                or ``band`` is out of range.
+
+        Examples:
+            - Contour a west-to-east elevation ramp at a regular interval and
+              inspect the levels produced:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.tile(np.arange(10, dtype="float32"), (10, 1))
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0, 10), cell_size=1.0, epsg=4326
+                ... )
+                >>> contours = ds.contour(interval=2.0)
+                >>> sorted(contours["elev"].tolist())
+                [2.0, 4.0, 6.0, 8.0]
+                >>> contours.geometry.geom_type.unique().tolist()
+                ['LineString']
+
+                ```
+            - Request explicit levels and read back how many lines were traced:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.tile(np.arange(10, dtype="float32"), (10, 1))
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0, 10), cell_size=1.0, epsg=4326
+                ... )
+                >>> contours = ds.contour(fixed_levels=[3.0, 5.0, 7.0])
+                >>> len(contours)
+                3
+
+                ```
+        """
+        if (interval is None) == (fixed_levels is None):
+            raise ValueError(
+                "provide exactly one of interval or fixed_levels (got "
+                f"interval={interval!r}, fixed_levels={fixed_levels!r})."
+            )
+        if interval is not None and interval <= 0:
+            raise ValueError(f"interval must be positive, got {interval!r}.")
+        if fixed_levels is not None and len(fixed_levels) == 0:
+            raise ValueError("fixed_levels must contain at least one level.")
+        if band < 0 or band >= self._ds.band_count:
+            raise ValueError(
+                f"band {band} is out of range for a {self._ds.band_count}-band dataset."
+            )
+
+        gdal_band = self._ds.raster.GetRasterBand(band + 1)
+        srs = sr_from_wkt(self._ds.crs)
+        geom_type = ogr.wkbPolygon if polygonize else ogr.wkbLineString
+
+        dst_ds = ogr.GetDriverByName("MEM").CreateDataSource("contourData")
+        if dst_ds is None:
+            raise RuntimeError("Failed to create in-memory OGR DataSource")
+        dst_layer = dst_ds.CreateLayer("contour", srs=srs, geom_type=geom_type)
+        dst_layer.CreateField(ogr.FieldDefn("id", ogr.OFTInteger))
+
+        options = ["ID_FIELD=0"]
+        if polygonize:
+            dst_layer.CreateField(ogr.FieldDefn(f"{attribute}_min", ogr.OFTReal))
+            dst_layer.CreateField(ogr.FieldDefn(f"{attribute}_max", ogr.OFTReal))
+            options += ["POLYGONIZE=YES", "ELEV_FIELD_MIN=1", "ELEV_FIELD_MAX=2"]
+        else:
+            dst_layer.CreateField(ogr.FieldDefn(attribute, ogr.OFTReal))
+            options.append("ELEV_FIELD=1")
+
+        if interval is not None:
+            options += [f"LEVEL_INTERVAL={interval}", f"LEVEL_BASE={base}"]
+        else:
+            options.append("FIXED_LEVELS=" + ",".join(str(lvl) for lvl in fixed_levels))
+
+        no_data_value = gdal_band.GetNoDataValue()
+        if no_data_value is not None:
+            options.append(f"NODATA={no_data_value}")
+
+        gdal.ContourGenerateEx(gdal_band, dst_layer, options=options)
+
+        return FeatureCollection(_feature_ogr.datasource_to_gdf(dst_ds))
 
     def to_feature_collection(
         self,

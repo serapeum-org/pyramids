@@ -330,6 +330,10 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Vectorize.to_feature_collection <pyramids.dataset.engines.Vectorize.to_feature_collection>`."""
         return self.vectorize.to_feature_collection(*args, **kwargs)
 
+    def contour(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Vectorize.contour <pyramids.dataset.engines.Vectorize.contour>`."""
+        return self.vectorize.contour(*args, **kwargs)
+
     def translate(self, *args, **kwargs):
         """Facade — delegates to :meth:`Vectorize.translate <pyramids.dataset.engines.Vectorize.translate>`."""
         return self.vectorize.translate(*args, **kwargs)
