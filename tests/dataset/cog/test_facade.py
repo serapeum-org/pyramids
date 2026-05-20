@@ -600,17 +600,22 @@ class TestWriteCog:
         _, report = write_cog(mem_dataset, out)
         assert report.is_valid, f"Expected valid COG, errors: {report.errors}"
 
-    def test_from_existing_path(self, float_array, tmp_path):
-        """A path input is re-encoded into a COG.
+    def test_from_existing_path(self, tmp_path):
+        """A path input is read and re-encoded into a COG.
 
         Args:
-            float_array: Fixture providing a 2-D float32 array.
             tmp_path: pytest temp directory.
 
         Test scenario:
-            A plain GeoTIFF path is read and rewritten as a valid COG.
+            A plain GeoTIFF path is read and rewritten as a valid COG. A full
+            512x512 source is used so the COG statistics pass always samples a
+            complete tile of valid pixels (a tiny disk-backed source can make
+            GDAL's approximate-statistics sampling report "no valid pixels" on
+            some builds).
         """
-        src = Dataset.create_from_array(float_array, geo=_GEOTRANSFORM, epsg=4326)
+        rng = np.random.default_rng(99)
+        big = (rng.random((512, 512)) * 100.0).astype("float32")
+        src = Dataset.create_from_array(big, geo=_GEOTRANSFORM, epsg=4326)
         src_path = tmp_path / "plain.tif"
         src.to_file(str(src_path))
         out = tmp_path / "cog.tif"
