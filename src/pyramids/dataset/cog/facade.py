@@ -26,15 +26,15 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 from osgeo import gdal
+from pyproj import CRS
 
 from pyramids.dataset.cog.options import CreationOptions
 from pyramids.dataset.cog.validate import ValidationReport
 from pyramids.dataset.cog.validate import validate as _validate_file
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    import numpy as np
-
     from pyramids.dataset.dataset import Dataset
 
 logger = logging.getLogger(__name__)
@@ -131,8 +131,6 @@ def _coerce_epsg(crs: Any) -> int:
     """
     if isinstance(crs, int):
         return crs
-    from pyproj import CRS  # pyproj is a core dependency
-
     epsg = CRS.from_user_input(crs).to_epsg()
     if epsg is None:
         raise ValueError(
@@ -202,8 +200,6 @@ def _dataarray_to_dataset(
     Raises:
         ValueError: When spatial coordinates or a CRS cannot be determined.
     """
-    import numpy as np
-
     x_name = next((c for c in ("x", "longitude", "lon") if c in da.coords), None)
     y_name = next((c for c in ("y", "latitude", "lat") if c in da.coords), None)
     if x_name is None or y_name is None:
@@ -266,8 +262,6 @@ def _normalize_to_dataset(
         TypeError: When ``data`` is an unsupported type.
     """
     # Function-scope import: avoids the dataset <-> engines.cog <-> cog cycle.
-    import numpy as np
-
     from pyramids.dataset.dataset import Dataset
 
     ds: Dataset
@@ -380,6 +374,9 @@ def write_cog(
     if options:
         final.update({str(k).upper(): v for k, v in options.items() if v is not None})
     if "PREDICTOR" not in final:
+        # GeoTIFF bands share a dtype, so band 0 determines the predictor for
+        # the whole file; pass an explicit options={"PREDICTOR": ...} to override
+        # for an (atypical) mixed-dtype source.
         final["PREDICTOR"] = _resolve_predictor(ds.gdal_dtype[0])
 
     blocksize = int(final.pop("BLOCKSIZE"))
