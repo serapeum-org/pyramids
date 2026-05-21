@@ -2,20 +2,20 @@
 
 CKAN portals (HDX is one) serve heterogeneous resources whose declared ``format``
 field lies often enough that you must sniff the actual bytes: a resource declared
-``CSV`` may really be a ``.shp.zip``. :func:`sniff_format` classifies a file by its
+`CSV` may really be a `.shp.zip`. :func:`sniff_format` classifies a file by its
 magic bytes first, then its extension; :func:`load_resource` dispatches to the
 matching pyramids/pandas reader and returns the most natural object:
 
-- vector (``.shp`` / ``.gpkg`` / GeoJSON) -> :class:`~pyramids.feature.FeatureCollection`
+- vector (`.shp` / `.gpkg` / GeoJSON) -> :class:`~pyramids.feature.FeatureCollection`
 - tabular CSV -> :class:`pandas.DataFrame`
 - raster GeoTIFF / GRIB -> :class:`~pyramids.dataset.Dataset`
 - NetCDF -> :class:`~pyramids.netcdf.NetCDF` (no xarray)
 - Parquet -> :class:`~pyramids.feature.FeatureCollection` when it carries a GeoParquet
-  ``geo`` key, otherwise a :class:`pandas.DataFrame`
+  `geo` key, otherwise a :class:`pandas.DataFrame`
 - ZIP -> the single contained data file (re-dispatched), or the extraction dir
 - anything unrecognised -> raw :class:`bytes`
 
-Detection uses magic bytes + extension only — no ``python-magic`` dependency. The
+Detection uses magic bytes + extension only — no `python-magic` dependency. The
 CKAN/HDX API client itself stays in the consumer; this module is the generic
 format-detection + dispatch primitive.
 """
@@ -80,18 +80,18 @@ def sniff_format(path: str | Path) -> str:
 
     Magic-byte detection (ZIP, TIFF, HDF5/NetCDF, Parquet, GeoPackage/SQLite)
     takes precedence over the extension, so a mis-named resource is still
-    classified correctly. No ``python-magic`` dependency.
+    classified correctly. No `python-magic` dependency.
 
     Args:
         path: Path to a local file.
 
     Returns:
-        A normalised format string: one of ``"shp"``, ``"gpkg"``,
-        ``"geojson"``, ``"csv"``, ``"parquet"``, ``"nc"``, ``"tif"``,
-        ``"grib"``, ``"zip"``, or ``"unknown"``.
+        A normalised format string: one of `"shp"`, `"gpkg"`,
+        `"geojson"`, `"csv"`, `"parquet"`, `"nc"`, `"tif"`,
+        `"grib"`, `"zip"`, or `"unknown"`.
 
     Examples:
-        - A GeoTIFF is detected from its ``II*\\0`` / ``MM\\0*`` magic bytes:
+        - A GeoTIFF is detected from its `II*\\0` / `MM\\0*` magic bytes:
             ```python
             >>> from pyramids.io import sniff_format
             >>> sniff_format("tests/data/geotiff/era5_land_monthly_averaged.tif")
@@ -104,7 +104,7 @@ def sniff_format(path: str | Path) -> str:
             'nc'
 
             ```
-        - An unknown / missing file is reported as ``"unknown"``:
+        - An unknown / missing file is reported as `"unknown"`:
             ```python
             >>> sniff_format("does-not-exist.bin")
             'unknown'
@@ -143,14 +143,14 @@ def _load_parquet(path: Path) -> FeatureCollection | pd.DataFrame:
     """Open a Parquet file as a FeatureCollection (GeoParquet) or DataFrame.
 
     Args:
-        path: Path to a ``.parquet`` file.
+        path: Path to a `.parquet` file.
 
     Returns:
         A :class:`~pyramids.feature.FeatureCollection` when the file carries a
-        GeoParquet ``geo`` metadata key, otherwise a :class:`pandas.DataFrame`.
+        GeoParquet `geo` metadata key, otherwise a :class:`pandas.DataFrame`.
 
     Raises:
-        OptionalPackageDoesNotExist: ``pyarrow`` (the ``[parquet]`` extra) is
+        OptionalPackageDoesNotExist: `pyarrow` (the `[parquet]` extra) is
             not installed.
     """
     import_pyarrow(_PARQUET_EXTRA_HINT)
@@ -166,8 +166,8 @@ def _load_zip(path: Path, extract_to: Path | None) -> Any:
     """Extract a ZIP and load its single primary data member, or return the dir.
 
     Args:
-        path: Path to a ``.zip`` file.
-        extract_to: Directory to extract into; a temp dir is used when ``None``.
+        path: Path to a `.zip` file.
+        extract_to: Directory to extract into; a temp dir is used when `None`.
 
     Returns:
         The loaded resource (re-dispatched through :func:`load_resource`) when a
@@ -200,10 +200,10 @@ def load_resource(
 ) -> Any:
     """Read a downloaded resource by its detected (or declared) format.
 
-    Detection priority: an explicit ``expected_format`` override, otherwise
+    Detection priority: an explicit `expected_format` override, otherwise
     :func:`sniff_format`. ZIP files are inspected for a single primary data
-    member (a ``.shp`` set, or one ``.gpkg`` / ``.tif`` / ``.nc`` / ``.csv`` /
-    ``.parquet`` / GeoJSON) and the dispatch re-runs on it; ZIPs without a clear
+    member (a `.shp` set, or one `.gpkg` / `.tif` / `.nc` / `.csv` /
+    `.parquet` / GeoJSON) and the dispatch re-runs on it; ZIPs without a clear
     primary are extracted and the directory path is returned.
 
     Args:
@@ -211,7 +211,7 @@ def load_resource(
         expected_format: Optional format override (one of the
             :func:`sniff_format` strings); skips sniffing when given.
         extract_to: Directory to extract a ZIP into; a temp dir is used when
-            ``None``.
+            `None`.
 
     Returns:
         The most natural object for the format: a
@@ -224,7 +224,7 @@ def load_resource(
 
     Raises:
         OptionalPackageDoesNotExist: A Parquet resource is read without the
-            ``[parquet]`` extra installed.
+            `[parquet]` extra installed.
 
     Examples:
         - Load a GeoTIFF resource as a Dataset:
@@ -235,7 +235,7 @@ def load_resource(
             9
 
             ```
-        - Force a format with ``expected_format`` (skips sniffing):
+        - Force a format with `expected_format` (skips sniffing):
             ```python
             >>> nc = load_resource(
             ...     "tests/data/netcdf/noah-precipitation-1979.nc",
