@@ -97,7 +97,8 @@ jobs:
           conda install -y -n wheel-test \
             "gdal>=3.10.0,<4" \
             "libgdal-netcdf>=3.10.0,<4" \
-            "libgdal-hdf4>=3.10.0,<4"
+            "libgdal-hdf4>=3.10.0,<4" \
+            "libgdal-grib>=3.10.0,<4"
 
       - name: Install wheel (no extras)
         shell: bash -el {0}
@@ -175,7 +176,8 @@ jobs:
           conda install -y -n wheel-test \
             "gdal>=3.10.0,<4" \
             "libgdal-netcdf>=3.10.0,<4" \
-            "libgdal-hdf4>=3.10.0,<4"
+            "libgdal-hdf4>=3.10.0,<4" \
+            "libgdal-grib>=3.10.0,<4"
 
       - name: Install wheel with only [${{ matrix.extra.name }}] extra
         shell: bash -el {0}
