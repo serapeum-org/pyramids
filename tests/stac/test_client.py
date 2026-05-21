@@ -20,8 +20,8 @@ class TestOpenClient:
             mocker: pytest-mock fixture.
 
         Test scenario:
-            ``modifier`` is ``signer.sign_item`` and ``request_modifier`` is
-            ``signer.sign_request``.
+            `modifier` is `signer.sign_item` and `request_modifier` is
+            `signer.sign_request`.
         """
         import pystac_client
 
@@ -44,7 +44,7 @@ class TestOpenClient:
             mocker: pytest-mock fixture.
 
         Test scenario:
-            The modifier is bound to a signer named ``anonymous``.
+            The modifier is bound to a signer named `anonymous`.
         """
         import pystac_client
 

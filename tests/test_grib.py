@@ -76,7 +76,7 @@ class TestParseGribSeconds:
     """Tests for _parse_grib_seconds."""
 
     def test_valid_timestamp(self):
-        """A ``"<unix> sec UTC"`` string parses to an aware UTC datetime.
+        """A `"<unix> sec UTC"` string parses to an aware UTC datetime.
 
         Test scenario:
             Epoch seconds 0 map to 1970-01-01T00:00:00+00:00.
@@ -174,7 +174,7 @@ class TestOpenGrib:
             grib_path: Fixture path to a GRIB2.
 
         Test scenario:
-            Passing ``str(path)`` opens the same dataset.
+            Passing `str(path)` opens the same dataset.
         """
         ds = open_grib(str(grib_path))
         assert ds.band_count == 2, "String path should open the GRIB"

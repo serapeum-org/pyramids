@@ -62,10 +62,10 @@ class TestAnonymousSigner:
     """Tests for AnonymousSigner."""
 
     def test_name(self):
-        """The signer reports the ``anonymous`` name.
+        """The signer reports the `anonymous` name.
 
         Test scenario:
-            ``name`` identifies the signer in logs/config.
+            `name` identifies the signer in logs/config.
         """
         assert AnonymousSigner().name == "anonymous", "Unexpected signer name"
 
@@ -96,10 +96,10 @@ class TestAWSRequesterPaysSigner:
     """Tests for AWSRequesterPaysSigner."""
 
     def test_name(self):
-        """The signer reports the ``aws-requester-pays`` name.
+        """The signer reports the `aws-requester-pays` name.
 
         Test scenario:
-            ``name`` identifies the signer.
+            `name` identifies the signer.
         """
         assert AWSRequesterPaysSigner().name == "aws-requester-pays", "Unexpected name"
 
@@ -115,7 +115,7 @@ class TestAWSRequesterPaysSigner:
         """A provided region is stored.
 
         Test scenario:
-            ``region='us-west-2'`` is retained for caller use.
+            `region='us-west-2'` is retained for caller use.
         """
         assert (
             AWSRequesterPaysSigner(region="us-west-2").region == "us-west-2"
@@ -159,10 +159,10 @@ class TestBearerTokenSigner:
     """Tests for BearerTokenSigner."""
 
     def test_name(self):
-        """The signer reports the ``bearer`` name.
+        """The signer reports the `bearer` name.
 
         Test scenario:
-            ``name`` identifies the signer.
+            `name` identifies the signer.
         """
         assert BearerTokenSigner("t").name == "bearer", "Unexpected name"
 
@@ -233,17 +233,17 @@ class TestBearerTokenSigner:
         """A callable token resolving to None raises instead of 'Bearer None'.
 
         Test scenario:
-            A refresher that returns ``None`` is rejected by ``gdal_env``.
+            A refresher that returns `None` is rejected by `gdal_env`.
         """
         signer = BearerTokenSigner(lambda: None)
         with pytest.raises(ValueError, match="non-empty string"):
             signer.gdal_env()
 
     def test_empty_token_raises(self):
-        """An empty-string token is rejected (not sent as ``Bearer``).
+        """An empty-string token is rejected (not sent as `Bearer`).
 
         Test scenario:
-            ``sign_request`` with an empty token raises ValueError.
+            `sign_request` with an empty token raises ValueError.
         """
         request = SimpleNamespace(headers={})
         with pytest.raises(ValueError, match="non-empty string"):

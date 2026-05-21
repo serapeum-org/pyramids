@@ -45,7 +45,7 @@ def grib_asset(tmp_path):
         tmp_path: pytest temp directory.
 
     Returns:
-        dict: ``{"href": <path>, "type": "application/wmo-grib2"}``.
+        dict: `{"href": <path>, "type": "application/wmo-grib2"}`.
     """
     mem = gdal.GetDriverByName("MEM").Create("", 6, 4, 1, gdal.GDT_Float32)
     mem.SetGeoTransform((0.0, 1.0, 0.0, 4.0, 0.0, -1.0))
@@ -138,7 +138,7 @@ class TestResolveAsset:
         """An Item + key resolves the named asset.
 
         Test scenario:
-            The asset under ``assets[key]`` is returned.
+            The asset under `assets[key]` is returned.
         """
         item = {"assets": {"B04": {"href": "b04.tif", "type": _COG_TYPE}}}
         href, mt = _resolve_asset(item, "B04")
@@ -183,7 +183,7 @@ class TestWhichEngine:
         """A COG asset reports the gdal engine.
 
         Test scenario:
-            ``which_engine`` mirrors ``_engine_for`` for a real asset dict.
+            `which_engine` mirrors `_engine_for` for a real asset dict.
         """
         assert which_engine({"href": "s3://b/x.tif", "type": _COG_TYPE}) == "gdal"
 
@@ -241,7 +241,7 @@ class TestLoadAsset:
         """An asset with no media type loads via extension dispatch.
 
         Test scenario:
-            A ``.tif`` href and no type still opens as a Dataset.
+            A `.tif` href and no type still opens as a Dataset.
         """
         ds = load_asset({"href": _GEOTIFF})
         assert isinstance(ds, Dataset), "Extension fallback should open the GeoTIFF"
@@ -261,8 +261,8 @@ class TestLoadAsset:
         """The signer's gdal_env is installed as GDAL config while opening.
 
         Test scenario:
-            A reader stub captures ``AWS_REQUEST_PAYER`` at call time; with an
-            ``AWSRequesterPaysSigner`` it must read ``requester``.
+            A reader stub captures `AWS_REQUEST_PAYER` at call time; with an
+            `AWSRequesterPaysSigner` it must read `requester`.
         """
         captured: dict[str, str | None] = {}
 
@@ -284,7 +284,7 @@ class TestLoadAsset:
 
         Test scenario:
             After a real load with an AWSRequesterPaysSigner, the global
-            ``AWS_REQUEST_PAYER`` option is back to ``None``.
+            `AWS_REQUEST_PAYER` option is back to `None`.
         """
         assert gdal.GetConfigOption("AWS_REQUEST_PAYER") is None, "precondition: unset"
         load_asset({"href": _GEOTIFF, "type": "image/tiff"}, signer=AWSRequesterPaysSigner())
@@ -294,7 +294,7 @@ class TestLoadAsset:
         """Without a signer, no extra GDAL config is set during the open.
 
         Test scenario:
-            A reader stub sees ``AWS_REQUEST_PAYER`` unset when no signer is
+            A reader stub sees `AWS_REQUEST_PAYER` unset when no signer is
             supplied.
         """
         captured: dict[str, str | None] = {}
@@ -341,7 +341,7 @@ class TestLoadAsset:
         """An asset with no recognisable type/extension raises ValueError.
 
         Test scenario:
-            ``data.bin`` matches no reader.
+            `data.bin` matches no reader.
         """
         with pytest.raises(ValueError, match="Cannot determine a reader"):
             load_asset({"href": "s3://b/data.bin"})
