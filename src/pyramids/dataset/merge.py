@@ -65,6 +65,15 @@ def merge_rasters(
     Returns:
         None
 
+    Note:
+        The z-order methods (``"first"``/``"last"``) preserve each source's data
+        type via ``BuildVRT`` + ``Translate``. The reduction methods
+        (``"min"``/``"max"``/``"sum"``) align every source onto the union grid
+        with ``gdal.Warp`` (nearest resampling — exact for already-aligned tiles)
+        and write a single-precision-safe **Float64** output regardless of the
+        source dtype, so they may differ in dtype from a z-order merge of the
+        same integer inputs.
+
     Raises:
         ValueError: ``method`` is not one of the supported values.
         RuntimeError: GDAL failed to build the source mosaic.
