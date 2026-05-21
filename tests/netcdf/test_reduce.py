@@ -249,6 +249,42 @@ class TestReduceRealFixtures:
         assert "pressure_level" not in var._band_dim_names, "pressure_level not removed"
         assert "valid_time" in var._band_dim_names, "valid_time should be preserved"
 
+    @pytest.mark.parametrize("freq, expected", [("6h", 12), ("12h", 6), ("1D", 3)])
+    def test_sub_daily_frequency_grouping(self, freq, expected):
+        """Sub-daily frequencies bucket by full timestamp, not truncated day.
+
+        Args:
+            freq: pandas offset alias passed to ``groupby``.
+            expected: Expected number of output windows.
+
+        Test scenario:
+            ``era5_cds_beta_t2m_jan2022`` holds 12 six-hourly steps over three
+            days, so ``"6h"`` yields 12 windows, ``"12h"`` 6, and ``"1D"`` 3.
+            Before the timestamp-resolution fix every sub-daily frequency
+            collapsed to the 3 per-day buckets.
+        """
+        nc = NetCDF.read_file(_ERA5_T2M)
+        result = nc.reduce("valid_time", "mean", groupby=freq)
+        assert result.get_variable("t2m").band_count == expected, (
+            f"{freq} should yield {expected} windows, got "
+            f"{result.get_variable('t2m').band_count}"
+        )
+
+    def test_sub_daily_window_values_match_numpy(self):
+        """Each 6-hourly window is the per-step value (one member per window).
+
+        Test scenario:
+            With 12 distinct six-hourly steps, ``"6h"`` makes each window a
+            single source step, so the reduced band equals that step's raw data.
+        """
+        nc = NetCDF.read_file(_ERA5_T2M)
+        source = nc.reduce("valid_time", "mean", groupby="1MS")  # single month sanity
+        assert source.get_variable("t2m").band_count == 1, "Jan-only data is one month"
+        per_step = nc.reduce("valid_time", "mean", groupby="6h")
+        raw = nc.get_variable("t2m").read_array()
+        reduced = per_step.get_variable("t2m").read_array()
+        assert np.allclose(reduced[0], raw[0], equal_nan=True), "first 6h window != first step"
+
 
 class TestReduceMultiBandDim:
     """Tests for reducing variables that keep more than one band dimension."""

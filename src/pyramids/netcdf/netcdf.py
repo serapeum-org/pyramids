@@ -1609,7 +1609,10 @@ class NetCDF(Dataset):
         """
         positions: list[np.ndarray] | None = None
         if isinstance(groupby, str):
-            times = self.get_time_variable(var_name=dim)
+            # Full-resolution timestamps: the default "%Y-%m-%d" truncates to
+            # whole days, which would collapse every sub-daily frequency
+            # ("1H"/"3H"/"6H") into a single per-day bucket.
+            times = self.get_time_variable(var_name=dim, time_format="%Y-%m-%d %H:%M:%S")
             if times is None:
                 raise ValueError(
                     f"Cannot group dimension {dim!r} by frequency {groupby!r}: "
