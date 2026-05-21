@@ -183,8 +183,11 @@ def _load_zip(path: Path, extract_to: Path | None) -> Any:
         single primary data file is found, otherwise the :class:`~pathlib.Path`
         of the extraction directory.
     """
+    dest = Path(extract_to) if extract_to is not None else Path(tempfile.mkdtemp())
     with zipfile.ZipFile(path) as archive:
         members = [n for n in archive.namelist() if not n.endswith("/")]
+        archive.extractall(dest)
+
     primaries = [m for m in members if Path(m).suffix.lower() in _PRIMARY_EXTS]
     shapefiles = [m for m in primaries if m.lower().endswith(".shp")]
 
@@ -193,10 +196,6 @@ def _load_zip(path: Path, extract_to: Path | None) -> Any:
         target = shapefiles[0]
     elif len(primaries) == 1:
         target = primaries[0]
-
-    dest = Path(extract_to) if extract_to is not None else Path(tempfile.mkdtemp())
-    with zipfile.ZipFile(path) as archive:
-        archive.extractall(dest)
 
     return load_resource(dest / target) if target is not None else dest
 
