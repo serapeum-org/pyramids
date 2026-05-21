@@ -456,6 +456,62 @@ class TestWriteCog:
             report is not None and report.is_valid
         ), f"Expected a valid COG report, got {report}"
 
+    def test_statistics_failure_retries_without_statistics(
+        self, float_array, tmp_path, monkeypatch
+    ):
+        """A GDAL statistics-pass failure is retried with STATISTICS disabled.
+
+        Args:
+            float_array: Fixture providing a 2-D float32 array.
+            tmp_path: pytest temp directory.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            Some GDAL builds raise "no valid pixels found in sampling" during the
+            STATISTICS pass on float on-disk sources. write_cog must retry once
+            without STATISTICS rather than propagate the error.
+        """
+        out = tmp_path / "retry.tif"
+        calls: list[dict] = []
+
+        def fake_to_cog(self, output, *, blocksize, overview_resampling, predictor, extra=None):
+            calls.append(dict(extra or {}))
+            if extra and "STATISTICS" in extra:
+                raise RuntimeError("no valid pixels found in sampling")
+            return Path(output)
+
+        monkeypatch.setattr(Dataset, "to_cog", fake_to_cog)
+        path, report = write_cog(
+            float_array, out, crs=4326, transform=_GEOTRANSFORM, validate=False
+        )
+        assert len(calls) == 2, f"expected an initial call plus one retry, got {len(calls)}"
+        assert "STATISTICS" in calls[0], "first attempt should carry STATISTICS"
+        assert "STATISTICS" not in calls[1], "retry should drop STATISTICS"
+        assert path == out, f"unexpected output path: {path}"
+
+    def test_unrelated_runtimeerror_propagates(
+        self, float_array, tmp_path, monkeypatch
+    ):
+        """A non-statistics RuntimeError is not swallowed by the retry guard.
+
+        Args:
+            float_array: Fixture providing a 2-D float32 array.
+            tmp_path: pytest temp directory.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            A failure unrelated to the statistics pass propagates unchanged.
+        """
+        def fake_to_cog(self, output, *, blocksize, overview_resampling, predictor, extra=None):
+            raise RuntimeError("disk full")
+
+        monkeypatch.setattr(Dataset, "to_cog", fake_to_cog)
+        with pytest.raises(RuntimeError, match="disk full"):
+            write_cog(
+                float_array, tmp_path / "boom.tif", crs=4326,
+                transform=_GEOTRANSFORM, validate=False,
+            )
+
     def test_int_array_writes_valid_cog(self, int_array, tmp_path):
         """An integer array is written as a valid COG.
 

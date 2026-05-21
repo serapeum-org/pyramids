@@ -386,13 +386,30 @@ def write_cog(
     overview_resampling = str(final.pop("OVERVIEW_RESAMPLING")).lower()
     predictor = final.pop("PREDICTOR")
 
-    output_path = ds.to_cog(
-        output,
-        blocksize=blocksize,
-        overview_resampling=overview_resampling,
-        predictor=predictor,
-        extra=final or None,
-    )
+    try:
+        output_path = ds.to_cog(
+            output,
+            blocksize=blocksize,
+            overview_resampling=overview_resampling,
+            predictor=predictor,
+            extra=final or None,
+        )
+    except RuntimeError as exc:
+        # Some GDAL builds abort the STATISTICS pass on float on-disk sources
+        # with "no valid pixels found in sampling". The COG itself is fine
+        # without embedded statistics, so retry once with STATISTICS disabled.
+        statistics_on = str(final.get("STATISTICS", "")).upper() in ("YES", "TRUE")
+        if statistics_on and "valid pixels" in str(exc).lower():
+            retry = {k: v for k, v in final.items() if k != "STATISTICS"}
+            output_path = ds.to_cog(
+                output,
+                blocksize=blocksize,
+                overview_resampling=overview_resampling,
+                predictor=predictor,
+                extra=retry or None,
+            )
+        else:
+            raise
 
     report: ValidationReport | None = None
     if validate:
