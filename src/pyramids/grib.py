@@ -1,17 +1,17 @@
 """Read GRIB1/GRIB2 files (local or cloud) as pyramids datasets via GDAL.
 
-GRIB is decoded through GDAL's native ``GRIB`` driver — no ``cfgrib`` / ``eccodes``
-/ ``xarray`` dependency. The driver ships in the conda-forge ``libgdal-grib``
-plugin (a core pyramids dependency, alongside ``libgdal-netcdf`` /
-``libgdal-hdf4``); :func:`open_grib` raises a clear error if a GDAL build lacks
+GRIB is decoded through GDAL's native `GRIB` driver — no `cfgrib` / `eccodes`
+/ `xarray` dependency. The driver ships in the conda-forge `libgdal-grib`
+plugin (a core pyramids dependency, alongside `libgdal-netcdf` /
+`libgdal-hdf4`); :func:`open_grib` raises a clear error if a GDAL build lacks
 it.
 
 Each GRIB *message* becomes a band of the returned
 :class:`~pyramids.dataset.Dataset`, carrying the per-message GRIB metadata
 (element, level, reference / valid time, forecast horizon). Use
 :func:`grib_band_metadata` to introspect those bands — the GDAL-native
-equivalent of inspecting cfgrib's ``filter_by_keys`` — and pick the band(s) you
-want. Cloud URIs (``s3://`` / ``gs://`` / ``https://`` / ``/vsi*``) are resolved
+equivalent of inspecting cfgrib's `filter_by_keys` — and pick the band(s) you
+want. Cloud URIs (`s3://` / `gs://` / `https://` / `/vsi*`) are resolved
 through the same path as :meth:`pyramids.dataset.Dataset.read_file`.
 """
 
@@ -41,7 +41,7 @@ def _require_grib_driver() -> None:
     """Raise :class:`DriverNotExistError` when the GDAL GRIB driver is absent.
 
     Raises:
-        DriverNotExistError: The active GDAL build has no ``GRIB`` driver.
+        DriverNotExistError: The active GDAL build has no `GRIB` driver.
     """
     if gdal.GetDriverByName(_GRIB_DRIVER) is None:
         raise DriverNotExistError(
@@ -51,14 +51,14 @@ def _require_grib_driver() -> None:
 
 
 def _parse_grib_seconds(value: str | None) -> datetime | None:
-    """Parse a GRIB ``"<unix_seconds> sec UTC"`` timestamp to an aware datetime.
+    """Parse a GRIB `"<unix_seconds> sec UTC"` timestamp to an aware datetime.
 
     Args:
-        value: A GRIB metadata value such as ``"1700000000 sec UTC"``, or
-            ``None``.
+        value: A GRIB metadata value such as `"1700000000 sec UTC"`, or
+            `None`.
 
     Returns:
-        A timezone-aware UTC :class:`~datetime.datetime`, or ``None`` when the
+        A timezone-aware UTC :class:`~datetime.datetime`, or `None` when the
         value is missing or not parseable.
     """
     result: datetime | None = None
@@ -72,14 +72,14 @@ def _parse_grib_seconds(value: str | None) -> datetime | None:
 
 
 def _parse_leading_int(value: str | None) -> int | None:
-    """Parse the leading integer of a GRIB metadata value (e.g. ``"10800 s"``).
+    """Parse the leading integer of a GRIB metadata value (e.g. `"10800 s"`).
 
     Args:
         value: A GRIB metadata value whose first token is an integer, or
-            ``None``.
+            `None`.
 
     Returns:
-        The leading integer, or ``None`` when missing / not parseable.
+        The leading integer, or `None` when missing / not parseable.
     """
     result: int | None = None
     if value:
@@ -94,16 +94,16 @@ def _parse_leading_int(value: str | None) -> int | None:
 def open_grib(path: str | Path, *, vsi: str | None = None) -> Dataset:
     """Open a GRIB1/GRIB2 file as a pyramids :class:`~pyramids.dataset.Dataset`.
 
-    Decodes via GDAL's native ``GRIB`` driver; every GRIB message is a band.
-    Local paths, ``/vsi*`` paths, and ``http(s)://`` / ``s3://`` / ``gs://`` /
-    ``az://`` URIs are all accepted (resolved by
-    :meth:`~pyramids.dataset.Dataset.read_file`). No ``cfgrib`` / ``xarray``.
+    Decodes via GDAL's native `GRIB` driver; every GRIB message is a band.
+    Local paths, `/vsi*` paths, and `http(s)://` / `s3://` / `gs://` /
+    `az://` URIs are all accepted (resolved by
+    :meth:`~pyramids.dataset.Dataset.read_file`). No `cfgrib` / `xarray`.
 
     Args:
         path: Path or URI to a GRIB1/GRIB2 file.
         vsi: Optional explicit archive kind forwarded to
             :meth:`~pyramids.dataset.Dataset.read_file` (e.g. for a GRIB inside
-            a ``.zip``); ``None`` opens ``path`` directly.
+            a `.zip`); `None` opens `path` directly.
 
     Returns:
         A :class:`~pyramids.dataset.Dataset` with one band per GRIB message.
@@ -111,7 +111,7 @@ def open_grib(path: str | Path, *, vsi: str | None = None) -> Dataset:
 
     Raises:
         DriverNotExistError: The GDAL build lacks the GRIB driver (install the
-            ``libgdal-grib`` plugin).
+            `libgdal-grib` plugin).
 
     Examples:
         - Open a local GRIB2 file and inspect its bands (requires libgdal-grib):
@@ -142,7 +142,7 @@ def grib_band_metadata(dataset: Dataset) -> list[dict[str, Any]]:
 
     One dict per band exposes the common GRIB message fields, with reference /
     valid times decoded to timezone-aware UTC datetimes and the forecast
-    horizon as an integer number of seconds. Missing fields are ``None``.
+    horizon as an integer number of seconds. Missing fields are `None`.
 
     Args:
         dataset: A :class:`~pyramids.dataset.Dataset` opened from a GRIB file
@@ -150,10 +150,10 @@ def grib_band_metadata(dataset: Dataset) -> list[dict[str, Any]]:
 
     Returns:
         A list (one entry per band, in band order) of dicts with keys:
-        ``band`` (1-based index), ``element``, ``short_name``, ``comment``,
-        ``unit``, ``discipline``, ``ref_time`` / ``valid_time``
-        (:class:`~datetime.datetime` or ``None``), and ``forecast_seconds``
-        (:class:`int` or ``None``).
+        `band` (1-based index), `element`, `short_name`, `comment`,
+        `unit`, `discipline`, `ref_time` / `valid_time`
+        (:class:`~datetime.datetime` or `None`), and `forecast_seconds`
+        (:class:`int` or `None`).
 
     Examples:
         - Find the band index carrying 2-metre temperature (requires libgdal-grib):
