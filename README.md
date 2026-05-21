@@ -31,7 +31,7 @@ vector data (shapefiles, GeoJSON), and multi-temporal datacubes.
 platform wheels published on PyPI bundle [GDAL](https://gdal.org/) and its
 native dependencies (PROJ, GEOS, libtiff, NetCDF-C, HDF5, libcurl, …) — each
 under its own MIT, BSD, LGPL, or Apache license. The full attribution list and
-shipped license texts are documented in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md);
+shipped license texts are documented in [THIRD_PARTY_LICENSES.md](docs/about/THIRD_PARTY_LICENSES.md);
 if you use `pyramids-gis` in publications please also cite GDAL itself per
 [gdal.org/cite_gdal.html](https://gdal.org/cite_gdal.html).
 

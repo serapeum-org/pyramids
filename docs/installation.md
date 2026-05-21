@@ -216,8 +216,8 @@ The full license text for every bundled library ships inside the wheel
 under `pyramids/_licenses/<package>/` and stays bound to that wheel even
 when it's redistributed. A human-readable index of what's bundled and
 the SPDX identifier for each component lives in
-[`THIRD_PARTY_LICENSES.md`](https://github.com/Serapieum-of-alex/pyramids/blob/main/THIRD_PARTY_LICENSES.md)
-at the repo root.
+[`THIRD_PARTY_LICENSES.md`](https://github.com/Serapieum-of-alex/pyramids/blob/main/docs/about/THIRD_PARTY_LICENSES.md)
+under `docs/about/`.
 
 If you redistribute a `pyramids-gis` platform wheel — directly or as
 part of a larger product — the MIT / BSD / LGPL / Apache attribution
@@ -241,5 +241,5 @@ stands on GDAL's shoulders — that project deserves the credit.
 - Source: <https://github.com/Serapieum-of-alex/pyramids>
 - PyPI: <https://pypi.org/project/pyramids-gis/>
 - conda-forge: <https://anaconda.org/conda-forge/pyramids>
-- Third-party licenses: <https://github.com/Serapieum-of-alex/pyramids/blob/main/THIRD_PARTY_LICENSES.md>
+- Third-party licenses: <https://github.com/Serapieum-of-alex/pyramids/blob/main/docs/about/THIRD_PARTY_LICENSES.md>
 - GDAL upstream: <https://gdal.org>

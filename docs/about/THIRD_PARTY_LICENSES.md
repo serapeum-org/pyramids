@@ -1,7 +1,7 @@
 # Third-Party Licenses
 
 `pyramids-gis` itself is licensed under the **GNU General Public License v3 or
-later** — see [LICENSE.md](LICENSE.md).
+later** — see [LICENSE.md](../LICENSE.md).
 
 The platform wheels published on PyPI **bundle** GDAL and its native dependencies
 so that `pip install pyramids-gis` yields a self-contained install with no
