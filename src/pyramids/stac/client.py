@@ -1,12 +1,12 @@
-"""Open a ``pystac-client`` Client with a pyramids signer wired in.
+"""Open a `pystac-client` Client with a pyramids signer wired in.
 
 This thin wrapper attaches a :class:`~pyramids.stac.signers.Signer` to both
-``pystac-client`` hooks at once — ``modifier`` (post-response Item rewrite) and
-``request_modifier`` (pre-send HTTP request signing) — so the caller never has
+`pystac-client` hooks at once — `modifier` (post-response Item rewrite) and
+`request_modifier` (pre-send HTTP request signing) — so the caller never has
 to remember which boundary a given signer cares about.
 
-``pystac-client`` is an optional dependency; install it with the ``[stac]``
-extra (``pip install pyramids-gis[stac]``).
+`pystac-client` is an optional dependency; install it with the `[stac]`
+extra (`pip install pyramids-gis[stac]`).
 """
 
 from __future__ import annotations
@@ -32,22 +32,22 @@ def open_client(
     """Open a STAC API client with a pyramids signer wired into both hooks.
 
     Args:
-        url: STAC API root URL (e.g. an ``.../stac/v1`` endpoint).
+        url: STAC API root URL (e.g. an `.../stac/v1` endpoint).
         signer: A :class:`~pyramids.stac.signers.Signer`. Defaults to
             :class:`~pyramids.stac.signers.AnonymousSigner` (no credentials).
-            The signer's ``sign_item`` is passed as the client ``modifier`` and
-            its ``sign_request`` as the ``request_modifier``.
+            The signer's `sign_item` is passed as the client `modifier` and
+            its `sign_request` as the `request_modifier`.
         headers: Optional static HTTP headers added to every request.
         timeout: Per-request timeout in seconds.
 
     Returns:
-        A ``pystac_client.Client`` instance.
+        A `pystac_client.Client` instance.
 
     Raises:
-        OptionalPackageDoesNotExist: When ``pystac-client`` is not installed.
+        OptionalPackageDoesNotExist: When `pystac-client` is not installed.
 
     Examples:
-        - Open a public catalog anonymously (requires the ``[stac]`` extra):
+        - Open a public catalog anonymously (requires the `[stac]` extra):
             ```python
             >>> from pyramids.stac import open_client  # doctest: +SKIP
             >>> client = open_client("https://earth-search.aws.element84.com/v1")  # doctest: +SKIP
