@@ -1,17 +1,17 @@
 """Optional-dependency probes, skipif decorators, and marker mapping.
 
-One source of truth for every ``[project.optional-dependencies]`` group.
+One source of truth for every `[project.optional-dependencies]` group.
 
 Two consumers:
 
-* Inline ``@requires_<extra>`` decorators — kept for test files that
-  already guard individual methods with ``pytest.mark.skipif(...)``.
-* ``pytest_collection_modifyitems`` in :mod:`tests.conftest` — reads
+* Inline `@requires_<extra>` decorators — kept for test files that
+  already guard individual methods with `pytest.mark.skipif(...)`.
+* `pytest_collection_modifyitems` in :mod:`tests.conftest` — reads
   :data:`EXTRA_MARKERS` to auto-apply a skip when a test is tagged with
-  ``@pytest.mark.<extra>`` but the extra is not installed.
+  `@pytest.mark.<extra>` but the extra is not installed.
 
 Marker names use underscores (valid Python identifiers required by
-``pytest.mark.<name>``), while the PyPI extra names use hyphens. The
+`pytest.mark.<name>`), while the PyPI extra names use hyphens. The
 mapping below spells both out explicitly.
 """
 
@@ -28,7 +28,7 @@ def _has(*module_names: str) -> bool:
     Uses :func:`importlib.util.find_spec` so the probe never triggers a
     heavy import — cheap to run during collection. A dotted name whose
     parent package is missing raises :class:`ModuleNotFoundError`
-    (rather than returning ``None``), so the guard catches that and
+    (rather than returning `None`), so the guard catches that and
     reports the module as absent.
     """
     found = True
@@ -55,18 +55,20 @@ HAS_KERCHUNK = _has("kerchunk")
 HAS_H5PY = _has("h5py")
 HAS_PYARROW = _has("pyarrow")
 HAS_CLEOPATRA = _has("cleopatra")
+HAS_PYSTAC_CLIENT = _has("pystac_client")
 
 
 # Per-extra installed? flag. Values are True when EVERY underlying
-# module of that extra is importable — so ``netcdf_lazy`` requires
+# module of that extra is importable — so `netcdf_lazy` requires
 # kerchunk AND h5py AND the xarray stack AND the lazy stack, matching
-# what ``pip install pyramids-gis[netcdf-lazy]`` pulls in.
+# what `pip install pyramids-gis[netcdf-lazy]` pulls in.
 _HAS_VIZ = HAS_CLEOPATRA
 _HAS_LAZY = HAS_DASK_ARRAY and HAS_ZARR
 _HAS_XARRAY = HAS_XARRAY
 _HAS_NETCDF_LAZY = _HAS_LAZY and HAS_KERCHUNK and HAS_H5PY
 _HAS_PARQUET = HAS_PYARROW
 _HAS_PARQUET_LAZY = _HAS_LAZY and _HAS_PARQUET and HAS_DASK_GEOPANDAS
+_HAS_STAC = HAS_PYSTAC_CLIENT
 
 
 requires_plot = pytest.mark.skipif(
@@ -87,6 +89,9 @@ requires_parquet = pytest.mark.skipif(
 requires_parquet_lazy = pytest.mark.skipif(
     not _HAS_PARQUET_LAZY, reason="pyramids-gis[parquet-lazy] not installed"
 )
+requires_stac = pytest.mark.skipif(
+    not _HAS_STAC, reason="pyramids-gis[stac] not installed"
+)
 
 
 # Legacy aliases for existing callsites that import the older names.
@@ -100,15 +105,16 @@ requires_pyarrow = requires_parquet
 
 
 # Marker-name → skipif-decorator mapping consumed by the collection hook
-# in ``tests/conftest.py``. A test annotated with ``@pytest.mark.<name>``
+# in `tests/conftest.py`. A test annotated with `@pytest.mark.<name>`
 # auto-gains the matching skip when its extra is not installed.
 EXTRA_MARKERS: dict[str, pytest.MarkDecorator] = {
-    # ``plot`` is the canonical gate for the [viz] extra; no separate
-    # ``viz`` marker is registered to avoid duplicate surface.
+    # `plot` is the canonical gate for the [viz] extra; no separate
+    # `viz` marker is registered to avoid duplicate surface.
     "plot": requires_plot,
     "lazy": requires_lazy,
     "xarray": requires_xarray,
     "netcdf_lazy": requires_netcdf_lazy,
     "parquet": requires_parquet,
     "parquet_lazy": requires_parquet_lazy,
+    "stac": requires_stac,
 }

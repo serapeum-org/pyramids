@@ -197,6 +197,7 @@ nav:
     - Code of Conduct: CODE_OF_CONDUCT.md
     - Contributing: contributing.md
     - License: LICENSE.md
+    - Third-party licenses: about/THIRD_PARTY_LICENSES.md
     - Authors: AUTHORS.md
     - ADRs:
         - Index: adr/index.md

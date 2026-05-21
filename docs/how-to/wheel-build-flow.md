@@ -117,16 +117,16 @@ GDAL for it. The blocker per target and when it is expected to clear:
 
 Concretely, the glibc gap excludes a large slice of production Linux:
 
-| Distro | glibc | Wheel matches today? |
-|---|---|---|
-| Ubuntu 22.04 LTS | 2.35 | ❌ — use conda-forge |
-| Ubuntu 24.04 LTS | 2.39 | ✓ |
-| Debian 12 (bookworm) | 2.36 | ❌ — use conda-forge |
-| Debian 13 (trixie) | 2.39 | ✓ |
-| RHEL / Rocky / Alma 9 | 2.34 | ❌ — use conda-forge |
-| RHEL / Rocky / Alma 10 | 2.39 | ✓ |
-| Fedora 38 | 2.37 | ❌ — use conda-forge |
-| Amazon Linux 2023 | 2.34 | ❌ — use conda-forge |
+| Distro                 | glibc | Wheel matches today? |
+|------------------------|-------|----------------------|
+| Ubuntu 22.04 LTS       | 2.35  | ❌ — use conda-forge  |
+| Ubuntu 24.04 LTS       | 2.39  | ✓                    |
+| Debian 12 (bookworm)   | 2.36  | ❌ — use conda-forge  |
+| Debian 13 (trixie)     | 2.39  | ✓                    |
+| RHEL / Rocky / Alma 9  | 2.34  | ❌ — use conda-forge  |
+| RHEL / Rocky / Alma 10 | 2.39  | ✓                    |
+| Fedora 38              | 2.37  | ❌ — use conda-forge  |
+| Amazon Linux 2023      | 2.34  | ❌ — use conda-forge  |
 
 ### Why the glibc floor is 2.39 (and not 2.28)
 
@@ -404,8 +404,8 @@ runs.
 macOS and Windows cibuildwheel runs `before-all` on the host and inherits
 these env vars directly. The Linux build runs `before-all` inside the
 manylinux container, which doesn't auto-inherit host env, so they're
-forwarded with `CIBW_ENVIRONMENT_PASS_LINUX` (also in the workflow `env:`
-block).
+forwarded via `[tool.cibuildwheel.linux].environment-pass` in
+`pyproject.toml`.
 
 For local development, install the same pixi version with:
 
