@@ -55,6 +55,9 @@ _EXT_FORMAT: dict[str, str] = {
 }
 
 _VECTOR_FORMATS = frozenset({"shp", "gpkg", "geojson"})
+# Data extensions a ZIP may wrap and that `_load_zip` re-dispatches to a reader.
+# Kept in sync with the data formats in `_EXT_FORMAT` (everything except the
+# ``.zip`` archive container itself).
 _PRIMARY_EXTS = frozenset(
     {
         ".shp",
@@ -63,10 +66,16 @@ _PRIMARY_EXTS = frozenset(
         ".json",
         ".csv",
         ".parquet",
+        ".pq",
         ".tif",
         ".tiff",
         ".nc",
+        ".nc4",
+        ".cdf",
+        ".grib",
         ".grib2",
+        ".grb",
+        ".grb2",
     }
 )
 _PARQUET_EXTRA_HINT = (

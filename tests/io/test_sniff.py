@@ -368,6 +368,25 @@ class TestLoadResource:
         result = load_resource(zp, extract_to=dest)
         assert result == dest, f"Expected the extraction dir {dest}, got {result}"
 
+    def test_zip_nc4_member_redispatches(self, tmp_path):
+        """A ZIP wrapping a ``.nc4`` member re-dispatches to NetCDF.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            ``.nc4`` is a recognised data format, so a zip of a single ``.nc4``
+            opens as a NetCDF instead of returning the extraction directory
+            (regression for the ``_PRIMARY_EXTS`` gap).
+        """
+        zp = tmp_path / "cube.zip"
+        with zipfile.ZipFile(zp, "w") as archive:
+            archive.write(_NETCDF, "precip.nc4")
+        result = load_resource(zp, extract_to=tmp_path / "ext_nc4")
+        assert isinstance(
+            result, NetCDF
+        ), f"Expected NetCDF from .nc4 zip, got {type(result).__name__}"
+
     def test_expected_format_override(self):
         """expected_format skips sniffing and forces the reader.
 
