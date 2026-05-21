@@ -16,14 +16,14 @@ _ERA5_PL = "tests/data/netcdf/era5_cds_beta_t_pressure_levels_jan2022.nc"
 
 
 def _make_time_nc(arr: np.ndarray, time_values: list) -> NetCDF:
-    """Build an in-memory `(time, y, x)` NetCDF with one variable ``v``.
+    """Build an in-memory `(time, y, x)` NetCDF with one variable `v`.
 
     Args:
-        arr: 3-D ``(time, rows, cols)`` array.
+        arr: 3-D `(time, rows, cols)` array.
         time_values: Coordinate values for the time dimension.
 
     Returns:
-        NetCDF: A MEM container with a single variable named ``v``.
+        NetCDF: A MEM container with a single variable named `v`.
     """
     return NetCDF.create_from_array(
         arr,
@@ -53,11 +53,11 @@ class TestReduceCollapse:
         """Collapsing the time axis matches the equivalent NumPy reduction.
 
         Args:
-            how: Reduction op name passed to ``reduce``.
+            how: Reduction op name passed to `reduce`.
             np_func: The NumPy function to compare against.
 
         Test scenario:
-            A 4x3x5 cube reduced over ``time`` equals ``np_func(arr, axis=0)``.
+            A 4x3x5 cube reduced over `time` equals `np_func(arr, axis=0)`.
         """
         arr = np.arange(4 * 3 * 5, dtype="float32").reshape(4, 3, 5)
         result = _make_time_nc(arr, [0, 1, 2, 3]).reduce("time", how)
@@ -68,7 +68,7 @@ class TestReduceCollapse:
         """Collapse removes the reduced dimension from the variable.
 
         Test scenario:
-            After ``reduce('time')`` the variable has no band dims and is 2-D.
+            After `reduce('time')` the variable has no band dims and is 2-D.
         """
         arr = np.ones((4, 3, 5), dtype="float32")
         var = _make_time_nc(arr, [0, 1, 2, 3]).reduce("time", "mean").get_variable("v")
@@ -83,7 +83,7 @@ class TestReduceWindowed:
         """Equal labels are reduced together, in first-appearance order.
 
         Test scenario:
-            Labels ``[0, 0, 1, 1]`` produce two windows: sum of the first two
+            Labels `[0, 0, 1, 1]` produce two windows: sum of the first two
             and last two time slices.
         """
         arr = np.arange(4 * 2 * 2, dtype="float32").reshape(4, 2, 2)
@@ -99,7 +99,7 @@ class TestReduceWindowed:
         """A coarsened dim is labelled with each window's first source coord.
 
         Test scenario:
-            Coords ``[10, 20, 30, 40]`` grouped ``[0, 0, 1, 1]`` give ``[10, 30]``.
+            Coords `[10, 20, 30, 40]` grouped `[0, 0, 1, 1]` give `[10, 30]`.
         """
         arr = np.ones((4, 2, 2), dtype="float32")
         result = _make_time_nc(arr, [10, 20, 30, 40]).reduce(
@@ -144,7 +144,7 @@ class TestReduceSkipna:
         """Without skipna the raw values (including sentinels) are reduced.
 
         Test scenario:
-            ``skipna=False`` sum includes the -9999 sentinel verbatim.
+            `skipna=False` sum includes the -9999 sentinel verbatim.
         """
         arr = np.array([[[10.0]], [[-9999.0]]], dtype="float32")
         nc = NetCDF.create_from_array(
@@ -163,8 +163,8 @@ class TestReduceSkipna:
 
         Test scenario:
             A cell that is NoData across every time step must remain NoData after
-            ``skipna`` reduction. ``nansum``/``nanstd``/``nanvar`` return 0 for an
-            all-NaN slice, so without an explicit guard ``sum`` would leak a 0.
+            `skipna` reduction. `nansum`/`nanstd`/`nanvar` return 0 for an
+            all-NaN slice, so without an explicit guard `sum` would leak a 0.
         """
         arr = np.array(
             [[[1.0, -9999.0]], [[2.0, -9999.0]]], dtype="float32"
@@ -185,8 +185,8 @@ class TestReducePassthrough:
         """A variable without the reduced dim survives unchanged.
 
         Test scenario:
-            A container with a ``(time, y, x)`` ``dynamic`` and a ``(y, x)``
-            ``static`` variable keeps ``static`` after reducing ``time``.
+            A container with a `(time, y, x)` `dynamic` and a `(y, x)`
+            `static` variable keeps `static` after reducing `time`.
         """
         dyn = np.arange(4 * 3 * 5, dtype="float32").reshape(4, 3, 5)
         nc = _make_time_nc(dyn, [0, 1, 2, 3])
@@ -208,7 +208,7 @@ class TestReduceErrors:
         """An unknown reduction op raises ValueError naming the valid set.
 
         Test scenario:
-            ``how='median'`` is rejected.
+            `how='median'` is rejected.
         """
         arr = np.ones((2, 2, 2), dtype="float32")
         with pytest.raises(ValueError, match="how must be one of"):
@@ -218,7 +218,7 @@ class TestReduceErrors:
         """Reducing a non-existent dimension raises ValueError.
 
         Test scenario:
-            ``reduce('depth')`` on a time-only cube is rejected.
+            `reduce('depth')` on a time-only cube is rejected.
         """
         arr = np.ones((2, 2, 2), dtype="float32")
         with pytest.raises(ValueError, match="not a non-spatial dimension"):
@@ -228,7 +228,7 @@ class TestReduceErrors:
         """A frequency groupby on a dim with no time coordinate raises.
 
         Test scenario:
-            The in-memory cube's ``time`` dim has no CF units, so a ``"1MS"``
+            The in-memory cube's `time` dim has no CF units, so a `"1MS"`
             grouping cannot decode it.
         """
         arr = np.ones((2, 2, 2), dtype="float32")
@@ -243,8 +243,8 @@ class TestReduceRealFixtures:
         """Monthly grouping of a single-month ERA5 file yields one window.
 
         Test scenario:
-            ``era5_cds_beta_t2m_jan2022`` (12 sub-daily steps in Jan 2022)
-            reduced by ``"1MS"`` over ``valid_time`` gives a single band.
+            `era5_cds_beta_t2m_jan2022` (12 sub-daily steps in Jan 2022)
+            reduced by `"1MS"` over `valid_time` gives a single band.
         """
         nc = NetCDF.read_file(_ERA5_T2M)
         result = nc.reduce("valid_time", "mean", groupby="1MS")
@@ -254,7 +254,7 @@ class TestReduceRealFixtures:
         """Daily grouping yields one window per distinct calendar day.
 
         Test scenario:
-            The 12 steps span 3 days, so ``"1D"`` produces 3 bands.
+            The 12 steps span 3 days, so `"1D"` produces 3 bands.
         """
         nc = NetCDF.read_file(_ERA5_T2M)
         result = nc.reduce("valid_time", "mean", groupby="1D")
@@ -264,8 +264,8 @@ class TestReduceRealFixtures:
         """Collapsing a non-time dim on a 4-D file removes only that dim.
 
         Test scenario:
-            ``era5_..._pressure_levels`` ``t`` is ``(valid_time, pressure_level,
-            lat, lon)``; collapsing ``pressure_level`` leaves ``(valid_time,)``.
+            `era5_..._pressure_levels` `t` is `(valid_time, pressure_level,
+            lat, lon)`; collapsing `pressure_level` leaves `(valid_time,)`.
         """
         nc = NetCDF.read_file(_ERA5_PL)
         var = nc.reduce("pressure_level", "mean").get_variable("t")
@@ -277,12 +277,12 @@ class TestReduceRealFixtures:
         """Sub-daily frequencies bucket by full timestamp, not truncated day.
 
         Args:
-            freq: pandas offset alias passed to ``groupby``.
+            freq: pandas offset alias passed to `groupby`.
             expected: Expected number of output windows.
 
         Test scenario:
-            ``era5_cds_beta_t2m_jan2022`` holds 12 six-hourly steps over three
-            days, so ``"6h"`` yields 12 windows, ``"12h"`` 6, and ``"1D"`` 3.
+            `era5_cds_beta_t2m_jan2022` holds 12 six-hourly steps over three
+            days, so `"6h"` yields 12 windows, `"12h"` 6, and `"1D"` 3.
             Before the timestamp-resolution fix every sub-daily frequency
             collapsed to the 3 per-day buckets.
         """
@@ -297,7 +297,7 @@ class TestReduceRealFixtures:
         """Each 6-hourly window is the per-step value (one member per window).
 
         Test scenario:
-            With 12 distinct six-hourly steps, ``"6h"`` makes each window a
+            With 12 distinct six-hourly steps, `"6h"` makes each window a
             single source step, so the reduced band equals that step's raw data.
         """
         nc = NetCDF.read_file(_ERA5_T2M)
@@ -314,11 +314,11 @@ class TestReduceMultiBandDim:
 
     @staticmethod
     def _make_5d_two_var_nc() -> tuple[NetCDF, np.ndarray, np.ndarray]:
-        """Build a 5-D ``(d0, d1, d2, y, x)`` container with two variables.
+        """Build a 5-D `(d0, d1, d2, y, x)` container with two variables.
 
         Returns:
-            tuple: ``(container, v1_array, v2_array)`` where the arrays are the
-            full 5-D sources of variables ``v1`` and ``v2``.
+            tuple: `(container, v1_array, v2_array)` where the arrays are the
+            full 5-D sources of variables `v1` and `v2`.
         """
         a1 = np.arange(2 * 2 * 2 * 3 * 4, dtype="float64").reshape(2, 2, 2, 3, 4)
         a2 = a1 + 1000.0
@@ -338,10 +338,10 @@ class TestReduceMultiBandDim:
         """Reducing a 5-D container collapses one dim, keeping the other two.
 
         Test scenario:
-            Reducing ``d0`` (mean) on a two-variable 5-D container leaves each
-            variable shaped ``(d1, d2, y, x)`` with values matching numpy — the
-            non-first variable (``v2``) must not be corrupted by the
-            single-band-axis ``Dataset`` store.
+            Reducing `d0` (mean) on a two-variable 5-D container leaves each
+            variable shaped `(d1, d2, y, x)` with values matching numpy — the
+            non-first variable (`v2`) must not be corrupted by the
+            single-band-axis `Dataset` store.
         """
         nc, a1, a2 = self._make_5d_two_var_nc()
         reduced = nc.reduce("d0", "mean")
@@ -359,8 +359,8 @@ class TestReduceMultiBandDim:
         """Both surviving band dimensions are recorded on the reduced variable.
 
         Test scenario:
-            After reducing ``d0``, the non-first variable ``v2`` keeps band dims
-            ``("d1", "d2")`` and drops ``d0``.
+            After reducing `d0`, the non-first variable `v2` keeps band dims
+            `("d1", "d2")` and drops `d0`.
         """
         nc, _, _ = self._make_5d_two_var_nc()
         var = nc.reduce("d0", "sum").get_variable("v2")
