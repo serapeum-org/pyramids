@@ -33,7 +33,7 @@ def _read_compression(path: str | Path) -> str:
         path: Path to a raster readable by GDAL.
 
     Returns:
-        The compression name (e.g. ``"DEFLATE"``), or ``""`` when absent.
+        The compression name (e.g. `"DEFLATE"`), or `""` when absent.
     """
     ds = gdal.Open(str(path))
     comp = ds.GetMetadataItem("COMPRESSION", "IMAGE_STRUCTURE") or ""
@@ -46,7 +46,7 @@ def float_array() -> np.ndarray:
     """A deterministic 2-D float32 array.
 
     Returns:
-        A ``(64, 64)`` float32 array seeded for reproducibility.
+        A `(64, 64)` float32 array seeded for reproducibility.
     """
     rng = np.random.default_rng(seed=1337)
     return (rng.random((64, 64)) * 100.0).astype("float32")
@@ -57,7 +57,7 @@ def int_array() -> np.ndarray:
     """A deterministic 2-D int16 array.
 
     Returns:
-        A ``(48, 48)`` int16 array seeded for reproducibility.
+        A `(48, 48)` int16 array seeded for reproducibility.
     """
     rng = np.random.default_rng(seed=7)
     return (rng.integers(0, 50, size=(48, 48))).astype("int16")
@@ -115,15 +115,15 @@ class TestCoerceEpsg:
         """An integer EPSG code is returned unchanged.
 
         Test scenario:
-            ``_coerce_epsg(4326)`` returns ``4326`` without parsing.
+            `_coerce_epsg(4326)` returns `4326` without parsing.
         """
         assert _coerce_epsg(4326) == 4326, "Integer EPSG should pass through"
 
     def test_authority_string(self):
-        """An ``EPSG:XXXX`` string resolves to its integer code.
+        """An `EPSG:XXXX` string resolves to its integer code.
 
         Test scenario:
-            ``"EPSG:3857"`` resolves to ``3857``.
+            `"EPSG:3857"` resolves to `3857`.
         """
         assert _coerce_epsg("EPSG:3857") == 3857, "Authority string should resolve"
 
@@ -131,7 +131,7 @@ class TestCoerceEpsg:
         """A WKT/PROJ string resolves to the matching EPSG code.
 
         Test scenario:
-            The WGS84 PROJ4 string resolves to ``4326``.
+            The WGS84 PROJ4 string resolves to `4326`.
         """
         assert (
             _coerce_epsg("+proj=longlat +datum=WGS84 +no_defs") == 4326
@@ -168,7 +168,7 @@ class TestArrayToDataset:
         """A 3-D array becomes a multi-band Dataset.
 
         Test scenario:
-            A ``(3, 16, 16)`` array yields a 3-band Dataset.
+            A `(3, 16, 16)` array yields a 3-band Dataset.
         """
         arr = np.zeros((3, 16, 16), dtype="float32")
         ds = _array_to_dataset(arr, 4326, _GEOTRANSFORM, None)
@@ -187,32 +187,32 @@ class TestArrayToDataset:
         assert ds.no_data_value[0] == -1, f"nodata not applied: {ds.no_data_value}"
 
     def test_missing_crs_raises(self, float_array):
-        """Omitting ``crs`` raises ValueError.
+        """Omitting `crs` raises ValueError.
 
         Args:
             float_array: Fixture providing a 2-D float32 array.
 
         Test scenario:
-            ``crs=None`` is rejected with a helpful message.
+            `crs=None` is rejected with a helpful message.
         """
         with pytest.raises(ValueError, match="crs.*transform|requires both"):
             _array_to_dataset(float_array, None, _GEOTRANSFORM, None)
 
     def test_missing_transform_raises(self, float_array):
-        """Omitting ``transform`` raises ValueError.
+        """Omitting `transform` raises ValueError.
 
         Args:
             float_array: Fixture providing a 2-D float32 array.
 
         Test scenario:
-            ``transform=None`` is rejected with a helpful message.
+            `transform=None` is rejected with a helpful message.
         """
         with pytest.raises(ValueError, match="transform|requires both"):
             _array_to_dataset(float_array, 4326, None, None)
 
 
 class _Coord:
-    """Minimal stand-in for an xarray coordinate (exposes ``.values``)."""
+    """Minimal stand-in for an xarray coordinate (exposes `.values`)."""
 
     def __init__(self, values):
         self.values = np.asarray(values)
@@ -241,10 +241,10 @@ class TestDataArrayToDataset:
         """Build a small real xarray.DataArray with lon/lat coords.
 
         Args:
-            attrs: Optional attribute dict to attach (e.g. a ``crs`` key).
+            attrs: Optional attribute dict to attach (e.g. a `crs` key).
 
         Returns:
-            A ``(4, 5)`` float32 DataArray on a regular lon/lat grid.
+            A `(4, 5)` float32 DataArray on a regular lon/lat grid.
         """
         xr = pytest.importorskip("xarray")
         data = np.arange(20, dtype="float32").reshape(4, 5)
@@ -258,10 +258,10 @@ class TestDataArrayToDataset:
         )
 
     def test_explicit_crs(self):
-        """An explicit ``crs`` builds a Dataset from coordinate geometry.
+        """An explicit `crs` builds a Dataset from coordinate geometry.
 
         Test scenario:
-            A lon/lat DataArray with ``crs=4326`` yields a 4x5 Dataset.
+            A lon/lat DataArray with `crs=4326` yields a 4x5 Dataset.
         """
         da = self._make_dataarray()
         ds = _dataarray_to_dataset(da, 4326, None)
@@ -269,20 +269,20 @@ class TestDataArrayToDataset:
         assert ds.epsg == 4326, f"Expected EPSG 4326, got {ds.epsg}"
 
     def test_crs_from_attrs(self):
-        """CRS is read from ``da.attrs['crs']`` when not passed explicitly.
+        """CRS is read from `da.attrs['crs']` when not passed explicitly.
 
         Test scenario:
-            ``attrs={'crs': 4326}`` is honored.
+            `attrs={'crs': 4326}` is honored.
         """
         da = self._make_dataarray(attrs={"crs": 4326})
         ds = _dataarray_to_dataset(da, None, None)
         assert ds.epsg == 4326, f"CRS from attrs not honored, got {ds.epsg}"
 
     def test_crs_from_rio_accessor(self):
-        """CRS falls back to a ``.rio.crs`` accessor when present.
+        """CRS falls back to a `.rio.crs` accessor when present.
 
         Test scenario:
-            A duck-typed DataArray exposing ``rio.crs`` is honored even
+            A duck-typed DataArray exposing `rio.crs` is honored even
             though rioxarray is not a dependency.
         """
         fake = _FakeDataArray(
@@ -396,7 +396,7 @@ class TestNormalizeToDataset:
             mem_dataset: Shared fixture providing a gdal.Dataset.
 
         Test scenario:
-            Passing ``nodata`` updates every band's nodata marker.
+            Passing `nodata` updates every band's nodata marker.
         """
         result = _normalize_to_dataset(mem_dataset, None, None, 5.0)
         assert (
@@ -417,7 +417,7 @@ class TestNormalizeToDataset:
         """A real xarray.DataArray is dispatched by its type name.
 
         Test scenario:
-            An ``xr.DataArray`` routes to ``_dataarray_to_dataset`` and
+            An `xr.DataArray` routes to `_dataarray_to_dataset` and
             yields a Dataset of matching shape.
         """
         xr = pytest.importorskip("xarray")
@@ -487,14 +487,14 @@ class TestWriteCog:
         ), "Default compression should be DEFLATE"
 
     def test_options_override_compression(self, int_array, tmp_path):
-        """User ``options`` override the house defaults.
+        """User `options` override the house defaults.
 
         Args:
             int_array: Fixture providing a 2-D int16 array.
             tmp_path: pytest temp directory.
 
         Test scenario:
-            ``options={'COMPRESS': 'LZW'}`` produces an LZW COG.
+            `options={'COMPRESS': 'LZW'}` produces an LZW COG.
         """
         out = tmp_path / "lzw.tif"
         write_cog(
@@ -507,7 +507,7 @@ class TestWriteCog:
         assert _read_compression(out) == "LZW", "COMPRESS override should win"
 
     def test_validate_false_skips_report(self, float_array, tmp_path):
-        """``validate=False`` writes the file and returns ``None`` report.
+        """`validate=False` writes the file and returns `None` report.
 
         Args:
             float_array: Fixture providing a 2-D float32 array.
@@ -534,8 +534,8 @@ class TestWriteCog:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            ``Dataset.to_cog`` is called with ``predictor=3`` and
-            ``blocksize=512`` / ``overview_resampling='average'``.
+            `Dataset.to_cog` is called with `predictor=3` and
+            `blocksize=512` / `overview_resampling='average'`.
         """
         spy = mocker.spy(Dataset, "to_cog")
         write_cog(float_array, tmp_path / "p.tif", crs=4326, transform=_GEOTRANSFORM)
@@ -557,7 +557,7 @@ class TestWriteCog:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            ``Dataset.to_cog`` is called with ``predictor=2``.
+            `Dataset.to_cog` is called with `predictor=2`.
         """
         spy = mocker.spy(Dataset, "to_cog")
         write_cog(int_array, tmp_path / "p.tif", crs=4326, transform=_GEOTRANSFORM)
@@ -574,7 +574,7 @@ class TestWriteCog:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            ``options={'PREDICTOR': 1}`` is forwarded verbatim.
+            `options={'PREDICTOR': 1}` is forwarded verbatim.
         """
         spy = mocker.spy(Dataset, "to_cog")
         write_cog(
@@ -610,10 +610,10 @@ class TestWriteCog:
         Test scenario:
             A plain GeoTIFF path is read and rewritten as a valid COG.
             Statistics are disabled for this re-encode: GDAL's COG
-            ``STATISTICS=YES`` pass can raise "no valid pixels found in
+            `STATISTICS=YES` pass can raise "no valid pixels found in
             sampling" when re-encoding a disk-read float source on some GDAL
             builds (it succeeds for in-memory sources). The default
-            ``STATISTICS=YES`` path is covered by the in-memory write tests
+            `STATISTICS=YES` path is covered by the in-memory write tests
             above; here we only assert the path → COG re-encode is valid.
         """
         src = Dataset.create_from_array(float_array, geo=_GEOTRANSFORM, epsg=4326)
@@ -624,7 +624,7 @@ class TestWriteCog:
         assert report.is_valid, f"Expected valid COG, errors: {report.errors}"
 
     def test_missing_crs_for_array_raises(self, float_array, tmp_path):
-        """A NumPy array without ``crs`` raises ValueError.
+        """A NumPy array without `crs` raises ValueError.
 
         Args:
             float_array: Fixture providing a 2-D float32 array.
@@ -659,7 +659,7 @@ class TestWriteCog:
             )
 
     def test_strict_forwarded_to_validator(self, mocker, float_array, tmp_path):
-        """``strict`` is forwarded to the validator.
+        """`strict` is forwarded to the validator.
 
         Args:
             mocker: pytest-mock fixture.
@@ -667,7 +667,7 @@ class TestWriteCog:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            ``strict=True`` reaches ``validate(strict=...)``.
+            `strict=True` reaches `validate(strict=...)`.
         """
         spy = mocker.patch.object(
             facade,
