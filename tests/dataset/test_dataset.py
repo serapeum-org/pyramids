@@ -1790,7 +1790,7 @@ class TestHistogram:
 class TestWriteArray:
     def test_single_band(self):
         path = "tests/data/geotiff/empty-to-fill-single-band.tif"
-        dataset = Dataset.read_file(path).copy()
+        dataset = Dataset.read_file(path, read_only=False).copy()
         arr = np.array([[1, 2], [3, 4]])
         xoff = 5  # col
         yoff = 3  # row
@@ -1801,7 +1801,7 @@ class TestWriteArray:
     def test_multi_band(self):
         # Multi Band
         path = "tests/data/geotiff/empty-to-fill-multi-band.tif"
-        dataset = Dataset.read_file(path).copy()
+        dataset = Dataset.read_file(path, read_only=False).copy()
         arr = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
         xoff = 5
         yoff = 3
