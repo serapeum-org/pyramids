@@ -80,7 +80,7 @@ class TestSniffFormat:
         """A GeoTIFF is detected via its TIFF magic bytes.
 
         Test scenario:
-            The era5 GeoTIFF fixture sniffs as ``tif``.
+            The era5 GeoTIFF fixture sniffs as `tif`.
         """
         assert sniff_format(_GEOTIFF) == "tif"
 
@@ -88,29 +88,29 @@ class TestSniffFormat:
         """A NetCDF is detected via HDF5/CDF magic bytes.
 
         Test scenario:
-            The noah NetCDF fixture sniffs as ``nc``.
+            The noah NetCDF fixture sniffs as `nc`.
         """
         assert sniff_format(_NETCDF) == "nc"
 
     def test_grib_by_magic(self, grib_file):
-        """A GRIB file is detected via its ``GRIB`` magic bytes.
+        """A GRIB file is detected via its `GRIB` magic bytes.
 
         Args:
             grib_file: Fixture path to a GRIB2 file.
 
         Test scenario:
-            The GRIB2 fixture sniffs as ``grib``.
+            The GRIB2 fixture sniffs as `grib`.
         """
         assert sniff_format(grib_file) == "grib"
 
     def test_parquet_by_magic(self, tmp_path):
-        """A Parquet file is detected via its ``PAR1`` magic bytes.
+        """A Parquet file is detected via its `PAR1` magic bytes.
 
         Args:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            Raw ``PAR1`` magic in a ``.bin`` file sniffs as ``parquet`` (no
+            Raw `PAR1` magic in a `.bin` file sniffs as `parquet` (no
             pyarrow needed — only the leading bytes are read).
         """
         p = tmp_path / "data.bin"
@@ -118,13 +118,13 @@ class TestSniffFormat:
         assert sniff_format(p) == "parquet"
 
     def test_netcdf_classic_cdf_magic(self, tmp_path):
-        """Classic NetCDF (``CDF`` magic) is detected.
+        """Classic NetCDF (`CDF` magic) is detected.
 
         Args:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            Raw ``CDF\\x01`` magic sniffs as ``nc``.
+            Raw `CDF\\x01` magic sniffs as `nc`.
         """
         p = tmp_path / "classic.bin"
         p.write_bytes(b"CDF\x01" + b"\x00" * 12)
@@ -137,20 +137,20 @@ class TestSniffFormat:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            Raw ``SQLite format 3\\x00`` magic sniffs as ``gpkg``.
+            Raw `SQLite format 3\\x00` magic sniffs as `gpkg`.
         """
         p = tmp_path / "db.bin"
         p.write_bytes(b"SQLite format 3\x00")
         assert sniff_format(p) == "gpkg"
 
     def test_hdf5_magic(self, tmp_path):
-        """HDF5-backed NetCDF (``\\x89HDF`` magic) is detected as nc.
+        """HDF5-backed NetCDF (`\\x89HDF` magic) is detected as nc.
 
         Args:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            Raw HDF5 signature bytes sniff as ``nc``.
+            Raw HDF5 signature bytes sniff as `nc`.
         """
         p = tmp_path / "h5.bin"
         p.write_bytes(b"\x89HDF\r\n\x1a\n" + b"\x00" * 8)
@@ -160,7 +160,7 @@ class TestSniffFormat:
         """GeoJSON (no binary magic) is detected by extension.
 
         Test scenario:
-            The basin GeoJSON sniffs as ``geojson`` via its suffix.
+            The basin GeoJSON sniffs as `geojson` via its suffix.
         """
         assert sniff_format(_GEOJSON) == "geojson"
 
@@ -171,18 +171,18 @@ class TestSniffFormat:
             csv_file: Fixture path to a CSV file.
 
         Test scenario:
-            A ``.csv`` file sniffs as ``csv``.
+            A `.csv` file sniffs as `csv`.
         """
         assert sniff_format(csv_file) == "csv"
 
     def test_zip_by_magic(self, tmp_path):
-        """A ZIP is detected via its ``PK\\x03\\x04`` magic bytes.
+        """A ZIP is detected via its `PK\\x03\\x04` magic bytes.
 
         Args:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            An archive sniffs as ``zip``.
+            An archive sniffs as `zip`.
         """
         zp = tmp_path / "bundle.zip"
         with zipfile.ZipFile(zp, "w") as archive:
@@ -193,7 +193,7 @@ class TestSniffFormat:
         """Magic bytes win over a misleading extension.
 
         Test scenario:
-            A real ZIP named ``.csv`` still sniffs as ``zip``.
+            A real ZIP named `.csv` still sniffs as `zip`.
         """
         liar = tmp_path / "actually.csv"
         with zipfile.ZipFile(liar, "w") as archive:
@@ -204,7 +204,7 @@ class TestSniffFormat:
         """A missing file is reported as unknown.
 
         Test scenario:
-            A non-existent path yields ``unknown`` (no exception).
+            A non-existent path yields `unknown` (no exception).
         """
         assert sniff_format("does-not-exist.bin") == "unknown"
 
@@ -215,7 +215,7 @@ class TestSniffFormat:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            A ``.bin`` file with arbitrary bytes sniffs as ``unknown``.
+            A `.bin` file with arbitrary bytes sniffs as `unknown`.
         """
         p = tmp_path / "blob.bin"
         p.write_bytes(b"\x00\x01\x02random")
@@ -233,7 +233,7 @@ class TestLoadParquet:
             parquet_file: Fixture path to a non-geo Parquet file.
 
         Test scenario:
-            No GeoParquet ``geo`` metadata → DataFrame with the rows.
+            No GeoParquet `geo` metadata → DataFrame with the rows.
         """
         df = _load_parquet(Path(parquet_file))
         assert isinstance(
@@ -336,7 +336,7 @@ class TestLoadResource:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            A zip of a ``.shp`` + sidecars opens as a FeatureCollection.
+            A zip of a `.shp` + sidecars opens as a FeatureCollection.
         """
         fc = FeatureCollection.read_file(_GEOJSON)
         shp_dir = tmp_path / "shp"
@@ -372,7 +372,7 @@ class TestLoadResource:
         """expected_format skips sniffing and forces the reader.
 
         Test scenario:
-            Forcing ``nc`` opens the NetCDF without magic detection.
+            Forcing `nc` opens the NetCDF without magic detection.
         """
         assert isinstance(
             load_resource(_NETCDF, expected_format="nc"), NetCDF
@@ -385,7 +385,7 @@ class TestLoadResource:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            A ``.bin`` blob comes back as the raw bytes.
+            A `.bin` blob comes back as the raw bytes.
         """
         p = tmp_path / "blob.bin"
         p.write_bytes(b"\x00\x01raw")
