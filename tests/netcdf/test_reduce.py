@@ -154,6 +154,29 @@ class TestReduceSkipna:
         out = nc.reduce("time", "sum", skipna=False).get_variable("v").read_array()
         assert out[0, 0] == pytest.approx(-9989.0), "raw sum should include sentinel"
 
+    @pytest.mark.parametrize("how", ["sum", "mean", "std", "var", "min", "max"])
+    def test_all_nodata_slice_stays_nodata(self, how):
+        """A fully-masked cell reduces to NoData, not a spurious 0.
+
+        Args:
+            how: The reducer under test.
+
+        Test scenario:
+            A cell that is NoData across every time step must remain NoData after
+            ``skipna`` reduction. ``nansum``/``nanstd``/``nanvar`` return 0 for an
+            all-NaN slice, so without an explicit guard ``sum`` would leak a 0.
+        """
+        arr = np.array(
+            [[[1.0, -9999.0]], [[2.0, -9999.0]]], dtype="float32"
+        )  # (time=2, y=1, x=2); column 1 is all-NoData
+        nc = NetCDF.create_from_array(
+            arr, geo=_GEO, epsg=4326, no_data_value=-9999.0,
+            variable_name="v", extra_dim_name="time", extra_dim_values=[0, 1],
+        )
+        out = nc.reduce("time", how, skipna=True).get_variable("v").read_array()
+        assert out[0, 1] == -9999.0, f"{how}: all-nodata cell should stay nodata, got {out[0, 1]}"
+        assert out[0, 0] != -9999.0, f"{how}: valid cell should compute a real value"
+
 
 class TestReducePassthrough:
     """Tests that variables lacking the reduced dim are preserved."""

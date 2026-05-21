@@ -1690,8 +1690,12 @@ class NetCDF(Dataset):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
                 out = nan_func(data, axis=axis)
-            if ndv is not None:
-                out = np.where(np.isnan(out), ndv, out)
+            # nansum/nanstd/nanvar return 0 (not NaN) for an all-NoData slice,
+            # so detect fully-masked positions explicitly and restore NoData for
+            # every reducer rather than leaking a spurious 0.
+            all_masked = np.all(np.isnan(data), axis=axis)
+            fill = ndv if ndv is not None else np.nan
+            out = np.where(np.isnan(out) | all_masked, fill, out)
             result = out
         else:
             result = plain_func(arr, axis=axis)
