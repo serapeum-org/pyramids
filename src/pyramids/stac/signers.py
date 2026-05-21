@@ -156,6 +156,19 @@ class BearerTokenSigner(_BaseSigner):
     every use — pass a callable to plug in a provider-specific token cache /
     refresh routine without coupling pyramids to that provider's SDK.
 
+    Security note:
+        ``gdal_env()`` carries the token in GDAL's process-wide
+        ``GDAL_HTTP_HEADERS`` config. :func:`pyramids.stac.load_asset` installs
+        it only for the duration of the asset open (via ``CloudConfig``) and
+        tears it down afterwards, so it does not persist globally. However, GDAL
+        forwards that ``Authorization`` header across HTTP redirects, including
+        redirects to a *different host* (common with signed-URL / blob-storage
+        STAC assets) — so the token can be sent to the redirect target. Prefer a
+        URL-signing signer (rewriting the href via ``sign_href``, e.g. a SAS
+        token in the query string) for catalogs that redirect cross-host, and
+        reserve this signer for catalogs that authenticate the asset host
+        directly with a bearer header.
+
     Args:
         token: A bearer token string, or a callable returning one.
 
@@ -196,8 +209,18 @@ class BearerTokenSigner(_BaseSigner):
 
         Returns:
             The resolved bearer-token string.
+
+        Raises:
+            ValueError: The token (or the callable's return value) is not a
+                non-empty string — guards against silently sending the literal
+                credential ``Bearer None``.
         """
-        return self._token() if callable(self._token) else self._token
+        token = self._token() if callable(self._token) else self._token
+        if not isinstance(token, str) or not token:
+            raise ValueError(
+                f"bearer token must resolve to a non-empty string, got {token!r}."
+            )
+        return token
 
     def sign_request(self, request: Any) -> Any:
         """Set the ``Authorization`` header on an outgoing request.

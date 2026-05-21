@@ -229,6 +229,36 @@ class TestBearerTokenSigner:
         assert signer.sign_item(object()) is None, "item should be untouched"
         assert signer.sign_href("x") == "x", "href should pass through"
 
+    def test_callable_returning_none_raises(self):
+        """A callable token resolving to None raises instead of 'Bearer None'.
+
+        Test scenario:
+            A refresher that returns ``None`` is rejected by ``gdal_env``.
+        """
+        signer = BearerTokenSigner(lambda: None)
+        with pytest.raises(ValueError, match="non-empty string"):
+            signer.gdal_env()
+
+    def test_empty_token_raises(self):
+        """An empty-string token is rejected (not sent as ``Bearer``).
+
+        Test scenario:
+            ``sign_request`` with an empty token raises ValueError.
+        """
+        request = SimpleNamespace(headers={})
+        with pytest.raises(ValueError, match="non-empty string"):
+            BearerTokenSigner("").sign_request(request)
+
+    def test_non_string_token_raises(self):
+        """A non-string token (e.g. an int) is rejected.
+
+        Test scenario:
+            A callable returning a non-str raises ValueError.
+        """
+        signer = BearerTokenSigner(lambda: 12345)
+        with pytest.raises(ValueError, match="non-empty string"):
+            signer.gdal_env()
+
     def test_satisfies_signer_protocol(self):
         """BearerTokenSigner is recognised as a Signer.
 
