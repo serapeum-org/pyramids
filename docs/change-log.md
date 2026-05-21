@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.21.0 (2026-05-21)
+
+### Feat
+
+- add cloud-provider readers and GDAL-native raster operations (#339)
+
 ## 0.20.0 (2026-05-19)
 
 ### Feat
