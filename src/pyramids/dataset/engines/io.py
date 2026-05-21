@@ -447,18 +447,44 @@ class IO(_Engine):
         return [xoff, yoff, x_size, y_size]
 
     def write_array(
-        self: Dataset, array: np.ndarray, top_left_corner: list[int]
+        self: Dataset,
+        array: np.ndarray,
+        top_left_corner: list[int] | None = None,
+        *,
+        band: int | None = None,
+        window: tuple[int, int, int, int] | None = None,
     ) -> None:
-        """Write an array to the dataset at the given xoff, yoff position.
+        """Write an array (or a sub-window of one) into the dataset in place.
+
+        Patches the dataset without rewriting the whole raster — the
+        rasterio-``DatasetWriter.write(window=…)`` equivalent. Specify the target
+        location with either ``top_left_corner`` (a ``[row, col]`` offset) or the
+        rasterio-style ``window`` (``(row_off, col_off, n_rows, n_cols)``); with
+        ``window`` the array's spatial shape is checked against the window size.
+        Pass ``band`` to write into a single band.
 
         Args:
             array (np.ndarray):
-                The array to write
-            top_left_corner (list[int]):
-                indices [row, column]/[y_offset, x_offset] of the cell to write the array to.
+                The array to write. ``2D`` for a single band; ``3D``
+                (``bands x rows x cols``) to write several bands at once when
+                ``band`` is not given.
+            top_left_corner (list[int] | None):
+                ``[row, col]`` / ``[y_offset, x_offset]`` of the top-left cell to
+                write to. Defaults to ``[0, 0]`` when neither this nor ``window``
+                is given. Ignored when ``window`` is supplied.
+            band (int | None):
+                Zero-based band to write into. ``None`` (default) writes starting
+                at the first band (a 3D array spans bands). When given, ``array``
+                must be ``2D``.
+            window (tuple[int, int, int, int] | None):
+                ``(row_off, col_off, n_rows, n_cols)`` target window. The array's
+                trailing two dimensions must equal ``(n_rows, n_cols)``.
 
         Raises:
-            Exception: If the array is not written successfully.
+            ReadOnlyError: The dataset is opened read-only.
+            OutOfBoundsError: The target window falls outside the raster.
+            ValueError: ``array`` shape does not match ``window``, ``band`` is
+                out of range, or a ``band`` write is given a non-2D array.
 
         Hint:
             - The `Dataset` has to be opened in a write mode `read_only=False`.
@@ -496,13 +522,66 @@ class IO(_Engine):
                      [0.97201104, 0.81364799, 0.35157525, 0.65554998, 0.8589739 ]])
 
               ```
+
+            - Patch a sub-window with the rasterio-style ``window`` form:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> dataset = Dataset.create_from_array(
+              ...     np.zeros((5, 5)), top_left_corner=(0, 5), cell_size=1.0, epsg=4326
+              ... )
+              >>> dataset.write_array(np.ones((2, 2)), window=(1, 1, 2, 2))
+              >>> dataset.read_array()[1:3, 1:3].tolist()
+              [[1.0, 1.0], [1.0, 1.0]]
+
+              ```
         """
-        yoff, xoff = top_left_corner
-        try:
+        if self._ds.access == "read_only":
+            raise ReadOnlyError(
+                "The Dataset is opened read-only. Please read the dataset using "
+                "read_only=False to write into it."
+            )
+
+        if window is not None:
+            yoff, xoff, n_rows, n_cols = window
+            if array.shape[-2:] != (n_rows, n_cols):
+                raise ValueError(
+                    f"array spatial shape {array.shape[-2:]} does not match the "
+                    f"window size {(n_rows, n_cols)}."
+                )
+        else:
+            yoff, xoff = (0, 0) if top_left_corner is None else top_left_corner
+            n_rows, n_cols = array.shape[-2], array.shape[-1]
+
+        if (
+            xoff < 0
+            or yoff < 0
+            or xoff + n_cols > self._ds.columns
+            or yoff + n_rows > self._ds.rows
+        ):
+            raise OutOfBoundsError(
+                f"window (row_off={yoff}, col_off={xoff}, n_rows={n_rows}, "
+                f"n_cols={n_cols}) falls outside the {self._ds.rows}x"
+                f"{self._ds.columns} raster."
+            )
+
+        if band is not None:
+            if band < 0 or band >= self._ds.band_count:
+                raise ValueError(
+                    f"band {band} is out of range for a {self._ds.band_count}-band dataset."
+                )
+            if array.ndim != 2:
+                raise ValueError(
+                    f"a single-band write (band={band}) requires a 2D array, got "
+                    f"{array.ndim}D."
+                )
+            gdal_band = self._ds._raster.GetRasterBand(band + 1)
+            gdal_band.WriteArray(array, xoff=xoff, yoff=yoff)
+            gdal_band.FlushCache()
+        else:
             self._ds._raster.WriteArray(array, xoff=xoff, yoff=yoff)
-            self._ds._raster.FlushCache()
-        except Exception as e:
-            raise e
+        self._ds._raster.FlushCache()
 
     def get_block_arrangement(
         self: Dataset,

@@ -1973,6 +1973,7 @@ class DatasetCollection:
         no_data_value: float | int | str = "0",
         init: float | int | str = "nan",
         n: float | int | str = "nan",
+        method: str = "last",
     ) -> None:
         """Merge this collection's timesteps into one raster.
 
@@ -1997,6 +1998,11 @@ class DatasetCollection:
             n (float | int | str):
                 Ignore pixels from files being merged in with this
                 pixel value.
+            method (str):
+                Overlap-resolution rule passed to
+                :func:`~pyramids.dataset.merge.merge_rasters`: one of
+                ``"first"``, ``"last"`` (default), ``"min"``, ``"max"``,
+                ``"sum"``.
 
         Returns:
             None
@@ -2008,6 +2014,7 @@ class DatasetCollection:
                 no_data_value=no_data_value,
                 init=init,
                 n=n,
+                method=method,
             )
             return
         # In-memory collection (legacy `DatasetCollection(src,
@@ -2027,6 +2034,7 @@ class DatasetCollection:
                 no_data_value=no_data_value,
                 init=init,
                 n=n,
+                method=method,
             )
 
     def apply(

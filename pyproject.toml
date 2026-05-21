@@ -53,6 +53,7 @@ xarray = ["xarray>=2023.1.0"]
 netcdf-lazy = ["pyramids-gis[lazy]", "kerchunk>=0.2.6", "h5py>=3.8.0"]
 parquet = ["pyarrow>=10.0.0"]
 parquet-lazy = ["pyramids-gis[lazy,parquet]", "dask-geopandas>=0.5.0"]
+stac = ["pystac-client>=0.8.0"]
 
 [dependency-groups]
 dev = [
@@ -127,8 +128,7 @@ pyramids = [
     # ci/install-and-vendor-osgeo.py from each conda-forge package's
     # info/licenses/. Required by MIT/BSD/LGPL attribution clauses for
     # every native lib bundled in pyramids_gis.libs/. See
-    # THIRD_PARTY_LICENSES.md at the repo root for the human-readable
-    # index.
+    # docs/about/THIRD_PARTY_LICENSES.md for the human-readable index.
     "_licenses/**/*",
 ]
 
@@ -223,6 +223,7 @@ markers = [
     "netcdf_lazy: tests requiring the [netcdf-lazy] extra (kerchunk, h5py, + lazy)",
     "parquet: tests requiring the [parquet] extra (pyarrow)",
     "parquet_lazy: tests requiring the [parquet-lazy] extra (dask-geopandas, + parquet, + lazy)",
+    "stac: tests requiring the [stac] extra (pystac-client)",
 ]
 
 
@@ -249,7 +250,7 @@ mypy = { cmd = "mypy", description = "Run mypy type checking" }
 
 [tool.pixi.environments]
 default = {features = ["viz"], solve-group = "default" }
-dev = { features = ["viz", "dev", "xarray", "lazy"], solve-group = "default" }
+dev = { features = ["viz", "dev", "xarray", "lazy", "stac"], solve-group = "default" }
 netcdf-lazy = { features = ["viz", "dev", "lazy", "netcdf-lazy"], solve-group = "default" }
 parquet = { features = ["viz", "dev", "xarray", "lazy", "parquet"], solve-group = "default" }
 parquet-lazy = { features = ["viz", "dev", "xarray", "lazy", "parquet", "parquet-lazy"], solve-group = "default" }
@@ -320,6 +321,9 @@ pyarrow = ">=10.0.0"
 [tool.pixi.feature.parquet-lazy.dependencies]
 dask-geopandas = ">=0.5.0"
 
+[tool.pixi.feature.stac.dependencies]
+pystac-client = ">=0.8.0"
+
 # Pinned tighter than [tool.pixi.dependencies] because the SWIG Python
 # bindings are version-locked to libgdal. ci/setup-gdal-micromamba.sh
 # reads these pins via tomllib for the macOS x86_64 cross-compile path,
@@ -328,6 +332,7 @@ dask-geopandas = ">=0.5.0"
 gdal = ">=3.12,<3.13"
 libgdal-netcdf = ">=3.12,<3.13"
 libgdal-hdf4 = ">=3.12,<3.13"
+libgdal-grib = ">=3.12,<3.13"
 swig = ">=4.3,<5"
 
 # libstdcxx-ng provides the GCC-13 libstdc++.so.6 that conda-forge's GDAL
@@ -345,6 +350,7 @@ libstdcxx-ng = "*"
 gdal = ">=3.10.0,<4"
 libgdal-netcdf = ">=3.10.0,<4"
 libgdal-hdf4 = ">=3.10.0,<4"
+libgdal-grib = ">=3.10.0,<4"
 # Conda-forge's geopandas-base no longer pulls in a vector-IO backend.
 # pyogrio is required for GeoDataFrame.to_file / read_file on every env.
 pyogrio = ">=0.7"
@@ -377,6 +383,9 @@ test-skip = "*"
 # (not 2014) because conda-forge GDAL links symbols newer than glibc 2.17.
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
+# Forward the toolchain pins (set in build-wheels.yml's env block) into
+# the manylinux container — host env vars don't auto-propagate there.
+environment-pass = ["PIXI_VERSION", "MICROMAMBA_VERSION"]
 before-all = ["bash ./ci/setup-gdal-from-pixi.sh"]
 # install-and-vendor-osgeo.py runs pip WITH build isolation so it picks
 # up setuptools>=77 (GDAL 3.12.3's build-system.requires) and a matching

@@ -502,6 +502,14 @@ def import_pyarrow(message: str):
         raise OptionalPackageDoesNotExist(message)
 
 
+def import_pystac_client(message: str):
+    """Import pystac_client."""
+    try:
+        import pystac_client  # noqa
+    except ImportError:
+        raise OptionalPackageDoesNotExist(message)
+
+
 def import_dask(message: str):
     """Import dask."""
     try:

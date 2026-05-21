@@ -87,27 +87,27 @@ GDAL ≥ 3.10 + a C/C++ compiler at install time — usually painful) or
 the **conda-forge install path** (which is glibc-agnostic and just
 works):
 
-| OS / arch | Why no wheel | Recommended install path |
-|---|---|---|
-| Linux x86_64, glibc 2.28–2.38 | `manylinux_2_39` requires glibc ≥ 2.39 | `conda install -c conda-forge pyramids-gis` |
-| Linux aarch64, glibc 2.28–2.38 | same | `conda install -c conda-forge pyramids-gis` |
-| Alpine / musl Linux | no `musllinux_*`; needs from-source GDAL | `conda install -c conda-forge pyramids-gis` |
-| Windows on ARM64 | no `win_arm64`; conda-forge GDAL is x64-only on Windows | run AMD64 wheel under x86 emulation |
-| Python 3.10 or earlier | excluded by `requires-python = ">= 3.11"` | upgrade Python, or pin `pyramids-gis < 0.20` |
-| Python 3.15+ (future) | not yet released by CPython | wheels ship once conda-forge has matching `gdal` |
+| OS / arch                      | Why no wheel                                            | Recommended install path                         |
+|--------------------------------|---------------------------------------------------------|--------------------------------------------------|
+| Linux x86_64, glibc 2.28–2.38  | `manylinux_2_39` requires glibc ≥ 2.39                  | `conda install -c conda-forge pyramids-gis`      |
+| Linux aarch64, glibc 2.28–2.38 | same                                                    | `conda install -c conda-forge pyramids-gis`      |
+| Alpine / musl Linux            | no `musllinux_*`; needs from-source GDAL                | `conda install -c conda-forge pyramids-gis`      |
+| Windows on ARM64               | no `win_arm64`; conda-forge GDAL is x64-only on Windows | run AMD64 wheel under x86 emulation              |
+| Python 3.10 or earlier         | excluded by `requires-python = ">= 3.11"`               | upgrade Python, or pin `pyramids-gis < 0.20`     |
+| Python 3.15+ (future)          | not yet released by CPython                             | wheels ship once conda-forge has matching `gdal` |
 
 Concretely, the glibc gap excludes a large slice of production Linux:
 
-| Distro | glibc | Wheel matches today? |
-|---|---|---|
-| Ubuntu 22.04 LTS | 2.35 | ❌ — use conda-forge |
-| Ubuntu 24.04 LTS | 2.39 | ✓ |
-| Debian 12 (bookworm) | 2.36 | ❌ — use conda-forge |
-| Debian 13 (trixie) | 2.39 | ✓ |
-| RHEL / Rocky / Alma 9 | 2.34 | ❌ — use conda-forge |
-| RHEL / Rocky / Alma 10 | 2.39 | ✓ |
-| Fedora 38 | 2.37 | ❌ — use conda-forge |
-| Amazon Linux 2023 | 2.34 | ❌ — use conda-forge |
+| Distro                 | glibc | Wheel matches today? |
+|------------------------|-------|----------------------|
+| Ubuntu 22.04 LTS       | 2.35  | ❌ — use conda-forge  |
+| Ubuntu 24.04 LTS       | 2.39  | ✓                    |
+| Debian 12 (bookworm)   | 2.36  | ❌ — use conda-forge  |
+| Debian 13 (trixie)     | 2.39  | ✓                    |
+| RHEL / Rocky / Alma 9  | 2.34  | ❌ — use conda-forge  |
+| RHEL / Rocky / Alma 10 | 2.39  | ✓                    |
+| Fedora 38              | 2.37  | ❌ — use conda-forge  |
+| Amazon Linux 2023      | 2.34  | ❌ — use conda-forge  |
 
 ### Why the glibc floor is 2.39 (and not 2.28)
 
@@ -372,29 +372,35 @@ cibuildwheel --only cp312-win_amd64
 | `pyproject.toml` `[tool.pixi.feature.wheel-build]` | Minimal pixi env with GDAL native deps |
 | `setup.py` | `BinaryDistribution` override to force platform-specific wheel |
 | `src/pyramids/__init__.py` | Runtime bootstrap: loads vendored osgeo + prepends `pyramids_gis.libs` to Windows PATH |
-| `.pixi-version` | Pinned pixi version read by `setup-gdal-from-pixi.{sh,ps1}` so CI + locals match |
+| `build-wheels.yml` `env:` | `PIXI_VERSION` / `MICROMAMBA_VERSION` toolchain pins consumed by the `ci/setup-gdal-*` scripts |
 
-## Pixi version pinning
+## Toolchain version pinning
 
-`.pixi-version` at the repo root holds the single canonical pixi
-version (currently `0.68.1`). Both `ci/setup-gdal-from-pixi.sh` and
-`ci/setup-gdal-from-pixi.ps1` read it and pass `PIXI_VERSION` through
-to `pixi.sh/install.{sh,ps1}` so the installer always pulls the same
-binary — making wheel builds reproducible across CI runs and local
-re-runs.
+`PIXI_VERSION` (currently `0.68.1`) and `MICROMAMBA_VERSION` (currently
+`2.6.1`) are pinned in the `env:` block of
+`.github/workflows/build-wheels.yml`. The `ci/setup-gdal-from-pixi.{sh,ps1}`
+and `ci/setup-gdal-micromamba.sh` scripts read them and pass the version
+through to `pixi.sh/install.{sh,ps1}` / `micro.mamba.pm`, so the installer
+always pulls the same binary — making wheel builds reproducible across CI
+runs.
+
+macOS and Windows cibuildwheel runs `before-all` on the host and inherits
+these env vars directly. The Linux build runs `before-all` inside the
+manylinux container, which doesn't auto-inherit host env, so they're
+forwarded via `[tool.cibuildwheel.linux].environment-pass` in
+`pyproject.toml`.
 
 For local development, install the same pixi version with:
 
 ```bash
-# Read the pinned version and install pixi from pixi.sh.
-PIXI_VERSION="$(cat .pixi-version)" curl -fsSL https://pixi.sh/install.sh | bash
+PIXI_VERSION="0.68.1" curl -fsSL https://pixi.sh/install.sh | bash
 ```
 
-To bump pixi: edit `.pixi-version`, push, let CI re-build wheels with
-the new version. `pixi lock` produces different lock-file headers
-across versions (0.63 emits `pypi-prerelease-mode: ...`, 0.68 prefers
-the v7 lock format), so coordinating the bump in one file avoids
-"why does my lock diff have 35 k of churn?" surprises.
+To bump pixi: edit `PIXI_VERSION` in `build-wheels.yml`, push, let CI
+re-build wheels with the new version. `pixi lock` produces different
+lock-file headers across versions (0.63 emits `pypi-prerelease-mode: ...`,
+0.68 prefers the v7 lock format), so coordinating the bump in one place
+avoids "why does my lock diff have 35 k of churn?" surprises.
 
 ## Pitfalls worth remembering
 
