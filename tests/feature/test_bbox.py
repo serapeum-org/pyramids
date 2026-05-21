@@ -35,7 +35,7 @@ class TestSplitAntimeridian:
         """A bbox with west <= east is returned unchanged in a 1-list.
 
         Test scenario:
-            ``(-10, -5, 10, 5)`` does not cross, so one bbox is returned.
+            `(-10, -5, 10, 5)` does not cross, so one bbox is returned.
         """
         result = split_antimeridian((-10.0, -5.0, 10.0, 5.0))
         assert result == [(-10.0, -5.0, 10.0, 5.0)], f"Unexpected split: {result}"
@@ -44,7 +44,7 @@ class TestSplitAntimeridian:
         """A bbox with west > east splits at the 180 deg meridian.
 
         Test scenario:
-            ``(175, -22, -175, -12)`` yields an eastern and western half.
+            `(175, -22, -175, -12)` yields an eastern and western half.
         """
         result = split_antimeridian((175.0, -22.0, -175.0, -12.0))
         assert result == [
@@ -56,7 +56,7 @@ class TestSplitAntimeridian:
         """A degenerate bbox with west == east is treated as non-crossing.
 
         Test scenario:
-            ``(10, 0, 10, 1)`` keeps west <= east, so it is not split.
+            `(10, 0, 10, 1)` keeps west <= east, so it is not split.
         """
         result = split_antimeridian((10.0, 0.0, 10.0, 1.0))
         assert len(result) == 1, f"west == east should not split, got {result}"
@@ -78,7 +78,7 @@ class TestNormaliseLongitude:
         """A 0..360 bbox is rewritten into signed longitudes.
 
         Test scenario:
-            ``350`` becomes ``-10`` under the ``-180..180`` convention.
+            `350` becomes `-10` under the `-180..180` convention.
         """
         result = normalise_longitude((350.0, -5.0, 10.0, 5.0), "-180..180")
         assert result == (-10.0, -5.0, 10.0, 5.0), f"Unexpected result: {result}"
@@ -87,7 +87,7 @@ class TestNormaliseLongitude:
         """A signed bbox is rewritten into the 0..360 convention.
 
         Test scenario:
-            ``-10`` becomes ``350`` under the ``0..360`` convention.
+            `-10` becomes `350` under the `0..360` convention.
         """
         result = normalise_longitude((-10.0, -5.0, 10.0, 5.0), "0..360")
         assert result == (350.0, -5.0, 10.0, 5.0), f"Unexpected result: {result}"
@@ -105,13 +105,13 @@ class TestNormaliseLongitude:
         """An unsupported convention name raises ValueError.
 
         Test scenario:
-            ``"0..180"`` is not a recognised convention.
+            `"0..180"` is not a recognised convention.
         """
         with pytest.raises(ValueError, match="convention must be one of"):
             normalise_longitude((0.0, 0.0, 1.0, 1.0), "0..180")
 
     def test_default_convention_is_signed(self):
-        """The default convention is ``-180..180``.
+        """The default convention is `-180..180`.
 
         Test scenario:
             Calling without a convention normalises into signed longitudes.
@@ -142,7 +142,7 @@ class TestTransform:
         assert round(east) == 1113195, f"Unexpected mercator easting: {east}"
 
     def test_authority_strings_accepted(self):
-        """CRS arguments may be ``EPSG:XXXX`` strings.
+        """CRS arguments may be `EPSG:XXXX` strings.
 
         Test scenario:
             Both CRSes given as authority strings still reproject.
@@ -174,7 +174,7 @@ class TestTransform:
         """The source CRS is normalised, so a pyproj.CRS object is accepted.
 
         Test scenario:
-            Passing ``CRS.from_epsg(4326)`` as ``src_crs`` reprojects identically
+            Passing `CRS.from_epsg(4326)` as `src_crs` reprojects identically
             to passing the EPSG int.
         """
         from pyproj import CRS
@@ -203,7 +203,7 @@ class TestToShapely:
         """The polygon's bounds equal the input bbox.
 
         Test scenario:
-            ``(-10, -5, 10, 5)`` becomes a box with matching bounds.
+            `(-10, -5, 10, 5)` becomes a box with matching bounds.
         """
         assert to_shapely((-10.0, -5.0, 10.0, 5.0)).bounds == (-10.0, -5.0, 10.0, 5.0)
 
