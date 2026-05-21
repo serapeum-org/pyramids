@@ -6,27 +6,28 @@ longitude convention, reprojecting it between CRSes, and converting it to a
 :class:`shapely.geometry.Polygon`. The runtime *crop* operation on a gridded
 dataset lives elsewhere; this module is the pure-geometry kernel underneath it.
 
-A ``Bbox`` is a ``(west, south, east, north)`` tuple in degrees, matching the
-``rasterio.bounds`` / STAC convention. A bbox with ``west > east`` denotes an
-antimeridian crossing (e.g. ``(175, -22, -175, -12)`` near Fiji).
+A `Bbox` is a `(west, south, east, north)` tuple in degrees, matching the
+`rasterio.bounds` / STAC convention. A bbox with `west > east` denotes an
+antimeridian crossing (e.g. `(175, -22, -175, -12)` near Fiji).
 
 The polygon antimeridian split is implemented natively on top of
-:mod:`shapely` (already a dependency) — no third-party ``antimeridian``
+:mod:`shapely` (already a dependency) — no third-party `antimeridian`
 package is required. The algorithm detects a crossing, unwraps longitudes into
-``0..360`` so the polygon becomes contiguous, clips at the 180 deg meridian,
-shifts the far half back by ``-360``, and unions the two halves. It handles
+`0..360` so the polygon becomes contiguous, clips at the 180 deg meridian,
+shifts the far half back by `-360`, and unions the two halves. It handles
 polygons crossing the antimeridian once (the typical area-of-interest case),
 including interior rings; it does not attempt pole-enclosing geometries.
 """
 
 from __future__ import annotations
 
+from pyproj import CRS, Transformer
 from shapely.affinity import translate
 from shapely.geometry import MultiPolygon, Polygon, box
 from shapely.ops import unary_union
 
 Bbox = tuple[float, float, float, float]
-"""A ``(west, south, east, north)`` bounding box in degrees."""
+"""A `(west, south, east, north)` bounding box in degrees."""
 
 _CONVENTIONS = ("-180..180", "0..360")
 
@@ -34,17 +35,17 @@ _CONVENTIONS = ("-180..180", "0..360")
 def split_antimeridian(bbox: Bbox) -> list[Bbox]:
     """Split a bbox into one or two bboxes, severing the antimeridian.
 
-    Returns the input unchanged (as a single-element list) when ``west <= east``.
-    When ``west > east`` the bbox is treated as crossing the 180 deg meridian
-    and is split into an eastern ``(west, south, 180, north)`` and a western
-    ``(-180, south, east, north)`` half.
+    Returns the input unchanged (as a single-element list) when `west <= east`.
+    When `west > east` the bbox is treated as crossing the 180 deg meridian
+    and is split into an eastern `(west, south, 180, north)` and a western
+    `(-180, south, east, north)` half.
 
     Args:
-        bbox: A ``(west, south, east, north)`` tuple in degrees.
+        bbox: A `(west, south, east, north)` tuple in degrees.
 
     Returns:
         A list of one bbox (no crossing) or two bboxes (crossing), each with
-        ``west <= east``.
+        `west <= east`.
 
     Examples:
         - A bbox that does not cross the antimeridian is returned as-is:
@@ -80,28 +81,28 @@ def normalise_longitude(bbox: Bbox, convention: str = "-180..180") -> Bbox:
     """Rewrite a bbox's longitudes into the target longitude convention.
 
     Latitude is untouched. Note that the two endpoints of the antimeridian are
-    equivalent meridians, so ``180`` maps to ``-180`` under the ``-180..180``
-    convention and ``-180`` maps to ``180`` under ``0..360``.
+    equivalent meridians, so `180` maps to `-180` under the `-180..180`
+    convention and `-180` maps to `180` under `0..360`.
 
     Args:
-        bbox: A ``(west, south, east, north)`` tuple in degrees.
-        convention: Target convention, either ``"-180..180"`` (default) or
-            ``"0..360"``.
+        bbox: A `(west, south, east, north)` tuple in degrees.
+        convention: Target convention, either `"-180..180"` (default) or
+            `"0..360"`.
 
     Returns:
-        The bbox with ``west`` and ``east`` rewritten into ``convention``.
+        The bbox with `west` and `east` rewritten into `convention`.
 
     Raises:
-        ValueError: When ``convention`` is not one of the supported values.
+        ValueError: When `convention` is not one of the supported values.
 
     Examples:
-        - Convert a ``0..360`` bbox into signed longitudes:
+        - Convert a `0..360` bbox into signed longitudes:
             ```python
             >>> normalise_longitude((350.0, -5.0, 10.0, 5.0), "-180..180")
             (-10.0, -5.0, 10.0, 5.0)
 
             ```
-        - Convert signed longitudes into the ``0..360`` convention:
+        - Convert signed longitudes into the `0..360` convention:
             ```python
             >>> normalise_longitude((-10.0, -5.0, 10.0, 5.0), "0..360")
             (350.0, -5.0, 10.0, 5.0)
@@ -138,22 +139,22 @@ def transform(
 ) -> Bbox:
     """Reproject a bbox between two CRSes via :func:`pyproj.Transformer.transform_bounds`.
 
-    The four edges are densified to ``densify_pts`` interior points before
+    The four edges are densified to `densify_pts` interior points before
     reprojecting, so curved CRS boundaries are not crudely axis-aligned. When
     the destination CRS is geographic, the returned latitudes are clamped to
-    ``[-90, 90]`` to absorb floating-point overshoot at the poles.
+    `[-90, 90]` to absorb floating-point overshoot at the poles.
 
     Args:
-        bbox: A ``(west, south, east, north)`` / ``(minx, miny, maxx, maxy)``
-            tuple in ``src_crs`` units.
+        bbox: A `(west, south, east, north)` / `(minx, miny, maxx, maxy)`
+            tuple in `src_crs` units.
         src_crs: Source CRS — anything :meth:`pyproj.CRS.from_user_input`
-            accepts (EPSG int, ``"EPSG:XXXX"``, WKT, or PROJ string).
-        dst_crs: Destination CRS, same accepted forms as ``src_crs``.
+            accepts (EPSG int, `"EPSG:XXXX"`, WKT, or PROJ string).
+        dst_crs: Destination CRS, same accepted forms as `src_crs`.
         densify_pts: Number of densification points per edge. Defaults to 21,
-            matching ``rasterio.warp.transform_bounds``.
+            matching `rasterio.warp.transform_bounds`.
 
     Returns:
-        The reprojected ``(minx, miny, maxx, maxy)`` bbox in ``dst_crs`` units.
+        The reprojected `(minx, miny, maxx, maxy)` bbox in `dst_crs` units.
 
     Examples:
         - A same-CRS transform is an identity (modulo float noise):
@@ -177,10 +178,9 @@ def transform(
 
             ```
     """
-    from pyproj import CRS, Transformer
-
+    src = CRS.from_user_input(src_crs)
     dst = CRS.from_user_input(dst_crs)
-    transformer = Transformer.from_crs(src_crs, dst, always_xy=True)
+    transformer = Transformer.from_crs(src, dst, always_xy=True)
     west, south, east, north = bbox
     minx, miny, maxx, maxy = transformer.transform_bounds(
         west, south, east, north, densify_pts=densify_pts
@@ -195,10 +195,10 @@ def to_shapely(bbox: Bbox) -> Polygon:
     """Convert a bbox to a :class:`shapely.geometry.Polygon`.
 
     Args:
-        bbox: A ``(west, south, east, north)`` tuple in degrees.
+        bbox: A `(west, south, east, north)` tuple in degrees.
 
     Returns:
-        A rectangular :class:`shapely.geometry.Polygon` (``shapely.box``).
+        A rectangular :class:`shapely.geometry.Polygon` (`shapely.box``).
 
     Examples:
         - The polygon's bounds round-trip the input bbox:

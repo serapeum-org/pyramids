@@ -170,6 +170,31 @@ class TestTransform:
         result = transform((-100.0, 20.0, -90.0, 50.0), 4326, 3857, densify_pts=2)
         assert len(result) == 4, f"Expected a 4-tuple, got {result}"
 
+    def test_src_crs_accepts_crs_object(self):
+        """The source CRS is normalised, so a pyproj.CRS object is accepted.
+
+        Test scenario:
+            Passing ``CRS.from_epsg(4326)`` as ``src_crs`` reprojects identically
+            to passing the EPSG int.
+        """
+        from pyproj import CRS
+
+        via_obj = transform((0.0, 0.0, 1.0, 1.0), CRS.from_epsg(4326), 3857)
+        via_int = transform((0.0, 0.0, 1.0, 1.0), 4326, 3857)
+        assert via_obj == pytest.approx(via_int), f"CRS-object src mismatch: {via_obj} vs {via_int}"
+
+    def test_src_crs_accepts_wkt(self):
+        """A WKT string is accepted for the source CRS.
+
+        Test scenario:
+            A 4326 WKT source transformed to 4326 is an identity to one decimal.
+        """
+        from pyproj import CRS
+
+        wkt = CRS.from_epsg(4326).to_wkt()
+        result = [round(v, 1) for v in transform((-10.0, -5.0, 10.0, 5.0), wkt, 4326)]
+        assert result == [-10.0, -5.0, 10.0, 5.0], f"WKT src failed: {result}"
+
 
 class TestToShapely:
     """Tests for to_shapely."""
