@@ -1,8 +1,8 @@
-"""Tests for the PY-10 AWS Requester-Pays helpers on ``pyramids.base.remote``.
+"""Tests for the PY-10 AWS Requester-Pays helpers on `pyramids.base.remote`.
 
-Covers the new ``CloudConfig.aws_request_payer`` field + mutual-exclusion guard,
-the ``requester_pays_kwargs`` / ``s3fs_requester_pays_kwargs`` helpers, and the
-``RequesterPays`` context manager (cost warning + GDAL knobs + set/restore).
+Covers the new `CloudConfig.aws_request_payer` field + mutual-exclusion guard,
+the `requester_pays_kwargs` / `s3fs_requester_pays_kwargs` helpers, and the
+`RequesterPays` context manager (cost warning + GDAL knobs + set/restore).
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ class TestRequesterPaysKwargs:
         """Returns the per-call boto3 Requester-Pays kwarg.
 
         Test scenario:
-            The mapping splats into ``client.get_object(...)``.
+            The mapping splats into `client.get_object(...)`.
         """
         assert requester_pays_kwargs() == {"RequestPayer": "requester"}
 
