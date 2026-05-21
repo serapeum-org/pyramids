@@ -7,7 +7,7 @@ asset href, and opens it with the right GDAL-backed reader chosen by the asset's
 | media_type / extension                         | reader                          |
 |-------------------------------------------------|---------------------------------|
 | `image/tiff...` / `.tif` `.tiff`          | :meth:`Dataset.read_file`       |
-| `application/x-netcdf` / `.nc` `.nc4`     | :meth:`NetCDF.read_file`        |
+| `application/x-netcdf` / `.nc` `.nc4` `.cdf` | :meth:`NetCDF.read_file`     |
 | `application/wmo-grib2` / `.grib2` `.grb` | :func:`pyramids.grib.open_grib` |
 | `application/vnd+zarr` / `.zarr`            | :meth:`NetCDF.read_file` (GDAL Zarr) |
 

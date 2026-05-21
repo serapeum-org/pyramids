@@ -8,8 +8,8 @@ cloud-hosted STAC archive can have:
    need credentials (a bearer token, a signed header).
 2. **item-rewrite** — returned STAC Items' asset hrefs may need a token grafted
    on or the URL rewritten.
-3. **asset-read** — when GDAL/rasterio opens the asset, it may need extra
-   environment (`AWS_REQUEST_PAYER=requester`, an `Authorization` header).
+3. **asset-read** — when GDAL opens the asset, it may need extra environment
+   (`AWS_REQUEST_PAYER=requester`, an `Authorization` header).
 
 This module ships only the *generic*, dependency-light signers
 (:class:`AnonymousSigner`, :class:`AWSRequesterPaysSigner`,
@@ -105,7 +105,7 @@ class AnonymousSigner(_BaseSigner):
 class AWSRequesterPaysSigner(_BaseSigner):
     """Signer for assets in AWS Requester-Pays buckets.
 
-    Adds only the GDAL/rasterio environment needed to read from buckets such as
+    Adds only the GDAL environment needed to read from buckets such as
     `s3://usgs-landsat` or `s3://sentinel-1-grd`; no request or href rewrite
     is required.
 
