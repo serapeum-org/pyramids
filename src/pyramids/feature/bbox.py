@@ -219,13 +219,13 @@ def to_shapely(bbox: Bbox) -> Polygon:
 
 
 def _ring_crosses_antimeridian(coords: list[tuple[float, float]]) -> bool:
-    """Return ``True`` if any consecutive longitude step exceeds 180 degrees.
+    """Return `True` if any consecutive longitude step exceeds 180 degrees.
 
     Args:
-        coords: Ordered ``(lon, lat)`` vertices of a ring.
+        coords: Ordered `(lon, lat)` vertices of a ring.
 
     Returns:
-        ``True`` when the ring crosses the antimeridian.
+        `True` when the ring crosses the antimeridian.
     """
     return any(
         abs(coords[i][0] - coords[i - 1][0]) > 180.0 for i in range(1, len(coords))
@@ -233,26 +233,26 @@ def _ring_crosses_antimeridian(coords: list[tuple[float, float]]) -> bool:
 
 
 def _crosses_antimeridian(geom: Polygon) -> bool:
-    """Return ``True`` if the polygon's exterior or any hole crosses the antimeridian.
+    """Return `True` if the polygon's exterior or any hole crosses the antimeridian.
 
     Args:
         geom: A :class:`shapely.geometry.Polygon`.
 
     Returns:
-        ``True`` when any ring of ``geom`` crosses the antimeridian.
+        `True` when any ring of `geom` crosses the antimeridian.
     """
     rings = [geom.exterior, *geom.interiors]
     return any(_ring_crosses_antimeridian(list(r.coords)) for r in rings)
 
 
 def _unwrap_polygon(geom: Polygon) -> Polygon:
-    """Map every longitude into ``0..360`` so a crossing polygon becomes contiguous.
+    """Map every longitude into `0..360` so a crossing polygon becomes contiguous.
 
     Args:
         geom: A :class:`shapely.geometry.Polygon` crossing the antimeridian.
 
     Returns:
-        The same polygon with longitudes shifted into ``[0, 360)``.
+        The same polygon with longitudes shifted into `[0, 360)`.
     """
 
     def _shift(coords):
@@ -269,7 +269,7 @@ def split_polygon_antimeridian(geom: Polygon | MultiPolygon) -> Polygon | MultiP
     A polygon whose vertices straddle the 180 deg meridian (a longitude step
     greater than 180 deg between consecutive vertices) is cut at the meridian
     and returned as a :class:`~shapely.geometry.MultiPolygon` with every part in
-    the ``-180..180`` convention. Polygons that do not cross are returned
+    the `-180..180` convention. Polygons that do not cross are returned
     unchanged. Interior rings (holes) are preserved.
 
     This is a native, shapely-only reimplementation of the one piece of
@@ -285,7 +285,7 @@ def split_polygon_antimeridian(geom: Polygon | MultiPolygon) -> Polygon | MultiP
         :class:`~shapely.geometry.MultiPolygon` split at the meridian.
 
     Raises:
-        TypeError: When ``geom`` is neither a Polygon nor a MultiPolygon.
+        TypeError: When `geom` is neither a Polygon nor a MultiPolygon.
 
     Examples:
         - A box straddling the antimeridian splits into two parts:
