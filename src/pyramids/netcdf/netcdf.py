@@ -1722,7 +1722,15 @@ class NetCDF(Dataset):
                     variable_name=var_name,
                 )
         else:
-            ds = Dataset.create_from_array(arr, geo=geo, epsg=epsg, no_data_value=ndv)
+            # A Dataset stores at most one (flattened) band axis, so collapse the
+            # trailing band dimensions to a single (prod(sizes), rows, cols) store.
+            # _materialize_variable_array reshapes it back using _band_dim_sizes.
+            flat = (
+                arr.reshape(-1, arr.shape[-2], arr.shape[-1])
+                if len(band_names) > 1
+                else arr
+            )
+            ds = Dataset.create_from_array(flat, geo=geo, epsg=epsg, no_data_value=ndv)
             ds._band_dim_name = band_names[0] if band_names else None
             ds._band_dim_values = values_map.get(band_names[0]) if band_names else None
             ds._band_dim_names = tuple(band_names)

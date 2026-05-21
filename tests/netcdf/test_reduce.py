@@ -248,3 +248,62 @@ class TestReduceRealFixtures:
         var = nc.reduce("pressure_level", "mean").get_variable("t")
         assert "pressure_level" not in var._band_dim_names, "pressure_level not removed"
         assert "valid_time" in var._band_dim_names, "valid_time should be preserved"
+
+
+class TestReduceMultiBandDim:
+    """Tests for reducing variables that keep more than one band dimension."""
+
+    @staticmethod
+    def _make_5d_two_var_nc() -> tuple[NetCDF, np.ndarray, np.ndarray]:
+        """Build a 5-D ``(d0, d1, d2, y, x)`` container with two variables.
+
+        Returns:
+            tuple: ``(container, v1_array, v2_array)`` where the arrays are the
+            full 5-D sources of variables ``v1`` and ``v2``.
+        """
+        a1 = np.arange(2 * 2 * 2 * 3 * 4, dtype="float64").reshape(2, 2, 2, 3, 4)
+        a2 = a1 + 1000.0
+        extra = [("d0", [0, 1]), ("d1", [0, 1]), ("d2", [0, 1])]
+        nc = NetCDF.create_from_array(
+            a1, geo=_GEO, epsg=4326, no_data_value=-9999.0, variable_name="v1",
+            extra_dims=extra,
+        )
+        v2 = NetCDF.create_from_array(
+            a2, geo=_GEO, epsg=4326, no_data_value=-9999.0, variable_name="v2",
+            extra_dims=extra,
+        )
+        nc.set_variable("v2", v2.get_variable("v2"))
+        return nc, a1, a2
+
+    def test_second_variable_with_two_remaining_band_dims(self):
+        """Reducing a 5-D container collapses one dim, keeping the other two.
+
+        Test scenario:
+            Reducing ``d0`` (mean) on a two-variable 5-D container leaves each
+            variable shaped ``(d1, d2, y, x)`` with values matching numpy — the
+            non-first variable (``v2``) must not be corrupted by the
+            single-band-axis ``Dataset`` store.
+        """
+        nc, a1, a2 = self._make_5d_two_var_nc()
+        reduced = nc.reduce("d0", "mean")
+
+        materialize = reduced._materialize_variable_array
+        got_v1 = materialize(reduced.get_variable("v1"))
+        got_v2 = materialize(reduced.get_variable("v2"))
+
+        assert got_v1.shape == (2, 2, 3, 4), f"v1 wrong shape: {got_v1.shape}"
+        assert got_v2.shape == (2, 2, 3, 4), f"v2 wrong shape: {got_v2.shape}"
+        assert np.allclose(got_v1, a1.mean(axis=0)), "v1 values do not match numpy mean"
+        assert np.allclose(got_v2, a2.mean(axis=0)), "v2 (non-first) corrupted by reduce"
+
+    def test_second_variable_band_dim_names_preserved(self):
+        """Both surviving band dimensions are recorded on the reduced variable.
+
+        Test scenario:
+            After reducing ``d0``, the non-first variable ``v2`` keeps band dims
+            ``("d1", "d2")`` and drops ``d0``.
+        """
+        nc, _, _ = self._make_5d_two_var_nc()
+        var = nc.reduce("d0", "sum").get_variable("v2")
+        assert var._band_dim_names == ("d1", "d2"), f"unexpected band dims: {var._band_dim_names}"
+        assert "d0" not in var._band_dim_names, "reduced dim should be gone"
