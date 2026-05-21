@@ -87,27 +87,27 @@ GDAL ≥ 3.10 + a C/C++ compiler at install time — usually painful) or
 the **conda-forge install path** (which is glibc-agnostic and just
 works):
 
-| OS / arch | Why no wheel | Recommended install path |
-|---|---|---|
-| Linux x86_64, glibc 2.28–2.38 | `manylinux_2_39` requires glibc ≥ 2.39 | `conda install -c conda-forge pyramids-gis` |
-| Linux aarch64, glibc 2.28–2.38 | same | `conda install -c conda-forge pyramids-gis` |
-| Alpine / musl Linux | no `musllinux_*`; needs from-source GDAL | `conda install -c conda-forge pyramids-gis` |
-| Windows on ARM64 | no `win_arm64`; conda-forge GDAL is x64-only on Windows | run AMD64 wheel under x86 emulation |
-| Python 3.10 or earlier | excluded by `requires-python = ">= 3.11"` | upgrade Python, or pin `pyramids-gis < 0.20` |
-| Python 3.15+ (future) | not yet released by CPython | wheels ship once conda-forge has matching `gdal` |
+| OS / arch                      | Why no wheel                                            | Recommended install path                         |
+|--------------------------------|---------------------------------------------------------|--------------------------------------------------|
+| Linux x86_64, glibc 2.28–2.38  | `manylinux_2_39` requires glibc ≥ 2.39                  | `conda install -c conda-forge pyramids-gis`      |
+| Linux aarch64, glibc 2.28–2.38 | same                                                    | `conda install -c conda-forge pyramids-gis`      |
+| Alpine / musl Linux            | no `musllinux_*`; needs from-source GDAL                | `conda install -c conda-forge pyramids-gis`      |
+| Windows on ARM64               | no `win_arm64`; conda-forge GDAL is x64-only on Windows | run AMD64 wheel under x86 emulation              |
+| Python 3.10 or earlier         | excluded by `requires-python = ">= 3.11"`               | upgrade Python, or pin `pyramids-gis < 0.20`     |
+| Python 3.15+ (future)          | not yet released by CPython                             | wheels ship once conda-forge has matching `gdal` |
 
 Concretely, the glibc gap excludes a large slice of production Linux:
 
-| Distro | glibc | Wheel matches today? |
-|---|---|---|
-| Ubuntu 22.04 LTS | 2.35 | ❌ — use conda-forge |
-| Ubuntu 24.04 LTS | 2.39 | ✓ |
-| Debian 12 (bookworm) | 2.36 | ❌ — use conda-forge |
-| Debian 13 (trixie) | 2.39 | ✓ |
-| RHEL / Rocky / Alma 9 | 2.34 | ❌ — use conda-forge |
-| RHEL / Rocky / Alma 10 | 2.39 | ✓ |
-| Fedora 38 | 2.37 | ❌ — use conda-forge |
-| Amazon Linux 2023 | 2.34 | ❌ — use conda-forge |
+| Distro                 | glibc | Wheel matches today? |
+|------------------------|-------|----------------------|
+| Ubuntu 22.04 LTS       | 2.35  | ❌ — use conda-forge  |
+| Ubuntu 24.04 LTS       | 2.39  | ✓                    |
+| Debian 12 (bookworm)   | 2.36  | ❌ — use conda-forge  |
+| Debian 13 (trixie)     | 2.39  | ✓                    |
+| RHEL / Rocky / Alma 9  | 2.34  | ❌ — use conda-forge  |
+| RHEL / Rocky / Alma 10 | 2.39  | ✓                    |
+| Fedora 38              | 2.37  | ❌ — use conda-forge  |
+| Amazon Linux 2023      | 2.34  | ❌ — use conda-forge  |
 
 ### Why the glibc floor is 2.39 (and not 2.28)
 
