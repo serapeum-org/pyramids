@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from pyramids.base.remote import CloudConfig
 from pyramids.dataset import Dataset
 from pyramids.grib import open_grib
 from pyramids.netcdf import NetCDF
@@ -162,15 +163,25 @@ def load_asset(
     """Open a STAC asset as a pyramids ``Dataset`` / ``NetCDF``.
 
     Resolves the asset href, optionally rewrites it through a ``signer``
-    (a :class:`~pyramids.stac.signers.Signer` — only its ``sign_href`` is used),
-    then opens it with the GDAL-backed reader chosen by ``media_type`` /
-    extension. No xarray / rioxarray.
+    (a :class:`~pyramids.stac.signers.Signer`), then opens it with the
+    GDAL-backed reader chosen by ``media_type`` / extension. When a signer is
+    given, **both** of its hooks are applied: ``signer.sign_href`` rewrites the
+    href, and ``signer.gdal_env`` is installed as GDAL config for the duration
+    of the open (via :class:`~pyramids.base.remote.CloudConfig`), so the
+    underlying VSI handle is created with the right credentials / requester-pays
+    knobs. No xarray / rioxarray.
 
     Args:
         item_or_asset: A STAC Item (pystac.Item or raw dict) or an Asset.
         asset_key: Asset name when passing an Item; ``None`` for an Asset.
-        signer: Optional signer; ``signer.sign_href(href)`` rewrites the href
-            (e.g. grafting a SAS token). ``None`` leaves the href unchanged.
+        signer: Optional signer. ``signer.sign_href(href)`` rewrites the href
+            (e.g. grafting a SAS token) and ``signer.gdal_env()`` supplies GDAL
+            config applied while the asset is opened (e.g.
+            ``AWS_REQUEST_PAYER=requester`` for an
+            :class:`~pyramids.stac.signers.AWSRequesterPaysSigner`, or an
+            ``Authorization`` header for a
+            :class:`~pyramids.stac.signers.BearerTokenSigner`). ``None`` leaves
+            the href unchanged and applies no extra config.
         vsi: Optional explicit archive kind forwarded to the reader (e.g. a
             GeoTIFF/GRIB inside a ``.zip``).
 
@@ -194,21 +205,35 @@ def load_asset(
             1
 
             ```
-        - Sign the href with an MPC/CDSE-style signer before opening:
+        - Sign the href with an MPC/CDSE-style bearer signer before opening
+          (the token is installed as a GDAL ``Authorization`` header for the
+          open):
             ```python
             >>> from pyramids.stac import load_asset, BearerTokenSigner  # doctest: +SKIP
             >>> ds = load_asset(item, "B04", signer=BearerTokenSigner("tok"))  # doctest: +SKIP
 
             ```
+        - Read a Requester-Pays bucket: the signer's ``gdal_env`` opts into
+          ``AWS_REQUEST_PAYER=requester`` for the duration of the open:
+            ```python
+            >>> from pyramids.stac import load_asset, AWSRequesterPaysSigner  # doctest: +SKIP
+            >>> asset = {"href": "s3://usgs-landsat/collection02/.../B4.TIF",
+            ...          "type": "image/tiff; application=geotiff"}
+            >>> ds = load_asset(asset, signer=AWSRequesterPaysSigner(region="us-west-2"))  # doctest: +SKIP
+
+            ```
     """
     href, media_type = _resolve_asset(item_or_asset, asset_key)
+    gdal_env: dict[str, str] = {}
     if signer is not None:
         href = signer.sign_href(href)
+        gdal_env = signer.gdal_env()
     engine = _engine_for(media_type, href)
-    if engine == "grib":
-        result: Dataset = open_grib(href, vsi=vsi)
-    elif engine in ("netcdf", "zarr"):
-        result = NetCDF.read_file(href)
-    else:
-        result = Dataset.read_file(href, vsi=vsi)
+    with CloudConfig(extra=gdal_env):
+        if engine == "grib":
+            result: Dataset = open_grib(href, vsi=vsi)
+        elif engine in ("netcdf", "zarr"):
+            result = NetCDF.read_file(href)
+        else:
+            result = Dataset.read_file(href, vsi=vsi)
     return result

@@ -8,7 +8,9 @@ from osgeo import gdal, osr
 
 from pyramids.dataset import Dataset
 from pyramids.netcdf import NetCDF
+from pyramids.stac import _loader
 from pyramids.stac._loader import _engine_for, _resolve_asset, load_asset, which_engine
+from pyramids.stac.signers import AWSRequesterPaysSigner
 
 pytestmark = pytest.mark.core
 
@@ -18,16 +20,21 @@ _COG_TYPE = "image/tiff; application=geotiff; profile=cloud-optimized"
 
 
 class _AppendSigner:
-    """Tiny non-mock signer that records and rewrites the href."""
+    """Tiny non-mock signer that records the href and supplies a GDAL env."""
 
-    def __init__(self, suffix: str = ""):
+    def __init__(self, suffix: str = "", env: dict[str, str] | None = None):
         self.suffix = suffix
         self.seen: str | None = None
+        self._env = env or {}
 
     def sign_href(self, href: str) -> str:
         """Record the href and append the configured suffix."""
         self.seen = href
         return f"{href}{self.suffix}"
+
+    def gdal_env(self) -> dict[str, str]:
+        """Return the configured GDAL config mapping (empty by default)."""
+        return dict(self._env)
 
 
 @pytest.fixture
@@ -249,6 +256,77 @@ class TestLoadAsset:
         signer = _AppendSigner(suffix="")
         load_asset({"href": _GEOTIFF, "type": "image/tiff"}, signer=signer)
         assert signer.seen == _GEOTIFF, f"signer did not see the href: {signer.seen}"
+
+    def test_signer_gdal_env_active_during_open(self, monkeypatch):
+        """The signer's gdal_env is installed as GDAL config while opening.
+
+        Test scenario:
+            A reader stub captures ``AWS_REQUEST_PAYER`` at call time; with an
+            ``AWSRequesterPaysSigner`` it must read ``requester``.
+        """
+        captured: dict[str, str | None] = {}
+
+        def fake_read_file(href, vsi=None):
+            captured["payer"] = gdal.GetConfigOption("AWS_REQUEST_PAYER")
+            return "DS"
+
+        monkeypatch.setattr(_loader.Dataset, "read_file", staticmethod(fake_read_file))
+        load_asset(
+            {"href": "s3://usgs-landsat/x.tif", "type": "image/tiff"},
+            signer=AWSRequesterPaysSigner(),
+        )
+        assert captured["payer"] == "requester", (
+            f"signer gdal_env not active during open: {captured['payer']}"
+        )
+
+    def test_signer_gdal_env_restored_after_open(self):
+        """The signer's GDAL config is torn down once the asset is opened.
+
+        Test scenario:
+            After a real load with an AWSRequesterPaysSigner, the global
+            ``AWS_REQUEST_PAYER`` option is back to ``None``.
+        """
+        assert gdal.GetConfigOption("AWS_REQUEST_PAYER") is None, "precondition: unset"
+        load_asset({"href": _GEOTIFF, "type": "image/tiff"}, signer=AWSRequesterPaysSigner())
+        assert gdal.GetConfigOption("AWS_REQUEST_PAYER") is None, "config not restored after open"
+
+    def test_no_signer_applies_no_env(self, monkeypatch):
+        """Without a signer, no extra GDAL config is set during the open.
+
+        Test scenario:
+            A reader stub sees ``AWS_REQUEST_PAYER`` unset when no signer is
+            supplied.
+        """
+        captured: dict[str, str | None] = {}
+
+        def fake_read_file(href, vsi=None):
+            captured["payer"] = gdal.GetConfigOption("AWS_REQUEST_PAYER")
+            return "DS"
+
+        monkeypatch.setattr(_loader.Dataset, "read_file", staticmethod(fake_read_file))
+        load_asset({"href": _GEOTIFF, "type": "image/tiff"})
+        assert captured["payer"] is None, f"unexpected env without signer: {captured['payer']}"
+
+    def test_signer_applies_both_sign_href_and_gdal_env(self, monkeypatch):
+        """Both signer hooks fire: href rewrite and gdal_env install.
+
+        Test scenario:
+            An _AppendSigner with a custom env records the href AND its env
+            option is active at open time.
+        """
+        captured: dict[str, str | None] = {}
+
+        def fake_read_file(href, vsi=None):
+            captured["href"] = href
+            captured["sentinel"] = gdal.GetConfigOption("CPL_CURL_VERBOSE")
+            return "DS"
+
+        monkeypatch.setattr(_loader.Dataset, "read_file", staticmethod(fake_read_file))
+        signer = _AppendSigner(suffix="?sig=x", env={"CPL_CURL_VERBOSE": "YES"})
+        load_asset({"href": "s3://b/x.tif", "type": "image/tiff"}, signer=signer)
+        assert signer.seen == "s3://b/x.tif", f"sign_href not called: {signer.seen}"
+        assert captured["href"] == "s3://b/x.tif?sig=x", f"signed href not used: {captured['href']}"
+        assert captured["sentinel"] == "YES", f"gdal_env not applied: {captured['sentinel']}"
 
     def test_missing_asset_raises(self):
         """Loading a missing asset raises KeyError.
