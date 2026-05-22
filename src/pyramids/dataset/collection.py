@@ -546,6 +546,97 @@ class DatasetCollection:
             )
         return _GroupedCollection(self, list(time_labels))
 
+    def reduce_time(
+        self,
+        times: Sequence,
+        *,
+        freq: str,
+        op: str,
+        skipna: bool = True,
+    ) -> list[tuple[Any, Dataset]]:
+        """Reduce the time axis by a calendar frequency, grid-attached.
+
+        Buckets the timesteps by a pandas offset alias (``"1MS"``, ``"7D"``,
+        ``"6h"``, …), reduces each window with ``op`` through the existing
+        :meth:`groupby` reducer, and wraps each window's result back into a
+        :class:`~pyramids.dataset.Dataset` carrying the collection's
+        geotransform / CRS / no-data — so callers get ready-to-write rasters
+        instead of the bare ``{label: ndarray}`` that :meth:`groupby` returns.
+
+        The per-timestep timestamps are supplied by the caller (``times``)
+        because a :class:`DatasetCollection` does not itself carry a time
+        coordinate. The reduction runs through :attr:`data`, so the optional
+        ``[lazy]`` extra (dask; flox recommended) is required.
+
+        Args:
+            times: Per-timestep timestamps, length ``self.time_length``. Any
+                value :func:`pandas.to_datetime` accepts (``datetime``,
+                ``"2022-01-01"``, ``pandas.Timestamp``, a ``DatetimeIndex``, …),
+                aligned with the collection's timestep order.
+            freq: A pandas offset alias naming the window size, e.g. ``"1MS"``
+                (month start), ``"7D"`` (weekly), ``"1D"``, ``"6h"``.
+            op: Reduction operation: one of ``"mean"``, ``"sum"``, ``"min"``,
+                ``"max"``, ``"std"``, ``"var"``.
+            skipna: When ``True`` (default) ignore the no-data value in each
+                window; forwarded to the underlying reducer.
+
+        Returns:
+            list[tuple[Any, Dataset]]: ``(window_label, dataset)`` pairs, one
+            per non-empty window, sorted by window label. ``window_label`` is
+            the :class:`pandas.Timestamp` at the window's left edge; each
+            ``dataset`` is a grid-attached reduction of that window.
+
+        Raises:
+            ValueError: ``op`` is not a supported reduction, or ``len(times)``
+                does not match :attr:`time_length`.
+
+        Examples:
+            - Monthly means of a stack of daily COGs, ready to write:
+                ```python
+                >>> import pandas as pd  # doctest: +SKIP
+                >>> from pyramids.dataset.collection import DatasetCollection  # doctest: +SKIP
+                >>> coll = DatasetCollection.from_files(daily_cog_paths)  # doctest: +SKIP
+                >>> times = pd.date_range("2022-01-01", periods=coll.time_length, freq="1D")  # doctest: +SKIP
+                >>> monthly = coll.reduce_time(times, freq="1MS", op="mean")  # doctest: +SKIP
+                >>> label, ds = monthly[0]  # doctest: +SKIP
+                >>> ds.write_array  # a grid-attached Dataset, not a bare ndarray  # doctest: +SKIP
+
+                ```
+        """
+        if op not in _GroupedCollection._OPS:
+            raise ValueError(
+                f"op must be one of {_GroupedCollection._OPS}, got {op!r}."
+            )
+        time_list = list(times)
+        if len(time_list) != self._time_length:
+            raise ValueError(
+                f"times has {len(time_list)} entries but the collection has "
+                f"{self._time_length} timesteps."
+            )
+
+        index = pd.DatetimeIndex(pd.to_datetime(time_list))
+        positions = pd.Series(np.arange(len(index)), index=index)
+        window_labels: list[Any] = [None] * len(index)
+        for window_key, members in positions.groupby(pd.Grouper(freq=freq)):
+            for pos in members.to_numpy():
+                window_labels[int(pos)] = window_key
+
+        reduced = getattr(self.groupby(window_labels), op)(skipna=skipna)
+
+        geo = self._base.geotransform
+        epsg = self._base.epsg
+        no_data_value = self._base.no_data_value[0]
+        result: list[tuple[Any, Dataset]] = []
+        for label in sorted(reduced):
+            dataset = Dataset.create_from_array(
+                np.asarray(reduced[label]),
+                geo=geo,
+                epsg=epsg,
+                no_data_value=no_data_value,
+            )
+            result.append((label, dataset))
+        return result
+
     def _reduce(self, op_name: str, *, skipna: bool) -> np.ndarray:
         """Shared reduction dispatcher over the time axis."""
         func, _ = resolve_dask_op(op_name, skipna=skipna)
