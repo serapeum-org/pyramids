@@ -10,17 +10,39 @@
 from __future__ import annotations
 
 import warnings
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-from osgeo import gdal
+from osgeo import gdal, osr
 
+from pyramids.base.remote import CloudConfig
 from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
 
 _VRT_METHODS = ("first", "last")
 _REDUCE_METHODS = ("min", "max", "sum")
 _MERGE_METHODS = _VRT_METHODS + _REDUCE_METHODS
+
+
+def _cloud_config(signer: Any):
+    """Return a context manager installing ``signer``'s GDAL config, or a no-op.
+
+    Mirrors how :func:`pyramids.stac.load_asset` applies a signer: the signer's
+    ``gdal_env()`` mapping is fed into :class:`~pyramids.base.remote.CloudConfig`
+    so authenticated cloud reads work for the duration of the ``with`` block.
+
+    Args:
+        signer (Any): A signer exposing ``gdal_env() -> dict[str, str]`` (e.g. a
+            :class:`pyramids.stac.signers.Signer`), or ``None``.
+
+    Returns:
+        A context manager: a :class:`contextlib.nullcontext` when ``signer`` is
+        ``None`` (no GDAL config installed, behaviour unchanged), otherwise a
+        :class:`~pyramids.base.remote.CloudConfig` seeded with
+        ``signer.gdal_env()``.
+    """
+    return nullcontext() if signer is None else CloudConfig(extra=signer.gdal_env())
 
 
 def merge_rasters(
@@ -30,6 +52,8 @@ def merge_rasters(
     init: float | int | str = "nan",
     n: float | int | str = "nan",
     method: str = "last",
+    dst_crs: int | str | None = None,
+    signer: Any = None,
 ) -> None:
     """Merge a group of rasters into one raster, resolving overlaps by ``method``.
 
@@ -61,6 +85,28 @@ def merge_rasters(
         method (str):
             Overlap-resolution rule: one of ``"first"``, ``"last"`` (default),
             ``"min"``, ``"max"``, ``"sum"``.
+        dst_crs (int | str | None):
+            Target CRS for the mosaic, as an EPSG code (``32632``) or any
+            GDAL-parseable CRS string (``"EPSG:32632"``, a WKT, a PROJ string).
+            Each source whose CRS differs from the target is reprojected onto it
+            (via :func:`gdal.Warp`) **before** compositing, so tiles in different
+            CRSs — e.g. a Sentinel-2 AOI straddling two UTM zones — mosaic
+            correctly. ``None`` (default) keeps the previous behaviour: sources
+            are assumed to share a CRS and are composited as-is, *except* when
+            they are found to disagree, in which case they are reprojected onto
+            the first source's CRS. Reprojection always happens before the
+            ``BuildVRT``/``Warp`` compositing step because that step has no
+            reprojection capability and assumes a single shared grid.
+        signer (Any):
+            Optional signer exposing ``gdal_env() -> dict[str, str]`` (e.g. a
+            :class:`pyramids.stac.signers.Signer`). When given, its GDAL config
+            — credentials, Requester-Pays / SAS knobs — is installed via
+            :class:`~pyramids.base.remote.CloudConfig` for the duration of the
+            merge, so authenticated cloud sources (``/vsis3``, MPC SAS hrefs,
+            Requester-Pays buckets) can be read without wrapping the call in a
+            ``with CloudConfig(...)`` block. ``None`` (default) installs no extra
+            config and leaves behaviour unchanged. Source hrefs are read as-is —
+            pre-sign them if the catalog signs each asset URL.
 
     Returns:
         None
@@ -75,8 +121,10 @@ def merge_rasters(
         same integer inputs.
 
     Raises:
-        ValueError: ``method`` is not one of the supported values.
-        RuntimeError: GDAL failed to build the source mosaic.
+        ValueError: ``method`` is not one of the supported values, or ``dst_crs``
+            cannot be parsed as a CRS.
+        RuntimeError: GDAL failed to open a source, reproject it, or build the
+            source mosaic.
 
     Examples:
         - Mosaic two tiles, keeping the larger value wherever they overlap:
@@ -95,6 +143,25 @@ def merge_rasters(
             >>> merge_rasters(["tile_a.tif", "tile_b.tif"], "mosaic.tif")  # doctest: +SKIP
 
             ```
+        - Mosaic tiles from two UTM zones into a single CRS:
+            ```python
+            >>> merge_rasters(  # doctest: +SKIP
+            ...     ["utm32_tile.tif", "utm33_tile.tif"],
+            ...     "mosaic_utm32.tif",
+            ...     dst_crs=32632,
+            ... )
+
+            ```
+        - Mosaic Requester-Pays S3 tiles by passing a signer (no ``with`` block):
+            ```python
+            >>> from pyramids.stac import AWSRequesterPaysSigner  # doctest: +SKIP
+            >>> merge_rasters(  # doctest: +SKIP
+            ...     ["s3://bucket/a.tif", "s3://bucket/b.tif"],
+            ...     "mosaic.tif",
+            ...     signer=AWSRequesterPaysSigner(region="us-west-2"),
+            ... )
+
+            ```
     """
     if method not in _MERGE_METHODS:
         raise ValueError(
@@ -111,36 +178,159 @@ def merge_rasters(
     # value instead of relying on the default.
     src_paths = [str(p) for p in src]
 
-    if method in _REDUCE_METHODS:
-        _merge_reduce(src_paths, str(dst), method, no_data_value, n)
-        return
+    # All GDAL reads/writes run under the signer's cloud config (a no-op when
+    # signer is None) so authenticated remote sources open with the right
+    # credentials for the whole merge.
+    with _cloud_config(signer):
+        # Put every source on one CRS before compositing. The BuildVRT/Warp
+        # mosaic below cannot reproject — it stitches pixel grids assuming a
+        # shared CRS — so mismatched sources must be warped first or they would
+        # mis-align silently. `_keepalive` holds the in-memory warped VRTs so
+        # GDAL does not free them while the mosaic is built.
+        sources, _keepalive = _prepare_sources(src_paths, dst_crs)
 
-    # z-order: "last" keeps natural order (last source wins); "first" reverses
-    # so the original first source is placed last in the VRT and therefore wins.
-    ordered = list(reversed(src_paths)) if method == "first" else src_paths
-    vrt_opts = gdal.BuildVRTOptions(
-        srcNodata=str(n),
-        VRTNodata=str(init),
-    )
-    vrt_ds = gdal.BuildVRT("", ordered, options=vrt_opts)
-    if vrt_ds is None:
-        raise RuntimeError(
-            f"gdal.BuildVRT returned None for sources {src_paths!r}; "
-            "check that all paths are readable rasters with consistent "
-            "band counts and CRS."
+        if method in _REDUCE_METHODS:
+            _merge_reduce(sources, str(dst), method, no_data_value, n)
+            return
+
+        # z-order: "last" keeps natural order (last source wins); "first"
+        # reverses so the original first source is placed last in the VRT and
+        # therefore wins.
+        ordered = list(reversed(sources)) if method == "first" else sources
+        vrt_opts = gdal.BuildVRTOptions(
+            srcNodata=str(n),
+            VRTNodata=str(init),
         )
-    translate_opts = gdal.TranslateOptions(
-        creationOptions=["COMPRESS=LZW"],
-        noData=str(no_data_value),
-    )
-    out_ds = gdal.Translate(str(dst), vrt_ds, options=translate_opts)
-    out_ds.FlushCache()
-    out_ds = None
-    vrt_ds = None
+        vrt_ds = gdal.BuildVRT("", ordered, options=vrt_opts)
+        if vrt_ds is None:
+            raise RuntimeError(
+                f"gdal.BuildVRT returned None for sources {src_paths!r}; "
+                "check that all paths are readable rasters with consistent "
+                "band counts and CRS."
+            )
+        translate_opts = gdal.TranslateOptions(
+            creationOptions=["COMPRESS=LZW"],
+            noData=str(no_data_value),
+        )
+        out_ds = gdal.Translate(str(dst), vrt_ds, options=translate_opts)
+        out_ds.FlushCache()
+        out_ds = None
+        vrt_ds = None
+
+
+def _as_srs(crs: int | str) -> osr.SpatialReference:
+    """Build an :class:`osr.SpatialReference` from an EPSG code or a CRS string.
+
+    Args:
+        crs: An EPSG code as an ``int`` (e.g. ``32632``), or any CRS string
+            GDAL can parse via ``SetFromUserInput`` — ``"EPSG:32632"``, a WKT
+            string, or a PROJ string.
+
+    Returns:
+        osr.SpatialReference: The parsed spatial reference.
+
+    Raises:
+        ValueError: ``crs`` could not be parsed as a CRS.
+    """
+    srs = osr.SpatialReference()
+    try:
+        # GDAL may signal a parse failure either by a non-zero return code or,
+        # when exceptions are enabled (pyramids enables them at import), by
+        # raising RuntimeError. Treat both as a bad CRS.
+        if isinstance(crs, int):
+            failed = srs.ImportFromEPSG(crs) != 0
+        else:
+            failed = srs.SetFromUserInput(str(crs)) != 0
+    except RuntimeError as exc:
+        raise ValueError(f"Could not parse dst_crs={crs!r} as a CRS.") from exc
+    if failed:
+        raise ValueError(f"Could not parse dst_crs={crs!r} as a CRS.")
+    return srs
+
+
+def _prepare_sources(
+    src_paths: list[str], dst_crs: int | str | None
+) -> tuple[list, list]:
+    """Put every source on a single CRS before the mosaic is composited.
+
+    The compositing step (:func:`gdal.BuildVRT` / :func:`gdal.Warp`) does not
+    reproject — it assumes all sources share a CRS. This helper warps any source
+    whose CRS differs from the target onto an in-memory warped VRT first, so
+    tiles from different CRSs (e.g. neighbouring UTM zones) mosaic correctly.
+
+    Args:
+        src_paths: Source raster paths.
+        dst_crs: Target CRS as an EPSG code or CRS string. ``None`` keeps the
+            previous behaviour — sources are returned untouched when they all
+            share a CRS, and only reprojected (onto the first source's CRS) when
+            they are found to disagree.
+
+    Returns:
+        tuple[list, list]: ``(sources, keepalive)``. ``sources`` is the
+            per-source input to feed the compositor: the original path string
+            when the source already matches the target CRS, otherwise an
+            in-memory warped :class:`gdal.Dataset`. ``keepalive`` holds those
+            warped datasets so the caller can keep them referenced (and prevent
+            GDAL from freeing them) until the mosaic is built.
+
+    Raises:
+        ValueError: ``dst_crs`` could not be parsed as a CRS.
+        RuntimeError: A source could not be opened, or a reprojecting
+            :func:`gdal.Warp` failed.
+    """
+    target_srs = _as_srs(dst_crs) if dst_crs is not None else None
+
+    source_srs = []
+    for path in src_paths:
+        ds = gdal.Open(path)
+        if ds is None:
+            raise RuntimeError(f"gdal.Open returned None for source {path!r}.")
+        srs = osr.SpatialReference()
+        srs.ImportFromWkt(ds.GetProjection())
+        source_srs.append(srs)
+        ds = None
+
+    disagree = any(not source_srs[0].IsSame(other) for other in source_srs[1:])
+
+    if target_srs is None:
+        if not disagree:
+            result = (list(src_paths), [])
+        else:
+            target_srs = source_srs[0]
+
+    if target_srs is not None:
+        # gdal.BuildVRT rejects a mix of path strings and dataset objects, so
+        # once any source must be reprojected every source is materialised as a
+        # dataset: warped VRTs for the mismatched ones, a plain open for those
+        # already on the target CRS. All of them go into `keepalive`.
+        target_wkt = target_srs.ExportToWkt()
+        sources = []
+        keepalive = []
+        for path, srs in zip(src_paths, source_srs):
+            if srs.IsSame(target_srs):
+                opened = gdal.Open(path)
+                if opened is None:
+                    raise RuntimeError(f"gdal.Open returned None for source {path!r}.")
+                sources.append(opened)
+                keepalive.append(opened)
+            else:
+                warped = gdal.Warp(
+                    "", path, options=gdal.WarpOptions(format="VRT", dstSRS=target_wkt)
+                )
+                if warped is None:
+                    raise RuntimeError(
+                        f"gdal.Warp returned None reprojecting {path!r} to the "
+                        "target CRS."
+                    )
+                sources.append(warped)
+                keepalive.append(warped)
+        result = (sources, keepalive)
+
+    return result
 
 
 def _merge_reduce(
-    src_paths: list[str],
+    src_paths: list,
     dst: str,
     method: str,
     no_data_value: float | int | str,
@@ -153,7 +343,9 @@ def _merge_reduce(
     Pixels with no source coverage are written as ``no_data_value``.
 
     Args:
-        src_paths: Source raster paths.
+        src_paths: Source rasters as path strings or already-open
+            :class:`gdal.Dataset` objects (e.g. reprojected warped VRTs from
+            :func:`_prepare_sources`).
         dst: Output raster path.
         method: One of ``"min"``, ``"max"``, ``"sum"``.
         no_data_value: Output no-data value and no-coverage fill.
@@ -234,6 +426,7 @@ def stack_bands(
     align: bool = False,
     no_data_value: Any = _INHERIT_NO_DATA,
     path: str | Path | None = None,
+    signer: Any = None,
 ) -> Dataset:
     """Stack N single-band rasters into one multi-band :class:`Dataset`.
 
@@ -249,14 +442,21 @@ def stack_bands(
         no_data_value: No-data value for the output bands; omitted means
             "inherit from the source rasters".
         path: Output ``.tif`` path; ``None`` keeps the result in memory.
+        signer: Optional signer exposing ``gdal_env() -> dict[str, str]`` (e.g. a
+            :class:`pyramids.stac.signers.Signer`). When given, its GDAL config is
+            installed via :class:`~pyramids.base.remote.CloudConfig` for the
+            duration of the stack, so authenticated cloud inputs read with the
+            right credentials. ``None`` (default) leaves behaviour unchanged.
 
     Returns:
         Dataset: A multi-band dataset, one band per input file.
     """
-    return Dataset.from_band_files(
-        files,
-        band_names=band_names,
-        align=align,
-        no_data_value=no_data_value,
-        path=path,
-    )
+    with _cloud_config(signer):
+        result = Dataset.from_band_files(
+            files,
+            band_names=band_names,
+            align=align,
+            no_data_value=no_data_value,
+            path=path,
+        )
+    return result
