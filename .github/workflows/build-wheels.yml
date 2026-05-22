@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # Only run the (expensive) wheel matrix on PRs that touch packaging —
+    # not on every PR to main. Other triggers: push to main, workflow_run
+    # after github-release, and manual dispatch.
+    paths:
+      - "pyproject.toml"
+      - "setup.py"
+      - "ci/**"
+      - ".github/workflows/build-wheels.yml"
   workflow_run:
     workflows: ["github-release"]
     types: [completed]
@@ -207,27 +215,7 @@ jobs:
         shell: bash
         # --timeout-method=thread: signal-based timeouts don't work on Windows.
         timeout-minutes: 10
-        # #332 debug: verify-wheel.py passes but `pytest` segfaults during
-        # collection (~1.7s in) — the dual-libstdc++ theory (pyramids'
-        # bundled GCC-13 libstdc++ vs the system one pulled by shapely/
-        # pyproj/geos PyPI wheels). On Linux, run pytest under gdb to get
-        # the crashing native lib + dump which libstdc++/libgcc_s loaded.
-        run: |
-          if [[ "$RUNNER_OS" != "Linux" ]]; then
-            pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m core tests/
-            exit 0
-          fi
-          sudo apt-get update -qq && sudo apt-get install -y -qq gdb >/dev/null 2>&1 || true
-          rm -f /tmp/ld.*
-          echo "=== libstdc++ / libgcc_s files the process loads ==="
-          LD_DEBUG=libs LD_DEBUG_OUTPUT=/tmp/ld \
-            python -c "import shapely.geometry, pyproj, geopandas, pyramids; from osgeo import gdal, osr; osr.SpatialReference().ImportFromEPSG(4326); print('imports ok')" || true
-          grep -hoE "/[^ ]*lib(stdc\+\+|gcc_s)[^ ]*\.so[^ ]*" /tmp/ld.* 2>/dev/null | sort -u || true
-          echo "=== gdb backtrace of the pytest segfault ==="
-          gdb -batch -ex run -ex 'bt 30' --args \
-            python -m pytest -x -o "pythonpath=" --timeout=60 --timeout-method=thread -m core tests/ 2>&1 | tail -70 || true
-          echo "=== real run (segfault = the #332 signal) ==="
-          pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m core tests/
+        run: pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m core tests/
 
   release:
     name: Publish to PyPI + attach to GitHub release

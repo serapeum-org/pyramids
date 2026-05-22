@@ -158,10 +158,10 @@ out-of-the-box.
 | Gap | Issue | Status | Notes |
 |---|---|---|---|
 | Lower glibc floor (< 2.39) | #332 | **wontfix** | bundled `libstdc++` segfaults; only from-source GDAL works |
-| musllinux (Alpine) | #333 | Won't-do for now | needs from-source GDAL (~1 week); conda-forge covers Alpine |
-| Windows ARM64 | #334 | Won't-do for now | blocked on conda-forge `gdal` win-arm64; <2% of Windows |
-| Python 3.15+ | #335 | reactive | ships when CPython 3.15 + conda-forge `gdal` are out; one-line `build` bump |
-| Free-threaded (`cp313t`/`cp314t`) | — | Won't-do for now | no free-threaded conda-forge GDAL; use a GIL build |
+| musllinux (Alpine) | #333 | **wontfix** | needs from-source GDAL (~1 week); conda-forge has no musl target |
+| Windows ARM64 | #334 | pending upstream | blocked on conda-forge `gdal` win-arm64; <2% of Windows |
+| Python 3.15+ | #335 | pending upstream | ships when CPython 3.15 + conda-forge `gdal` land; one-line `build` bump |
+| Free-threaded (`cp313t`/`cp314t`) | — | pending upstream | no free-threaded conda-forge GDAL; use a GIL build |
 
 ## Why separate wheels per OS / arch / Python version?
 
@@ -389,7 +389,7 @@ cibuildwheel --only cp312-win_amd64
 | `pyproject.toml` `[tool.pixi.feature.wheel-build]` | Minimal pixi env with GDAL native deps |
 | `setup.py` | `BinaryDistribution` override to force platform-specific wheel |
 | `src/pyramids/__init__.py` | Runtime bootstrap: loads vendored osgeo + prepends `pyramids_gis.libs` to Windows PATH |
-| `build-wheels.yml` `env:` | `PIXI_VERSION` / `MICROMAMBA_VERSION` toolchain pins consumed by the `ci/setup-gdal-*` scripts |
+| `build-wheels.yml` `env:` | `PIXI_VERSION` / `MICROMAMBA_VERSION` toolchain pins consumed by `ci/setup-gdal-*` |
 
 ## Toolchain version pinning
 
