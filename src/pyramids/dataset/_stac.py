@@ -113,6 +113,14 @@ def from_stac(
 ) -> DatasetCollection:
     """Build a :class:`DatasetCollection` from a STAC ItemCollection.
 
+    .. note::
+        This is the private implementation. The **public API** is the
+        :meth:`DatasetCollection.from_stac` classmethod — call
+        ``DatasetCollection.from_stac(items, asset, ...)`` rather than importing
+        this function. It lives in a separate module only to break the
+        ``dataset`` ↔ ``stac`` ↔ ``collection`` import cycle, and is not
+        re-exported from :mod:`pyramids.dataset`.
+
     Extracts one named asset's href from each item, optionally runs
     `patch_url` on each href (typical use: sign a Planetary Computer
     URL), and forwards to :meth:`DatasetCollection.from_files`.
@@ -153,14 +161,14 @@ def from_stac(
 
     Examples:
         - Build a DatasetCollection from raw STAC JSON dicts (no
-          pystac required):
+          pystac required) via the public classmethod:
             ```python
             >>> raw_items = [  # doctest: +SKIP
             ...     {"assets": {"B04": {"href": "s3://.../scene1_B04.tif"}}},
             ...     {"assets": {"B04": {"href": "s3://.../scene2_B04.tif"}}},
             ... ]
-            >>> from pyramids.dataset._stac import from_stac  # doctest: +SKIP
-            >>> collection = from_stac(raw_items, asset="B04")  # doctest: +SKIP
+            >>> from pyramids.dataset import DatasetCollection  # doctest: +SKIP
+            >>> collection = DatasetCollection.from_stac(raw_items, asset="B04")  # doctest: +SKIP
             >>> collection.time_length  # doctest: +SKIP
             2
 
