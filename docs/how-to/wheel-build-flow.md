@@ -87,14 +87,33 @@ GDAL ≥ 3.10 + a C/C++ compiler at install time — usually painful) or
 the **conda-forge install path** (which is glibc-agnostic and just
 works):
 
-| OS / arch                      | Why no wheel                                            | Recommended install path                         |
-|--------------------------------|---------------------------------------------------------|--------------------------------------------------|
-| Linux x86_64, glibc 2.28–2.38  | `manylinux_2_39` requires glibc ≥ 2.39                  | `conda install -c conda-forge pyramids-gis`      |
-| Linux aarch64, glibc 2.28–2.38 | same                                                    | `conda install -c conda-forge pyramids-gis`      |
-| Alpine / musl Linux            | no `musllinux_*`; needs from-source GDAL                | `conda install -c conda-forge pyramids-gis`      |
-| Windows on ARM64               | no `win_arm64`; conda-forge GDAL is x64-only on Windows | run AMD64 wheel under x86 emulation              |
-| Python 3.10 or earlier         | excluded by `requires-python = ">= 3.11"`               | upgrade Python, or pin `pyramids-gis < 0.20`     |
-| Python 3.15+ (future)          | not yet released by CPython                             | wheels ship once conda-forge has matching `gdal` |
+| OS / arch | Why no wheel | Recommended install path | Tracking |
+|---|---|---|---|
+| Linux x86_64, glibc 2.28–2.38 | `manylinux_2_39` needs glibc ≥ 2.39 | conda-forge | #332 (wontfix) / #338 |
+| Linux aarch64, glibc 2.28–2.38 | same | conda-forge | #332 (wontfix) / #338 |
+| Alpine / musl Linux | no `musllinux_*`; needs from-source GDAL | conda-forge | #333 |
+| Windows on ARM64 | no `win_arm64`; conda-forge GDAL is x64-only on Windows | AMD64 wheel under x86 emulation | #334 |
+| Free-threaded CPython (`cp313t`/`cp314t`) | skipped; no free-threaded conda-forge GDAL | use a GIL build | — |
+| Python 3.10 or earlier | excluded by `requires-python = ">= 3.11"` | upgrade Python, or pin `< 0.20` | intentional |
+| Python 3.15+ (future) | not yet released by CPython | conda-forge until wheels ship | #335 |
+| PyPy | `skip = ["*pp*"]`; GDAL bindings target CPython | use CPython | intentional |
+
+#### When each uncovered platform could get a wheel
+
+With the conda-forge-**extraction** build (no from-source GDAL), a platform is addable only once conda-forge ships
+GDAL for it. The blocker per target and when it is expected to clear:
+
+| Target | Blocker (extraction model) | Unblocks |
+|---|---|---|
+| Linux glibc 2.28-2.38 | conda-forge GDAL = GCC-13 (`GLIBCXX_3.4.32`) | never; only as distros EOL (2027-2032) |
+| Alpine / musl | conda-forge has no musl GDAL to extract | no committed timeline (conda-forge has no musl target) |
+| Windows ARM64 | no conda-forge `win-arm64` GDAL yet | conda-forge win-arm64 migration reaches GDAL (~months-1yr) |
+| Free-threaded (`cp314t`) | no free-threaded conda-forge GDAL build | gdal feedstock enables it (~1-2yr) |
+| Python 3.15+ | CPython 3.15 unreleased; no `gdal` py3.15 | ~late 2026, then a one-line `build` bump |
+
+**Clears by just waiting on upstream** (then a config bump): Python 3.15, Windows ARM64, eventually free-threaded.
+**Stays open under extraction** (only the from-source build — #332, `wontfix` — would close it): Linux glibc < 2.39
+(intrinsic to conda-forge's GCC-13) and musl (no conda-forge target).
 
 Concretely, the glibc gap excludes a large slice of production Linux:
 
@@ -117,34 +136,32 @@ every ❌ row above). `auditwheel` correctly refuses to tag the wheel
 below `manylinux_2_39` because the SWIG `.so` extensions
 (`_gdal.cpython-3XX-…-linux-gnu.so`) reference that symbol directly.
 
-Three escalating attempts to lower the floor to `manylinux_2_28` —
-dropping `--plat`, mutating auditwheel's policy `lib_whitelist`, and
-`auditwheel repair --exclude libstdc++.so.6` + manual bundle + RPATH
-patch — **all rejected by auditwheel** on `feat/cog` (commits
-`95e067f8`, `47515b85`, `54252a2f`, all reverted). Root cause:
-auditwheel's policy-level symbol-version scan inspects the wheel's own
-`.so` files independently of `--exclude` or `lib_whitelist`. The full
-diagnostic table (`GLIBCXX_3.4.26 … 3.4.32`, `CXXABI_1.3.13 / 1.3.15`,
-`GCC_12.0.0`) and the recipe that *would* work
-("Step 2c" — full policy mutation: extend `symbol_versions` AND drop
-`libstdc++.so.6` + `libgcc_s.so.1` from `lib_whitelist`) is documented
-in the standalone-repo project spec at
-`planning/bundle/lower-manylinux-glibc-floor-with-bundled-libstdcxx.md`
-(within this repo, but `planning/` is gitignored).
+Lowering the floor was attempted and is now **`wontfix`** (see #332 for
+the full investigation). The full "Step 2c" recipe — mutate auditwheel's
+policy (`symbol_versions` + drop `libstdc++.so.6` / `libgcc_s.so.1` from
+`lib_whitelist`) and **bundle** the GCC-13 C++ runtime — does build and
+tag a `manylinux_2_28` wheel. But the bundled `libstdc++` **segfaults at
+runtime**: a dual-`libstdc++` ODR collision (via `STB_GNU_UNIQUE`) where
+`pyproj`/`shapely`'s native libs and our bundled C++ runtime can't
+coexist in one process. (Targeting `manylinux2014`/2.17 fails even
+earlier — numpy ships no `cp314` wheel below `manylinux_2_28`.)
 
-That work is **scoped out of `pyramids` itself** and is not on the
-roadmap for this repo — pyramids defers it to that separate project.
-In the meantime, conda-forge covers every glibc-< 2.39 user
+The **only** technique that works is to **build GDAL + PROJ + GEOS from
+source** with the manylinux toolchain (the rasterio/fiona model), so
+libgdal links the baseline `libstdc++` and bundles none. That's a ~1-week
+build-pipeline rewrite and is **decided against** — hence #332 is
+`wontfix`. In the meantime, conda-forge covers every glibc-< 2.39 user
 out-of-the-box.
 
 ### Coverage roadmap (not committed)
 
-| Gap | Status | Notes |
-|---|---|---|
-| Lower glibc floor to `manylinux_2_28` | **Spun out** to separate repo | not on roadmap; conda-forge is the fallback |
-| musllinux (Alpine) | Won't-do for now | needs from-source GDAL (~1 week); conda-forge covers Alpine |
-| Windows ARM64 | Won't-do for now | blocked on conda-forge `gdal` win-arm64; <2% of Windows |
-| Python 3.15+ | Ships when CPython 3.15 + conda-forge `gdal` are out | one-line bump to `[tool.cibuildwheel].build` |
+| Gap | Issue | Status | Notes |
+|---|---|---|---|
+| Lower glibc floor (< 2.39) | #332 | **wontfix** | bundled `libstdc++` segfaults; only from-source GDAL works |
+| musllinux (Alpine) | #333 | **wontfix** | needs from-source GDAL (~1 week); conda-forge has no musl target |
+| Windows ARM64 | #334 | pending upstream | blocked on conda-forge `gdal` win-arm64; <2% of Windows |
+| Python 3.15+ | #335 | pending upstream | ships when CPython 3.15 + conda-forge `gdal` land; one-line `build` bump |
+| Free-threaded (`cp313t`/`cp314t`) | — | pending upstream | no free-threaded conda-forge GDAL; use a GIL build |
 
 ## Why separate wheels per OS / arch / Python version?
 
@@ -372,7 +389,7 @@ cibuildwheel --only cp312-win_amd64
 | `pyproject.toml` `[tool.pixi.feature.wheel-build]` | Minimal pixi env with GDAL native deps |
 | `setup.py` | `BinaryDistribution` override to force platform-specific wheel |
 | `src/pyramids/__init__.py` | Runtime bootstrap: loads vendored osgeo + prepends `pyramids_gis.libs` to Windows PATH |
-| `build-wheels.yml` `env:` | `PIXI_VERSION` / `MICROMAMBA_VERSION` toolchain pins consumed by the `ci/setup-gdal-*` scripts |
+| `build-wheels.yml` `env:` | `PIXI_VERSION` / `MICROMAMBA_VERSION` toolchain pins consumed by `ci/setup-gdal-*` |
 
 ## Toolchain version pinning
 
