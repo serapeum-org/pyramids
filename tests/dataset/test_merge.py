@@ -31,17 +31,29 @@ pytestmark = pytest.mark.core
 
 
 class _FakeSigner:
-    """Minimal signer stand-in exposing only ``gdal_env()``.
+    """Minimal signer stand-in exposing the ``sign_href`` and ``gdal_env`` hooks.
 
-    Mirrors the ``gdal_env`` hook of :class:`pyramids.stac.signers.Signer`
-    without pulling in the optional STAC dependency.
+    Mirrors the two read-time hooks of :class:`pyramids.stac.signers.Signer`
+    without pulling in the optional STAC dependency. ``sign_href`` records every
+    href it is handed (in ``seen``) and returns it with ``suffix`` appended, so
+    tests can assert the signer was applied to each source; the default empty
+    suffix keeps local paths openable.
 
     Args:
         env: The GDAL config mapping the signer advertises.
+        suffix: String appended to every href by ``sign_href`` (default ``""``
+            → identity rewrite).
     """
 
-    def __init__(self, env):
+    def __init__(self, env, *, suffix=""):
         self._env = dict(env)
+        self.suffix = suffix
+        self.seen: list[str] = []
+
+    def sign_href(self, href):
+        """Record ``href`` and return it with the configured suffix appended."""
+        self.seen.append(href)
+        return f"{href}{self.suffix}"
 
     def gdal_env(self):
         """Return the GDAL config mapping (fed into ``CloudConfig.extra``)."""
@@ -685,6 +697,65 @@ class TestMergeRastersSigner:
         result = Dataset.read_file(str(out))
         assert result.epsg == 3857, f"Expected EPSG 3857, got {result.epsg}"
 
+    def test_signer_sign_href_applied_to_each_source(self, shared_crs_pair, tmp_path):
+        """H2: ``signer.sign_href`` is called once per source before compositing.
+
+        Test scenario:
+            An identity-rewrite signer records each href it signs; after the
+            merge its ``seen`` list must equal the two source paths, proving the
+            ``sign_href`` hook fires for every source (not only ``gdal_env``).
+        """
+        pa, pb = shared_crs_pair
+        signer = _FakeSigner({})
+        merge_rasters([pa, pb], tmp_path / "signed_each.tif", no_data_value=-9999.0, signer=signer)
+        assert signer.seen == [pa, pb], (
+            f"sign_href should see each source once, got {signer.seen}"
+        )
+
+    def test_signed_href_reaches_mosaic(self, shared_crs_pair, tmp_path, monkeypatch):
+        """H2: the *signed* href (not the raw path) is what reaches the mosaic.
+
+        Test scenario:
+            A signer that appends ``?sig=tok`` is used; ``_prepare_sources`` is
+            stubbed to capture the paths it receives and abort. The captured
+            paths must carry the suffix, proving signing happens before the
+            GDAL mosaic step — the exact gap H2 fixes (a SAS signer whose
+            credential rides the URL would otherwise be dropped).
+        """
+        captured: dict[str, list[str]] = {}
+
+        class _Stop(Exception):
+            pass
+
+        def fake_prepare(src_paths, dst_crs, resampling):
+            captured["paths"] = list(src_paths)
+            raise _Stop()
+
+        monkeypatch.setattr("pyramids.dataset.merge._prepare_sources", fake_prepare)
+        pa, pb = shared_crs_pair
+        signer = _FakeSigner({}, suffix="?sig=tok")
+        with pytest.raises(_Stop):
+            merge_rasters([pa, pb], tmp_path / "x.tif", no_data_value=-9999.0, signer=signer)
+        assert captured["paths"] == [f"{pa}?sig=tok", f"{pb}?sig=tok"], (
+            f"signed hrefs should reach the mosaic step, got {captured['paths']}"
+        )
+
+    def test_url_only_signer_empty_gdal_env(self, shared_crs_pair, tmp_path):
+        """H2: a URL-signing signer with an empty ``gdal_env()`` still authenticates.
+
+        Test scenario:
+            A signer whose ``gdal_env()`` is ``{}`` (credential rides the href)
+            must still have its ``sign_href`` applied to every source — this is
+            the case that silently read unauthenticated before H2.
+        """
+        pa, pb = shared_crs_pair
+        signer = _FakeSigner({})
+        assert signer.gdal_env() == {}, "precondition: URL-only signer has no env"
+        merge_rasters([pa, pb], tmp_path / "url_only.tif", no_data_value=-9999.0, signer=signer)
+        assert signer.seen == [pa, pb], (
+            f"URL-only signer's sign_href must still fire per source, got {signer.seen}"
+        )
+
 
 class TestStackBandsSigner:
     """Tests for the ``signer=`` cloud-config kwarg of ``stack_bands`` (PY-N)."""
@@ -730,4 +801,20 @@ class TestStackBandsSigner:
         stack_bands([pa, pb], signer=_FakeSigner({"PYRAMIDS_TEST_KEY": "on"}))
         assert seen["value"] == "on", (
             f"Signer config should be active during stacking, got {seen.get('value')!r}"
+        )
+
+    def test_signer_sign_href_applied_to_each_file(self, same_grid_bands):
+        """H2: ``signer.sign_href`` fires once per input file before stacking.
+
+        Test scenario:
+            An identity-rewrite signer records each href; after the stack its
+            ``seen`` list must equal the two input paths, proving ``stack_bands``
+            applies the ``sign_href`` hook too (not only ``gdal_env``).
+        """
+        pa, pb = same_grid_bands
+        signer = _FakeSigner({})
+        result = stack_bands([pa, pb], signer=signer)
+        assert result.band_count == 2, f"Expected 2 bands, got {result.band_count}"
+        assert signer.seen == [pa, pb], (
+            f"sign_href should see each input once, got {signer.seen}"
         )
