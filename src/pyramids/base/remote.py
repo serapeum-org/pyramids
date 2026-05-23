@@ -550,6 +550,42 @@ class CloudConfig:
         return result
 
 
+def cloud_config_from_env(env: Mapping[str, str] | None) -> Any:
+    """Return a context manager installing a GDAL config mapping, or a no-op.
+
+    The mapping-taking sibling of :func:`signer_cloud_config`, for call sites
+    that have already resolved a signer's `gdal_env()` (e.g. a
+    :class:`~pyramids.dataset.collection.DatasetCollection` that persists the
+    env and re-installs it around every lazy read).
+
+    Args:
+        env: A GDAL config mapping, or `None` / empty for no config.
+
+    Returns:
+        A :class:`contextlib.nullcontext` when `env` is falsy, otherwise a
+        :class:`CloudConfig` seeded with a copy of `env`.
+
+    Examples:
+        - An empty / `None` mapping yields a no-op context manager:
+            ```python
+            >>> from pyramids.base.remote import cloud_config_from_env
+            >>> from contextlib import nullcontext
+            >>> isinstance(cloud_config_from_env(None), nullcontext)
+            True
+            >>> isinstance(cloud_config_from_env({}), nullcontext)
+            True
+
+            ```
+        - A non-empty mapping yields a CloudConfig carrying it:
+            ```python
+            >>> cloud_config_from_env({"AWS_REQUEST_PAYER": "requester"}).as_gdal_config()
+            {'AWS_REQUEST_PAYER': 'requester'}
+
+            ```
+    """
+    return CloudConfig(extra=dict(env)) if env else nullcontext()
+
+
 def signer_cloud_config(signer: Any) -> Any:
     """Return a context manager installing a signer's GDAL config, or a no-op.
 

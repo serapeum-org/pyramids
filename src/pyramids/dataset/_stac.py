@@ -130,6 +130,7 @@ def from_stac(
     patch_url: Callable[[str], str] | None = None,
     bbox: tuple[float, float, float, float] | None = None,
     max_items: int | None = None,
+    signer: Any = None,
 ) -> DatasetCollection:
     """Build a :class:`DatasetCollection` from a STAC ItemCollection.
 
@@ -142,8 +143,8 @@ def from_stac(
         re-exported from :mod:`pyramids.dataset`.
 
     Extracts one named asset's href from each item, optionally runs
-    `patch_url` on each href (typical use: sign a Planetary Computer
-    URL), and forwards to :meth:`DatasetCollection.from_files`.
+    `patch_url` and then a `signer` on each href, and forwards to
+    :meth:`DatasetCollection.from_files`.
 
     The item interface is fully duck-typed. Any of these shapes work:
 
@@ -161,14 +162,25 @@ def from_stac(
         asset: Asset key (e.g. `"B04"`, `"visual"`) whose
             `href` on each item becomes a timestep in the
             resulting collection.
-        patch_url: Optional callable applied to each href — use for
-            signing requester-pays URLs
-            (`planetary_computer.sign`, etc.).
+        patch_url: Optional callable applied to each href (runs before
+            `signer`) — a low-level hook for ad-hoc URL rewriting.
         bbox: Optional `(minx, miny, maxx, maxy)` lon/lat filter;
             items whose `bbox` doesn't intersect are dropped
             before hrefs are resolved.
         max_items: Optional cap on the number of items consumed
             (after bbox filtering).
+        signer: Optional signer exposing `sign_href(str) -> str` and
+            `gdal_env() -> dict[str, str]` (e.g. a
+            :class:`pyramids.stac.signers.Signer`). When given, **both**
+            hooks are applied — exactly as :func:`pyramids.stac.load_asset`
+            does: every resolved href is rewritten through
+            `signer.sign_href` (e.g. grafting a SAS token), and
+            `signer.gdal_env()` is captured onto the returned collection so
+            every (eager and lazy) read of the backing files installs those
+            credentials (`AWS_REQUEST_PAYER`, an `Authorization` header, …).
+            This makes both URL-signing signers and env-credentialed signers
+            (Requester-Pays, bearer) work through `from_stac`. `None`
+            (default) leaves hrefs untouched and captures no config.
 
     Returns:
         DatasetCollection: A file-backed collection whose
@@ -176,7 +188,8 @@ def from_stac(
         backing file is the resolved asset URL.
 
     Raises:
-        KeyError: When any item is missing the requested asset.
+        StacAssetError: When any item is missing the requested asset
+            (subclasses `KeyError`).
         ValueError: When `items` yields zero items after filtering.
 
     Examples:
@@ -204,11 +217,15 @@ def from_stac(
         href = _resolve_asset_href(item, asset)
         if patch_url is not None:
             href = patch_url(href)
+        if signer is not None:
+            href = signer.sign_href(href)
         hrefs.append(href)
+
+    gdal_env = signer.gdal_env() if signer is not None else None
 
     from pyramids.dataset.collection import DatasetCollection
 
-    return DatasetCollection.from_files(hrefs)
+    return DatasetCollection.from_files(hrefs, gdal_env=gdal_env)
 
 
 __all__ = ["from_stac"]

@@ -108,6 +108,98 @@ class TestPatchUrl:
         assert len(seen) == 3
 
 
+class _RecordingSigner:
+    """Signer stand-in recording every href and advertising a GDAL env (H3)."""
+
+    def __init__(self, env=None, suffix=""):
+        self._env = dict(env or {})
+        self.suffix = suffix
+        self.seen: list[str] = []
+
+    def sign_href(self, href):
+        """Record the href and append the configured suffix."""
+        self.seen.append(href)
+        return f"{href}{self.suffix}"
+
+    def gdal_env(self):
+        """Return the advertised GDAL config mapping."""
+        return dict(self._env)
+
+
+class TestFromStacSigner:
+    """H3: from_stac gains signer= (sign every href + capture gdal_env)."""
+
+    def test_sign_href_applied_per_item(self, stac_items, three_tifs):
+        """signer.sign_href fires once per item, before files are opened.
+
+        Test scenario:
+            An identity signer records each resolved href; its ``seen`` list
+            equals the three asset hrefs and the collection still builds.
+        """
+        signer = _RecordingSigner()
+        coll = DatasetCollection.from_stac(stac_items, asset="data", signer=signer)
+        assert coll.time_length == 3, f"expected 3 timesteps, got {coll.time_length}"
+        assert signer.seen == three_tifs, f"sign_href should see each href once, got {signer.seen}"
+
+    def test_gdal_env_captured_on_collection(self, stac_items):
+        """The signer's gdal_env() is persisted on the returned collection.
+
+        Test scenario:
+            A signer advertising GDAL_HTTP_TIMEOUT=30 leaves that mapping on
+            collection._gdal_env (a harmless local-read option here).
+        """
+        signer = _RecordingSigner(env={"GDAL_HTTP_TIMEOUT": "30"})
+        coll = DatasetCollection.from_stac(stac_items, asset="data", signer=signer)
+        assert coll._gdal_env == {"GDAL_HTTP_TIMEOUT": "30"}, (
+            f"signer env not captured: {coll._gdal_env}"
+        )
+
+    def test_no_signer_empty_gdal_env(self, stac_items):
+        """Without a signer the collection captures no GDAL config.
+
+        Test scenario:
+            from_stac(signer=None) leaves _gdal_env empty (no behaviour change).
+        """
+        coll = DatasetCollection.from_stac(stac_items, asset="data")
+        assert coll._gdal_env == {}, f"expected empty env, got {coll._gdal_env}"
+
+    def test_patch_url_runs_before_signer(self, stac_items, monkeypatch):
+        """patch_url is applied before signer.sign_href; both reach from_files.
+
+        Test scenario:
+            patch_url appends '?p' and the signer appends '?s'; from_files (stubbed
+            to capture, no file open) receives hrefs ending '?p?s' and the
+            signer's gdal_env.
+        """
+        captured: dict = {}
+
+        def fake_from_files(files, *, meta=None, gdal_env=None):
+            captured["files"] = list(files)
+            captured["gdal_env"] = gdal_env
+            return "COLL"
+
+        monkeypatch.setattr(DatasetCollection, "from_files", classmethod(
+            lambda cls, files, *, meta=None, gdal_env=None: fake_from_files(files, meta=meta, gdal_env=gdal_env)
+        ))
+        signer = _RecordingSigner(env={"AWS_REQUEST_PAYER": "requester"}, suffix="?s")
+        DatasetCollection.from_stac(stac_items, asset="data", patch_url=lambda h: f"{h}?p", signer=signer)
+        assert all(f.endswith("?p?s") for f in captured["files"]), (
+            f"patch_url should run before signer: {captured['files']}"
+        )
+        assert captured["gdal_env"] == {"AWS_REQUEST_PAYER": "requester"}, (
+            f"signer env not forwarded to from_files: {captured['gdal_env']}"
+        )
+
+    def test_from_files_gdal_env_persisted(self, three_tifs):
+        """from_files(gdal_env=...) persists the mapping on the collection.
+
+        Test scenario:
+            A direct from_files call with a GDAL env stores it on _gdal_env.
+        """
+        coll = DatasetCollection.from_files(three_tifs, gdal_env={"GDAL_HTTP_TIMEOUT": "15"})
+        assert coll._gdal_env == {"GDAL_HTTP_TIMEOUT": "15"}, f"env not persisted: {coll._gdal_env}"
+
+
 class TestBboxAndMaxItems:
     """M6: bbox filter + max_items cap before href resolution."""
 
