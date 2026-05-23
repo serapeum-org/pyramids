@@ -18,8 +18,12 @@ raw JSON.
 
 from __future__ import annotations
 
+import os
+import tempfile
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Callable
+
+from pyramids.base._errors import StacAssetError
 
 if TYPE_CHECKING:
     from pyramids.dataset.collection import DatasetCollection
@@ -125,12 +129,14 @@ def _item_intersects_bbox(
 
 def from_stac(
     items: Any,
-    asset: str,
+    asset: str | Sequence[str],
     *,
     patch_url: Callable[[str], str] | None = None,
     bbox: tuple[float, float, float, float] | None = None,
     max_items: int | None = None,
     signer: Any = None,
+    align: bool = True,
+    skip_missing: bool = False,
 ) -> DatasetCollection:
     """Build a :class:`DatasetCollection` from a STAC ItemCollection.
 
@@ -142,9 +148,19 @@ def from_stac(
         ``dataset`` ↔ ``stac`` ↔ ``collection`` import cycle, and is not
         re-exported from :mod:`pyramids.dataset`.
 
-    Extracts one named asset's href from each item, optionally runs
-    `patch_url` and then a `signer` on each href, and forwards to
-    :meth:`DatasetCollection.from_files`.
+    Two modes, selected by the type of `asset`:
+
+    * **Single asset** (`asset` is a `str`): extract that asset's href from
+      each item, run `patch_url` then `signer` on it, and forward the hrefs
+      to :meth:`DatasetCollection.from_files` — a lazy, file-backed time
+      stack (one band-set per timestep, read on demand via `/vsicurl`).
+    * **Multi-asset** (`asset` is a sequence of keys, e.g.
+      `["red", "green", "blue", "nir"]`): for each item, stack the named
+      assets band-wise into one multi-band raster (band order = `asset`
+      order, band names = the asset keys), then time-stack those per-item
+      rasters. This is the stackstac/odc-stac "assets → band axis" model.
+      Mixed-resolution assets are resampled onto the **first** asset's grid
+      when `align=True` (the default).
 
     The item interface is fully duck-typed. Any of these shapes work:
 
@@ -159,9 +175,10 @@ def from_stac(
 
     Args:
         items: Iterable of STAC Items (see duck-typed shapes above).
-        asset: Asset key (e.g. `"B04"`, `"visual"`) whose
-            `href` on each item becomes a timestep in the
-            resulting collection.
+        asset: Either a single asset key (`str`, e.g. `"B04"`, `"visual"`) for
+            a single-asset time stack, or a sequence of keys (e.g.
+            `["B04", "B03", "B02"]`) to stack those assets band-wise into one
+            multi-band raster per timestep (band order = sequence order).
         patch_url: Optional callable applied to each href (runs before
             `signer`) — a low-level hook for ad-hoc URL rewriting.
         bbox: Optional `(minx, miny, maxx, maxy)` lon/lat filter;
@@ -181,16 +198,29 @@ def from_stac(
             This makes both URL-signing signers and env-credentialed signers
             (Requester-Pays, bearer) work through `from_stac`. `None`
             (default) leaves hrefs untouched and captures no config.
+        align: Multi-asset only. When `True` (default), assets at differing
+            native resolutions are resampled onto the first requested asset's
+            grid (nearest, via :meth:`Dataset.from_band_files`). When `False`,
+            a grid/CRS mismatch among an item's assets raises
+            :class:`~pyramids.base._errors.AlignmentError`. Ignored in
+            single-asset mode.
+        skip_missing: When `True`, items missing any requested asset are
+            dropped instead of raising. When `False` (default), a missing
+            asset raises :class:`~pyramids.base._errors.StacAssetError`.
 
     Returns:
-        DatasetCollection: A file-backed collection whose
-        `time_length` equals `len(items)` and whose per-timestep
-        backing file is the resolved asset URL.
+        DatasetCollection: A file-backed collection whose `time_length`
+        equals the number of items kept. Single-asset mode backs each
+        timestep directly with the resolved asset URL (lazy); multi-asset
+        mode backs each timestep with a per-item multi-band raster
+        materialised under a temporary directory.
 
     Raises:
-        StacAssetError: When any item is missing the requested asset
-            (subclasses `KeyError`).
-        ValueError: When `items` yields zero items after filtering.
+        StacAssetError: When an item is missing a requested asset and
+            `skip_missing` is `False` (subclasses `KeyError`).
+        AlignmentError: Multi-asset with `align=False` and an item's assets
+            do not share a grid/CRS.
+        ValueError: When no items remain after filtering / skipping.
 
     Examples:
         - Build a DatasetCollection from raw STAC JSON dicts (no
@@ -212,20 +242,89 @@ def from_stac(
         item_list = [i for i in item_list if _item_intersects_bbox(i, bbox)]
     if max_items is not None:
         item_list = item_list[:max_items]
-    hrefs = []
-    for item in item_list:
-        href = _resolve_asset_href(item, asset)
+
+    gdal_env = signer.gdal_env() if signer is not None else None
+
+    def _sign(href: str) -> str:
         if patch_url is not None:
             href = patch_url(href)
         if signer is not None:
             href = signer.sign_href(href)
-        hrefs.append(href)
+        return href
 
-    gdal_env = signer.gdal_env() if signer is not None else None
-
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle (see _resolve_asset_href above).
     from pyramids.dataset.collection import DatasetCollection
 
-    return DatasetCollection.from_files(hrefs, gdal_env=gdal_env)
+    if isinstance(asset, str):
+        hrefs = [_sign(_resolve_asset_href(item, asset)) for item in item_list]
+        return DatasetCollection.from_files(hrefs, gdal_env=gdal_env)
+
+    return _from_stac_multi_asset(
+        item_list, list(asset), _sign, gdal_env, align, skip_missing, DatasetCollection
+    )
+
+
+def _from_stac_multi_asset(
+    item_list: list[Any],
+    asset_keys: list[str],
+    sign: Callable[[str], str],
+    gdal_env: dict[str, str] | None,
+    align: bool,
+    skip_missing: bool,
+    collection_cls: Any,
+) -> DatasetCollection:
+    """Stack multiple assets per item into a band axis, then time-stack them.
+
+    For each item, the named assets are resolved, signed, and stacked
+    band-wise into one multi-band GeoTIFF (band names = `asset_keys`) under a
+    temporary directory; those per-item rasters then back the collection. See
+    :func:`from_stac` for the parameter contract.
+
+    Args:
+        item_list: The (already filtered/capped) STAC items.
+        asset_keys: Asset keys to stack, in band order.
+        sign: The combined patch_url + signer.sign_href href rewriter.
+        gdal_env: Signer GDAL config installed around the per-asset opens.
+        align: Resample mismatched assets onto the first asset's grid.
+        skip_missing: Drop items missing any requested asset instead of raising.
+        collection_cls: The :class:`DatasetCollection` class (passed in to keep
+            this helper import-cycle-free).
+
+    Returns:
+        DatasetCollection: One multi-band timestep per kept item.
+
+    Raises:
+        StacAssetError: An item lacks a requested asset and `skip_missing`
+            is `False`.
+        ValueError: No items remain after skipping.
+    """
+    # Lazy imports: cycle-break (Dataset) + reuse the shared env helper.
+    from pyramids.base.remote import cloud_config_from_env
+    from pyramids.dataset.dataset import Dataset
+
+    out_dir = tempfile.mkdtemp(prefix="pyramids_stac_")
+    per_item_paths: list[str] = []
+    for idx, item in enumerate(item_list):
+        try:
+            hrefs = [sign(_resolve_asset_href(item, key)) for key in asset_keys]
+        except StacAssetError:
+            if skip_missing:
+                continue
+            raise
+        out_path = os.path.join(out_dir, f"stac_item_{idx}.tif")
+        with cloud_config_from_env(gdal_env):
+            Dataset.from_band_files(
+                hrefs, band_names=asset_keys, align=align, path=out_path
+            )
+        per_item_paths.append(out_path)
+
+    if not per_item_paths:
+        raise ValueError(
+            "from_stac produced no items (all were missing a requested asset "
+            "or filtered out)."
+        )
+    return collection_cls.from_files(per_item_paths)
 
 
 __all__ = ["from_stac"]

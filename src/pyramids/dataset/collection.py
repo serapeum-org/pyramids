@@ -1128,12 +1128,14 @@ class DatasetCollection:
     def from_stac(
         cls,
         items,
-        asset: str,
+        asset: str | Sequence[str],
         *,
         patch_url=None,
         bbox: tuple | None = None,
         max_items: int | None = None,
         signer: Any = None,
+        align: bool = True,
+        skip_missing: bool = False,
     ) -> DatasetCollection:
         """Build a collection from a STAC ItemCollection.
 
@@ -1145,7 +1147,11 @@ class DatasetCollection:
         Args:
             items: Iterable of STAC Items (pystac objects, raw JSON
                 dicts, or any duck-typed equivalent).
-            asset: Asset key to extract from each item.
+            asset: A single asset key (`str`) for a single-asset time
+                stack, or a sequence of keys (e.g. `["B04", "B03",
+                "B02"]`) to stack those assets band-wise into one
+                multi-band raster per timestep (band order = sequence
+                order).
             patch_url: Optional low-level callable rewriting each href
                 (runs before `signer`).
             bbox: M6 — optional `(minx, miny, maxx, maxy)` filter in
@@ -1160,6 +1166,11 @@ class DatasetCollection:
                 every read of the backing files authenticates — making
                 Requester-Pays / bearer / SAS catalogs work through
                 `from_stac`. See :func:`pyramids.dataset._stac.from_stac`.
+            align: Multi-asset only — resample assets at differing
+                resolutions onto the first asset's grid (`True`,
+                default) or raise on mismatch (`False`).
+            skip_missing: Drop items missing any requested asset
+                (`True`) instead of raising (`False`, default).
 
         Returns:
             DatasetCollection: File-backed collection.
@@ -1171,6 +1182,8 @@ class DatasetCollection:
             bbox=bbox,
             max_items=max_items,
             signer=signer,
+            align=align,
+            skip_missing=skip_missing,
         )
 
     @classmethod

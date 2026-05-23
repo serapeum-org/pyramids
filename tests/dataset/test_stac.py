@@ -16,7 +16,11 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._errors import (
+    AlignmentError,
+    OptionalPackageDoesNotExist,
+    StacAssetError,
+)
 from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset._stac import _horizontal_bounds, _item_intersects_bbox
@@ -448,3 +452,156 @@ class TestItemIntersectsBbox3D:
         ]
         coll = DatasetCollection.from_stac(items, asset="data", bbox=(0.0, 0.0, 0.5, 0.5))
         assert coll.time_length == 3, f"all 3 overlapping 3D-bbox items should pass, got {coll.time_length}"
+
+
+@pytest.fixture
+def multi_asset_items(tmp_path):
+    """Two scenes, each with red/green/blue single-band assets on a shared grid.
+
+    Each asset is a 3x4 EPSG:4326 raster (top-left (0, 3), cell 1) filled with a
+    distinct constant (red=1, green=2, blue=3), so band order is verifiable.
+
+    Returns:
+        list[dict]: two raw STAC item dicts, each with three assets.
+    """
+    items = []
+    values = {"red": 1.0, "green": 2.0, "blue": 3.0}
+    for scene in range(2):
+        assets = {}
+        for name, val in values.items():
+            ds = Dataset.create_from_array(
+                np.full((3, 4), val, dtype=np.float32),
+                top_left_corner=(0.0, 3.0),
+                cell_size=1.0,
+                epsg=4326,
+            )
+            p = str(tmp_path / f"scene{scene}_{name}.tif")
+            ds.to_file(p)
+            assets[name] = {"href": p}
+        items.append({"id": f"scene-{scene}", "bbox": [0.0, 0.0, 1.0, 1.0], "assets": assets})
+    return items
+
+
+class TestFromStacMultiAsset:
+    """PB-2: from_stac(asset=[...]) stacks assets band-wise per timestep."""
+
+    def test_returns_multiband_timesteps(self, multi_asset_items):
+        """A list of asset keys yields one multi-band Dataset per item.
+
+        Test scenario:
+            asset=["red","green","blue"] over two scenes -> 2 timesteps, each a
+            3-band raster whose band names are the asset keys.
+        """
+        coll = DatasetCollection.from_stac(multi_asset_items, asset=["red", "green", "blue"])
+        assert coll.time_length == 2, f"expected 2 timesteps, got {coll.time_length}"
+        first = coll.datasets[0]
+        assert first.band_count == 3, f"expected 3 bands, got {first.band_count}"
+        assert first.band_names == ["red", "green", "blue"], f"band names: {first.band_names}"
+
+    def test_band_order_preserved(self, multi_asset_items):
+        """Bands carry each asset's values in the requested order.
+
+        Test scenario:
+            Band 1 == red(1), band 2 == green(2), band 3 == blue(3).
+        """
+        coll = DatasetCollection.from_stac(multi_asset_items, asset=["red", "green", "blue"])
+        arr = coll.datasets[0].read_array()
+        assert arr.shape[0] == 3, f"expected 3 bands, got {arr.shape}"
+        assert float(arr[0, 0, 0]) == 1.0, f"band1 should be red=1, got {arr[0, 0, 0]}"
+        assert float(arr[1, 0, 0]) == 2.0, f"band2 should be green=2, got {arr[1, 0, 0]}"
+        assert float(arr[2, 0, 0]) == 3.0, f"band3 should be blue=3, got {arr[2, 0, 0]}"
+
+    def test_band_order_follows_asset_sequence(self, multi_asset_items):
+        """Reordering the asset list reorders the output bands.
+
+        Test scenario:
+            asset=["blue","red"] -> band1==blue(3), band2==red(1).
+        """
+        coll = DatasetCollection.from_stac(multi_asset_items, asset=["blue", "red"])
+        first = coll.datasets[0]
+        assert first.band_names == ["blue", "red"], f"band names: {first.band_names}"
+        arr = first.read_array()
+        assert float(arr[0, 0, 0]) == 3.0 and float(arr[1, 0, 0]) == 1.0, f"order wrong: {arr[:, 0, 0]}"
+
+    def test_single_asset_str_is_single_band(self, multi_asset_items):
+        """A plain str keeps the single-asset (single-band) behaviour.
+
+        Test scenario:
+            asset="red" -> 2 single-band timesteps (back-compat with the
+            pre-PB-2 contract).
+        """
+        coll = DatasetCollection.from_stac(multi_asset_items, asset="red")
+        assert coll.time_length == 2, f"expected 2 timesteps, got {coll.time_length}"
+        assert coll.datasets[0].band_count == 1, f"single asset should be 1 band"
+
+    def test_missing_asset_raises(self, multi_asset_items):
+        """A requested asset absent from an item raises StacAssetError.
+
+        Test scenario:
+            "nir" is not present on any scene -> StacAssetError (a KeyError).
+        """
+        with pytest.raises(StacAssetError, match="not found"):
+            DatasetCollection.from_stac(multi_asset_items, asset=["red", "nir"])
+
+    def test_skip_missing_drops_item(self, multi_asset_items):
+        """skip_missing=True drops items lacking a requested asset.
+
+        Test scenario:
+            Scene 0 loses its "blue" asset; with skip_missing only scene 1
+            survives the ["red","blue"] request.
+        """
+        del multi_asset_items[0]["assets"]["blue"]
+        coll = DatasetCollection.from_stac(
+            multi_asset_items, asset=["red", "blue"], skip_missing=True
+        )
+        assert coll.time_length == 1, f"expected 1 surviving item, got {coll.time_length}"
+
+    def test_skip_missing_all_gone_raises(self, multi_asset_items):
+        """When every item is skipped, a clear ValueError is raised.
+
+        Test scenario:
+            No item has "nir"; skip_missing drops them all -> ValueError.
+        """
+        with pytest.raises(ValueError, match="produced no items"):
+            DatasetCollection.from_stac(multi_asset_items, asset=["red", "nir"], skip_missing=True)
+
+    def test_align_true_resamples_mixed_resolution(self, tmp_path):
+        """align=True (default) resamples a coarser asset onto the first's grid.
+
+        Test scenario:
+            A 10 m red asset and a 20 m green asset stack into one 2-band raster
+            on red's grid without raising.
+        """
+        red = Dataset.create_from_array(
+            np.full((4, 4), 1.0, dtype=np.float32), top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326
+        )
+        green = Dataset.create_from_array(
+            np.full((2, 2), 2.0, dtype=np.float32), top_left_corner=(0.0, 4.0), cell_size=2.0, epsg=4326
+        )
+        rp, gp = str(tmp_path / "r.tif"), str(tmp_path / "g.tif")
+        red.to_file(rp)
+        green.to_file(gp)
+        items = [{"assets": {"red": {"href": rp}, "green": {"href": gp}}}]
+        coll = DatasetCollection.from_stac(items, asset=["red", "green"], align=True)
+        out = coll.datasets[0]
+        assert out.band_count == 2, f"expected 2 bands, got {out.band_count}"
+        assert out.read_array().shape[1:] == (4, 4), f"should be on red's 4x4 grid, got {out.read_array().shape}"
+
+    def test_align_false_mismatch_raises(self, tmp_path):
+        """align=False raises AlignmentError on a grid mismatch.
+
+        Test scenario:
+            The 10 m / 20 m pair cannot stack without resampling.
+        """
+        red = Dataset.create_from_array(
+            np.full((4, 4), 1.0, dtype=np.float32), top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326
+        )
+        green = Dataset.create_from_array(
+            np.full((2, 2), 2.0, dtype=np.float32), top_left_corner=(0.0, 4.0), cell_size=2.0, epsg=4326
+        )
+        rp, gp = str(tmp_path / "r.tif"), str(tmp_path / "g.tif")
+        red.to_file(rp)
+        green.to_file(gp)
+        items = [{"assets": {"red": {"href": rp}, "green": {"href": gp}}}]
+        with pytest.raises(AlignmentError):
+            DatasetCollection.from_stac(items, asset=["red", "green"], align=False)
