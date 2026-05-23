@@ -215,12 +215,23 @@ def _finalize_after_write(data_result, resolved_store, meta, files) -> None:
     _finalize_collection_metadata(resolved_store, meta, files)
 
 
-def _read_time_step(path: str | Path) -> np.ndarray:
+def _read_time_step(
+    path: str | Path, gdal_env: dict[str, str] | None = None
+) -> np.ndarray:
     """Synchronous per-file reader used by the lazy `data` dask graph.
 
     Module-level (not a closure) so each
-    :func:`dask.delayed` task pickles as `(_read_time_step, path)`
-    — no live GDAL handle crosses the wire.
+    :func:`dask.delayed` task pickles as `(_read_time_step, path, gdal_env)`
+    — no live GDAL handle crosses the wire, only the path and a plain
+    config dict.
+
+    Args:
+        path: The backing file path for this timestep.
+        gdal_env: H4 — the collection's persisted signer GDAL config
+            (Requester-Pays / bearer / SAS), installed inside the worker
+            around the open + read so a signed file-backed collection
+            authenticates its Path B reads. A no-op when empty/`None`
+            (the common, unsigned case pays nothing).
 
     Routes the per-file open through a fresh
     :class:`CachingFileManager` whose `manager_id` is the path
@@ -238,20 +249,21 @@ def _read_time_step(path: str | Path) -> np.ndarray:
     fragmentation under mixed-type call sites.
     """
     path = str(path)
-    manager = CachingFileManager(
-        gdal_raster_open,
-        path,
-        "read_only",
-        lock=False,
-        manager_id=path,
-    )
-    handle = manager.acquire()
-    band_count = handle.RasterCount
-    if band_count == 1:
-        arr = handle.GetRasterBand(1).ReadAsArray()
-        arr = arr[np.newaxis, :, :]
-    else:
-        arr = handle.ReadAsArray()
+    with cloud_config_from_env(gdal_env):
+        manager = CachingFileManager(
+            gdal_raster_open,
+            path,
+            "read_only",
+            lock=False,
+            manager_id=path,
+        )
+        handle = manager.acquire()
+        band_count = handle.RasterCount
+        if band_count == 1:
+            arr = handle.GetRasterBand(1).ReadAsArray()
+            arr = arr[np.newaxis, :, :]
+        else:
+            arr = handle.ReadAsArray()
     return np.ascontiguousarray(arr)
 
 
@@ -442,7 +454,12 @@ class DatasetCollection:
         """
         if self._datasets is None:
             if self._files is not None:
-                self._datasets = [Dataset.read_file(str(p)) for p in self._files]
+                # H4: install the persisted signer env (Requester-Pays / bearer /
+                # SAS) around every per-timestep open so a signed file-backed
+                # collection authenticates its Path A reads, not just the
+                # template open in from_files. A no-op when _gdal_env is empty.
+                with cloud_config_from_env(self._gdal_env):
+                    self._datasets = [Dataset.read_file(str(p)) for p in self._files]
             else:
                 self._datasets = [self._base] * self._time_length
         return self._datasets
@@ -727,7 +744,9 @@ class DatasetCollection:
         meta = self._meta
         shape = meta.shape
         dtype = np.dtype(meta.dtype)
-        delayed_reads = [dask.delayed(_read_time_step)(path) for path in self._files]
+        delayed_reads = [
+            dask.delayed(_read_time_step)(path, self._gdal_env) for path in self._files
+        ]
         arrays = [da.from_delayed(d, shape=shape, dtype=dtype) for d in delayed_reads]
         return da.stack(arrays, axis=0)
 

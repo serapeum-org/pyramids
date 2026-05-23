@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import import_dask
@@ -198,6 +199,99 @@ class TestFromStacSigner:
         """
         coll = DatasetCollection.from_files(three_tifs, gdal_env={"GDAL_HTTP_TIMEOUT": "15"})
         assert coll._gdal_env == {"GDAL_HTTP_TIMEOUT": "15"}, f"env not persisted: {coll._gdal_env}"
+
+
+class TestCollectionGdalEnvLazyReads:
+    """H4: the persisted gdal_env is installed around every lazy read."""
+
+    def test_path_a_datasets_open_under_env(self, three_tifs, monkeypatch):
+        """Path A: the `datasets` property opens each file under the env.
+
+        Test scenario:
+            A spy on Dataset.read_file records the sentinel GDAL option at open
+            time; with a persisted env every open (template + per-timestep) sees
+            it. Proves a signed file-backed collection authenticates Path A.
+        """
+        from pyramids.dataset import collection as coll_mod
+
+        seen: list[str | None] = []
+        real = coll_mod.Dataset.read_file
+
+        def spy(*args, **kwargs):
+            seen.append(gdal.GetConfigOption("PYRAMIDS_TEST_KEY"))
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(coll_mod.Dataset, "read_file", staticmethod(spy))
+        coll = DatasetCollection.from_files(three_tifs, gdal_env={"PYRAMIDS_TEST_KEY": "on"})
+        _ = coll.datasets
+        assert seen and all(v == "on" for v in seen), f"env not active for every open: {seen}"
+
+    def test_path_a_no_env_leaves_option_unset(self, three_tifs, monkeypatch):
+        """Path A: without a persisted env the sentinel option stays unset.
+
+        Test scenario:
+            from_files with no gdal_env opens under a nullcontext, so the
+            sentinel is None at open time.
+        """
+        from pyramids.dataset import collection as coll_mod
+
+        seen: list[str | None] = []
+        real = coll_mod.Dataset.read_file
+
+        def spy(*args, **kwargs):
+            seen.append(gdal.GetConfigOption("PYRAMIDS_TEST_KEY"))
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(coll_mod.Dataset, "read_file", staticmethod(spy))
+        coll = DatasetCollection.from_files(three_tifs)
+        _ = coll.datasets
+        assert seen and all(v is None for v in seen), f"unexpected env without signer: {seen}"
+
+    def test_path_b_read_time_step_installs_env(self, three_tifs, monkeypatch):
+        """Path B: `_read_time_step` installs the env around the worker open.
+
+        Test scenario:
+            A spy on the module-level opener records the sentinel option; calling
+            _read_time_step with an env must see it active.
+        """
+        from pyramids.dataset import collection as coll_mod
+
+        captured: dict[str, str | None] = {}
+        real_open = coll_mod.gdal_raster_open
+
+        def spy(*args, **kwargs):
+            captured["v"] = gdal.GetConfigOption("PYRAMIDS_TEST_KEY")
+            return real_open(*args, **kwargs)
+
+        monkeypatch.setattr(coll_mod, "gdal_raster_open", spy)
+        coll_mod._read_time_step(three_tifs[0], {"PYRAMIDS_TEST_KEY": "on"})
+        assert captured["v"] == "on", f"env not active during Path B open: {captured}"
+
+    def test_path_b_read_time_step_reads_array(self, three_tifs):
+        """Path B: `_read_time_step` returns a (1, R, C) array for a 1-band file.
+
+        Test scenario:
+            The reader still works (env defaults to None) and shapes correctly.
+        """
+        from pyramids.dataset.collection import _read_time_step
+
+        arr = _read_time_step(three_tifs[0])
+        assert arr.shape[0] == 1, f"single-band read should be (1, R, C), got {arr.shape}"
+
+    def test_gdal_env_survives_pickle(self, three_tifs):
+        """H4: the persisted env survives pickling (so it reaches dask workers).
+
+        Test scenario:
+            A round-trip through pickle preserves _gdal_env (the dask `data`
+            graph ships it into each worker task).
+        """
+        import pickle
+
+        coll = DatasetCollection.from_files(three_tifs, gdal_env={"AWS_REQUEST_PAYER": "requester"})
+        restored = pickle.loads(pickle.dumps(coll))
+        assert restored._gdal_env == {"AWS_REQUEST_PAYER": "requester"}, (
+            f"env lost across pickle: {restored._gdal_env}"
+        )
 
 
 class TestBboxAndMaxItems:
