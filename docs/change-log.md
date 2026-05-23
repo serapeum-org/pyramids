@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.22.0 (2026-05-23)
+
+### Feat
+
+- **dataset**: extend merge_rasters and add DatasetCollection.reduce_time (#360)
+
 ## 0.21.0 (2026-05-21)
 
 ### Feat
