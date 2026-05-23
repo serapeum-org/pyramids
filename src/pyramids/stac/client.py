@@ -70,6 +70,9 @@ def open_client(
     from pystac_client import Client
 
     signer = signer or AnonymousSigner()
+    # Both hooks are wired unconditionally. For AnonymousSigner sign_item /
+    # sign_request are no-ops, so the wiring is harmless; keeping it uniform
+    # avoids a branch and means a custom signer never has to be "registered".
     return Client.open(
         url,
         headers=headers,
