@@ -17,6 +17,10 @@ scope for pyramids; implement the :class:`Signer` protocol downstream for those.
 
 from __future__ import annotations
 
+from pyramids.stac._extensions import (
+    affine_to_geotransform,
+    read_extension_metadata,
+)
 from pyramids.stac._loader import load_asset, which_engine
 from pyramids.stac.client import open_client
 from pyramids.stac.signers import (
@@ -31,7 +35,9 @@ __all__ = [
     "AnonymousSigner",
     "BearerTokenSigner",
     "Signer",
+    "affine_to_geotransform",
     "load_asset",
     "open_client",
+    "read_extension_metadata",
     "which_engine",
 ]
