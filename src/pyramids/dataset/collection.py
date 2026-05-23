@@ -587,8 +587,9 @@ class DatasetCollection:
             ``dataset`` is a grid-attached reduction of that window.
 
         Raises:
-            ValueError: ``op`` is not a supported reduction, or ``len(times)``
-                does not match :attr:`time_length`.
+            ValueError: ``op`` is not a supported reduction, ``len(times)`` does
+                not match :attr:`time_length`, or ``times`` contains an
+                unparseable / ``NaT`` entry.
 
         Examples:
             - Monthly means of a stack of daily COGs, ready to write:
@@ -615,6 +616,11 @@ class DatasetCollection:
             )
 
         index = pd.DatetimeIndex(pd.to_datetime(time_list))
+        if index.isna().any():
+            raise ValueError(
+                "times contains unparseable / NaT entries; every timestep must "
+                "have a valid timestamp."
+            )
         positions = pd.Series(np.arange(len(index)), index=index)
         window_labels: list[Any] = [None] * len(index)
         for window_key, members in positions.groupby(pd.Grouper(freq=freq)):

@@ -181,3 +181,16 @@ class TestReduceTime:
         coll = DatasetCollection.from_files(daily_files)
         with pytest.raises(ValueError, match="times has 3 entries"):
             coll.reduce_time(["2022-01-01", "2022-01-02", "2022-01-03"], freq="1MS", op="mean")
+
+    @requires_dask
+    def test_nat_times_raises(self, daily_files):
+        """A NaT entry in times raises a clear ValueError, not an opaque TypeError.
+
+        Test scenario:
+            One timestep with pd.NaT would otherwise be dropped by the grouper,
+            leaving an unlabelled timestep — caught up front instead.
+        """
+        coll = DatasetCollection.from_files(daily_files)
+        times = [pd.NaT, "2022-01-02", "2022-01-03", "2022-01-04"]
+        with pytest.raises(ValueError, match="unparseable / NaT"):
+            coll.reduce_time(times, freq="1MS", op="mean")

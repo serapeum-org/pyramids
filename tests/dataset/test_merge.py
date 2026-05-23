@@ -363,6 +363,32 @@ class TestMergeRastersDstCrs:
         with pytest.raises(ValueError, match="Could not parse dst_crs"):
             merge_rasters([pa, pb], tmp_path / "bad.tif", dst_crs="not-a-crs")
 
+    def test_invalid_resampling_raises(self, shared_crs_pair, tmp_path):
+        """An unsupported ``resampling`` value raises ValueError.
+
+        Test scenario:
+            ``resampling="sinc"`` is not in INTERPOLATION_METHODS and is rejected
+            before any compositing.
+        """
+        pa, pb = shared_crs_pair
+        with pytest.raises(ValueError, match="resampling must be one of"):
+            merge_rasters([pa, pb], tmp_path / "bad.tif", dst_crs=3857, resampling="sinc")
+
+    @pytest.mark.parametrize("resampling", ["nearest neighbor", "bilinear", "cubic"])
+    def test_resampling_methods_reproject(self, shared_crs_pair, tmp_path, resampling):
+        """Each supported resampling method reprojects to ``dst_crs`` successfully.
+
+        Args:
+            resampling: The resampling method under test.
+
+        Test scenario:
+            A reproject to EPSG:3857 with each method produces a 3857 mosaic.
+        """
+        pa, pb = shared_crs_pair
+        out = tmp_path / f"r_{resampling.split()[0]}.tif"
+        merge_rasters([pa, pb], out, dst_crs=3857, resampling=resampling, no_data_value=-9999.0)
+        assert Dataset.read_file(str(out)).epsg == 3857, f"{resampling} did not reproject"
+
     def test_warp_failure_raises(self, shared_crs_pair, tmp_path, monkeypatch):
         """A None from gdal.Warp during reproject raises RuntimeError.
 
@@ -395,17 +421,22 @@ class TestMergeRastersDstCrs:
 class TestPrepareSources:
     """Tests for the ``_prepare_sources`` reproject helper."""
 
-    def test_shared_crs_returns_paths_unchanged(self, shared_crs_pair):
-        """A shared CRS with no ``dst_crs`` returns the paths and an empty keepalive.
+    def test_shared_crs_reuses_open_handles_no_reproject(self, shared_crs_pair):
+        """A shared CRS with no ``dst_crs`` reuses the open handles (no reproject).
 
         Test scenario:
-            When sources agree and ``dst_crs`` is None, no reproject happens:
-            the original path strings are passed through and nothing is held.
+            When sources agree and ``dst_crs`` is None, no reproject happens.
+            Each source is opened once and that same handle is returned as the
+            compositor input (and held in keepalive) — so no path is opened
+            twice. The handles are plain opens, not warped VRTs.
         """
         pa, pb = shared_crs_pair
         sources, keepalive = _prepare_sources([pa, pb], None)
-        assert sources == [pa, pb], f"Sources should be unchanged paths, got {sources}"
-        assert keepalive == [], f"Keepalive should be empty, got {keepalive}"
+        assert len(sources) == 2, f"Expected two sources, got {len(sources)}"
+        assert all(isinstance(s, gdal.Dataset) for s in sources), (
+            f"Cheap path should reuse open datasets, got {[type(s) for s in sources]}"
+        )
+        assert sources is keepalive, "sources and keepalive should be the same held handles"
 
     def test_dst_crs_materialises_all_as_datasets(self, shared_crs_pair):
         """An explicit ``dst_crs`` materialises every source as a dataset.
@@ -436,6 +467,22 @@ class TestPrepareSources:
             f"Disagree path should yield datasets, got {[type(s) for s in sources]}"
         )
         assert len(keepalive) == 2, f"Both datasets should be held, got {len(keepalive)}"
+
+    def test_crs_less_source_raises(self, shared_crs_pair, tmp_path):
+        """A source with no CRS raises a clear ValueError.
+
+        Test scenario:
+            A bare GeoTIFF written without a projection is rejected (rather than
+            silently mis-aligning the mosaic) when merged with a CRS-bearing one.
+        """
+        pa, _ = shared_crs_pair
+        nocrs = str(tmp_path / "nocrs.tif")
+        ds = gdal.GetDriverByName("GTiff").Create(nocrs, 4, 4, 1, gdal.GDT_Float32)
+        ds.GetRasterBand(1).WriteArray(np.zeros((4, 4), dtype="float32"))
+        ds.FlushCache()
+        ds = None
+        with pytest.raises(ValueError, match="has no CRS"):
+            _prepare_sources([pa, nocrs], None)
 
 
 class TestAsSrs:

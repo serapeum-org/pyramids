@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 from osgeo import gdal, osr
 
+from pyramids.base._utils import INTERPOLATION_METHODS
 from pyramids.base.remote import CloudConfig
 from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
 
@@ -53,6 +54,7 @@ def merge_rasters(
     n: float | int | str = "nan",
     method: str = "last",
     dst_crs: int | str | None = None,
+    resampling: str = "nearest neighbor",
     signer: Any = None,
 ) -> None:
     """Merge a group of rasters into one raster, resolving overlaps by ``method``.
@@ -97,6 +99,14 @@ def merge_rasters(
             the first source's CRS. Reprojection always happens before the
             ``BuildVRT``/``Warp`` compositing step because that step has no
             reprojection capability and assumes a single shared grid.
+        resampling (str):
+            Resampling method used when a source is reprojected to ``dst_crs``
+            (or to the common CRS on auto-detect). One of
+            :data:`pyramids.base._utils.INTERPOLATION_METHODS`:
+            ``"nearest neighbor"`` (default), ``"bilinear"``, or ``"cubic"``.
+            Prefer ``"bilinear"``/``"cubic"`` for continuous data (reflectance,
+            DEM) to avoid the blockiness nearest introduces across reprojection.
+            Ignored when no source is reprojected.
         signer (Any):
             Optional signer exposing ``gdal_env() -> dict[str, str]`` (e.g. a
             :class:`pyramids.stac.signers.Signer`). When given, its GDAL config
@@ -121,8 +131,8 @@ def merge_rasters(
         same integer inputs.
 
     Raises:
-        ValueError: ``method`` is not one of the supported values, or ``dst_crs``
-            cannot be parsed as a CRS.
+        ValueError: ``method``/``resampling`` is not a supported value,
+            ``dst_crs`` cannot be parsed as a CRS, or a source carries no CRS.
         RuntimeError: GDAL failed to open a source, reproject it, or build the
             source mosaic.
 
@@ -187,7 +197,7 @@ def merge_rasters(
         # shared CRS — so mismatched sources must be warped first or they would
         # mis-align silently. `_keepalive` holds the in-memory warped VRTs so
         # GDAL does not free them while the mosaic is built.
-        sources, _keepalive = _prepare_sources(src_paths, dst_crs)
+        sources, _keepalive = _prepare_sources(src_paths, dst_crs, resampling)
 
         if method in _REDUCE_METHODS:
             _merge_reduce(sources, str(dst), method, no_data_value, n)
@@ -249,7 +259,9 @@ def _as_srs(crs: int | str) -> osr.SpatialReference:
 
 
 def _prepare_sources(
-    src_paths: list[str], dst_crs: int | str | None
+    src_paths: list[str],
+    dst_crs: int | str | None,
+    resampling: str = "nearest neighbor",
 ) -> tuple[list, list]:
     """Put every source on a single CRS before the mosaic is composited.
 
@@ -258,75 +270,91 @@ def _prepare_sources(
     whose CRS differs from the target onto an in-memory warped VRT first, so
     tiles from different CRSs (e.g. neighbouring UTM zones) mosaic correctly.
 
+    Each source is opened exactly once; the open handle is reused both to read
+    the source CRS and (when no reproject is needed) as the compositor input, so
+    no path is opened twice — relevant under Requester-Pays where each open is
+    billable.
+
     Args:
         src_paths: Source raster paths.
         dst_crs: Target CRS as an EPSG code or CRS string. ``None`` keeps the
             previous behaviour — sources are returned untouched when they all
             share a CRS, and only reprojected (onto the first source's CRS) when
             they are found to disagree.
+        resampling: Resampling method used when reprojecting a mismatched-CRS
+            source — one of :data:`pyramids.base._utils.INTERPOLATION_METHODS`
+            (``"nearest neighbor"`` (default), ``"bilinear"``, ``"cubic"``).
+            Unused when no source is reprojected.
 
     Returns:
         tuple[list, list]: ``(sources, keepalive)``. ``sources`` is the
-            per-source input to feed the compositor: the original path string
-            when the source already matches the target CRS, otherwise an
-            in-memory warped :class:`gdal.Dataset`. ``keepalive`` holds those
-            warped datasets so the caller can keep them referenced (and prevent
-            GDAL from freeing them) until the mosaic is built.
+            per-source input to feed the compositor — open
+            :class:`gdal.Dataset` handles (warped VRTs for reprojected sources,
+            plain opens otherwise). ``keepalive`` holds the same datasets so the
+            caller keeps them referenced (and prevents GDAL from freeing them)
+            until the mosaic is built.
 
     Raises:
-        ValueError: ``dst_crs`` could not be parsed as a CRS.
+        ValueError: ``dst_crs`` (or ``resampling``) could not be parsed, or a
+            source carries no CRS.
         RuntimeError: A source could not be opened, or a reprojecting
             :func:`gdal.Warp` failed.
     """
-    target_srs = _as_srs(dst_crs) if dst_crs is not None else None
+    if resampling not in INTERPOLATION_METHODS:
+        raise ValueError(
+            f"resampling must be one of {sorted(INTERPOLATION_METHODS)}, "
+            f"got {resampling!r}."
+        )
 
-    source_srs = []
+    # Open each source once; read its CRS from that same handle.
+    opened: list = []
+    source_srs: list[osr.SpatialReference] = []
     for path in src_paths:
-        ds = gdal.Open(path)
-        if ds is None:
+        dataset = gdal.Open(path)
+        if dataset is None:
             raise RuntimeError(f"gdal.Open returned None for source {path!r}.")
+        wkt = dataset.GetProjection()
+        if not wkt:
+            raise ValueError(
+                f"source {path!r} has no CRS; every source must carry a CRS to "
+                "be merged/reprojected."
+            )
         srs = osr.SpatialReference()
-        srs.ImportFromWkt(ds.GetProjection())
+        srs.ImportFromWkt(wkt)
+        opened.append(dataset)
         source_srs.append(srs)
-        ds = None
 
-    disagree = any(not source_srs[0].IsSame(other) for other in source_srs[1:])
-
+    target_srs = _as_srs(dst_crs) if dst_crs is not None else None
     if target_srs is None:
+        # Auto-detect: no reproject when every source already shares a CRS.
+        disagree = any(not source_srs[0].IsSame(other) for other in source_srs[1:])
         if not disagree:
-            result = (list(src_paths), [])
-        else:
-            target_srs = source_srs[0]
+            return opened, opened
+        target_srs = source_srs[0]
 
-    if target_srs is not None:
-        # gdal.BuildVRT rejects a mix of path strings and dataset objects, so
-        # once any source must be reprojected every source is materialised as a
-        # dataset: warped VRTs for the mismatched ones, a plain open for those
-        # already on the target CRS. All of them go into `keepalive`.
-        target_wkt = target_srs.ExportToWkt()
-        sources = []
-        keepalive = []
-        for path, srs in zip(src_paths, source_srs):
-            if srs.IsSame(target_srs):
-                opened = gdal.Open(path)
-                if opened is None:
-                    raise RuntimeError(f"gdal.Open returned None for source {path!r}.")
-                sources.append(opened)
-                keepalive.append(opened)
-            else:
-                warped = gdal.Warp(
-                    "", path, options=gdal.WarpOptions(format="VRT", dstSRS=target_wkt)
-                )
-                if warped is None:
-                    raise RuntimeError(
-                        f"gdal.Warp returned None reprojecting {path!r} to the "
-                        "target CRS."
-                    )
-                sources.append(warped)
-                keepalive.append(warped)
-        result = (sources, keepalive)
-
-    return result
+    # At least one source needs reprojecting (or dst_crs forces a target). Feed
+    # the compositor open datasets uniformly — gdal.BuildVRT rejects a mix of
+    # path strings and dataset objects.
+    target_wkt = target_srs.ExportToWkt()
+    resample_alg = INTERPOLATION_METHODS[resampling]
+    sources: list = []
+    for dataset, srs in zip(opened, source_srs):
+        if srs.IsSame(target_srs):
+            sources.append(dataset)
+            continue
+        warped = gdal.Warp(
+            "",
+            dataset,
+            options=gdal.WarpOptions(
+                format="VRT", dstSRS=target_wkt, resampleAlg=resample_alg
+            ),
+        )
+        if warped is None:
+            raise RuntimeError(
+                f"gdal.Warp returned None reprojecting a source to the target CRS."
+            )
+        sources.append(warped)
+    return sources, sources
 
 
 def _merge_reduce(
