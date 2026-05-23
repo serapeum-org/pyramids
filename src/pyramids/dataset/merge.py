@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import warnings
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -18,32 +17,18 @@ import numpy as np
 from osgeo import gdal, osr
 
 from pyramids.base._utils import INTERPOLATION_METHODS
-from pyramids.base.remote import CloudConfig
+from pyramids.base.remote import signer_cloud_config
 from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
 
 _VRT_METHODS = ("first", "last")
 _REDUCE_METHODS = ("min", "max", "sum")
 _MERGE_METHODS = _VRT_METHODS + _REDUCE_METHODS
 
-
-def _cloud_config(signer: Any):
-    """Return a context manager installing ``signer``'s GDAL config, or a no-op.
-
-    Mirrors how :func:`pyramids.stac.load_asset` applies a signer: the signer's
-    ``gdal_env()`` mapping is fed into :class:`~pyramids.base.remote.CloudConfig`
-    so authenticated cloud reads work for the duration of the ``with`` block.
-
-    Args:
-        signer (Any): A signer exposing ``gdal_env() -> dict[str, str]`` (e.g. a
-            :class:`pyramids.stac.signers.Signer`), or ``None``.
-
-    Returns:
-        A context manager: a :class:`contextlib.nullcontext` when ``signer`` is
-        ``None`` (no GDAL config installed, behaviour unchanged), otherwise a
-        :class:`~pyramids.base.remote.CloudConfig` seeded with
-        ``signer.gdal_env()``.
-    """
-    return nullcontext() if signer is None else CloudConfig(extra=signer.gdal_env())
+# The signer -> CloudConfig helper now lives in pyramids.base.remote
+# (shared with pyramids.stac.load_asset so the rule lives in one place).
+# Kept as a module-level name because call sites and tests import
+# ``_cloud_config`` from here.
+_cloud_config = signer_cloud_config
 
 
 def merge_rasters(

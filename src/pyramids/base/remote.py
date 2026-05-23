@@ -23,7 +23,7 @@ import os
 import re
 import warnings
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 from urllib.parse import urlparse
@@ -548,6 +548,45 @@ class CloudConfig:
         self._ctx = None
         logger.debug("CloudConfig exited")
         return result
+
+
+def signer_cloud_config(signer: Any) -> Any:
+    """Return a context manager installing a signer's GDAL config, or a no-op.
+
+    This is the one place the "apply a signer's `gdal_env()` for the duration
+    of a GDAL operation" rule lives. It is shared by
+    :func:`pyramids.stac.load_asset` and the :mod:`pyramids.dataset.merge`
+    helpers so they install signer credentials identically.
+
+    Args:
+        signer: An object exposing `gdal_env() -> dict[str, str]` (e.g. a
+            :class:`pyramids.stac.signers.Signer`), or `None`.
+
+    Returns:
+        A :class:`contextlib.nullcontext` when `signer` is `None` (no GDAL
+        config installed, behaviour unchanged), otherwise a :class:`CloudConfig`
+        seeded with `signer.gdal_env()`.
+
+    Examples:
+        - A `None` signer yields a no-op context manager:
+            ```python
+            >>> from pyramids.base.remote import signer_cloud_config
+            >>> from contextlib import nullcontext
+            >>> isinstance(signer_cloud_config(None), nullcontext)
+            True
+
+            ```
+        - A signer yields a CloudConfig carrying its `gdal_env()`:
+            ```python
+            >>> class _S:
+            ...     def gdal_env(self):
+            ...         return {"AWS_REQUEST_PAYER": "requester"}
+            >>> signer_cloud_config(_S()).as_gdal_config()
+            {'AWS_REQUEST_PAYER': 'requester'}
+
+            ```
+    """
+    return nullcontext() if signer is None else CloudConfig(extra=signer.gdal_env())
 
 
 _REQUESTER_PAYS_ACK_ENV = "PYRAMIDS_REQUESTER_PAYS_ACK"

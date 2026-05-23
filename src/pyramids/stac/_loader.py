@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import Any
 
 from pyramids.base._errors import UnsupportedAssetError
-from pyramids.base.remote import CloudConfig
+from pyramids.base.remote import signer_cloud_config
 from pyramids.dataset import Dataset
 from pyramids.grib import open_grib
 from pyramids.netcdf import NetCDF
@@ -234,12 +234,10 @@ def load_asset(
             ```
     """
     href, media_type = _resolve_asset(item_or_asset, asset_key)
-    gdal_env: dict[str, str] = {}
     if signer is not None:
         href = signer.sign_href(href)
-        gdal_env = signer.gdal_env()
     engine = _engine_for(media_type, href)
-    with CloudConfig(extra=gdal_env):
+    with signer_cloud_config(signer):
         if engine == "grib":
             result: Dataset = open_grib(href, vsi=vsi)
         elif engine in ("netcdf", "zarr"):
