@@ -43,7 +43,10 @@ def _resolve_asset_href(item: Any, asset_key: str) -> str:
 
     Supports both :class:`pystac.Asset` (`.href` attribute) and
     raw-dict STAC assets (`{"href": "..."}`) so callers can pass
-    either a :class:`pystac.Item` or a plain JSON dict.
+    either a :class:`pystac.Item` or a plain JSON dict. Delegates to the
+    shared duck-typed accessors in :mod:`pyramids.stac._item` so this loader
+    and :func:`pyramids.stac._loader._resolve_asset` interpret the contract
+    identically.
 
     Args:
         item: Any object with an `assets` dict mapping asset keys
@@ -54,31 +57,19 @@ def _resolve_asset_href(item: Any, asset_key: str) -> str:
         str: The asset's href.
 
     Raises:
-        KeyError: When `asset_key` is not present on the item, or
-            when the asset exists but has no `href`.
+        StacAssetError: When `asset_key` is not present on the item, or when
+            the asset exists but has no `href` (subclasses :class:`KeyError`).
     """
-    assets = getattr(item, "assets", None)
-    if assets is None and isinstance(item, dict):
-        assets = item.get("assets")
-    if assets is None or asset_key not in assets:
-        available = list(assets or [])
-        item_id = getattr(item, "id", None)
-        if item_id is None and isinstance(item, dict):
-            item_id = item.get("id", "?")
-        raise KeyError(
-            f"asset {asset_key!r} not found on STAC item "
-            f"{item_id}; available: {available}"
-        )
-    asset = assets[asset_key]
-    href = getattr(asset, "href", None)
-    if href is None and isinstance(asset, dict):
-        href = asset.get("href")
-    if href is None:
-        item_id = getattr(item, "id", None)
-        if item_id is None and isinstance(item, dict):
-            item_id = item.get("id", "?")
-        raise KeyError(f"asset {asset_key!r} on STAC item {item_id} has no 'href'")
-    return str(href)
+    # Imported lazily to break the pyramids.dataset -> pyramids.stac ->
+    # pyramids.dataset import cycle: dataset/__init__ loads collection -> _stac
+    # before Dataset is bound, and pyramids.stac.__init__ imports _loader, which
+    # imports pyramids.dataset.Dataset. Top-level importing pyramids.stac here
+    # would therefore fail mid-init. (Same carve-out as the DatasetCollection
+    # import in from_stac below.)
+    from pyramids.stac._item import asset_href, get_asset
+
+    asset = get_asset(item, asset_key)
+    return asset_href(asset, item=item, asset_key=asset_key)
 
 
 def _horizontal_bounds(b: Sequence[float]) -> tuple[float, float, float, float]:

@@ -25,6 +25,7 @@ from pyramids.base.remote import CloudConfig
 from pyramids.dataset import Dataset
 from pyramids.grib import open_grib
 from pyramids.netcdf import NetCDF
+from pyramids.stac._item import asset_href, asset_media_type, get_asset
 
 _GEOTIFF_EXTS = (".tif", ".tiff")
 _NETCDF_EXTS = (".nc", ".nc4", ".cdf")
@@ -34,6 +35,11 @@ _ZARR_EXTS = (".zarr",)
 
 def _resolve_asset(item_or_asset: Any, asset_key: str | None) -> tuple[str, str | None]:
     """Resolve an item+key or a bare asset to `(href, media_type)`.
+
+    Delegates to the shared duck-typed accessors in
+    :mod:`pyramids.stac._item` so this reader and
+    :func:`pyramids.dataset._stac._resolve_asset_href` interpret the STAC
+    Item / Asset contract identically.
 
     Args:
         item_or_asset: A STAC Item (pystac.Item or raw dict with `assets`) or
@@ -45,31 +51,16 @@ def _resolve_asset(item_or_asset: Any, asset_key: str | None) -> tuple[str, str 
         A `(href, media_type)` tuple; `media_type` is `None` when absent.
 
     Raises:
-        KeyError: The asset is missing from the item, or has no `href`.
+        StacAssetError: The asset is missing from the item, or has no `href`
+            (subclasses :class:`KeyError`).
     """
     if asset_key is None:
         asset = item_or_asset
+        href = asset_href(asset)
     else:
-        assets = getattr(item_or_asset, "assets", None)
-        if assets is None and isinstance(item_or_asset, dict):
-            assets = item_or_asset.get("assets")
-        if assets is None or asset_key not in assets:
-            raise KeyError(
-                f"asset {asset_key!r} not found on STAC item; "
-                f"available: {list(assets or [])}"
-            )
-        asset = assets[asset_key]
-
-    href = getattr(asset, "href", None)
-    if href is None and isinstance(asset, dict):
-        href = asset.get("href")
-    if href is None:
-        raise KeyError(f"STAC asset {asset_key!r} has no 'href'")
-
-    media_type = getattr(asset, "media_type", None)
-    if media_type is None and isinstance(asset, dict):
-        media_type = asset.get("type")
-    return str(href), media_type
+        asset = get_asset(item_or_asset, asset_key)
+        href = asset_href(asset, item=item_or_asset, asset_key=asset_key)
+    return href, asset_media_type(asset)
 
 
 def _engine_for(media_type: str | None, href: str) -> str:

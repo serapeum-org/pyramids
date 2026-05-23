@@ -108,6 +108,41 @@ class VectorDriverError(FeatureError, RuntimeError):
     """
 
 
+class StacError(_PyramidsError):
+    """Base class for errors raised from pyramids' STAC handling.
+
+    Use to catch any STAC-side failure at once::
+
+        try:
+            load_asset(item, "B04")
+        except StacError:
+            ...
+    """
+
+
+class StacAssetError(StacError, KeyError):
+    """A STAC asset is missing from an item, or carries no usable `href`.
+
+    Raised by the duck-typed STAC accessors (:mod:`pyramids.stac._item`) when a
+    requested asset key is absent or the asset has no href.
+
+    Multi-inherits from :class:`KeyError` so existing `except KeyError:`
+    handlers (and callers written before this class existed) keep working.
+    """
+
+
+class UnsupportedAssetError(StacError, ValueError):
+    """No pyramids reader matches a STAC asset's media type / extension.
+
+    Raised by :func:`pyramids.stac._loader._engine_for` when neither the
+    asset's media type nor its href extension maps to a supported reader
+    (GeoTIFF/COG, JPEG2000, NetCDF, GRIB, Zarr).
+
+    Multi-inherits from :class:`ValueError` so existing `except ValueError:`
+    handlers keep working.
+    """
+
+
 class GeometryWarning(UserWarning):
     """Pyramids-emitted warning about geometry validity / degeneracy.
 
