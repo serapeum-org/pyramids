@@ -18,6 +18,7 @@ import pytest
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset._stac import _horizontal_bounds, _item_intersects_bbox
 
 pytestmark = pytest.mark.core
 
@@ -162,3 +163,102 @@ class TestAssetShapes:
         items = [{"assets": {"data": {"type": "image/tiff"}}}]
         with pytest.raises(KeyError, match="has no 'href'"):
             DatasetCollection.from_stac(items, asset="data")
+
+
+class TestHorizontalBounds:
+    """M1: ``_horizontal_bounds`` extracts (west, south, east, north) from 2D/3D bboxes."""
+
+    def test_2d_bbox_returned_verbatim(self):
+        """A 4-element bbox returns its four members as floats.
+
+        Test scenario:
+            ``[w, s, e, n]`` → ``(w, s, e, n)``.
+        """
+        assert _horizontal_bounds([1.0, 2.0, 3.0, 4.0]) == (1.0, 2.0, 3.0, 4.0)
+
+    def test_3d_bbox_drops_elevation(self):
+        """A 6-element 3D bbox drops the elevation members.
+
+        Test scenario:
+            ``[w, s, min_z, e, n, max_z]`` → ``(w, s, e, n)`` (indices 0,1,3,4).
+        """
+        result = _horizontal_bounds([1.0, 2.0, 100.0, 3.0, 4.0, 500.0])
+        assert result == (1.0, 2.0, 3.0, 4.0), f"3D bbox horizontal extent wrong: {result}"
+
+    def test_integer_members_coerced_to_float(self):
+        """Integer bbox members are returned as floats.
+
+        Test scenario:
+            An all-int bbox yields a float tuple.
+        """
+        result = _horizontal_bounds([0, 0, 10, 10])
+        assert result == (0.0, 0.0, 10.0, 10.0)
+        assert all(isinstance(v, float) for v in result), f"members not floats: {result}"
+
+    @pytest.mark.parametrize("bad", [[1, 2, 3], [1, 2, 3, 4, 5], [1, 2, 3, 4, 5, 6, 7], []])
+    def test_invalid_length_raises(self, bad):
+        """A bbox that is neither 4- nor 6-element raises ValueError.
+
+        Args:
+            bad: A bbox of an unsupported length.
+
+        Test scenario:
+            Lengths 0, 3, 5, 7 are rejected with a clear message.
+        """
+        with pytest.raises(ValueError, match="4 .2D. or 6 .3D. elements"):
+            _horizontal_bounds(bad)
+
+
+class TestItemIntersectsBbox3D:
+    """M1: ``_item_intersects_bbox`` handles 3D item/query bboxes without crashing."""
+
+    def test_3d_item_bbox_intersecting(self):
+        """A 3D item bbox overlapping the 2D query box intersects.
+
+        Test scenario:
+            Item ``[0,0,minz,2,2,maxz]`` overlaps query ``(1,1,3,3)`` → True
+            (previously raised ValueError on the 6-element unpack).
+        """
+        item = {"bbox": [0.0, 0.0, 100.0, 2.0, 2.0, 500.0]}
+        assert _item_intersects_bbox(item, (1.0, 1.0, 3.0, 3.0)) is True
+
+    def test_3d_item_bbox_disjoint(self):
+        """A 3D item bbox outside the query box does not intersect.
+
+        Test scenario:
+            Item far to the east of the query box → False, no crash.
+        """
+        item = {"bbox": [10.0, 10.0, 0.0, 12.0, 12.0, 50.0]}
+        assert _item_intersects_bbox(item, (0.0, 0.0, 1.0, 1.0)) is False
+
+    def test_3d_query_bbox_against_2d_item(self):
+        """A 3D query bbox compares only its horizontal extent.
+
+        Test scenario:
+            6-element query box overlapping a 2D item bbox → True.
+        """
+        item = {"bbox": [0.0, 0.0, 5.0, 5.0]}
+        assert _item_intersects_bbox(item, [1.0, 1.0, 0.0, 3.0, 3.0, 999.0]) is True
+
+    def test_item_without_bbox_is_permissive(self):
+        """An item with no bbox is treated as intersecting.
+
+        Test scenario:
+            Missing ``bbox`` → True regardless of the query box.
+        """
+        assert _item_intersects_bbox({"id": "x"}, (0.0, 0.0, 1.0, 1.0)) is True
+
+    def test_from_stac_filters_3d_bbox_items(self, three_tifs):
+        """``from_stac`` bbox-filters items carrying 3D bboxes end-to-end.
+
+        Test scenario:
+            Items with 6-element bboxes are filtered by a 2D query box without
+            raising — the regression M1 fixes (the loader previously crashed
+            unpacking a 3D item bbox).
+        """
+        items = [
+            {"id": f"i{i}", "bbox": [0.0, 0.0, 10.0, 1.0, 1.0, 200.0], "assets": {"data": {"href": p}}}
+            for i, p in enumerate(three_tifs)
+        ]
+        coll = DatasetCollection.from_stac(items, asset="data", bbox=(0.0, 0.0, 0.5, 0.5))
+        assert coll.time_length == 3, f"all 3 overlapping 3D-bbox items should pass, got {coll.time_length}"

@@ -18,6 +18,7 @@ raw JSON.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
@@ -80,16 +81,44 @@ def _resolve_asset_href(item: Any, asset_key: str) -> str:
     return str(href)
 
 
+def _horizontal_bounds(b: Sequence[float]) -> tuple[float, float, float, float]:
+    """Extract `(west, south, east, north)` from a 2D or 3D bbox.
+
+    A GeoJSON / STAC bbox (RFC 7946 §5) is `[west, south, east, north]`
+    in 2D and `[west, south, min_elev, east, north, max_elev]` in 3D.
+    The horizontal members are the first two values and the two values
+    starting at the midpoint, so this works for both lengths.
+
+    Args:
+        b: A bbox sequence of length 4 (2D) or 6 (3D).
+
+    Returns:
+        The `(west, south, east, north)` horizontal extent as floats.
+
+    Raises:
+        ValueError: When `b` has neither 4 nor 6 elements.
+    """
+    n = len(b)
+    if n not in (4, 6):
+        raise ValueError(
+            f"bbox must have 4 (2D) or 6 (3D) elements, got {n}: {list(b)!r}"
+        )
+    half = n // 2
+    return float(b[0]), float(b[1]), float(b[half]), float(b[half + 1])
+
+
 def _item_intersects_bbox(
     item: Any,
-    bbox: tuple[float, float, float, float],
+    bbox: Sequence[float],
 ) -> bool:
     """Return True if `item.bbox` overlaps `bbox` (lon/lat box).
 
     Reads `item.bbox` as either an attribute (pystac.Item) or a
-    dict key (raw JSON). Items without a bbox are treated as
-    intersecting (permissive default — the caller opted in to the
-    bbox filter, not the item).
+    dict key (raw JSON). Both the query `bbox` and the item bbox may be
+    2D (4-element) or 3D (6-element) — only the horizontal extent is
+    compared (see :func:`_horizontal_bounds`). Items without a bbox are
+    treated as intersecting (permissive default — the caller opted in to
+    the bbox filter, not the item).
     """
     item_bbox = getattr(item, "bbox", None)
     if item_bbox is None and isinstance(item, dict):
@@ -97,8 +126,8 @@ def _item_intersects_bbox(
     if item_bbox is None:
         result = True
     else:
-        minx, miny, maxx, maxy = bbox
-        i_minx, i_miny, i_maxx, i_maxy = item_bbox
+        minx, miny, maxx, maxy = _horizontal_bounds(bbox)
+        i_minx, i_miny, i_maxx, i_maxy = _horizontal_bounds(item_bbox)
         result = not (i_maxx < minx or i_minx > maxx or i_maxy < miny or i_miny > maxy)
     return result
 
