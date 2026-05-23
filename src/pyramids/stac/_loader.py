@@ -7,6 +7,7 @@ asset href, and opens it with the right GDAL-backed reader chosen by the asset's
 | media_type / extension                         | reader                          |
 |-------------------------------------------------|---------------------------------|
 | `image/tiff...` / `.tif` `.tiff`          | :meth:`Dataset.read_file`       |
+| `image/jp2` / `.jp2` `.jpx`               | :meth:`Dataset.read_file`       |
 | `application/x-netcdf` / `.nc` `.nc4` `.cdf` | :meth:`NetCDF.read_file`     |
 | `application/wmo-grib2` / `.grib2` `.grb` | :func:`pyramids.grib.open_grib` |
 | `application/vnd+zarr` / `.zarr`            | :meth:`NetCDF.read_file` (GDAL Zarr) |
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from pyramids.base._errors import UnsupportedAssetError
 from pyramids.base.remote import CloudConfig
 from pyramids.dataset import Dataset
 from pyramids.grib import open_grib
@@ -28,9 +30,32 @@ from pyramids.netcdf import NetCDF
 from pyramids.stac._item import asset_href, asset_media_type, get_asset
 
 _GEOTIFF_EXTS = (".tif", ".tiff")
+_JP2_EXTS = (".jp2", ".jpx")
 _NETCDF_EXTS = (".nc", ".nc4", ".cdf")
 _GRIB_EXTS = (".grib", ".grib2", ".grb", ".grb2")
 _ZARR_EXTS = (".zarr",)
+
+# Media-type prefix -> reader. Matched on a normalized lowercase *prefix* (via
+# str.startswith) rather than a bare substring, so a vendor media type that
+# merely contains e.g. "zarr" cannot mis-route (L4). The prefix sets are
+# disjoint, so iteration order is irrelevant. "image/tiff" as a prefix also
+# catches the COG profile string "image/tiff; application=geotiff; ...".
+_MEDIA_TYPE_ENGINES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("gdal", ("image/tiff", "image/geotiff", "image/vnd.stac.geotiff")),
+    ("gdal", ("image/jp2", "image/jpeg2000", "image/jpx")),
+    ("grib", ("application/wmo-grib2", "application/x-grib", "application/grib")),
+    ("netcdf", ("application/x-netcdf", "application/netcdf")),
+    ("zarr", ("application/vnd+zarr", "application/vnd.zarr", "application/zarr")),
+)
+
+# Href extension -> reader (fallback used when the media type is absent or
+# unrecognised). GDAL reads both GeoTIFF and JPEG2000.
+_EXTENSION_ENGINES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("grib", _GRIB_EXTS),
+    ("netcdf", _NETCDF_EXTS),
+    ("zarr", _ZARR_EXTS),
+    ("gdal", _GEOTIFF_EXTS + _JP2_EXTS),
+)
 
 
 def _resolve_asset(item_or_asset: Any, asset_key: str | None) -> tuple[str, str | None]:
@@ -71,35 +96,29 @@ def _engine_for(media_type: str | None, href: str) -> str:
         href: The asset href (used for the extension fallback).
 
     Returns:
-        One of `"gdal"`, `"netcdf"`, `"grib"`, `"zarr"`.
+        One of `"gdal"` (GeoTIFF/COG/JPEG2000), `"netcdf"`, `"grib"`, `"zarr"`.
 
     Raises:
-        ValueError: Neither media type nor extension identifies a reader.
+        UnsupportedAssetError: Neither media type nor extension identifies a
+            reader (subclasses :class:`ValueError`).
     """
-    mt = (media_type or "").lower()
+    mt = (media_type or "").lower().strip()
     result: str | None = None
-    if mt.startswith("image/tiff") or mt == "image/geotiff":
-        result = "gdal"
-    elif "grib" in mt:
-        result = "grib"
-    elif "netcdf" in mt:
-        result = "netcdf"
-    elif "zarr" in mt:
-        result = "zarr"
-    else:
-        low = href.lower().split("?")[0].rstrip("/")
-        if low.endswith(_GRIB_EXTS):
-            result = "grib"
-        elif low.endswith(_NETCDF_EXTS):
-            result = "netcdf"
-        elif low.endswith(_ZARR_EXTS):
-            result = "zarr"
-        elif low.endswith(_GEOTIFF_EXTS):
-            result = "gdal"
+    if mt:
+        for engine, prefixes in _MEDIA_TYPE_ENGINES:
+            if mt.startswith(prefixes):
+                result = engine
+                break
     if result is None:
-        raise ValueError(
+        low = href.lower().split("?")[0].rstrip("/")
+        for engine, exts in _EXTENSION_ENGINES:
+            if low.endswith(exts):
+                result = engine
+                break
+    if result is None:
+        raise UnsupportedAssetError(
             f"Cannot determine a reader for media_type={media_type!r} and "
-            f"href={href!r}; supported: GeoTIFF/COG, NetCDF, GRIB, Zarr."
+            f"href={href!r}; supported: GeoTIFF/COG, JPEG2000, NetCDF, GRIB, Zarr."
         )
     return result
 
