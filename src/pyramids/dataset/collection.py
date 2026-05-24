@@ -1137,6 +1137,7 @@ class DatasetCollection:
         signer: Any = None,
         align: bool = True,
         skip_missing: bool = False,
+        groupby: str | None = None,
     ) -> DatasetCollection:
         """Build a collection from a STAC ItemCollection.
 
@@ -1172,6 +1173,9 @@ class DatasetCollection:
                 default) or raise on mismatch (`False`).
             skip_missing: Drop items missing any requested asset
                 (`True`) instead of raising (`False`, default).
+            groupby: `"solar_day"` mosaics same-solar-day items into one
+                timestep each (single-asset only); `None` (default) keeps
+                one timestep per item.
 
         Returns:
             DatasetCollection: File-backed collection.
@@ -1185,6 +1189,7 @@ class DatasetCollection:
             signer=signer,
             align=align,
             skip_missing=skip_missing,
+            groupby=groupby,
         )
 
     @classmethod

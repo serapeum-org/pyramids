@@ -26,6 +26,7 @@ from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset._stac import (
     _horizontal_bounds,
     _item_intersects_bbox,
+    _solar_day,
     _validate_lonlat_bbox,
 )
 
@@ -656,3 +657,102 @@ class TestFromStacMultiAsset:
         items = [{"assets": {"red": {"href": rp}, "green": {"href": gp}}}]
         with pytest.raises(AlignmentError):
             DatasetCollection.from_stac(items, asset=["red", "green"], align=False)
+
+
+@pytest.fixture
+def solar_day_items(tmp_path):
+    """Three tiles: two on 2021-06-01 (same grid), one on 2021-06-05.
+
+    Returns:
+        list[dict]: raw STAC items with properties.datetime + a "data" asset.
+    """
+    grids = [
+        ("2021-06-01T10:00:00Z", 10.0),
+        ("2021-06-01T10:00:30Z", 11.0),
+        ("2021-06-05T10:00:00Z", 12.0),
+    ]
+    items = []
+    for i, (when, val) in enumerate(grids):
+        ds = Dataset.create_from_array(
+            np.full((4, 4), val, dtype="float32"),
+            top_left_corner=(0.0, 4.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        p = str(tmp_path / f"t{i}.tif")
+        ds.to_file(p)
+        items.append(
+            {
+                "id": f"item-{i}",
+                "bbox": [0.0, 0.0, 4.0, 4.0],
+                "properties": {"datetime": when},
+                "assets": {"data": {"href": p}},
+            }
+        )
+    return items
+
+
+class TestSolarDayHelper:
+    """PC-1: the _solar_day label helper."""
+
+    def test_utc_date(self):
+        """A near-zero-longitude item keeps its UTC calendar date.
+
+        Test scenario:
+            A 10:00Z item at lon 0 -> that same date.
+        """
+        item = {"bbox": [-0.5, 0.0, 0.5, 1.0], "properties": {"datetime": "2021-06-01T10:00:00Z"}}
+        assert _solar_day(item) == "2021-06-01", f"got {_solar_day(item)}"
+
+    def test_longitude_shift_crosses_midnight(self):
+        """A high-longitude late-UTC item shifts into the next solar day.
+
+        Test scenario:
+            23:00Z at lon ~150E shifts +10h -> next calendar day.
+        """
+        item = {"bbox": [149.0, 0.0, 151.0, 1.0], "properties": {"datetime": "2021-06-01T23:00:00Z"}}
+        assert _solar_day(item) == "2021-06-02", f"got {_solar_day(item)}"
+
+
+class TestFromStacSolarDay:
+    """PC-1: groupby='solar_day' mosaics same-day items into one timestep."""
+
+    def test_groups_same_day(self, solar_day_items):
+        """Two same-solar-day tiles fuse; a third day is its own timestep.
+
+        Test scenario:
+            3 items over 2 solar days -> time_length 2.
+        """
+        coll = DatasetCollection.from_stac(solar_day_items, asset="data", groupby="solar_day")
+        assert coll.time_length == 2, f"expected 2 solar-day timesteps, got {coll.time_length}"
+
+    def test_chronological_order(self, solar_day_items):
+        """The per-day mosaics are stacked in chronological order.
+
+        Test scenario:
+            06-01 (first-valid mosaic of value 10) precedes 06-05 (value 12).
+        """
+        coll = DatasetCollection.from_stac(solar_day_items, asset="data", groupby="solar_day")
+        first = coll.datasets[0].read_array()
+        last = coll.datasets[1].read_array()
+        assert float(first[0, 0]) == 10.0, f"first day should be first-valid 10, got {first[0, 0]}"
+        assert float(last[0, 0]) == 12.0, f"second day should be 12, got {last[0, 0]}"
+
+    def test_invalid_groupby_raises(self, solar_day_items):
+        """An unsupported groupby value raises ValueError.
+
+        Test scenario:
+            groupby='month' is not supported.
+        """
+        with pytest.raises(ValueError, match="groupby must be"):
+            DatasetCollection.from_stac(solar_day_items, asset="data", groupby="month")
+
+    def test_groupby_multi_asset_raises(self, solar_day_items):
+        """groupby with a multi-asset sequence is rejected.
+
+        Test scenario:
+            solar-day fusing is single-asset only.
+        """
+        with pytest.raises(ValueError, match="single asset"):
+            DatasetCollection.from_stac(solar_day_items, asset=["data", "data"], groupby="solar_day")

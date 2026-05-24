@@ -21,7 +21,10 @@ from __future__ import annotations
 import os
 import tempfile
 import warnings
+from collections import defaultdict
 from collections.abc import Sequence
+from datetime import datetime as _datetime_cls
+from datetime import timedelta, timezone
 from typing import TYPE_CHECKING, Any, Callable
 
 from osgeo import osr
@@ -166,6 +169,7 @@ def from_stac(
     signer: Any = None,
     align: bool = True,
     skip_missing: bool = False,
+    groupby: str | None = None,
 ) -> DatasetCollection:
     """Build a :class:`DatasetCollection` from a STAC ItemCollection.
 
@@ -240,6 +244,12 @@ def from_stac(
         skip_missing: When `True`, items missing any requested asset are
             dropped instead of raising. When `False` (default), a missing
             asset raises :class:`~pyramids.base._errors.StacAssetError`.
+        groupby: When `"solar_day"`, items sharing a solar day (their UTC
+            datetime shifted by the item-centroid longitude) are mosaicked
+            together — overlapping same-overpass tiles fuse into one timestep
+            via `merge_rasters(method="first")` (odc-stac's first-valid fuser).
+            The resulting `time_length` is the number of distinct solar days.
+            Single-asset only. `None` (default) keeps one timestep per item.
 
     Returns:
         DatasetCollection: A file-backed collection whose `time_length`
@@ -290,6 +300,16 @@ def from_stac(
     # pyramids.dataset import cycle (see _resolve_asset_href above).
     from pyramids.dataset.collection import DatasetCollection
 
+    if groupby is not None:
+        if groupby != "solar_day":
+            raise ValueError(f"groupby must be None or 'solar_day', got {groupby!r}.")
+        if not isinstance(asset, str):
+            raise ValueError(
+                "groupby='solar_day' supports a single asset (str), not a "
+                "multi-asset sequence."
+            )
+        return _from_stac_solar_day(item_list, asset, patch_url, signer, DatasetCollection)
+
     if isinstance(asset, str):
         hrefs = [_sign(_resolve_asset_href(item, asset)) for item in item_list]
         return DatasetCollection.from_files(hrefs, gdal_env=gdal_env)
@@ -297,6 +317,113 @@ def from_stac(
     return _from_stac_multi_asset(
         item_list, list(asset), _sign, gdal_env, align, skip_missing, DatasetCollection
     )
+
+
+def _item_datetime(item: Any) -> _datetime_cls:
+    """Return a STAC Item's datetime as a tz-aware :class:`datetime`.
+
+    Reads `item.datetime` (pystac) or `properties["datetime"]` (raw JSON).
+
+    Raises:
+        ValueError: The item carries no datetime.
+    """
+    when = getattr(item, "datetime", None)
+    if when is None:
+        props = getattr(item, "properties", None)
+        if props is None and isinstance(item, dict):
+            props = item.get("properties")
+        when = (props or {}).get("datetime")
+    if when is None:
+        raise ValueError(
+            f"item {_item_id(item)} has no datetime; required for "
+            "groupby='solar_day'."
+        )
+    if isinstance(when, str):
+        when = _datetime_cls.fromisoformat(when.replace("Z", "+00:00"))
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when
+
+
+def _item_centroid_lon(item: Any) -> float:
+    """Return the longitude of an item's bbox centroid (0.0 when no bbox)."""
+    bbox = getattr(item, "bbox", None)
+    if bbox is None and isinstance(item, dict):
+        bbox = item.get("bbox")
+    if not bbox:
+        return 0.0
+    west, _s, east, _n = _horizontal_bounds(bbox)
+    return (west + east) / 2.0
+
+
+def _solar_day(item: Any) -> str:
+    """Return an item's solar-day label (ISO date).
+
+    The UTC datetime is shifted by the centroid longitude (15°/hour) so a
+    single overpass is not split across the UTC-midnight boundary, then reduced
+    to its calendar date.
+    """
+    shifted = _item_datetime(item) + timedelta(
+        hours=_item_centroid_lon(item) / 15.0
+    )
+    return shifted.date().isoformat()
+
+
+def _item_id(item: Any) -> Any:
+    """Best-effort item id for error messages."""
+    iid = getattr(item, "id", None)
+    if iid is None and isinstance(item, dict):
+        iid = item.get("id", "?")
+    return iid if iid is not None else "?"
+
+
+def _from_stac_solar_day(
+    item_list: list[Any],
+    asset: str,
+    patch_url: Callable[[str], str] | None,
+    signer: Any,
+    collection_cls: Any,
+) -> DatasetCollection:
+    """Mosaic same-solar-day items of one asset into one timestep each.
+
+    Items are grouped by :func:`_solar_day`; each group's asset hrefs are
+    mosaicked with ``merge_rasters(method="first")`` (the signer is applied
+    there, so hrefs are not pre-signed here — only `patch_url` is). The per-day
+    mosaics, in chronological order, back the returned collection.
+
+    Args:
+        item_list: The (filtered) STAC items.
+        asset: The single asset key to mosaic.
+        patch_url: Optional href rewriter applied before the merge's signer.
+        signer: Optional signer (applied by `merge_rasters`).
+        collection_cls: The :class:`DatasetCollection` class (cycle-free).
+
+    Returns:
+        DatasetCollection: One timestep per distinct solar day.
+
+    Raises:
+        ValueError: No items remain to group.
+    """
+    from pyramids.dataset.merge import merge_rasters
+
+    if not item_list:
+        raise ValueError("from_stac(groupby='solar_day') received no items.")
+
+    groups: dict[str, list[str]] = defaultdict(list)
+    for item in item_list:
+        href = _resolve_asset_href(item, asset)
+        if patch_url is not None:
+            href = patch_url(href)
+        groups[_solar_day(item)].append(href)
+
+    out_dir = tempfile.mkdtemp(prefix="pyramids_stac_solar_")
+    per_day_paths: list[str] = []
+    for day in sorted(groups):
+        out_path = os.path.join(out_dir, f"{day}.tif")
+        merge_rasters(groups[day], out_path, method="first", signer=signer)
+        per_day_paths.append(out_path)
+
+    return collection_cls.from_files(per_day_paths)
 
 
 def _from_stac_multi_asset(
