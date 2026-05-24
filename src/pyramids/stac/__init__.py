@@ -21,7 +21,7 @@ from pyramids.stac._extensions import (
     affine_to_geotransform,
     read_extension_metadata,
 )
-from pyramids.stac._loader import load_asset, which_engine
+from pyramids.stac._loader import load_asset, resolved_href, which_engine
 from pyramids.stac.client import open_client
 from pyramids.stac.search import search
 from pyramids.stac.signers import (
@@ -42,6 +42,7 @@ __all__ = [
     "load_asset",
     "open_client",
     "read_extension_metadata",
+    "resolved_href",
     "search",
     "which_engine",
 ]

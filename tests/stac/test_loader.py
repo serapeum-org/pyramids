@@ -10,7 +10,13 @@ from pyramids.base._errors import StacAssetError, UnsupportedAssetError
 from pyramids.dataset import Dataset
 from pyramids.netcdf import NetCDF
 from pyramids.stac import _loader
-from pyramids.stac._loader import _engine_for, _resolve_asset, load_asset, which_engine
+from pyramids.stac._loader import (
+    _engine_for,
+    _resolve_asset,
+    load_asset,
+    resolved_href,
+    which_engine,
+)
 from pyramids.stac.signers import AWSRequesterPaysSigner
 
 pytestmark = pytest.mark.core
@@ -226,6 +232,50 @@ class TestResolveAsset:
         """
         with pytest.raises(KeyError, match="no 'href'"):
             _resolve_asset({"assets": {"a": {"type": "image/tiff"}}}, "a")
+
+
+class TestResolvedHref:
+    """Tests for resolved_href (L2): the read-free href resolver."""
+
+    def test_bare_asset_href(self):
+        """A bare asset dict resolves to its href.
+
+        Test scenario:
+            asset_key=None treats the input as the asset.
+        """
+        assert resolved_href({"href": "s3://b/x.tif", "type": "image/tiff"}) == "s3://b/x.tif"
+
+    def test_item_with_key(self):
+        """An Item + key resolves the named asset's href.
+
+        Test scenario:
+            The href under assets[key] is returned without opening.
+        """
+        item = {"assets": {"B04": {"href": "https://h/B04.tif"}}}
+        assert resolved_href(item, "B04") == "https://h/B04.tif"
+
+    def test_signer_applied(self):
+        """A signer's sign_href rewrites the resolved href.
+
+        Test scenario:
+            A simple suffix signer signs the href; gdal_env is irrelevant here.
+        """
+
+        class _S:
+            def sign_href(self, href):
+                return f"{href}?sig=tok"
+
+        item = {"assets": {"B04": {"href": "https://h/B04.tif"}}}
+        assert resolved_href(item, "B04", signer=_S()) == "https://h/B04.tif?sig=tok"
+
+    def test_missing_asset_raises(self):
+        """A missing asset raises the branded StacAssetError (a KeyError).
+
+        Test scenario:
+            Resolving an absent key surfaces the shared error without opening.
+        """
+        with pytest.raises(StacAssetError, match="not found"):
+            resolved_href({"assets": {"a": {"href": "x"}}}, "missing")
 
 
 class TestWhichEngine:

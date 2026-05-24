@@ -163,6 +163,56 @@ def which_engine(item_or_asset: Any, asset_key: str | None = None) -> str:
     return _engine_for(media_type, href)
 
 
+def resolved_href(
+    item_or_asset: Any, asset_key: str | None = None, *, signer: Any = None
+) -> str:
+    """Return an asset's resolved (optionally signed) href without opening it.
+
+    The read-free companion to :func:`load_asset`: it resolves the asset href
+    and, when a `signer` is given, applies `signer.sign_href` — but never opens
+    the asset. Useful for building a VRT over many assets
+    (:func:`pyramids.stac.build_vrt_from_stac`), pre-flighting URLs, or
+    debugging what `load_asset` would open.
+
+    Args:
+        item_or_asset: A STAC Item (pystac object or raw dict) or an Asset.
+        asset_key: Asset name when passing an Item; `None` for an Asset.
+        signer: Optional signer; when given, its `sign_href` rewrites the href
+            (e.g. grafting a SAS token). `gdal_env()` is **not** applied — no
+            read happens here.
+
+    Returns:
+        The resolved asset href, signed when a `signer` is supplied.
+
+    Raises:
+        StacAssetError: The asset is missing or has no href (subclasses
+            :class:`KeyError`).
+
+    Examples:
+        - Resolve a plain asset href:
+            ```python
+            >>> from pyramids.stac import resolved_href
+            >>> resolved_href({"href": "s3://b/scene.tif", "type": "image/tiff"})
+            's3://b/scene.tif'
+
+            ```
+        - Resolve an item's asset and sign it with a simple signer:
+            ```python
+            >>> class _S:
+            ...     def sign_href(self, href):
+            ...         return href + "?sig=tok"
+            >>> item = {"assets": {"B04": {"href": "https://h/B04.tif"}}}
+            >>> resolved_href(item, "B04", signer=_S())
+            'https://h/B04.tif?sig=tok'
+
+            ```
+    """
+    href, _ = _resolve_asset(item_or_asset, asset_key)
+    if signer is not None:
+        href = signer.sign_href(href)
+    return href
+
+
 def load_asset(
     item_or_asset: Any,
     asset_key: str | None = None,
