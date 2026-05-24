@@ -170,6 +170,11 @@ def from_stac(
     align: bool = True,
     skip_missing: bool = False,
     groupby: str | None = None,
+    like: Any = None,
+    crs: int | str | None = None,
+    resolution: float | None = None,
+    bounds: Sequence[float] | None = None,
+    anchor: str = "edge",
 ) -> DatasetCollection:
     """Build a :class:`DatasetCollection` from a STAC ItemCollection.
 
@@ -250,6 +255,20 @@ def from_stac(
             via `merge_rasters(method="first")` (odc-stac's first-valid fuser).
             The resulting `time_length` is the number of distinct solar days.
             Single-asset only. `None` (default) keeps one timestep per item.
+        like: Optional target grid as an existing
+            :class:`~pyramids.dataset.Dataset`; every timestep of the built
+            cube is reprojected/resampled onto its CRS + grid (via
+            :meth:`DatasetCollection.align`), guaranteeing pixel co-registration
+            (odc-stac's `like=`). Mutually exclusive with
+            `crs`/`resolution`/`bounds`.
+        crs: Target CRS (EPSG int or CRS string) for an explicit target grid.
+            Must be given together with `resolution` and `bounds`.
+        resolution: Target pixel size (CRS units) for an explicit target grid.
+        bounds: Target `(minx, miny, maxx, maxy)` extent (in `crs`) for an
+            explicit target grid.
+        anchor: Grid-snap rule for the explicit `crs`/`resolution`/`bounds`
+            grid. `"edge"` (default) snaps pixel edges to multiples of
+            `resolution` (so independently-built grids co-register).
 
     Returns:
         DatasetCollection: A file-backed collection whose `time_length`
@@ -300,6 +319,8 @@ def from_stac(
     # pyramids.dataset import cycle (see _resolve_asset_href above).
     from pyramids.dataset.collection import DatasetCollection
 
+    target_grid = _resolve_target_grid(like, crs, resolution, bounds, anchor)
+
     if groupby is not None:
         if groupby != "solar_day":
             raise ValueError(f"groupby must be None or 'solar_day', got {groupby!r}.")
@@ -308,14 +329,83 @@ def from_stac(
                 "groupby='solar_day' supports a single asset (str), not a "
                 "multi-asset sequence."
             )
-        return _from_stac_solar_day(item_list, asset, patch_url, signer, DatasetCollection)
-
-    if isinstance(asset, str):
+        collection = _from_stac_solar_day(
+            item_list, asset, patch_url, signer, DatasetCollection
+        )
+    elif isinstance(asset, str):
         hrefs = [_sign(_resolve_asset_href(item, asset)) for item in item_list]
-        return DatasetCollection.from_files(hrefs, gdal_env=gdal_env)
+        collection = DatasetCollection.from_files(hrefs, gdal_env=gdal_env)
+    else:
+        collection = _from_stac_multi_asset(
+            item_list, list(asset), _sign, gdal_env, align, skip_missing, DatasetCollection
+        )
 
-    return _from_stac_multi_asset(
-        item_list, list(asset), _sign, gdal_env, align, skip_missing, DatasetCollection
+    if target_grid is not None:
+        collection = collection.align(target_grid)
+    return collection
+
+
+def _resolve_target_grid(
+    like: Any,
+    crs: int | str | None,
+    resolution: float | None,
+    bounds: Sequence[float] | None,
+    anchor: str,
+) -> Any:
+    """Resolve the PC-2 grid-match arguments to a template Dataset (or None).
+
+    Args:
+        like: An existing :class:`~pyramids.dataset.Dataset` to match, or
+            `None`.
+        crs: Target CRS (with `resolution` + `bounds`) for an explicit grid.
+        resolution: Target pixel size.
+        bounds: Target `(minx, miny, maxx, maxy)` extent.
+        anchor: Grid-snap rule (`"edge"` supported).
+
+    Returns:
+        The `like` Dataset, a freshly built template Dataset for an explicit
+        grid, or `None` when no grid-match was requested.
+
+    Raises:
+        ValueError: `like` is combined with `crs`/`resolution`/`bounds`; the
+            explicit-grid trio is given only partially; or `anchor` is
+            unsupported.
+    """
+    explicit = (crs, resolution, bounds)
+    if like is not None:
+        if any(v is not None for v in explicit):
+            raise ValueError(
+                "like= is mutually exclusive with crs/resolution/bounds."
+            )
+        return like
+    if all(v is None for v in explicit):
+        return None
+    if any(v is None for v in explicit):
+        raise ValueError(
+            "crs, resolution, and bounds must all be given together (or use "
+            "like=)."
+        )
+    if anchor != "edge":
+        raise ValueError(f"anchor must be 'edge', got {anchor!r}.")
+
+    import math
+
+    import numpy as np
+
+    from pyramids.dataset.dataset import Dataset
+
+    minx, miny, maxx, maxy = (float(v) for v in bounds)
+    minx = math.floor(minx / resolution) * resolution
+    miny = math.floor(miny / resolution) * resolution
+    maxx = math.ceil(maxx / resolution) * resolution
+    maxy = math.ceil(maxy / resolution) * resolution
+    cols = max(int(round((maxx - minx) / resolution)), 1)
+    rows = max(int(round((maxy - miny) / resolution)), 1)
+    return Dataset.create_from_array(
+        np.zeros((rows, cols), dtype="float32"),
+        top_left_corner=(minx, maxy),
+        cell_size=resolution,
+        epsg=crs,
     )
 
 

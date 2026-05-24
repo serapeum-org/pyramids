@@ -1138,6 +1138,11 @@ class DatasetCollection:
         align: bool = True,
         skip_missing: bool = False,
         groupby: str | None = None,
+        like: Any = None,
+        crs: int | str | None = None,
+        resolution: float | None = None,
+        bounds=None,
+        anchor: str = "edge",
     ) -> DatasetCollection:
         """Build a collection from a STAC ItemCollection.
 
@@ -1176,9 +1181,17 @@ class DatasetCollection:
             groupby: `"solar_day"` mosaics same-solar-day items into one
                 timestep each (single-asset only); `None` (default) keeps
                 one timestep per item.
+            like: Optional target-grid :class:`~pyramids.dataset.Dataset`;
+                every timestep is aligned onto its CRS + grid. Mutually
+                exclusive with `crs`/`resolution`/`bounds`.
+            crs: Target CRS for an explicit grid (with `resolution`+`bounds`).
+            resolution: Target pixel size for an explicit grid.
+            bounds: Target `(minx, miny, maxx, maxy)` for an explicit grid.
+            anchor: Grid-snap rule for the explicit grid (`"edge"`).
 
         Returns:
-            DatasetCollection: File-backed collection.
+            DatasetCollection: File-backed collection (or grid-aligned
+            collection when `like`/`crs` is given).
         """
         return _from_stac(
             items,
@@ -1190,6 +1203,11 @@ class DatasetCollection:
             align=align,
             skip_missing=skip_missing,
             groupby=groupby,
+            like=like,
+            crs=crs,
+            resolution=resolution,
+            bounds=bounds,
+            anchor=anchor,
         )
 
     @classmethod
