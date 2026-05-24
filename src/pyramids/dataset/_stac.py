@@ -361,6 +361,180 @@ def _from_stac_multi_asset(
     return collection_cls.from_files(per_item_paths)
 
 
+DEFAULT_STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1"
+
+
+def _utm_epsg(lon: float, lat: float) -> int:
+    """Return the EPSG code of the UTM zone containing `(lon, lat)`.
+
+    Args:
+        lon: Longitude in degrees.
+        lat: Latitude in degrees.
+
+    Returns:
+        `326NN` (northern hemisphere) or `327NN` (southern) for UTM zone `NN`.
+
+    Examples:
+        - A point in the Italian Alps falls in UTM 32N:
+            ```python
+            >>> from pyramids.dataset._stac import _utm_epsg
+            >>> _utm_epsg(11.0, 46.0)
+            32632
+
+            ```
+        - A southern-hemisphere point uses the 327xx band:
+            ```python
+            >>> _utm_epsg(-58.0, -34.0)
+            32721
+
+            ```
+    """
+    zone = int((lon + 180.0) / 6.0) + 1
+    zone = min(max(zone, 1), 60)
+    return (32600 if lat >= 0 else 32700) + zone
+
+
+def _point_aoi_bbox(
+    lat: float,
+    lon: float,
+    edge_size: int,
+    resolution: float,
+    units: str,
+) -> tuple[int, tuple[float, float, float, float]]:
+    """Compute the local-UTM EPSG and the 4326 search bbox for a point cube.
+
+    The center `(lat, lon)` is reprojected to its local UTM, snapped to the
+    `resolution` grid, and expanded to a square AOI of `edge_size` pixels
+    (`units="px"`) or metres (`units="m"`); the UTM square is reprojected back
+    to EPSG:4326 for the STAC search.
+
+    Args:
+        lat: Center latitude (degrees).
+        lon: Center longitude (degrees).
+        edge_size: Cube side length, in pixels (`units="px"`) or metres
+            (`units="m"`).
+        resolution: Pixel size in metres.
+        units: `"px"` or `"m"`.
+
+    Returns:
+        A `(utm_epsg, bbox_4326)` tuple, with `bbox_4326` = `(w, s, e, n)`.
+
+    Raises:
+        ValueError: When `units` is not `"px"` or `"m"`.
+    """
+    if units not in ("px", "m"):
+        raise ValueError(f"units must be 'px' or 'm', got {units!r}.")
+    from pyproj import Transformer
+
+    utm_epsg = _utm_epsg(lon, lat)
+    to_utm = Transformer.from_crs(4326, utm_epsg, always_xy=True)
+    cx, cy = to_utm.transform(lon, lat)
+    cx = round(cx / resolution) * resolution
+    cy = round(cy / resolution) * resolution
+    half = (edge_size / 2.0) * resolution if units == "px" else edge_size / 2.0
+    utm_bbox = (cx - half, cy - half, cx + half, cy + half)
+
+    to_wgs = Transformer.from_crs(utm_epsg, 4326, always_xy=True)
+    minx, miny, maxx, maxy = utm_bbox
+    corners = [(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy)]
+    lons, lats = [], []
+    for x, y in corners:
+        clon, clat = to_wgs.transform(x, y)
+        lons.append(clon)
+        lats.append(clat)
+    return utm_epsg, (min(lons), min(lats), max(lons), max(lats))
+
+
+def from_point(
+    lat: float,
+    lon: float,
+    *,
+    collection: str,
+    bands: str | Sequence[str],
+    start_date: str,
+    end_date: str,
+    edge_size: int,
+    resolution: float,
+    units: str = "px",
+    stac: str = DEFAULT_STAC_URL,
+    query: Any = None,
+    signer: Any = None,
+    align: bool = True,
+) -> DatasetCollection:
+    """Build a point-centred STAC cube (cubo-style convenience constructor).
+
+    Composes :func:`pyramids.stac.search` (find items) and :func:`from_stac`
+    (build the cube) around a point + edge-size + resolution. The center
+    `(lat, lon)` is reprojected to its local UTM zone, snapped to the
+    `resolution` grid, and expanded to a square AOI of `edge_size` pixels (or
+    metres); that AOI (reprojected to EPSG:4326) drives the STAC search.
+
+    .. note::
+        The returned cube is on the matched assets' native grid clipped to the
+        AOI — it is **not yet** resampled to an exact `edge_size`×`edge_size`
+        local-UTM grid. Exact target-grid resampling arrives with the
+        `geobox=`/`like=` grid match (PC-2). For now `from_point` is the
+        convenience AOI + search + stack wrapper.
+
+    Args:
+        lat: Center latitude in degrees (EPSG:4326).
+        lon: Center longitude in degrees (EPSG:4326).
+        collection: STAC collection id to search.
+        bands: A single asset key or a sequence (multi-asset band axis; see
+            :func:`from_stac`).
+        start_date: Search start (RFC 3339 / `YYYY-MM-DD`).
+        end_date: Search end (RFC 3339 / `YYYY-MM-DD`).
+        edge_size: Cube side length, in pixels (`units="px"`) or metres
+            (`units="m"`).
+        resolution: Pixel size in metres.
+        units: `"px"` (default) or `"m"`.
+        stac: STAC API root URL. Defaults to the Microsoft Planetary Computer
+            (which needs a :class:`pyramids.stac.signers.PlanetaryComputerSigner`).
+        query: Optional STAC `query` extension dict (e.g.
+            `{"eo:cloud_cover": {"lt": 10}}`).
+        signer: Optional signer, forwarded to both the search and the reads.
+        align: Multi-asset resolution policy, forwarded to :func:`from_stac`.
+
+    Returns:
+        DatasetCollection: A time-stacked cube over the point AOI.
+
+    Raises:
+        ValueError: When `units` is invalid, or the search yields no items.
+        OptionalPackageDoesNotExist: When `pystac-client` (the `[stac]` extra)
+            is not installed.
+
+    Examples:
+        - Build a 64×64 px, 10 m Sentinel-2 cube around a point (network +
+          a PC signer required):
+            ```python
+            >>> from pyramids.dataset import DatasetCollection  # doctest: +SKIP
+            >>> from pyramids.stac import PlanetaryComputerSigner  # doctest: +SKIP
+            >>> cube = DatasetCollection.from_point(  # doctest: +SKIP
+            ...     lat=46.0, lon=11.0, collection="sentinel-2-l2a",
+            ...     bands=["B04", "B03", "B02"],
+            ...     start_date="2021-06-01", end_date="2021-06-10",
+            ...     edge_size=64, resolution=10,
+            ...     query={"eo:cloud_cover": {"lt": 10}},
+            ...     signer=PlanetaryComputerSigner(),
+            ... )
+
+            ```
+    """
+    _utm_epsg_code, bbox_4326 = _point_aoi_bbox(lat, lon, edge_size, resolution, units)
+
+    from pyramids.stac.search import search
+
+    items = search(
+        stac,
+        collection,
+        bbox=bbox_4326,
+        datetime=f"{start_date}/{end_date}",
+        query=query,
+        signer=signer,
+    )
+    return from_stac(items, bands, signer=signer, align=align)
+
+
 def _bbox_ring(bbox: Sequence[float]) -> dict[str, Any]:
     """Return a closed GeoJSON Polygon ring for `[minx, miny, maxx, maxy]`."""
     minx, miny, maxx, maxy = bbox
@@ -540,4 +714,4 @@ def to_stac_item(
     }
 
 
-__all__ = ["from_stac", "to_stac_item"]
+__all__ = ["from_point", "from_stac", "to_stac_item"]

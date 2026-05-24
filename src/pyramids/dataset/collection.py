@@ -21,6 +21,7 @@ from pyramids.base._utils import import_flox, import_zarr
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
+from pyramids.dataset._stac import from_point as _from_point
 from pyramids.dataset._stac import from_stac as _from_stac
 from pyramids.dataset.abstract_dataset import CATALOG
 from pyramids.dataset.dataset import Dataset
@@ -1185,6 +1186,65 @@ class DatasetCollection:
             align=align,
             skip_missing=skip_missing,
         )
+
+    @classmethod
+    def from_point(
+        cls,
+        lat: float,
+        lon: float,
+        *,
+        collection: str,
+        bands,
+        start_date: str,
+        end_date: str,
+        edge_size: int,
+        resolution: float,
+        units: str = "px",
+        stac: str | None = None,
+        query: Any = None,
+        signer: Any = None,
+        align: bool = True,
+    ) -> DatasetCollection:
+        """Build a point-centred STAC cube (cubo-style convenience constructor).
+
+        Thin forwarder to :func:`pyramids.dataset._stac.from_point`: reprojects
+        `(lat, lon)` to its local UTM, snaps to the `resolution` grid, expands to
+        an `edge_size`-pixel (or -metre) square AOI, searches `collection` over
+        that AOI + date range, and stacks the `bands` via :meth:`from_stac`.
+
+        Args:
+            lat: Center latitude in degrees (EPSG:4326).
+            lon: Center longitude in degrees (EPSG:4326).
+            collection: STAC collection id to search.
+            bands: A single asset key or a sequence (multi-asset band axis).
+            start_date: Search start (`YYYY-MM-DD` / RFC 3339).
+            end_date: Search end (`YYYY-MM-DD` / RFC 3339).
+            edge_size: Cube side length, in pixels (`units="px"`) or metres.
+            resolution: Pixel size in metres.
+            units: `"px"` (default) or `"m"`.
+            stac: STAC API root URL; `None` uses the Planetary Computer default.
+            query: Optional STAC `query` extension dict.
+            signer: Optional signer, forwarded to the search and the reads.
+            align: Multi-asset resolution policy (see :meth:`from_stac`).
+
+        Returns:
+            DatasetCollection: A time-stacked cube over the point AOI.
+        """
+        kwargs: dict[str, Any] = dict(
+            collection=collection,
+            bands=bands,
+            start_date=start_date,
+            end_date=end_date,
+            edge_size=edge_size,
+            resolution=resolution,
+            units=units,
+            query=query,
+            signer=signer,
+            align=align,
+        )
+        if stac is not None:
+            kwargs["stac"] = stac
+        return _from_point(lat, lon, **kwargs)
 
     @classmethod
     def from_files(
