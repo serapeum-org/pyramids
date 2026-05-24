@@ -209,9 +209,13 @@ def from_stac(
             `signer`) — a low-level hook for ad-hoc URL rewriting.
         bbox: Optional `(minx, miny, maxx, maxy)` lon/lat filter;
             items whose `bbox` doesn't intersect are dropped
-            before hrefs are resolved.
-        max_items: Optional cap on the number of items consumed
-            (after bbox filtering).
+            before hrefs are resolved. This is a **client-side
+            post-filter** over the already-materialised `items`; to bound
+            the query at the STAC API itself use
+            :func:`pyramids.stac.search` (M3).
+        max_items: Optional cap on the number of items consumed (after
+            bbox filtering). Also a **client-side** cap over `items`, not
+            an API paging limit — see :func:`pyramids.stac.search`.
         signer: Optional signer exposing `sign_href(str) -> str` and
             `gdal_env() -> dict[str, str]` (e.g. a
             :class:`pyramids.stac.signers.Signer`). When given, **both**

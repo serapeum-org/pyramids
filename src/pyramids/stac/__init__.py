@@ -23,6 +23,7 @@ from pyramids.stac._extensions import (
 )
 from pyramids.stac._loader import load_asset, which_engine
 from pyramids.stac.client import open_client
+from pyramids.stac.search import search
 from pyramids.stac.signers import (
     AnonymousSigner,
     AWSRequesterPaysSigner,
@@ -39,5 +40,6 @@ __all__ = [
     "load_asset",
     "open_client",
     "read_extension_metadata",
+    "search",
     "which_engine",
 ]
