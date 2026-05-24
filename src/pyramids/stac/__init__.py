@@ -22,6 +22,7 @@ from pyramids.stac._extensions import (
     read_extension_metadata,
 )
 from pyramids.stac._loader import load_asset, resolved_href, which_engine
+from pyramids.stac._vrt import build_vrt_from_stac
 from pyramids.stac.client import open_client
 from pyramids.stac.search import search
 from pyramids.stac.signers import (
@@ -39,6 +40,7 @@ __all__ = [
     "PlanetaryComputerSigner",
     "Signer",
     "affine_to_geotransform",
+    "build_vrt_from_stac",
     "load_asset",
     "open_client",
     "read_extension_metadata",
