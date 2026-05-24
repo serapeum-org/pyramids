@@ -23,7 +23,11 @@ from pyramids.base._errors import (
 )
 from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset, DatasetCollection
-from pyramids.dataset._stac import _horizontal_bounds, _item_intersects_bbox
+from pyramids.dataset._stac import (
+    _horizontal_bounds,
+    _item_intersects_bbox,
+    _validate_lonlat_bbox,
+)
 
 pytestmark = pytest.mark.core
 
@@ -311,11 +315,13 @@ class TestBboxAndMaxItems:
         assert collection.time_length == 3
 
     def test_bbox_excludes_non_intersecting(self, stac_items):
+        # A valid lon/lat box that does not intersect the items' [0,0,1,1] bbox
+        # (L1 now rejects projected / out-of-range boxes up front).
         with pytest.raises(ValueError, match="at least one path"):
             DatasetCollection.from_stac(
                 stac_items,
                 asset="data",
-                bbox=(100.0, 100.0, 200.0, 200.0),
+                bbox=(10.0, 10.0, 20.0, 20.0),
             )
 
     def test_max_items_caps(self, stac_items):
@@ -437,6 +443,51 @@ class TestItemIntersectsBbox3D:
             Missing ``bbox`` → True regardless of the query box.
         """
         assert _item_intersects_bbox({"id": "x"}, (0.0, 0.0, 1.0, 1.0)) is True
+
+
+class TestValidateLonLatBbox:
+    """L1: from_stac validates the query bbox is lon/lat (WGS84)."""
+
+    @pytest.mark.parametrize(
+        "bbox",
+        [(-180.0, -90.0, 180.0, 90.0), (0.0, 0.0, 1.0, 1.0), [10.0, 20.0, 0.0, 30.0, 40.0, 500.0]],
+    )
+    def test_valid_lonlat_passes(self, bbox):
+        """A box within +/-180 / +/-90 (2D or 3D) is accepted.
+
+        Args:
+            bbox: A valid lon/lat box.
+
+        Test scenario:
+            The validator returns None (no raise) for in-range boxes.
+        """
+        assert _validate_lonlat_bbox(bbox) is None
+
+    @pytest.mark.parametrize(
+        "bbox",
+        [(600000.0, 5000000.0, 601000.0, 5001000.0), (0.0, -91.0, 1.0, 1.0), (-181.0, 0.0, 1.0, 1.0)],
+    )
+    def test_projected_or_out_of_range_raises(self, bbox):
+        """A projected / out-of-range box raises ValueError.
+
+        Args:
+            bbox: A box with coordinates outside the lon/lat domain.
+
+        Test scenario:
+            UTM metres and out-of-range lat/lon are rejected with a clear
+            message rather than silently matching nothing.
+        """
+        with pytest.raises(ValueError, match="lon/lat"):
+            _validate_lonlat_bbox(bbox)
+
+    def test_from_stac_rejects_projected_bbox(self, stac_items):
+        """from_stac surfaces the lon/lat validation to the caller.
+
+        Test scenario:
+            A UTM-metre bbox passed to from_stac raises before any read.
+        """
+        with pytest.raises(ValueError, match="lon/lat"):
+            DatasetCollection.from_stac(stac_items, asset="data", bbox=(500000.0, 4000000.0, 501000.0, 4001000.0))
 
     def test_from_stac_filters_3d_bbox_items(self, three_tifs):
         """``from_stac`` bbox-filters items carrying 3D bboxes end-to-end.

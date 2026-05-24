@@ -102,6 +102,32 @@ def _horizontal_bounds(b: Sequence[float]) -> tuple[float, float, float, float]:
     return float(b[0]), float(b[1]), float(b[half]), float(b[half + 1])
 
 
+def _validate_lonlat_bbox(bbox: Sequence[float]) -> None:
+    """Validate that `bbox` is a lon/lat (WGS84) box (L1).
+
+    STAC item bboxes are WGS84 by spec, and :meth:`from_stac` compares the
+    query box against them directly, so the query box must also be lon/lat.
+    A projected box (e.g. UTM metres like ``600000``) silently matches nothing;
+    rejecting it up front turns that into a clear error.
+
+    Args:
+        bbox: A 2D (4-element) or 3D (6-element) bbox.
+
+    Raises:
+        ValueError: When any horizontal coordinate falls outside
+            ``[-180, 180]`` (longitude) / ``[-90, 90]`` (latitude).
+    """
+    west, south, east, north = _horizontal_bounds(bbox)
+    lon_ok = -180.0 <= west <= 180.0 and -180.0 <= east <= 180.0
+    lat_ok = -90.0 <= south <= 90.0 and -90.0 <= north <= 90.0
+    if not (lon_ok and lat_ok):
+        raise ValueError(
+            "bbox must be lon/lat (WGS84) within longitude [-180, 180] and "
+            f"latitude [-90, 90], got {list(bbox)!r}. STAC item bboxes are "
+            "WGS84; reproject a projected box before filtering."
+        )
+
+
 def _item_intersects_bbox(
     item: Any,
     bbox: Sequence[float],
@@ -239,6 +265,7 @@ def from_stac(
     """
     item_list = _iter_items(items)
     if bbox is not None:
+        _validate_lonlat_bbox(bbox)
         item_list = [i for i in item_list if _item_intersects_bbox(i, bbox)]
     if max_items is not None:
         item_list = item_list[:max_items]
