@@ -10,6 +10,7 @@ from pyramids.stac.signers import (
     AnonymousSigner,
     AWSRequesterPaysSigner,
     BearerTokenSigner,
+    PlanetaryComputerSigner,
     Signer,
     _BaseSigner,
 )
@@ -268,6 +269,145 @@ class TestBearerTokenSigner:
         assert isinstance(
             BearerTokenSigner("t"), Signer
         ), "Should satisfy the Signer protocol"
+
+
+class TestPlanetaryComputerSigner:
+    """Tests for the native PC SAS signer (PB-4); token fetch is stubbed."""
+
+    @pytest.fixture
+    def signer(self, monkeypatch):
+        """A PC signer whose token fetch is stubbed (no network).
+
+        Args:
+            monkeypatch: pytest fixture.
+
+        Returns:
+            PlanetaryComputerSigner: records fetch calls in ``signer.fetches``;
+            each fetch returns a token derived from the container with a
+            far-future expiry.
+        """
+        s = PlanetaryComputerSigner()
+        s.fetches = []
+
+        def fake_fetch(account, container):
+            s.fetches.append((account, container))
+            return (f"sig=tok-{container}", 9_999_999_999.0)
+
+        monkeypatch.setattr(s, "_fetch_token", fake_fetch)
+        return s
+
+    def test_is_a_signer(self, signer):
+        """The PC signer satisfies the Signer protocol and is named.
+
+        Test scenario:
+            Structural protocol membership + the advertised name.
+        """
+        assert isinstance(signer, Signer), "PC signer should satisfy the Signer protocol"
+        assert signer.name == "planetary-computer", f"unexpected name: {signer.name}"
+
+    def test_gdal_env_is_empty(self, signer):
+        """The credential rides the URL, so gdal_env() is empty.
+
+        Test scenario:
+            No GDAL config is needed for a SAS-signed /vsicurl href.
+        """
+        assert signer.gdal_env() == {}, f"PC signer gdal_env should be empty, got {signer.gdal_env()}"
+
+    def test_signs_blob_href(self, signer):
+        """A PC blob href gets the SAS token appended.
+
+        Test scenario:
+            account/container are parsed and ?<token> is appended.
+        """
+        out = signer.sign_href("https://sent2.blob.core.windows.net/sentinel/B04.tif")
+        assert out == "https://sent2.blob.core.windows.net/sentinel/B04.tif?sig=tok-sentinel", out
+        assert signer.fetches == [("sent2", "sentinel")], f"unexpected fetch: {signer.fetches}"
+
+    def test_appends_with_ampersand_when_query_present(self, signer):
+        """An existing query string gets the token appended with '&'.
+
+        Test scenario:
+            A blob href that already has a (non-SAS) query keeps it.
+        """
+        out = signer.sign_href("https://a.blob.core.windows.net/c/b.tif?foo=1")
+        assert out == "https://a.blob.core.windows.net/c/b.tif?foo=1&sig=tok-c", out
+
+    def test_non_blob_href_passthrough(self, signer):
+        """A non-Azure href is returned unchanged and triggers no fetch.
+
+        Test scenario:
+            An s3:// href is not a PC blob.
+        """
+        href = "s3://bucket/scene.tif"
+        assert signer.sign_href(href) == href, "non-blob href must pass through"
+        assert signer.fetches == [], "no token should be fetched for a non-blob href"
+
+    def test_public_bucket_not_signed(self, signer):
+        """The public ai4edatasetspublicassets bucket is never signed.
+
+        Test scenario:
+            Public assets need no SAS token.
+        """
+        href = "https://ai4edatasetspublicassets.blob.core.windows.net/c/b.tif"
+        assert signer.sign_href(href) == href, "public bucket must not be signed"
+        assert signer.fetches == [], "public bucket should not trigger a fetch"
+
+    def test_already_signed_href_untouched(self, signer):
+        """An href already carrying SAS params is left as-is.
+
+        Test scenario:
+            Presence of se/sig means it is already signed.
+        """
+        href = "https://a.blob.core.windows.net/c/b.tif?se=2034&sig=abc"
+        assert signer.sign_href(href) == href, "already-signed href must be untouched"
+        assert signer.fetches == [], "already-signed href should not trigger a fetch"
+
+    def test_token_cached_across_calls(self, signer):
+        """A token is fetched once per (account, container) and reused.
+
+        Test scenario:
+            Two hrefs in the same container fetch only once.
+        """
+        signer.sign_href("https://a.blob.core.windows.net/c/one.tif")
+        signer.sign_href("https://a.blob.core.windows.net/c/two.tif")
+        assert signer.fetches == [("a", "c")], f"token should be cached, got {signer.fetches}"
+
+    def test_sign_item_rewrites_dict_assets(self, signer):
+        """sign_item rewrites every blob asset href on a raw-dict item in place.
+
+        Test scenario:
+            A dict item's blob asset is signed; a non-blob asset is untouched.
+        """
+        item = {
+            "assets": {
+                "B04": {"href": "https://a.blob.core.windows.net/c/B04.tif"},
+                "thumb": {"href": "https://example.com/t.png"},
+            }
+        }
+        assert signer.sign_item(item) is None, "sign_item must return None (modifier contract)"
+        assert item["assets"]["B04"]["href"].endswith("?sig=tok-c"), item["assets"]["B04"]["href"]
+        assert item["assets"]["thumb"]["href"] == "https://example.com/t.png", "non-blob untouched"
+
+    def test_sign_item_handles_attribute_assets(self, signer):
+        """sign_item rewrites .href on pystac-like asset objects.
+
+        Test scenario:
+            An item exposing .assets with objects bearing .href is signed.
+        """
+        asset = SimpleNamespace(href="https://a.blob.core.windows.net/c/B03.tif")
+        item = SimpleNamespace(assets={"B03": asset})
+        signer.sign_item(item)
+        assert asset.href.endswith("?sig=tok-c"), f"attribute asset not signed: {asset.href}"
+
+    def test_parse_expiry_handles_z_suffix_and_missing(self):
+        """_parse_expiry parses RFC3339 'Z' and returns 0.0 for bad input.
+
+        Test scenario:
+            A 'Z'-suffixed timestamp parses to a positive epoch; None -> 0.0.
+        """
+        ts = PlanetaryComputerSigner._parse_expiry("2034-01-01T00:00:00Z")
+        assert ts > 2_000_000_000.0, f"expected a far-future epoch, got {ts}"
+        assert PlanetaryComputerSigner._parse_expiry(None) == 0.0, "missing expiry should be 0.0"
 
 
 class TestSignerProtocol:

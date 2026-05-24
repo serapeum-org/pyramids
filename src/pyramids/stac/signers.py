@@ -11,17 +11,27 @@ cloud-hosted STAC archive can have:
 3. **asset-read** — when GDAL opens the asset, it may need extra environment
    (`AWS_REQUEST_PAYER=requester`, an `Authorization` header).
 
-This module ships only the *generic*, dependency-light signers
+This module ships the *generic*, dependency-light signers
 (:class:`AnonymousSigner`, :class:`AWSRequesterPaysSigner`,
-:class:`BearerTokenSigner`). Provider-specific signers that require remote-
-sensing SDKs — Microsoft Planetary Computer (`planetary-computer`) or NASA
-Earthdata (`earthaccess`) — are intentionally **not** part of pyramids;
-downstream packages implement the :class:`Signer` protocol for those providers.
+:class:`BearerTokenSigner`) plus :class:`PlanetaryComputerSigner`, a **native**
+Microsoft Planetary Computer SAS signer that mints tokens over stdlib
+``urllib`` — it requires **no** ``planetary-computer`` SDK, so it keeps pyramids
+dependency-light. Provider signers that would require a heavyweight remote-
+sensing SDK or live token-refresh service (e.g. NASA Earthdata's
+``earthaccess``) remain out of scope here; implement the :class:`Signer`
+protocol downstream (or pass a token callable to :class:`BearerTokenSigner`)
+for those.
 """
 
 from __future__ import annotations
 
+import json
+import os
+import time
+import urllib.request
+from datetime import datetime, timezone
 from typing import Any, Callable, Protocol, runtime_checkable
+from urllib.parse import parse_qs, urlparse
 
 
 @runtime_checkable
@@ -242,3 +252,220 @@ class BearerTokenSigner(_BaseSigner):
             A mapping with `GDAL_HTTP_HEADERS` set to the bearer header.
         """
         return {"GDAL_HTTP_HEADERS": f"Authorization: Bearer {self._resolve()}"}
+
+
+class PlanetaryComputerSigner(_BaseSigner):
+    """Native Microsoft Planetary Computer SAS signer (no SDK dependency).
+
+    PC hosts Sentinel / Landsat / many collections behind short-lived Shared
+    Access Signature (SAS) tokens. This signer mints a token per
+    `(account, container)` from the PC token endpoint and appends it to the
+    blob href's query string — the same algorithm as `planetary_computer.sign`
+    but implemented over the standard library (`urllib`), so pyramids gains PC
+    support without taking the `planetary-computer` SDK as a dependency.
+
+    Because the credential rides the URL, :meth:`gdal_env` is empty: a signed
+    `https://<account>.blob.core.windows.net/...?<sas>` href is read directly
+    through GDAL `/vsicurl/` with no extra config. Wire it in via
+    `open_client(..., signer=PlanetaryComputerSigner())` (its `sign_item`
+    rewrites returned Items) or `from_stac(..., signer=PlanetaryComputerSigner())`.
+
+    Non-PC hrefs, the public `ai4edatasetspublicassets` bucket, and
+    already-signed URLs pass through unchanged. Tokens are cached until
+    `refresh_window` seconds before their advertised expiry.
+
+    Args:
+        sas_url: SAS token endpoint. Defaults to `$PC_SDK_SAS_URL` or
+            `https://planetarycomputer.microsoft.com/api/sas/v1/token`.
+        subscription_key: Optional PC subscription key (raises rate limits),
+            sent as the `Ocp-Apim-Subscription-Key` header. Defaults to
+            `$PC_SDK_SUBSCRIPTION_KEY`.
+        refresh_window: Refetch a cached token when it is within this many
+            seconds of expiry (default 60).
+        timeout: Per-request timeout, in seconds, for the token GET.
+
+    Examples:
+        - A non-PC href passes through untouched:
+            ```python
+            >>> signer = PlanetaryComputerSigner()
+            >>> signer.sign_href("https://example.com/scene.tif")
+            'https://example.com/scene.tif'
+
+            ```
+        - An already-signed blob href is left as-is:
+            ```python
+            >>> signed = "https://x.blob.core.windows.net/c/b.tif?se=2034&sig=abc"
+            >>> PlanetaryComputerSigner().sign_href(signed) == signed
+            True
+
+            ```
+        - The public assets bucket is never signed:
+            ```python
+            >>> pub = "https://ai4edatasetspublicassets.blob.core.windows.net/c/b.tif"
+            >>> PlanetaryComputerSigner().sign_href(pub) == pub
+            True
+
+            ```
+    """
+
+    name = "planetary-computer"
+
+    _BLOB_DOMAIN = ".blob.core.windows.net"
+    _PUBLIC_HOST = "ai4edatasetspublicassets.blob.core.windows.net"
+    _DEFAULT_SAS_URL = "https://planetarycomputer.microsoft.com/api/sas/v1/token"
+    _SIGNED_KEYS = frozenset({"st", "se", "sp", "sig"})
+
+    def __init__(
+        self,
+        *,
+        sas_url: str | None = None,
+        subscription_key: str | None = None,
+        refresh_window: float = 60.0,
+        timeout: float = 30.0,
+    ) -> None:
+        """Store endpoint / auth settings and initialise the token cache.
+
+        Args:
+            sas_url: SAS token endpoint (env `PC_SDK_SAS_URL` or the PC
+                default when `None`).
+            subscription_key: Optional PC subscription key (env
+                `PC_SDK_SUBSCRIPTION_KEY` when `None`).
+            refresh_window: Seconds-before-expiry at which a cached token is
+                refetched.
+            timeout: Token-request timeout in seconds.
+        """
+        self._sas_url = (
+            sas_url or os.environ.get("PC_SDK_SAS_URL") or self._DEFAULT_SAS_URL
+        ).rstrip("/")
+        self._subscription_key = subscription_key or os.environ.get(
+            "PC_SDK_SUBSCRIPTION_KEY"
+        )
+        self._refresh_window = refresh_window
+        self._timeout = timeout
+        self._cache: dict[tuple[str, str], tuple[str, float]] = {}
+
+    def sign_href(self, href: str) -> str:
+        """Append a SAS token to a PC blob href; pass non-PC hrefs through.
+
+        Args:
+            href: The asset href.
+
+        Returns:
+            The href with `?<sas-token>` appended when it is an unsigned PC
+            blob URL, otherwise `href` unchanged.
+        """
+        account, container = self._parse_blob(href)
+        if account is None or self._already_signed(href):
+            return href
+        token = self._token(account, container)
+        sep = "&" if urlparse(href).query else "?"
+        return f"{href}{sep}{token}"
+
+    def sign_item(self, item: Any) -> None:
+        """Rewrite every asset href on an Item / ItemCollection in place.
+
+        Args:
+            item: A STAC Item, an ItemCollection (iterable of Items), or the
+                raw-dict equivalent.
+
+        Returns:
+            None (pystac-client's `modifier` contract).
+        """
+        for one in self._iter_signable(item):
+            assets = getattr(one, "assets", None)
+            if assets is None and isinstance(one, dict):
+                assets = one.get("assets")
+            if not assets:
+                continue
+            values = assets.values() if hasattr(assets, "values") else []
+            for asset in values:
+                href = getattr(asset, "href", None)
+                if href is not None:
+                    asset.href = self.sign_href(href)
+                elif isinstance(asset, dict) and asset.get("href") is not None:
+                    asset["href"] = self.sign_href(asset["href"])
+        return None
+
+    @staticmethod
+    def _iter_signable(item: Any) -> list[Any]:
+        """Return `[item]`, or its member items when `item` is a collection."""
+        has_assets = getattr(item, "assets", None) is not None or (
+            isinstance(item, dict) and "assets" in item
+        )
+        if has_assets:
+            return [item]
+        try:
+            return list(item)
+        except TypeError:
+            return [item]
+
+    def _parse_blob(self, href: str) -> tuple[str | None, str | None]:
+        """Return `(account, container)` for a signable PC blob href.
+
+        Returns `(None, None)` when `href` is not an Azure blob URL, is the
+        public assets bucket, or carries no container path segment.
+        """
+        parsed = urlparse(href)
+        netloc = parsed.netloc.lower()
+        if not netloc.endswith(self._BLOB_DOMAIN) or netloc == self._PUBLIC_HOST:
+            return None, None
+        account = netloc.split(".", 1)[0]
+        segments = parsed.path.lstrip("/").split("/", 1)
+        container = segments[0] if segments and segments[0] else None
+        if not account or not container:
+            return None, None
+        return account, container
+
+    def _already_signed(self, href: str) -> bool:
+        """Return True when `href` already carries SAS query parameters."""
+        return bool(self._SIGNED_KEYS & set(parse_qs(urlparse(href).query)))
+
+    def _token(self, account: str, container: str) -> str:
+        """Return a cached SAS token, refetching when near expiry."""
+        key = (account, container)
+        cached = self._cache.get(key)
+        now = time.time()
+        if cached is not None and cached[1] - now > self._refresh_window:
+            return cached[0]
+        token, expiry = self._fetch_token(account, container)
+        self._cache[key] = (token, expiry)
+        return token
+
+    def _fetch_token(self, account: str, container: str) -> tuple[str, float]:
+        """GET a fresh SAS token + expiry epoch from the PC token endpoint.
+
+        Args:
+            account: Azure storage account name.
+            container: Blob container name.
+
+        Returns:
+            A `(token, expiry_epoch_seconds)` tuple. When the response carries
+            no parseable `msft:expiry` the token is treated as already expired
+            so the next call refetches.
+        """
+        url = f"{self._sas_url}/{account}/{container}"
+        request = urllib.request.Request(url)
+        if self._subscription_key:
+            request.add_header("Ocp-Apim-Subscription-Key", self._subscription_key)
+        with urllib.request.urlopen(request, timeout=self._timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        token = payload["token"]
+        expiry = self._parse_expiry(payload.get("msft:expiry"))
+        return token, expiry
+
+    @staticmethod
+    def _parse_expiry(value: Any) -> float:
+        """Parse an RFC 3339 `msft:expiry` string to an epoch (seconds).
+
+        Returns a past timestamp when `value` is missing or unparseable, so the
+        caller does not cache an unbounded token.
+        """
+        if not isinstance(value, str):
+            return 0.0
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return 0.0
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.timestamp()
