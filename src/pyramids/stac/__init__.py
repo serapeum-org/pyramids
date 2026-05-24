@@ -30,6 +30,8 @@ from pyramids.stac.signers import (
     AnonymousSigner,
     AWSRequesterPaysSigner,
     BearerTokenSigner,
+    CDSESigner,
+    EarthdataSigner,
     PlanetaryComputerSigner,
     Signer,
 )
@@ -38,6 +40,8 @@ __all__ = [
     "AWSRequesterPaysSigner",
     "AnonymousSigner",
     "BearerTokenSigner",
+    "CDSESigner",
+    "EarthdataSigner",
     "PlanetaryComputerSigner",
     "Signer",
     "affine_to_geotransform",

@@ -10,6 +10,8 @@ from pyramids.stac.signers import (
     AnonymousSigner,
     AWSRequesterPaysSigner,
     BearerTokenSigner,
+    CDSESigner,
+    EarthdataSigner,
     PlanetaryComputerSigner,
     Signer,
     _BaseSigner,
@@ -435,3 +437,121 @@ class TestSignerProtocol:
             gdal_env=lambda: {},
         )
         assert isinstance(duck, Signer), "Duck-typed signer should satisfy the protocol"
+
+
+class TestEarthdataSigner:
+    """PD-1: NASA Earthdata bearer signer (token fetch stubbed)."""
+
+    def test_is_a_signer_named_earthdata(self):
+        """The signer satisfies the protocol and is named 'earthdata'."""
+        s = EarthdataSigner(token="t")
+        assert isinstance(s, Signer), "EarthdataSigner should satisfy the protocol"
+        assert s.name == "earthdata", f"unexpected name: {s.name}"
+
+    def test_static_token_in_gdal_env(self):
+        """A pre-minted token is used directly in the bearer header.
+
+        Test scenario:
+            token= goes into GDAL_HTTP_HEADERS without any fetch.
+        """
+        s = EarthdataSigner(token="edl-tok")
+        assert s.gdal_env() == {"GDAL_HTTP_HEADERS": "Authorization: Bearer edl-tok"}
+
+    def test_env_token_picked_up(self, monkeypatch):
+        """EARTHDATA_TOKEN is read from the environment.
+
+        Test scenario:
+            With the env var set, no username/password is needed.
+        """
+        monkeypatch.setenv("EARTHDATA_TOKEN", "env-tok")
+        s = EarthdataSigner()
+        assert s.gdal_env()["GDAL_HTTP_HEADERS"].endswith("env-tok"), s.gdal_env()
+
+    def test_mints_and_caches(self, monkeypatch):
+        """Without a static token, the signer mints once and caches it.
+
+        Test scenario:
+            _fetch_token is called once across two gdal_env() reads.
+        """
+        s = EarthdataSigner(username="u", password="p")
+        calls = {"n": 0}
+
+        def fake_fetch():
+            calls["n"] += 1
+            return ("minted", 9_999_999_999.0)
+
+        monkeypatch.setattr(s, "_fetch_token", fake_fetch)
+        assert s.gdal_env()["GDAL_HTTP_HEADERS"].endswith("minted"), s.gdal_env()
+        s.gdal_env()
+        assert calls["n"] == 1, f"token should be cached, fetched {calls['n']}x"
+
+    def test_no_credentials_raises(self):
+        """Minting without credentials raises a clear error.
+
+        Test scenario:
+            No token and no username/password -> ValueError on first use.
+        """
+        s = EarthdataSigner()
+        with pytest.raises(ValueError, match="EARTHDATA"):
+            s.gdal_env()
+
+
+class TestCDSESigner:
+    """PD-1: CDSE Keycloak bearer signer (token fetch stubbed)."""
+
+    def test_is_a_signer_named_cdse(self):
+        """The signer satisfies the protocol and is named 'cdse'."""
+        s = CDSESigner(username="u", password="p")
+        assert isinstance(s, Signer), "CDSESigner should satisfy the protocol"
+        assert s.name == "cdse", f"unexpected name: {s.name}"
+
+    def test_password_grant_then_refresh(self, monkeypatch):
+        """First use does a password grant; the token is cached.
+
+        Test scenario:
+            _fetch_token mints an access token; gdal_env carries it as a bearer.
+        """
+        s = CDSESigner(username="u", password="p")
+        monkeypatch.setattr(s, "_fetch_token", lambda: ("cdse-access", 9_999_999_999.0))
+        assert s.gdal_env() == {"GDAL_HTTP_HEADERS": "Authorization: Bearer cdse-access"}
+
+    def test_no_credentials_raises(self):
+        """A password grant without credentials raises.
+
+        Test scenario:
+            No username/password and no refresh token -> ValueError.
+        """
+        s = CDSESigner()
+        with pytest.raises(ValueError, match="CDSE_USERNAME"):
+            s.gdal_env()
+
+    def test_refresh_grant_uses_refresh_token(self, monkeypatch):
+        """Once a refresh token is held, _fetch_token uses the refresh grant.
+
+        Test scenario:
+            Simulate a prior mint that set _refresh_token; the next real
+            _fetch_token builds a refresh_token grant body.
+        """
+        s = CDSESigner(username="u", password="p")
+        s._refresh_token = "rtok"
+        captured = {}
+
+        class _Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return b'{"access_token": "a2", "expires_in": 600, "refresh_token": "rtok2"}'
+
+        def fake_urlopen(request, timeout=None):
+            captured["data"] = request.data.decode()
+            return _Resp()
+
+        monkeypatch.setattr("pyramids.stac.signers.urllib.request.urlopen", fake_urlopen)
+        token, _expiry = s._fetch_token()
+        assert token == "a2", f"expected refreshed token, got {token}"
+        assert "grant_type=refresh_token" in captured["data"], captured["data"]
+        assert s._refresh_token == "rtok2", f"refresh token should rotate, got {s._refresh_token}"

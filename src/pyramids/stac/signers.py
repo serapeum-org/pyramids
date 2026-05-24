@@ -25,13 +25,14 @@ for those.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import time
 import urllib.request
 from datetime import datetime, timezone
 from typing import Any, Callable, Protocol, runtime_checkable
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 
 @runtime_checkable
@@ -469,3 +470,209 @@ class PlanetaryComputerSigner(_BaseSigner):
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.timestamp()
+
+
+class _BearerProviderSigner(_BaseSigner):
+    """Shared base for provider signers that mint + refresh a bearer token.
+
+    Subclasses implement :meth:`_fetch_token` (the network seam, returning a
+    `(access_token, expiry_epoch_seconds)` tuple). The token is cached and
+    refetched when within `refresh_window` seconds of expiry. The credential is
+    sent as a GDAL `Authorization: Bearer` header (`gdal_env`); `sign_href` is
+    identity (auth is header-side, not URL-side).
+
+    Security note: like :class:`BearerTokenSigner`, GDAL forwards the
+    `Authorization` header across HTTP redirects, including cross-host ones.
+    Use only with catalogs whose asset host authenticates with the bearer
+    directly.
+    """
+
+    def __init__(self, *, refresh_window: float = 300.0, timeout: float = 30.0) -> None:
+        """Initialise the token cache and timing knobs.
+
+        Args:
+            refresh_window: Seconds-before-expiry at which to refetch.
+            timeout: Token-request timeout in seconds.
+        """
+        self._refresh_window = refresh_window
+        self._timeout = timeout
+        self._cache: tuple[str, float] | None = None
+
+    def _fetch_token(self) -> tuple[str, float]:
+        """Return a fresh `(access_token, expiry_epoch)` — implemented by subclasses."""
+        raise NotImplementedError
+
+    def _token(self) -> str:
+        """Return a cached bearer token, refetching when near expiry."""
+        now = time.time()
+        if self._cache is not None and self._cache[1] - now > self._refresh_window:
+            return self._cache[0]
+        token, expiry = self._fetch_token()
+        self._cache = (token, expiry)
+        return token
+
+    def sign_request(self, request: Any) -> Any:
+        """Set the `Authorization: Bearer` header on an outgoing request."""
+        request.headers["Authorization"] = f"Bearer {self._token()}"
+        return request
+
+    def gdal_env(self) -> dict[str, str]:
+        """Return the GDAL config carrying the bearer header for asset reads."""
+        return {"GDAL_HTTP_HEADERS": f"Authorization: Bearer {self._token()}"}
+
+
+class EarthdataSigner(_BearerProviderSigner):
+    """NASA Earthdata (EDL) bearer signer — native, no `earthaccess` SDK.
+
+    Uses a pre-minted token when given (or `$EARTHDATA_TOKEN` / `$EARTHDATA_PAT`),
+    otherwise mints one from the EDL `find_or_create_token` endpoint with HTTP
+    Basic auth (`$EARTHDATA_USERNAME` / `$EARTHDATA_PASSWORD`). The token is sent
+    as a GDAL `Authorization: Bearer` header for `/vsicurl/` reads of EDL-gated
+    DAAC assets.
+
+    Args:
+        username: EDL username (env `EARTHDATA_USERNAME` when `None`).
+        password: EDL password (env `EARTHDATA_PASSWORD` when `None`).
+        token: A pre-minted bearer token (env `EARTHDATA_TOKEN` /
+            `EARTHDATA_PAT` when `None`); skips minting entirely.
+        refresh_window: Seconds-before-expiry at which to refetch a minted token.
+        timeout: Token-request timeout in seconds.
+
+    Examples:
+        - A pre-minted token is used directly in the GDAL header:
+            ```python
+            >>> signer = EarthdataSigner(token="edl-tok")
+            >>> signer.gdal_env()["GDAL_HTTP_HEADERS"]
+            'Authorization: Bearer edl-tok'
+
+            ```
+    """
+
+    name = "earthdata"
+    _TOKEN_URL = "https://urs.earthdata.nasa.gov/api/users/find_or_create_token"
+
+    def __init__(
+        self,
+        *,
+        username: str | None = None,
+        password: str | None = None,
+        token: str | None = None,
+        refresh_window: float = 300.0,
+        timeout: float = 30.0,
+    ) -> None:
+        """Store EDL credentials / static token; init the token cache."""
+        super().__init__(refresh_window=refresh_window, timeout=timeout)
+        self._username = username or os.environ.get("EARTHDATA_USERNAME")
+        self._password = password or os.environ.get("EARTHDATA_PASSWORD")
+        self._static_token = (
+            token
+            or os.environ.get("EARTHDATA_TOKEN")
+            or os.environ.get("EARTHDATA_PAT")
+        )
+
+    def _token(self) -> str:
+        """Return the static token when present, else the minted/cached one."""
+        if self._static_token:
+            return self._static_token
+        return super()._token()
+
+    def _fetch_token(self) -> tuple[str, float]:
+        """Mint an EDL bearer token via find_or_create_token (HTTP Basic)."""
+        if not (self._username and self._password):
+            raise ValueError(
+                "EarthdataSigner needs a token (EARTHDATA_TOKEN/PAT) or "
+                "EARTHDATA_USERNAME + EARTHDATA_PASSWORD."
+            )
+        creds = base64.b64encode(
+            f"{self._username}:{self._password}".encode()
+        ).decode()
+        request = urllib.request.Request(self._TOKEN_URL, method="POST")
+        request.add_header("Authorization", f"Basic {creds}")
+        request.add_header("Accept", "application/json")
+        with urllib.request.urlopen(request, timeout=self._timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        token = payload["access_token"]
+        expiry = self._parse_expiry(payload.get("expiration_date"))
+        return token, expiry
+
+    @staticmethod
+    def _parse_expiry(value: Any) -> float:
+        """Parse an EDL `expiration_date` to an epoch; default to now + 1h."""
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                return time.time() + 3600.0
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.timestamp()
+        return time.time() + 3600.0
+
+
+class CDSESigner(_BearerProviderSigner):
+    """Copernicus Data Space Ecosystem (CDSE) bearer signer via Keycloak OAuth2.
+
+    Mints an access token from the CDSE Keycloak token endpoint with a password
+    grant (`$CDSE_USERNAME` / `$CDSE_PASSWORD`, public client `cdse-public`), then
+    refreshes it with the refresh-token grant. The access token is sent as a
+    GDAL `Authorization: Bearer` header for `/vsicurl/` reads of CDSE HTTPS/OData
+    assets.
+
+    Args:
+        username: CDSE username (env `CDSE_USERNAME` when `None`).
+        password: CDSE password (env `CDSE_PASSWORD` when `None`).
+        client_id: Keycloak client id (default `"cdse-public"`).
+        refresh_window: Seconds-before-expiry at which to refresh (CDSE access
+            tokens live ~600 s).
+        timeout: Token-request timeout in seconds.
+    """
+
+    name = "cdse"
+    _TOKEN_URL = (
+        "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/"
+        "openid-connect/token"
+    )
+
+    def __init__(
+        self,
+        *,
+        username: str | None = None,
+        password: str | None = None,
+        client_id: str = "cdse-public",
+        refresh_window: float = 30.0,
+        timeout: float = 30.0,
+    ) -> None:
+        """Store CDSE credentials; init the token + refresh-token cache."""
+        super().__init__(refresh_window=refresh_window, timeout=timeout)
+        self._username = username or os.environ.get("CDSE_USERNAME")
+        self._password = password or os.environ.get("CDSE_PASSWORD")
+        self._client_id = client_id
+        self._refresh_token: str | None = None
+
+    def _fetch_token(self) -> tuple[str, float]:
+        """Mint (password grant) or refresh (refresh-token grant) an access token."""
+        if self._refresh_token is not None:
+            form = {
+                "client_id": self._client_id,
+                "grant_type": "refresh_token",
+                "refresh_token": self._refresh_token,
+            }
+        else:
+            if not (self._username and self._password):
+                raise ValueError(
+                    "CDSESigner needs CDSE_USERNAME + CDSE_PASSWORD."
+                )
+            form = {
+                "client_id": self._client_id,
+                "grant_type": "password",
+                "username": self._username,
+                "password": self._password,
+            }
+        body = urlencode(form).encode("utf-8")
+        request = urllib.request.Request(self._TOKEN_URL, data=body, method="POST")
+        request.add_header("Content-Type", "application/x-www-form-urlencoded")
+        with urllib.request.urlopen(request, timeout=self._timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        self._refresh_token = payload.get("refresh_token", self._refresh_token)
+        expiry = time.time() + float(payload.get("expires_in", 600))
+        return payload["access_token"], expiry
