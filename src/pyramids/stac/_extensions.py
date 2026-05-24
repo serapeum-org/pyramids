@@ -131,6 +131,41 @@ def affine_to_geotransform(transform: Any) -> tuple[float, ...]:
     return (c, a, b, f, d, e)
 
 
+def geotransform_to_affine(geotransform: Any) -> list[float]:
+    """Convert a GDAL geotransform to a STAC ``proj:transform`` affine.
+
+    The inverse of :func:`affine_to_geotransform`. GDAL's geotransform is
+    ``(c, a, b, f, d, e)`` — ``(x_origin, x_res, x_rot, y_origin, y_rot,
+    y_res)`` — and ``proj:transform`` is the rasterio/affine ordering
+    ``[a, b, c, d, e, f]``.
+
+    Args:
+        geotransform: A 6-element GDAL geotransform.
+
+    Returns:
+        The 6-element ``proj:transform`` affine.
+
+    Raises:
+        ValueError: When `geotransform` has fewer than six coefficients.
+
+    Examples:
+        - A north-up 30 m grid maps back to the rasterio affine order:
+            ```python
+            >>> from pyramids.stac._extensions import geotransform_to_affine
+            >>> geotransform_to_affine((224985.0, 30.0, 0.0, 6790215.0, 0.0, -30.0))
+            [30.0, 0.0, 224985.0, 0.0, -30.0, 6790215.0]
+
+            ```
+    """
+    gt = list(geotransform)
+    if len(gt) < 6:
+        raise ValueError(
+            f"geotransform must have at least 6 coefficients, got {len(gt)}: {gt!r}"
+        )
+    c, a, b, f, d, e = (float(x) for x in gt[:6])
+    return [a, b, c, d, e, f]
+
+
 def read_extension_metadata(item: Any, asset_key: str | None = None) -> dict[str, Any]:
     """Read ``proj`` / ``raster`` / ``eo`` extension fields for a STAC asset.
 
@@ -238,6 +273,7 @@ def read_extension_metadata(item: Any, asset_key: str | None = None) -> dict[str
 
 __all__ = [
     "affine_to_geotransform",
+    "geotransform_to_affine",
     "parse_number",
     "read_extension_metadata",
 ]

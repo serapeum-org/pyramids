@@ -20,8 +20,11 @@ from __future__ import annotations
 
 import os
 import tempfile
+import warnings
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Callable
+
+from osgeo import osr
 
 from pyramids.base._errors import StacAssetError
 
@@ -358,4 +361,183 @@ def _from_stac_multi_asset(
     return collection_cls.from_files(per_item_paths)
 
 
-__all__ = ["from_stac"]
+def _bbox_ring(bbox: Sequence[float]) -> dict[str, Any]:
+    """Return a closed GeoJSON Polygon ring for `[minx, miny, maxx, maxy]`."""
+    minx, miny, maxx, maxy = bbox
+    return {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [minx, miny],
+                [maxx, miny],
+                [maxx, maxy],
+                [minx, maxy],
+                [minx, miny],
+            ]
+        ],
+    }
+
+
+def _footprint_4326(
+    native_bbox: Sequence[float], epsg: int | None, precision: int
+) -> tuple[dict[str, Any], list[float]]:
+    """Reproject a native-CRS bbox ring to EPSG:4326 (geometry + bbox).
+
+    Args:
+        native_bbox: `[minx, miny, maxx, maxy]` in the dataset's CRS.
+        epsg: The dataset's EPSG code, or a falsy value when it has no CRS.
+        precision: Decimal places to round the reprojected coordinates to.
+
+    Returns:
+        A `(geometry, bbox)` tuple: a GeoJSON Polygon and a 4-element
+        `[w, s, e, n]` bbox, both in EPSG:4326. A CRS-less dataset yields the
+        world extent (rio-stac behaviour) and emits a warning.
+    """
+    minx, miny, maxx, maxy = native_bbox
+    if not epsg:
+        warnings.warn(
+            "Dataset has no CRS; setting the STAC geometry/bbox to the world "
+            "extent (-180, -90, 180, 90).",
+            stacklevel=3,
+        )
+        world = [-180.0, -90.0, 180.0, 90.0]
+        return _bbox_ring(world), world
+
+    corners = [(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy), (minx, miny)]
+    if int(epsg) != 4326:
+        src = osr.SpatialReference()
+        src.ImportFromEPSG(int(epsg))
+        src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        dst = osr.SpatialReference()
+        dst.ImportFromEPSG(4326)
+        dst.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        transform = osr.CoordinateTransformation(src, dst)
+        corners = [
+            (round(x, precision), round(y, precision))
+            for x, y, *_ in transform.TransformPoints(corners)
+        ]
+    else:
+        corners = [(round(x, precision), round(y, precision)) for x, y in corners]
+
+    lons = [c[0] for c in corners]
+    lats = [c[1] for c in corners]
+    geometry = {"type": "Polygon", "coordinates": [[list(c) for c in corners]]}
+    return geometry, [min(lons), min(lats), max(lons), max(lats)]
+
+
+def to_stac_item(
+    dataset: Any,
+    item_id: str,
+    *,
+    asset_href: str,
+    datetime: Any = None,
+    asset_key: str = "data",
+    asset_media_type: str | None = None,
+    asset_roles: Sequence[str] = ("data",),
+    with_proj: bool = True,
+    with_raster: bool = True,
+    precision: int = 6,
+) -> dict[str, Any]:
+    """Describe a pyramids :class:`~pyramids.dataset.Dataset` as a STAC Item dict.
+
+    The inverse of :func:`from_stac`: emit a STAC-JSON Item (GeoJSON Feature)
+    from a dataset's own metadata, with the `proj` and `raster` extensions
+    populated. The footprint is the dataset's bounding rectangle reprojected to
+    EPSG:4326 (rio-stac's default footprint mode). pystac is **not** required —
+    a plain dict is returned, ready to serialise or feed back into
+    :func:`from_stac`.
+
+    Args:
+        dataset: A :class:`~pyramids.dataset.Dataset` (read via its public
+            geo-properties: `epsg`, `geotransform`, `bbox`, `rows`, `columns`,
+            `band_count`, `no_data_value`, `dtype`).
+        item_id: The STAC Item id.
+        asset_href: The href to record for the single data asset.
+        datetime: The item datetime — a `datetime.datetime` (serialised via
+            `isoformat()`) or an RFC 3339 string. `None` writes a null
+            `datetime` property (supply `start_datetime`/`end_datetime` yourself
+            in that case to keep the Item valid).
+        asset_key: Key for the data asset (default `"data"`).
+        asset_media_type: Optional media type for the asset (e.g.
+            `"image/tiff; application=geotiff; profile=cloud-optimized"`).
+        asset_roles: Roles for the asset (default `("data",)`).
+        with_proj: Populate the `proj` extension (epsg/code/shape/transform/bbox)
+            from the dataset grid.
+        with_raster: Populate `raster:bands` (per-band `data_type` + `nodata`)
+            on the asset.
+        precision: Decimal places for the reprojected footprint coordinates.
+
+    Returns:
+        A STAC Item as a dict (a GeoJSON Feature with `properties`, `assets`,
+        `bbox`, `geometry`, and `stac_extensions`).
+
+    Examples:
+        - Round-trip a dataset to a STAC Item dict (via the Dataset method):
+            ```python
+            >>> import numpy as np  # doctest: +SKIP
+            >>> from pyramids.dataset import Dataset  # doctest: +SKIP
+            >>> ds = Dataset.create_from_array(  # doctest: +SKIP
+            ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0),
+            ...     cell_size=1.0, epsg=4326,
+            ... )
+            >>> item = ds.to_stac_item("scene-1", asset_href="s3://b/scene.tif")  # doctest: +SKIP
+            >>> item["properties"]["proj:code"]  # doctest: +SKIP
+            'EPSG:4326'
+
+            ```
+    """
+    # Lazy import: pyramids.stac.* pulls _loader -> pyramids.dataset, which would
+    # cycle if imported at module load (see _resolve_asset_href above).
+    from pyramids.stac._extensions import geotransform_to_affine
+
+    epsg = dataset.epsg
+    native_bbox = list(dataset.bbox)
+    geometry, bbox_4326 = _footprint_4326(native_bbox, epsg, precision)
+
+    when = datetime.isoformat() if hasattr(datetime, "isoformat") else datetime
+    properties: dict[str, Any] = {"datetime": when}
+    stac_extensions: list[str] = []
+
+    if with_proj and epsg:
+        properties["proj:epsg"] = epsg
+        properties["proj:code"] = f"EPSG:{epsg}"
+        properties["proj:shape"] = [dataset.rows, dataset.columns]
+        properties["proj:transform"] = geotransform_to_affine(dataset.geotransform)
+        properties["proj:bbox"] = native_bbox
+        stac_extensions.append(
+            "https://stac-extensions.github.io/projection/v1.1.0/schema.json"
+        )
+
+    asset: dict[str, Any] = {"href": asset_href, "roles": list(asset_roles)}
+    if asset_media_type is not None:
+        asset["type"] = asset_media_type
+
+    if with_raster:
+        nodata = dataset.no_data_value
+        dtypes = dataset.dtype
+        bands = []
+        for i in range(dataset.band_count):
+            band: dict[str, Any] = {"data_type": dtypes[i]}
+            nd = nodata[i] if i < len(nodata) else None
+            if nd is not None:
+                band["nodata"] = nd
+            bands.append(band)
+        asset["raster:bands"] = bands
+        stac_extensions.append(
+            "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
+        )
+
+    return {
+        "type": "Feature",
+        "stac_version": "1.0.0",
+        "id": item_id,
+        "geometry": geometry,
+        "bbox": bbox_4326,
+        "properties": properties,
+        "assets": {asset_key: asset},
+        "links": [],
+        "stac_extensions": stac_extensions,
+    }
+
+
+__all__ = ["from_stac", "to_stac_item"]
