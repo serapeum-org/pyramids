@@ -2,7 +2,7 @@
 
 A *signer* mediates between a STAC consumer (`pystac-client`, `odc-stac`,
 or pyramids' own `from_stac`) and the three distinct auth boundaries a
-cloud-hosted STAC archive can have:
+can cloud-hosted STAC archive can have:
 
 1. **search-time** — the outgoing `GET`/`POST` `/search` HTTP request may
    need credentials (a bearer token, a signed header).
@@ -15,10 +15,10 @@ This module ships the *generic*, dependency-light signers
 (:class:`AnonymousSigner`, :class:`AWSRequesterPaysSigner`,
 :class:`BearerTokenSigner`) plus :class:`PlanetaryComputerSigner`, a **native**
 Microsoft Planetary Computer SAS signer that mints tokens over stdlib
-``urllib`` — it requires **no** ``planetary-computer`` SDK, so it keeps pyramids
+`urllib` — it requires **no** `planetary-computer` SDK, so it keeps pyramids
 dependency-light. Provider signers that would require a heavyweight remote-
 sensing SDK or live token-refresh service (e.g. NASA Earthdata's
-``earthaccess``) remain out of scope here; implement the :class:`Signer`
+`earthaccess`) remain out of scope here; implement the :class:`Signer`
 protocol downstream (or pass a token callable to :class:`BearerTokenSigner`)
 for those.
 """
