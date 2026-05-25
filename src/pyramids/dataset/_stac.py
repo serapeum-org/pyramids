@@ -134,6 +134,26 @@ def _validate_lonlat_bbox(bbox: Sequence[float]) -> None:
         )
 
 
+def _lon_segments(west: float, east: float) -> list[tuple[float, float]]:
+    """Split a longitude interval into non-wrapping segments (L3).
+
+    A box with ``west > east`` crosses the antimeridian and covers
+    ``[west, 180] ∪ [-180, east]``; otherwise it is a single ``[west, east]``.
+    """
+    if west <= east:
+        return [(west, east)]
+    return [(west, 180.0), (-180.0, east)]
+
+
+def _lon_overlaps(a_west: float, a_east: float, b_west: float, b_east: float) -> bool:
+    """Return True if two longitude intervals overlap, antimeridian-aware (L3)."""
+    return any(
+        not (a_e < b_w or a_w > b_e)
+        for a_w, a_e in _lon_segments(a_west, a_east)
+        for b_w, b_e in _lon_segments(b_west, b_east)
+    )
+
+
 def _item_intersects_bbox(
     item: Any,
     bbox: Sequence[float],
@@ -143,9 +163,10 @@ def _item_intersects_bbox(
     Reads `item.bbox` as either an attribute (pystac.Item) or a
     dict key (raw JSON). Both the query `bbox` and the item bbox may be
     2D (4-element) or 3D (6-element) — only the horizontal extent is
-    compared (see :func:`_horizontal_bounds`). Items without a bbox are
-    treated as intersecting (permissive default — the caller opted in to
-    the bbox filter, not the item).
+    compared (see :func:`_horizontal_bounds`). Longitude overlap is
+    antimeridian-aware (a box with ``west > east`` is treated as wrapping the
+    dateline). Items without a bbox are treated as intersecting (permissive
+    default — the caller opted in to the bbox filter, not the item).
     """
     item_bbox = getattr(item, "bbox", None)
     if item_bbox is None and isinstance(item, dict):
@@ -153,9 +174,10 @@ def _item_intersects_bbox(
     if item_bbox is None:
         result = True
     else:
-        minx, miny, maxx, maxy = _horizontal_bounds(bbox)
-        i_minx, i_miny, i_maxx, i_maxy = _horizontal_bounds(item_bbox)
-        result = not (i_maxx < minx or i_minx > maxx or i_maxy < miny or i_miny > maxy)
+        q_west, q_south, q_east, q_north = _horizontal_bounds(bbox)
+        i_west, i_south, i_east, i_north = _horizontal_bounds(item_bbox)
+        lat_overlap = not (i_north < q_south or i_south > q_north)
+        result = lat_overlap and _lon_overlaps(q_west, q_east, i_west, i_east)
     return result
 
 
@@ -456,7 +478,12 @@ def _item_centroid_lon(item: Any) -> float:
     if not bbox:
         return 0.0
     west, _s, east, _n = _horizontal_bounds(bbox)
-    return (west + east) / 2.0
+    if west <= east:
+        return (west + east) / 2.0
+    # Antimeridian-crossing box (L3): average across the dateline by shifting
+    # the eastern edge +360, then normalise the midpoint back to [-180, 180].
+    mid = (west + east + 360.0) / 2.0
+    return mid - 360.0 if mid > 180.0 else mid
 
 
 def _solar_day(item: Any) -> str:

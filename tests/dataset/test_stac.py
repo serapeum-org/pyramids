@@ -25,7 +25,9 @@ from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset._stac import (
     _horizontal_bounds,
+    _item_centroid_lon,
     _item_intersects_bbox,
+    _lon_overlaps,
     _solar_day,
     _validate_lonlat_bbox,
 )
@@ -756,3 +758,75 @@ class TestFromStacSolarDay:
         """
         with pytest.raises(ValueError, match="single asset"):
             DatasetCollection.from_stac(solar_day_items, asset=["data", "data"], groupby="solar_day")
+
+
+class TestAntimeridian:
+    """L3: antimeridian-aware longitude overlap + centroid."""
+
+    def test_lon_overlaps_within_wrapping_box(self):
+        """A wrapping query box overlaps a point just east of the dateline.
+
+        Test scenario:
+            Query [170, -170] (crosses 180) overlaps item [175, 178].
+        """
+        assert _lon_overlaps(170.0, -170.0, 175.0, 178.0) is True
+
+    def test_lon_overlaps_excludes_far_side(self):
+        """A wrapping box does not overlap a box near lon 0.
+
+        Test scenario:
+            Query [170, -170] vs item [-10, 10] -> no overlap.
+        """
+        assert _lon_overlaps(170.0, -170.0, -10.0, 10.0) is False
+
+    def test_lon_overlaps_two_wrapping_boxes(self):
+        """Two wrapping boxes overlap across the dateline.
+
+        Test scenario:
+            [170, -170] and [160, -150] both wrap and share the seam.
+        """
+        assert _lon_overlaps(170.0, -170.0, 160.0, -150.0) is True
+
+    def test_item_intersects_wrapping_box(self):
+        """from_stac's filter matches an item under a wrapping query box.
+
+        Test scenario:
+            Item near lon 178 intersects the wrapping query [170,-10,-170,10].
+        """
+        item = {"bbox": [177.0, 0.0, 179.0, 5.0]}
+        assert _item_intersects_bbox(item, (170.0, -10.0, -170.0, 10.0)) is True
+
+    def test_item_excluded_by_wrapping_box(self):
+        """An item near lon 0 is excluded by a wrapping query box.
+
+        Test scenario:
+            Item at lon 0 does not intersect the dateline-wrapping box.
+        """
+        item = {"bbox": [-5.0, 0.0, 5.0, 5.0]}
+        assert _item_intersects_bbox(item, (170.0, -10.0, -170.0, 10.0)) is False
+
+    def test_centroid_lon_of_wrapping_box(self):
+        """The centroid of an antimeridian box lands near the dateline.
+
+        Test scenario:
+            [170, -170] -> centroid ~180 (not the wrong ~0 from a naive mean).
+        """
+        assert _item_centroid_lon({"bbox": [170.0, 0.0, -170.0, 5.0]}) == 180.0
+
+    def test_centroid_lon_normalised_past_dateline(self):
+        """An asymmetric wrapping box normalises its centroid into [-180, 180].
+
+        Test scenario:
+            [170, -150] -> centroid -170 after the +360 shift + normalise.
+        """
+        assert _item_centroid_lon({"bbox": [170.0, 0.0, -150.0, 5.0]}) == -170.0
+
+    def test_solar_day_uses_wrapping_centroid(self):
+        """solar_day uses the antimeridian-aware centroid for its shift.
+
+        Test scenario:
+            A 23:00Z item wrapping the dateline (centroid ~180, +12h) rolls into
+            the next solar day.
+        """
+        item = {"bbox": [170.0, 0.0, -170.0, 5.0], "properties": {"datetime": "2021-06-01T23:00:00Z"}}
+        assert _solar_day(item) == "2021-06-02", f"got {_solar_day(item)}"
