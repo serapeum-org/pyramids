@@ -1,8 +1,8 @@
 """Command-line interface for pyramids — currently the `cog` command group.
 
-Exposes the common Cloud Optimized GeoTIFF workflow from the shell, mirroring
-`rio cogeo create|validate|info` but built on the pyramids `COG` engine and
-the standard-library :mod:`argparse` (no extra dependency):
+Exposes the common Cloud Optimized GeoTIFF workflow from the shell, built on the
+pyramids `COG` engine and the standard-library :mod:`argparse` (no extra
+dependency):
 
 - `pyramids cog create IN OUT [--profile P] [--compress C] [--blocksize N]`
 - `pyramids cog validate FILE [--strict]`
