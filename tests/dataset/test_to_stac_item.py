@@ -158,3 +158,54 @@ class TestToStacItem:
         coll = DatasetCollection.from_stac([item], asset="data")
         assert coll.time_length == 1, f"expected 1 timestep, got {coll.time_length}"
         assert coll.datasets[0].shape[-2:] == (4, 4), f"grid not preserved: {coll.datasets[0].shape}"
+
+
+class TestToStacItemDatetime:
+    """L1: datetime handling produces only STAC-valid Items."""
+
+    def test_default_datetime_is_now_not_null(self, wgs84_dataset):
+        """Omitting datetime defaults to a non-null UTC timestamp.
+
+        Test scenario:
+            No datetime / range -> properties.datetime is a non-null ISO string
+            (rio-stac behaviour), never a null that would be STAC-invalid.
+        """
+        item = wgs84_dataset.to_stac_item("x", asset_href="s.tif")
+        when = item["properties"]["datetime"]
+        assert when is not None, "datetime must not be null without a start/end range"
+        assert when.startswith("20"), f"expected an ISO timestamp, got {when!r}"
+
+    def test_null_datetime_with_range(self, wgs84_dataset):
+        """datetime=None plus a start/end range writes a null datetime + range.
+
+        Test scenario:
+            The STAC-valid null-datetime form: datetime null, start/end present.
+        """
+        item = wgs84_dataset.to_stac_item(
+            "x",
+            asset_href="s.tif",
+            datetime=None,
+            start_datetime="2023-06-01T00:00:00Z",
+            end_datetime="2023-06-30T00:00:00Z",
+        )
+        props = item["properties"]
+        assert props["datetime"] is None, f"datetime should be null with a range, got {props['datetime']}"
+        assert props["start_datetime"] == "2023-06-01T00:00:00Z", props
+        assert props["end_datetime"] == "2023-06-30T00:00:00Z", props
+
+    def test_range_datetimes_isoformat(self, wgs84_dataset):
+        """datetime objects in the range are serialised via isoformat().
+
+        Test scenario:
+            A datetime.datetime start/end becomes its ISO string.
+        """
+        import datetime as dt
+
+        item = wgs84_dataset.to_stac_item(
+            "x",
+            asset_href="s.tif",
+            datetime=None,
+            start_datetime=dt.datetime(2023, 1, 1),
+            end_datetime=dt.datetime(2023, 12, 31),
+        )
+        assert item["properties"]["start_datetime"] == "2023-01-01T00:00:00", item["properties"]

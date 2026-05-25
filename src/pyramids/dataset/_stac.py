@@ -843,6 +843,8 @@ def to_stac_item(
     *,
     asset_href: str,
     datetime: Any = None,
+    start_datetime: Any = None,
+    end_datetime: Any = None,
     asset_key: str = "data",
     asset_media_type: str | None = None,
     asset_roles: Sequence[str] = ("data",),
@@ -866,9 +868,15 @@ def to_stac_item(
         item_id: The STAC Item id.
         asset_href: The href to record for the single data asset.
         datetime: The item datetime — a `datetime.datetime` (serialised via
-            `isoformat()`) or an RFC 3339 string. `None` writes a null
-            `datetime` property (supply `start_datetime`/`end_datetime` yourself
-            in that case to keep the Item valid).
+            `isoformat()`) or an RFC 3339 string. When `None` **and** a
+            `start_datetime`/`end_datetime` range is given, the `datetime`
+            property is null and the range is written (the only STAC-valid way
+            to have a null `datetime`). When `None` with no range, it defaults
+            to the current UTC time (rio-stac's behaviour) so the Item is always
+            valid.
+        start_datetime: Optional range start (datetime or RFC 3339 string),
+            written to `properties.start_datetime`.
+        end_datetime: Optional range end, written to `properties.end_datetime`.
         asset_key: Key for the data asset (default `"data"`).
         asset_media_type: Optional media type for the asset (e.g.
             `"image/tiff; application=geotiff; profile=cloud-optimized"`).
@@ -906,8 +914,19 @@ def to_stac_item(
     native_bbox = list(dataset.bbox)
     geometry, bbox_4326 = _footprint_4326(native_bbox, epsg, precision)
 
-    when = datetime.isoformat() if hasattr(datetime, "isoformat") else datetime
-    properties: dict[str, Any] = {"datetime": when}
+    def _iso(value: Any) -> Any:
+        return value.isoformat() if hasattr(value, "isoformat") else value
+
+    # A null `datetime` is only STAC-valid alongside a start/end range. When the
+    # caller gives neither, default to "now" (rio-stac's behaviour) so the Item
+    # is always valid instead of silently emitting a null-datetime Feature.
+    if datetime is None and not (start_datetime and end_datetime):
+        datetime = _datetime_cls.now(timezone.utc)
+    properties: dict[str, Any] = {"datetime": _iso(datetime)}
+    if start_datetime is not None:
+        properties["start_datetime"] = _iso(start_datetime)
+    if end_datetime is not None:
+        properties["end_datetime"] = _iso(end_datetime)
     stac_extensions: list[str] = []
 
     if with_proj and epsg:

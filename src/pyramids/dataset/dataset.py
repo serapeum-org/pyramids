@@ -1445,6 +1445,8 @@ class Dataset(RasterBase):
         *,
         asset_href: str,
         datetime=None,
+        start_datetime=None,
+        end_datetime=None,
         asset_key: str = "data",
         asset_media_type: str | None = None,
         with_proj: bool = True,
@@ -1461,8 +1463,14 @@ class Dataset(RasterBase):
         Args:
             item_id: The STAC Item id.
             asset_href: Href to record for the single data asset.
-            datetime: Item datetime (`datetime.datetime` or RFC 3339 string);
-                `None` writes a null `datetime` property.
+            datetime: Item datetime (`datetime.datetime` or RFC 3339 string).
+                `None` with no range defaults to the current UTC time; `None`
+                with `start_datetime`/`end_datetime` writes a null `datetime`
+                plus the range (the STAC-valid null-datetime form).
+            start_datetime: Optional range start, written to
+                `properties.start_datetime`.
+            end_datetime: Optional range end, written to
+                `properties.end_datetime`.
             asset_key: Key for the data asset (default `"data"`).
             asset_media_type: Optional media type for the asset.
             with_proj: Populate the `proj` extension from the grid.
@@ -1480,6 +1488,8 @@ class Dataset(RasterBase):
             item_id,
             asset_href=asset_href,
             datetime=datetime,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
             asset_key=asset_key,
             asset_media_type=asset_media_type,
             with_proj=with_proj,
