@@ -19,7 +19,6 @@ raw JSON.
 from __future__ import annotations
 
 import os
-import tempfile
 import warnings
 from collections import defaultdict
 from collections.abc import Sequence
@@ -29,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from osgeo import osr
 
+from pyramids.base._artifacts import artifact_dir
 from pyramids.base._errors import StacAssetError
 
 if TYPE_CHECKING:
@@ -275,7 +275,8 @@ def from_stac(
         equals the number of items kept. Single-asset mode backs each
         timestep directly with the resolved asset URL (lazy); multi-asset
         mode backs each timestep with a per-item multi-band raster
-        materialised under a temporary directory.
+        materialised under a shared process-level temp root that is removed at
+        interpreter exit (see :mod:`pyramids.base._artifacts`).
 
     Raises:
         StacAssetError: When an item is missing a requested asset and
@@ -506,7 +507,7 @@ def _from_stac_solar_day(
             href = patch_url(href)
         groups[_solar_day(item)].append(href)
 
-    out_dir = tempfile.mkdtemp(prefix="pyramids_stac_solar_")
+    out_dir = artifact_dir()
     per_day_paths: list[str] = []
     for day in sorted(groups):
         out_path = os.path.join(out_dir, f"{day}.tif")
@@ -554,7 +555,7 @@ def _from_stac_multi_asset(
     from pyramids.base.remote import cloud_config_from_env
     from pyramids.dataset.dataset import Dataset
 
-    out_dir = tempfile.mkdtemp(prefix="pyramids_stac_")
+    out_dir = artifact_dir()
     per_item_paths: list[str] = []
     for idx, item in enumerate(item_list):
         try:

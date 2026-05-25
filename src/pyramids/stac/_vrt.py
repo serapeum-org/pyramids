@@ -27,6 +27,7 @@ from typing import Any
 
 from osgeo import gdal
 
+from pyramids.base._artifacts import register_vsimem
 from pyramids.base.remote import _to_vsi, cloud_config_from_env
 from pyramids.dataset import Dataset
 from pyramids.stac._loader import resolved_href
@@ -98,4 +99,6 @@ def build_vrt_from_stac(
         vrt_ds.FlushCache()
         vrt_ds = None
         dataset = Dataset.read_file(vrt_path)
+    # Track the in-memory VRT so it is unlinked at process exit (M1).
+    register_vsimem(vrt_path)
     return dataset
