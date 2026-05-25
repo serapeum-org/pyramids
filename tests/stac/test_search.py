@@ -94,6 +94,16 @@ class TestSearch:
         assert kwargs["datetime"] == "2023-06/2023-08", f"datetime not forwarded: {kwargs}"
         assert kwargs["max_items"] == 10 and kwargs["limit"] == 5, f"paging not forwarded: {kwargs}"
 
+    def test_bbox_and_intersects_mutually_exclusive(self):
+        """L2: passing both bbox and intersects raises before any client call.
+
+        Test scenario:
+            The STAC API forbids both; the helper rejects it early with a clear
+            message (no client needed).
+        """
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            search(_FakeClient(), "c", bbox=(0, 0, 1, 1), intersects={"type": "Point", "coordinates": [0, 0]})
+
     def test_filter_requires_conformance(self):
         """A CQL2 filter against a non-conforming endpoint raises ValueError.
 

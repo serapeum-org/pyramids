@@ -75,8 +75,10 @@ def search(
 
     Raises:
         OptionalPackageDoesNotExist: When `pystac-client` is not installed.
-        ValueError: When a `filter` is given but the endpoint does not advertise
-            the CQL2 ``FILTER`` conformance class.
+        ValueError: When both `bbox` and `intersects` are given (mutually
+            exclusive per the STAC API spec), or when a `filter` is given but
+            the endpoint does not advertise the CQL2 ``FILTER`` conformance
+            class.
 
     Examples:
         - Search a collection over an AOI and time window, then build a cube
@@ -96,6 +98,12 @@ def search(
 
             ```
     """
+    if bbox is not None and intersects is not None:
+        raise ValueError(
+            "bbox and intersects are mutually exclusive (STAC API spec); pass "
+            "only one."
+        )
+
     import_pystac_client(_STAC_INSTALL_HINT)
     from pystac_client import ConformanceClasses
 
