@@ -1,15 +1,15 @@
-"""Command-line interface for pyramids — currently the ``cog`` command group.
+"""Command-line interface for pyramids — currently the `cog` command group.
 
 Exposes the common Cloud Optimized GeoTIFF workflow from the shell, mirroring
-``rio cogeo create|validate|info`` but built on the pyramids `COG` engine and
+`rio cogeo create|validate|info` but built on the pyramids `COG` engine and
 the standard-library :mod:`argparse` (no extra dependency):
 
-- ``pyramids cog create IN OUT [--profile P] [--compress C] [--blocksize N]``
-- ``pyramids cog validate FILE [--strict]``
-- ``pyramids cog info FILE``
+- `pyramids cog create IN OUT [--profile P] [--compress C] [--blocksize N]`
+- `pyramids cog validate FILE [--strict]`
+- `pyramids cog info FILE`
 
-The entry point is registered as the ``pyramids`` console script; the functions
-here are also callable in-process (``main([...])``) for testing.
+The entry point is registered as the `pyramids` console script; the functions
+here are also callable in-process (`main([...])`) for testing.
 """
 
 from __future__ import annotations
@@ -23,14 +23,14 @@ from pyramids.dataset.cog import PROFILES, cog_info, validate
 
 
 def _cmd_create(args: argparse.Namespace) -> int:
-    """Handle ``pyramids cog create``.
+    """Handle `pyramids cog create`.
 
     Args:
-        args: Parsed arguments with ``input``, ``output``, ``profile``,
-            ``compress``, ``blocksize``, and ``no_validate``.
+        args: Parsed arguments with `input`, `output`, `profile`,
+            `compress`, `blocksize`, and `no_validate`.
 
     Returns:
-        int: ``0`` on success, ``1`` when post-write validation fails.
+        int: `0` on success, `1` when post-write validation fails.
     """
     ds = Dataset.read_file(args.input)
     kwargs: dict = {}
@@ -55,13 +55,13 @@ def _cmd_create(args: argparse.Namespace) -> int:
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
-    """Handle ``pyramids cog validate``.
+    """Handle `pyramids cog validate`.
 
     Args:
-        args: Parsed arguments with ``file`` and ``strict``.
+        args: Parsed arguments with `file` and `strict`.
 
     Returns:
-        int: ``0`` when the file is a valid COG, ``1`` otherwise.
+        int: `0` when the file is a valid COG, `1` otherwise.
     """
     report = validate(args.file, strict=args.strict)
     if report.is_valid:
@@ -76,13 +76,13 @@ def _cmd_validate(args: argparse.Namespace) -> int:
 
 
 def _cmd_info(args: argparse.Namespace) -> int:
-    """Handle ``pyramids cog info``.
+    """Handle `pyramids cog info`.
 
     Args:
-        args: Parsed arguments with ``file``.
+        args: Parsed arguments with `file`.
 
     Returns:
-        int: Always ``0`` (raises if the file cannot be opened).
+        int: Always `0` (raises if the file cannot be opened).
     """
     info = cog_info(args.file)
     print(f"file:        {args.file}")
@@ -106,8 +106,8 @@ def _build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser.
 
     Returns:
-        argparse.ArgumentParser: The configured parser with the ``cog``
-        command group and its ``create`` / ``validate`` / ``info`` subcommands.
+        argparse.ArgumentParser: The configured parser with the `cog`
+        command group and its `create` / `validate` / `info` subcommands.
     """
     parser = argparse.ArgumentParser(prog="pyramids", description="pyramids GIS toolkit")
     sub = parser.add_subparsers(dest="group", required=True)
@@ -143,14 +143,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point for the ``pyramids`` console script.
+    """Entry point for the `pyramids` console script.
 
     Args:
         argv: Argument list (excluding the program name). Defaults to
-            :data:`sys.argv` when ``None``.
+            :data:`sys.argv` when `None`.
 
     Returns:
-        int: Process exit code (``0`` success, non-zero failure).
+        int: Process exit code (`0` success, non-zero failure).
 
     Examples:
         - Inspect a COG from the shell:
