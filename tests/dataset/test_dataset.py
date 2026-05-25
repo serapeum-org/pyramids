@@ -1,5 +1,6 @@
 """Test the Dataset class."""
 
+import warnings
 from pathlib import Path
 from types import GeneratorType
 from typing import List, Tuple
@@ -581,6 +582,64 @@ class TestNoDataValue:
             dataset.change_no_data_value(None, 0)
         except NoDataValueError:
             pass
+
+    @pytest.mark.parametrize(
+        "dtype, expected",
+        [
+            ("uint8", 255),
+            ("uint16", 65535),
+            ("uint32", 4294967295),
+            ("int8", -128),
+        ],
+    )
+    def test_create_from_array_default_nodata_fits_small_dtype(self, dtype, expected):
+        """``create_from_array`` with the default no-data falls back when -9999 overflows.
+
+        Regression: the default ``no_data_value`` (-9999) does not fit unsigned
+        integer bands (or ``int8``); the conversion raised ``OverflowError`` and
+        the handler re-raised by re-casting the same value. It now falls back to
+        a dtype-valid sentinel (the dtype max for unsigned ints, the dtype min
+        for too-small signed ints) and warns instead of crashing.
+
+        Args:
+            dtype: A small integer dtype that cannot represent -9999.
+            expected: The dtype-valid no-data the fallback should pick.
+
+        Test scenario:
+            Build a single-band raster of ``dtype`` without passing
+            ``no_data_value`` — expected: construction succeeds, warns about the
+            out-of-range value, and stores ``expected`` as the no-data value.
+        """
+        arr = np.full((4, 4), 5, dtype=dtype)
+        with pytest.warns(UserWarning, match="out of range"):
+            dataset = Dataset.create_from_array(
+                arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+            )
+        assert dataset.no_data_value[0] == expected, (
+            f"{dtype}: expected fallback no-data {expected}, "
+            f"got {dataset.no_data_value[0]}"
+        )
+
+    @pytest.mark.parametrize("dtype", ["int16", "int32", "float32", "float64"])
+    def test_create_from_array_default_nodata_fits_large_dtype(self, dtype):
+        """Dtypes that can hold -9999 keep the default no-data and do not warn.
+
+        Args:
+            dtype: An integer/float dtype wide enough for -9999.
+
+        Test scenario:
+            Build a raster without ``no_data_value`` — expected: no warning and
+            the no-data value is the default -9999.
+        """
+        arr = np.full((4, 4), 5, dtype=dtype)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            dataset = Dataset.create_from_array(
+                arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+            )
+        assert dataset.no_data_value[0] == -9999, (
+            f"{dtype}: expected default no-data -9999, got {dataset.no_data_value[0]}"
+        )
 
 
 class TestSetCRS:

@@ -263,23 +263,32 @@ class IO(_Engine):
             self._ds._backend = "dask"
         else:
             if band is None and self._ds.band_count > 1:
-                rows = self._ds.rows if window is None else window[3]
-                columns = self._ds.columns if window is None else window[2]
-                arr = np.ones(
-                    (
-                        self._ds.band_count,
-                        rows,
-                        columns,
-                    ),
-                    dtype=self._ds.numpy_dtype[0],
-                )
-                for i in range(self._ds.band_count):
-                    if window is None:
+                if window is None:
+                    arr = np.ones(
+                        (
+                            self._ds.band_count,
+                            self._ds.rows,
+                            self._ds.columns,
+                        ),
+                        dtype=self._ds.numpy_dtype[0],
+                    )
+                    for i in range(self._ds.band_count):
                         arr[i, :, :] = self._ds._raster.GetRasterBand(
                             i + 1
                         ).ReadAsArray()
-                    else:
-                        arr[i, :, :] = self._read_block(i, window)
+                else:
+                    # ``window`` here is a FeatureCollection/GeoDataFrame (built
+                    # from a ``bbox`` or a polygon); its pixel dimensions are not
+                    # known until ``_read_block`` resolves it, and it is not
+                    # integer-indexable, so stack per-band block reads instead of
+                    # pre-allocating from ``window[2]`` / ``window[3]``.
+                    arr = np.stack(
+                        [
+                            self._read_block(i, window)
+                            for i in range(self._ds.band_count)
+                        ],
+                        axis=0,
+                    )
             else:
                 _validate_band_index(band, self._ds.band_count)
                 if band is None:

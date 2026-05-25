@@ -17,12 +17,23 @@ scope for pyramids; implement the :class:`Signer` protocol downstream for those.
 
 from __future__ import annotations
 
-from pyramids.stac._loader import load_asset, which_engine
+from pyramids.stac._extensions import (
+    affine_to_geotransform,
+    read_extension_metadata,
+)
+from pyramids.stac._geoparquet import from_geoparquet, to_geoparquet
+from pyramids.stac._loader import load_asset, resolved_href, which_engine
+from pyramids.stac._vrt import build_vrt_from_stac
 from pyramids.stac.client import open_client
+from pyramids.stac.download import download_item
+from pyramids.stac.search import search
 from pyramids.stac.signers import (
     AnonymousSigner,
     AWSRequesterPaysSigner,
     BearerTokenSigner,
+    CDSESigner,
+    EarthdataSigner,
+    PlanetaryComputerSigner,
     Signer,
 )
 
@@ -30,8 +41,19 @@ __all__ = [
     "AWSRequesterPaysSigner",
     "AnonymousSigner",
     "BearerTokenSigner",
+    "CDSESigner",
+    "EarthdataSigner",
+    "PlanetaryComputerSigner",
     "Signer",
+    "affine_to_geotransform",
+    "build_vrt_from_stac",
+    "download_item",
+    "from_geoparquet",
     "load_asset",
     "open_client",
+    "read_extension_metadata",
+    "resolved_href",
+    "search",
+    "to_geoparquet",
     "which_engine",
 ]

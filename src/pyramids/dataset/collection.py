@@ -18,8 +18,10 @@ from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._raster_meta import RasterMeta
 from pyramids.base._utils import import_flox, import_zarr
+from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
+from pyramids.dataset._stac import from_point as _from_point
 from pyramids.dataset._stac import from_stac as _from_stac
 from pyramids.dataset.abstract_dataset import CATALOG
 from pyramids.dataset.dataset import Dataset
@@ -214,12 +216,23 @@ def _finalize_after_write(data_result, resolved_store, meta, files) -> None:
     _finalize_collection_metadata(resolved_store, meta, files)
 
 
-def _read_time_step(path: str | Path) -> np.ndarray:
+def _read_time_step(
+    path: str | Path, gdal_env: dict[str, str] | None = None
+) -> np.ndarray:
     """Synchronous per-file reader used by the lazy `data` dask graph.
 
     Module-level (not a closure) so each
-    :func:`dask.delayed` task pickles as `(_read_time_step, path)`
-    — no live GDAL handle crosses the wire.
+    :func:`dask.delayed` task pickles as `(_read_time_step, path, gdal_env)`
+    — no live GDAL handle crosses the wire, only the path and a plain
+    config dict.
+
+    Args:
+        path: The backing file path for this timestep.
+        gdal_env: H4 — the collection's persisted signer GDAL config
+            (Requester-Pays / bearer / SAS), installed inside the worker
+            around the open + read so a signed file-backed collection
+            authenticates its Path B reads. A no-op when empty/`None`
+            (the common, unsigned case pays nothing).
 
     Routes the per-file open through a fresh
     :class:`CachingFileManager` whose `manager_id` is the path
@@ -237,20 +250,21 @@ def _read_time_step(path: str | Path) -> np.ndarray:
     fragmentation under mixed-type call sites.
     """
     path = str(path)
-    manager = CachingFileManager(
-        gdal_raster_open,
-        path,
-        "read_only",
-        lock=False,
-        manager_id=path,
-    )
-    handle = manager.acquire()
-    band_count = handle.RasterCount
-    if band_count == 1:
-        arr = handle.GetRasterBand(1).ReadAsArray()
-        arr = arr[np.newaxis, :, :]
-    else:
-        arr = handle.ReadAsArray()
+    with cloud_config_from_env(gdal_env):
+        manager = CachingFileManager(
+            gdal_raster_open,
+            path,
+            "read_only",
+            lock=False,
+            manager_id=path,
+        )
+        handle = manager.acquire()
+        band_count = handle.RasterCount
+        if band_count == 1:
+            arr = handle.GetRasterBand(1).ReadAsArray()
+            arr = arr[np.newaxis, :, :]
+        else:
+            arr = handle.ReadAsArray()
     return np.ascontiguousarray(arr)
 
 
@@ -363,6 +377,7 @@ class DatasetCollection:
         *,
         meta: RasterMeta | None = None,
         datasets: list[Dataset] | None = None,
+        gdal_env: dict[str, str] | None = None,
     ):
         """Construct DatasetCollection object.
 
@@ -385,11 +400,20 @@ class DatasetCollection:
                 internally by :meth:`to_crs` / :meth:`crop` /
                 :meth:`align` to wrap the result of per-timestep ops
                 without re-opening any files.
+            gdal_env: Optional GDAL config (e.g. a signer's
+                `gdal_env()`) installed around **every** open of the
+                backing files — both the eager template open and each
+                lazy per-timestep read on Path A (`datasets`) and Path B
+                (`data` dask graph). Lets a signed / Requester-Pays
+                collection (from :meth:`from_stac`) authenticate its
+                reads. A plain dict so it survives pickling to dask
+                workers. `None`/empty means no extra config.
         """
         self._base = src
         self._files = files
         self._time_length = time_length
         self._meta = meta if meta is not None else RasterMeta.from_dataset(src)
+        self._gdal_env: dict[str, str] = dict(gdal_env) if gdal_env else {}
         # Cached lazy list of per-timestep Datasets. Populated on
         # first access via the `datasets` property: from `datasets=`
         # (caller-provided), then `files=` (open each path), then a
@@ -431,7 +455,12 @@ class DatasetCollection:
         """
         if self._datasets is None:
             if self._files is not None:
-                self._datasets = [Dataset.read_file(str(p)) for p in self._files]
+                # H4: install the persisted signer env (Requester-Pays / bearer /
+                # SAS) around every per-timestep open so a signed file-backed
+                # collection authenticates its Path A reads, not just the
+                # template open in from_files. A no-op when _gdal_env is empty.
+                with cloud_config_from_env(self._gdal_env):
+                    self._datasets = [Dataset.read_file(str(p)) for p in self._files]
             else:
                 self._datasets = [self._base] * self._time_length
         return self._datasets
@@ -716,7 +745,9 @@ class DatasetCollection:
         meta = self._meta
         shape = meta.shape
         dtype = np.dtype(meta.dtype)
-        delayed_reads = [dask.delayed(_read_time_step)(path) for path in self._files]
+        delayed_reads = [
+            dask.delayed(_read_time_step)(path, self._gdal_env) for path in self._files
+        ]
         arrays = [da.from_delayed(d, shape=shape, dtype=dtype) for d in delayed_reads]
         return da.stack(arrays, axis=0)
 
@@ -1098,11 +1129,20 @@ class DatasetCollection:
     def from_stac(
         cls,
         items,
-        asset: str,
+        asset: str | Sequence[str],
         *,
         patch_url=None,
         bbox: tuple | None = None,
         max_items: int | None = None,
+        signer: Any = None,
+        align: bool = True,
+        skip_missing: bool = False,
+        groupby: str | None = None,
+        like: Any = None,
+        crs: int | str | None = None,
+        resolution: float | None = None,
+        bounds=None,
+        anchor: str = "edge",
     ) -> DatasetCollection:
         """Build a collection from a STAC ItemCollection.
 
@@ -1114,17 +1154,44 @@ class DatasetCollection:
         Args:
             items: Iterable of STAC Items (pystac objects, raw JSON
                 dicts, or any duck-typed equivalent).
-            asset: Asset key to extract from each item.
-            patch_url: Optional callable rewriting each href (useful
-                for signing Planetary Computer URLs).
+            asset: A single asset key (`str`) for a single-asset time
+                stack, or a sequence of keys (e.g. `["B04", "B03",
+                "B02"]`) to stack those assets band-wise into one
+                multi-band raster per timestep (band order = sequence
+                order).
+            patch_url: Optional low-level callable rewriting each href
+                (runs before `signer`).
             bbox: M6 — optional `(minx, miny, maxx, maxy)` filter in
                 lon/lat; items whose `bbox` doesn't intersect are
                 dropped before hrefs are resolved.
             max_items: M6 — cap the number of items consumed (after
                 bbox filtering). Useful for quick-look workflows.
+            signer: Optional signer (e.g. a
+                :class:`pyramids.stac.signers.Signer`). Its
+                `sign_href` rewrites every asset href and its
+                `gdal_env()` is captured onto the returned collection so
+                every read of the backing files authenticates — making
+                Requester-Pays / bearer / SAS catalogs work through
+                `from_stac`. See :func:`pyramids.dataset._stac.from_stac`.
+            align: Multi-asset only — resample assets at differing
+                resolutions onto the first asset's grid (`True`,
+                default) or raise on mismatch (`False`).
+            skip_missing: Drop items missing any requested asset
+                (`True`) instead of raising (`False`, default).
+            groupby: `"solar_day"` mosaics same-solar-day items into one
+                timestep each (single-asset only); `None` (default) keeps
+                one timestep per item.
+            like: Optional target-grid :class:`~pyramids.dataset.Dataset`;
+                every timestep is aligned onto its CRS + grid. Mutually
+                exclusive with `crs`/`resolution`/`bounds`.
+            crs: Target CRS for an explicit grid (with `resolution`+`bounds`).
+            resolution: Target pixel size for an explicit grid.
+            bounds: Target `(minx, miny, maxx, maxy)` for an explicit grid.
+            anchor: Grid-snap rule for the explicit grid (`"edge"`).
 
         Returns:
-            DatasetCollection: File-backed collection.
+            DatasetCollection: File-backed collection (or grid-aligned
+            collection when `like`/`crs` is given).
         """
         return _from_stac(
             items,
@@ -1132,7 +1199,75 @@ class DatasetCollection:
             patch_url=patch_url,
             bbox=bbox,
             max_items=max_items,
+            signer=signer,
+            align=align,
+            skip_missing=skip_missing,
+            groupby=groupby,
+            like=like,
+            crs=crs,
+            resolution=resolution,
+            bounds=bounds,
+            anchor=anchor,
         )
+
+    @classmethod
+    def from_point(
+        cls,
+        lat: float,
+        lon: float,
+        *,
+        collection: str,
+        bands,
+        start_date: str,
+        end_date: str,
+        edge_size: int,
+        resolution: float,
+        units: str = "px",
+        stac: str | None = None,
+        query: Any = None,
+        signer: Any = None,
+        align: bool = True,
+    ) -> DatasetCollection:
+        """Build a point-centred STAC cube (cubo-style convenience constructor).
+
+        Thin forwarder to :func:`pyramids.dataset._stac.from_point`: reprojects
+        `(lat, lon)` to its local UTM, snaps to the `resolution` grid, expands to
+        an `edge_size`-pixel (or -metre) square AOI, searches `collection` over
+        that AOI + date range, and stacks the `bands` via :meth:`from_stac`.
+
+        Args:
+            lat: Center latitude in degrees (EPSG:4326).
+            lon: Center longitude in degrees (EPSG:4326).
+            collection: STAC collection id to search.
+            bands: A single asset key or a sequence (multi-asset band axis).
+            start_date: Search start (`YYYY-MM-DD` / RFC 3339).
+            end_date: Search end (`YYYY-MM-DD` / RFC 3339).
+            edge_size: Cube side length, in pixels (`units="px"`) or metres.
+            resolution: Pixel size in metres.
+            units: `"px"` (default) or `"m"`.
+            stac: STAC API root URL; `None` uses the Planetary Computer default.
+            query: Optional STAC `query` extension dict.
+            signer: Optional signer, forwarded to the search and the reads.
+            align: Multi-asset resolution policy (see :meth:`from_stac`).
+
+        Returns:
+            DatasetCollection: A time-stacked cube over the point AOI.
+        """
+        kwargs: dict[str, Any] = dict(
+            collection=collection,
+            bands=bands,
+            start_date=start_date,
+            end_date=end_date,
+            edge_size=edge_size,
+            resolution=resolution,
+            units=units,
+            query=query,
+            signer=signer,
+            align=align,
+        )
+        if stac is not None:
+            kwargs["stac"] = stac
+        return _from_point(lat, lon, **kwargs)
 
     @classmethod
     def from_files(
@@ -1140,6 +1275,7 @@ class DatasetCollection:
         files: list[str | Path],
         *,
         meta: RasterMeta | None = None,
+        gdal_env: dict[str, str] | None = None,
     ) -> DatasetCollection:
         """Build a collection from a list of files without pre-opening all.
 
@@ -1153,6 +1289,11 @@ class DatasetCollection:
             meta: Optional pre-computed :class:`RasterMeta`. When
                 omitted, derived from the first file via
                 :meth:`RasterMeta.from_dataset`.
+            gdal_env: Optional GDAL config (e.g. a signer's
+                `gdal_env()`) installed around every open of the backing
+                files, including the eager template open below. Persisted
+                on the collection for the lazy read paths. `None` (default)
+                installs no extra config.
 
         Returns:
             DatasetCollection: A new collection whose `time_length`
@@ -1164,10 +1305,11 @@ class DatasetCollection:
         resolved = [str(p) for p in files]
         if not resolved:
             raise ValueError("files must contain at least one path")
-        template = Dataset.read_file(resolved[0])
-        if meta is None:
-            meta = RasterMeta.from_dataset(template)
-        return cls(template, len(resolved), files=resolved, meta=meta)
+        with cloud_config_from_env(gdal_env):
+            template = Dataset.read_file(resolved[0])
+            if meta is None:
+                meta = RasterMeta.from_dataset(template)
+        return cls(template, len(resolved), files=resolved, meta=meta, gdal_env=gdal_env)
 
     @classmethod
     def from_archive(

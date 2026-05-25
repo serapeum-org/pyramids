@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import warnings
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -18,32 +17,18 @@ import numpy as np
 from osgeo import gdal, osr
 
 from pyramids.base._utils import INTERPOLATION_METHODS
-from pyramids.base.remote import CloudConfig
+from pyramids.base.remote import signer_cloud_config
 from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
 
 _VRT_METHODS = ("first", "last")
 _REDUCE_METHODS = ("min", "max", "sum")
 _MERGE_METHODS = _VRT_METHODS + _REDUCE_METHODS
 
-
-def _cloud_config(signer: Any):
-    """Return a context manager installing ``signer``'s GDAL config, or a no-op.
-
-    Mirrors how :func:`pyramids.stac.load_asset` applies a signer: the signer's
-    ``gdal_env()`` mapping is fed into :class:`~pyramids.base.remote.CloudConfig`
-    so authenticated cloud reads work for the duration of the ``with`` block.
-
-    Args:
-        signer (Any): A signer exposing ``gdal_env() -> dict[str, str]`` (e.g. a
-            :class:`pyramids.stac.signers.Signer`), or ``None``.
-
-    Returns:
-        A context manager: a :class:`contextlib.nullcontext` when ``signer`` is
-        ``None`` (no GDAL config installed, behaviour unchanged), otherwise a
-        :class:`~pyramids.base.remote.CloudConfig` seeded with
-        ``signer.gdal_env()``.
-    """
-    return nullcontext() if signer is None else CloudConfig(extra=signer.gdal_env())
+# The signer -> CloudConfig helper now lives in pyramids.base.remote
+# (shared with pyramids.stac.load_asset so the rule lives in one place).
+# Kept as a module-level name because call sites and tests import
+# ``_cloud_config`` from here.
+_cloud_config = signer_cloud_config
 
 
 def merge_rasters(
@@ -108,15 +93,19 @@ def merge_rasters(
             DEM) to avoid the blockiness nearest introduces across reprojection.
             Ignored when no source is reprojected.
         signer (Any):
-            Optional signer exposing ``gdal_env() -> dict[str, str]`` (e.g. a
-            :class:`pyramids.stac.signers.Signer`). When given, its GDAL config
-            — credentials, Requester-Pays / SAS knobs — is installed via
-            :class:`~pyramids.base.remote.CloudConfig` for the duration of the
-            merge, so authenticated cloud sources (``/vsis3``, MPC SAS hrefs,
-            Requester-Pays buckets) can be read without wrapping the call in a
-            ``with CloudConfig(...)`` block. ``None`` (default) installs no extra
-            config and leaves behaviour unchanged. Source hrefs are read as-is —
-            pre-sign them if the catalog signs each asset URL.
+            Optional signer exposing ``sign_href(str) -> str`` and
+            ``gdal_env() -> dict[str, str]`` (e.g. a
+            :class:`pyramids.stac.signers.Signer`). When given, **both** hooks
+            are applied — exactly as :func:`pyramids.stac.load_asset` does:
+            ``signer.sign_href`` rewrites every source path first (e.g. grafting
+            a SAS token onto a blob URL), then ``signer.gdal_env()`` is installed
+            via :class:`~pyramids.base.remote.CloudConfig` for the duration of
+            the merge. This means URL-signing signers (Planetary Computer SAS,
+            whose credential rides the href and whose ``gdal_env()`` is empty)
+            and env-based signers (Requester-Pays, bearer) both authenticate
+            without wrapping the call in a ``with CloudConfig(...)`` block.
+            ``None`` (default) leaves source hrefs untouched and installs no
+            extra config.
 
     Returns:
         None
@@ -187,6 +176,14 @@ def merge_rasters(
     # that hit integer rasters should pass an explicit numeric
     # value instead of relying on the default.
     src_paths = [str(p) for p in src]
+    if signer is not None:
+        # Apply the signer's href rewrite to every source (e.g. graft a SAS
+        # token onto a blob URL) so URL-signing signers authenticate. A no-op
+        # for signers that authenticate via gdal_env() only — the base
+        # sign_href returns the href unchanged. This mirrors load_asset, which
+        # applies BOTH signer hooks (sign_href + gdal_env); applying only the
+        # env half here would silently read URL-signed sources unauthenticated.
+        src_paths = [signer.sign_href(p) for p in src_paths]
 
     # All GDAL reads/writes run under the signer's cloud config (a no-op when
     # signer is None) so authenticated remote sources open with the right
@@ -470,15 +467,22 @@ def stack_bands(
         no_data_value: No-data value for the output bands; omitted means
             "inherit from the source rasters".
         path: Output ``.tif`` path; ``None`` keeps the result in memory.
-        signer: Optional signer exposing ``gdal_env() -> dict[str, str]`` (e.g. a
-            :class:`pyramids.stac.signers.Signer`). When given, its GDAL config is
-            installed via :class:`~pyramids.base.remote.CloudConfig` for the
-            duration of the stack, so authenticated cloud inputs read with the
-            right credentials. ``None`` (default) leaves behaviour unchanged.
+        signer: Optional signer exposing ``sign_href(str) -> str`` and
+            ``gdal_env() -> dict[str, str]`` (e.g. a
+            :class:`pyramids.stac.signers.Signer`). When given, **both** hooks
+            are applied (as in :func:`pyramids.stac.load_asset`): every input
+            href is rewritten through ``signer.sign_href`` first, then
+            ``signer.gdal_env()`` is installed via
+            :class:`~pyramids.base.remote.CloudConfig` for the duration of the
+            stack, so authenticated cloud inputs (URL-signed or env-credentialed)
+            read with the right credentials. ``None`` (default) leaves behaviour
+            unchanged.
 
     Returns:
         Dataset: A multi-band dataset, one band per input file.
     """
+    if signer is not None:
+        files = [signer.sign_href(str(f)) for f in files]
     with _cloud_config(signer):
         result = Dataset.from_band_files(
             files,

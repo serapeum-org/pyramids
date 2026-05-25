@@ -2,13 +2,66 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 import numpy as np  # noqa: E402
 import pytest
 from osgeo import gdal
 
-from pyramids.base.remote import CloudConfig, _to_vsi, is_remote
+from pyramids.base.remote import (
+    CloudConfig,
+    _to_vsi,
+    is_remote,
+    signer_cloud_config,
+)
 
 pytestmark = pytest.mark.core
+
+
+class _EnvSigner:
+    """Minimal signer stand-in exposing only ``gdal_env()``."""
+
+    def __init__(self, env):
+        self._env = dict(env)
+
+    def gdal_env(self):
+        """Return the advertised GDAL config mapping."""
+        return dict(self._env)
+
+
+class TestSignerCloudConfig:
+    """Tests for the shared ``signer_cloud_config`` helper (M4)."""
+
+    def test_none_returns_nullcontext(self):
+        """A ``None`` signer yields a no-op nullcontext.
+
+        Test scenario:
+            ``signer_cloud_config(None)`` installs no GDAL config.
+        """
+        assert isinstance(signer_cloud_config(None), nullcontext), "expected a no-op context"
+
+    def test_signer_returns_seeded_cloudconfig(self):
+        """A signer yields a CloudConfig carrying its ``gdal_env()``.
+
+        Test scenario:
+            The returned CloudConfig's config equals the signer's env.
+        """
+        ctx = signer_cloud_config(_EnvSigner({"AWS_REQUEST_PAYER": "requester"}))
+        assert isinstance(ctx, CloudConfig), f"expected CloudConfig, got {type(ctx)}"
+        assert ctx.as_gdal_config() == {"AWS_REQUEST_PAYER": "requester"}, (
+            f"unexpected config: {ctx.as_gdal_config()}"
+        )
+
+    def test_config_active_within_block(self):
+        """The signer's config is live inside the block and torn down after.
+
+        Test scenario:
+            ``GDAL_HTTP_TIMEOUT`` is set within the block and unset afterwards.
+        """
+        assert gdal.GetConfigOption("GDAL_HTTP_TIMEOUT") is None, "precondition: unset"
+        with signer_cloud_config(_EnvSigner({"GDAL_HTTP_TIMEOUT": "42"})):
+            assert gdal.GetConfigOption("GDAL_HTTP_TIMEOUT") == "42", "config not active in block"
+        assert gdal.GetConfigOption("GDAL_HTTP_TIMEOUT") is None, "config not restored after block"
 
 
 class TestToVsi:

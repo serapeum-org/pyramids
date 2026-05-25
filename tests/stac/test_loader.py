@@ -6,10 +6,17 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
+from pyramids.base._errors import StacAssetError, UnsupportedAssetError
 from pyramids.dataset import Dataset
 from pyramids.netcdf import NetCDF
 from pyramids.stac import _loader
-from pyramids.stac._loader import _engine_for, _resolve_asset, load_asset, which_engine
+from pyramids.stac._loader import (
+    _engine_for,
+    _resolve_asset,
+    load_asset,
+    resolved_href,
+    which_engine,
+)
 from pyramids.stac.signers import AWSRequesterPaysSigner
 
 pytestmark = pytest.mark.core
@@ -68,10 +75,15 @@ class TestEngineFor:
         [
             (_COG_TYPE, "x.tif", "gdal"),
             ("image/geotiff", "x", "gdal"),
+            ("image/vnd.stac.geotiff", "x", "gdal"),
+            ("image/jp2", "x", "gdal"),
+            ("image/jpeg2000", "x", "gdal"),
             ("application/x-netcdf", "x", "netcdf"),
             ("application/netcdf", "x", "netcdf"),
             ("application/wmo-grib2", "x", "grib"),
+            ("application/x-grib", "x", "grib"),
             ("application/vnd+zarr", "x", "zarr"),
+            ("application/vnd.zarr", "x", "zarr"),
         ],
     )
     def test_media_type_wins(self, media_type, href, expected):
@@ -92,12 +104,15 @@ class TestEngineFor:
         [
             ("s3://b/scene.tif", "gdal"),
             ("s3://b/scene.TIFF", "gdal"),
+            ("s3://b/B04.jp2", "gdal"),
+            ("s3://b/B04.JP2", "gdal"),
             ("https://h/x.nc", "netcdf"),
             ("https://h/gfs.f000.grib2", "grib"),
             ("https://h/x.grib", "grib"),
             ("s3://b/cube.zarr", "zarr"),
             ("s3://b/cube.zarr/", "zarr"),
             ("https://h/x.tif?token=abc", "gdal"),
+            ("https://h/B02.jp2?sig=tok", "gdal"),
         ],
     )
     def test_extension_fallback(self, href, expected):
@@ -120,6 +135,39 @@ class TestEngineFor:
         """
         with pytest.raises(ValueError, match="Cannot determine a reader"):
             _engine_for(None, "s3://b/data.unknown")
+
+    def test_unknown_raises_unsupported_asset_error(self):
+        """M2: the unknown-reader error is an UnsupportedAssetError.
+
+        Test scenario:
+            The raised type is the STAC-branded UnsupportedAssetError (which is
+            also a ValueError for back-compat).
+        """
+        with pytest.raises(UnsupportedAssetError, match="JPEG2000"):
+            _engine_for(None, "s3://b/data.unknown")
+
+    @pytest.mark.parametrize("href", ["s3://b/x.jp2", "s3://b/x.JP2", "s3://b/x.jpx"])
+    def test_jp2_extension_routes_to_gdal(self, href):
+        """M2: JPEG2000 extensions route to the GDAL reader.
+
+        Args:
+            href: A JP2/JPX href (case-insensitive).
+
+        Test scenario:
+            Sentinel-2 L2A assets on AWS are JP2; they must dispatch to gdal.
+        """
+        assert _engine_for(None, href) == "gdal", f"{href} should route to gdal"
+
+    def test_substring_media_type_not_misrouted(self):
+        """L4: a media type merely *containing* a reader token is not matched.
+
+        Test scenario:
+            'application/x-my-grib-index' does not start with a known GRIB
+            prefix, so with an unusable extension it raises rather than
+            mis-routing to the GRIB reader (the previous substring check did).
+        """
+        with pytest.raises(UnsupportedAssetError):
+            _engine_for("application/x-my-grib-index", "s3://b/data.bin")
 
 
 class TestResolveAsset:
@@ -166,6 +214,16 @@ class TestResolveAsset:
         with pytest.raises(KeyError, match="not found"):
             _resolve_asset({"assets": {"a": {"href": "x"}}}, "missing")
 
+    def test_missing_asset_raises_stac_asset_error(self):
+        """H1/M5: the missing-asset error is the branded StacAssetError.
+
+        Test scenario:
+            _resolve_asset now delegates to the shared accessor, which raises
+            StacAssetError (a KeyError subclass).
+        """
+        with pytest.raises(StacAssetError, match="not found"):
+            _resolve_asset({"assets": {"a": {"href": "x"}}}, "missing")
+
     def test_asset_without_href_raises_keyerror(self):
         """An asset lacking an href raises KeyError.
 
@@ -174,6 +232,50 @@ class TestResolveAsset:
         """
         with pytest.raises(KeyError, match="no 'href'"):
             _resolve_asset({"assets": {"a": {"type": "image/tiff"}}}, "a")
+
+
+class TestResolvedHref:
+    """Tests for resolved_href (L2): the read-free href resolver."""
+
+    def test_bare_asset_href(self):
+        """A bare asset dict resolves to its href.
+
+        Test scenario:
+            asset_key=None treats the input as the asset.
+        """
+        assert resolved_href({"href": "s3://b/x.tif", "type": "image/tiff"}) == "s3://b/x.tif"
+
+    def test_item_with_key(self):
+        """An Item + key resolves the named asset's href.
+
+        Test scenario:
+            The href under assets[key] is returned without opening.
+        """
+        item = {"assets": {"B04": {"href": "https://h/B04.tif"}}}
+        assert resolved_href(item, "B04") == "https://h/B04.tif"
+
+    def test_signer_applied(self):
+        """A signer's sign_href rewrites the resolved href.
+
+        Test scenario:
+            A simple suffix signer signs the href; gdal_env is irrelevant here.
+        """
+
+        class _S:
+            def sign_href(self, href):
+                return f"{href}?sig=tok"
+
+        item = {"assets": {"B04": {"href": "https://h/B04.tif"}}}
+        assert resolved_href(item, "B04", signer=_S()) == "https://h/B04.tif?sig=tok"
+
+    def test_missing_asset_raises(self):
+        """A missing asset raises the branded StacAssetError (a KeyError).
+
+        Test scenario:
+            Resolving an absent key surfaces the shared error without opening.
+        """
+        with pytest.raises(StacAssetError, match="not found"):
+            resolved_href({"assets": {"a": {"href": "x"}}}, "missing")
 
 
 class TestWhichEngine:

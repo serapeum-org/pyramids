@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import threading
+import time
+import urllib.error
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +13,9 @@ from pyramids.stac.signers import (
     AnonymousSigner,
     AWSRequesterPaysSigner,
     BearerTokenSigner,
+    CDSESigner,
+    EarthdataSigner,
+    PlanetaryComputerSigner,
     Signer,
     _BaseSigner,
 )
@@ -270,6 +276,169 @@ class TestBearerTokenSigner:
         ), "Should satisfy the Signer protocol"
 
 
+class TestPlanetaryComputerSigner:
+    """Tests for the native PC SAS signer (PB-4); token fetch is stubbed."""
+
+    @pytest.fixture
+    def signer(self, monkeypatch):
+        """A PC signer whose token fetch is stubbed (no network).
+
+        Args:
+            monkeypatch: pytest fixture.
+
+        Returns:
+            PlanetaryComputerSigner: records fetch calls in ``signer.fetches``;
+            each fetch returns a token derived from the container with a
+            far-future expiry.
+        """
+        s = PlanetaryComputerSigner()
+        s.fetches = []
+
+        def fake_fetch(account, container):
+            s.fetches.append((account, container))
+            return (f"sig=tok-{container}", 9_999_999_999.0)
+
+        monkeypatch.setattr(s, "_fetch_token", fake_fetch)
+        return s
+
+    def test_is_a_signer(self, signer):
+        """The PC signer satisfies the Signer protocol and is named.
+
+        Test scenario:
+            Structural protocol membership + the advertised name.
+        """
+        assert isinstance(signer, Signer), "PC signer should satisfy the Signer protocol"
+        assert signer.name == "planetary-computer", f"unexpected name: {signer.name}"
+
+    def test_gdal_env_is_empty(self, signer):
+        """The credential rides the URL, so gdal_env() is empty.
+
+        Test scenario:
+            No GDAL config is needed for a SAS-signed /vsicurl href.
+        """
+        assert signer.gdal_env() == {}, f"PC signer gdal_env should be empty, got {signer.gdal_env()}"
+
+    def test_signs_blob_href(self, signer):
+        """A PC blob href gets the SAS token appended.
+
+        Test scenario:
+            account/container are parsed and ?<token> is appended.
+        """
+        out = signer.sign_href("https://sent2.blob.core.windows.net/sentinel/B04.tif")
+        assert out == "https://sent2.blob.core.windows.net/sentinel/B04.tif?sig=tok-sentinel", out
+        assert signer.fetches == [("sent2", "sentinel")], f"unexpected fetch: {signer.fetches}"
+
+    def test_appends_with_ampersand_when_query_present(self, signer):
+        """An existing query string gets the token appended with '&'.
+
+        Test scenario:
+            A blob href that already has a (non-SAS) query keeps it.
+        """
+        out = signer.sign_href("https://a.blob.core.windows.net/c/b.tif?foo=1")
+        assert out == "https://a.blob.core.windows.net/c/b.tif?foo=1&sig=tok-c", out
+
+    def test_non_blob_href_passthrough(self, signer):
+        """A non-Azure href is returned unchanged and triggers no fetch.
+
+        Test scenario:
+            An s3:// href is not a PC blob.
+        """
+        href = "s3://bucket/scene.tif"
+        assert signer.sign_href(href) == href, "non-blob href must pass through"
+        assert signer.fetches == [], "no token should be fetched for a non-blob href"
+
+    def test_public_bucket_not_signed(self, signer):
+        """The public ai4edatasetspublicassets bucket is never signed.
+
+        Test scenario:
+            Public assets need no SAS token.
+        """
+        href = "https://ai4edatasetspublicassets.blob.core.windows.net/c/b.tif"
+        assert signer.sign_href(href) == href, "public bucket must not be signed"
+        assert signer.fetches == [], "public bucket should not trigger a fetch"
+
+    def test_already_signed_href_untouched(self, signer):
+        """An href already carrying SAS params is left as-is.
+
+        Test scenario:
+            Presence of se/sig means it is already signed.
+        """
+        href = "https://a.blob.core.windows.net/c/b.tif?se=2034&sig=abc"
+        assert signer.sign_href(href) == href, "already-signed href must be untouched"
+        assert signer.fetches == [], "already-signed href should not trigger a fetch"
+
+    def test_token_cached_across_calls(self, signer):
+        """A token is fetched once per (account, container) and reused.
+
+        Test scenario:
+            Two hrefs in the same container fetch only once.
+        """
+        signer.sign_href("https://a.blob.core.windows.net/c/one.tif")
+        signer.sign_href("https://a.blob.core.windows.net/c/two.tif")
+        assert signer.fetches == [("a", "c")], f"token should be cached, got {signer.fetches}"
+
+    def test_sign_item_rewrites_dict_assets(self, signer):
+        """sign_item rewrites every blob asset href on a raw-dict item in place.
+
+        Test scenario:
+            A dict item's blob asset is signed; a non-blob asset is untouched.
+        """
+        item = {
+            "assets": {
+                "B04": {"href": "https://a.blob.core.windows.net/c/B04.tif"},
+                "thumb": {"href": "https://example.com/t.png"},
+            }
+        }
+        assert signer.sign_item(item) is None, "sign_item must return None (modifier contract)"
+        assert item["assets"]["B04"]["href"].endswith("?sig=tok-c"), item["assets"]["B04"]["href"]
+        assert item["assets"]["thumb"]["href"] == "https://example.com/t.png", "non-blob untouched"
+
+    def test_sign_item_handles_attribute_assets(self, signer):
+        """sign_item rewrites .href on pystac-like asset objects.
+
+        Test scenario:
+            An item exposing .assets with objects bearing .href is signed.
+        """
+        asset = SimpleNamespace(href="https://a.blob.core.windows.net/c/B03.tif")
+        item = SimpleNamespace(assets={"B03": asset})
+        signer.sign_item(item)
+        assert asset.href.endswith("?sig=tok-c"), f"attribute asset not signed: {asset.href}"
+
+    def test_token_minted_once_under_concurrent_threads(self, monkeypatch):
+        """L4: concurrent sign_href for one (account, container) fetches once.
+
+        Test scenario:
+            8 threads sign the same blob href while _fetch_token is slow; the
+            double-checked lock must mint exactly one token.
+        """
+        s = PlanetaryComputerSigner()
+        calls = {"n": 0}
+
+        def slow_fetch(account, container):
+            calls["n"] += 1
+            time.sleep(0.02)
+            return ("sig=tok", 9_999_999_999.0)
+
+        monkeypatch.setattr(s, "_fetch_token", slow_fetch)
+        href = "https://a.blob.core.windows.net/c/b.tif"
+        threads = [threading.Thread(target=s.sign_href, args=(href,)) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert calls["n"] == 1, f"token should be minted once under threads, got {calls['n']}"
+
+    def test_parse_expiry_handles_z_suffix_and_missing(self):
+        """_parse_expiry parses RFC3339 'Z' and returns 0.0 for bad input.
+
+        Test scenario:
+            A 'Z'-suffixed timestamp parses to a positive epoch; None -> 0.0.
+        """
+        ts = PlanetaryComputerSigner._parse_expiry("2034-01-01T00:00:00Z")
+        assert ts > 2_000_000_000.0, f"expected a far-future epoch, got {ts}"
+        assert PlanetaryComputerSigner._parse_expiry(None) == 0.0, "missing expiry should be 0.0"
+
+
 class TestSignerProtocol:
     """Tests for the Signer protocol membership rules."""
 
@@ -295,3 +464,196 @@ class TestSignerProtocol:
             gdal_env=lambda: {},
         )
         assert isinstance(duck, Signer), "Duck-typed signer should satisfy the protocol"
+
+
+class TestEarthdataSigner:
+    """PD-1: NASA Earthdata bearer signer (token fetch stubbed)."""
+
+    def test_is_a_signer_named_earthdata(self):
+        """The signer satisfies the protocol and is named 'earthdata'."""
+        s = EarthdataSigner(token="t")
+        assert isinstance(s, Signer), "EarthdataSigner should satisfy the protocol"
+        assert s.name == "earthdata", f"unexpected name: {s.name}"
+
+    def test_static_token_in_gdal_env(self):
+        """A pre-minted token is used directly in the bearer header.
+
+        Test scenario:
+            token= goes into GDAL_HTTP_HEADERS without any fetch.
+        """
+        s = EarthdataSigner(token="edl-tok")
+        assert s.gdal_env() == {"GDAL_HTTP_HEADERS": "Authorization: Bearer edl-tok"}
+
+    def test_env_token_picked_up(self, monkeypatch):
+        """EARTHDATA_TOKEN is read from the environment.
+
+        Test scenario:
+            With the env var set, no username/password is needed.
+        """
+        monkeypatch.setenv("EARTHDATA_TOKEN", "env-tok")
+        s = EarthdataSigner()
+        assert s.gdal_env()["GDAL_HTTP_HEADERS"].endswith("env-tok"), s.gdal_env()
+
+    def test_mints_and_caches(self, monkeypatch):
+        """Without a static token, the signer mints once and caches it.
+
+        Test scenario:
+            _fetch_token is called once across two gdal_env() reads.
+        """
+        s = EarthdataSigner(username="u", password="p")
+        calls = {"n": 0}
+
+        def fake_fetch():
+            calls["n"] += 1
+            return ("minted", 9_999_999_999.0)
+
+        monkeypatch.setattr(s, "_fetch_token", fake_fetch)
+        assert s.gdal_env()["GDAL_HTTP_HEADERS"].endswith("minted"), s.gdal_env()
+        s.gdal_env()
+        assert calls["n"] == 1, f"token should be cached, fetched {calls['n']}x"
+
+    def test_no_credentials_raises(self):
+        """Minting without credentials raises a clear error.
+
+        Test scenario:
+            No token and no username/password -> ValueError on first use.
+        """
+        s = EarthdataSigner()
+        with pytest.raises(ValueError, match="EARTHDATA"):
+            s.gdal_env()
+
+    def test_token_minted_once_under_concurrent_threads(self, monkeypatch):
+        """L4: concurrent gdal_env() calls mint the bearer token only once.
+
+        Test scenario:
+            8 threads read gdal_env() while _fetch_token is slow; the shared
+            double-checked lock mints exactly one token.
+        """
+        s = EarthdataSigner(username="u", password="p")
+        calls = {"n": 0}
+
+        def slow_fetch():
+            calls["n"] += 1
+            time.sleep(0.02)
+            return ("minted", 9_999_999_999.0)
+
+        monkeypatch.setattr(s, "_fetch_token", slow_fetch)
+        threads = [threading.Thread(target=s.gdal_env) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert calls["n"] == 1, f"token should be minted once under threads, got {calls['n']}"
+
+
+class TestCDSESigner:
+    """PD-1: CDSE Keycloak bearer signer (token fetch stubbed)."""
+
+    def test_is_a_signer_named_cdse(self):
+        """The signer satisfies the protocol and is named 'cdse'."""
+        s = CDSESigner(username="u", password="p")
+        assert isinstance(s, Signer), "CDSESigner should satisfy the protocol"
+        assert s.name == "cdse", f"unexpected name: {s.name}"
+
+    def test_password_grant_then_refresh(self, monkeypatch):
+        """First use does a password grant; the token is cached.
+
+        Test scenario:
+            _fetch_token mints an access token; gdal_env carries it as a bearer.
+        """
+        s = CDSESigner(username="u", password="p")
+        monkeypatch.setattr(s, "_fetch_token", lambda: ("cdse-access", 9_999_999_999.0))
+        assert s.gdal_env() == {"GDAL_HTTP_HEADERS": "Authorization: Bearer cdse-access"}
+
+    def test_no_credentials_raises(self):
+        """A password grant without credentials raises.
+
+        Test scenario:
+            No username/password and no refresh token -> ValueError.
+        """
+        s = CDSESigner()
+        with pytest.raises(ValueError, match="CDSE_USERNAME"):
+            s.gdal_env()
+
+    def test_refresh_grant_uses_refresh_token(self, monkeypatch):
+        """Once a refresh token is held, _fetch_token uses the refresh grant.
+
+        Test scenario:
+            Simulate a prior mint that set _refresh_token; the next real
+            _fetch_token builds a refresh_token grant body.
+        """
+        s = CDSESigner(username="u", password="p")
+        s._refresh_token = "rtok"
+        captured = {}
+
+        class _Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return b'{"access_token": "a2", "expires_in": 600, "refresh_token": "rtok2"}'
+
+        def fake_urlopen(request, timeout=None):
+            captured["data"] = request.data.decode()
+            return _Resp()
+
+        monkeypatch.setattr("pyramids.stac.signers.urllib.request.urlopen", fake_urlopen)
+        token, _expiry = s._fetch_token()
+        assert token == "a2", f"expected refreshed token, got {token}"
+        assert "grant_type=refresh_token" in captured["data"], captured["data"]
+        assert s._refresh_token == "rtok2", f"refresh token should rotate, got {s._refresh_token}"
+
+    def test_expired_refresh_falls_back_to_password(self, monkeypatch):
+        """M4: a rejected refresh token drops it and re-auths via password grant.
+
+        Test scenario:
+            The refresh grant raises URLError (expired token); _fetch_token then
+            falls back to the password grant and re-acquires a refresh token.
+        """
+        s = CDSESigner(username="u", password="p")
+        s._refresh_token = "expired"
+        grants = []
+
+        class _Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return b'{"access_token": "pw-access", "expires_in": 600, "refresh_token": "fresh"}'
+
+        def fake_urlopen(request, timeout=None):
+            body = request.data.decode()
+            grants.append(body)
+            if "grant_type=refresh_token" in body:
+                raise urllib.error.URLError("refresh token expired")
+            return _Resp()
+
+        monkeypatch.setattr("pyramids.stac.signers.urllib.request.urlopen", fake_urlopen)
+        token, _expiry = s._fetch_token()
+        assert token == "pw-access", f"should fall back to password grant, got {token}"
+        assert any("grant_type=refresh_token" in g for g in grants), "refresh grant should be tried first"
+        assert any("grant_type=password" in g for g in grants), "password grant should be the fallback"
+        assert s._refresh_token == "fresh", f"a fresh refresh token should be acquired, got {s._refresh_token}"
+
+    def test_expired_refresh_without_credentials_raises(self, monkeypatch):
+        """M4: if the refresh fails and no credentials exist, raise clearly.
+
+        Test scenario:
+            Refresh grant fails and there is no username/password to fall back
+            on -> ValueError rather than an opaque URLError.
+        """
+        s = CDSESigner()
+        s._refresh_token = "expired"
+
+        def fake_urlopen(request, timeout=None):
+            raise urllib.error.URLError("refresh token expired")
+
+        monkeypatch.setattr("pyramids.stac.signers.urllib.request.urlopen", fake_urlopen)
+        with pytest.raises(ValueError, match="CDSE_USERNAME"):
+            s._fetch_token()

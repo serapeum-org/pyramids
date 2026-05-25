@@ -510,6 +510,14 @@ def import_pystac_client(message: str):
         raise OptionalPackageDoesNotExist(message)
 
 
+def import_stac_asset(message: str):
+    """Import stac_asset (ships via the optional [stac] extra)."""
+    try:
+        import stac_asset  # noqa
+    except ImportError:
+        raise OptionalPackageDoesNotExist(message)
+
+
 def import_dask(message: str):
     """Import dask."""
     try:

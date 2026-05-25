@@ -1439,6 +1439,64 @@ class Dataset(RasterBase):
         """
         return self._calculate_bbox()
 
+    def to_stac_item(
+        self,
+        item_id: str,
+        *,
+        asset_href: str,
+        datetime=None,
+        start_datetime=None,
+        end_datetime=None,
+        asset_key: str = "data",
+        asset_media_type: str | None = None,
+        with_proj: bool = True,
+        with_raster: bool = True,
+        precision: int = 6,
+    ) -> dict:
+        """Describe this raster as a STAC Item dict (proj + raster extensions).
+
+        Thin forwarder to :func:`pyramids.dataset._stac.to_stac_item` — the
+        inverse of :meth:`DatasetCollection.from_stac`. Returns a plain
+        STAC-JSON dict (pystac not required); the footprint is this dataset's
+        bounding rectangle reprojected to EPSG:4326.
+
+        Args:
+            item_id: The STAC Item id.
+            asset_href: Href to record for the single data asset.
+            datetime: Item datetime (`datetime.datetime` or RFC 3339 string).
+                `None` with no range defaults to the current UTC time; `None`
+                with `start_datetime`/`end_datetime` writes a null `datetime`
+                plus the range (the STAC-valid null-datetime form).
+            start_datetime: Optional range start, written to
+                `properties.start_datetime`.
+            end_datetime: Optional range end, written to
+                `properties.end_datetime`.
+            asset_key: Key for the data asset (default `"data"`).
+            asset_media_type: Optional media type for the asset.
+            with_proj: Populate the `proj` extension from the grid.
+            with_raster: Populate `raster:bands` (data_type + nodata).
+            precision: Decimal places for the reprojected footprint.
+
+        Returns:
+            dict: The STAC Item (a GeoJSON Feature).
+        """
+        # Imported here to avoid the dataset <-> stac import cycle at load time.
+        from pyramids.dataset._stac import to_stac_item
+
+        return to_stac_item(
+            self,
+            item_id,
+            asset_href=asset_href,
+            datetime=datetime,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+            asset_key=asset_key,
+            asset_media_type=asset_media_type,
+            with_proj=with_proj,
+            with_raster=with_raster,
+            precision=precision,
+        )
+
     @property
     def total_bounds(self) -> np.ndarray:
         """Bounding box `[minx, miny, maxx, maxy]` as a NumPy array.
@@ -2393,6 +2451,7 @@ class Dataset(RasterBase):
                     template.read_array(band=0).astype(target_np_dtype, copy=False),
                     geo=template.geotransform,
                     epsg=template.epsg,
+                    no_data_value=resolved_nd,
                 )
                 # Dataset.align uses the source's no_data_value to fill the warp
                 # destination, so the aligned fringe carries the SOURCE's sentinel.
