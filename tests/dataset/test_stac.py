@@ -830,3 +830,35 @@ class TestAntimeridian:
         """
         item = {"bbox": [170.0, 0.0, -170.0, 5.0], "properties": {"datetime": "2021-06-01T23:00:00Z"}}
         assert _solar_day(item) == "2021-06-02", f"got {_solar_day(item)}"
+
+
+class TestFromStacMultiAssetUint16:
+    """#362 regression on the PB-2 path: multi-asset align over uint16 bands."""
+
+    def test_multi_asset_uint16_mixed_resolution(self, tmp_path):
+        """from_stac(asset=[...], align=True) stacks uint16 10 m + 20 m bands.
+
+        Test scenario:
+            The Sentinel-2 case that triggered #362 through the multi-asset
+            from_stac -> from_band_files(align=True) path: two uint16 assets at
+            10 m and 20 m on one item build a 2-band uint16 cube without the
+            -9999 template OverflowError.
+        """
+        b10 = Dataset.create_from_array(
+            np.arange(16, dtype="uint16").reshape(4, 4),
+            top_left_corner=(0.0, 40.0), cell_size=10.0, epsg=32630, no_data_value=0,
+        )
+        b20 = Dataset.create_from_array(
+            (np.arange(4, dtype="uint16") + 1).reshape(2, 2),
+            top_left_corner=(0.0, 40.0), cell_size=20.0, epsg=32630, no_data_value=0,
+        )
+        p10, p20 = str(tmp_path / "B04.tif"), str(tmp_path / "B05.tif")
+        b10.to_file(p10)
+        b20.to_file(p20)
+        items = [{"assets": {"B04": {"href": p10}, "B05": {"href": p20}}}]
+        coll = DatasetCollection.from_stac(items, asset=["B04", "B05"], align=True)
+        out = coll.datasets[0]
+        assert out.band_count == 2, f"expected 2 bands, got {out.band_count}"
+        assert out.dtype[0] == "uint16", f"expected uint16, got {out.dtype}"
+        assert out.band_names == ["B04", "B05"], f"band names: {out.band_names}"
+        assert (out.rows, out.columns) == (4, 4), f"grid should match the 10 m band: {(out.rows, out.columns)}"

@@ -2451,6 +2451,7 @@ class Dataset(RasterBase):
                     template.read_array(band=0).astype(target_np_dtype, copy=False),
                     geo=template.geotransform,
                     epsg=template.epsg,
+                    no_data_value=resolved_nd,
                 )
                 # Dataset.align uses the source's no_data_value to fill the warp
                 # destination, so the aligned fringe carries the SOURCE's sentinel.

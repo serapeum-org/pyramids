@@ -818,3 +818,77 @@ class TestStackBandsSigner:
         assert signer.seen == [pa, pb], (
             f"sign_href should see each input once, got {signer.seen}"
         )
+
+
+@pytest.fixture
+def uint16_mixed_res_bands(tmp_path):
+    """A 10 m and a 20 m uint16 band on the same origin/CRS (nodata 0).
+
+    Mirrors the Sentinel-2 case from issue #362: same unsigned dtype, mismatched
+    resolution, so stacking requires align=True.
+
+    Returns:
+        tuple[str, str]: (path_10m, path_20m).
+    """
+    a = Dataset.create_from_array(
+        np.arange(16, dtype="uint16").reshape(4, 4),
+        top_left_corner=(0.0, 40.0), cell_size=10.0, epsg=32630, no_data_value=0,
+    )
+    b = Dataset.create_from_array(
+        (np.arange(4, dtype="uint16") + 1).reshape(2, 2),
+        top_left_corner=(0.0, 40.0), cell_size=20.0, epsg=32630, no_data_value=0,
+    )
+    pa, pb = str(tmp_path / "b10.tif"), str(tmp_path / "b20.tif")
+    a.to_file(pa)
+    b.to_file(pb)
+    return pa, pb
+
+
+class TestStackBandsUint16Align:
+    """#362: align=True must not overflow on unsigned-dtype bands."""
+
+    def test_stack_bands_uint16_align(self, uint16_mixed_res_bands):
+        """stack_bands(align=True) stacks mixed-resolution uint16 bands.
+
+        Test scenario:
+            A 10 m + 20 m uint16 pair (nodata 0) stacks into one 2-band uint16
+            dataset without the OverflowError from the -9999 template default.
+        """
+        pa, pb = uint16_mixed_res_bands
+        result = stack_bands([pa, pb], align=True, no_data_value=0)
+        assert result.band_count == 2, f"expected 2 bands, got {result.band_count}"
+        assert result.dtype[0] == "uint16", f"expected uint16, got {result.dtype}"
+        assert result.no_data_value[0] == 0, f"nodata should be 0, got {result.no_data_value[0]}"
+
+    def test_from_band_files_uint16_align(self, uint16_mixed_res_bands):
+        """from_band_files(align=True) (the underlying API) also succeeds.
+
+        Test scenario:
+            The same uint16 mixed-resolution stack via Dataset.from_band_files.
+        """
+        pa, pb = uint16_mixed_res_bands
+        result = Dataset.from_band_files([pa, pb], align=True, no_data_value=0)
+        assert result.band_count == 2, f"expected 2 bands, got {result.band_count}"
+        assert result.dtype[0] == "uint16", f"expected uint16, got {result.dtype}"
+
+    def test_uint16_align_grid_matches_first(self, uint16_mixed_res_bands):
+        """The stacked grid matches the first (10 m) band, not the coarse one.
+
+        Test scenario:
+            align resamples the 20 m band onto the 4x4 10 m grid.
+        """
+        pa, pb = uint16_mixed_res_bands
+        result = Dataset.from_band_files([pa, pb], align=True, no_data_value=0)
+        assert (result.rows, result.columns) == (4, 4), f"grid: {(result.rows, result.columns)}"
+
+    def test_uint16_align_inherited_nodata(self, uint16_mixed_res_bands):
+        """align=True works when nodata is inherited (not passed) from uint16 sources.
+
+        Test scenario:
+            Omitting no_data_value inherits 0 from the sources; the template must
+            still not default to -9999 and overflow.
+        """
+        pa, pb = uint16_mixed_res_bands
+        result = Dataset.from_band_files([pa, pb], align=True)
+        assert result.band_count == 2, f"expected 2 bands, got {result.band_count}"
+        assert result.no_data_value[0] == 0, f"inherited nodata should be 0, got {result.no_data_value[0]}"
