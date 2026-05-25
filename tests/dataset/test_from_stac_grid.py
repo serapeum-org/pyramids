@@ -140,3 +140,27 @@ class TestFromStacGridMatch:
         coll = DatasetCollection.from_stac(offset_grid_items, asset="data")
         first = coll.datasets[0]
         assert (first.rows, first.columns) == (2, 2), f"should stay native 2x2: {(first.rows, first.columns)}"
+
+
+class TestResolveTargetGridMemory:
+    """M2: the explicit-grid template is size-guarded against OOM."""
+
+    def test_oversize_grid_raises(self):
+        """An absurd grid (degrees/metres mix-up) raises instead of OOM.
+
+        Test scenario:
+            A wide lon/lat bounds at a metre-sized resolution would be billions
+            of pixels -> clear ValueError pointing at coarser res / like=.
+        """
+        with pytest.raises(ValueError, match="exceeding the"):
+            # ~ (100 deg / 1e-4) ^2 pixels = 1e12, far over the 250M limit.
+            _resolve_target_grid(None, 4326, 0.0001, (0.0, 0.0, 100.0, 100.0), "edge")
+
+    def test_just_under_limit_builds(self):
+        """A large-but-allowed grid still builds (S2-tile-scale).
+
+        Test scenario:
+            A 5000x5000 grid (25M px) is well under the 250M ceiling.
+        """
+        tpl = _resolve_target_grid(None, 32633, 10.0, (0.0, 0.0, 50000.0, 50000.0), "edge")
+        assert (tpl.rows, tpl.columns) == (5000, 5000), f"shape: {(tpl.rows, tpl.columns)}"

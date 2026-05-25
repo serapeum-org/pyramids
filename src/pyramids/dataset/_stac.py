@@ -402,6 +402,18 @@ def _resolve_target_grid(
     maxy = math.ceil(maxy / resolution) * resolution
     cols = max(int(round((maxx - minx) / resolution)), 1)
     rows = max(int(round((maxy - miny) / resolution)), 1)
+    # Guard against an absurd request (e.g. a degrees/metres resolution mix-up)
+    # so a typo raises a clear, actionable error instead of allocating a
+    # multi-GB template and OOM-ing. The template carries only the target CRS +
+    # geotransform + shape for align; its pixels are never read.
+    n_pixels = rows * cols
+    if n_pixels > _MAX_TEMPLATE_PIXELS:
+        raise ValueError(
+            f"target grid is {rows} x {cols} = {n_pixels:,} pixels, exceeding "
+            f"the {_MAX_TEMPLATE_PIXELS:,}-pixel limit for an in-memory alignment "
+            "template. Use a coarser resolution, a smaller bounds, or pass "
+            "like=<Dataset> to match an existing grid."
+        )
     return Dataset.create_from_array(
         np.zeros((rows, cols), dtype="float32"),
         top_left_corner=(minx, maxy),
@@ -580,6 +592,14 @@ def _from_stac_multi_asset(
 
 
 DEFAULT_STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1"
+
+# Safety ceiling for an in-memory grid-match template. The template is a
+# float32 raster (DatasetCollection.align adopts the template's dtype for its
+# resampled output, so it must stay compatible with the source data — a smaller
+# dtype would corrupt floats), i.e. ~1 GiB at this limit. Large enough for a
+# full Sentinel-2 tile grid (~10980²) or a sizeable mosaic, small enough to turn
+# a degrees/metres resolution mix-up into a clear error instead of an OOM.
+_MAX_TEMPLATE_PIXELS = 250_000_000
 
 
 def _utm_epsg(lon: float, lat: float) -> int:
