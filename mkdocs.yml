@@ -182,6 +182,8 @@ nav:
       - STAC:
           - STAC tutorial: tutorials/stac.md
           - STAC (offline, local data): examples/stac/stac-local.ipynb
+          - STAC (live cloud — Earth Search): examples/stac/stac-cloud-earth-search.ipynb
+          - STAC (live cloud — Planetary Computer): examples/stac/stac-cloud-planetary-computer.ipynb
       - Basemap:
           - Basemap example: examples/basemap/basemap-example.ipynb
       - NetCDF:

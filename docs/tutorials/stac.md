@@ -7,9 +7,11 @@ STAC Items or GeoParquet. pyramids never imports `pystac` itself — every entry
 point is **duck-typed** over the STAC Item/Asset contract, so raw STAC JSON
 dicts work as well as `pystac.Item` objects.
 
-For the API reference see [STAC subpackage](../reference/stac/index.md); for a
-fully offline, runnable version see the
-[STAC notebook](../examples/stac/stac-local.ipynb).
+For the API reference see [STAC subpackage](../reference/stac/index.md). Runnable
+notebooks: a fully offline one ([STAC offline](../examples/stac/stac-local.ipynb))
+and two live-endpoint ones —
+[Earth Search (anonymous)](../examples/stac/stac-cloud-earth-search.ipynb) and
+[Planetary Computer (signed)](../examples/stac/stac-cloud-planetary-computer.ipynb).
 
 ## Install
 

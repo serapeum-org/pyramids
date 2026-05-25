@@ -239,7 +239,7 @@ main = { cmd = "pytest -vvv --cov=src/pyramids -sv -m 'not plot and not xarray' 
 plot = { cmd = "pytest -vvv --cov=src/pyramids --cov-append -sv -m 'plot' --cov-report=xml", description = "Run plot test suite" }
 xarray-tests = { cmd = "pytest -vvv --cov=src/pyramids --cov-append -sv -m 'xarray' --cov-report=xml", description = "Run xarray interop tests" }
 test-all = { cmd = "pytest -vvv --cov=src/pyramids -sv --cov-report=xml --cov-report=term-missing", description = "Run all testsuite" }
-notebooks = { cmd = "pytest --nbval --nbval-lax --verbose docs/examples --ignore-glob='docs/examples/**/dask-lazy-*.ipynb' --ignore-glob='docs/examples/**/lazy-*-complete.ipynb'", description = "check notebooks (skips dask cookbooks — cloud-data ones hit real endpoints; local-data ones need extras envs)" }
+notebooks = { cmd = "pytest --nbval --nbval-lax --verbose docs/examples --ignore-glob='docs/examples/**/dask-lazy-*.ipynb' --ignore-glob='docs/examples/**/lazy-*-complete.ipynb' --ignore-glob='docs/examples/**/stac-cloud-*.ipynb'", description = "check notebooks (skips dask cookbooks + stac-cloud-* — all hit real endpoints; local-data ones need extras envs)" }
 jupyter = { cmd = "jupyter lab --no-browser --IdentityProvider.token='' --ServerApp.password='' --port=8889", description = "check notebooks" }
 build-dist = { cmd = "python -m build", description = "Build sdist and wheel for PyPI" }
 publish-pypi = { cmd = "twine upload --non-interactive --repository pypi dist/*", depends-on = ["build-dist"], description = "Build and upload package to PyPI" }

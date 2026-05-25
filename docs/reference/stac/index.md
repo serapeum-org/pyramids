@@ -71,8 +71,12 @@ pip install 'pyramids-gis[stac]'           # client/search + download_item
 pip install 'pyramids-gis[stac,parquet]'   # + GeoParquet round-trip
 ```
 
-See the [STAC tutorial](../../tutorials/stac.md) for an end-to-end walkthrough and
-the [offline STAC notebook](../../examples/stac/stac-local.ipynb).
+See the [STAC tutorial](../../tutorials/stac.md) for an end-to-end walkthrough,
+the [offline STAC notebook](../../examples/stac/stac-local.ipynb), and the
+live-endpoint notebooks for
+[Earth Search](../../examples/stac/stac-cloud-earth-search.ipynb) (anonymous) and
+the [Planetary Computer](../../examples/stac/stac-cloud-planetary-computer.ipynb)
+(signed).
 
 ## Client & search
 
