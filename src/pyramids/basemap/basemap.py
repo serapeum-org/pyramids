@@ -30,9 +30,10 @@ from pyramids.base._utils import import_basemap
 logger = logging.getLogger(__name__)
 
 _BASEMAP_MSG = (
-    "Basemap support requires the cleopatra [tiles] extra. Install it via "
-    "`pip install 'pyramids-gis[viz]'` (which pins `cleopatra[tiles]`), or "
-    "`pip install 'cleopatra[tiles]'` directly."
+    "Basemap support requires the cleopatra [tiles] extra. Install with one of:\n"
+    "  - PyPI:        pip install 'pyramids-gis[viz]' (which pins `cleopatra[tiles]`)\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-viz\n"
+    "  - or directly: pip install 'cleopatra[tiles]'"
 )
 
 

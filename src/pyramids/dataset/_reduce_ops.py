@@ -52,8 +52,9 @@ def resolve_dask_op(
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "DatasetCollection reductions require the optional "
-            "'dask' dependency. Install with: "
-            "pip install 'pyramids-gis[lazy]'"
+            "'dask' dependency. Install with one of:\n"
+            "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
+            "  - conda-forge: conda install -c conda-forge pyramids-lazy"
         ) from exc
     name = _NAN_TABLE[op_name] if skipna else op_name
     return getattr(da, name), name

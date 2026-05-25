@@ -33,8 +33,9 @@ if TYPE_CHECKING:
 
 
 _LAZY_IMPORT_ERROR = (
-    "chunks= requires the optional 'dask' dependency. "
-    "Install with: pip install 'pyramids-gis[lazy]'"
+    "chunks= requires the optional 'dask' dependency. Install with one of:\n"
+    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
 )
 
 

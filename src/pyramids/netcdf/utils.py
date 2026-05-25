@@ -514,7 +514,9 @@ def create_time_conversion_func(
     if calendar.lower() not in ("standard", "proleptic_gregorian", "gregorian"):
         import_cftime(
             f"Calendar '{calendar}' requires the cftime package. "
-            f"Install it with: pixi add cftime"
+            "Install with one of:\n"
+            "  - PyPI:        pip install cftime\n"
+            "  - conda-forge: conda install -c conda-forge cftime"
         )
         import cftime
 

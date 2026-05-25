@@ -6,8 +6,11 @@ and :func:`~pyramids.basemap.get_provider` are thin wrappers over
 :mod:`cleopatra.tiles` (the cleopatra C-6 helpers) — cleopatra does the
 tile fetching, stitching, GDAL CRS warping, and rendering.
 
-Requires the cleopatra ``[tiles]`` extra. Install with: `pyramids-gis[viz]`
-(which pins `cleopatra[tiles]`).
+Requires the cleopatra ``[tiles]`` extra (which pins ``cleopatra[tiles]``).
+Install with one of:
+
+- PyPI: ``pip install 'pyramids-gis[viz]'``
+- conda-forge: ``conda install -c conda-forge pyramids-viz``
 """
 
 from pyramids.basemap.basemap import add_basemap, get_provider

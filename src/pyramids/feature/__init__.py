@@ -33,7 +33,9 @@ from pyramids.feature.geometry import (
 
 _LAZY_FC_INSTALL_HINT = (
     "LazyFeatureCollection requires the optional 'dask-geopandas' "
-    "dependency. Install with: pip install 'pyramids-gis[parquet-lazy]'"
+    "dependency. Install with one of:\n"
+    "  - PyPI:        pip install 'pyramids-gis[parquet-lazy]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-parquet-lazy"
 )
 
 # LazyFeatureCollection is only available when the [parquet-lazy] extra

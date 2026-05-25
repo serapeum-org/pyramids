@@ -116,8 +116,10 @@ def _flox_groupby_reduce(
     importable so the caller falls back to the per-label loop.
     """
     import_flox(
-        "flox is required for grouped reductions over a DatasetCollection;"
-        " install it via `pip install pyramids-gis[lazy]`."
+        "flox is required for grouped reductions over a DatasetCollection. "
+        "Install with one of:\n"
+        "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
+        "  - conda-forge: conda install -c conda-forge pyramids-lazy"
     )
     from flox import groupby_reduce
 
@@ -740,7 +742,9 @@ class DatasetCollection:
         except ImportError as exc:
             raise ImportError(
                 "DatasetCollection.data requires the optional 'dask' "
-                "dependency. Install with: pip install 'pyramids-gis[lazy]'"
+                "dependency. Install with one of:\n"
+                "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
+                "  - conda-forge: conda install -c conda-forge pyramids-lazy"
             ) from exc
         meta = self._meta
         shape = meta.shape
@@ -869,7 +873,9 @@ class DatasetCollection:
             )
         import_zarr(
             "DatasetCollection.to_zarr requires the optional 'zarr' "
-            "dependency. Install with: pip install 'pyramids-gis[lazy]'"
+            "dependency. Install with one of:\n"
+            "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
+            "  - conda-forge: conda install -c conda-forge pyramids-lazy"
         )
         data = self.data
         resolved_store = _resolve_store(store, storage_options)
@@ -937,8 +943,9 @@ class DatasetCollection:
 
         Raises:
             OptionalPackageDoesNotExist: When ``xarray`` is not
-                installed. Install with ``pip install
-                'pyramids-gis[xarray]'``.
+                installed. Install with one of: PyPI
+                ``pip install 'pyramids-gis[xarray]'`` or conda-forge
+                ``conda install -c conda-forge pyramids-xarray``.
             ValueError: When ``len(time_coords) != self.time_length``.
             RuntimeError: When :meth:`NetCDF.from_xarray` fails to write
                 the file.
@@ -984,7 +991,9 @@ class DatasetCollection:
         except ImportError as exc:
             raise OptionalPackageDoesNotExist(
                 "DatasetCollection.to_netcdf requires the optional 'xarray' "
-                "dependency. Install with: pip install 'pyramids-gis[xarray]'"
+                "dependency. Install with one of:\n"
+                "  - PyPI:        pip install 'pyramids-gis[xarray]'\n"
+                "  - conda-forge: conda install -c conda-forge pyramids-xarray"
             ) from exc
 
         if time_coords is not None:

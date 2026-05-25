@@ -27,7 +27,9 @@ from typing import Any, Sequence
 
 _KERCHUNK_IMPORT_ERROR = (
     "kerchunk is required for NetCDF → Zarr reference manifests. "
-    "Install it with: pip install 'pyramids-gis[netcdf-lazy]'"
+    "Install with one of:\n"
+    "  - PyPI:        pip install 'pyramids-gis[netcdf-lazy]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-netcdf-lazy"
 )
 
 

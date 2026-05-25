@@ -14,8 +14,10 @@ AOI / time / cloud query one call and returns an ``ItemCollection`` ready for
   whose own ``bbox`` / ``max_items`` are *client-side post-filters* over an
   already-materialised item list.
 
-`pystac-client` is an optional dependency; install it with the ``[stac]`` extra
-(``pip install 'pyramids-gis[stac]'``).
+`pystac-client` is an optional dependency. Install with one of:
+
+- PyPI: ``pip install 'pyramids-gis[stac]'``
+- conda-forge: ``conda install -c conda-forge pyramids-stac``
 """
 
 from __future__ import annotations
@@ -26,8 +28,9 @@ from pyramids.base._utils import import_pystac_client
 from pyramids.stac.client import open_client
 
 _STAC_INSTALL_HINT = (
-    "search requires the optional 'pystac-client' dependency. "
-    "Install it with: pip install 'pyramids-gis[stac]'"
+    "search requires the optional 'pystac-client' dependency. Install with one of:\n"
+    "  - PyPI:        pip install 'pyramids-gis[stac]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-stac"
 )
 
 

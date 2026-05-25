@@ -5,8 +5,10 @@ This thin wrapper attaches a :class:`~pyramids.stac.signers.Signer` to both
 `request_modifier` (pre-send HTTP request signing) — so the caller never has
 to remember which boundary a given signer cares about.
 
-`pystac-client` is an optional dependency; install it with the `[stac]`
-extra (`pip install pyramids-gis[stac]`).
+`pystac-client` is an optional dependency. Install with one of:
+
+- PyPI: ``pip install 'pyramids-gis[stac]'``
+- conda-forge: ``conda install -c conda-forge pyramids-stac``
 """
 
 from __future__ import annotations
@@ -18,7 +20,9 @@ from pyramids.stac.signers import AnonymousSigner, Signer
 
 _STAC_INSTALL_HINT = (
     "open_client requires the optional 'pystac-client' dependency. "
-    "Install it with: pip install 'pyramids-gis[stac]'"
+    "Install with one of:\n"
+    "  - PyPI:        pip install 'pyramids-gis[stac]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-stac"
 )
 
 

@@ -32,8 +32,9 @@ if TYPE_CHECKING:
 
 
 _LAZY_IMPORT_ERROR = (
-    "open_mfdataset requires the optional 'dask' dependency. "
-    "Install it with: pip install 'pyramids-gis[lazy]'"
+    "open_mfdataset requires the optional 'dask' dependency. Install with one of:\n"
+    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
 )
 
 
