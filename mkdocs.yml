@@ -131,6 +131,10 @@ nav:
       - Overview: reference/feature/index.md
       - Geometry helpers: reference/feature/geometry.md
     - CRS helpers: reference/base/crs.md
+    - STAC:
+      - Overview: reference/stac/index.md
+      - Signers: reference/stac/signers.md
+      - Assets, VRT & GeoParquet: reference/stac/assets.md
     - NetCDF:
       - NetCDF Class: reference/netcdf/index.md
       - Plotting: reference/netcdf/plot.md
@@ -175,6 +179,9 @@ nav:
           - FeatureCollection tutorial: tutorials/feature.md
           - Dask (Overture Maps on AWS): examples/feature/dask-lazy-features.ipynb
           - Dask — LazyFeatureCollection (local data): examples/feature/lazy-feature-complete.ipynb
+      - STAC:
+          - STAC tutorial: tutorials/stac.md
+          - STAC (offline, local data): examples/stac/stac-local.ipynb
       - Basemap:
           - Basemap example: examples/basemap/basemap-example.ipynb
       - NetCDF:
