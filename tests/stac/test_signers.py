@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 import urllib.error
 from types import SimpleNamespace
 
@@ -402,6 +404,30 @@ class TestPlanetaryComputerSigner:
         signer.sign_item(item)
         assert asset.href.endswith("?sig=tok-c"), f"attribute asset not signed: {asset.href}"
 
+    def test_token_minted_once_under_concurrent_threads(self, monkeypatch):
+        """L4: concurrent sign_href for one (account, container) fetches once.
+
+        Test scenario:
+            8 threads sign the same blob href while _fetch_token is slow; the
+            double-checked lock must mint exactly one token.
+        """
+        s = PlanetaryComputerSigner()
+        calls = {"n": 0}
+
+        def slow_fetch(account, container):
+            calls["n"] += 1
+            time.sleep(0.02)
+            return ("sig=tok", 9_999_999_999.0)
+
+        monkeypatch.setattr(s, "_fetch_token", slow_fetch)
+        href = "https://a.blob.core.windows.net/c/b.tif"
+        threads = [threading.Thread(target=s.sign_href, args=(href,)) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert calls["n"] == 1, f"token should be minted once under threads, got {calls['n']}"
+
     def test_parse_expiry_handles_z_suffix_and_missing(self):
         """_parse_expiry parses RFC3339 'Z' and returns 0.0 for bad input.
 
@@ -495,6 +521,29 @@ class TestEarthdataSigner:
         s = EarthdataSigner()
         with pytest.raises(ValueError, match="EARTHDATA"):
             s.gdal_env()
+
+    def test_token_minted_once_under_concurrent_threads(self, monkeypatch):
+        """L4: concurrent gdal_env() calls mint the bearer token only once.
+
+        Test scenario:
+            8 threads read gdal_env() while _fetch_token is slow; the shared
+            double-checked lock mints exactly one token.
+        """
+        s = EarthdataSigner(username="u", password="p")
+        calls = {"n": 0}
+
+        def slow_fetch():
+            calls["n"] += 1
+            time.sleep(0.02)
+            return ("minted", 9_999_999_999.0)
+
+        monkeypatch.setattr(s, "_fetch_token", slow_fetch)
+        threads = [threading.Thread(target=s.gdal_env) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert calls["n"] == 1, f"token should be minted once under threads, got {calls['n']}"
 
 
 class TestCDSESigner:

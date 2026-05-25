@@ -28,6 +28,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -345,6 +346,7 @@ class PlanetaryComputerSigner(_BaseSigner):
         self._refresh_window = refresh_window
         self._timeout = timeout
         self._cache: dict[tuple[str, str], tuple[str, float]] = {}
+        self._lock = threading.Lock()
 
     def sign_href(self, href: str) -> str:
         """Append a SAS token to a PC blob href; pass non-PC hrefs through.
@@ -423,15 +425,24 @@ class PlanetaryComputerSigner(_BaseSigner):
         return bool(self._SIGNED_KEYS & set(parse_qs(urlparse(href).query)))
 
     def _token(self, account: str, container: str) -> str:
-        """Return a cached SAS token, refetching when near expiry."""
+        """Return a cached SAS token, refetching when near expiry (L4: locked)."""
         key = (account, container)
+
+        def fresh(entry: tuple[str, float] | None) -> bool:
+            return entry is not None and entry[1] - time.time() > self._refresh_window
+
         cached = self._cache.get(key)
-        now = time.time()
-        if cached is not None and cached[1] - now > self._refresh_window:
+        if fresh(cached):
             return cached[0]
-        token, expiry = self._fetch_token(account, container)
-        self._cache[key] = (token, expiry)
-        return token
+        # Double-checked locking: serialise the fetch so concurrent callers for
+        # the same (account, container) do not each mint a token.
+        with self._lock:
+            cached = self._cache.get(key)
+            if fresh(cached):
+                return cached[0]
+            token, expiry = self._fetch_token(account, container)
+            self._cache[key] = (token, expiry)
+            return token
 
     def _fetch_token(self, account: str, container: str) -> tuple[str, float]:
         """GET a fresh SAS token + expiry epoch from the PC token endpoint.
@@ -498,19 +509,28 @@ class _BearerProviderSigner(_BaseSigner):
         self._refresh_window = refresh_window
         self._timeout = timeout
         self._cache: tuple[str, float] | None = None
+        self._lock = threading.Lock()
 
     def _fetch_token(self) -> tuple[str, float]:
         """Return a fresh `(access_token, expiry_epoch)` — implemented by subclasses."""
         raise NotImplementedError
 
     def _token(self) -> str:
-        """Return a cached bearer token, refetching when near expiry."""
-        now = time.time()
-        if self._cache is not None and self._cache[1] - now > self._refresh_window:
+        """Return a cached bearer token, refetching when near expiry (L4: locked)."""
+
+        def fresh() -> bool:
+            return self._cache is not None and self._cache[1] - time.time() > self._refresh_window
+
+        if fresh():
             return self._cache[0]
-        token, expiry = self._fetch_token()
-        self._cache = (token, expiry)
-        return token
+        # Double-checked locking: serialise the mint so concurrent callers do
+        # not each fetch a token.
+        with self._lock:
+            if fresh():
+                return self._cache[0]
+            token, expiry = self._fetch_token()
+            self._cache = (token, expiry)
+            return token
 
     def sign_request(self, request: Any) -> Any:
         """Set the `Authorization: Bearer` header on an outgoing request."""
