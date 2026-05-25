@@ -314,6 +314,96 @@ class TestDatasetReadArrayBbox:
         with pytest.raises(ValueError, match=r"south < north"):
             dataset.read_array(bbox=(0, 1, 1, 0))
 
+    @pytest.fixture()
+    def multiband_dataset(self, tmp_path) -> Dataset:
+        """A 3-band 10×10 EPSG:4326 raster; band ``i`` is ``arange(100) + i*1000`` (uint16).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Returns:
+            Dataset: The freshly-loaded 3-band raster (no-data 0, so the
+            windowed region arr[2:4, 2:4] holds no no-data cells).
+        """
+        ramp = np.arange(100, dtype="uint16").reshape(10, 10)
+        cube = np.stack([ramp + b * 1000 for b in range(3)]).astype("uint16")
+        path = os.path.join(str(tmp_path), "mb.tif")
+        Dataset.create_from_array(
+            cube,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=0,
+            path=path,
+        ).close()
+        return Dataset.read_file(path)
+
+    def test_multiband_bbox_matches_window_geodataframe(
+        self, multiband_dataset, small_bbox
+    ):
+        """Multi-band ``read_array(bbox=...)`` equals ``read_array(window=fc)``.
+
+        Args:
+            multiband_dataset: 3-band 10×10 raster fixture.
+            small_bbox: bbox covering arr[2:4, 2:4] (4 pixels per band).
+
+        Test scenario:
+            Regression for the multi-band windowed path indexing the
+            ``FeatureCollection`` window as ``window[2]`` / ``window[3]`` (which
+            raised ``KeyError``). Read all bands via bbox and via window=fc —
+            expected: both return ``(3, 2, 2)`` and are identical.
+        """
+        fc = FeatureCollection.from_bbox(small_bbox, epsg=multiband_dataset.epsg)
+        via_window = multiband_dataset.read_array(window=fc)
+        via_bbox = multiband_dataset.read_array(bbox=small_bbox)
+        assert via_bbox.shape == (3, 2, 2), f"unexpected shape: {via_bbox.shape}"
+        assert np.array_equal(
+            via_bbox, via_window
+        ), "multi-band bbox read differs from window=fc read"
+
+    def test_multiband_bbox_matches_per_band_reads_and_dtype(
+        self, multiband_dataset, small_bbox
+    ):
+        """Each band of a multi-band bbox read equals the single-band bbox read; dtype intact.
+
+        Args:
+            multiband_dataset: 3-band 10×10 raster fixture.
+            small_bbox: bbox covering a 2×2 window per band.
+
+        Test scenario:
+            Validate the fixed multi-band windowed path against the known-good
+            single-band path (``read_array(band=i, bbox=...)``) rather than a
+            hardcoded slice — expected: ``block[i]`` equals the per-band read for
+            every band, and the unsigned ``uint16`` dtype is preserved (no cast
+            through a signed pre-allocation).
+        """
+        block = multiband_dataset.read_array(bbox=small_bbox)
+        assert block.dtype == np.dtype("uint16"), f"dtype not preserved: {block.dtype}"
+        for b in range(multiband_dataset.band_count):
+            per_band = multiband_dataset.read_array(band=b, bbox=small_bbox)
+            assert np.array_equal(
+                block[b], per_band
+            ), f"multi-band block band {b} differs from the single-band bbox read"
+
+    def test_multiband_full_read_unchanged(self, multiband_dataset):
+        """``read_array()`` with no window still returns every band unchanged.
+
+        Args:
+            multiband_dataset: 3-band 10×10 raster fixture.
+
+        Test scenario:
+            Guard that refactoring the windowed branch left the
+            ``window is None`` full read intact — expected: ``(3, 10, 10)`` and
+            band ``i`` equals ``arange(100).reshape(10, 10) + i*1000``.
+        """
+        full = multiband_dataset.read_array()
+        assert full.shape == (3, 10, 10), f"unexpected full shape: {full.shape}"
+        ramp = np.arange(100, dtype="uint16").reshape(10, 10)
+        for b in range(3):
+            assert np.array_equal(
+                full[b], ramp + b * 1000
+            ), f"band {b} full read mismatch"
+
 
 class TestDatasetCollectionCropBbox:
     """Tests for ``DatasetCollection.crop(bbox=..., epsg=...)``."""
