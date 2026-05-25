@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.23.0 (2026-05-25)
+
+### Feat
+
+- **stac**: add GDAL-native STAC subpackage and fix no-data/windowed-read bugs (#363)
+
 ## 0.22.0 (2026-05-23)
 
 ### Feat
