@@ -29,6 +29,7 @@ import base64
 import json
 import os
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from typing import Any, Callable, Protocol, runtime_checkable
@@ -650,24 +651,43 @@ class CDSESigner(_BearerProviderSigner):
         self._refresh_token: str | None = None
 
     def _fetch_token(self) -> tuple[str, float]:
-        """Mint (password grant) or refresh (refresh-token grant) an access token."""
+        """Mint or refresh an access token, falling back to a password grant.
+
+        Tries the refresh-token grant when a refresh token is held; if that
+        fails (the refresh token has expired — CDSE refresh tokens live
+        ~3600 s — or is otherwise rejected), the stale token is dropped and a
+        fresh password grant is attempted (M4). This lets a long-idle, reused
+        signer recover instead of raising on the expired refresh token.
+        """
         if self._refresh_token is not None:
-            form = {
-                "client_id": self._client_id,
-                "grant_type": "refresh_token",
-                "refresh_token": self._refresh_token,
-            }
-        else:
-            if not (self._username and self._password):
-                raise ValueError(
-                    "CDSESigner needs CDSE_USERNAME + CDSE_PASSWORD."
+            try:
+                return self._request_token(
+                    {
+                        "client_id": self._client_id,
+                        "grant_type": "refresh_token",
+                        "refresh_token": self._refresh_token,
+                    }
                 )
-            form = {
+            except urllib.error.URLError:
+                # Refresh token expired / rejected — re-authenticate below.
+                self._refresh_token = None
+        if not (self._username and self._password):
+            raise ValueError("CDSESigner needs CDSE_USERNAME + CDSE_PASSWORD.")
+        return self._request_token(
+            {
                 "client_id": self._client_id,
                 "grant_type": "password",
                 "username": self._username,
                 "password": self._password,
             }
+        )
+
+    def _request_token(self, form: dict[str, str]) -> tuple[str, float]:
+        """POST a Keycloak token request and return `(access_token, expiry)`.
+
+        Rotates the cached refresh token from the response, and derives the
+        access-token expiry from `expires_in` (default 600 s).
+        """
         body = urlencode(form).encode("utf-8")
         request = urllib.request.Request(self._TOKEN_URL, data=body, method="POST")
         request.add_header("Content-Type", "application/x-www-form-urlencoded")

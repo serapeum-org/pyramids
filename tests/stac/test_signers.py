@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import urllib.error
 from types import SimpleNamespace
 
 import pytest
@@ -555,3 +556,55 @@ class TestCDSESigner:
         assert token == "a2", f"expected refreshed token, got {token}"
         assert "grant_type=refresh_token" in captured["data"], captured["data"]
         assert s._refresh_token == "rtok2", f"refresh token should rotate, got {s._refresh_token}"
+
+    def test_expired_refresh_falls_back_to_password(self, monkeypatch):
+        """M4: a rejected refresh token drops it and re-auths via password grant.
+
+        Test scenario:
+            The refresh grant raises URLError (expired token); _fetch_token then
+            falls back to the password grant and re-acquires a refresh token.
+        """
+        s = CDSESigner(username="u", password="p")
+        s._refresh_token = "expired"
+        grants = []
+
+        class _Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return b'{"access_token": "pw-access", "expires_in": 600, "refresh_token": "fresh"}'
+
+        def fake_urlopen(request, timeout=None):
+            body = request.data.decode()
+            grants.append(body)
+            if "grant_type=refresh_token" in body:
+                raise urllib.error.URLError("refresh token expired")
+            return _Resp()
+
+        monkeypatch.setattr("pyramids.stac.signers.urllib.request.urlopen", fake_urlopen)
+        token, _expiry = s._fetch_token()
+        assert token == "pw-access", f"should fall back to password grant, got {token}"
+        assert any("grant_type=refresh_token" in g for g in grants), "refresh grant should be tried first"
+        assert any("grant_type=password" in g for g in grants), "password grant should be the fallback"
+        assert s._refresh_token == "fresh", f"a fresh refresh token should be acquired, got {s._refresh_token}"
+
+    def test_expired_refresh_without_credentials_raises(self, monkeypatch):
+        """M4: if the refresh fails and no credentials exist, raise clearly.
+
+        Test scenario:
+            Refresh grant fails and there is no username/password to fall back
+            on -> ValueError rather than an opaque URLError.
+        """
+        s = CDSESigner()
+        s._refresh_token = "expired"
+
+        def fake_urlopen(request, timeout=None):
+            raise urllib.error.URLError("refresh token expired")
+
+        monkeypatch.setattr("pyramids.stac.signers.urllib.request.urlopen", fake_urlopen)
+        with pytest.raises(ValueError, match="CDSE_USERNAME"):
+            s._fetch_token()
