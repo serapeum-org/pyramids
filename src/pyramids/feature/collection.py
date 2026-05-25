@@ -125,8 +125,9 @@ def _require_pyarrow() -> None:
     """
     import_pyarrow(
         "GeoParquet support requires the optional 'pyarrow' "
-        "dependency. Install with: pip install 'pyramids-gis[parquet]' "
-        "(or `pixi add pyarrow` in a pixi workspace)."
+        "dependency. Install with one of:\n"
+        "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
+        "  - conda-forge: conda install -c conda-forge pyramids-parquet"
     )
 
 
@@ -1006,8 +1007,9 @@ class FeatureCollection(GeoDataFrame):
             except ImportError as exc:
                 raise ImportError(
                     "backend='dask' requires the optional "
-                    "'dask-geopandas' dependency. Install with: "
-                    "pip install 'pyramids-gis[parquet-lazy]'"
+                    "'dask-geopandas' dependency. Install with one of:\n"
+                    "  - PyPI:        pip install 'pyramids-gis[parquet-lazy]'\n"
+                    "  - conda-forge: conda install -c conda-forge pyramids-parquet-lazy"
                 ) from exc
             # default npartitions from file size when neither
             # kwarg was supplied; one-partition fallback defeats the
@@ -1496,7 +1498,9 @@ class FeatureCollection(GeoDataFrame):
         except ImportError as exc:
             raise ImportError(
                 "open_arrow requires the optional 'pyogrio' dependency. "
-                "Install with: pip install pyogrio"
+                "Install with one of:\n"
+                "  - PyPI:        pip install pyogrio\n"
+                "  - conda-forge: conda install -c conda-forge pyogrio"
             ) from exc
         resolved = _pyramids_io._parse_path(path)
         kwargs: dict[str, Any] = {}
@@ -1537,9 +1541,10 @@ class FeatureCollection(GeoDataFrame):
         (`s3://`, `gs://`, `http(s)://`, …) resolve the same way
         they do in :meth:`read_file`.
 
-        Requires the optional :mod:`pyarrow` dependency. Install with
-        `pip install pyramids-gis[parquet]` or
-        `pixi add pyarrow`.
+        Requires the optional :mod:`pyarrow` dependency. Install with one of:
+
+        - PyPI: ``pip install 'pyramids-gis[parquet]'``
+        - conda-forge: ``conda install -c conda-forge pyramids-parquet``
 
         Args:
             path (str | Path):
@@ -1623,8 +1628,9 @@ class FeatureCollection(GeoDataFrame):
             except ImportError as exc:
                 raise ImportError(
                     "backend='dask' requires the optional "
-                    "'dask-geopandas' dependency. Install with: "
-                    "pip install 'pyramids-gis[parquet-lazy]'"
+                    "'dask-geopandas' dependency. Install with one of:\n"
+                    "  - PyPI:        pip install 'pyramids-gis[parquet-lazy]'\n"
+                    "  - conda-forge: conda install -c conda-forge pyramids-parquet-lazy"
                 ) from exc
             dask_kwargs: dict[str, Any] = {}
             if columns is not None:
@@ -1683,9 +1689,10 @@ class FeatureCollection(GeoDataFrame):
         that defaults :param:`compression` to `"snappy"` — the
         format-standard tradeoff between speed and size.
 
-        Requires the optional :mod:`pyarrow` dependency. Install with
-        `pip install pyramids-gis[parquet]` or
-        `pixi add pyarrow`.
+        Requires the optional :mod:`pyarrow` dependency. Install with one of:
+
+        - PyPI: ``pip install 'pyramids-gis[parquet]'``
+        - conda-forge: ``conda install -c conda-forge pyramids-parquet``
 
         Args:
             path (str | Path):

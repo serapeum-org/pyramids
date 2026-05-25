@@ -42,7 +42,9 @@ from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base._utils import import_dask
 
 _DASK_MISSING_MESSAGE = (
-    "dask is required for lazy NetCDF reads; install pyramids-gis[lazy]"
+    "dask is required for lazy NetCDF reads. Install with one of:\n"
+    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
 )
 
 

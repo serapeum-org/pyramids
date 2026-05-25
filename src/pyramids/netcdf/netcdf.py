@@ -4038,9 +4038,10 @@ class NetCDF(Dataset):
         :meth:`read_array(chunks=...)` and wrap the result in
         :class:`xarray.DataArray` yourself.
 
-        Requires the optional `xarray` package. Install it with::
+        Requires the optional `xarray` package. Install with one of:
 
-            pip install 'pyramids-gis[xarray]'
+        - PyPI: ``pip install 'pyramids-gis[xarray]'``
+        - conda-forge: ``conda install -c conda-forge pyramids-xarray``
 
         Returns:
             xarray.Dataset: An xarray Dataset with the same
@@ -4064,8 +4065,9 @@ class NetCDF(Dataset):
             import xarray as xr
         except ImportError:
             raise OptionalPackageDoesNotExist(
-                "xarray is required for to_xarray(). "
-                "Install it with: pip install 'pyramids-gis[xarray]'"
+                "xarray is required for to_xarray(). Install with one of:\n"
+                "  - PyPI:        pip install 'pyramids-gis[xarray]'\n"
+                "  - conda-forge: conda install -c conda-forge pyramids-xarray"
             )
 
         rg = self._raster.GetRootGroup()
@@ -4146,7 +4148,10 @@ class NetCDF(Dataset):
             var = nc.get_variable("temperature")
             cropped = var.crop(mask)
 
-        Requires the optional `xarray` package.
+        Requires the optional `xarray` package. Install with one of:
+
+        - PyPI: ``pip install 'pyramids-gis[xarray]'``
+        - conda-forge: ``conda install -c conda-forge pyramids-xarray``
 
         Args:
             dataset: An `xarray.Dataset` instance.
@@ -4167,8 +4172,9 @@ class NetCDF(Dataset):
             import xarray as xr
         except ImportError:
             raise OptionalPackageDoesNotExist(
-                "xarray is required for from_xarray(). "
-                "Install it with: pip install 'pyramids-gis[xarray]'"
+                "xarray is required for from_xarray(). Install with one of:\n"
+                "  - PyPI:        pip install 'pyramids-gis[xarray]'\n"
+                "  - conda-forge: conda install -c conda-forge pyramids-xarray"
             )
 
         if not isinstance(dataset, xr.Dataset):

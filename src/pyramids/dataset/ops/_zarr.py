@@ -32,7 +32,9 @@ if TYPE_CHECKING:
 
 _LAZY_IMPORT_ERROR = (
     "Zarr IO requires the optional 'dask' / 'zarr' dependencies. "
-    "Install them with: pip install 'pyramids-gis[lazy]'"
+    "Install with one of:\n"
+    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
 )
 
 

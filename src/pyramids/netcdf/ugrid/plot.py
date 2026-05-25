@@ -2,7 +2,10 @@
 
 Thin wrapper around `cleopatra.mesh_glyph.MeshGlyph` that accepts
 pyramids `Mesh2d` objects and delegates all rendering to cleopatra.
-Requires the `viz` optional extra (`pip install pyramids-gis[viz]`).
+Requires the `viz` optional extra. Install with one of:
+
+- PyPI: ``pip install 'pyramids-gis[viz]'``
+- conda-forge: ``conda install -c conda-forge pyramids-viz``
 """
 
 from __future__ import annotations
@@ -13,9 +16,10 @@ from pyramids.base._utils import require_cleopatra
 from pyramids.netcdf.ugrid.mesh import Mesh2d
 
 _CLEOPATRA_MSG = (
-    "Mesh plotting requires the cleopatra package. "
-    "Install it with: pip install pyramids-gis[viz] "
-    "or see https://github.com/serapeum-org/cleopatra"
+    "Mesh plotting requires the cleopatra package. Install with one of:\n"
+    "  - PyPI:        pip install 'pyramids-gis[viz]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-viz\n"
+    "  - or see https://github.com/serapeum-org/cleopatra"
 )
 
 

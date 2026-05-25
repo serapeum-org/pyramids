@@ -394,9 +394,10 @@ class Catalog:
 
 
 _DEFAULT_CLEOPATRA_MSG = (
-    "The current operation uses the cleopatra package. Install it via the "
-    "[viz] extra (`pip install pyramids-gis[viz]`) or directly from "
-    "https://github.com/serapeum-org/cleopatra"
+    "The current operation uses the cleopatra package. Install with one of:\n"
+    "  - PyPI:        pip install 'pyramids-gis[viz]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-viz\n"
+    "  - or directly: https://github.com/serapeum-org/cleopatra"
 )
 
 

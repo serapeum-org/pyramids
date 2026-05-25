@@ -79,8 +79,9 @@ _PRIMARY_EXTS = frozenset(
     }
 )
 _PARQUET_EXTRA_HINT = (
-    "Reading Parquet requires the optional 'pyarrow' dependency. Install "
-    "it with: pip install 'pyramids-gis[parquet]'"
+    "Reading Parquet requires the optional 'pyarrow' dependency. Install with one of:\n"
+    "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-parquet"
 )
 
 

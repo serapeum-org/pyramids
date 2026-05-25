@@ -8,7 +8,12 @@ returning the local paths so they can feed
 
 `stac-asset` pulls heavy async dependencies (`aiohttp`, `aiobotocore`), so it is
 **not** a core dependency — it ships via the `[stac]` extra (alongside
-`pystac-client`): install with `pip install 'pyramids-gis[stac]'`.
+`pystac-client`). Install with one of:
+
+- PyPI: ``pip install 'pyramids-gis[stac]'``
+- conda-forge: ``conda install -c conda-forge pyramids-stac``
+  (stac-asset is not on conda-forge; install it alone with ``pip install stac-asset``)
+
 The per-protocol client (HTTP / S3 / Planetary Computer / Earthdata) is selected
 by `stac_asset` from each asset href.
 """
@@ -21,8 +26,10 @@ from typing import Any
 from pyramids.base._utils import import_stac_asset
 
 _STAC_ASSET_INSTALL_HINT = (
-    "download_item requires the optional 'stac-asset' dependency. "
-    "Install it with: pip install 'pyramids-gis[stac]'"
+    "download_item requires the optional 'stac-asset' dependency. Install with one of:\n"
+    "  - PyPI:        pip install 'pyramids-gis[stac]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-stac\n"
+    "                 (stac-asset is not on conda-forge; install it alone: pip install stac-asset)"
 )
 
 
