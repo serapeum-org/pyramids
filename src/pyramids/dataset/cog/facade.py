@@ -30,6 +30,7 @@ import numpy as np
 from osgeo import gdal
 from pyproj import CRS
 
+from pyramids.base._utils import resolve_cog_predictor
 from pyramids.dataset.cog.options import CreationOptions
 from pyramids.dataset.cog.validate import ValidationReport
 from pyramids.dataset.cog.validate import validate as _validate_file
@@ -40,65 +41,29 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 
-_INTEGER_GDAL_DTYPES: frozenset[int] = frozenset(
-    {
-        gdal.GDT_Byte,
-        gdal.GDT_Int8,
-        gdal.GDT_UInt16,
-        gdal.GDT_Int16,
-        gdal.GDT_UInt32,
-        gdal.GDT_Int32,
-        gdal.GDT_UInt64,
-        gdal.GDT_Int64,
-    }
-)
-"""GDAL data-type codes treated as integer for predictor selection."""
-
-
 PYRAMIDS_COG_DEFAULTS: dict[str, Any] = {
     "COMPRESS": "DEFLATE",
     "BLOCKSIZE": 512,
-    "OVERVIEW_RESAMPLING": "AVERAGE",
     "BIGTIFF": "IF_SAFER",
     "NUM_THREADS": "ALL_CPUS",
     "STATISTICS": "YES",
 }
-"""Pyramids house-style COG creation options.
+"""Pyramids house-style COG creation options (the *static* subset).
 
-``PREDICTOR`` is intentionally absent: it is resolved per-dtype by
-:func:`_resolve_predictor` unless the caller supplies it in ``options``.
+These mirror the kwarg defaults of
+:meth:`pyramids.dataset.engines.cog.COG.to_cog`, which is the single owner of
+COG write policy (ARC-1). ``PREDICTOR`` and ``OVERVIEW_RESAMPLING`` are
+intentionally absent: both are resolved per-dtype inside ``to_cog`` (integer →
+``PREDICTOR=2`` / ``mode`` overviews; float → ``PREDICTOR=3`` / ``average``
+overviews) unless the caller overrides them. Kept here for back-compat and as
+documentation; :func:`write_cog` no longer applies it directly — it delegates
+to ``to_cog``.
 """
 
 
-def _resolve_predictor(gdal_dtype: int) -> int:
-    """Pick the DEFLATE/ZSTD predictor that suits a GDAL data type.
-
-    Mirrors GDAL/libtiff semantics: ``PREDICTOR=2`` (horizontal
-    differencing) for integer rasters, ``PREDICTOR=3`` (floating-point
-    predictor) for float rasters.
-
-    Args:
-        gdal_dtype: A GDAL data-type code (e.g. :data:`osgeo.gdal.GDT_Float32`).
-
-    Returns:
-        ``2`` for integer types, ``3`` for floating-point types.
-
-    Examples:
-        - Integer types map to horizontal differencing:
-            ```python
-            >>> from osgeo import gdal
-            >>> _resolve_predictor(gdal.GDT_Int16)
-            2
-
-            ```
-        - Floating-point types map to the floating-point predictor:
-            ```python
-            >>> _resolve_predictor(gdal.GDT_Float32)
-            3
-
-            ```
-    """
-    return 2 if gdal_dtype in _INTEGER_GDAL_DTYPES else 3
+# Back-compat alias: the dtype→predictor rule now lives in
+# ``pyramids.base._utils`` so the engine and facade share one definition (ARC-2).
+_resolve_predictor = resolve_cog_predictor
 
 
 def _coerce_epsg(crs: Any) -> int:
@@ -299,11 +264,20 @@ def write_cog(
 ) -> tuple[Path, ValidationReport | None]:
     """Write raster data to disk as a Cloud Optimized GeoTIFF.
 
-    Applies pyramids' house defaults (DEFLATE compression, a dtype-aware
-    predictor — ``2`` for integer rasters, ``3`` for float — 512px tiles,
-    ``AVERAGE`` overviews, ``BIGTIFF=IF_SAFER``, ``NUM_THREADS=ALL_CPUS``,
-    embedded statistics) on top of any caller-supplied ``options``, then
-    optionally round-trips the result through
+    Thin convenience facade over
+    :meth:`pyramids.dataset.engines.cog.COG.to_cog`. It accepts a wider
+    range of inputs (NumPy array, ``xarray.DataArray``, ``gdal.Dataset``,
+    path, or :class:`~pyramids.dataset.Dataset`), normalises them into a
+    :class:`~pyramids.dataset.Dataset`, then **delegates the entire write
+    to ``to_cog``** — which owns all COG policy: the house defaults
+    (DEFLATE, 512px tiles, ``BIGTIFF=IF_SAFER``, ``NUM_THREADS=ALL_CPUS``,
+    embedded statistics), the dtype-aware predictor (``2`` for integer,
+    ``3`` for float), the dtype-aware default overview resampling
+    (``mode`` for categorical, ``average`` for continuous), and the
+    ``STATISTICS`` retry. Because policy lives in one place, ``write_cog``
+    and a direct ``ds.to_cog(...)`` produce identical output for identical
+    input. Any caller-supplied ``options`` are forwarded as ``extra`` and
+    override the defaults. By default the result is round-tripped through
     :func:`pyramids.dataset.cog.validate.validate`.
 
     Args:
@@ -368,38 +342,13 @@ def write_cog(
     """
     ds = _normalize_to_dataset(data, crs, transform, nodata)
 
-    final: dict[str, Any] = {
-        str(k).upper(): v for k, v in PYRAMIDS_COG_DEFAULTS.items()
-    }
-    if options:
-        final.update({str(k).upper(): v for k, v in options.items() if v is not None})
-    if "PREDICTOR" not in final:
-        # GeoTIFF bands share a dtype, so band 0 determines the predictor for
-        # the whole file; pass an explicit options={"PREDICTOR": ...} to override
-        # for an (atypical) mixed-dtype source.
-        final["PREDICTOR"] = _resolve_predictor(ds.gdal_dtype[0])
-
-    blocksize = int(final.pop("BLOCKSIZE"))
-    overview_resampling = str(final.pop("OVERVIEW_RESAMPLING")).lower()
-    predictor = final.pop("PREDICTOR")
-
-    cog_kwargs: dict[str, Any] = {
-        "blocksize": blocksize,
-        "overview_resampling": overview_resampling,
-        "predictor": predictor,
-    }
-    try:
-        output_path = ds.to_cog(output, extra=final or None, **cog_kwargs)
-    except RuntimeError as exc:
-        # Some GDAL builds abort the STATISTICS pass on float on-disk sources
-        # with "no valid pixels found in sampling". The COG itself is fine
-        # without embedded statistics, so retry once with STATISTICS disabled.
-        statistics_on = str(final.get("STATISTICS", "")).upper() in ("YES", "TRUE")
-        if statistics_on and "valid pixels" in str(exc).lower():
-            retry = {k: v for k, v in final.items() if k != "STATISTICS"}
-            output_path = ds.to_cog(output, extra=retry or None, **cog_kwargs)
-        else:
-            raise
+    # Single write policy lives in COG.to_cog (ARC-1): house defaults, the
+    # dtype-aware predictor (ARC-2), the category-safe default overview
+    # resampling (ARC-3), and the STATISTICS retry (ARC-4) are all applied
+    # there. write_cog only normalises the input and forwards the caller's
+    # overrides as `extra`, so write_cog and a direct ds.to_cog(...) produce
+    # identical output for identical input.
+    output_path = ds.to_cog(output, extra=options or None)
 
     report: ValidationReport | None = None
     if validate:

@@ -1,4 +1,9 @@
-"""Unit tests for Dataset.to_cog / is_cog / validate_cog (COGMixin)."""
+"""Unit tests for the Dataset COG API: to_cog / is_cog / validate_cog.
+
+These exercise the public ``Dataset`` facade methods, which delegate to the
+``COG`` engine (`pyramids.dataset.engines.cog`). Consolidated into the
+``tests/dataset/cog/`` tree (ARC-10) alongside the engine/facade/options tests.
+"""
 
 from __future__ import annotations
 

@@ -326,6 +326,30 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`COG.validate_cog <pyramids.dataset.engines.COG.validate_cog>`."""
         return self.cog.validate_cog(*args, **kwargs)
 
+    def cog_info(self, *args, **kwargs):
+        """Facade — delegates to :meth:`COG.info <pyramids.dataset.engines.COG.info>`."""
+        return self.cog.info(*args, **kwargs)
+
+    def to_cog_bytes(self, *args, **kwargs):
+        """Facade — delegates to :meth:`COG.to_cog_bytes <pyramids.dataset.engines.COG.to_cog_bytes>`."""
+        return self.cog.to_cog_bytes(*args, **kwargs)
+
+    def read_part(self, *args, **kwargs):
+        """Facade — delegates to :meth:`COG.read_part <pyramids.dataset.engines.COG.read_part>`."""
+        return self.cog.read_part(*args, **kwargs)
+
+    def preview(self, *args, **kwargs):
+        """Facade — delegates to :meth:`COG.preview <pyramids.dataset.engines.COG.preview>`."""
+        return self.cog.preview(*args, **kwargs)
+
+    def point(self, *args, **kwargs):
+        """Facade — delegates to :meth:`COG.point <pyramids.dataset.engines.COG.point>`."""
+        return self.cog.point(*args, **kwargs)
+
+    def read_tile(self, *args, **kwargs):
+        """Facade — delegates to :meth:`COG.read_tile <pyramids.dataset.engines.COG.read_tile>`."""
+        return self.cog.read_tile(*args, **kwargs)
+
     def to_feature_collection(self, *args, **kwargs):
         """Facade — delegates to :meth:`Vectorize.to_feature_collection <pyramids.dataset.engines.Vectorize.to_feature_collection>`."""
         return self.vectorize.to_feature_collection(*args, **kwargs)

@@ -41,6 +41,21 @@ def _read_compression(path: str | Path) -> str:
     return comp
 
 
+def _read_predictor(path: str | Path) -> str:
+    """Return the GDAL IMAGE_STRUCTURE PREDICTOR token of a raster.
+
+    Args:
+        path: Path to a raster readable by GDAL.
+
+    Returns:
+        The predictor token (e.g. `"2"`/`"3"`), or `""` when absent.
+    """
+    ds = gdal.Open(str(path))
+    pred = ds.GetMetadataItem("PREDICTOR", "IMAGE_STRUCTURE") or ""
+    ds = None
+    return pred
+
+
 @pytest.fixture
 def float_array() -> np.ndarray:
     """A deterministic 2-D float32 array.
@@ -456,10 +471,10 @@ class TestWriteCog:
             report is not None and report.is_valid
         ), f"Expected a valid COG report, got {report}"
 
-    def test_statistics_failure_retries_without_statistics(
+    def test_delegates_to_to_cog_forwarding_options_as_extra(
         self, float_array, tmp_path, monkeypatch
     ):
-        """A GDAL statistics-pass failure is retried with STATISTICS disabled.
+        """write_cog is a thin delegator: it calls to_cog once, forwarding options.
 
         Args:
             float_array: Fixture providing a 2-D float32 array.
@@ -467,32 +482,40 @@ class TestWriteCog:
             monkeypatch: pytest monkeypatch fixture.
 
         Test scenario:
-            Some GDAL builds raise "no valid pixels found in sampling" during the
-            STATISTICS pass on float on-disk sources. write_cog must retry once
-            without STATISTICS rather than propagate the error.
+            After ARC-1 the single write policy lives in COG.to_cog. write_cog
+            must normalise the input and call ds.to_cog(output, extra=options)
+            exactly once — it no longer pre-applies defaults, resolves the
+            predictor, or owns the STATISTICS retry (that moved to the engine,
+            ARC-4). The caller's options flow through unchanged as `extra`.
         """
-        out = tmp_path / "retry.tif"
+        out = tmp_path / "delegate.tif"
         calls: list[dict] = []
 
-        def fake_to_cog(self, output, *, blocksize, overview_resampling, predictor, extra=None):
-            calls.append(dict(extra or {}))
-            if extra and "STATISTICS" in extra:
-                raise RuntimeError("no valid pixels found in sampling")
+        def fake_to_cog(self, output, *, extra=None):
+            calls.append({"output": Path(output), "extra": extra})
             return Path(output)
 
         monkeypatch.setattr(Dataset, "to_cog", fake_to_cog)
         path, report = write_cog(
-            float_array, out, crs=4326, transform=_GEOTRANSFORM, validate=False
+            float_array,
+            out,
+            crs=4326,
+            transform=_GEOTRANSFORM,
+            options={"COMPRESS": "ZSTD", "LEVEL": 18},
+            validate=False,
         )
-        assert len(calls) == 2, f"expected an initial call plus one retry, got {len(calls)}"
-        assert "STATISTICS" in calls[0], "first attempt should carry STATISTICS"
-        assert "STATISTICS" not in calls[1], "retry should drop STATISTICS"
+        assert len(calls) == 1, f"write_cog must call to_cog once, got {len(calls)}"
+        assert calls[0]["extra"] == {
+            "COMPRESS": "ZSTD",
+            "LEVEL": 18,
+        }, f"options must be forwarded verbatim as extra, got {calls[0]['extra']}"
         assert path == out, f"unexpected output path: {path}"
+        assert report is None, "validate=False must yield report=None"
 
-    def test_unrelated_runtimeerror_propagates(
+    def test_error_from_to_cog_propagates(
         self, float_array, tmp_path, monkeypatch
     ):
-        """A non-statistics RuntimeError is not swallowed by the retry guard.
+        """An error raised by to_cog propagates out of write_cog unchanged.
 
         Args:
             float_array: Fixture providing a 2-D float32 array.
@@ -500,16 +523,22 @@ class TestWriteCog:
             monkeypatch: pytest monkeypatch fixture.
 
         Test scenario:
-            A failure unrelated to the statistics pass propagates unchanged.
+            write_cog adds no error handling of its own; whatever to_cog raises
+            surfaces to the caller. (The STATISTICS retry now lives in the
+            engine and is covered in test_unified_write_policy.py.)
         """
-        def fake_to_cog(self, output, *, blocksize, overview_resampling, predictor, extra=None):
+
+        def fake_to_cog(self, output, *, extra=None):
             raise RuntimeError("disk full")
 
         monkeypatch.setattr(Dataset, "to_cog", fake_to_cog)
         with pytest.raises(RuntimeError, match="disk full"):
             write_cog(
-                float_array, tmp_path / "boom.tif", crs=4326,
-                transform=_GEOTRANSFORM, validate=False,
+                float_array,
+                tmp_path / "boom.tif",
+                crs=4326,
+                transform=_GEOTRANSFORM,
+                validate=False,
             )
 
     def test_int_array_writes_valid_cog(self, int_array, tmp_path):
@@ -581,66 +610,57 @@ class TestWriteCog:
             report is None
         ), f"Report should be None when validate=False, got {report}"
 
-    def test_predictor_resolved_for_float(self, mocker, float_array, tmp_path):
-        """A float raster forwards PREDICTOR=3 to the writer.
+    def test_predictor_resolved_for_float(self, float_array, tmp_path):
+        """A float raster is written with PREDICTOR=3.
 
         Args:
-            mocker: pytest-mock fixture.
             float_array: Fixture providing a 2-D float32 array.
             tmp_path: pytest temp directory.
 
         Test scenario:
-            `Dataset.to_cog` is called with `predictor=3` and
-            `blocksize=512` / `overview_resampling='average'`.
+            After ARC-1 the predictor is resolved inside COG.to_cog, so the
+            assertion is on the written file rather than the call kwargs: a
+            float source must carry the floating-point predictor (3).
         """
-        spy = mocker.spy(Dataset, "to_cog")
-        write_cog(float_array, tmp_path / "p.tif", crs=4326, transform=_GEOTRANSFORM)
-        kwargs = spy.call_args.kwargs
-        assert (
-            kwargs["predictor"] == 3
-        ), f"Expected predictor 3, got {kwargs['predictor']}"
-        assert kwargs["blocksize"] == 512, "House default blocksize should be 512"
-        assert (
-            kwargs["overview_resampling"] == "average"
-        ), "House default overview resampling should be average"
+        out, _ = write_cog(
+            float_array, tmp_path / "p.tif", crs=4326, transform=_GEOTRANSFORM
+        )
+        assert _read_predictor(out) == "3", "float source should yield PREDICTOR=3"
 
-    def test_predictor_resolved_for_int(self, mocker, int_array, tmp_path):
-        """An integer raster forwards PREDICTOR=2 to the writer.
+    def test_predictor_resolved_for_int(self, int_array, tmp_path):
+        """An integer raster is written with PREDICTOR=2.
 
         Args:
-            mocker: pytest-mock fixture.
             int_array: Fixture providing a 2-D int16 array.
             tmp_path: pytest temp directory.
 
         Test scenario:
-            `Dataset.to_cog` is called with `predictor=2`.
+            An integer source must carry horizontal-differencing predictor (2).
         """
-        spy = mocker.spy(Dataset, "to_cog")
-        write_cog(int_array, tmp_path / "p.tif", crs=4326, transform=_GEOTRANSFORM)
-        assert (
-            spy.call_args.kwargs["predictor"] == 2
-        ), "Int raster should use predictor 2"
+        out, _ = write_cog(
+            int_array, tmp_path / "p.tif", crs=4326, transform=_GEOTRANSFORM
+        )
+        assert _read_predictor(out) == "2", "int source should yield PREDICTOR=2"
 
-    def test_explicit_predictor_not_overridden(self, mocker, float_array, tmp_path):
-        """A caller-supplied PREDICTOR is not auto-resolved.
+    def test_explicit_predictor_not_overridden(self, float_array, tmp_path):
+        """A caller-supplied PREDICTOR overrides the dtype-aware default.
 
         Args:
-            mocker: pytest-mock fixture.
             float_array: Fixture providing a 2-D float32 array.
             tmp_path: pytest temp directory.
 
         Test scenario:
-            `options={'PREDICTOR': 1}` is forwarded verbatim.
+            `options={'PREDICTOR': 1}` forwards as `extra` and wins over the
+            auto-resolved float default, disabling the predictor.
         """
-        spy = mocker.spy(Dataset, "to_cog")
-        write_cog(
+        out, _ = write_cog(
             float_array,
             tmp_path / "p.tif",
             crs=4326,
             transform=_GEOTRANSFORM,
             options={"PREDICTOR": 1},
         )
-        assert spy.call_args.kwargs["predictor"] == 1, "Explicit predictor should win"
+        assert _read_predictor(out) in ("", "1"), "explicit predictor=1 should win"
 
     def test_from_gdal_dataset(self, mem_dataset, tmp_path):
         """A gdal.Dataset input is accepted and writes a valid COG.
@@ -754,12 +774,16 @@ class TestPyramidsCogDefaults:
         ), "PREDICTOR must be resolved per dtype, not fixed in defaults"
 
     def test_expected_house_defaults(self):
-        """The house defaults carry the documented values.
+        """The static house defaults carry the documented values.
 
         Test scenario:
-            DEFLATE, 512px tiles, AVERAGE overviews, and IF_SAFER BigTIFF.
+            DEFLATE, 512px tiles, and IF_SAFER BigTIFF. After ARC-3,
+            OVERVIEW_RESAMPLING is no longer a static default — it is resolved
+            per-dtype inside COG.to_cog — so it is intentionally absent here.
         """
         assert PYRAMIDS_COG_DEFAULTS["COMPRESS"] == "DEFLATE"
         assert PYRAMIDS_COG_DEFAULTS["BLOCKSIZE"] == 512
-        assert PYRAMIDS_COG_DEFAULTS["OVERVIEW_RESAMPLING"] == "AVERAGE"
         assert PYRAMIDS_COG_DEFAULTS["BIGTIFF"] == "IF_SAFER"
+        assert (
+            "OVERVIEW_RESAMPLING" not in PYRAMIDS_COG_DEFAULTS
+        ), "overview resampling is dtype-resolved in to_cog, not a static default"

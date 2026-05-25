@@ -99,6 +99,9 @@ notebook = [
 ]
 
 
+[project.scripts]
+pyramids = "pyramids.cli:main"
+
 [project.urls]
 homepage = "https://github.com/serapeum-org/pyramids"
 repository = "https://github.com/serapeum-org/pyramids"
