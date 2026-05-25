@@ -511,7 +511,7 @@ def import_pystac_client(message: str):
 
 
 def import_stac_asset(message: str):
-    """Import stac_asset (the optional [stac-asset] extra)."""
+    """Import stac_asset (ships via the optional [stac] extra)."""
     try:
         import stac_asset  # noqa
     except ImportError:

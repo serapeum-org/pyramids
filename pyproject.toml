@@ -53,8 +53,7 @@ xarray = ["xarray>=2023.1.0"]
 netcdf-lazy = ["pyramids-gis[lazy]", "kerchunk>=0.2.6", "h5py>=3.8.0"]
 parquet = ["pyarrow>=10.0.0"]
 parquet-lazy = ["pyramids-gis[lazy,parquet]", "dask-geopandas>=0.5.0"]
-stac = ["pystac-client>=0.8.0"]
-stac-asset = ["stac-asset>=0.4.7"]
+stac = ["pystac-client>=0.8.0", "stac-asset>=0.4.7"]
 
 [dependency-groups]
 dev = [

@@ -1,6 +1,6 @@
 """Unit tests for pyramids.stac.download.download_item (PC-3).
 
-stac-asset is an optional [stac-asset] extra (heavy async deps), so these tests
+stac-asset ships via the optional [stac] extra (heavy async deps), so these tests
 do not require it installed: the missing-dependency guard is exercised by
 mocking the import helper, and the wiring is exercised with an injected fake
 stac_asset module.
@@ -27,7 +27,7 @@ class TestDownloadItemGuard:
         """download_item raises OptionalPackageDoesNotExist when absent.
 
         Test scenario:
-            import_stac_asset raises -> the error points at the [stac-asset] extra.
+            import_stac_asset raises -> the error points at the [stac] extra.
         """
 
         def _raise(*_a, **_k):

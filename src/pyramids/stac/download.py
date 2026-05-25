@@ -2,12 +2,13 @@
 
 pyramids reads STAC assets lazily through GDAL `/vsicurl/`; some workflows want
 local copies instead (offline processing, repeated reads, archival). This module
-wraps `stac_asset`'s synchronous download behind the optional `[stac-asset]`
-extra, returning the local paths so they can feed
+wraps `stac_asset`'s synchronous download behind the optional `[stac]` extra,
+returning the local paths so they can feed
 :meth:`pyramids.dataset.DatasetCollection.from_files`.
 
 `stac-asset` pulls heavy async dependencies (`aiohttp`, `aiobotocore`), so it is
-**not** a core dependency — install it with `pip install 'pyramids-gis[stac-asset]'`.
+**not** a core dependency — it ships via the `[stac]` extra (alongside
+`pystac-client`): install with `pip install 'pyramids-gis[stac]'`.
 The per-protocol client (HTTP / S3 / Planetary Computer / Earthdata) is selected
 by `stac_asset` from each asset href.
 """
@@ -21,7 +22,7 @@ from pyramids.base._utils import import_stac_asset
 
 _STAC_ASSET_INSTALL_HINT = (
     "download_item requires the optional 'stac-asset' dependency. "
-    "Install it with: pip install 'pyramids-gis[stac-asset]'"
+    "Install it with: pip install 'pyramids-gis[stac]'"
 )
 
 
@@ -55,7 +56,7 @@ def download_item(
 
     Examples:
         - Download an item's assets, then build a collection from the locals
-          (requires the `[stac-asset]` extra + network):
+          (requires the `[stac]` extra + network):
             ```python
             >>> from pyramids.stac import download_item  # doctest: +SKIP
             >>> local = download_item(item, "scenes/")  # doctest: +SKIP
