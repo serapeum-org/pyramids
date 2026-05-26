@@ -53,6 +53,7 @@ from pyramids.dataset.ops._zarr import (
 )
 from pyramids.dataset.ops._zonal import zonal_stats as _zonal_stats
 from pyramids.dataset.ops.interpolate import grid_points
+from pyramids.dataset.ops.units import convert_array
 from pyramids.dataset.ops.vectorize import rasterize_features
 from pyramids.feature import FeatureCollection, create_polygon
 
@@ -104,7 +105,7 @@ def _derive_band_names(paths: list[str]) -> list[str]:
     return names
 
 
-def _same_grid(a: "Dataset", b: "Dataset") -> bool:
+def _same_grid(a: Dataset, b: Dataset) -> bool:
     """Return True if datasets ``a`` and ``b`` share CRS, size, and geotransform.
 
     Geotransform components are compared with a small relative tolerance so
@@ -1293,6 +1294,96 @@ class Dataset(RasterBase):
         self._band_units = value
         for i, val in enumerate(value):
             self._iloc(i).SetUnitType(val)
+
+    def convert_units(self, target: str, band: int | None = None) -> Dataset:
+        """Convert band values to ``target`` units, returning a new Dataset.
+
+        Unlike the :attr:`band_units` setter — which only relabels bands — this
+        actually transforms the stored values using a small affine conversion table
+        (see :func:`pyramids.dataset.ops.units.convert_array`) and records the new
+        unit on the result. No-data cells are preserved unchanged. The output is a
+        new in-memory ``float64`` Dataset; the source is left untouched.
+
+        Args:
+            target: Target unit label (e.g. ``"celsius"``, ``"hPa"``, ``"knots"``).
+            band: Zero-based band index to convert. ``None`` (default) converts every
+                band; bands already in ``target`` units are passed through unchanged.
+
+        Returns:
+            A new :class:`Dataset` with converted values and updated
+            :attr:`band_units`.
+
+        Raises:
+            ValueError: ``band`` is out of range, a converted band has no source unit
+                set, or the ``(source, target)`` pair is unsupported.
+
+        Examples:
+            - Convert a Kelvin raster to Celsius and read the new values:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.array([[273.15, 283.15], [293.15, 303.15]]),
+                ...     top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ... )
+                >>> ds.band_units = ["K"]
+                >>> converted = ds.convert_units("celsius")
+                >>> converted.read_array().tolist()
+                [[0.0, 10.0], [20.0, 30.0]]
+                >>> converted.band_units
+                ['celsius']
+
+                ```
+            - An unsupported target raises a clear error:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.array([[273.15]]), top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ... )
+                >>> ds.band_units = ["K"]
+                >>> try:
+                ...     ds.convert_units("furlongs")
+                ... except ValueError as exc:
+                ...     print("No unit conversion" in str(exc))
+                True
+
+                ```
+        """
+        if band is not None and not 0 <= band < self.band_count:
+            raise ValueError(
+                f"band {band} is out of range for a {self.band_count}-band dataset."
+            )
+
+        band_indices = range(self.band_count) if band is None else [band]
+        source_units = list(self.band_units)
+        new_units = list(self.band_units)
+
+        full = self.read_array()
+        single_band = self.band_count == 1
+        stack = full[np.newaxis, ...] if single_band else full
+        out = stack.astype("float64").copy()
+        no_data = self.no_data_value
+
+        for index in band_indices:
+            layer = out[index]
+            nodata_value = no_data[index]
+            mask = layer == nodata_value if nodata_value is not None else None
+            converted = convert_array(layer, source_units[index], target)
+            if mask is not None:
+                converted[mask] = nodata_value
+            out[index] = converted
+            new_units[index] = target
+
+        result_array = out[0] if single_band else out
+        result = self.create_from_array(
+            result_array,
+            geo=self.geotransform,
+            epsg=self.epsg,
+            no_data_value=list(no_data),
+        )
+        result.band_units = new_units
+        return result
 
     @property
     def no_data_value(self) -> tuple:

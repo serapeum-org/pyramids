@@ -270,6 +270,129 @@ class TestBandNamesUnitsSetters:
             ), f"Band {i} unit mismatch: expected {expected}, got {actual}"
 
 
+class TestConvertUnits:
+    """Tests for the Dataset.convert_units value-conversion method."""
+
+    def test_single_band_kelvin_to_celsius(self, single_band_dataset):
+        """convert_units converts a single-band Kelvin raster to Celsius.
+
+        Test scenario:
+            A 3x3 raster labelled "K" converted to "celsius" subtracts 273.15 from
+            every cell and updates band_units to ["celsius"].
+        """
+        single_band_dataset.band_units = ["K"]
+        result = single_band_dataset.convert_units("celsius")
+        expected = single_band_dataset.read_array() - 273.15
+        np.testing.assert_allclose(
+            result.read_array(), expected, rtol=1e-6, err_msg="K->C values wrong"
+        )
+        assert result.band_units == [
+            "celsius"
+        ], f"Units not updated: {result.band_units}"
+
+    def test_multi_band_all_converted(self, multi_band_dataset):
+        """convert_units converts every band when band is None.
+
+        Test scenario:
+            A 3-band raster all labelled "m" converted to "mm" scales every band by
+            1000 and labels all bands "mm".
+        """
+        multi_band_dataset.band_units = ["m", "m", "m"]
+        result = multi_band_dataset.convert_units("mm")
+        np.testing.assert_allclose(
+            result.read_array(),
+            multi_band_dataset.read_array() * 1000.0,
+            rtol=1e-6,
+            err_msg="m->mm values wrong",
+        )
+        assert result.band_units == ["mm", "mm", "mm"], f"Units: {result.band_units}"
+
+    def test_band_argument_converts_one_band_only(self, multi_band_dataset):
+        """convert_units with band= converts only the selected band.
+
+        Test scenario:
+            Converting only band 0 (m->mm) scales band 0 by 1000 but leaves bands 1
+            and 2 untouched, and only band 0's unit label changes.
+        """
+        multi_band_dataset.band_units = ["m", "m", "m"]
+        source = multi_band_dataset.read_array()
+        result = multi_band_dataset.convert_units("mm", band=0)
+        converted = result.read_array()
+        np.testing.assert_allclose(
+            converted[0], source[0] * 1000.0, rtol=1e-6, err_msg="band 0 not converted"
+        )
+        np.testing.assert_array_equal(
+            converted[1], source[1], err_msg="band 1 should be untouched"
+        )
+        np.testing.assert_array_equal(
+            converted[2], source[2], err_msg="band 2 should be untouched"
+        )
+        assert result.band_units == ["mm", "m", "m"], f"Units: {result.band_units}"
+
+    def test_nodata_cells_preserved(self):
+        """convert_units leaves no-data cells at their sentinel value.
+
+        Test scenario:
+            A Kelvin raster containing a -9999.0 no-data cell, converted to Celsius,
+            keeps that cell at -9999.0 while converting the valid cells.
+        """
+        arr = np.array([[273.15, -9999.0], [293.15, 303.15]], dtype=np.float64)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        ds.band_units = ["K"]
+        result = ds.convert_units("celsius")
+        out = result.read_array()
+        assert out[0, 1] == -9999.0, f"No-data cell altered: {out[0, 1]}"
+        assert out[0, 0] == pytest.approx(0.0), f"Valid cell wrong: {out[0, 0]}"
+        assert out[1, 0] == pytest.approx(20.0), f"Valid cell wrong: {out[1, 0]}"
+
+    def test_source_dataset_unchanged(self, single_band_dataset):
+        """convert_units returns a new Dataset and leaves the source untouched.
+
+        Test scenario:
+            After conversion the source still reports its original values and units.
+        """
+        single_band_dataset.band_units = ["K"]
+        snapshot = single_band_dataset.read_array().copy()
+        result = single_band_dataset.convert_units("celsius")
+        assert (
+            result is not single_band_dataset
+        ), "convert_units must return a new object"
+        np.testing.assert_array_equal(
+            single_band_dataset.read_array(), snapshot, err_msg="source was mutated"
+        )
+        assert single_band_dataset.band_units == ["K"], "source units changed"
+
+    def test_band_out_of_range_raises(self, single_band_dataset):
+        """convert_units rejects a band index outside the valid range.
+
+        Test scenario:
+            Requesting band 5 on a single-band raster raises ValueError mentioning
+            'out of range'.
+        """
+        single_band_dataset.band_units = ["K"]
+        with pytest.raises(ValueError, match="out of range") as exc:
+            single_band_dataset.convert_units("celsius", band=5)
+        assert "out of range" in str(exc.value), f"Unexpected: {exc.value}"
+
+    def test_unknown_target_raises(self, single_band_dataset):
+        """convert_units propagates the ValueError for an unsupported target.
+
+        Test scenario:
+            A target unit absent from the affine table raises ValueError mentioning
+            'No unit conversion'.
+        """
+        single_band_dataset.band_units = ["K"]
+        with pytest.raises(ValueError, match="No unit conversion") as exc:
+            single_band_dataset.convert_units("furlongs")
+        assert "No unit conversion" in str(exc.value), f"Unexpected: {exc.value}"
+
+
 class TestCountDomainCells:
     """Tests for the count_domain_cells method."""
 
