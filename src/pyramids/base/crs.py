@@ -515,7 +515,7 @@ def epsg_from_user_input(crs: int | str | Any) -> int:
         return crs
     try:
         parsed = CRS.from_user_input(crs)
-    except Exception as exc:
+    except (pyproj.exceptions.CRSError, TypeError, ValueError) as exc:
         raise CRSError(f"could not interpret {crs!r} as a CRS: {exc}") from exc
     epsg = parsed.to_epsg()
     if epsg is None:
