@@ -1,16 +1,14 @@
 """Read GRIB1/GRIB2 files (local or cloud) as pyramids datasets via GDAL.
 
-GRIB is decoded through GDAL's native `GRIB` driver — no `cfgrib` / `eccodes`
-/ `xarray` dependency. The driver ships in the conda-forge `libgdal-grib`
-plugin (a core pyramids dependency, alongside `libgdal-netcdf` /
-`libgdal-hdf4`); :func:`open_grib` raises a clear error if a GDAL build lacks
-it.
+GRIB is decoded through GDAL's native `GRIB` driver — no extra Python decoding
+dependency. The driver ships in the conda-forge `libgdal-grib` plugin (a core
+pyramids dependency, alongside `libgdal-netcdf` / `libgdal-hdf4`);
+:func:`open_grib` raises a clear error if a GDAL build lacks it.
 
 Each GRIB *message* becomes a band of the returned
 :class:`~pyramids.dataset.Dataset`, carrying the per-message GRIB metadata
 (element, level, reference / valid time, forecast horizon). Use
-:func:`grib_band_metadata` to introspect those bands — the GDAL-native
-equivalent of inspecting cfgrib's `filter_by_keys` — and pick the band(s) you
+:func:`grib_band_metadata` to introspect those bands and pick the band(s) you
 want. Cloud URIs (`s3://` / `gs://` / `https://` / `/vsi*`) are resolved
 through the same path as :meth:`pyramids.dataset.Dataset.read_file`.
 """
@@ -97,7 +95,7 @@ def open_grib(path: str | Path, *, vsi: str | None = None) -> Dataset:
     Decodes via GDAL's native `GRIB` driver; every GRIB message is a band.
     Local paths, `/vsi*` paths, and `http(s)://` / `s3://` / `gs://` /
     `az://` URIs are all accepted (resolved by
-    :meth:`~pyramids.dataset.Dataset.read_file`). No `cfgrib` / `xarray`.
+    :meth:`~pyramids.dataset.Dataset.read_file`).
 
     Args:
         path: Path or URI to a GRIB1/GRIB2 file.
