@@ -8,11 +8,11 @@ on:
     # Only run the (expensive) wheel matrix on PRs that touch packaging —
     # not on every PR to main. Other triggers: push to main, workflow_run
     # after github-release, and manual dispatch.
-    paths:
-      - "pyproject.toml"
-      - "setup.py"
-      - "ci/**"
-      - ".github/workflows/build-wheels.yml"
+#     paths:
+#       - "pyproject.toml"
+#       - "setup.py"
+#       - "ci/**"
+#       - ".github/workflows/build-wheels.yml"
   workflow_run:
     workflows: ["github-release"]
     types: [completed]
