@@ -28,6 +28,23 @@ the pixels they need via HTTP range requests. pyramids provides:
 > policy backs the `write_cog(...)` facade, so a direct `ds.to_cog(...)`
 > and `write_cog(ds, ...)` produce identical output.
 
+!!! warning "Behavior change — default `to_cog` output"
+
+    The default output of `Dataset.to_cog(path)` changed when the write policy
+    was unified. Previously `to_cog` wrote **no predictor** and built
+    **`nearest`** overviews; it now writes a dtype-aware **predictor** (`2` for
+    integer, `3` for float) and dtype-aware overview resampling (`mode` for
+    categorical, `average` for continuous). `write_cog` on an *integer* raster
+    likewise switched its overviews from `average` to `mode` (which also stops
+    a spurious "averaging corrupts categorical rasters" warning). The files are
+    still valid COGs, but they are **byte-different** from older releases.
+
+    To reproduce the previous output exactly:
+
+    ```python
+    ds.to_cog("scene.tif", predictor=1, overview_resampling="nearest")
+    ```
+
 ## Writing a COG
 
 Minimal example:
