@@ -814,7 +814,8 @@ class COG(_Engine):
         Returns:
             numpy.ndarray: `(rows, cols)` for a single band, or
             `(bands, rows, cols)` for all bands; always sized
-            `dst_height x dst_width` (the requested output size).
+            `dst_height x dst_width` (the requested output size). Pixel values
+            only — no transform, bounds, or CRS is attached.
 
         Raises:
             ValueError: Unknown `resampling`.
@@ -963,7 +964,8 @@ class COG(_Engine):
 
         Returns:
             numpy.ndarray: The downsampled array, `(rows, cols)` or
-            `(bands, rows, cols)`.
+            `(bands, rows, cols)`. Pixel values only — no transform, bounds,
+            or CRS is attached to the returned array.
 
         Raises:
             ValueError: Unknown `resampling`.
@@ -1016,7 +1018,8 @@ class COG(_Engine):
 
         Returns:
             numpy.ndarray: A scalar 0-d array for a single band, or a
-            `(bands,)` array when `band` is `None`.
+            `(bands,)` array when `band` is `None`. Pixel values only — no
+            coordinate metadata is attached.
 
         Raises:
             OutOfBoundsError: The point falls outside the raster extent.
@@ -1067,7 +1070,9 @@ class COG(_Engine):
 
         Returns:
             numpy.ndarray: A `(tilesize, tilesize)` or
-            `(bands, tilesize, tilesize)` array.
+            `(bands, tilesize, tilesize)` array. Pixel values only — the tile's
+            georeferencing is defined by its `(z, x, y)`, not attached to the
+            array; edge tiles are NoData-padded (see :meth:`read_part`).
 
         Raises:
             OutOfBoundsError: The tile does not intersect the raster.
