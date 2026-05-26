@@ -60,6 +60,38 @@ def _make_coastline_zip(destination: Path, n_features: int = 2) -> int:
     return n_features
 
 
+def _make_coastline_zip_with_stems(destination: Path, stems: dict[str, int]) -> None:
+    """Write ``ne_110m_coastline.zip`` containing one shapefile per given stem.
+
+    Args:
+        destination: Cache directory to place the zip in (created if missing).
+        stems: Mapping of shapefile stem (without extension) to the number of
+            LineString features that shapefile should contain.
+    """
+    destination.mkdir(parents=True, exist_ok=True)
+    shp_dir = destination / "_build_stems"
+    shp_dir.mkdir(exist_ok=True)
+    for stem, n_features in stems.items():
+        lines = [LineString([(i, 0), (i + 1, 1)]) for i in range(n_features)]
+        gdf = gpd.GeoDataFrame(
+            {"id": range(n_features)}, geometry=lines, crs="EPSG:4326"
+        )
+        gdf.to_file(shp_dir / f"{stem}.shp")
+    zip_path = destination / "ne_110m_coastline.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        for sidecar in shp_dir.iterdir():
+            archive.write(sidecar, sidecar.name)
+
+
+def _make_sidecar_only_zip(destination: Path) -> None:
+    """Write ``ne_110m_coastline.zip`` with shapefile sidecars but no ``.shp``."""
+    destination.mkdir(parents=True, exist_ok=True)
+    zip_path = destination / "ne_110m_coastline.zip"
+    with zipfile.ZipFile(zip_path, "w") as archive:
+        archive.writestr("ne_110m_coastline.dbf", b"not a real dbf")
+        archive.writestr("ne_110m_coastline.prj", b"not a real prj")
+
+
 class TestAvailableLayers:
     """Tests for :func:`pyramids.basemap.features.available_layers`."""
 
@@ -331,6 +363,72 @@ class TestNaturalEarth:
         result = features.natural_earth("coastline", "110m")
         assert isinstance(result, FeatureCollection), f"Got {type(result)}"
         assert len(result) == n_features, f"Expected {n_features}, got {len(result)}"
+
+    def test_reads_shapefile_with_unexpected_stem(self, cache_dir, monkeypatch):
+        """natural_earth reads the archive's .shp even when its name is unexpected.
+
+        Args:
+            cache_dir: Redirected cache directory fixture.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            The cached zip contains a shapefile named ``coastline_renamed.shp`` (not the
+            conventional ``ne_110m_coastline.shp``). natural_earth still selects it by
+            listing the archive members, returns the right feature count, and does not
+            download.
+        """
+        _make_coastline_zip_with_stems(cache_dir, {"coastline_renamed": 4})
+
+        def fail_download(url, destination):
+            raise AssertionError("download must not run on a cache hit")
+
+        monkeypatch.setattr(features, "_download", fail_download)
+        result = features.natural_earth("coastline", "110m")
+        assert isinstance(result, FeatureCollection), f"Got {type(result)}"
+        assert len(result) == 4, f"Expected 4 features, got {len(result)}"
+
+    def test_prefers_conventional_stem_over_others(self, cache_dir, monkeypatch):
+        """natural_earth prefers ``ne_{res}_{name}.shp`` when several .shp exist.
+
+        Args:
+            cache_dir: Redirected cache directory fixture.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            The archive holds two shapefiles — the conventional ``ne_110m_coastline.shp``
+            (2 features) and an ``extra.shp`` (5 features). natural_earth picks the
+            conventional one, identified by its distinct feature count.
+        """
+        _make_coastline_zip_with_stems(cache_dir, {"ne_110m_coastline": 2, "extra": 5})
+
+        def fail_download(url, destination):
+            raise AssertionError("download must not run on a cache hit")
+
+        monkeypatch.setattr(features, "_download", fail_download)
+        result = features.natural_earth("coastline", "110m")
+        assert (
+            len(result) == 2
+        ), f"Expected the conventional 2-feature shp, got {len(result)}"
+
+    def test_archive_without_shapefile_raises(self, cache_dir, monkeypatch):
+        """natural_earth raises when the cached archive contains no .shp member.
+
+        Args:
+            cache_dir: Redirected cache directory fixture.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            A zip with only sidecar files (no ``.shp``) raises FileNotFoundError naming
+            the ``*.shp`` pattern it looked for.
+        """
+        _make_sidecar_only_zip(cache_dir)
+
+        def fail_download(url, destination):
+            raise AssertionError("download must not run on a cache hit")
+
+        monkeypatch.setattr(features, "_download", fail_download)
+        with pytest.raises(FileNotFoundError, match=r"\*\.shp"):
+            features.natural_earth("coastline", "110m")
 
     @pytest.mark.slow
     def test_real_download_coastline(self, cache_dir):

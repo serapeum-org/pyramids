@@ -22,6 +22,8 @@ import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pyramids._io import _archive_dir_vsi, _archive_members
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pyramids.feature import FeatureCollection
 
@@ -164,6 +166,7 @@ def natural_earth(
     Raises:
         ValueError: ``layer`` or ``resolution`` is not supported.
         OSError: The layer is not cached and the download failed.
+        FileNotFoundError: The cached archive contains no ``.shp`` member.
 
     Examples:
         - Unknown layers are rejected with the list of valid names:
@@ -200,6 +203,11 @@ def natural_earth(
     from pyramids.feature import FeatureCollection
 
     archive = _ensure_cached(layer, resolution)
-    stem = _dataset_stem(layer, resolution)
-    result = FeatureCollection.read_file(f"{archive}/{stem}.shp")
+    # Pick the shapefile from the archive by listing its members rather than assuming
+    # a fixed name, so the read is robust to Natural Earth archive-layout differences.
+    # Prefer the conventional ``ne_{res}_{name}.shp`` stem when present.
+    shp_members = _archive_members(_archive_dir_vsi(archive, "zip"), "*.shp")
+    preferred = f"{_dataset_stem(layer, resolution)}.shp"
+    member = preferred if preferred in shp_members else shp_members[0]
+    result = FeatureCollection.read_file(f"{archive}/{member}")
     return result
