@@ -131,6 +131,40 @@ class TestFromOrca:
             err_msg="face value should be mean of 1..4",
         )
 
+    def test_nan_node_ignored_where_finite_corners_exist(self):
+        """from_orca ignores a NaN-masked node when a face has finite corners.
+
+        Test scenario:
+            On a 2x2 grid (one face) with a single NaN corner, the face value is the
+            mean of the three finite corners (NaN-aware), not NaN.
+        """
+        lon2d = np.array([[0.0, 1.0], [0.0, 1.0]])
+        lat2d = np.array([[1.0, 1.0], [0.0, 0.0]])
+        data2d = np.array([[1.0, 2.0], [3.0, np.nan]])
+        ds = from_orca(lon2d, lat2d, data2d, cell_size=0.5, method="nearest")
+        arr = ds.read_array()
+        valid = arr[arr != ds.no_data_value[0]]
+        assert valid.size > 0, "single face produced no cells"
+        np.testing.assert_allclose(
+            np.unique(valid), [2.0], atol=1e-9, err_msg="face should be mean of 1,2,3"
+        )
+
+    def test_all_nan_face_is_blank(self):
+        """from_orca yields a NaN face only when all four corners are NaN.
+
+        Test scenario:
+            A 2x2 grid whose single face has all-NaN corners produces no finite valid
+            cells (every covered cell is NaN), confirming all-NaN faces are not
+            fabricated into finite values.
+        """
+        lon2d = np.array([[0.0, 1.0], [0.0, 1.0]])
+        lat2d = np.array([[1.0, 1.0], [0.0, 0.0]])
+        data2d = np.full((2, 2), np.nan)
+        ds = from_orca(lon2d, lat2d, data2d, cell_size=0.5, method="nearest")
+        arr = ds.read_array()
+        finite_valid = arr[(arr != ds.no_data_value[0]) & np.isfinite(arr)]
+        assert finite_valid.size == 0, f"expected no finite cells, got {finite_valid}"
+
     @pytest.mark.parametrize(
         "lon_shape, lat_shape, data_shape",
         [

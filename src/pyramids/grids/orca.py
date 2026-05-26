@@ -10,6 +10,7 @@ the actual interpolation. No new third-party dependencies.
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -33,10 +34,12 @@ def from_orca(
     """Regrid an ORCA curvilinear field onto a regular-grid :class:`Dataset`.
 
     The ``(ny, nx)`` coordinate arrays are treated as mesh nodes and stitched into
-    ``(ny - 1) * (nx - 1)`` quadrilateral faces. Each face value is the mean of its
-    four corner nodes, so every value in ``data2d`` (including the last row and column)
-    contributes to the result. The resulting UGRID mesh is interpolated to a regular
-    grid via :meth:`UgridDataset.to_dataset`.
+    ``(ny - 1) * (nx - 1)`` quadrilateral faces. Each face value is the NaN-aware mean
+    of its four corner nodes (:func:`numpy.nanmean`), so every value in ``data2d``
+    (including the last row and column) contributes; ``NaN``-masked nodes are ignored
+    and a face is ``NaN`` only when all four of its corners are ``NaN``. Use ``NaN``
+    (not a finite sentinel) to mark missing input values. The resulting UGRID mesh is
+    interpolated to a regular grid via :meth:`UgridDataset.to_dataset`.
 
     Args:
         lon2d: ``(ny, nx)`` array of node longitudes (x-coordinates).
@@ -116,11 +119,16 @@ def from_orca(
         ],
         axis=1,
     )
-    # Each face value is the mean of its four corner nodes, so every node in data2d
-    # contributes (no last row/column dropped).
-    face_values = 0.25 * (
-        data2d[:-1, :-1] + data2d[:-1, 1:] + data2d[1:, 1:] + data2d[1:, :-1]
+    # Each face value is the NaN-aware mean of its four corner nodes, so every node in
+    # data2d contributes (no last row/column dropped) and a NaN-masked node only blanks
+    # a face when all four of its corners are NaN.
+    corners = np.stack(
+        [data2d[:-1, :-1], data2d[:-1, 1:], data2d[1:, 1:], data2d[1:, :-1]], axis=0
     )
+    with warnings.catch_warnings():
+        # All-NaN faces are intended (fully-masked cell -> NaN); suppress the warning.
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        face_values = np.nanmean(corners, axis=0)
 
     mesh = UgridDataset.create_from_arrays(
         node_x,
