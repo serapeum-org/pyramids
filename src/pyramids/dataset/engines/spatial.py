@@ -835,13 +835,50 @@ class Spatial(_Engine):
 
     @staticmethod
     def _correct_wrap_cutline_error(src: Dataset) -> Dataset:
-        """Correct wrap cutline error.
+        """Trim the all-nodata border GDAL leaves after a cutline warp.
 
-        https://github.com/serapeum-org/pyramids/issues/74
+        ``gdal.Warp`` with ``cropToCutline=False`` (the ``touch=True``
+        crop path) keeps the source grid and fills the cells outside the
+        cutline with the no-data value, producing a frame of fully-nodata
+        rows and columns around the real data. This rebuilds the dataset
+        from the array with those edge rows/columns removed and the
+        geotransform shifted to the new top-left corner.
+
+        The output CRS is copied from the source **WKT** (``src.crs``)
+        rather than round-tripped through ``src.epsg``: a custom CRS with
+        no resolvable EPSG (e.g. a spherical-earth GRIB GEOGCS) would
+        otherwise be relabelled — or, before issue #403 was fixed, crash
+        on ``sr_from_epsg`` — so the exact source CRS is preserved. When the
+        source is unprojected (``src.crs`` is empty) the copy is skipped, so
+        the rebuilt dataset keeps the :meth:`Dataset.create_from_array`
+        default CRS instead of having its projection wiped to empty.
+
+        Args:
+            src (Dataset): Result of the cutline warp, expected to carry a
+                fully-nodata border. Its single no-data value
+                (``src.no_data_value[0]``) marks the cells to trim. The
+                backing array must be 2D (single band) or 3D
+                (band, row, col).
+
+        Returns:
+            Dataset: A new in-memory dataset with the all-nodata border
+            rows/columns removed, the geotransform shifted to the trimmed
+            top-left corner, and the no-data value and band count preserved.
+            The CRS is the source CRS, or the ``create_from_array`` default
+            when the source is unprojected.
+
+        Raises:
+            ValueError: If the source array is neither 2D nor 3D.
+
+        See Also:
+            Spatial.crop: Caller that applies this correction when
+                ``touch=True``.
+
+        References:
+            https://github.com/serapeum-org/pyramids/issues/74
         """
         big_array = src.read_array()
         value_to_remove = src.no_data_value[0]
-        """Remove rows and columns that are all filled with a certain value from a 2D array."""
         # Find rows and columns to be removed
         if big_array.ndim == 2:
             rows_to_remove = np.all(big_array == value_to_remove, axis=1)
@@ -867,8 +904,16 @@ class Spatial(_Engine):
         new_y = src.y[x_ind] + src.cell_size / 2
         new_gt = (new_x, src.cell_size, 0, new_y, 0, -src.cell_size)
         new_src = src.create_from_array(
-            small_array, geo=new_gt, epsg=src.epsg, no_data_value=src.no_data_value
+            small_array, geo=new_gt, no_data_value=src.no_data_value
         )
+        # Preserve the source CRS from its WKT rather than round-tripping
+        # through src.epsg: a custom CRS with no EPSG (e.g. a spherical-earth
+        # GRIB GEOGCS) has no resolvable code, so passing epsg=src.epsg would
+        # relabel — or, before issue #403 was fixed, crash on — the output.
+        # Skip when the source is unprojected: setting an empty WKT would
+        # wipe the create_from_array default, so leave that default in place.
+        if src.crs:
+            new_src.crs = src.crs
         return new_src
 
     def crop(

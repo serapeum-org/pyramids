@@ -803,6 +803,87 @@ class TestCorrectWrapCutlineError:
         assert corrected.rows == 1, "Expected 1 row after 3D correction"
         assert corrected.columns == 1, "Expected 1 col after 3D correction"
 
+    def test_preserves_grib_crs_without_epsg(self):
+        """Issue #403: a custom GRIB CRS (no resolvable EPSG) must still trim.
+
+        The cutline-correction path used to round-trip the CRS through
+        ``src.epsg``, which for GDAL's spherical-earth GRIB GEOGCS resolved
+        to the unit code EPSG:9122 and crashed ``sr_from_epsg``. It must now
+        rebuild the output from the source WKT, so trimming succeeds and the
+        spherical datum (radius 6371229) survives unchanged.
+        """
+        grib_wkt = (
+            'GEOGCS["Coordinate System imported from GRIB file",'
+            'DATUM["unnamed",SPHEROID["Sphere",6371229,0]],PRIMEM["Greenwich",0],'
+            'UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],'
+            'AXIS["Latitude",NORTH],AXIS["Longitude",EAST]]'
+        )
+        nd = -9999.0
+        arr = np.array(
+            [
+                [nd, nd, nd, nd],
+                [nd, 1.0, 2.0, nd],
+                [nd, 3.0, 4.0, nd],
+                [nd, nd, nd, nd],
+            ],
+            dtype=np.float32,
+        )
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=nd,
+        )
+        ds.crs = grib_wkt
+
+        corrected = Spatial._correct_wrap_cutline_error(ds)
+
+        assert corrected.rows == 2, f"expected 2 rows after trim, got {corrected.rows}"
+        assert (
+            corrected.columns == 2
+        ), f"expected 2 columns after trim, got {corrected.columns}"
+        np.testing.assert_array_equal(
+            corrected.read_array(),
+            np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+        )
+        # The exact spherical GRIB datum is preserved, not relabeled to 4326.
+        assert "6371229" in corrected.crs
+        # Reading .epsg must not crash; it falls back to the soft default.
+        assert corrected.epsg == 4326
+
+    def test_unprojected_source_keeps_create_from_array_default(self):
+        """An unprojected source keeps the default CRS, not an empty WKT.
+
+        When ``src.crs`` is empty, the ``if src.crs:`` guard skips the WKT
+        copy so the rebuilt dataset retains the ``create_from_array`` default
+        (WGS84 / EPSG:4326) rather than having its projection wiped to empty.
+        """
+        nd = -9999.0
+        arr = np.array(
+            [
+                [nd, nd, nd, nd],
+                [nd, 1.0, 2.0, nd],
+                [nd, 3.0, 4.0, nd],
+                [nd, nd, nd, nd],
+            ],
+            dtype=np.float32,
+        )
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=nd,
+        )
+        ds.raster.SetProjection("")
+        assert ds.crs == "", "precondition: source must be unprojected"
+
+        corrected = Spatial._correct_wrap_cutline_error(ds)
+
+        assert corrected.crs != "", "output projection must not be wiped to empty"
+        assert corrected.epsg == 4326, f"expected default 4326, got {corrected.epsg}"
+
 
 class TestFillGaps:
     """Tests for the fill_gaps method."""

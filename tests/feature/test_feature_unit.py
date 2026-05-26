@@ -41,10 +41,14 @@ from shapely.geometry.collection import GeometryCollection
 
 from pyramids.dataset import Dataset
 from pyramids.base.crs import (
+    _epsg_from_db_match,
     create_sr_from_proj,
+    epsg_from_wkt,
     get_epsg_from_prj,
     reproject_coordinates,
+    sr_from_epsg,
 )
+from pyramids.base._errors import CRSError
 from pyramids.feature import (
     FeatureCollection,
     explode_gdf,
@@ -794,6 +798,37 @@ class TestCreateSrFromProj:
         assert srs is not None
 
 
+# Custom spherical-earth GEOGCS as emitted by GDAL's GRIB driver. Its only
+# AUTHORITY node belongs to the degree UNIT (EPSG:9122); the root GEOGCS
+# carries no authority. See issue #403.
+GRIB_WKT = (
+    'GEOGCS["Coordinate System imported from GRIB file",'
+    'DATUM["unnamed",SPHEROID["Sphere",6371229,0]],PRIMEM["Greenwich",0],'
+    'UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],'
+    'AXIS["Latitude",NORTH],AXIS["Longitude",EAST]]'
+)
+
+# A geographic CRS on a sphere whose radius exists in no EPSG entry, so
+# FindMatches returns nothing — a custom CRS distinct from the GRIB GEOGCS.
+CUSTOM_SPHERE_WKT = (
+    'GEOGCS["Custom Sphere",'
+    'DATUM["Custom",SPHEROID["Custom",1234567,0]],'
+    'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]'
+)
+
+
+def _utm_18n_wkt() -> str:
+    """Return the standard "WGS 84 / UTM zone 18N" (EPSG:32618) WKT."""
+    sr = osr.SpatialReference()
+    sr.ImportFromEPSG(32618)
+    return sr.ExportToWkt()
+
+
+def _strip_root_authority(wkt: str) -> str:
+    """Drop the trailing root ``AUTHORITY`` node so only FindMatches can resolve it."""
+    return wkt[: wkt.rfind(",AUTHORITY")] + "]"
+
+
 class TestGetEpsgFromPrj:
     """Tests for ``get_epsg_from_prj``."""
 
@@ -809,6 +844,205 @@ class TestGetEpsgFromPrj:
         """
         with pytest.raises(ValueError, match="empty projection string"):
             get_epsg_from_prj("")
+
+    def test_grib_wkt_raises_instead_of_returning_unit_code(self):
+        """Issue #403: a GRIB GEOGCS must not resolve to its UNIT's EPSG:9122.
+
+        The root GEOGCS carries no AUTHORITY; only the degree UNIT does
+        (EPSG:9122, an angular-unit code, not a CRS). The old code read
+        the first depth-first AUTHORITY node and returned 9122, which then
+        broke every downstream ``sr_from_epsg(9122)``. It must now raise
+        ``CRSError`` rather than return a non-CRS code.
+        """
+        with pytest.raises(CRSError, match="no EPSG authority"):
+            get_epsg_from_prj(GRIB_WKT)
+
+    def test_grib_unit_code_is_not_a_crs(self):
+        """Guard the premise of #403: EPSG:9122 cannot build a CRS."""
+        with pytest.raises(RuntimeError):
+            sr_from_epsg(9122)
+
+    def test_projected_wkt_without_root_authority_resolves_via_db_match(self):
+        """Issue #403: a UTM PROJCS lacking a root AUTHORITY resolves to 32618.
+
+        GDAL's AAIGrid driver emits "WGS 84 / UTM zone 18N" with no root
+        AUTHORITY node, so ``AutoIdentifyEPSG`` fails. The depth-first
+        fallback used to return the WGS_1984 datum code 6326 (not a CRS).
+        Resolution now falls through to a confident PROJ-database match and
+        returns the true projected CRS code, EPSG:32618.
+        """
+        stripped = _strip_root_authority(_utm_18n_wkt())
+        assert osr.SpatialReference(wkt=stripped).GetAuthorityCode(None) is None
+        assert get_epsg_from_prj(stripped) == 32618
+
+    def test_renamed_projcs_resolves_via_confident_match(self):
+        """M1/#403: a renamed UTM PROJCS (FindMatches confidence 70) still resolves.
+
+        A "WGS 84 / UTM zone 18N" definition whose citation string was
+        rewritten — and whose root AUTHORITY is absent — scores 70 rather
+        than 100 in FindMatches: same definition, different name. The
+        relaxed threshold accepts it and returns 32618, where the original
+        exact-only (100) bar would have missed it and fallen back to a wrong
+        geographic default.
+
+        Note: the exact FindMatches confidence (70 here) depends on the bundled
+        GDAL/PROJ version. ``TestEpsgFromDbMatch`` pins the acceptance *policy*
+        version-independently with fakes; this end-to-end case documents the
+        behaviour against the vendored GDAL.
+        """
+        wkt = _strip_root_authority(_utm_18n_wkt()).replace(
+            "WGS 84 / UTM zone 18N", "My Custom Grid", 1
+        )
+        assert get_epsg_from_prj(wkt) == 32618
+
+    def test_perturbed_crs_is_not_mislabelled(self):
+        """M1/#403: a CRS whose *definition* differs is not snapped to a near match.
+
+        Shifting UTM 18N's central meridian makes FindMatches score the
+        nearest entry far below the acceptance bar, so resolution raises
+        rather than mislabelling the perturbed CRS as 32618.
+
+        Note: like test_renamed_projcs_resolves_via_confident_match, the score
+        depends on the bundled GDAL/PROJ; the version-independent policy is
+        pinned by ``TestEpsgFromDbMatch``.
+        """
+        wkt = _strip_root_authority(_utm_18n_wkt()).replace("-75", "-75.0001")
+        with pytest.raises(CRSError, match="matches no PROJ-database entry"):
+            get_epsg_from_prj(wkt)
+
+    def test_unmatchable_custom_crs_raises(self):
+        """A custom CRS with no authority and no DB match raises CRSError.
+
+        A geographic CRS on a sphere of a radius present in no EPSG entry
+        matches nothing in FindMatches, so resolution raises rather than
+        guessing — a distinct unmatchable input from the GRIB GEOGCS.
+        """
+        with pytest.raises(CRSError, match="matches no PROJ-database entry"):
+            get_epsg_from_prj(CUSTOM_SPHERE_WKT)
+
+    def test_geographic_wkt_without_root_authority_recovered_by_autoidentify(self):
+        """A stripped WGS84 GEOGCS is re-tagged by AutoIdentifyEPSG, not FindMatches.
+
+        Unlike the UTM PROJCS (which AutoIdentifyEPSG cannot handle), a plain
+        WGS84 GEOGCS with its root AUTHORITY removed is recovered directly by
+        AutoIdentifyEPSG, so ``GetAuthorityCode`` returns 4326 before the
+        FindMatches fallback is consulted. Exercises the AutoIdentify-recovery
+        branch distinct from the database-match branch.
+        """
+        sr = osr.SpatialReference()
+        sr.ImportFromEPSG(4326)
+        stripped = _strip_root_authority(sr.ExportToWkt())
+        assert osr.SpatialReference(wkt=stripped).GetAuthorityCode(None) is None
+        assert get_epsg_from_prj(stripped) == 4326
+
+
+class TestEpsgFromDbMatch:
+    """Tests for the ``_epsg_from_db_match`` FindMatches fallback."""
+
+    class _FakeCandidate:
+        """Minimal stand-in for a matched ``osr.SpatialReference``."""
+
+        def __init__(self, code: str | None):
+            self._code = code
+
+        def GetAuthorityCode(self, _target):
+            return self._code
+
+    class _FakeSRS:
+        """Stand-in whose ``FindMatches`` returns a canned candidate list."""
+
+        def __init__(self, matches):
+            self._matches = matches
+
+        def FindMatches(self):
+            return self._matches
+
+    def test_rejects_ambiguous_tie(self):
+        """L3: two equally-confident matches resolve to neither, not the first.
+
+        When FindMatches returns more than one candidate at the same top
+        confidence (e.g. a current and a deprecated EPSG for one definition),
+        the helper returns ``None`` rather than picking GDAL's first entry.
+        """
+        matches = [
+            (self._FakeCandidate("4326"), 100),
+            (self._FakeCandidate("4327"), 100),
+        ]
+        assert _epsg_from_db_match(self._FakeSRS(matches)) is None
+
+    def test_accepts_unambiguous_best(self):
+        """A clear winner above the threshold beating the runner-up returns its code."""
+        matches = [
+            (self._FakeCandidate("32618"), 70),
+            (self._FakeCandidate("32619"), 25),
+        ]
+        assert _epsg_from_db_match(self._FakeSRS(matches)) == "32618"
+
+    def test_accepts_tie_when_codes_agree(self):
+        """L2: an equal-confidence runner-up with the *same* code is not a tie.
+
+        Two top-confidence candidates that both resolve to 32618 agree on the
+        answer, so the helper returns the shared code rather than rejecting it.
+        """
+        matches = [
+            (self._FakeCandidate("32618"), 100),
+            (self._FakeCandidate("32618"), 100),
+        ]
+        assert _epsg_from_db_match(self._FakeSRS(matches)) == "32618"
+
+    def test_accepts_sole_match_at_threshold(self):
+        """A single match exactly at the threshold (no runner-up) returns its code.
+
+        Exercises the ``len(matches) == 1`` path: the anti-tie check is
+        skipped and the boundary confidence is accepted.
+        """
+        matches = [(self._FakeCandidate("32618"), 70)]
+        assert _epsg_from_db_match(self._FakeSRS(matches)) == "32618"
+
+    def test_rejects_below_threshold(self):
+        """A best confidence under the acceptance bar returns ``None``."""
+        matches = [(self._FakeCandidate("32618"), 25)]
+        assert _epsg_from_db_match(self._FakeSRS(matches)) is None
+
+    def test_no_matches_returns_none(self):
+        """An empty FindMatches result returns ``None``."""
+        assert _epsg_from_db_match(self._FakeSRS([])) is None
+
+    def test_match_without_authority_code_returns_none(self):
+        """An accepted match that carries no authority code yields ``None``.
+
+        Defends the contract that the caller's ``int(code)`` is never handed a
+        ``None``: a confident, unambiguous match whose ``GetAuthorityCode``
+        returns ``None`` propagates as ``None`` (so resolution raises cleanly).
+        """
+        matches = [(self._FakeCandidate(None), 100)]
+        assert _epsg_from_db_match(self._FakeSRS(matches)) is None
+
+
+class TestEpsgFromWkt:
+    """Tests for ``epsg_from_wkt`` (the soft-default wrapper)."""
+
+    def test_valid_wkt(self, wgs84_wkt: str):
+        assert epsg_from_wkt(wgs84_wkt) == 4326
+
+    def test_empty_falls_back_to_default(self):
+        assert epsg_from_wkt("") == 4326
+        assert epsg_from_wkt("", default=3857) == 3857
+
+    def test_none_falls_back_to_default(self):
+        """``None`` is treated like an empty projection and returns ``default``."""
+        assert epsg_from_wkt(None) == 4326
+        assert epsg_from_wkt(None, default=3857) == 3857
+
+    def test_grib_wkt_falls_back_to_default(self):
+        """Issue #403: an unresolvable CRS falls back to ``default``.
+
+        ``get_epsg_from_prj`` raises ``CRSError`` for the GRIB GEOGCS;
+        ``epsg_from_wkt`` absorbs it into the soft default so property
+        reads like ``Dataset.epsg`` stay usable instead of crashing.
+        """
+        assert epsg_from_wkt(GRIB_WKT) == 4326
+        assert epsg_from_wkt(GRIB_WKT, default=3857) == 3857
 
 
 class TestGetCoords:
