@@ -130,6 +130,84 @@ class TestRasterBaseStaticMethods:
         assert len(result) == 5, "Array length should equal row count"
 
 
+class TestCoordinateProperties:
+    """Tests for the Dataset.lon / lat / x / y cell-centre coordinate properties."""
+
+    def test_shapes_match_dimensions(self, single_band_dataset):
+        """lon/x have length columns and lat/y have length rows.
+
+        Test scenario:
+            For the 3x3 fixture every coordinate axis has the matching dimension
+            length.
+        """
+        ds = single_band_dataset
+        assert ds.lon.shape == (ds.columns,), f"lon shape {ds.lon.shape}"
+        assert ds.x.shape == (ds.columns,), f"x shape {ds.x.shape}"
+        assert ds.lat.shape == (ds.rows,), f"lat shape {ds.lat.shape}"
+        assert ds.y.shape == (ds.rows,), f"y shape {ds.y.shape}"
+
+    def test_x_aliases_lon_and_y_aliases_lat(self, multi_band_dataset):
+        """x returns the same values as lon, and y the same as lat.
+
+        Test scenario:
+            The x/y aliases must agree element-wise with lon/lat on a fixture with
+            distinct row/column counts.
+        """
+        ds = multi_band_dataset
+        np.testing.assert_array_equal(ds.x, ds.lon, err_msg="x must equal lon")
+        np.testing.assert_array_equal(ds.y, ds.lat, err_msg="y must equal lat")
+
+    def test_values_match_static_builders(self, multi_band_dataset):
+        """lon/lat equal the static dimension-array helpers fed the geotransform.
+
+        Test scenario:
+            The instance properties are a thin wrapper over
+            get_x_lon_dimension_array / get_y_lat_dimension_array using the
+            geotransform's own pixel width and height.
+        """
+        ds = multi_band_dataset
+        gt = ds.geotransform
+        expected_lon = RasterBase.get_x_lon_dimension_array(gt[0], gt[1], ds.columns)
+        expected_lat = RasterBase.get_y_lat_dimension_array(gt[3], abs(gt[5]), ds.rows)
+        np.testing.assert_allclose(ds.lon, expected_lon, err_msg="lon mismatch")
+        np.testing.assert_allclose(ds.lat, expected_lat, err_msg="lat mismatch")
+
+    def test_square_cell_centres(self):
+        """Square-cell rasters report the expected centre coordinates.
+
+        Test scenario:
+            A 2x3 raster at top-left (0, 0) with cell_size 0.5 has column centres at
+            0.25/0.75/1.25 and row centres at -0.25/-0.75.
+        """
+        ds = Dataset.create_from_array(
+            np.arange(6.0).reshape(2, 3),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.5,
+            epsg=4326,
+        )
+        np.testing.assert_allclose(ds.x, [0.25, 0.75, 1.25], err_msg="x centres wrong")
+        np.testing.assert_allclose(ds.y, [-0.25, -0.75], err_msg="y centres wrong")
+
+    def test_non_square_cells_use_separate_pixel_height(self):
+        """Non-square cells: y uses pixel height, x uses pixel width.
+
+        Test scenario:
+            A raster with geotransform pixel width 2 and pixel height 1 must produce
+            x centres spaced by 2 (11/13/15) and y centres spaced by 1 (49.5/48.5).
+            This guards the regression where lat/y previously reused cell_size (the
+            pixel width) for the y axis.
+        """
+        ds = Dataset.create_from_array(
+            np.arange(6.0).reshape(2, 3),
+            geo=(10.0, 2.0, 0.0, 50.0, 0.0, -1.0),
+            epsg=4326,
+        )
+        np.testing.assert_allclose(ds.x, [11.0, 13.0, 15.0], err_msg="x spacing wrong")
+        np.testing.assert_allclose(
+            ds.y, [49.5, 48.5], err_msg="y must use pixel height"
+        )
+
+
 class TestRasterBaseBlockSizeSetter:
     """Tests for the block_size setter validation on RasterBase."""
 

@@ -1626,53 +1626,122 @@ class Dataset(RasterBase):
 
     @property
     def lon(self) -> np.ndarray:
-        """Longitude coordinates.
+        """Longitude / x cell-centre coordinates.
+
+        Uses the geotransform's pixel width (``geotransform[1]``) so the axis is
+        correct even when cells are not square (pixel width != pixel height).
+
+        Examples:
+            - Read the column-centre longitudes of a small raster:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 3)), top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326,
+                ... )
+                >>> ds.lon.tolist()
+                [0.25, 0.75, 1.25]
+
+                ```
 
         See Also:
             - Dataset.x: Dataset x coordinates.
             - Dataset.lat: Dataset latitude.
         """
+        pixel_width = self.geotransform[1]
         x_coords = self.get_x_lon_dimension_array(
-            self.top_left_corner[0], self.cell_size, self.columns
+            self.top_left_corner[0], pixel_width, self.columns
         )
         return x_coords
 
     @property
     def lat(self) -> np.ndarray:
-        """Latitude-coordinate.
+        """Latitude / y cell-centre coordinates.
+
+        Uses the geotransform's pixel height (``abs(geotransform[5])``) rather than
+        :attr:`cell_size` (which only tracks pixel width), so the axis is correct for
+        non-square cells.
+
+        Examples:
+            - Row-centre latitudes decrease from north to south:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 3)), top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326,
+                ... )
+                >>> ds.lat.tolist()
+                [-0.25, -0.75]
+
+                ```
+            - With non-square cells the latitude axis uses the pixel height, not the
+              pixel width:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 3)), geo=(10.0, 2.0, 0.0, 50.0, 0.0, -1.0), epsg=4326,
+                ... )
+                >>> ds.lat.tolist()
+                [49.5, 48.5]
+
+                ```
 
         See Also:
             - Dataset.x: Dataset x coordinates.
             - Dataset.y: Dataset y coordinates.
             - Dataset.lon: Dataset longitude.
         """
+        pixel_height = abs(self.geotransform[5])
         y_coords = self.get_y_lat_dimension_array(
-            self.top_left_corner[1], self.cell_size, self.rows
+            self.top_left_corner[1], pixel_height, self.rows
         )
         return y_coords
 
     @property
     def x(self) -> np.ndarray:
-        """X-coordinate/Longitude.
+        """X cell-centre coordinates (alias of :attr:`lon`).
+
+        Examples:
+            - x mirrors lon for the same raster:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 3)), top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326,
+                ... )
+                >>> ds.x.tolist()
+                [0.25, 0.75, 1.25]
+
+                ```
 
         See Also:
-            - Dataset.lat: Dataset latitude.
+            - Dataset.lon: the longitude axis this property aliases.
             - Dataset.y: Dataset y coordinates.
-            - Dataset.lon: Dataset longitude.
         """
-        # X_coordinate = upper-left corner x + index * cell size + cell-size/2
         return self.lon
 
     @property
     def y(self) -> np.ndarray:
-        """Y-coordinate/Latitude.
+        """Y cell-centre coordinates (alias of :attr:`lat`).
+
+        Examples:
+            - y mirrors lat for the same raster:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 3)), top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326,
+                ... )
+                >>> ds.y.tolist()
+                [-0.25, -0.75]
+
+                ```
 
         See Also:
-            - Dataset.x: Dataset y coordinates.
-            - Dataset.lat: Dataset latitude.
-            - Dataset.lon: Dataset longitude.
+            - Dataset.lat: the latitude axis this property aliases.
+            - Dataset.x: Dataset x coordinates.
         """
-        # Y_coordinate = upper-left corner y - index * cell size - cell-size/2
         return self.lat
 
     @property
