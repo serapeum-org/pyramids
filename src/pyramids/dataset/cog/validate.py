@@ -14,14 +14,47 @@ Returns a :class:`ValidationReport` — a frozen dataclass usable as a
 
 from __future__ import annotations
 
-from contextlib import nullcontext
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from osgeo import gdal
 
 from pyramids.dataset.cog.options import COG_READ_DEFAULTS
+
+
+@contextmanager
+def config_context(config: dict[str, str] | None) -> Iterator[None]:
+    """Apply GDAL config options for the duration of the block.
+
+    Prefers :func:`gdal.config_options` (GDAL >= 3.3) and falls back to manually
+    setting and restoring each option on older builds, so callers never need to
+    probe for the context manager themselves.
+
+    Args:
+        config: Mapping of GDAL config option names to values, or ``None`` /
+            empty to apply nothing.
+
+    Yields:
+        None: control returns to the ``with`` body with the options applied.
+    """
+    if not config:
+        yield
+        return
+    options_cm = getattr(gdal, "config_options", None)
+    if options_cm is not None:
+        with options_cm(config):
+            yield
+        return
+    previous = {key: gdal.GetConfigOption(key, None) for key in config}
+    try:
+        for key, value in config.items():
+            gdal.SetConfigOption(key, value)
+        yield
+    finally:
+        for key, old in previous.items():
+            gdal.SetConfigOption(key, old)
 
 _REMOTE_PREFIXES: tuple[str, ...] = (
     "/vsicurl",
@@ -388,7 +421,7 @@ def validate(
     """
     p = str(path)
     cfg = _resolve_read_config(p, config)
-    with gdal.config_options(cfg) if cfg else nullcontext():
+    with config_context(cfg):
         # The missing-file pre-check lives in each validator path
         # (_osgeo_validate / _fallback_validate), so no redundant outer call
         # here (ARC-6).

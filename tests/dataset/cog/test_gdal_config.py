@@ -12,7 +12,11 @@ from osgeo import gdal
 
 from pyramids.dataset import Dataset
 from pyramids.dataset.cog import COG_READ_DEFAULTS, cog_info, validate
-from pyramids.dataset.cog.validate import _is_remote, _resolve_read_config
+from pyramids.dataset.cog.validate import (
+    _is_remote,
+    _resolve_read_config,
+    config_context,
+)
 
 pytestmark = pytest.mark.core
 
@@ -126,6 +130,48 @@ class TestConfigApplication:
         """
         info = cog_info(float_cog, config={"GDAL_NUM_THREADS": "1"})
         assert info.compression == "DEFLATE", f"unexpected compression {info.compression}"
+
+    def test_config_context_applies_and_restores(self):
+        """config_context applies options inside and restores them after (L3).
+
+        Test scenario:
+            A sentinel option is unset before, set inside the block, and unset
+            again afterwards.
+        """
+        key = "PYRAMIDS_L3_SENTINEL"
+        assert gdal.GetConfigOption(key, "unset") == "unset"
+        with config_context({key: "on"}):
+            assert gdal.GetConfigOption(key, "unset") == "on", "should apply inside"
+        assert gdal.GetConfigOption(key, "unset") == "unset", "should restore after"
+
+    def test_config_context_none_is_noop(self):
+        """config_context(None) is a no-op context (L3).
+
+        Test scenario:
+            Passing None/empty yields without touching GDAL config.
+        """
+        with config_context(None):
+            pass
+        with config_context({}):
+            pass
+
+    def test_config_context_fallback_without_config_options(self, monkeypatch):
+        """config_context falls back to set/restore if gdal.config_options absent (L3).
+
+        Args:
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            Simulate an old GDAL by removing gdal.config_options; the helper must
+            still apply the option inside the block and restore it afterwards via
+            SetConfigOption.
+        """
+        key = "PYRAMIDS_L3_FALLBACK"
+        monkeypatch.delattr(gdal, "config_options", raising=False)
+        assert gdal.GetConfigOption(key, "unset") == "unset"
+        with config_context({key: "yes"}):
+            assert gdal.GetConfigOption(key, "unset") == "yes", "fallback should apply"
+        assert gdal.GetConfigOption(key, "unset") == "unset", "fallback should restore"
 
     def test_config_is_restored_after_call(self, float_cog):
         """The config context is scoped — options are restored afterwards.

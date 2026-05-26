@@ -13,14 +13,17 @@ with :meth:`pyramids.dataset.engines.cog.COG.validate_cog`.
 
 from __future__ import annotations
 
-from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from osgeo import gdal
 
-from pyramids.dataset.cog.validate import _resolve_read_config, validate
+from pyramids.dataset.cog.validate import (
+    _resolve_read_config,
+    config_context,
+    validate,
+)
 
 
 @dataclass(frozen=True)
@@ -135,7 +138,7 @@ def cog_info(path: str | Path, config: dict[str, str] | None = None) -> COGInfo:
     """
     p = str(path)
     cfg = _resolve_read_config(p, config)
-    with gdal.config_options(cfg) if cfg else nullcontext():
+    with config_context(cfg):
         info = _cog_info_impl(p)
     return info
 

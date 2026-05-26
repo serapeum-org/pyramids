@@ -10,7 +10,6 @@ from __future__ import annotations
 import math
 import uuid
 import warnings
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -36,7 +35,7 @@ from pyramids.dataset.cog import (
     validate_blocksize,
     validate_profile,
 )
-from pyramids.dataset.cog.validate import _resolve_read_config
+from pyramids.dataset.cog.validate import _resolve_read_config, config_context
 from pyramids.dataset.engines._base import _Engine
 
 _AVERAGING_RESAMPLERS: frozenset[str] = frozenset(
@@ -396,7 +395,7 @@ class COG(_Engine):
             )
 
         options = merge_options(defaults, extra)
-        with gdal.config_options(config) if config else nullcontext():
+        with config_context(config):
             self._translate_with_statistics_retry(path, options, src=source_ds)
         return Path(path)
 
@@ -657,7 +656,7 @@ class COG(_Engine):
             bool: `True` when the file looks like a COG by the cheap heuristic.
         """
         cfg = _resolve_read_config(path, None)
-        with gdal.config_options(cfg) if cfg else nullcontext():
+        with config_context(cfg):
             try:
                 ds = gdal.Open(path)
             except RuntimeError:
