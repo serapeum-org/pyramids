@@ -9,6 +9,12 @@ on:
     branches: [main]
   pull_request:
 
+# Cancel superseded runs: a new push to a branch/PR cancels the previous in-progress run
+# instead of letting both compete for the (limited, especially macOS) hosted-runner pool.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   main-package:
     runs-on: ${{ matrix.os }}

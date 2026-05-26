@@ -24,6 +24,12 @@ on:
         default: ""
         type: string
 
+# Cancel superseded runs to free the hosted-runner pool, but only for pull_request builds —
+# never cancel a push/workflow_run build, since those can publish wheels to PyPI.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
