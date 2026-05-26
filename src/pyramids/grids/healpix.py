@@ -1,11 +1,11 @@
 """Adapt a HEALPix field to a regular :class:`~pyramids.dataset.Dataset`.
 
 HEALPix (Hierarchical Equal Area isoLatitude Pixelization) stores values per pixel,
-indexed by the resolution parameter ``nside`` (so there are ``12 * nside**2`` pixels).
+indexed by the resolution parameter `nside` (so there are `12 * nside**2` pixels).
 Turning a HEALPix field into a raster only needs one operation: the centre
-longitude/latitude of each pixel. That mapping is the closed-form ``pix2ang`` from the
+longitude/latitude of each pixel. That mapping is the closed-form `pix2ang` from the
 HEALPix paper (Górski et al. 2005); it is implemented here in plain NumPy for both the
-RING and NESTED pixel orderings, so **no HEALPix C library (``healpy``) is required**.
+RING and NESTED pixel orderings, so **no HEALPix C library (`healpy`) is required**.
 The pixel centres are then handed to the same scattered-point bridge
 (:func:`pyramids.dataset.ops.interpolate.grid_points`) used by
 :func:`pyramids.grids.from_octahedral`. No new third-party dependencies.
@@ -22,7 +22,7 @@ from pyramids.dataset.dataset import Dataset
 from pyramids.dataset.ops.interpolate import grid_points
 
 # Per-base-face ring/phi offsets for the NESTED -> RING index conversion, matching the
-# canonical HEALPix ``xyf2ring`` tables (Górski et al. 2005).
+# canonical HEALPix `xyf2ring` tables (Górski et al. 2005).
 _JRLL = np.array([2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4], dtype=np.int64)
 _JPLL = np.array([1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7], dtype=np.int64)
 
@@ -121,32 +121,36 @@ def from_healpix(
     cell_size: float,
     method: str = "nearest",
     epsg: int = 4326,
+    bbox: tuple[float, float, float, float] | None = None,
 ) -> Dataset:
     """Regrid a HEALPix field onto a regular-grid :class:`Dataset`.
 
     Each HEALPix pixel's centre longitude/latitude is computed in plain NumPy (no
-    ``healpy`` dependency) and the resulting points are interpolated with ``gdal.Grid``
+    `healpy` dependency) and the resulting points are interpolated with `gdal.Grid`
     via :func:`~pyramids.dataset.ops.interpolate.grid_points`.
 
     Args:
-        values: 1-D array of per-pixel HEALPix values, length ``12 * nside**2``.
-        nside: HEALPix resolution parameter. Derived from ``len(values)`` when omitted.
-        nest: ``True`` for NESTED pixel ordering, ``False`` (default) for RING.
+        values: 1-D array of per-pixel HEALPix values, length `12 * nside**2`.
+        nside: HEALPix resolution parameter. Derived from `len(values)` when omitted.
+        nest: `True` for NESTED pixel ordering, `False` (default) for RING.
         cell_size: Output pixel size in the target CRS units (degrees for EPSG:4326).
-        method: A ``gdal.Grid`` algorithm string (e.g. ``"nearest"``, ``"linear"``,
-            ``"invdist:power=2.0:smoothing=0.0"``).
+        method: A `gdal.Grid` algorithm string (e.g. `"nearest"`, `"linear"`,
+            `"invdist:power=2.0:smoothing=0.0"`).
         epsg: Output EPSG code.
+        bbox: Optional `(minx, miny, maxx, maxy)` output extent in the target CRS.
+            Defaults to the pixel-centres' bounding box; pass e.g.
+            `(-180, -90, 180, 90)` to pin a fixed global grid.
 
     Returns:
         A single-band :class:`~pyramids.dataset.Dataset` of the interpolated surface.
 
     Raises:
-        ValueError: ``values`` is not 1-D; ``len(values)`` is not a valid HEALPix pixel
-            count (``12 * nside**2``); ``nside`` disagrees with ``len(values)``; or
-            ``nest=True`` with an ``nside`` that is not a power of two.
+        ValueError: `values` is not 1-D; `len(values)` is not a valid HEALPix pixel
+            count (`12 * nside**2`); `nside` disagrees with `len(values)`; or
+            `nest=True` with an `nside` that is not a power of two.
 
     Examples:
-        - Regrid a synthetic ``nside=1`` field (12 pixels) and inspect the raster:
+        - Regrid a synthetic `nside=1` field (12 pixels) and inspect the raster:
             ```python
             >>> import numpy as np
             >>> from pyramids.grids import from_healpix
@@ -157,7 +161,7 @@ def from_healpix(
             4326
 
             ```
-        - NESTED ordering is supported and requires a power-of-two ``nside``:
+        - NESTED ordering is supported and requires a power-of-two `nside`:
             ```python
             >>> import numpy as np
             >>> from pyramids.grids import from_healpix
@@ -180,7 +184,7 @@ def from_healpix(
 
     See Also:
         - :func:`pyramids.grids.from_octahedral`: the sibling point-based adapter this
-          function delegates to via ``grid_points``.
+          function delegates to via `grid_points`.
     """
     values = np.asarray(values, dtype=np.float64).ravel()
     npix = values.size
@@ -211,6 +215,6 @@ def from_healpix(
         crs=epsg,
     )
     result = grid_points(
-        gdf, "z", Dataset, algorithm=method, cell_size=cell_size, epsg=epsg
+        gdf, "z", Dataset, algorithm=method, cell_size=cell_size, bbox=bbox, epsg=epsg
     )
     return result

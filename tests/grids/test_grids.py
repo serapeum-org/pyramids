@@ -273,6 +273,31 @@ class TestFromOctahedral:
             )
         assert "equal length" in str(exc.value), f"Unexpected message: {exc.value}"
 
+    def test_bbox_pins_output_extent(self, octahedral_points):
+        """from_octahedral honours an explicit bbox for the output extent.
+
+        Test scenario:
+            Passing bbox=(-180, -90, 180, 90) with cell_size=5 yields a 72x36 grid whose
+            bounding box equals the requested global extent, rather than the points'
+            (much smaller) bounding box.
+        """
+        lats, lons, values = octahedral_points
+        ds = from_octahedral(
+            lats,
+            lons,
+            values,
+            cell_size=5.0,
+            algorithm="nearest",
+            bbox=(-180.0, -90.0, 180.0, 90.0),
+        )
+        assert (ds.rows, ds.columns) == (36, 72), f"Got {ds.rows}x{ds.columns}"
+        np.testing.assert_allclose(
+            list(ds.bbox),
+            [-180.0, -90.0, 180.0, 90.0],
+            atol=1e-6,
+            err_msg="bbox not pinned",
+        )
+
 
 class TestRingPix2Lonlat:
     """Tests for :func:`pyramids.grids.healpix._ring_pix2lonlat`."""
@@ -441,3 +466,21 @@ class TestFromHealpix:
         with pytest.raises(ValueError, match="power of two") as exc:
             from_healpix(np.zeros(108), nside=3, nest=True, cell_size=30.0)
         assert "power of two" in str(exc.value), f"Unexpected: {exc.value}"
+
+    def test_bbox_pins_output_extent(self):
+        """from_healpix honours an explicit bbox for the output extent.
+
+        Test scenario:
+            An nside=2 field gridded with bbox=(-180, -90, 180, 90) and cell_size=10
+            yields a 36x18 grid whose bounding box equals the requested global extent.
+        """
+        ds = from_healpix(
+            np.arange(48.0), nside=2, cell_size=10.0, bbox=(-180.0, -90.0, 180.0, 90.0)
+        )
+        assert (ds.rows, ds.columns) == (18, 36), f"Got {ds.rows}x{ds.columns}"
+        np.testing.assert_allclose(
+            list(ds.bbox),
+            [-180.0, -90.0, 180.0, 90.0],
+            atol=1e-6,
+            err_msg="bbox not pinned",
+        )

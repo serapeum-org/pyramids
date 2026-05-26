@@ -25,6 +25,7 @@ def from_octahedral(
     cell_size: float,
     algorithm: str = "nearest",
     epsg: int = 4326,
+    bbox: tuple[float, float, float, float] | None = None,
 ) -> Dataset:
     """Regrid an octahedral reduced-Gaussian field onto a regular-grid :class:`Dataset`.
 
@@ -40,6 +41,9 @@ def from_octahedral(
         algorithm: A ``gdal.Grid`` algorithm string (e.g. ``"nearest"``,
             ``"invdist:power=2.0:smoothing=0.0"``, ``"linear"``).
         epsg: Output EPSG code.
+        bbox: Optional ``(minx, miny, maxx, maxy)`` output extent in the target CRS.
+            Defaults to the points' bounding box; pass e.g. ``(-180, -90, 180, 90)``
+            to pin a fixed global grid.
 
     Returns:
         A single-band :class:`~pyramids.dataset.Dataset` of the interpolated surface.
@@ -93,6 +97,12 @@ def from_octahedral(
         crs=epsg,
     )
     result = grid_points(
-        gdf, "z", Dataset, algorithm=algorithm, cell_size=cell_size, epsg=epsg
+        gdf,
+        "z",
+        Dataset,
+        algorithm=algorithm,
+        cell_size=cell_size,
+        bbox=bbox,
+        epsg=epsg,
     )
     return result
