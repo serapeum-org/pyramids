@@ -171,9 +171,12 @@ def _epsg_from_db_match(srs: osr.SpatialReference) -> str | None:
     confidence score. We accept the single best candidate only when (a) its
     confidence is at least :data:`_MIN_EPSG_MATCH_CONFIDENCE` — high enough to
     mean "same definition, possibly renamed" rather than "merely similar" —
-    and (b) it is strictly more confident than the runner-up, so an ambiguous
-    tie (e.g. a current and a deprecated EPSG for the same definition) never
-    resolves to whichever entry GDAL happened to list first. The returned
+    and (b) the result is unambiguous: any runner-up that matches *equally*
+    well must resolve to the **same** EPSG code. An equally-confident runner-up
+    with a *different* code (e.g. a distinct CRS that fits the WKT just as well)
+    is treated as ambiguous and rejected, so the answer never depends on which
+    entry GDAL happened to list first; an equally-confident runner-up with the
+    same code is not ambiguous (both agree) and is accepted. The returned
     candidate is a full CRS object, so its root authority code is a CRS code
     by construction — never a child unit/datum code. This lookup only runs on
     the fallback path (root authority absent and ``AutoIdentifyEPSG`` failed),
