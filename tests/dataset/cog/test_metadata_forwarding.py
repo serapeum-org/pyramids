@@ -102,6 +102,45 @@ class TestMetadataForwarding:
         assert src_band.GetColorTable() is None, "source colour table was mutated"
         assert byte_dataset._raster.GetMetadataItem("STAMP") is None, "source metadata mutated"
 
+    def test_colormap_on_float_raises(self, tmp_path):
+        """A colormap on a non-Byte/UInt16 band raises a clear ValueError (L2).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            GeoTIFF colour tables require a Byte/UInt16 raster; requesting one on
+            a Float32 band fails up-front with an actionable message rather than
+            a cryptic GDAL CreateCopy error.
+        """
+        arr = np.random.default_rng(1).random((32, 32)).astype("float32")
+        ds = Dataset.create_from_array(arr, geo=_GEOTRANSFORM, epsg=4326)
+        with pytest.raises(ValueError, match="colormap is only supported on Byte/UInt16"):
+            ds.to_cog(tmp_path / "f_cmap.tif", colormap={0: (1, 2, 3, 255)})
+
+    def test_colormap_on_float_after_cast_succeeds(self, tmp_path):
+        """Casting to uint8 first lets a colormap be applied (L2).
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            With out_dtype="uint8" the (post-cast) band is palette-capable, so
+            the colormap write succeeds and round-trips.
+        """
+        arr = (np.arange(32 * 32) % 4).astype("float32").reshape(32, 32)
+        ds = Dataset.create_from_array(arr, geo=_GEOTRANSFORM, epsg=4326)
+        out = ds.to_cog(
+            tmp_path / "cast_cmap.tif",
+            out_dtype="uint8",
+            colormap={0: (0, 0, 0, 255), 1: (255, 0, 0, 255)},
+        )
+        reopened = gdal.Open(str(out))
+        ct = reopened.GetRasterBand(1).GetColorTable()
+        has_ct = ct is not None
+        reopened = None
+        assert has_ct, "colormap should be attached after the cast"
+
     def test_forwarding_produces_valid_cog(self, byte_dataset, tmp_path):
         """A metadata-forwarding write still produces a valid COG.
 

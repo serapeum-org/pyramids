@@ -56,6 +56,10 @@ _RESAMPLING_ALG: dict[str, int] = {
 """Map a resampling name to its GDAL ``GRIORA_*`` decimated-read algorithm."""
 
 
+_PALETTE_GDAL_DTYPES: frozenset[int] = frozenset({gdal.GDT_Byte, gdal.GDT_UInt16})
+"""GDAL dtypes for which a colour table (palette) is meaningful."""
+
+
 _WEB_MERCATOR_HALF_EXTENT: float = 20037508.342789244
 """Half the Web-Mercator (EPSG:3857) world extent in metres."""
 
@@ -469,13 +473,26 @@ class COG(_Engine):
         Args:
             ds: The (copied) dataset to mutate.
             band_tags: Per-band metadata keyed by 0-based band index.
-            colormap: Palette for band 1 (value -> RGBA tuple).
+            colormap: Palette for band 1 (value -> RGBA tuple). GeoTIFF only
+                supports a colour table on a single-band `Byte` / `UInt16`
+                raster; a `ValueError` is raised up-front for other dtypes
+                (GDAL would otherwise fail deep in `CreateCopy`).
             metadata: Dataset-level metadata items.
+
+        Raises:
+            ValueError: When `colormap` is applied to a band whose dtype is
+                not `Byte`/`UInt16`.
         """
         if metadata:
             ds.SetMetadata({str(k): str(v) for k, v in metadata.items()})
         if colormap:
             band = ds.GetRasterBand(1)
+            if band.DataType not in _PALETTE_GDAL_DTYPES:
+                raise ValueError(
+                    f"colormap is only supported on Byte/UInt16 rasters; got "
+                    f"{gdal.GetDataTypeName(band.DataType)}. Cast first with "
+                    f"to_cog(..., out_dtype='uint8'), or drop the colormap."
+                )
             color_table = gdal.ColorTable()
             for value, rgba in colormap.items():
                 color_table.SetColorEntry(int(value), tuple(rgba))
