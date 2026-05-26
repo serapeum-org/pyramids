@@ -30,6 +30,7 @@ requires-python = ">= 3.11, <4"
 # Listing pip's PyPI GDAL would force a from-source build on Windows
 # (no wheel exists) and break most end-user pip installs.
 dependencies = [
+    "cftime >=1.6.4",
     "geopandas >=1.0.0",
     "hpc-utils >=0.1.5",
     "numpy >=2.0.0",
@@ -253,7 +254,7 @@ mypy = { cmd = "mypy", description = "Run mypy type checking" }
 
 [tool.pixi.environments]
 default = {features = ["viz"], solve-group = "default" }
-dev = { features = ["viz", "dev", "xarray", "lazy", "stac"], solve-group = "default" }
+dev = { features = ["viz", "dev", "xarray", "lazy", "stac", "netcdf-lazy", "parquet", "parquet-lazy"], solve-group = "default" }
 netcdf-lazy = { features = ["viz", "dev", "lazy", "netcdf-lazy"], solve-group = "default" }
 parquet = { features = ["viz", "dev", "xarray", "lazy", "parquet"], solve-group = "default" }
 parquet-lazy = { features = ["viz", "dev", "xarray", "lazy", "parquet", "parquet-lazy"], solve-group = "default" }
@@ -354,6 +355,9 @@ gdal = ">=3.10.0,<4"
 libgdal-netcdf = ">=3.10.0,<4"
 libgdal-hdf4 = ">=3.10.0,<4"
 libgdal-grib = ">=3.10.0,<4"
+# cftime decodes non-standard NetCDF calendars (360_day, noleap, julian, ...)
+# in pyramids.netcdf.utils — reachable from core NetCDF reads, so it is a core dep.
+cftime = ">=1.6.4"
 # Conda-forge's geopandas-base no longer pulls in a vector-IO backend.
 # pyogrio is required for GeoDataFrame.to_file / read_file on every env.
 pyogrio = ">=0.7"
