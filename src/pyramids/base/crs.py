@@ -29,6 +29,12 @@ from pyproj import Transformer
 
 from pyramids.base._errors import CRSError
 
+# Minimum FindMatches() confidence (0-100) at which we trust a PROJ-database
+# match as *the* EPSG of an otherwise un-authority-tagged CRS. 100 means the
+# WKT is an exact match for the database entry; anything less is a partial
+# match we refuse to guess from.
+_MIN_EPSG_MATCH_CONFIDENCE = 100
+
 
 def sr_from_epsg(epsg: int) -> osr.SpatialReference:
     """Build an :class:`osr.SpatialReference` from an EPSG code.
@@ -151,6 +157,36 @@ def create_sr_from_proj(
     return srs
 
 
+def _epsg_from_db_match(srs: osr.SpatialReference) -> str | None:
+    """Return the EPSG code of an exact PROJ-database match, or ``None``.
+
+    :meth:`osr.SpatialReference.AutoIdentifyEPSG` is conservative: it raises
+    "Unsupported SRS" for many well-known CRSes whose WKT was exported
+    without a root ``AUTHORITY`` node (e.g. a "WGS 84 / UTM zone 18N"
+    ``PROJCS`` written by GDAL's AAIGrid driver). :meth:`FindMatches` queries
+    the PROJ database directly and returns candidate CRSes ranked by a 0-100
+    confidence score. We accept the single best candidate only when its
+    confidence is exact (:data:`_MIN_EPSG_MATCH_CONFIDENCE`), so a CRS that
+    merely resembles a database entry is never silently mislabelled. The
+    returned candidate is a full CRS object, so its root authority code is a
+    CRS code by construction — never a child unit/datum code.
+
+    Args:
+        srs: Spatial reference whose root carries no EPSG authority.
+
+    Returns:
+        str | None: The matched CRS's EPSG code as a string, or ``None`` when
+        there is no exact-confidence match.
+    """
+    matches = srs.FindMatches()
+    if not matches:
+        return None
+    best_srs, confidence = matches[0]
+    if confidence < _MIN_EPSG_MATCH_CONFIDENCE:
+        return None
+    return best_srs.GetAuthorityCode(None)
+
+
 def get_epsg_from_prj(prj: str) -> int:
     """Return the EPSG code identified by a projection string.
 
@@ -170,8 +206,9 @@ def get_epsg_from_prj(prj: str) -> int:
 
     Raises:
         CRSError: If `prj` is an empty string, or if its root CRS carries
-            no EPSG authority (e.g. a custom spherical-earth GRIB GEOGCS).
-            The unit/datum codes of child nodes are never returned as a CRS.
+            no EPSG authority *and* matches no PROJ-database entry (e.g. a
+            custom spherical-earth GRIB GEOGCS). The unit/datum codes of
+            child nodes are never returned as a CRS.
 
     Examples:
         - Resolve EPSG:4326 from its standard WKT representation:
@@ -224,16 +261,24 @@ def get_epsg_from_prj(prj: str) -> int:
     # GetAttrValue("AUTHORITY", 1): that walks the WKT tree depth-first and
     # returns the first AUTHORITY node, which for a CRS whose root carries
     # no authority is a child unit/datum code (e.g. the degree-unit
-    # EPSG:9122 inside a GRIB GEOGCS) — a non-CRS code that breaks every
-    # downstream sr_from_epsg() call. See issue #403.
+    # EPSG:9122 inside a GRIB GEOGCS, or the WGS_1984 datum EPSG:6326 inside
+    # a UTM PROJCS) — a non-CRS code that breaks every downstream
+    # sr_from_epsg() call. See issue #403.
     code = srs.GetAuthorityCode(None)
+    if code is None:
+        # AutoIdentifyEPSG could not tag the root, but the CRS may still be a
+        # well-known database entry whose WKT simply lacks an AUTHORITY node
+        # (e.g. a UTM PROJCS). Try an exact PROJ-database match before giving
+        # up, so identifiable CRSes resolve to their true CRS code.
+        code = _epsg_from_db_match(srs)
     if code is None:
         raise CRSError(
             "get_epsg_from_prj could not resolve an EPSG code from the "
-            "projection: its root CRS carries no EPSG authority. This is "
-            "common for custom CRSes such as GDAL's spherical-earth GRIB "
-            "GEOGCS. Catch CRSError (also a ValueError) and supply a "
-            "fallback, or call epsg_from_wkt(prj, default=...)."
+            "projection: its root CRS carries no EPSG authority and matches "
+            "no PROJ-database entry. This is expected for genuinely custom "
+            "CRSes such as GDAL's spherical-earth GRIB GEOGCS. Catch CRSError "
+            "(also a ValueError) and supply a fallback, or call "
+            "epsg_from_wkt(prj, default=...)."
         )
     return int(code)
 

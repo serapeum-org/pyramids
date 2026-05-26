@@ -20,6 +20,7 @@ Tests that exercised the old OGR-accepting public surface
 removed with ARC-1a/ARC-1b; those surfaces no longer exist.
 """
 
+import re
 import tempfile
 from pathlib import Path
 
@@ -840,6 +841,32 @@ class TestGetEpsgFromPrj:
         """Guard the premise of #403: EPSG:9122 cannot build a CRS."""
         with pytest.raises(RuntimeError):
             sr_from_epsg(9122)
+
+    def test_projected_wkt_without_root_authority_resolves_via_db_match(self):
+        """Issue #403: a UTM PROJCS lacking a root AUTHORITY resolves to 32618.
+
+        GDAL's AAIGrid driver emits "WGS 84 / UTM zone 18N" with no root
+        AUTHORITY node, so ``AutoIdentifyEPSG`` fails. The depth-first
+        fallback used to return the WGS_1984 datum code 6326 (not a CRS).
+        Resolution now falls through to an exact PROJ-database match and
+        returns the true projected CRS code, EPSG:32618.
+        """
+        sr = osr.SpatialReference()
+        sr.ImportFromEPSG(32618)
+        wkt = sr.ExportToWkt()
+        stripped = re.sub(r',AUTHORITY\["EPSG","32618"\]\]$', "]", wkt)
+        assert osr.SpatialReference(wkt=stripped).GetAuthorityCode(None) is None
+        assert get_epsg_from_prj(stripped) == 32618
+
+    def test_unmatchable_custom_crs_raises(self):
+        """A custom CRS with no authority and no DB match raises CRSError.
+
+        The GRIB spherical-earth GEOGCS matches no PROJ-database entry, so
+        the FindMatches fallback yields nothing and resolution raises rather
+        than guessing.
+        """
+        with pytest.raises(CRSError, match="matches no PROJ-database entry"):
+            get_epsg_from_prj(GRIB_WKT)
 
 
 class TestEpsgFromWkt:

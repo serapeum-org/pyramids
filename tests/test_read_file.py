@@ -36,7 +36,11 @@ def test_from_open_ascii_file(
 ):
     src_obj = Dataset.read_file(ascii_file_path)
     assert src_obj.band_count == 1
-    assert src_obj.epsg == 6326
+    # The ASCII file's WKT is "WGS 84 / UTM zone 18N" with no root AUTHORITY
+    # node. Before issue #403 was fixed, epsg resolution walked the WKT
+    # depth-first and returned the WGS_1984 datum code 6326 (not a CRS); it
+    # now resolves the true projected CRS via an exact PROJ-database match.
+    assert src_obj.epsg == 32618
     assert isinstance(src_obj.raster, gdal.Dataset)
     assert src_obj.geotransform == (
         432968.1206170588,
@@ -55,7 +59,9 @@ def test_from_read_file_zip_file(
 ):
     src_obj = Dataset.read_file(ascii_file_path)
     assert src_obj.band_count == 1
-    assert src_obj.epsg == 6326
+    # See test_from_open_ascii_file: 32618 (WGS 84 / UTM zone 18N), resolved
+    # via PROJ-database match, replaces the old depth-first datum code 6326.
+    assert src_obj.epsg == 32618
     assert isinstance(src_obj.raster, gdal.Dataset)
     assert src_obj.geotransform == (
         432968.1206170588,
