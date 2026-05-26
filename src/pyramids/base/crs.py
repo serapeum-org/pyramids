@@ -25,7 +25,7 @@ from typing import Any
 import numpy as np
 import pyproj.exceptions
 from osgeo import osr
-from pyproj import Transformer
+from pyproj import CRS, Transformer
 
 from pyramids.base._errors import CRSError
 
@@ -451,6 +451,78 @@ def epsg_from_wkt(wkt: str, default: int = 4326) -> int:
             # propagating the hard error to property reads like Dataset.epsg.
             result = default
     return result
+
+
+def epsg_from_user_input(crs: int | str | Any) -> int:
+    """Resolve a CRS given in any common form to an EPSG integer code.
+
+    Accepts the CRS forms callers reach for when they don't have a bare EPSG number
+    handy — an EPSG ``int``, a string (``"EPSG:3857"``, ``"3857"``, a WKT or PROJ4
+    string, or any authority string), or a :class:`pyproj.CRS` (or other object
+    :meth:`pyproj.CRS.from_user_input` accepts) — and returns the matching EPSG code.
+
+    Args:
+        crs: The CRS to resolve. An ``int`` is returned unchanged (fast path); anything
+            else is parsed via :meth:`pyproj.CRS.from_user_input` and mapped to its EPSG
+            code.
+
+    Returns:
+        int: The EPSG code.
+
+    Raises:
+        CRSError: ``crs`` is a ``bool``, cannot be interpreted as a CRS, or resolves to a
+            CRS that has no EPSG code (e.g. a bespoke WKT/PROJ4 definition).
+
+    Examples:
+        - An EPSG integer is returned unchanged:
+            ```python
+            >>> from pyramids.base.crs import epsg_from_user_input
+            >>> epsg_from_user_input(4326)
+            4326
+
+            ```
+        - Authority strings and bare numeric strings resolve to their code:
+            ```python
+            >>> from pyramids.base.crs import epsg_from_user_input
+            >>> epsg_from_user_input("EPSG:3857")
+            3857
+            >>> epsg_from_user_input("4326")
+            4326
+
+            ```
+        - A :class:`pyproj.CRS` resolves to its EPSG code:
+            ```python
+            >>> from pyproj import CRS
+            >>> from pyramids.base.crs import epsg_from_user_input
+            >>> epsg_from_user_input(CRS.from_epsg(32636))
+            32636
+
+            ```
+        - An uninterpretable CRS is rejected:
+            ```python
+            >>> from pyramids.base.crs import epsg_from_user_input
+            >>> try:
+            ...     epsg_from_user_input("not-a-crs")
+            ... except ValueError as exc:
+            ...     print("could not interpret" in str(exc))
+            True
+
+            ```
+    """
+    if isinstance(crs, bool):
+        raise CRSError(f"{crs!r} is not a valid CRS; pass an EPSG int, string, or CRS.")
+    if isinstance(crs, int):
+        return crs
+    try:
+        parsed = CRS.from_user_input(crs)
+    except Exception as exc:
+        raise CRSError(f"could not interpret {crs!r} as a CRS: {exc}") from exc
+    epsg = parsed.to_epsg()
+    if epsg is None:
+        raise CRSError(
+            f"the CRS {crs!r} has no corresponding EPSG code; pass an EPSG integer."
+        )
+    return epsg
 
 
 def reproject_coordinates(

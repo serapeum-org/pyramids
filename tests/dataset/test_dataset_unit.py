@@ -1867,10 +1867,50 @@ class TestToCrs:
         assert result is not None, "to_crs should return a Dataset"
         assert result.epsg == 3857, "EPSG should be 3857 on the returned dataset"
 
-    def test_to_crs_invalid_type_raises(self, single_band_dataset):
-        """to_crs with a non-int epsg should raise TypeError."""
-        with pytest.raises(TypeError):
-            single_band_dataset.to_crs(to_epsg="4326")
+    @pytest.mark.parametrize("crs", ["EPSG:3857", "3857"])
+    def test_to_crs_accepts_string(self, single_band_dataset, crs):
+        """to_crs accepts string CRS forms and resolves them to the EPSG code.
+
+        Args:
+            crs: A string CRS form ("EPSG:3857" or the bare "3857").
+
+        Test scenario:
+            Both an authority string and a bare numeric string reproject to EPSG 3857.
+        """
+        result = single_band_dataset.to_crs(to_epsg=crs)
+        assert (
+            result.epsg == 3857
+        ), f"Expected EPSG 3857 from {crs!r}, got {result.epsg}"
+
+    def test_to_crs_accepts_pyproj_crs(self, single_band_dataset):
+        """to_crs accepts a pyproj.CRS object.
+
+        Test scenario:
+            Passing CRS.from_epsg(3857) reprojects to EPSG 3857.
+        """
+        from pyproj import CRS
+
+        result = single_band_dataset.to_crs(to_epsg=CRS.from_epsg(3857))
+        assert result.epsg == 3857, f"Expected EPSG 3857, got {result.epsg}"
+
+    def test_to_crs_uninterpretable_crs_raises(self, single_band_dataset):
+        """to_crs rejects a string that is not a CRS.
+
+        Test scenario:
+            An uninterpretable CRS string raises a ValueError (CRSError subclass)
+            mentioning that it could not be interpreted.
+        """
+        with pytest.raises(ValueError, match="could not interpret"):
+            single_band_dataset.to_crs(to_epsg="not-a-crs")
+
+    def test_to_crs_wrong_type_raises(self, single_band_dataset):
+        """to_crs rejects a value that cannot be a CRS at all.
+
+        Test scenario:
+            A list is not a valid CRS input and raises a ValueError (CRSError subclass).
+        """
+        with pytest.raises(ValueError):
+            single_band_dataset.to_crs(to_epsg=[3857])
 
     def test_to_crs_invalid_method_raises(self, single_band_dataset):
         """to_crs with an invalid method should raise ValueError."""
