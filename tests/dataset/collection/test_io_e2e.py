@@ -64,7 +64,10 @@ requires_xarray = pytest.mark.skipif(not HAS_XARRAY, reason="xarray needed")
 requires_kerchunk = pytest.mark.skipif(not HAS_KERCHUNK, reason="kerchunk needed")
 
 
-NC_FIXTURE = "tests/data/netcdf/pyramids-netcdf-3d.nc"
+# Time-coordinate NetCDF (dims: time, pressure_level, lat, lon). The kerchunk
+# combine path concatenates along ``time``, so sources must carry a ``time``
+# axis — the band-indexed 3-D fixture does not.
+NC_FIXTURE = "tests/data/netcdf/pyramids-netcdf-4d.nc"
 
 
 @pytest.fixture
