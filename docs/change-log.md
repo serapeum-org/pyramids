@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.24.1 (2026-05-26)
+
+### Fix
+
+- **crs**: resolve un-authority-tagged CRSes instead of returning child codes (#404)
+
 ## 0.24.0 (2026-05-26)
 
 ### Feat
