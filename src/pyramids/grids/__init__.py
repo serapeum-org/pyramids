@@ -10,8 +10,9 @@ new regridder.
 
 - :func:`from_orca` — curvilinear ``(ny, nx)`` lon/lat → UGRID quad mesh → raster.
 - :func:`from_octahedral` — ragged per-point lat/lon → scattered points → raster.
-- :func:`from_healpix` — HEALPix pixels → raster (deferred pending the ``healpy``
-  optional dependency; currently raises :class:`NotImplementedError`).
+- :func:`from_healpix` — HEALPix pixels (RING or NESTED) → scattered points → raster.
+  The pixel→lon/lat math is implemented in plain NumPy, so no ``healpy`` dependency is
+  required.
 """
 
 from __future__ import annotations

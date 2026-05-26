@@ -7,8 +7,9 @@ Covers the three adapters that turn non-raster model grids into a regular-grid
   mesh → raster.
 * :func:`pyramids.grids.from_octahedral` — ragged per-point lat/lon → scattered points
   → raster.
-* :func:`pyramids.grids.from_healpix` — deferred; raises :class:`NotImplementedError`
-  until the ``healpy`` dependency is approved.
+* :func:`pyramids.grids.from_healpix` — HEALPix pixels (RING or NESTED) → scattered
+  points → raster, with the pixel→lon/lat math implemented in plain NumPy (no
+  ``healpy`` dependency).
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import pytest
 
 from pyramids.dataset.dataset import Dataset
 from pyramids.grids import from_healpix, from_octahedral, from_orca
+from pyramids.grids.healpix import _nest2ring, _ring_pix2lonlat
 
 
 @pytest.fixture(scope="function")
@@ -250,29 +252,170 @@ class TestFromOctahedral:
         assert "equal length" in str(exc.value), f"Unexpected message: {exc.value}"
 
 
+class TestRingPix2Lonlat:
+    """Tests for :func:`pyramids.grids.healpix._ring_pix2lonlat`."""
+
+    def test_nside1_matches_canonical_centres(self):
+        """RING pix2ang reproduces the canonical HEALPix nside=1 pixel centres.
+
+        Test scenario:
+            For nside=1 (12 pixels) the four north-cap pixels sit at lat=arcsin(2/3)
+            (≈41.81°) and lon 45/135/225/315; the four equatorial pixels at lat=0 and
+            lon 0/90/180/270; the four south-cap pixels at lat=-41.81°.
+        """
+        lon, lat = _ring_pix2lonlat(1, np.arange(12))
+        cap = np.degrees(np.arcsin(2.0 / 3.0))
+        np.testing.assert_allclose(
+            lon, [45, 135, 225, 315, 90, 180, 270, 0, 45, 135, 225, 315], atol=1e-9
+        )
+        np.testing.assert_allclose(
+            lat,
+            [cap, cap, cap, cap, 0, 0, 0, 0, -cap, -cap, -cap, -cap],
+            atol=1e-9,
+        )
+
+    @pytest.mark.parametrize("nside", [1, 2, 4, 8])
+    def test_latitudes_symmetric_and_lon_in_range(self, nside):
+        """RING centres are north/south symmetric with longitudes in [0, 360).
+
+        Args:
+            nside: HEALPix resolution parameter.
+
+        Test scenario:
+            The sorted latitude set is symmetric about the equator and every longitude
+            falls in [0, 360).
+        """
+        npix = 12 * nside * nside
+        lon, lat = _ring_pix2lonlat(nside, np.arange(npix))
+        assert lon.min() >= 0.0 and lon.max() < 360.0, f"lon out of range for {nside}"
+        np.testing.assert_allclose(
+            np.sort(lat), -np.sort(-lat)[::-1], atol=1e-9, err_msg="lat not symmetric"
+        )
+
+
+class TestNest2Ring:
+    """Tests for :func:`pyramids.grids.healpix._nest2ring`."""
+
+    @pytest.mark.parametrize("nside", [1, 2, 4, 8])
+    def test_is_bijection(self, nside):
+        """nest2ring is a bijection over the full pixel index range.
+
+        Args:
+            nside: HEALPix resolution parameter.
+
+        Test scenario:
+            Mapping every nested index 0..npix-1 yields a permutation of the same range
+            (no collisions, no out-of-range values).
+        """
+        npix = 12 * nside * nside
+        ring = _nest2ring(nside, np.arange(npix))
+        np.testing.assert_array_equal(
+            np.sort(ring), np.arange(npix), err_msg=f"not a bijection for nside={nside}"
+        )
+
+    def test_known_reference_nside2(self):
+        """nest2ring matches the published HEALPix reference for nside=2.
+
+        Test scenario:
+            nest2ring(2, 0..11) equals the canonical [13,5,4,0,15,7,6,1,17,9,8,2].
+        """
+        result = _nest2ring(2, np.arange(12)).tolist()
+        assert result == [13, 5, 4, 0, 15, 7, 6, 1, 17, 9, 8, 2], f"Got {result}"
+
+    @pytest.mark.parametrize("nside", [1, 2, 4, 8])
+    def test_nested_centre_set_equals_ring(self, nside):
+        """NESTED pixel centres are the same set as RING centres for a given nside.
+
+        Args:
+            nside: HEALPix resolution parameter.
+
+        Test scenario:
+            RING and NESTED index the same physical pixels, so the unordered set of
+            centre coordinates must be identical.
+        """
+        npix = 12 * nside * nside
+        idx = np.arange(npix)
+        lon_r, lat_r = _ring_pix2lonlat(nside, idx)
+        lon_n, lat_n = _ring_pix2lonlat(nside, _nest2ring(nside, idx))
+        set_ring = set(zip(np.round(lon_r, 9), np.round(lat_r, 9)))
+        set_nest = set(zip(np.round(lon_n, 9), np.round(lat_n, 9)))
+        assert set_ring == set_nest, f"centre sets differ for nside={nside}"
+
+
 class TestFromHealpix:
-    """Tests for the deferred :func:`pyramids.grids.from_healpix`."""
+    """Tests for :func:`pyramids.grids.from_healpix`."""
 
-    def test_raises_not_implemented(self):
-        """from_healpix raises NotImplementedError while deferred.
-
-        Test scenario:
-            Any call raises NotImplementedError whose message points at the
-            supported adapters and the pending 'healpy' dependency.
-        """
-        with pytest.raises(NotImplementedError) as exc:
-            from_healpix(np.zeros(12), cell_size=1.0)
-        msg = str(exc.value)
-        assert "healpy" in msg, f"Message should mention healpy: {msg}"
-        assert "from_orca" in msg, f"Message should point at from_orca: {msg}"
-
-    def test_raises_regardless_of_arguments(self):
-        """from_healpix raises even when given a full set of valid-looking args.
+    def test_ring_returns_single_band_dataset(self):
+        """from_healpix regrids a RING field into a single-band Dataset.
 
         Test scenario:
-            Supplying nside/nest/method does not change the deferred behaviour.
+            An nside=1 RING field (12 pixels) yields a Dataset with one band, positive
+            dimensions, and the requested CRS.
         """
-        with pytest.raises(NotImplementedError):
-            from_healpix(
-                np.zeros(48), nside=2, nest=True, cell_size=2.0, method="nearest"
-            )
+        ds = from_healpix(np.arange(12.0), cell_size=30.0)
+        assert isinstance(ds, Dataset), f"Expected a Dataset, got {type(ds)}"
+        assert ds.band_count == 1, f"Expected 1 band, got {ds.band_count}"
+        assert ds.rows > 0 and ds.columns > 0, f"Empty grid: {ds.rows}x{ds.columns}"
+        assert ds.epsg == 4326, f"Expected EPSG 4326, got {ds.epsg}"
+
+    def test_nested_returns_single_band_dataset(self):
+        """from_healpix regrids a NESTED field into a single-band Dataset.
+
+        Test scenario:
+            An nside=2 NESTED field (48 pixels) yields a single-band Dataset.
+        """
+        ds = from_healpix(np.arange(48.0), nside=2, nest=True, cell_size=20.0)
+        assert ds.band_count == 1, f"Expected 1 band, got {ds.band_count}"
+
+    def test_nside_derived_from_length(self):
+        """from_healpix derives nside from the value count when omitted.
+
+        Test scenario:
+            A 192-element field implies nside=4 (12*16) and regrids without an explicit
+            nside.
+        """
+        ds = from_healpix(np.arange(192.0), cell_size=15.0)
+        assert ds.band_count == 1, f"Expected 1 band, got {ds.band_count}"
+
+    def test_nearest_values_subset_of_source(self):
+        """from_healpix nearest-neighbour output values come from the source field.
+
+        Test scenario:
+            With method="nearest", every output cell value must be one of the input
+            pixel values (no interpolation between them).
+        """
+        values = np.arange(48.0)
+        ds = from_healpix(values, nside=2, nest=True, cell_size=20.0, method="nearest")
+        produced = set(np.unique(ds.read_array()).tolist())
+        assert produced.issubset(set(values.tolist())), f"Unexpected: {produced}"
+
+    def test_invalid_length_raises(self):
+        """from_healpix rejects a value count that is not 12*nside**2.
+
+        Test scenario:
+            A length of 10 is not a valid HEALPix pixel count and raises ValueError.
+        """
+        with pytest.raises(ValueError, match="valid HEALPix pixel count") as exc:
+            from_healpix(np.zeros(10), cell_size=30.0)
+        assert "valid HEALPix" in str(exc.value), f"Unexpected: {exc.value}"
+
+    def test_explicit_nside_mismatch_raises(self):
+        """from_healpix rejects an explicit nside that disagrees with the length.
+
+        Test scenario:
+            nside=4 implies 192 pixels; passing 12 values raises ValueError.
+        """
+        with pytest.raises(ValueError, match="valid HEALPix pair") as exc:
+            from_healpix(np.zeros(12), nside=4, cell_size=30.0)
+        assert "192" in str(exc.value), f"Expected pixel count in message: {exc.value}"
+
+    def test_nested_non_power_of_two_raises(self):
+        """from_healpix rejects NESTED ordering with a non-power-of-two nside.
+
+        Test scenario:
+            nside=3 is a valid RING resolution (108 pixels) but NESTED ordering requires
+            a power-of-two nside, so nest=True raises ValueError.
+        """
+        with pytest.raises(ValueError, match="power of two") as exc:
+            from_healpix(np.zeros(108), nside=3, nest=True, cell_size=30.0)
+        assert "power of two" in str(exc.value), f"Unexpected: {exc.value}"
