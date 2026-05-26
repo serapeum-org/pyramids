@@ -20,8 +20,10 @@ import shutil
 import tempfile
 import urllib.request
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from pyramids.feature import FeatureCollection
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from pyramids.feature import FeatureCollection
 
 # layer name -> (Natural Earth category, dataset suffix). The dataset stem is
 # ``ne_{resolution}_{suffix}`` and the category selects the CDN sub-path.
@@ -192,6 +194,10 @@ def natural_earth(
             f"unknown Natural Earth resolution {resolution!r}; choose from "
             f"{list(_RESOLUTIONS)}."
         )
+
+    # Local import breaks the import cycle pyramids.feature.collection ->
+    # pyramids.basemap (add_basemap) -> pyramids.basemap.features -> pyramids.feature.
+    from pyramids.feature import FeatureCollection
 
     archive = _ensure_cached(layer, resolution)
     stem = _dataset_stem(layer, resolution)

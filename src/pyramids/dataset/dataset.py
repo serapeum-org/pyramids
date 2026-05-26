@@ -1629,7 +1629,10 @@ class Dataset(RasterBase):
         """Longitude / x cell-centre coordinates.
 
         Uses the geotransform's pixel width (``geotransform[1]``) so the axis is
-        correct even when cells are not square (pixel width != pixel height).
+        correct even when cells are not square (pixel width != pixel height). Reads the
+        cached ``_geotransform`` (like :attr:`top_left_corner`) rather than the
+        ``geotransform`` property, so subclasses that derive ``geotransform`` from
+        ``lon``/``lat`` (e.g. :class:`~pyramids.netcdf.NetCDF`) do not recurse.
 
         Examples:
             - Read the column-centre longitudes of a small raster:
@@ -1648,7 +1651,7 @@ class Dataset(RasterBase):
             - Dataset.x: Dataset x coordinates.
             - Dataset.lat: Dataset latitude.
         """
-        pixel_width = self.geotransform[1]
+        pixel_width = self._geotransform[1]
         x_coords = self.get_x_lon_dimension_array(
             self.top_left_corner[0], pixel_width, self.columns
         )
@@ -1660,7 +1663,10 @@ class Dataset(RasterBase):
 
         Uses the geotransform's pixel height (``abs(geotransform[5])``) rather than
         :attr:`cell_size` (which only tracks pixel width), so the axis is correct for
-        non-square cells.
+        non-square cells. Reads the cached ``_geotransform`` (like
+        :attr:`top_left_corner`) rather than the ``geotransform`` property, so
+        subclasses that derive ``geotransform`` from ``lon``/``lat`` (e.g.
+        :class:`~pyramids.netcdf.NetCDF`) do not recurse.
 
         Examples:
             - Row-centre latitudes decrease from north to south:
@@ -1692,7 +1698,7 @@ class Dataset(RasterBase):
             - Dataset.y: Dataset y coordinates.
             - Dataset.lon: Dataset longitude.
         """
-        pixel_height = abs(self.geotransform[5])
+        pixel_height = abs(self._geotransform[5])
         y_coords = self.get_y_lat_dimension_array(
             self.top_left_corner[1], pixel_height, self.rows
         )
