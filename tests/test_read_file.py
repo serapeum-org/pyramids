@@ -1,3 +1,6 @@
+import zipfile
+from pathlib import Path
+
 import pytest
 from osgeo import gdal
 
@@ -39,7 +42,7 @@ def test_from_open_ascii_file(
     # The ASCII file's WKT is "WGS 84 / UTM zone 18N" with no root AUTHORITY
     # node. Before issue #403 was fixed, epsg resolution walked the WKT
     # depth-first and returned the WGS_1984 datum code 6326 (not a CRS); it
-    # now resolves the true projected CRS via an exact PROJ-database match.
+    # now resolves the true projected CRS via a PROJ-database match.
     assert src_obj.epsg == 32618
     assert isinstance(src_obj.raster, gdal.Dataset)
     assert src_obj.geotransform == (
@@ -53,14 +56,22 @@ def test_from_open_ascii_file(
 
 
 def test_from_read_file_zip_file(
-    ascii_file_path: str,
-    ascii_shape: tuple,
-    ascii_geotransform: tuple,
+    ascii_file_path: Path,
+    tmp_path: Path,
 ):
-    src_obj = Dataset.read_file(ascii_file_path)
+    """Reading the ASCII grid (with its .prj sidecar) from inside a zip.
+
+    Bundles ``asci_example.asc`` and ``asci_example.prj`` into a real zip and
+    reads the grid through GDAL's ``/vsizip/`` path, so the CRS still resolves
+    to 32618 (see test_from_open_ascii_file) and the geotransform survives.
+    """
+    bundle = tmp_path / "ascii_bundle.zip"
+    with zipfile.ZipFile(bundle, "w") as archive:
+        archive.write(ascii_file_path, "asci_example.asc")
+        archive.write(ascii_file_path.with_suffix(".prj"), "asci_example.prj")
+
+    src_obj = Dataset.read_file(f"{bundle}/asci_example.asc")
     assert src_obj.band_count == 1
-    # See test_from_open_ascii_file: 32618 (WGS 84 / UTM zone 18N), resolved
-    # via PROJ-database match, replaces the old depth-first datum code 6326.
     assert src_obj.epsg == 32618
     assert isinstance(src_obj.raster, gdal.Dataset)
     assert src_obj.geotransform == (

@@ -30,10 +30,13 @@ from pyproj import Transformer
 from pyramids.base._errors import CRSError
 
 # Minimum FindMatches() confidence (0-100) at which we trust a PROJ-database
-# match as *the* EPSG of an otherwise un-authority-tagged CRS. 100 means the
-# WKT is an exact match for the database entry; anything less is a partial
-# match we refuse to guess from.
-_MIN_EPSG_MATCH_CONFIDENCE = 100
+# match as *the* EPSG of an otherwise un-authority-tagged CRS. GDAL scores an
+# exact WKT match 100 and a definition-equal-but-renamed match 70 (e.g. a UTM
+# PROJCS whose citation string was rewritten); anything lower means the CRS
+# *definition* itself differs (a perturbed projection parameter scores ~25)
+# and must not be trusted. The match must also be unambiguous — see the
+# strict runner-up check in :func:`_epsg_from_db_match`.
+_MIN_EPSG_MATCH_CONFIDENCE = 70
 
 
 def sr_from_epsg(epsg: int) -> osr.SpatialReference:
@@ -165,18 +168,23 @@ def _epsg_from_db_match(srs: osr.SpatialReference) -> str | None:
     without a root ``AUTHORITY`` node (e.g. a "WGS 84 / UTM zone 18N"
     ``PROJCS`` written by GDAL's AAIGrid driver). :meth:`FindMatches` queries
     the PROJ database directly and returns candidate CRSes ranked by a 0-100
-    confidence score. We accept the single best candidate only when its
-    confidence is exact (:data:`_MIN_EPSG_MATCH_CONFIDENCE`), so a CRS that
-    merely resembles a database entry is never silently mislabelled. The
-    returned candidate is a full CRS object, so its root authority code is a
-    CRS code by construction — never a child unit/datum code.
+    confidence score. We accept the single best candidate only when (a) its
+    confidence is at least :data:`_MIN_EPSG_MATCH_CONFIDENCE` — high enough to
+    mean "same definition, possibly renamed" rather than "merely similar" —
+    and (b) it is strictly more confident than the runner-up, so an ambiguous
+    tie (e.g. a current and a deprecated EPSG for the same definition) never
+    resolves to whichever entry GDAL happened to list first. The returned
+    candidate is a full CRS object, so its root authority code is a CRS code
+    by construction — never a child unit/datum code. This lookup only runs on
+    the fallback path (root authority absent and ``AutoIdentifyEPSG`` failed),
+    so the PROJ-database query is not on the hot path for normal rasters.
 
     Args:
         srs: Spatial reference whose root carries no EPSG authority.
 
     Returns:
         str | None: The matched CRS's EPSG code as a string, or ``None`` when
-        there is no exact-confidence match.
+        there is no sufficiently-confident, unambiguous match.
 
     Examples:
         - A UTM PROJCS with its root authority stripped still matches the
@@ -210,8 +218,12 @@ def _epsg_from_db_match(srs: osr.SpatialReference) -> str | None:
     matches = srs.FindMatches()
     if not matches:
         return None
-    best_srs, confidence = matches[0]
-    if confidence < _MIN_EPSG_MATCH_CONFIDENCE:
+    best_srs, best_confidence = matches[0]
+    if best_confidence < _MIN_EPSG_MATCH_CONFIDENCE:
+        return None
+    # Reject ambiguous ties: a definition that matches two database entries
+    # equally well must not silently resolve to whichever GDAL listed first.
+    if len(matches) > 1 and matches[1][1] >= best_confidence:
         return None
     return best_srs.GetAuthorityCode(None)
 
@@ -221,10 +233,10 @@ def get_epsg_from_prj(prj: str) -> int:
 
     Resolves the EPSG of the *root* CRS object in three steps:
     :meth:`osr.SpatialReference.AutoIdentifyEPSG` (tags recognisable
-    CRSes), then the root ``AUTHORITY`` code, then an exact
-    :meth:`osr.SpatialReference.FindMatches` PROJ-database lookup for
-    well-known CRSes whose WKT lacks a root authority (e.g. a UTM
-    ``PROJCS`` from GDAL's AAIGrid driver). The code of a child
+    CRSes), then the root ``AUTHORITY`` code, then a confident,
+    unambiguous :meth:`osr.SpatialReference.FindMatches` PROJ-database
+    lookup for well-known CRSes whose WKT lacks a root authority (e.g. a
+    UTM ``PROJCS`` from GDAL's AAIGrid driver). The code of a child
     unit/datum node is never returned as if it were a CRS — that bug
     (issue #403) made GRIB rasters resolve to the degree-unit EPSG:9122
     and UTM ASCII grids to the WGS_1984 datum EPSG:6326.

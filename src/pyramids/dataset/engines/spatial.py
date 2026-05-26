@@ -906,7 +906,10 @@ class Spatial(_Engine):
         # through src.epsg: a custom CRS with no EPSG (e.g. a spherical-earth
         # GRIB GEOGCS) has no resolvable code, so passing epsg=src.epsg would
         # relabel — or, before issue #403 was fixed, crash on — the output.
-        new_src.crs = src.crs
+        # Skip when the source is unprojected: setting an empty WKT would
+        # wipe the create_from_array default, so leave that default in place.
+        if src.crs:
+            new_src.crs = src.crs
         return new_src
 
     def crop(

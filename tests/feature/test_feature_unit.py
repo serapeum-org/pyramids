@@ -20,7 +20,6 @@ Tests that exercised the old OGR-accepting public surface
 removed with ARC-1a/ARC-1b; those surfaces no longer exist.
 """
 
-import re
 import tempfile
 from pathlib import Path
 
@@ -42,6 +41,7 @@ from shapely.geometry.collection import GeometryCollection
 
 from pyramids.dataset import Dataset
 from pyramids.base.crs import (
+    _epsg_from_db_match,
     create_sr_from_proj,
     epsg_from_wkt,
     get_epsg_from_prj,
@@ -808,6 +808,26 @@ GRIB_WKT = (
     'AXIS["Latitude",NORTH],AXIS["Longitude",EAST]]'
 )
 
+# A geographic CRS on a sphere whose radius exists in no EPSG entry, so
+# FindMatches returns nothing — a custom CRS distinct from the GRIB GEOGCS.
+CUSTOM_SPHERE_WKT = (
+    'GEOGCS["Custom Sphere",'
+    'DATUM["Custom",SPHEROID["Custom",1234567,0]],'
+    'PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]'
+)
+
+
+def _utm_18n_wkt() -> str:
+    """Return the standard "WGS 84 / UTM zone 18N" (EPSG:32618) WKT."""
+    sr = osr.SpatialReference()
+    sr.ImportFromEPSG(32618)
+    return sr.ExportToWkt()
+
+
+def _strip_root_authority(wkt: str) -> str:
+    """Drop the trailing root ``AUTHORITY`` node so only FindMatches can resolve it."""
+    return wkt[: wkt.rfind(",AUTHORITY")] + "]"
+
 
 class TestGetEpsgFromPrj:
     """Tests for ``get_epsg_from_prj``."""
@@ -848,25 +868,100 @@ class TestGetEpsgFromPrj:
         GDAL's AAIGrid driver emits "WGS 84 / UTM zone 18N" with no root
         AUTHORITY node, so ``AutoIdentifyEPSG`` fails. The depth-first
         fallback used to return the WGS_1984 datum code 6326 (not a CRS).
-        Resolution now falls through to an exact PROJ-database match and
+        Resolution now falls through to a confident PROJ-database match and
         returns the true projected CRS code, EPSG:32618.
         """
-        sr = osr.SpatialReference()
-        sr.ImportFromEPSG(32618)
-        wkt = sr.ExportToWkt()
-        stripped = re.sub(r',AUTHORITY\["EPSG","32618"\]\]$', "]", wkt)
+        stripped = _strip_root_authority(_utm_18n_wkt())
         assert osr.SpatialReference(wkt=stripped).GetAuthorityCode(None) is None
         assert get_epsg_from_prj(stripped) == 32618
+
+    def test_renamed_projcs_resolves_via_confident_match(self):
+        """M1/#403: a renamed UTM PROJCS (FindMatches confidence 70) still resolves.
+
+        A "WGS 84 / UTM zone 18N" definition whose citation string was
+        rewritten — and whose root AUTHORITY is absent — scores 70 rather
+        than 100 in FindMatches: same definition, different name. The
+        relaxed threshold accepts it and returns 32618, where the original
+        exact-only (100) bar would have missed it and fallen back to a wrong
+        geographic default.
+        """
+        wkt = _strip_root_authority(_utm_18n_wkt()).replace(
+            "WGS 84 / UTM zone 18N", "My Custom Grid", 1
+        )
+        assert get_epsg_from_prj(wkt) == 32618
+
+    def test_perturbed_crs_is_not_mislabelled(self):
+        """M1/#403: a CRS whose *definition* differs is not snapped to a near match.
+
+        Shifting UTM 18N's central meridian makes FindMatches score the
+        nearest entry far below the acceptance bar, so resolution raises
+        rather than mislabelling the perturbed CRS as 32618.
+        """
+        wkt = _strip_root_authority(_utm_18n_wkt()).replace("-75", "-75.0001")
+        with pytest.raises(CRSError, match="matches no PROJ-database entry"):
+            get_epsg_from_prj(wkt)
 
     def test_unmatchable_custom_crs_raises(self):
         """A custom CRS with no authority and no DB match raises CRSError.
 
-        The GRIB spherical-earth GEOGCS matches no PROJ-database entry, so
-        the FindMatches fallback yields nothing and resolution raises rather
-        than guessing.
+        A geographic CRS on a sphere of a radius present in no EPSG entry
+        matches nothing in FindMatches, so resolution raises rather than
+        guessing — a distinct unmatchable input from the GRIB GEOGCS.
         """
         with pytest.raises(CRSError, match="matches no PROJ-database entry"):
-            get_epsg_from_prj(GRIB_WKT)
+            get_epsg_from_prj(CUSTOM_SPHERE_WKT)
+
+
+class TestEpsgFromDbMatch:
+    """Tests for the ``_epsg_from_db_match`` FindMatches fallback."""
+
+    class _FakeCandidate:
+        """Minimal stand-in for a matched ``osr.SpatialReference``."""
+
+        def __init__(self, code: str):
+            self._code = code
+
+        def GetAuthorityCode(self, _target):
+            return self._code
+
+    class _FakeSRS:
+        """Stand-in whose ``FindMatches`` returns a canned candidate list."""
+
+        def __init__(self, matches):
+            self._matches = matches
+
+        def FindMatches(self):
+            return self._matches
+
+    def test_rejects_ambiguous_tie(self):
+        """L3: two equally-confident matches resolve to neither, not the first.
+
+        When FindMatches returns more than one candidate at the same top
+        confidence (e.g. a current and a deprecated EPSG for one definition),
+        the helper returns ``None`` rather than picking GDAL's first entry.
+        """
+        matches = [
+            (self._FakeCandidate("4326"), 100),
+            (self._FakeCandidate("4327"), 100),
+        ]
+        assert _epsg_from_db_match(self._FakeSRS(matches)) is None
+
+    def test_accepts_unambiguous_best(self):
+        """A single clear winner above the threshold returns its code."""
+        matches = [
+            (self._FakeCandidate("32618"), 70),
+            (self._FakeCandidate("32619"), 25),
+        ]
+        assert _epsg_from_db_match(self._FakeSRS(matches)) == "32618"
+
+    def test_rejects_below_threshold(self):
+        """A best confidence under the acceptance bar returns ``None``."""
+        matches = [(self._FakeCandidate("32618"), 25)]
+        assert _epsg_from_db_match(self._FakeSRS(matches)) is None
+
+    def test_no_matches_returns_none(self):
+        """An empty FindMatches result returns ``None``."""
+        assert _epsg_from_db_match(self._FakeSRS([])) is None
 
 
 class TestEpsgFromWkt:

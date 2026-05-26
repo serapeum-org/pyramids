@@ -839,7 +839,10 @@ class TestCorrectWrapCutlineError:
 
         corrected = Spatial._correct_wrap_cutline_error(ds)
 
-        assert corrected.rows == 2 and corrected.columns == 2
+        assert corrected.rows == 2, f"expected 2 rows after trim, got {corrected.rows}"
+        assert (
+            corrected.columns == 2
+        ), f"expected 2 columns after trim, got {corrected.columns}"
         np.testing.assert_array_equal(
             corrected.read_array(),
             np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
