@@ -42,9 +42,12 @@ from shapely.geometry.collection import GeometryCollection
 from pyramids.dataset import Dataset
 from pyramids.base.crs import (
     create_sr_from_proj,
+    epsg_from_wkt,
     get_epsg_from_prj,
     reproject_coordinates,
+    sr_from_epsg,
 )
+from pyramids.base._errors import CRSError
 from pyramids.feature import (
     FeatureCollection,
     explode_gdf,
@@ -794,6 +797,17 @@ class TestCreateSrFromProj:
         assert srs is not None
 
 
+# Custom spherical-earth GEOGCS as emitted by GDAL's GRIB driver. Its only
+# AUTHORITY node belongs to the degree UNIT (EPSG:9122); the root GEOGCS
+# carries no authority. See issue #403.
+GRIB_WKT = (
+    'GEOGCS["Coordinate System imported from GRIB file",'
+    'DATUM["unnamed",SPHEROID["Sphere",6371229,0]],PRIMEM["Greenwich",0],'
+    'UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],'
+    'AXIS["Latitude",NORTH],AXIS["Longitude",EAST]]'
+)
+
+
 class TestGetEpsgFromPrj:
     """Tests for ``get_epsg_from_prj``."""
 
@@ -809,6 +823,44 @@ class TestGetEpsgFromPrj:
         """
         with pytest.raises(ValueError, match="empty projection string"):
             get_epsg_from_prj("")
+
+    def test_grib_wkt_raises_instead_of_returning_unit_code(self):
+        """Issue #403: a GRIB GEOGCS must not resolve to its UNIT's EPSG:9122.
+
+        The root GEOGCS carries no AUTHORITY; only the degree UNIT does
+        (EPSG:9122, an angular-unit code, not a CRS). The old code read
+        the first depth-first AUTHORITY node and returned 9122, which then
+        broke every downstream ``sr_from_epsg(9122)``. It must now raise
+        ``CRSError`` rather than return a non-CRS code.
+        """
+        with pytest.raises(CRSError, match="no EPSG authority"):
+            get_epsg_from_prj(GRIB_WKT)
+
+    def test_grib_unit_code_is_not_a_crs(self):
+        """Guard the premise of #403: EPSG:9122 cannot build a CRS."""
+        with pytest.raises(RuntimeError):
+            sr_from_epsg(9122)
+
+
+class TestEpsgFromWkt:
+    """Tests for ``epsg_from_wkt`` (the soft-default wrapper)."""
+
+    def test_valid_wkt(self, wgs84_wkt: str):
+        assert epsg_from_wkt(wgs84_wkt) == 4326
+
+    def test_empty_falls_back_to_default(self):
+        assert epsg_from_wkt("") == 4326
+        assert epsg_from_wkt("", default=3857) == 3857
+
+    def test_grib_wkt_falls_back_to_default(self):
+        """Issue #403: an unresolvable CRS falls back to ``default``.
+
+        ``get_epsg_from_prj`` raises ``CRSError`` for the GRIB GEOGCS;
+        ``epsg_from_wkt`` absorbs it into the soft default so property
+        reads like ``Dataset.epsg`` stay usable instead of crashing.
+        """
+        assert epsg_from_wkt(GRIB_WKT) == 4326
+        assert epsg_from_wkt(GRIB_WKT, default=3857) == 3857
 
 
 class TestGetCoords:

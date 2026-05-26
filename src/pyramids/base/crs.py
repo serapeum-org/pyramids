@@ -169,7 +169,9 @@ def get_epsg_from_prj(prj: str) -> int:
         int: The resolved EPSG code.
 
     Raises:
-        CRSError: If `prj` is an empty string.
+        CRSError: If `prj` is an empty string, or if its root CRS carries
+            no EPSG authority (e.g. a custom spherical-earth GRIB GEOGCS).
+            The unit/datum codes of child nodes are never returned as a CRS.
 
     Examples:
         - Resolve EPSG:4326 from its standard WKT representation:
@@ -210,15 +212,30 @@ def get_epsg_from_prj(prj: str) -> int:
         )
     srs = create_sr_from_proj(prj)
     try:
-        response = srs.AutoIdentifyEPSG()
+        # AutoIdentifyEPSG attaches a root EPSG authority when it can
+        # recognise the CRS; we ignore its return code and read the root
+        # authority below. It raises "Unsupported SRS" for custom CRSes
+        # it cannot identify (e.g. GDAL's spherical-earth GRIB GEOGCS).
+        srs.AutoIdentifyEPSG()
     except RuntimeError:
-        response = 6
+        pass
 
-    if response == 0:
-        epsg = int(srs.GetAuthorityCode(None))
-    else:
-        epsg = int(srs.GetAttrValue("AUTHORITY", 1))
-    return epsg
+    # Resolve the EPSG of the *root* CRS object only. Do NOT fall back to
+    # GetAttrValue("AUTHORITY", 1): that walks the WKT tree depth-first and
+    # returns the first AUTHORITY node, which for a CRS whose root carries
+    # no authority is a child unit/datum code (e.g. the degree-unit
+    # EPSG:9122 inside a GRIB GEOGCS) — a non-CRS code that breaks every
+    # downstream sr_from_epsg() call. See issue #403.
+    code = srs.GetAuthorityCode(None)
+    if code is None:
+        raise CRSError(
+            "get_epsg_from_prj could not resolve an EPSG code from the "
+            "projection: its root CRS carries no EPSG authority. This is "
+            "common for custom CRSes such as GDAL's spherical-earth GRIB "
+            "GEOGCS. Catch CRSError (also a ValueError) and supply a "
+            "fallback, or call epsg_from_wkt(prj, default=...)."
+        )
+    return int(code)
 
 
 def epsg_from_wkt(wkt: str, default: int = 4326) -> int:
@@ -227,7 +244,10 @@ def epsg_from_wkt(wkt: str, default: int = 4326) -> int:
     Wraps :func:`get_epsg_from_prj` to absorb the
     `get_epsg_from_prj(wkt) if wkt else default` idiom that was
     previously open-coded in four places across the dataset stack.
-    Returns `default` when `wkt` is empty (or `None`); otherwise
+    Returns `default` when `wkt` is empty (or `None`), and also when
+    `get_epsg_from_prj` cannot resolve an EPSG from a non-empty `wkt`
+    (it raises :class:`CRSError` for a custom CRS whose root carries no
+    EPSG authority — e.g. a spherical-earth GRIB GEOGCS); otherwise
     delegates to :func:`get_epsg_from_prj`.
 
     Use this in places where an empty projection should be treated as
@@ -240,12 +260,13 @@ def epsg_from_wkt(wkt: str, default: int = 4326) -> int:
     Args:
         wkt: Projection string (WKT, ESRI WKT, or Proj4). An empty
             string or `None` returns `default`.
-        default: EPSG code to return when `wkt` is empty / `None`.
-            Defaults to `4326` (the historical pyramids default).
+        default: EPSG code to return when `wkt` is empty / `None`, or
+            when its CRS cannot be resolved to an EPSG. Defaults to
+            `4326` (the historical pyramids default).
 
     Returns:
-        int: EPSG code resolved from `wkt`, or `default` when
-        `wkt` is empty.
+        int: EPSG code resolved from `wkt`, or `default` when `wkt` is
+        empty or its CRS carries no resolvable EPSG.
 
     Examples:
         - Empty input falls back to the supplied default:
@@ -269,8 +290,17 @@ def epsg_from_wkt(wkt: str, default: int = 4326) -> int:
             ```
     """
     if not wkt:
-        return default
-    return get_epsg_from_prj(wkt)
+        result = default
+    else:
+        try:
+            result = get_epsg_from_prj(wkt)
+        except CRSError:
+            # Non-empty but unresolvable CRS (e.g. a custom spherical-earth
+            # GRIB GEOGCS that carries no root EPSG authority). Treat it as
+            # the same soft "unknown CRS" case as empty input rather than
+            # propagating the hard error to property reads like Dataset.epsg.
+            result = default
+    return result
 
 
 def reproject_coordinates(

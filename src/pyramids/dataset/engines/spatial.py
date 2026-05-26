@@ -867,8 +867,13 @@ class Spatial(_Engine):
         new_y = src.y[x_ind] + src.cell_size / 2
         new_gt = (new_x, src.cell_size, 0, new_y, 0, -src.cell_size)
         new_src = src.create_from_array(
-            small_array, geo=new_gt, epsg=src.epsg, no_data_value=src.no_data_value
+            small_array, geo=new_gt, no_data_value=src.no_data_value
         )
+        # Preserve the source CRS from its WKT rather than round-tripping
+        # through src.epsg: a custom CRS with no EPSG (e.g. a spherical-earth
+        # GRIB GEOGCS) has no resolvable code, so passing epsg=src.epsg would
+        # relabel — or, before issue #403 was fixed, crash on — the output.
+        new_src.crs = src.crs
         return new_src
 
     def crop(
