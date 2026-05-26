@@ -852,6 +852,38 @@ class TestCorrectWrapCutlineError:
         # Reading .epsg must not crash; it falls back to the soft default.
         assert corrected.epsg == 4326
 
+    def test_unprojected_source_keeps_create_from_array_default(self):
+        """An unprojected source keeps the default CRS, not an empty WKT.
+
+        When ``src.crs`` is empty, the ``if src.crs:`` guard skips the WKT
+        copy so the rebuilt dataset retains the ``create_from_array`` default
+        (WGS84 / EPSG:4326) rather than having its projection wiped to empty.
+        """
+        nd = -9999.0
+        arr = np.array(
+            [
+                [nd, nd, nd, nd],
+                [nd, 1.0, 2.0, nd],
+                [nd, 3.0, 4.0, nd],
+                [nd, nd, nd, nd],
+            ],
+            dtype=np.float32,
+        )
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=nd,
+        )
+        ds.raster.SetProjection("")
+        assert ds.crs == "", "precondition: source must be unprojected"
+
+        corrected = Spatial._correct_wrap_cutline_error(ds)
+
+        assert corrected.crs != "", "output projection must not be wiped to empty"
+        assert corrected.epsg == 4326, f"expected default 4326, got {corrected.epsg}"
+
 
 class TestFillGaps:
     """Tests for the fill_gaps method."""

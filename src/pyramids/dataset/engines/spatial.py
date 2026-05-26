@@ -848,7 +848,10 @@ class Spatial(_Engine):
         rather than round-tripped through ``src.epsg``: a custom CRS with
         no resolvable EPSG (e.g. a spherical-earth GRIB GEOGCS) would
         otherwise be relabelled — or, before issue #403 was fixed, crash
-        on ``sr_from_epsg`` — so the exact source CRS is preserved.
+        on ``sr_from_epsg`` — so the exact source CRS is preserved. When the
+        source is unprojected (``src.crs`` is empty) the copy is skipped, so
+        the rebuilt dataset keeps the :meth:`Dataset.create_from_array`
+        default CRS instead of having its projection wiped to empty.
 
         Args:
             src (Dataset): Result of the cutline warp, expected to carry a
@@ -860,8 +863,9 @@ class Spatial(_Engine):
         Returns:
             Dataset: A new in-memory dataset with the all-nodata border
             rows/columns removed, the geotransform shifted to the trimmed
-            top-left corner, and the source CRS, no-data value, and band
-            count preserved.
+            top-left corner, and the no-data value and band count preserved.
+            The CRS is the source CRS, or the ``create_from_array`` default
+            when the source is unprojected.
 
         Raises:
             ValueError: If the source array is neither 2D nor 3D.

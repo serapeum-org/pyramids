@@ -911,6 +911,21 @@ class TestGetEpsgFromPrj:
         with pytest.raises(CRSError, match="matches no PROJ-database entry"):
             get_epsg_from_prj(CUSTOM_SPHERE_WKT)
 
+    def test_geographic_wkt_without_root_authority_recovered_by_autoidentify(self):
+        """A stripped WGS84 GEOGCS is re-tagged by AutoIdentifyEPSG, not FindMatches.
+
+        Unlike the UTM PROJCS (which AutoIdentifyEPSG cannot handle), a plain
+        WGS84 GEOGCS with its root AUTHORITY removed is recovered directly by
+        AutoIdentifyEPSG, so ``GetAuthorityCode`` returns 4326 before the
+        FindMatches fallback is consulted. Exercises the AutoIdentify-recovery
+        branch distinct from the database-match branch.
+        """
+        sr = osr.SpatialReference()
+        sr.ImportFromEPSG(4326)
+        stripped = _strip_root_authority(sr.ExportToWkt())
+        assert osr.SpatialReference(wkt=stripped).GetAuthorityCode(None) is None
+        assert get_epsg_from_prj(stripped) == 4326
+
 
 class TestEpsgFromDbMatch:
     """Tests for the ``_epsg_from_db_match`` FindMatches fallback."""
@@ -947,11 +962,20 @@ class TestEpsgFromDbMatch:
         assert _epsg_from_db_match(self._FakeSRS(matches)) is None
 
     def test_accepts_unambiguous_best(self):
-        """A single clear winner above the threshold returns its code."""
+        """A clear winner above the threshold beating the runner-up returns its code."""
         matches = [
             (self._FakeCandidate("32618"), 70),
             (self._FakeCandidate("32619"), 25),
         ]
+        assert _epsg_from_db_match(self._FakeSRS(matches)) == "32618"
+
+    def test_accepts_sole_match_at_threshold(self):
+        """A single match exactly at the threshold (no runner-up) returns its code.
+
+        Exercises the ``len(matches) == 1`` path: the anti-tie check is
+        skipped and the boundary confidence is accepted.
+        """
+        matches = [(self._FakeCandidate("32618"), 70)]
         assert _epsg_from_db_match(self._FakeSRS(matches)) == "32618"
 
     def test_rejects_below_threshold(self):
@@ -963,6 +987,16 @@ class TestEpsgFromDbMatch:
         """An empty FindMatches result returns ``None``."""
         assert _epsg_from_db_match(self._FakeSRS([])) is None
 
+    def test_match_without_authority_code_returns_none(self):
+        """An accepted match that carries no authority code yields ``None``.
+
+        Defends the contract that the caller's ``int(code)`` is never handed a
+        ``None``: a confident, unambiguous match whose ``GetAuthorityCode``
+        returns ``None`` propagates as ``None`` (so resolution raises cleanly).
+        """
+        matches = [(self._FakeCandidate(None), 100)]
+        assert _epsg_from_db_match(self._FakeSRS(matches)) is None
+
 
 class TestEpsgFromWkt:
     """Tests for ``epsg_from_wkt`` (the soft-default wrapper)."""
@@ -973,6 +1007,11 @@ class TestEpsgFromWkt:
     def test_empty_falls_back_to_default(self):
         assert epsg_from_wkt("") == 4326
         assert epsg_from_wkt("", default=3857) == 3857
+
+    def test_none_falls_back_to_default(self):
+        """``None`` is treated like an empty projection and returns ``default``."""
+        assert epsg_from_wkt(None) == 4326
+        assert epsg_from_wkt(None, default=3857) == 3857
 
     def test_grib_wkt_falls_back_to_default(self):
         """Issue #403: an unresolvable CRS falls back to ``default``.
