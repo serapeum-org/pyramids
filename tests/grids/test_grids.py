@@ -96,18 +96,40 @@ class TestFromOrca:
         """from_orca interpolated values stay within the source value range.
 
         Test scenario:
-            Nearest-neighbour regridding cannot invent values outside the input
-            field; valid (non-nodata) cells lie within ``[min, max]`` of the faces.
+            Face values are corner-node means and the regrid cannot invent values
+            outside the input field; valid (non-nodata) cells lie within
+            ``[data2d.min, data2d.max]``.
         """
         lon2d, lat2d, data2d = orca_grid
         nodata = -9999.0
         ds = from_orca(lon2d, lat2d, data2d, cell_size=0.5, nodata=nodata)
         arr = ds.read_array()
         valid = arr[arr != nodata]
-        face_values = data2d[:-1, :-1]
         assert valid.size > 0, "No valid cells produced by from_orca."
-        assert valid.min() >= face_values.min() - 1e-6, "Value below source min."
-        assert valid.max() <= face_values.max() + 1e-6, "Value above source max."
+        assert valid.min() >= data2d.min() - 1e-6, "Value below source min."
+        assert valid.max() <= data2d.max() + 1e-6, "Value above source max."
+
+    def test_face_value_is_corner_node_mean(self):
+        """from_orca uses the mean of a face's four corner nodes (no data dropped).
+
+        Test scenario:
+            On a 2x2 grid (a single quad face) the only cell's value equals the mean of
+            all four node values, proving the last row/column contribute (the old
+            implementation used only the upper-left node).
+        """
+        lon2d = np.array([[0.0, 1.0], [0.0, 1.0]])
+        lat2d = np.array([[1.0, 1.0], [0.0, 0.0]])
+        data2d = np.array([[1.0, 2.0], [3.0, 4.0]])
+        ds = from_orca(lon2d, lat2d, data2d, cell_size=0.5, method="nearest")
+        arr = ds.read_array()
+        valid = arr[arr != ds.no_data_value[0]]
+        assert valid.size > 0, "single quad face produced no cells"
+        np.testing.assert_allclose(
+            np.unique(valid),
+            [2.5],
+            atol=1e-9,
+            err_msg="face value should be mean of 1..4",
+        )
 
     @pytest.mark.parametrize(
         "lon_shape, lat_shape, data_shape",

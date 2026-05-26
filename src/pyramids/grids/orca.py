@@ -33,11 +33,10 @@ def from_orca(
     """Regrid an ORCA curvilinear field onto a regular-grid :class:`Dataset`.
 
     The ``(ny, nx)`` coordinate arrays are treated as mesh nodes and stitched into
-    ``(ny - 1) * (nx - 1)`` quadrilateral faces. Each face takes the value of its
-    upper-left node (``data2d[:-1, :-1]``), so the last row and column of ``data2d``
-    are not represented as face values — they only contribute their node coordinates.
-    The resulting UGRID mesh is interpolated to a regular grid via
-    :meth:`UgridDataset.to_dataset`.
+    ``(ny - 1) * (nx - 1)`` quadrilateral faces. Each face value is the mean of its
+    four corner nodes, so every value in ``data2d`` (including the last row and column)
+    contributes to the result. The resulting UGRID mesh is interpolated to a regular
+    grid via :meth:`UgridDataset.to_dataset`.
 
     Args:
         lon2d: ``(ny, nx)`` array of node longitudes (x-coordinates).
@@ -117,12 +116,17 @@ def from_orca(
         ],
         axis=1,
     )
+    # Each face value is the mean of its four corner nodes, so every node in data2d
+    # contributes (no last row/column dropped).
+    face_values = 0.25 * (
+        data2d[:-1, :-1] + data2d[:-1, 1:] + data2d[1:, 1:] + data2d[1:, :-1]
+    )
 
     mesh = UgridDataset.create_from_arrays(
         node_x,
         node_y,
         faces,
-        data={"z": data2d[:-1, :-1].ravel()},
+        data={"z": face_values.ravel()},
         data_locations={"z": "face"},
         epsg=epsg,
     )
