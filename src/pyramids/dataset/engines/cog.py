@@ -198,8 +198,11 @@ class COG(_Engine):
             overview_compress: Compression for overview IFDs.
             tiling_scheme: e.g., `"GoogleMapsCompatible"` for a
                 web-optimized COG (EPSG:3857).
-            zoom_level, zoom_level_strategy, aligned_levels: Advanced
-                tiling-scheme knobs.
+            zoom_level: Advanced tiling-scheme knob: pin the maximum zoom level.
+            zoom_level_strategy: Advanced tiling-scheme knob: `auto` (default),
+                `lower`, or `upper` zoom-level selection.
+            aligned_levels: Advanced tiling-scheme knob: number of overview
+                levels aligned to the tiling scheme.
             resampling: Warp resampling when `tiling_scheme` or
                 `target_srs` reprojects.
             add_mask: Add an alpha band for transparency.
