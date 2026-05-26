@@ -317,6 +317,27 @@ class TestDownload:
         assert "x.zip" in str(exc.value), f"URL missing from message: {exc.value}"
         assert exc.value.__cause__ is not None, "original error should be chained"
 
+    def test_failed_download_leaves_no_temp_file(self, tmp_path, monkeypatch):
+        """_download cleans up its temp file when the download fails.
+
+        Args:
+            tmp_path: pytest temp directory (the download destination's parent).
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            With urlopen raising URLError, _download raises OSError and leaves no
+            files behind in the destination directory (no stray temp .zip).
+        """
+
+        def boom(request, *args, **kwargs):
+            raise urllib.error.URLError("no route to host")
+
+        monkeypatch.setattr(urllib.request, "urlopen", boom)
+        with pytest.raises(OSError):
+            features._download("https://example.com/x.zip", tmp_path / "x.zip")
+        leftovers = list(tmp_path.iterdir())
+        assert leftovers == [], f"temp file(s) left behind after failure: {leftovers}"
+
 
 class TestNaturalEarth:
     """Tests for :func:`pyramids.basemap.features.natural_earth`."""

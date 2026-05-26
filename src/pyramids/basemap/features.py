@@ -22,7 +22,7 @@ import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pyramids._io import _archive_dir_vsi, _archive_members
+from pyramids._io import _archive_dir_vsi, _archive_members, silent_unlink
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pyramids.feature import FeatureCollection
@@ -118,21 +118,23 @@ def _download(url: str, destination: Path) -> None:
     if not url.lower().startswith(("http://", "https://")):
         raise ValueError(f"refusing to download from non-HTTP(S) URL: {url!r}")
     request = urllib.request.Request(url, headers={"User-Agent": "pyramids-gis"})
+    fd, tmp_name = tempfile.mkstemp(suffix=".zip", dir=str(destination.parent))
+    os.close(fd)
+    tmp_path = Path(tmp_name)
     try:
         # scheme restricted to http(s) by the guard above
         with urllib.request.urlopen(request) as response:  # noqa: S310  # nosec B310
-            fd, tmp_name = tempfile.mkstemp(suffix=".zip", dir=str(destination.parent))
-            os.close(fd)
-            tmp_path = Path(tmp_name)
             with open(tmp_path, "wb") as handle:
                 shutil.copyfileobj(response, handle)
+        tmp_path.replace(destination)
     except OSError as exc:
+        # Don't leave a partial/empty temp archive behind on a failed download.
+        silent_unlink(str(tmp_path))
         raise OSError(
             f"failed to download Natural Earth data from {url!r}: {exc}. Check the "
             "network connection, or download the archive manually into the cache "
             f"directory ({destination.parent})."
         ) from exc
-    tmp_path.replace(destination)
 
 
 def _ensure_cached(layer: str, resolution: str) -> Path:
