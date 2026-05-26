@@ -177,6 +177,35 @@ def _epsg_from_db_match(srs: osr.SpatialReference) -> str | None:
     Returns:
         str | None: The matched CRS's EPSG code as a string, or ``None`` when
         there is no exact-confidence match.
+
+    Examples:
+        - A UTM PROJCS with its root authority stripped still matches the
+          database entry and yields its CRS code:
+            ```python
+            >>> from osgeo import osr
+            >>> ref = osr.SpatialReference()
+            >>> _ = ref.ImportFromEPSG(32618)
+            >>> wkt = ref.ExportToWkt()
+            >>> wkt = wkt[: wkt.rfind(",AUTHORITY")] + "]"
+            >>> _epsg_from_db_match(osr.SpatialReference(wkt=wkt))
+            '32618'
+
+            ```
+        - A custom spherical-earth GRIB GEOGCS matches nothing, so the
+          helper returns ``None``:
+            ```python
+            >>> from osgeo import osr
+            >>> grib_wkt = (
+            ...     'GEOGCS["Coordinate System imported from GRIB file",'
+            ...     'DATUM["unnamed",SPHEROID["Sphere",6371229,0]],'
+            ...     'PRIMEM["Greenwich",0],'
+            ...     'UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],'
+            ...     'AXIS["Latitude",NORTH],AXIS["Longitude",EAST]]'
+            ... )
+            >>> _epsg_from_db_match(osr.SpatialReference(wkt=grib_wkt)) is None
+            True
+
+            ```
     """
     matches = srs.FindMatches()
     if not matches:
@@ -190,13 +219,20 @@ def _epsg_from_db_match(srs: osr.SpatialReference) -> str | None:
 def get_epsg_from_prj(prj: str) -> int:
     """Return the EPSG code identified by a projection string.
 
-    Auto-identifies the EPSG from a WKT / ESRI WKT / Proj4 string.
+    Resolves the EPSG of the *root* CRS object in three steps:
+    :meth:`osr.SpatialReference.AutoIdentifyEPSG` (tags recognisable
+    CRSes), then the root ``AUTHORITY`` code, then an exact
+    :meth:`osr.SpatialReference.FindMatches` PROJ-database lookup for
+    well-known CRSes whose WKT lacks a root authority (e.g. a UTM
+    ``PROJCS`` from GDAL's AAIGrid driver). The code of a child
+    unit/datum node is never returned as if it were a CRS — that bug
+    (issue #403) made GRIB rasters resolve to the degree-unit EPSG:9122
+    and UTM ASCII grids to the WGS_1984 datum EPSG:6326.
 
-    an empty input string is no longer silently mapped to
-    `4326`. That legacy default masked real configuration errors.
-    Callers that genuinely want a fallback should handle the
-    `CRSError` themselves, or use :func:`epsg_from_wkt` which
-    accepts an explicit `default`.
+    An empty input string is no longer silently mapped to `4326`; that
+    legacy default masked real configuration errors. Callers that
+    genuinely want a fallback should handle the `CRSError` themselves,
+    or use :func:`epsg_from_wkt` which accepts an explicit `default`.
 
     Args:
         prj (str): Projection string.
@@ -227,6 +263,39 @@ def get_epsg_from_prj(prj: str) -> int:
             >>> _ = ref.ImportFromEPSG(3857)
             >>> get_epsg_from_prj(ref.ExportToWkt())
             3857
+
+            ```
+        - A well-known CRS whose WKT carries no root authority still
+          resolves, via an exact PROJ-database match (here a
+          "WGS 84 / UTM zone 18N" PROJCS with its root authority stripped):
+            ```python
+            >>> from osgeo import osr
+            >>> ref = osr.SpatialReference()
+            >>> _ = ref.ImportFromEPSG(32618)
+            >>> wkt = ref.ExportToWkt()
+            >>> wkt = wkt[: wkt.rfind(",AUTHORITY")] + "]"
+            >>> osr.SpatialReference(wkt=wkt).GetAuthorityCode(None) is None
+            True
+            >>> get_epsg_from_prj(wkt)
+            32618
+
+            ```
+        - A genuinely custom CRS that matches no database entry raises
+          `CRSError` rather than returning a child unit/datum code (here
+          GDAL's spherical-earth GRIB GEOGCS, whose only authority node is
+          the degree unit EPSG:9122):
+            ```python
+            >>> grib_wkt = (
+            ...     'GEOGCS["Coordinate System imported from GRIB file",'
+            ...     'DATUM["unnamed",SPHEROID["Sphere",6371229,0]],'
+            ...     'PRIMEM["Greenwich",0],'
+            ...     'UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],'
+            ...     'AXIS["Latitude",NORTH],AXIS["Longitude",EAST]]'
+            ... )
+            >>> get_epsg_from_prj(grib_wkt)
+            Traceback (most recent call last):
+                ...
+            pyramids.base._errors.CRSError: get_epsg_from_prj could not resolve an EPSG code ...
 
             ```
         - An empty projection string raises `CRSError` (a `ValueError` subclass):
@@ -330,6 +399,23 @@ def epsg_from_wkt(wkt: str, default: int = 4326) -> int:
             >>> ref = osr.SpatialReference()
             >>> _ = ref.ImportFromEPSG(3857)
             >>> epsg_from_wkt(ref.ExportToWkt())
+            3857
+
+            ```
+        - An unresolvable custom CRS falls back to `default` instead of
+          raising (here GDAL's spherical-earth GRIB GEOGCS):
+            ```python
+            >>> from pyramids.base.crs import epsg_from_wkt
+            >>> grib_wkt = (
+            ...     'GEOGCS["Coordinate System imported from GRIB file",'
+            ...     'DATUM["unnamed",SPHEROID["Sphere",6371229,0]],'
+            ...     'PRIMEM["Greenwich",0],'
+            ...     'UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],'
+            ...     'AXIS["Latitude",NORTH],AXIS["Longitude",EAST]]'
+            ... )
+            >>> epsg_from_wkt(grib_wkt)
+            4326
+            >>> epsg_from_wkt(grib_wkt, default=3857)
             3857
 
             ```
