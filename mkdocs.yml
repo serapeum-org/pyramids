@@ -177,6 +177,7 @@ nav:
           - South America: examples/dataset/south-america.ipynb
           - Cloud Optimized GeoTIFFs: tutorials/cog.md
           - COG basics (offline): examples/cog/cog-basics.ipynb
+          - COG with real data: examples/cog/cog-real-data.ipynb
           - Dask (Sentinel-2 COGs on AWS): examples/dataset/dask-lazy-datasets.ipynb
           - Dask — Dataset (local data): examples/dataset/lazy-dataset-complete.ipynb
           - Dask — DatasetCollection (local data): examples/dataset/lazy-collection-complete.ipynb
