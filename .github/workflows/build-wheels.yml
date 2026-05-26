@@ -3,11 +3,8 @@ name: Build Platform Wheels
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-    # Only run the (expensive) wheel matrix on PRs that touch packaging —
-    # not on every PR to main. Other triggers: push to main, workflow_run
-    # after github-release, and manual dispatch.
+#   pull_request:
+#     branches: [main]
 #     paths:
 #       - "pyproject.toml"
 #       - "setup.py"
