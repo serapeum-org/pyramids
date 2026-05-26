@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.25.0 (2026-05-26)
+
+### Feat
+
+- add grid adapters, unit conversion, and Natural Earth features (#407)
+
 ## 0.24.1 (2026-05-26)
 
 ### Fix
