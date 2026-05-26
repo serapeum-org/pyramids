@@ -44,7 +44,8 @@ def merge_rasters(
 ) -> None:
     """Merge a group of rasters into one raster, resolving overlaps by ``method``.
 
-    The overlap-resolution rule mirrors ``rasterio.merge(method=…)``:
+    The overlap-resolution ``method`` selects how overlapping pixels are
+    combined:
 
     * ``"last"`` (default) / ``"first"`` — z-order compositing: the last (or
       first) source covering a pixel wins. Implemented cheaply with

@@ -94,19 +94,27 @@ def translate_to_cog(
             "Install GDAL >= 3.4 via conda-forge (`pixi install -e dev`)."
         )
 
-    path = Path(path)
-    if not path.parent.exists():
-        raise FileNotFoundError(f"Parent directory does not exist: {path.parent}")
+    # GDAL virtual-filesystem paths (/vsimem/, /vsis3/, /vsicurl/, ...) have no
+    # real parent directory and must not be routed through Path() — on Windows
+    # that rewrites the forward slashes and breaks the VSI handler dispatch.
+    path_str = path if isinstance(path, str) else str(path)
+    if path_str.startswith("/vsi"):
+        dest = path_str
+    else:
+        path = Path(path)
+        if not path.parent.exists():
+            raise FileNotFoundError(f"Parent directory does not exist: {path.parent}")
+        dest = str(path)
 
     validate_option_keys(options)
     gdal_opts = to_gdal_options(options)
 
-    logger.debug("translate_to_cog: %s -> %s", src.GetDescription(), path)
+    logger.debug("translate_to_cog: %s -> %s", src.GetDescription(), dest)
     src.FlushCache()
 
     dst: gdal.Dataset | None
     try:
-        dst = driver.CreateCopy(str(path), src, 0, options=gdal_opts)
+        dst = driver.CreateCopy(dest, src, 0, options=gdal_opts)
     except RuntimeError as exc:
         raise FailedToSaveError(
             f"GDAL COG CreateCopy failed for {path}: {exc}"

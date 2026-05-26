@@ -56,8 +56,7 @@ _FORBIDDEN_PLOT_KWARGS: dict[str, str] = {
     ),
     "percentile": (
         "NetCDF.plot() does not accept `percentile=`: `percentile` is "
-        "Sentinel-only; use `ColourOpts(robust=True)` (2nd/98th percentile, "
-        "xarray-style)."
+        "Sentinel-only; use `ColourOpts(robust=True)` (2nd/98th percentile)."
     ),
     "overview": (
         "NetCDF.plot() does not accept `overview=`: Overviews are a "
@@ -715,8 +714,8 @@ class NetCDFPlot:
 
         Raises:
             KeyError: When ``animate`` is a string that does not name
-                one of the variable's band dims (mirrors xarray's
-                ``KeyError`` for an unknown dimension name).
+                one of the variable's band dims (a ``KeyError`` for an
+                unknown dimension name).
             ValueError: On the other failure modes — empty band dims,
                 ``animate=True`` with multiple/zero free band dims, a
                 non-``True``/non-``str`` value, conflict with faceting,

@@ -465,10 +465,9 @@ class IO(_Engine):
     ) -> None:
         """Write an array (or a sub-window of one) into the dataset in place.
 
-        Patches the dataset without rewriting the whole raster — the
-        rasterio-``DatasetWriter.write(window=…)`` equivalent. Specify the target
-        location with either ``top_left_corner`` (a ``[row, col]`` offset) or the
-        rasterio-style ``window`` (``(row_off, col_off, n_rows, n_cols)``); with
+        Patches the dataset without rewriting the whole raster. Specify the target
+        location with either ``top_left_corner`` (a ``[row, col]`` offset) or a
+        ``window`` (``(row_off, col_off, n_rows, n_cols)``); with
         ``window`` the array's spatial shape is checked against the window size.
         Pass ``band`` to write into a single band.
 
@@ -532,7 +531,7 @@ class IO(_Engine):
 
               ```
 
-            - Patch a sub-window with the rasterio-style ``window`` form:
+            - Patch a sub-window with the ``window`` form:
 
               ```python
               >>> import numpy as np
@@ -710,9 +709,8 @@ class IO(_Engine):
                 Optional lock object reserved for cluster-wide write
                 coordination. GeoTIFF writes are serialized by GDAL's
                 own file lock regardless, so this kwarg is currently a
-                no-op — supplied for rioxarray API parity and to
-                future-proof the signature for when we add per-tile
-                parallel writes.
+                no-op — supplied to future-proof the signature for when
+                we add per-tile parallel writes.
 
         Examples:
             - Create a Dataset with 4 bands, 5 rows, 5 columns, at the point lon/lat (0, 0):
@@ -794,7 +792,7 @@ class IO(_Engine):
         compute: bool = True,
         lock: Any = None,
     ) -> Any:
-        """Alias of :meth:`to_file` for rioxarray API parity.
+        """Alias of :meth:`to_file` for API convenience.
 
         Forwards every argument to :meth:`to_file`; see that method's
         documentation for the full contract.

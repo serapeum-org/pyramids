@@ -16,6 +16,7 @@ hardware-dependent.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import geopandas as gpd
@@ -152,6 +153,12 @@ class TestNoBboxIgnoresStrategy:
 @pytest.mark.skipif(
     importlib.util.find_spec("pyarrow") is None,
     reason="pyarrow not installed (install with pyramids-gis[parquet])",
+)
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="GDAL Parquet driver fails to load duckdb.dll on Windows (conda-forge "
+    "libgdal-arrow-parquet native-lib gap); the row_group pushdown path is "
+    "exercised on Linux/macOS CI.",
 )
 class TestRowGroupParquet:
     """``row_group`` on a Parquet file exercises the pyarrow pushdown path."""

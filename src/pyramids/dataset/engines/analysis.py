@@ -487,7 +487,7 @@ class Analysis(_Engine):
         masked: bool = False,
         on_out_of_bounds: str = "nodata",
     ) -> np.ndarray:
-        """Sample band values at point coordinates (rasterio ``sample`` parity).
+        """Sample band values at point coordinates.
 
         The memory- and out-of-bounds-safe counterpart to
         :meth:`extract` with a point mask. Each point is mapped to its
@@ -665,7 +665,7 @@ class Analysis(_Engine):
         connectedness: int = 4,
         mask: Dataset | None = None,
     ) -> Dataset:
-        """Remove small pixel clumps with ``gdal.SieveFilter`` (rasterio ``sieve``).
+        """Remove small pixel clumps with ``gdal.SieveFilter``.
 
         Raster polygons — connected groups of identical-value pixels — smaller
         than ``threshold`` pixels are dissolved into their largest neighbour.

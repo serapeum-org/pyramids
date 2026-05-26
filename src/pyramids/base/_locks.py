@@ -6,9 +6,8 @@ Three shapes are exported:
   plus a process-wide `WeakValueDictionary` of `token -> Lock`.
   Pickling only transmits the token, so unpickled copies in the same
   process map back to the same underlying :class:`threading.Lock`
-  while different processes get independent locks. This is the shape
-  rioxarray / xarray use for dask-backed IO and is the correct
-  default for pyramids' lazy read paths.
+  while different processes get independent locks. This is the correct
+  default for pyramids' lazy / dask-backed read paths.
 * :class:`DummyLock` — a no-op lock that never blocks. Used when a
   caller passes `lock=False` to opt into lock-free reads (per-thread
   handle, no cross-thread mutex — good for cloud COG reads where
@@ -45,8 +44,6 @@ class SerializableLock:
     a new lock in the target process (correct for cross-process dask
     because different processes should not share a Python-level
     mutex).
-
-    Modeled on :class:`xarray.backends.locks.SerializableLock`.
 
     Examples:
         - Two instances with the same token share the underlying lock:

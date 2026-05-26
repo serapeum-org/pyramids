@@ -6,9 +6,9 @@ chunk file. This module provides two helpers wrapped by
 :meth:`Dataset.to_zarr` and :meth:`Dataset.from_zarr`:
 
 * :func:`write_dataset_to_zarr` — serialises a :class:`Dataset` (eager
-  or dask-backed) to a Zarr store using the geobox-metadata convention
-  that rioxarray / xarray expect, so the output round-trips through
-  `rioxarray.open_rasterio(store)` without bespoke glue.
+  or dask-backed) to a Zarr store using a standard `crs_wkt` /
+  `GeoTransform` geobox-metadata convention, so the output round-trips
+  through standard Zarr raster readers without bespoke glue.
 * :func:`read_dataset_from_zarr` — opens a Zarr store and constructs a
   :class:`Dataset` with the recovered geobox.
 
@@ -48,7 +48,7 @@ def _require_zarr() -> Any:
 
 
 def _metadata_dict(ds: Dataset) -> dict[str, Any]:
-    """Return the pyramids-convention attr dict that rioxarray can read."""
+    """Return the standard CRS / GeoTransform geobox attr dict for the store."""
     srs = sr_from_epsg(int(ds.epsg))
     nodata_tuple = ds.no_data_value
     return {

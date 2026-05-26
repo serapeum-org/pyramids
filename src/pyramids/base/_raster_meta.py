@@ -7,9 +7,8 @@ DatasetCollection lazy path reads per-file data through a
 :class:`~pyramids.base._file_manager.CachingFileManager` and only
 needs the metadata at construction time.
 
-We deliberately avoid :class:`odc.geo.GeoBox` + :class:`affine.Affine`
-here — the geotransform is stored as a plain tuple, and :class:`pyproj.CRS`
-comes free via geopandas. No new optional dependency is introduced.
+The geotransform is stored as a plain 6-tuple and the CRS as a
+:class:`pyproj.CRS`, so no extra geometry/affine dependency is introduced.
 """
 
 from __future__ import annotations

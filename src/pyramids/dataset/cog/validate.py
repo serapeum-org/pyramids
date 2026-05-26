@@ -14,11 +14,89 @@ Returns a :class:`ValidationReport` — a frozen dataclass usable as a
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from osgeo import gdal
+
+from pyramids.dataset.cog.options import COG_READ_DEFAULTS
+
+
+@contextmanager
+def config_context(config: dict[str, str] | None) -> Iterator[None]:
+    """Apply GDAL config options for the duration of the block.
+
+    Prefers :func:`gdal.config_options` (GDAL >= 3.3) and falls back to manually
+    setting and restoring each option on older builds, so callers never need to
+    probe for the context manager themselves.
+
+    Args:
+        config: Mapping of GDAL config option names to values, or ``None`` /
+            empty to apply nothing.
+
+    Yields:
+        None: control returns to the ``with`` body with the options applied.
+    """
+    if not config:
+        yield
+        return
+    options_cm = getattr(gdal, "config_options", None)
+    if options_cm is not None:
+        with options_cm(config):
+            yield
+        return
+    previous = {key: gdal.GetConfigOption(key, None) for key in config}
+    try:
+        for key, value in config.items():
+            gdal.SetConfigOption(key, value)
+        yield
+    finally:
+        for key, old in previous.items():
+            gdal.SetConfigOption(key, old)
+
+_REMOTE_PREFIXES: tuple[str, ...] = (
+    "/vsicurl",
+    "/vsis3",
+    "/vsigs",
+    "/vsiaz",
+    "/vsioss",
+    "/vsiswift",
+    "http://",
+    "https://",
+)
+
+
+def _is_remote(path: str) -> bool:
+    """Return ``True`` for a remote / network-backed path.
+
+    Args:
+        path: A local path or ``/vsi*`` path.
+
+    Returns:
+        bool: ``True`` for ``/vsicurl``/cloud-VSI/HTTP(S) paths.
+    """
+    return path.startswith(_REMOTE_PREFIXES) or "://" in path
+
+
+def _resolve_read_config(
+    path: str, config: dict[str, str] | None
+) -> dict[str, str] | None:
+    """Pick the GDAL config to apply for a read.
+
+    Args:
+        path: The path being read.
+        config: An explicit config, or ``None``.
+
+    Returns:
+        ``config`` when given; otherwise
+        :data:`~pyramids.dataset.cog.options.COG_READ_DEFAULTS` for remote
+        paths, else ``None``.
+    """
+    if config is not None:
+        return config
+    return dict(COG_READ_DEFAULTS) if _is_remote(path) else None
 
 
 @dataclass(frozen=True)
@@ -216,6 +294,9 @@ def _fallback_validate(
         `(errors, warnings, details)` — same convention as
         :func:`_osgeo_validate`.
     """
+    # Locale-independent missing-file pre-check (ARC-6): each validator path
+    # owns this so validate() needs no redundant outer call.
+    _raise_if_missing(path)
     errors: list[str] = []
     warnings: list[str] = ["using fallback validator; osgeo_utils sample unavailable"]
     details: dict[str, Any] = {}
@@ -237,7 +318,57 @@ def _fallback_validate(
     return errors, warnings, details
 
 
-def validate(path: str | Path, strict: bool = False) -> ValidationReport:
+def _probe_overview_layout(path: str) -> dict[str, Any]:
+    """Cheaply read the tile size and overview pyramid layout of a raster.
+
+    Metadata-only (no pixel reads). Returns an empty dict when the file cannot
+    be opened — callers merge the result into a richer ``details`` dict.
+
+    Args:
+        path: Local path or ``/vsi*`` path.
+
+    Returns:
+        A dict with ``blocksize`` (``[bx, by]``), ``overview_count`` (int), and
+        ``overviews`` (a list of per-level dicts with ``index``, ``width``,
+        ``height``, ``blocksize``, ``decimation``). Empty when unreadable.
+    """
+    out: dict[str, Any] = {}
+    try:
+        ds = gdal.Open(path)
+    except RuntimeError:
+        return out
+    if ds is None:
+        return out
+    try:
+        band = ds.GetRasterBand(1)
+        block_x, block_y = band.GetBlockSize()
+        width = ds.RasterXSize
+        overviews = []
+        for i in range(band.GetOverviewCount()):
+            ovr = band.GetOverview(i)
+            obx, oby = ovr.GetBlockSize()
+            overviews.append(
+                {
+                    "index": i,
+                    "width": ovr.XSize,
+                    "height": ovr.YSize,
+                    "blocksize": [obx, oby],
+                    "decimation": round(width / ovr.XSize) if ovr.XSize else 0,
+                }
+            )
+        out["blocksize"] = [block_x, block_y]
+        out["overview_count"] = len(overviews)
+        out["overviews"] = overviews
+    finally:
+        ds = None
+    return out
+
+
+def validate(
+    path: str | Path,
+    strict: bool = False,
+    config: dict[str, str] | None = None,
+) -> ValidationReport:
     """Validate that the file at `path` is a valid Cloud Optimized GeoTIFF.
 
     Delegates to `osgeo_utils.samples.validate_cloud_optimized_geotiff`
@@ -247,6 +378,11 @@ def validate(path: str | Path, strict: bool = False) -> ValidationReport:
     Args:
         path: Local path or `/vsi*` VSI path.
         strict: If `True`, warnings are promoted to errors.
+        config: GDAL config options applied (via `gdal.config_options`) for
+            the duration of the validation. When `None` and `path` is a
+            remote/`/vsicurl` path, the
+            :data:`~pyramids.dataset.cog.options.COG_READ_DEFAULTS` are
+            applied so remote reads avoid a directory-listing round-trip.
 
     Returns:
         ValidationReport: Includes `is_valid`, error/warning lists,
@@ -284,12 +420,19 @@ def validate(path: str | Path, strict: bool = False) -> ValidationReport:
             ```
     """
     p = str(path)
-    _raise_if_missing(p)
-
-    try:
-        errors, warnings, details = _osgeo_validate(p)
-    except ImportError:  # pragma: no cover — osgeo_utils is a hard dep of GDAL
-        errors, warnings, details = _fallback_validate(p)
+    cfg = _resolve_read_config(p, config)
+    with config_context(cfg):
+        # The missing-file pre-check lives in each validator path
+        # (_osgeo_validate / _fallback_validate), so no redundant outer call
+        # here (ARC-6).
+        try:
+            errors, warnings, details = _osgeo_validate(p)
+        except ImportError:  # pragma: no cover — osgeo_utils is a hard dep of GDAL
+            errors, warnings, details = _fallback_validate(p)
+        # Enrich with the per-overview layout (PC-4) so a report is
+        # self-sufficient for debugging "why is this slow / not a COG" without
+        # a second cog_info() call. Existing validator keys win on conflict.
+        details = {**_probe_overview_layout(p), **dict(details)}
 
     if strict:
         errors = list(errors) + list(warnings)

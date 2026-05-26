@@ -7,19 +7,35 @@ Owns the COG family of operations on a Dataset. Accessed as
 
 from __future__ import annotations
 
+import math
+import uuid
 import warnings
 from pathlib import Path
 from typing import Any, Mapping
 
+import numpy as np
 from osgeo import gdal
+from pyproj import Transformer
 
+from pyramids.base._errors import FailedToSaveError, OutOfBoundsError
+from pyramids.base._utils import (
+    default_cog_overview_resampling,
+    is_integer_gdal_dtype,
+    numpy_to_gdal_dtype,
+    resolve_cog_predictor,
+)
 from pyramids.dataset.cog import (
+    COGInfo,
     ValidationReport,
+    cog_info,
     merge_options,
+    profile_options,
     translate_to_cog,
     validate,
     validate_blocksize,
+    validate_profile,
 )
+from pyramids.dataset.cog.validate import _resolve_read_config, config_context
 from pyramids.dataset.engines._base import _Engine
 
 _AVERAGING_RESAMPLERS: frozenset[str] = frozenset(
@@ -27,43 +43,95 @@ _AVERAGING_RESAMPLERS: frozenset[str] = frozenset(
 )
 
 
-_INTEGER_DTYPES: frozenset[int] = frozenset(
-    {
-        gdal.GDT_Byte,
-        gdal.GDT_UInt16,
-        gdal.GDT_Int16,
-        gdal.GDT_UInt32,
-        gdal.GDT_Int32,
-        gdal.GDT_UInt64,
-        gdal.GDT_Int64,
-        gdal.GDT_Int8,
-    }
-)
+_RESAMPLING_ALG: dict[str, int] = {
+    "nearest": gdal.GRIORA_NearestNeighbour,
+    "bilinear": gdal.GRIORA_Bilinear,
+    "cubic": gdal.GRIORA_Cubic,
+    "cubicspline": gdal.GRIORA_CubicSpline,
+    "lanczos": gdal.GRIORA_Lanczos,
+    "average": gdal.GRIORA_Average,
+    "mode": gdal.GRIORA_Mode,
+}
+"""Map a resampling name to its GDAL ``GRIORA_*`` decimated-read algorithm."""
+
+
+_PALETTE_GDAL_DTYPES: frozenset[int] = frozenset({gdal.GDT_Byte, gdal.GDT_UInt16})
+"""GDAL dtypes for which a colour table (palette) is meaningful."""
+
+
+_WEB_MERCATOR_HALF_EXTENT: float = 20037508.342789244
+"""Half the Web-Mercator (EPSG:3857) world extent in metres."""
+
+
+def _xyz_bounds_3857(z: int, x: int, y: int) -> tuple[float, float, float, float]:
+    """Return the EPSG:3857 bounds of an XYZ/slippy-map tile.
+
+    Args:
+        z: Zoom level (>= 0).
+        x: Tile column index in ``[0, 2**z)``.
+        y: Tile row index in ``[0, 2**z)`` (origin at the top-left / north-west).
+
+    Returns:
+        ``(west, south, east, north)`` in EPSG:3857 metres.
+
+    Examples:
+        - The single tile at zoom 0 spans the whole Web-Mercator world:
+            ```python
+            >>> w, s, e, n = _xyz_bounds_3857(0, 0, 0)
+            >>> round(w), round(s), round(e), round(n)
+            (-20037508, -20037508, 20037508, 20037508)
+
+            ```
+        - Tile (0, 0) at zoom 1 is the north-west quadrant:
+            ```python
+            >>> w, s, e, n = _xyz_bounds_3857(1, 0, 0)
+            >>> round(w), round(n)
+            (-20037508, 20037508)
+            >>> round(e), round(s)
+            (0, 0)
+
+            ```
+    """
+    r = _WEB_MERCATOR_HALF_EXTENT
+    n_tiles = 2**z
+    span = (2 * r) / n_tiles
+    west = -r + x * span
+    east = -r + (x + 1) * span
+    north = r - y * span
+    south = r - (y + 1) * span
+    return west, south, east, north
 
 
 class COG(_Engine):
     """Cloud Optimized GeoTIFF read/write/validate operations for `Dataset`.
 
     Owns the real implementations of `to_cog`, `is_cog` (property),
-    and `validate_cog` after L-2 PR 2.2. `Dataset` exposes a
-    same-named facade for each so `ds.to_cog(...)` and
-    `ds.cog.to_cog(...)` are equivalent. The categorical-raster
-    resampling guardrail (`_warn_if_categorical_with_averaging`)
-    lives here too.
+    and `validate_cog`. `Dataset` exposes a same-named facade for each
+    so `ds.to_cog(...)` and `ds.cog.to_cog(...)` are equivalent.
+
+    `to_cog` is the **single owner of COG write policy**: it applies the
+    house defaults, resolves the dtype-aware predictor and overview
+    resampling, and runs the `STATISTICS` retry. The
+    :func:`pyramids.dataset.cog.write_cog` facade is a thin delegator that
+    only normalises its input and forwards overrides here, so both entry
+    points produce identical output for identical input. The
+    categorical-raster resampling guardrail
+    (`_warn_if_categorical_with_averaging`) lives here too.
     """
 
     def to_cog(
         self,
         path: str | Path,
         *,
-        compress: str = "DEFLATE",
+        profile: str | None = None,
+        compress: str | None = None,
         level: int | None = None,
         quality: int | None = None,
         blocksize: int = 512,
         predictor: str | int | None = None,
         bigtiff: str = "IF_SAFER",
         num_threads: int | str = "ALL_CPUS",
-        overview_resampling: str = "nearest",
+        overview_resampling: str | None = None,
         overview_count: int | None = None,
         overview_compress: str | None = None,
         tiling_scheme: str | None = None,
@@ -75,12 +143,25 @@ class COG(_Engine):
         sparse_ok: bool = False,
         target_srs: int | str | None = None,
         statistics: bool = True,
+        indexes: list[int] | None = None,
+        out_dtype: str | None = None,
+        nodata: float | int | None = None,
+        band_tags: dict[int, dict[str, Any]] | None = None,
+        colormap: dict[int, tuple[int, int, int, int]] | None = None,
+        metadata: dict[str, Any] | None = None,
+        config: dict[str, str] | None = None,
         extra: Mapping[str, Any] | list[str] | None = None,
     ) -> Path:
         """Save the dataset as a Cloud Optimized GeoTIFF.
 
         Args:
             path: Destination path. Parent directory must exist.
+            profile: Named compression preset (case-insensitive) — one of
+                `deflate`, `zstd`, `lzw`, `packbits`, `jpeg`, `webp`,
+                `lerc`, `lerc_deflate`, `lerc_zstd`, `raw`. Seeds the
+                compression options; explicit `compress`/`level`/`quality`
+                and `extra` override it. `jpeg`/`webp` enforce dtype/band
+                constraints (Byte; 1-3 / 3-4 bands).
             compress: Compression method. `DEFLATE`, `LZW`, and
                 `NONE` are guaranteed by every GDAL build. `JPEG`
                 is almost always available. `ZSTD`, `WEBP`,
@@ -101,18 +182,30 @@ class COG(_Engine):
             quality: Lossy-compression quality 1-100 (JPEG/WEBP).
             blocksize: Internal tile size; power of 2 in [64, 4096].
             predictor: `"YES"`/`"STANDARD"`/`"FLOATING_POINT"` or 1/2/3.
+                Defaults to `None`, which auto-resolves per the source
+                dtype: `2` (horizontal differencing) for integer rasters,
+                `3` (floating-point predictor) for float rasters. Pass an
+                explicit value to override.
             bigtiff: `"IF_SAFER"` (default), `"YES"`, `"NO"`,
                 `"IF_NEEDED"`.
             num_threads: Worker threads; `"ALL_CPUS"` or an int.
             overview_resampling: `nearest`, `average`, `bilinear`,
                 `cubic`, `cubicspline`, `lanczos`, `mode`,
-                `rms`, `gauss`.
+                `rms`, `gauss`. Defaults to `None`, which auto-resolves
+                per the source dtype: `mode` for categorical sources
+                (integer dtype or a colour table) and `average` for
+                continuous (float) sources. The categorical guardrail
+                warns only when *you* explicitly pass an averaging method
+                on categorical data — never for this auto-resolved default.
             overview_count: Number of overview levels (default: auto).
             overview_compress: Compression for overview IFDs.
             tiling_scheme: e.g., `"GoogleMapsCompatible"` for a
                 web-optimized COG (EPSG:3857).
-            zoom_level, zoom_level_strategy, aligned_levels: Advanced
-                tiling-scheme knobs.
+            zoom_level: Advanced tiling-scheme knob: pin the maximum zoom level.
+            zoom_level_strategy: Advanced tiling-scheme knob: `auto` (default),
+                `lower`, or `upper` zoom-level selection.
+            aligned_levels: Advanced tiling-scheme knob: number of overview
+                levels aligned to the tiling scheme.
             resampling: Warp resampling when `tiling_scheme` or
                 `target_srs` reprojects.
             add_mask: Add an alpha band for transparency.
@@ -120,6 +213,25 @@ class COG(_Engine):
             target_srs: Reproject before write. Int for EPSG or a WKT
                 / PROJ string.
             statistics: Compute and embed band statistics.
+            indexes: 0-based band indices to keep, in order (e.g. `[3, 2, 1]`
+                to select and reorder bands). `None` keeps all bands. When
+                set, the source is pre-processed through an in-memory
+                `gdal.Translate` before the COG write.
+            out_dtype: Output NumPy dtype name to cast to (e.g. `"uint8"`,
+                `"int16"`). `None` keeps the source dtype. The dtype-aware
+                predictor is resolved from the *post-cast* dtype.
+            nodata: NoData value to set on the output. `None` keeps the
+                source NoData.
+            band_tags: Per-band metadata to stamp onto the output, keyed by
+                0-based band index, e.g. `{0: {"name": "NDVI"}}`. Useful when
+                the source is a bare array/DataArray that carries no band
+                descriptions.
+            colormap: Palette to attach to band 1, mapping pixel value to an
+                `(R, G, B, A)` tuple, e.g. `{0: (0, 0, 0, 255), 1: (255, 0, 0, 255)}`.
+            metadata: Dataset-level metadata items to stamp onto the output.
+            config: GDAL config options (e.g. `{"GDAL_NUM_THREADS": "4"}`)
+                applied via `gdal.config_options` for the duration of the
+                write. `None` (default) applies no extra config.
             extra: Additional GDAL creation options as a mapping or
                 legacy `['KEY=VALUE',...]` list. Overrides
                 conflicting kwargs.
@@ -142,6 +254,18 @@ class COG(_Engine):
             Setting `tiling_scheme` (e.g., `GoogleMapsCompatible`)
             implies a specific SRS — `target_srs` is ignored in that
             case. A `UserWarning` is emitted if both are provided.
+
+        Note:
+            **Larger-than-RAM / parallel writes.** The GDAL COG driver does the
+            two-pass overview layout internally and *streams* from the source
+            dataset, so a raster bigger than RAM can be COG-encoded as long as
+            the source is **on-disk** (or a `/vsi*` file) rather than a fully
+            in-RAM array — anchor a MEM dataset with `to_file(path)` first if
+            needed. There is no truly dask-parallel COG writer yet:
+            `to_file(compute=False)` returns a `dask.delayed` that wraps the
+            *synchronous* GDAL write (GeoTIFF writes are serialised by GDAL's
+            own file lock), so it defers *scheduling*, not memory or per-tile
+            parallelism. For parallel cloud writes use a Zarr-backed output.
 
         Examples:
             - Write a compressed COG from an in-memory Dataset:
@@ -176,7 +300,6 @@ class COG(_Engine):
                 ```
         """
         validate_blocksize(blocksize)
-        self._warn_if_categorical_with_averaging(overview_resampling)
         if tiling_scheme is not None and target_srs is not None:
             warnings.warn(
                 "Both tiling_scheme and target_srs provided; "
@@ -186,13 +309,70 @@ class COG(_Engine):
             )
             target_srs = None
 
+        # Build the effective source (PB-4): when band-subsetting, casting the
+        # dtype, or (re)setting NoData, pre-process through an in-memory
+        # gdal.Translate so the predictor/overview policy below — and the COG
+        # write itself — see the *output* bands, not the original source.
+        source_ds, source_band0 = self._effective_source(
+            indexes, out_dtype, nodata, band_tags, colormap, metadata
+        )
+
+        # Resolve a named profile (PB-5): it seeds the compression options;
+        # explicit kwargs and `extra` override it. jpeg/webp enforce dtype/band
+        # constraints against the *effective* source.
+        profile_opts: dict[str, Any] = {}
+        if profile is not None:
+            validate_profile(
+                profile,
+                gdal.GetDataTypeName(source_band0.DataType),
+                source_ds.RasterCount,
+            )
+            profile_opts = profile_options(profile)
+        eff_compress = (
+            compress
+            if compress is not None
+            else profile_opts.get("COMPRESS", "DEFLATE")
+        )
+        eff_level = level if level is not None else profile_opts.get("LEVEL")
+        eff_quality = quality if quality is not None else profile_opts.get("QUALITY")
+        profile_extra = {
+            k: v
+            for k, v in profile_opts.items()
+            if k not in ("COMPRESS", "LEVEL", "QUALITY")
+        }
+
+        # Single house policy lives here (ARC-1): `to_cog` resolves the
+        # dtype-dependent defaults so a direct `ds.to_cog(...)` and the
+        # `write_cog(...)` facade — which now just delegates here — produce
+        # identical output for identical input.
+        if predictor is None:
+            # Per-dtype predictor (ARC-2): 2 for integer, 3 for float. GeoTIFF
+            # bands share a dtype, so band 0 decides for the whole file. Pass an
+            # explicit `predictor=` to override for an (atypical) mixed source.
+            predictor = resolve_cog_predictor(source_band0.DataType)
+        caller_chose_resampling = overview_resampling is not None
+        if overview_resampling is None:
+            # Category-safe default (ARC-3): `mode` for integer/colour-table
+            # sources, `average` for continuous. Chosen so the default never
+            # corrupts categorical rasters and never trips the guardrail below.
+            overview_resampling = default_cog_overview_resampling(
+                source_band0.DataType, source_band0.GetColorTable() is not None
+            )
+        if caller_chose_resampling:
+            # Only warn when the *caller* explicitly asked for an averaging
+            # resampler on categorical data — never for a default we picked.
+            self._warn_if_categorical_with_averaging(
+                overview_resampling, band=source_band0
+            )
+
         num_threads_str = (
             num_threads if isinstance(num_threads, str) else str(num_threads)
         )
         defaults: dict[str, Any] = {
-            "COMPRESS": compress,
-            "LEVEL": level,
-            "QUALITY": quality,
+            "COMPRESS": eff_compress,
+            "LEVEL": eff_level,
+            "QUALITY": eff_quality,
+            **profile_extra,
             "BLOCKSIZE": blocksize,
             "PREDICTOR": predictor,
             "BIGTIFF": bigtiff,
@@ -215,15 +395,210 @@ class COG(_Engine):
             )
 
         options = merge_options(defaults, extra)
-
-        dst: gdal.Dataset | None = None
-        try:
-            dst = translate_to_cog(self._ds._raster, path, options)
-            dst.FlushCache()
-        finally:
-            dst = None
-
+        with config_context(config):
+            self._translate_with_statistics_retry(path, options, src=source_ds)
         return Path(path)
+
+    def _effective_source(
+        self,
+        indexes: list[int] | None,
+        out_dtype: str | None,
+        nodata: float | int | None,
+        band_tags: dict[int, dict[str, Any]] | None = None,
+        colormap: dict[int, tuple[int, int, int, int]] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> tuple[gdal.Dataset, Any]:
+        """Return the source dataset (optionally pre-processed) and its band 0.
+
+        When band-subsetting / dtype-casting / setting NoData (PB-4) the backing
+        raster is run through an in-memory ``gdal.Translate``; when stamping
+        band tags / colourmap / metadata (PC-2) it is copied to a MEM dataset
+        first so the user's open dataset is **never mutated**. With neither, the
+        backing raster is returned unchanged.
+
+        Args:
+            indexes: 0-based band indices to keep/reorder, or ``None``.
+            out_dtype: Output NumPy dtype name to cast to, or ``None``.
+            nodata: NoData value to set, or ``None``.
+            band_tags: Per-band metadata keyed by 0-based band index, or ``None``.
+            colormap: Palette for band 1 (value -> RGBA), or ``None``.
+            metadata: Dataset-level metadata, or ``None``.
+
+        Returns:
+            A ``(dataset, band1)`` tuple where ``band1`` is GDAL band 1 of the
+            returned dataset (used for predictor/resampling resolution).
+        """
+        needs_translate = (
+            indexes is not None or out_dtype is not None or nodata is not None
+        )
+        needs_stamp = bool(band_tags or colormap or metadata)
+        if not needs_translate and not needs_stamp:
+            ds = self._ds._raster
+            return ds, ds.GetRasterBand(1)
+
+        if needs_translate:
+            translate_kwargs: dict[str, Any] = {}
+            if indexes is not None:
+                # pyramids band indices are 0-based; GDAL bandList is 1-based.
+                translate_kwargs["bandList"] = [i + 1 for i in indexes]
+            if out_dtype is not None:
+                translate_kwargs["outputType"] = numpy_to_gdal_dtype(out_dtype)
+            if nodata is not None:
+                translate_kwargs["noData"] = nodata
+            mem = gdal.Translate(
+                "", self._ds._raster, format="MEM", **translate_kwargs
+            )
+        else:
+            # Stamp-only: copy so the user's dataset is not mutated.
+            mem = gdal.GetDriverByName("MEM").CreateCopy("", self._ds._raster)
+        if mem is None:
+            raise FailedToSaveError(
+                "failed to build the pre-processed COG source "
+                f"(indexes={indexes}, out_dtype={out_dtype}, nodata={nodata})"
+            )
+        if needs_stamp:
+            self._stamp_metadata(mem, band_tags, colormap, metadata)
+        return mem, mem.GetRasterBand(1)
+
+    @staticmethod
+    def _stamp_metadata(
+        ds: gdal.Dataset,
+        band_tags: dict[int, dict[str, Any]] | None,
+        colormap: dict[int, tuple[int, int, int, int]] | None,
+        metadata: dict[str, Any] | None,
+    ) -> None:
+        """Stamp band tags / colourmap / dataset metadata onto a MEM dataset.
+
+        Args:
+            ds: The (copied) dataset to mutate.
+            band_tags: Per-band metadata keyed by 0-based band index.
+            colormap: Palette for band 1 (value -> RGBA tuple). GeoTIFF only
+                supports a colour table on a single-band `Byte` / `UInt16`
+                raster; a `ValueError` is raised up-front for other dtypes
+                (GDAL would otherwise fail deep in `CreateCopy`).
+            metadata: Dataset-level metadata items.
+
+        Raises:
+            ValueError: When `colormap` is applied to a band whose dtype is
+                not `Byte`/`UInt16`.
+        """
+        if metadata:
+            ds.SetMetadata({str(k): str(v) for k, v in metadata.items()})
+        if colormap:
+            band = ds.GetRasterBand(1)
+            if band.DataType not in _PALETTE_GDAL_DTYPES:
+                raise ValueError(
+                    f"colormap is only supported on Byte/UInt16 rasters; got "
+                    f"{gdal.GetDataTypeName(band.DataType)}. Cast first with "
+                    f"to_cog(..., out_dtype='uint8'), or drop the colormap."
+                )
+            color_table = gdal.ColorTable()
+            for value, rgba in colormap.items():
+                color_table.SetColorEntry(int(value), tuple(rgba))
+            band.SetColorTable(color_table)
+            band.SetColorInterpretation(gdal.GCI_PaletteIndex)
+        if band_tags:
+            for index, tags in band_tags.items():
+                # 0-based index -> GDAL 1-based band number.
+                ds.GetRasterBand(index + 1).SetMetadata(
+                    {str(k): str(v) for k, v in tags.items()}
+                )
+
+    def to_cog_bytes(self, **kwargs: Any) -> bytes:
+        """Encode the dataset as a COG and return the file contents as bytes.
+
+        Writes the COG to an in-memory GDAL ``/vsimem/`` file (no temp file on
+        disk), reads the bytes back, and unlinks the virtual file. Useful for
+        uploading a COG directly to an object store (S3 / GCS / Azure) without
+        touching the local filesystem.
+
+        Args:
+            **kwargs: Forwarded verbatim to :meth:`to_cog` (e.g. ``compress``,
+                ``blocksize``, ``predictor``, ``extra``). The same house
+                defaults and dtype-aware resolution apply.
+
+        Returns:
+            bytes: The complete COG file contents.
+
+        Raises:
+            FailedToSaveError: GDAL failed to encode the COG.
+
+        Examples:
+            - Encode an in-memory Dataset to COG bytes and upload them:
+                ```python
+                >>> from pyramids.dataset import Dataset  # doctest: +SKIP
+                >>> ds = Dataset.read_file("scene.tif")  # doctest: +SKIP
+                >>> blob = ds.to_cog_bytes(compress="ZSTD")  # doctest: +SKIP
+                >>> len(blob) > 0  # doctest: +SKIP
+                True
+                >>> blob[:2] in (b"II", b"MM")  # TIFF byte-order marker  # doctest: +SKIP
+                True
+
+                ```
+        """
+        vsi_path = f"/vsimem/{uuid.uuid4().hex}.tif"
+        try:
+            self.to_cog(vsi_path, **kwargs)
+            handle = gdal.VSIFOpenL(vsi_path, "rb")
+            if handle is None:
+                raise FailedToSaveError(
+                    f"could not reopen in-memory COG at {vsi_path}"
+                )
+            try:
+                gdal.VSIFSeekL(handle, 0, 2)  # SEEK_END
+                size = gdal.VSIFTellL(handle)
+                gdal.VSIFSeekL(handle, 0, 0)  # SEEK_SET
+                data = gdal.VSIFReadL(1, size, handle)
+            finally:
+                gdal.VSIFCloseL(handle)
+        finally:
+            gdal.Unlink(vsi_path)
+        return bytes(data)
+
+    def _translate_with_statistics_retry(
+        self,
+        path: str | Path,
+        options: dict[str, Any],
+        src: gdal.Dataset | None = None,
+    ) -> None:
+        """Write the COG, retrying once without STATISTICS on the known failure.
+
+        Some GDAL builds abort the ``STATISTICS=YES`` sampling pass on float
+        on-disk sources with "no valid pixels found in sampling". The COG
+        itself is fine without embedded statistics, so on that specific error
+        we retry once with ``STATISTICS`` dropped. Lives here (ARC-4) rather
+        than in the :func:`write_cog` facade so a direct ``ds.to_cog(...)`` is
+        equally robust.
+
+        Args:
+            path: Destination file path.
+            options: Fully-merged COG creation options.
+            src: Source :class:`gdal.Dataset` to encode. Defaults to the
+                backing raster; a pre-processed in-memory dataset is passed
+                when band-subsetting / casting / setting NoData (PB-4).
+        """
+        source = self._ds._raster if src is None else src
+
+        def _run(opts: dict[str, Any]) -> None:
+            dst: gdal.Dataset | None = None
+            try:
+                dst = translate_to_cog(source, path, opts)
+                dst.FlushCache()
+            finally:
+                dst = None
+
+        try:
+            _run(options)
+        except (RuntimeError, FailedToSaveError) as exc:
+            # translate_to_cog wraps CreateCopy RuntimeErrors into
+            # FailedToSaveError; a deferred STATISTICS failure at FlushCache
+            # time surfaces as a raw RuntimeError — catch both.
+            statistics_on = str(options.get("STATISTICS", "")).upper() in ("YES", "TRUE")
+            if statistics_on and "valid pixels" in str(exc).lower():
+                retry = {k: v for k, v in options.items() if k != "STATISTICS"}
+                _run(retry)
+            else:
+                raise
 
     @property
     def is_cog(self) -> bool:
@@ -256,21 +631,68 @@ class COG(_Engine):
                 ```
         """
         result: bool
-        fn = self._ds.file_name
-        if not fn or fn.startswith("/vsimem/"):
+        fn = self._on_disk_path()
+        if fn is None:
             result = False
         else:
-            try:
-                result = validate(fn).is_valid
-            except FileNotFoundError:
-                result = False
+            result = self._is_cog_cheap(fn)
         return result
 
-    def validate_cog(self, strict: bool = False) -> ValidationReport:
+    @staticmethod
+    def _is_cog_cheap(path: str) -> bool:
+        """Fast, metadata-only heuristic for "is this file a COG?" (ARC-7).
+
+        Avoids the full COG validator on every `is_cog` access (which reads the
+        whole IFD/offset table — costly over `/vsicurl`). Checks: GTiff driver,
+        no external `.ovr` sidecar, internally tiled (square blocks or a single
+        tile), and internal overviews present when the image is larger than one
+        tile. This can FALSE-POSITIVE on a tiled GeoTIFF that is not laid out in
+        strict COG order — use :meth:`validate_cog` for the authoritative check.
+
+        Args:
+            path: On-disk or remote `/vsi*` path.
+
+        Returns:
+            bool: `True` when the file looks like a COG by the cheap heuristic.
+        """
+        cfg = _resolve_read_config(path, None)
+        with config_context(cfg):
+            try:
+                ds = gdal.Open(path)
+            except RuntimeError:
+                return False
+            if ds is None:
+                return False
+            try:
+                if ds.GetDriver().ShortName != "GTiff":
+                    return False
+                files = ds.GetFileList() or []
+                if any(str(f).lower().endswith(".ovr") for f in files):
+                    return False
+                band = ds.GetRasterBand(1)
+                block_x, block_y = band.GetBlockSize()
+                width, height = ds.RasterXSize, ds.RasterYSize
+                single_tile = block_x >= width and block_y >= height
+                tiled = block_x == block_y or single_tile
+                if not tiled:
+                    return False
+                needs_overviews = max(width, height) > max(block_x, block_y)
+                if needs_overviews and band.GetOverviewCount() == 0:
+                    return False
+                return True
+            finally:
+                ds = None
+
+    def validate_cog(
+        self, strict: bool = False, config: dict[str, str] | None = None
+    ) -> ValidationReport:
         """Validate the backing file as a COG.
 
         Args:
             strict: If `True`, warnings are treated as errors.
+            config: GDAL config options for the read; defaults to the remote
+                read tuning for `/vsicurl` paths (see
+                :func:`pyramids.dataset.cog.validate.validate`).
 
         Returns:
             ValidationReport with errors, warnings, and structural details.
@@ -303,15 +725,444 @@ class COG(_Engine):
 
                 ```
         """
-        fn = self._ds.file_name
-        if not fn or fn.startswith("/vsimem/"):
+        fn = self._on_disk_path()
+        if fn is None:
             raise FileNotFoundError(
                 "Dataset has no on-disk backing file to validate "
                 "(is this a MEM or /vsimem/ dataset?)"
             )
-        return validate(fn, strict=strict)
+        return validate(fn, strict=strict, config=config)
 
-    def _warn_if_categorical_with_averaging(self, overview_resampling: str) -> None:
+    def info(self, config: dict[str, str] | None = None) -> COGInfo:
+        """Return structured COG metadata for the backing file.
+
+        Reads only headers/metadata (no pixels) and reports compression,
+        predictor, blocksize, dtype, CRS/bounds/resolution, the overview
+        pyramid, per-band tags, and colour-table presence. See
+        :class:`pyramids.dataset.cog.inspect.COGInfo`.
+
+        Args:
+            config: GDAL config options for the read; defaults to the remote
+                read tuning for `/vsicurl` paths.
+
+        Returns:
+            COGInfo: The structured metadata for the on-disk file.
+
+        Raises:
+            FileNotFoundError: Dataset has no on-disk backing file
+                (MEM-only or `/vsimem/`).
+
+        Examples:
+            - Inspect a COG's compression and overview pyramid:
+                ```python
+                >>> from pyramids.dataset import Dataset  # doctest: +SKIP
+                >>> ds = Dataset.read_file("scene_cog.tif")  # doctest: +SKIP
+                >>> info = ds.cog_info()  # doctest: +SKIP
+                >>> info.compression  # doctest: +SKIP
+                'DEFLATE'
+                >>> [o.decimation for o in info.overviews]  # doctest: +SKIP
+                [2, 4, 8]
+
+                ```
+            - Read the tile size and band count:
+                ```python
+                >>> info.blocksize  # doctest: +SKIP
+                (512, 512)
+                >>> info.band_count  # doctest: +SKIP
+                1
+
+                ```
+        """
+        fn = self._on_disk_path()
+        if fn is None:
+            raise FileNotFoundError(
+                "Dataset has no on-disk backing file to inspect "
+                "(is this a MEM or /vsimem/ dataset?)"
+            )
+        return cog_info(fn, config=config)
+
+    def _on_disk_path(self) -> str | None:
+        """Return the validatable on-disk path of the backing raster, or None.
+
+        A single predicate shared by :attr:`is_cog`, :meth:`validate_cog`, and
+        :meth:`info` (ARC-5) so the definition of "has a real backing file to
+        validate/inspect" cannot drift between them.
+
+        Returns:
+            str | None: The file path when the dataset is backed by a real
+            on-disk (or remote `/vsi*`, but not in-memory `/vsimem/`) file;
+            `None` for MEM datasets, `/vsimem/` paths, and unsaved datasets.
+        """
+        fn = self._ds.file_name
+        if not fn or fn.startswith("/vsimem/"):
+            return None
+        return fn
+
+    def read_part(
+        self,
+        bbox: tuple[float, float, float, float],
+        *,
+        dst_width: int | None = None,
+        dst_height: int | None = None,
+        bbox_crs: int = 4326,
+        resampling: str = "bilinear",
+        band: int | None = None,
+    ) -> np.ndarray:
+        """Read a geographic window, decimated from the nearest overview.
+
+        Requesting a `dst_width`/`dst_height` smaller than the source window
+        makes GDAL serve the data from the nearest overview level, so for a COG
+        over `/vsicurl/` only the relevant byte ranges are fetched — the
+        cloud-native partial-read pattern.
+
+        Args:
+            bbox: `(min_x, min_y, max_x, max_y)` window in `bbox_crs`.
+            dst_width: Output width in pixels. Defaults to the source window
+                width (no decimation).
+            dst_height: Output height in pixels. Defaults to the source window
+                height.
+            bbox_crs: EPSG code of `bbox`. Reprojected to the dataset CRS
+                when different. Defaults to 4326 (WGS84 lon/lat).
+            resampling: One of `nearest`, `bilinear`, `cubic`,
+                `cubicspline`, `lanczos`, `average`, `mode`.
+            band: 0-based band index. `None` reads all bands.
+
+        Returns:
+            numpy.ndarray: `(rows, cols)` for a single band, or
+            `(bands, rows, cols)` for all bands; always sized
+            `dst_height x dst_width` (the requested output size). Pixel values
+            only — no transform, bounds, or CRS is attached.
+
+        Raises:
+            ValueError: Unknown `resampling`.
+            OutOfBoundsError: The window does not intersect the raster at all.
+
+        Note:
+            A window that only **partially** overlaps the raster is **not**
+            stretched to fill the output: the intersection is read and placed
+            at its correct offset inside a `dst_height x dst_width` buffer
+            whose out-of-raster remainder is filled with NoData (the band's
+            NoData value, else NaN for float / `0` for integer — see
+            :meth:`_nodata_fill`). A fully-inside window is returned without
+            padding. This keeps the result aligned to the requested window,
+            which matters for edge tiles served by :meth:`read_tile`.
+
+        Examples:
+            - Read a 256x256 decimated thumbnail of a bbox:
+                ```python
+                >>> from pyramids.dataset import Dataset  # doctest: +SKIP
+                >>> ds = Dataset.read_file("scene_cog.tif")  # doctest: +SKIP
+                >>> arr = ds.read_part(  # doctest: +SKIP
+                ...     (12.4, 41.8, 12.6, 42.0), dst_width=256, dst_height=256,
+                ... )
+                >>> arr.shape[-2:]  # doctest: +SKIP
+                (256, 256)
+
+                ```
+        """
+        if resampling not in _RESAMPLING_ALG:
+            raise ValueError(
+                f"unknown resampling {resampling!r}; "
+                f"choose from {sorted(_RESAMPLING_ALG)}"
+            )
+        ds = self._ds._raster
+        min_x, min_y, max_x, max_y = self._reproject_bbox(bbox, bbox_crs)
+        inv = gdal.InvGeoTransform(ds.GetGeoTransform())
+        px_tl, py_tl = gdal.ApplyGeoTransform(inv, min_x, max_y)
+        px_br, py_br = gdal.ApplyGeoTransform(inv, max_x, min_y)
+
+        # The full requested window, in source pixel coordinates (may extend
+        # beyond the raster on any side).
+        req_xoff = int(math.floor(min(px_tl, px_br)))
+        req_yoff = int(math.floor(min(py_tl, py_br)))
+        req_xsize = int(math.ceil(max(px_tl, px_br))) - req_xoff
+        req_ysize = int(math.ceil(max(py_tl, py_br))) - req_yoff
+        if req_xsize <= 0 or req_ysize <= 0:
+            raise OutOfBoundsError(
+                f"bbox {bbox} (crs {bbox_crs}) has zero pixel extent"
+            )
+
+        # Intersection of the requested window with the raster.
+        ix0 = max(0, req_xoff)
+        iy0 = max(0, req_yoff)
+        ix1 = min(ds.RasterXSize, req_xoff + req_xsize)
+        iy1 = min(ds.RasterYSize, req_yoff + req_ysize)
+        if ix1 - ix0 <= 0 or iy1 - iy0 <= 0:
+            raise OutOfBoundsError(
+                f"bbox {bbox} (crs {bbox_crs}) does not intersect the raster"
+            )
+
+        out_w = dst_width if dst_width is not None else req_xsize
+        out_h = dst_height if dst_height is not None else req_ysize
+        alg = _RESAMPLING_ALG[resampling]
+        source = ds if band is None else ds.GetRasterBand(band + 1)
+
+        fully_inside = (
+            ix0 == req_xoff
+            and iy0 == req_yoff
+            and ix1 == req_xoff + req_xsize
+            and iy1 == req_yoff + req_ysize
+        )
+        if fully_inside:
+            return np.asarray(
+                source.ReadAsArray(
+                    ix0,
+                    iy0,
+                    ix1 - ix0,
+                    iy1 - iy0,
+                    buf_xsize=out_w,
+                    buf_ysize=out_h,
+                    resample_alg=alg,
+                )
+            )
+
+        # Partial overlap: read only the intersection, then place it at its
+        # correct offset inside a full-size output buffer padded with NoData,
+        # so the returned array stays aligned to the requested window.
+        scale_x = out_w / req_xsize
+        scale_y = out_h / req_ysize
+        ox0 = max(0, min(out_w, int(round((ix0 - req_xoff) * scale_x))))
+        oy0 = max(0, min(out_h, int(round((iy0 - req_yoff) * scale_y))))
+        ox1 = max(ox0 + 1, min(out_w, int(round((ix1 - req_xoff) * scale_x))))
+        oy1 = max(oy0 + 1, min(out_h, int(round((iy1 - req_yoff) * scale_y))))
+        sub = np.asarray(
+            source.ReadAsArray(
+                ix0,
+                iy0,
+                ix1 - ix0,
+                iy1 - iy0,
+                buf_xsize=ox1 - ox0,
+                buf_ysize=oy1 - oy0,
+                resample_alg=alg,
+            )
+        )
+        fill = self._nodata_fill(ds.GetRasterBand(1))
+        if sub.ndim == 3:
+            out = np.full((sub.shape[0], out_h, out_w), fill, dtype=sub.dtype)
+            out[:, oy0:oy1, ox0:ox1] = sub
+        else:
+            out = np.full((out_h, out_w), fill, dtype=sub.dtype)
+            out[oy0:oy1, ox0:ox1] = sub
+        return out
+
+    @staticmethod
+    def _nodata_fill(band: Any) -> float:
+        """Pick a fill value for padding partial reads.
+
+        Args:
+            band: The GDAL band whose NoData value (if any) to use.
+
+        Returns:
+            float: The band's NoData value, else NaN for floating-point bands
+            and ``0`` for integer bands.
+        """
+        nodata = band.GetNoDataValue()
+        if nodata is not None:
+            return nodata
+        return 0 if is_integer_gdal_dtype(band.DataType) else float("nan")
+
+    def preview(
+        self,
+        *,
+        max_size: int = 1024,
+        resampling: str = "bilinear",
+        band: int | None = None,
+    ) -> np.ndarray:
+        """Read a whole-image thumbnail downsampled to `max_size` on the long edge.
+
+        Pulls from a coarse overview when one exists, so previewing a huge COG
+        is cheap.
+
+        Args:
+            max_size: Maximum pixels on the longer edge. Defaults to 1024.
+            resampling: Resampling method (see :meth:`read_part`).
+            band: 0-based band index. `None` reads all bands.
+
+        Returns:
+            numpy.ndarray: The downsampled array, `(rows, cols)` or
+            `(bands, rows, cols)`. Pixel values only — no transform, bounds,
+            or CRS is attached to the returned array.
+
+        Raises:
+            ValueError: Unknown `resampling`.
+
+        Examples:
+            - Build a 128px thumbnail of a single band:
+                ```python
+                >>> from pyramids.dataset import Dataset  # doctest: +SKIP
+                >>> ds = Dataset.read_file("scene_cog.tif")  # doctest: +SKIP
+                >>> thumb = ds.preview(max_size=128, band=0)  # doctest: +SKIP
+                >>> max(thumb.shape)  # doctest: +SKIP
+                128
+
+                ```
+        """
+        if resampling not in _RESAMPLING_ALG:
+            raise ValueError(
+                f"unknown resampling {resampling!r}; "
+                f"choose from {sorted(_RESAMPLING_ALG)}"
+            )
+        width, height = self._ds.columns, self._ds.rows
+        scale = max(width, height) / max_size
+        if scale <= 1:
+            out_w, out_h = width, height
+        else:
+            out_w, out_h = max(1, round(width / scale)), max(1, round(height / scale))
+        alg = _RESAMPLING_ALG[resampling]
+        ds = self._ds._raster
+        source = ds if band is None else ds.GetRasterBand(band + 1)
+        return np.asarray(
+            source.ReadAsArray(buf_xsize=out_w, buf_ysize=out_h, resample_alg=alg)
+        )
+
+    def point(
+        self,
+        x: float,
+        y: float,
+        *,
+        point_crs: int = 4326,
+        band: int | None = None,
+    ) -> np.ndarray:
+        """Sample band value(s) at a single coordinate.
+
+        Args:
+            x: X / longitude / easting in `point_crs`.
+            y: Y / latitude / northing in `point_crs`.
+            point_crs: EPSG code of `(x, y)`. Reprojected to the dataset CRS
+                when different. Defaults to 4326.
+            band: 0-based band index. `None` samples all bands.
+
+        Returns:
+            numpy.ndarray: A scalar 0-d array for a single band, or a
+            `(bands,)` array when `band` is `None`. Pixel values only — no
+            coordinate metadata is attached.
+
+        Raises:
+            OutOfBoundsError: The point falls outside the raster extent.
+
+        Examples:
+            - Sample all bands at a lon/lat coordinate:
+                ```python
+                >>> from pyramids.dataset import Dataset  # doctest: +SKIP
+                >>> ds = Dataset.read_file("scene_cog.tif")  # doctest: +SKIP
+                >>> ds.point(12.5, 41.9)  # doctest: +SKIP
+                array([1234.], dtype=float32)
+
+                ```
+        """
+        col, row = self._world_to_pixel(x, y, point_crs)
+        if not (0 <= col < self._ds.columns and 0 <= row < self._ds.rows):
+            raise OutOfBoundsError(
+                f"point ({x}, {y}) in crs {point_crs} is outside the raster extent"
+            )
+        ds = self._ds._raster
+        source = ds if band is None else ds.GetRasterBand(band + 1)
+        arr = np.asarray(source.ReadAsArray(col, row, 1, 1))
+        return arr.reshape(-1) if band is None else arr.reshape(())
+
+    def read_tile(
+        self,
+        z: int,
+        x: int,
+        y: int,
+        *,
+        tilesize: int = 256,
+        resampling: str = "bilinear",
+        band: int | None = None,
+    ) -> np.ndarray:
+        """Read a Web-Mercator XYZ/slippy-map tile.
+
+        Computes the EPSG:3857 bounds of tile `(z, x, y)` from the closed-form
+        Web-Mercator formula and delegates to :meth:`read_part` at `tilesize`
+        resolution — no extra tiling dependency needed.
+
+        Args:
+            z: Zoom level.
+            x: Tile column index.
+            y: Tile row index (origin top-left / north-west).
+            tilesize: Output tile size in pixels (square). Defaults to 256.
+            resampling: Resampling method (see :meth:`read_part`).
+            band: 0-based band index. `None` reads all bands.
+
+        Returns:
+            numpy.ndarray: A `(tilesize, tilesize)` or
+            `(bands, tilesize, tilesize)` array. Pixel values only — the tile's
+            georeferencing is defined by its `(z, x, y)`, not attached to the
+            array; edge tiles are NoData-padded (see :meth:`read_part`).
+
+        Raises:
+            OutOfBoundsError: The tile does not intersect the raster.
+
+        Examples:
+            - Read the zoom-0 world tile of a global COG:
+                ```python
+                >>> from pyramids.dataset import Dataset  # doctest: +SKIP
+                >>> ds = Dataset.read_file("global_cog.tif")  # doctest: +SKIP
+                >>> tile = ds.read_tile(0, 0, 0)  # doctest: +SKIP
+                >>> tile.shape[-2:]  # doctest: +SKIP
+                (256, 256)
+
+                ```
+        """
+        bounds = _xyz_bounds_3857(z, x, y)
+        return self.read_part(
+            bounds,
+            dst_width=tilesize,
+            dst_height=tilesize,
+            bbox_crs=3857,
+            resampling=resampling,
+            band=band,
+        )
+
+    def _reproject_bbox(
+        self, bbox: tuple[float, float, float, float], bbox_crs: int
+    ) -> tuple[float, float, float, float]:
+        """Reproject a bbox into the dataset CRS, returning its envelope.
+
+        Args:
+            bbox: `(min_x, min_y, max_x, max_y)` in `bbox_crs`.
+            bbox_crs: EPSG code of `bbox`.
+
+        Returns:
+            `(min_x, min_y, max_x, max_y)` in the dataset CRS. When
+            `bbox_crs` already matches the dataset EPSG the bbox is
+            returned unchanged.
+        """
+        min_x, min_y, max_x, max_y = bbox
+        if self._ds.epsg == bbox_crs:
+            return min_x, min_y, max_x, max_y
+        transformer = Transformer.from_crs(bbox_crs, self._ds.epsg, always_xy=True)
+        corners = [
+            transformer.transform(min_x, min_y),
+            transformer.transform(min_x, max_y),
+            transformer.transform(max_x, min_y),
+            transformer.transform(max_x, max_y),
+        ]
+        xs = [c[0] for c in corners]
+        ys = [c[1] for c in corners]
+        return min(xs), min(ys), max(xs), max(ys)
+
+    def _world_to_pixel(self, x: float, y: float, point_crs: int) -> tuple[int, int]:
+        """Convert a world coordinate to integer `(col, row)` pixel indices.
+
+        Args:
+            x: X / longitude in `point_crs`.
+            y: Y / latitude in `point_crs`.
+            point_crs: EPSG code of `(x, y)`.
+
+        Returns:
+            `(col, row)` integer pixel indices (floored).
+        """
+        if self._ds.epsg != point_crs:
+            transformer = Transformer.from_crs(point_crs, self._ds.epsg, always_xy=True)
+            x, y = transformer.transform(x, y)
+        inv = gdal.InvGeoTransform(self._ds._raster.GetGeoTransform())
+        col, row = gdal.ApplyGeoTransform(inv, x, y)
+        return int(math.floor(col)), int(math.floor(row))
+
+    def _warn_if_categorical_with_averaging(
+        self, overview_resampling: str, band: Any | None = None
+    ) -> None:
         """Emit a `UserWarning` if an averaging resampler is used on categorical data.
 
         Args:
@@ -319,6 +1170,10 @@ class COG(_Engine):
                 caller. Case-insensitive. Only averaging-family methods
                 (`average`, `bilinear`, `cubic`, `cubicspline`,
                 `lanczos`) trigger the check.
+            band: GDAL band whose dtype/colour-table decides "categorical".
+                Defaults to band 1 of the backing raster; a pre-processed
+                (cast/subset) band is passed when those options are used so
+                the check reflects the *output* dtype (PB-4).
 
         Warns:
             UserWarning: When `overview_resampling` is an averaging
@@ -353,9 +1208,9 @@ class COG(_Engine):
         """
         if overview_resampling.lower() not in _AVERAGING_RESAMPLERS:
             return
-        first_band = self._ds._raster.GetRasterBand(1)
+        first_band = band if band is not None else self._ds._raster.GetRasterBand(1)
         has_color_table = first_band.GetColorTable() is not None
-        is_integer = first_band.DataType in _INTEGER_DTYPES
+        is_integer = is_integer_gdal_dtype(first_band.DataType)
         if has_color_table or is_integer:
             warnings.warn(
                 f"overview_resampling={overview_resampling!r} averages pixel "

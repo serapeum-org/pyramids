@@ -32,7 +32,10 @@ requires_kerchunk = pytest.mark.skipif(
 )
 
 
-NC_FIXTURE = "tests/data/netcdf/pyramids-netcdf-3d.nc"
+# A time-coordinate NetCDF (dims: time, pressure_level, lat, lon). kerchunk's
+# combine path concatenates per-file coordinates along ``time``, so the source
+# files must carry a ``time`` axis — the band-indexed 3-D fixture does not.
+NC_FIXTURE = "tests/data/netcdf/pyramids-netcdf-4d.nc"
 
 
 class TestToKerchunk:

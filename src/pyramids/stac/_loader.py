@@ -14,8 +14,8 @@ asset href, and opens it with the right GDAL-backed reader chosen by the asset's
 
 Everything is duck-typed — pyramids does **not** import or depend on pystac; the
 Item / Asset contract is read via `getattr` + dict lookup (`pystac.Asset` has
-`.href` / `.media_type`; raw STAC JSON uses `{"href":..., "type":...}`). No
-xarray / rioxarray: assets resolve to pyramids' GDAL-backed wrappers.
+`.href` / `.media_type`; raw STAC JSON uses `{"href":..., "type":...}`). Assets
+resolve to pyramids' GDAL-backed wrappers.
 """
 
 from __future__ import annotations
@@ -229,7 +229,7 @@ def load_asset(
     href, and `signer.gdal_env` is installed as GDAL config for the duration
     of the open (via :class:`~pyramids.base.remote.CloudConfig`), so the
     underlying VSI handle is created with the right credentials / requester-pays
-    knobs. No xarray / rioxarray.
+    knobs.
 
     Args:
         item_or_asset: A STAC Item (pystac.Item or raw dict) or an Asset.

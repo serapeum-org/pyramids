@@ -1,9 +1,9 @@
 """Read STAC ``proj`` / ``raster`` / ``eo`` extension metadata (PB-1).
 
-stackstac, odc-stac and rio-tiler build a cube/grid skeleton — CRS, geotransform,
-shape, per-band nodata / scale / offset, band names — directly from the STAC Item
-JSON, without opening any asset. This module is pyramids' GDAL-native equivalent:
-pure dict reads (via :func:`pyramids.stac._item.asset_field`, no pystac
+This module builds a cube/grid skeleton — CRS, geotransform, shape, per-band
+nodata / scale / offset, band names — directly from the STAC Item JSON, without
+opening any asset: pure dict reads (via :func:`pyramids.stac._item.asset_field`,
+no pystac
 dependency) that yield a grid/band-metadata dict downstream code can use to build
 a VRT (PB-5), a multi-asset cube (PB-2), or a grid match (PC-2) **without** a
 header open.
@@ -39,7 +39,7 @@ def parse_number(value: Any, default: Any = None) -> Any:
     """Coerce a STAC numeric field to a float, honouring nan/inf strings.
 
     The ``raster`` extension allows non-finite nodata values to be encoded as
-    the strings ``"nan"`` / ``"inf"`` / ``"-inf"`` (rio-stac convention).
+    the strings ``"nan"`` / ``"inf"`` / ``"-inf"``.
 
     Args:
         value: The raw field value (number, numeric string, nan/inf string,
@@ -90,7 +90,7 @@ def parse_number(value: Any, default: Any = None) -> Any:
 def affine_to_geotransform(transform: Any) -> tuple[float, ...]:
     """Convert a STAC ``proj:transform`` affine to a GDAL geotransform.
 
-    ``proj:transform`` is the rasterio/affine ordering ``[a, b, c, d, e, f]``
+    ``proj:transform`` is the affine ordering ``[a, b, c, d, e, f]``
     (mapping ``(col, row)`` to ``(x, y)``: ``x = a*col + b*row + c``,
     ``y = d*col + e*row + f``). GDAL's geotransform is the reordering
     ``(c, a, b, f, d, e)`` — i.e. ``(x_origin, x_res, x_rot, y_origin, y_rot,
@@ -136,7 +136,7 @@ def geotransform_to_affine(geotransform: Any) -> list[float]:
 
     The inverse of :func:`affine_to_geotransform`. GDAL's geotransform is
     ``(c, a, b, f, d, e)`` — ``(x_origin, x_res, x_rot, y_origin, y_rot,
-    y_res)`` — and ``proj:transform`` is the rasterio/affine ordering
+    y_res)`` — and ``proj:transform`` is the affine ordering
     ``[a, b, c, d, e, f]``.
 
     Args:
@@ -149,7 +149,7 @@ def geotransform_to_affine(geotransform: Any) -> list[float]:
         ValueError: When `geotransform` has fewer than six coefficients.
 
     Examples:
-        - A north-up 30 m grid maps back to the rasterio affine order:
+        - A north-up 30 m grid maps back to the affine order:
             ```python
             >>> from pyramids.stac._extensions import geotransform_to_affine
             >>> geotransform_to_affine((224985.0, 30.0, 0.0, 6790215.0, 0.0, -30.0))

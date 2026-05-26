@@ -3,16 +3,13 @@ name: Build Platform Wheels
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-    # Only run the (expensive) wheel matrix on PRs that touch packaging —
-    # not on every PR to main. Other triggers: push to main, workflow_run
-    # after github-release, and manual dispatch.
-    paths:
-      - "pyproject.toml"
-      - "setup.py"
-      - "ci/**"
-      - ".github/workflows/build-wheels.yml"
+#   pull_request:
+#     branches: [main]
+#     paths:
+#       - "pyproject.toml"
+#       - "setup.py"
+#       - "ci/**"
+#       - ".github/workflows/build-wheels.yml"
   workflow_run:
     workflows: ["github-release"]
     types: [completed]
@@ -23,6 +20,12 @@ on:
         required: false
         default: ""
         type: string
+
+# Cancel superseded runs to free the hosted-runner pool, but only for pull_request builds —
+# never cancel a push/workflow_run build, since those can publish wheels to PyPI.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

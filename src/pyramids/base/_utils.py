@@ -191,6 +191,78 @@ def gdal_constant_to_color_name(gdal_constant: int) -> str:
     return str(color_name)
 
 
+INTEGER_GDAL_DTYPES: frozenset[int] = frozenset(
+    {
+        gdalconst.GDT_Byte,
+        gdalconst.GDT_Int8,
+        gdalconst.GDT_UInt16,
+        gdalconst.GDT_Int16,
+        gdalconst.GDT_UInt32,
+        gdalconst.GDT_Int32,
+        gdalconst.GDT_UInt64,
+        gdalconst.GDT_Int64,
+    }
+)
+"""GDAL data-type codes treated as integer (categorical-capable).
+
+Single source of truth for "is this raster integer?" decisions across the COG
+write path — predictor selection (:func:`resolve_cog_predictor`), the default
+overview-resampling policy (:func:`default_cog_overview_resampling`), and the
+categorical-resampling guardrail in :mod:`pyramids.dataset.engines.cog`.
+"""
+
+
+def is_integer_gdal_dtype(gdal_dtype: int) -> bool:
+    """Return ``True`` when ``gdal_dtype`` is one of the integer GDAL types.
+
+    Args:
+        gdal_dtype (int): A GDAL data-type code (e.g. ``gdal.GDT_Int16``).
+
+    Returns:
+        bool: ``True`` for integer types, ``False`` for floating-point/complex.
+    """
+    return gdal_dtype in INTEGER_GDAL_DTYPES
+
+
+def resolve_cog_predictor(gdal_dtype: int) -> int:
+    """Pick the DEFLATE/ZSTD predictor that suits a GDAL data type.
+
+    Mirrors GDAL/libtiff semantics: ``PREDICTOR=2`` (horizontal differencing)
+    for integer rasters, ``PREDICTOR=3`` (floating-point predictor) for float
+    rasters. The numeric form is verified to be accepted by the GDAL COG driver
+    and round-trips to the same ``IMAGE_STRUCTURE`` PREDICTOR token across the
+    supported GDAL matrix (ARC-8), so no int→string normalisation is needed;
+    the string aliases ``STANDARD`` / ``FLOATING_POINT`` are equally accepted
+    when a caller passes them explicitly.
+
+    Args:
+        gdal_dtype (int): A GDAL data-type code (e.g. ``gdal.GDT_Float32``).
+
+    Returns:
+        int: ``2`` for integer types, ``3`` for floating-point types.
+    """
+    return 2 if gdal_dtype in INTEGER_GDAL_DTYPES else 3
+
+
+def default_cog_overview_resampling(gdal_dtype: int, has_color_table: bool) -> str:
+    """Pick a category-safe default overview resampler for a raster.
+
+    Categorical rasters (integer dtype or a colour table) must not be averaged
+    when building overviews — averaging invents values that never existed
+    (e.g. a land-cover class of ``3.5``). Continuous rasters benefit from
+    ``average``.
+
+    Args:
+        gdal_dtype (int): A GDAL data-type code for the first band.
+        has_color_table (bool): Whether the first band carries a colour table.
+
+    Returns:
+        str: ``"mode"`` for categorical sources, ``"average"`` otherwise.
+    """
+    categorical = has_color_table or gdal_dtype in INTEGER_GDAL_DTYPES
+    return "mode" if categorical else "average"
+
+
 def numpy_to_gdal_dtype(arr: np.ndarray | np.dtype | str) -> int:
     """Map function between numpy and GDAL data types.
 
