@@ -17,6 +17,7 @@ from osgeo import gdal, osr
 from pyramids.base._domain import is_no_data
 from pyramids.base._utils import INTERPOLATION_METHODS
 from pyramids.base.crs import (
+    epsg_from_user_input,
     epsg_from_wkt,
     reproject_coordinates,
     sr_from_epsg,
@@ -79,7 +80,7 @@ class Spatial(_Engine):
 
     def to_crs(
         self,
-        to_epsg: int,
+        to_epsg: int | str | Any,
         method: str = "nearest neighbor",
         maintain_alignment: bool = False,
     ) -> Dataset:
@@ -88,9 +89,11 @@ class Spatial(_Engine):
             (default the WGS84 web mercator projection, without resampling)
 
         Args:
-            to_epsg (int):
-                reference number to the new projection (https://epsg.io/). Default 3857 is the reference number of WGS84
-                web mercator.
+            to_epsg (int | str | pyproj.CRS):
+                The target CRS. Most commonly an EPSG reference number (https://epsg.io/),
+                e.g. ``3857`` for WGS84 web mercator. A string (``"EPSG:3857"``, ``"3857"``,
+                a WKT or PROJ4 string) or a :class:`pyproj.CRS` is also accepted and resolved
+                to its EPSG code via :func:`pyramids.base.crs.epsg_from_user_input`.
             method (str):
                 resampling method. Default is "nearest neighbor". See https://gisgeography.com/raster-resampling/.
                 Allowed values: "nearest neighbor", "cubic", "bilinear".
@@ -101,6 +104,15 @@ class Spatial(_Engine):
         Returns:
             Dataset:
                 A new reprojected Dataset.
+
+        Raises:
+            CRSError:
+                ``to_epsg`` cannot be interpreted as a CRS, or resolves to a CRS with no
+                EPSG code.
+            TypeError:
+                ``method`` is not a string.
+            ValueError:
+                ``method`` is not one of the supported interpolation methods.
 
         Examples:
             - Create a dataset and reproject it:
@@ -146,11 +158,7 @@ class Spatial(_Engine):
               ```
 
         """
-        if not isinstance(to_epsg, int):
-            raise TypeError(
-                "please enter correct integer number for to_epsg more information "
-                f"https://epsg.io/, given {type(to_epsg)}"
-            )
+        to_epsg = epsg_from_user_input(to_epsg)
         if not isinstance(method, str):
             raise TypeError(
                 "Please enter a correct method, for more information, see documentation "

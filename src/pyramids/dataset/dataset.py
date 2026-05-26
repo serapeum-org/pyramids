@@ -53,6 +53,7 @@ from pyramids.dataset.ops._zarr import (
 )
 from pyramids.dataset.ops._zonal import zonal_stats as _zonal_stats
 from pyramids.dataset.ops.interpolate import grid_points
+from pyramids.dataset.ops.units import convert_array
 from pyramids.dataset.ops.vectorize import rasterize_features
 from pyramids.feature import FeatureCollection, create_polygon
 
@@ -104,7 +105,7 @@ def _derive_band_names(paths: list[str]) -> list[str]:
     return names
 
 
-def _same_grid(a: "Dataset", b: "Dataset") -> bool:
+def _same_grid(a: Dataset, b: Dataset) -> bool:
     """Return True if datasets ``a`` and ``b`` share CRS, size, and geotransform.
 
     Geotransform components are compared with a small relative tolerance so
@@ -1294,6 +1295,96 @@ class Dataset(RasterBase):
         for i, val in enumerate(value):
             self._iloc(i).SetUnitType(val)
 
+    def convert_units(self, target: str, band: int | None = None) -> Dataset:
+        """Convert band values to ``target`` units, returning a new Dataset.
+
+        Unlike the :attr:`band_units` setter — which only relabels bands — this
+        actually transforms the stored values using a small affine conversion table
+        (see :func:`pyramids.dataset.ops.units.convert_array`) and records the new
+        unit on the result. No-data cells are preserved unchanged. The output is a
+        new in-memory ``float64`` Dataset; the source is left untouched.
+
+        Args:
+            target: Target unit label (e.g. ``"celsius"``, ``"hPa"``, ``"knots"``).
+            band: Zero-based band index to convert. ``None`` (default) converts every
+                band; bands already in ``target`` units are passed through unchanged.
+
+        Returns:
+            A new :class:`Dataset` with converted values and updated
+            :attr:`band_units`.
+
+        Raises:
+            ValueError: ``band`` is out of range, a converted band has no source unit
+                set, or the ``(source, target)`` pair is unsupported.
+
+        Examples:
+            - Convert a Kelvin raster to Celsius and read the new values:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.array([[273.15, 283.15], [293.15, 303.15]]),
+                ...     top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ... )
+                >>> ds.band_units = ["K"]
+                >>> converted = ds.convert_units("celsius")
+                >>> converted.read_array().tolist()
+                [[0.0, 10.0], [20.0, 30.0]]
+                >>> converted.band_units
+                ['celsius']
+
+                ```
+            - An unsupported target raises a clear error:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.array([[273.15]]), top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+                ... )
+                >>> ds.band_units = ["K"]
+                >>> try:
+                ...     ds.convert_units("furlongs")
+                ... except ValueError as exc:
+                ...     print("No unit conversion" in str(exc))
+                True
+
+                ```
+        """
+        if band is not None and not 0 <= band < self.band_count:
+            raise ValueError(
+                f"band {band} is out of range for a {self.band_count}-band dataset."
+            )
+
+        band_indices = range(self.band_count) if band is None else [band]
+        source_units = list(self.band_units)
+        new_units = list(self.band_units)
+
+        full = self.read_array()
+        single_band = self.band_count == 1
+        stack = full[np.newaxis, ...] if single_band else full
+        out = stack.astype("float64").copy()
+        no_data = self.no_data_value
+
+        for index in band_indices:
+            layer = out[index]
+            nodata_value = no_data[index]
+            mask = layer == nodata_value if nodata_value is not None else None
+            converted = convert_array(layer, source_units[index], target)
+            if mask is not None:
+                converted[mask] = nodata_value
+            out[index] = converted
+            new_units[index] = target
+
+        result_array = out[0] if single_band else out
+        result = self.create_from_array(
+            result_array,
+            geo=self.geotransform,
+            epsg=self.epsg,
+            no_data_value=list(no_data),
+        )
+        result.band_units = new_units
+        return result
+
     @property
     def no_data_value(self) -> tuple:
         """Per-band nodata markers as an immutable tuple.
@@ -1535,53 +1626,128 @@ class Dataset(RasterBase):
 
     @property
     def lon(self) -> np.ndarray:
-        """Longitude coordinates.
+        """Longitude / x cell-centre coordinates.
+
+        Uses the geotransform's pixel width (``geotransform[1]``) so the axis is
+        correct even when cells are not square (pixel width != pixel height). Reads the
+        cached ``_geotransform`` (like :attr:`top_left_corner`) rather than the
+        ``geotransform`` property, so subclasses that derive ``geotransform`` from
+        ``lon``/``lat`` (e.g. :class:`~pyramids.netcdf.NetCDF`) do not recurse.
+
+        Examples:
+            - Read the column-centre longitudes of a small raster:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 3)), top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326,
+                ... )
+                >>> ds.lon.tolist()
+                [0.25, 0.75, 1.25]
+
+                ```
 
         See Also:
             - Dataset.x: Dataset x coordinates.
             - Dataset.lat: Dataset latitude.
         """
+        pixel_width = self._geotransform[1]
         x_coords = self.get_x_lon_dimension_array(
-            self.top_left_corner[0], self.cell_size, self.columns
+            self.top_left_corner[0], pixel_width, self.columns
         )
         return x_coords
 
     @property
     def lat(self) -> np.ndarray:
-        """Latitude-coordinate.
+        """Latitude / y cell-centre coordinates.
+
+        Uses the geotransform's pixel height (``abs(geotransform[5])``) rather than
+        :attr:`cell_size` (which only tracks pixel width), so the axis is correct for
+        non-square cells. Reads the cached ``_geotransform`` (like
+        :attr:`top_left_corner`) rather than the ``geotransform`` property, so
+        subclasses that derive ``geotransform`` from ``lon``/``lat`` (e.g.
+        :class:`~pyramids.netcdf.NetCDF`) do not recurse.
+
+        Examples:
+            - Row-centre latitudes decrease from north to south:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 3)), top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326,
+                ... )
+                >>> ds.lat.tolist()
+                [-0.25, -0.75]
+
+                ```
+            - With non-square cells the latitude axis uses the pixel height, not the
+              pixel width:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 3)), geo=(10.0, 2.0, 0.0, 50.0, 0.0, -1.0), epsg=4326,
+                ... )
+                >>> ds.lat.tolist()
+                [49.5, 48.5]
+
+                ```
 
         See Also:
             - Dataset.x: Dataset x coordinates.
             - Dataset.y: Dataset y coordinates.
             - Dataset.lon: Dataset longitude.
         """
+        pixel_height = abs(self._geotransform[5])
         y_coords = self.get_y_lat_dimension_array(
-            self.top_left_corner[1], self.cell_size, self.rows
+            self.top_left_corner[1], pixel_height, self.rows
         )
         return y_coords
 
     @property
     def x(self) -> np.ndarray:
-        """X-coordinate/Longitude.
+        """X cell-centre coordinates (alias of :attr:`lon`).
+
+        Examples:
+            - x mirrors lon for the same raster:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 3)), top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326,
+                ... )
+                >>> ds.x.tolist()
+                [0.25, 0.75, 1.25]
+
+                ```
 
         See Also:
-            - Dataset.lat: Dataset latitude.
+            - Dataset.lon: the longitude axis this property aliases.
             - Dataset.y: Dataset y coordinates.
-            - Dataset.lon: Dataset longitude.
         """
-        # X_coordinate = upper-left corner x + index * cell size + cell-size/2
         return self.lon
 
     @property
     def y(self) -> np.ndarray:
-        """Y-coordinate/Latitude.
+        """Y cell-centre coordinates (alias of :attr:`lat`).
+
+        Examples:
+            - y mirrors lat for the same raster:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((2, 3)), top_left_corner=(0.0, 0.0), cell_size=0.5, epsg=4326,
+                ... )
+                >>> ds.y.tolist()
+                [-0.25, -0.75]
+
+                ```
 
         See Also:
-            - Dataset.x: Dataset y coordinates.
-            - Dataset.lat: Dataset latitude.
-            - Dataset.lon: Dataset longitude.
+            - Dataset.lat: the latitude axis this property aliases.
+            - Dataset.x: Dataset x coordinates.
         """
-        # Y_coordinate = upper-left corner y - index * cell size - cell-size/2
         return self.lat
 
     @property
