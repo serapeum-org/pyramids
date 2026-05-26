@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.24.0 (2026-05-26)
+
+### Feat
+
+- **cog**: unify write policy and add inspection, reads, profiles, and CLI (#402)
+
 ## 0.23.0 (2026-05-25)
 
 ### Feat
