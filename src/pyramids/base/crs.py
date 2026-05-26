@@ -161,7 +161,7 @@ def create_sr_from_proj(
 
 
 def _epsg_from_db_match(srs: osr.SpatialReference) -> str | None:
-    """Return the EPSG code of an exact PROJ-database match, or ``None``.
+    """Return the EPSG code of a confident PROJ-database match, or ``None``.
 
     :meth:`osr.SpatialReference.AutoIdentifyEPSG` is conservative: it raises
     "Unsupported SRS" for many well-known CRSes whose WKT was exported
@@ -221,11 +221,15 @@ def _epsg_from_db_match(srs: osr.SpatialReference) -> str | None:
     best_srs, best_confidence = matches[0]
     if best_confidence < _MIN_EPSG_MATCH_CONFIDENCE:
         return None
-    # Reject ambiguous ties: a definition that matches two database entries
-    # equally well must not silently resolve to whichever GDAL listed first.
+    best_code = best_srs.GetAuthorityCode(None)
+    # Reject ambiguous ties: a runner-up that matches equally well *and*
+    # resolves to a different EPSG code means the definition maps to two
+    # distinct CRSes, so we must not silently pick GDAL's first entry. A
+    # runner-up that resolves to the same code is not ambiguous — both agree.
     if len(matches) > 1 and matches[1][1] >= best_confidence:
-        return None
-    return best_srs.GetAuthorityCode(None)
+        if matches[1][0].GetAuthorityCode(None) != best_code:
+            return None
+    return best_code
 
 
 def get_epsg_from_prj(prj: str) -> int:
@@ -278,7 +282,7 @@ def get_epsg_from_prj(prj: str) -> int:
 
             ```
         - A well-known CRS whose WKT carries no root authority still
-          resolves, via an exact PROJ-database match (here a
+          resolves, via a confident PROJ-database match (here a
           "WGS 84 / UTM zone 18N" PROJCS with its root authority stripped):
             ```python
             >>> from osgeo import osr

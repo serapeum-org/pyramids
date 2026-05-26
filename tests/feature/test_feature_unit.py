@@ -884,6 +884,11 @@ class TestGetEpsgFromPrj:
         relaxed threshold accepts it and returns 32618, where the original
         exact-only (100) bar would have missed it and fallen back to a wrong
         geographic default.
+
+        Note: the exact FindMatches confidence (70 here) depends on the bundled
+        GDAL/PROJ version. ``TestEpsgFromDbMatch`` pins the acceptance *policy*
+        version-independently with fakes; this end-to-end case documents the
+        behaviour against the vendored GDAL.
         """
         wkt = _strip_root_authority(_utm_18n_wkt()).replace(
             "WGS 84 / UTM zone 18N", "My Custom Grid", 1
@@ -896,6 +901,10 @@ class TestGetEpsgFromPrj:
         Shifting UTM 18N's central meridian makes FindMatches score the
         nearest entry far below the acceptance bar, so resolution raises
         rather than mislabelling the perturbed CRS as 32618.
+
+        Note: like test_renamed_projcs_resolves_via_confident_match, the score
+        depends on the bundled GDAL/PROJ; the version-independent policy is
+        pinned by ``TestEpsgFromDbMatch``.
         """
         wkt = _strip_root_authority(_utm_18n_wkt()).replace("-75", "-75.0001")
         with pytest.raises(CRSError, match="matches no PROJ-database entry"):
@@ -933,7 +942,7 @@ class TestEpsgFromDbMatch:
     class _FakeCandidate:
         """Minimal stand-in for a matched ``osr.SpatialReference``."""
 
-        def __init__(self, code: str):
+        def __init__(self, code: str | None):
             self._code = code
 
         def GetAuthorityCode(self, _target):
@@ -966,6 +975,18 @@ class TestEpsgFromDbMatch:
         matches = [
             (self._FakeCandidate("32618"), 70),
             (self._FakeCandidate("32619"), 25),
+        ]
+        assert _epsg_from_db_match(self._FakeSRS(matches)) == "32618"
+
+    def test_accepts_tie_when_codes_agree(self):
+        """L2: an equal-confidence runner-up with the *same* code is not a tie.
+
+        Two top-confidence candidates that both resolve to 32618 agree on the
+        answer, so the helper returns the shared code rather than rejecting it.
+        """
+        matches = [
+            (self._FakeCandidate("32618"), 100),
+            (self._FakeCandidate("32618"), 100),
         ]
         assert _epsg_from_db_match(self._FakeSRS(matches)) == "32618"
 
