@@ -148,10 +148,10 @@ def _dataarray_to_dataset(
 
     The geotransform is derived from the spatial coordinates (cell size from
     the first coordinate step, top-left from the first cell edge). The CRS is
-    taken from the explicit ``crs`` argument, then from ``da.attrs['crs']`` /
-    ``da.rio.crs`` if available, otherwise an error is raised. ``rioxarray``
-    is *not* a dependency — its accessor is only consulted opportunistically
-    if the caller already imported it.
+    taken from the explicit ``crs`` argument, then from ``da.attrs['crs']``,
+    then from a ``.rio`` accessor's ``crs`` if one is present on the object,
+    otherwise an error is raised. The accessor is only consulted
+    opportunistically — no extra dependency is required.
 
     Args:
         da: A 2-D or 3-D :class:`xarray.DataArray` with longitude/latitude

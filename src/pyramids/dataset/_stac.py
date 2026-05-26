@@ -3,11 +3,9 @@
 Given a sequence of STAC Items — :class:`pystac.Item`
 objects, raw JSON dicts, or anything else with `.assets` and
 `.bbox` semantics — extract the chosen asset's `href` from each
-item and delegate to :meth:`DatasetCollection.from_files`. Full
-odc-stac-style features (geobox-tiled graph, auto-geobox derivation,
-`fuse_func`, `errors_as_nodata`) are deliberately out of scope —
-those users are better served by the odc-stac or stackstac packages
-directly.
+item and delegate to :meth:`DatasetCollection.from_files`. Advanced
+features (geobox-tiled graph, auto-geobox derivation, `fuse_func`,
+`errors_as_nodata`) are deliberately out of scope.
 
 The implementation is fully duck-typed. pyramids does **not** import
 or depend on pystac; the STAC Item / Asset contract is interpreted
@@ -218,9 +216,9 @@ def from_stac(
       `["red", "green", "blue", "nir"]`): for each item, stack the named
       assets band-wise into one multi-band raster (band order = `asset`
       order, band names = the asset keys), then time-stack those per-item
-      rasters. This is the stackstac/odc-stac "assets → band axis" model.
-      Mixed-resolution assets are resampled onto the **first** asset's grid
-      when `align=True` (the default).
+      rasters. This is the "assets → band axis" model. Mixed-resolution
+      assets are resampled onto the **first** asset's grid when `align=True`
+      (the default).
 
     The item interface is fully duck-typed. Any of these shapes work:
 
@@ -274,15 +272,14 @@ def from_stac(
         groupby: When `"solar_day"`, items sharing a solar day (their UTC
             datetime shifted by the item-centroid longitude) are mosaicked
             together — overlapping same-overpass tiles fuse into one timestep
-            via `merge_rasters(method="first")` (odc-stac's first-valid fuser).
+            via `merge_rasters(method="first")` (first-valid fuser).
             The resulting `time_length` is the number of distinct solar days.
             Single-asset only. `None` (default) keeps one timestep per item.
         like: Optional target grid as an existing
             :class:`~pyramids.dataset.Dataset`; every timestep of the built
             cube is reprojected/resampled onto its CRS + grid (via
-            :meth:`DatasetCollection.align`), guaranteeing pixel co-registration
-            (odc-stac's `like=`). Mutually exclusive with
-            `crs`/`resolution`/`bounds`.
+            :meth:`DatasetCollection.align`), guaranteeing pixel co-registration.
+            Mutually exclusive with `crs`/`resolution`/`bounds`.
         crs: Target CRS (EPSG int or CRS string) for an explicit target grid.
             Must be given together with `resolution` and `bounds`.
         resolution: Target pixel size (CRS units) for an explicit target grid.
@@ -830,7 +827,7 @@ def _footprint_4326(
     Returns:
         A `(geometry, bbox)` tuple: a GeoJSON Polygon and a 4-element
         `[w, s, e, n]` bbox, both in EPSG:4326. A CRS-less dataset yields the
-        world extent (rio-stac behaviour) and emits a warning.
+        world extent and emits a warning.
     """
     minx, miny, maxx, maxy = native_bbox
     if not epsg:
@@ -884,7 +881,7 @@ def to_stac_item(
     The inverse of :func:`from_stac`: emit a STAC-JSON Item (GeoJSON Feature)
     from a dataset's own metadata, with the `proj` and `raster` extensions
     populated. The footprint is the dataset's bounding rectangle reprojected to
-    EPSG:4326 (rio-stac's default footprint mode). pystac is **not** required —
+    EPSG:4326 (the default footprint mode). pystac is **not** required —
     a plain dict is returned, ready to serialise or feed back into
     :func:`from_stac`.
 
@@ -899,8 +896,7 @@ def to_stac_item(
             `start_datetime`/`end_datetime` range is given, the `datetime`
             property is null and the range is written (the only STAC-valid way
             to have a null `datetime`). When `None` with no range, it defaults
-            to the current UTC time (rio-stac's behaviour) so the Item is always
-            valid.
+            to the current UTC time so the Item is always valid.
         start_datetime: Optional range start (datetime or RFC 3339 string),
             written to `properties.start_datetime`.
         end_datetime: Optional range end, written to `properties.end_datetime`.
@@ -945,8 +941,8 @@ def to_stac_item(
         return value.isoformat() if hasattr(value, "isoformat") else value
 
     # A null `datetime` is only STAC-valid alongside a start/end range. When the
-    # caller gives neither, default to "now" (rio-stac's behaviour) so the Item
-    # is always valid instead of silently emitting a null-datetime Feature.
+    # caller gives neither, default to "now" so the Item is always valid
+    # instead of silently emitting a null-datetime Feature.
     if datetime is None and not (start_datetime and end_datetime):
         datetime = _datetime_cls.now(timezone.utc)
     properties: dict[str, Any] = {"datetime": _iso(datetime)}

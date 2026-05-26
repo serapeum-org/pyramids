@@ -129,7 +129,7 @@ class ColourOpts:
         vmin: Lower colour limit. Defaults to None.
         vmax: Upper colour limit. Defaults to None.
         robust: When True, clip colour limits to the 2nd / 98th
-            percentile (xarray-style). Defaults to False.
+            percentile. Defaults to False.
         levels: int (number of discrete levels) or explicit edge list.
             Defaults to None.
         norm: Custom matplotlib :class:`~matplotlib.colors.Normalize`
@@ -157,7 +157,7 @@ class ColourOpts:
 
             ```
 
-        - Build an xarray-style robust colormap with a diverging
+        - Build a robust (percentile-based) colormap with a diverging
           centre at zero:
 
             ```python

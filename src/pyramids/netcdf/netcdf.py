@@ -814,7 +814,7 @@ class NetCDF(Dataset):
 
               ```
 
-            - Robust xarray-style colour limits — clip to the 2nd / 98th
+            - Robust (percentile-based) colour limits — clip to the 2nd / 98th
               percentile of the rendered slice. Colour controls live
               on :class:`ColourOpts`:
 

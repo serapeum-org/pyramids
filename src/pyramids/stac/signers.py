@@ -1,8 +1,8 @@
 """Generic signing abstraction for STAC consumers.
 
-A *signer* mediates between a STAC consumer (`pystac-client`, `odc-stac`,
-or pyramids' own `from_stac`) and the three distinct auth boundaries a
-can cloud-hosted STAC archive can have:
+A *signer* mediates between a STAC consumer (an external client or pyramids'
+own `from_stac`) and the three distinct auth boundaries a cloud-hosted STAC
+archive can have:
 
 1. **search-time** — the outgoing `GET`/`POST` `/search` HTTP request may
    need credentials (a bearer token, a signed header).

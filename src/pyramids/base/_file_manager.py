@@ -6,13 +6,11 @@ Two concrete shapes, both subclasses of :class:`FileManager`:
   by a user-supplied lock (`SerializableLock` is the default). One
   handle per cache key, shared by every caller that produces the same
   key. On LRU eviction or explicit :meth:`close` the underlying
-  `gdal.Dataset` is released. Pattern copied from xarray's
-  `xarray.backends.file_manager.CachingFileManager`.
+  `gdal.Dataset` is released.
 
 * :class:`ThreadLocalFileManager` — per-thread handles, no locking.
   Each worker thread opens its own handle the first time it calls
-  :meth:`acquire`. Pattern copied from rioxarray's
-  `rioxarray._io.URIManager`.
+  :meth:`acquire`.
 
 **Pickle rule** — `__getstate__` returns only the recipe
 (`opener`, `path`, `access`, `kwargs`). The live handle, the
@@ -169,8 +167,6 @@ class _LRUCache(MutableMapping):
     when :attr:`maxsize` would otherwise be exceeded. An `on_evict`
     callable (if provided) is invoked on eviction so cached file
     handles can be closed cleanly.
-
-    Modeled on :class:`xarray.backends.lru_cache.LRUCache`.
 
     Examples:
         - Basic set / get / eviction:

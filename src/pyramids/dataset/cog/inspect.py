@@ -2,9 +2,8 @@
 
 Provides :func:`cog_info` — a GDAL-only, metadata-only inspection of a raster
 that answers "what compression / predictor / blocksize / overview pyramid does
-this COG use?" without reading any pixels. It mirrors the read-side
-introspection of ``rio_cogeo.cog_info`` and ``rio_tiler.io.Reader.info`` but
-depends only on the GDAL Python bindings pyramids already uses.
+this COG use?" without reading any pixels. It depends only on the GDAL Python
+bindings pyramids already uses.
 
 The result is a frozen :class:`COGInfo` dataclass carrying the band/geo profile
 plus a per-level :class:`OverviewLevel` list. Validity is delegated to

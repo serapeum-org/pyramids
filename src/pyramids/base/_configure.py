@@ -5,14 +5,13 @@ the current process via :func:`gdal.SetConfigOption`, and — when a
 `dask.distributed.Client` is passed — also registers a worker
 plugin that replays the same config on every worker when they start.
 
-Why: odc-stac's Pangeo benchmark showed that a single call to the
-equivalent `configure_rio` cut a 68 s STAC load to 3.75 s (18×),
-purely by setting cloud-friendly GDAL env options. pyramids users
-shouldn't have to discover these individually — one call opts in.
+Why: setting cloud-friendly GDAL env options can cut a multi-second STAC /
+COG load by an order of magnitude over the defaults. pyramids users shouldn't
+have to discover these individually — one call opts in.
 
-The `cloud_defaults=True` preset mirrors odc-stac's
-`GDAL_CLOUD_DEFAULTS` plus two extras for HTTP range-request
-performance. Individual keys can be overridden via `**gdal_options`.
+The `cloud_defaults=True` preset applies a curated set of cloud-read GDAL
+options plus two extras for HTTP range-request performance. Individual keys
+can be overridden via `**gdal_options`.
 
 The `dask.distributed` import is gated — importing this module
 does not pull dask. Only when `client` is non-None does the
@@ -38,9 +37,8 @@ GDAL_CLOUD_DEFAULTS: dict[str, str] = {
 }
 """Default GDAL config options for cloud-hosted COG / NetCDF reads.
 
-Ported from odc-loader's `GDAL_CLOUD_DEFAULTS` with two additions
-(`GDAL_HTTP_MULTIRANGE` and `VSI_CACHE`) that stackstac's
-`DEFAULT_GDAL_ENV` enables by default. Applied by
+A curated set of cloud-read GDAL options, including `GDAL_HTTP_MULTIRANGE`
+and `VSI_CACHE` for HTTP range-request performance. Applied by
 :func:`configure` when `cloud_defaults=True`.
 """
 

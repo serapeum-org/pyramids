@@ -6,9 +6,9 @@ longitude convention, reprojecting it between CRSes, and converting it to a
 :class:`shapely.geometry.Polygon`. The runtime *crop* operation on a gridded
 dataset lives elsewhere; this module is the pure-geometry kernel underneath it.
 
-A `Bbox` is a `(west, south, east, north)` tuple in degrees, matching the
-`rasterio.bounds` / STAC convention. A bbox with `west > east` denotes an
-antimeridian crossing (e.g. `(175, -22, -175, -12)` near Fiji).
+A `Bbox` is a `(west, south, east, north)` tuple in degrees (the STAC bbox
+convention). A bbox with `west > east` denotes an antimeridian crossing
+(e.g. `(175, -22, -175, -12)` near Fiji).
 
 The polygon antimeridian split is implemented natively on top of
 :mod:`shapely` (already a dependency) — no third-party `antimeridian`
@@ -150,8 +150,7 @@ def transform(
         src_crs: Source CRS — anything :meth:`pyproj.CRS.from_user_input`
             accepts (EPSG int, `"EPSG:XXXX"`, WKT, or PROJ string).
         dst_crs: Destination CRS, same accepted forms as `src_crs`.
-        densify_pts: Number of densification points per edge. Defaults to 21,
-            matching `rasterio.warp.transform_bounds`.
+        densify_pts: Number of densification points per edge. Defaults to 21.
 
     Returns:
         The reprojected `(minx, miny, maxx, maxy)` bbox in `dst_crs` units.

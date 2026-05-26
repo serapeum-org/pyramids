@@ -98,8 +98,7 @@ PROFILES: dict[str, dict[str, Any]] = {
 Each profile seeds only the compression-related options; the predictor and
 overview resampling are still resolved per-dtype by
 :meth:`pyramids.dataset.engines.cog.COG.to_cog`, and explicit kwargs / ``extra``
-override the profile. Mirrors ``rio_cogeo.profiles.cog_profiles`` but limited to
-keys in :data:`COG_DRIVER_OPTIONS`.
+override the profile. Limited to keys in :data:`COG_DRIVER_OPTIONS`.
 """
 
 

@@ -1,8 +1,8 @@
 """Interpolate scattered point samples onto a regular grid via ``gdal.Grid``.
 
-Backs :meth:`pyramids.dataset.Dataset.from_points` — the GDAL-native equivalent
-of ``gdal_grid`` (and a rasterio/scipy-free way to turn gauge/station
-observations into a continuous raster). Supports every ``gdal.Grid`` algorithm
+Backs :meth:`pyramids.dataset.Dataset.from_points` — a GDAL-native way to turn
+gauge/station observations into a continuous raster. Supports every ``gdal.Grid``
+algorithm
 (``invdist``, ``invdistnn``, ``nearest``, ``linear``, ``average``, …) via the
 algorithm string. No new third-party dependencies.
 """

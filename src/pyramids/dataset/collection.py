@@ -165,7 +165,7 @@ def _fallback_groupby_reduce(
 
 
 def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
-    """Write pyramids + rioxarray-style attrs on a freshly-written cube Zarr.
+    """Write pyramids GeoTransform / CRS root attrs on a freshly-written cube Zarr.
 
     Module-level so the :func:`dask.delayed` path can pickle it
     cleanly. Sets `crs_wkt`, `GeoTransform`, `epsg`, `nodata`,
@@ -722,8 +722,7 @@ class DatasetCollection:
         :class:`~pyramids.base._file_manager.CachingFileManager`
          and reads its full array. Workers therefore never
         serialise a `gdal.Dataset` — only the file path crosses the
-        pickle boundary, matching the pattern xarray / stackstac /
-        odc-stac use for dask.distributed safety.
+        pickle boundary, which keeps the graph safe under dask.distributed.
 
         Raises:
             ImportError: If the optional `dask` extra is not
@@ -844,9 +843,9 @@ class DatasetCollection:
         chunk file — the only truly parallel raster output path pyramids
         offers. Geobox metadata (epsg, geotransform, nodata, band_names,
         time_length) is written as attributes on the root group + the
-        `data` array following the rioxarray attribute convention, so
-        downstream `xr.open_zarr(store)` consumers can reconstruct the
-        geobox without pyramids.
+        `data` array following the standard `crs_wkt` / `GeoTransform`
+        attribute convention, so downstream `xr.open_zarr(store)` consumers
+        can reconstruct the geobox without pyramids.
 
         Args:
             store: Target store (path, fsspec URL, or zarr.Store).
@@ -916,7 +915,7 @@ class DatasetCollection:
         ``netcdf4`` / ``h5netcdf`` engine plug-in needed). The result is
         a self-describing NetCDF with one variable per band (``CF-1.8``
         ``Conventions`` attr; geobox attached as ``crs_wkt`` /
-        ``GeoTransform`` root attrs in the rioxarray style).
+        ``GeoTransform`` root attrs).
 
         For huge cubes prefer :meth:`to_zarr` — this writer is
         eager (materialises the full T×B×Y×X array) since
@@ -1037,8 +1036,8 @@ class DatasetCollection:
                 # as an int64 offset with CF `units` so xr.open_dataset can
                 # decode it back to a calendar axis on read. Use nanosecond
                 # resolution so the round-trip is lossless for the full
-                # datetime64[ns] range (xarray / udunits accept "nanoseconds
-                # since …" as a CF time unit).
+                # datetime64[ns] range (the CF "nanoseconds since …" time
+                # unit).
                 epoch = np.datetime64("1970-01-01", "ns")
                 ns = (time_values.astype("datetime64[ns]") - epoch).astype("int64")
                 time_values = ns
@@ -1116,7 +1115,7 @@ class DatasetCollection:
             # API the writer doesn't expose) and silently drops anything set
             # through ``xr.encoding``. Surface the no-data value under a
             # ``nodata`` attribute instead — both on the root group (matches
-            # the rioxarray-style root attrs ``to_zarr`` writes) and on every
+            # the root attrs ``to_zarr`` writes) and on every
             # data variable, so consumers can recover it.
             root_attrs["nodata"] = typed_nodata
         ds = xr.Dataset(data_vars=data_vars, coords=coords, attrs=root_attrs)

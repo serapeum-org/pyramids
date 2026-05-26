@@ -491,8 +491,7 @@ class COG(_Engine):
         Writes the COG to an in-memory GDAL ``/vsimem/`` file (no temp file on
         disk), reads the bytes back, and unlinks the virtual file. Useful for
         uploading a COG directly to an object store (S3 / GCS / Azure) without
-        touching the local filesystem — the equivalent of odc-geo's
-        ``to_cog(geo_im, ":mem:")``.
+        touching the local filesystem.
 
         Args:
             **kwargs: Forwarded verbatim to :meth:`to_cog` (e.g. ``compress``,
@@ -795,7 +794,7 @@ class COG(_Engine):
         Requesting a `dst_width`/`dst_height` smaller than the source window
         makes GDAL serve the data from the nearest overview level, so for a COG
         over `/vsicurl/` only the relevant byte ranges are fetched — the
-        cloud-native partial-read pattern of `rio_tiler.io.Reader.part`.
+        cloud-native partial-read pattern.
 
         Args:
             bbox: `(min_x, min_y, max_x, max_y)` window in `bbox_crs`.
@@ -875,7 +874,7 @@ class COG(_Engine):
         """Read a whole-image thumbnail downsampled to `max_size` on the long edge.
 
         Pulls from a coarse overview when one exists, so previewing a huge COG
-        is cheap. Mirrors `rio_tiler.io.Reader.preview`.
+        is cheap.
 
         Args:
             max_size: Maximum pixels on the longer edge. Defaults to 1024.
@@ -974,9 +973,9 @@ class COG(_Engine):
     ) -> np.ndarray:
         """Read a Web-Mercator XYZ/slippy-map tile.
 
-        Computes the EPSG:3857 bounds of tile `(z, x, y)` and delegates to
-        :meth:`read_part` at `tilesize` resolution — no `morecantile`
-        dependency needed. Mirrors `rio_tiler.io.Reader.tile`.
+        Computes the EPSG:3857 bounds of tile `(z, x, y)` from the closed-form
+        Web-Mercator formula and delegates to :meth:`read_part` at `tilesize`
+        resolution — no extra tiling dependency needed.
 
         Args:
             z: Zoom level.
