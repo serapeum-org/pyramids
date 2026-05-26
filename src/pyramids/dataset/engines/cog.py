@@ -813,11 +813,22 @@ class COG(_Engine):
 
         Returns:
             numpy.ndarray: `(rows, cols)` for a single band, or
-            `(bands, rows, cols)` for all bands.
+            `(bands, rows, cols)` for all bands; always sized
+            `dst_height x dst_width` (the requested output size).
 
         Raises:
             ValueError: Unknown `resampling`.
-            OutOfBoundsError: The window does not intersect the raster.
+            OutOfBoundsError: The window does not intersect the raster at all.
+
+        Note:
+            A window that only **partially** overlaps the raster is **not**
+            stretched to fill the output: the intersection is read and placed
+            at its correct offset inside a `dst_height x dst_width` buffer
+            whose out-of-raster remainder is filled with NoData (the band's
+            NoData value, else NaN for float / `0` for integer — see
+            :meth:`_nodata_fill`). A fully-inside window is returned without
+            padding. This keeps the result aligned to the requested window,
+            which matters for edge tiles served by :meth:`read_tile`.
 
         Examples:
             - Read a 256x256 decimated thumbnail of a bbox:
@@ -842,30 +853,96 @@ class COG(_Engine):
         inv = gdal.InvGeoTransform(ds.GetGeoTransform())
         px_tl, py_tl = gdal.ApplyGeoTransform(inv, min_x, max_y)
         px_br, py_br = gdal.ApplyGeoTransform(inv, max_x, min_y)
-        xoff = max(0, int(math.floor(min(px_tl, px_br))))
-        yoff = max(0, int(math.floor(min(py_tl, py_br))))
-        xend = min(ds.RasterXSize, int(math.ceil(max(px_tl, px_br))))
-        yend = min(ds.RasterYSize, int(math.ceil(max(py_tl, py_br))))
-        xsize, ysize = xend - xoff, yend - yoff
-        if xsize <= 0 or ysize <= 0:
+
+        # The full requested window, in source pixel coordinates (may extend
+        # beyond the raster on any side).
+        req_xoff = int(math.floor(min(px_tl, px_br)))
+        req_yoff = int(math.floor(min(py_tl, py_br)))
+        req_xsize = int(math.ceil(max(px_tl, px_br))) - req_xoff
+        req_ysize = int(math.ceil(max(py_tl, py_br))) - req_yoff
+        if req_xsize <= 0 or req_ysize <= 0:
+            raise OutOfBoundsError(
+                f"bbox {bbox} (crs {bbox_crs}) has zero pixel extent"
+            )
+
+        # Intersection of the requested window with the raster.
+        ix0 = max(0, req_xoff)
+        iy0 = max(0, req_yoff)
+        ix1 = min(ds.RasterXSize, req_xoff + req_xsize)
+        iy1 = min(ds.RasterYSize, req_yoff + req_ysize)
+        if ix1 - ix0 <= 0 or iy1 - iy0 <= 0:
             raise OutOfBoundsError(
                 f"bbox {bbox} (crs {bbox_crs}) does not intersect the raster"
             )
-        out_w = dst_width if dst_width is not None else xsize
-        out_h = dst_height if dst_height is not None else ysize
+
+        out_w = dst_width if dst_width is not None else req_xsize
+        out_h = dst_height if dst_height is not None else req_ysize
         alg = _RESAMPLING_ALG[resampling]
         source = ds if band is None else ds.GetRasterBand(band + 1)
-        return np.asarray(
+
+        fully_inside = (
+            ix0 == req_xoff
+            and iy0 == req_yoff
+            and ix1 == req_xoff + req_xsize
+            and iy1 == req_yoff + req_ysize
+        )
+        if fully_inside:
+            return np.asarray(
+                source.ReadAsArray(
+                    ix0,
+                    iy0,
+                    ix1 - ix0,
+                    iy1 - iy0,
+                    buf_xsize=out_w,
+                    buf_ysize=out_h,
+                    resample_alg=alg,
+                )
+            )
+
+        # Partial overlap: read only the intersection, then place it at its
+        # correct offset inside a full-size output buffer padded with NoData,
+        # so the returned array stays aligned to the requested window.
+        scale_x = out_w / req_xsize
+        scale_y = out_h / req_ysize
+        ox0 = max(0, min(out_w, int(round((ix0 - req_xoff) * scale_x))))
+        oy0 = max(0, min(out_h, int(round((iy0 - req_yoff) * scale_y))))
+        ox1 = max(ox0 + 1, min(out_w, int(round((ix1 - req_xoff) * scale_x))))
+        oy1 = max(oy0 + 1, min(out_h, int(round((iy1 - req_yoff) * scale_y))))
+        sub = np.asarray(
             source.ReadAsArray(
-                xoff,
-                yoff,
-                xsize,
-                ysize,
-                buf_xsize=out_w,
-                buf_ysize=out_h,
+                ix0,
+                iy0,
+                ix1 - ix0,
+                iy1 - iy0,
+                buf_xsize=ox1 - ox0,
+                buf_ysize=oy1 - oy0,
                 resample_alg=alg,
             )
         )
+        fill = self._nodata_fill(ds.GetRasterBand(1))
+        if sub.ndim == 3:
+            out = np.full((sub.shape[0], out_h, out_w), fill, dtype=sub.dtype)
+            out[:, oy0:oy1, ox0:ox1] = sub
+        else:
+            out = np.full((out_h, out_w), fill, dtype=sub.dtype)
+            out[oy0:oy1, ox0:ox1] = sub
+        return out
+
+    @staticmethod
+    def _nodata_fill(band: Any) -> float:
+        """Pick a fill value for padding partial reads.
+
+        Args:
+            band: The GDAL band whose NoData value (if any) to use.
+
+        Returns:
+            float: The band's NoData value, else NaN for floating-point bands
+            and ``0`` for integer bands.
+        """
+        nodata = band.GetNoDataValue()
+        if nodata is not None:
+            return nodata
+        return 0 if is_integer_gdal_dtype(band.DataType) else float("nan")
 
     def preview(
         self,
