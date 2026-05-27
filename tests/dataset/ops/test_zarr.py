@@ -331,3 +331,38 @@ class TestGeoZarrLayout:
         with pytest.warns(DeprecationWarning, match="legacy pyramids geobox"):
             reloaded = Dataset.from_zarr(store)
         assert reloaded.epsg == 4326, f"legacy geobox not recovered: {reloaded.epsg}"
+
+
+class TestCompressor:
+    """``compressor=`` controls the zarr codec on the data array (FR-4)."""
+
+    @requires_zarr
+    def test_custom_codec_applied(self, small_dataset, tmp_path):
+        """A passed numcodecs codec is used for the data array (FR-4).
+
+        Test scenario:
+            Passing ``compressor=Blosc(cname='zstd')`` makes the written
+            ``data`` array use that codec; values still round-trip.
+        """
+        import numcodecs
+
+        store = str(tmp_path / "zstd.zarr")
+        small_dataset.to_zarr(store, compressor=numcodecs.Blosc(cname="zstd"))
+        codec = zarr.open_group(store, mode="r")["data"].compressor
+        assert codec is not None and codec.cname == "zstd", f"codec={codec}"
+        np.testing.assert_array_equal(
+            np.atleast_3d(Dataset.from_zarr(store).read_array()).squeeze(),
+            np.atleast_3d(small_dataset.read_array()).squeeze(),
+        )
+
+    @requires_zarr
+    def test_uncompressed(self, small_dataset, tmp_path):
+        """``compressor=None`` writes an uncompressed data array (FR-4).
+
+        Test scenario:
+            Passing ``compressor=None`` yields a ``data`` array whose
+            ``.compressor`` is ``None``.
+        """
+        store = str(tmp_path / "raw.zarr")
+        small_dataset.to_zarr(store, compressor=None)
+        assert zarr.open_group(store, mode="r")["data"].compressor is None

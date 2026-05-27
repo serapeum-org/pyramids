@@ -842,6 +842,7 @@ class DatasetCollection:
         compute: bool = True,
         mode: str = "w",
         storage_options: dict | None = None,
+        compressor: Any = "auto",
     ):
         """Serialise the 4-D `(T, B, R, C)` cube to a Zarr store.
 
@@ -860,6 +861,9 @@ class DatasetCollection:
             mode: Zarr open mode, typically `"w"` (fresh) or `"a"`.
             storage_options: Optional dict forwarded to
                 :func:`fsspec.get_mapper` for cloud stores.
+            compressor: Zarr codec for the `data` array. `"auto"` (default)
+                keeps zarr's default codec; pass a `numcodecs` codec to
+                override, or `None` for an uncompressed array.
 
         Returns:
             `None` on `compute=True`; a :class:`dask.delayed.Delayed`
@@ -883,11 +887,15 @@ class DatasetCollection:
         )
         data = self.data
         resolved_store = _resolve_store(store, storage_options)
+        # `compressor="auto"` keeps zarr's default codec; any other value (a
+        # numcodecs codec, or None for uncompressed) is forwarded to zarr.create.
+        codec_kwargs = {} if compressor == "auto" else {"compressor": compressor}
         write_result = data.to_zarr(
             resolved_store,
             component="data",
             overwrite=(mode == "w"),
             compute=compute,
+            **codec_kwargs,
         )
         if compute:
             _finalize_collection_metadata(resolved_store, self._meta, self._files)

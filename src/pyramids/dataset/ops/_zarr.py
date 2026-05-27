@@ -109,6 +109,7 @@ def write_dataset_to_zarr(
     mode: str = "w",
     chunks: Any = "auto",
     storage_options: dict[str, Any] | None = None,
+    compressor: Any = "auto",
 ) -> Any:
     """Serialise `ds` to a Zarr store.
 
@@ -132,6 +133,9 @@ def write_dataset_to_zarr(
             :meth:`Dataset.read_array`. `"auto"` (default) respects
             the on-disk block shape.
         storage_options: fsspec options for cloud stores.
+        compressor: Zarr codec for the `data` array. `"auto"` (default) keeps
+            zarr's default codec; pass a `numcodecs` codec to override, or
+            `None` for an uncompressed array.
 
     Returns:
         `None` on `compute=True`; a :class:`dask.delayed.Delayed`
@@ -161,11 +165,15 @@ def write_dataset_to_zarr(
     metadata = _metadata_dict(ds)
     resolved_store = _resolve_store(store, storage_options)
 
+    # `compressor="auto"` leaves zarr's default codec in place; any other value
+    # (a numcodecs codec, or None for uncompressed) is forwarded to zarr.create.
+    codec_kwargs = {} if compressor == "auto" else {"compressor": compressor}
     write_result = arr.to_zarr(
         resolved_store,
         component="data",
         overwrite=(mode == "w"),
         compute=compute,
+        **codec_kwargs,
     )
     if compute:
         _finalize_metadata(resolved_store, metadata)
