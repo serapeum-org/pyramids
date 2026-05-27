@@ -218,3 +218,70 @@ class TestFromZarrRoundtrip:
         rt = DatasetCollection.from_zarr(out)
         assert isinstance(rt.data, da.Array), f"data not lazy: {type(rt.data)}"
         np.testing.assert_array_equal(rt.data.compute(), source.data.compute())
+
+
+class TestAppendAndRegion:
+    """Incremental writes: append_dim / region / mode='a' guard (FR-5, Z-6)."""
+
+    def _col(self, tmp_path, vals, tag):
+        paths = []
+        for i, v in enumerate(vals):
+            ds = Dataset.create_from_array(
+                np.full((3, 4), float(v), dtype=np.float32),
+                top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326,
+            )
+            p = str(tmp_path / f"{tag}_{v}_{i}.tif")
+            ds.to_file(p)
+            paths.append(p)
+        return DatasetCollection.from_files(paths)
+
+    @requires_zarr
+    def test_append_dim_grows_time_axis(self, tmp_path):
+        """append_dim='time' appends timesteps and updates time_length (FR-5).
+
+        Test scenario:
+            Write a 2-step cube, then append a 3-step cube with
+            ``mode='a', append_dim='time'``; the reopened cube has 5 timesteps
+            in order.
+        """
+        store = str(tmp_path / "append.zarr")
+        self._col(tmp_path, [1, 2], "a").to_zarr(store)
+        self._col(tmp_path, [3, 4, 5], "b").to_zarr(
+            store, mode="a", append_dim="time"
+        )
+        rt = DatasetCollection.from_zarr(store)
+        assert rt.time_length == 5, f"time_length {rt.time_length}"
+        cube = rt.data.compute()
+        assert cube.shape == (5, 1, 3, 4), f"shape {cube.shape}"
+        means = [float(cube[i].mean()) for i in range(5)]
+        assert means == [1.0, 2.0, 3.0, 4.0, 5.0], f"means {means}"
+
+    @requires_zarr
+    def test_mode_a_without_append_dim_raises(self, tmp_path):
+        """mode='a' with no append_dim/region raises (Z-6: no silent no-op).
+
+        Test scenario:
+            Calling to_zarr(mode='a') without append_dim or region must raise a
+            ValueError naming append_dim, instead of silently doing nothing.
+        """
+        store = str(tmp_path / "guard.zarr")
+        self._col(tmp_path, [1], "g").to_zarr(store)
+        with pytest.raises(ValueError, match="append_dim"):
+            self._col(tmp_path, [2], "g2").to_zarr(store, mode="a")
+
+    @requires_zarr
+    def test_region_overwrites_existing_timesteps(self, tmp_path):
+        """region= writes the cube into a slice of an existing store (FR-5).
+
+        Test scenario:
+            After writing a 3-step cube, a 1-step cube written with
+            ``region={'time': slice(1, 2)}`` replaces timestep 1 only.
+        """
+        store = str(tmp_path / "region.zarr")
+        self._col(tmp_path, [1, 1, 1], "r").to_zarr(store)
+        self._col(tmp_path, [9], "r2").to_zarr(
+            store, mode="a", region={"time": slice(1, 2)}
+        )
+        cube = DatasetCollection.from_zarr(store).data.compute()
+        means = [float(cube[i].mean()) for i in range(3)]
+        assert means == [1.0, 9.0, 1.0], f"region write wrong: {means}"

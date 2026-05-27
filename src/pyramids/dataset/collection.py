@@ -202,6 +202,45 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
     )
 
 
+def _finalize_append_metadata(resolved_store, new_time_length: int, added_files: list) -> None:
+    """Update root attrs after appending timesteps to an existing cube store.
+
+    Bumps ``time_length`` to the new total and extends ``pyramids_file_list``;
+    the geobox / data attrs already exist from the initial write. Module-level
+    so the :func:`dask.delayed` (``compute=False``) path can pickle it.
+    """
+    import zarr
+
+    root = zarr.open_group(resolved_store, mode="a")
+    root.attrs["time_length"] = int(new_time_length)
+    existing_files = list(root.attrs.get("pyramids_file_list", []))
+    root.attrs["pyramids_file_list"] = existing_files + list(added_files)
+    zarr.consolidate_metadata(resolved_store)
+
+
+def _finalize_append_after_write(data_result, resolved_store, new_time_length, added_files) -> None:
+    """Run :func:`_finalize_append_metadata` after the appended data write."""
+    del data_result
+    _finalize_append_metadata(resolved_store, new_time_length, added_files)
+
+
+def _region_to_slices(region: dict, ndim: int) -> tuple:
+    """Convert a ``{dim: slice}`` region dict to a positional slice tuple.
+
+    Maps the cube's named axes (``time``/``band``/``y``/``x``) to positions
+    0..3; unmentioned dims default to ``slice(None)`` (the whole axis).
+    """
+    dim_axis = {"time": 0, "band": 1, "y": 2, "x": 3}
+    slices: list = [slice(None)] * ndim
+    for dim, sl in region.items():
+        if dim not in dim_axis:
+            raise ValueError(
+                f"unknown region dim {dim!r}; expected one of {tuple(dim_axis)}"
+            )
+        slices[dim_axis[dim]] = sl
+    return tuple(slices)
+
+
 def _finalize_after_write(data_result, resolved_store, meta, files) -> None:
     """run metadata finalize AFTER data write completes.
 
@@ -843,6 +882,8 @@ class DatasetCollection:
         mode: str = "w",
         storage_options: dict | None = None,
         compressor: Any = "auto",
+        append_dim: str | None = None,
+        region: dict | None = None,
     ):
         """Serialise the 4-D `(T, B, R, C)` cube to a Zarr store.
 
@@ -885,11 +926,33 @@ class DatasetCollection:
                 "DatasetCollection.to_zarr requires the optional 'zarr' dependency."
             )
         )
+        if mode == "a" and append_dim is None and region is None:
+            raise ValueError(
+                "mode='a' requires append_dim='time' or region=... (xarray-style "
+                "incremental write); use mode='w' to (over)write the whole cube."
+            )
         data = self.data
         resolved_store = _resolve_store(store, storage_options)
         # `compressor="auto"` keeps zarr's default codec; any other value (a
         # numcodecs codec, or None for uncompressed) is forwarded to zarr.create.
         codec_kwargs = {} if compressor == "auto" else {"compressor": compressor}
+
+        if append_dim is not None:
+            return self._append_to_zarr(resolved_store, data, append_dim, compute)
+        if region is not None:
+            # Write the cube into a region of an existing store; geobox /
+            # time_length already exist there, so no finalize is needed. dask's
+            # region write targets the zarr.Array directly.
+            import zarr
+
+            existing = zarr.open_group(resolved_store, mode="a")["data"]
+            return data.to_zarr(
+                existing,
+                region=_region_to_slices(region, data.ndim),
+                overwrite=False,
+                compute=compute,
+            )
+
         write_result = data.to_zarr(
             resolved_store,
             component="data",
@@ -910,6 +973,41 @@ class DatasetCollection:
                 self._files,
             )
         return result
+
+    def _append_to_zarr(self, resolved_store, data, append_dim: str, compute: bool):
+        """Append this cube's timesteps to an existing store along ``append_dim``.
+
+        Resizes the existing ``data`` array along the time axis and writes the
+        new block into the appended region (the per-timestep time chunks are
+        size 1, so the region aligns with chunk boundaries), then bumps
+        ``time_length`` and extends ``pyramids_file_list``.
+        """
+        import dask
+        import zarr
+
+        if append_dim != "time":
+            raise ValueError(
+                f"append_dim must be 'time' for a (T, B, Y, X) cube; got {append_dim!r}"
+            )
+        root = zarr.open_group(resolved_store, mode="a")
+        existing = root["data"]
+        old_t = int(existing.shape[0])
+        new_total = old_t + int(data.shape[0])
+        existing.resize((new_total, *existing.shape[1:]))
+        slices = (slice(old_t, new_total),) + (slice(None),) * (data.ndim - 1)
+        # dask's region write targets the zarr.Array directly (not store+component).
+        write_result = data.to_zarr(
+            existing,
+            region=slices,
+            overwrite=False,
+            compute=compute,
+        )
+        if compute:
+            _finalize_append_metadata(resolved_store, new_total, self._files)
+            return None
+        return dask.delayed(_finalize_append_after_write)(
+            write_result, resolved_store, new_total, self._files
+        )
 
     def to_netcdf(
         self,
