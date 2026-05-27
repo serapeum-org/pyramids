@@ -551,6 +551,20 @@ def import_flox(message: str):
         raise OptionalPackageDoesNotExist(message)
 
 
+def lazy_extra_hint(prefix: str) -> str:
+    """Compose an install hint for the optional ``[lazy]`` extra.
+
+    ``prefix`` is the domain-specific lead sentence (ending in a period);
+    the shared PyPI / conda-forge install commands are appended once here so
+    the zarr / dask / flox call sites don't each copy them.
+    """
+    return (
+        f"{prefix} Install with one of:\n"
+        "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
+        "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+    )
+
+
 def import_zarr(message: str):
     """Import zarr."""
     try:

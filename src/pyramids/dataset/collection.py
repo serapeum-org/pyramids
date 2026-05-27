@@ -17,7 +17,7 @@ from pyramids import _io
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._raster_meta import RasterMeta
-from pyramids.base._utils import import_flox, import_zarr
+from pyramids.base._utils import import_flox, import_zarr, lazy_extra_hint
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
@@ -116,10 +116,9 @@ def _flox_groupby_reduce(
     importable so the caller falls back to the per-label loop.
     """
     import_flox(
-        "flox is required for grouped reductions over a DatasetCollection. "
-        "Install with one of:\n"
-        "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-        "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+        lazy_extra_hint(
+            "flox is required for grouped reductions over a DatasetCollection."
+        )
     )
     from flox import groupby_reduce
 
@@ -728,11 +727,10 @@ class DatasetCollection:
             import dask
             import dask.array as da
         except ImportError as exc:
-            raise ImportError(
-                "DatasetCollection.data requires the optional 'dask' "
-                "dependency. Install with one of:\n"
-                "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-                "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+            raise OptionalPackageDoesNotExist(
+                lazy_extra_hint(
+                    "DatasetCollection.data requires the optional 'dask' dependency."
+                )
             ) from exc
         meta = self._meta
         shape = meta.shape
@@ -860,10 +858,9 @@ class DatasetCollection:
                 "construct one."
             )
         import_zarr(
-            "DatasetCollection.to_zarr requires the optional 'zarr' "
-            "dependency. Install with one of:\n"
-            "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-            "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+            lazy_extra_hint(
+                "DatasetCollection.to_zarr requires the optional 'zarr' dependency."
+            )
         )
         data = self.data
         resolved_store = _resolve_store(store, storage_options)

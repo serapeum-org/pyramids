@@ -25,18 +25,15 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_dask, import_zarr
+from pyramids.base._utils import import_dask, import_zarr, lazy_extra_hint
 from pyramids.base.crs import sr_from_epsg
 
 if TYPE_CHECKING:
     from pyramids.dataset import Dataset
 
 
-_LAZY_IMPORT_ERROR = (
-    "Zarr IO requires the optional 'dask' / 'zarr' dependencies. "
-    "Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+_LAZY_IMPORT_ERROR = lazy_extra_hint(
+    "Zarr IO requires the optional 'dask' / 'zarr' dependencies."
 )
 
 
