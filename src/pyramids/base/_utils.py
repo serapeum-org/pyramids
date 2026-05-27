@@ -554,9 +554,35 @@ def import_flox(message: str):
 def lazy_extra_hint(prefix: str) -> str:
     """Compose an install hint for the optional ``[lazy]`` extra.
 
-    ``prefix`` is the domain-specific lead sentence (ending in a period);
-    the shared PyPI / conda-forge install commands are appended once here so
-    the zarr / dask / flox call sites don't each copy them.
+    The shared PyPI / conda-forge install commands for the ``[lazy]`` extra
+    (dask / zarr / fsspec / flox) are defined once here so the zarr / dask /
+    flox call sites don't each copy them; only the lead sentence varies.
+
+    Args:
+        prefix: The domain-specific lead sentence, ending in a period (e.g.
+            ``"Zarr IO requires the optional 'zarr' dependency."``). It is
+            placed verbatim at the start of the returned message.
+
+    Returns:
+        A single string: ``prefix`` followed by ``"Install with one of:"`` and
+        two indented bullet lines giving the PyPI and conda-forge commands.
+
+    Examples:
+        - The lead sentence is preserved and a header line follows:
+            ```python
+            >>> lazy_extra_hint("Op needs the optional 'dask' dependency.").splitlines()[0]
+            "Op needs the optional 'dask' dependency. Install with one of:"
+
+            ```
+        - Both install commands are present in the body:
+            ```python
+            >>> hint = lazy_extra_hint("X requires the optional 'zarr' dependency.")
+            >>> "pip install 'pyramids-gis[lazy]'" in hint
+            True
+            >>> "conda install -c conda-forge pyramids-lazy" in hint
+            True
+
+            ```
     """
     return (
         f"{prefix} Install with one of:\n"
