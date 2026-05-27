@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.25.1 (2026-05-27)
+
+### Fix
+
+- **wheels**: vendor curl CA bundle so vendored-GDAL HTTPS reads work  (#414)
+
 ## 0.25.0 (2026-05-26)
 
 ### Feat
