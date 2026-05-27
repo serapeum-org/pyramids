@@ -182,3 +182,39 @@ class TestErrors:
         assert "conda install -c conda-forge pyramids-lazy" in message, (
             f"conda-forge install hint missing from message: {message!r}"
         )
+
+
+class TestFromZarrRoundtrip:
+    """DatasetCollection.to_zarr → from_zarr round-trips the cube (FR-3, Z-7)."""
+
+    @requires_zarr
+    def test_roundtrip_shape_and_geobox(self, three_files, tmp_path):
+        """from_zarr recovers time_length, geobox and EPSG.
+
+        Test scenario:
+            A 3-timestep cube written by to_zarr reopens via from_zarr with the
+            same time_length, rows/cols and EPSG.
+        """
+        out = str(tmp_path / "rt_cube.zarr")
+        DatasetCollection.from_files(three_files).to_zarr(out)
+        rt = DatasetCollection.from_zarr(out)
+        assert rt.time_length == 3, f"time_length {rt.time_length}"
+        assert (rt.rows, rt.columns) == (3, 4), f"dims {(rt.rows, rt.columns)}"
+        assert rt.meta.epsg == 4326, f"epsg {rt.meta.epsg}"
+
+    @requires_zarr
+    def test_data_is_lazy_and_values_match(self, three_files, tmp_path):
+        """from_zarr.data is a lazy dask cube whose values match the source.
+
+        Test scenario:
+            ``.data`` returns a dask Array of shape (T, B, R, C) read straight
+            from the store; its computed values equal the original cube.
+        """
+        import dask.array as da
+
+        source = DatasetCollection.from_files(three_files)
+        out = str(tmp_path / "rt_vals.zarr")
+        source.to_zarr(out)
+        rt = DatasetCollection.from_zarr(out)
+        assert isinstance(rt.data, da.Array), f"data not lazy: {type(rt.data)}"
+        np.testing.assert_array_equal(rt.data.compute(), source.data.compute())

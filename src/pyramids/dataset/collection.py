@@ -26,7 +26,11 @@ from pyramids.dataset._stac import from_stac as _from_stac
 from pyramids.dataset.abstract_dataset import CATALOG
 from pyramids.dataset.dataset import Dataset
 from pyramids.dataset.merge import merge_rasters
-from pyramids.dataset.ops._geobox_zarr import ZARR_SCHEMA_VERSION, write_geobox
+from pyramids.dataset.ops._geobox_zarr import (
+    ZARR_SCHEMA_VERSION,
+    read_geobox,
+    write_geobox,
+)
 from pyramids.dataset.ops._zarr import _resolve_store
 from pyramids.feature import FeatureCollection
 
@@ -381,6 +385,7 @@ class DatasetCollection:
         meta: RasterMeta | None = None,
         datasets: list[Dataset] | None = None,
         gdal_env: dict[str, str] | None = None,
+        zarr_store: Any = None,
     ):
         """Construct DatasetCollection object.
 
@@ -417,6 +422,9 @@ class DatasetCollection:
         self._time_length = time_length
         self._meta = meta if meta is not None else RasterMeta.from_dataset(src)
         self._gdal_env: dict[str, str] = dict(gdal_env) if gdal_env else {}
+        # When set (by from_zarr), the lazy `data` cube reads directly from this
+        # resolved Zarr store instead of stacking per-file reads.
+        self._zarr_store = zarr_store
         # Cached lazy list of per-timestep Datasets. Populated on
         # first access via the `datasets` property: from `datasets=`
         # (caller-provided), then `files=` (open each path), then a
@@ -731,10 +739,13 @@ class DatasetCollection:
             RuntimeError: If the collection was constructed without a
                 `files` list (legacy `create_cube` path).
         """
-        if self._files is None or len(self._files) == 0:
+        if self._zarr_store is None and (
+            self._files is None or len(self._files) == 0
+        ):
             raise RuntimeError(
                 "DatasetCollection.data requires a file-backed collection. "
-                "Use DatasetCollection.from_files(...) to construct one."
+                "Use DatasetCollection.from_files(...) or "
+                "DatasetCollection.from_zarr(...) to construct one."
             )
         try:
             import dask
@@ -745,6 +756,10 @@ class DatasetCollection:
                     "DatasetCollection.data requires the optional 'dask' dependency."
                 )
             ) from exc
+        if self._zarr_store is not None:
+            # Zarr-backed cube (from_zarr): read the 4-D (T, B, R, C) array
+            # lazily straight from the store — no per-file stacking.
+            return da.from_zarr(self._zarr_store, component="data")
         meta = self._meta
         shape = meta.shape
         dtype = np.dtype(meta.dtype)
@@ -1317,6 +1332,68 @@ class DatasetCollection:
             if meta is None:
                 meta = RasterMeta.from_dataset(template)
         return cls(template, len(resolved), files=resolved, meta=meta, gdal_env=gdal_env)
+
+    @classmethod
+    def from_zarr(
+        cls,
+        store: str | Path | Any,
+        *,
+        storage_options: dict | None = None,
+    ) -> DatasetCollection:
+        """Open a pyramids-written cube Zarr store into a lazy DatasetCollection.
+
+        Inverse of :meth:`to_zarr`. The 4-D ``(time, band, y, x)`` ``data`` array
+        is read lazily straight from the store (via :func:`dask.array.from_zarr`),
+        and the geobox (CRS / transform / nodata / band names) is recovered from
+        the GeoZarr ``spatial_ref`` mapping. Legacy flat-attr stores still read,
+        with a ``DeprecationWarning``.
+
+        Args:
+            store: Input store — path / fsspec URL / ``zarr.storage.Store``.
+            storage_options: Optional fsspec options forwarded to
+                :func:`fsspec.get_mapper` for cloud stores.
+
+        Returns:
+            DatasetCollection: A zarr-backed collection whose ``.data`` reads the
+            cube lazily from the store and whose ``time_length`` matches it.
+
+        Raises:
+            OptionalPackageDoesNotExist: When the ``[lazy]`` extra is missing.
+        """
+        import_zarr(
+            lazy_extra_hint(
+                "DatasetCollection.from_zarr requires the optional 'zarr' dependency."
+            )
+        )
+        import zarr
+
+        resolved = _resolve_store(store, storage_options)
+        root = zarr.open_group(resolved, mode="r")
+        data_attrs = dict(root["data"].attrs)
+        geobox = read_geobox(root, data_name="data")
+        time_length, bands, rows, cols = (int(v) for v in root["data"].shape)
+        time_length = int(root.attrs.get("time_length", time_length))
+
+        nodata_list = data_attrs.get("nodata")
+        if nodata_list and any(v is not None for v in nodata_list):
+            no_data_value: Any = list(nodata_list)
+        else:
+            no_data_value = None
+        dtype = np.dtype(data_attrs.get("dtype", "float32"))
+        template_arr = np.zeros((bands, rows, cols), dtype=dtype)
+        template = Dataset.create_from_array(
+            template_arr if bands > 1 else template_arr[0],
+            geo=tuple(float(v) for v in geobox["geotransform"]),
+            epsg=geobox["epsg"] or 4326,
+            no_data_value=no_data_value,
+        )
+        if geobox["crs_wkt"]:
+            template.crs = geobox["crs_wkt"]
+        band_names = data_attrs.get("band_names") or []
+        if band_names and len(band_names) == template.band_count:
+            template.band_names = list(band_names)
+        meta = RasterMeta.from_dataset(template)
+        return cls(template, time_length, meta=meta, zarr_store=resolved)
 
     @classmethod
     def from_archive(
