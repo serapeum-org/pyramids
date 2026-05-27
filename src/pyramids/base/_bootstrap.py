@@ -82,6 +82,7 @@ def activate_vendored_osgeo(pkg_dir: Path) -> bool:
     gdal_data = data_dir / "gdal_data"
     proj_data = data_dir / "proj_data"
     gdal_plugins = data_dir / "gdalplugins"
+    ca_bundle = data_dir / "ssl" / "cacert.pem"
     # setdefault is intentional: user-set GDAL_DATA / PROJ_DATA /
     # PROJ_LIB / GDAL_DRIVER_PATH always win over the wheel's bundled
     # data dirs. This lets advanced users override (e.g. point PROJ at
@@ -101,6 +102,19 @@ def activate_vendored_osgeo(pkg_dir: Path) -> bool:
         # statically, so the dir is absent there and the is_dir()
         # guard makes the bootstrap cross-platform.
         os.environ.setdefault("GDAL_DRIVER_PATH", str(gdal_plugins))
+    if ca_bundle.is_file():
+        # The bundled libcurl bakes its CA path to the wheel-build
+        # prefix (`.pixi/envs/wheel-build/ssl/cacert.pem`), which is
+        # absent in the consuming env, so GDAL `/vsicurl` HTTPS reads
+        # fail with "error adding trust anchors". Re-point GDAL / PROJ /
+        # libcurl at the cacert.pem we vendor into the wheel. setdefault
+        # keeps any user/system override (CURL_CA_BUNDLE, SSL_CERT_FILE,
+        # certifi) authoritative. See issue #412.
+        ca_str = str(ca_bundle)
+        os.environ.setdefault("GDAL_HTTP_CAINFO", ca_str)
+        os.environ.setdefault("PROJ_CURL_CA_BUNDLE", ca_str)
+        os.environ.setdefault("CURL_CA_BUNDLE", ca_str)
+        os.environ.setdefault("SSL_CERT_FILE", ca_str)
 
     if sys.platform == "win32":  # pragma: no cover
         # delvewheel places DLLs at <site-packages>/pyramids_gis.libs/
@@ -129,5 +143,6 @@ def activate_vendored_osgeo(pkg_dir: Path) -> bool:
         print(f"[pyramids] vendor dir: {vendor_str}")
         print(f"[pyramids] GDAL_DATA: {os.environ.get('GDAL_DATA')}")
         print(f"[pyramids] PROJ_DATA: {os.environ.get('PROJ_DATA')}")
+        print(f"[pyramids] GDAL_HTTP_CAINFO: {os.environ.get('GDAL_HTTP_CAINFO')}")
 
     return True
