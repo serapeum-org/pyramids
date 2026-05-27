@@ -50,6 +50,18 @@ def pixel_centre_coords(
     Returns:
         A ``(x, y)`` tuple of 1-D float64 arrays giving the centre coordinate of
         each column and row.
+
+    Examples:
+        - Centres sit half a pixel in from the origin; ``y`` descends for a
+          north-up transform:
+            ```python
+            >>> x, y = pixel_centre_coords((0.0, 1.0, 0.0, 4.0, 0.0, -1.0), rows=4, cols=5)
+            >>> x.tolist()
+            [0.5, 1.5, 2.5, 3.5, 4.5]
+            >>> y.tolist()
+            [3.5, 2.5, 1.5, 0.5]
+
+            ```
     """
     gt = geotransform
     x = gt[0] + (np.arange(cols, dtype="float64") + 0.5) * gt[1]
