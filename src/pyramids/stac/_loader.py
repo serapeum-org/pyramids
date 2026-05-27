@@ -23,8 +23,11 @@ from __future__ import annotations
 from typing import Any
 
 from pyramids.base._errors import UnsupportedAssetError
+from pyramids.base._utils import import_zarr, lazy_extra_hint
 from pyramids.base.remote import signer_cloud_config
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset.ops._geobox_zarr import detect_data_var
+from pyramids.dataset.ops._zarr import _resolve_store
 from pyramids.grib import open_grib
 from pyramids.netcdf import NetCDF
 from pyramids.stac._item import asset_href, asset_media_type, get_asset
@@ -289,9 +292,43 @@ def load_asset(
     engine = _engine_for(media_type, href)
     with signer_cloud_config(signer):
         if engine == "grib":
-            result: Dataset = open_grib(href, vsi=vsi)
-        elif engine in ("netcdf", "zarr"):
+            result: Any = open_grib(href, vsi=vsi)
+        elif engine == "zarr":
+            result = _load_zarr(href)
+        elif engine == "netcdf":
             result = NetCDF.read_file(href)
         else:
             result = Dataset.read_file(href, vsi=vsi)
     return result
+
+
+def _load_zarr(href: str):
+    """Load a STAC Zarr asset via pyramids' GeoZarr reader (FR-9).
+
+    A 4-D ``(time, band, y, x)`` cube is returned as a lazy
+    :class:`~pyramids.dataset.DatasetCollection` (read straight from the store);
+    anything lower-dimensional as a :class:`~pyramids.dataset.Dataset`. Uses the
+    tolerant foreign-GeoZarr reader (FR-8), so non-pyramids stores
+    (rioxarray / odc-geo / GDAL) load too. Mirrors the lazy-cube approach of
+    stackstac / odc-stac.
+
+    Args:
+        href: The asset href (path / fsspec URL / `s3://...`).
+
+    Returns:
+        A :class:`DatasetCollection` for a 4-D cube, else a :class:`Dataset`.
+
+    Raises:
+        OptionalPackageDoesNotExist: When the `[lazy]` extra (zarr) is missing.
+    """
+    import_zarr(
+        lazy_extra_hint(
+            "Reading a STAC Zarr asset requires the optional 'zarr' dependency."
+        )
+    )
+    import zarr
+
+    root = zarr.open_group(_resolve_store(href, None), mode="r")
+    if root[detect_data_var(root)].ndim >= 4:
+        return DatasetCollection.from_zarr(href)
+    return Dataset.from_zarr(href)
