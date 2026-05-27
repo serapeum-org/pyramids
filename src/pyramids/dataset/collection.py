@@ -195,17 +195,6 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
     zarr.consolidate_metadata(resolved_store)
 
 
-def _combine_collection_writes(data_result, metadata_result) -> None:
-    """Identity fn used to sequence two :func:`dask.delayed` outputs.
-
-    Kept for backwards compatibility; the new
-    :func:`_finalize_after_write` sequences data write and metadata
-    write into one dask task to guarantee ordering.
-    """
-    del data_result, metadata_result
-    return None
-
-
 def _finalize_after_write(data_result, resolved_store, meta, files) -> None:
     """run metadata finalize AFTER data write completes.
 
