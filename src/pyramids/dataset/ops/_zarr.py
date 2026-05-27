@@ -19,6 +19,7 @@ installed.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +31,8 @@ from pyramids.base.crs import sr_from_epsg
 
 if TYPE_CHECKING:
     from pyramids.dataset import Dataset
+
+logger = logging.getLogger(__name__)
 
 
 _LAZY_IMPORT_ERROR = lazy_extra_hint(
@@ -270,11 +273,16 @@ def read_dataset_from_zarr(
         no_data_value=no_data if no_data is not None else -9999,
     )
     band_names = attrs.get("band_names") or []
-    if band_names and hasattr(dataset, "set_band_names"):
-        try:
-            dataset.set_band_names(band_names)
-        except Exception:
-            pass
+    if band_names:
+        if len(band_names) == dataset.band_count:
+            dataset.band_names = list(band_names)
+        else:
+            logger.warning(
+                "Zarr store band_names (%d) do not match band count (%d); "
+                "keeping default band names.",
+                len(band_names),
+                dataset.band_count,
+            )
     if chunks is not None:
         dataset._backend = "dask"  # type: ignore[attr-defined]
     return dataset

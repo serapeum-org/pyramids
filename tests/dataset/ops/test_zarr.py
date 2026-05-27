@@ -75,6 +75,29 @@ class TestRoundtripEager:
         reloaded = Dataset.from_zarr(store)
         assert reloaded.geotransform == small_dataset.geotransform
 
+    @requires_zarr
+    def test_band_names_roundtrip(self, tmp_path):
+        """Custom band names survive a Zarr round-trip (Z-5).
+
+        Test scenario:
+            A 2-band dataset with explicit band names ``['alpha', 'beta']`` is
+            written and reopened. The reader must restore the names via the
+            ``band_names`` setter (the previous code guarded on a non-existent
+            ``set_band_names`` method, so names were silently dropped).
+        """
+        arr = np.arange(2 * 4 * 5, dtype=np.float32).reshape(2, 4, 5)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326
+        )
+        ds.band_names = ["alpha", "beta"]
+        src_path = str(tmp_path / "bn_src.tif")
+        ds.to_file(src_path)
+        Dataset.read_file(src_path).to_zarr(str(tmp_path / "bn.zarr"))
+        reloaded = Dataset.from_zarr(str(tmp_path / "bn.zarr"))
+        assert reloaded.band_names == ["alpha", "beta"], (
+            f"band names not restored: {reloaded.band_names}"
+        )
+
 
 class TestComputeFalseDefers:
     """``compute=False`` returns :class:`dask.delayed.Delayed`."""
