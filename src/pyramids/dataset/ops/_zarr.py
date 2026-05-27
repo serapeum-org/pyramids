@@ -24,6 +24,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
+from pyramids.base._utils import import_dask, import_zarr
 from pyramids.base.crs import sr_from_epsg
 
 if TYPE_CHECKING:
@@ -39,11 +41,15 @@ _LAZY_IMPORT_ERROR = (
 
 
 def _require_zarr() -> Any:
-    """Lazy-import zarr with a pyramids-friendly error message."""
-    try:
-        import zarr
-    except ImportError as exc:
-        raise ImportError(_LAZY_IMPORT_ERROR) from exc
+    """Lazy-import zarr, raising the package-wide OptionalPackageDoesNotExist.
+
+    Delegates the presence check to :func:`pyramids.base._utils.import_zarr`
+    so `Dataset.to_zarr` and `DatasetCollection.to_zarr` raise the same
+    exception type for a missing optional dependency.
+    """
+    import_zarr(_LAZY_IMPORT_ERROR)
+    import zarr
+
     return zarr
 
 
@@ -70,10 +76,8 @@ def _build_dask_array(ds: Dataset, chunks: Any) -> Any:
     single- vs multi-band. Single-band datasets get a leading axis of
     length 1 added lazily via :meth:`dask.array.Array.reshape`.
     """
-    try:
-        import dask.array as da
-    except ImportError as exc:
-        raise ImportError(_LAZY_IMPORT_ERROR) from exc
+    import_dask(_LAZY_IMPORT_ERROR)
+    import dask.array as da
 
     if chunks in (None, "auto"):
         read_chunks: Any = "auto"
@@ -162,10 +166,9 @@ def write_dataset_to_zarr(
         _finalize_metadata(resolved_store, metadata)
         result: Any = None
     else:
-        try:
-            import dask
-        except ImportError as exc:  # pragma: no cover
-            raise ImportError(_LAZY_IMPORT_ERROR) from exc
+        import_dask(_LAZY_IMPORT_ERROR)
+        import dask
+
         result = dask.delayed(_finalize_after_write)(
             write_result, resolved_store, metadata
         )
@@ -295,7 +298,7 @@ def _resolve_store(
         try:
             import fsspec
         except ImportError as exc:
-            raise ImportError(_LAZY_IMPORT_ERROR) from exc
+            raise OptionalPackageDoesNotExist(_LAZY_IMPORT_ERROR) from exc
         resolved = fsspec.get_mapper(str(store), **(storage_options or {}))
     else:
         resolved = store
