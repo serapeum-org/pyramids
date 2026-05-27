@@ -26,6 +26,7 @@ from pyramids.dataset._stac import from_stac as _from_stac
 from pyramids.dataset.abstract_dataset import CATALOG
 from pyramids.dataset.dataset import Dataset
 from pyramids.dataset.merge import merge_rasters
+from pyramids.dataset.ops._geobox_zarr import ZARR_SCHEMA_VERSION, write_geobox
 from pyramids.dataset.ops._zarr import _resolve_store
 from pyramids.feature import FeatureCollection
 
@@ -176,7 +177,7 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
     root = zarr.open_group(resolved_store, mode="a")
     root.attrs.update(
         {
-            "pyramids_zarr_version": "1",
+            "pyramids_zarr_version": ZARR_SCHEMA_VERSION,
             "time_length": int(len(files)),
             "pyramids_file_list": list(files),
         }
@@ -190,6 +191,18 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
             "band_names": list(meta.band_names) if meta.band_names else [],
             "dtype": str(meta.dtype),
         }
+    )
+    # GeoZarr grid mapping + x/y coords, so the 4-D (time, band, y, x) cube is
+    # auto-georeferenced by standards-based readers (shared with the Dataset path).
+    write_geobox(
+        root,
+        data_name="data",
+        epsg=int(meta.epsg or 0),
+        geotransform=tuple(float(v) for v in meta.geotransform),
+        crs_wkt=meta.crs.to_wkt(),
+        rows=int(meta.rows),
+        cols=int(meta.columns),
+        dims=["time", "band", "y", "x"],
     )
     zarr.consolidate_metadata(resolved_store)
 

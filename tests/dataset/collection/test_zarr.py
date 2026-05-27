@@ -103,6 +103,29 @@ class TestMetadataAttrs:
         assert "GeoTransform" in data_attrs
         assert "crs_wkt" in data_attrs
 
+    @requires_zarr
+    def test_cube_has_geozarr_layout(self, three_files, tmp_path):
+        """The cube store follows the GeoZarr convention (FR-1, collection path).
+
+        Test scenario:
+            ``to_zarr`` emits a ``spatial_ref`` grid-mapping array plus 1-D
+            ``x``/``y`` coords; the 4-D ``data`` array is tagged
+            ``_ARRAY_DIMENSIONS=['time','band','y','x']`` and
+            ``grid_mapping='spatial_ref'`` so standards-based readers
+            georeference the cube without pyramids.
+        """
+        collection = DatasetCollection.from_files(three_files)
+        out = str(tmp_path / "geozarr_cube.zarr")
+        collection.to_zarr(out)
+        root = zarr.open_group(out, mode="r")
+        keys = set(root.array_keys())
+        assert {"data", "spatial_ref", "x", "y"} <= keys, f"missing arrays: {keys}"
+        assert root["data"].attrs["_ARRAY_DIMENSIONS"] == ["time", "band", "y", "x"], (
+            f"cube dims wrong: {root['data'].attrs.get('_ARRAY_DIMENSIONS')}"
+        )
+        assert root["data"].attrs["grid_mapping"] == "spatial_ref", "grid_mapping unset"
+        assert "crs_wkt" in dict(root["spatial_ref"].attrs), "spatial_ref missing crs_wkt"
+
 
 class TestComputeFalse:
     """`compute=False` returns a :class:`dask.delayed.Delayed`."""
