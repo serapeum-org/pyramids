@@ -150,5 +150,12 @@ class TestErrors:
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
         collection = DatasetCollection.from_files(three_files)
-        with pytest.raises(ImportError, match="pyramids-gis\\[lazy\\]"):
+        with pytest.raises(OptionalPackageDoesNotExist) as exc_info:
             collection.to_zarr(str(tmp_path / "nope.zarr"))
+        message = str(exc_info.value)
+        assert "pip install 'pyramids-gis[lazy]'" in message, (
+            f"PyPI install hint missing from message: {message!r}"
+        )
+        assert "conda install -c conda-forge pyramids-lazy" in message, (
+            f"conda-forge install hint missing from message: {message!r}"
+        )

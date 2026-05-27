@@ -98,6 +98,23 @@ class TestComputeFalseDefers:
             np.atleast_3d(small_dataset.read_array()).squeeze(),
         )
 
+    @requires_zarr
+    def test_delayed_compute_finalizes_metadata(self, small_dataset, tmp_path):
+        """Computing the deferred write also writes geobox attrs (Z-9).
+
+        Test scenario:
+            With ``compute=False`` the data write and the metadata finalize are
+            bundled into one ``dask.delayed`` via ``_finalize_after_write`` so
+            the attribute write runs *after* the data write. After ``.compute()``
+            the ``data`` array must carry the geobox attrs (``epsg`` +
+            ``GeoTransform``), proving the finalize step ran.
+        """
+        store = str(tmp_path / "compute_meta.zarr")
+        small_dataset.to_zarr(store, compute=False).compute()
+        attrs = dict(zarr.open_group(store, mode="r")["data"].attrs)
+        assert int(attrs["epsg"]) == 4326, f"epsg attr not finalized: {attrs.get('epsg')}"
+        assert "GeoTransform" in attrs, f"GeoTransform attr missing: {attrs}"
+
 
 class TestChunksParameter:
     """``chunks=`` controls the underlying dask-array chunking."""
@@ -111,9 +128,17 @@ class TestChunksParameter:
 
 
 class TestImportErrorPath:
-    """Missing zarr / dask surfaces actionable ImportError."""
+    """Missing zarr / dask surfaces actionable OptionalPackageDoesNotExist."""
 
     def test_raises_without_zarr(self, small_dataset, tmp_path, monkeypatch):
+        """to_zarr with zarr absent raises OptionalPackageDoesNotExist (Z-11).
+
+        Test scenario:
+            Patch ``__import__`` so ``import zarr`` fails. ``Dataset.to_zarr``
+            must raise the package-wide ``OptionalPackageDoesNotExist`` — not a
+            bare ``ImportError`` — and the message must carry both the PyPI and
+            conda-forge ``[lazy]`` install hints composed by ``lazy_extra_hint``.
+        """
         import builtins
 
         real_import = builtins.__import__
@@ -124,5 +149,12 @@ class TestImportErrorPath:
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
-        with pytest.raises(ImportError, match="pyramids-gis\\[lazy\\]"):
+        with pytest.raises(OptionalPackageDoesNotExist) as exc_info:
             small_dataset.to_zarr(str(tmp_path / "nope.zarr"))
+        message = str(exc_info.value)
+        assert "pip install 'pyramids-gis[lazy]'" in message, (
+            f"PyPI install hint missing from message: {message!r}"
+        )
+        assert "conda install -c conda-forge pyramids-lazy" in message, (
+            f"conda-forge install hint missing from message: {message!r}"
+        )
