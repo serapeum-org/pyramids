@@ -170,34 +170,93 @@ def finalize_zarr_metadata(
     zarr.consolidate_metadata(resolved_store)
 
 
-def read_geobox(group: Any, *, data_name: str = "data") -> dict[str, Any]:
+_NON_DATA_ARRAYS = {
+    "x", "y", "lon", "lat", "longitude", "latitude",
+    "time", "band", GRID_MAPPING_VAR, "crs",
+}
+
+
+def detect_data_var(group: Any) -> str:
+    """Pick the primary data array name in a (possibly foreign) GeoZarr group.
+
+    Prefers ``"data"`` (pyramids' own name); otherwise an array carrying a
+    ``grid_mapping`` attribute; otherwise the highest-dimension array that is
+    not an obvious coordinate (``x``/``y``/``spatial_ref``/…).
+
+    Raises:
+        KeyError: When no candidate data array can be found.
+    """
+    if "data" in group:
+        return "data"
+    arrays = list(group.array_keys())
+    for name in arrays:
+        if "grid_mapping" in dict(group[name].attrs):
+            return name
+    candidates = [n for n in arrays if n not in _NON_DATA_ARRAYS]
+    if not candidates:
+        raise KeyError(f"no data array found in zarr group; arrays={arrays}")
+    return max(candidates, key=lambda n: group[n].ndim)
+
+
+def _transform_from_xy(group: Any) -> tuple[float, ...]:
+    """Derive a GDAL geotransform from 1-D ``x`` / ``y`` pixel-centre coords."""
+    if "x" not in group or "y" not in group:
+        raise KeyError(
+            "cannot determine GeoTransform: no GeoTransform attr and no x/y coords"
+        )
+    x = np.asarray(group["x"][:])
+    y = np.asarray(group["y"][:])
+    dx = float(x[1] - x[0]) if x.size > 1 else 1.0
+    dy = float(y[1] - y[0]) if y.size > 1 else -1.0
+    return (float(x[0]) - dx / 2.0, dx, 0.0, float(y[0]) - dy / 2.0, 0.0, dy)
+
+
+def read_geobox(group: Any, *, data_name: str | None = None) -> dict[str, Any]:
     """Recover ``{crs_wkt, geotransform, epsg, legacy}`` from a Zarr ``group``.
 
-    Prefers the GeoZarr ``spatial_ref`` grid-mapping array when present; otherwise
-    falls back to the legacy flat attributes on the data array and warns.
+    Tolerant of foreign GeoZarr stores (rioxarray / odc-geo / GDAL), not just
+    pyramids-written ones (FR-8): the data array is auto-detected when
+    ``data_name`` is ``None``; the CRS comes from the grid-mapping variable named
+    by the data array's ``grid_mapping`` attribute (default ``spatial_ref``),
+    reading ``crs_wkt`` / ``spatial_ref`` / ``proj:wkt2`` and ``epsg`` /
+    ``proj:epsg``; the transform is taken from ``GeoTransform`` or, failing that,
+    derived from the 1-D ``x`` / ``y`` coordinates. Stores with the geo-referencing
+    as flat attributes on the data array (legacy pyramids layout) still read, with
+    a :class:`DeprecationWarning`.
 
     Args:
         group: An open :class:`zarr.hierarchy.Group`.
-        data_name: Name of the data array (used for the legacy fallback).
+        data_name: Name of the data array; auto-detected when ``None``.
 
     Returns:
         Dict with ``crs_wkt`` (str | None), ``geotransform`` (tuple[float, ...]),
         ``epsg`` (int; ``0`` when unknown) and ``legacy`` (bool).
 
     Raises:
-        KeyError: When no ``GeoTransform`` can be found in either layout.
+        KeyError: When no ``GeoTransform`` and no ``x``/``y`` coords are present.
     """
-    if GRID_MAPPING_VAR in group:
+    if data_name is None:
+        data_name = detect_data_var(group)
+    data_attrs = dict(group[data_name].attrs)
+    gm_name = data_attrs.get("grid_mapping", GRID_MAPPING_VAR)
+
+    legacy = False
+    if gm_name in group:
+        attrs = dict(group[gm_name].attrs)
+    elif GRID_MAPPING_VAR in group:
         attrs = dict(group[GRID_MAPPING_VAR].attrs)
-        legacy = False
     else:
-        attrs = dict(group[data_name].attrs)
+        attrs = data_attrs
         legacy = True
         warnings.warn(_LEGACY_WARNING, DeprecationWarning, stacklevel=2)
 
-    crs_wkt = attrs.get("crs_wkt") or attrs.get("spatial_ref")
-    geotransform = tuple(float(v) for v in attrs["GeoTransform"].split())
-    epsg = int(attrs.get("epsg") or 0)
+    crs_wkt = attrs.get("crs_wkt") or attrs.get("spatial_ref") or attrs.get("proj:wkt2")
+    epsg = int(attrs.get("epsg") or attrs.get("proj:epsg") or 0)
+    gt_str = attrs.get("GeoTransform")
+    if gt_str:
+        geotransform = tuple(float(v) for v in gt_str.split())
+    else:
+        geotransform = _transform_from_xy(group)
     return {
         "crs_wkt": crs_wkt,
         "geotransform": geotransform,

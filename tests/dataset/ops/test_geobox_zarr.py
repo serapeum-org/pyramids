@@ -14,6 +14,7 @@ from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import import_zarr
 from pyramids.dataset.ops._geobox_zarr import (
     GRID_MAPPING_VAR,
+    detect_data_var,
     pixel_centre_coords,
     read_geobox,
     write_geobox,
@@ -216,18 +217,36 @@ class TestReadGeobox:
         result = read_geobox(group)
         assert result["crs_wkt"] == "PREFERRED_WKT", f"got {result['crs_wkt']}"
 
-    def test_missing_geotransform_raises(self, tmp_path):
-        """A grid mapping without GeoTransform raises KeyError.
-
-        Test scenario:
-            Removing the ``GeoTransform`` attr from spatial_ref makes read_geobox
-            raise KeyError.
-        """
-        group = self._written_group(tmp_path)
+    def _drop_geotransform(self, group):
         attrs = dict(group[GRID_MAPPING_VAR].attrs)
         attrs.pop("GeoTransform")
         group[GRID_MAPPING_VAR].attrs.clear()
         group[GRID_MAPPING_VAR].attrs.update(attrs)
+
+    def test_missing_geotransform_derives_from_xy(self, tmp_path):
+        """No GeoTransform attr → derive it from the x/y coords (FR-8).
+
+        Test scenario:
+            Removing the ``GeoTransform`` attr but keeping the ``x``/``y``
+            pixel-centre coords makes read_geobox reconstruct the transform from
+            them (matching the original) rather than raising.
+        """
+        group = self._written_group(tmp_path)
+        self._drop_geotransform(group)
+        result = read_geobox(group)
+        np.testing.assert_allclose(result["geotransform"], _GT)
+
+    def test_missing_geotransform_and_xy_raises(self, tmp_path):
+        """No GeoTransform and no x/y coords → KeyError (FR-8).
+
+        Test scenario:
+            With both the ``GeoTransform`` attr and the ``x``/``y`` coordinate
+            arrays gone, read_geobox can't determine the transform and raises.
+        """
+        group = self._written_group(tmp_path)
+        self._drop_geotransform(group)
+        del group["x"]
+        del group["y"]
         with pytest.raises(KeyError):
             read_geobox(group)
 
@@ -265,3 +284,63 @@ class TestFinalizeZarrMetadata:
         assert reopened["data"].attrs["dtype"] == "float32", "data attr missing"
         assert {"spatial_ref", "x", "y"} <= set(reopened.array_keys()), "geobox missing"
         assert reopened["data"].attrs["grid_mapping"] == GRID_MAPPING_VAR
+
+
+@requires_zarr
+class TestForeignGeoZarr:
+    """read_geobox / detect_data_var handle non-pyramids GeoZarr stores (FR-8)."""
+
+    def _foreign_group(self, tmp_path, *, with_geotransform=False):
+        store = str(tmp_path / "foreign.zarr")
+        group = zarr.open_group(store, mode="w")
+        elev = group.create_dataset(
+            "elevation", data=np.arange(12, dtype=np.float32).reshape(1, 3, 4)
+        )
+        elev.attrs.update(
+            {"_ARRAY_DIMENSIONS": ["band", "y", "x"], "grid_mapping": "spatial_ref"}
+        )
+        sr = group.create_dataset(GRID_MAPPING_VAR, data=np.array(4326))
+        sr_attrs = {"crs_wkt": _WKT_4326, "epsg": 4326}
+        if with_geotransform:
+            sr_attrs["GeoTransform"] = "0.0 1.0 0.0 3.0 0.0 -1.0"
+        sr.attrs.update(sr_attrs)
+        gx = group.create_dataset("x", data=np.array([0.5, 1.5, 2.5, 3.5]))
+        gx.attrs["_ARRAY_DIMENSIONS"] = ["x"]
+        gy = group.create_dataset("y", data=np.array([2.5, 1.5, 0.5]))
+        gy.attrs["_ARRAY_DIMENSIONS"] = ["y"]
+        return group
+
+    def test_detect_data_var_by_grid_mapping(self, tmp_path):
+        """detect_data_var picks the array carrying a grid_mapping attr.
+
+        Test scenario:
+            A store with no ``data`` array but an ``elevation`` array tagged
+            ``grid_mapping`` resolves to ``"elevation"``.
+        """
+        group = self._foreign_group(tmp_path)
+        assert detect_data_var(group) == "elevation", "wrong data var detected"
+
+    def test_read_geobox_follows_grid_mapping(self, tmp_path):
+        """CRS/epsg come from the grid_mapping-referenced var (FR-8).
+
+        Test scenario:
+            A foreign store with the CRS in a ``spatial_ref`` coord (referenced
+            via the data var's ``grid_mapping``) and a stored GeoTransform reads
+            without warning.
+        """
+        group = self._foreign_group(tmp_path, with_geotransform=True)
+        result = read_geobox(group)
+        assert result["legacy"] is False, "should not be legacy"
+        assert result["epsg"] == 4326, f"epsg {result['epsg']}"
+        np.testing.assert_allclose(result["geotransform"], (0.0, 1.0, 0.0, 3.0, 0.0, -1.0))
+
+    def test_read_geobox_derives_transform_from_xy(self, tmp_path):
+        """A foreign store without GeoTransform derives it from x/y (FR-8).
+
+        Test scenario:
+            No ``GeoTransform`` attr; read_geobox reconstructs the transform from
+            the pixel-centre x/y coords.
+        """
+        group = self._foreign_group(tmp_path, with_geotransform=False)
+        result = read_geobox(group)
+        np.testing.assert_allclose(result["geotransform"], (0.0, 1.0, 0.0, 3.0, 0.0, -1.0))

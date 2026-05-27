@@ -30,6 +30,7 @@ from pyramids.base._utils import import_dask, import_zarr, lazy_extra_hint
 from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset.ops._geobox_zarr import (
     ZARR_SCHEMA_VERSION,
+    detect_data_var,
     finalize_zarr_metadata,
     read_geobox,
 )
@@ -225,7 +226,9 @@ def _finalize_after_write(
     _finalize_metadata(resolved_store, metadata)
 
 
-def _read_data_array(resolved_store: Any, zarr_array: Any, chunks: Any) -> np.ndarray:
+def _read_data_array(
+    resolved_store: Any, zarr_array: Any, chunks: Any, *, component: str = "data"
+) -> np.ndarray:
     """Read the ``data`` array — eagerly, or via a parallel chunked dask read.
 
     With ``chunks=None`` (default) the array is read in one synchronous
@@ -240,7 +243,7 @@ def _read_data_array(resolved_store: Any, zarr_array: Any, chunks: Any) -> np.nd
     import_dask(_LAZY_IMPORT_ERROR)
     import dask.array as da
 
-    lazy = da.from_zarr(resolved_store, component="data")
+    lazy = da.from_zarr(resolved_store, component=component)
     if isinstance(chunks, tuple):
         lazy = lazy.rechunk(chunks)
     return np.asarray(lazy.compute())
@@ -297,13 +300,16 @@ def read_dataset_from_zarr(
     zarr = _require_zarr()
     resolved_store = _resolve_store(store, storage_options)
     root = zarr.open_group(resolved_store, mode="r")
-    zarr_array = root["data"]
-    arr = _read_data_array(resolved_store, zarr_array, chunks)
+    # Auto-detect the primary data array so foreign GeoZarr stores (whose array
+    # may not be named "data") also read (FR-8).
+    data_name = detect_data_var(root)
+    zarr_array = root[data_name]
+    arr = _read_data_array(resolved_store, zarr_array, chunks, component=data_name)
     attrs = dict(zarr_array.attrs)
-    # CRS / transform come from the GeoZarr `spatial_ref` grid mapping when
-    # present; read_geobox falls back to the legacy flat attrs (with a
-    # DeprecationWarning). nodata / band_names stay on the data array (below).
-    geobox = read_geobox(root, data_name="data")
+    # CRS / transform come from the GeoZarr grid mapping referenced by the data
+    # array (default `spatial_ref`); read_geobox derives the transform from x/y
+    # coords when absent and falls back to legacy flat attrs (with a warning).
+    geobox = read_geobox(root, data_name=data_name)
     crs_wkt = geobox["crs_wkt"]
     epsg = geobox["epsg"]
     geotransform = geobox["geotransform"]
