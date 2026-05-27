@@ -23,6 +23,7 @@ doesn't require fighting YAML + shell quoting.
 """
 
 import os
+import sys
 from pathlib import Path
 
 import pyramids
@@ -110,9 +111,21 @@ def _check_tls_read() -> None:
     finally:
         if handle is not None:
             gdal.VSIFCloseL(handle)
+        # Drop GDAL's cached /vsicurl connections. On Windows, leaving the
+        # libcurl connection pool open deadlocks the interpreter at exit
+        # (curl global cleanup vs Winsock teardown), so the process hangs
+        # after the script finishes until the CI job's timeout cancels it.
+        gdal.VSICurlClearCache()
     print("TLS /vsicurl read OK — bundled CA store loads trust anchors.")
 
 
 _check_tls_read()
 
 print("All runtime checks passed.")
+
+# Belt-and-suspenders: exit immediately so a lingering GDAL/libcurl worker
+# thread can't hang interpreter shutdown on Windows (see _check_tls_read).
+# All checks above raise on failure, so reaching here means success.
+sys.stdout.flush()
+sys.stderr.flush()
+os._exit(0)
