@@ -263,15 +263,20 @@ def read_dataset_from_zarr(
         arr_for_create = arr[0]
     else:
         arr_for_create = arr
-    no_data_raw = attrs.get("no_data_value") or [None]
-    no_data = no_data_raw[0] if no_data_raw else None
+    # Round-trip the per-band no-data list, preserving "no no-data set" as a
+    # scalar None (the old code took band 0 only and turned None into -9999).
+    no_data_list = attrs.get("no_data_value")
+    if no_data_list and any(v is not None for v in no_data_list):
+        no_data_value: Any = list(no_data_list)
+    else:
+        no_data_value = None
 
     dataset = Dataset.create_from_array(
         arr_for_create,
         top_left_corner=top_left_corner,
         cell_size=cell_size,
         epsg=epsg or 4326,
-        no_data_value=no_data if no_data is not None else -9999,
+        no_data_value=no_data_value,
     )
     # Prefer the stored WKT (handles CRSes without an EPSG authority code);
     # the epsg above is only a fallback when no WKT was written (Z-3).

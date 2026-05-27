@@ -76,6 +76,49 @@ class TestRoundtripEager:
         assert reloaded.geotransform == small_dataset.geotransform
 
     @requires_zarr
+    def test_per_band_nodata_roundtrip(self, tmp_path):
+        """Per-band no-data values survive the round-trip (Z-4).
+
+        Test scenario:
+            A 2-band dataset with distinct per-band no-data ``[5.0, 6.0]`` is
+            written and reopened. Both values must be recovered (the old reader
+            took band 0 only).
+        """
+        arr = np.arange(2 * 3 * 4, dtype=np.float32).reshape(2, 3, 4)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326,
+            no_data_value=[5.0, 6.0],
+        )
+        src_path = str(tmp_path / "nd_src.tif")
+        ds.to_file(src_path)
+        Dataset.read_file(src_path).to_zarr(str(tmp_path / "nd.zarr"))
+        reloaded = Dataset.from_zarr(str(tmp_path / "nd.zarr"))
+        assert tuple(reloaded.no_data_value) == (5.0, 6.0), (
+            f"per-band no-data not recovered: {reloaded.no_data_value}"
+        )
+
+    @requires_zarr
+    def test_absent_nodata_roundtrip(self, tmp_path):
+        """A dataset with no no-data stays no-data after round-trip (Z-4).
+
+        Test scenario:
+            A source with ``no_data_value=None`` must round-trip to ``(None,)``,
+            not the ``-9999`` sentinel the old reader substituted.
+        """
+        arr = np.arange(12, dtype=np.float32).reshape(3, 4)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326,
+            no_data_value=None,
+        )
+        src_path = str(tmp_path / "none_src.tif")
+        ds.to_file(src_path)
+        Dataset.read_file(src_path).to_zarr(str(tmp_path / "none.zarr"))
+        reloaded = Dataset.from_zarr(str(tmp_path / "none.zarr"))
+        assert tuple(reloaded.no_data_value) == (None,), (
+            f"absent no-data not preserved: {reloaded.no_data_value}"
+        )
+
+    @requires_zarr
     def test_projected_crs_roundtrip(self, tmp_path):
         """A projected CRS survives the round-trip via the stored WKT (Z-3).
 
