@@ -216,6 +216,18 @@ cp -a "${PIXI_ENV}/include/." "${BUILD_PREFIX}/include/"
 cp -a "${PIXI_ENV}/share/gdal" "${BUILD_PREFIX}/share/"
 cp -a "${PIXI_ENV}/share/proj" "${BUILD_PREFIX}/share/"
 
+# curl CA bundle (#412). conda-forge's libcurl bakes its default CA path
+# to "${PIXI_ENV}/ssl/cacert.pem", which doesn't exist in the consuming
+# env — so vendored-GDAL /vsicurl HTTPS reads fail to load trust anchors.
+# Extract it into BUILD_PREFIX so install-and-vendor-osgeo.py ships it in
+# the wheel and the runtime bootstrap re-points GDAL/curl at the copy.
+if [[ -f "${PIXI_ENV}/ssl/cacert.pem" ]]; then
+    mkdir -p "${BUILD_PREFIX}/ssl"
+    cp -a "${PIXI_ENV}/ssl/cacert.pem" "${BUILD_PREFIX}/ssl/cacert.pem"
+else
+    echo "WARNING: ${PIXI_ENV}/ssl/cacert.pem not found — vendored GDAL HTTPS reads will fail (#412)" >&2
+fi
+
 # GDAL plugins (libgdal-netcdf / libgdal-hdf4) live in a separate
 # subdirectory and are loaded at runtime via GDAL_DRIVER_PATH. These
 # MUST be bundled or NetCDF/HDF4/HDF5 drivers will be unavailable.

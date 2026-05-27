@@ -71,17 +71,25 @@ if not osgeo_path.is_relative_to(expected_vendor_root.resolve()):
 def _check_tls_read() -> None:
     """Open an HTTPS resource via /vsicurl to exercise the bundled CA store.
 
-    Only meaningful on a real bundled wheel — skip when the cert wasn't
-    vendored (editable/dev install). A CA/trust-store error is the #412
-    bug and fails hard; a generic network error (offline runner, DNS,
-    timeout) is not this bug, so we warn and move on rather than make the
-    smoke test flaky on network conditions.
+    This runs only after we've already asserted osgeo resolves to the
+    vendored copy — i.e. this is always a real bundled wheel, never a
+    dev/editable install. So a missing cacert.pem is itself the #412
+    regression and fails hard (an earlier version *skipped* here, which
+    silently masked the bug when the cert wasn't bundled).
+
+    A CA/trust-store error during the read is also the #412 bug and fails
+    hard. A generic network error (offline runner, DNS, timeout) is not
+    this bug, so we warn and move on rather than make the smoke test flaky
+    on network conditions — the cert-presence + GDAL_HTTP_CAINFO checks
+    above already prove the fix shipped.
     """
     ca_bundle = Path(pyramids.__file__).parent / "_data" / "ssl" / "cacert.pem"
     if not ca_bundle.is_file():
-        print("TLS check skipped: no vendored cacert.pem (dev/editable install).")
-        return
-    print(f"GDAL_HTTP_CAINFO: {os.environ.get('GDAL_HTTP_CAINFO')}")
+        _fail(f"bundled wheel is missing {ca_bundle} — CA bundle not vendored (issue #412)")
+    cainfo = os.environ.get("GDAL_HTTP_CAINFO")
+    print(f"GDAL_HTTP_CAINFO: {cainfo}")
+    if cainfo != str(ca_bundle):
+        _fail(f"GDAL_HTTP_CAINFO={cainfo!r} not pointed at bundled cert {ca_bundle} (issue #412)")
 
     gdal.UseExceptions()
     gdal.SetConfigOption("GDAL_HTTP_TIMEOUT", "30")

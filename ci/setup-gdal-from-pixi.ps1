@@ -103,6 +103,18 @@ if (Test-Path "$PixiEnv\Library\lib") {
 Copy-Item -Path "$PixiEnv\Library\share\gdal" -Destination "$BuildPrefix\Library\share" -Recurse -Force
 Copy-Item -Path "$PixiEnv\Library\share\proj" -Destination "$BuildPrefix\Library\share" -Recurse -Force
 
+# curl CA bundle (#412). conda-forge's libcurl bakes its default CA path to
+# the wheel-build env's ssl\cacert.pem, absent in the consuming env — so
+# vendored-GDAL /vsicurl HTTPS reads fail to load trust anchors. Extract it
+# so install-and-vendor-osgeo.py ships it and the bootstrap re-points curl.
+$CaBundle = Join-Path $PixiEnv "Library\ssl\cacert.pem"
+if (Test-Path $CaBundle) {
+    New-Item -ItemType Directory -Force -Path "$BuildPrefix\Library\ssl" | Out-Null
+    Copy-Item -Path $CaBundle -Destination "$BuildPrefix\Library\ssl\cacert.pem" -Force
+} else {
+    Write-Warning "CA bundle not found at $CaBundle - vendored GDAL HTTPS reads will fail (#412)"
+}
+
 # GDAL plugins (NetCDF / HDF4 / HDF5 drivers)
 if (Test-Path "$PixiEnv\Library\lib\gdalplugins") {
     New-Item -ItemType Directory -Force -Path "$BuildPrefix\Library\lib\gdalplugins" | Out-Null
