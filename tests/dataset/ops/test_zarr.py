@@ -76,6 +76,26 @@ class TestRoundtripEager:
         assert reloaded.geotransform == small_dataset.geotransform
 
     @requires_zarr
+    def test_projected_crs_roundtrip(self, tmp_path):
+        """A projected CRS survives the round-trip via the stored WKT (Z-3).
+
+        Test scenario:
+            A UTM (EPSG:32636) dataset is written and reopened. The reader now
+            prefers the stored ``spatial_ref`` WKT over re-deriving from the
+            ``epsg`` attr, so the full projection is recovered (previously the
+            CRS was rebuilt from EPSG only).
+        """
+        arr = np.arange(20, dtype=np.float32).reshape(4, 5)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=32636
+        )
+        src_path = str(tmp_path / "utm.tif")
+        ds.to_file(src_path)
+        Dataset.read_file(src_path).to_zarr(str(tmp_path / "utm.zarr"))
+        reloaded = Dataset.from_zarr(str(tmp_path / "utm.zarr"))
+        assert reloaded.epsg == 32636, f"projected CRS not recovered: {reloaded.epsg}"
+
+    @requires_zarr
     def test_band_names_roundtrip(self, tmp_path):
         """Custom band names survive a Zarr round-trip (Z-5).
 

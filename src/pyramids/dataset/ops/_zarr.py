@@ -250,7 +250,8 @@ def read_dataset_from_zarr(
     zarr_array = root["data"]
     arr = np.asarray(zarr_array[:])
     attrs = dict(zarr_array.attrs)
-    epsg = int(attrs["epsg"])
+    crs_wkt = attrs.get("spatial_ref") or attrs.get("crs_wkt")
+    epsg = int(attrs.get("epsg") or 0)
     geotransform = tuple(float(v) for v in attrs["GeoTransform"].split())
     top_left_corner = (geotransform[0], geotransform[3])
     cell_size = float(geotransform[1])
@@ -269,9 +270,13 @@ def read_dataset_from_zarr(
         arr_for_create,
         top_left_corner=top_left_corner,
         cell_size=cell_size,
-        epsg=epsg,
+        epsg=epsg or 4326,
         no_data_value=no_data if no_data is not None else -9999,
     )
+    # Prefer the stored WKT (handles CRSes without an EPSG authority code);
+    # the epsg above is only a fallback when no WKT was written (Z-3).
+    if crs_wkt:
+        dataset.crs = crs_wkt
     band_names = attrs.get("band_names") or []
     if band_names:
         if len(band_names) == dataset.band_count:
