@@ -313,7 +313,7 @@ class TestGeoZarrLayout:
 
         store = str(tmp_path / "legacy.zarr")
         group = zarr.open_group(store, mode="w")
-        data = group.create_dataset(
+        data = group.create_array(
             "data", data=np.arange(12, dtype=np.float32).reshape(1, 3, 4)
         )
         data.attrs.update(
@@ -338,18 +338,21 @@ class TestCompressor:
 
     @requires_zarr
     def test_custom_codec_applied(self, small_dataset, tmp_path):
-        """A passed numcodecs codec is used for the data array (FR-4).
+        """A passed zarr-v3 codec is used for the data array (FR-4).
 
         Test scenario:
-            Passing ``compressor=Blosc(cname='zstd')`` makes the written
-            ``data`` array use that codec; values still round-trip.
+            Passing ``compressor=BloscCodec(cname='zstd')`` makes the written
+            ``data`` array use that codec (read back via ``.compressors``);
+            values still round-trip.
         """
-        import numcodecs
+        from zarr.codecs import BloscCodec
 
         store = str(tmp_path / "zstd.zarr")
-        small_dataset.to_zarr(store, compressor=numcodecs.Blosc(cname="zstd"))
-        codec = zarr.open_group(store, mode="r")["data"].compressor
-        assert codec is not None and codec.cname == "zstd", f"codec={codec}"
+        small_dataset.to_zarr(store, compressor=BloscCodec(cname="zstd"))
+        compressors = zarr.open_group(store, mode="r")["data"].compressors
+        assert any("zstd" in str(getattr(c, "cname", "")) for c in compressors), (
+            f"zstd codec not applied: {compressors}"
+        )
         np.testing.assert_array_equal(
             np.atleast_3d(Dataset.from_zarr(store).read_array()).squeeze(),
             np.atleast_3d(small_dataset.read_array()).squeeze(),
@@ -360,9 +363,11 @@ class TestCompressor:
         """``compressor=None`` writes an uncompressed data array (FR-4).
 
         Test scenario:
-            Passing ``compressor=None`` yields a ``data`` array whose
-            ``.compressor`` is ``None``.
+            Passing ``compressor=None`` yields a ``data`` array with no
+            compressors.
         """
         store = str(tmp_path / "raw.zarr")
         small_dataset.to_zarr(store, compressor=None)
-        assert zarr.open_group(store, mode="r")["data"].compressor is None
+        assert zarr.open_group(store, mode="r")["data"].compressors == (), (
+            "expected no compressors"
+        )

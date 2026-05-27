@@ -1118,10 +1118,10 @@ class Dataset(RasterBase):
             chunks: Chunk spec forwarded to :meth:`read_array`.
                 `None` defaults to `"auto"` via the zarr helper.
             storage_options: fsspec options for cloud stores.
-            compressor: Zarr codec for the `data` array. `"auto"` (default)
-                keeps zarr's default codec; pass a `numcodecs` codec (e.g.
-                `numcodecs.Blosc(cname="zstd")`) to override, or `None` for an
-                uncompressed array.
+            compressor: Zarr codec(s) for the `data` array. `"auto"` (default)
+                keeps zarr's default codec; pass a zarr-v3 codec or list of them
+                (e.g. `zarr.codecs.BloscCodec(cname="zstd")`) to override, or
+                `None` for an uncompressed array.
         """
         resolved_chunks = chunks if chunks is not None else "auto"
         return write_dataset_to_zarr(

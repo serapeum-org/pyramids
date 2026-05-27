@@ -79,7 +79,7 @@ class TestWriteGeobox:
     def _group_with_data(self, tmp_path, bands=2, rows=4, cols=5):
         store = str(tmp_path / "w.zarr")
         group = zarr.open_group(store, mode="w")
-        group.create_dataset(
+        group.create_array(
             "data", data=np.zeros((bands, rows, cols), dtype="float32")
         )
         return group
@@ -160,7 +160,7 @@ class TestReadGeobox:
     def _written_group(self, tmp_path):
         store = str(tmp_path / "r.zarr")
         group = zarr.open_group(store, mode="w")
-        group.create_dataset("data", data=np.zeros((1, 4, 5), dtype="float32"))
+        group.create_array("data", data=np.zeros((1, 4, 5), dtype="float32"))
         write_geobox(
             group, data_name="data", epsg=4326, geotransform=_GT,
             crs_wkt=_WKT_4326, rows=4, cols=5, dims=["band", "y", "x"],
@@ -190,7 +190,7 @@ class TestReadGeobox:
         """
         store = str(tmp_path / "legacy.zarr")
         group = zarr.open_group(store, mode="w")
-        data = group.create_dataset("data", data=np.zeros((1, 4, 5), dtype="float32"))
+        data = group.create_array("data", data=np.zeros((1, 4, 5), dtype="float32"))
         data.attrs.update(
             {
                 "spatial_ref": _WKT_4326,
@@ -267,7 +267,7 @@ class TestFinalizeZarrMetadata:
 
         store = str(tmp_path / "fin.zarr")
         group = zarr.open_group(store, mode="w")
-        group.create_dataset("data", data=np.zeros((1, 4, 5), dtype="float32"))
+        group.create_array("data", data=np.zeros((1, 4, 5), dtype="float32"))
         finalize_zarr_metadata(
             store,
             root_attrs={"pyramids_zarr_version": "2", "time_length": 1},
@@ -293,20 +293,20 @@ class TestForeignGeoZarr:
     def _foreign_group(self, tmp_path, *, with_geotransform=False):
         store = str(tmp_path / "foreign.zarr")
         group = zarr.open_group(store, mode="w")
-        elev = group.create_dataset(
+        elev = group.create_array(
             "elevation", data=np.arange(12, dtype=np.float32).reshape(1, 3, 4)
         )
         elev.attrs.update(
             {"_ARRAY_DIMENSIONS": ["band", "y", "x"], "grid_mapping": "spatial_ref"}
         )
-        sr = group.create_dataset(GRID_MAPPING_VAR, data=np.array(4326))
+        sr = group.create_array(GRID_MAPPING_VAR, data=np.array(4326))
         sr_attrs = {"crs_wkt": _WKT_4326, "epsg": 4326}
         if with_geotransform:
             sr_attrs["GeoTransform"] = "0.0 1.0 0.0 3.0 0.0 -1.0"
         sr.attrs.update(sr_attrs)
-        gx = group.create_dataset("x", data=np.array([0.5, 1.5, 2.5, 3.5]))
+        gx = group.create_array("x", data=np.array([0.5, 1.5, 2.5, 3.5]))
         gx.attrs["_ARRAY_DIMENSIONS"] = ["x"]
-        gy = group.create_dataset("y", data=np.array([2.5, 1.5, 0.5]))
+        gy = group.create_array("y", data=np.array([2.5, 1.5, 0.5]))
         gy.attrs["_ARRAY_DIMENSIONS"] = ["y"]
         return group
 

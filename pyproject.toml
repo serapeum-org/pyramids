@@ -46,7 +46,7 @@ viz = ["cleopatra[tiles]>=0.8.0"]
 lazy = [
     "dask>=2024.1.0",
     "distributed>=2024.1.0",
-    "zarr>=2.17.0,<3",
+    "zarr>=3",
     "fsspec>=2024.1.0",
     "flox>=0.9.0",
 ]
@@ -290,14 +290,13 @@ python = "3.14.*"
 [tool.pixi.feature.dev.dependencies]
 scipy = ">=1.17.1,<2"
 
-# Pin zarr via conda because conda-forge defaults to zarr v3 and the
-# pyramids lazy stack still targets the v2 API. Also routes dask /
-# distributed / fsspec through conda so they share the same numpy ABI as
-# libgdal-netcdf / h5py (below).
+# dask / distributed / fsspec routed through conda so they share the same numpy
+# ABI as libgdal-netcdf / h5py (below). zarr bumped to v3 (was pinned <3 while
+# the lazy stack targeted the v2 API — under evaluation).
 [tool.pixi.feature.lazy.dependencies]
 "dask-core" = ">=2024.1.0"
 distributed = ">=2024.1.0"
-zarr = ">=2.17.0,<3"
+zarr = ">=3"
 fsspec = ">=2024.1.0"
 flox = ">=0.9.0"
 

@@ -32,6 +32,7 @@ from pyramids.dataset.ops._geobox_zarr import (
     ZARR_SCHEMA_VERSION,
     detect_data_var,
     finalize_zarr_metadata,
+    normalize_compressors,
     read_geobox,
 )
 
@@ -134,8 +135,8 @@ def write_dataset_to_zarr(
             :meth:`Dataset.read_array`. `"auto"` (default) respects
             the on-disk block shape.
         storage_options: fsspec options for cloud stores.
-        compressor: Zarr codec for the `data` array. `"auto"` (default) keeps
-            zarr's default codec; pass a `numcodecs` codec to override, or
+        compressor: Zarr codec(s) for the `data` array. `"auto"` (default) keeps
+            zarr's default codec; pass a zarr-v3 codec / list to override, or
             `None` for an uncompressed array.
 
     Returns:
@@ -166,9 +167,7 @@ def write_dataset_to_zarr(
     metadata = _metadata_dict(ds)
     resolved_store = _resolve_store(store, storage_options)
 
-    # `compressor="auto"` leaves zarr's default codec in place; any other value
-    # (a numcodecs codec, or None for uncompressed) is forwarded to zarr.create.
-    codec_kwargs = {} if compressor == "auto" else {"compressor": compressor}
+    codec_kwargs = normalize_compressors(compressor)
     write_result = arr.to_zarr(
         resolved_store,
         component="data",
@@ -360,22 +359,20 @@ def _resolve_store(
     store: str | Path | Any,
     storage_options: dict[str, Any] | None,
 ) -> Any:
-    """Return a zarr-compatible mapping for ``store``.
+    """Return a zarr-v3-compatible store target for ``store``.
 
-    Strings / :class:`~pathlib.Path` objects are wrapped via
-    :func:`fsspec.get_mapper` so local paths and cloud URLs share the
-    same code path. Anything else (pre-built :class:`zarr.storage.Store`
-    or a dict-like) is returned unchanged.
+    Local paths and cloud URLs are passed through as strings — zarr v3 and dask
+    resolve them directly (fsspec-backed for `s3://` / `gs://` / … URLs). When
+    ``storage_options`` is supplied for a URL, a v3 :class:`zarr.storage.FsspecStore`
+    is built so the options reach fsspec. Pre-built stores are returned unchanged.
     """
     if isinstance(store, (str, Path)):
-        try:
-            import fsspec
-        except ImportError as exc:
-            raise OptionalPackageDoesNotExist(_LAZY_IMPORT_ERROR) from exc
-        resolved = fsspec.get_mapper(str(store), **(storage_options or {}))
-    else:
-        resolved = store
-    return resolved
+        if storage_options:
+            from zarr.storage import FsspecStore
+
+            return FsspecStore.from_url(str(store), storage_options=storage_options)
+        return str(store)
+    return store
 
 
 # Keep the dunder explicit so users importing from the module see the surface.

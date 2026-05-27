@@ -29,6 +29,7 @@ from pyramids.dataset.merge import merge_rasters
 from pyramids.dataset.ops._geobox_zarr import (
     ZARR_SCHEMA_VERSION,
     finalize_zarr_metadata,
+    normalize_compressors,
     read_geobox,
 )
 from pyramids.dataset.ops._zarr import _resolve_store
@@ -902,8 +903,8 @@ class DatasetCollection:
             mode: Zarr open mode, typically `"w"` (fresh) or `"a"`.
             storage_options: Optional dict forwarded to
                 :func:`fsspec.get_mapper` for cloud stores.
-            compressor: Zarr codec for the `data` array. `"auto"` (default)
-                keeps zarr's default codec; pass a `numcodecs` codec to
+            compressor: Zarr codec(s) for the `data` array. `"auto"` (default)
+                keeps zarr's default codec; pass a zarr-v3 codec / list to
                 override, or `None` for an uncompressed array.
 
         Returns:
@@ -933,9 +934,7 @@ class DatasetCollection:
             )
         data = self.data
         resolved_store = _resolve_store(store, storage_options)
-        # `compressor="auto"` keeps zarr's default codec; any other value (a
-        # numcodecs codec, or None for uncompressed) is forwarded to zarr.create.
-        codec_kwargs = {} if compressor == "auto" else {"compressor": compressor}
+        codec_kwargs = normalize_compressors(compressor)
 
         if append_dim is not None:
             return self._append_to_zarr(resolved_store, data, append_dim, compute)

@@ -98,18 +98,27 @@ def write_geobox(
         cols: Raster column count.
         dims: Dimension names of the data array, e.g. ``["band", "y", "x"]``.
     """
-    x, y = pixel_centre_coords(geotransform, rows, cols)
-    zx = group.create_dataset("x", data=x, overwrite=True)
-    zx.attrs["_ARRAY_DIMENSIONS"] = ["x"]
-    zy = group.create_dataset("y", data=y, overwrite=True)
-    zy.attrs["_ARRAY_DIMENSIONS"] = ["y"]
+    def _put(name: str, values: np.ndarray, var_dims: list[str]):
+        values = np.asarray(values)
+        arr = group.create_array(
+            name,
+            shape=values.shape,
+            dtype=values.dtype,
+            dimension_names=tuple(var_dims),
+            overwrite=True,
+        )
+        arr[...] = values
+        # Keep the Zarr-v2 `_ARRAY_DIMENSIONS` attr alongside v3 `dimension_names`
+        # so readers on either convention recover the dim names.
+        arr.attrs["_ARRAY_DIMENSIONS"] = list(var_dims)
+        return arr
 
-    sr = group.create_dataset(
-        GRID_MAPPING_VAR, data=np.array(int(epsg or 0), dtype="int64"), overwrite=True
-    )
+    x, y = pixel_centre_coords(geotransform, rows, cols)
+    _put("x", x, ["x"])
+    _put("y", y, ["y"])
+    sr = _put(GRID_MAPPING_VAR, np.array(int(epsg or 0), dtype="int64"), [])
     sr.attrs.update(
         {
-            "_ARRAY_DIMENSIONS": [],
             "crs_wkt": crs_wkt,
             "spatial_ref": crs_wkt,
             "GeoTransform": " ".join(str(v) for v in geotransform),
@@ -174,6 +183,22 @@ _NON_DATA_ARRAYS = {
     "x", "y", "lon", "lat", "longitude", "latitude",
     "time", "band", GRID_MAPPING_VAR, "crs",
 }
+
+
+def normalize_compressors(compressor: Any) -> dict[str, Any]:
+    """Map a user ``compressor=`` argument to zarr-v3 ``create_array`` kwargs.
+
+    ``"auto"`` keeps zarr's default codec (no kwarg); ``None`` writes an
+    uncompressed array; a single codec or an iterable of codecs becomes the v3
+    ``compressors=`` list (v3 expects an iterable of codecs).
+    """
+    if compressor == "auto":
+        return {}
+    if compressor is None:
+        return {"compressors": None}
+    if isinstance(compressor, (list, tuple)):
+        return {"compressors": list(compressor)}
+    return {"compressors": [compressor]}
 
 
 def detect_data_var(group: Any) -> str:
