@@ -166,8 +166,9 @@ def write_dataset_to_zarr(
             import dask
         except ImportError as exc:  # pragma: no cover
             raise ImportError(_LAZY_IMPORT_ERROR) from exc
-        finalize = dask.delayed(_finalize_metadata)(resolved_store, metadata)
-        result = dask.delayed(_combine_writes)(write_result, finalize)
+        result = dask.delayed(_finalize_after_write)(
+            write_result, resolved_store, metadata
+        )
     return result
 
 
@@ -180,10 +181,18 @@ def _finalize_metadata(resolved_store: Any, metadata: dict[str, Any]) -> None:
     zarr.consolidate_metadata(resolved_store)
 
 
-def _combine_writes(data_result: Any, metadata_result: Any) -> None:
-    """Identity function used to sequence two dask.delayed outputs."""
-    del data_result, metadata_result
-    return None
+def _finalize_after_write(
+    data_result: Any, resolved_store: Any, metadata: dict[str, Any]
+) -> None:
+    """Run :func:`_finalize_metadata` AFTER the data write completes.
+
+    Wrapping both in one :func:`dask.delayed` makes the dependency explicit:
+    the metadata write cannot start until ``data_result`` is materialised, so
+    there is no race between the data writer and the attribute writer. Mirrors
+    :func:`pyramids.dataset.collection._finalize_after_write`.
+    """
+    del data_result  # consumed as a dependency only
+    _finalize_metadata(resolved_store, metadata)
 
 
 def read_dataset_from_zarr(
