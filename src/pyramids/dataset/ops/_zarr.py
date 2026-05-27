@@ -221,6 +221,27 @@ def _finalize_after_write(
     _finalize_metadata(resolved_store, metadata)
 
 
+def _read_data_array(resolved_store: Any, zarr_array: Any, chunks: Any) -> np.ndarray:
+    """Read the ``data`` array — eagerly, or via a parallel chunked dask read.
+
+    With ``chunks=None`` (default) the array is read in one synchronous
+    ``zarr_array[:]``. With ``chunks`` given, the read goes through
+    :func:`dask.array.from_zarr` so a (possibly remote) store is fetched in
+    parallel chunks; the result is still materialised to NumPy because pyramids
+    Datasets are GDAL-backed. For lazy, larger-than-RAM block processing call
+    :meth:`Dataset.read_array(chunks=...)` on the returned dataset.
+    """
+    if chunks is None:
+        return np.asarray(zarr_array[:])
+    import_dask(_LAZY_IMPORT_ERROR)
+    import dask.array as da
+
+    lazy = da.from_zarr(resolved_store, component="data")
+    if isinstance(chunks, tuple):
+        lazy = lazy.rechunk(chunks)
+    return np.asarray(lazy.compute())
+
+
 def read_dataset_from_zarr(
     store: str | Path | Any,
     *,
@@ -231,10 +252,12 @@ def read_dataset_from_zarr(
 
     Args:
         store: Input store — path / fsspec URL / :class:`zarr.storage.Store`.
-        chunks: If non-None, the reconstructed :class:`Dataset` is
-            lazy-backed via :meth:`Dataset.read_array(chunks=...)` on
-            its backing /vsimem tif. Use `None` (default) for an
-            eager numpy round-trip.
+        chunks: When given (a 3-tuple ``(bands, rows, cols)`` or ``"auto"``),
+            the ``data`` array is read through :func:`dask.array.from_zarr` so a
+            (possibly remote) store is fetched in **parallel chunks** rather than
+            one synchronous read. ``None`` (default) reads eagerly. The returned
+            Dataset is GDAL-backed either way; for lazy block processing call
+            :meth:`Dataset.read_array(chunks=...)` on it.
         storage_options: fsspec storage options.
 
     Returns:
@@ -271,7 +294,7 @@ def read_dataset_from_zarr(
     resolved_store = _resolve_store(store, storage_options)
     root = zarr.open_group(resolved_store, mode="r")
     zarr_array = root["data"]
-    arr = np.asarray(zarr_array[:])
+    arr = _read_data_array(resolved_store, zarr_array, chunks)
     attrs = dict(zarr_array.attrs)
     # CRS / transform come from the GeoZarr `spatial_ref` grid mapping when
     # present; read_geobox falls back to the legacy flat attrs (with a
@@ -320,8 +343,6 @@ def read_dataset_from_zarr(
                 len(band_names),
                 dataset.band_count,
             )
-    if chunks is not None:
-        dataset._backend = "dask"  # type: ignore[attr-defined]
     return dataset
 
 

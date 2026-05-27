@@ -212,6 +212,29 @@ class TestChunksParameter:
         root = zarr.open_group(store, mode="r")
         assert root["data"].chunks == (1, 3, 3)
 
+    @requires_zarr
+    def test_chunked_read_matches_eager(self, small_dataset, tmp_path):
+        """from_zarr(chunks=...) parallel-reads identical values (FR-2).
+
+        Test scenario:
+            With ``chunks`` given the read goes through dask.array.from_zarr (a
+            parallel chunked read) instead of one eager ``[:]``; values must
+            match the eager read, and the result is a plain GDAL-backed Dataset
+            (no leftover ``_backend`` flag — the old cosmetic marker, Z-2).
+        """
+        store = str(tmp_path / "readchunks.zarr")
+        small_dataset.to_zarr(store)
+        chunked = Dataset.from_zarr(store, chunks=(1, 2, 2))
+        assert getattr(chunked, "_backend", None) != "dask", (
+            "from_zarr must not pre-mark a materialised dataset as dask-backed "
+            f"(got {getattr(chunked, '_backend', None)!r}); read_array owns that flag"
+        )
+        eager = Dataset.from_zarr(store)
+        np.testing.assert_array_equal(
+            np.atleast_3d(eager.read_array()).squeeze(),
+            np.atleast_3d(chunked.read_array()).squeeze(),
+        )
+
 
 class TestImportErrorPath:
     """Missing zarr / dask surfaces actionable OptionalPackageDoesNotExist."""
