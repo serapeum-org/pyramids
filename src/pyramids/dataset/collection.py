@@ -28,8 +28,8 @@ from pyramids.dataset.dataset import Dataset
 from pyramids.dataset.merge import merge_rasters
 from pyramids.dataset.ops._geobox_zarr import (
     ZARR_SCHEMA_VERSION,
+    finalize_zarr_metadata,
     read_geobox,
-    write_geobox,
 )
 from pyramids.dataset.ops._zarr import _resolve_store
 from pyramids.feature import FeatureCollection
@@ -176,31 +176,23 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
     `band_names`, `time_length` + a pyramids version marker on the
     `data` array + root group.
     """
-    import zarr
-
-    root = zarr.open_group(resolved_store, mode="a")
-    root.attrs.update(
-        {
+    # Shared finalize (root + data attrs, GeoZarr geobox, consolidate). The cube
+    # is 4-D (time, band, y, x); the geobox x/y come from the spatial grid.
+    finalize_zarr_metadata(
+        resolved_store,
+        root_attrs={
             "pyramids_zarr_version": ZARR_SCHEMA_VERSION,
             "time_length": int(len(files)),
             "pyramids_file_list": list(files),
-        }
-    )
-    root["data"].attrs.update(
-        {
+        },
+        data_attrs={
             "epsg": int(meta.epsg) if meta.epsg else None,
             "GeoTransform": " ".join(str(v) for v in meta.geotransform),
             "crs_wkt": meta.crs.to_wkt(),
             "nodata": [None if v is None else float(v) for v in meta.nodata],
             "band_names": list(meta.band_names) if meta.band_names else [],
             "dtype": str(meta.dtype),
-        }
-    )
-    # GeoZarr grid mapping + x/y coords, so the 4-D (time, band, y, x) cube is
-    # auto-georeferenced by standards-based readers (shared with the Dataset path).
-    write_geobox(
-        root,
-        data_name="data",
+        },
         epsg=int(meta.epsg or 0),
         geotransform=tuple(float(v) for v in meta.geotransform),
         crs_wkt=meta.crs.to_wkt(),
@@ -208,7 +200,6 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
         cols=int(meta.columns),
         dims=["time", "band", "y", "x"],
     )
-    zarr.consolidate_metadata(resolved_store)
 
 
 def _finalize_after_write(data_result, resolved_store, meta, files) -> None:

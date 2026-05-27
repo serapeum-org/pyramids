@@ -122,6 +122,54 @@ def write_geobox(
     data.attrs["grid_mapping"] = GRID_MAPPING_VAR
 
 
+def finalize_zarr_metadata(
+    resolved_store: Any,
+    *,
+    root_attrs: dict[str, Any],
+    data_attrs: dict[str, Any],
+    epsg: int,
+    geotransform: tuple[float, ...],
+    crs_wkt: str,
+    rows: int,
+    cols: int,
+    dims: list[str],
+) -> None:
+    """Write root + data attrs and the GeoZarr geobox, then consolidate metadata.
+
+    Shared finalize step for both the Dataset and DatasetCollection writers: the
+    callers supply their own ``root_attrs`` / ``data_attrs`` payloads and the
+    data-array ``dims``; the open / attr-set / :func:`write_geobox` /
+    ``consolidate_metadata`` boilerplate lives here once.
+
+    Args:
+        resolved_store: A zarr-compatible mapping / store, opened in append mode.
+        root_attrs: Attributes to set on the root group.
+        data_attrs: Attributes to set on the ``data`` array.
+        epsg: EPSG code (``0`` when the CRS has no authority code).
+        geotransform: GDAL 6-tuple.
+        crs_wkt: CRS as WKT.
+        rows: Raster row count.
+        cols: Raster column count.
+        dims: Dimension names of the ``data`` array.
+    """
+    import zarr
+
+    root = zarr.open_group(resolved_store, mode="a")
+    root.attrs.update(root_attrs)
+    root["data"].attrs.update(data_attrs)
+    write_geobox(
+        root,
+        data_name="data",
+        epsg=epsg,
+        geotransform=geotransform,
+        crs_wkt=crs_wkt,
+        rows=rows,
+        cols=cols,
+        dims=dims,
+    )
+    zarr.consolidate_metadata(resolved_store)
+
+
 def read_geobox(group: Any, *, data_name: str = "data") -> dict[str, Any]:
     """Recover ``{crs_wkt, geotransform, epsg, legacy}`` from a Zarr ``group``.
 

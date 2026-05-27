@@ -30,8 +30,8 @@ from pyramids.base._utils import import_dask, import_zarr, lazy_extra_hint
 from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset.ops._geobox_zarr import (
     ZARR_SCHEMA_VERSION,
+    finalize_zarr_metadata,
     read_geobox,
-    write_geobox,
 )
 
 if TYPE_CHECKING:
@@ -188,23 +188,19 @@ def _finalize_metadata(resolved_store: Any, metadata: dict[str, Any]) -> None:
     1-D ``x`` / ``y`` coords so the store is auto-georeferenced by rioxarray /
     odc-geo / :func:`xarray.open_zarr`.
     """
-    zarr = _require_zarr()
-    root = zarr.open_group(resolved_store, mode="a")
-    root.attrs.update({"pyramids_zarr_version": ZARR_SCHEMA_VERSION})
-    root["data"].attrs.update(metadata)
+    _require_zarr()
     _, rows, cols = (int(v) for v in metadata["shape"])
-    geotransform = tuple(float(v) for v in metadata["GeoTransform"].split())
-    write_geobox(
-        root,
-        data_name="data",
+    finalize_zarr_metadata(
+        resolved_store,
+        root_attrs={"pyramids_zarr_version": ZARR_SCHEMA_VERSION},
+        data_attrs=metadata,
         epsg=int(metadata["epsg"]),
-        geotransform=geotransform,
+        geotransform=tuple(float(v) for v in metadata["GeoTransform"].split()),
         crs_wkt=metadata["spatial_ref"],
         rows=rows,
         cols=cols,
         dims=["band", "y", "x"],
     )
-    zarr.consolidate_metadata(resolved_store)
 
 
 def _finalize_after_write(

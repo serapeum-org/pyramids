@@ -230,3 +230,38 @@ class TestReadGeobox:
         group[GRID_MAPPING_VAR].attrs.update(attrs)
         with pytest.raises(KeyError):
             read_geobox(group)
+
+
+@requires_zarr
+class TestFinalizeZarrMetadata:
+    """Tests for finalize_zarr_metadata (shared Dataset/collection finalizer)."""
+
+    def test_writes_attrs_geobox_and_consolidates(self, tmp_path):
+        """Root + data attrs, the geobox, and consolidated metadata are written.
+
+        Test scenario:
+            Given a group with a ``data`` array, finalize_zarr_metadata sets the
+            supplied root/data attrs, writes the spatial_ref + x/y geobox, and
+            consolidates — so ``.zmetadata`` exists and the arrays are present.
+        """
+        from pyramids.dataset.ops._geobox_zarr import finalize_zarr_metadata
+
+        store = str(tmp_path / "fin.zarr")
+        group = zarr.open_group(store, mode="w")
+        group.create_dataset("data", data=np.zeros((1, 4, 5), dtype="float32"))
+        finalize_zarr_metadata(
+            store,
+            root_attrs={"pyramids_zarr_version": "2", "time_length": 1},
+            data_attrs={"dtype": "float32", "epsg": 4326},
+            epsg=4326,
+            geotransform=_GT,
+            crs_wkt=_WKT_4326,
+            rows=4,
+            cols=5,
+            dims=["band", "y", "x"],
+        )
+        reopened = zarr.open_group(store, mode="r")
+        assert reopened.attrs["pyramids_zarr_version"] == "2", "root attr missing"
+        assert reopened["data"].attrs["dtype"] == "float32", "data attr missing"
+        assert {"spatial_ref", "x", "y"} <= set(reopened.array_keys()), "geobox missing"
+        assert reopened["data"].attrs["grid_mapping"] == GRID_MAPPING_VAR
