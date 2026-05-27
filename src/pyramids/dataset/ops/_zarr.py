@@ -112,6 +112,8 @@ def write_dataset_to_zarr(
     chunks: Any = "auto",
     storage_options: dict[str, Any] | None = None,
     compressor: Any = "auto",
+    overview_factors: list[int] | None = None,
+    overview_resampling: str = "average",
 ) -> Any:
     """Serialise `ds` to a Zarr store.
 
@@ -163,6 +165,8 @@ def write_dataset_to_zarr(
             ```
     """
     _require_zarr()
+    if overview_factors and not compute:
+        raise ValueError("overview_factors requires compute=True")
     arr = _build_dask_array(ds, chunks)
     metadata = _metadata_dict(ds)
     resolved_store = _resolve_store(store, storage_options)
@@ -177,6 +181,10 @@ def write_dataset_to_zarr(
     )
     if compute:
         _finalize_metadata(resolved_store, metadata)
+        if overview_factors:
+            _write_overview_levels(
+                ds, resolved_store, sorted(overview_factors), overview_resampling
+            )
         result: Any = None
     else:
         import_dask(_LAZY_IMPORT_ERROR)
@@ -186,6 +194,45 @@ def write_dataset_to_zarr(
             write_result, resolved_store, metadata
         )
     return result
+
+
+def _write_overview_levels(
+    ds: Dataset, resolved_store: Any, factors: list[int], resampling: str
+) -> None:
+    """Write decimated pyramid levels + a ``multiscales`` attr (FR-7).
+
+    Builds GDAL overviews on ``ds`` (reusing its resampling), then writes each
+    decimated level as a ``data_<factor>`` array in the group and records a root
+    ``multiscales`` attribute listing the level paths + downsample factors. Each
+    level's geobox is the base CRS/origin with the cell size scaled by its
+    factor, recoverable on read via :func:`read_dataset_from_zarr(level=...)`.
+    """
+    zarr = _require_zarr()
+    ds.create_overviews(resampling, list(factors))
+    root = zarr.open_group(resolved_store, mode="a")
+    band_count = int(ds.band_count)
+    datasets_meta: list[dict[str, Any]] = [{"path": "data", "factor": 1}]
+    for ov_index, factor in enumerate(factors):
+        levels = [
+            np.asarray(ds.raster.GetRasterBand(b + 1).GetOverview(ov_index).ReadAsArray())
+            for b in range(band_count)
+        ]
+        level_arr = np.stack(levels, axis=0)
+        name = f"data_{int(factor)}"
+        za = root.create_array(
+            name,
+            shape=level_arr.shape,
+            dtype=level_arr.dtype,
+            dimension_names=("band", "y", "x"),
+            overwrite=True,
+        )
+        za[...] = level_arr
+        za.attrs["_ARRAY_DIMENSIONS"] = ["band", "y", "x"]
+        za.attrs["grid_mapping"] = "spatial_ref"
+        za.attrs["overview_factor"] = int(factor)
+        datasets_meta.append({"path": name, "factor": int(factor)})
+    root.attrs["multiscales"] = {"version": "pyramids-1", "datasets": datasets_meta}
+    zarr.consolidate_metadata(resolved_store)
 
 
 def _finalize_metadata(resolved_store: Any, metadata: dict[str, Any]) -> None:
@@ -253,11 +300,17 @@ def read_dataset_from_zarr(
     *,
     chunks: Any = None,
     storage_options: dict[str, Any] | None = None,
+    level: int = 1,
 ) -> Dataset:
     """Open a pyramids-written Zarr store and materialise a :class:`Dataset`.
 
     Args:
         store: Input store — path / fsspec URL / :class:`zarr.storage.Store`.
+        level: Pyramid downsample factor to read (FR-7). ``1`` (default) reads
+            the full-resolution ``data`` array; pass a factor written via
+            ``to_zarr(overview_factors=...)`` (e.g. ``2``, ``4``) to read that
+            decimated overview level instead, with its cell size scaled by the
+            factor.
         chunks: When given (a 3-tuple ``(bands, rows, cols)`` or ``"auto"``),
             the ``data`` array is read through :func:`dask.array.from_zarr` so a
             (possibly remote) store is fetched in **parallel chunks** rather than
@@ -299,19 +352,35 @@ def read_dataset_from_zarr(
     zarr = _require_zarr()
     resolved_store = _resolve_store(store, storage_options)
     root = zarr.open_group(resolved_store, mode="r")
-    # Auto-detect the primary data array so foreign GeoZarr stores (whose array
-    # may not be named "data") also read (FR-8).
-    data_name = detect_data_var(root)
+    # A pyramid level (FR-7) reads the `data_<factor>` array; the base geobox is
+    # scaled by the factor. Otherwise auto-detect the primary data array so
+    # foreign GeoZarr stores (array not named "data") also read (FR-8).
+    if level != 1:
+        data_name = f"data_{int(level)}"
+        if data_name not in root:
+            raise KeyError(
+                f"overview level {level} not found in store (no '{data_name}' "
+                f"array); write it with to_zarr(overview_factors=[...])"
+            )
+    else:
+        data_name = detect_data_var(root)
     zarr_array = root[data_name]
     arr = _read_data_array(resolved_store, zarr_array, chunks, component=data_name)
     attrs = dict(zarr_array.attrs)
-    # CRS / transform come from the GeoZarr grid mapping referenced by the data
-    # array (default `spatial_ref`); read_geobox derives the transform from x/y
-    # coords when absent and falls back to legacy flat attrs (with a warning).
-    geobox = read_geobox(root, data_name=data_name)
+    # CRS / transform come from the GeoZarr grid mapping (default `spatial_ref`);
+    # read_geobox derives the transform from x/y when absent and falls back to
+    # legacy flat attrs (with a warning).
+    geobox = read_geobox(root, data_name="data" if "data" in root else data_name)
     crs_wkt = geobox["crs_wkt"]
     epsg = geobox["epsg"]
-    geotransform = geobox["geotransform"]
+    base_gt = geobox["geotransform"]
+    # Scale the cell size by the pyramid factor for an overview level (origin
+    # unchanged); the base transform is used as-is for level 1.
+    geotransform = (
+        base_gt
+        if level == 1
+        else (base_gt[0], base_gt[1] * level, 0.0, base_gt[3], 0.0, base_gt[5] * level)
+    )
     top_left_corner = (geotransform[0], geotransform[3])
     cell_size = float(geotransform[1])
 

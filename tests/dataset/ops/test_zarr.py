@@ -371,3 +371,76 @@ class TestCompressor:
         assert zarr.open_group(store, mode="r")["data"].compressors == (), (
             "expected no compressors"
         )
+
+
+class TestMultiscalePyramid:
+    """``overview_factors=`` writes pyramid levels; ``level=`` reads them (FR-7)."""
+
+    @pytest.fixture
+    def big_dataset(self, tmp_path):
+        arr = np.arange(16 * 16, dtype=np.float32).reshape(16, 16)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 16.0), cell_size=1.0, epsg=4326
+        )
+        src = str(tmp_path / "big.tif")
+        ds.to_file(src)
+        return Dataset.read_file(src)
+
+    @requires_zarr
+    def test_writes_levels_and_multiscales_attr(self, big_dataset, tmp_path):
+        """to_zarr(overview_factors=...) writes decimated levels + multiscales (FR-7).
+
+        Test scenario:
+            ``overview_factors=[2, 4]`` adds ``data_2`` (8x8) and ``data_4``
+            (4x4) arrays and a root ``multiscales`` attribute listing the level
+            paths and factors.
+        """
+        store = str(tmp_path / "ms.zarr")
+        big_dataset.to_zarr(store, overview_factors=[2, 4])
+        root = zarr.open_group(store, mode="r")
+        assert {"data", "data_2", "data_4"} <= set(root.array_keys()), "levels missing"
+        assert root["data_2"].shape == (1, 8, 8), f"data_2 {root['data_2'].shape}"
+        assert root["data_4"].shape == (1, 4, 4), f"data_4 {root['data_4'].shape}"
+        factors = [d["factor"] for d in root.attrs["multiscales"]["datasets"]]
+        assert factors == [1, 2, 4], f"multiscales factors {factors}"
+
+    @requires_zarr
+    def test_read_level_scales_geobox(self, big_dataset, tmp_path):
+        """from_zarr(level=f) reads the decimated level with cell size scaled (FR-7).
+
+        Test scenario:
+            Level 2 of a 16x16 / cell_size 1.0 store is 8x8 with cell_size 2.0
+            and the same EPSG/origin; level 1 is the full-res 16x16.
+        """
+        store = str(tmp_path / "ms2.zarr")
+        big_dataset.to_zarr(store, overview_factors=[2, 4])
+        lvl2 = Dataset.from_zarr(store, level=2)
+        assert (lvl2.rows, lvl2.columns) == (8, 8), f"level-2 dims {(lvl2.rows, lvl2.columns)}"
+        assert lvl2.cell_size == 2.0, f"level-2 cell_size {lvl2.cell_size}"
+        assert lvl2.epsg == 4326, f"level-2 epsg {lvl2.epsg}"
+        assert Dataset.from_zarr(store).rows == 16, "level-1 should be full res"
+
+    @requires_zarr
+    def test_missing_level_raises(self, big_dataset, tmp_path):
+        """Requesting an unwritten level raises a clear KeyError (FR-7).
+
+        Test scenario:
+            A store written without overviews has no ``data_8`` array, so
+            ``from_zarr(level=8)`` raises KeyError naming the missing array.
+        """
+        store = str(tmp_path / "ms3.zarr")
+        big_dataset.to_zarr(store)
+        with pytest.raises(KeyError, match="data_8|overview level 8"):
+            Dataset.from_zarr(store, level=8)
+
+    @requires_zarr
+    def test_overviews_require_compute(self, big_dataset, tmp_path):
+        """overview_factors with compute=False raises (FR-7).
+
+        Test scenario:
+            Pyramid levels are built eagerly from GDAL overviews, so combining
+            ``overview_factors`` with ``compute=False`` raises ValueError.
+        """
+        store = str(tmp_path / "ms4.zarr")
+        with pytest.raises(ValueError, match="compute=True"):
+            big_dataset.to_zarr(store, overview_factors=[2], compute=False)
