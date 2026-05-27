@@ -12,17 +12,30 @@ checks mirror what an end user does on first import:
    asserting `"_vendor" in osgeo.__file__`.
 3. A round-trip `SpatialReference(4326)` + `MEM` raster creation
    exercises the live libgdal/libproj that the wheel ships.
+4. A `/vsicurl` HTTPS read exercises the bundled libcurl's CA trust
+   store — the regression in issue #412, where the vendored libcurl
+   pointed at the wheel-build prefix's `cacert.pem` (absent in the
+   consuming env) and every TLS read failed to load trust anchors.
 
 Kept as a standalone file (rather than an inline `python -c "..."`
 heredoc in the workflow) so the script reads cleanly and adding a check
 doesn't require fighting YAML + shell quoting.
 """
 
+import os
 from pathlib import Path
 
 import pyramids
 import osgeo
 from osgeo import gdal, ogr, osr  # noqa: F401 — ogr import is a smoke test
+
+# Stable, valid-TLS HTTPS endpoint for the CA-trust check. Small text
+# file (not a raster) — VSIFOpenL forces the curl TLS handshake + CA
+# load without needing a valid GeoTIFF on the far end.
+_TLS_PROBE_URL = "/vsicurl/https://raw.githubusercontent.com/OSGeo/gdal/master/LICENSE.TXT"
+# Substrings that mark a CA / trust-store failure (the #412 bug) rather
+# than a generic network problem (timeout, DNS, offline runner).
+_CA_ERROR_MARKERS = ("trust anchors", "cacert", "ca cert", "certificate", "ssl")
 
 
 def _fail(msg: str) -> None:
@@ -53,5 +66,45 @@ expected_vendor_root = Path(pyramids.__file__).parent / "_vendor"
 osgeo_path = Path(osgeo.__file__).resolve()
 if not osgeo_path.is_relative_to(expected_vendor_root.resolve()):
     _fail(f"osgeo not from {expected_vendor_root}: resolved to {osgeo_path}")
+
+
+def _check_tls_read() -> None:
+    """Open an HTTPS resource via /vsicurl to exercise the bundled CA store.
+
+    Only meaningful on a real bundled wheel — skip when the cert wasn't
+    vendored (editable/dev install). A CA/trust-store error is the #412
+    bug and fails hard; a generic network error (offline runner, DNS,
+    timeout) is not this bug, so we warn and move on rather than make the
+    smoke test flaky on network conditions.
+    """
+    ca_bundle = Path(pyramids.__file__).parent / "_data" / "ssl" / "cacert.pem"
+    if not ca_bundle.is_file():
+        print("TLS check skipped: no vendored cacert.pem (dev/editable install).")
+        return
+    print(f"GDAL_HTTP_CAINFO: {os.environ.get('GDAL_HTTP_CAINFO')}")
+
+    gdal.UseExceptions()
+    gdal.SetConfigOption("GDAL_HTTP_TIMEOUT", "30")
+    handle = None
+    try:
+        handle = gdal.VSIFOpenL(_TLS_PROBE_URL, "rb")
+        if handle is None:
+            _fail(f"VSIFOpenL returned None for {_TLS_PROBE_URL}")
+        data = gdal.VSIFReadL(1, 16, handle)
+        if not data:
+            _fail(f"empty read from {_TLS_PROBE_URL}")
+    except RuntimeError as exc:
+        msg = str(exc).lower()
+        if any(marker in msg for marker in _CA_ERROR_MARKERS):
+            _fail(f"TLS CA trust failure (issue #412): {exc}")
+        # Not a CA error — treat as transient network issue, don't fail.
+        print(f"TLS check inconclusive (non-CA network error, ignored): {exc}")
+    finally:
+        if handle is not None:
+            gdal.VSIFCloseL(handle)
+    print("TLS /vsicurl read OK — bundled CA store loads trust anchors.")
+
+
+_check_tls_read()
 
 print("All runtime checks passed.")

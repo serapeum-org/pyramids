@@ -128,6 +128,9 @@ pyramids = [
     "_data/gdal_data/*",
     "_data/proj_data/*",
     "_data/gdalplugins/*",
+    # curl CA bundle re-pointed by the runtime bootstrap so vendored-GDAL
+    # /vsicurl HTTPS reads find trust anchors in the consuming env (#412).
+    "_data/ssl/*",
     # Third-party license texts auto-vendored by
     # ci/install-and-vendor-osgeo.py from each conda-forge package's
     # info/licenses/. Required by MIT/BSD/LGPL attribution clauses for

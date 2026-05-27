@@ -70,6 +70,22 @@ def _data_layout_roots(prefix: Path) -> tuple[Path, Path, Path]:
     return prefix / "bin", prefix / "share", prefix / "lib"
 
 
+def _ca_bundle_src(prefix: Path) -> Path:
+    """Return the conda-forge curl CA bundle path inside the build prefix.
+
+    conda-forge's `ca-certificates` ships `ssl/cacert.pem` under the env
+    prefix (nested under `Library/` on Windows, as with share/ and lib/).
+    conda-forge's libcurl is compiled with this as its baked-in default,
+    so the vendored GDAL would otherwise look for it at the build-time
+    prefix (`.pixi/envs/wheel-build/ssl/cacert.pem`) — a path absent in
+    the consuming env. We copy it into the wheel and re-point GDAL/curl
+    at the bundled copy from the runtime bootstrap.
+    """
+    if sys.platform == "win32" or os.name == "nt":
+        return prefix / "Library" / "ssl" / "cacert.pem"
+    return prefix / "ssl" / "cacert.pem"
+
+
 def install_gdal_python_bindings() -> None:
     """pip install `GDAL==<resolved version>` linking against $BUILD_PREFIX.
 
@@ -358,7 +374,25 @@ def vendor_osgeo_into_package() -> None:
     if plugins_src.is_dir():
         _copy_tree_replacing(plugins_src, src_pyramids / "_data" / "gdalplugins")
 
-    # 5. Vendor third-party license texts. Each conda-forge package
+    # 5. Vendor the curl CA bundle. conda-forge's libcurl bakes its
+    # default CA path to `<build-prefix>/ssl/cacert.pem`, which does not
+    # exist in the consuming env — so every GDAL `/vsicurl` HTTPS read
+    # fails to load trust anchors. Ship the bundle in the wheel; the
+    # runtime bootstrap points GDAL/curl at this copy via GDAL_HTTP_CAINFO
+    # / CURL_CA_BUNDLE / SSL_CERT_FILE. See issue #412.
+    ca_bundle_src = _ca_bundle_src(prefix)
+    if ca_bundle_src.is_file():
+        ca_dst = src_pyramids / "_data" / "ssl" / "cacert.pem"
+        ca_dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ca_bundle_src, ca_dst)
+    else:
+        print(
+            f"[install-and-vendor-osgeo] CA bundle not found at {ca_bundle_src}; "
+            "vendored GDAL HTTPS reads may fail (#412)",
+            flush=True,
+        )
+
+    # 6. Vendor third-party license texts. Each conda-forge package
     # ships its LICENSE under `info/licenses/` inside its extracted
     # package dir; the MIT / BSD / LGPL / Apache licenses all require
     # the copyright + permission notice to travel with the binary
@@ -371,7 +405,7 @@ def vendor_osgeo_into_package() -> None:
         src_pyramids / "_licenses",
     )
 
-    # 6. Defense-in-depth `.gitignore` markers. The repo .gitignore
+    # 7. Defense-in-depth `.gitignore` markers. The repo .gitignore
     # already excludes `src/pyramids/_vendor/` and `src/pyramids/_data/`,
     # but a dev who runs `cibuildwheel` locally and then
     # `git add -f` (force-add bypasses .gitignore) could still
