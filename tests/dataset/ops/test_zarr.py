@@ -244,3 +244,67 @@ class TestImportErrorPath:
         assert "conda install -c conda-forge pyramids-lazy" in message, (
             f"conda-forge install hint missing from message: {message!r}"
         )
+
+
+class TestGeoZarrLayout:
+    """The written store follows the GeoZarr / CF convention (FR-1)."""
+
+    @requires_zarr
+    def test_store_has_geozarr_arrays(self, small_dataset, tmp_path):
+        """A written store carries spatial_ref + x/y coords + grid_mapping (FR-1).
+
+        Test scenario:
+            ``to_zarr`` must emit the GeoZarr layout so standards-based readers
+            georeference it: a ``spatial_ref`` grid-mapping array (with
+            ``crs_wkt`` + ``GeoTransform``), 1-D ``x``/``y`` coordinate arrays,
+            ``grid_mapping="spatial_ref"`` and ``_ARRAY_DIMENSIONS`` on ``data``.
+        """
+        store = str(tmp_path / "geozarr.zarr")
+        small_dataset.to_zarr(store)
+        group = zarr.open_group(store, mode="r")
+        keys = set(group.array_keys())
+        assert {"data", "spatial_ref", "x", "y"} <= keys, f"missing arrays: {keys}"
+        assert group["data"].attrs["grid_mapping"] == "spatial_ref", (
+            f"grid_mapping not set: {dict(group['data'].attrs)}"
+        )
+        assert group["data"].attrs["_ARRAY_DIMENSIONS"] == ["band", "y", "x"], (
+            f"data dims wrong: {group['data'].attrs.get('_ARRAY_DIMENSIONS')}"
+        )
+        sr_attrs = dict(group["spatial_ref"].attrs)
+        assert "crs_wkt" in sr_attrs and "GeoTransform" in sr_attrs, (
+            f"spatial_ref attrs incomplete: {sorted(sr_attrs)}"
+        )
+        assert group["x"].shape == (small_dataset.columns,), "x length mismatch"
+        assert group["y"].shape == (small_dataset.rows,), "y length mismatch"
+
+    @requires_zarr
+    def test_legacy_store_read_warns_and_recovers(self, tmp_path):
+        """Reading a legacy flat-attr store warns but still recovers the geobox.
+
+        Test scenario:
+            A store written in the legacy layout (geo-referencing as flat attrs
+            on ``data``, no ``spatial_ref`` array) must still open via
+            ``from_zarr``, recover EPSG 4326, and emit a ``DeprecationWarning``.
+        """
+        from pyramids.base.crs import sr_from_epsg
+
+        store = str(tmp_path / "legacy.zarr")
+        group = zarr.open_group(store, mode="w")
+        data = group.create_dataset(
+            "data", data=np.arange(12, dtype=np.float32).reshape(1, 3, 4)
+        )
+        data.attrs.update(
+            {
+                "spatial_ref": sr_from_epsg(4326).ExportToWkt(),
+                "GeoTransform": "0.0 1.0 0.0 3.0 0.0 -1.0",
+                "epsg": 4326,
+                "no_data_value": [-9999.0],
+                "band_names": [],
+                "dtype": "float32",
+                "shape": [1, 3, 4],
+            }
+        )
+        zarr.consolidate_metadata(store)
+        with pytest.warns(DeprecationWarning, match="legacy pyramids geobox"):
+            reloaded = Dataset.from_zarr(store)
+        assert reloaded.epsg == 4326, f"legacy geobox not recovered: {reloaded.epsg}"

@@ -28,6 +28,11 @@ import numpy as np
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import import_dask, import_zarr, lazy_extra_hint
 from pyramids.base.crs import sr_from_epsg
+from pyramids.dataset.ops._geobox_zarr import (
+    ZARR_SCHEMA_VERSION,
+    read_geobox,
+    write_geobox,
+)
 
 if TYPE_CHECKING:
     from pyramids.dataset import Dataset
@@ -176,11 +181,29 @@ def write_dataset_to_zarr(
 
 
 def _finalize_metadata(resolved_store: Any, metadata: dict[str, Any]) -> None:
-    """Set pyramids-convention attrs on a written Zarr store."""
+    """Write the geobox + pyramids attrs onto a freshly-written Zarr store.
+
+    Keeps the pyramids round-trip attrs (nodata / band_names / dtype / shape) on
+    the ``data`` array, and adds the GeoZarr ``spatial_ref`` grid mapping plus
+    1-D ``x`` / ``y`` coords so the store is auto-georeferenced by rioxarray /
+    odc-geo / :func:`xarray.open_zarr`.
+    """
     zarr = _require_zarr()
     root = zarr.open_group(resolved_store, mode="a")
-    root.attrs.update({"pyramids_zarr_version": "1"})
+    root.attrs.update({"pyramids_zarr_version": ZARR_SCHEMA_VERSION})
     root["data"].attrs.update(metadata)
+    _, rows, cols = (int(v) for v in metadata["shape"])
+    geotransform = tuple(float(v) for v in metadata["GeoTransform"].split())
+    write_geobox(
+        root,
+        data_name="data",
+        epsg=int(metadata["epsg"]),
+        geotransform=geotransform,
+        crs_wkt=metadata["spatial_ref"],
+        rows=rows,
+        cols=cols,
+        dims=["band", "y", "x"],
+    )
     zarr.consolidate_metadata(resolved_store)
 
 
@@ -250,9 +273,13 @@ def read_dataset_from_zarr(
     zarr_array = root["data"]
     arr = np.asarray(zarr_array[:])
     attrs = dict(zarr_array.attrs)
-    crs_wkt = attrs.get("spatial_ref") or attrs.get("crs_wkt")
-    epsg = int(attrs.get("epsg") or 0)
-    geotransform = tuple(float(v) for v in attrs["GeoTransform"].split())
+    # CRS / transform come from the GeoZarr `spatial_ref` grid mapping when
+    # present; read_geobox falls back to the legacy flat attrs (with a
+    # DeprecationWarning). nodata / band_names stay on the data array (below).
+    geobox = read_geobox(root, data_name="data")
+    crs_wkt = geobox["crs_wkt"]
+    epsg = geobox["epsg"]
+    geotransform = geobox["geotransform"]
     top_left_corner = (geotransform[0], geotransform[3])
     cell_size = float(geotransform[1])
 
