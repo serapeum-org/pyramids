@@ -178,6 +178,28 @@ class Spatial(_Engine):
               4326
 
               ```
+            - Contrast ``maintain_alignment=False`` (default) with
+              ``maintain_alignment=True``. At 60°N a 4326 → 3857 warp distorts
+              cell sizes substantially, so the default `gdal.Warp` heuristic
+              picks a different output shape from the source; the alignment-
+              preserving path keeps the source row/column count and absorbs the
+              distortion into the per-axis cell size instead:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> arr = np.ones((10, 10), dtype=np.float32)
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=(10.0, 60.5), cell_size=0.1, epsg=4326
+              ... )
+              >>> default_warp = dataset.to_crs(to_epsg=3857)
+              >>> (default_warp.rows, default_warp.columns)
+              (13, 6)
+              >>> aligned = dataset.to_crs(to_epsg=3857, maintain_alignment=True)
+              >>> (aligned.rows, aligned.columns)
+              (10, 10)
+
+              ```
 
         See Also:
             - :meth:`Spatial.set_crs`: Tag the dataset with a new CRS *without*
