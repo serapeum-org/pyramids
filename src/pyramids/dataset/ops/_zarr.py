@@ -209,15 +209,24 @@ def _write_overview_levels(
 
     Builds GDAL overviews on ``ds`` (reusing its resampling), then writes each
     decimated level as a ``data_<factor>`` array in the group and records a root
-    ``multiscales`` attribute listing the level paths + downsample factors. Each
-    level's geobox is the base CRS/origin with the cell size scaled by its
-    factor, recoverable on read via :func:`read_dataset_from_zarr(level=...)`.
+    ``multiscales`` attribute (OGC / OME-Zarr v0.4) listing every level's path
+    and its ``coordinateTransformations`` scale (including the base ``data``
+    level with scale ``[1, 1, 1]``). Each level's geobox is the base CRS/origin
+    with the cell size scaled by its factor, recoverable on read via
+    :func:`read_dataset_from_zarr(level=...)`.
     """
     zarr = _require_zarr()
     ds.create_overviews(resampling, list(factors))
     root = zarr.open_group(resolved_store, mode="a")
     band_count = int(ds.band_count)
-    datasets_meta: list[dict[str, Any]] = [{"path": "data", "factor": 1}]
+    datasets_meta: list[dict[str, Any]] = [
+        {
+            "path": "data",
+            "coordinateTransformations": [
+                {"type": "scale", "scale": [1.0, 1.0, 1.0]},
+            ],
+        }
+    ]
     for ov_index, factor in enumerate(factors):
         levels = [
             np.asarray(ds.raster.GetRasterBand(b + 1).GetOverview(ov_index).ReadAsArray())
