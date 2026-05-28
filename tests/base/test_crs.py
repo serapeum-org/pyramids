@@ -177,3 +177,70 @@ class TestSrFromUserInput:
         """
         with pytest.raises(CRSError, match="could not interpret"):
             sr_from_user_input("not-a-crs")
+
+    def test_wkt_string_round_trips_to_epsg(self):
+        """sr_from_user_input accepts a raw WKT string and preserves the authority.
+
+        Test scenario:
+            Round-trip via `CRS.from_epsg(3857).to_wkt()` → `sr_from_user_input(wkt)`
+            must produce an SRS whose root AUTHORITY resolves back to EPSG:3857. WKT
+            is one of the documented input forms but was not exercised explicitly —
+            this locks down that pyproj's WKT parsing path round-trips cleanly.
+        """
+        wkt = CRS.from_epsg(3857).to_wkt()
+        sr = sr_from_user_input(wkt)
+        assert sr.GetAuthorityCode(None) == "3857", (
+            f"WKT round-trip should preserve EPSG code, got {sr.GetAuthorityCode(None)!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "value",
+        [None, "", []],
+        ids=["none", "empty-string", "list"],
+    )
+    def test_uninterpretable_values_rejected(self, value):
+        """sr_from_user_input rejects values that pyproj cannot interpret as a CRS.
+
+        Args:
+            value: Input that cannot be turned into a CRS (None / "" / list).
+
+        Test scenario:
+            Each of these inputs makes `pyproj.CRS.from_user_input` raise; the wrapper
+            converts the raise into a pyramids `CRSError`. Tested as a parametrized
+            sweep so future additions (`{}`, custom objects, etc.) extend the matrix
+            in one place.
+        """
+        with pytest.raises(CRSError, match="could not interpret"):
+            sr_from_user_input(value)
+
+    def test_lambert_azimuthal_equal_area_proj4_resolves(self):
+        """sr_from_user_input accepts a Lambert azimuthal equal-area proj4 (no EPSG code).
+
+        Test scenario:
+            LAEA over central Europe is one of the proj4 definitions that
+            `epsg_from_user_input` explicitly rejects (no EPSG code). The SRS-based
+            helper must accept it and produce a projected reference — this is the
+            class of input #418 was filed for, beyond just orthographic / Robinson.
+        """
+        proj4 = "+proj=laea +lat_0=52 +lon_0=10 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs"
+        sr = sr_from_user_input(proj4)
+        assert sr.IsProjected() == 1, "LAEA must be projected"
+        assert sr.GetAuthorityCode(None) is None, (
+            "LAEA proj4 carries no authority code by design"
+        )
+
+    def test_returns_distinct_instances_for_repeated_calls(self):
+        """sr_from_user_input returns a fresh SRS each call, never a shared singleton.
+
+        Test scenario:
+            Two calls with the same input must return distinct `osr.SpatialReference`
+            instances so mutating one (e.g. via `SetAxisMappingStrategy`) can't leak
+            into another caller's reference. Identity check (`is not`) plus equality
+            of the WKT bytes verifies "different objects, same content".
+        """
+        sr1 = sr_from_user_input(4326)
+        sr2 = sr_from_user_input(4326)
+        assert sr1 is not sr2, "repeated calls must return distinct SRS instances"
+        assert sr1.ExportToWkt() == sr2.ExportToWkt(), (
+            "distinct instances should still encode the same CRS"
+        )

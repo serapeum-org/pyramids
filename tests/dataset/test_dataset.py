@@ -1072,6 +1072,98 @@ class TestReproject:
             f"off-disc corner pixels should equal nodata={nodata}, got {corners}"
         )
 
+    def test_to_crs_non_epsg_with_bilinear_resampling(self):
+        """to_crs runs the bilinear resampling path against a non-EPSG target (#418).
+
+        Test scenario:
+            All existing non-EPSG tests use the default nearest-neighbour interpolation;
+            this one exercises the bilinear branch through the INTERPOLATION_METHODS
+            lookup to confirm that the SRS-based front door doesn't break method
+            dispatch. Asserts the output has a Mollweide projection and a non-empty
+            array (bilinear must produce finite values on the visible domain).
+        """
+        arr = np.linspace(0.0, 1.0, num=20 * 20, dtype=np.float32).reshape(20, 20)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 10.0),
+            cell_size=0.5,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        dst = ds.to_crs(to_epsg="ESRI:54009", method="bilinear")
+        dst_sr = osr.SpatialReference(wkt=dst.crs)
+        assert "Mollweide" in dst_sr.GetName(), (
+            f"expected Mollweide in dst CRS name, got {dst_sr.GetName()!r}"
+        )
+        out = dst.read_array()
+        finite = out[out != dst.no_data_value[0]]
+        assert finite.size > 0, "bilinear warp should produce at least one finite cell"
+
+    def test_to_crs_non_epsg_idempotent_shape(self):
+        """Reprojecting twice to the same non-EPSG CRS yields the same shape (#418).
+
+        Test scenario:
+            Project a 4326 raster into Robinson (ESRI:54030), then project the result
+            into Robinson again. The second projection is effectively an identity in
+            the projected CRS; output shape and bbox must be stable. Catches the
+            "non-EPSG warp returns a slightly different raster each call" class of
+            regression that would surface if the SRS were rebuilt with a drifting
+            authority/WKT each call.
+        """
+        src_ds = Dataset(self.__class__._build_global_grid())
+        first = src_ds.to_crs(to_epsg="ESRI:54030")
+        second = first.to_crs(to_epsg="ESRI:54030")
+        assert (first.rows, first.columns) == (second.rows, second.columns), (
+            f"shapes drift: first={first.rows}x{first.columns}, "
+            f"second={second.rows}x{second.columns}"
+        )
+        for a, b in zip(first.geotransform, second.geotransform):
+            assert abs(a - b) < 1e-6, (
+                f"geotransform drift between projections: {first.geotransform} vs "
+                f"{second.geotransform}"
+            )
+
+    def test_to_crs_multiband_to_esri_string(self):
+        """Multi-band rasters reproject to an ESRI authority string (#418).
+
+        Test scenario:
+            All existing ESRI:54030 tests use a single-band fixture; this one
+            confirms that the band-count is preserved when warping a 3-band raster
+            into Robinson. A regression here would mean the new dst_srs_arg branch
+            interacts badly with gdal.Warp's multi-band handling.
+        """
+        arr = np.stack([np.full((10, 10), v, dtype=np.float32) for v in (1, 2, 3)])
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 10.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        dst = ds.to_crs(to_epsg="ESRI:54030")
+        assert dst.band_count == ds.band_count, (
+            f"band count drift: src={ds.band_count}, dst={dst.band_count}"
+        )
+
+    @staticmethod
+    def _build_global_grid() -> "gdal.Dataset":
+        """Create a 1° globe-spanning float32 raster fixture for idempotence tests.
+
+        Returns:
+            gdal.Dataset: A 4326 raster covering -180..180, -90..90 with cell size 1°
+            and a configured nodata value, so callers can run real warps without
+            opening on-disk fixtures.
+        """
+        arr = np.ones((180, 360), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(-180.0, 90.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        return ds.raster
+
     def test_to_crs_same_epsg_maintain_alignment_is_identity(self):
         """to_crs(source_epsg, maintain_alignment=True) returns a bit-identical raster (M1).
 
