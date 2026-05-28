@@ -343,6 +343,61 @@ def _read_data_array(
     return np.asarray(lazy.compute())
 
 
+def _resolve_data_array_name(root: Any, level: int, data_name: str | None) -> str:
+    """Resolve which array in the Zarr group to read.
+
+    For ``level != 1`` requires the matching ``data_<level>`` overview to exist
+    (FR-7). Otherwise honours an explicit ``data_name`` or falls back to the
+    foreign-store auto-detection (FR-8).
+    """
+    if level != 1:
+        resolved = f"data_{int(level)}"
+        if resolved not in root:
+            raise KeyError(
+                f"overview level {level} not found in store (no '{resolved}' "
+                f"array); write it with to_zarr(overview_factors=[...])"
+            )
+        return resolved
+    if data_name is None:
+        return detect_data_var(root)
+    return data_name
+
+
+def _scale_geotransform(base_gt: tuple, level: int) -> tuple:
+    """Scale a base GeoTransform by a pyramid level (cell sizes only; origin fixed)."""
+    if level == 1:
+        return base_gt
+    return (base_gt[0], base_gt[1] * level, 0.0, base_gt[3], 0.0, base_gt[5] * level)
+
+
+def _normalize_no_data(attrs: dict[str, Any]) -> Any:
+    """Round-trip the per-band no-data list, preserving "no no-data set" as ``None``.
+
+    The old code took band 0 only and turned ``None`` into ``-9999``; this helper
+    keeps the full list when any band carries a value, else returns ``None``.
+    """
+    no_data_list = attrs.get("no_data_value")
+    if no_data_list and any(v is not None for v in no_data_list):
+        return list(no_data_list)
+    return None
+
+
+def _apply_band_names(dataset: "Dataset", attrs: dict[str, Any]) -> None:
+    """Restore band names from the store, warning (and skipping) on a length mismatch (Z-5)."""
+    band_names = attrs.get("band_names") or []
+    if not band_names:
+        return
+    if len(band_names) == dataset.band_count:
+        dataset.band_names = list(band_names)
+        return
+    logger.warning(
+        "Zarr store band_names (%d) do not match band count (%d); "
+        "keeping default band names.",
+        len(band_names),
+        dataset.band_count,
+    )
+
+
 def read_dataset_from_zarr(
     store: str | Path | Any,
     *,
@@ -406,75 +461,30 @@ def read_dataset_from_zarr(
     zarr = _require_zarr()
     resolved_store = _resolve_store(store, storage_options)
     root = zarr.open_group(resolved_store, mode="r")
-    # A pyramid level (FR-7) reads the `data_<factor>` array; the base geobox is
-    # scaled by the factor. Otherwise auto-detect the primary data array so
-    # foreign GeoZarr stores (array not named "data") also read (FR-8).
-    if level != 1:
-        data_name = f"data_{int(level)}"
-        if data_name not in root:
-            raise KeyError(
-                f"overview level {level} not found in store (no '{data_name}' "
-                f"array); write it with to_zarr(overview_factors=[...])"
-            )
-    elif data_name is None:
-        data_name = detect_data_var(root)
+    data_name = _resolve_data_array_name(root, level, data_name)
     zarr_array = root[data_name]
     arr = _read_data_array(resolved_store, zarr_array, chunks, component=data_name)
     attrs = dict(zarr_array.attrs)
     # CRS / transform come from the GeoZarr grid mapping (default `spatial_ref`);
     # read_geobox derives the transform from x/y when absent and falls back to
-    # legacy flat attrs (with a warning).
+    # legacy flat attrs (with a warning). Cell size scales by the pyramid level.
     geobox = read_geobox(root, data_name="data" if "data" in root else data_name)
-    crs_wkt = geobox["crs_wkt"]
-    epsg = geobox["epsg"]
-    base_gt = geobox["geotransform"]
-    # Scale the cell size by the pyramid factor for an overview level (origin
-    # unchanged); the base transform is used as-is for level 1.
-    geotransform = (
-        base_gt
-        if level == 1
-        else (base_gt[0], base_gt[1] * level, 0.0, base_gt[3], 0.0, base_gt[5] * level)
-    )
-    top_left_corner = (geotransform[0], geotransform[3])
-    cell_size = float(geotransform[1])
-
-    # Dataset.create_from_array expects 2-D for single-band, 3-D for
-    # multi-band. Our on-disk layout is always 3-D (bands, rows, cols),
-    # so squeeze when band_count == 1.
-    if arr.ndim == 3 and arr.shape[0] == 1:
-        arr_for_create = arr[0]
-    else:
-        arr_for_create = arr
-    # Round-trip the per-band no-data list, preserving "no no-data set" as a
-    # scalar None (the old code took band 0 only and turned None into -9999).
-    no_data_list = attrs.get("no_data_value")
-    if no_data_list and any(v is not None for v in no_data_list):
-        no_data_value: Any = list(no_data_list)
-    else:
-        no_data_value = None
-
+    geotransform = _scale_geotransform(geobox["geotransform"], level)
+    # Dataset.create_from_array expects 2-D for single-band, 3-D for multi-band;
+    # our on-disk layout is always 3-D so squeeze when band_count == 1.
+    arr_for_create = arr[0] if (arr.ndim == 3 and arr.shape[0] == 1) else arr
     dataset = Dataset.create_from_array(
         arr_for_create,
-        top_left_corner=top_left_corner,
-        cell_size=cell_size,
-        epsg=epsg or 4326,
-        no_data_value=no_data_value,
+        top_left_corner=(geotransform[0], geotransform[3]),
+        cell_size=float(geotransform[1]),
+        epsg=geobox["epsg"] or 4326,
+        no_data_value=_normalize_no_data(attrs),
     )
     # Prefer the stored WKT (handles CRSes without an EPSG authority code);
     # the epsg above is only a fallback when no WKT was written (Z-3).
-    if crs_wkt:
-        dataset.crs = crs_wkt
-    band_names = attrs.get("band_names") or []
-    if band_names:
-        if len(band_names) == dataset.band_count:
-            dataset.band_names = list(band_names)
-        else:
-            logger.warning(
-                "Zarr store band_names (%d) do not match band count (%d); "
-                "keeping default band names.",
-                len(band_names),
-                dataset.band_count,
-            )
+    if geobox["crs_wkt"]:
+        dataset.crs = geobox["crs_wkt"]
+    _apply_band_names(dataset, attrs)
     return dataset
 
 
