@@ -120,47 +120,74 @@ class Spatial(_Engine):
                 ``method`` is not one of the supported interpolation methods.
 
         Examples:
-            - Create a dataset and reproject it:
+            - Reproject a small 4326 raster to Web Mercator (EPSG:3857). The
+              source cell size of 0.05° expands to roughly 5566 m near the
+              equator and the EPSG of the result confirms the warp:
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(4, 5, 5)
-              >>> top_left_corner = (0, 0)
-              >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
-              >>> print(dataset)
-              <BLANKLINE>
-                          Cell size: 0.05
-                          Dimension: 5 * 5
-                          EPSG: 4326
-                          Number of Bands: 4
-                          Band names: ['Band_1', 'Band_2', 'Band_3', 'Band_4']
-                          Mask: -9999.0
-                          Data type: float64
-                          File:...
-              <BLANKLINE>
-              >>> print(dataset.crs)
-              GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AXIS["Latitude",NORTH],AXIS["Longitude",EAST],AUTHORITY["EPSG","4326"]]
-              >>> print(dataset.epsg)
+              >>> dataset = Dataset.create_from_array(
+              ...     arr,
+              ...     top_left_corner=(0.0, 0.0),
+              ...     cell_size=0.05,
+              ...     epsg=4326,
+              ... )
+              >>> dataset.epsg
               4326
-              >>> reprojected_dataset = dataset.to_crs(to_epsg=3857)
-              >>> print(reprojected_dataset)
-              <BLANKLINE>
-                          Cell size: 5565.983370404396
-                          Dimension: 5 * 5
-                          EPSG: 3857
-                          Number of Bands: 4
-                          Band names: ['Band_1', 'Band_2', 'Band_3', 'Band_4']
-                          Mask: -9999.0
-                          Data type: float64
-                          File:...
-              <BLANKLINE>
-              >>> print(reprojected_dataset.crs)
-              PROJCS["WGS 84 / Pseudo-Mercator",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Mercator_1SP"],PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],EXTENSION["PROJ4","+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs"],AUTHORITY["EPSG","3857"]]
-              >>> print(reprojected_dataset.epsg)
+              >>> reprojected = dataset.to_crs(to_epsg=3857)
+              >>> reprojected.epsg
               3857
+              >>> reprojected.band_count
+              4
 
               ```
+            - Reproject to a non-EPSG CRS via an ESRI authority string
+              (Robinson, ``ESRI:54030``):
+
+              ```python
+              >>> import numpy as np
+              >>> from osgeo import osr
+              >>> from pyramids.dataset import Dataset
+              >>> arr = np.ones((5, 5), dtype=np.float32)
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326
+              ... )
+              >>> robinson = dataset.to_crs(to_epsg="ESRI:54030")
+              >>> "Robinson" in osr.SpatialReference(wkt=robinson.crs).GetName()
+              True
+
+              ```
+            - Reproject to a bespoke orthographic projection via a proj4 string
+              (no authority code at all):
+
+              ```python
+              >>> import numpy as np
+              >>> from osgeo import osr
+              >>> from pyramids.dataset import Dataset
+              >>> arr = np.ones((5, 5), dtype=np.float32)
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326
+              ... )
+              >>> proj4 = "+proj=ortho +lat_0=39 +lon_0=-9 +datum=WGS84 +units=m +no_defs"
+              >>> ortho = dataset.to_crs(to_epsg=proj4)
+              >>> osr.SpatialReference(wkt=ortho.crs).IsProjected()
+              1
+              >>> ortho.epsg
+              4326
+
+              ```
+
+        See Also:
+            - :meth:`Spatial.set_crs`: Tag the dataset with a new CRS *without*
+              warping the pixels (use when the source CRS metadata is wrong,
+              not when you want a reprojection).
+            - :meth:`Spatial.resample`: Change the cell size without changing
+              the CRS.
+            - :func:`pyramids.base.crs.sr_from_user_input`: The helper that
+              resolves every accepted CRS form to an
+              :class:`osr.SpatialReference`.
 
         """
         dst_sr = sr_from_user_input(to_epsg)
@@ -388,6 +415,103 @@ class Spatial(_Engine):
         dst_sr: osr.SpatialReference,
         method: str = "nearest neighbor",
     ) -> Dataset:
+        """Reproject the dataset by deriving an extent from corner reprojection.
+
+        Drives the alignment-preserving branch of :meth:`to_crs` — chosen by
+        ``maintain_alignment=True``. Reprojects the source corners through
+        :func:`pyramids.base.crs.reproject_coordinates` to compute the output
+        extent, measures the X/Y cell-step independently (so a non-square
+        output aspect is honoured), allocates the destination raster, and
+        finally runs :func:`gdal.ReprojectImage` to fill it.
+
+        Both source and destination spatial references are normalised to
+        ``OAMS_TRADITIONAL_GIS_ORDER`` before the identity check. This lets
+        :meth:`osr.SpatialReference.IsSame` report semantic equality even when
+        the two SRSes were built from different axis-order strategies (the
+        common case: a ``sr_from_wkt(self._ds.crs)`` source + a
+        ``sr_from_user_input`` target), which is what enables the same-CRS
+        shortcut to actually fire. See issue #418 for the underlying bug.
+
+        For a geographic source whose left edge sits past longitude 180, the
+        edge is shifted into the western hemisphere (``- 360``) before
+        reprojection so the corner-derived extent does not collapse across
+        the dateline.
+
+        Args:
+            dst_sr: Target spatial reference. Any axis-mapping strategy is
+                accepted; the function normalises only the *source* side.
+                Built from ``Spatial.to_crs(..., maintain_alignment=True)``
+                via :func:`pyramids.base.crs.sr_from_user_input`, but callers
+                may pass any pre-built SRS.
+            method: GDAL resampling algorithm (e.g. ``gdal.GRA_NearestNeighbour``,
+                ``gdal.GRA_Bilinear``, ``gdal.GRA_Cubic``). The default string
+                ``"nearest neighbor"`` is a placeholder for the typed enum;
+                pass the resolved enum through :data:`INTERPOLATION_METHODS`
+                when calling from outside :meth:`to_crs`.
+
+        Returns:
+            Dataset: A new ``Dataset`` covering the reprojected extent. Cell
+            size equals the corner-derived per-axis cell-step on the target
+            CRS; row and column counts are derived from the extent / cell-step
+            ratio (so the output shape is approximately, not exactly, the
+            source shape — corner-sampled spacings are accurate for affine
+            reprojections and approximate for footprints spanning large
+            latitude ranges, where the gdal.Warp path is preferred).
+
+        Examples:
+            - Identity reprojection: passing the source's own CRS hits the
+              ``IsSame`` shortcut and preserves the source geotransform
+              bit-exactly. Use the public :meth:`to_crs` facade rather than
+              calling this private method directly:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.ones((5, 5), dtype=np.float32)
+                >>> ds = Dataset.create_from_array(
+                ...     arr,
+                ...     top_left_corner=(10.0, 50.0),
+                ...     cell_size=0.5,
+                ...     epsg=4326,
+                ...     no_data_value=-9999.0,
+                ... )
+                >>> result = ds.to_crs(to_epsg=4326, maintain_alignment=True)
+                >>> result.geotransform == ds.geotransform
+                True
+                >>> (result.rows, result.columns) == (ds.rows, ds.columns)
+                True
+
+                ```
+            - Cross-CRS alignment-preserving reproject: 4326 → 3857 keeps the
+              source row/column count and changes the cell size to metres.
+              At 60°N the longitudinal cell size is roughly half the
+              latitudinal cell size, so the output is non-square:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.ones((10, 10), dtype=np.float32)
+                >>> ds = Dataset.create_from_array(
+                ...     arr,
+                ...     top_left_corner=(10.0, 60.5),
+                ...     cell_size=0.1,
+                ...     epsg=4326,
+                ...     no_data_value=-9999.0,
+                ... )
+                >>> result = ds.to_crs(to_epsg=3857, maintain_alignment=True)
+                >>> result.epsg
+                3857
+                >>> abs(result.geotransform[5]) > abs(result.geotransform[1])
+                True
+
+                ```
+
+        See Also:
+            - :meth:`Spatial.to_crs`: Public facade that picks this method
+              when ``maintain_alignment=True`` and routes through
+              :func:`gdal.Warp` otherwise.
+            - :func:`pyramids.base.crs.reproject_coordinates`: Reprojects the
+              corner / step coordinate pairs used to derive the destination
+              extent and cell size.
+        """
         src_gt = self._ds.geotransform
         src_x = self._ds.columns
         src_y = self._ds.rows

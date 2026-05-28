@@ -573,6 +573,46 @@ def sr_from_user_input(crs: int | str | Any) -> osr.SpatialReference:
             '3857'
 
             ```
+        - Build an SRS from an ESRI authority string for Robinson — the headline
+          case that motivated #418, since Robinson has no EPSG code:
+            ```python
+            >>> from pyramids.base.crs import sr_from_user_input
+            >>> sr = sr_from_user_input("ESRI:54030")
+            >>> sr.GetAuthorityName(None), sr.GetAuthorityCode(None)
+            ('ESRI', '54030')
+            >>> "Robinson" in sr.GetName()
+            True
+
+            ```
+        - Build an SRS from a :class:`pyproj.CRS` instance:
+            ```python
+            >>> from pyproj import CRS
+            >>> from pyramids.base.crs import sr_from_user_input
+            >>> sr = sr_from_user_input(CRS.from_epsg(32636))
+            >>> sr.GetAuthorityCode(None)
+            '32636'
+
+            ```
+        - Uninterpretable input raises :class:`CRSError` (which is also a
+          :class:`ValueError`, so existing call sites that catch
+          :class:`ValueError` still work):
+            ```python
+            >>> from pyramids.base.crs import sr_from_user_input
+            >>> try:
+            ...     sr_from_user_input("not-a-crs")
+            ... except ValueError as exc:
+            ...     print("could not interpret" in str(exc))
+            True
+
+            ```
+
+    See Also:
+        - :func:`sr_from_epsg`: Same idea but restricted to a single EPSG int.
+        - :func:`sr_from_wkt`: Build an SRS directly from a WKT string when
+          you already hold one.
+        - :func:`epsg_from_user_input`: Resolve a CRS to an EPSG ``int``
+          (rejects CRSes that lack an EPSG code).
+
     """
     if isinstance(crs, bool):
         raise CRSError(
