@@ -8,6 +8,9 @@ Public surface:
 * :func:`sr_from_epsg` — build an `osr.SpatialReference` from an
   EPSG code.
 * :func:`sr_from_wkt` — build one from a WKT string.
+* :func:`sr_from_user_input` — build one from any CRS form
+  :meth:`pyproj.CRS.from_user_input` accepts (EPSG int, authority
+  string, proj4, WKT, ESRI WKT, :class:`pyproj.CRS`).
 * :func:`create_sr_from_proj` — build one from a WKT / ESRI WKT /
   Proj4 string with auto-detect.
 * :func:`get_epsg_from_prj` — resolve the EPSG code identified by a
@@ -525,6 +528,107 @@ def epsg_from_user_input(crs: int | str | Any) -> int:
     return epsg
 
 
+def sr_from_user_input(crs: int | str | Any) -> osr.SpatialReference:
+    """Build an :class:`osr.SpatialReference` from any CRS form pyproj accepts.
+
+    Resolves CRS forms that have no EPSG code — orthographic, Robinson
+    (``ESRI:54030``), Mollweide (``ESRI:54009``), and other bespoke proj4 / WKT
+    definitions — to a full spatial reference. Use this instead of
+    :func:`epsg_from_user_input` when the downstream consumer (e.g.
+    :func:`gdal.Warp`'s ``dstSRS`` or :func:`osr.CoordinateTransformation`) can
+    take a WKT directly and does not require an EPSG integer.
+
+    The returned SRS is set to ``OAMS_TRADITIONAL_GIS_ORDER`` so that x/y always
+    means longitude/easting first, matching the axis order used everywhere else
+    in pyramids (geotransform, ``reproject_coordinates``, ``sr_from_epsg``).
+
+    Args:
+        crs: Any CRS form :meth:`pyproj.CRS.from_user_input` accepts — an EPSG
+            ``int`` (``4326``), an authority string (``"EPSG:3857"``,
+            ``"ESRI:54030"``), a bare numeric string (``"3857"``), a WKT string,
+            a proj4 string (``"+proj=ortho +lat_0=39 +lon_0=-9 +datum=WGS84"``),
+            or a :class:`pyproj.CRS` instance.
+
+    Returns:
+        osr.SpatialReference: The constructed SRS in traditional GIS axis order.
+
+    Raises:
+        CRSError: ``crs`` is a ``bool`` or is not interpretable as a CRS.
+
+    Examples:
+        - Build an SRS from an orthographic proj4 string:
+            ```python
+            >>> from pyramids.base.crs import sr_from_user_input
+            >>> sr = sr_from_user_input(
+            ...     "+proj=ortho +lat_0=39 +lon_0=-9 +datum=WGS84 +units=m +no_defs"
+            ... )
+            >>> sr.IsProjected()
+            1
+
+            ```
+        - Build an SRS from an EPSG int (fast path used by Web Mercator):
+            ```python
+            >>> from pyramids.base.crs import sr_from_user_input
+            >>> sr_from_user_input(3857).GetAuthorityCode(None)
+            '3857'
+
+            ```
+        - Build an SRS from an ESRI authority string for Robinson — the headline
+          case that motivated #418, since Robinson has no EPSG code:
+            ```python
+            >>> from pyramids.base.crs import sr_from_user_input
+            >>> sr = sr_from_user_input("ESRI:54030")
+            >>> sr.GetAuthorityName(None), sr.GetAuthorityCode(None)
+            ('ESRI', '54030')
+            >>> "Robinson" in sr.GetName()
+            True
+
+            ```
+        - Build an SRS from a :class:`pyproj.CRS` instance:
+            ```python
+            >>> from pyproj import CRS
+            >>> from pyramids.base.crs import sr_from_user_input
+            >>> sr = sr_from_user_input(CRS.from_epsg(32636))
+            >>> sr.GetAuthorityCode(None)
+            '32636'
+
+            ```
+        - Uninterpretable input raises :class:`CRSError` (which is also a
+          :class:`ValueError`, so existing call sites that catch
+          :class:`ValueError` still work):
+            ```python
+            >>> from pyramids.base.crs import sr_from_user_input
+            >>> try:
+            ...     sr_from_user_input("not-a-crs")
+            ... except ValueError as exc:
+            ...     print("could not interpret" in str(exc))
+            True
+
+            ```
+
+    See Also:
+        - :func:`sr_from_epsg`: Same idea but restricted to a single EPSG int.
+        - :func:`sr_from_wkt`: Build an SRS directly from a WKT string when
+          you already hold one.
+        - :func:`epsg_from_user_input`: Resolve a CRS to an EPSG ``int``
+          (rejects CRSes that lack an EPSG code).
+
+    """
+    if isinstance(crs, bool):
+        raise CRSError(
+            f"{crs!r} is not a valid CRS; pass an EPSG int, string, WKT, "
+            "proj4, or pyproj.CRS."
+        )
+    try:
+        wkt = CRS.from_user_input(crs).to_wkt()
+    except (pyproj.exceptions.CRSError, TypeError, ValueError) as exc:
+        raise CRSError(f"could not interpret {crs!r} as a CRS: {exc}") from exc
+    sr = osr.SpatialReference()
+    sr.ImportFromWkt(wkt)
+    sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    return sr
+
+
 def reproject_coordinates(
     x: list[float],
     y: list[float],
@@ -614,9 +718,11 @@ def reproject_coordinates(
 
 __all__ = [
     "create_sr_from_proj",
+    "epsg_from_user_input",
     "epsg_from_wkt",
     "get_epsg_from_prj",
     "reproject_coordinates",
     "sr_from_epsg",
+    "sr_from_user_input",
     "sr_from_wkt",
 ]
