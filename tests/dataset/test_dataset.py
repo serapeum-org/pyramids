@@ -12,6 +12,7 @@ import pytest
 from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal, osr
 from pandas import DataFrame
+from pyproj import CRS as PyprojCRS
 from shapely.geometry import Polygon
 
 from pyramids.base._errors import NoDataValueError, OutOfBoundsError, ReadOnlyError
@@ -1037,11 +1038,63 @@ class TestReproject:
             Passing CRS.from_epsg(3857) yields the same dst.epsg as passing 3857
             directly — the new SRS-based front door must not break the EPSG fast path.
         """
-        from pyproj import CRS as PyprojCRS
-
         src_ds = Dataset(src)
         dst = src_ds.to_crs(to_epsg=PyprojCRS.from_epsg(3857))
         assert dst.epsg == 3857
+
+    def test_orthographic_off_disc_cells_are_nodata(self):
+        """Orthographic warp fills off-disc cells with the source nodata (#418 DoD).
+
+        Test scenario:
+            Project a globe-spanning 1° 4326 raster (covering -180..180, -90..90)
+            into a polar-orthographic centred at the North Pole. The visible disc
+            in the projected output is the northern hemisphere; the corner pixels
+            sit beyond the projection's domain and must come back as nodata, not
+            as data values. This exercises the real off-disc masking gdal.Warp
+            performs — preserving nodata metadata alone (already covered) is not
+            enough to verify the DoD.
+        """
+        arr = np.ones((180, 360), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(-180.0, 90.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        dst = ds.to_crs(
+            to_epsg="+proj=ortho +lat_0=90 +lon_0=0 +datum=WGS84 +units=m +no_defs"
+        )
+        out = dst.read_array()
+        nodata = dst.no_data_value[0]
+        corners = np.array([out[0, 0], out[0, -1], out[-1, 0], out[-1, -1]])
+        assert np.allclose(corners, nodata), (
+            f"off-disc corner pixels should equal nodata={nodata}, got {corners}"
+        )
+
+    def test_to_crs_same_epsg_maintain_alignment_is_identity(self):
+        """to_crs(source_epsg, maintain_alignment=True) returns a bit-identical raster (M1).
+
+        Test scenario:
+            With the M1 fix (semantic IsSame() identity check after axis-order
+            normalisation), passing the source's own EPSG into the alignment-
+            preserving path must hit the shortcut and emit a Dataset whose
+            geotransform and shape match the source exactly. A regression here
+            would mean the shortcut never fires and every identity reprojection
+            silently round-trips through reproject_coordinates.
+        """
+        arr = np.ones((5, 5), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(10.0, 50.0),
+            cell_size=0.5,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        dst = ds.to_crs(to_epsg=4326, maintain_alignment=True)
+        assert dst.geotransform == ds.geotransform
+        assert dst.rows == ds.rows
+        assert dst.columns == ds.columns
 
 
 class TestAlign:

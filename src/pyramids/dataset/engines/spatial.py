@@ -98,7 +98,8 @@ class Spatial(_Engine):
                 :class:`pyproj.CRS`. Projections without an EPSG code (orthographic,
                 Robinson, Mollweide, polar-stereographic variants) are warped directly
                 against the spatial reference; cells outside the projection domain
-                resolve to the raster's nodata value.
+                are filled with the source's nodata value when one is configured, or
+                with GDAL's dtype-default fill value otherwise.
             method (str):
                 resampling method. Default is "nearest neighbor". See https://gisgeography.com/raster-resampling/.
                 Allowed values: "nearest neighbor", "cubic", "bilinear".
@@ -392,43 +393,28 @@ class Spatial(_Engine):
         src_y = self._ds.rows
 
         src_sr = sr_from_wkt(self._ds.crs)
+        # Normalise to traditional GIS axis order (lon/easting first). sr_from_wkt
+        # preserves GDAL's default OAMS_AUTHORITY_COMPLIANT order, which is
+        # lat-first for geographic CRSes; dst_sr comes from sr_from_user_input,
+        # which always uses traditional order. Aligning both sides here lets
+        # IsSame() report semantic equality (instead of WKT-byte equality, which
+        # fails for two SRSes that differ only in axis-mapping strategy — #418)
+        # and removes any axis-order surprise from downstream reprojection math.
+        src_sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         src_wkt = src_sr.ExportToWkt()
         dst_wkt = dst_sr.ExportToWkt()
-        # Source and target are the same CRS when their WKT matches. We avoid
-        # epsg-equality here because the destination may be a non-EPSG CRS
-        # (orthographic / Robinson / Mollweide) — see #418.
-        same_crs = src_wkt == dst_wkt
+        same_crs = bool(src_sr.IsSame(dst_sr))
 
-        # in case the source crs is GCS and longitude is in the west hemisphere, gdal
-        # reads longitude from 0 to 360 and a transformation factor wont work with values
-        # greater than 180
         if not same_crs:
-            if src_sr.IsGeographic() and src_gt[0] > 180:
-                lng_new = src_gt[0] - 360
-                # transformation factors
-                tx = osr.CoordinateTransformation(src_sr, dst_sr)
-                # transform the right upper corner point
-                ulx, uly, ulz = tx.TransformPoint(lng_new, src_gt[3])
-                # transform the right lower corner point
-                lrx, lry, lrz = tx.TransformPoint(
-                    lng_new + src_gt[1] * src_x, src_gt[3] + src_gt[5] * src_y
-                )
-            else:
-                xs = [src_gt[0], src_gt[0] + src_gt[1] * src_x]
-                ys = [src_gt[3], src_gt[3] + src_gt[5] * src_y]
-
-                # reproject_coordinates takes (x, y) and returns (x, y).
-                [ulx, lrx], [uly, lry] = reproject_coordinates(
-                    xs, ys, from_crs=src_wkt, to_crs=dst_wkt
-                )
-                # old transform
-                # # transform the right upper corner point
-                # (ulx, uly, ulz) = tx.TransformPoint(src_gt[0], src_gt[3])
-                # # transform the right lower corner point
-                # (lrx, lry, lrz) = tx.TransformPoint(
-                #     src_gt[0] + src_gt[1] * src_x, src_gt[3] + src_gt[5] * src_y
-                # )
-
+            # In a geographic source whose longitudes wrap past 180, shift the
+            # left edge into the western hemisphere before reprojecting so the
+            # corner-derived extent does not collapse across the dateline.
+            west_edge = src_gt[0] - 360 if src_sr.IsGeographic() and src_gt[0] > 180 else src_gt[0]
+            xs = [west_edge, west_edge + src_gt[1] * src_x]
+            ys = [src_gt[3], src_gt[3] + src_gt[5] * src_y]
+            [ulx, lrx], [uly, lry] = reproject_coordinates(
+                xs, ys, from_crs=src_wkt, to_crs=dst_wkt
+            )
         else:
             ulx = src_gt[0]
             uly = src_gt[3]

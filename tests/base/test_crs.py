@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from osgeo import osr
 from pyproj import CRS
 
 from pyramids.base._errors import CRSError
@@ -153,10 +154,8 @@ class TestSrFromUserInput:
             Lon/lat-first ordering matches the rest of the pyramids stack (geotransform,
             reproject_coordinates), so transforms compose without axis surprises.
         """
-        from osgeo import osr as _osr
-
         sr = sr_from_user_input(4326)
-        assert sr.GetAxisMappingStrategy() == _osr.OAMS_TRADITIONAL_GIS_ORDER, (
+        assert sr.GetAxisMappingStrategy() == osr.OAMS_TRADITIONAL_GIS_ORDER, (
             "axis order should be traditional GIS (x=lon, y=lat)"
         )
 

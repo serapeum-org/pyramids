@@ -553,8 +553,7 @@ def sr_from_user_input(crs: int | str | Any) -> osr.SpatialReference:
         osr.SpatialReference: The constructed SRS in traditional GIS axis order.
 
     Raises:
-        CRSError: ``crs`` is a ``bool``, is not interpretable as a CRS, or has
-            an empty WKT representation.
+        CRSError: ``crs`` is a ``bool`` or is not interpretable as a CRS.
 
     Examples:
         - Build an SRS from an orthographic proj4 string:
@@ -584,11 +583,6 @@ def sr_from_user_input(crs: int | str | Any) -> osr.SpatialReference:
         wkt = CRS.from_user_input(crs).to_wkt()
     except (pyproj.exceptions.CRSError, TypeError, ValueError) as exc:
         raise CRSError(f"could not interpret {crs!r} as a CRS: {exc}") from exc
-    if not wkt:
-        raise CRSError(
-            f"the CRS {crs!r} produced an empty WKT; cannot build a spatial "
-            "reference."
-        )
     sr = osr.SpatialReference()
     sr.ImportFromWkt(wkt)
     sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
