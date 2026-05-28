@@ -401,8 +401,15 @@ class TestMultiscalePyramid:
         assert {"data", "data_2", "data_4"} <= set(root.array_keys()), "levels missing"
         assert root["data_2"].shape == (1, 8, 8), f"data_2 {root['data_2'].shape}"
         assert root["data_4"].shape == (1, 4, 4), f"data_4 {root['data_4'].shape}"
-        factors = [d["factor"] for d in root.attrs["multiscales"]["datasets"]]
-        assert factors == [1, 2, 4], f"multiscales factors {factors}"
+        # OGC/OME-Zarr multiscales: list of multiscale defs with
+        # `datasets[].coordinateTransformations[{type:scale, scale:[...]}]`.
+        ms = root.attrs["multiscales"]
+        assert isinstance(ms, list) and len(ms) == 1, f"multiscales not a list: {ms}"
+        paths = [d["path"] for d in ms[0]["datasets"]]
+        assert paths == ["data", "data_2", "data_4"], f"paths {paths}"
+        scales = [d["coordinateTransformations"][0]["scale"][1] for d in ms[0]["datasets"]]
+        assert scales == [1.0, 2.0, 4.0], f"scales {scales}"
+        assert ms[0]["axes"][0]["name"] == "band" and ms[0]["axes"][2]["name"] == "x"
 
     @requires_zarr
     def test_read_level_scales_geobox(self, big_dataset, tmp_path):
@@ -444,3 +451,73 @@ class TestMultiscalePyramid:
         store = str(tmp_path / "ms4.zarr")
         with pytest.raises(ValueError, match="compute=True"):
             big_dataset.to_zarr(store, overview_factors=[2], compute=False)
+
+    @requires_zarr
+    def test_level_read_preserves_nodata_and_band_names(self, tmp_path):
+        """Level reads carry nodata + band names from the base (M2).
+
+        Test scenario:
+            A 2-band dataset with explicit nodata + band names is written with
+            overview_factors=[2]; ``from_zarr(store, level=2)`` recovers the
+            same nodata tuple and band names rather than dropping them.
+        """
+        arr = np.arange(2 * 8 * 8, dtype=np.float32).reshape(2, 8, 8)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=4326,
+            no_data_value=[-1.0, -2.0],
+        )
+        ds.band_names = ["red", "nir"]
+        src = str(tmp_path / "ms_meta.tif")
+        ds.to_file(src)
+        Dataset.read_file(src).to_zarr(
+            str(tmp_path / "ms_meta.zarr"), overview_factors=[2]
+        )
+        lvl2 = Dataset.from_zarr(str(tmp_path / "ms_meta.zarr"), level=2)
+        assert tuple(lvl2.no_data_value) == (-1.0, -2.0), (
+            f"level nodata not preserved: {lvl2.no_data_value}"
+        )
+        assert lvl2.band_names == ["red", "nir"], (
+            f"level band names not preserved: {lvl2.band_names}"
+        )
+
+
+class TestResolveStore:
+    """Tests for the v3 store resolution in `_resolve_store` (M1)."""
+
+    def test_str_path_passthrough_no_storage_options(self, tmp_path):
+        """A local str/Path with no storage_options returns a bare string.
+
+        Test scenario:
+            With ``storage_options=None`` (or empty), ``_resolve_store`` should
+            return the path/URL as a plain string so zarr-v3 resolves it
+            directly (no fsspec mapper wrapping).
+        """
+        from pyramids.dataset.ops._zarr import _resolve_store
+
+        result = _resolve_store(str(tmp_path / "s.zarr"), None)
+        assert isinstance(result, str), f"expected str, got {type(result).__name__}"
+        assert result.endswith("s.zarr"), f"unexpected return: {result}"
+
+    @requires_zarr
+    def test_url_with_storage_options_uses_fsspec_store(self, monkeypatch):
+        """A URL + storage_options routes through `FsspecStore.from_url` (M1).
+
+        Test scenario:
+            ``_resolve_store("s3://...", {"anon": True})`` should call
+            ``zarr.storage.FsspecStore.from_url`` with the URL and forwarded
+            options — not silently drop them or wrap in an FSMap (which v3
+            rejects with `component=`).
+        """
+        from pyramids.dataset.ops._zarr import _resolve_store
+        from zarr.storage import FsspecStore
+
+        calls: list = []
+
+        def fake_from_url(url, storage_options=None):
+            calls.append((url, dict(storage_options or {})))
+            return "FAKE_FSSPEC_STORE"
+
+        monkeypatch.setattr(FsspecStore, "from_url", staticmethod(fake_from_url))
+        result = _resolve_store("s3://bucket/x.zarr", {"anon": True})
+        assert result == "FAKE_FSSPEC_STORE", f"unexpected: {result}"
+        assert calls == [("s3://bucket/x.zarr", {"anon": True})], f"calls={calls}"

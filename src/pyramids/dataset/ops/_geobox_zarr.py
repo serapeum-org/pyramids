@@ -9,8 +9,9 @@ GeoZarr convention so the result is auto-georeferenced by rioxarray, odc-geo and
   no authority code);
 * 1-D ``x`` / ``y`` coordinate arrays at pixel centres;
 * a ``grid_mapping="spatial_ref"`` attribute on each data array;
-* ``_ARRAY_DIMENSIONS`` on every array — the Zarr-v2 convention xarray uses to
-  recover dimension names.
+* ``_ARRAY_DIMENSIONS`` attr on every array (the Zarr-v2 convention xarray uses
+  to recover dimension names) **plus** the Zarr-v3-native ``dimension_names``
+  field on the array metadata, so consumers on either version see the dims.
 
 :func:`read_geobox` reads that layout back and also accepts the legacy pyramids
 flat-attribute layout (CRS / GeoTransform stored directly on the ``data`` array),
@@ -176,7 +177,15 @@ def finalize_zarr_metadata(
         cols=cols,
         dims=dims,
     )
-    zarr.consolidate_metadata(resolved_store)
+    # Consolidated metadata is an explicit speedup for many-array group listing
+    # (used by every from_zarr call to read attrs/shape without scanning chunks).
+    # zarr v3 emits a ZarrUserWarning that this isn't yet in the spec; suppress
+    # it locally so it doesn't leak into every user's stderr.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message="Consolidated metadata is currently not part"
+        )
+        zarr.consolidate_metadata(resolved_store)
 
 
 _NON_DATA_ARRAYS = {
@@ -262,6 +271,15 @@ def read_geobox(group: Any, *, data_name: str | None = None) -> dict[str, Any]:
     """
     if data_name is None:
         data_name = detect_data_var(group)
+    # Warn (but don't fail) when the store advertises a schema version we don't
+    # know about — keeps forward-compat soft instead of brittle.
+    schema_version = group.attrs.get("pyramids_zarr_version")
+    if schema_version is not None and str(schema_version) not in {"1", ZARR_SCHEMA_VERSION}:
+        warnings.warn(
+            f"unknown pyramids_zarr_version {schema_version!r}; attempting to "
+            f"read with the v{ZARR_SCHEMA_VERSION} schema",
+            stacklevel=2,
+        )
     data_attrs = dict(group[data_name].attrs)
     gm_name = data_attrs.get("grid_mapping", GRID_MAPPING_VAR)
 

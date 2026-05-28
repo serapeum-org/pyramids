@@ -51,7 +51,7 @@ lazy = [
     "flox>=0.9.0",
 ]
 xarray = ["xarray>=2023.1.0"]
-netcdf-lazy = ["pyramids-gis[lazy]", "kerchunk>=0.2.6", "h5py>=3.8.0"]
+netcdf-lazy = ["pyramids-gis[lazy]", "kerchunk>=0.2.10", "h5py>=3.8.0"]
 parquet = ["pyarrow>=10.0.0"]
 parquet-lazy = ["pyramids-gis[lazy,parquet]", "dask-geopandas>=0.5.0"]
 stac = ["pystac-client>=0.8.0", "stac-asset>=0.4.7"]
@@ -310,7 +310,7 @@ flox = ">=0.9.0"
 # netCDF4, h5netcdf, or cftime. kerchunk needs h5py to walk HDF5 chunk
 # metadata; nothing else in this feature pulls HDF5-adjacent libraries.
 [tool.pixi.feature.netcdf-lazy.dependencies]
-kerchunk = ">=0.2.6"
+kerchunk = ">=0.2.10"
 # h5py 3.16 moved to hdf5 2.x, but libgdal-netcdf still links hdf5 1.14.x.
 # Pin h5py to the last 1.14-compatible release so the whole env shares
 # one HDF5 binary. Raise this pin when libgdal-netcdf follows hdf5 2.x.

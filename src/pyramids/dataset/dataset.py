@@ -1152,6 +1152,7 @@ class Dataset(RasterBase):
         chunks=None,
         storage_options: dict | None = None,
         level: int = 1,
+        data_name: str | None = None,
     ) -> Dataset:
         """Load a pyramids-written Zarr store into a new :class:`Dataset`.
 
@@ -1167,12 +1168,17 @@ class Dataset(RasterBase):
             level: Pyramid downsample factor to read (`1` = full resolution).
                 Pass a factor written via `to_zarr(overview_factors=...)` to read
                 that decimated overview level.
+            data_name: Explicit name of the data array. ``None`` (default)
+                auto-detects; pass an explicit name to read a specific variable
+                from a foreign GeoZarr store whose auto-detect picks the wrong
+                array.
         """
         return read_dataset_from_zarr(
             store,
             chunks=chunks,
             storage_options=storage_options,
             level=level,
+            data_name=data_name,
         )
 
     def __str__(self) -> str:

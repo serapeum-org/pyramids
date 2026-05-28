@@ -20,6 +20,7 @@ installed.
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -183,7 +184,8 @@ def write_dataset_to_zarr(
         _finalize_metadata(resolved_store, metadata)
         if overview_factors:
             _write_overview_levels(
-                ds, resolved_store, sorted(overview_factors), overview_resampling
+                ds, resolved_store, sorted(overview_factors), overview_resampling,
+                metadata,
             )
         result: Any = None
     else:
@@ -197,7 +199,11 @@ def write_dataset_to_zarr(
 
 
 def _write_overview_levels(
-    ds: Dataset, resolved_store: Any, factors: list[int], resampling: str
+    ds: Dataset,
+    resolved_store: Any,
+    factors: list[int],
+    resampling: str,
+    metadata: dict[str, Any],
 ) -> None:
     """Write decimated pyramid levels + a ``multiscales`` attr (FR-7).
 
@@ -230,9 +236,42 @@ def _write_overview_levels(
         za.attrs["_ARRAY_DIMENSIONS"] = ["band", "y", "x"]
         za.attrs["grid_mapping"] = "spatial_ref"
         za.attrs["overview_factor"] = int(factor)
-        datasets_meta.append({"path": name, "factor": int(factor)})
-    root.attrs["multiscales"] = {"version": "pyramids-1", "datasets": datasets_meta}
-    zarr.consolidate_metadata(resolved_store)
+        # Carry the base nodata + band-name lists onto each level so a level
+        # read preserves them instead of falling back to defaults (M2).
+        if "no_data_value" in metadata:
+            za.attrs["no_data_value"] = metadata["no_data_value"]
+        if "band_names" in metadata:
+            za.attrs["band_names"] = metadata["band_names"]
+        datasets_meta.append(
+            {
+                "path": name,
+                "coordinateTransformations": [
+                    {"type": "scale", "scale": [1.0, float(factor), float(factor)]}
+                ],
+            }
+        )
+    # OGC / OME-Zarr "multiscales" convention — a LIST of multiscale objects,
+    # each with `axes` + `datasets[].coordinateTransformations`. GDAL's Zarr v3
+    # driver reads this and exposes the lower-resolution datasets as overviews
+    # on the base array via GetOverview()/band overview API (H1).
+    root.attrs["multiscales"] = [
+        {
+            "version": "0.4",
+            "name": "pyramids",
+            "type": resampling,
+            "axes": [
+                {"name": "band", "type": "channel"},
+                {"name": "y", "type": "space"},
+                {"name": "x", "type": "space"},
+            ],
+            "datasets": datasets_meta,
+        }
+    ]
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message="Consolidated metadata is currently not part"
+        )
+        zarr.consolidate_metadata(resolved_store)
 
 
 def _finalize_metadata(resolved_store: Any, metadata: dict[str, Any]) -> None:
@@ -301,6 +340,7 @@ def read_dataset_from_zarr(
     chunks: Any = None,
     storage_options: dict[str, Any] | None = None,
     level: int = 1,
+    data_name: str | None = None,
 ) -> Dataset:
     """Open a pyramids-written Zarr store and materialise a :class:`Dataset`.
 
@@ -311,6 +351,11 @@ def read_dataset_from_zarr(
             ``to_zarr(overview_factors=...)`` (e.g. ``2``, ``4``) to read that
             decimated overview level instead, with its cell size scaled by the
             factor.
+        data_name: Explicit name of the data array in the group. ``None``
+            (default) auto-detects (prefers ``"data"`` then a ``grid_mapping``
+            attr then the highest-dim non-coord array); pass a name when reading
+            a foreign GeoZarr store that has multiple candidate arrays and the
+            auto-detect picks the wrong one.
         chunks: When given (a 3-tuple ``(bands, rows, cols)`` or ``"auto"``),
             the ``data`` array is read through :func:`dask.array.from_zarr` so a
             (possibly remote) store is fetched in **parallel chunks** rather than
@@ -362,7 +407,7 @@ def read_dataset_from_zarr(
                 f"overview level {level} not found in store (no '{data_name}' "
                 f"array); write it with to_zarr(overview_factors=[...])"
             )
-    else:
+    elif data_name is None:
         data_name = detect_data_var(root)
     zarr_array = root[data_name]
     arr = _read_data_array(resolved_store, zarr_array, chunks, component=data_name)

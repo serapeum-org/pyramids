@@ -900,7 +900,10 @@ class DatasetCollection:
             store: Target store (path, fsspec URL, or zarr.Store).
             compute: `True` (default) writes immediately; `False`
                 returns a :class:`dask.delayed.Delayed`.
-            mode: Zarr open mode, typically `"w"` (fresh) or `"a"`.
+            mode: Zarr open mode. ``"w"`` (default) writes a fresh cube;
+                ``"a"`` is only valid together with ``append_dim`` or ``region``
+                (incremental writes — see those args). ``mode="a"`` on its own
+                raises ``ValueError``.
             storage_options: Optional dict forwarded to
                 :func:`fsspec.get_mapper` for cloud stores.
             compressor: Zarr codec(s) for the `data` array. `"auto"` (default)
