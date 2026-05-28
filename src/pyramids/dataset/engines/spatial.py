@@ -307,54 +307,28 @@ class Spatial(_Engine):
                 A new resampled Dataset.
 
         Examples:
-            - Create a Dataset with 4 bands, 10 rows, 10 columns, at lon/lat (0, 0):
+            - Create a 4-band 10×10 dataset at lon/lat (0, 0) with a 0.05° cell size, then resample to a
+              coarser 0.1° cell. Halving the resolution halves the row/column count in each dimension
+              (10 → 5), and the source CRS and band count carry through unchanged:
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(4, 10, 10)
-              >>> top_left_corner = (0, 0)
-              >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
-              >>> print(dataset)
-              <BLANKLINE>
-                          Cell size: 0.05
-                          Dimension: 10 * 10
-                          EPSG: 4326
-                          Number of Bands: 4
-                          Band names: ['Band_1', 'Band_2', 'Band_3', 'Band_4']
-                          Mask: -9999.0
-                          Data type: float64
-                          File: ...
-              <BLANKLINE>
-              >>> dataset.plot(band=0)
-              (<Figure size 800x800 with 2 Axes>, <Axes: >)
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              ... )
+              >>> (dataset.rows, dataset.columns, dataset.band_count)
+              (10, 10, 4)
+              >>> resampled = dataset.resample(cell_size=0.1)
+              >>> (resampled.rows, resampled.columns, resampled.band_count, resampled.epsg)
+              (5, 5, 4, 4326)
+              >>> resampled.geotransform[1]
+              0.1
 
               ```
               ![resample-source](./../../_images/dataset/resample-source.png)
-
-            - Resample the raster to a new cell size of 0.1:
-
-              ```python
-              >>> new_dataset = dataset.resample(cell_size=0.1)
-              >>> print(new_dataset)
-              <BLANKLINE>
-                          Cell size: 0.1
-                          Dimension: 5 * 5
-                          EPSG: 4326
-                          Number of Bands: 4
-                          Band names: ['Band_1', 'Band_2', 'Band_3', 'Band_4']
-                          Mask: -9999.0
-                          Data type: float64
-                          File:...
-              <BLANKLINE>
-              >>> new_dataset.plot(band=0)
-              (<Figure size 800x800 with 2 Axes>, <Axes: >)
-
-              ```
               ![resample-new](./../../_images/dataset/resample-new.png)
-
-            - Resampling the dataset from cell_size 0.05 to 0.1 degrees reduced the number of cells to 5 in each
-              dimension instead of 10.
         """
         if not isinstance(method, str):
             raise TypeError(
@@ -792,21 +766,13 @@ class Spatial(_Engine):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(5, 5)
-              >>> top_left_corner = (0, 0)
-              >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
-              >>> print(dataset)
-              <BLANKLINE>
-                          Cell size: 0.05
-                          Dimension: 5 * 5
-                          EPSG: 4326
-                          Number of Bands: 1
-                          Band names: ['Band_1']
-                          Mask: -9999.0
-                          Data type: float64
-                          File:...
-              <BLANKLINE>
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+              ... )
+              >>> (dataset.rows, dataset.columns, dataset.epsg, dataset.band_count)
+              (5, 5, 4326, 1)
 
               ```
 
@@ -814,42 +780,36 @@ class Spatial(_Engine):
               dataset, and two columns on the left of the dataset).
 
               ```python
-              >>> arr = np.random.rand(10, 10)
-              >>> top_left_corner = (-0.1, 0.1)
-              >>> cell_size = 0.07
-              >>> dataset_target = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size,
-              ... epsg=4326)
-              >>> print(dataset_target)
-              <BLANKLINE>
-                          Cell size: 0.07
-                          Dimension: 10 * 10
-                          EPSG: 4326
-                          Number of Bands: 1
-                          Band names: ['Band_1']
-                          Mask: -9999.0
-                          Data type: float64
-                          File:...
-              <BLANKLINE>
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> arr_target = np.random.rand(10, 10)
+              >>> dataset_target = Dataset.create_from_array(
+              ...     arr_target, top_left_corner=(-0.1, 0.1), cell_size=0.07, epsg=4326
+              ... )
+              >>> (dataset_target.rows, dataset_target.columns, dataset_target.geotransform[1])
+              (10, 10, 0.07)
 
               ```
 
             ![align-source-target](./../../_images/dataset/align-source-target.png)
 
-            - Now call the `align` method and use the dataset as the alignment source.
+            - Now call the `align` method and use the source dataset as the alignment template. The aligned
+              dataset adopts the source's cell size, dimensions, and CRS:
 
               ```python
-              >>> aligned_dataset = dataset_target.align(dataset)
-              >>> print(aligned_dataset)
-              <BLANKLINE>
-                          Cell size: 0.05
-                          Dimension: 5 * 5
-                          EPSG: 4326
-                          Number of Bands: 1
-                          Band names: ['Band_1']
-                          Mask: -9999.0
-                          Data type: float64
-                          File:...
-              <BLANKLINE>
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> source = Dataset.create_from_array(
+              ...     np.random.rand(5, 5),
+              ...     top_left_corner=(0, 0), cell_size=0.05, epsg=4326,
+              ... )
+              >>> target = Dataset.create_from_array(
+              ...     np.random.rand(10, 10),
+              ...     top_left_corner=(-0.1, 0.1), cell_size=0.07, epsg=4326,
+              ... )
+              >>> aligned = target.align(source)
+              >>> (aligned.rows, aligned.columns, aligned.geotransform[1], aligned.epsg)
+              (5, 5, 0.05, 4326)
 
               ```
 
@@ -1112,6 +1072,7 @@ class Spatial(_Engine):
               >>> import numpy as np
               >>> import geopandas as gpd
               >>> from shapely.geometry import Polygon
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(4, 10, 10)
               >>> cell_size = 0.05
               >>> top_left_corner = (0, 0)

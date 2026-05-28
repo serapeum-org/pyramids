@@ -1110,7 +1110,14 @@ class TestReproject:
             regression that would surface if the SRS were rebuilt with a drifting
             authority/WKT each call.
         """
-        src_ds = Dataset(self.__class__._build_global_grid())
+        arr = np.ones((180, 360), dtype=np.float32)
+        src_ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(-180.0, 90.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
         first = src_ds.to_crs(to_epsg="ESRI:54030")
         second = first.to_crs(to_epsg="ESRI:54030")
         assert (first.rows, first.columns) == (second.rows, second.columns), (
@@ -1145,25 +1152,6 @@ class TestReproject:
             f"band count drift: src={ds.band_count}, dst={dst.band_count}"
         )
 
-    @staticmethod
-    def _build_global_grid() -> "gdal.Dataset":
-        """Create a 1° globe-spanning float32 raster fixture for idempotence tests.
-
-        Returns:
-            gdal.Dataset: A 4326 raster covering -180..180, -90..90 with cell size 1°
-            and a configured nodata value, so callers can run real warps without
-            opening on-disk fixtures.
-        """
-        arr = np.ones((180, 360), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(-180.0, 90.0),
-            cell_size=1.0,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
-        return ds.raster
-
     def test_to_crs_same_epsg_maintain_alignment_is_identity(self):
         """to_crs(source_epsg, maintain_alignment=True) returns a bit-identical raster (M1).
 
@@ -1187,6 +1175,37 @@ class TestReproject:
         assert dst.geotransform == ds.geotransform
         assert dst.rows == ds.rows
         assert dst.columns == ds.columns
+
+    def test_to_crs_lng_gt_180_maintain_alignment_shifts_west(self):
+        """maintain_alignment=True shifts a >180 longitude origin into the western hemisphere.
+
+        Test scenario:
+            A geographic source with top_left_corner=(200.0, 50.0) sits in the
+            0..360 longitude convention. Routing through
+            _reproject_with_ReprojectImage (maintain_alignment=True) reaches the
+            west-edge branch that subtracts 360 from the origin before corner
+            reprojection, so the output extent on Web Mercator lands in the
+            *western* hemisphere (negative metres). A regression in that branch
+            would either crash, produce an extent off the visible Web Mercator
+            range (~+22e6 m), or silently fall through with an unshifted origin.
+            Pre-#418 this branch was dead code (legacy `src_epsg == "4326"`
+            int-vs-str guard); the new IsGeographic() guard makes it reachable
+            but previously had no test coverage.
+        """
+        arr = np.ones((3, 3), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(200.0, 50.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        dst = ds.to_crs(to_epsg=3857, maintain_alignment=True)
+        assert dst.epsg == 3857
+        assert dst.geotransform[0] < 0, (
+            "west-edge shift should land the origin in the western hemisphere "
+            f"(negative metres on Web Mercator); got geotransform[0]={dst.geotransform[0]}"
+        )
 
 
 class TestAlign:
