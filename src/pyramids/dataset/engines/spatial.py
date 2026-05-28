@@ -17,10 +17,10 @@ from osgeo import gdal, osr
 from pyramids.base._domain import is_no_data
 from pyramids.base._utils import INTERPOLATION_METHODS
 from pyramids.base.crs import (
-    epsg_from_user_input,
     epsg_from_wkt,
     reproject_coordinates,
     sr_from_epsg,
+    sr_from_user_input,
     sr_from_wkt,
 )
 from pyramids.dataset.abstract_dataset import RasterBase
@@ -90,10 +90,15 @@ class Spatial(_Engine):
 
         Args:
             to_epsg (int | str | pyproj.CRS):
-                The target CRS. Most commonly an EPSG reference number (https://epsg.io/),
-                e.g. ``3857`` for WGS84 web mercator. A string (``"EPSG:3857"``, ``"3857"``,
-                a WKT or PROJ4 string) or a :class:`pyproj.CRS` is also accepted and resolved
-                to its EPSG code via :func:`pyramids.base.crs.epsg_from_user_input`.
+                The target CRS. Accepts any form :meth:`pyproj.CRS.from_user_input`
+                understands: an EPSG reference number (``3857``), an authority string
+                (``"EPSG:3857"``, ``"ESRI:54030"`` for Robinson, ``"ESRI:54009"`` for
+                Mollweide), a bare numeric string (``"3857"``), a WKT or PROJ4 string
+                (``"+proj=ortho +lat_0=39 +lon_0=-9 +datum=WGS84"``), or a
+                :class:`pyproj.CRS`. Projections without an EPSG code (orthographic,
+                Robinson, Mollweide, polar-stereographic variants) are warped directly
+                against the spatial reference; cells outside the projection domain
+                resolve to the raster's nodata value.
             method (str):
                 resampling method. Default is "nearest neighbor". See https://gisgeography.com/raster-resampling/.
                 Allowed values: "nearest neighbor", "cubic", "bilinear".
@@ -107,8 +112,7 @@ class Spatial(_Engine):
 
         Raises:
             CRSError:
-                ``to_epsg`` cannot be interpreted as a CRS, or resolves to a CRS with no
-                EPSG code.
+                ``to_epsg`` cannot be interpreted as a CRS.
             TypeError:
                 ``method`` is not a string.
             ValueError:
@@ -158,7 +162,7 @@ class Spatial(_Engine):
               ```
 
         """
-        to_epsg = epsg_from_user_input(to_epsg)
+        dst_sr = sr_from_user_input(to_epsg)
         if not isinstance(method, str):
             raise TypeError(
                 "Please enter a correct method, for more information, see documentation "
@@ -172,9 +176,24 @@ class Spatial(_Engine):
         resampling_method: Any = INTERPOLATION_METHODS.get(method)
 
         if maintain_alignment:
-            dst_obj = self._reproject_with_ReprojectImage(to_epsg, resampling_method)
+            dst_obj = self._reproject_with_ReprojectImage(dst_sr, resampling_method)
         else:
-            dst = gdal.Warp("", self._ds.raster, dstSRS=f"EPSG:{to_epsg}", format="VRT")
+            # Prefer the "<AUTHORITY>:<code>" form when one exists so the
+            # output WKT GDAL writes is the canonical GDAL/PROJ form
+            # (matching historical bytes for EPSG codes and avoiding a
+            # GDAL warning when the authority is ESRI). Fall back to the
+            # explicit WKT for CRSes carrying no authority at all
+            # (custom orthographic proj4 strings, etc.). See #418.
+            dst_auth = dst_sr.GetAuthorityName(None)
+            dst_code = dst_sr.GetAuthorityCode(None)
+            dst_srs_arg = (
+                f"{dst_auth}:{dst_code}"
+                if dst_auth is not None and dst_code is not None
+                else dst_sr.ExportToWkt()
+            )
+            dst = gdal.Warp(
+                "", self._ds.raster, dstSRS=dst_srs_arg, format="VRT"
+            )
             dst_obj = self._ds.__class__(dst)
 
         return dst_obj
@@ -364,22 +383,27 @@ class Spatial(_Engine):
         return dst_obj
 
     def _reproject_with_ReprojectImage(
-        self, to_epsg: int, method: str = "nearest neighbor"
+        self,
+        dst_sr: osr.SpatialReference,
+        method: str = "nearest neighbor",
     ) -> Dataset:
         src_gt = self._ds.geotransform
         src_x = self._ds.columns
         src_y = self._ds.rows
 
         src_sr = sr_from_wkt(self._ds.crs)
-        src_epsg = self._ds.epsg
-
-        dst_sr = sr_from_epsg(to_epsg)
+        src_wkt = src_sr.ExportToWkt()
+        dst_wkt = dst_sr.ExportToWkt()
+        # Source and target are the same CRS when their WKT matches. We avoid
+        # epsg-equality here because the destination may be a non-EPSG CRS
+        # (orthographic / Robinson / Mollweide) — see #418.
+        same_crs = src_wkt == dst_wkt
 
         # in case the source crs is GCS and longitude is in the west hemisphere, gdal
         # reads longitude from 0 to 360 and a transformation factor wont work with values
         # greater than 180
-        if src_epsg != to_epsg:
-            if src_epsg == "4326" and src_gt[0] > 180:
+        if not same_crs:
+            if src_sr.IsGeographic() and src_gt[0] > 180:
                 lng_new = src_gt[0] - 360
                 # transformation factors
                 tx = osr.CoordinateTransformation(src_sr, dst_sr)
@@ -395,7 +419,7 @@ class Spatial(_Engine):
 
                 # reproject_coordinates takes (x, y) and returns (x, y).
                 [ulx, lrx], [uly, lry] = reproject_coordinates(
-                    xs, ys, from_crs=src_epsg, to_crs=to_epsg
+                    xs, ys, from_crs=src_wkt, to_crs=dst_wkt
                 )
                 # old transform
                 # # transform the right upper corner point
@@ -426,14 +450,14 @@ class Spatial(_Engine):
         y_pair_xs = [src_gt[0], src_gt[0]]
         y_pair_ys = [src_gt[3], src_gt[3] + src_gt[5]]
 
-        if src_epsg != to_epsg:
+        if not same_crs:
             # x_pair_xs and x_pair_ys are horizontally spaced by the cell size, after reprojection gives the cell size
             # in x
             new_x_xs, _ = reproject_coordinates(
                 x_pair_xs,
                 x_pair_ys,
-                from_crs=src_epsg,
-                to_crs=to_epsg,
+                from_crs=src_wkt,
+                to_crs=dst_wkt,
                 precision=6,
             )
             # y_pair_xs and y_pair_ys are vertically spaced by the cell size, after reprojection gives the cell size
@@ -441,8 +465,8 @@ class Spatial(_Engine):
             _, new_y_ys = reproject_coordinates(
                 y_pair_xs,
                 y_pair_ys,
-                from_crs=src_epsg,
-                to_crs=to_epsg,
+                from_crs=src_wkt,
+                to_crs=dst_wkt,
                 precision=6,
             )
         else:

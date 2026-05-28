@@ -958,6 +958,91 @@ class TestReproject:
         assert dst.epsg == epsg
         # assert dst.shape == src.shape
 
+    def test_robinson_esri_authority_string(
+        self,
+        src: gdal.Dataset,
+    ):
+        """to_crs accepts an ESRI authority string for a non-EPSG CRS (#418).
+
+        Test scenario:
+            Robinson (ESRI:54030) has no EPSG code. It used to raise
+            ``CRSError: ... pass an EPSG integer``; the new code path
+            warps directly against the spatial reference, so the result
+            is a projected raster whose root CRS name identifies Robinson.
+        """
+        src_ds = Dataset(src)
+        dst = src_ds.to_crs(to_epsg="ESRI:54030")
+        dst_sr = osr.SpatialReference(wkt=dst.crs)
+        assert dst_sr.IsProjected() == 1
+        assert "Robinson" in dst_sr.GetName(), (
+            f"expected Robinson in dst CRS name, got {dst_sr.GetName()!r}"
+        )
+
+    def test_mollweide_esri_authority_string_maintain_alignment(
+        self,
+        src: gdal.Dataset,
+        src_shape: tuple,
+    ):
+        """maintain_alignment=True works for the non-EPSG ESRI:54009 Mollweide CRS (#418).
+
+        Test scenario:
+            The alignment-preserving path used to call ``sr_from_epsg`` directly
+            on the target, which can't resolve ESRI codes. The SRS-based rewrite
+            keeps the same row/column count and reaches the Mollweide projection.
+        """
+        src_ds = Dataset(src)
+        dst = src_ds.to_crs(to_epsg="ESRI:54009", maintain_alignment=True)
+        dst_sr = osr.SpatialReference(wkt=dst.crs)
+        assert dst_sr.IsProjected() == 1
+        assert "Mollweide" in dst_sr.GetName(), (
+            f"expected Mollweide in dst CRS name, got {dst_sr.GetName()!r}"
+        )
+        dst_shape = dst.raster.ReadAsArray().shape
+        # Mollweide projects so differently from the source CRS that the
+        # corner-sampled cell-step calculation can drift by a single
+        # column/row vs. src_shape. The point of maintain_alignment=True
+        # is "reuse the source cell step", not pixel-exact shape — a
+        # tolerance of 1 covers the rounding noise without masking a
+        # regression that would shift the whole footprint.
+        assert abs(dst_shape[0] - src_shape[0]) <= 1
+        assert abs(dst_shape[1] - src_shape[1]) <= 1
+
+    def test_orthographic_proj4(
+        self,
+        src: gdal.Dataset,
+    ):
+        """to_crs accepts a proj4 orthographic string with no authority code (#418).
+
+        Test scenario:
+            A bespoke orthographic centred at (lat 39, lon -9) — Lisbon — has neither
+            an EPSG nor an ESRI code. The result is a projected raster with positive
+            row/column counts; bands carry the source's nodata so off-disc cells are
+            indistinguishable from masked.
+        """
+        proj4 = "+proj=ortho +lat_0=39 +lon_0=-9 +datum=WGS84 +units=m +no_defs"
+        src_ds = Dataset(src)
+        dst = src_ds.to_crs(to_epsg=proj4)
+        dst_sr = osr.SpatialReference(wkt=dst.crs)
+        assert dst_sr.IsProjected() == 1
+        assert dst.rows > 0 and dst.columns > 0
+        assert dst.no_data_value[0] == src_ds.no_data_value[0]
+
+    def test_pyproj_crs_object(
+        self,
+        src: gdal.Dataset,
+    ):
+        """to_crs accepts a pyproj.CRS instance for back-compat with the EPSG path (#418).
+
+        Test scenario:
+            Passing CRS.from_epsg(3857) yields the same dst.epsg as passing 3857
+            directly — the new SRS-based front door must not break the EPSG fast path.
+        """
+        from pyproj import CRS as PyprojCRS
+
+        src_ds = Dataset(src)
+        dst = src_ds.to_crs(to_epsg=PyprojCRS.from_epsg(3857))
+        assert dst.epsg == 3857
+
 
 class TestAlign:
     def test_align_single_band(

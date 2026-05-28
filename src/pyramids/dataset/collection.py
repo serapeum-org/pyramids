@@ -2199,17 +2199,21 @@ class DatasetCollection:
 
     def to_crs(
         self,
-        to_epsg: int = 3857,
+        to_epsg: int | str | Any = 3857,
         method: str = "nearest neighbor",
         maintain_alignment: bool = False,
         inplace: bool = False,
     ) -> DatasetCollection | None:
-        """Reproject every timestep to a target EPSG.
+        """Reproject every timestep to a target CRS.
 
         Args:
-            to_epsg (int):
-                Reference number to the new projection (https://epsg.io/)
-                (default 3857, WGS84 web mercator).
+            to_epsg (int | str | pyproj.CRS):
+                Target CRS in any form :meth:`pyproj.CRS.from_user_input`
+                accepts — EPSG int (``3857``), authority string
+                (``"EPSG:3857"``, ``"ESRI:54030"``), proj4 / WKT, or a
+                :class:`pyproj.CRS`. CRSes without an EPSG code (orthographic,
+                Robinson, Mollweide) are warped directly against the spatial
+                reference. Default ``3857`` (WGS84 web mercator).
             method (str):
                 Resampling technique. Default is "nearest neighbor". See
                 https://gisgeography.com/raster-resampling/. Accepted
