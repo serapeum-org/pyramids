@@ -429,7 +429,7 @@ class TestMultiscalePyramid:
         big_dataset.to_zarr(store, overview_factors=[2, 4])
         lvl2 = Dataset.from_zarr(store, level=2)
         assert (lvl2.rows, lvl2.columns) == (8, 8), f"level-2 dims {(lvl2.rows, lvl2.columns)}"
-        assert lvl2.cell_size == 2.0, f"level-2 cell_size {lvl2.cell_size}"
+        assert lvl2.cell_size == pytest.approx(2.0), f"level-2 cell_size {lvl2.cell_size}"
         assert lvl2.epsg == 4326, f"level-2 epsg {lvl2.epsg}"
         assert Dataset.from_zarr(store).rows == 16, "level-1 should be full res"
 
