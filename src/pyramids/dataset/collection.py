@@ -216,7 +216,14 @@ def _finalize_append_metadata(resolved_store, new_time_length: int, added_files:
     root.attrs["time_length"] = int(new_time_length)
     existing_files = list(root.attrs.get("pyramids_file_list", []))
     root.attrs["pyramids_file_list"] = existing_files + list(added_files)
-    zarr.consolidate_metadata(resolved_store)
+    # zarr v3 emits a ZarrUserWarning that consolidated metadata isn't yet in the
+    # spec; suppress it here so the append finalizer matches the other writer
+    # paths (L1 follow-up to L4).
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message="Consolidated metadata is currently not part"
+        )
+        zarr.consolidate_metadata(resolved_store)
 
 
 def _finalize_append_after_write(data_result, resolved_store, new_time_length, added_files) -> None:

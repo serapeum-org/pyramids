@@ -44,8 +44,10 @@ Every pyramids-written store carries:
 
 …plus the standard attrs:
 
-- `data.attrs["_ARRAY_DIMENSIONS"]` and `dimension_names` field (xarray v2 + v3
-  compat) — `["band","y","x"]` for `Dataset`, `["time","band","y","x"]` for cubes.
+- `data.attrs["_ARRAY_DIMENSIONS"]` (xarray v2 compatibility attribute) **plus**
+  the native zarr v3 `dimension_names` array property (set via the
+  `create_array(..., dimension_names=…)` kwarg, not on `.attrs`) — both
+  `["band","y","x"]` for `Dataset` and `["time","band","y","x"]` for cubes.
 - `data.attrs["grid_mapping"] = "spatial_ref"` (CF link to the CRS variable).
 - `data.attrs` also keeps the pyramids round-trip metadata: `no_data_value`,
   `band_names`, `dtype`, `epsg`, `GeoTransform` (redundant with `spatial_ref` for

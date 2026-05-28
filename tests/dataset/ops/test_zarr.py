@@ -7,6 +7,8 @@ returns :class:`dask.delayed.Delayed`.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -327,7 +329,11 @@ class TestGeoZarrLayout:
                 "shape": [1, 3, 4],
             }
         )
-        zarr.consolidate_metadata(store)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore", message="Consolidated metadata is currently not part"
+            )
+            zarr.consolidate_metadata(store)
         with pytest.warns(DeprecationWarning, match="legacy pyramids geobox"):
             reloaded = Dataset.from_zarr(store)
         assert reloaded.epsg == 4326, f"legacy geobox not recovered: {reloaded.epsg}"
