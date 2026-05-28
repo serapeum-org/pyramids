@@ -1176,6 +1176,57 @@ class TestReproject:
         assert dst.rows == ds.rows
         assert dst.columns == ds.columns
 
+    def test_to_crs_accepts_wkt_string(self):
+        """to_crs accepts a raw WKT string end-to-end (#418).
+
+        Test scenario:
+            `sr_from_user_input` is independently tested with WKT input, but the full
+            `Spatial.to_crs(to_epsg=wkt)` path was not exercised — only EPSG ints /
+            authority strings / proj4 / pyproj.CRS. Exporting EPSG:32636 to WKT and
+            passing the bytes back into `to_crs` must reproject to the same UTM zone,
+            confirming that the SRS-based front door survives a full WKT round-trip.
+        """
+        arr = np.ones((5, 5), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(30.0, 30.0),
+            cell_size=0.1,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        wkt = PyprojCRS.from_epsg(32636).to_wkt()
+        dst = ds.to_crs(to_epsg=wkt)
+        assert dst.epsg == 32636, f"WKT input should resolve to 32636, got {dst.epsg}"
+
+    def test_to_crs_projected_identity_maintain_alignment(self):
+        """Identity shortcut fires for a projected source (UTM → same UTM).
+
+        Test scenario:
+            The existing identity test uses 4326 → 4326 — a geographic CRS where
+            axis-order normalisation matters. UTM (32636) is projected with
+            unambiguous easting/northing axis order regardless of mapping strategy,
+            which exercises a structurally different IsSame() match. Asserts the
+            geotransform and shape are preserved, confirming the IsSame shortcut
+            also works for projected CRSes (not only for the geographic edge case
+            that motivated the axis normalisation).
+        """
+        arr = np.ones((5, 5), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            geo=(500_000.0, 100.0, 0.0, 5_500_000.0, 0.0, -100.0),
+            epsg=32636,
+            no_data_value=-9999.0,
+        )
+        dst = ds.to_crs(to_epsg=32636, maintain_alignment=True)
+        assert dst.geotransform == ds.geotransform, (
+            f"projected identity shortcut should preserve geotransform; "
+            f"got {dst.geotransform} vs source {ds.geotransform}"
+        )
+        assert (dst.rows, dst.columns) == (ds.rows, ds.columns), (
+            f"projected identity shortcut should preserve shape; "
+            f"got {(dst.rows, dst.columns)} vs source {(ds.rows, ds.columns)}"
+        )
+
     def test_to_crs_lng_gt_180_maintain_alignment_shifts_west(self):
         """maintain_alignment=True shifts a >180 longitude origin into the western hemisphere.
 
