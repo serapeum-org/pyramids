@@ -261,7 +261,7 @@ dev = { features = ["viz", "dev", "xarray", "lazy", "stac", "netcdf-lazy", "parq
 netcdf-lazy = { features = ["viz", "dev", "lazy", "netcdf-lazy"], solve-group = "default" }
 parquet = { features = ["viz", "dev", "xarray", "lazy", "parquet"], solve-group = "default" }
 parquet-lazy = { features = ["viz", "dev", "xarray", "lazy", "parquet", "parquet-lazy"], solve-group = "default" }
-notebook = { features = ["viz", "notebook"], solve-group = "default" }
+notebook = { features = ["viz", "notebook", "lazy"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "docs" }
 # py3XX envs (tests.yml matrix) intentionally OMIT `lazy`; the
 # `netcdf-lazy` / `parquet-lazy` envs in the extras-package matrix
