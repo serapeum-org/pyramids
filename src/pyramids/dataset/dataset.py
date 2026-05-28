@@ -1099,6 +1099,9 @@ class Dataset(RasterBase):
         mode: str = "w",
         chunks=None,
         storage_options: dict | None = None,
+        compressor="auto",
+        overview_factors: list | None = None,
+        overview_resampling: str = "average",
     ):
         """Serialise this Dataset to a Zarr store (parallel writes per chunk).
 
@@ -1117,6 +1120,16 @@ class Dataset(RasterBase):
             chunks: Chunk spec forwarded to :meth:`read_array`.
                 `None` defaults to `"auto"` via the zarr helper.
             storage_options: fsspec options for cloud stores.
+            compressor: Zarr codec(s) for the `data` array. `"auto"` (default)
+                keeps zarr's default codec; pass a zarr-v3 codec or list of them
+                (e.g. `zarr.codecs.BloscCodec(cname="zstd")`) to override, or
+                `None` for an uncompressed array.
+            overview_factors: Optional downsample factors (e.g. `[2, 4, 8]`) to
+                also write decimated multiscale pyramid levels as `data_<factor>`
+                arrays plus a `multiscales` attribute. Requires `compute=True`.
+                Read a level back with `Dataset.from_zarr(store, level=factor)`.
+            overview_resampling: GDAL resampling for the pyramid levels
+                (`"average"` default, `"nearest"`, `"bilinear"`, ...).
         """
         resolved_chunks = chunks if chunks is not None else "auto"
         return write_dataset_to_zarr(
@@ -1126,6 +1139,9 @@ class Dataset(RasterBase):
             mode=mode,
             chunks=resolved_chunks,
             storage_options=storage_options,
+            compressor=compressor,
+            overview_factors=overview_factors,
+            overview_resampling=overview_resampling,
         )
 
     @classmethod
@@ -1135,6 +1151,8 @@ class Dataset(RasterBase):
         *,
         chunks=None,
         storage_options: dict | None = None,
+        level: int = 1,
+        data_name: str | None = None,
     ) -> Dataset:
         """Load a pyramids-written Zarr store into a new :class:`Dataset`.
 
@@ -1147,11 +1165,20 @@ class Dataset(RasterBase):
                 dask-backed so downstream `read_array` calls return
                 lazy arrays.
             storage_options: fsspec options for cloud stores.
+            level: Pyramid downsample factor to read (`1` = full resolution).
+                Pass a factor written via `to_zarr(overview_factors=...)` to read
+                that decimated overview level.
+            data_name: Explicit name of the data array. ``None`` (default)
+                auto-detects; pass an explicit name to read a specific variable
+                from a foreign GeoZarr store whose auto-detect picks the wrong
+                array.
         """
         return read_dataset_from_zarr(
             store,
             chunks=chunks,
             storage_options=storage_options,
+            level=level,
+            data_name=data_name,
         )
 
     def __str__(self) -> str:

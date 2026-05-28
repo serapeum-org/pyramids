@@ -127,6 +127,7 @@ nav:
       - Band Metadata Operations: reference/dataset/band_metadata.md
       - Cell Operations: reference/dataset/cell.md
     - DatasetCollection: reference/dataset_collection.md
+    - Zarr: reference/zarr.md
     - Exotic grids: reference/grids.md
     - Feature:
       - Overview: reference/feature/index.md
@@ -182,6 +183,11 @@ nav:
           - Dask (Sentinel-2 COGs on AWS): examples/dataset/dask-lazy-datasets.ipynb
           - Dask — Dataset (local data): examples/dataset/lazy-dataset-complete.ipynb
           - Dask — DatasetCollection (local data): examples/dataset/lazy-collection-complete.ipynb
+      - Zarr:
+          - Zarr basics (offline): examples/zarr/zarr-basics.ipynb
+          - Zarr cubes — append & region: examples/zarr/zarr-cube.ipynb
+          - Multiscale pyramids — fast previews: examples/zarr/zarr-pyramid-preview.ipynb
+          - Foreign GeoZarr stores: examples/zarr/zarr-foreign-geozarr.ipynb
       - Grids:
           - Exotic model-grid adapters: examples/grids/grids.ipynb
       - Feature:

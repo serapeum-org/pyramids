@@ -46,12 +46,12 @@ viz = ["cleopatra[tiles]>=0.8.0"]
 lazy = [
     "dask>=2024.1.0",
     "distributed>=2024.1.0",
-    "zarr>=2.17.0,<3",
+    "zarr>=3",
     "fsspec>=2024.1.0",
     "flox>=0.9.0",
 ]
 xarray = ["xarray>=2023.1.0"]
-netcdf-lazy = ["pyramids-gis[lazy]", "kerchunk>=0.2.6", "h5py>=3.8.0"]
+netcdf-lazy = ["pyramids-gis[lazy]", "kerchunk>=0.2.10", "h5py>=3.8.0"]
 parquet = ["pyarrow>=10.0.0"]
 parquet-lazy = ["pyramids-gis[lazy,parquet]", "dask-geopandas>=0.5.0"]
 stac = ["pystac-client>=0.8.0", "stac-asset>=0.4.7"]
@@ -246,7 +246,7 @@ main = { cmd = "pytest -vvv --cov=src/pyramids -sv -m 'not plot and not xarray' 
 plot = { cmd = "pytest -vvv --cov=src/pyramids --cov-append -sv -m 'plot' --cov-report=xml", description = "Run plot test suite" }
 xarray-tests = { cmd = "pytest -vvv --cov=src/pyramids --cov-append -sv -m 'xarray' --cov-report=xml", description = "Run xarray interop tests" }
 test-all = { cmd = "pytest -vvv --cov=src/pyramids -sv --cov-report=xml --cov-report=term-missing", description = "Run all testsuite" }
-notebooks = { cmd = "pytest --nbval --nbval-lax --verbose docs/examples --ignore-glob='docs/examples/**/dask-lazy-*.ipynb' --ignore-glob='docs/examples/**/lazy-*-complete.ipynb' --ignore-glob='docs/examples/**/stac-cloud-*.ipynb'", description = "check notebooks (skips dask cookbooks + stac-cloud-* — all hit real endpoints; local-data ones need extras envs)" }
+notebooks = { cmd = "pytest --nbval --nbval-lax --verbose docs/examples --ignore-glob='docs/examples/**/dask-lazy-*.ipynb' --ignore-glob='docs/examples/**/lazy-*-complete.ipynb' --ignore-glob='docs/examples/**/stac-cloud-*.ipynb' --ignore-glob='docs/examples/zarr/*.ipynb'", description = "check notebooks (skips dask cookbooks, stac-cloud-* and zarr/* — all need extras envs or real endpoints)" }
 jupyter = { cmd = "jupyter lab --no-browser --IdentityProvider.token='' --ServerApp.password='' --port=8889", description = "check notebooks" }
 build-dist = { cmd = "python -m build", description = "Build sdist and wheel for PyPI" }
 publish-pypi = { cmd = "twine upload --non-interactive --repository pypi dist/*", depends-on = ["build-dist"], description = "Build and upload package to PyPI" }
@@ -261,7 +261,7 @@ dev = { features = ["viz", "dev", "xarray", "lazy", "stac", "netcdf-lazy", "parq
 netcdf-lazy = { features = ["viz", "dev", "lazy", "netcdf-lazy"], solve-group = "default" }
 parquet = { features = ["viz", "dev", "xarray", "lazy", "parquet"], solve-group = "default" }
 parquet-lazy = { features = ["viz", "dev", "xarray", "lazy", "parquet", "parquet-lazy"], solve-group = "default" }
-notebook = { features = ["viz", "notebook"], solve-group = "default" }
+notebook = { features = ["viz", "notebook", "lazy"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "docs" }
 # py3XX envs (tests.yml matrix) intentionally OMIT `lazy`; the
 # `netcdf-lazy` / `parquet-lazy` envs in the extras-package matrix
@@ -290,14 +290,13 @@ python = "3.14.*"
 [tool.pixi.feature.dev.dependencies]
 scipy = ">=1.17.1,<2"
 
-# Pin zarr via conda because conda-forge defaults to zarr v3 and the
-# pyramids lazy stack still targets the v2 API. Also routes dask /
-# distributed / fsspec through conda so they share the same numpy ABI as
-# libgdal-netcdf / h5py (below).
+# dask / distributed / fsspec routed through conda so they share the same numpy
+# ABI as libgdal-netcdf / h5py (below). zarr bumped to v3 (was pinned <3 while
+# the lazy stack targeted the v2 API — under evaluation).
 [tool.pixi.feature.lazy.dependencies]
 "dask-core" = ">=2024.1.0"
 distributed = ">=2024.1.0"
-zarr = ">=2.17.0,<3"
+zarr = ">=3"
 fsspec = ">=2024.1.0"
 flox = ">=0.9.0"
 
@@ -311,7 +310,7 @@ flox = ">=0.9.0"
 # netCDF4, h5netcdf, or cftime. kerchunk needs h5py to walk HDF5 chunk
 # metadata; nothing else in this feature pulls HDF5-adjacent libraries.
 [tool.pixi.feature.netcdf-lazy.dependencies]
-kerchunk = ">=0.2.6"
+kerchunk = ">=0.2.10"
 # h5py 3.16 moved to hdf5 2.x, but libgdal-netcdf still links hdf5 1.14.x.
 # Pin h5py to the last 1.14-compatible release so the whole env shares
 # one HDF5 binary. Raise this pin when libgdal-netcdf follows hdf5 2.x.

@@ -17,7 +17,7 @@ from pyramids import _io
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._raster_meta import RasterMeta
-from pyramids.base._utils import import_flox, import_zarr
+from pyramids.base._utils import import_flox, import_zarr, lazy_extra_hint
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
@@ -26,6 +26,12 @@ from pyramids.dataset._stac import from_stac as _from_stac
 from pyramids.dataset.abstract_dataset import CATALOG
 from pyramids.dataset.dataset import Dataset
 from pyramids.dataset.merge import merge_rasters
+from pyramids.dataset.ops._geobox_zarr import (
+    ZARR_SCHEMA_VERSION,
+    finalize_zarr_metadata,
+    normalize_compressors,
+    read_geobox,
+)
 from pyramids.dataset.ops._zarr import _resolve_store
 from pyramids.feature import FeatureCollection
 
@@ -116,10 +122,9 @@ def _flox_groupby_reduce(
     importable so the caller falls back to the per-label loop.
     """
     import_flox(
-        "flox is required for grouped reductions over a DatasetCollection. "
-        "Install with one of:\n"
-        "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-        "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+        lazy_extra_hint(
+            "flox is required for grouped reductions over a DatasetCollection."
+        )
     )
     from flox import groupby_reduce
 
@@ -172,38 +177,76 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
     `band_names`, `time_length` + a pyramids version marker on the
     `data` array + root group.
     """
-    import zarr
-
-    root = zarr.open_group(resolved_store, mode="a")
-    root.attrs.update(
-        {
-            "pyramids_zarr_version": "1",
+    # Shared finalize (root + data attrs, GeoZarr geobox, consolidate). The cube
+    # is 4-D (time, band, y, x); the geobox x/y come from the spatial grid.
+    finalize_zarr_metadata(
+        resolved_store,
+        root_attrs={
+            "pyramids_zarr_version": ZARR_SCHEMA_VERSION,
             "time_length": int(len(files)),
             "pyramids_file_list": list(files),
-        }
-    )
-    root["data"].attrs.update(
-        {
+        },
+        data_attrs={
             "epsg": int(meta.epsg) if meta.epsg else None,
             "GeoTransform": " ".join(str(v) for v in meta.geotransform),
             "crs_wkt": meta.crs.to_wkt(),
             "nodata": [None if v is None else float(v) for v in meta.nodata],
             "band_names": list(meta.band_names) if meta.band_names else [],
             "dtype": str(meta.dtype),
-        }
+        },
+        epsg=int(meta.epsg or 0),
+        geotransform=tuple(float(v) for v in meta.geotransform),
+        crs_wkt=meta.crs.to_wkt(),
+        rows=int(meta.rows),
+        cols=int(meta.columns),
+        dims=["time", "band", "y", "x"],
     )
-    zarr.consolidate_metadata(resolved_store)
 
 
-def _combine_collection_writes(data_result, metadata_result) -> None:
-    """Identity fn used to sequence two :func:`dask.delayed` outputs.
+def _finalize_append_metadata(resolved_store, new_time_length: int, added_files: list) -> None:
+    """Update root attrs after appending timesteps to an existing cube store.
 
-    Kept for backwards compatibility; the new
-    :func:`_finalize_after_write` sequences data write and metadata
-    write into one dask task to guarantee ordering.
+    Bumps ``time_length`` to the new total and extends ``pyramids_file_list``;
+    the geobox / data attrs already exist from the initial write. Module-level
+    so the :func:`dask.delayed` (``compute=False``) path can pickle it.
     """
-    del data_result, metadata_result
-    return None
+    import zarr
+
+    root = zarr.open_group(resolved_store, mode="a")
+    root.attrs["time_length"] = int(new_time_length)
+    existing_files = list(root.attrs.get("pyramids_file_list", []))
+    root.attrs["pyramids_file_list"] = existing_files + list(added_files)
+    # zarr v3 emits a ZarrUserWarning that consolidated metadata isn't yet in the
+    # spec; suppress it here so the append finalizer matches the other writer
+    # paths (L1 follow-up to L4).
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message="Consolidated metadata is currently not part"
+        )
+        zarr.consolidate_metadata(resolved_store)
+
+
+def _finalize_append_after_write(data_result, resolved_store, new_time_length, added_files) -> None:
+    """Run :func:`_finalize_append_metadata` after the appended data write."""
+    del data_result
+    _finalize_append_metadata(resolved_store, new_time_length, added_files)
+
+
+def _region_to_slices(region: dict, ndim: int) -> tuple:
+    """Convert a ``{dim: slice}`` region dict to a positional slice tuple.
+
+    Maps the cube's named axes (``time``/``band``/``y``/``x``) to positions
+    0..3; unmentioned dims default to ``slice(None)`` (the whole axis).
+    """
+    dim_axis = {"time": 0, "band": 1, "y": 2, "x": 3}
+    slices: list = [slice(None)] * ndim
+    for dim, sl in region.items():
+        if dim not in dim_axis:
+            raise ValueError(
+                f"unknown region dim {dim!r}; expected one of {tuple(dim_axis)}"
+            )
+        slices[dim_axis[dim]] = sl
+    return tuple(slices)
 
 
 def _finalize_after_write(data_result, resolved_store, meta, files) -> None:
@@ -380,6 +423,7 @@ class DatasetCollection:
         meta: RasterMeta | None = None,
         datasets: list[Dataset] | None = None,
         gdal_env: dict[str, str] | None = None,
+        zarr_store: Any = None,
     ):
         """Construct DatasetCollection object.
 
@@ -416,6 +460,9 @@ class DatasetCollection:
         self._time_length = time_length
         self._meta = meta if meta is not None else RasterMeta.from_dataset(src)
         self._gdal_env: dict[str, str] = dict(gdal_env) if gdal_env else {}
+        # When set (by from_zarr), the lazy `data` cube reads directly from this
+        # resolved Zarr store instead of stacking per-file reads.
+        self._zarr_store = zarr_store
         # Cached lazy list of per-timestep Datasets. Populated on
         # first access via the `datasets` property: from `datasets=`
         # (caller-provided), then `files=` (open each path), then a
@@ -730,21 +777,27 @@ class DatasetCollection:
             RuntimeError: If the collection was constructed without a
                 `files` list (legacy `create_cube` path).
         """
-        if self._files is None or len(self._files) == 0:
+        if self._zarr_store is None and (
+            self._files is None or len(self._files) == 0
+        ):
             raise RuntimeError(
                 "DatasetCollection.data requires a file-backed collection. "
-                "Use DatasetCollection.from_files(...) to construct one."
+                "Use DatasetCollection.from_files(...) or "
+                "DatasetCollection.from_zarr(...) to construct one."
             )
         try:
             import dask
             import dask.array as da
         except ImportError as exc:
-            raise ImportError(
-                "DatasetCollection.data requires the optional 'dask' "
-                "dependency. Install with one of:\n"
-                "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-                "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+            raise OptionalPackageDoesNotExist(
+                lazy_extra_hint(
+                    "DatasetCollection.data requires the optional 'dask' dependency."
+                )
             ) from exc
+        if self._zarr_store is not None:
+            # Zarr-backed cube (from_zarr): read the 4-D (T, B, R, C) array
+            # lazily straight from the store — no per-file stacking.
+            return da.from_zarr(self._zarr_store, component="data")
         meta = self._meta
         shape = meta.shape
         dtype = np.dtype(meta.dtype)
@@ -836,6 +889,9 @@ class DatasetCollection:
         compute: bool = True,
         mode: str = "w",
         storage_options: dict | None = None,
+        compressor: Any = "auto",
+        append_dim: str | None = None,
+        region: dict | None = None,
     ):
         """Serialise the 4-D `(T, B, R, C)` cube to a Zarr store.
 
@@ -851,9 +907,15 @@ class DatasetCollection:
             store: Target store (path, fsspec URL, or zarr.Store).
             compute: `True` (default) writes immediately; `False`
                 returns a :class:`dask.delayed.Delayed`.
-            mode: Zarr open mode, typically `"w"` (fresh) or `"a"`.
+            mode: Zarr open mode. ``"w"`` (default) writes a fresh cube;
+                ``"a"`` is only valid together with ``append_dim`` or ``region``
+                (incremental writes — see those args). ``mode="a"`` on its own
+                raises ``ValueError``.
             storage_options: Optional dict forwarded to
                 :func:`fsspec.get_mapper` for cloud stores.
+            compressor: Zarr codec(s) for the `data` array. `"auto"` (default)
+                keeps zarr's default codec; pass a zarr-v3 codec / list to
+                override, or `None` for an uncompressed array.
 
         Returns:
             `None` on `compute=True`; a :class:`dask.delayed.Delayed`
@@ -871,18 +933,41 @@ class DatasetCollection:
                 "construct one."
             )
         import_zarr(
-            "DatasetCollection.to_zarr requires the optional 'zarr' "
-            "dependency. Install with one of:\n"
-            "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-            "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+            lazy_extra_hint(
+                "DatasetCollection.to_zarr requires the optional 'zarr' dependency."
+            )
         )
+        if mode == "a" and append_dim is None and region is None:
+            raise ValueError(
+                "mode='a' requires append_dim='time' or region=... (xarray-style "
+                "incremental write); use mode='w' to (over)write the whole cube."
+            )
         data = self.data
         resolved_store = _resolve_store(store, storage_options)
+        codec_kwargs = normalize_compressors(compressor)
+
+        if append_dim is not None:
+            return self._append_to_zarr(resolved_store, data, append_dim, compute)
+        if region is not None:
+            # Write the cube into a region of an existing store; geobox /
+            # time_length already exist there, so no finalize is needed. dask's
+            # region write targets the zarr.Array directly.
+            import zarr
+
+            existing = zarr.open_group(resolved_store, mode="a")["data"]
+            return data.to_zarr(
+                existing,
+                region=_region_to_slices(region, data.ndim),
+                overwrite=False,
+                compute=compute,
+            )
+
         write_result = data.to_zarr(
             resolved_store,
             component="data",
             overwrite=(mode == "w"),
             compute=compute,
+            **codec_kwargs,
         )
         if compute:
             _finalize_collection_metadata(resolved_store, self._meta, self._files)
@@ -897,6 +982,41 @@ class DatasetCollection:
                 self._files,
             )
         return result
+
+    def _append_to_zarr(self, resolved_store, data, append_dim: str, compute: bool):
+        """Append this cube's timesteps to an existing store along ``append_dim``.
+
+        Resizes the existing ``data`` array along the time axis and writes the
+        new block into the appended region (the per-timestep time chunks are
+        size 1, so the region aligns with chunk boundaries), then bumps
+        ``time_length`` and extends ``pyramids_file_list``.
+        """
+        import dask
+        import zarr
+
+        if append_dim != "time":
+            raise ValueError(
+                f"append_dim must be 'time' for a (T, B, Y, X) cube; got {append_dim!r}"
+            )
+        root = zarr.open_group(resolved_store, mode="a")
+        existing = root["data"]
+        old_t = int(existing.shape[0])
+        new_total = old_t + int(data.shape[0])
+        existing.resize((new_total, *existing.shape[1:]))
+        slices = (slice(old_t, new_total),) + (slice(None),) * (data.ndim - 1)
+        # dask's region write targets the zarr.Array directly (not store+component).
+        write_result = data.to_zarr(
+            existing,
+            region=slices,
+            overwrite=False,
+            compute=compute,
+        )
+        if compute:
+            _finalize_append_metadata(resolved_store, new_total, self._files)
+            return None
+        return dask.delayed(_finalize_append_after_write)(
+            write_result, resolved_store, new_total, self._files
+        )
 
     def to_netcdf(
         self,
@@ -1318,6 +1438,68 @@ class DatasetCollection:
             if meta is None:
                 meta = RasterMeta.from_dataset(template)
         return cls(template, len(resolved), files=resolved, meta=meta, gdal_env=gdal_env)
+
+    @classmethod
+    def from_zarr(
+        cls,
+        store: str | Path | Any,
+        *,
+        storage_options: dict | None = None,
+    ) -> DatasetCollection:
+        """Open a pyramids-written cube Zarr store into a lazy DatasetCollection.
+
+        Inverse of :meth:`to_zarr`. The 4-D ``(time, band, y, x)`` ``data`` array
+        is read lazily straight from the store (via :func:`dask.array.from_zarr`),
+        and the geobox (CRS / transform / nodata / band names) is recovered from
+        the GeoZarr ``spatial_ref`` mapping. Legacy flat-attr stores still read,
+        with a ``DeprecationWarning``.
+
+        Args:
+            store: Input store — path / fsspec URL / ``zarr.storage.Store``.
+            storage_options: Optional fsspec options forwarded to
+                :func:`fsspec.get_mapper` for cloud stores.
+
+        Returns:
+            DatasetCollection: A zarr-backed collection whose ``.data`` reads the
+            cube lazily from the store and whose ``time_length`` matches it.
+
+        Raises:
+            OptionalPackageDoesNotExist: When the ``[lazy]`` extra is missing.
+        """
+        import_zarr(
+            lazy_extra_hint(
+                "DatasetCollection.from_zarr requires the optional 'zarr' dependency."
+            )
+        )
+        import zarr
+
+        resolved = _resolve_store(store, storage_options)
+        root = zarr.open_group(resolved, mode="r")
+        data_attrs = dict(root["data"].attrs)
+        geobox = read_geobox(root, data_name="data")
+        time_length, bands, rows, cols = (int(v) for v in root["data"].shape)
+        time_length = int(root.attrs.get("time_length", time_length))
+
+        nodata_list = data_attrs.get("nodata")
+        if nodata_list and any(v is not None for v in nodata_list):
+            no_data_value: Any = list(nodata_list)
+        else:
+            no_data_value = None
+        dtype = np.dtype(data_attrs.get("dtype", "float32"))
+        template_arr = np.zeros((bands, rows, cols), dtype=dtype)
+        template = Dataset.create_from_array(
+            template_arr if bands > 1 else template_arr[0],
+            geo=tuple(float(v) for v in geobox["geotransform"]),
+            epsg=geobox["epsg"] or 4326,
+            no_data_value=no_data_value,
+        )
+        if geobox["crs_wkt"]:
+            template.crs = geobox["crs_wkt"]
+        band_names = data_attrs.get("band_names") or []
+        if band_names and len(band_names) == template.band_count:
+            template.band_names = list(band_names)
+        meta = RasterMeta.from_dataset(template)
+        return cls(template, time_length, meta=meta, zarr_store=resolved)
 
     @classmethod
     def from_archive(
