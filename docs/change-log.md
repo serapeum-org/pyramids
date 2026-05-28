@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.26.0 (2026-05-28)
+
+### Refactor
+
+- **zarr**: GeoZarr geobox, lazy read, cube round-trip, codecs, append + foreign/STAC reads (#417)
+
 ## 0.25.1 (2026-05-27)
 
 ### Fix
