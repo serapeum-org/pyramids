@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.27.0 (2026-05-28)
+
+### Feat
+
+- **dataset**: accept arbitrary CRS in Dataset.to_crs (#444)
+
 ## 0.26.0 (2026-05-28)
 
 ### Refactor
