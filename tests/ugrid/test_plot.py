@@ -40,6 +40,18 @@ class TestPlotMeshData:
         result = plot_mesh_data(triangle_mesh, data, location="node")
         assert isinstance(result, MeshGlyph), f"Expected MeshGlyph, got {type(result)}"
 
+    def test_plot_sets_mappable_im(self, triangle_mesh):
+        """``plot()`` populates ``MeshGlyph.im`` (the mesh mappable).
+
+        Test scenario:
+            cleopatra sets ``glyph.im`` to the ``tripcolor``/``tricontour``
+            artist on a data plot, so a caller can attach a custom or
+            shared colorbar. Pins the mesh-side of the im/cbar contract.
+        """
+        data = np.array([1.0, 2.0])
+        result = plot_mesh_data(triangle_mesh, data, location="face")
+        assert result.im is not None, "plot() must set the mesh mappable on .im"
+
     def test_invalid_location_raises(self, triangle_mesh):
         """Test that invalid location raises ValueError."""
         with pytest.raises(ValueError, match="not supported"):
@@ -65,6 +77,17 @@ class TestPlotMeshOutline:
         """Test wireframe on mixed mesh returns MeshGlyph."""
         result = plot_mesh_outline(mixed_mesh, color="blue", linewidth=1.0)
         assert isinstance(result, MeshGlyph), f"Expected MeshGlyph, got {type(result)}"
+
+    def test_outline_has_no_mappable_im(self, triangle_mesh):
+        """``plot_outline()`` leaves ``MeshGlyph.im`` as ``None``.
+
+        Test scenario:
+            An outline carries no scalar mapping, so cleopatra does not
+            create a mappable — ``glyph.im`` must be ``None`` (the
+            documented complement to ``plot()`` setting it).
+        """
+        result = plot_mesh_outline(triangle_mesh)
+        assert result.im is None, "outline must not produce a mappable"
 
 
 @pytest.mark.plot

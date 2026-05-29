@@ -32,16 +32,24 @@ stores style/colour options into ``self.default_options``, and
 ``ArrayGlyph.plot`` writes the same dict again. Forwarding the *same*
 kwargs dict to both call sites was the original D-4 smell — harmless
 (values were just re-assigned) but confusing. PR-6 splits the
-incoming ``**kwargs`` into two buckets:
+incoming ``**kwargs`` into two buckets, and the split is sourced from
+``ArrayGlyph.option_keys()`` (cleopatra's own declared set of
+constructor options, resolvable without building an instance) rather
+than a hand-maintained enumeration — so the routing tracks cleopatra
+automatically when options are added or moved:
 
-* **render-call-only** — ``points``, ``point_color``, ``point_size``,
-  ``pid_color``, ``pid_size``, ``kind``. These are explicit keyword
-  arguments on ``ArrayGlyph.plot``/``.animate``/``.facet`` and must
-  reach the render method, not the constructor.
-* **constructor** — every other kwarg (``cmap``, ``vmin``, ``vmax``,
-  ``levels``, ``robust``, ``center``, ``extend``, ``cbar_kwargs``,
-  ``figsize``, ``title``, ``num_size``, ...). These go into
-  ``default_options`` and the render methods pick them up from there.
+* **constructor** — every key in ``ArrayGlyph.option_keys()`` (``cmap``,
+  ``vmin``, ``vmax``, ``levels``, ``robust``, ``center``, ``extend``,
+  ``cbar_kwargs``, ``add_colorbar``, ``color_scale``, ``figsize``,
+  ``title``, ...). These go into ``default_options`` and the render
+  methods pick them up from there.
+* **render-call-only** — everything not in ``option_keys()``: the explicit
+  method params (``points``, ``point_color``, ``point_size``, ``pid_color``,
+  ``pid_size``) that are not ``default_options`` keys, plus any invalid key,
+  which the render method rejects with ``ValueError``. ``kind`` is the lone
+  exception — it is *in* ``option_keys()`` yet must reach the render call
+  (it is an explicit ``plot``/``facet`` param read from the signature, not
+  from ``default_options``), so it is force-routed here.
 
 The animate path is the one exception: cleopatra's ``ArrayGlyph.animate``
 re-validates **every** kwarg against ``DEFAULT_OPTIONS``, so for that
@@ -229,6 +237,7 @@ def render_array(
     """
     require_cleopatra()
     from cleopatra.array_glyph import ArrayGlyph
+    from cleopatra.styles import ColorScale
 
     valid_modes = ("plot", "animate", "facet")
     if mode not in valid_modes:
@@ -247,6 +256,20 @@ def render_array(
         raise ValueError(
             "Dataset must have a CRS (epsg) to use basemap."
         )
+    # Fail fast on an invalid ``color_scale`` with a pyramids-side message
+    # that lists the valid options, instead of deferring to a less-targeted
+    # cleopatra error deep in the render call. ``ColorScale`` lookup is
+    # case-insensitive, so any-case valid values pass through unchanged.
+    color_scale = kwargs.get("color_scale")
+    if color_scale is not None:
+        try:
+            ColorScale(color_scale)
+        except ValueError:
+            valid = [s.value for s in ColorScale]
+            raise ValueError(
+                f"Unsupported color_scale {color_scale!r}; "
+                f"valid options: {valid}."
+            ) from None
 
     # cleopatra's `coords` and `extent` are mutually exclusive; drop
     # `extent` when curvilinear coords are present.
@@ -259,18 +282,26 @@ def render_array(
     # PR-6 the same ``kwargs`` dict was passed to both call sites; that
     # double-forward was harmless (cleopatra re-assigned the same values
     # into ``default_options``) but obscured which kwargs belonged where.
-    plot_call_only = {
-        "points",
-        "point_color",
-        "point_size",
-        "pid_color",
-        "pid_size",
-        "kind",
-    }
+    # The split is driven by ``ArrayGlyph.option_keys()`` — cleopatra's
+    # own declared set of constructor options, resolvable without building
+    # an instance — so pyramids tracks cleopatra automatically instead of
+    # hand-maintaining the render-only list. The render-only method params
+    # (``points``, ``point_color``, ..., ``pid_size``) are not in that set,
+    # so they fall to ``render_kwargs`` on their own; an invalid key does
+    # too, so the render method rejects it instead of being silently dropped.
+    #
+    # ``kind`` is the one exception: it lives in BOTH places — a
+    # ``default_options`` key *and* an explicit ``ArrayGlyph.plot``/``.facet``
+    # parameter (default ``"auto"``) that the render method reads from its
+    # own signature, not from ``default_options``. Routing it to the
+    # constructor would silently pin every render to ``kind="auto"``, so it
+    # is forced to stay a render-call kwarg.
+    render_only_overrides = {"kind"}
+    ctor_option_keys = ArrayGlyph.option_keys()
     ctor_kwargs: dict[str, Any] = {}
     render_kwargs: dict[str, Any] = {}
     for key, value in kwargs.items():
-        if key in plot_call_only:
+        if key in render_only_overrides or key not in ctor_option_keys:
             render_kwargs[key] = value
         else:
             ctor_kwargs[key] = value

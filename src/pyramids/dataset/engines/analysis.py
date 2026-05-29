@@ -1240,6 +1240,177 @@ class Analysis(_Engine):
         )
         return hist, ranges
 
+    def plot_histogram(
+        self,
+        band: int = 0,
+        bins: int = 15,
+        exclude_value: Any | None = None,
+        ax: Any | None = None,
+        **kwargs: Any,
+    ):
+        """Plot the value distribution of a band as a histogram.
+
+        Backed by cleopatra's
+        :class:`~cleopatra.statistical_glyph.StatisticalGlyph`. The band is
+        read into memory, the band's no-data value and ``exclude_value``
+        (and any ``NaN`` for floating-point bands) are dropped, and only the
+        remaining valid samples reach the glyph. Requires the ``[viz]`` extra.
+
+        Args:
+            band (int, optional):
+                Band index to read. Default is ``0``.
+            bins (int, optional):
+                Number of histogram bins. Default is ``15``.
+            exclude_value (Any, optional):
+                An extra value to drop from the samples, in addition to the
+                band's no-data value and ``NaN``. Default is ``None``.
+            ax (matplotlib.axes.Axes, optional):
+                Axes to draw on. A new figure/axes is created when ``None``.
+            **kwargs:
+                Style options forwarded to the ``StatisticalGlyph``
+                constructor, filtered via
+                :meth:`StatisticalGlyph.filter_kwargs` so only accepted keys
+                are passed.
+
+        Returns:
+            tuple:
+                ``(fig, ax, hist)`` from
+                :meth:`StatisticalGlyph.histogram` — the
+                :class:`matplotlib.figure.Figure`, the
+                :class:`matplotlib.axes.Axes`, and the histogram ``dict``.
+        """
+        require_cleopatra()
+        from cleopatra.statistical_glyph import StatisticalGlyph
+
+        arr = self._ds.read_array(band=band).flatten()
+        no_data_value = self._ds.no_data_value[band]
+        mask = np.ones(arr.shape, dtype=bool)
+        if np.issubdtype(arr.dtype, np.floating):
+            mask &= ~np.isnan(arr)
+        if no_data_value is not None and not (
+            isinstance(no_data_value, float) and np.isnan(no_data_value)
+        ):
+            mask &= arr != no_data_value
+        if exclude_value is not None:
+            mask &= arr != exclude_value
+        values = arr[mask]
+        glyph = StatisticalGlyph(
+            values, ax=ax, **StatisticalGlyph.filter_kwargs(kwargs)
+        )
+        result = glyph.histogram(bins=bins)
+        return result
+
+    def to_image(
+        self,
+        band: int = 0,
+        cmap: str = "viridis",
+        exclude_value: Any | None = None,
+    ):
+        """Export a band as a colour-mapped RGB image.
+
+        Reads the band, masks the no-data value (and an optional
+        ``exclude_value``), applies a matplotlib colormap via cleopatra's
+        :meth:`ArrayGlyph.apply_colormap`, and returns the result as a
+        :class:`PIL.Image.Image`. Masked / no-data pixels are rendered with
+        the colormap's "bad" fill colour. Requires the ``[viz]`` extra.
+
+        Args:
+            band (int, optional):
+                Band index to export. Default is ``0``.
+            cmap (str, optional):
+                Matplotlib colormap name. Default is ``"viridis"``.
+            exclude_value (Any, optional):
+                An extra value to mask out, in addition to the band's
+                no-data value. Default is ``None``.
+
+        Returns:
+            PIL.Image.Image:
+                An RGB image of the colour-mapped band, the same width and
+                height as the raster band.
+        """
+        require_cleopatra()
+        from cleopatra.array_glyph import ArrayGlyph
+
+        arr = self._ds.read_array(band=band)
+        no_data_value = self._ds.no_data_value[band]
+        exclude: list = []
+        if no_data_value is not None and not (
+            isinstance(no_data_value, float) and np.isnan(no_data_value)
+        ):
+            exclude.append(no_data_value)
+        if exclude_value is not None:
+            exclude.append(exclude_value)
+        glyph = ArrayGlyph(arr, exclude_value=exclude if exclude else np.nan)
+        image = glyph.to_image(glyph.apply_colormap(cmap))
+        return image
+
+    def plot_vector_field(
+        self,
+        u_band: int = 0,
+        v_band: int = 1,
+        kind: str = "quiver",
+        ax: Any | None = None,
+        **kwargs: Any,
+    ):
+        """Plot two bands as a 2-component vector field.
+
+        Reads ``u_band`` and ``v_band`` as the vector components over the
+        dataset's cell-centre coordinate grid (built from the geotransform)
+        and renders them via cleopatra's
+        :class:`~cleopatra.vector_glyph.VectorGlyph` as arrows, wind barbs,
+        or streamlines, coloured by vector magnitude. Requires the ``[viz]``
+        extra.
+
+        Args:
+            u_band (int, optional):
+                Band index of the x-component (``u``). Default is ``0``.
+            v_band (int, optional):
+                Band index of the y-component (``v``). Default is ``1``.
+            kind (str, optional):
+                Render kind: ``"quiver"`` (default), ``"barbs"``, or
+                ``"streamplot"``.
+            ax (matplotlib.axes.Axes, optional):
+                Axes to draw on. A new figure/axes is created when ``None``.
+            **kwargs:
+                Style options forwarded to the ``VectorGlyph`` constructor,
+                filtered via :meth:`VectorGlyph.filter_kwargs` (e.g.
+                ``density``, ``scale``, ``cmap``, ``add_colorbar``). Pass
+                ``add_colorbar=False`` when composing onto a shared map.
+
+        Returns:
+            tuple:
+                ``(fig, ax, im)`` from :meth:`VectorGlyph.plot` — the
+                :class:`matplotlib.figure.Figure`, the
+                :class:`matplotlib.axes.Axes`, and the mappable coloured by
+                vector magnitude.
+        """
+        require_cleopatra()
+        from cleopatra.vector_glyph import VectorGlyph
+
+        u = self._ds.read_array(band=u_band)
+        v = self._ds.read_array(band=v_band)
+        x = self._ds.x
+        y = self._ds.y
+        # matplotlib's ``streamplot`` requires strictly-increasing 1-D
+        # coordinates, but a north-up raster's ``y`` (and occasionally ``x``)
+        # is descending. Flip the axis to ascending and mirror the data
+        # rows/cols so the field stays spatially correct for every kind
+        # (``quiver``/``barbs`` are direction-agnostic; ``streamplot`` is not).
+        if y[0] > y[-1]:
+            y = y[::-1]
+            u = u[::-1, :]
+            v = v[::-1, :]
+        if x[0] > x[-1]:
+            x = x[::-1]
+            u = u[:, ::-1]
+            v = v[:, ::-1]
+        xx, yy = np.meshgrid(x, y)
+        glyph = VectorGlyph(
+            xx, yy, u, v, ax=ax, **VectorGlyph.filter_kwargs(kwargs)
+        )
+        result = glyph.plot(kind=kind)
+        return result
+
     def plot(
         self,
         band: int,
@@ -1330,13 +1501,21 @@ class Analysis(_Engine):
                 | `display_cell_value`        | bool, optional      | Whether to display cell values as text. |
                 | `num_size`                  | int, optional       | Size of numbers plotted on top of each cell. Default is `8`. |
                 | `background_color_threshold`| float or int, optional | Threshold for deciding text color over cells: if value > threshold -> black text; else white text. If `None`, max value / 2 is used. Default is `None`. |
+                | `add_colorbar`              | bool, optional      | Whether to draw the colour bar. Default is `True`. When `False`, no colorbar is created and the returned glyph's `cbar` is `None`. |
         Returns:
             ArrayGlyph:
                 A cleopatra ``ArrayGlyph`` wrapping the rendered figure. The underlying matplotlib
-                primitives are exposed as ``cleo.fig`` (the :class:`matplotlib.figure.Figure`) and
-                ``cleo.ax`` (the :class:`matplotlib.axes.Axes`) \u2014 use these as the escape hatch
-                when you need to further customise the plot with raw matplotlib calls. For the
-                full ``ArrayGlyph`` API see the
+                primitives are exposed on the glyph \u2014 use them as the escape hatch when you need
+                to further customise the plot with raw matplotlib calls:
+
+                - ``cleo.fig`` / ``cleo.ax`` \u2014 the :class:`matplotlib.figure.Figure` and
+                  :class:`matplotlib.axes.Axes`.
+                - ``cleo.im`` \u2014 the colour-mapped mappable, populated for every ``kind=``
+                  (imshow/pcolormesh/contour/contourf); e.g. ``cleo.im.set_clim(0, 100)``.
+                - ``cleo.cbar`` \u2014 the auto-created :class:`matplotlib.colorbar.Colorbar`, or
+                  ``None`` when ``add_colorbar=False`` (or for RGB renders).
+
+                For the full ``ArrayGlyph`` API see the
                 [ArrayGlyph reference](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/).
         Examples:
             - Plot a certain band:

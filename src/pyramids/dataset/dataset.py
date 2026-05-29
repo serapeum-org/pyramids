@@ -431,6 +431,18 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Analysis.get_histogram <pyramids.dataset.engines.Analysis.get_histogram>`."""
         return self.analysis.get_histogram(*args, **kwargs)
 
+    def plot_histogram(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.plot_histogram <pyramids.dataset.engines.Analysis.plot_histogram>`."""
+        return self.analysis.plot_histogram(*args, **kwargs)
+
+    def to_image(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.to_image <pyramids.dataset.engines.Analysis.to_image>`."""
+        return self.analysis.to_image(*args, **kwargs)
+
+    def plot_vector_field(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Analysis.plot_vector_field <pyramids.dataset.engines.Analysis.plot_vector_field>`."""
+        return self.analysis.plot_vector_field(*args, **kwargs)
+
     def _resolve_plot_band(
         self, band: int | None, rgb: list[int] | None
     ) -> tuple[int, list[int] | None]:
@@ -614,12 +626,29 @@ class Dataset(RasterBase):
             **kwargs:
                 Additional keyword arguments forwarded verbatim to
                 :meth:`Analysis.plot`. See that method for the full kwargs surface
-                (figure size, color scale, color bar, basemap, etc.).
+                (figure size, color scale, color bar, basemap, etc.). Notably
+                ``add_colorbar`` (``bool``, default ``True``) is a cleopatra
+                pass-through: set ``add_colorbar=False`` to suppress the
+                auto-generated colorbar (the returned glyph's ``cbar`` is then
+                ``None``).
 
         Returns:
             ArrayGlyph: A cleopatra ``ArrayGlyph`` wrapping the rendered figure.
-                Use ``cleo.fig`` (the :class:`matplotlib.figure.Figure`) and ``cleo.ax``
-                (the :class:`matplotlib.axes.Axes`) to drop down to raw matplotlib.
+                Use it to drop down to raw matplotlib:
+
+                - ``glyph.fig`` / ``glyph.ax`` — the :class:`matplotlib.figure.Figure`
+                  and :class:`matplotlib.axes.Axes`.
+                - ``glyph.im`` — the colour-mapped mappable (populated for every
+                  ``kind=``: imshow/pcolormesh/contour/contourf). Use it to tweak
+                  colour limits after the fact, e.g. ``glyph.im.set_clim(0, 100)``.
+                - ``glyph.cbar`` — the auto-created :class:`matplotlib.colorbar.Colorbar`,
+                  or ``None`` when ``add_colorbar=False`` (or for RGB renders).
+
+                ```python
+                >>> glyph = dataset.plot(band=0, kind="pcolormesh")  # doctest: +SKIP
+                >>> glyph.im.set_clim(0, 100)  # doctest: +SKIP
+                >>> _ = glyph.cbar.set_label("elevation [m]")  # doctest: +SKIP
+                ```
 
         Examples:
             - Render the first band of a single-band MEM raster. Tagged ``+SKIP`` because
