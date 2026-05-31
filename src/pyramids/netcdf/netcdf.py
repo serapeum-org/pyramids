@@ -278,6 +278,8 @@ class NetCDF(Dataset):
             "_source_var_name": self._source_var_name,
             "_gdal_md_arr_ref": self._gdal_md_arr_ref,
             "_gdal_rg_ref": self._gdal_rg_ref,
+            "_gdal_classic_src_ref": self._gdal_classic_src_ref,
+            "_geostationary_scaled": self._geostationary_scaled,
             "_md_array_dims": self._md_array_dims,
             "_band_dim_name": self._band_dim_name,
             "_band_dim_values": self._band_dim_values,
@@ -454,13 +456,16 @@ class NetCDF(Dataset):
           inside PROJ (off-disc cutline). Reproject first with
           ``to_crs(4326)`` and crop the result.
         """
-        if not self._is_geostationary():
-            return
         gt = self._geotransform
-        # Radian scan-angle pixels are << 1; projected-metre pixels are >> 1.
-        # The guard keeps this idempotent: a geotransform already in metres
-        # (e.g. from the classic netCDF driver) is left untouched.
+        # Cheap magnitude gate first, before any SRS parse: radian scan-angle
+        # pixels are << 1, projected-metre pixels are >> 1. A geotransform
+        # already at metre scale (or coarser) can never need scaling, so the
+        # common case returns here without touching the SRS. This also keeps
+        # the scaling idempotent (classic-driver metre geotransforms are left
+        # untouched).
         if abs(gt[1]) >= 1.0:
+            return
+        if not self._is_geostationary():
             return
         srs = self._raster.GetSpatialRef()
         height = srs.GetProjParm("satellite_height", 0.0)
@@ -481,7 +486,7 @@ class NetCDF(Dataset):
                 "could not georeference the geostationary view through a VRT; "
                 "the wrapper geotransform reports metres but the underlying "
                 "dataset keeps scan-angle radians, so to_crs/crop may be wrong.",
-                stacklevel=2,
+                stacklevel=3,
             )
         self._geotransform = scaled
         self._cell_size = abs(scaled[1])

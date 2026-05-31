@@ -120,6 +120,17 @@ class TestGeostationaryGeotransform:
         assert cube._geostationary_scaled is False
         assert cube.geotransform[1] == pytest.approx(5.6e4)
 
+    def test_scaled_state_survives_update_inplace(self, goes_cube: NetCDF):
+        # _update_inplace (used by set_crs / the epsg setter / apply(inplace))
+        # must preserve the geostationary scaling flag and the source-view
+        # keep-alive, so the metre geotransform is not lost after in-place ops.
+        assert goes_cube._geostationary_scaled is True
+        src_ref = goes_cube._gdal_classic_src_ref
+        goes_cube._update_inplace(goes_cube.raster)
+        assert goes_cube._geostationary_scaled is True
+        assert goes_cube._gdal_classic_src_ref is src_ref
+        assert abs(goes_cube.geotransform[1]) > 1000
+
     def test_to_crs_is_non_degenerate(self, goes_cube: NetCDF):
         warped = goes_cube.to_crs(4326)
         minx, miny, maxx, maxy = warped.bbox
