@@ -431,65 +431,98 @@ class NetCDF(Dataset):
             and srs.GetAttrValue("PROJECTION") == GEOSTATIONARY_PROJECTION
         )
 
-    def _normalize_geostationary_geotransform(self) -> None:
-        """Scale a scan-angle (radian) geotransform to projected metres.
+    def _classic_geotransform(self) -> tuple[float, ...] | None:
+        """Metre geotransform from GDAL's classic netCDF driver for this var.
 
-        GDAL's multidimensional ``AsClassicDataset`` read path keeps the
-        GOES-style ``x`` / ``y`` scan angles (radians) as the geotransform,
-        unlike the classic netCDF driver which scales them by the satellite
-        perspective height. When the CRS is geostationary and the pixel size is
-        radian-scale, rescale ``metres = radians * perspective_point_height`` so
-        the cube is correctly georeferenced and reprojection (`to_crs`) works.
+        The classic ``NETCDF:<file>:<var>`` driver georeferences CF
+        geostationary files correctly — it applies the ``x`` / ``y``
+        ``scale_factor`` / ``add_offset`` (real GOES stores them as packed
+        ``int16`` scan angles) and scales the radians to projected metres by
+        ``perspective_point_height``. The multidimensional ``AsClassicDataset``
+        path this cube comes from does neither, so it yields a raw pixel or
+        radian geotransform.
 
-        The scaling is applied to the underlying GDAL dataset (so `to_crs`,
-        which warps `self.raster`, sees the corrected geotransform) and is
-        idempotent — geotransforms already in metres (e.g. from the classic
-        driver) have ``abs(pixel) >= 1`` and are left untouched.
-
-        Side effects to be aware of for a rescaled geostationary cube:
-
-        * ``self.raster`` is replaced by an in-memory VRT, which has no MDIM
-          root group. Coordinate accessors (`lon` / `lat` / `x` / `y`) then
-          report the projected **metre** coordinates derived from the
-          geotransform rather than the raw radian ``x`` / ``y`` arrays.
-        * ``crop(bbox=...)`` against the cube's own geostationary CRS can fail
-          inside PROJ (off-disc cutline). Reproject first with
-          ``to_crs(4326)`` and crop the result.
+        Returns:
+            tuple | None: The classic-driver geotransform, or ``None`` when
+            there is no classic-openable source (e.g. an in-memory dataset) or
+            the classic open does not produce a metre-scale geostationary
+            geotransform.
         """
-        gt = self._geotransform
-        # Cheap magnitude gate first, before any SRS parse: radian scan-angle
-        # pixels are << 1, projected-metre pixels are >> 1. A geotransform
-        # already at metre scale (or coarser) can never need scaling, so the
-        # common case returns here without touching the SRS. This also keeps
-        # the scaling idempotent (classic-driver metre geotransforms are left
-        # untouched).
-        if abs(gt[1]) >= 1.0:
-            return
+        parent = self._parent_nc
+        var = self._source_var_name
+        if parent is None or var is None:
+            return None
+        path = parent.file_name
+        # The classic netCDF driver needs an on-disk / VSI source; an in-memory
+        # MEM dataset has no such path.
+        if not path or str(path).startswith("/vsimem"):
+            return None
+        try:
+            src = gdal.Open(f"NETCDF:{path}:{var}")
+        except RuntimeError:
+            src = None
+        if src is None:
+            return None
+        gt = src.GetGeoTransform()
+        srs = src.GetSpatialRef()
+        if (
+            srs is None
+            or srs.GetAttrValue("PROJECTION") != GEOSTATIONARY_PROJECTION
+            or abs(gt[1]) <= 1.0
+        ):
+            return None
+        return gt
+
+    def _normalize_geostationary_geotransform(self) -> None:
+        """Georeference a geostationary variable read via the MDIM path.
+
+        Real GOES (and other CF geostationary) files store ``x`` / ``y`` as
+        scan angles that the classic netCDF driver scales to projected metres by
+        ``perspective_point_height`` (after applying their ``scale_factor`` /
+        ``add_offset``). The multidimensional ``AsClassicDataset`` path used by
+        :meth:`get_variable` does neither, so the cube comes back with a raw
+        pixel/radian geotransform under a metre-based geostationary CRS and
+        ``to_crs`` collapses. Adopt the classic driver's metre geotransform so
+        the cube is correctly georeferenced; a no-op for every other CRS.
+
+        The corrected geotransform is applied to the underlying GDAL dataset via
+        an in-memory VRT (the MDIM ``AsClassicDataset`` view has no driver and
+        silently ignores ``SetGeoTransform``), so ``to_crs`` — which warps
+        ``self.raster`` — sees it. The source view is kept alive (the VRT
+        references it; the view is backed by the MDArray refs already held).
+
+        Side effects for a rescaled geostationary cube:
+
+        * ``self.raster`` becomes a VRT with no MDIM root group, so coordinate
+          accessors (`lon` / `lat` / `x` / `y`) report the projected **metre**
+          coordinates derived from the geotransform, not the raw ``x`` / ``y``.
+        * ``crop(bbox=...)`` against the cube's own geostationary CRS can fail
+          inside PROJ (off-disc cutline). Reproject with ``to_crs(4326)`` and
+          crop the result.
+        """
         if not self._is_geostationary():
             return
-        srs = self._raster.GetSpatialRef()
-        height = srs.GetProjParm("satellite_height", 0.0)
-        if height <= 0.0:
+        correct = self._classic_geotransform()
+        if correct is None:
             return
-        scaled = tuple(value * height for value in gt)
-        # The MDIM `AsClassicDataset` view has no driver and silently ignores
-        # SetGeoTransform, so `to_crs` (which warps `self.raster`) would keep
-        # the radian geotransform. Wrap the view in an in-memory VRT that we
-        # can georeference, and keep the source view alive (the VRT references
-        # it; the view is in turn backed by the MDArray refs already held).
+        if self._geotransform == correct:
+            # Already georeferenced (e.g. opened via the classic read path).
+            self._geostationary_scaled = True
+            return
         vrt = gdal.Translate("", self._raster, format="VRT")
-        if vrt is not None and vrt.SetGeoTransform(scaled) == gdal.CE_None:
+        if vrt is not None and vrt.SetGeoTransform(correct) == gdal.CE_None:
             self._gdal_classic_src_ref = self._raster
             self._raster = vrt
         else:
             warnings.warn(
                 "could not georeference the geostationary view through a VRT; "
                 "the wrapper geotransform reports metres but the underlying "
-                "dataset keeps scan-angle radians, so to_crs/crop may be wrong.",
+                "dataset keeps its raw scan-angle grid, so to_crs/crop may be "
+                "wrong.",
                 stacklevel=3,
             )
-        self._geotransform = scaled
-        self._cell_size = abs(scaled[1])
+        self._geotransform = correct
+        self._cell_size = abs(correct[1])
         self._geostationary_scaled = True
 
     @property
