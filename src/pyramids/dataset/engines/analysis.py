@@ -1400,6 +1400,14 @@ class Analysis(_Engine):
         require_cleopatra()
         from cleopatra.vector_glyph import VectorGlyph
 
+        band_count = self._ds.band_count
+        for name, idx in (("u_band", u_band), ("v_band", v_band)):
+            if idx < 0 or idx >= band_count:
+                raise ValueError(
+                    f"{name}={idx} is out of range for a {band_count}-band "
+                    "dataset; plot_vector_field needs two in-range bands "
+                    "(u, v components)."
+                )
         u = self._ds.read_array(band=u_band)
         v = self._ds.read_array(band=v_band)
         x = self._ds.x

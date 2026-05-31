@@ -213,6 +213,23 @@ class TestPlotDataSet:
         assert len(fig.axes) == 1, "add_colorbar=False must not add a colorbar axes"
 
     @pytest.mark.plot
+    def test_plot_vector_field_band_out_of_range_raises(self):
+        """A single-band dataset gives a clear error, not a GDAL/index crash.
+
+        Test scenario:
+            ``plot_vector_field`` defaults to ``v_band=1``; on a one-band
+            raster that band does not exist, so it must raise a targeted
+            ``ValueError`` naming the offending band rather than a low-level
+            read failure.
+        """
+        arr = np.ones((1, 5, 5), dtype="float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+        )
+        with pytest.raises(ValueError, match=r"v_band=1 is out of range"):
+            dataset.plot_vector_field()
+
+    @pytest.mark.plot
     def test_multi_band(
         self,
         sentinel_raster: gdal.Dataset,
