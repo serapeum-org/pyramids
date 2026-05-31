@@ -395,6 +395,13 @@ class NetCDF(Dataset):
         geotransform from the raw radian coordinates would be wrong, so the
         stored metre geotransform is authoritative. The check is a cheap
         boolean flag, not an SRS parse, so it adds no cost to ordinary reads.
+
+        Returns:
+            tuple[float, float, float, float, float, float]: The GDAL
+            geotransform ``(x_min, pixel_width, row_rotation, y_max,
+            column_rotation, pixel_height)``. ``pixel_height`` is negative for
+            a north-up raster. Units follow the dataset CRS (degrees for
+            geographic, metres for projected, including rescaled geostationary).
         """
         if self._geostationary_scaled:
             return self._geotransform

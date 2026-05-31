@@ -104,6 +104,22 @@ class TestGeostationaryGeotransform:
         expected = RADIAN_PIXEL * PERSPECTIVE_HEIGHT
         assert goes_cube.geotransform[1] == pytest.approx(expected, rel=1e-6)
 
+    def test_already_metre_geostationary_is_not_rescaled(self):
+        # Idempotency: a geostationary file whose x/y are already in metres
+        # (abs(pixel) >= 1) must be left untouched and the flag stay unset.
+        arr = np.arange(NY * NX).reshape(NY, NX).astype("f4")
+        geo_metres = (-1.8e6, 5.6e4, 0.0, 3.6e6, 0.0, -5.6e4)
+        container = NetCDF.create_from_array(
+            arr, geo=geo_metres, epsg=4326, variable_name="CMI"
+        )
+        container.raster.GetRootGroup().OpenMDArray("CMI").SetSpatialRef(
+            _geostationary_srs(-75.0)
+        )
+        cube = container.get_variable("CMI")
+        assert cube._is_geostationary() is True
+        assert cube._geostationary_scaled is False
+        assert cube.geotransform[1] == pytest.approx(5.6e4)
+
     def test_to_crs_is_non_degenerate(self, goes_cube: NetCDF):
         warped = goes_cube.to_crs(4326)
         minx, miny, maxx, maxy = warped.bbox
