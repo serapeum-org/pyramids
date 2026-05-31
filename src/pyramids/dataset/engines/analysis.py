@@ -1298,6 +1298,11 @@ class Analysis(_Engine):
         if exclude_value is not None:
             mask &= arr != exclude_value
         values = arr[mask]
+        if values.size == 0:
+            raise ValueError(
+                f"Band {band} has no valid samples to histogram after masking "
+                "no-data / exclude_value / NaN."
+            )
         glyph = StatisticalGlyph(
             values, ax=ax, **StatisticalGlyph.filter_kwargs(kwargs)
         )

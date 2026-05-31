@@ -168,6 +168,48 @@ class TestPlotDataSet:
         assert isinstance(image, Image.Image)
         assert image.size == (dataset.columns, dataset.rows)
 
+    @pytest.mark.plot
+    def test_to_image_constant_band_returns_image(self):
+        """A flat / constant-value band still exports a (degenerate) image.
+
+        Test scenario:
+            A constant band has no dynamic range, so cleopatra's colormap
+            normalisation is degenerate (and may warn); ``to_image`` must
+            still return a ``PIL.Image.Image`` of the right size rather than
+            raising. Behaviour is documented, not "fixed" in cleopatra.
+        """
+        import warnings
+
+        from PIL import Image
+
+        arr = np.full((4, 4), 5.0, dtype="float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            image = dataset.to_image(band=0)
+        assert isinstance(image, Image.Image)
+        assert image.size == (dataset.columns, dataset.rows)
+
+    @pytest.mark.plot
+    def test_plot_histogram_all_nodata_raises(self):
+        """A fully no-data band raises a clear error instead of feeding the
+        glyph an empty array.
+
+        Test scenario:
+            Every pixel equals the no-data value, so after masking there are
+            no samples; ``plot_histogram`` must raise a targeted ``ValueError``
+            rather than passing an empty array to ``StatisticalGlyph``.
+        """
+        arr = np.full((4, 4), -9999.0, dtype="float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+            no_data_value=-9999.0,
+        )
+        with pytest.raises(ValueError, match="no valid samples"):
+            dataset.plot_histogram(band=0)
+
     @staticmethod
     def _uv_dataset():
         """Build a tiny 2-band (u, v) dataset for vector-field tests.
