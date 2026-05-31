@@ -2095,6 +2095,13 @@ class FeatureCollection(GeoDataFrame):
         given, and returns ``(glyph, ax)`` so the caller can still overlay a
         basemap on ``ax``.
 
+        Only polygon **exterior** rings are rendered: ``PolygonGlyph`` takes a
+        sequence of single vertex rings and has no representation for holes, so
+        interior rings are dropped and a polygon with a hole appears filled. A
+        :class:`~pyramids.base._errors.GeometryWarning` is emitted when any
+        interior ring is present; use ``engine="geopandas"`` to render holes
+        correctly.
+
         Args:
             column: Column whose values colour the features, or ``None``.
             **kwargs: Style options, filtered to the glyph's accepted keys.
@@ -2121,12 +2128,23 @@ class FeatureCollection(GeoDataFrame):
         elif geom_types <= {"Polygon", "MultiPolygon"}:
             polygons: list = []
             poly_values: list | None = [] if values is not None else None
+            has_holes = False
             for idx, geom in enumerate(self.geometry):
                 # A plain Polygon has no ``.geoms``; a MultiPolygon does.
                 for part in getattr(geom, "geoms", [geom]):
                     polygons.append(np.asarray(part.exterior.coords))
+                    if part.interiors:
+                        has_holes = True
                     if poly_values is not None:
                         poly_values.append(values[idx])
+            if has_holes:
+                warnings.warn(
+                    "engine='cleopatra' renders only polygon exterior rings; "
+                    "interior rings (holes) are dropped and will appear "
+                    "filled. Use engine='geopandas' to render holes.",
+                    GeometryWarning,
+                    stacklevel=2,
+                )
             glyph = PolygonGlyph(
                 polygons,
                 values=np.asarray(poly_values) if poly_values is not None else None,

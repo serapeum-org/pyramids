@@ -11,8 +11,9 @@ from __future__ import annotations
 import geopandas as gpd
 import pytest
 from matplotlib.axes import Axes
-from shapely.geometry import Point, box
+from shapely.geometry import Point, Polygon, box
 
+from pyramids.base._errors import GeometryWarning
 from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.plot
@@ -27,6 +28,25 @@ ScatterGlyph = _sg.ScatterGlyph
 
 class TestFeatureCollectionCleopatraEngine:
     """``engine="cleopatra"`` routing on ``FeatureCollection.plot``."""
+
+    def test_polygon_with_holes_warns(self):
+        """A polygon with interior rings warns that holes are dropped.
+
+        ``PolygonGlyph`` cannot represent holes, so the cleopatra engine
+        renders only exterior rings; this must surface as a
+        ``GeometryWarning`` rather than silently producing a wrong map.
+        """
+        shell = [(0, 0), (4, 0), (4, 4), (0, 4)]
+        hole = [(1, 1), (2, 1), (2, 2), (1, 2)]
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1.0]},
+                geometry=[Polygon(shell, [hole])],
+                crs="EPSG:4326",
+            )
+        )
+        with pytest.warns(GeometryWarning, match="holes"):
+            fc.plot(column="v", engine="cleopatra")
 
     def test_polygon_engine_returns_polygon_glyph(self):
         """Polygon features render through ``PolygonGlyph``."""
