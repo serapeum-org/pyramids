@@ -648,11 +648,12 @@ def import_cftime(message: str):
 
 
 def import_xarray(message: str):
-    """Import xarray."""
+    """Import and return xarray (ships via the optional [xarray] extra)."""
     try:
-        import xarray  # noqa
+        import xarray
     except ImportError:
         raise OptionalPackageDoesNotExist(message)
+    return xarray
 
 
 def import_kerchunk(message: str):

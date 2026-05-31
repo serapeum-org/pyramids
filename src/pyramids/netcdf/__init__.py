@@ -14,10 +14,12 @@ from pyramids.netcdf.models import (
 )
 from pyramids.netcdf.netcdf import NetCDF
 from pyramids.netcdf.ugrid import UgridDataset
+from pyramids.netcdf.labeled import LabeledDataset
 
 __all__ = [
     "NetCDF",
     "UgridDataset",
+    "LabeledDataset",
     "NetCDFMetadata",
     "CFInfo",
     "DimensionInfo",
