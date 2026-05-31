@@ -2066,6 +2066,26 @@ class FeatureCollection(GeoDataFrame):
             ValueError: If ``engine`` is not a supported value, or
                 ``engine="cleopatra"`` is used with unsupported geometry.
             CRSError: If `basemap` is requested but the FC has no CRS.
+
+        Examples:
+            - Default geopandas engine returns a matplotlib ``Axes`` you can
+              keep styling (tagged ``+SKIP`` — needs the ``[viz]`` extra):
+
+                ```python
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> gdf = gpd.GeoDataFrame({"v": [1.0, 2.0]}, geometry=[Point(0, 0), Point(1, 1)], crs="EPSG:4326")
+                >>> fc = FeatureCollection(gdf)
+                >>> ax = fc.plot(column="v")  # doctest: +SKIP
+                >>> _ = ax.set_title("points")  # doctest: +SKIP
+                ```
+            - The cleopatra engine returns the glyph, exposing the colorbar:
+
+                ```python
+                >>> glyph = fc.plot(column="v", engine="cleopatra")  # doctest: +SKIP
+                >>> _ = glyph.cbar.set_label("value")  # doctest: +SKIP
+                ```
         """
         if engine == "geopandas":
             result = super().plot(column=column, **kwargs)

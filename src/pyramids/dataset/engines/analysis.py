@@ -1282,6 +1282,26 @@ class Analysis(_Engine):
                 :meth:`StatisticalGlyph.histogram` — the
                 :class:`matplotlib.figure.Figure`, the
                 :class:`matplotlib.axes.Axes`, and the histogram ``dict``.
+
+        Examples:
+            - Plot the distribution of a band and reuse the matplotlib
+              handles (tagged ``+SKIP`` — needs the ``[viz]`` extra):
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.arange(100, dtype="float32").reshape(10, 10)
+                >>> ds = Dataset.create_from_array(arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
+                >>> fig, ax, hist = ds.plot_histogram(band=0, bins=8)  # doctest: +SKIP
+                >>> _ = ax.set_title("band 0 distribution")  # doctest: +SKIP
+                ```
+            - Drop a sentinel value before binning:
+
+                ```python
+                >>> arr = np.array([[1.0, 2.0, 99.0], [3.0, 4.0, 99.0]], dtype="float32")
+                >>> ds = Dataset.create_from_array(arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
+                >>> fig, ax, hist = ds.plot_histogram(band=0, exclude_value=99.0)  # doctest: +SKIP
+                ```
         """
         require_cleopatra()
         from cleopatra.statistical_glyph import StatisticalGlyph
@@ -1336,6 +1356,25 @@ class Analysis(_Engine):
             PIL.Image.Image:
                 An RGB image of the colour-mapped band, the same width and
                 height as the raster band.
+
+        Examples:
+            - Export a band as a viridis thumbnail and inspect its size
+              (tagged ``+SKIP`` — needs the ``[viz]`` extra):
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.arange(48, dtype="float32").reshape(6, 8)
+                >>> ds = Dataset.create_from_array(arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
+                >>> img = ds.to_image(band=0, cmap="viridis")  # doctest: +SKIP
+                >>> img.size  # (width, height) == (columns, rows)  # doctest: +SKIP
+                (8, 6)
+                ```
+            - Save the thumbnail to disk via PIL:
+
+                ```python
+                >>> img.save("band0.png")  # doctest: +SKIP
+                ```
         """
         require_cleopatra()
         from cleopatra.array_glyph import ArrayGlyph
@@ -1401,6 +1440,25 @@ class Analysis(_Engine):
                 :class:`matplotlib.figure.Figure`, the
                 :class:`matplotlib.axes.Axes`, and the mappable coloured by
                 vector magnitude.
+
+        Examples:
+            - Render a two-band ``(u, v)`` stack as arrows (tagged ``+SKIP``
+              — needs the ``[viz]`` extra):
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> rng = np.random.default_rng(0)
+                >>> uv = rng.standard_normal((2, 6, 6)).astype("float32")
+                >>> ds = Dataset.create_from_array(uv, top_left_corner=(0, 0), cell_size=1.0, epsg=4326)
+                >>> fig, ax, im = ds.plot_vector_field(u_band=0, v_band=1, kind="quiver")  # doctest: +SKIP
+                ```
+            - Draw streamlines without the magnitude colorbar (e.g. to add a
+              shared one later):
+
+                ```python
+                >>> fig, ax, im = ds.plot_vector_field(kind="streamplot", add_colorbar=False)  # doctest: +SKIP
+                ```
         """
         require_cleopatra()
         from cleopatra.vector_glyph import VectorGlyph
