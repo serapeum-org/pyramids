@@ -296,7 +296,12 @@ def _select_vector_member(
     if isinstance(layer, str) and layer in stems:
         member = stems[layer]
         passthrough = None
-    elif isinstance(layer, int) and 0 <= layer < len(members):
+    elif isinstance(layer, int) and not isinstance(layer, bool):
+        if not 0 <= layer < len(members):
+            raise IndexError(
+                f"layer index {layer} is out of range for the {len(members)} "
+                f"vector member(s) in {str(path)!r}: {members!r}"
+            )
         member = members[layer]
         passthrough = None
     elif layer is None and len(members) > 1:

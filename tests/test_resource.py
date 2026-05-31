@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import gzip
 import shutil
+import subprocess
+import sys
 import tarfile
 import warnings
 import zipfile
@@ -385,6 +387,51 @@ class TestSelectVectorMember:
         assert member == "city.gpkg"
         assert passthrough == "roads"
 
+    def test_out_of_range_index_raises(self):
+        with pytest.raises(IndexError, match="out of range"):
+            _select_vector_member(["a.shp", "b.shp"], 5, Path("x.zip"))
+
+    def test_bool_layer_is_not_used_as_index(self):
+        # bool subclasses int but must not be treated as a member index
+        member, passthrough = _select_vector_member(
+            ["a.shp", "b.shp"], True, Path("x.zip")
+        )
+        assert member == "a.shp"
+        assert passthrough is True
+
+
+class TestLazyImport:
+    """`import pyramids` must stay light (M1): no eager dataset/feature/dask."""
+
+    def test_import_pyramids_does_not_pull_heavy_stack(self):
+        code = (
+            "import sys, pyramids\n"
+            "assert 'pyramids.feature' not in sys.modules, 'feature eagerly imported'\n"
+            "assert 'pyramids.dataset' not in sys.modules, 'dataset eagerly imported'\n"
+            "assert 'dask_geopandas' not in sys.modules, 'dask_geopandas eagerly imported'\n"
+            "assert callable(pyramids.read_resource), 'lazy export not callable'\n"
+            "assert 'pyramids.feature' in sys.modules, 'access did not load feature'\n"
+            "print('LAZY_OK')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True
+        )
+        assert result.returncode == 0, result.stderr
+        assert "LAZY_OK" in result.stdout, result.stdout
+
+    def test_unknown_attribute_raises(self):
+        import pyramids
+
+        with pytest.raises(AttributeError, match="has no attribute"):
+            pyramids.this_attribute_does_not_exist
+
+    def test_dir_includes_lazy_exports(self):
+        import pyramids
+
+        names = dir(pyramids)
+        assert "read_resource" in names
+        assert "sniff_kind" in names
+
 
 class TestHelperRobustness:
     """Defensive branches that must never raise or mis-dispatch."""
@@ -395,17 +442,19 @@ class TestHelperRobustness:
             _warn_if_multilayer(tmp_path / "missing.gpkg")
 
     def test_kind_raster_on_archive_without_raster_member_raises(self, tmp_path: Path):
+        # GDAL rejects the unreadable member with a RuntimeError.
         zp = tmp_path / "blob.zip"
         with zipfile.ZipFile(zp, "w") as zf:
             zf.writestr("blob.bin", "\x00\x01\x02")
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError):
             read_resource(zp, kind="raster")
 
     def test_kind_vector_on_archive_without_vector_member_raises(self, tmp_path: Path):
+        # pyogrio raises DataSourceError (a RuntimeError subclass) for the member.
         zp = tmp_path / "blob.zip"
         with zipfile.ZipFile(zp, "w") as zf:
             zf.writestr("blob.bin", "\x00\x01\x02")
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError):
             read_resource(zp, kind="vector")
 
 

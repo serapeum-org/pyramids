@@ -25,9 +25,32 @@ except PackageNotFoundError:  # pragma: no cover
 
 Config()
 
-# Imported after Config() so the package (and GDAL) is fully initialised before
-# `_resource` pulls in the Dataset / FeatureCollection readers it dispatches to.
-from pyramids._resource import ResourceKind, read_resource, sniff_kind
+# `read_resource` / `sniff_kind` live in `pyramids._resource`, which imports the
+# Dataset and FeatureCollection readers (and, transitively, geopandas / dask).
+# Expose them lazily via PEP 562 module `__getattr__` so a bare `import pyramids`
+# stays light — that heavy stack is only pulled in when these symbols are first
+# accessed, not at package import time.
+_LAZY_RESOURCE_EXPORTS = frozenset({"read_resource", "sniff_kind", "ResourceKind"})
+
+
+def __getattr__(name: str):
+    """Lazily import the resource-reader exports on first access (PEP 562)."""
+    if name in _LAZY_RESOURCE_EXPORTS:
+        from pyramids._resource import ResourceKind, read_resource, sniff_kind
+
+        globals().update(
+            read_resource=read_resource,
+            sniff_kind=sniff_kind,
+            ResourceKind=ResourceKind,
+        )
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    """Include the lazily-exported names in ``dir(pyramids)``."""
+    return sorted(set(globals()) | _LAZY_RESOURCE_EXPORTS)
+
 
 __all__ = [
     "configure",
