@@ -2135,8 +2135,6 @@ class FeatureCollection(GeoDataFrame):
                 (``MultiPoint`` is not supported).
         """
         require_cleopatra()
-        from cleopatra.polygon_glyph import PolygonGlyph
-        from cleopatra.scatter_glyph import ScatterGlyph
 
         if column is not None and column not in self.columns:
             raise ValueError(
@@ -2146,37 +2144,9 @@ class FeatureCollection(GeoDataFrame):
         values = self[column].to_numpy() if column is not None else None
         geom_types = set(self.geom_type.unique())
         if geom_types <= {"Point"}:
-            glyph = ScatterGlyph(
-                self.geometry.x.to_numpy(),
-                self.geometry.y.to_numpy(),
-                values=values,
-                **ScatterGlyph.filter_kwargs(kwargs),
-            )
+            glyph = self._cleopatra_scatter_glyph(values, **kwargs)
         elif geom_types <= {"Polygon", "MultiPolygon"}:
-            polygons: list = []
-            poly_values: list | None = [] if values is not None else None
-            has_holes = False
-            for idx, geom in enumerate(self.geometry):
-                # A plain Polygon has no ``.geoms``; a MultiPolygon does.
-                for part in getattr(geom, "geoms", [geom]):
-                    polygons.append(np.asarray(part.exterior.coords))
-                    if part.interiors:
-                        has_holes = True
-                    if poly_values is not None:
-                        poly_values.append(values[idx])
-            if has_holes:
-                warnings.warn(
-                    "engine='cleopatra' renders only polygon exterior rings; "
-                    "interior rings (holes) are dropped and will appear "
-                    "filled. Use engine='geopandas' to render holes.",
-                    GeometryWarning,
-                    stacklevel=2,
-                )
-            glyph = PolygonGlyph(
-                polygons,
-                values=np.asarray(poly_values) if poly_values is not None else None,
-                **PolygonGlyph.filter_kwargs(kwargs),
-            )
+            glyph = self._cleopatra_polygon_glyph(values, **kwargs)
         else:
             raise ValueError(
                 "engine='cleopatra' supports single Point or "
@@ -2184,8 +2154,68 @@ class FeatureCollection(GeoDataFrame):
                 f"{sorted(geom_types)} (MultiPoint is not supported)."
             )
         _fig, ax, _coll = glyph.plot()
-        result = (glyph, ax)
-        return result
+        return glyph, ax
+
+    def _cleopatra_scatter_glyph(self, values: Any, **kwargs: Any) -> Any:
+        """Build a ``ScatterGlyph`` from this collection's point geometries.
+
+        Args:
+            values: Per-point colour values, or ``None`` for a flat colour.
+            **kwargs: Style options, filtered to the glyph's accepted keys.
+
+        Returns:
+            cleopatra.scatter_glyph.ScatterGlyph: The point glyph.
+        """
+        from cleopatra.scatter_glyph import ScatterGlyph
+
+        return ScatterGlyph(
+            self.geometry.x.to_numpy(),
+            self.geometry.y.to_numpy(),
+            values=values,
+            **ScatterGlyph.filter_kwargs(kwargs),
+        )
+
+    def _cleopatra_polygon_glyph(self, values: Any, **kwargs: Any) -> Any:
+        """Build a ``PolygonGlyph`` from polygon exterior rings.
+
+        MultiPolygons are expanded to one ring per part (the row's value is
+        repeated for each part). Interior rings (holes) are dropped — see
+        :meth:`_plot_cleopatra` — and a
+        :class:`~pyramids.base._errors.GeometryWarning` is emitted when any
+        are present.
+
+        Args:
+            values: Per-feature colour values, or ``None`` for a flat colour.
+            **kwargs: Style options, filtered to the glyph's accepted keys.
+
+        Returns:
+            cleopatra.polygon_glyph.PolygonGlyph: The polygon glyph.
+        """
+        from cleopatra.polygon_glyph import PolygonGlyph
+
+        polygons: list = []
+        poly_values: list | None = [] if values is not None else None
+        has_holes = False
+        for idx, geom in enumerate(self.geometry):
+            # A plain Polygon has no ``.geoms``; a MultiPolygon does.
+            for part in getattr(geom, "geoms", [geom]):
+                polygons.append(np.asarray(part.exterior.coords))
+                has_holes = has_holes or bool(part.interiors)
+                if poly_values is not None:
+                    poly_values.append(values[idx])
+        if has_holes:
+            warnings.warn(
+                "engine='cleopatra' renders only polygon exterior rings; "
+                "interior rings (holes) are dropped and will appear "
+                "filled. Use engine='geopandas' to render holes.",
+                GeometryWarning,
+                stacklevel=2,
+            )
+        return PolygonGlyph(
+            polygons,
+            values=np.asarray(poly_values) if poly_values is not None else None,
+            **PolygonGlyph.filter_kwargs(kwargs),
+        )
 
     def concat(self, other: GeoDataFrame) -> FeatureCollection:
         """Concatenate another GeoDataFrame onto this FeatureCollection.

@@ -298,7 +298,7 @@ class TestPlotDataSet:
         dataset = Dataset.create_from_array(
             stack, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
         )
-        fig, ax, im = dataset.plot_vector_field(u_band=1, v_band=2, kind="quiver")
+        fig, ax, _ = dataset.plot_vector_field(u_band=1, v_band=2, kind="quiver")
         assert fig is not None and ax is not None
 
     @staticmethod
@@ -328,7 +328,7 @@ class TestPlotDataSet:
             triple from ``VectorGlyph.plot``.
         """
         dataset = self._uv_dataset()
-        fig, ax, im = dataset.plot_vector_field(u_band=0, v_band=1, kind=kind)
+        fig, ax, _ = dataset.plot_vector_field(u_band=0, v_band=1, kind=kind)
         assert fig is not None and ax is not None
 
     @pytest.mark.plot
@@ -340,7 +340,7 @@ class TestPlotDataSet:
             (colorbar on) adds a second Axes for the colour bar.
         """
         dataset = self._uv_dataset()
-        fig, ax, im = dataset.plot_vector_field(
+        fig, _, _ = dataset.plot_vector_field(
             u_band=0, v_band=1, kind="quiver", add_colorbar=False
         )
         assert len(fig.axes) == 1, "add_colorbar=False must not add a colorbar axes"
@@ -1131,7 +1131,7 @@ class TestDatasetPlotRgbOptionsEdges:
         ), f"Empty rgb_options should leave rgb=None, got: {call_kwargs.get('rgb')}"
         assert (
             call_kwargs.get("surface_reflectance") is None
-        ), f"Empty rgb_options should leave surface_reflectance=None"
+        ), "Empty rgb_options should leave surface_reflectance=None"
         deprecations = [
             w for w in captured if issubclass(w.category, DeprecationWarning)
         ]
@@ -1886,7 +1886,7 @@ class TestMeshRenderHelper:
         kwargs = mock_add.call_args.kwargs
         assert kwargs.get("crs") == 3857, f"`crs` must equal basemap_epsg; got {kwargs}"
         assert kwargs.get("source") is None, (
-            f"`source` should be None when basemap=True (no provider); " f"got {kwargs}"
+            f"`source` should be None when basemap=True (no provider); got {kwargs}"
         )
 
     def test_mesh_render_basemap_string_passes_source(self):
