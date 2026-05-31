@@ -32,16 +32,24 @@ stores style/colour options into ``self.default_options``, and
 ``ArrayGlyph.plot`` writes the same dict again. Forwarding the *same*
 kwargs dict to both call sites was the original D-4 smell — harmless
 (values were just re-assigned) but confusing. PR-6 splits the
-incoming ``**kwargs`` into two buckets:
+incoming ``**kwargs`` into two buckets, and the split is sourced from
+``ArrayGlyph.option_keys()`` (cleopatra's own declared set of
+constructor options, resolvable without building an instance) rather
+than a hand-maintained enumeration — so the routing tracks cleopatra
+automatically when options are added or moved:
 
-* **render-call-only** — ``points``, ``point_color``, ``point_size``,
-  ``pid_color``, ``pid_size``, ``kind``. These are explicit keyword
-  arguments on ``ArrayGlyph.plot``/``.animate``/``.facet`` and must
-  reach the render method, not the constructor.
-* **constructor** — every other kwarg (``cmap``, ``vmin``, ``vmax``,
-  ``levels``, ``robust``, ``center``, ``extend``, ``cbar_kwargs``,
-  ``figsize``, ``title``, ``num_size``, ...). These go into
-  ``default_options`` and the render methods pick them up from there.
+* **constructor** — every key in ``ArrayGlyph.option_keys()`` (``cmap``,
+  ``vmin``, ``vmax``, ``levels``, ``robust``, ``center``, ``extend``,
+  ``cbar_kwargs``, ``add_colorbar``, ``color_scale``, ``figsize``,
+  ``title``, ...). These go into ``default_options`` and the render
+  methods pick them up from there.
+* **render-call-only** — everything not in ``option_keys()``: the explicit
+  method params (``points``, ``point_color``, ``point_size``, ``pid_color``,
+  ``pid_size``) that are not ``default_options`` keys, plus any invalid key,
+  which the render method rejects with ``ValueError``. ``kind`` is the lone
+  exception — it is *in* ``option_keys()`` yet must reach the render call
+  (it is an explicit ``plot``/``facet`` param read from the signature, not
+  from ``default_options``), so it is force-routed here.
 
 The animate path is the one exception: cleopatra's ``ArrayGlyph.animate``
 re-validates **every** kwarg against ``DEFAULT_OPTIONS``, so for that
@@ -56,6 +64,7 @@ from typing import Any, Callable
 import numpy as np
 
 from pyramids.base._utils import require_cleopatra
+
 # `add_basemap` is imported at top-level so existing test patches that
 # target `pyramids.basemap.basemap.add_basemap` keep working. The
 # helper re-resolves the symbol via `pyramids.basemap.basemap` inside
@@ -150,8 +159,9 @@ def render_array(
 
     Raises:
         ValueError: If ``mode`` is not one of the accepted values, if a
-            required mode-specific argument is missing, or if
-            ``basemap`` is truthy and ``basemap_epsg`` is ``None``.
+            required mode-specific argument is missing, if ``basemap`` is
+            truthy and ``basemap_epsg`` is ``None``, or if ``color_scale`` is
+            not a recognised :class:`~cleopatra.styles.ColorScale` value.
 
     Examples:
         - Single-slice plot path. Tagged ``+SKIP`` because the call
@@ -229,24 +239,30 @@ def render_array(
     """
     require_cleopatra()
     from cleopatra.array_glyph import ArrayGlyph
+    from cleopatra.styles import ColorScale
 
     valid_modes = ("plot", "animate", "facet")
     if mode not in valid_modes:
-        raise ValueError(
-            f"Invalid mode={mode!r}; expected one of {valid_modes}."
-        )
+        raise ValueError(f"Invalid mode={mode!r}; expected one of {valid_modes}.")
     if mode == "animate" and animation_axis_values is None:
-        raise ValueError(
-            "`animation_axis_values` is required when mode='animate'."
-        )
+        raise ValueError("`animation_axis_values` is required when mode='animate'.")
     if mode == "facet" and not facet_kwargs:
-        raise ValueError(
-            "`facet_kwargs` is required when mode='facet'."
-        )
+        raise ValueError("`facet_kwargs` is required when mode='facet'.")
     if basemap and basemap_epsg is None:
-        raise ValueError(
-            "Dataset must have a CRS (epsg) to use basemap."
-        )
+        raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
+    # Fail fast on an invalid ``color_scale`` with a pyramids-side message
+    # that lists the valid options, instead of deferring to a less-targeted
+    # cleopatra error deep in the render call. ``ColorScale`` lookup is
+    # case-insensitive, so any-case valid values pass through unchanged.
+    color_scale = kwargs.get("color_scale")
+    if color_scale is not None:
+        try:
+            ColorScale(color_scale)
+        except ValueError:
+            valid = [s.value for s in ColorScale]
+            raise ValueError(
+                f"Unsupported color_scale {color_scale!r}; valid options: {valid}."
+            ) from None
 
     # cleopatra's `coords` and `extent` are mutually exclusive; drop
     # `extent` when curvilinear coords are present.
@@ -259,21 +275,35 @@ def render_array(
     # PR-6 the same ``kwargs`` dict was passed to both call sites; that
     # double-forward was harmless (cleopatra re-assigned the same values
     # into ``default_options``) but obscured which kwargs belonged where.
-    plot_call_only = {
-        "points",
-        "point_color",
-        "point_size",
-        "pid_color",
-        "pid_size",
-        "kind",
-    }
+    # The split is driven by ``ArrayGlyph.option_keys()`` — cleopatra's
+    # own declared set of constructor options, resolvable without building
+    # an instance — so pyramids tracks cleopatra automatically instead of
+    # hand-maintaining the render-only list. The render-only method params
+    # (``points``, ``point_color``, ..., ``pid_size``) are not in that set,
+    # so they fall to ``render_kwargs`` on their own; an invalid key does
+    # too, so the render method rejects it instead of being silently dropped.
+    #
+    # ``kind`` is the one exception that needs an override: it lives in BOTH
+    # places — a ``default_options`` key *and* an explicit
+    # ``ArrayGlyph.plot``/``.facet`` parameter (default ``"auto"``) — and the
+    # render method *unconditionally* writes its own ``kind`` arg into
+    # ``default_options`` (``array_glyph.py``: ``default_options["kind"] =
+    # kind``). So routing a constructor ``kind`` would be clobbered back to
+    # ``"auto"``; it must reach the render call instead.
+    #
+    # ``title`` is also dual-membership, but it does NOT need an override: the
+    # render method only overwrites ``default_options["title"]`` when its
+    # ``title`` arg is not ``None``, so a constructor-set title survives and
+    # routing it to the constructor (via ``option_keys()``) is correct.
+    RENDER_ONLY_OVERRIDES = {"kind"}
+    ctor_option_keys = ArrayGlyph.option_keys()
     ctor_kwargs: dict[str, Any] = {}
     render_kwargs: dict[str, Any] = {}
     for key, value in kwargs.items():
-        if key in plot_call_only:
-            render_kwargs[key] = value
-        else:
+        if key in ctor_option_keys and key not in RENDER_ONLY_OVERRIDES:
             ctor_kwargs[key] = value
+        else:
+            render_kwargs[key] = value
     # The ``"animate"`` path only flows kwargs into ``cleo.animate(...)``,
     # not the constructor — keys like ``interval`` are valid for animate
     # but not in cleopatra's ``DEFAULT_OPTIONS`` and would trigger an
@@ -309,7 +339,9 @@ def render_array(
         # honoured (the patch swaps the module attribute, not any
         # pre-bound reference this helper might hold).
         _basemap_module.add_basemap(
-            target_ax, crs=basemap_epsg, source=basemap_source,
+            target_ax,
+            crs=basemap_epsg,
+            source=basemap_source,
         )
 
     if mode == "plot":
@@ -443,9 +475,7 @@ def mesh_render(
             ```
     """
     if basemap and basemap_epsg is None:
-        raise ValueError(
-            "Dataset must have a CRS (epsg) to use basemap."
-        )
+        raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
     require_cleopatra()
     from pyramids.netcdf.ugrid.plot import plot_mesh_data
 

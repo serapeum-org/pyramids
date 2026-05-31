@@ -22,6 +22,19 @@ _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not ins
 Config = _cleo_config.Config
 
 
+@pytest.fixture(autouse=True)
+def _close_matplotlib_figures():
+    """Close all matplotlib figures after each plot test to bound memory.
+
+    Plotting tests open figures via cleopatra/pyplot; without this teardown
+    the suite accumulates them and matplotlib warns past 20 open figures.
+    """
+    yield
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
+
+
 class TestPlotDataSet:
     Config.set_matplotlib_backend("agg")
 
@@ -35,6 +48,368 @@ class TestPlotDataSet:
         dataset = Dataset(src)
         array_glyph = dataset.plot(band=0)
         assert isinstance(array_glyph, ArrayGlyph)
+
+    @pytest.mark.plot
+    def test_constant_value_band_does_not_raise(self):
+        """A flat / constant-value band plots without raising.
+
+        Regression guard for the cleopatra 0.11.0 flat-data fix: a degenerate
+        colour range (e.g. a single-class mask, a flat DEM tile, or a
+        nodata-only window) used to raise ``ZeroDivisionError`` while deriving
+        tick spacing. Such bands are routine in GIS rasters, so plotting one
+        must succeed.
+        """
+        arr = np.ones((8, 8), dtype="float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
+        )
+        array_glyph = dataset.plot(band=0)
+        assert isinstance(array_glyph, ArrayGlyph)
+
+    @pytest.mark.plot
+    def test_add_colorbar_toggle_controls_cbar(self, src: Dataset):
+        """``add_colorbar`` flows through to the glyph's ``cbar``.
+
+        Test scenario:
+            The default render draws a colorbar (``glyph.cbar`` is set),
+            and ``add_colorbar=False`` suppresses it (``glyph.cbar`` is
+            ``None``). This pins the cleopatra pass-through documented on
+            the plot facade.
+        """
+        dataset = Dataset(src)
+        with_cbar = dataset.plot(band=0)
+        assert with_cbar.cbar is not None, "default plot must draw a colorbar"
+        without_cbar = dataset.plot(band=0, add_colorbar=False)
+        assert (
+            without_cbar.cbar is None
+        ), "add_colorbar=False must suppress the colorbar"
+
+    @pytest.mark.plot
+    def test_glyph_exposes_mappable_im(self, src: Dataset):
+        """The returned glyph exposes the colour-mapped artist as ``im``."""
+        dataset = Dataset(src)
+        glyph = dataset.plot(band=0)
+        assert glyph.im is not None, "glyph.im (the mappable) must be populated"
+
+    @pytest.mark.plot
+    def test_plot_histogram_returns_fig_ax_hist(self, src: Dataset):
+        """``plot_histogram`` renders and returns ``(fig, ax, hist)``."""
+        dataset = Dataset(src)
+        fig, ax, hist = dataset.plot_histogram(band=0, bins=10)
+        assert fig is not None and ax is not None
+        assert isinstance(hist, dict)
+
+    @pytest.mark.plot
+    def test_plot_histogram_excludes_invalid_samples(self):
+        """No-data and ``exclude_value`` samples never reach the glyph.
+
+        Test scenario:
+            A band carrying a no-data pixel (``-9999``) and a repeated
+            ``7.0`` is histogrammed with ``exclude_value=7.0``. Capturing
+            the values handed to ``StatisticalGlyph`` proves both the
+            no-data value and the explicit ``exclude_value`` are dropped,
+            leaving only the genuine samples.
+        """
+        arr = np.array([[1.0, 2.0, -9999.0], [3.0, 7.0, 7.0]], dtype="float32")
+        dataset = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0, 0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        captured: dict = {}
+
+        class _FakeSG:
+            @staticmethod
+            def filter_kwargs(kw):
+                return {}
+
+            def __init__(self, values, ax=None, **kwargs):
+                captured["values"] = np.asarray(values)
+
+            def histogram(self, bins=15):
+                return ("fig", "ax", {})
+
+        with patch("cleopatra.statistical_glyph.StatisticalGlyph", new=_FakeSG):
+            dataset.plot_histogram(band=0, bins=5, exclude_value=7.0)
+        vals = sorted(captured["values"].tolist())
+        assert vals == [
+            1.0,
+            2.0,
+            3.0,
+        ], f"nodata (-9999) and exclude_value (7.0) must be dropped; got {vals}"
+
+    @pytest.mark.plot
+    def test_invalid_color_scale_raises(self, src: Dataset):
+        """An unsupported ``color_scale`` fails fast with a clear message.
+
+        Test scenario:
+            ``color_scale="bogus"`` is rejected before any rendering work,
+            with a pyramids-side ``ValueError`` that names the offending
+            value (and lists the valid options).
+        """
+        dataset = Dataset(src)
+        with pytest.raises(ValueError, match=r"color_scale"):
+            dataset.plot(band=0, color_scale="bogus")
+
+    @pytest.mark.plot
+    def test_valid_color_scale_any_case_passes(self, src: Dataset):
+        """A valid ``color_scale`` passes regardless of case.
+
+        Test scenario:
+            ``ColorScale`` lookup is case-insensitive, so a mixed-case
+            ``"Power"`` must validate and render without raising.
+        """
+        dataset = Dataset(src)
+        glyph = dataset.plot(band=0, color_scale="Power")
+        assert isinstance(glyph, ArrayGlyph)
+
+    @pytest.mark.plot
+    def test_to_image_returns_pil_image(self, src: Dataset):
+        """``to_image`` exports a band as a colour-mapped PIL image.
+
+        Test scenario:
+            The returned object is a ``PIL.Image.Image`` sized to the
+            band's (columns, rows), i.e. a real colour-mapped raster
+            thumbnail rather than raw matplotlib state.
+        """
+        from PIL import Image
+
+        dataset = Dataset(src)
+        image = dataset.to_image(band=0, cmap="viridis")
+        assert isinstance(image, Image.Image)
+        assert image.size == (dataset.columns, dataset.rows)
+
+    @pytest.mark.plot
+    def test_to_image_constant_band_returns_image(self):
+        """A flat / constant-value band still exports a (degenerate) image.
+
+        Test scenario:
+            A constant band has no dynamic range, so cleopatra's colormap
+            normalisation is degenerate (and may warn); ``to_image`` must
+            still return a ``PIL.Image.Image`` of the right size rather than
+            raising. Behaviour is documented, not "fixed" in cleopatra.
+        """
+        import warnings
+
+        from PIL import Image
+
+        arr = np.full((4, 4), 5.0, dtype="float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            image = dataset.to_image(band=0)
+        assert isinstance(image, Image.Image)
+        assert image.size == (dataset.columns, dataset.rows)
+
+    @pytest.mark.plot
+    def test_to_image_all_nodata_raises(self):
+        """A fully no-data band raises instead of rendering a blank image.
+
+        Test scenario:
+            Every pixel equals the no-data value, so there are no valid
+            samples to colour-map; ``to_image`` must raise a targeted
+            ``ValueError`` rather than feed an all-masked array to
+            ``apply_colormap`` (whose normalisation is then degenerate).
+        """
+        arr = np.full((4, 4), -9999.0, dtype="float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+            no_data_value=-9999.0,
+        )
+        with pytest.raises(ValueError, match="no valid"):
+            dataset.to_image(band=0)
+
+    @pytest.mark.plot
+    def test_plot_histogram_all_nodata_raises(self):
+        """A fully no-data band raises a clear error instead of feeding the
+        glyph an empty array.
+
+        Test scenario:
+            Every pixel equals the no-data value, so after masking there are
+            no samples; ``plot_histogram`` must raise a targeted ``ValueError``
+            rather than passing an empty array to ``StatisticalGlyph``.
+        """
+        arr = np.full((4, 4), -9999.0, dtype="float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+            no_data_value=-9999.0,
+        )
+        with pytest.raises(ValueError, match="no valid samples"):
+            dataset.plot_histogram(band=0)
+
+    @pytest.mark.plot
+    def test_plot_histogram_integer_band_skips_nan_branch(self):
+        """An integer-dtype band histograms without the float-NaN masking.
+
+        Test scenario:
+            ``np.isnan`` rejects integer arrays, so the masking guards on
+            ``np.issubdtype(..., np.floating)``. An integer band must
+            therefore histogram successfully (exercising the non-float
+            branch) and still drop its no-data value.
+        """
+        arr = np.array([[1, 2, 0], [3, 4, 0]], dtype="int32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+            no_data_value=0,
+        )
+        fig, ax, hist = dataset.plot_histogram(band=0, bins=4)
+        assert fig is not None and ax is not None
+        assert isinstance(hist, dict)
+
+    @pytest.mark.plot
+    def test_plot_histogram_draws_on_supplied_ax(self):
+        """A caller-supplied ``ax`` is the one drawn on.
+
+        Test scenario:
+            Passing ``ax=`` binds the histogram to that axes; the returned
+            axes must be the same object so callers can compose subplots.
+        """
+        import matplotlib.pyplot as plt
+
+        arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+        )
+        _fig, host_ax = plt.subplots()
+        _f, ax, _h = dataset.plot_histogram(band=0, ax=host_ax)
+        assert ax is host_ax, "histogram must draw on the supplied ax"
+
+    @pytest.mark.plot
+    def test_to_image_exclude_value_masks_extra_value(self):
+        """``exclude_value`` is masked in addition to the no-data value.
+
+        Test scenario:
+            Passing ``exclude_value`` exercises the extra-mask branch in
+            ``to_image``; the call must still return a correctly sized
+            ``PIL.Image.Image``.
+        """
+        import warnings
+
+        from PIL import Image
+
+        arr = np.array([[1.0, 2.0, 7.0], [3.0, 4.0, 7.0]], dtype="float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+            no_data_value=-9999.0,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            image = dataset.to_image(band=0, exclude_value=7.0)
+        assert isinstance(image, Image.Image)
+        assert image.size == (dataset.columns, dataset.rows)
+
+    @pytest.mark.plot
+    def test_plot_vector_field_custom_bands(self):
+        """Non-default ``u_band``/``v_band`` select the right components.
+
+        Test scenario:
+            On a 3-band stack, choosing bands 1 and 2 as (u, v) must render
+            without error, confirming the band indices are honoured rather
+            than hard-coded to 0/1.
+        """
+        rng = np.random.default_rng(11)
+        stack = rng.standard_normal((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            stack, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+        )
+        fig, ax, _ = dataset.plot_vector_field(u_band=1, v_band=2, kind="quiver")
+        assert fig is not None and ax is not None
+
+    @pytest.mark.plot
+    def test_plot_vector_field_descending_x_is_flipped(self):
+        """A descending-x geotransform is flipped to ascending for rendering.
+
+        Test scenario:
+            A raster whose x cell-centres decrease left-to-right (negative
+            pixel width) exercises the ``x``-descending flip branch; the
+            field must still render without error and the helper must not
+            choke on the non-ascending coordinate axis.
+        """
+        rng = np.random.default_rng(3)
+        uv = rng.standard_normal((2, 5, 5)).astype("float32")
+        geo = (10.0, -1.0, 0.0, 0.0, 0.0, -1.0)
+        dataset = Dataset.create_from_array(uv, geo=geo, epsg=4326)
+        assert dataset.x[0] > dataset.x[-1], "x must be descending to hit the branch"
+        fig, ax, _ = dataset.plot_vector_field(u_band=0, v_band=1, kind="streamplot")
+        assert fig is not None and ax is not None
+
+    @pytest.mark.plot
+    def test_plot_vector_field_invalid_kind_raises(self):
+        """An unsupported ``kind`` surfaces cleopatra's ``ValueError``.
+
+        Test scenario:
+            ``kind`` is forwarded to ``VectorGlyph.plot``, which only accepts
+            ``quiver``/``barbs``/``streamplot``; an unknown kind must raise
+            rather than silently fall back.
+        """
+        dataset = self._uv_dataset()
+        with pytest.raises(ValueError):
+            dataset.plot_vector_field(u_band=0, v_band=1, kind="bogus")
+
+    @staticmethod
+    def _uv_dataset():
+        """Build a tiny 2-band (u, v) dataset for vector-field tests.
+
+        The issue cites ``tests/data/flow_direction_array.npy`` as sample
+        vector-field data, but that file does not exist in the repo, so a
+        synthetic ``(2, rows, cols)`` u/v stack is used instead.
+        """
+        rng = np.random.default_rng(7)
+        u = rng.standard_normal((6, 6)).astype("float32")
+        v = rng.standard_normal((6, 6)).astype("float32")
+        stack = np.stack([u, v])
+        return Dataset.create_from_array(
+            stack, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+        )
+
+    @pytest.mark.plot
+    @pytest.mark.parametrize("kind", ["quiver", "barbs", "streamplot"])
+    def test_plot_vector_field_kinds(self, kind: str):
+        """``plot_vector_field`` renders each VectorGlyph kind.
+
+        Test scenario:
+            A two-band (u, v) dataset renders as quiver / barbs /
+            streamplot without error and returns the ``(fig, ax, im)``
+            triple from ``VectorGlyph.plot``.
+        """
+        dataset = self._uv_dataset()
+        fig, ax, _ = dataset.plot_vector_field(u_band=0, v_band=1, kind=kind)
+        assert fig is not None and ax is not None
+
+    @pytest.mark.plot
+    def test_plot_vector_field_add_colorbar_false(self):
+        """``add_colorbar=False`` suppresses the magnitude colorbar.
+
+        Test scenario:
+            Without a colorbar the figure owns a single Axes; the default
+            (colorbar on) adds a second Axes for the colour bar.
+        """
+        dataset = self._uv_dataset()
+        fig, _, _ = dataset.plot_vector_field(
+            u_band=0, v_band=1, kind="quiver", add_colorbar=False
+        )
+        assert len(fig.axes) == 1, "add_colorbar=False must not add a colorbar axes"
+
+    @pytest.mark.plot
+    def test_plot_vector_field_band_out_of_range_raises(self):
+        """A single-band dataset gives a clear error, not a GDAL/index crash.
+
+        Test scenario:
+            ``plot_vector_field`` defaults to ``v_band=1``; on a one-band
+            raster that band does not exist, so it must raise a targeted
+            ``ValueError`` naming the offending band rather than a low-level
+            read failure.
+        """
+        arr = np.ones((1, 5, 5), dtype="float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+        )
+        with pytest.raises(ValueError, match=r"v_band=1 is out of range"):
+            dataset.plot_vector_field()
 
     @pytest.mark.plot
     def test_multi_band(
@@ -291,9 +666,7 @@ class TestResolvePlotBand:
             arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
         )
 
-        with patch.object(
-            type(dataset.analysis), "plot", autospec=True
-        ) as mock_plot:
+        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "sentinel"
             result = dataset.plot()
 
@@ -351,9 +724,7 @@ class TestNetCDFPlot:
         nc_subset, _ = _make_nc_subset_with_band_count(tmp_path, n_bands=4)
         assert nc_subset.band_count == 4
 
-        with patch.object(
-            type(nc_subset.analysis), "plot", autospec=True
-        ) as mock_plot:
+        with patch.object(type(nc_subset.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "sentinel"
             result = nc_subset.plot()
 
@@ -402,9 +773,9 @@ class TestDatasetPlotFacade:
         )
 
         result = dataset.plot()
-        assert isinstance(result, ArrayGlyph), (
-            f"Expected ArrayGlyph, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, ArrayGlyph
+        ), f"Expected ArrayGlyph, got {type(result).__name__}"
 
     @pytest.mark.plot
     def test_two_consecutive_calls_return_independent_figures(self):
@@ -425,9 +796,9 @@ class TestDatasetPlotFacade:
         first = dataset.plot()
         second = dataset.plot()
         assert first is not second, "plot() must return a fresh ArrayGlyph each call"
-        assert first.fig is not second.fig, (
-            "Each call must own a distinct matplotlib Figure"
-        )
+        assert (
+            first.fig is not second.fig
+        ), "Each call must own a distinct matplotlib Figure"
 
     @pytest.mark.plot
     @pytest.mark.parametrize(
@@ -517,15 +888,18 @@ class TestDatasetPlotFacade:
             mock_plot.return_value = "stub-glyph"
             result = dataset.plot(figsize=(4, 4))
 
-        assert result == "stub-glyph", f"Facade must return engine output, got {result!r}"
+        assert (
+            result == "stub-glyph"
+        ), f"Facade must return engine output, got {result!r}"
         assert mock_plot.call_count == 1
         call_kwargs = mock_plot.call_args.kwargs
-        assert call_kwargs["band"] == 0, (
-            f"Resolver should send band=0, got {call_kwargs.get('band')}"
-        )
-        assert call_kwargs["figsize"] == (4, 4), (
-            f"Extra kwargs must propagate, got {call_kwargs.get('figsize')}"
-        )
+        assert (
+            call_kwargs["band"] == 0
+        ), f"Resolver should send band=0, got {call_kwargs.get('band')}"
+        assert call_kwargs["figsize"] == (
+            4,
+            4,
+        ), f"Extra kwargs must propagate, got {call_kwargs.get('figsize')}"
 
 
 class TestDatasetPlotRgbOptions:
@@ -665,15 +1039,15 @@ class TestDatasetPlotRgbOptions:
                 dataset.plot(rgb=[2, 1, 0])
         collide_msg = " ".join(str(w.message) for w in collide)
         pure_msg = " ".join(str(w.message) for w in pure)
-        assert "rgb_options` wins" in collide_msg and "drop the loose form" in collide_msg, (
-            f"collision warning should say rgb_options wins; got: {collide_msg!r}"
-        )
-        assert "Group them under" not in collide_msg, (
-            f"collision warning must not use the 'group them' wording; got: {collide_msg!r}"
-        )
-        assert "Group them under" in pure_msg, (
-            f"pure-loose warning should keep the 'group them' wording; got: {pure_msg!r}"
-        )
+        assert (
+            "rgb_options` wins" in collide_msg and "drop the loose form" in collide_msg
+        ), f"collision warning should say rgb_options wins; got: {collide_msg!r}"
+        assert (
+            "Group them under" not in collide_msg
+        ), f"collision warning must not use the 'group them' wording; got: {collide_msg!r}"
+        assert (
+            "Group them under" in pure_msg
+        ), f"pure-loose warning should keep the 'group them' wording; got: {pure_msg!r}"
 
 
 class TestAnalysisPlotEngine:
@@ -699,9 +1073,9 @@ class TestAnalysisPlotEngine:
         )
 
         result = dataset.analysis.plot(band=2)
-        assert isinstance(result, ArrayGlyph), (
-            f"Expected ArrayGlyph, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, ArrayGlyph
+        ), f"Expected ArrayGlyph, got {type(result).__name__}"
 
     @pytest.mark.plot
     def test_out_of_range_band_raises(self):
@@ -764,9 +1138,11 @@ class TestDatasetPlotRgbOptionsEdges:
                     rgb_options={"rgb": [2, 1, 0], "surface_reflectance": 10000},
                 )
         call_kwargs = mock_plot.call_args.kwargs
-        assert call_kwargs["rgb"] == [2, 1, 0], (
-            f"rgb must be forwarded, got: {call_kwargs.get('rgb')}"
-        )
+        assert call_kwargs["rgb"] == [
+            2,
+            1,
+            0,
+        ], f"rgb must be forwarded, got: {call_kwargs.get('rgb')}"
         assert call_kwargs["surface_reflectance"] == 10000, (
             f"surface_reflectance must be forwarded, "
             f"got: {call_kwargs.get('surface_reflectance')}"
@@ -799,18 +1175,16 @@ class TestDatasetPlotRgbOptionsEdges:
                 multiband_dataset.plot(rgb_options={})
         call_kwargs = mock_plot.call_args.kwargs
         # No Sentinel kwargs were set; the resolver passes None through.
-        assert call_kwargs.get("rgb") is None, (
-            f"Empty rgb_options should leave rgb=None, got: {call_kwargs.get('rgb')}"
-        )
-        assert call_kwargs.get("surface_reflectance") is None, (
-            f"Empty rgb_options should leave surface_reflectance=None"
-        )
+        assert (
+            call_kwargs.get("rgb") is None
+        ), f"Empty rgb_options should leave rgb=None, got: {call_kwargs.get('rgb')}"
+        assert (
+            call_kwargs.get("surface_reflectance") is None
+        ), "Empty rgb_options should leave surface_reflectance=None"
         deprecations = [
             w for w in captured if issubclass(w.category, DeprecationWarning)
         ]
-        assert not deprecations, (
-            "Empty rgb_options must not emit DeprecationWarning"
-        )
+        assert not deprecations, "Empty rgb_options must not emit DeprecationWarning"
 
     @pytest.mark.plot
     def test_loose_rgb_with_empty_group_still_warns(self, multiband_dataset):
@@ -829,9 +1203,11 @@ class TestDatasetPlotRgbOptionsEdges:
             mock_plot.return_value = "stub"
             with pytest.warns(DeprecationWarning, match=r"rgb_options"):
                 multiband_dataset.plot(rgb=[0, 1, 2], rgb_options={})
-        assert mock_plot.call_args.kwargs["rgb"] == [0, 1, 2], (
-            "Loose rgb must survive when rgb_options is empty"
-        )
+        assert mock_plot.call_args.kwargs["rgb"] == [
+            0,
+            1,
+            2,
+        ], "Loose rgb must survive when rgb_options is empty"
 
     @pytest.mark.plot
     def test_only_loose_surface_reflectance_emits_warning_once(self, multiband_dataset):
@@ -857,9 +1233,9 @@ class TestDatasetPlotRgbOptionsEdges:
             f"Exactly one DeprecationWarning expected, got {len(deprecations)}: "
             f"{[str(w.message) for w in deprecations]}"
         )
-        assert "surface_reflectance" in str(deprecations[0].message), (
-            f"Warning must name the loose kwarg, got: {deprecations[0].message}"
-        )
+        assert "surface_reflectance" in str(
+            deprecations[0].message
+        ), f"Warning must name the loose kwarg, got: {deprecations[0].message}"
 
     @pytest.mark.plot
     def test_rgb_options_only_partial_override(self, multiband_dataset):
@@ -883,12 +1259,14 @@ class TestDatasetPlotRgbOptionsEdges:
                     rgb_options={"rgb": [0, 1, 2]},
                 )
         call_kwargs = mock_plot.call_args.kwargs
-        assert call_kwargs["rgb"] == [0, 1, 2], (
-            f"Grouped rgb must propagate, got: {call_kwargs.get('rgb')}"
-        )
-        assert call_kwargs["percentile"] == 2, (
-            f"Loose percentile must survive, got: {call_kwargs.get('percentile')}"
-        )
+        assert call_kwargs["rgb"] == [
+            0,
+            1,
+            2,
+        ], f"Grouped rgb must propagate, got: {call_kwargs.get('rgb')}"
+        assert (
+            call_kwargs["percentile"] == 2
+        ), f"Loose percentile must survive, got: {call_kwargs.get('percentile')}"
 
 
 class TestPlotPhase3CrossCutting:
@@ -914,9 +1292,7 @@ class TestPlotPhase3CrossCutting:
         )
 
     @pytest.mark.plot
-    def test_dataset_plot_returns_array_glyph_post_refactor(
-        self, single_band_dataset
-    ):
+    def test_dataset_plot_returns_array_glyph_post_refactor(self, single_band_dataset):
         """`Dataset.plot()` still returns an ArrayGlyph after D-2 collapse.
 
         Test scenario:
@@ -927,14 +1303,12 @@ class TestPlotPhase3CrossCutting:
             callers that chain visual customisations.
         """
         result = single_band_dataset.plot()
-        assert isinstance(result, ArrayGlyph), (
-            f"Dataset.plot() must return ArrayGlyph after D-2, got: {type(result).__name__}"
-        )
+        assert isinstance(
+            result, ArrayGlyph
+        ), f"Dataset.plot() must return ArrayGlyph after D-2, got: {type(result).__name__}"
 
     @pytest.mark.plot
-    def test_analysis_plot_returns_array_glyph_post_refactor(
-        self, single_band_dataset
-    ):
+    def test_analysis_plot_returns_array_glyph_post_refactor(self, single_band_dataset):
         """`Analysis.plot(band=N)` still returns an ArrayGlyph after D-2.
 
         Test scenario:
@@ -973,9 +1347,7 @@ class TestPlotPhase3CrossCutting:
         )
 
     @pytest.mark.plot
-    def test_render_array_direct_call_matches_analysis_plot(
-        self, single_band_dataset
-    ):
+    def test_render_array_direct_call_matches_analysis_plot(self, single_band_dataset):
         """Calling `render_array(mode="plot")` directly produces the same array.
 
         Test scenario:
@@ -1088,10 +1460,7 @@ class TestPlotPR6Cleanups:
             content = (repo / rel).read_text(encoding="utf-8")
             for line in content.splitlines():
                 stripped = line.strip()
-                if (
-                    "import_cleopatra(" in stripped
-                    and not stripped.startswith("#")
-                ):
+                if "import_cleopatra(" in stripped and not stripped.startswith("#"):
                     offenders.append(f"{rel}: {stripped}")
         assert not offenders, (
             f"Found legacy `import_cleopatra(` call sites: {offenders}. "
@@ -1143,6 +1512,10 @@ class TestPlotPR6Cleanups:
                 return (0.0, 1.0)
 
         class _FakeGlyph:
+            @staticmethod
+            def option_keys():
+                return ArrayGlyph.option_keys()
+
             def __init__(self, array, **kwargs):
                 ctor_seen.update(kwargs)
                 self.arr = array
@@ -1167,18 +1540,18 @@ class TestPlotPR6Cleanups:
                 points=None,
             )
 
-        assert "cmap" in ctor_seen, (
-            f"Ctor should own `cmap`; got ctor={ctor_seen}, plot={plot_seen}"
-        )
-        assert "cmap" not in plot_seen, (
-            f"`cmap` must not double-forward; plot kwargs={plot_seen}"
-        )
-        assert "kind" in plot_seen, (
-            f"`kind` should reach cleo.plot; got plot={plot_seen}"
-        )
-        assert "kind" not in ctor_seen, (
-            f"`kind` should not be on the constructor; ctor={ctor_seen}"
-        )
+        assert (
+            "cmap" in ctor_seen
+        ), f"Ctor should own `cmap`; got ctor={ctor_seen}, plot={plot_seen}"
+        assert (
+            "cmap" not in plot_seen
+        ), f"`cmap` must not double-forward; plot kwargs={plot_seen}"
+        assert (
+            "kind" in plot_seen
+        ), f"`kind` should reach cleo.plot; got plot={plot_seen}"
+        assert (
+            "kind" not in ctor_seen
+        ), f"`kind` should not be on the constructor; ctor={ctor_seen}"
 
 
 class TestRenderArrayKwargRouting:
@@ -1211,6 +1584,10 @@ class TestRenderArrayKwargRouting:
                 return (0.0, 1.0)
 
         class _FakeGlyph:
+            @staticmethod
+            def option_keys():
+                return ArrayGlyph.option_keys()
+
             def __init__(self, array, **kwargs):
                 ctor_seen.clear()
                 ctor_seen.update(kwargs)
@@ -1262,9 +1639,9 @@ class TestRenderArrayKwargRouting:
             )
         for key in ("cmap", "vmin", "vmax", "levels", "cbar_kwargs"):
             assert key in ctor, f"`{key}` must land on the constructor; ctor={ctor}"
-            assert key not in plot, (
-                f"`{key}` must NOT also reach cleo.plot; plot={plot}"
-            )
+            assert (
+                key not in plot
+            ), f"`{key}` must NOT also reach cleo.plot; plot={plot}"
 
     def test_render_call_only_kwargs_reach_plot(self):
         """``points``/``point_color``/``point_size``/``pid_color``/``pid_size``/``kind``.
@@ -1294,12 +1671,10 @@ class TestRenderArrayKwargRouting:
                 **render_only_kwargs,
             )
         for key in render_only_kwargs:
-            assert key in plot, (
-                f"`{key}` must reach cleo.plot; plot={plot}"
-            )
-            assert key not in ctor, (
-                f"`{key}` must NOT also be on the constructor; ctor={ctor}"
-            )
+            assert key in plot, f"`{key}` must reach cleo.plot; plot={plot}"
+            assert (
+                key not in ctor
+            ), f"`{key}` must NOT also be on the constructor; ctor={ctor}"
 
     def test_animate_mode_merges_both_buckets_into_animate_call(self):
         """``mode='animate'`` — every kwarg flows into ``cleo.animate(...)``.
@@ -1333,9 +1708,9 @@ class TestRenderArrayKwargRouting:
                 f"In animate mode, `{key}` must NOT be on the constructor; "
                 f"ctor={ctor}"
             )
-        assert anim_args == [[0, 1, 2]], (
-            f"animation_axis_values must be positional; got {anim_args}"
-        )
+        assert anim_args == [
+            [0, 1, 2]
+        ], f"animation_axis_values must be positional; got {anim_args}"
 
     def test_facet_mode_routes_kind_to_facet_call(self):
         """``kind`` (render-call-only) reaches ``cleo.facet``, not the ctor.
@@ -1359,15 +1734,85 @@ class TestRenderArrayKwargRouting:
                 cmap="magma",
                 kind="contourf",
             )
-        assert "kind" in facet, (
-            f"`kind` should reach cleo.facet; facet kwargs={facet}"
+        assert "kind" in facet, f"`kind` should reach cleo.facet; facet kwargs={facet}"
+        assert "cmap" in ctor, f"`cmap` should remain on the constructor; ctor={ctor}"
+        assert (
+            facet.get("col") == "time"
+        ), f"facet_kwargs must reach cleo.facet via merge; got {facet}"
+
+    def test_split_is_driven_by_option_keys(self):
+        """The ctor/render split comes from ``ArrayGlyph.option_keys()``.
+
+        Test scenario:
+            A constructor option declared by cleopatra (``add_colorbar``)
+            must route to ``__init__`` because it is in ``option_keys()``,
+            so the split tracks cleopatra automatically instead of a
+            hand-maintained list. ``kind`` is the documented exception: it
+            *is* in ``option_keys()`` yet is force-routed to the render
+            call (it is an explicit ``plot`` param read from the signature,
+            not from ``default_options`` — routing it to the ctor would
+            pin every render to ``kind="auto"``).
+        """
+        assert "add_colorbar" in ArrayGlyph.option_keys()
+        assert "kind" in ArrayGlyph.option_keys()
+        fake_cls, ctor, plot, _, _, _ = self._capture_calls()
+        rng = np.random.default_rng(505)
+        arr = rng.random((4, 4)).astype("float32")
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                add_colorbar=False,
+                kind="imshow",
+            )
+        assert (
+            "add_colorbar" in ctor and "add_colorbar" not in plot
+        ), f"`add_colorbar` is an option_keys() ctor option; ctor={ctor}"
+        assert (
+            "kind" in plot and "kind" not in ctor
+        ), f"`kind` must be force-routed to the render call; plot={plot}"
+
+    @pytest.mark.plot
+    def test_kind_contourf_reaches_plot_not_clobbered(self):
+        """Regression: ``kind="contourf"`` renders as contourf, not ``"auto"``.
+
+        Test scenario:
+            ``kind`` is in ``option_keys()`` yet ``ArrayGlyph.plot()``
+            unconditionally rewrites ``default_options["kind"]`` with its own
+            arg. The ``RENDER_ONLY_OVERRIDES`` set forces ``kind`` onto the
+            render call so it is not clobbered back to ``"auto"``. Uses the
+            real ``ArrayGlyph`` (not the fake) so the clobber path is actually
+            exercised; the returned glyph must report ``"contourf"``.
+        """
+        rng = np.random.default_rng(909)
+        arr = rng.random((5, 5)).astype("float32")
+        glyph = render_array(
+            arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", kind="contourf"
         )
-        assert "cmap" in ctor, (
-            f"`cmap` should remain on the constructor; ctor={ctor}"
+        assert glyph.default_options["kind"] == "contourf", (
+            "kind must reach ArrayGlyph.plot() and not be clobbered to 'auto'; "
+            f"got {glyph.default_options.get('kind')!r}"
         )
-        assert facet.get("col") == "time", (
-            f"facet_kwargs must reach cleo.facet via merge; got {facet}"
-        )
+
+    def test_invalid_kwarg_surfaces_cleopatra_valueerror(self):
+        """An unknown kwarg is not swallowed — cleopatra raises ``ValueError``.
+
+        Test scenario:
+            A key absent from ``option_keys()`` (here ``bogus``) lands in
+            ``render_kwargs`` and reaches the real ``ArrayGlyph.plot``,
+            which rejects it. The routing must not silently drop unknown
+            keys; it must defer to cleopatra's validation.
+        """
+        rng = np.random.default_rng(606)
+        arr = rng.random((4, 4)).astype("float32")
+        with pytest.raises(ValueError):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                bogus=1,
+            )
 
 
 class TestMeshRenderHelper:
@@ -1415,9 +1860,9 @@ class TestMeshRenderHelper:
                     data=np.array([1.0]),
                     location="face",
                 )
-        assert result is sentinel, (
-            f"mesh_render must return plot_mesh_data's result; got {result!r}"
-        )
+        assert (
+            result is sentinel
+        ), f"mesh_render must return plot_mesh_data's result; got {result!r}"
         mock_add.assert_not_called()
 
     def test_mesh_render_forwards_kwargs_to_plot_mesh_data(self):
@@ -1488,12 +1933,9 @@ class TestMeshRenderHelper:
                 )
         mock_add.assert_called_once()
         kwargs = mock_add.call_args.kwargs
-        assert kwargs.get("crs") == 3857, (
-            f"`crs` must equal basemap_epsg; got {kwargs}"
-        )
+        assert kwargs.get("crs") == 3857, f"`crs` must equal basemap_epsg; got {kwargs}"
         assert kwargs.get("source") is None, (
-            f"`source` should be None when basemap=True (no provider); "
-            f"got {kwargs}"
+            f"`source` should be None when basemap=True (no provider); got {kwargs}"
         )
 
     def test_mesh_render_basemap_string_passes_source(self):
@@ -1522,9 +1964,9 @@ class TestMeshRenderHelper:
                     basemap_epsg=4326,
                 )
         kwargs = mock_add.call_args.kwargs
-        assert kwargs.get("source") == "CartoDB.Positron", (
-            f"`source` must equal the basemap string; got {kwargs}"
-        )
+        assert (
+            kwargs.get("source") == "CartoDB.Positron"
+        ), f"`source` must equal the basemap string; got {kwargs}"
 
 
 class TestPR6CleanupGrepGuards:
@@ -1602,8 +2044,6 @@ class TestPR6CleanupGrepGuards:
             text = (repo / rel).read_text(encoding="utf-8")
             if "require_cleopatra" not in text:
                 missing.append(rel)
-        assert not missing, (
-            f"Modules missing `require_cleopatra` import/usage: {missing}"
-        )
-
-
+        assert (
+            not missing
+        ), f"Modules missing `require_cleopatra` import/usage: {missing}"

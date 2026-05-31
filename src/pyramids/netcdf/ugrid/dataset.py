@@ -681,12 +681,22 @@ class UgridDataset:
                 use it as the tile provider name (e.g. "CartoDB.Positron").
                 Default is None (no basemap). Requires the [viz] extra.
             **kwargs: Additional arguments passed to mesh_render
-                (forwarded to plot_mesh_data).
+                (forwarded to plot_mesh_data). Notably ``colorbar``
+                (``bool``, default ``True``): pass ``colorbar=False`` to
+                suppress the per-mesh colorbar when you want to attach a
+                custom or shared one to ``glyph.ax``.
 
         Returns:
             cleopatra.mesh_glyph.MeshGlyph instance with the plot
-                rendered. Use the returned object to access Figure/Axes
-                or call additional MeshGlyph methods.
+                rendered. Use the returned object to access the matplotlib
+                handles and the mappable:
+
+                - ``glyph.fig`` / ``glyph.ax`` — Figure and Axes.
+                - ``glyph.im`` — the mesh mappable (the
+                  ``tripcolor``/``tricontour(f)`` artist) set by ``plot()``;
+                  use it for a custom colorbar or ``glyph.im.set_clim(...)``.
+                  It is ``None`` after :meth:`plot_outline` (an outline
+                  carries no scalar mapping).
         """
         var = self.get_data(variable_name)
         data = var.data
@@ -695,9 +705,7 @@ class UgridDataset:
         if title is None:
             title = variable_name
         if basemap and self.epsg is None:
-            raise ValueError(
-                "UgridDataset must have a CRS (epsg) to use basemap."
-            )
+            raise ValueError("UgridDataset must have a CRS (epsg) to use basemap.")
         result = _mesh_render(
             mesh=self._mesh,
             data=data,
@@ -720,7 +728,9 @@ class UgridDataset:
 
         Returns:
             cleopatra.mesh_glyph.MeshGlyph instance with the wireframe
-                rendered.
+                rendered. ``glyph.fig`` / ``glyph.ax`` are the matplotlib
+                handles; ``glyph.im`` is ``None`` (an outline carries no
+                scalar mapping, so no mappable is produced).
         """
         from pyramids.netcdf.ugrid.plot import plot_mesh_outline
 

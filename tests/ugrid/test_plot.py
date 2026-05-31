@@ -19,6 +19,15 @@ from pyramids.netcdf.ugrid.plot import plot_mesh_data, plot_mesh_outline
 pytestmark = pytest.mark.plot
 
 
+@pytest.fixture(autouse=True)
+def _close_matplotlib_figures():
+    """Close all matplotlib figures after each test to bound memory."""
+    yield
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
+
+
 @pytest.mark.plot
 class TestPlotMeshData:
     """Tests for plot_mesh_data() wrapper."""
@@ -39,6 +48,18 @@ class TestPlotMeshData:
         data = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
         result = plot_mesh_data(triangle_mesh, data, location="node")
         assert isinstance(result, MeshGlyph), f"Expected MeshGlyph, got {type(result)}"
+
+    def test_plot_sets_mappable_im(self, triangle_mesh):
+        """``plot()`` populates ``MeshGlyph.im`` (the mesh mappable).
+
+        Test scenario:
+            cleopatra sets ``glyph.im`` to the ``tripcolor``/``tricontour``
+            artist on a data plot, so a caller can attach a custom or
+            shared colorbar. Pins the mesh-side of the im/cbar contract.
+        """
+        data = np.array([1.0, 2.0])
+        result = plot_mesh_data(triangle_mesh, data, location="face")
+        assert result.im is not None, "plot() must set the mesh mappable on .im"
 
     def test_invalid_location_raises(self, triangle_mesh):
         """Test that invalid location raises ValueError."""
@@ -65,6 +86,17 @@ class TestPlotMeshOutline:
         """Test wireframe on mixed mesh returns MeshGlyph."""
         result = plot_mesh_outline(mixed_mesh, color="blue", linewidth=1.0)
         assert isinstance(result, MeshGlyph), f"Expected MeshGlyph, got {type(result)}"
+
+    def test_outline_has_no_mappable_im(self, triangle_mesh):
+        """``plot_outline()`` leaves ``MeshGlyph.im`` as ``None``.
+
+        Test scenario:
+            An outline carries no scalar mapping, so cleopatra does not
+            create a mappable — ``glyph.im`` must be ``None`` (the
+            documented complement to ``plot()`` setting it).
+        """
+        result = plot_mesh_outline(triangle_mesh)
+        assert result.im is None, "outline must not produce a mappable"
 
 
 @pytest.mark.plot
@@ -118,9 +150,9 @@ class TestUgridDatasetPlotMethods:
             return_value="sentinel",
         ) as mock_render:
             result = ds.plot("depth")
-        assert result == "sentinel", (
-            f"UgridDataset.plot must return mesh_render result, got {result!r}"
-        )
+        assert (
+            result == "sentinel"
+        ), f"UgridDataset.plot must return mesh_render result, got {result!r}"
         mock_render.assert_called_once()
         kw = mock_render.call_args.kwargs
         assert kw.get("location") == "face"
@@ -152,18 +184,16 @@ class TestUgridDatasetPlotMethods:
         ) as mock_render:
             ds.plot("depth", cmap="plasma", basemap=True)
         kw = mock_render.call_args.kwargs
-        assert kw.get("cmap") == "plasma", (
-            f"`cmap` must reach mesh_render; got {kw}"
-        )
-        assert kw.get("basemap") is True, (
-            f"`basemap=True` must reach mesh_render; got {kw}"
-        )
-        assert kw.get("basemap_epsg") == 4326, (
-            f"basemap_epsg should be the dataset's EPSG (4326); got {kw}"
-        )
-        assert kw.get("mesh") is ds._mesh, (
-            "mesh argument must be the dataset's Mesh2d instance"
-        )
+        assert kw.get("cmap") == "plasma", f"`cmap` must reach mesh_render; got {kw}"
+        assert (
+            kw.get("basemap") is True
+        ), f"`basemap=True` must reach mesh_render; got {kw}"
+        assert (
+            kw.get("basemap_epsg") == 4326
+        ), f"basemap_epsg should be the dataset's EPSG (4326); got {kw}"
+        assert (
+            kw.get("mesh") is ds._mesh
+        ), "mesh argument must be the dataset's Mesh2d instance"
 
     def test_dataset_plot_basemap_without_epsg_raises(self):
         """``basemap=True`` on a CRS-less dataset raises before dispatch.

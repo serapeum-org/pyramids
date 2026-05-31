@@ -44,7 +44,7 @@ from shapely.geometry import Point, box
 
 from pyramids import _io as _pyramids_io
 from pyramids.base._errors import CRSError, FeatureError, GeometryWarning
-from pyramids.base._utils import Catalog, import_pyarrow
+from pyramids.base._utils import Catalog, import_pyarrow, require_cleopatra
 from pyramids.base.remote import is_remote
 from pyramids.basemap.basemap import add_basemap
 from pyramids.feature import geometry as _geom
@@ -2029,18 +2029,78 @@ class FeatureCollection(GeoDataFrame):
         self,
         column: str | None = None,
         basemap: bool | str | None = None,
+        engine: str = "geopandas",
         **kwargs: Any,
     ) -> Any:
         """Plot features, optionally on a web-tile basemap.
 
-        Delegates to :meth:`geopandas.GeoDataFrame.plot` and, when
-        `basemap` is truthy, adds an OSM (or named provider) tile
-        layer underneath.
+        Two rendering back-ends are available via ``engine``:
+
+        - ``"geopandas"`` (default): delegate to
+          :meth:`geopandas.GeoDataFrame.plot` and return the matplotlib
+          ``Axes``. This is the long-standing behaviour and is unchanged.
+        - ``"cleopatra"``: render polygons through
+          :class:`~cleopatra.polygon_glyph.PolygonGlyph` or points through
+          :class:`~cleopatra.scatter_glyph.ScatterGlyph` — sharing the
+          colour/colorbar styling of the raster glyph path — and return the
+          cleopatra glyph. Requires the ``[viz]`` extra.
+
+        When ``basemap`` is truthy, an OSM (or named provider) tile layer is
+        added underneath in either engine.
+
+        Args:
+            column: Column whose values drive the colour mapping. ``None``
+                renders a single flat colour.
+            basemap: ``True`` for OpenStreetMap, or a provider name string.
+            engine: ``"geopandas"`` (default) or ``"cleopatra"``.
+            **kwargs: Forwarded to the chosen back-end. For ``"cleopatra"``
+                they are filtered to the glyph's accepted options via
+                ``filter_kwargs``.
+
+        Returns:
+            The matplotlib ``Axes`` for ``engine="geopandas"``, or the
+            cleopatra glyph (``PolygonGlyph``/``ScatterGlyph``) for
+            ``engine="cleopatra"``.
 
         Raises:
-            ValueError: If `basemap` is requested but the FC has no CRS.
+            ValueError: If ``engine`` is not a supported value, or
+                ``engine="cleopatra"`` is used with unsupported geometry.
+            CRSError: If `basemap` is requested but the FC has no CRS.
+
+        Examples:
+            - Default geopandas engine returns a matplotlib ``Axes`` you can
+              keep styling (tagged ``+SKIP`` — needs the ``[viz]`` extra):
+
+                ```python
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> gdf = gpd.GeoDataFrame({"v": [1.0, 2.0]}, geometry=[Point(0, 0), Point(1, 1)], crs="EPSG:4326")
+                >>> fc = FeatureCollection(gdf)
+                >>> ax = fc.plot(column="v")  # doctest: +SKIP
+                >>> _ = ax.set_title("points")  # doctest: +SKIP
+                ```
+            - The cleopatra engine returns the glyph, exposing the colorbar:
+
+                ```python
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> gdf = gpd.GeoDataFrame({"v": [1.0, 2.0]}, geometry=[Point(0, 0), Point(1, 1)], crs="EPSG:4326")
+                >>> fc = FeatureCollection(gdf)
+                >>> glyph = fc.plot(column="v", engine="cleopatra")  # doctest: +SKIP
+                >>> _ = glyph.cbar.set_label("value")  # doctest: +SKIP
+                ```
         """
-        ax = super().plot(column=column, **kwargs)
+        if engine == "geopandas":
+            result = super().plot(column=column, **kwargs)
+            ax = result
+        elif engine == "cleopatra":
+            result, ax = self._plot_cleopatra(column=column, **kwargs)
+        else:
+            raise ValueError(
+                f"Unsupported engine {engine!r}; " "choose 'geopandas' or 'cleopatra'."
+            )
 
         if basemap:
             if self.epsg is None:
@@ -2050,7 +2110,119 @@ class FeatureCollection(GeoDataFrame):
             source = basemap if isinstance(basemap, str) else None
             add_basemap(ax, crs=self.epsg, source=source)
 
-        return ax
+        return result
+
+    def _plot_cleopatra(self, column: str | None = None, **kwargs: Any):
+        """Render via cleopatra ``PolygonGlyph``/``ScatterGlyph``.
+
+        Picks the glyph from the geometry type (points → ``ScatterGlyph``,
+        polygons → ``PolygonGlyph``), drives the colour from ``column`` when
+        given, and returns ``(glyph, ax)`` so the caller can still overlay a
+        basemap on ``ax``.
+
+        Only polygon **exterior** rings are rendered: ``PolygonGlyph`` takes a
+        sequence of single vertex rings and has no representation for holes, so
+        interior rings are dropped and a polygon with a hole appears filled. A
+        :class:`~pyramids.base._errors.GeometryWarning` is emitted when any
+        interior ring is present; use ``engine="geopandas"`` to render holes
+        correctly.
+
+        Args:
+            column: Column whose values colour the features, or ``None``.
+            **kwargs: Style options, filtered to the glyph's accepted keys.
+
+        Returns:
+            tuple: ``(glyph, ax)`` — the cleopatra glyph and its ``Axes``.
+
+        Raises:
+            ValueError: If ``column`` is not a column of this collection, or
+                the geometry is neither all single-``Point`` nor all-polygon
+                (``MultiPoint`` is not supported).
+        """
+        require_cleopatra()
+
+        if column is not None and column not in self.columns:
+            raise ValueError(
+                f"Column {column!r} not found; available columns: "
+                f"{list(self.columns)}."
+            )
+        values = self[column].to_numpy() if column is not None else None
+        geom_types = set(self.geom_type.unique())
+        if geom_types <= {"Point"}:
+            glyph = self._cleopatra_scatter_glyph(values, **kwargs)
+        elif geom_types <= {"Polygon", "MultiPolygon"}:
+            glyph = self._cleopatra_polygon_glyph(values, **kwargs)
+        else:
+            raise ValueError(
+                "engine='cleopatra' supports single Point or "
+                "Polygon/MultiPolygon geometries; got "
+                f"{sorted(geom_types)} (MultiPoint is not supported)."
+            )
+        _fig, ax, _coll = glyph.plot()
+        return glyph, ax
+
+    def _cleopatra_scatter_glyph(self, values: Any, **kwargs: Any) -> Any:
+        """Build a ``ScatterGlyph`` from this collection's point geometries.
+
+        Args:
+            values: Per-point colour values, or ``None`` for a flat colour.
+            **kwargs: Style options, filtered to the glyph's accepted keys.
+
+        Returns:
+            cleopatra.scatter_glyph.ScatterGlyph: The point glyph.
+        """
+        require_cleopatra()
+        from cleopatra.scatter_glyph import ScatterGlyph
+
+        return ScatterGlyph(
+            self.geometry.x.to_numpy(),
+            self.geometry.y.to_numpy(),
+            values=values,
+            **ScatterGlyph.filter_kwargs(kwargs),
+        )
+
+    def _cleopatra_polygon_glyph(self, values: Any, **kwargs: Any) -> Any:
+        """Build a ``PolygonGlyph`` from polygon exterior rings.
+
+        MultiPolygons are expanded to one ring per part (the row's value is
+        repeated for each part). Interior rings (holes) are dropped — see
+        :meth:`_plot_cleopatra` — and a
+        :class:`~pyramids.base._errors.GeometryWarning` is emitted when any
+        are present.
+
+        Args:
+            values: Per-feature colour values, or ``None`` for a flat colour.
+            **kwargs: Style options, filtered to the glyph's accepted keys.
+
+        Returns:
+            cleopatra.polygon_glyph.PolygonGlyph: The polygon glyph.
+        """
+        require_cleopatra()
+        from cleopatra.polygon_glyph import PolygonGlyph
+
+        polygons: list = []
+        poly_values: list | None = [] if values is not None else None
+        has_holes = False
+        for idx, geom in enumerate(self.geometry):
+            # A plain Polygon has no ``.geoms``; a MultiPolygon does.
+            for part in getattr(geom, "geoms", [geom]):
+                polygons.append(np.asarray(part.exterior.coords))
+                has_holes = has_holes or bool(part.interiors)
+                if poly_values is not None:
+                    poly_values.append(values[idx])
+        if has_holes:
+            warnings.warn(
+                "engine='cleopatra' renders only polygon exterior rings; "
+                "interior rings (holes) are dropped and will appear "
+                "filled. Use engine='geopandas' to render holes.",
+                GeometryWarning,
+                stacklevel=2,
+            )
+        return PolygonGlyph(
+            polygons,
+            values=np.asarray(poly_values) if poly_values is not None else None,
+            **PolygonGlyph.filter_kwargs(kwargs),
+        )
 
     def concat(self, other: GeoDataFrame) -> FeatureCollection:
         """Concatenate another GeoDataFrame onto this FeatureCollection.
