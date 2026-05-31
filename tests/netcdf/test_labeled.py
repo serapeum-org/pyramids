@@ -175,6 +175,55 @@ class TestLabeledDatasetSelect:
             store2.select_by_coord("grid", [0.0])
 
 
+class TestLabeledDatasetTimeSlice:
+    """P-E: slice the time axis, composing with label selection."""
+
+    def test_select_time_window(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        sub = store.select_time("2010-06-02", "2010-06-03")
+        assert sub.sizes["time"] == 2
+        assert sub.sizes["feature_id"] == N_FEAT
+
+    def test_select_time_open_ended_start(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        sub = store.select_time(end="2010-06-02")
+        assert sub.sizes["time"] == 2
+
+    def test_select_time_open_ended_end(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        sub = store.select_time(start="2010-06-03")
+        assert sub.sizes["time"] == 2
+
+    def test_select_time_composes_with_select(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        sub = store.select(feature_id=[101, 202]).select_time("2010-06-01", "2010-06-02")
+        assert sub.sizes == {"time": 2, "feature_id": 2}
+
+    def test_out_of_range_window_raises(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        with pytest.raises(ValueError, match="no timesteps in window"):
+            store.select_time("2020-01-01", "2020-12-31")
+
+    def test_unknown_time_dim_raises(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        with pytest.raises(KeyError, match="not a coordinate"):
+            store.select_time("2010-06-01", time_dim="when")
+
+    def test_cftime_axis(self, tmp_path: Path):
+        cftime = pytest.importorskip("cftime")
+        times = [cftime.DatetimeNoLeap(2010, 6, d) for d in (1, 2, 3, 4)]
+        ds = xr.Dataset(
+            {"q": (("time", "feature_id"), np.zeros((4, 2), "f4"))},
+            coords={"time": ("time", times), "feature_id": ("feature_id", [1, 2])},
+        )
+        path = tmp_path / "cftime.nc"
+        ds.to_netcdf(path)
+        ds.close()
+        store = LabeledDataset.read_file(path)
+        sub = store.select_time("2010-06-02", "2010-06-03")
+        assert sub.sizes["time"] == 2
+
+
 class TestLabeledDatasetLaziness:
     """Opening reads metadata only; data is not materialised."""
 

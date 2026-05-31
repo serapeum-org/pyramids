@@ -230,6 +230,54 @@ class LabeledDataset:
         keep = np.flatnonzero(np.isin(coord_values, requested))
         return type(self)(self._dataset.isel({dim: keep}))
 
+    def select_time(
+        self,
+        start: Any = None,
+        end: Any = None,
+        *,
+        time_dim: str = "time",
+    ) -> LabeledDataset:
+        """Slice the time axis to a ``[start, end]`` window (inclusive).
+
+        Composes with :meth:`select` / :meth:`select_by_coord` so only the
+        requested labels x timesteps are read. ``cftime`` axes (non-standard
+        calendars such as ``360_day`` / ``noleap``) are handled by xarray.
+
+        Args:
+            start: Lower bound (inclusive). A string (``"2010-06-01"``),
+                ``datetime``/``cftime``, or ``None`` to start at the first step.
+            end: Upper bound (inclusive). Same forms; ``None`` runs to the last
+                step.
+            time_dim: Name of the time dimension. Defaults to ``"time"``.
+
+        Returns:
+            LabeledDataset: A new store restricted to the in-range timesteps.
+
+        Raises:
+            KeyError: When ``time_dim`` is not a coordinate of the store.
+            ValueError: When the window selects no timesteps (e.g. it lies
+                entirely outside the store's time span) — reported, never a
+                silent empty result.
+
+        Examples:
+            - Restrict to a summer window::
+
+                >>> sub = store.select_time("2010-06-01", "2010-08-31")  # doctest: +SKIP
+        """
+        if time_dim not in self._dataset.coords and time_dim not in self._dataset.dims:
+            raise KeyError(
+                f"{time_dim!r} is not a coordinate of this store; available: "
+                f"{self.coordinates}"
+            )
+        result = self._dataset.sel({time_dim: slice(start, end)})
+        if int(result.sizes.get(time_dim, 0)) == 0:
+            times = self._dataset[time_dim].values
+            raise ValueError(
+                f"no timesteps in window [{start}, {end}]; the store spans "
+                f"[{times.min()}, {times.max()}]"
+            )
+        return type(self)(result)
+
     def __getitem__(self, key: str) -> Any:
         """Return a variable or coordinate as an :class:`xarray.DataArray`."""
         return self._dataset[key]
