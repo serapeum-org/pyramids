@@ -2171,6 +2171,7 @@ class FeatureCollection(GeoDataFrame):
         Returns:
             cleopatra.scatter_glyph.ScatterGlyph: The point glyph.
         """
+        require_cleopatra()
         from cleopatra.scatter_glyph import ScatterGlyph
 
         return ScatterGlyph(
@@ -2196,6 +2197,7 @@ class FeatureCollection(GeoDataFrame):
         Returns:
             cleopatra.polygon_glyph.PolygonGlyph: The polygon glyph.
         """
+        require_cleopatra()
         from cleopatra.polygon_glyph import PolygonGlyph
 
         polygons: list = []
