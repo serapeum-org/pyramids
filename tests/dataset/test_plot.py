@@ -319,6 +319,24 @@ class TestPlotDataSet:
         fig, ax, _ = dataset.plot_vector_field(u_band=1, v_band=2, kind="quiver")
         assert fig is not None and ax is not None
 
+    @pytest.mark.plot
+    def test_plot_vector_field_descending_x_is_flipped(self):
+        """A descending-x geotransform is flipped to ascending for rendering.
+
+        Test scenario:
+            A raster whose x cell-centres decrease left-to-right (negative
+            pixel width) exercises the ``x``-descending flip branch; the
+            field must still render without error and the helper must not
+            choke on the non-ascending coordinate axis.
+        """
+        rng = np.random.default_rng(3)
+        uv = rng.standard_normal((2, 5, 5)).astype("float32")
+        geo = (10.0, -1.0, 0.0, 0.0, 0.0, -1.0)
+        dataset = Dataset.create_from_array(uv, geo=geo, epsg=4326)
+        assert dataset.x[0] > dataset.x[-1], "x must be descending to hit the branch"
+        fig, ax, _ = dataset.plot_vector_field(u_band=0, v_band=1, kind="streamplot")
+        assert fig is not None and ax is not None
+
     @staticmethod
     def _uv_dataset():
         """Build a tiny 2-band (u, v) dataset for vector-field tests.
