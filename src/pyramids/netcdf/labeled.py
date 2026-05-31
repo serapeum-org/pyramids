@@ -19,6 +19,7 @@ with dask for chunked, out-of-core reads of very large stores (needs the
 """
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -26,6 +27,11 @@ import numpy as np
 import pandas as pd
 
 from pyramids.base._utils import import_pyarrow, import_xarray
+
+# Soft guard: writing a store this large into a DataFrame realises it all into
+# memory. Above this many bytes, the write methods warn the caller to slice
+# first (xarray computes ``nbytes`` from dtype x size — no data is read).
+_LARGE_REALISE_BYTES = 512 * 1024 * 1024
 
 _XARRAY_INSTALL_HINT = (
     "Reading a label-indexed NetCDF/Zarr store needs the optional 'xarray' "
@@ -198,7 +204,9 @@ class LabeledDataset:
         """
         result = self._dataset
         for dim, values in labels.items():
-            if dim not in self._dataset.coords and dim not in self._dataset.dims:
+            # value-based selection needs a coordinate; a bare dimension with no
+            # coordinate variable cannot be selected by label.
+            if dim not in self._dataset.coords:
                 raise KeyError(
                     f"{dim!r} is not a coordinate of this store; available: "
                     f"{self.coordinates}"
@@ -287,7 +295,7 @@ class LabeledDataset:
 
                 >>> sub = store.select_time("2010-06-01", "2010-08-31")  # doctest: +SKIP
         """
-        if time_dim not in self._dataset.coords and time_dim not in self._dataset.dims:
+        if time_dim not in self._dataset.coords:
             raise KeyError(
                 f"{time_dim!r} is not a coordinate of this store; available: "
                 f"{self.coordinates}"
@@ -392,6 +400,14 @@ class LabeledDataset:
 
                 >>> df = store.select(feature_id=[101]).to_dataframe()  # doctest: +SKIP
         """
+        nbytes = int(getattr(self._dataset, "nbytes", 0) or 0)
+        if nbytes > _LARGE_REALISE_BYTES:
+            warnings.warn(
+                f"realising ~{nbytes / 1e9:.1f} GB into a DataFrame; slice with "
+                "select / select_time / select_bbox first to avoid loading the "
+                "whole store into memory.",
+                stacklevel=2,
+            )
         return self._dataset.to_dataframe().reset_index()
 
     def to_parquet(self, path: str | Path, **kwargs: Any) -> Path:

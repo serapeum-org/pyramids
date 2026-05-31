@@ -5,6 +5,7 @@ Builds a tiny ``feature_id x time`` streamflow store — the shape of an NWM
 exposes its dims, coords, and variables without forcing a raster interpretation.
 """
 import os
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -137,6 +138,14 @@ class TestLabeledDatasetSelect:
         store = LabeledDataset.read_file(nc_store)
         with pytest.raises(KeyError, match="not a coordinate"):
             store.select(bogus=[1])
+
+    def test_select_on_coordless_dim_raises_clearly(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        # 'extra' is a dimension with no coordinate variable -> cannot be
+        # selected by value; expect the clear "not a coordinate" error.
+        ds2 = store.dataset.expand_dims({"extra": 2})
+        with pytest.raises(KeyError, match="not a coordinate"):
+            LabeledDataset(ds2).select(extra=[0])
 
     def test_select_by_coord_gage_id(self, nc_store: Path):
         store = LabeledDataset.read_file(nc_store)
@@ -306,6 +315,18 @@ class TestLabeledDatasetWrite:
         back = pd.read_csv(out)
         assert len(back) == N_TIME * N_FEAT
 
+    def test_small_store_does_not_warn(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            store.to_dataframe()
+
+    def test_large_store_warns_before_realising(self, nc_store: Path, monkeypatch):
+        monkeypatch.setattr("pyramids.netcdf.labeled._LARGE_REALISE_BYTES", 0)
+        store = LabeledDataset.read_file(nc_store)
+        with pytest.warns(UserWarning, match="realising"):
+            store.to_dataframe()
+
     def test_to_parquet_missing_pyarrow_raises(self, tmp_path: Path, nc_store, monkeypatch):
         def _raise(_msg):
             raise OptionalPackageDoesNotExist("no pyarrow")
@@ -377,7 +398,9 @@ class TestLabeledDatasetRemoteIntegration:
         url = "s3://noaa-nwm-retrospective-3-0-pds/CONUS/zarr/chrtout.zarr"
         try:
             store = LabeledDataset.read_file(url, anon=True, chunks={})
-        except Exception as exc:  # noqa: BLE001 — network/endpoint hiccup -> skip
+        except OSError as exc:
+            # connection / DNS / timeout / permission -> skip; a LabeledDataset
+            # logic error (KeyError/ValueError/...) still fails the test.
             pytest.skip(f"NWM retrospective Zarr unreachable: {exc}")
         assert "feature_id" in store.dimensions, f"dims: {store.dimensions}"
         assert "time" in store.dimensions, f"dims: {store.dimensions}"
