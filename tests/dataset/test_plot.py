@@ -223,6 +223,84 @@ class TestPlotDataSet:
         with pytest.raises(ValueError, match="no valid samples"):
             dataset.plot_histogram(band=0)
 
+    @pytest.mark.plot
+    def test_plot_histogram_integer_band_skips_nan_branch(self):
+        """An integer-dtype band histograms without the float-NaN masking.
+
+        Test scenario:
+            ``np.isnan`` rejects integer arrays, so the masking guards on
+            ``np.issubdtype(..., np.floating)``. An integer band must
+            therefore histogram successfully (exercising the non-float
+            branch) and still drop its no-data value.
+        """
+        arr = np.array([[1, 2, 0], [3, 4, 0]], dtype="int32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+            no_data_value=0,
+        )
+        fig, ax, hist = dataset.plot_histogram(band=0, bins=4)
+        assert fig is not None and ax is not None
+        assert isinstance(hist, dict)
+
+    @pytest.mark.plot
+    def test_plot_histogram_draws_on_supplied_ax(self):
+        """A caller-supplied ``ax`` is the one drawn on.
+
+        Test scenario:
+            Passing ``ax=`` binds the histogram to that axes; the returned
+            axes must be the same object so callers can compose subplots.
+        """
+        import matplotlib.pyplot as plt
+
+        arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+        )
+        _fig, host_ax = plt.subplots()
+        _f, ax, _h = dataset.plot_histogram(band=0, ax=host_ax)
+        assert ax is host_ax, "histogram must draw on the supplied ax"
+
+    @pytest.mark.plot
+    def test_to_image_exclude_value_masks_extra_value(self):
+        """``exclude_value`` is masked in addition to the no-data value.
+
+        Test scenario:
+            Passing ``exclude_value`` exercises the extra-mask branch in
+            ``to_image``; the call must still return a correctly sized
+            ``PIL.Image.Image``.
+        """
+        import warnings
+
+        from PIL import Image
+
+        arr = np.array([[1.0, 2.0, 7.0], [3.0, 4.0, 7.0]], dtype="float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+            no_data_value=-9999.0,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            image = dataset.to_image(band=0, exclude_value=7.0)
+        assert isinstance(image, Image.Image)
+        assert image.size == (dataset.columns, dataset.rows)
+
+    @pytest.mark.plot
+    def test_plot_vector_field_custom_bands(self):
+        """Non-default ``u_band``/``v_band`` select the right components.
+
+        Test scenario:
+            On a 3-band stack, choosing bands 1 and 2 as (u, v) must render
+            without error, confirming the band indices are honoured rather
+            than hard-coded to 0/1.
+        """
+        rng = np.random.default_rng(11)
+        stack = rng.standard_normal((3, 6, 6)).astype("float32")
+        dataset = Dataset.create_from_array(
+            stack, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
+        )
+        fig, ax, im = dataset.plot_vector_field(u_band=1, v_band=2, kind="quiver")
+        assert fig is not None and ax is not None
+
     @staticmethod
     def _uv_dataset():
         """Build a tiny 2-band (u, v) dataset for vector-field tests.

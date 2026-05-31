@@ -97,6 +97,58 @@ class TestFeatureCollectionCleopatraEngine:
         with pytest.raises(ValueError, match="engine"):
             fc.plot(engine="bogus")
 
+    def test_polygon_engine_without_column_flat_colour(self):
+        """``column=None`` renders with no value mapping (flat colour).
+
+        Test scenario:
+            With no column, ``values`` is ``None`` and the glyph is built
+            without a colour array; it must still return a ``PolygonGlyph``.
+        """
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)], crs="EPSG:4326")
+        )
+        glyph = fc.plot(engine="cleopatra")
+        assert isinstance(glyph, PolygonGlyph)
+
+    def test_multipolygon_expands_parts(self):
+        """A MultiPolygon is expanded into one ring per part.
+
+        Test scenario:
+            MultiPolygon geometry exercises the ``getattr(geom, 'geoms', …)``
+            expansion path and the per-part value duplication; it must render
+            through ``PolygonGlyph`` without error.
+        """
+        from shapely.geometry import MultiPolygon
+
+        mp = MultiPolygon([box(0, 0, 1, 1), box(2, 2, 3, 3)])
+        fc = FeatureCollection(
+            gpd.GeoDataFrame({"v": [5.0]}, geometry=[mp], crs="EPSG:4326")
+        )
+        glyph = fc.plot(column="v", engine="cleopatra")
+        assert isinstance(glyph, PolygonGlyph)
+
+    def test_cleopatra_engine_with_basemap_calls_add_basemap(self):
+        """``basemap=True`` overlays a basemap on the cleopatra glyph's axes.
+
+        Test scenario:
+            For ``engine="cleopatra"`` the basemap branch must still fire and
+            call ``add_basemap`` with the FC's CRS, using the glyph's axes.
+        """
+        from unittest.mock import patch
+
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1.0, 2.0]},
+                geometry=[Point(0, 0), Point(1, 1)],
+                crs="EPSG:4326",
+            )
+        )
+        with patch("pyramids.feature.collection.add_basemap") as mock_add:
+            glyph = fc.plot(column="v", engine="cleopatra", basemap=True)
+        assert isinstance(glyph, ScatterGlyph)
+        mock_add.assert_called_once()
+        assert mock_add.call_args.kwargs["crs"] == fc.epsg
+
     def test_unknown_column_raises_clear_error(self):
         """A missing ``column`` raises a clear ``ValueError``, not ``KeyError``."""
         fc = FeatureCollection(
