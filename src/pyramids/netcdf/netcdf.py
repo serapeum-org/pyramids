@@ -147,6 +147,11 @@ _REDUCERS: dict[str, tuple[Any, Any]] = {
 }
 """Per-operation `(skipna_func, plain_func)` pairs for :meth:`NetCDF.reduce`."""
 
+# GDAL's WKT ``PROJECTION`` node value for the CF geostationary projection
+# (set by ``osr.SpatialReference.SetGEOS`` / reconstructed from a
+# ``grid_mapping_name="geostationary"`` grid-mapping).
+GEOSTATIONARY_PROJECTION = "Geostationary_Satellite"
+
 
 class NetCDF(Dataset):
     """NetCDF.
@@ -236,6 +241,10 @@ class NetCDF(Dataset):
         # re-georeferenced through an in-memory VRT (see
         # _normalize_geostationary_geotransform).
         self._gdal_classic_src_ref: Any = None
+        # True once a geostationary scan-angle geotransform has been rescaled to
+        # metres on this cube; tells the `geotransform` property to trust the
+        # stored geotransform instead of re-deriving radian spacing from x/y.
+        self._geostationary_scaled: bool = False
         self._md_array_dims: list[str] = []
         self._band_dim_name: str | None = None
         self._band_dim_values: list[Any] | None = None
@@ -380,13 +389,14 @@ class NetCDF(Dataset):
         Computes from lon/lat coordinate arrays if available.
         Falls back to the parent GDAL GetGeoTransform() otherwise.
 
-        Geostationary datasets are the exception: their ``x`` / ``y`` are
-        scan angles in radians, so re-deriving the geotransform from them
-        would yield radian (not metre) spacing. For those the stored,
-        metre-scaled geotransform (see
-        :meth:`_normalize_geostationary_geotransform`) is authoritative.
+        Geostationary scan-angle datasets are the exception: once their
+        ``x`` / ``y`` radians have been rescaled to metres on read (see
+        :meth:`_normalize_geostationary_geotransform`), re-deriving the
+        geotransform from the raw radian coordinates would be wrong, so the
+        stored metre geotransform is authoritative. The check is a cheap
+        boolean flag, not an SRS parse, so it adds no cost to ordinary reads.
         """
-        if self._is_geostationary():
+        if self._geostationary_scaled:
             return self._geotransform
         if self.lon is not None and self.lat is not None:
             return (
@@ -400,11 +410,16 @@ class NetCDF(Dataset):
         return self._geotransform
 
     def _is_geostationary(self) -> bool:
-        """True when the dataset CRS is the CF geostationary projection."""
+        """True when the dataset CRS is the CF geostationary projection.
+
+        Parses the SRS, so it is called sparingly (during read normalization,
+        not from the hot `geotransform` property — that uses the
+        `_geostationary_scaled` flag instead).
+        """
         srs = self._raster.GetSpatialRef() if self._raster is not None else None
         return bool(
             srs is not None
-            and srs.GetAttrValue("PROJECTION") == "Geostationary_Satellite"
+            and srs.GetAttrValue("PROJECTION") == GEOSTATIONARY_PROJECTION
         )
 
     def _normalize_geostationary_geotransform(self) -> None:
@@ -421,9 +436,18 @@ class NetCDF(Dataset):
         which warps `self.raster`, sees the corrected geotransform) and is
         idempotent — geotransforms already in metres (e.g. from the classic
         driver) have ``abs(pixel) >= 1`` and are left untouched.
+
+        Side effects to be aware of for a rescaled geostationary cube:
+
+        * ``self.raster`` is replaced by an in-memory VRT, which has no MDIM
+          root group. Coordinate accessors (`lon` / `lat` / `x` / `y`) then
+          report the projected **metre** coordinates derived from the
+          geotransform rather than the raw radian ``x`` / ``y`` arrays.
+        * ``crop(bbox=...)`` against the cube's own geostationary CRS can fail
+          inside PROJ (off-disc cutline). Reproject first with
+          ``to_crs(4326)`` and crop the result.
         """
-        srs = self._raster.GetSpatialRef() if self._raster is not None else None
-        if srs is None or srs.GetAttrValue("PROJECTION") != "Geostationary_Satellite":
+        if not self._is_geostationary():
             return
         gt = self._geotransform
         # Radian scan-angle pixels are << 1; projected-metre pixels are >> 1.
@@ -431,6 +455,7 @@ class NetCDF(Dataset):
         # (e.g. from the classic netCDF driver) is left untouched.
         if abs(gt[1]) >= 1.0:
             return
+        srs = self._raster.GetSpatialRef()
         height = srs.GetProjParm("satellite_height", 0.0)
         if height <= 0.0:
             return
@@ -444,8 +469,16 @@ class NetCDF(Dataset):
         if vrt is not None and vrt.SetGeoTransform(scaled) == gdal.CE_None:
             self._gdal_classic_src_ref = self._raster
             self._raster = vrt
+        else:
+            warnings.warn(
+                "could not georeference the geostationary view through a VRT; "
+                "the wrapper geotransform reports metres but the underlying "
+                "dataset keeps scan-angle radians, so to_crs/crop may be wrong.",
+                stacklevel=2,
+            )
         self._geotransform = scaled
         self._cell_size = abs(scaled[1])
+        self._geostationary_scaled = True
 
     @property
     def variable_names(self) -> list[str]:

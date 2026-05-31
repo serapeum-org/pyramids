@@ -32,22 +32,43 @@ def _geostationary_srs(lon_0: float) -> osr.SpatialReference:
     return srs
 
 
-def _geostationary_cube(lon_0: float = -75.0) -> NetCDF:
-    """Read a synthetic geostationary variable through ``get_variable``.
-
-    The variable is created with scan-angle (radian) ``x`` / ``y`` and a
-    geostationary CRS attached to the data array, reproducing a GOES file as
-    seen by the MDIM read path.
-    """
+def _radian_geo() -> tuple:
+    """Scan-angle (radian) geotransform for the synthetic GOES grid."""
     dx = RADIAN_PIXEL
     dy = -RADIAN_PIXEL
-    geo = (-0.05 - dx / 2, dx, 0.0, 0.10 - dy / 2, 0.0, dy)
-    arr = np.arange(NY * NX).reshape(NY, NX).astype("f4")
-    container = NetCDF.create_from_array(arr, geo=geo, epsg=4326, variable_name="CMI")
+    return (-0.05 - dx / 2, dx, 0.0, 0.10 - dy / 2, 0.0, dy)
+
+
+def _geostationary_container(lon_0: float = -75.0, n_bands: int = 0) -> NetCDF:
+    """Build a MEM NetCDF container holding a geostationary ``CMI`` variable.
+
+    The variable carries scan-angle (radian) ``x`` / ``y`` and a geostationary
+    CRS attached to the data array, reproducing a GOES file as seen by the MDIM
+    read path. ``n_bands > 0`` adds a leading non-spatial (time) dimension.
+    """
+    if n_bands:
+        arr = np.arange(n_bands * NY * NX).reshape(n_bands, NY, NX).astype("f4")
+        container = NetCDF.create_from_array(
+            arr,
+            geo=_radian_geo(),
+            epsg=4326,
+            variable_name="CMI",
+            extra_dim_values=list(range(n_bands)),
+        )
+    else:
+        arr = np.arange(NY * NX).reshape(NY, NX).astype("f4")
+        container = NetCDF.create_from_array(
+            arr, geo=_radian_geo(), epsg=4326, variable_name="CMI"
+        )
     container.raster.GetRootGroup().OpenMDArray("CMI").SetSpatialRef(
         _geostationary_srs(lon_0)
     )
-    return container.get_variable("CMI")
+    return container
+
+
+def _geostationary_cube(lon_0: float = -75.0) -> NetCDF:
+    """Read a synthetic geostationary variable through ``get_variable``."""
+    return _geostationary_container(lon_0).get_variable("CMI")
 
 
 class TestGeostationaryGeotransform:
@@ -61,6 +82,10 @@ class TestGeostationaryGeotransform:
     def test_crs_is_geostationary(self, goes_cube: NetCDF):
         assert goes_cube._is_geostationary() is True
         assert "Geostationary_Satellite" in goes_cube.crs
+
+    def test_scaled_flag_is_set(self, goes_cube: NetCDF):
+        # the cheap flag the geotransform property reads (no SRS parse).
+        assert goes_cube._geostationary_scaled is True
 
     def test_geotransform_is_metres_not_radians(self, goes_cube: NetCDF):
         gt = goes_cube.geotransform
@@ -92,6 +117,28 @@ class TestGeostationaryGeotransform:
         minx, _, maxx, _ = warped.bbox
         assert maxx - minx > 1.0, f"degenerate reprojection: {warped.bbox}"
 
+    def test_multiband_read_after_vrt_swap(self):
+        # The VRT-wrapped (root-group-less) cube must still read its data and
+        # report bands for a multi-band geostationary variable.
+        cube = _geostationary_container(n_bands=3).get_variable("CMI")
+        assert cube._is_geostationary() is True
+        assert abs(cube.geotransform[1]) > 1000
+        assert cube.band_count == 3
+        data = cube.read_array()
+        assert data.shape[-2:] == (NY, NX)
+
+    def test_vrt_failure_warns_and_keeps_metre_wrapper(self, monkeypatch):
+        # If the VRT georeferencing cannot be applied, warn instead of silently
+        # leaving a degenerate dataset; the wrapper geotransform still reports
+        # metres.
+        import pyramids.netcdf.netcdf as netcdf_module
+
+        container = _geostationary_container()
+        monkeypatch.setattr(netcdf_module.gdal, "Translate", lambda *a, **k: None)
+        with pytest.warns(UserWarning, match="could not georeference"):
+            cube = container.get_variable("CMI")
+        assert abs(cube.geotransform[1]) > 1000
+
 
 class TestNonGeostationaryUnaffected:
     """The geostationary path must not perturb ordinary lat/lon NetCDF reads."""
@@ -105,5 +152,6 @@ class TestNonGeostationaryUnaffected:
         )
         cube = container.get_variable("t2m")
         assert cube._is_geostationary() is False
+        assert cube._geostationary_scaled is False
         # degree spacing stays sub-1 and un-scaled (no perspective-height scaling).
         assert cube.geotransform[1] == pytest.approx(cell, rel=1e-3)
