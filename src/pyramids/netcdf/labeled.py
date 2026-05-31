@@ -22,6 +22,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Iterable
 
+import numpy as np
+
 from pyramids.base._utils import import_xarray
 
 _XARRAY_INSTALL_HINT = (
@@ -146,6 +148,87 @@ class LabeledDataset:
     def variables(self) -> list[str]:
         """Data-variable names (excludes coordinates)."""
         return list(self._dataset.data_vars)
+
+    def select(self, **labels: Any) -> LabeledDataset:
+        """Select by label-dimension coordinate value(s).
+
+        Each keyword is a dimension coordinate (e.g. ``feature_id``,
+        ``station``) mapped to a value or list of values to keep. Missing
+        labels are reported rather than silently dropped.
+
+        Args:
+            **labels: ``dim=value`` or ``dim=[values]`` selectors. A scalar
+                drops that dimension; a list keeps the matching entries in the
+                requested order.
+
+        Returns:
+            LabeledDataset: A new store with only the selected labels.
+
+        Raises:
+            KeyError: When ``dim`` is not a coordinate, or any requested value
+                is absent (the missing values are named).
+
+        Examples:
+            - Keep three reaches by ``feature_id``::
+
+                >>> sub = store.select(feature_id=[101, 202, 303])  # doctest: +SKIP
+        """
+        result = self._dataset
+        for dim, values in labels.items():
+            if dim not in self._dataset.coords and dim not in self._dataset.dims:
+                raise KeyError(
+                    f"{dim!r} is not a coordinate of this store; available: "
+                    f"{self.coordinates}"
+                )
+            present = set(np.asarray(self._dataset[dim].values).tolist())
+            requested = values if isinstance(values, (list, tuple, np.ndarray)) else [values]
+            missing = [v for v in requested if v not in present]
+            if missing:
+                raise KeyError(f"{dim!r} values not found: {missing}")
+            result = result.sel({dim: values})
+        return type(self)(result)
+
+    def select_by_coord(self, coord: str, values: Iterable[Any]) -> LabeledDataset:
+        """Select along a non-dimension 1-D coordinate (e.g. a ``gage_id`` join).
+
+        ``coord`` is a 1-D coordinate over the label dimension (for example a
+        ``gage_id`` array of shape ``(feature_id,)``); the store is masked to the
+        entries whose coordinate value is in ``values``.
+
+        Args:
+            coord: Name of the 1-D coordinate to filter on.
+            values: Coordinate values to keep.
+
+        Returns:
+            LabeledDataset: A new store with only the matching entries, in the
+            store's original order.
+
+        Raises:
+            KeyError: When ``coord`` is absent or not 1-D, or any requested value
+                is not present (the missing values are named).
+
+        Examples:
+            - Select reaches by their USGS gauge id::
+
+                >>> sub = store.select_by_coord("gage_id", ["01010000"])  # doctest: +SKIP
+        """
+        if coord not in self._dataset.coords:
+            raise KeyError(
+                f"{coord!r} is not a coordinate of this store; available: "
+                f"{self.coordinates}"
+            )
+        coord_arr = self._dataset[coord]
+        if coord_arr.ndim != 1:
+            raise KeyError(f"{coord!r} must be 1-D to select on; it is {coord_arr.ndim}-D")
+        dim = coord_arr.dims[0]
+        coord_values = np.asarray(coord_arr.values)
+        requested = list(values)
+        present = set(coord_values.tolist())
+        missing = [v for v in requested if v not in present]
+        if missing:
+            raise KeyError(f"{coord!r} values not found: {missing}")
+        keep = np.flatnonzero(np.isin(coord_values, requested))
+        return type(self)(self._dataset.isel({dim: keep}))
 
     def __getitem__(self, key: str) -> Any:
         """Return a variable or coordinate as an :class:`xarray.DataArray`."""

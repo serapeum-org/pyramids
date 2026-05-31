@@ -99,6 +99,81 @@ class TestLabeledDatasetRead:
         assert "streamflow" in text
         assert "feature_id" in text
 
+    def test_dimensions_property(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        assert store.dimensions == ["time", "feature_id"]
+
+    def test_read_with_explicit_engine(self, nc_store: Path):
+        pytest.importorskip("h5netcdf")
+        store = LabeledDataset.read_file(nc_store, engine="h5netcdf")
+        assert store.variables == ["streamflow"]
+
+
+class TestLabeledDatasetSelect:
+    """P-C: select by label dimension and by a secondary 1-D coord."""
+
+    def test_select_feature_id_subset(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        sub = store.select(feature_id=[101, 303])
+        assert sub.sizes["feature_id"] == 2
+        assert list(sub["feature_id"].values) == [101, 303]
+        assert sub.sizes["time"] == N_TIME
+
+    def test_select_returns_new_instance(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        sub = store.select(feature_id=[202])
+        assert isinstance(sub, LabeledDataset)
+        assert store.sizes["feature_id"] == N_FEAT  # original untouched
+
+    def test_select_unknown_feature_id_reported(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        with pytest.raises(KeyError, match="999"):
+            store.select(feature_id=[101, 999])
+
+    def test_select_unknown_dim_raises(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        with pytest.raises(KeyError, match="not a coordinate"):
+            store.select(bogus=[1])
+
+    def test_select_by_coord_gage_id(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        sub = store.select_by_coord("gage_id", ["01010500"])
+        assert sub.sizes["feature_id"] == 1
+        assert list(sub["feature_id"].values) == [202]
+
+    def test_select_by_coord_unknown_reported(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        with pytest.raises(KeyError, match="99999999"):
+            store.select_by_coord("gage_id", ["99999999"])
+
+    def test_select_by_coord_preserves_order(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        # request out of order; result keeps the store's original order.
+        sub = store.select_by_coord("gage_id", ["01011000", "01010000"])
+        assert list(sub["feature_id"].values) == [101, 303]
+
+    def test_select_scalar_value(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        sub = store.select(feature_id=202)
+        # a scalar selector drops the feature_id dimension.
+        assert "feature_id" not in sub.sizes
+        assert int(sub["feature_id"].values) == 202
+
+    def test_select_by_coord_unknown_coord_name_raises(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        with pytest.raises(KeyError, match="not a coordinate"):
+            store.select_by_coord("nope", ["x"])
+
+    def test_select_by_coord_requires_1d(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        # add a 2-D coordinate, then assert selecting on it is rejected.
+        ds2 = store.dataset.assign_coords(
+            grid=(("time", "feature_id"), np.zeros((N_TIME, N_FEAT)))
+        )
+        store2 = LabeledDataset(ds2)
+        with pytest.raises(KeyError, match="must be 1-D"):
+            store2.select_by_coord("grid", [0.0])
+
 
 class TestLabeledDatasetLaziness:
     """Opening reads metadata only; data is not materialised."""
