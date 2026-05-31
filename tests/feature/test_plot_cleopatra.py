@@ -87,3 +87,25 @@ class TestFeatureCollectionCleopatraEngine:
         )
         with pytest.raises(ValueError, match="engine"):
             fc.plot(engine="bogus")
+
+    def test_unknown_column_raises_clear_error(self):
+        """A missing ``column`` raises a clear ``ValueError``, not ``KeyError``."""
+        fc = FeatureCollection(
+            gpd.GeoDataFrame({"v": [1.0]}, geometry=[Point(0, 0)], crs="EPSG:4326")
+        )
+        with pytest.raises(ValueError, match=r"Column 'nope' not found"):
+            fc.plot(column="nope", engine="cleopatra")
+
+    def test_multipoint_geometry_raises_clear_error(self):
+        """MultiPoint geometry is explicitly reported as unsupported."""
+        from shapely.geometry import MultiPoint
+
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1.0]},
+                geometry=[MultiPoint([(0, 0), (1, 1)])],
+                crs="EPSG:4326",
+            )
+        )
+        with pytest.raises(ValueError, match="MultiPoint is not supported"):
+            fc.plot(column="v", engine="cleopatra")

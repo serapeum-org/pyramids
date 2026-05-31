@@ -2110,12 +2110,19 @@ class FeatureCollection(GeoDataFrame):
             tuple: ``(glyph, ax)`` — the cleopatra glyph and its ``Axes``.
 
         Raises:
-            ValueError: If the geometry is neither all-point nor all-polygon.
+            ValueError: If ``column`` is not a column of this collection, or
+                the geometry is neither all single-``Point`` nor all-polygon
+                (``MultiPoint`` is not supported).
         """
         require_cleopatra()
         from cleopatra.polygon_glyph import PolygonGlyph
         from cleopatra.scatter_glyph import ScatterGlyph
 
+        if column is not None and column not in self.columns:
+            raise ValueError(
+                f"Column {column!r} not found; available columns: "
+                f"{list(self.columns)}."
+            )
         values = self[column].to_numpy() if column is not None else None
         geom_types = set(self.geom_type.unique())
         if geom_types <= {"Point"}:
@@ -2152,8 +2159,9 @@ class FeatureCollection(GeoDataFrame):
             )
         else:
             raise ValueError(
-                "engine='cleopatra' supports point or polygon geometries; "
-                f"got {sorted(geom_types)}."
+                "engine='cleopatra' supports single Point or "
+                "Polygon/MultiPolygon geometries; got "
+                f"{sorted(geom_types)} (MultiPoint is not supported)."
             )
         _fig, ax, _coll = glyph.plot()
         result = (glyph, ax)
