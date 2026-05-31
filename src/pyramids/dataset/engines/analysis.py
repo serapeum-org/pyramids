@@ -1388,6 +1388,16 @@ class Analysis(_Engine):
             exclude.append(no_data_value)
         if exclude_value is not None:
             exclude.append(exclude_value)
+        valid = np.ones(arr.shape, dtype=bool)
+        if np.issubdtype(arr.dtype, np.floating):
+            valid &= ~np.isnan(arr)
+        for excluded in exclude:
+            valid &= arr != excluded
+        if not valid.any():
+            raise ValueError(
+                f"Band {band} has no valid (non-nodata) pixels to render to "
+                "an image after masking no-data / exclude_value / NaN."
+            )
         glyph = ArrayGlyph(arr, exclude_value=exclude if exclude else np.nan)
         image = glyph.to_image(glyph.apply_colormap(cmap))
         return image

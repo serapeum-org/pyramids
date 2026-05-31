@@ -206,6 +206,24 @@ class TestPlotDataSet:
         assert image.size == (dataset.columns, dataset.rows)
 
     @pytest.mark.plot
+    def test_to_image_all_nodata_raises(self):
+        """A fully no-data band raises instead of rendering a blank image.
+
+        Test scenario:
+            Every pixel equals the no-data value, so there are no valid
+            samples to colour-map; ``to_image`` must raise a targeted
+            ``ValueError`` rather than feed an all-masked array to
+            ``apply_colormap`` (whose normalisation is then degenerate).
+        """
+        arr = np.full((4, 4), -9999.0, dtype="float32")
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+            no_data_value=-9999.0,
+        )
+        with pytest.raises(ValueError, match="no valid"):
+            dataset.to_image(band=0)
+
+    @pytest.mark.plot
     def test_plot_histogram_all_nodata_raises(self):
         """A fully no-data band raises a clear error instead of feeding the
         glyph an empty array.
