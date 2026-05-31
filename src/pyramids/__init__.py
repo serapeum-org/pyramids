@@ -25,9 +25,15 @@ except PackageNotFoundError:  # pragma: no cover
 
 Config()
 
+# Imported after Config() so the package (and GDAL) is fully initialised before
+# `_resource` pulls in the Dataset / FeatureCollection readers it dispatches to.
+from pyramids._resource import ResourceKind, read_resource, sniff_kind
 
 __all__ = [
     "configure",
     "configure_lazy_vector",
+    "read_resource",
+    "sniff_kind",
+    "ResourceKind",
     "__version__",
 ]
