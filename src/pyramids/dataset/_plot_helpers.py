@@ -282,12 +282,18 @@ def render_array(
     # so they fall to ``render_kwargs`` on their own; an invalid key does
     # too, so the render method rejects it instead of being silently dropped.
     #
-    # ``kind`` is the one exception: it lives in BOTH places — a
-    # ``default_options`` key *and* an explicit ``ArrayGlyph.plot``/``.facet``
-    # parameter (default ``"auto"``) that the render method reads from its
-    # own signature, not from ``default_options``. Routing it to the
-    # constructor would silently pin every render to ``kind="auto"``, so it
-    # is forced to stay a render-call kwarg.
+    # ``kind`` is the one exception that needs an override: it lives in BOTH
+    # places — a ``default_options`` key *and* an explicit
+    # ``ArrayGlyph.plot``/``.facet`` parameter (default ``"auto"``) — and the
+    # render method *unconditionally* writes its own ``kind`` arg into
+    # ``default_options`` (``array_glyph.py``: ``default_options["kind"] =
+    # kind``). So routing a constructor ``kind`` would be clobbered back to
+    # ``"auto"``; it must reach the render call instead.
+    #
+    # ``title`` is also dual-membership, but it does NOT need an override: the
+    # render method only overwrites ``default_options["title"]`` when its
+    # ``title`` arg is not ``None``, so a constructor-set title survives and
+    # routing it to the constructor (via ``option_keys()``) is correct.
     render_only_overrides = {"kind"}
     ctor_option_keys = ArrayGlyph.option_keys()
     ctor_kwargs: dict[str, Any] = {}

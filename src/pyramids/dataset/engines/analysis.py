@@ -1365,6 +1365,15 @@ class Analysis(_Engine):
         or streamlines, coloured by vector magnitude. Requires the ``[viz]``
         extra.
 
+        The grid is taken from the dataset's 1-D ``x``/``y`` cell-centre
+        arrays, so an **axis-aligned (north-up, unrotated)** geotransform is
+        assumed — as elsewhere in pyramids' extent-based plotting. ``v`` is
+        treated as the northward (``+y``) component. Because ``streamplot``
+        requires strictly-increasing coordinates while a north-up raster's
+        ``y`` is descending, the axis is flipped to ascending and the data
+        rows/cols are mirrored to match; this is a pure relabelling, so each
+        vector stays at its true location for every ``kind``.
+
         Args:
             u_band (int, optional):
                 Band index of the x-component (``u``). Default is ``0``.
