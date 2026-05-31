@@ -294,15 +294,15 @@ def render_array(
     # render method only overwrites ``default_options["title"]`` when its
     # ``title`` arg is not ``None``, so a constructor-set title survives and
     # routing it to the constructor (via ``option_keys()``) is correct.
-    render_only_overrides = {"kind"}
+    RENDER_ONLY_OVERRIDES = {"kind"}
     ctor_option_keys = ArrayGlyph.option_keys()
     ctor_kwargs: dict[str, Any] = {}
     render_kwargs: dict[str, Any] = {}
     for key, value in kwargs.items():
-        if key in render_only_overrides or key not in ctor_option_keys:
-            render_kwargs[key] = value
-        else:
+        if key in ctor_option_keys and key not in RENDER_ONLY_OVERRIDES:
             ctor_kwargs[key] = value
+        else:
+            render_kwargs[key] = value
     # The ``"animate"`` path only flows kwargs into ``cleo.animate(...)``,
     # not the constructor — keys like ``interval`` are valid for animate
     # but not in cleopatra's ``DEFAULT_OPTIONS`` and would trigger an

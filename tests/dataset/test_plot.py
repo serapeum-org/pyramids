@@ -1574,6 +1574,28 @@ class TestRenderArrayKwargRouting:
             "kind" in plot and "kind" not in ctor
         ), f"`kind` must be force-routed to the render call; plot={plot}"
 
+    @pytest.mark.plot
+    def test_kind_contourf_reaches_plot_not_clobbered(self):
+        """Regression: ``kind="contourf"`` renders as contourf, not ``"auto"``.
+
+        Test scenario:
+            ``kind`` is in ``option_keys()`` yet ``ArrayGlyph.plot()``
+            unconditionally rewrites ``default_options["kind"]`` with its own
+            arg. The ``RENDER_ONLY_OVERRIDES`` set forces ``kind`` onto the
+            render call so it is not clobbered back to ``"auto"``. Uses the
+            real ``ArrayGlyph`` (not the fake) so the clobber path is actually
+            exercised; the returned glyph must report ``"contourf"``.
+        """
+        rng = np.random.default_rng(909)
+        arr = rng.random((5, 5)).astype("float32")
+        glyph = render_array(
+            arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", kind="contourf"
+        )
+        assert glyph.default_options["kind"] == "contourf", (
+            "kind must reach ArrayGlyph.plot() and not be clobbered to 'auto'; "
+            f"got {glyph.default_options.get('kind')!r}"
+        )
+
     def test_invalid_kwarg_surfaces_cleopatra_valueerror(self):
         """An unknown kwarg is not swallowed — cleopatra raises ``ValueError``.
 
