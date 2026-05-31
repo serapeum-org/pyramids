@@ -337,6 +337,19 @@ class TestPlotDataSet:
         fig, ax, _ = dataset.plot_vector_field(u_band=0, v_band=1, kind="streamplot")
         assert fig is not None and ax is not None
 
+    @pytest.mark.plot
+    def test_plot_vector_field_invalid_kind_raises(self):
+        """An unsupported ``kind`` surfaces cleopatra's ``ValueError``.
+
+        Test scenario:
+            ``kind`` is forwarded to ``VectorGlyph.plot``, which only accepts
+            ``quiver``/``barbs``/``streamplot``; an unknown kind must raise
+            rather than silently fall back.
+        """
+        dataset = self._uv_dataset()
+        with pytest.raises(ValueError):
+            dataset.plot_vector_field(u_band=0, v_band=1, kind="bogus")
+
     @staticmethod
     def _uv_dataset():
         """Build a tiny 2-band (u, v) dataset for vector-field tests.

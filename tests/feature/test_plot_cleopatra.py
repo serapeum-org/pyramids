@@ -170,3 +170,22 @@ class TestFeatureCollectionCleopatraEngine:
         )
         with pytest.raises(ValueError, match="MultiPoint is not supported"):
             fc.plot(column="v", engine="cleopatra")
+
+    def test_mixed_point_and_polygon_geometry_raises(self):
+        """A mix of point and polygon geometries is rejected.
+
+        Test scenario:
+            ``_plot_cleopatra`` only handles an all-point or all-polygon
+            collection; a mixed set satisfies neither subset check and must
+            raise the "point or polygon" ``ValueError`` (the dispatcher's
+            ``else`` branch).
+        """
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [1.0, 2.0]},
+                geometry=[Point(0, 0), box(1, 1, 2, 2)],
+                crs="EPSG:4326",
+            )
+        )
+        with pytest.raises(ValueError, match="Point or Polygon"):
+            fc.plot(column="v", engine="cleopatra")
