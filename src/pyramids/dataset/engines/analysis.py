@@ -1283,6 +1283,10 @@ class Analysis(_Engine):
                 :class:`matplotlib.figure.Figure`, the
                 :class:`matplotlib.axes.Axes`, and the histogram ``dict``.
 
+        Raises:
+            ValueError: If the band has no valid samples left after masking
+                the no-data value, ``exclude_value``, and ``NaN``.
+
         Examples:
             - Plot the distribution of a band and reuse the matplotlib
               handles (tagged ``+SKIP`` — needs the ``[viz]`` extra):
@@ -1356,6 +1360,11 @@ class Analysis(_Engine):
             PIL.Image.Image:
                 An RGB image of the colour-mapped band, the same width and
                 height as the raster band.
+
+        Raises:
+            ValueError: If the band has no valid (non-nodata) pixels left
+                after masking the no-data value, ``exclude_value``, and
+                ``NaN`` — there is then nothing to colour-map.
 
         Examples:
             - Export a band as a viridis thumbnail, inspect its size, and
@@ -1446,6 +1455,11 @@ class Analysis(_Engine):
                 :class:`matplotlib.figure.Figure`, the
                 :class:`matplotlib.axes.Axes`, and the mappable coloured by
                 vector magnitude.
+
+        Raises:
+            ValueError: If ``u_band`` or ``v_band`` is out of range for the
+                dataset, or if ``kind`` is not one of ``"quiver"``,
+                ``"barbs"``, or ``"streamplot"``.
 
         Examples:
             - Render a two-band ``(u, v)`` stack as arrows (tagged ``+SKIP``

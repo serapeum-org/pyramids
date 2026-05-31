@@ -159,8 +159,9 @@ def render_array(
 
     Raises:
         ValueError: If ``mode`` is not one of the accepted values, if a
-            required mode-specific argument is missing, or if
-            ``basemap`` is truthy and ``basemap_epsg`` is ``None``.
+            required mode-specific argument is missing, if ``basemap`` is
+            truthy and ``basemap_epsg`` is ``None``, or if ``color_scale`` is
+            not a recognised :class:`~cleopatra.styles.ColorScale` value.
 
     Examples:
         - Single-slice plot path. Tagged ``+SKIP`` because the call
