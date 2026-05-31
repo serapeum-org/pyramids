@@ -2,8 +2,8 @@
 
 A single entry point, :func:`read_resource`, that takes a local file path
 (optionally plus a format hint), sniffs the format, transparently handles
-``.gz`` / ``.zip`` / ``.tar`` containers, and returns the appropriate pyramids
-type:
+``.gz`` / ``.zip`` / ``.tar`` / ``.tar.gz`` containers, and returns the
+appropriate pyramids type:
 
 * raster  (``.tif`` / ``.tiff`` / ``.cog`` / ``.nc`` / ``.nc4`` / ``.vrt``)
   → :class:`pyramids.dataset.Dataset`
@@ -15,14 +15,19 @@ type:
 This is a thin sniff-and-dispatch shim over the existing per-family readers
 (:meth:`Dataset.read_file`, :meth:`FeatureCollection.read_file`) plus a
 :mod:`pandas` branch for tabular formats. Decompression is delegated to GDAL's
-virtual filesystem via :mod:`pyramids._io` — no new decompression code lives
-here.
+virtual filesystem via :mod:`pyramids._io` (for raster/vector) and to
+:mod:`pandas`' own compression inference (for tabular) — no new decompression
+code lives here.
+
+Note on ``.json``: a ``.json`` suffix is assumed to be GeoJSON and routed to the
+vector reader. For a non-spatial JSON table, pass ``kind="tabular"`` (or a
+tabular ``fmt``) explicitly.
 """
 from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import Literal, Union
+from typing import Literal
 
 import pandas as pd
 
@@ -33,11 +38,12 @@ from pyramids.feature import FeatureCollection
 
 ResourceKind = Literal["raster", "vector", "tabular"]
 
-# Compression extensions that wrap a single inner file — peel one layer to read
-# the inner suffix (e.g. ``kontur.gpkg.gz`` → ``.gpkg``).
+# Single-file compression layer — peel it to read the inner suffix
+# (e.g. ``kontur.gpkg.gz`` → ``.gpkg``).
 _GZIP_SUFFIXES = {".gz"}
-# Container extensions whose members must be inspected to know the family —
-# a bare ``.zip`` name does not say whether it holds a raster, vector, or table.
+# Container extensions whose members must be inspected to know the family and to
+# target the right member. ``.tar.gz`` is matched separately (its ``Path.suffix``
+# is ``.gz``) via :func:`_is_archive`.
 _ARCHIVE_SUFFIXES = {".zip", ".tar", ".tgz"}
 
 _RASTER_SUFFIXES = {".tif", ".tiff", ".cog", ".nc", ".nc4", ".vrt"}
@@ -51,7 +57,14 @@ _VECTOR_SUFFIXES = {
     ".fgb",
     ".gml",
 }
-_TABULAR_SUFFIXES = {".csv", ".tsv", ".txt", ".xlsx", ".xls", ".parquet", ".pq"}
+_TABULAR_SUFFIXES = {".csv", ".tsv", ".xlsx", ".xls", ".parquet", ".pq"}
+
+# kind → the suffix set used to pick the matching member inside an archive.
+_KIND_SUFFIXES: dict[ResourceKind, set[str]] = {
+    "raster": _RASTER_SUFFIXES,
+    "vector": _VECTOR_SUFFIXES,
+    "tabular": _TABULAR_SUFFIXES,
+}
 
 # CKAN / source format labels → family. Keys are lower-cased and stripped of any
 # leading dot; used as a tiebreaker when the suffix alone is ambiguous (notably
@@ -78,7 +91,6 @@ _FMT_TO_KIND: dict[str, ResourceKind] = {
     "gml": "vector",
     "csv": "tabular",
     "tsv": "tabular",
-    "txt": "tabular",
     "excel": "tabular",
     "xlsx": "tabular",
     "xls": "tabular",
@@ -86,21 +98,38 @@ _FMT_TO_KIND: dict[str, ResourceKind] = {
 }
 
 
-def _strip_compression(name: str) -> str:
-    """Peel one ``.gz`` layer so the inner suffix can be sniffed.
+def _is_archive(path: Path) -> bool:
+    """True when ``path`` is a multi-member container (``.zip``/``.tar``/…).
 
-    ``"kontur.gpkg.gz"`` → ``"kontur.gpkg"``; everything else is returned
-    unchanged (``.zip`` / ``.tar`` are containers, handled separately).
+    ``.tar.gz`` is included even though its :attr:`~pathlib.Path.suffix` is
+    ``.gz`` — GDAL's ``/vsitar/`` handler decompresses it inline.
     """
-    p = Path(name)
-    inner = p.stem if p.suffix.lower() in _GZIP_SUFFIXES else name
+    name = path.name.lower()
+    return name.endswith(".tar.gz") or Path(name).suffix in _ARCHIVE_SUFFIXES
+
+
+def _strip_compression(name: str) -> str:
+    """Peel one compression / container layer so the inner suffix can be sniffed.
+
+    ``"kontur.gpkg.gz"`` → ``"kontur.gpkg"``, ``"rivers.shp.zip"`` →
+    ``"rivers.shp"``, ``"noah.tif.tar.gz"`` → ``"noah.tif"``. A bare container
+    with no inner name (``"download.zip"``) peels to its stem (``"download"``),
+    which carries no usable suffix — the caller then leans on ``fmt`` or peeks
+    inside the archive.
+    """
+    low = name.lower()
+    if low.endswith(".tar.gz"):
+        inner = name[: -len(".tar.gz")]
+    else:
+        p = Path(name)
+        inner = p.stem if p.suffix.lower() in _GZIP_SUFFIXES | _ARCHIVE_SUFFIXES else name
     return inner
 
 
-def sniff_kind(path: Union[str, Path], fmt: str | None = None) -> ResourceKind:
+def sniff_kind(path: str | Path, fmt: str | None = None) -> ResourceKind:
     """Determine the resource family from a path (+ optional format hint).
 
-    Peels one ``.gz`` compression layer to read the inner suffix, maps that
+    Peels one compression / container layer to read the inner suffix, maps that
     suffix to ``"raster"`` / ``"vector"`` / ``"tabular"``, and falls back to the
     ``fmt`` label when the suffix is unknown or ambiguous (e.g. a bare ``.zip``,
     whose contents are not implied by the name).
@@ -133,12 +162,17 @@ def sniff_kind(path: Union[str, Path], fmt: str | None = None) -> ResourceKind:
             >>> sniff_kind("kontur.gpkg.gz")
             'vector'
 
+        - A zipped Shapefile whose name carries the inner suffix::
+
+            >>> sniff_kind("rivers.shp.zip")
+            'vector'
+
         - A bare ``.zip`` leans on the format label::
 
             >>> sniff_kind("meta_hrsl.zip", fmt="GeoTIFF")
             'raster'
     """
-    inner = Path(_strip_compression(str(path)))
+    inner = Path(_strip_compression(str(Path(path).name)))
     ext = inner.suffix.lower()
     kind: ResourceKind | None = None
     if ext in _RASTER_SUFFIXES:
@@ -158,15 +192,29 @@ def sniff_kind(path: Union[str, Path], fmt: str | None = None) -> ResourceKind:
     return kind
 
 
-def _sniff_from_archive(path: Path) -> ResourceKind | None:
-    """Peek inside a ``.zip`` / ``.tar`` and infer the family from its members.
+def _archive_members_for_kind(path: Path, kind: ResourceKind) -> list[str]:
+    """List archive members whose suffix matches ``kind`` (best-effort).
 
-    Best-effort: returns ``None`` (rather than raising) when the archive cannot
-    be listed or holds no member with a recognised suffix, so the caller can
-    surface a single, clear error.
+    Returns ``[]`` (rather than raising) when the archive cannot be listed, so
+    callers can fall back to the whole-archive path.
+    """
+    try:
+        members = _io.archive_members(_io.archive_dir_vsi(path, "auto"))
+    except (FileFormatNotSupportedError, FileNotFoundError, RuntimeError):
+        members = []
+    suffixes = _KIND_SUFFIXES[kind]
+    return [m for m in members if Path(m).suffix.lower() in suffixes]
+
+
+def _sniff_from_archive(path: Path) -> ResourceKind | None:
+    """Peek inside a container and infer the family from the first known member.
+
+    Best-effort: returns ``None`` when the archive cannot be listed or holds no
+    member with a recognised suffix, so the caller can surface a single, clear
+    error.
     """
     kind: ResourceKind | None = None
-    if path.suffix.lower() in _ARCHIVE_SUFFIXES:
+    if _is_archive(path):
         try:
             members = _io.archive_members(_io.archive_dir_vsi(path, "auto"))
         except (FileFormatNotSupportedError, FileNotFoundError, RuntimeError):
@@ -196,26 +244,32 @@ def _determine_kind(path: Path, fmt: str | None) -> ResourceKind:
     return kind
 
 
-def _warn_if_multilayer(path: Path) -> None:
-    """Warn when a vector source exposes more than one layer / vector member.
+def _read_raster(path: Path) -> Dataset:
+    """Read a raster, targeting the matching member when ``path`` is an archive.
 
-    Covers both multi-layer single files (GeoPackage, GDB, KML — via
-    :meth:`FeatureCollection.list_layers`) and archives bundling several vector
-    members (e.g. a HOTOSM ``.zip`` of Shapefiles — via the archive member list).
-    Never raises: the warning is advisory and must not block the read.
+    For a ``.zip`` / ``.tar`` / ``.tar.gz`` the raster member is selected
+    explicitly (``<archive>/<member>``) rather than relying on the archive
+    handler's first-member default — which, for a tar, would otherwise open the
+    container directory and fail.
     """
-    names: list[str] = []
-    if path.suffix.lower() in _ARCHIVE_SUFFIXES:
-        try:
-            members = _io.archive_members(_io.archive_dir_vsi(path, "auto"))
-            names = [m for m in members if Path(m).suffix.lower() in _VECTOR_SUFFIXES]
-        except (FileFormatNotSupportedError, FileNotFoundError, RuntimeError):
-            names = []
-    else:
-        try:
-            names = FeatureCollection.list_layers(str(path))
-        except Exception:  # noqa: BLE001 — advisory check, any failure → no warning
-            names = []
+    source = str(path)
+    if _is_archive(path):
+        members = _archive_members_for_kind(path, "raster")
+        if members:
+            source = f"{path}/{members[0]}"
+    return Dataset.read_file(source)
+
+
+def _warn_if_multilayer(path: Path) -> None:
+    """Warn when a single vector file exposes more than one layer (GPKG/GDB/KML).
+
+    Never raises: the warning is advisory and must not block the read. Archive
+    containers are handled separately by :func:`_select_vector_member`.
+    """
+    try:
+        names = FeatureCollection.list_layers(str(path))
+    except Exception:  # noqa: BLE001 — advisory check; any failure → no warning
+        names = []
     if len(names) > 1:
         warnings.warn(
             f"{str(path)!r} contains {len(names)} layers {names!r}; reading the "
@@ -225,41 +279,79 @@ def _warn_if_multilayer(path: Path) -> None:
         )
 
 
-def _read_vector(
-    path: Path, layer: Union[str, int, None]
-) -> FeatureCollection:
-    """Read a vector resource, applying the multi-layer policy.
+def _select_vector_member(
+    members: list[str], layer: str | int | None, path: Path
+) -> tuple[str, str | int | None]:
+    """Pick the archive member to read and the layer to forward to the reader.
 
-    When ``layer`` is not specified and the source exposes more than one layer,
-    warn and read the first (driver-default) layer — never silently drop data.
+    A vector archive may hold several vector files (e.g. a HOTOSM ``.zip`` of
+    Shapefiles). ``layer`` selects one by member stem (str) or index (int);
+    ``None`` reads the first and warns when more exist. When ``layer`` names a
+    member it is consumed here (the member *is* the selection), so ``None`` is
+    forwarded as the internal layer.
     """
-    if layer is None:
+    stems = {Path(m).stem: m for m in members}
+    member = members[0]
+    passthrough = layer
+    if isinstance(layer, str) and layer in stems:
+        member = stems[layer]
+        passthrough = None
+    elif isinstance(layer, int) and 0 <= layer < len(members):
+        member = members[layer]
+        passthrough = None
+    elif layer is None and len(members) > 1:
+        warnings.warn(
+            f"{str(path)!r} contains {len(members)} vector members {members!r}; "
+            f"reading the first ({members[0]!r}). Pass layer=<name|index> to "
+            "choose a specific one.",
+            stacklevel=3,
+        )
+    return member, passthrough
+
+
+def _read_vector(path: Path, layer: str | int | None) -> FeatureCollection:
+    """Read a vector resource, applying the multi-layer / multi-member policy.
+
+    Plain multi-layer files (GPKG/GDB) default to the first layer and warn;
+    ``layer=`` selects. Archive containers resolve to a specific vector member
+    (``<archive>/<member>``) so a zipped Shapefile reads its ``.shp`` rather than
+    an alphabetically-first sidecar.
+    """
+    source = str(path)
+    passthrough_layer = layer
+    if _is_archive(path):
+        members = _archive_members_for_kind(path, "vector")
+        if members:
+            member, passthrough_layer = _select_vector_member(members, layer, path)
+            source = f"{path}/{member}"
+    elif layer is None:
         _warn_if_multilayer(path)
-    return FeatureCollection.read_file(str(path), layer=layer)
+    return FeatureCollection.read_file(source, layer=passthrough_layer)
 
 
 def _read_tabular(path: Path) -> pd.DataFrame:
     """Read a tabular resource into a :class:`pandas.DataFrame`.
 
-    ``pandas`` infers ``.gz`` / ``.zip`` compression for CSV/TSV from the
-    suffix. ``.xlsx`` needs ``openpyxl`` and ``.parquet`` needs ``pyarrow`` —
-    when missing, the underlying :class:`ImportError` is re-raised with install
-    guidance.
+    ``pandas`` infers ``.gz`` / ``.zip`` / ``.tar`` compression from the suffix,
+    so the path is passed through verbatim. ``.xlsx`` needs ``openpyxl`` and
+    ``.parquet`` needs ``pyarrow`` — when missing, the underlying
+    :class:`ImportError` is re-raised with install guidance.
     """
     source = str(path)
     ext = Path(_strip_compression(path.name)).suffix.lower()
     result: pd.DataFrame
-    if ext in {".csv", ".txt"}:
+    if ext == ".csv":
         result = pd.read_csv(source)
     elif ext == ".tsv":
         result = pd.read_csv(source, sep="\t")
     elif ext in {".xlsx", ".xls"}:
         try:
             result = pd.read_excel(source)
-        except ImportError as exc:  # openpyxl / xlrd not installed
+        except ImportError as exc:  # openpyxl (.xlsx) / xlrd (.xls) not installed
             raise ImportError(
-                f"reading {ext} files needs an Excel engine (e.g. 'openpyxl'); "
-                "install it into the environment to read this resource."
+                f"reading {ext} files needs an Excel engine (openpyxl for .xlsx, "
+                "xlrd for legacy .xls); install it into the environment to read "
+                "this resource."
             ) from exc
     elif ext in {".parquet", ".pq"}:
         try:
@@ -278,17 +370,17 @@ def _read_tabular(path: Path) -> pd.DataFrame:
 
 
 def read_resource(
-    path: Union[str, Path],
+    path: str | Path,
     fmt: str | None = None,
     *,
     kind: ResourceKind | None = None,
-    layer: Union[str, int, None] = None,
-) -> Union[Dataset, FeatureCollection, pd.DataFrame]:
+    layer: str | int | None = None,
+) -> Dataset | FeatureCollection | pd.DataFrame:
     """Read a downloaded resource into the appropriate pyramids type.
 
     Sniffs the format (suffix + ``fmt``, peeking inside ``.zip`` / ``.tar`` when
-    needed), transparently handles ``.gz`` / ``.zip`` / ``.tar`` containers via
-    GDAL's virtual filesystem, and dispatches:
+    needed), transparently handles ``.gz`` / ``.zip`` / ``.tar`` / ``.tar.gz``
+    containers, and dispatches:
 
     * raster  → :class:`pyramids.dataset.Dataset`
     * vector  → :class:`pyramids.feature.FeatureCollection`
@@ -305,7 +397,8 @@ def read_resource(
         layer: For multi-layer vector containers (a ``.gpkg`` / ``.gdb`` with
             several layers, or a ``.zip`` of Shapefiles), select by name or
             index. ``None`` reads the first / default layer and warns when more
-            exist (data is never silently dropped).
+            exist (data is never silently dropped). Ignored — with a warning —
+            for raster and tabular resources.
 
     Returns:
         Dataset | FeatureCollection | pandas.DataFrame: The resource read into
@@ -335,10 +428,14 @@ def read_resource(
     """
     path = Path(path)
     resolved_kind = kind if kind is not None else _determine_kind(path, fmt)
-    if resolved_kind == "raster":
-        result: Union[Dataset, FeatureCollection, pd.DataFrame] = Dataset.read_file(
-            str(path)
+    if layer is not None and resolved_kind != "vector":
+        warnings.warn(
+            f"layer={layer!r} is ignored for {resolved_kind} resources; it only "
+            "applies to vector data.",
+            stacklevel=2,
         )
+    if resolved_kind == "raster":
+        result: Dataset | FeatureCollection | pd.DataFrame = _read_raster(path)
     elif resolved_kind == "vector":
         result = _read_vector(path, layer)
     elif resolved_kind == "tabular":
