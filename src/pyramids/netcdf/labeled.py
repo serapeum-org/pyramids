@@ -278,6 +278,80 @@ class LabeledDataset:
             )
         return type(self)(result)
 
+    def select_bbox(
+        self,
+        bbox: tuple[float, float, float, float],
+        *,
+        lon: str = "longitude",
+        lat: str = "latitude",
+    ) -> LabeledDataset:
+        """Subset to labels whose 1-D lon/lat coords fall inside a bbox.
+
+        For a label-indexed store, ``latitude`` / ``longitude`` are 1-D
+        coordinates over the label dimension (one position per ``feature_id`` /
+        ``station``); this masks the label dimension to the entries inside the
+        bounding box. (Gridded raster crops belong on
+        :class:`~pyramids.dataset.Dataset`, not here.)
+
+        Args:
+            bbox: ``(min_lon, min_lat, max_lon, max_lat)`` — i.e.
+                ``(west, south, east, north)`` — in the store's coordinate units
+                (degrees). Bounds are inclusive.
+            lon: Name of the 1-D longitude coordinate. Defaults to
+                ``"longitude"``.
+            lat: Name of the 1-D latitude coordinate. Defaults to ``"latitude"``.
+
+        Returns:
+            LabeledDataset: A new store with only the labels inside the bbox.
+
+        Raises:
+            KeyError: When ``lon`` / ``lat`` is missing, not 1-D, or the two are
+                not over the same dimension.
+            ValueError: When no label falls inside the bbox (the coordinate
+                ranges are reported) — never a silent empty result.
+
+        Examples:
+            - Keep reaches inside a small box::
+
+                >>> sub = store.select_bbox((-77.0, 40.0, -75.0, 42.0))  # doctest: +SKIP
+        """
+        min_lon, min_lat, max_lon, max_lat = bbox
+        for name in (lon, lat):
+            if name not in self._dataset.coords:
+                raise KeyError(
+                    f"{name!r} is not a coordinate of this store; available: "
+                    f"{self.coordinates}"
+                )
+        lon_arr = self._dataset[lon]
+        lat_arr = self._dataset[lat]
+        if lon_arr.ndim != 1 or lat_arr.ndim != 1:
+            raise KeyError(
+                f"{lon!r} and {lat!r} must be 1-D coordinates over the label "
+                "dimension to bbox-subset a label-indexed store"
+            )
+        if lon_arr.dims != lat_arr.dims:
+            raise KeyError(
+                f"{lon!r} (dims {lon_arr.dims}) and {lat!r} (dims {lat_arr.dims}) "
+                "must be over the same dimension"
+            )
+        dim = lon_arr.dims[0]
+        lon_vals = np.asarray(lon_arr.values)
+        lat_vals = np.asarray(lat_arr.values)
+        mask = (
+            (lon_vals >= min_lon)
+            & (lon_vals <= max_lon)
+            & (lat_vals >= min_lat)
+            & (lat_vals <= max_lat)
+        )
+        keep = np.flatnonzero(mask)
+        if keep.size == 0:
+            raise ValueError(
+                f"no labels inside bbox {bbox}; the store spans longitude "
+                f"[{lon_vals.min()}, {lon_vals.max()}], latitude "
+                f"[{lat_vals.min()}, {lat_vals.max()}]"
+            )
+        return type(self)(self._dataset.isel({dim: keep}))
+
     def __getitem__(self, key: str) -> Any:
         """Return a variable or coordinate as an :class:`xarray.DataArray`."""
         return self._dataset[key]

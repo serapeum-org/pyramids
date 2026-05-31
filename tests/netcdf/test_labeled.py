@@ -224,6 +224,53 @@ class TestLabeledDatasetTimeSlice:
         assert sub.sizes["time"] == 2
 
 
+class TestLabeledDatasetBbox:
+    """P-D: bbox subset via the in-file 1-D lat/lon coords."""
+
+    def test_bbox_keeps_inside_features(self, nc_store: Path):
+        # lats [40,41,42], lons [-75,-76,-77] over feature_id [101,202,303];
+        # this box selects only feature 202.
+        store = LabeledDataset.read_file(nc_store)
+        sub = store.select_bbox((-76.5, 40.5, -74.5, 41.5))
+        assert list(sub["feature_id"].values) == [202]
+
+    def test_bbox_inclusive_bounds(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        sub = store.select_bbox((-77.0, 40.0, -75.0, 42.0))
+        assert list(sub["feature_id"].values) == [101, 202, 303]
+
+    def test_bbox_composes_with_time(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        sub = store.select_bbox((-76.5, 40.5, -74.5, 41.5)).select_time(
+            "2010-06-01", "2010-06-02"
+        )
+        assert sub.sizes == {"time": 2, "feature_id": 1}
+
+    def test_empty_bbox_raises(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        with pytest.raises(ValueError, match="no labels inside bbox"):
+            store.select_bbox((0.0, 0.0, 1.0, 1.0))
+
+    def test_unknown_coord_raises(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        with pytest.raises(KeyError, match="not a coordinate"):
+            store.select_bbox((-77, 40, -75, 42), lon="x")
+
+    def test_non_1d_coord_raises(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        ds2 = store.dataset.assign_coords(
+            grid=(("time", "feature_id"), np.zeros((N_TIME, N_FEAT)))
+        )
+        with pytest.raises(KeyError, match="must be 1-D"):
+            LabeledDataset(ds2).select_bbox((-77, 40, -75, 42), lon="grid")
+
+    def test_mismatched_dims_raises(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        ds2 = store.dataset.assign_coords(t_lon=(("time",), np.zeros(N_TIME)))
+        with pytest.raises(KeyError, match="same dimension"):
+            LabeledDataset(ds2).select_bbox((-77, 40, -75, 42), lon="t_lon")
+
+
 class TestLabeledDatasetLaziness:
     """Opening reads metadata only; data is not materialised."""
 
