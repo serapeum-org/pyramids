@@ -4,6 +4,7 @@ Builds a tiny ``feature_id x time`` streamflow store — the shape of an NWM
 ``channel_rt`` table — and checks :class:`LabeledDataset` opens it lazily and
 exposes its dims, coords, and variables without forcing a raster interpretation.
 """
+import os
 from pathlib import Path
 
 import numpy as np
@@ -313,6 +314,74 @@ class TestLabeledDatasetWrite:
         store = LabeledDataset.read_file(nc_store)
         with pytest.raises(OptionalPackageDoesNotExist):
             store.to_parquet(tmp_path / "q.parquet")
+
+
+class TestLabeledDatasetRemoteOpen:
+    """P-B: anonymous remote open wiring (no network)."""
+
+    def _fake_zarr(self):
+        return xr.Dataset(
+            {"streamflow": (("feature_id",), np.zeros(2, "f4"))},
+            coords={"feature_id": ("feature_id", [1, 2])},
+        )
+
+    def test_anon_injects_storage_options(self, monkeypatch):
+        captured = {}
+
+        def fake_open_zarr(source, **kwargs):
+            captured["source"] = source
+            captured.update(kwargs)
+            return self._fake_zarr()
+
+        monkeypatch.setattr(xr, "open_zarr", fake_open_zarr)
+        store = LabeledDataset.read_file("s3://bucket/chrtout.zarr", anon=True)
+        assert captured["source"] == "s3://bucket/chrtout.zarr"
+        assert captured["storage_options"] == {"anon": True}
+        assert "streamflow" in store.variables
+
+    def test_explicit_storage_options_override_anon(self, monkeypatch):
+        captured = {}
+
+        def fake_open_zarr(source, **kwargs):
+            captured.update(kwargs)
+            return self._fake_zarr()
+
+        monkeypatch.setattr(xr, "open_zarr", fake_open_zarr)
+        LabeledDataset.read_file(
+            "s3://b/x.zarr", anon=True, storage_options={"anon": False, "region": "us-east-1"}
+        )
+        assert captured["storage_options"] == {"anon": False, "region": "us-east-1"}
+
+    def test_anon_threads_to_netcdf_open(self, monkeypatch):
+        captured = {}
+
+        def fake_open_dataset(source, **kwargs):
+            captured.update(kwargs)
+            return self._fake_zarr()
+
+        monkeypatch.setattr(xr, "open_dataset", fake_open_dataset)
+        LabeledDataset.read_file("s3://b/channel_rt.nc", anon=True)
+        assert captured["storage_options"] == {"anon": True}
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    os.environ.get("PYRAMIDS_RUN_NWM_ZARR_TEST") != "1",
+    reason="set PYRAMIDS_RUN_NWM_ZARR_TEST=1 to open the NWM retrospective Zarr from S3",
+)
+class TestLabeledDatasetRemoteIntegration:
+    """P-B: open the real NWM retrospective Zarr anonymously (opt-in, network)."""
+
+    def test_open_nwm_retro_chrtout_anonymously(self):
+        pytest.importorskip("s3fs")
+        url = "s3://noaa-nwm-retrospective-3-0-pds/CONUS/zarr/chrtout.zarr"
+        try:
+            store = LabeledDataset.read_file(url, anon=True, chunks={})
+        except Exception as exc:  # noqa: BLE001 — network/endpoint hiccup -> skip
+            pytest.skip(f"NWM retrospective Zarr unreachable: {exc}")
+        assert "feature_id" in store.dimensions, f"dims: {store.dimensions}"
+        assert "time" in store.dimensions, f"dims: {store.dimensions}"
+        assert len(store.variables) > 0, "no data variables read"
 
 
 class TestLabeledDatasetLaziness:

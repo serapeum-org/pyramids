@@ -80,6 +80,7 @@ class LabeledDataset:
         group: str | None = None,
         chunks: Any = None,
         engine: str | None = None,
+        anon: bool = False,
         storage_options: dict[str, Any] | None = None,
         consolidated: bool | None = None,
     ) -> LabeledDataset:
@@ -87,11 +88,12 @@ class LabeledDataset:
 
         The store kind is inferred from ``path`` (``.zarr`` -> Zarr, otherwise
         NetCDF/HDF5) unless ``engine`` is given. Only metadata is read on open;
-        data is materialised lazily.
+        data is materialised lazily. Remote ``s3://`` / ``gs://`` URLs are
+        resolved via fsspec — pass ``anon=True`` for an unsigned public bucket
+        (needs the ``[lazy]`` extra, which ships ``s3fs``).
 
         Args:
-            path: Local path (or, with ``storage_options``, a fsspec URL) of the
-                store.
+            path: Local path or a fsspec URL (``s3://``, ``gs://``, ...).
             variables: Restrict to these data variables. ``None`` keeps all.
             group: NetCDF/Zarr group to open. ``None`` opens the root group.
             chunks: xarray ``chunks`` spec. ``None`` (default) reads without
@@ -99,8 +101,11 @@ class LabeledDataset:
                 arrays with dask for chunked reads (needs the ``[lazy]`` extra).
             engine: Force an xarray engine (e.g. ``"zarr"``, ``"h5netcdf"``,
                 ``"netcdf4"``). ``None`` lets xarray infer it.
-            storage_options: fsspec options for remote stores (e.g.
-                ``{"anon": True}`` for an unsigned public bucket).
+            anon: Open the remote store anonymously (unsigned). Shorthand for
+                ``storage_options={"anon": True}``; an explicit
+                ``storage_options["anon"]`` wins.
+            storage_options: fsspec options for remote stores. Merged with
+                ``anon``.
             consolidated: Zarr only — whether to read consolidated metadata.
                 ``None`` lets xarray decide.
 
@@ -109,9 +114,20 @@ class LabeledDataset:
 
         Raises:
             OptionalPackageDoesNotExist: When xarray is not installed.
+
+        Examples:
+            - Open the NWM retrospective Zarr anonymously, lazily::
+
+                >>> store = LabeledDataset.read_file(  # doctest: +SKIP
+                ...     "s3://noaa-nwm-retrospective-3-0-pds/CONUS/zarr/chrtout.zarr",
+                ...     anon=True,
+                ...     chunks={},
+                ... )
         """
         xr = import_xarray(_XARRAY_INSTALL_HINT)
         source = str(path)
+        if anon:
+            storage_options = {"anon": True, **(storage_options or {})}
         if _is_zarr_store(source, engine):
             dataset = xr.open_zarr(
                 source,
