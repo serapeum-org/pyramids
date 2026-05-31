@@ -181,9 +181,11 @@ class LabeledDataset:
     def select(self, **labels: Any) -> LabeledDataset:
         """Select by label-dimension coordinate value(s).
 
-        Each keyword is a dimension coordinate (e.g. ``feature_id``,
-        ``station``) mapped to a value or list of values to keep. Missing
-        labels are reported rather than silently dropped.
+        Each keyword is a coordinate (typically a dimension coordinate such as
+        ``feature_id`` / ``station``) mapped to a value or list of values to
+        keep. A 1-D non-dimension coordinate also works; for an explicit,
+        order-preserving join on one use :meth:`select_by_coord`. Missing labels
+        are reported rather than silently dropped.
 
         Args:
             **labels: ``dim=value`` or ``dim=[values]`` selectors. A scalar
@@ -211,10 +213,13 @@ class LabeledDataset:
                     f"{dim!r} is not a coordinate of this store; available: "
                     f"{self.coordinates}"
                 )
-            present = set(np.asarray(self._dataset[dim].values).tolist())
             requested = values if isinstance(values, (list, tuple, np.ndarray)) else [values]
-            missing = [v for v in requested if v not in present]
-            if missing:
+            # Membership test against the numpy coordinate (vectorised, no
+            # full-coordinate Python set) so a million-label store stays cheap.
+            coord_values = np.asarray(self._dataset[dim].values)
+            found = np.isin(np.asarray(requested), coord_values)
+            if not found.all():
+                missing = [v for v, ok in zip(requested, found) if not ok]
                 raise KeyError(f"{dim!r} values not found: {missing}")
             result = result.sel({dim: values})
         return type(self)(result)
@@ -254,9 +259,10 @@ class LabeledDataset:
         dim = coord_arr.dims[0]
         coord_values = np.asarray(coord_arr.values)
         requested = list(values)
-        present = set(coord_values.tolist())
-        missing = [v for v in requested if v not in present]
-        if missing:
+        # Vectorised membership test (no full-coordinate Python set).
+        found = np.isin(np.asarray(requested), coord_values)
+        if not found.all():
+            missing = [v for v, ok in zip(requested, found) if not ok]
             raise KeyError(f"{coord!r} values not found: {missing}")
         keep = np.flatnonzero(np.isin(coord_values, requested))
         return type(self)(self._dataset.isel({dim: keep}))
