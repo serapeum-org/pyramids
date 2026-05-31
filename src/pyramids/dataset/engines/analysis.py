@@ -1358,8 +1358,8 @@ class Analysis(_Engine):
                 height as the raster band.
 
         Examples:
-            - Export a band as a viridis thumbnail and inspect its size
-              (tagged ``+SKIP`` — needs the ``[viz]`` extra):
+            - Export a band as a viridis thumbnail, inspect its size, and
+              save it to disk (tagged ``+SKIP`` — needs the ``[viz]`` extra):
 
                 ```python
                 >>> import numpy as np
@@ -1369,10 +1369,6 @@ class Analysis(_Engine):
                 >>> img = ds.to_image(band=0, cmap="viridis")  # doctest: +SKIP
                 >>> img.size  # (width, height) == (columns, rows)  # doctest: +SKIP
                 (8, 6)
-                ```
-            - Save the thumbnail to disk via PIL:
-
-                ```python
                 >>> img.save("band0.png")  # doctest: +SKIP
                 ```
         """

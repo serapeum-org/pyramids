@@ -2083,6 +2083,11 @@ class FeatureCollection(GeoDataFrame):
             - The cleopatra engine returns the glyph, exposing the colorbar:
 
                 ```python
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> gdf = gpd.GeoDataFrame({"v": [1.0, 2.0]}, geometry=[Point(0, 0), Point(1, 1)], crs="EPSG:4326")
+                >>> fc = FeatureCollection(gdf)
                 >>> glyph = fc.plot(column="v", engine="cleopatra")  # doctest: +SKIP
                 >>> _ = glyph.cbar.set_label("value")  # doctest: +SKIP
                 ```
