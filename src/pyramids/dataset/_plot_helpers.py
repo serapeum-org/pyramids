@@ -260,7 +260,7 @@ def render_array(
         except ValueError:
             valid = [s.value for s in ColorScale]
             raise ValueError(
-                f"Unsupported color_scale {color_scale!r}; " f"valid options: {valid}."
+                f"Unsupported color_scale {color_scale!r}; valid options: {valid}."
             ) from None
 
     # cleopatra's `coords` and `extent` are mutually exclusive; drop
