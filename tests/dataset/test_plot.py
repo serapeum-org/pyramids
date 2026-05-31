@@ -22,6 +22,19 @@ _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not ins
 Config = _cleo_config.Config
 
 
+@pytest.fixture(autouse=True)
+def _close_matplotlib_figures():
+    """Close all matplotlib figures after each plot test to bound memory.
+
+    Plotting tests open figures via cleopatra/pyplot; without this teardown
+    the suite accumulates them and matplotlib warns past 20 open figures.
+    """
+    yield
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
+
+
 class TestPlotDataSet:
     Config.set_matplotlib_backend("agg")
 

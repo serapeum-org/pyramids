@@ -26,6 +26,15 @@ PolygonGlyph = _pg.PolygonGlyph
 ScatterGlyph = _sg.ScatterGlyph
 
 
+@pytest.fixture(autouse=True)
+def _close_matplotlib_figures():
+    """Close all matplotlib figures after each test to bound memory."""
+    yield
+    import matplotlib.pyplot as plt
+
+    plt.close("all")
+
+
 class TestFeatureCollectionCleopatraEngine:
     """``engine="cleopatra"`` routing on ``FeatureCollection.plot``."""
 
