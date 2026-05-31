@@ -2074,8 +2074,7 @@ class FeatureCollection(GeoDataFrame):
             result, ax = self._plot_cleopatra(column=column, **kwargs)
         else:
             raise ValueError(
-                f"Unsupported engine {engine!r}; "
-                "choose 'geopandas' or 'cleopatra'."
+                f"Unsupported engine {engine!r}; " "choose 'geopandas' or 'cleopatra'."
             )
 
         if basemap:

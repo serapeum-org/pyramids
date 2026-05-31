@@ -55,9 +55,7 @@ class TestFeatureCollectionCleopatraEngine:
     def test_default_engine_returns_axes_unchanged(self):
         """The default geopandas engine still returns a matplotlib ``Axes``."""
         fc = FeatureCollection(
-            gpd.GeoDataFrame(
-                {"v": [1.0]}, geometry=[box(0, 0, 1, 1)], crs="EPSG:4326"
-            )
+            gpd.GeoDataFrame({"v": [1.0]}, geometry=[box(0, 0, 1, 1)], crs="EPSG:4326")
         )
         result = fc.plot(column="v")
         assert isinstance(result, Axes)
@@ -65,9 +63,7 @@ class TestFeatureCollectionCleopatraEngine:
     def test_invalid_engine_raises(self):
         """An unknown engine fails fast with a clear ``ValueError``."""
         fc = FeatureCollection(
-            gpd.GeoDataFrame(
-                {"v": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326"
-            )
+            gpd.GeoDataFrame({"v": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326")
         )
         with pytest.raises(ValueError, match="engine"):
             fc.plot(engine="bogus")

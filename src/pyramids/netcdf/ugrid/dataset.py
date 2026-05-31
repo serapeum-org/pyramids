@@ -705,9 +705,7 @@ class UgridDataset:
         if title is None:
             title = variable_name
         if basemap and self.epsg is None:
-            raise ValueError(
-                "UgridDataset must have a CRS (epsg) to use basemap."
-            )
+            raise ValueError("UgridDataset must have a CRS (epsg) to use basemap.")
         result = _mesh_render(
             mesh=self._mesh,
             data=data,

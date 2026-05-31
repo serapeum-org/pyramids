@@ -67,9 +67,9 @@ class TestPlotDataSet:
         with_cbar = dataset.plot(band=0)
         assert with_cbar.cbar is not None, "default plot must draw a colorbar"
         without_cbar = dataset.plot(band=0, add_colorbar=False)
-        assert without_cbar.cbar is None, (
-            "add_colorbar=False must suppress the colorbar"
-        )
+        assert (
+            without_cbar.cbar is None
+        ), "add_colorbar=False must suppress the colorbar"
 
     @pytest.mark.plot
     def test_glyph_exposes_mappable_im(self, src: Dataset):
@@ -97,11 +97,12 @@ class TestPlotDataSet:
             no-data value and the explicit ``exclude_value`` are dropped,
             leaving only the genuine samples.
         """
-        arr = np.array(
-            [[1.0, 2.0, -9999.0], [3.0, 7.0, 7.0]], dtype="float32"
-        )
+        arr = np.array([[1.0, 2.0, -9999.0], [3.0, 7.0, 7.0]], dtype="float32")
         dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+            arr,
+            top_left_corner=(0, 0),
+            cell_size=1.0,
+            epsg=4326,
             no_data_value=-9999.0,
         )
         captured: dict = {}
@@ -117,14 +118,14 @@ class TestPlotDataSet:
             def histogram(self, bins=15):
                 return ("fig", "ax", {})
 
-        with patch(
-            "cleopatra.statistical_glyph.StatisticalGlyph", new=_FakeSG
-        ):
+        with patch("cleopatra.statistical_glyph.StatisticalGlyph", new=_FakeSG):
             dataset.plot_histogram(band=0, bins=5, exclude_value=7.0)
         vals = sorted(captured["values"].tolist())
-        assert vals == [1.0, 2.0, 3.0], (
-            f"nodata (-9999) and exclude_value (7.0) must be dropped; got {vals}"
-        )
+        assert vals == [
+            1.0,
+            2.0,
+            3.0,
+        ], f"nodata (-9999) and exclude_value (7.0) must be dropped; got {vals}"
 
     @pytest.mark.plot
     def test_invalid_color_scale_raises(self, src: Dataset):
@@ -466,9 +467,7 @@ class TestResolvePlotBand:
             arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
         )
 
-        with patch.object(
-            type(dataset.analysis), "plot", autospec=True
-        ) as mock_plot:
+        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "sentinel"
             result = dataset.plot()
 
@@ -526,9 +525,7 @@ class TestNetCDFPlot:
         nc_subset, _ = _make_nc_subset_with_band_count(tmp_path, n_bands=4)
         assert nc_subset.band_count == 4
 
-        with patch.object(
-            type(nc_subset.analysis), "plot", autospec=True
-        ) as mock_plot:
+        with patch.object(type(nc_subset.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "sentinel"
             result = nc_subset.plot()
 
@@ -577,9 +574,9 @@ class TestDatasetPlotFacade:
         )
 
         result = dataset.plot()
-        assert isinstance(result, ArrayGlyph), (
-            f"Expected ArrayGlyph, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, ArrayGlyph
+        ), f"Expected ArrayGlyph, got {type(result).__name__}"
 
     @pytest.mark.plot
     def test_two_consecutive_calls_return_independent_figures(self):
@@ -600,9 +597,9 @@ class TestDatasetPlotFacade:
         first = dataset.plot()
         second = dataset.plot()
         assert first is not second, "plot() must return a fresh ArrayGlyph each call"
-        assert first.fig is not second.fig, (
-            "Each call must own a distinct matplotlib Figure"
-        )
+        assert (
+            first.fig is not second.fig
+        ), "Each call must own a distinct matplotlib Figure"
 
     @pytest.mark.plot
     @pytest.mark.parametrize(
@@ -692,15 +689,18 @@ class TestDatasetPlotFacade:
             mock_plot.return_value = "stub-glyph"
             result = dataset.plot(figsize=(4, 4))
 
-        assert result == "stub-glyph", f"Facade must return engine output, got {result!r}"
+        assert (
+            result == "stub-glyph"
+        ), f"Facade must return engine output, got {result!r}"
         assert mock_plot.call_count == 1
         call_kwargs = mock_plot.call_args.kwargs
-        assert call_kwargs["band"] == 0, (
-            f"Resolver should send band=0, got {call_kwargs.get('band')}"
-        )
-        assert call_kwargs["figsize"] == (4, 4), (
-            f"Extra kwargs must propagate, got {call_kwargs.get('figsize')}"
-        )
+        assert (
+            call_kwargs["band"] == 0
+        ), f"Resolver should send band=0, got {call_kwargs.get('band')}"
+        assert call_kwargs["figsize"] == (
+            4,
+            4,
+        ), f"Extra kwargs must propagate, got {call_kwargs.get('figsize')}"
 
 
 class TestDatasetPlotRgbOptions:
@@ -840,15 +840,15 @@ class TestDatasetPlotRgbOptions:
                 dataset.plot(rgb=[2, 1, 0])
         collide_msg = " ".join(str(w.message) for w in collide)
         pure_msg = " ".join(str(w.message) for w in pure)
-        assert "rgb_options` wins" in collide_msg and "drop the loose form" in collide_msg, (
-            f"collision warning should say rgb_options wins; got: {collide_msg!r}"
-        )
-        assert "Group them under" not in collide_msg, (
-            f"collision warning must not use the 'group them' wording; got: {collide_msg!r}"
-        )
-        assert "Group them under" in pure_msg, (
-            f"pure-loose warning should keep the 'group them' wording; got: {pure_msg!r}"
-        )
+        assert (
+            "rgb_options` wins" in collide_msg and "drop the loose form" in collide_msg
+        ), f"collision warning should say rgb_options wins; got: {collide_msg!r}"
+        assert (
+            "Group them under" not in collide_msg
+        ), f"collision warning must not use the 'group them' wording; got: {collide_msg!r}"
+        assert (
+            "Group them under" in pure_msg
+        ), f"pure-loose warning should keep the 'group them' wording; got: {pure_msg!r}"
 
 
 class TestAnalysisPlotEngine:
@@ -874,9 +874,9 @@ class TestAnalysisPlotEngine:
         )
 
         result = dataset.analysis.plot(band=2)
-        assert isinstance(result, ArrayGlyph), (
-            f"Expected ArrayGlyph, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, ArrayGlyph
+        ), f"Expected ArrayGlyph, got {type(result).__name__}"
 
     @pytest.mark.plot
     def test_out_of_range_band_raises(self):
@@ -939,9 +939,11 @@ class TestDatasetPlotRgbOptionsEdges:
                     rgb_options={"rgb": [2, 1, 0], "surface_reflectance": 10000},
                 )
         call_kwargs = mock_plot.call_args.kwargs
-        assert call_kwargs["rgb"] == [2, 1, 0], (
-            f"rgb must be forwarded, got: {call_kwargs.get('rgb')}"
-        )
+        assert call_kwargs["rgb"] == [
+            2,
+            1,
+            0,
+        ], f"rgb must be forwarded, got: {call_kwargs.get('rgb')}"
         assert call_kwargs["surface_reflectance"] == 10000, (
             f"surface_reflectance must be forwarded, "
             f"got: {call_kwargs.get('surface_reflectance')}"
@@ -974,18 +976,16 @@ class TestDatasetPlotRgbOptionsEdges:
                 multiband_dataset.plot(rgb_options={})
         call_kwargs = mock_plot.call_args.kwargs
         # No Sentinel kwargs were set; the resolver passes None through.
-        assert call_kwargs.get("rgb") is None, (
-            f"Empty rgb_options should leave rgb=None, got: {call_kwargs.get('rgb')}"
-        )
-        assert call_kwargs.get("surface_reflectance") is None, (
-            f"Empty rgb_options should leave surface_reflectance=None"
-        )
+        assert (
+            call_kwargs.get("rgb") is None
+        ), f"Empty rgb_options should leave rgb=None, got: {call_kwargs.get('rgb')}"
+        assert (
+            call_kwargs.get("surface_reflectance") is None
+        ), f"Empty rgb_options should leave surface_reflectance=None"
         deprecations = [
             w for w in captured if issubclass(w.category, DeprecationWarning)
         ]
-        assert not deprecations, (
-            "Empty rgb_options must not emit DeprecationWarning"
-        )
+        assert not deprecations, "Empty rgb_options must not emit DeprecationWarning"
 
     @pytest.mark.plot
     def test_loose_rgb_with_empty_group_still_warns(self, multiband_dataset):
@@ -1004,9 +1004,11 @@ class TestDatasetPlotRgbOptionsEdges:
             mock_plot.return_value = "stub"
             with pytest.warns(DeprecationWarning, match=r"rgb_options"):
                 multiband_dataset.plot(rgb=[0, 1, 2], rgb_options={})
-        assert mock_plot.call_args.kwargs["rgb"] == [0, 1, 2], (
-            "Loose rgb must survive when rgb_options is empty"
-        )
+        assert mock_plot.call_args.kwargs["rgb"] == [
+            0,
+            1,
+            2,
+        ], "Loose rgb must survive when rgb_options is empty"
 
     @pytest.mark.plot
     def test_only_loose_surface_reflectance_emits_warning_once(self, multiband_dataset):
@@ -1032,9 +1034,9 @@ class TestDatasetPlotRgbOptionsEdges:
             f"Exactly one DeprecationWarning expected, got {len(deprecations)}: "
             f"{[str(w.message) for w in deprecations]}"
         )
-        assert "surface_reflectance" in str(deprecations[0].message), (
-            f"Warning must name the loose kwarg, got: {deprecations[0].message}"
-        )
+        assert "surface_reflectance" in str(
+            deprecations[0].message
+        ), f"Warning must name the loose kwarg, got: {deprecations[0].message}"
 
     @pytest.mark.plot
     def test_rgb_options_only_partial_override(self, multiband_dataset):
@@ -1058,12 +1060,14 @@ class TestDatasetPlotRgbOptionsEdges:
                     rgb_options={"rgb": [0, 1, 2]},
                 )
         call_kwargs = mock_plot.call_args.kwargs
-        assert call_kwargs["rgb"] == [0, 1, 2], (
-            f"Grouped rgb must propagate, got: {call_kwargs.get('rgb')}"
-        )
-        assert call_kwargs["percentile"] == 2, (
-            f"Loose percentile must survive, got: {call_kwargs.get('percentile')}"
-        )
+        assert call_kwargs["rgb"] == [
+            0,
+            1,
+            2,
+        ], f"Grouped rgb must propagate, got: {call_kwargs.get('rgb')}"
+        assert (
+            call_kwargs["percentile"] == 2
+        ), f"Loose percentile must survive, got: {call_kwargs.get('percentile')}"
 
 
 class TestPlotPhase3CrossCutting:
@@ -1089,9 +1093,7 @@ class TestPlotPhase3CrossCutting:
         )
 
     @pytest.mark.plot
-    def test_dataset_plot_returns_array_glyph_post_refactor(
-        self, single_band_dataset
-    ):
+    def test_dataset_plot_returns_array_glyph_post_refactor(self, single_band_dataset):
         """`Dataset.plot()` still returns an ArrayGlyph after D-2 collapse.
 
         Test scenario:
@@ -1102,14 +1104,12 @@ class TestPlotPhase3CrossCutting:
             callers that chain visual customisations.
         """
         result = single_band_dataset.plot()
-        assert isinstance(result, ArrayGlyph), (
-            f"Dataset.plot() must return ArrayGlyph after D-2, got: {type(result).__name__}"
-        )
+        assert isinstance(
+            result, ArrayGlyph
+        ), f"Dataset.plot() must return ArrayGlyph after D-2, got: {type(result).__name__}"
 
     @pytest.mark.plot
-    def test_analysis_plot_returns_array_glyph_post_refactor(
-        self, single_band_dataset
-    ):
+    def test_analysis_plot_returns_array_glyph_post_refactor(self, single_band_dataset):
         """`Analysis.plot(band=N)` still returns an ArrayGlyph after D-2.
 
         Test scenario:
@@ -1148,9 +1148,7 @@ class TestPlotPhase3CrossCutting:
         )
 
     @pytest.mark.plot
-    def test_render_array_direct_call_matches_analysis_plot(
-        self, single_band_dataset
-    ):
+    def test_render_array_direct_call_matches_analysis_plot(self, single_band_dataset):
         """Calling `render_array(mode="plot")` directly produces the same array.
 
         Test scenario:
@@ -1263,10 +1261,7 @@ class TestPlotPR6Cleanups:
             content = (repo / rel).read_text(encoding="utf-8")
             for line in content.splitlines():
                 stripped = line.strip()
-                if (
-                    "import_cleopatra(" in stripped
-                    and not stripped.startswith("#")
-                ):
+                if "import_cleopatra(" in stripped and not stripped.startswith("#"):
                     offenders.append(f"{rel}: {stripped}")
         assert not offenders, (
             f"Found legacy `import_cleopatra(` call sites: {offenders}. "
@@ -1346,18 +1341,18 @@ class TestPlotPR6Cleanups:
                 points=None,
             )
 
-        assert "cmap" in ctor_seen, (
-            f"Ctor should own `cmap`; got ctor={ctor_seen}, plot={plot_seen}"
-        )
-        assert "cmap" not in plot_seen, (
-            f"`cmap` must not double-forward; plot kwargs={plot_seen}"
-        )
-        assert "kind" in plot_seen, (
-            f"`kind` should reach cleo.plot; got plot={plot_seen}"
-        )
-        assert "kind" not in ctor_seen, (
-            f"`kind` should not be on the constructor; ctor={ctor_seen}"
-        )
+        assert (
+            "cmap" in ctor_seen
+        ), f"Ctor should own `cmap`; got ctor={ctor_seen}, plot={plot_seen}"
+        assert (
+            "cmap" not in plot_seen
+        ), f"`cmap` must not double-forward; plot kwargs={plot_seen}"
+        assert (
+            "kind" in plot_seen
+        ), f"`kind` should reach cleo.plot; got plot={plot_seen}"
+        assert (
+            "kind" not in ctor_seen
+        ), f"`kind` should not be on the constructor; ctor={ctor_seen}"
 
 
 class TestRenderArrayKwargRouting:
@@ -1445,9 +1440,9 @@ class TestRenderArrayKwargRouting:
             )
         for key in ("cmap", "vmin", "vmax", "levels", "cbar_kwargs"):
             assert key in ctor, f"`{key}` must land on the constructor; ctor={ctor}"
-            assert key not in plot, (
-                f"`{key}` must NOT also reach cleo.plot; plot={plot}"
-            )
+            assert (
+                key not in plot
+            ), f"`{key}` must NOT also reach cleo.plot; plot={plot}"
 
     def test_render_call_only_kwargs_reach_plot(self):
         """``points``/``point_color``/``point_size``/``pid_color``/``pid_size``/``kind``.
@@ -1477,12 +1472,10 @@ class TestRenderArrayKwargRouting:
                 **render_only_kwargs,
             )
         for key in render_only_kwargs:
-            assert key in plot, (
-                f"`{key}` must reach cleo.plot; plot={plot}"
-            )
-            assert key not in ctor, (
-                f"`{key}` must NOT also be on the constructor; ctor={ctor}"
-            )
+            assert key in plot, f"`{key}` must reach cleo.plot; plot={plot}"
+            assert (
+                key not in ctor
+            ), f"`{key}` must NOT also be on the constructor; ctor={ctor}"
 
     def test_animate_mode_merges_both_buckets_into_animate_call(self):
         """``mode='animate'`` — every kwarg flows into ``cleo.animate(...)``.
@@ -1516,9 +1509,9 @@ class TestRenderArrayKwargRouting:
                 f"In animate mode, `{key}` must NOT be on the constructor; "
                 f"ctor={ctor}"
             )
-        assert anim_args == [[0, 1, 2]], (
-            f"animation_axis_values must be positional; got {anim_args}"
-        )
+        assert anim_args == [
+            [0, 1, 2]
+        ], f"animation_axis_values must be positional; got {anim_args}"
 
     def test_facet_mode_routes_kind_to_facet_call(self):
         """``kind`` (render-call-only) reaches ``cleo.facet``, not the ctor.
@@ -1542,15 +1535,11 @@ class TestRenderArrayKwargRouting:
                 cmap="magma",
                 kind="contourf",
             )
-        assert "kind" in facet, (
-            f"`kind` should reach cleo.facet; facet kwargs={facet}"
-        )
-        assert "cmap" in ctor, (
-            f"`cmap` should remain on the constructor; ctor={ctor}"
-        )
-        assert facet.get("col") == "time", (
-            f"facet_kwargs must reach cleo.facet via merge; got {facet}"
-        )
+        assert "kind" in facet, f"`kind` should reach cleo.facet; facet kwargs={facet}"
+        assert "cmap" in ctor, f"`cmap` should remain on the constructor; ctor={ctor}"
+        assert (
+            facet.get("col") == "time"
+        ), f"facet_kwargs must reach cleo.facet via merge; got {facet}"
 
     def test_split_is_driven_by_option_keys(self):
         """The ctor/render split comes from ``ArrayGlyph.option_keys()``.
@@ -1578,12 +1567,12 @@ class TestRenderArrayKwargRouting:
                 add_colorbar=False,
                 kind="imshow",
             )
-        assert "add_colorbar" in ctor and "add_colorbar" not in plot, (
-            f"`add_colorbar` is an option_keys() ctor option; ctor={ctor}"
-        )
-        assert "kind" in plot and "kind" not in ctor, (
-            f"`kind` must be force-routed to the render call; plot={plot}"
-        )
+        assert (
+            "add_colorbar" in ctor and "add_colorbar" not in plot
+        ), f"`add_colorbar` is an option_keys() ctor option; ctor={ctor}"
+        assert (
+            "kind" in plot and "kind" not in ctor
+        ), f"`kind` must be force-routed to the render call; plot={plot}"
 
     def test_invalid_kwarg_surfaces_cleopatra_valueerror(self):
         """An unknown kwarg is not swallowed — cleopatra raises ``ValueError``.
@@ -1650,9 +1639,9 @@ class TestMeshRenderHelper:
                     data=np.array([1.0]),
                     location="face",
                 )
-        assert result is sentinel, (
-            f"mesh_render must return plot_mesh_data's result; got {result!r}"
-        )
+        assert (
+            result is sentinel
+        ), f"mesh_render must return plot_mesh_data's result; got {result!r}"
         mock_add.assert_not_called()
 
     def test_mesh_render_forwards_kwargs_to_plot_mesh_data(self):
@@ -1723,12 +1712,9 @@ class TestMeshRenderHelper:
                 )
         mock_add.assert_called_once()
         kwargs = mock_add.call_args.kwargs
-        assert kwargs.get("crs") == 3857, (
-            f"`crs` must equal basemap_epsg; got {kwargs}"
-        )
+        assert kwargs.get("crs") == 3857, f"`crs` must equal basemap_epsg; got {kwargs}"
         assert kwargs.get("source") is None, (
-            f"`source` should be None when basemap=True (no provider); "
-            f"got {kwargs}"
+            f"`source` should be None when basemap=True (no provider); " f"got {kwargs}"
         )
 
     def test_mesh_render_basemap_string_passes_source(self):
@@ -1757,9 +1743,9 @@ class TestMeshRenderHelper:
                     basemap_epsg=4326,
                 )
         kwargs = mock_add.call_args.kwargs
-        assert kwargs.get("source") == "CartoDB.Positron", (
-            f"`source` must equal the basemap string; got {kwargs}"
-        )
+        assert (
+            kwargs.get("source") == "CartoDB.Positron"
+        ), f"`source` must equal the basemap string; got {kwargs}"
 
 
 class TestPR6CleanupGrepGuards:
@@ -1837,8 +1823,6 @@ class TestPR6CleanupGrepGuards:
             text = (repo / rel).read_text(encoding="utf-8")
             if "require_cleopatra" not in text:
                 missing.append(rel)
-        assert not missing, (
-            f"Modules missing `require_cleopatra` import/usage: {missing}"
-        )
-
-
+        assert (
+            not missing
+        ), f"Modules missing `require_cleopatra` import/usage: {missing}"

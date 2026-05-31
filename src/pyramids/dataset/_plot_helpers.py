@@ -64,6 +64,7 @@ from typing import Any, Callable
 import numpy as np
 
 from pyramids.base._utils import require_cleopatra
+
 # `add_basemap` is imported at top-level so existing test patches that
 # target `pyramids.basemap.basemap.add_basemap` keep working. The
 # helper re-resolves the symbol via `pyramids.basemap.basemap` inside
@@ -241,21 +242,13 @@ def render_array(
 
     valid_modes = ("plot", "animate", "facet")
     if mode not in valid_modes:
-        raise ValueError(
-            f"Invalid mode={mode!r}; expected one of {valid_modes}."
-        )
+        raise ValueError(f"Invalid mode={mode!r}; expected one of {valid_modes}.")
     if mode == "animate" and animation_axis_values is None:
-        raise ValueError(
-            "`animation_axis_values` is required when mode='animate'."
-        )
+        raise ValueError("`animation_axis_values` is required when mode='animate'.")
     if mode == "facet" and not facet_kwargs:
-        raise ValueError(
-            "`facet_kwargs` is required when mode='facet'."
-        )
+        raise ValueError("`facet_kwargs` is required when mode='facet'.")
     if basemap and basemap_epsg is None:
-        raise ValueError(
-            "Dataset must have a CRS (epsg) to use basemap."
-        )
+        raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
     # Fail fast on an invalid ``color_scale`` with a pyramids-side message
     # that lists the valid options, instead of deferring to a less-targeted
     # cleopatra error deep in the render call. ``ColorScale`` lookup is
@@ -267,8 +260,7 @@ def render_array(
         except ValueError:
             valid = [s.value for s in ColorScale]
             raise ValueError(
-                f"Unsupported color_scale {color_scale!r}; "
-                f"valid options: {valid}."
+                f"Unsupported color_scale {color_scale!r}; " f"valid options: {valid}."
             ) from None
 
     # cleopatra's `coords` and `extent` are mutually exclusive; drop
@@ -340,7 +332,9 @@ def render_array(
         # honoured (the patch swaps the module attribute, not any
         # pre-bound reference this helper might hold).
         _basemap_module.add_basemap(
-            target_ax, crs=basemap_epsg, source=basemap_source,
+            target_ax,
+            crs=basemap_epsg,
+            source=basemap_source,
         )
 
     if mode == "plot":
@@ -474,9 +468,7 @@ def mesh_render(
             ```
     """
     if basemap and basemap_epsg is None:
-        raise ValueError(
-            "Dataset must have a CRS (epsg) to use basemap."
-        )
+        raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
     require_cleopatra()
     from pyramids.netcdf.ugrid.plot import plot_mesh_data
 

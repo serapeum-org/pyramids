@@ -653,7 +653,11 @@ class Analysis(_Engine):
         stacked = np.vstack(rows_out) if rows_out else np.empty((0, n_points))
         result: np.ndarray = stacked[0] if squeeze else stacked
         if masked:
-            mask = out_of_bounds if squeeze else np.broadcast_to(out_of_bounds, result.shape)
+            mask = (
+                out_of_bounds
+                if squeeze
+                else np.broadcast_to(out_of_bounds, result.shape)
+            )
             result = np.ma.masked_array(result, mask=np.array(mask))
         return result
 
@@ -1405,9 +1409,7 @@ class Analysis(_Engine):
             u = u[:, ::-1]
             v = v[:, ::-1]
         xx, yy = np.meshgrid(x, y)
-        glyph = VectorGlyph(
-            xx, yy, u, v, ax=ax, **VectorGlyph.filter_kwargs(kwargs)
-        )
+        glyph = VectorGlyph(xx, yy, u, v, ax=ax, **VectorGlyph.filter_kwargs(kwargs))
         result = glyph.plot(kind=kind)
         return result
 
