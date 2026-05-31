@@ -1,71 +1,62 @@
 """Regression tests for geostationary (GOES) geotransform scaling on read.
 
-A GOES-style NetCDF stores its ``x`` / ``y`` as scan angles in radians and
-references a ``goes_imager_projection`` grid-mapping with
-``grid_mapping_name="geostationary"``. GDAL's classic netCDF driver scales those
-radians to projected metres by ``perspective_point_height``; the MDIM
+A GOES-style geostationary dataset stores its ``x`` / ``y`` as scan angles in
+radians under a geostationary CRS. GDAL's classic netCDF driver scales those
+radians to projected metres by ``perspective_point_height``; the multidim
 ``AsClassicDataset`` path that ``NetCDF.get_variable`` uses does not.
 
 Without the fix the cube carries a radian geotransform under a metre-based
 geostationary CRS, so ``to_crs`` collapses to a zero-width extent. These tests
-build a synthetic CF-compliant geostationary file and assert the cube is read
-with a metre geotransform that reprojects cleanly.
+build the fixture with :meth:`NetCDF.create_from_array` (radian ``x`` / ``y``)
+plus a geostationary spatial reference, then assert the variable is read with a
+metre geotransform that reprojects cleanly.
 """
-from pathlib import Path
-
 import numpy as np
 import pytest
-import xarray as xr
+from osgeo import osr
 
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
 PERSPECTIVE_HEIGHT = 35786023.0
+NX, NY = 64, 48
+RADIAN_PIXEL = 0.1 / (NX - 1)
 
 
-def _write_geostationary_nc(path: Path, lon_0: float) -> Path:
-    """Write a synthetic CF geostationary NetCDF with scan-angle (rad) x/y."""
-    x = np.linspace(-0.05, 0.05, 64).astype("f8")
-    y = np.linspace(0.10, 0.00, 48).astype("f8")
-    ds = xr.Dataset(
-        {
-            "CMI": (
-                ("y", "x"),
-                np.random.default_rng(0).random((48, 64)).astype("f4"),
-                {"grid_mapping": "goes_imager_projection"},
-            )
-        },
-        coords={
-            "x": ("x", x, {"standard_name": "projection_x_coordinate", "units": "rad"}),
-            "y": ("y", y, {"standard_name": "projection_y_coordinate", "units": "rad"}),
-        },
+def _geostationary_srs(lon_0: float) -> osr.SpatialReference:
+    """Build a GOES-like geostationary spatial reference."""
+    srs = osr.SpatialReference()
+    srs.SetGEOS(lon_0, PERSPECTIVE_HEIGHT, 0.0, 0.0)
+    srs.SetWellKnownGeogCS("WGS84")
+    return srs
+
+
+def _geostationary_cube(lon_0: float = -75.0) -> NetCDF:
+    """Read a synthetic geostationary variable through ``get_variable``.
+
+    The variable is created with scan-angle (radian) ``x`` / ``y`` and a
+    geostationary CRS attached to the data array, reproducing a GOES file as
+    seen by the MDIM read path.
+    """
+    dx = RADIAN_PIXEL
+    dy = -RADIAN_PIXEL
+    geo = (-0.05 - dx / 2, dx, 0.0, 0.10 - dy / 2, 0.0, dy)
+    arr = np.arange(NY * NX).reshape(NY, NX).astype("f4")
+    container = NetCDF.create_from_array(arr, geo=geo, epsg=4326, variable_name="CMI")
+    container.raster.GetRootGroup().OpenMDArray("CMI").SetSpatialRef(
+        _geostationary_srs(lon_0)
     )
-    ds["goes_imager_projection"] = xr.DataArray(
-        0,
-        attrs={
-            "grid_mapping_name": "geostationary",
-            "perspective_point_height": PERSPECTIVE_HEIGHT,
-            "longitude_of_projection_origin": lon_0,
-            "latitude_of_projection_origin": 0.0,
-            "semi_major_axis": 6378137.0,
-            "semi_minor_axis": 6356752.31414,
-            "sweep_angle_axis": "x",
-        },
-    )
-    ds.to_netcdf(path)
-    ds.close()
-    return path
+    return container.get_variable("CMI")
 
 
 class TestGeostationaryGeotransform:
     """The scan-angle geotransform is rescaled to projected metres on read."""
 
     @pytest.fixture
-    def goes_cube(self, tmp_path: Path, request) -> NetCDF:
+    def goes_cube(self, request) -> NetCDF:
         lon_0 = getattr(request, "param", -75.0)
-        path = _write_geostationary_nc(tmp_path / "goes.nc", lon_0)
-        return NetCDF.read_file(str(path)).get_variable("CMI")
+        return _geostationary_cube(lon_0)
 
     def test_crs_is_geostationary(self, goes_cube: NetCDF):
         assert goes_cube._is_geostationary() is True
@@ -85,8 +76,7 @@ class TestGeostationaryGeotransform:
 
     def test_geotransform_matches_perspective_height_scaling(self, goes_cube: NetCDF):
         # metre pixel width == radian pixel width * perspective_point_height
-        radian_pixel = (0.05 - (-0.05)) / (64 - 1)
-        expected = radian_pixel * PERSPECTIVE_HEIGHT
+        expected = RADIAN_PIXEL * PERSPECTIVE_HEIGHT
         assert goes_cube.geotransform[1] == pytest.approx(expected, rel=1e-6)
 
     def test_to_crs_is_non_degenerate(self, goes_cube: NetCDF):
@@ -106,21 +96,14 @@ class TestGeostationaryGeotransform:
 class TestNonGeostationaryUnaffected:
     """The geostationary path must not perturb ordinary lat/lon NetCDF reads."""
 
-    def test_latlon_geotransform_unchanged(self, tmp_path: Path):
-        x = np.linspace(10.0, 20.0, 32).astype("f8")
-        y = np.linspace(50.0, 40.0, 24).astype("f8")
-        ds = xr.Dataset(
-            {"t2m": (("lat", "lon"), np.zeros((24, 32), "f4"))},
-            coords={
-                "lon": ("lon", x, {"standard_name": "longitude", "units": "degrees_east"}),
-                "lat": ("lat", y, {"standard_name": "latitude", "units": "degrees_north"}),
-            },
+    def test_latlon_geotransform_unchanged(self):
+        cell = 10.0 / 31
+        geo = (10.0, cell, 0.0, 50.0, 0.0, -10.0 / 23)
+        arr = np.zeros((24, 32), "f4")
+        container = NetCDF.create_from_array(
+            arr, geo=geo, epsg=4326, variable_name="t2m"
         )
-        path = tmp_path / "latlon.nc"
-        ds.to_netcdf(path)
-        ds.close()
-        cube = NetCDF.read_file(str(path)).get_variable("t2m")
+        cube = container.get_variable("t2m")
         assert cube._is_geostationary() is False
-        gt = cube.geotransform
-        # degree spacing: ~ (20-10)/31 ≈ 0.32, definitely sub-1 and unscaled.
-        assert gt[1] == pytest.approx(10.0 / 31, rel=1e-3)
+        # degree spacing stays sub-1 and un-scaled (no perspective-height scaling).
+        assert cube.geotransform[1] == pytest.approx(cell, rel=1e-3)
