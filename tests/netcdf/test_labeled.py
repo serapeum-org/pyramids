@@ -7,10 +7,12 @@ exposes its dims, coords, and variables without forcing a raster interpretation.
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 xr = pytest.importorskip("xarray")
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.netcdf import LabeledDataset
 
 pytestmark = pytest.mark.xarray
@@ -269,6 +271,48 @@ class TestLabeledDatasetBbox:
         ds2 = store.dataset.assign_coords(t_lon=(("time",), np.zeros(N_TIME)))
         with pytest.raises(KeyError, match="same dimension"):
             LabeledDataset(ds2).select_bbox((-77, 40, -75, 42), lon="t_lon")
+
+
+class TestLabeledDatasetWrite:
+    """P-F: typed tabular write-out (DataFrame / Parquet / CSV)."""
+
+    def test_to_dataframe_is_tidy(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        df = store.to_dataframe()
+        assert len(df) == N_TIME * N_FEAT
+        for col in ("time", "feature_id", "streamflow"):
+            assert col in df.columns
+
+    def test_to_dataframe_after_select(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        df = store.select(feature_id=[101]).to_dataframe()
+        assert len(df) == N_TIME
+        assert set(df["feature_id"]) == {101}
+
+    def test_to_parquet_round_trip(self, tmp_path: Path, nc_store: Path):
+        pytest.importorskip("pyarrow")
+        store = LabeledDataset.read_file(nc_store)
+        out = store.to_parquet(tmp_path / "q.parquet")
+        assert out.exists()
+        back = pd.read_parquet(out)
+        assert len(back) == N_TIME * N_FEAT
+        assert set(back["feature_id"]) == {101, 202, 303}
+
+    def test_to_csv_round_trip(self, tmp_path: Path, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        out = store.to_csv(tmp_path / "q.csv")
+        assert out.exists()
+        back = pd.read_csv(out)
+        assert len(back) == N_TIME * N_FEAT
+
+    def test_to_parquet_missing_pyarrow_raises(self, tmp_path: Path, nc_store, monkeypatch):
+        def _raise(_msg):
+            raise OptionalPackageDoesNotExist("no pyarrow")
+
+        monkeypatch.setattr("pyramids.netcdf.labeled.import_pyarrow", _raise)
+        store = LabeledDataset.read_file(nc_store)
+        with pytest.raises(OptionalPackageDoesNotExist):
+            store.to_parquet(tmp_path / "q.parquet")
 
 
 class TestLabeledDatasetLaziness:

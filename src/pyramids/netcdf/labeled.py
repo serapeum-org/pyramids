@@ -23,14 +23,21 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
+import pandas as pd
 
-from pyramids.base._utils import import_xarray
+from pyramids.base._utils import import_pyarrow, import_xarray
 
 _XARRAY_INSTALL_HINT = (
     "Reading a label-indexed NetCDF/Zarr store needs the optional 'xarray' "
     "dependency. Install it with one of:\n"
     "  - PyPI:  pip install 'pyramids-gis[xarray]'\n"
     "  - conda: conda install -c conda-forge xarray"
+)
+_PARQUET_INSTALL_HINT = (
+    "Writing Parquet needs the optional 'pyarrow' dependency. Install it with "
+    "one of:\n"
+    "  - PyPI:  pip install 'pyramids-gis[parquet]'\n"
+    "  - conda: conda install -c conda-forge pyarrow"
 )
 
 
@@ -351,6 +358,67 @@ class LabeledDataset:
                 f"[{lat_vals.min()}, {lat_vals.max()}]"
             )
         return type(self)(self._dataset.isel({dim: keep}))
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Return the store as a tidy :class:`pandas.DataFrame`.
+
+        Every dimension/coordinate becomes a column and each data variable a
+        column, one row per ``(label, time, ...)`` cell — the canonical shape
+        for a ``feature_id x time`` table. Realises the (possibly lazy) data, so
+        slice with :meth:`select` / :meth:`select_time` / :meth:`select_bbox`
+        first for large stores.
+
+        Returns:
+            pandas.DataFrame: The tidy table with the index reset to columns.
+
+        Examples:
+            - Tidy a small streamflow subset::
+
+                >>> df = store.select(feature_id=[101]).to_dataframe()  # doctest: +SKIP
+        """
+        return self._dataset.to_dataframe().reset_index()
+
+    def to_parquet(self, path: str | Path, **kwargs: Any) -> Path:
+        """Write the store to a Parquet file (tidy table).
+
+        Args:
+            path: Output ``.parquet`` path.
+            **kwargs: Forwarded to :meth:`pandas.DataFrame.to_parquet`.
+
+        Returns:
+            Path: The written file path.
+
+        Raises:
+            OptionalPackageDoesNotExist: When pyarrow is not installed.
+
+        Examples:
+            - Write a subset to Parquet::
+
+                >>> store.to_parquet("out.parquet")  # doctest: +SKIP
+        """
+        import_pyarrow(_PARQUET_INSTALL_HINT)
+        path = Path(path)
+        self.to_dataframe().to_parquet(str(path), index=False, **kwargs)
+        return path
+
+    def to_csv(self, path: str | Path, **kwargs: Any) -> Path:
+        """Write the store to a CSV file (tidy table).
+
+        Args:
+            path: Output ``.csv`` path.
+            **kwargs: Forwarded to :meth:`pandas.DataFrame.to_csv`.
+
+        Returns:
+            Path: The written file path.
+
+        Examples:
+            - Write a subset to CSV::
+
+                >>> store.to_csv("out.csv")  # doctest: +SKIP
+        """
+        path = Path(path)
+        self.to_dataframe().to_csv(str(path), index=False, **kwargs)
+        return path
 
     def __getitem__(self, key: str) -> Any:
         """Return a variable or coordinate as an :class:`xarray.DataArray`."""
