@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import geopandas as gpd
 import pytest
-from matplotlib.axes import Axes
 from shapely.geometry import Point, Polygon, box
 
 from pyramids.base._errors import GeometryWarning
@@ -18,12 +17,17 @@ from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.plot
 
+# Guard every optional-dependency import (cleopatra + its matplotlib backend)
+# behind importorskip so the module skips cleanly in a core-only install
+# (e.g. the wheel-test job), rather than erroring at collection.
 _pg = pytest.importorskip("cleopatra.polygon_glyph", reason="cleopatra not installed")
 _sg = pytest.importorskip("cleopatra.scatter_glyph", reason="cleopatra not installed")
 _cfg = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
+_mpl_axes = pytest.importorskip("matplotlib.axes", reason="matplotlib not installed")
 _cfg.Config.set_matplotlib_backend("agg")
 PolygonGlyph = _pg.PolygonGlyph
 ScatterGlyph = _sg.ScatterGlyph
+Axes = _mpl_axes.Axes
 
 
 @pytest.fixture(autouse=True)
