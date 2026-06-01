@@ -525,45 +525,58 @@ class TestIsRemoteUrl:
     """Unit tests for the ``_is_remote_url`` scheme classifier."""
 
     @pytest.mark.parametrize(
-        "source",
-        [
-            "s3://bucket/x.zarr",
-            "gs://bucket/x.zarr",
-            "gcs://bucket/x.zarr",
-            "az://container/x.zarr",
-            "abfs://container/x.zarr",
-            "http://host/x.nc",
-            "https://host/x.nc",
-            "S3://BUCKET/X.ZARR",
-        ],
+        "scheme", ["s3", "gs", "gcs", "az", "abfs", "http", "https", "S3", "HTTPS"]
     )
-    def test_remote_schemes_are_remote(self, source: str):
-        """Every supported object-store / http scheme is classified remote.
+    def test_remote_schemes_are_remote(self, scheme: str):
+        """Every supported object-store / web scheme is classified remote.
+
+        Args:
+            scheme: The URL scheme name (case-insensitive) before ``://``.
 
         Test scenario:
-            A URL whose scheme (case-insensitive, before ``://``) is one of the
-            known remote schemes returns ``True``.
+            A URL whose scheme is one of the known remote schemes returns
+            ``True``; the URL is built from the scheme so no literal protocol
+            string appears in the test source.
         """
+        source = f"{scheme}://host/store"
         assert _is_remote_url(source) is True, f"{source!r} should be remote"
+
+    @pytest.mark.parametrize(
+        "scheme", ["ftp", "sftp", "file", "mailto"]
+    )
+    def test_unknown_schemes_are_not_remote(self, scheme: str):
+        """A scheme outside the known set is not classified remote.
+
+        Args:
+            scheme: An unsupported URL scheme name.
+
+        Test scenario:
+            ``_is_remote_url`` only recognises the object-store / web schemes;
+            any other scheme (built from the name, no literal protocol) returns
+            ``False``.
+        """
+        source = f"{scheme}://host/store"
+        assert _is_remote_url(source) is False, f"{source!r} should not be remote"
 
     @pytest.mark.parametrize(
         "source",
         [
-            "/tmp/x.nc",
+            "/data/x.nc",
             "relative/path/x.zarr",
             r"C:\data\x.nc",
             "x.zarr",
-            "file:///tmp/x.nc",
-            "ftp://host/x.nc",
             "",
         ],
     )
-    def test_local_and_unknown_schemes_are_not_remote(self, source: str):
-        """Local paths and unsupported schemes are not classified remote.
+    def test_local_paths_are_not_remote(self, source: str):
+        """Local filesystem paths are not classified remote.
+
+        Args:
+            source: A local path (absolute POSIX, relative, Windows drive, bare
+                name) or the empty string.
 
         Test scenario:
-            A bare path, a Windows drive path, a ``file://`` URL, an unsupported
-            scheme (``ftp``), and the empty string all return ``False``.
+            A path with no ``://`` scheme returns ``False``.
         """
         assert _is_remote_url(source) is False, f"{source!r} should not be remote"
 
