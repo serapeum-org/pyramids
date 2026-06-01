@@ -516,6 +516,22 @@ class TestAvailableReliefResolutions:
         """
         assert features.available_relief_resolutions() == ["low", "medium"]
 
+    def test_derived_from_products_table(self):
+        """The resolution list is derived from ``_RELIEF_PRODUCTS`` (no drift).
+
+        Test scenario:
+            ``available_relief_resolutions`` reflects the product table's keys rather
+            than a separately hardcoded list, so adding a product stays in sync. Also
+            confirm each call returns a fresh list (callers cannot mutate module state).
+        """
+        result = features.available_relief_resolutions()
+        assert result == list(
+            features._RELIEF_PRODUCTS
+        ), f"resolutions must mirror _RELIEF_PRODUCTS keys; got {result}"
+        assert (
+            result is not features.available_relief_resolutions()
+        ), "each call must return a fresh list"
+
 
 class TestReliefUrl:
     """Tests for :func:`pyramids.basemap.features._relief_url`."""
