@@ -95,6 +95,15 @@ class LabeledDataset:
     """
 
     def __init__(self, dataset: Any) -> None:
+        """Wrap an already-opened :class:`xarray.Dataset`.
+
+        Most callers use :meth:`read_file` instead of constructing directly;
+        this is the low-level entry point, and what every ``select*`` method
+        uses to return a new, narrowed instance.
+
+        Args:
+            dataset: The backing :class:`xarray.Dataset` to wrap.
+        """
         self._dataset = dataset
 
     @classmethod
@@ -218,8 +227,9 @@ class LabeledDataset:
 
         Args:
             **labels: ``dim=value`` or ``dim=[values]`` selectors. A scalar
-                drops that dimension; a list keeps the matching entries in the
-                requested order.
+                drops that dimension; a list, tuple, or array keeps the matching
+                entries in the requested order (a tuple is treated as a list of
+                labels, not a single one). An empty sequence is an error.
 
         Returns:
             LabeledDataset: A new store with only the selected labels.
