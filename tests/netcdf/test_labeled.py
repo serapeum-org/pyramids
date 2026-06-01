@@ -16,6 +16,7 @@ xr = pytest.importorskip("xarray")
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.netcdf import LabeledDataset
+from pyramids.netcdf.labeled import _is_remote_url, _is_zarr_store
 
 pytestmark = pytest.mark.xarray
 
@@ -112,6 +113,27 @@ class TestLabeledDatasetRead:
         store = LabeledDataset.read_file(nc_store, engine="h5netcdf")
         assert store.variables == ["streamflow"]
 
+    def test_engine_forwarded_on_netcdf_open(self, monkeypatch):
+        """A non-zarr ``engine`` is threaded into ``xr.open_dataset``.
+
+        Test scenario:
+            Opening a non-``.zarr`` path with ``engine="netcdf4"`` forwards the
+            engine to xarray (covers the NetCDF-path engine branch without
+            needing that backend installed).
+        """
+        captured = {}
+
+        def fake_open_dataset(source, **kwargs):
+            captured.update(kwargs)
+            return xr.Dataset(
+                {"q": (("feature_id",), np.zeros(2, "f4"))},
+                coords={"feature_id": ("feature_id", [1, 2])},
+            )
+
+        monkeypatch.setattr(xr, "open_dataset", fake_open_dataset)
+        LabeledDataset.read_file("channel_rt.nc", engine="netcdf4")
+        assert captured["engine"] == "netcdf4", f"engine not forwarded: {captured}"
+
 
 class TestLabeledDatasetSelect:
     """P-C: select by label dimension and by a secondary 1-D coord."""
@@ -207,6 +229,12 @@ class TestLabeledDatasetSelect:
         assert from_tuple.sizes == from_list.sizes == {"time": N_TIME, "feature_id": 2}
         assert list(from_tuple["feature_id"].values) == [101, 202]
 
+    def test_select_numpy_array_selector(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        # a numpy array of labels behaves like a list (covers the ndarray branch).
+        sub = store.select(feature_id=np.array([303, 101]))
+        assert list(sub["feature_id"].values) == [303, 101]
+
 
 class TestLabeledDatasetTimeSlice:
     """P-E: slice the time axis, composing with label selection."""
@@ -226,6 +254,12 @@ class TestLabeledDatasetTimeSlice:
         store = LabeledDataset.read_file(nc_store)
         sub = store.select_time(start="2010-06-03")
         assert sub.sizes["time"] == 2
+
+    def test_select_time_full_range_keeps_all(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        # both bounds None -> slice(None, None) keeps every timestep.
+        sub = store.select_time()
+        assert sub.sizes["time"] == N_TIME
 
     def test_select_time_composes_with_select(self, nc_store: Path):
         store = LabeledDataset.read_file(nc_store)
@@ -302,6 +336,13 @@ class TestLabeledDatasetBbox:
         ds2 = store.dataset.assign_coords(t_lon=(("time",), np.zeros(N_TIME)))
         with pytest.raises(KeyError, match="same dimension"):
             LabeledDataset(ds2).select_bbox((-77, 40, -75, 42), lon="t_lon")
+
+    def test_bbox_custom_lon_lat_names(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        # rename the coords and pass explicit lon/lat names (covers the params).
+        ds2 = store.dataset.rename({"longitude": "x", "latitude": "y"})
+        sub = LabeledDataset(ds2).select_bbox((-76.5, 40.5, -74.5, 41.5), lon="x", lat="y")
+        assert list(sub["feature_id"].values) == [202]
 
 
 class TestLabeledDatasetWrite:
@@ -478,3 +519,99 @@ class TestLabeledDatasetLaziness:
         monkeypatch.setattr("pyramids.netcdf.labeled.import_dask", _raise)
         with pytest.raises(OptionalPackageDoesNotExist):
             LabeledDataset.read_file(nc_store, chunks={})
+
+
+class TestIsRemoteUrl:
+    """Unit tests for the ``_is_remote_url`` scheme classifier."""
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "s3://bucket/x.zarr",
+            "gs://bucket/x.zarr",
+            "gcs://bucket/x.zarr",
+            "az://container/x.zarr",
+            "abfs://container/x.zarr",
+            "http://host/x.nc",
+            "https://host/x.nc",
+            "S3://BUCKET/X.ZARR",
+        ],
+    )
+    def test_remote_schemes_are_remote(self, source: str):
+        """Every supported object-store / http scheme is classified remote.
+
+        Test scenario:
+            A URL whose scheme (case-insensitive, before ``://``) is one of the
+            known remote schemes returns ``True``.
+        """
+        assert _is_remote_url(source) is True, f"{source!r} should be remote"
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "/tmp/x.nc",
+            "relative/path/x.zarr",
+            r"C:\data\x.nc",
+            "x.zarr",
+            "file:///tmp/x.nc",
+            "ftp://host/x.nc",
+            "",
+        ],
+    )
+    def test_local_and_unknown_schemes_are_not_remote(self, source: str):
+        """Local paths and unsupported schemes are not classified remote.
+
+        Test scenario:
+            A bare path, a Windows drive path, a ``file://`` URL, an unsupported
+            scheme (``ftp``), and the empty string all return ``False``.
+        """
+        assert _is_remote_url(source) is False, f"{source!r} should not be remote"
+
+
+class TestIsZarrStore:
+    """Unit tests for the ``_is_zarr_store`` kind classifier."""
+
+    @pytest.mark.parametrize(
+        "engine, expected",
+        [("zarr", True), ("netcdf4", False), ("h5netcdf", False)],
+    )
+    def test_explicit_engine_wins(self, engine: str, expected: bool):
+        """An explicit ``engine`` overrides any suffix heuristic.
+
+        Args:
+            engine: The forced xarray engine.
+            expected: Whether the store should be treated as Zarr.
+
+        Test scenario:
+            ``engine="zarr"`` forces Zarr even for a ``.nc`` path; any other
+            engine forces non-Zarr even for a ``.zarr`` path.
+        """
+        # path suffix deliberately disagrees with the engine to prove engine wins.
+        path = "store.nc" if expected else "store.zarr"
+        assert _is_zarr_store(path, engine) is expected, (
+            f"engine={engine!r} should yield {expected}"
+        )
+
+    @pytest.mark.parametrize(
+        "path, expected",
+        [
+            ("store.zarr", True),
+            ("store.zarr/", True),
+            ("store.zarr\\", True),
+            ("s3://bucket/store.zarr", True),
+            ("store.nc", False),
+            ("store", False),
+        ],
+    )
+    def test_suffix_heuristic_when_no_engine(self, path: str, expected: bool):
+        """With ``engine=None`` the ``.zarr`` suffix (trailing slash trimmed) decides.
+
+        Args:
+            path: The store path.
+            expected: Whether the suffix marks it as Zarr.
+
+        Test scenario:
+            ``.zarr`` (optionally with a trailing ``/`` or ``\\``) is Zarr;
+            ``.nc`` and extension-less paths are not.
+        """
+        assert _is_zarr_store(path, None) is expected, f"{path!r} -> {expected}"
