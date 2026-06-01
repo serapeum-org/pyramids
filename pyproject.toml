@@ -48,6 +48,7 @@ lazy = [
     "distributed>=2024.1.0",
     "zarr>=3",
     "fsspec>=2024.1.0",
+    "s3fs>=2024.1.0",
     "flox>=0.9.0",
 ]
 xarray = ["xarray>=2023.1.0"]
@@ -263,14 +264,18 @@ parquet = { features = ["viz", "dev", "xarray", "lazy", "parquet"], solve-group 
 parquet-lazy = { features = ["viz", "dev", "xarray", "lazy", "parquet", "parquet-lazy"], solve-group = "default" }
 notebook = { features = ["viz", "notebook", "lazy"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "docs" }
-# py3XX envs (tests.yml matrix) intentionally OMIT `lazy`; the
-# `netcdf-lazy` / `parquet-lazy` envs in the extras-package matrix
-# already exercise dask/distributed/zarr transitively. `dev` keeps
-# `lazy` because that env is for local development convenience.
-py311 = { features = ["py311", "viz", "dev", "xarray"], solve-group = "py311" }
-py312 = { features = ["py312", "viz", "dev", "xarray"], solve-group = "py312" }
-py313 = { features = ["py313", "viz", "dev", "xarray"], solve-group = "py313" }
-py314 = { features = ["py314", "viz", "dev", "xarray"], solve-group = "py314" }
+# py3XX envs (tests.yml matrix) include `lazy` so the `xarray-tests` step
+# has the xarray data stack (zarr / dask / s3fs / fsspec) that the
+# xarray-marked interop tests (e.g. LabeledDataset) require — these run
+# with real deps, never skipped. `parquet` (pyarrow) is deliberately NOT
+# added here: it would un-skip the `core` OGR-Parquet tests, which need
+# GDAL's libgdal-arrow-parquet driver (absent on the Linux/macOS runners).
+# Those parquet paths are exercised by the parquet extras-package matrix.
+# Bare-core (no-lazy) installs are covered by the `default` env.
+py311 = { features = ["py311", "viz", "dev", "xarray", "lazy"], solve-group = "py311" }
+py312 = { features = ["py312", "viz", "dev", "xarray", "lazy"], solve-group = "py312" }
+py313 = { features = ["py313", "viz", "dev", "xarray", "lazy"], solve-group = "py313" }
+py314 = { features = ["py314", "viz", "dev", "xarray", "lazy"], solve-group = "py314" }
 # wheel-build: lean env inside the cibuildwheel container.
 # no-default-feature = true keeps pyramids-gis (and its pandas/numpy
 # transitive deps) out of the build container so cibuildwheel's pip
@@ -298,6 +303,7 @@ scipy = ">=1.17.1,<2"
 distributed = ">=2024.1.0"
 zarr = ">=3"
 fsspec = ">=2024.1.0"
+s3fs = ">=2024.1.0"
 flox = ">=0.9.0"
 
 # HDF5-linking libraries must come from conda-forge so they share the
