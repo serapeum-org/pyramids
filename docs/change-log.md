@@ -1,6 +1,17 @@
 ﻿# Change log
 
 
+## 0.28.0 (2026-05-31)
+
+### Feat
+
+- **plot**: upgrade cleopatra integration to 0.12.0 API and adopt new capabilities (#451)
+- **io**: add decompress-aware resource reader (sniff → Dataset / FeatureCollection / DataFrame) (#448)
+
+### Fix
+
+- **netcdf**: georeference geostationary (GOES) reads via the classic driver (#452)
+
 ## 0.27.0 (2026-05-28)
 
 ### Feat
