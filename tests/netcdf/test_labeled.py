@@ -186,6 +186,27 @@ class TestLabeledDatasetSelect:
         with pytest.raises(KeyError, match="must be 1-D"):
             store2.select_by_coord("grid", [0.0])
 
+    def test_select_empty_list_raises(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        # an empty selection is a loud error (mirrors select_time / select_bbox),
+        # not a silent empty store.
+        with pytest.raises(ValueError, match="empty selection list"):
+            store.select(feature_id=[])
+
+    def test_select_by_coord_empty_list_raises(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        with pytest.raises(ValueError, match="empty selection list"):
+            store.select_by_coord("gage_id", [])
+
+    def test_select_tuple_treated_as_list(self, nc_store: Path):
+        store = LabeledDataset.read_file(nc_store)
+        # a tuple of ids selects the same labels as a list — it is a list of
+        # labels, not a single (MultiIndex-style) label.
+        from_tuple = store.select(feature_id=(101, 202))
+        from_list = store.select(feature_id=[101, 202])
+        assert from_tuple.sizes == from_list.sizes == {"time": N_TIME, "feature_id": 2}
+        assert list(from_tuple["feature_id"].values) == [101, 202]
+
 
 class TestLabeledDatasetTimeSlice:
     """P-E: slice the time axis, composing with label selection."""

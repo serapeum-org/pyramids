@@ -1,4 +1,4 @@
-"""Non-gridded, label-indexed NetCDF / Zarr reading (PY-G / P-A).
+"""Non-gridded, label-indexed NetCDF / Zarr reading.
 
 :class:`~pyramids.dataset.Dataset` and :class:`~pyramids.netcdf.NetCDF` model
 raster data on a ``(y, x)`` grid. Many scientific stores are instead indexed by
@@ -82,8 +82,9 @@ class LabeledDataset:
 
     Wraps an :class:`xarray.Dataset` whose primary axis is a 1-D label
     dimension (``feature_id`` / ``station`` / ``node``) rather than a ``(y, x)``
-    grid. Use it to inspect a store's structure and (in later tasks) select by
-    label, slice in time, subset by bbox, and write out tabular/raster output.
+    grid. Use it to inspect a store's structure, select by label, slice in
+    time, subset by bbox, and write out tabular output (DataFrame / Parquet /
+    CSV).
 
     Args:
         dataset: The backing :class:`xarray.Dataset`.
@@ -226,6 +227,7 @@ class LabeledDataset:
         Raises:
             KeyError: When ``dim`` is not a coordinate, or any requested value
                 is absent (the missing values are named).
+            ValueError: When a selection list is empty.
 
         Examples:
             - Keep three reaches by ``feature_id``::
@@ -241,7 +243,15 @@ class LabeledDataset:
                     f"{dim!r} is not a coordinate of this store; available: "
                     f"{self.coordinates}"
                 )
-            requested = values if isinstance(values, (list, tuple, np.ndarray)) else [values]
+            # a scalar selects-and-drops the dimension; any sequence keeps it.
+            # Normalise sequences to a list so a tuple is treated as a list of
+            # labels, not a single (MultiIndex-style) label.
+            is_scalar = not isinstance(values, (list, tuple, np.ndarray))
+            requested = [values] if is_scalar else list(values)
+            if not requested:
+                raise ValueError(
+                    f"empty selection list for {dim!r}; pass at least one value"
+                )
             # Membership test against the numpy coordinate (vectorised, no
             # full-coordinate Python set) so a million-label store stays cheap.
             coord_values = np.asarray(self._dataset[dim].values)
@@ -249,7 +259,7 @@ class LabeledDataset:
             if not found.all():
                 missing = [v for v, ok in zip(requested, found) if not ok]
                 raise KeyError(f"{dim!r} values not found: {missing}")
-            result = result.sel({dim: values})
+            result = result.sel({dim: values if is_scalar else requested})
         return type(self)(result)
 
     def select_by_coord(self, coord: str, values: Iterable[Any]) -> LabeledDataset:
@@ -270,6 +280,7 @@ class LabeledDataset:
         Raises:
             KeyError: When ``coord`` is absent or not 1-D, or any requested value
                 is not present (the missing values are named).
+            ValueError: When ``values`` is empty.
 
         Examples:
             - Select reaches by their USGS gauge id::
@@ -287,6 +298,10 @@ class LabeledDataset:
         dim = coord_arr.dims[0]
         coord_values = np.asarray(coord_arr.values)
         requested = list(values)
+        if not requested:
+            raise ValueError(
+                f"empty selection list for {coord!r}; pass at least one value"
+            )
         # Vectorised membership test (no full-coordinate Python set).
         found = np.isin(np.asarray(requested), coord_values)
         if not found.all():
