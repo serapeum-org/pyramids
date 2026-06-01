@@ -384,6 +384,28 @@ class TestLabeledDatasetRemoteOpen:
         LabeledDataset.read_file("s3://b/channel_rt.nc", anon=True)
         assert captured["storage_options"] == {"anon": True}
 
+    def test_remote_url_defaults_to_dask_chunks(self, monkeypatch):
+        captured = {}
+
+        def fake_open_zarr(source, **kwargs):
+            captured.update(kwargs)
+            return self._fake_zarr()
+
+        monkeypatch.setattr(xr, "open_zarr", fake_open_zarr)
+        LabeledDataset.read_file("s3://bucket/chrtout.zarr", anon=True)
+        assert captured["chunks"] == {}
+
+    def test_explicit_chunks_none_overrides_remote_default(self, monkeypatch):
+        captured = {}
+
+        def fake_open_zarr(source, **kwargs):
+            captured.update(kwargs)
+            return self._fake_zarr()
+
+        monkeypatch.setattr(xr, "open_zarr", fake_open_zarr)
+        LabeledDataset.read_file("s3://b/x.zarr", anon=True, chunks=None)
+        assert captured["chunks"] is None
+
 
 @pytest.mark.slow
 @pytest.mark.skipif(
@@ -397,7 +419,8 @@ class TestLabeledDatasetRemoteIntegration:
         pytest.importorskip("s3fs")
         url = "s3://noaa-nwm-retrospective-3-0-pds/CONUS/zarr/chrtout.zarr"
         try:
-            store = LabeledDataset.read_file(url, anon=True, chunks={})
+            # no explicit chunks -> the remote URL defaults to dask chunks.
+            store = LabeledDataset.read_file(url, anon=True)
         except OSError as exc:
             # connection / DNS / timeout / permission -> skip; a LabeledDataset
             # logic error (KeyError/ValueError/...) still fails the test.
@@ -421,3 +444,16 @@ class TestLabeledDatasetLaziness:
         store = LabeledDataset.read_file(nc_store, chunks={})
         # dask-backed arrays expose a .chunks tuple (chunked, out-of-core).
         assert store["streamflow"].chunks is not None
+
+    def test_local_defaults_to_numpy_no_dask(self, nc_store: Path):
+        # a local path defaults to chunks=None -> numpy-backed (no dask).
+        store = LabeledDataset.read_file(nc_store)
+        assert store["streamflow"].chunks is None
+
+    def test_chunks_without_dask_raises_clear_error(self, nc_store: Path, monkeypatch):
+        def _raise(_msg):
+            raise OptionalPackageDoesNotExist("no dask")
+
+        monkeypatch.setattr("pyramids.netcdf.labeled.import_dask", _raise)
+        with pytest.raises(OptionalPackageDoesNotExist):
+            LabeledDataset.read_file(nc_store, chunks={})

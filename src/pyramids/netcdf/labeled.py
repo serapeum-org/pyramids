@@ -26,7 +26,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-from pyramids.base._utils import import_pyarrow, import_xarray
+from pyramids.base._utils import import_dask, import_pyarrow, import_xarray
 
 # Soft guard: writing a store this large into a DataFrame realises it all into
 # memory. Above this many bytes, the write methods warn the caller to slice
@@ -45,6 +45,23 @@ _PARQUET_INSTALL_HINT = (
     "  - PyPI:  pip install 'pyramids-gis[parquet]'\n"
     "  - conda: conda install -c conda-forge pyarrow"
 )
+_DASK_INSTALL_HINT = (
+    "Chunked (dask-backed) reads need the optional 'dask' dependency. Install "
+    "it with one of:\n"
+    "  - PyPI:  pip install 'pyramids-gis[lazy]'\n"
+    "  - conda: conda install -c conda-forge dask"
+)
+
+# Remote object-store / http URL schemes. A store opened from one of these is
+# assumed large, so reads default to dask chunks (never load the whole thing).
+_REMOTE_SCHEMES = ("s3://", "gs://", "gcs://", "az://", "abfs://", "http://", "https://")
+# Sentinel so an explicit ``chunks=None`` is distinguishable from "not passed".
+_UNSET = object()
+
+
+def _is_remote_url(source: str) -> bool:
+    """True for a remote object-store / http URL (not a local filesystem path)."""
+    return source.lower().startswith(_REMOTE_SCHEMES)
 
 
 def _is_zarr_store(path: str | Path, engine: str | None) -> bool:
@@ -84,7 +101,7 @@ class LabeledDataset:
         *,
         variables: Iterable[str] | None = None,
         group: str | None = None,
-        chunks: Any = None,
+        chunks: Any = _UNSET,
         engine: str | None = None,
         anon: bool = False,
         storage_options: dict[str, Any] | None = None,
@@ -102,9 +119,13 @@ class LabeledDataset:
             path: Local path or a fsspec URL (``s3://``, ``gs://``, ...).
             variables: Restrict to these data variables. ``None`` keeps all.
             group: NetCDF/Zarr group to open. ``None`` opens the root group.
-            chunks: xarray ``chunks`` spec. ``None`` (default) reads without
-                dask (lazy on access); ``{}`` / ``"auto"`` / a dict backs the
-                arrays with dask for chunked reads (needs the ``[lazy]`` extra).
+            chunks: xarray ``chunks`` spec. Defaults to ``{}`` (dask-backed,
+                chunked) for a **remote** URL — so slicing reads only the
+                touched chunks and a huge store is never loaded whole — and to
+                ``None`` (no dask) for a **local** path. Pass an explicit value
+                to override: ``None`` (numpy-backed; a later full-variable read
+                loads it all), ``{}`` / ``"auto"`` / a dict (dask, needs the
+                ``[lazy]`` extra).
             engine: Force an xarray engine (e.g. ``"zarr"``, ``"h5netcdf"``,
                 ``"netcdf4"``). ``None`` lets xarray infer it.
             anon: Open the remote store anonymously (unsigned). Shorthand for
@@ -132,6 +153,11 @@ class LabeledDataset:
         """
         xr = import_xarray(_XARRAY_INSTALL_HINT)
         source = str(path)
+        if chunks is _UNSET:
+            chunks = {} if _is_remote_url(source) else None
+        if chunks is not None:
+            # dask backs any non-None chunks spec; fail early with a clear hint.
+            import_dask(_DASK_INSTALL_HINT)
         if anon:
             storage_options = {"anon": True, **(storage_options or {})}
         if _is_zarr_store(source, engine):
