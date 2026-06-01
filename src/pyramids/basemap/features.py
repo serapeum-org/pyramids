@@ -250,7 +250,9 @@ def available_relief_resolutions() -> list[str]:
 
             ```
     """
-    return ["low", "medium"]
+    # Derive from the product table so the two can't drift (insertion order is
+    # already coarsest-first: low, medium).
+    return list(_RELIEF_PRODUCTS)
 
 
 def _relief_url(resolution: str) -> str:
@@ -281,7 +283,8 @@ def relief(resolution: str = "low") -> Dataset:
 
     Raises:
         ValueError: ``resolution`` is not supported.
-        OSError: The raster is not cached and the download failed.
+        OSError: The raster is not cached and the download failed, or a cached file
+            could not be read (it is removed so the next call re-fetches).
 
     Examples:
         - Unknown resolutions are rejected with the list of valid values:
@@ -315,5 +318,15 @@ def relief(resolution: str = "low") -> Dataset:
     cached = _cache_dir("relief") / _RELIEF_PRODUCTS[resolution]
     if not cached.exists():
         _download(_relief_url(resolution), cached)
-    result = Dataset.read_file(str(cached))
+    try:
+        result = Dataset.read_file(str(cached))
+    except Exception as exc:
+        # A cached file that won't open is corrupt — e.g. a truncated download or an
+        # HTML error page served with HTTP 200. Drop it so the next call re-fetches,
+        # instead of failing forever on a poisoned cache.
+        cached.unlink(missing_ok=True)
+        raise OSError(
+            f"cached relief raster {cached} could not be read ({exc}); removed it — "
+            "retry to re-download."
+        ) from exc
     return result

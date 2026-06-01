@@ -632,6 +632,60 @@ class TestRelief:
         assert isinstance(reprojected, Dataset), f"Got {type(reprojected)}"
         assert reprojected.epsg == 3857, f"Expected EPSG:3857, got {reprojected.epsg}"
 
+    def test_medium_cache_hit_returns_dataset(self, relief_cache_dir, monkeypatch):
+        """relief('medium') reads the medium product from its cached file, no download.
+
+        Args:
+            relief_cache_dir: Redirected relief cache directory fixture.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            With a synthetic raster cached under the ``medium`` product filename, relief
+            routes to it (distinct from ``low``), returns a 3-band EPSG:4326 Dataset of
+            the placed size, and never downloads.
+        """
+        _make_relief_tif(
+            relief_cache_dir / features._RELIEF_PRODUCTS["medium"], rows=72, cols=144
+        )
+
+        def fail_download(url, destination):
+            raise AssertionError("download must not run on a cache hit")
+
+        monkeypatch.setattr(features, "_download", fail_download)
+        result = features.relief("medium")
+        assert isinstance(result, Dataset), f"Got {type(result)}"
+        assert result.band_count == 3, f"Expected 3 bands, got {result.band_count}"
+        assert result.epsg == 4326, f"Expected EPSG:4326, got {result.epsg}"
+        assert (result.columns, result.rows) == (
+            144,
+            72,
+        ), f"Expected the medium file (144x72), got {result.columns}x{result.rows}"
+
+    def test_corrupt_cache_is_removed_and_raises(self, relief_cache_dir, monkeypatch):
+        """An unreadable cached raster is removed and surfaces a clear OSError.
+
+        Args:
+            relief_cache_dir: Redirected relief cache directory fixture.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            A poisoned cache file (e.g. a truncated download or an HTML error page
+            served with HTTP 200) cannot be read; relief raises OSError and deletes the
+            bad file so the next call re-fetches instead of failing forever.
+        """
+        bad = relief_cache_dir / features._RELIEF_PRODUCTS["low"]
+        bad.parent.mkdir(parents=True, exist_ok=True)
+        bad.write_bytes(b"<html>not a GeoTIFF</html>")
+
+        def fail_download(url, destination):
+            raise AssertionError("download must not run on a cache hit")
+
+        monkeypatch.setattr(features, "_download", fail_download)
+        with pytest.raises(OSError, match="could not be read") as exc:
+            features.relief("low")
+        assert "retry" in str(exc.value), f"Hint missing: {exc.value}"
+        assert not bad.exists(), "corrupt cached file should be removed"
+
     @pytest.mark.slow
     def test_real_download_low(self, relief_cache_dir):
         """End-to-end fetch of the low-res relief raster from the release assets.
