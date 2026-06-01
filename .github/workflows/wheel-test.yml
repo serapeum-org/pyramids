@@ -143,7 +143,10 @@ jobs:
         python-version: ["3.13"]
         extra:
           - { name: viz,          pip_extra: "viz",          marker: "plot",         dir: "tests/" }
-          - { name: xarray,       pip_extra: "xarray",       marker: "xarray",       dir: "tests/" }
+          # xarray-marked tests include the LabeledDataset reader, which needs the lazy
+          # data stack (zarr / dask / s3fs) to open Zarr stores, chunk, and read remote
+          # URLs — so install [xarray,lazy], not [xarray] alone.
+          - { name: xarray,       pip_extra: "xarray,lazy",  marker: "xarray",       dir: "tests/" }
           - { name: lazy,         pip_extra: "lazy",         marker: "lazy",         dir: "tests/" }
           - { name: netcdf-lazy,  pip_extra: "netcdf-lazy",  marker: "netcdf_lazy",  dir: "tests/netcdf/lazy" }
           - { name: parquet,      pip_extra: "parquet",      marker: "parquet",      dir: "tests/feature" }
