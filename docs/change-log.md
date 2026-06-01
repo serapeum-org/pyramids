@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.29.0 (2026-06-01)
+
+### Feat
+
+- **netcdf**: add LabeledDataset reader for label-indexed NetCDF/Zarr stores (#455)
+
 ## 0.28.0 (2026-05-31)
 
 ### Feat

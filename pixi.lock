@@ -40949,8 +40949,8 @@ packages:
   requires_python: '>=3.7'
 - pypi: ./
   name: pyramids-gis
-  version: 0.28.0
-  sha256: ca877eea59b6433d10a3697dfa6f6ef63f68e80ebfe28d150bd81dc7848a97f6
+  version: 0.29.0
+  sha256: 56b6daa9250ad1e0fb397ee6271965851d07a73ed1499805af9fbcc2085a2c16
   requires_dist:
   - cftime>=1.6.4
   - geopandas>=1.0.0
