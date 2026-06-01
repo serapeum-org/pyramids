@@ -264,14 +264,16 @@ parquet = { features = ["viz", "dev", "xarray", "lazy", "parquet"], solve-group 
 parquet-lazy = { features = ["viz", "dev", "xarray", "lazy", "parquet", "parquet-lazy"], solve-group = "default" }
 notebook = { features = ["viz", "notebook", "lazy"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "docs" }
-# py3XX envs (tests.yml matrix) intentionally OMIT `lazy`; the
-# `netcdf-lazy` / `parquet-lazy` envs in the extras-package matrix
-# already exercise dask/distributed/zarr transitively. `dev` keeps
-# `lazy` because that env is for local development convenience.
-py311 = { features = ["py311", "viz", "dev", "xarray"], solve-group = "py311" }
-py312 = { features = ["py312", "viz", "dev", "xarray"], solve-group = "py312" }
-py313 = { features = ["py313", "viz", "dev", "xarray"], solve-group = "py313" }
-py314 = { features = ["py314", "viz", "dev", "xarray"], solve-group = "py314" }
+# py3XX envs (tests.yml matrix) include `lazy` + `parquet` so the
+# `xarray-tests` step has the full xarray data stack (zarr / dask /
+# s3fs / fsspec / pyarrow) that the xarray-marked interop tests
+# (e.g. LabeledDataset) require — these run with real deps, never skipped.
+# Bare-core (no-lazy) installs are covered by the `default` env and the
+# wheel-test.yml extras matrix.
+py311 = { features = ["py311", "viz", "dev", "xarray", "lazy", "parquet"], solve-group = "py311" }
+py312 = { features = ["py312", "viz", "dev", "xarray", "lazy", "parquet"], solve-group = "py312" }
+py313 = { features = ["py313", "viz", "dev", "xarray", "lazy", "parquet"], solve-group = "py313" }
+py314 = { features = ["py314", "viz", "dev", "xarray", "lazy", "parquet"], solve-group = "py314" }
 # wheel-build: lean env inside the cibuildwheel container.
 # no-default-feature = true keeps pyramids-gis (and its pandas/numpy
 # transitive deps) out of the build container so cibuildwheel's pip
