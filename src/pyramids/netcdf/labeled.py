@@ -52,16 +52,18 @@ _DASK_INSTALL_HINT = (
     "  - conda: conda install -c conda-forge dask"
 )
 
-# Remote object-store / http URL schemes. A store opened from one of these is
-# assumed large, so reads default to dask chunks (never load the whole thing).
-_REMOTE_SCHEMES = ("s3://", "gs://", "gcs://", "az://", "abfs://", "http://", "https://")
+# Remote object-store / http URL schemes (the part before "://"). A store opened
+# from one of these is assumed large, so reads default to dask chunks (never load
+# the whole thing).
+_REMOTE_SCHEMES = ("s3", "gs", "gcs", "az", "abfs", "http", "https")
 # Sentinel so an explicit ``chunks=None`` is distinguishable from "not passed".
 _UNSET = object()
 
 
 def _is_remote_url(source: str) -> bool:
     """True for a remote object-store / http URL (not a local filesystem path)."""
-    return source.lower().startswith(_REMOTE_SCHEMES)
+    scheme = source.split("://", 1)[0].lower() if "://" in source else ""
+    return scheme in _REMOTE_SCHEMES
 
 
 def _is_zarr_store(path: str | Path, engine: str | None) -> bool:
