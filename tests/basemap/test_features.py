@@ -631,3 +631,24 @@ class TestRelief:
         reprojected = features.relief("low").to_crs(to_epsg=3857)
         assert isinstance(reprojected, Dataset), f"Got {type(reprojected)}"
         assert reprojected.epsg == 3857, f"Expected EPSG:3857, got {reprojected.epsg}"
+
+    @pytest.mark.slow
+    def test_real_download_low(self, relief_cache_dir):
+        """End-to-end fetch of the low-res relief raster from the release assets.
+
+        Test scenario:
+            Network-dependent; skipped offline. Downloads the real
+            ``ne_hypso_rgb_720x360.tif`` from the ``basemap-data-v1`` release and
+            asserts a 3-band EPSG:4326 Dataset of the expected size is returned.
+        """
+        try:
+            result = features.relief("low")
+        except OSError as exc:
+            pytest.skip(f"relief release asset unreachable: {exc}")
+        assert isinstance(result, Dataset), f"Got {type(result)}"
+        assert result.band_count == 3, f"Expected 3 bands, got {result.band_count}"
+        assert result.epsg == 4326, f"Expected EPSG:4326, got {result.epsg}"
+        assert (result.columns, result.rows) == (
+            720,
+            360,
+        ), f"Expected 720x360, got {result.columns}x{result.rows}"
