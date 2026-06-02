@@ -12,10 +12,12 @@ import zipfile
 from pathlib import Path
 
 import geopandas as gpd
+import numpy as np
 import pytest
 from shapely.geometry import LineString
 
 from pyramids.basemap import features
+from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
@@ -312,7 +314,7 @@ class TestDownload:
             raise urllib.error.URLError("no route to host")
 
         monkeypatch.setattr(urllib.request, "urlopen", boom)
-        with pytest.raises(OSError, match="failed to download Natural Earth") as exc:
+        with pytest.raises(OSError, match="failed to download basemap data") as exc:
             features._download("https://example.com/x.zip", tmp_path / "x.zip")
         assert "x.zip" in str(exc.value), f"URL missing from message: {exc.value}"
         assert exc.value.__cause__ is not None, "original error should be chained"
@@ -465,3 +467,284 @@ class TestNaturalEarth:
             pytest.skip(f"Natural Earth CDN unreachable: {exc}")
         assert isinstance(result, FeatureCollection), f"Got {type(result)}"
         assert len(result) > 0, "real coastline layer should have features"
+
+
+@pytest.fixture(scope="function")
+def relief_cache_dir(tmp_path, monkeypatch):
+    """Redirect the relief cache to a temp directory via PYRAMIDS_CACHE_DIR.
+
+    Args:
+        tmp_path: pytest temp directory.
+        monkeypatch: pytest monkeypatch fixture.
+
+    Returns:
+        Path: the ``relief`` cache directory features.py will use.
+    """
+    monkeypatch.setenv("PYRAMIDS_CACHE_DIR", str(tmp_path))
+    return tmp_path / "relief"
+
+
+def _make_relief_tif(path: Path, rows: int = 18, cols: int = 36) -> None:
+    """Write a tiny 3-band RGB EPSG:4326 global GeoTIFF (synthetic relief) to ``path``.
+
+    Args:
+        path: Destination file (its parent is created if missing).
+        rows: Raster height; with ``cols`` it spans the globe at ``180/rows`` degrees.
+        cols: Raster width.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(0)
+    arr = rng.integers(0, 255, size=(3, rows, cols), dtype="uint8")
+    Dataset.create_from_array(
+        arr,
+        top_left_corner=(-180.0, 90.0),
+        cell_size=180.0 / rows,
+        epsg=4326,
+        driver_type="GTiff",
+        path=str(path),
+    )
+
+
+class TestAvailableReliefResolutions:
+    """Tests for :func:`pyramids.basemap.features.available_relief_resolutions`."""
+
+    def test_returns_low_then_medium(self):
+        """available_relief_resolutions returns ``["low", "medium"]`` (coarsest first).
+
+        Test scenario:
+            The ordering is documented; assert the exact sequence.
+        """
+        assert features.available_relief_resolutions() == ["low", "medium"]
+
+    def test_derived_from_products_table(self):
+        """The resolution list is derived from ``_RELIEF_PRODUCTS`` (no drift).
+
+        Test scenario:
+            ``available_relief_resolutions`` reflects the product table's keys rather
+            than a separately hardcoded list, so adding a product stays in sync. Also
+            confirm each call returns a fresh list (callers cannot mutate module state).
+        """
+        result = features.available_relief_resolutions()
+        assert result == list(
+            features._RELIEF_PRODUCTS
+        ), f"resolutions must mirror _RELIEF_PRODUCTS keys; got {result}"
+        assert (
+            result is not features.available_relief_resolutions()
+        ), "each call must return a fresh list"
+
+
+class TestReliefUrl:
+    """Tests for :func:`pyramids.basemap.features._relief_url`."""
+
+    @pytest.mark.parametrize("resolution", ["low", "medium"])
+    def test_url_points_at_release_asset(self, resolution):
+        """_relief_url builds the release-asset URL for each resolution.
+
+        Args:
+            resolution: Relief resolution key.
+
+        Test scenario:
+            The URL is ``{_RELIEF_BASE_URL}/{product-filename}`` and ends in ``.tif``.
+        """
+        url = features._relief_url(resolution)
+        product = features._RELIEF_PRODUCTS[resolution]
+        assert url == f"{features._RELIEF_BASE_URL}/{product}", url
+        assert url.endswith(".tif"), url
+
+
+class TestRelief:
+    """Tests for :func:`pyramids.basemap.features.relief`."""
+
+    def test_unknown_resolution_raises(self):
+        """relief rejects an unknown resolution with the valid-options list.
+
+        Test scenario:
+            Passing a non-existent resolution raises ValueError naming the supported
+            ``low``/``medium`` values.
+        """
+        with pytest.raises(ValueError, match="unknown relief resolution") as exc:
+            features.relief("high")
+        assert "low" in str(exc.value), f"Options missing: {exc.value}"
+
+    def test_cache_dir_uses_relief_subdir(self, tmp_path, monkeypatch):
+        """_cache_dir('relief') resolves under the cache root, separate from vectors.
+
+        Args:
+            tmp_path: pytest temp directory.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            With PYRAMIDS_CACHE_DIR set, the relief cache is ``<root>/relief`` and the
+            Natural Earth cache stays ``<root>/naturalearth`` — they don't collide.
+        """
+        monkeypatch.setenv("PYRAMIDS_CACHE_DIR", str(tmp_path))
+        assert features._cache_dir("relief") == tmp_path / "relief"
+        assert features._cache_dir() == tmp_path / "naturalearth"
+
+    def test_cache_hit_returns_rgb_dataset(self, relief_cache_dir, monkeypatch):
+        """relief reads a cached raster as a 3-band EPSG:4326 Dataset, no download.
+
+        Args:
+            relief_cache_dir: Redirected relief cache directory fixture.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            With a synthetic relief GeoTIFF already in the cache, relief returns a
+            3-band (RGB), EPSG:4326 Dataset and never downloads.
+        """
+        _make_relief_tif(relief_cache_dir / features._RELIEF_PRODUCTS["low"])
+
+        def fail_download(url, destination):
+            raise AssertionError("download must not run on a cache hit")
+
+        monkeypatch.setattr(features, "_download", fail_download)
+        result = features.relief("low")
+        assert isinstance(result, Dataset), f"Got {type(result)}"
+        assert result.band_count == 3, f"Expected 3 bands, got {result.band_count}"
+        assert result.epsg == 4326, f"Expected EPSG:4326, got {result.epsg}"
+
+    def test_downloads_when_absent(self, relief_cache_dir, monkeypatch):
+        """relief downloads the raster once when it is not already cached.
+
+        Args:
+            relief_cache_dir: Redirected relief cache directory fixture.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            With no cached file, _download is invoked exactly once (writing a synthetic
+            raster) and relief returns the resulting Dataset.
+        """
+        calls = []
+
+        def fake_download(url, destination):
+            calls.append(url)
+            _make_relief_tif(Path(destination))
+
+        monkeypatch.setattr(features, "_download", fake_download)
+        result = features.relief("low")
+        assert len(calls) == 1, f"Expected one download, got {len(calls)}"
+        assert calls[0] == features._relief_url("low"), f"Wrong URL: {calls[0]}"
+        assert isinstance(result, Dataset), f"Got {type(result)}"
+
+    def test_reprojectable_via_to_crs(self, relief_cache_dir, monkeypatch):
+        """The relief Dataset reprojects via to_crs (EPSG:3857 here).
+
+        Args:
+            relief_cache_dir: Redirected relief cache directory fixture.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            relief returns an EPSG:4326 raster that ``to_crs`` can reproject to another
+            CRS without error. (``to_crs`` takes an EPSG code; orthographic/globe
+            rendering is handled downstream by the visualization layer.)
+        """
+        _make_relief_tif(relief_cache_dir / features._RELIEF_PRODUCTS["low"])
+
+        def fail_download(url, destination):
+            raise AssertionError("download must not run on a cache hit")
+
+        monkeypatch.setattr(features, "_download", fail_download)
+        reprojected = features.relief("low").to_crs(to_epsg=3857)
+        assert isinstance(reprojected, Dataset), f"Got {type(reprojected)}"
+        assert reprojected.epsg == 3857, f"Expected EPSG:3857, got {reprojected.epsg}"
+
+    def test_medium_cache_hit_returns_dataset(self, relief_cache_dir, monkeypatch):
+        """relief('medium') reads the medium product from its cached file, no download.
+
+        Args:
+            relief_cache_dir: Redirected relief cache directory fixture.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            With a synthetic raster cached under the ``medium`` product filename, relief
+            routes to it (distinct from ``low``), returns a 3-band EPSG:4326 Dataset of
+            the placed size, and never downloads.
+        """
+        _make_relief_tif(
+            relief_cache_dir / features._RELIEF_PRODUCTS["medium"], rows=72, cols=144
+        )
+
+        def fail_download(url, destination):
+            raise AssertionError("download must not run on a cache hit")
+
+        monkeypatch.setattr(features, "_download", fail_download)
+        result = features.relief("medium")
+        assert isinstance(result, Dataset), f"Got {type(result)}"
+        assert result.band_count == 3, f"Expected 3 bands, got {result.band_count}"
+        assert result.epsg == 4326, f"Expected EPSG:4326, got {result.epsg}"
+        assert (result.columns, result.rows) == (
+            144,
+            72,
+        ), f"Expected the medium file (144x72), got {result.columns}x{result.rows}"
+
+    def test_corrupt_cache_is_removed_and_raises(self, relief_cache_dir, monkeypatch):
+        """An unreadable cached raster is removed and surfaces a clear OSError.
+
+        Args:
+            relief_cache_dir: Redirected relief cache directory fixture.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            A poisoned cache file (e.g. a truncated download or an HTML error page
+            served with HTTP 200) cannot be read; relief raises OSError and deletes the
+            bad file so the next call re-fetches instead of failing forever.
+        """
+        bad = relief_cache_dir / features._RELIEF_PRODUCTS["low"]
+        bad.parent.mkdir(parents=True, exist_ok=True)
+        bad.write_bytes(b"<html>not a GeoTIFF</html>")
+
+        def fail_download(url, destination):
+            raise AssertionError("download must not run on a cache hit")
+
+        monkeypatch.setattr(features, "_download", fail_download)
+        with pytest.raises(OSError, match="could not be read") as exc:
+            features.relief("low")
+        assert "retry" in str(exc.value), f"Hint missing: {exc.value}"
+        assert not bad.exists(), "corrupt cached file should be removed"
+
+    def test_non_corruption_error_propagates_and_keeps_cache(
+        self, relief_cache_dir, monkeypatch
+    ):
+        """A non-corruption read error is re-raised as itself and the cache is kept.
+
+        Args:
+            relief_cache_dir: Redirected relief cache directory fixture.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            The self-heal path only treats genuine "unreadable bytes" failures as a
+            poisoned cache. A programming error surfacing from ``read_file`` (here a
+            ``TypeError``) must propagate unchanged — not be relabeled as a corrupt
+            cache — and the cached file must be left in place rather than deleted.
+        """
+        cached = relief_cache_dir / features._RELIEF_PRODUCTS["low"]
+        _make_relief_tif(cached)
+
+        def boom(*args, **kwargs):
+            raise TypeError("not a corruption signal")
+
+        monkeypatch.setattr(Dataset, "read_file", staticmethod(boom))
+        with pytest.raises(TypeError, match="not a corruption signal"):
+            features.relief("low")
+        assert cached.exists(), "a non-corruption error must not purge the cache"
+
+    @pytest.mark.slow
+    def test_real_download_low(self, relief_cache_dir):
+        """End-to-end fetch of the low-res relief raster from the release assets.
+
+        Test scenario:
+            Network-dependent; skipped offline. Downloads the real
+            ``ne_hypso_rgb_720x360.tif`` from the ``basemap-data-v1`` release and
+            asserts a 3-band EPSG:4326 Dataset of the expected size is returned.
+        """
+        try:
+            result = features.relief("low")
+        except OSError as exc:
+            pytest.skip(f"relief release asset unreachable: {exc}")
+        assert isinstance(result, Dataset), f"Got {type(result)}"
+        assert result.band_count == 3, f"Expected 3 bands, got {result.band_count}"
+        assert result.epsg == 4326, f"Expected EPSG:4326, got {result.epsg}"
+        assert (result.columns, result.rows) == (
+            720,
+            360,
+        ), f"Expected 720x360, got {result.columns}x{result.rows}"

@@ -13,21 +13,27 @@ The tile functions require the cleopatra ``[tiles]`` extra (which pins
 - conda-forge: ``conda install -c conda-forge pyramids-viz``
 
 :func:`~pyramids.basemap.natural_earth` returns Natural Earth *vector* features as a
-:class:`~pyramids.feature.FeatureCollection` and needs no extra (it downloads with the
-standard library and reads through GDAL).
+:class:`~pyramids.feature.FeatureCollection`, and :func:`~pyramids.basemap.relief`
+returns a low-res global relief *raster* as a :class:`~pyramids.dataset.Dataset` for
+offline ``stock_img``-style backdrops. Neither needs the ``[viz]`` extra (both download
+with the standard library and read through GDAL).
 """
 
 from pyramids.basemap.basemap import add_basemap, get_provider
 from pyramids.basemap.features import (
     available_layers,
+    available_relief_resolutions,
     available_resolutions,
     natural_earth,
+    relief,
 )
 
 __all__ = [
     "add_basemap",
     "available_layers",
+    "available_relief_resolutions",
     "available_resolutions",
     "get_provider",
     "natural_earth",
+    "relief",
 ]
