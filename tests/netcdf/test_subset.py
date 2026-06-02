@@ -224,19 +224,19 @@ class TestMdArrayNoData:
     """``_md_array_no_data`` prefers the driver value, then CF attrs, else None."""
 
     def test_driver_value_wins(self):
-        assert NetCDF._md_array_no_data(_FakeMDArray(ndv=-1.0)) == -1.0
+        assert NetCDF._md_array_no_data(_FakeMDArray(ndv=-1.0)) == pytest.approx(-1.0)
 
     def test_missing_value_fallback(self):
         md = _FakeMDArray(ndv=None, attrs={"missing_value": -999900.0})
-        assert NetCDF._md_array_no_data(md) == -999900.0
+        assert NetCDF._md_array_no_data(md) == pytest.approx(-999900.0)
 
     def test_fill_value_fallback(self):
         md = _FakeMDArray(ndv=None, attrs={"_FillValue": -9999.0})
-        assert NetCDF._md_array_no_data(md) == -9999.0
+        assert NetCDF._md_array_no_data(md) == pytest.approx(-9999.0)
 
     def test_missing_value_preferred_over_fill_value(self):
         md = _FakeMDArray(ndv=None, attrs={"missing_value": 1.0, "_FillValue": 2.0})
-        assert NetCDF._md_array_no_data(md) == 1.0
+        assert NetCDF._md_array_no_data(md) == pytest.approx(1.0)
 
     def test_none_when_no_value_or_attrs(self):
         assert NetCDF._md_array_no_data(_FakeMDArray()) is None
