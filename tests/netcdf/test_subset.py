@@ -128,6 +128,99 @@ class TestReprojectBboxEnvelope:
         assert max_y > min_y
 
 
+def _synthetic_cube(tmp_path, *, with_coords=True, with_extra=False):
+    """Build a tiny local multidimensional NetCDF and return an opened ``NetCDF``.
+
+    The ``y`` axis ascends (south->north) so the north-up normalisation in
+    ``subset`` is exercised. ``temp`` holds ``np.arange`` values so band
+    orientation can be verified exactly; with ``with_extra`` a 4-D ``flux`` adds
+    a non-spatial ``level`` axis for ``**dims`` coverage. ``with_coords=False``
+    drops the ``y`` / ``x`` coordinate variables (the missing-coordinate case).
+    """
+    xr = pytest.importorskip("xarray")
+    n_t, n_y, n_x = 3, 4, 5
+    temp = np.arange(n_t * n_y * n_x, dtype="float64").reshape(n_t, n_y, n_x)
+    data_vars = {"temp": (("time", "y", "x"), temp)}
+    if with_extra:
+        n_lev = 2
+        flux = np.arange(n_t * n_lev * n_y * n_x, dtype="float64").reshape(
+            n_t, n_lev, n_y, n_x
+        )
+        data_vars["flux"] = (("time", "level", "y", "x"), flux)
+    coords = {}
+    if with_coords:
+        coords = {
+            "time": np.arange(n_t),
+            "y": np.array([10.0, 11.0, 12.0, 13.0]),  # ascending
+            "x": np.array([0.0, 1.0, 2.0, 3.0, 4.0]),
+        }
+        if with_extra:
+            coords["level"] = np.arange(2)
+    ds = xr.Dataset(data_vars, coords=coords)
+    return NetCDF.from_xarray(ds, path=str(tmp_path / "cube.nc"))
+
+
+class TestSubsetOffline:
+    """Offline integration tests for the ``subset`` body (no network).
+
+    Cover the windowed read, north-up flip of an ascending ``y`` axis, band
+    construction for a time range, bbox cropping in native coordinates, extra-dim
+    selection, and the error paths (missing coordinate, unknown ``**dims`` key,
+    out-of-range index).
+    """
+
+    def test_single_timestep_shape_and_north_up(self, tmp_path):
+        nc = _synthetic_cube(tmp_path)
+        ds = nc.subset("temp", time=0)
+        assert (ds.rows, ds.columns) == (4, 5)
+        assert ds.band_count == 1
+        # y ascends [10..13]; north-up output row 0 is the northernmost (y=13),
+        # i.e. xarray y-index 3 -> values [15, 16, 17, 18, 19].
+        row0 = np.asarray(ds.read_array())[0]
+        assert list(row0) == [15.0, 16.0, 17.0, 18.0, 19.0]
+        # North-up geotransform: negative dy, top-left y at the upper edge.
+        gt = ds.geotransform
+        assert gt[5] < 0
+        assert gt[3] == pytest.approx(13.5)
+
+    def test_time_range_is_multiband(self, tmp_path):
+        nc = _synthetic_cube(tmp_path)
+        ds = nc.subset("temp", time=(0, 3))
+        assert ds.band_count == 3
+
+    def test_bbox_crops_in_native_coords(self, tmp_path):
+        nc = _synthetic_cube(tmp_path)
+        # Keep x in [1, 3] (3 cols) and y in [11, 12] (2 rows).
+        ds = nc.subset("temp", time=0, bbox=(1.0, 11.0, 3.0, 12.0))
+        assert (ds.rows, ds.columns) == (2, 3)
+
+    def test_extra_dim_selection(self, tmp_path):
+        nc = _synthetic_cube(tmp_path, with_extra=True)
+        ds = nc.subset("flux", time=0, level=1)
+        assert (ds.rows, ds.columns) == (4, 5)
+        assert ds.band_count == 1
+
+    def test_unselected_extra_dim_raises(self, tmp_path):
+        nc = _synthetic_cube(tmp_path, with_extra=True)
+        with pytest.raises(ValueError, match="must be selected"):
+            nc.subset("flux", time=0)
+
+    def test_unknown_dim_key_raises(self, tmp_path):
+        nc = _synthetic_cube(tmp_path, with_extra=True)
+        with pytest.raises(ValueError, match="unknown dimension selector"):
+            nc.subset("flux", time=0, levl=1)
+
+    def test_out_of_range_time_index_raises(self, tmp_path):
+        nc = _synthetic_cube(tmp_path)
+        with pytest.raises(ValueError, match="out of range"):
+            nc.subset("temp", time=99)
+
+    def test_missing_coordinate_variable_raises(self, tmp_path):
+        nc = _synthetic_cube(tmp_path, with_coords=False)
+        with pytest.raises(ValueError, match="no 1-D coordinate variable"):
+            nc.subset("temp", time=0, bbox=(0.0, 0.0, 1.0, 1.0))
+
+
 @pytest.mark.slow
 @pytest.mark.vfs
 class TestSubsetLiveNWM:

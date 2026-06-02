@@ -175,13 +175,22 @@ def _contiguous_range(
     return int(inside.min()), int(inside.max()) + 1
 
 
+def _clamp_bound(index: int, size: int) -> int:
+    """Wrap a negative slice bound against ``size`` and clamp it into ``[0, size]``."""
+    if index < 0:
+        index += size
+    return max(0, min(index, size))
+
+
 def _resolve_index_selector(
     selector: Any, size: int, dim_name: str
 ) -> tuple[int, int]:
     """Resolve a non-spatial dimension selector to a half-open ``(start, stop)``.
 
     ``None`` is allowed only for a length-1 dimension; an ``int`` selects one
-    index; a 2-tuple/list or ``slice`` selects a half-open index range.
+    index (negative counts from the end, and an out-of-range index is an error);
+    a 2-tuple/list or ``slice`` selects a half-open index range whose bounds are
+    wrapped (negatives) and clamped into ``[0, size]``.
     """
     if selector is None:
         if size == 1:
@@ -191,8 +200,8 @@ def _resolve_index_selector(
             f"(e.g. {dim_name}=0)."
         )
     if isinstance(selector, slice):
-        start = 0 if selector.start is None else int(selector.start)
-        stop = size if selector.stop is None else int(selector.stop)
+        start = 0 if selector.start is None else _clamp_bound(int(selector.start), size)
+        stop = size if selector.stop is None else _clamp_bound(int(selector.stop), size)
         return start, stop
     if isinstance(selector, (tuple, list)):
         if len(selector) != 2:
@@ -200,10 +209,18 @@ def _resolve_index_selector(
                 f"range selector for {dim_name!r} must be (start, stop); got "
                 f"{selector!r}."
             )
-        return int(selector[0]), int(selector[1])
+        return (
+            _clamp_bound(int(selector[0]), size),
+            _clamp_bound(int(selector[1]), size),
+        )
     index = int(selector)
     if index < 0:
         index += size
+    if not 0 <= index < size:
+        raise ValueError(
+            f"index {selector!r} is out of range for dimension {dim_name!r} of "
+            f"length {size}."
+        )
     return index, index + 1
 
 
@@ -4332,7 +4349,7 @@ class NetCDF(Dataset):
         bbox: tuple[float, float, float, float] | list[float] | None = None,
         crs: int | str = 4326,
         densify: int = 25,
-        **dims: int,
+        **dims: int | tuple[int, int] | slice,
     ) -> Dataset:
         """Read a windowed ``(variable, time, bbox)`` slice of a gridded cube.
 
@@ -4370,7 +4387,8 @@ class NetCDF(Dataset):
                 (conservative over-cover). Defaults to ``25``.
             **dims: Index selector for any extra non-spatial dimension (e.g.
                 ``vis_nir=0``, ``soil_layers_stag=2``). Required for every such
-                dimension whose length is > 1.
+                dimension whose length is > 1. A key that is not a selectable
+                non-spatial dimension of the variable is an error.
 
         Returns:
             Dataset: A georeferenced raster on the store's native CRS — one band
@@ -4378,9 +4396,15 @@ class NetCDF(Dataset):
 
         Raises:
             ValueError: When the store is not multidimensional; when ``variable``
-                is absent or has fewer than two dimensions; when a non-spatial
-                dimension of length > 1 is not selected; or when the bbox selects
-                no cells.
+                is absent or has fewer than two dimensions; when a spatial axis
+                has no 1-D coordinate variable; when a non-spatial dimension of
+                length > 1 is not selected, or a ``**dims`` key / index is
+                invalid; or when the bbox selects no cells.
+
+        Note:
+            For a purely 2-D ``(y, x)`` variable there is no non-spatial axis, so
+            ``time`` and ``**dims`` are no-ops (the whole grid, optionally bbox-
+            cropped, is returned as one band).
 
         Examples:
             - Pull one timestep of a NWM land-surface variable over a lon/lat
@@ -4402,7 +4426,10 @@ class NetCDF(Dataset):
                 "subset() requires a multidimensional store; open with "
                 "open_as_multi_dimensional=True."
             )
-        md_arr = rg.OpenMDArray(variable)
+        try:
+            md_arr = rg.OpenMDArray(variable)
+        except RuntimeError:
+            md_arr = None
         if md_arr is None:
             raise ValueError(
                 f"{variable!r} is not a variable in this store; available: "
@@ -4418,12 +4445,8 @@ class NetCDF(Dataset):
         dim_sizes = [int(d.GetSize()) for d in dim_objs]
         # GDAL exposes a gridded MDArray with the spatial axes last: (..., y, x).
         y_axis, x_axis = len(dim_objs) - 2, len(dim_objs) - 1
-        x_coords = np.asarray(
-            rg.OpenMDArray(dim_names[x_axis]).ReadAsArray(), dtype="float64"
-        )
-        y_coords = np.asarray(
-            rg.OpenMDArray(dim_names[y_axis]).ReadAsArray(), dtype="float64"
-        )
+        x_coords = self._read_axis_coords(rg, dim_names[x_axis], "x")
+        y_coords = self._read_axis_coords(rg, dim_names[y_axis], "y")
 
         srs = md_arr.GetSpatialRef()
         if bbox is None:
@@ -4439,6 +4462,17 @@ class NetCDF(Dataset):
         # Build one slice per dimension; every non-spatial axis must collapse to a
         # single index (or, for the time axis, a range) so the read is bounded.
         time_axis = self._detect_time_axis(dim_names, y_axis, x_axis)
+        selectable = {
+            name
+            for axis, name in enumerate(dim_names)
+            if axis not in (x_axis, y_axis, time_axis)
+        }
+        unknown = set(dims) - selectable
+        if unknown:
+            raise ValueError(
+                f"unknown dimension selector(s) {sorted(unknown)}; selectable "
+                f"non-spatial dimensions are {sorted(selectable)}."
+            )
         slices: list[slice] = []
         band_labels: list[str] = []
         for axis, (name, size) in enumerate(zip(dim_names, dim_sizes)):
@@ -4490,6 +4524,28 @@ class NetCDF(Dataset):
         if band_labels and len(band_labels) == ds.band_count:
             ds.band_names = band_labels
         return ds
+
+    @staticmethod
+    def _read_axis_coords(rg: Any, name: str, axis_label: str) -> np.ndarray:
+        """Read a spatial axis's 1-D coordinate values, or raise a clear error.
+
+        A gridded variable can name a spatial dimension that has no indexing
+        (coordinate) variable — e.g. WRF ``south_north`` / ``west_east``.
+        ``OpenMDArray`` then returns ``None`` (or yields no array), so guard it
+        with an actionable message instead of an opaque ``AttributeError``.
+        """
+        try:
+            coord = rg.OpenMDArray(name)
+        except RuntimeError:
+            coord = None
+        values = None if coord is None else coord.ReadAsArray()
+        if values is None:
+            raise ValueError(
+                f"the {axis_label} dimension {name!r} has no 1-D coordinate "
+                "variable; subset() needs x/y coordinates to window and "
+                "georeference the grid."
+            )
+        return np.asarray(values, dtype="float64")
 
     @staticmethod
     def _detect_time_axis(dim_names: list[str], y_axis: int, x_axis: int) -> int | None:
