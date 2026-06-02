@@ -93,12 +93,18 @@ jobs:
 
       - name: Install native GDAL dependencies
         shell: bash -el {0}
+        # Single source of truth: the gdal pin is read from
+        # [tool.pixi.feature.wheel-build.dependencies] via ci/gdal-pin.py, so this
+        # conda-forge-shape test installs the same gdal the wheels are built and
+        # shipped against and the range can never drift out of sync here.
         run: |
+          spec=$(python ci/gdal-pin.py)
+          echo "Using GDAL pin from wheel-build: ${spec}"
           conda install -y -n wheel-test \
-            "gdal>=3.10.0,<4" \
-            "libgdal-netcdf>=3.10.0,<4" \
-            "libgdal-hdf4>=3.10.0,<4" \
-            "libgdal-grib>=3.10.0,<4"
+            "gdal${spec}" \
+            "libgdal-netcdf${spec}" \
+            "libgdal-hdf4${spec}" \
+            "libgdal-grib${spec}"
 
       - name: Install wheel (no extras)
         shell: bash -el {0}
@@ -175,12 +181,18 @@ jobs:
 
       - name: Install native GDAL dependencies
         shell: bash -el {0}
+        # Single source of truth: the gdal pin is read from
+        # [tool.pixi.feature.wheel-build.dependencies] via ci/gdal-pin.py, so this
+        # conda-forge-shape test installs the same gdal the wheels are built and
+        # shipped against and the range can never drift out of sync here.
         run: |
+          spec=$(python ci/gdal-pin.py)
+          echo "Using GDAL pin from wheel-build: ${spec}"
           conda install -y -n wheel-test \
-            "gdal>=3.10.0,<4" \
-            "libgdal-netcdf>=3.10.0,<4" \
-            "libgdal-hdf4>=3.10.0,<4" \
-            "libgdal-grib>=3.10.0,<4"
+            "gdal${spec}" \
+            "libgdal-netcdf${spec}" \
+            "libgdal-hdf4${spec}" \
+            "libgdal-grib${spec}"
 
       - name: Install wheel with only [${{ matrix.extra.name }}] extra
         shell: bash -el {0}
