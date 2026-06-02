@@ -1,4 +1,4 @@
-name: Build Platform Wheels
+name: Bundle PyPI Wheels
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 #       - "pyproject.toml"
 #       - "setup.py"
 #       - "ci/**"
-#       - ".github/workflows/build-wheels.yml"
+#       - ".github/workflows/bundle-pypi-wheels.yml"
   workflow_run:
     workflows: ["github-release"]
     types: [completed]
@@ -27,9 +27,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-permissions:
-  contents: read
-
 env:
   WHEEL_SIZE_BUDGET_MB: "120"
   # Toolchain pins for the GDAL-extraction scripts (ci/setup-gdal-*.sh,
@@ -43,6 +40,8 @@ jobs:
   build-sdist:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -70,6 +69,8 @@ jobs:
   build-linux-wheels:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ${{ matrix.runs-on }}
+    permissions:
+      contents: read
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -90,7 +91,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v3.4
+        uses: pypa/cibuildwheel@8d2b08b68458a16aeb24b64e68a09ab1c8e82084 # v3.4
         env:
           CIBW_ARCHS_LINUX: ${{ matrix.arch }}
 
@@ -106,6 +107,8 @@ jobs:
 
   build-macos-wheels:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -123,7 +126,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v3.4
+        uses: pypa/cibuildwheel@8d2b08b68458a16aeb24b64e68a09ab1c8e82084 # v3.4
         env:
           CIBW_ARCHS_MACOS: ${{ matrix.arch }}
 
@@ -136,6 +139,8 @@ jobs:
   build-windows-wheels:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: windows-2022
+    permissions:
+      contents: read
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -152,7 +157,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v3.4
+        uses: pypa/cibuildwheel@8d2b08b68458a16aeb24b64e68a09ab1c8e82084 # v3.4
         env:
           CIBW_ARCHS_WINDOWS: ${{ matrix.arch }}
 
@@ -164,6 +169,8 @@ jobs:
 
   test-wheels:
     needs: [build-linux-wheels, build-macos-wheels, build-windows-wheels]
+    permissions:
+      contents: read
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -259,7 +266,7 @@ jobs:
               --clobber
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           password: ${{ secrets.PYPI_PUBLISH }}
           packages-dir: dist/
