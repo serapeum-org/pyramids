@@ -1,10 +1,10 @@
 name: pypi-release (emergency sdist-only fallback)
 
 # Emergency manual fallback that ships ONLY the sdist to PyPI. Use this
-# when build-wheels.yml is broken and conda-forge needs a new tarball
+# when bundle-pypi-wheels.yml is broken and conda-forge needs a new tarball
 # to pick up; do NOT use it for normal releases.
 #
-# The canonical release path is build-wheels.yml's `publish:` job,
+# The canonical release path is bundle-pypi-wheels.yml's `publish:` job,
 # which builds + tests + publishes sdist plus 20 platform wheels in
 # one workflow. That job fires automatically on `release: types:
 # [released]` (which github-release.yml's commitizen tag emits) and on
