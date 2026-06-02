@@ -17,6 +17,7 @@ from osgeo import osr
 
 from pyramids.netcdf.netcdf import (
     NetCDF,
+    _clamp_bound,
     _contiguous_range,
     _resolve_index_selector,
 )
@@ -73,6 +74,48 @@ class TestResolveIndexSelector:
         with pytest.raises(ValueError, match="must be"):
             _resolve_index_selector((0, 1, 2), 10, "time")
 
+    def test_slice_negative_start_wraps(self):
+        assert _resolve_index_selector(slice(-2, None), 5, "time") == (3, 5)
+
+    def test_slice_stop_beyond_size_clamps(self):
+        assert _resolve_index_selector(slice(0, 999), 5, "time") == (0, 5)
+
+    def test_tuple_negative_and_out_of_range_clamp(self):
+        assert _resolve_index_selector((-3, 999), 5, "time") == (2, 5)
+
+    def test_out_of_range_int_raises(self):
+        with pytest.raises(ValueError, match="out of range"):
+            _resolve_index_selector(99, 5, "time")
+
+    def test_negative_int_out_of_range_raises(self):
+        with pytest.raises(ValueError, match="out of range"):
+            _resolve_index_selector(-99, 5, "time")
+
+
+class TestClampBound:
+    """``_clamp_bound`` wraps negatives and clamps a slice bound into [0, size]."""
+
+    @pytest.mark.parametrize(
+        "index, size, expected",
+        [
+            (2, 5, 2),
+            (-1, 5, 4),
+            (-99, 5, 0),
+            (99, 5, 5),
+            (0, 5, 0),
+            (5, 5, 5),
+        ],
+    )
+    def test_clamp(self, index, size, expected):
+        """Bound is wrapped (negatives) then clamped to the inclusive [0, size] range.
+
+        Args:
+            index: Raw bound to normalise.
+            size: Dimension length.
+            expected: Normalised bound.
+        """
+        assert _clamp_bound(index, size) == expected, f"{index}/{size} -> {expected}"
+
 
 class TestDetectTimeAxis:
     """The time selector targets the time-like axis, else the first non-spatial."""
@@ -127,8 +170,113 @@ class TestReprojectBboxEnvelope:
         assert max_x > min_x
         assert max_y > min_y
 
+    def test_wkt_string_source_crs(self):
+        """A WKT/PROJ string source CRS is accepted via ``SetFromUserInput``.
 
-def _synthetic_cube(tmp_path, *, with_coords=True, with_extra=False):
+        Test scenario:
+            Passing ``crs`` as a WKT string (not an EPSG int) and a matching
+            destination yields an identity envelope.
+        """
+        wgs84_wkt = osr.SpatialReference()
+        wgs84_wkt.ImportFromEPSG(4326)
+        dst = osr.SpatialReference()
+        dst.ImportFromEPSG(4326)
+        bbox = (-10.0, -5.0, 10.0, 5.0)
+        out = NetCDF._reproject_bbox_envelope(bbox, wgs84_wkt.ExportToWkt(), dst, 10)
+        assert out == pytest.approx(bbox)
+
+
+class _FakeAttr:
+    """Minimal stand-in for a GDAL attribute exposing ``ReadAsDoubleArray``."""
+
+    def __init__(self, value: float) -> None:
+        self._value = value
+
+    def ReadAsDoubleArray(self):  # noqa: N802 (GDAL SWIG name)
+        return [self._value]
+
+
+class _FakeMDArray:
+    """Minimal MDArray for ``_md_array_no_data`` — driver value + CF attrs."""
+
+    def __init__(self, ndv=None, attrs=None) -> None:
+        self._ndv = ndv
+        self._attrs = attrs or {}
+
+    def GetNoDataValueAsDouble(self):  # noqa: N802
+        return self._ndv
+
+    def GetAttribute(self, name):  # noqa: N802
+        if name in self._attrs:
+            return _FakeAttr(self._attrs[name])
+        raise RuntimeError(f"Attribute {name} does not exist")
+
+
+class TestMdArrayNoData:
+    """``_md_array_no_data`` prefers the driver value, then CF attrs, else None."""
+
+    def test_driver_value_wins(self):
+        assert NetCDF._md_array_no_data(_FakeMDArray(ndv=-1.0)) == -1.0
+
+    def test_missing_value_fallback(self):
+        md = _FakeMDArray(ndv=None, attrs={"missing_value": -999900.0})
+        assert NetCDF._md_array_no_data(md) == -999900.0
+
+    def test_fill_value_fallback(self):
+        md = _FakeMDArray(ndv=None, attrs={"_FillValue": -9999.0})
+        assert NetCDF._md_array_no_data(md) == -9999.0
+
+    def test_missing_value_preferred_over_fill_value(self):
+        md = _FakeMDArray(ndv=None, attrs={"missing_value": 1.0, "_FillValue": 2.0})
+        assert NetCDF._md_array_no_data(md) == 1.0
+
+    def test_none_when_no_value_or_attrs(self):
+        assert NetCDF._md_array_no_data(_FakeMDArray()) is None
+
+
+class _FakeCoord:
+    """Coordinate MDArray stub returning a fixed array (or ``None``)."""
+
+    def __init__(self, values) -> None:
+        self._values = values
+
+    def ReadAsArray(self):  # noqa: N802
+        return self._values
+
+
+class _FakeGroup:
+    """Root-group stub: returns a coord, returns ``None``, or raises like GDAL."""
+
+    def __init__(self, arrays) -> None:
+        self._arrays = arrays
+
+    def OpenMDArray(self, name):  # noqa: N802
+        if name not in self._arrays:
+            raise RuntimeError(f"Array {name} does not exist")
+        return self._arrays[name]
+
+
+class TestReadAxisCoords:
+    """``_read_axis_coords`` returns float64 values or a clear error."""
+
+    def test_success_returns_float64(self):
+        rg = _FakeGroup({"x": _FakeCoord(np.array([0, 1, 2]))})
+        out = NetCDF._read_axis_coords(rg, "x", "x")
+        assert out.dtype == np.float64
+        assert list(out) == [0.0, 1.0, 2.0]
+
+    def test_missing_array_raises_clear_error(self):
+        rg = _FakeGroup({})
+        with pytest.raises(ValueError, match="no 1-D coordinate variable"):
+            NetCDF._read_axis_coords(rg, "y", "y")
+
+    def test_none_values_raises_clear_error(self):
+        rg = _FakeGroup({"y": _FakeCoord(None)})
+        with pytest.raises(ValueError, match="no 1-D coordinate variable"):
+            NetCDF._read_axis_coords(rg, "y", "y")
+
+
+def _synthetic_cube(tmp_path, *, with_coords=True, with_extra=False, x_descending=False):
     """Build a tiny local multidimensional NetCDF and return an opened ``NetCDF``.
 
     The ``y`` axis ascends (south->north) so the north-up normalisation in
@@ -149,10 +297,13 @@ def _synthetic_cube(tmp_path, *, with_coords=True, with_extra=False):
         data_vars["flux"] = (("time", "level", "y", "x"), flux)
     coords = {}
     if with_coords:
+        x_vals = np.array([4.0, 3.0, 2.0, 1.0, 0.0]) if x_descending else np.array(
+            [0.0, 1.0, 2.0, 3.0, 4.0]
+        )
         coords = {
             "time": np.arange(n_t),
             "y": np.array([10.0, 11.0, 12.0, 13.0]),  # ascending
-            "x": np.array([0.0, 1.0, 2.0, 3.0, 4.0]),
+            "x": x_vals,
         }
         if with_extra:
             coords["level"] = np.arange(2)
@@ -183,10 +334,36 @@ class TestSubsetOffline:
         assert gt[5] < 0
         assert gt[3] == pytest.approx(13.5)
 
-    def test_time_range_is_multiband(self, tmp_path):
+    def test_time_range_is_multiband_with_labels(self, tmp_path):
         nc = _synthetic_cube(tmp_path)
         ds = nc.subset("temp", time=(0, 3))
         assert ds.band_count == 3
+        assert ds.band_names == ["time=0", "time=1", "time=2"]
+
+    def test_full_grid_when_bbox_none(self, tmp_path):
+        nc = _synthetic_cube(tmp_path)
+        ds = nc.subset("temp", time=0)
+        assert (ds.rows, ds.columns) == (4, 5)
+
+    def test_descending_x_axis_normalised_west_to_east(self, tmp_path):
+        nc = _synthetic_cube(tmp_path, x_descending=True)
+        ds = nc.subset("temp", time=0)
+        # Stored x descends [4..0]; west-to-east output row 0 (north, y=13) must
+        # run x=0..4 -> the stored values reversed: data[0, 3] = [15..19] -> [19..15].
+        row0 = np.asarray(ds.read_array())[0]
+        assert list(row0) == [19.0, 18.0, 17.0, 16.0, 15.0]
+        assert ds.geotransform[1] > 0, "x cell size must be positive (west-to-east)"
+
+    def test_not_multidimensional_raises(self, tmp_path):
+        nc = _synthetic_cube(tmp_path)
+        classic = NetCDF.read_file(nc.file_name, open_as_multi_dimensional=False)
+        with pytest.raises(ValueError, match="requires a multidimensional store"):
+            classic.subset("temp", time=0)
+
+    def test_missing_variable_raises(self, tmp_path):
+        nc = _synthetic_cube(tmp_path)
+        with pytest.raises(ValueError, match="is not a variable"):
+            nc.subset("does_not_exist", time=0)
 
     def test_bbox_crops_in_native_coords(self, tmp_path):
         nc = _synthetic_cube(tmp_path)
