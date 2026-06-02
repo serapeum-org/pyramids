@@ -1,4 +1,4 @@
-name: Wheel - Build & Test
+name: Pure Wheel - Build & Test
 
 # Validates the CONDA-FORGE install path: build a pure-Python wheel
 # from the sdist, install it on top of a conda env that provides GDAL
