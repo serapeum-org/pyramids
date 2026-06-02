@@ -167,11 +167,12 @@ class TestCloudConfigAsGdalConfig:
             "AWS_SECRET_ACCESS_KEY": "SEC",
             "AWS_SESSION_TOKEN": "TOK",
             "AWS_REGION": "us-east-1",
+            "AWS_DEFAULT_REGION": "us-east-1",
         }
 
     def test_skips_none_fields(self):
         cfg = CloudConfig(aws_region="eu-west-1").as_gdal_config()
-        assert cfg == {"AWS_REGION": "eu-west-1"}
+        assert cfg == {"AWS_REGION": "eu-west-1", "AWS_DEFAULT_REGION": "eu-west-1"}
 
     def test_no_sign_request_true(self):
         assert CloudConfig(aws_no_sign_request=True).as_gdal_config() == {
@@ -214,7 +215,11 @@ class TestCloudConfigAsGdalConfig:
             aws_region="us-east-1",
             extra={"VSI_CACHE": "TRUE"},
         ).as_gdal_config()
-        assert cfg == {"AWS_REGION": "us-east-1", "VSI_CACHE": "TRUE"}
+        assert cfg == {
+            "AWS_REGION": "us-east-1",
+            "AWS_DEFAULT_REGION": "us-east-1",
+            "VSI_CACHE": "TRUE",
+        }
 
 
 class TestCloudConfigContextManager:
