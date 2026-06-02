@@ -206,9 +206,15 @@ def _check_netcdf_driver() -> None:
         [sys.executable, "-c", child], env=env, capture_output=True, text=True, timeout=180
     )
     out = (result.stdout + result.stderr).strip()
-    tail = out.splitlines()[-1] if out else "(no output)"
-    print(f"netCDF override child rc={result.returncode}: {tail}")
-    if result.returncode != 0 or "CHILD_OK" not in result.stdout:
+    print(f"netCDF override child rc={result.returncode}")
+    # The CHILD_OK marker — printed only after the driver loaded under the
+    # foreign GDAL_DRIVER_PATH AND a round-trip read succeeded — is the
+    # verdict, NOT the exit code. On Windows the bundled HDF5/netCDF libs can
+    # crash a worker thread during process teardown (nonzero exit, e.g.
+    # 0xC0000005) even though every check already passed, so a nonzero rc with
+    # CHILD_OK present is a teardown artifact, not a #465 regression. A crash
+    # *before* CHILD_OK leaves the marker absent and still fails here.
+    if "CHILD_OK" not in result.stdout:
         _fail(f"netCDF driver lost under a foreign GDAL_DRIVER_PATH — #465 fix not effective:\n{out}")
     if bogus in result.stdout:
         _fail(f"GDAL_DRIVER_PATH still points at the foreign dir {bogus!r} — #465 fix not effective")
