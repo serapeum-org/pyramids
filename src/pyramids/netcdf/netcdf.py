@@ -6,6 +6,7 @@ netcdf contains python functions to handle netcdf data. gdal class: https://gdal
 
 from __future__ import annotations
 
+import itertools
 import math
 import os
 import tempfile
@@ -265,14 +266,22 @@ def _resolve_index_selector(
 
     Raises:
         ValueError: When ``selector`` is ``None`` for a dimension longer than 1,
-            when a tuple/list is not length 2, or when an ``int`` index is out of
-            range.
+            when a tuple/list is not length 2, when an ``int`` index is out of
+            range, or when a range resolves to an empty window (``stop <= start``).
 
     Examples:
         - An integer selects a single index as a half-open range:
             ```python
             >>> _resolve_index_selector(2, 10, "time")
             (2, 3)
+
+            ```
+        - A reversed range is rejected (empty window):
+            ```python
+            >>> _resolve_index_selector((3, 1), 10, "time")
+            Traceback (most recent call last):
+                ...
+            ValueError: selector (3, 1) resolves to an empty index range (start=3, stop=1) for dimension 'time'.
 
             ```
         - A ``(start, stop)`` pair is wrapped and clamped into ``[0, size]``:
@@ -306,26 +315,30 @@ def _resolve_index_selector(
     if isinstance(selector, slice):
         start = 0 if selector.start is None else _clamp_bound(int(selector.start), size)
         stop = size if selector.stop is None else _clamp_bound(int(selector.stop), size)
-        return start, stop
-    if isinstance(selector, (tuple, list)):
+    elif isinstance(selector, (tuple, list)):
         if len(selector) != 2:
             raise ValueError(
                 f"range selector for {dim_name!r} must be (start, stop); got "
                 f"{selector!r}."
             )
-        return (
-            _clamp_bound(int(selector[0]), size),
-            _clamp_bound(int(selector[1]), size),
-        )
-    index = int(selector)
-    if index < 0:
-        index += size
-    if not 0 <= index < size:
+        start = _clamp_bound(int(selector[0]), size)
+        stop = _clamp_bound(int(selector[1]), size)
+    else:
+        index = int(selector)
+        if index < 0:
+            index += size
+        if not 0 <= index < size:
+            raise ValueError(
+                f"index {selector!r} is out of range for dimension {dim_name!r} "
+                f"of length {size}."
+            )
+        return index, index + 1
+    if stop <= start:
         raise ValueError(
-            f"index {selector!r} is out of range for dimension {dim_name!r} of "
-            f"length {size}."
+            f"selector {selector!r} resolves to an empty index range "
+            f"(start={start}, stop={stop}) for dimension {dim_name!r}."
         )
-    return index, index + 1
+    return start, stop
 
 
 class NetCDF(Dataset):
@@ -4566,10 +4579,11 @@ class NetCDF(Dataset):
         # Build one slice per dimension; every non-spatial axis must collapse to a
         # single index (or, for the time axis, a range) so the read is bounded.
         time_axis = self._detect_time_axis(dim_names, y_axis, x_axis)
+        # Every non-spatial axis is addressable by name through **dims; the time
+        # axis additionally accepts the dedicated ``time=`` argument. A name given
+        # in **dims always wins for its own axis.
         selectable = {
-            name
-            for axis, name in enumerate(dim_names)
-            if axis not in (x_axis, y_axis, time_axis)
+            name for axis, name in enumerate(dim_names) if axis not in (x_axis, y_axis)
         }
         unknown = set(dims) - selectable
         if unknown:
@@ -4578,18 +4592,34 @@ class NetCDF(Dataset):
                 f"non-spatial dimensions are {sorted(selectable)}."
             )
         slices: list[slice] = []
-        band_labels: list[str] = []
+        ranged_axes: list[tuple[str, range]] = []
         for axis, (name, size) in enumerate(zip(dim_names, dim_sizes)):
             if axis == x_axis:
                 slices.append(slice(x_start, x_stop))
             elif axis == y_axis:
                 slices.append(slice(y_start, y_stop))
             else:
-                selector = time if axis == time_axis else dims.get(name)
+                if name in dims:
+                    selector = dims[name]
+                elif axis == time_axis:
+                    selector = time
+                else:
+                    selector = None
                 start, stop = _resolve_index_selector(selector, size, name)
                 slices.append(slice(start, stop))
                 if stop - start > 1:
-                    band_labels = [f"{name}={i}" for i in range(start, stop)]
+                    ranged_axes.append((name, range(start, stop)))
+        # One band per combination of the ranged non-spatial axes, in the same
+        # C-order the (..., y, x) read is flattened to bands (last ranged axis
+        # varies fastest). Axes pinned to a single index add no label component.
+        band_labels = (
+            [
+                ",".join(f"{nm}={i}" for (nm, _), i in zip(ranged_axes, combo))
+                for combo in itertools.product(*(idxs for _, idxs in ranged_axes))
+            ]
+            if ranged_axes
+            else []
+        )
 
         arr = np.asarray(md_arr[tuple(slices)].ReadAsArray())
         n_y, n_x = arr.shape[-2], arr.shape[-1]
@@ -4606,8 +4636,10 @@ class NetCDF(Dataset):
         if y_vals.size > 1 and y_vals[0] < y_vals[-1]:
             arr = arr[:, ::-1, :]
             y_vals = y_vals[::-1]
-        d_x = abs(x_vals[1] - x_vals[0]) if x_vals.size > 1 else 1.0
-        d_y = abs(y_vals[1] - y_vals[0]) if y_vals.size > 1 else d_x
+        # Cell size from the full coordinate spacing so a 1-cell-wide window still
+        # carries the store's true resolution (the windowed slice may be size 1).
+        d_x = abs(x_coords[1] - x_coords[0]) if x_coords.size > 1 else 1.0
+        d_y = abs(y_coords[1] - y_coords[0]) if y_coords.size > 1 else d_x
         geo = (
             float(x_vals[0] - d_x / 2.0), float(d_x), 0.0,
             float(y_vals[0] + d_y / 2.0), 0.0, -float(d_y),

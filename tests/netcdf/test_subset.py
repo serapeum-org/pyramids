@@ -91,6 +91,14 @@ class TestResolveIndexSelector:
         with pytest.raises(ValueError, match="out of range"):
             _resolve_index_selector(-99, 5, "time")
 
+    def test_reversed_range_raises_empty(self):
+        with pytest.raises(ValueError, match="empty index range"):
+            _resolve_index_selector((3, 1), 10, "time")
+
+    def test_equal_bounds_raises_empty(self):
+        with pytest.raises(ValueError, match="empty index range"):
+            _resolve_index_selector(slice(2, 2), 10, "time")
+
 
 class TestClampBound:
     """``_clamp_bound`` wraps negatives and clamps a slice bound into [0, size]."""
@@ -276,14 +284,24 @@ class TestReadAxisCoords:
             NetCDF._read_axis_coords(rg, "y", "y")
 
 
-def _synthetic_cube(tmp_path, *, with_coords=True, with_extra=False, x_descending=False):
+def _synthetic_cube(
+    tmp_path,
+    *,
+    with_coords=True,
+    with_extra=False,
+    with_no_time=False,
+    x_descending=False,
+    step=1.0,
+):
     """Build a tiny local multidimensional NetCDF and return an opened ``NetCDF``.
 
     The ``y`` axis ascends (south->north) so the north-up normalisation in
     ``subset`` is exercised. ``temp`` holds ``np.arange`` values so band
     orientation can be verified exactly; with ``with_extra`` a 4-D ``flux`` adds
-    a non-spatial ``level`` axis for ``**dims`` coverage. ``with_coords=False``
+    a non-spatial ``level`` axis for ``**dims`` coverage; with ``with_no_time`` a
+    3-D ``ens(member, y, x)`` adds a non-time leading axis. ``with_coords=False``
     drops the ``y`` / ``x`` coordinate variables (the missing-coordinate case).
+    ``step`` scales the ``x`` / ``y`` cell spacing (to test cell-size handling).
     """
     xr = pytest.importorskip("xarray")
     n_t, n_y, n_x = 3, 4, 5
@@ -295,18 +313,25 @@ def _synthetic_cube(tmp_path, *, with_coords=True, with_extra=False, x_descendin
             n_t, n_lev, n_y, n_x
         )
         data_vars["flux"] = (("time", "level", "y", "x"), flux)
+    if with_no_time:
+        n_member = 2
+        ens = np.arange(n_member * n_y * n_x, dtype="float64").reshape(
+            n_member, n_y, n_x
+        )
+        data_vars["ens"] = (("member", "y", "x"), ens)
     coords = {}
     if with_coords:
-        x_vals = np.array([4.0, 3.0, 2.0, 1.0, 0.0]) if x_descending else np.array(
-            [0.0, 1.0, 2.0, 3.0, 4.0]
-        )
+        x_asc = np.arange(n_x, dtype="float64") * step
+        x_vals = x_asc[::-1] if x_descending else x_asc
         coords = {
             "time": np.arange(n_t),
-            "y": np.array([10.0, 11.0, 12.0, 13.0]),  # ascending
+            "y": 10.0 + np.arange(n_y, dtype="float64") * step,  # ascending
             "x": x_vals,
         }
         if with_extra:
             coords["level"] = np.arange(2)
+        if with_no_time:
+            coords["member"] = np.arange(2)
     ds = xr.Dataset(data_vars, coords=coords)
     return NetCDF.from_xarray(ds, path=str(tmp_path / "cube.nc"))
 
@@ -396,6 +421,46 @@ class TestSubsetOffline:
         nc = _synthetic_cube(tmp_path, with_coords=False)
         with pytest.raises(ValueError, match="no 1-D coordinate variable"):
             nc.subset("temp", time=0, bbox=(0.0, 0.0, 1.0, 1.0))
+
+    def test_reversed_time_range_raises(self, tmp_path):
+        # L1: an empty/reversed range is rejected with a clear message.
+        nc = _synthetic_cube(tmp_path)
+        with pytest.raises(ValueError, match="empty index range"):
+            nc.subset("temp", time=(2, 1))
+
+    def test_non_time_axis_selectable_by_name(self, tmp_path):
+        # L2: a non-time leading axis (ens member) is addressable via **dims.
+        nc = _synthetic_cube(tmp_path, with_no_time=True)
+        ds = nc.subset("ens", member=1)
+        assert (ds.rows, ds.columns) == (4, 5)
+        assert ds.band_count == 1
+
+    def test_non_time_axis_also_accepts_time_keyword(self, tmp_path):
+        # L2: the dedicated time= keyword still drives that fallback axis.
+        nc = _synthetic_cube(tmp_path, with_no_time=True)
+        ds = nc.subset("ens", time=0)
+        assert ds.band_count == 1
+
+    def test_multi_range_band_labels_are_cartesian_product(self, tmp_path):
+        # L3: ranging two non-spatial axes (time x level, each length 2) labels
+        # every band as the Cartesian product, in C-order (level varies fastest).
+        nc = _synthetic_cube(tmp_path, with_extra=True)
+        ds = nc.subset("flux", time=(0, 2), level=(0, 2))
+        assert ds.band_count == 4
+        assert ds.band_names == [
+            "time=0,level=0",
+            "time=0,level=1",
+            "time=1,level=0",
+            "time=1,level=1",
+        ]
+
+    def test_single_cell_window_keeps_native_resolution(self, tmp_path):
+        # N1: a 1x1 window carries the store's true cell size, not a 1.0 fallback.
+        nc = _synthetic_cube(tmp_path, step=1000.0)
+        ds = nc.subset("temp", time=0, bbox=(2000.0, 2010.0, 2000.0, 2010.0))
+        assert (ds.rows, ds.columns) == (1, 1)
+        assert ds.geotransform[1] == pytest.approx(1000.0)
+        assert abs(ds.geotransform[5]) == pytest.approx(1000.0)
 
 
 @pytest.mark.slow
