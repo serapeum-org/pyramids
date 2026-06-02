@@ -27,9 +27,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-permissions:
-  contents: read
-
 env:
   WHEEL_SIZE_BUDGET_MB: "120"
   # Toolchain pins for the GDAL-extraction scripts (ci/setup-gdal-*.sh,
@@ -43,6 +40,8 @@ jobs:
   build-sdist:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -70,6 +69,8 @@ jobs:
   build-linux-wheels:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ${{ matrix.runs-on }}
+    permissions:
+      contents: read
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -106,6 +107,8 @@ jobs:
 
   build-macos-wheels:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -136,6 +139,8 @@ jobs:
   build-windows-wheels:
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: windows-2022
+    permissions:
+      contents: read
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -164,6 +169,8 @@ jobs:
 
   test-wheels:
     needs: [build-linux-wheels, build-macos-wheels, build-windows-wheels]
+    permissions:
+      contents: read
     timeout-minutes: 20
     strategy:
       fail-fast: false
