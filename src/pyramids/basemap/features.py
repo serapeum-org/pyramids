@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pyramids._io import archive_dir_vsi, archive_members
+from pyramids.base._errors import FileFormatNotSupportedError
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pyramids.dataset import Dataset
@@ -320,10 +321,14 @@ def relief(resolution: str = "low") -> Dataset:
         _download(_relief_url(resolution), cached)
     try:
         result = Dataset.read_file(str(cached))
-    except Exception as exc:
-        # A cached file that won't open is corrupt — e.g. a truncated download or an
-        # HTML error page served with HTTP 200. Drop it so the next call re-fetches,
-        # instead of failing forever on a poisoned cache.
+    except (RuntimeError, ValueError, OSError, FileFormatNotSupportedError) as exc:
+        # These are the failures that mean the cached bytes are not a readable raster
+        # — a truncated download or an HTML error page served with HTTP 200. GDAL
+        # surfaces an unopenable file as RuntimeError; read_file wraps some cases as
+        # FileFormatNotSupportedError / FileNotFoundError. Drop the file so the next
+        # call re-fetches, instead of failing forever on a poisoned cache. Anything
+        # else (e.g. a TypeError from a programming bug) is not a corrupt-cache signal
+        # and is left to propagate unchanged.
         cached.unlink(missing_ok=True)
         raise OSError(
             f"cached relief raster {cached} could not be read ({exc}); removed it — "

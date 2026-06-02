@@ -702,6 +702,32 @@ class TestRelief:
         assert "retry" in str(exc.value), f"Hint missing: {exc.value}"
         assert not bad.exists(), "corrupt cached file should be removed"
 
+    def test_non_corruption_error_propagates_and_keeps_cache(
+        self, relief_cache_dir, monkeypatch
+    ):
+        """A non-corruption read error is re-raised as itself and the cache is kept.
+
+        Args:
+            relief_cache_dir: Redirected relief cache directory fixture.
+            monkeypatch: pytest monkeypatch fixture.
+
+        Test scenario:
+            The self-heal path only treats genuine "unreadable bytes" failures as a
+            poisoned cache. A programming error surfacing from ``read_file`` (here a
+            ``TypeError``) must propagate unchanged — not be relabeled as a corrupt
+            cache — and the cached file must be left in place rather than deleted.
+        """
+        cached = relief_cache_dir / features._RELIEF_PRODUCTS["low"]
+        _make_relief_tif(cached)
+
+        def boom(*args, **kwargs):
+            raise TypeError("not a corruption signal")
+
+        monkeypatch.setattr(Dataset, "read_file", staticmethod(boom))
+        with pytest.raises(TypeError, match="not a corruption signal"):
+            features.relief("low")
+        assert cached.exists(), "a non-corruption error must not purge the cache"
+
     @pytest.mark.slow
     def test_real_download_low(self, relief_cache_dir):
         """End-to-end fetch of the low-res relief raster from the release assets.
