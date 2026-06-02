@@ -155,6 +155,7 @@ class TestCloudConfigHttpFields:
         ).as_gdal_config()
         assert cfg == {
             "AWS_REGION": "us-east-1",
+            "AWS_DEFAULT_REGION": "us-east-1",
             "GDAL_HTTP_MAX_RETRY": "3",
             "VSI_CACHE": "TRUE",
         }, f"unexpected credentials+http mapping: {cfg!r}"

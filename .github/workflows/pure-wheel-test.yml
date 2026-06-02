@@ -1,17 +1,17 @@
-name: Wheel - Build & Test
+name: Pure Wheel - Build & Test
 
 # Validates the CONDA-FORGE install path: build a pure-Python wheel
 # from the sdist, install it on top of a conda env that provides GDAL
 # as a system package (the same shape as the conda-forge feedstock and
 # end users installing from conda). Complements
-# .github/workflows/build-wheels.yml's `test-wheels` job, which
+# .github/workflows/bundle-pypi-wheels.yml's `test-wheels` job, which
 # validates the OTHER install path — a platform wheel with native
 # libraries vendored in (`pip install pyramids-gis`, no conda).
 #
 # This workflow also runs a per-extra matrix (one job per
 # [project.optional-dependencies] entry) to verify that each extra's
 # headline dep is enough to make its marker-scoped tests pass; that
-# coverage is not duplicated in build-wheels.yml.
+# coverage is not duplicated in bundle-pypi-wheels.yml.
 
 permissions:
   contents: read

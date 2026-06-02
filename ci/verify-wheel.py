@@ -16,6 +16,10 @@ checks mirror what an end user does on first import:
    store — the regression in issue #412, where the vendored libcurl
    pointed at the wheel-build prefix's `cacert.pem` (absent in the
    consuming env) and every TLS read failed to load trust anchors.
+5. A NetCDF round-trip + a foreign-`GDAL_DRIVER_PATH` override check
+   exercise the bundled netCDF driver — the regression in issue #465,
+   where an inherited conda `GDAL_DRIVER_PATH` shadowed the bundled,
+   version-locked plugins so every `.nc` read failed.
 
 Kept as a standalone file (rather than an inline `python -c "..."`
 heredoc in the workflow) so the script reads cleanly and adding a check
@@ -23,7 +27,10 @@ doesn't require fighting YAML + shell quoting.
 """
 
 import os
+import subprocess
 import sys
+import tempfile
+import textwrap
 from pathlib import Path
 
 import pyramids
@@ -119,6 +126,102 @@ def _check_tls_read() -> None:
     print("TLS /vsicurl read OK — bundled CA store loads trust anchors.")
 
 
+def _netcdf_roundtrip(nc_driver, workdir: str) -> None:
+    """Write a 1-band raster via the netCDF driver and read it back.
+
+    Self-contained (no xarray/netCDF4 needed): exercises the bundled
+    netCDF driver's write + read path. Raises on any failure. Handles
+    both the direct-raster and subdataset-container open results.
+    """
+    path = os.path.join(workdir, "verify.nc")
+    mem = gdal.GetDriverByName("MEM").Create("", 4, 3, 1, gdal.GDT_Float32)
+    mem.SetGeoTransform([0, 1, 0, 0, 0, -1])
+    if nc_driver.CreateCopy(path, mem) is None:
+        _fail("netCDF CreateCopy returned None — bundled driver cannot write (#465)")
+    ds = gdal.Open(path)
+    if ds is None:
+        _fail(f"gdal.Open({path}) returned None — netCDF read failed (#465)")
+    if ds.RasterCount == 0:
+        subs = ds.GetSubDatasets()
+        if subs:
+            ds = gdal.Open(subs[0][0])
+    if ds is None or ds.RasterCount == 0 or ds.GetRasterBand(1).ReadAsArray() is None:
+        _fail("netCDF read produced no readable raster band (#465)")
+
+
+def _check_netcdf_driver() -> None:
+    """Confirm the bundled netCDF driver loads, even under a foreign path.
+
+    Only meaningful for a bundled wheel that vendors the driver plugins.
+
+    1. Baseline (this process): the netCDF driver is registered and a
+       GDAL-written NetCDF file round-trips — guards the literal #465 /
+       #457 symptom ("not recognized as being in a supported file format").
+    2. Override (child process): pre-set GDAL_DRIVER_PATH to a foreign,
+       empty dir — exactly what an activated conda env exports for its own
+       GDAL — then import pyramids. The bootstrap must FORCE
+       GDAL_DRIVER_PATH back to the bundled, version-locked plugin dir so
+       the driver still loads. With the old `setdefault` behaviour the
+       foreign path would win and the driver would vanish. This is the
+       check that actually distinguishes the #465 fix from the bug.
+    """
+    plugins = Path(pyramids.__file__).parent / "_data" / "gdalplugins"
+    if not plugins.is_dir():
+        _fail(f"bundled wheel is missing {plugins} — driver plugins not vendored (#465)")
+
+    gdal.UseExceptions()
+    drv = gdal.GetDriverByName("netCDF")
+    if drv is None:
+        _fail("netCDF driver not registered in the bundled GDAL (#465)")
+    _netcdf_roundtrip(drv, tempfile.mkdtemp(prefix="nc-base-"))
+    print("netCDF baseline round-trip OK — bundled driver reads a NetCDF file.")
+
+    bogus = tempfile.mkdtemp(prefix="bogus-gdalplugins-")
+    env = dict(os.environ)
+    env["GDAL_DRIVER_PATH"] = bogus
+    child = textwrap.dedent(
+        """
+        import os, sys, tempfile
+        import pyramids
+        from osgeo import gdal
+        gdal.UseExceptions()
+        drv = gdal.GetDriverByName("netCDF")
+        if drv is None:
+            print("CHILD_FAIL driver=None path=%r" % os.environ.get("GDAL_DRIVER_PATH"))
+            sys.exit(3)
+        p = os.path.join(tempfile.mkdtemp(), "t.nc")
+        mem = gdal.GetDriverByName("MEM").Create("", 4, 3, 1, gdal.GDT_Float32)
+        mem.SetGeoTransform([0, 1, 0, 0, 0, -1])
+        drv.CreateCopy(p, mem)
+        ds = gdal.Open(p)
+        if ds is None or ds.GetRasterBand(1).ReadAsArray() is None:
+            print("CHILD_FAIL read p=%s" % p)
+            sys.exit(4)
+        print("CHILD_OK final_path=%s" % os.environ.get("GDAL_DRIVER_PATH"))
+        sys.stdout.flush()
+        os._exit(0)
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", child], env=env, capture_output=True, text=True, timeout=180
+    )
+    out = (result.stdout + result.stderr).strip()
+    print(f"netCDF override child rc={result.returncode}")
+    # The CHILD_OK marker — printed only after the driver loaded under the
+    # foreign GDAL_DRIVER_PATH AND a round-trip read succeeded — is the
+    # verdict, NOT the exit code. On Windows the bundled HDF5/netCDF libs can
+    # crash a worker thread during process teardown (nonzero exit, e.g.
+    # 0xC0000005) even though every check already passed, so a nonzero rc with
+    # CHILD_OK present is a teardown artifact, not a #465 regression. A crash
+    # *before* CHILD_OK leaves the marker absent and still fails here.
+    if "CHILD_OK" not in result.stdout:
+        _fail(f"netCDF driver lost under a foreign GDAL_DRIVER_PATH — #465 fix not effective:\n{out}")
+    if bogus in result.stdout:
+        _fail(f"GDAL_DRIVER_PATH still points at the foreign dir {bogus!r} — #465 fix not effective")
+    print("netCDF override OK — bundled driver wins over a foreign GDAL_DRIVER_PATH (#465).")
+
+
+_check_netcdf_driver()
 _check_tls_read()
 
 print("All runtime checks passed.")

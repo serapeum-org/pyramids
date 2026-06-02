@@ -342,7 +342,7 @@ class CloudConfig:
     `aws_access_key_id`              `AWS_ACCESS_KEY_ID`
     `aws_secret_access_key`          `AWS_SECRET_ACCESS_KEY`
     `aws_session_token`              `AWS_SESSION_TOKEN`
-    `aws_region`                     `AWS_REGION`
+    `aws_region`                     `AWS_REGION` + `AWS_DEFAULT_REGION`
     `aws_no_sign_request=True`       `AWS_NO_SIGN_REQUEST=YES`
     `aws_request_payer=True`         `AWS_REQUEST_PAYER=requester`
     `gs_oauth2_refresh_token`        `GS_OAUTH2_REFRESH_TOKEN`
@@ -382,7 +382,7 @@ class CloudConfig:
         - Inspect the config dict without entering the block:
             ```python
             >>> CloudConfig(aws_region="eu-west-1").as_gdal_config()
-            {'AWS_REGION': 'eu-west-1'}
+            {'AWS_REGION': 'eu-west-1', 'AWS_DEFAULT_REGION': 'eu-west-1'}
 
             ```
         - Inspect the HTTP retry / timeout knobs without entering the block —
@@ -460,7 +460,7 @@ class CloudConfig:
             - A single AWS field produces a one-entry config:
                 ```python
                 >>> CloudConfig(aws_region="us-east-1").as_gdal_config()
-                {'AWS_REGION': 'us-east-1'}
+                {'AWS_REGION': 'us-east-1', 'AWS_DEFAULT_REGION': 'us-east-1'}
 
                 ```
             - Anonymous access maps to AWS_NO_SIGN_REQUEST=YES:
@@ -476,7 +476,7 @@ class CloudConfig:
                 ...     extra={"CPL_CURL_VERBOSE": "YES"},
                 ... ).as_gdal_config()
                 >>> sorted(cfg.items())
-                [('AWS_REGION', 'eu-west-1'), ('CPL_CURL_VERBOSE', 'YES')]
+                [('AWS_DEFAULT_REGION', 'eu-west-1'), ('AWS_REGION', 'eu-west-1'), ('CPL_CURL_VERBOSE', 'YES')]
 
                 ```
             - HTTP retry/timeout knobs apply to every `/vsicurl/`-backed reader:
@@ -514,6 +514,12 @@ class CloudConfig:
             "AWS_SECRET_ACCESS_KEY": self.aws_secret_access_key,
             "AWS_SESSION_TOKEN": self.aws_session_token,
             "AWS_REGION": self.aws_region,
+            # GDAL's /vsis3 resolves the bucket region from AWS_REGION *or*
+            # AWS_DEFAULT_REGION; if only one is set the other can leak from the
+            # process environment and send the request to the wrong endpoint
+            # (a 301 PermanentRedirect). Drive both from the single field so an
+            # explicit region always wins over an inherited env default.
+            "AWS_DEFAULT_REGION": self.aws_region,
             "GS_OAUTH2_REFRESH_TOKEN": self.gs_oauth2_refresh_token,
             "GS_ACCESS_KEY_ID": self.gs_access_key_id,
             "GS_SECRET_ACCESS_KEY": self.gs_secret_access_key,

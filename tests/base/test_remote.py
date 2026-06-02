@@ -167,11 +167,12 @@ class TestCloudConfigAsGdalConfig:
             "AWS_SECRET_ACCESS_KEY": "SEC",
             "AWS_SESSION_TOKEN": "TOK",
             "AWS_REGION": "us-east-1",
+            "AWS_DEFAULT_REGION": "us-east-1",
         }
 
     def test_skips_none_fields(self):
         cfg = CloudConfig(aws_region="eu-west-1").as_gdal_config()
-        assert cfg == {"AWS_REGION": "eu-west-1"}
+        assert cfg == {"AWS_REGION": "eu-west-1", "AWS_DEFAULT_REGION": "eu-west-1"}
 
     def test_no_sign_request_true(self):
         assert CloudConfig(aws_no_sign_request=True).as_gdal_config() == {
@@ -214,7 +215,46 @@ class TestCloudConfigAsGdalConfig:
             aws_region="us-east-1",
             extra={"VSI_CACHE": "TRUE"},
         ).as_gdal_config()
-        assert cfg == {"AWS_REGION": "us-east-1", "VSI_CACHE": "TRUE"}
+        assert cfg == {
+            "AWS_REGION": "us-east-1",
+            "AWS_DEFAULT_REGION": "us-east-1",
+            "VSI_CACHE": "TRUE",
+        }
+
+    def test_region_drives_both_keys_identically(self):
+        """aws_region sets AWS_REGION and AWS_DEFAULT_REGION to the same value.
+
+        Test scenario:
+            A single aws_region field must emit both GDAL keys so an inherited
+            AWS_DEFAULT_REGION env value cannot override an explicit region.
+        """
+        cfg = CloudConfig(aws_region="ap-south-1").as_gdal_config()
+        assert cfg["AWS_REGION"] == "ap-south-1", f"AWS_REGION wrong: {cfg}"
+        assert cfg["AWS_DEFAULT_REGION"] == "ap-south-1", f"AWS_DEFAULT_REGION wrong: {cfg}"
+
+    def test_no_default_region_without_region(self):
+        """AWS_DEFAULT_REGION is absent when aws_region is not provided.
+
+        Test scenario:
+            None-valued aws_region must drop both region keys (no empty leak).
+        """
+        cfg = CloudConfig(aws_no_sign_request=True).as_gdal_config()
+        assert "AWS_REGION" not in cfg, f"unexpected AWS_REGION: {cfg}"
+        assert "AWS_DEFAULT_REGION" not in cfg, f"unexpected AWS_DEFAULT_REGION: {cfg}"
+
+    def test_extra_overrides_default_region(self):
+        """An explicit extra AWS_DEFAULT_REGION wins over the aws_region-derived one.
+
+        Test scenario:
+            The extra escape hatch can decouple the two keys when a caller needs
+            a different default region.
+        """
+        cfg = CloudConfig(
+            aws_region="us-east-1",
+            extra={"AWS_DEFAULT_REGION": "us-west-2"},
+        ).as_gdal_config()
+        assert cfg["AWS_REGION"] == "us-east-1", f"AWS_REGION wrong: {cfg}"
+        assert cfg["AWS_DEFAULT_REGION"] == "us-west-2", f"extra did not win: {cfg}"
 
 
 class TestCloudConfigContextManager:

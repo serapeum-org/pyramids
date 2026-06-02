@@ -6,6 +6,7 @@ netcdf contains python functions to handle netcdf data. gdal class: https://gdal
 
 from __future__ import annotations
 
+import itertools
 import math
 import os
 import tempfile
@@ -17,7 +18,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from osgeo import gdal
+from osgeo import gdal, osr
 
 from pyramids import _io
 from pyramids.base._errors import OptionalPackageDoesNotExist
@@ -151,6 +152,202 @@ _REDUCERS: dict[str, tuple[Any, Any]] = {
 # (set by ``osr.SpatialReference.SetGEOS`` / reconstructed from a
 # ``grid_mapping_name="geostationary"`` grid-mapping).
 GEOSTATIONARY_PROJECTION = "Geostationary_Satellite"
+
+
+def _contiguous_range(
+    coords: np.ndarray,
+    low: float,
+    high: float,
+    axis_name: str,
+    bbox: Any,
+) -> tuple[int, int]:
+    """Half-open index range of the cells whose coordinate is in ``[low, high]``.
+
+    Works for an ascending or descending coordinate axis (the NWM ``y`` axis is
+    stored ascending), returning a single contiguous slice that covers the
+    in-range cells. Raises when the window selects nothing.
+
+    Args:
+        coords: 1-D coordinate values for the axis (any monotonic direction).
+        low: Inclusive lower bound of the wanted coordinate window.
+        high: Inclusive upper bound of the wanted coordinate window.
+        axis_name: Axis label (``"x"`` / ``"y"``) used only in the error message.
+        bbox: The originating bbox, echoed back in the error message.
+
+    Returns:
+        The ``(start, stop)`` half-open index range covering the in-range cells.
+
+    Raises:
+        ValueError: When no cell's coordinate falls in ``[low, high]``.
+
+    Examples:
+        - In-range cells on an ascending axis become a half-open slice:
+            ```python
+            >>> import numpy as np
+            >>> _contiguous_range(np.array([0.0, 1.0, 2.0, 3.0]), 1.0, 2.0, "x", (1, 0, 2, 0))
+            (1, 3)
+
+            ```
+        - A descending axis still yields one contiguous slice:
+            ```python
+            >>> import numpy as np
+            >>> _contiguous_range(np.array([3.0, 2.0, 1.0, 0.0]), 1.0, 2.0, "y", (0, 1, 0, 2))
+            (1, 3)
+
+            ```
+        - A window outside the axis raises:
+            ```python
+            >>> import numpy as np
+            >>> _contiguous_range(np.array([0.0, 1.0, 2.0]), 9.0, 9.5, "x", (9, 9, 10, 10))
+            Traceback (most recent call last):
+                ...
+            ValueError: bbox (9, 9, 10, 10) selects no cells on the x axis; the store spans [0.0, 2.0] there.
+
+            ```
+    """
+    inside = np.flatnonzero((coords >= low) & (coords <= high))
+    if inside.size == 0:
+        raise ValueError(
+            f"bbox {tuple(bbox)} selects no cells on the {axis_name} axis; the "
+            f"store spans [{float(coords.min())}, {float(coords.max())}] there."
+        )
+    return int(inside.min()), int(inside.max()) + 1
+
+
+def _clamp_bound(index: int, size: int) -> int:
+    """Wrap a negative slice bound against ``size`` and clamp it into ``[0, size]``.
+
+    Args:
+        index: Raw slice bound (may be negative or out of range).
+        size: Length of the dimension the bound indexes into.
+
+    Returns:
+        The normalised bound, in ``[0, size]``.
+
+    Examples:
+        - A negative bound counts from the end:
+            ```python
+            >>> _clamp_bound(-1, 5)
+            4
+
+            ```
+        - An out-of-range bound clamps to the nearest edge:
+            ```python
+            >>> _clamp_bound(99, 5)
+            5
+            >>> _clamp_bound(-99, 5)
+            0
+
+            ```
+    """
+    if index < 0:
+        index += size
+    return max(0, min(index, size))
+
+
+def _range_bounds(
+    selector: slice | tuple | list, size: int, dim_name: str
+) -> tuple[int, int]:
+    """Half-open ``(start, stop)`` for a ``slice`` or 2-element ``(start, stop)``.
+
+    Bounds are wrapped (negatives) and clamped into ``[0, size]`` via
+    :func:`_clamp_bound`. Raises when a tuple/list is not length 2.
+    """
+    if isinstance(selector, slice):
+        start = 0 if selector.start is None else _clamp_bound(int(selector.start), size)
+        stop = size if selector.stop is None else _clamp_bound(int(selector.stop), size)
+        return start, stop
+    if len(selector) != 2:
+        raise ValueError(
+            f"range selector for {dim_name!r} must be (start, stop); got {selector!r}."
+        )
+    return _clamp_bound(int(selector[0]), size), _clamp_bound(int(selector[1]), size)
+
+
+def _resolve_index_selector(
+    selector: Any, size: int, dim_name: str
+) -> tuple[int, int]:
+    """Resolve a non-spatial dimension selector to a half-open ``(start, stop)``.
+
+    ``None`` is allowed only for a length-1 dimension; an ``int`` selects one
+    index (negative counts from the end, and an out-of-range index is an error);
+    a 2-tuple/list or ``slice`` selects a half-open index range whose bounds are
+    wrapped (negatives) and clamped into ``[0, size]``.
+
+    Args:
+        selector: ``None``, an ``int``, a ``(start, stop)`` tuple/list, or a
+            ``slice`` describing which index/indices of the dimension to keep.
+        size: Length of the dimension being selected.
+        dim_name: Dimension name, used in error messages.
+
+    Returns:
+        The resolved ``(start, stop)`` half-open index range.
+
+    Raises:
+        ValueError: When ``selector`` is ``None`` for a dimension longer than 1,
+            when a tuple/list is not length 2, when an ``int`` index is out of
+            range, or when a range resolves to an empty window (``stop <= start``).
+
+    Examples:
+        - An integer selects a single index as a half-open range:
+            ```python
+            >>> _resolve_index_selector(2, 10, "time")
+            (2, 3)
+
+            ```
+        - A reversed range is rejected (empty window):
+            ```python
+            >>> _resolve_index_selector((3, 1), 10, "time")
+            Traceback (most recent call last):
+                ...
+            ValueError: selector (3, 1) resolves to an empty index range (start=3, stop=1) for dimension 'time'.
+
+            ```
+        - A ``(start, stop)`` pair is wrapped and clamped into ``[0, size]``:
+            ```python
+            >>> _resolve_index_selector((-3, 999), 5, "time")
+            (2, 5)
+
+            ```
+        - A length-1 dimension may be left unselected:
+            ```python
+            >>> _resolve_index_selector(None, 1, "vis_nir")
+            (0, 1)
+
+            ```
+        - An out-of-range integer is rejected:
+            ```python
+            >>> _resolve_index_selector(99, 5, "time")
+            Traceback (most recent call last):
+                ...
+            ValueError: index 99 is out of range for dimension 'time' of length 5.
+
+            ```
+    """
+    if selector is None:
+        if size == 1:
+            return 0, 1
+        raise ValueError(
+            f"dimension {dim_name!r} has length {size} and must be selected "
+            f"(e.g. {dim_name}=0)."
+        )
+    if isinstance(selector, (slice, tuple, list)):
+        start, stop = _range_bounds(selector, size, dim_name)
+        if stop <= start:
+            raise ValueError(
+                f"selector {selector!r} resolves to an empty index range "
+                f"(start={start}, stop={stop}) for dimension {dim_name!r}."
+            )
+        return start, stop
+    index = int(selector)
+    if index < 0:
+        index += size
+    if not 0 <= index < size:
+        raise ValueError(
+            f"index {selector!r} is out of range for dimension {dim_name!r} "
+            f"of length {size}."
+        )
+    return index, index + 1
 
 
 class NetCDF(Dataset):
@@ -4269,6 +4466,408 @@ class NetCDF(Dataset):
             attrs=self.global_attributes,
         )
         return result
+
+    def subset(
+        self,
+        variable: str,
+        *,
+        time: int | slice | tuple[int, int] | None = None,
+        bbox: tuple[float, float, float, float] | list[float] | None = None,
+        crs: int | str = 4326,
+        densify: int = 25,
+        **dims: int | tuple[int, int] | slice,
+    ) -> Dataset:
+        """Read a windowed ``(variable, time, bbox)`` slice of a gridded cube.
+
+        Reads only the requested window from a CF/GeoZarr ``(time, y, x[, …])``
+        multidimensional store — local or remote — without materialising the
+        whole variable, and returns a georeferenced
+        :class:`~pyramids.dataset.Dataset` ready for ``to_file`` / ``to_cog`` /
+        ``to_crs`` / ``crop``.
+
+        Designed for huge cloud cubes (e.g. the NWM retrospective
+        ``ldasout.zarr``, an 18 TiB ``(128568, 3840, 4608)`` store) opened
+        anonymously via :class:`~pyramids.base.remote.CloudConfig`; only the
+        sliced cells are fetched. The output CRS is the variable's own grid
+        mapping (read from the multidimensional array), so a Lambert Conformal
+        Conic store stays on its native grid.
+
+        Args:
+            variable: Data-variable name in the store (e.g. ``"ACCET"``).
+            time: Timestep selector along the time dimension. An ``int`` picks
+                one step (one output band); a ``(start, stop)`` tuple or
+                ``slice`` picks a half-open index range (one band per step);
+                ``None`` is allowed only when the time dimension has length 1.
+                Selection is by **integer index** — date/label selection needs
+                the store to expose CF time ``units``, which many Zarr stores do
+                not surface through GDAL, so use indices for those.
+            bbox: ``(min_x, min_y, max_x, max_y)`` crop window in ``crs``.
+                ``None`` keeps the full grid. The box is reprojected onto the
+                store's native grid (so a lon/lat box over a projected grid is
+                handled) honouring the variable's grid mapping.
+            crs: CRS of ``bbox`` — EPSG int, ``"EPSG:4326"``, or a WKT/PROJ
+                string. Defaults to ``4326`` (lon/lat). Ignored when ``bbox`` is
+                ``None``.
+            densify: Points per bbox edge used when reprojecting the box onto a
+                projected grid, so the envelope encloses the curved boundary
+                (conservative over-cover). Defaults to ``25``.
+            **dims: Index selector for any extra non-spatial dimension (e.g.
+                ``vis_nir=0``, ``soil_layers_stag=2``). Required for every such
+                dimension whose length is > 1. A key that is not a selectable
+                non-spatial dimension of the variable is an error.
+
+        Returns:
+            Dataset: A georeferenced raster on the store's native CRS — one band
+            per selected timestep, with the native no-data value applied.
+
+        Raises:
+            ValueError: When the store is not multidimensional; when ``variable``
+                is absent or has fewer than two dimensions; when a spatial axis
+                has no 1-D coordinate variable; when a non-spatial dimension of
+                length > 1 is not selected, or a ``**dims`` key / index is
+                invalid; or when the bbox selects no cells.
+
+        Note:
+            For a purely 2-D ``(y, x)`` variable there is no non-spatial axis, so
+            ``time`` and ``**dims`` are no-ops (the whole grid, optionally bbox-
+            cropped, is returned as one band).
+
+        Examples:
+            - Pull one timestep of a NWM land-surface variable over a lon/lat
+              box from the public bucket (metadata-only open, windowed read)::
+
+                >>> from pyramids.netcdf import NetCDF  # doctest: +SKIP
+                >>> from pyramids.base.remote import CloudConfig  # doctest: +SKIP
+                >>> url = "s3://noaa-nwm-retrospective-3-0-pds/CONUS/zarr/ldasout.zarr"
+                >>> with CloudConfig(  # doctest: +SKIP
+                ...     aws_no_sign_request=True, aws_region="us-east-1"
+                ... ):
+                ...     nc = NetCDF.read_file(url)
+                ...     ds = nc.subset("ACCET", time=0, bbox=(-78, 38, -75, 40))
+                >>> ds.to_cog("accet.tif")  # doctest: +SKIP
+        """
+        rg = self._raster.GetRootGroup() if self._raster is not None else None
+        if rg is None:
+            raise ValueError(
+                "subset() requires a multidimensional store; open with "
+                "open_as_multi_dimensional=True."
+            )
+        try:
+            md_arr = rg.OpenMDArray(variable)
+        except RuntimeError:
+            md_arr = None
+        if md_arr is None:
+            raise ValueError(
+                f"{variable!r} is not a variable in this store; available: "
+                f"{self.variable_names}"
+            )
+        dim_objs = md_arr.GetDimensions()
+        if len(dim_objs) < 2:
+            raise ValueError(
+                f"{variable!r} has {len(dim_objs)} dimension(s); subset() needs a "
+                "gridded variable with at least (y, x)."
+            )
+        dim_names = [d.GetName() for d in dim_objs]
+        dim_sizes = [int(d.GetSize()) for d in dim_objs]
+        # GDAL exposes a gridded MDArray with the spatial axes last: (..., y, x).
+        y_axis, x_axis = len(dim_objs) - 2, len(dim_objs) - 1
+        x_coords = self._read_axis_coords(rg, dim_names[x_axis], "x")
+        y_coords = self._read_axis_coords(rg, dim_names[y_axis], "y")
+
+        srs = md_arr.GetSpatialRef()
+        if bbox is None:
+            x_start, x_stop = 0, dim_sizes[x_axis]
+            y_start, y_stop = 0, dim_sizes[y_axis]
+        else:
+            min_x, min_y, max_x, max_y = self._reproject_bbox_envelope(
+                tuple(bbox), crs, srs, densify
+            )
+            x_start, x_stop = _contiguous_range(x_coords, min_x, max_x, "x", bbox)
+            y_start, y_stop = _contiguous_range(y_coords, min_y, max_y, "y", bbox)
+
+        # Build one slice per dimension; every non-spatial axis must collapse to a
+        # single index (or, for the time axis, a range) so the read is bounded.
+        time_axis = self._detect_time_axis(dim_names, y_axis, x_axis)
+        # Every non-spatial axis is addressable by name through **dims; the time
+        # axis additionally accepts the dedicated ``time=`` argument. A name given
+        # in **dims always wins for its own axis.
+        selectable = {
+            name for axis, name in enumerate(dim_names) if axis not in (x_axis, y_axis)
+        }
+        unknown = set(dims) - selectable
+        if unknown:
+            raise ValueError(
+                f"unknown dimension selector(s) {sorted(unknown)}; selectable "
+                f"non-spatial dimensions are {sorted(selectable)}."
+            )
+        slices, ranged_axes = self._plan_band_slices(
+            dim_names, dim_sizes, x_axis, y_axis, time_axis,
+            (x_start, x_stop), (y_start, y_stop), time, dims,
+        )
+        arr = np.asarray(md_arr[tuple(slices)].ReadAsArray())
+        # Collapse every selected non-spatial axis onto the band axis.
+        arr = arr.reshape(-1, arr.shape[-2], arr.shape[-1])
+        arr, geo = self._north_up_geobox(
+            arr, x_coords, y_coords, (x_start, x_stop), (y_start, y_stop)
+        )
+        band_labels = self._band_labels(ranged_axes)
+
+        no_data = self._md_array_no_data(md_arr)
+        band_first = arr[0] if arr.shape[0] == 1 else arr
+        ds = Dataset.create_from_array(
+            band_first,
+            geo=geo,
+            epsg=4326,
+            no_data_value=no_data if no_data is not None else DEFAULT_NO_DATA_VALUE,
+        )
+        # The grid mapping carries the true CRS (e.g. a sphere-datum Lambert
+        # Conformal Conic with no EPSG code); prefer it over the 4326 placeholder.
+        if srs is not None:
+            ds.crs = srs.ExportToWkt()
+        if band_labels and len(band_labels) == ds.band_count:
+            ds.band_names = band_labels
+        return ds
+
+    @staticmethod
+    def _plan_band_slices(
+        dim_names: list[str],
+        dim_sizes: list[int],
+        x_axis: int,
+        y_axis: int,
+        time_axis: int | None,
+        x_window: tuple[int, int],
+        y_window: tuple[int, int],
+        time: Any,
+        dims: dict[str, Any],
+    ) -> tuple[list[slice], list[tuple[str, range]]]:
+        """Per-dimension read slices + the ranged non-spatial axes (the band axes).
+
+        Spatial axes take the bbox windows; every other axis is pinned to one
+        index (or a range) via :func:`_resolve_index_selector`. A name in ``dims``
+        wins for its axis; otherwise the time axis uses ``time``.
+        """
+        slices: list[slice] = []
+        ranged_axes: list[tuple[str, range]] = []
+        for axis, (name, size) in enumerate(zip(dim_names, dim_sizes)):
+            if axis == x_axis:
+                slices.append(slice(*x_window))
+            elif axis == y_axis:
+                slices.append(slice(*y_window))
+            else:
+                if name in dims:
+                    selector = dims[name]
+                elif axis == time_axis:
+                    selector = time
+                else:
+                    selector = None
+                start, stop = _resolve_index_selector(selector, size, name)
+                slices.append(slice(start, stop))
+                if stop - start > 1:
+                    ranged_axes.append((name, range(start, stop)))
+        return slices, ranged_axes
+
+    @staticmethod
+    def _band_labels(ranged_axes: list[tuple[str, range]]) -> list[str]:
+        """Cartesian-product band labels for the ranged axes (C-order, last fastest)."""
+        if not ranged_axes:
+            return []
+        return [
+            ",".join(f"{nm}={i}" for (nm, _), i in zip(ranged_axes, combo))
+            for combo in itertools.product(*(idxs for _, idxs in ranged_axes))
+        ]
+
+    @staticmethod
+    def _north_up_geobox(
+        arr: np.ndarray,
+        x_coords: np.ndarray,
+        y_coords: np.ndarray,
+        x_window: tuple[int, int],
+        y_window: tuple[int, int],
+    ) -> tuple[np.ndarray, tuple[float, float, float, float, float, float]]:
+        """Flip ``arr`` to north-up / west-to-east; return ``(arr, geotransform)``.
+
+        Cell size comes from the full coordinate spacing so a 1-cell-wide window
+        still carries the store's true resolution.
+        """
+        x_vals = x_coords[x_window[0]:x_window[1]]
+        y_vals = y_coords[y_window[0]:y_window[1]]
+        if x_vals.size > 1 and x_vals[0] > x_vals[-1]:
+            arr = arr[:, :, ::-1]
+            x_vals = x_vals[::-1]
+        if y_vals.size > 1 and y_vals[0] < y_vals[-1]:
+            arr = arr[:, ::-1, :]
+            y_vals = y_vals[::-1]
+        d_x = abs(x_coords[1] - x_coords[0]) if x_coords.size > 1 else 1.0
+        d_y = abs(y_coords[1] - y_coords[0]) if y_coords.size > 1 else d_x
+        geo = (
+            float(x_vals[0] - d_x / 2.0), float(d_x), 0.0,
+            float(y_vals[0] + d_y / 2.0), 0.0, -float(d_y),
+        )
+        return arr, geo
+
+    @staticmethod
+    def _read_axis_coords(rg: Any, name: str, axis_label: str) -> np.ndarray:
+        """Read a spatial axis's 1-D coordinate values, or raise a clear error.
+
+        A gridded variable can name a spatial dimension that has no indexing
+        (coordinate) variable — e.g. WRF ``south_north`` / ``west_east``.
+        ``OpenMDArray`` then returns ``None`` (or raises), so guard it with an
+        actionable message instead of an opaque ``AttributeError``.
+
+        Args:
+            rg: The store's root :class:`osgeo.gdal.Group`.
+            name: Coordinate (indexing) array name — the spatial dimension name.
+            axis_label: ``"x"`` / ``"y"``, used in the error message.
+
+        Returns:
+            The coordinate values as a 1-D ``float64`` :class:`numpy.ndarray`.
+
+        Raises:
+            ValueError: When the dimension has no readable 1-D coordinate array.
+        """
+        try:
+            coord = rg.OpenMDArray(name)
+        except RuntimeError:
+            coord = None
+        values = None if coord is None else coord.ReadAsArray()
+        if values is None:
+            raise ValueError(
+                f"the {axis_label} dimension {name!r} has no 1-D coordinate "
+                "variable; subset() needs x/y coordinates to window and "
+                "georeference the grid."
+            )
+        return np.asarray(values, dtype="float64")
+
+    @staticmethod
+    def _detect_time_axis(dim_names: list[str], y_axis: int, x_axis: int) -> int | None:
+        """Index of the time dimension, or the first non-spatial axis as fallback.
+
+        The ``time=`` selector applies to this axis; any other non-spatial axis
+        is selected through ``**dims`` by name.
+
+        Args:
+            dim_names: Dimension names in storage order.
+            y_axis: Index of the ``y`` (row) axis to exclude.
+            x_axis: Index of the ``x`` (column) axis to exclude.
+
+        Returns:
+            The time axis index, the first non-spatial axis if no dimension is
+            time-like, or ``None`` when the variable is purely ``(y, x)``.
+
+        Examples:
+            - A dimension named ``"time"`` is the time axis:
+                ```python
+                >>> NetCDF._detect_time_axis(["time", "y", "x"], 1, 2)
+                0
+
+                ```
+            - With no time-like name, the first non-spatial axis is used:
+                ```python
+                >>> NetCDF._detect_time_axis(["level", "member", "y", "x"], 2, 3)
+                0
+
+                ```
+            - A purely 2-D ``(y, x)`` variable has no time axis:
+                ```python
+                >>> NetCDF._detect_time_axis(["y", "x"], 0, 1) is None
+                True
+
+                ```
+        """
+        time_like = {"time", "valid_time", "forecast_reference_time", "t"}
+        fallback = None
+        result = None
+        for axis, name in enumerate(dim_names):
+            if axis in (y_axis, x_axis):
+                continue
+            if fallback is None:
+                fallback = axis
+            if name.lower() in time_like:
+                result = axis
+                break
+        return result if result is not None else fallback
+
+    @staticmethod
+    def _md_array_no_data(md_arr: Any) -> float | None:
+        """Native no-data for an MDArray — driver value first, then CF attrs.
+
+        Args:
+            md_arr: The :class:`osgeo.gdal.MDArray` to inspect.
+
+        Returns:
+            The no-data value as a ``float``: the driver's value if set, else the
+            ``missing_value`` then ``_FillValue`` CF attribute, else ``None``.
+        """
+        result = md_arr.GetNoDataValueAsDouble()
+        if result is None:
+            for attr_name in ("missing_value", "_FillValue"):
+                try:
+                    attr = md_arr.GetAttribute(attr_name)
+                except RuntimeError:
+                    attr = None
+                if attr is not None:
+                    result = float(np.asarray(attr.ReadAsDoubleArray()).ravel()[0])
+                    break
+        return result
+
+    @staticmethod
+    def _reproject_bbox_envelope(
+        bbox: tuple[float, float, float, float],
+        src_crs: int | str,
+        dst_srs: Any,
+        densify: int,
+    ) -> tuple[float, float, float, float]:
+        """Reproject a bbox into the store's native CRS and return its envelope.
+
+        Densifies each edge before transforming so the projected envelope
+        encloses the curved boundary of a lon/lat box on a projected grid
+        (conservative over-cover). When the destination has no CRS, or matches
+        the source, the bbox is treated as already native.
+
+        Args:
+            bbox: ``(min_x, min_y, max_x, max_y)`` in the source CRS.
+            src_crs: Source CRS — an EPSG ``int`` or a WKT/PROJ/``"EPSG:n"`` string.
+            dst_srs: Destination :class:`osgeo.osr.SpatialReference`, or ``None``
+                when the store has no grid mapping.
+            densify: Number of points sampled along each bbox edge (``>= 2``).
+
+        Returns:
+            The ``(min_x, min_y, max_x, max_y)`` envelope in the destination CRS.
+
+        Examples:
+            - With no destination CRS the bbox is returned unchanged (treated as
+              already native):
+                ```python
+                >>> NetCDF._reproject_bbox_envelope((-1.0, -2.0, 3.0, 4.0), 4326, None, 5)
+                (-1.0, -2.0, 3.0, 4.0)
+
+                ```
+        """
+        min_x, min_y, max_x, max_y = (float(v) for v in bbox)
+        src = osr.SpatialReference()
+        src.SetFromUserInput(f"EPSG:{src_crs}" if isinstance(src_crs, int) else str(src_crs))
+        src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        if dst_srs is None or src.IsSame(dst_srs):
+            return min_x, min_y, max_x, max_y
+        dst = dst_srs.Clone()
+        dst.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        transform = osr.CoordinateTransformation(src, dst)
+        edge = np.linspace(0.0, 1.0, max(int(densify), 2))
+        xs = np.concatenate([
+            min_x + edge * (max_x - min_x), min_x + edge * (max_x - min_x),
+            np.full_like(edge, min_x), np.full_like(edge, max_x),
+        ])
+        ys = np.concatenate([
+            np.full_like(edge, min_y), np.full_like(edge, max_y),
+            min_y + edge * (max_y - min_y), min_y + edge * (max_y - min_y),
+        ])
+        proj_x: list[float] = []
+        proj_y: list[float] = []
+        for px, py in zip(xs, ys):
+            tx, ty, _ = transform.TransformPoint(float(px), float(py))
+            proj_x.append(tx)
+            proj_y.append(ty)
+        return min(proj_x), min(proj_y), max(proj_x), max(proj_y)
 
     @classmethod
     def from_xarray(
