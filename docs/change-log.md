@@ -1,6 +1,13 @@
 ﻿# Change log
 
 
+## 0.30.0 (2026-06-02)
+
+### Feat
+
+- **netcdf**: add NetCDF.subset for windowed gridded cloud-cube reads (#462)
+- **basemap**: add relief() low-res global relief raster for offline backdrops (#461)
+
 ## 0.29.0 (2026-06-01)
 
 ### Feat
