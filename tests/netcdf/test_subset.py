@@ -200,7 +200,7 @@ class _FakeAttr:
     def __init__(self, value: float) -> None:
         self._value = value
 
-    def ReadAsDoubleArray(self):  # noqa: N802 (GDAL SWIG name)
+    def ReadAsDoubleArray(self):  # noqa: N802  # NOSONAR: mirrors GDAL SWIG API
         return [self._value]
 
 
@@ -211,10 +211,10 @@ class _FakeMDArray:
         self._ndv = ndv
         self._attrs = attrs or {}
 
-    def GetNoDataValueAsDouble(self):  # noqa: N802
+    def GetNoDataValueAsDouble(self):  # noqa: N802  # NOSONAR: mirrors GDAL SWIG API
         return self._ndv
 
-    def GetAttribute(self, name):  # noqa: N802
+    def GetAttribute(self, name):  # noqa: N802  # NOSONAR: mirrors GDAL SWIG API
         if name in self._attrs:
             return _FakeAttr(self._attrs[name])
         raise RuntimeError(f"Attribute {name} does not exist")
@@ -248,7 +248,7 @@ class _FakeCoord:
     def __init__(self, values) -> None:
         self._values = values
 
-    def ReadAsArray(self):  # noqa: N802
+    def ReadAsArray(self):  # noqa: N802  # NOSONAR: mirrors GDAL SWIG API
         return self._values
 
 
@@ -258,7 +258,7 @@ class _FakeGroup:
     def __init__(self, arrays) -> None:
         self._arrays = arrays
 
-    def OpenMDArray(self, name):  # noqa: N802
+    def OpenMDArray(self, name):  # noqa: N802  # NOSONAR: mirrors GDAL SWIG API
         if name not in self._arrays:
             raise RuntimeError(f"Array {name} does not exist")
         return self._arrays[name]

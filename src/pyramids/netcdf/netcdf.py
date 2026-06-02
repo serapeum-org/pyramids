@@ -245,6 +245,25 @@ def _clamp_bound(index: int, size: int) -> int:
     return max(0, min(index, size))
 
 
+def _range_bounds(
+    selector: slice | tuple | list, size: int, dim_name: str
+) -> tuple[int, int]:
+    """Half-open ``(start, stop)`` for a ``slice`` or 2-element ``(start, stop)``.
+
+    Bounds are wrapped (negatives) and clamped into ``[0, size]`` via
+    :func:`_clamp_bound`. Raises when a tuple/list is not length 2.
+    """
+    if isinstance(selector, slice):
+        start = 0 if selector.start is None else _clamp_bound(int(selector.start), size)
+        stop = size if selector.stop is None else _clamp_bound(int(selector.stop), size)
+        return start, stop
+    if len(selector) != 2:
+        raise ValueError(
+            f"range selector for {dim_name!r} must be (start, stop); got {selector!r}."
+        )
+    return _clamp_bound(int(selector[0]), size), _clamp_bound(int(selector[1]), size)
+
+
 def _resolve_index_selector(
     selector: Any, size: int, dim_name: str
 ) -> tuple[int, int]:
@@ -312,33 +331,23 @@ def _resolve_index_selector(
             f"dimension {dim_name!r} has length {size} and must be selected "
             f"(e.g. {dim_name}=0)."
         )
-    if isinstance(selector, slice):
-        start = 0 if selector.start is None else _clamp_bound(int(selector.start), size)
-        stop = size if selector.stop is None else _clamp_bound(int(selector.stop), size)
-    elif isinstance(selector, (tuple, list)):
-        if len(selector) != 2:
+    if isinstance(selector, (slice, tuple, list)):
+        start, stop = _range_bounds(selector, size, dim_name)
+        if stop <= start:
             raise ValueError(
-                f"range selector for {dim_name!r} must be (start, stop); got "
-                f"{selector!r}."
+                f"selector {selector!r} resolves to an empty index range "
+                f"(start={start}, stop={stop}) for dimension {dim_name!r}."
             )
-        start = _clamp_bound(int(selector[0]), size)
-        stop = _clamp_bound(int(selector[1]), size)
-    else:
-        index = int(selector)
-        if index < 0:
-            index += size
-        if not 0 <= index < size:
-            raise ValueError(
-                f"index {selector!r} is out of range for dimension {dim_name!r} "
-                f"of length {size}."
-            )
-        return index, index + 1
-    if stop <= start:
+        return start, stop
+    index = int(selector)
+    if index < 0:
+        index += size
+    if not 0 <= index < size:
         raise ValueError(
-            f"selector {selector!r} resolves to an empty index range "
-            f"(start={start}, stop={stop}) for dimension {dim_name!r}."
+            f"index {selector!r} is out of range for dimension {dim_name!r} "
+            f"of length {size}."
         )
-    return start, stop
+    return index, index + 1
 
 
 class NetCDF(Dataset):
@@ -4591,59 +4600,17 @@ class NetCDF(Dataset):
                 f"unknown dimension selector(s) {sorted(unknown)}; selectable "
                 f"non-spatial dimensions are {sorted(selectable)}."
             )
-        slices: list[slice] = []
-        ranged_axes: list[tuple[str, range]] = []
-        for axis, (name, size) in enumerate(zip(dim_names, dim_sizes)):
-            if axis == x_axis:
-                slices.append(slice(x_start, x_stop))
-            elif axis == y_axis:
-                slices.append(slice(y_start, y_stop))
-            else:
-                if name in dims:
-                    selector = dims[name]
-                elif axis == time_axis:
-                    selector = time
-                else:
-                    selector = None
-                start, stop = _resolve_index_selector(selector, size, name)
-                slices.append(slice(start, stop))
-                if stop - start > 1:
-                    ranged_axes.append((name, range(start, stop)))
-        # One band per combination of the ranged non-spatial axes, in the same
-        # C-order the (..., y, x) read is flattened to bands (last ranged axis
-        # varies fastest). Axes pinned to a single index add no label component.
-        band_labels = (
-            [
-                ",".join(f"{nm}={i}" for (nm, _), i in zip(ranged_axes, combo))
-                for combo in itertools.product(*(idxs for _, idxs in ranged_axes))
-            ]
-            if ranged_axes
-            else []
+        slices, ranged_axes = self._plan_band_slices(
+            dim_names, dim_sizes, x_axis, y_axis, time_axis,
+            (x_start, x_stop), (y_start, y_stop), time, dims,
         )
-
         arr = np.asarray(md_arr[tuple(slices)].ReadAsArray())
-        n_y, n_x = arr.shape[-2], arr.shape[-1]
         # Collapse every selected non-spatial axis onto the band axis.
-        arr = arr.reshape(-1, n_y, n_x)
-
-        # Normalise to a north-up, west-to-east raster so the geotransform is the
-        # standard (x0, +dx, 0, y0, 0, -dy) form regardless of stored axis order.
-        x_vals = x_coords[x_start:x_stop]
-        y_vals = y_coords[y_start:y_stop]
-        if x_vals.size > 1 and x_vals[0] > x_vals[-1]:
-            arr = arr[:, :, ::-1]
-            x_vals = x_vals[::-1]
-        if y_vals.size > 1 and y_vals[0] < y_vals[-1]:
-            arr = arr[:, ::-1, :]
-            y_vals = y_vals[::-1]
-        # Cell size from the full coordinate spacing so a 1-cell-wide window still
-        # carries the store's true resolution (the windowed slice may be size 1).
-        d_x = abs(x_coords[1] - x_coords[0]) if x_coords.size > 1 else 1.0
-        d_y = abs(y_coords[1] - y_coords[0]) if y_coords.size > 1 else d_x
-        geo = (
-            float(x_vals[0] - d_x / 2.0), float(d_x), 0.0,
-            float(y_vals[0] + d_y / 2.0), 0.0, -float(d_y),
+        arr = arr.reshape(-1, arr.shape[-2], arr.shape[-1])
+        arr, geo = self._north_up_geobox(
+            arr, x_coords, y_coords, (x_start, x_stop), (y_start, y_stop)
         )
+        band_labels = self._band_labels(ranged_axes)
 
         no_data = self._md_array_no_data(md_arr)
         band_first = arr[0] if arr.shape[0] == 1 else arr
@@ -4660,6 +4627,83 @@ class NetCDF(Dataset):
         if band_labels and len(band_labels) == ds.band_count:
             ds.band_names = band_labels
         return ds
+
+    @staticmethod
+    def _plan_band_slices(
+        dim_names: list[str],
+        dim_sizes: list[int],
+        x_axis: int,
+        y_axis: int,
+        time_axis: int | None,
+        x_window: tuple[int, int],
+        y_window: tuple[int, int],
+        time: Any,
+        dims: dict[str, Any],
+    ) -> tuple[list[slice], list[tuple[str, range]]]:
+        """Per-dimension read slices + the ranged non-spatial axes (the band axes).
+
+        Spatial axes take the bbox windows; every other axis is pinned to one
+        index (or a range) via :func:`_resolve_index_selector`. A name in ``dims``
+        wins for its axis; otherwise the time axis uses ``time``.
+        """
+        slices: list[slice] = []
+        ranged_axes: list[tuple[str, range]] = []
+        for axis, (name, size) in enumerate(zip(dim_names, dim_sizes)):
+            if axis == x_axis:
+                slices.append(slice(*x_window))
+            elif axis == y_axis:
+                slices.append(slice(*y_window))
+            else:
+                if name in dims:
+                    selector = dims[name]
+                elif axis == time_axis:
+                    selector = time
+                else:
+                    selector = None
+                start, stop = _resolve_index_selector(selector, size, name)
+                slices.append(slice(start, stop))
+                if stop - start > 1:
+                    ranged_axes.append((name, range(start, stop)))
+        return slices, ranged_axes
+
+    @staticmethod
+    def _band_labels(ranged_axes: list[tuple[str, range]]) -> list[str]:
+        """Cartesian-product band labels for the ranged axes (C-order, last fastest)."""
+        if not ranged_axes:
+            return []
+        return [
+            ",".join(f"{nm}={i}" for (nm, _), i in zip(ranged_axes, combo))
+            for combo in itertools.product(*(idxs for _, idxs in ranged_axes))
+        ]
+
+    @staticmethod
+    def _north_up_geobox(
+        arr: np.ndarray,
+        x_coords: np.ndarray,
+        y_coords: np.ndarray,
+        x_window: tuple[int, int],
+        y_window: tuple[int, int],
+    ) -> tuple[np.ndarray, tuple[float, float, float, float, float, float]]:
+        """Flip ``arr`` to north-up / west-to-east; return ``(arr, geotransform)``.
+
+        Cell size comes from the full coordinate spacing so a 1-cell-wide window
+        still carries the store's true resolution.
+        """
+        x_vals = x_coords[x_window[0]:x_window[1]]
+        y_vals = y_coords[y_window[0]:y_window[1]]
+        if x_vals.size > 1 and x_vals[0] > x_vals[-1]:
+            arr = arr[:, :, ::-1]
+            x_vals = x_vals[::-1]
+        if y_vals.size > 1 and y_vals[0] < y_vals[-1]:
+            arr = arr[:, ::-1, :]
+            y_vals = y_vals[::-1]
+        d_x = abs(x_coords[1] - x_coords[0]) if x_coords.size > 1 else 1.0
+        d_y = abs(y_coords[1] - y_coords[0]) if y_coords.size > 1 else d_x
+        geo = (
+            float(x_vals[0] - d_x / 2.0), float(d_x), 0.0,
+            float(y_vals[0] + d_y / 2.0), 0.0, -float(d_y),
+        )
+        return arr, geo
 
     @staticmethod
     def _read_axis_coords(rg: Any, name: str, axis_label: str) -> np.ndarray:
