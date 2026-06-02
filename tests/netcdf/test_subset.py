@@ -11,6 +11,8 @@ retrospective store exercises the full remote path end to end.
 
 from __future__ import annotations
 
+from unittest.mock import Mock
+
 import numpy as np
 import pytest
 from osgeo import osr
@@ -194,92 +196,86 @@ class TestReprojectBboxEnvelope:
         assert out == pytest.approx(bbox)
 
 
-class _FakeAttr:
-    """Minimal stand-in for a GDAL attribute exposing ``ReadAsDoubleArray``."""
+def _fake_md_array(ndv=None, attrs=None):
+    """A Mock GDAL MDArray: ``GetNoDataValueAsDouble()`` + ``GetAttribute(name)``.
 
-    def __init__(self, value: float) -> None:
-        self._value = value
+    Returns a :class:`unittest.mock.Mock` so the GDAL PascalCase API surface is
+    faked without defining non-snake-case methods. ``attrs`` maps attribute name
+    to its scalar value; an absent attribute raises ``RuntimeError`` like GDAL.
+    """
+    attrs = attrs or {}
 
-    def ReadAsDoubleArray(self):  # noqa: N802  # NOSONAR: mirrors GDAL SWIG API
-        return [self._value]
+    def get_attribute(name):
+        if name not in attrs:
+            raise RuntimeError(f"Attribute {name} does not exist")
+        attr = Mock()
+        attr.ReadAsDoubleArray.return_value = [attrs[name]]
+        return attr
+
+    md = Mock()
+    md.GetNoDataValueAsDouble.return_value = ndv
+    md.GetAttribute.side_effect = get_attribute
+    return md
 
 
-class _FakeMDArray:
-    """Minimal MDArray for ``_md_array_no_data`` — driver value + CF attrs."""
+def _fake_group(arrays):
+    """A Mock GDAL root group whose ``OpenMDArray(name)`` returns a coord stub.
 
-    def __init__(self, ndv=None, attrs=None) -> None:
-        self._ndv = ndv
-        self._attrs = attrs or {}
+    ``arrays`` maps a coordinate name to the array its ``ReadAsArray()`` yields
+    (use ``None`` to simulate a dimension with no readable coordinate); a name
+    absent from the mapping raises ``RuntimeError`` like GDAL.
+    """
 
-    def GetNoDataValueAsDouble(self):  # noqa: N802  # NOSONAR: mirrors GDAL SWIG API
-        return self._ndv
+    def open_mdarray(name):
+        if name not in arrays:
+            raise RuntimeError(f"Array {name} does not exist")
+        coord = Mock()
+        coord.ReadAsArray.return_value = arrays[name]
+        return coord
 
-    def GetAttribute(self, name):  # noqa: N802  # NOSONAR: mirrors GDAL SWIG API
-        if name in self._attrs:
-            return _FakeAttr(self._attrs[name])
-        raise RuntimeError(f"Attribute {name} does not exist")
+    rg = Mock()
+    rg.OpenMDArray.side_effect = open_mdarray
+    return rg
 
 
 class TestMdArrayNoData:
     """``_md_array_no_data`` prefers the driver value, then CF attrs, else None."""
 
     def test_driver_value_wins(self):
-        assert NetCDF._md_array_no_data(_FakeMDArray(ndv=-1.0)) == pytest.approx(-1.0)
+        assert NetCDF._md_array_no_data(_fake_md_array(ndv=-1.0)) == pytest.approx(-1.0)
 
     def test_missing_value_fallback(self):
-        md = _FakeMDArray(ndv=None, attrs={"missing_value": -999900.0})
+        md = _fake_md_array(ndv=None, attrs={"missing_value": -999900.0})
         assert NetCDF._md_array_no_data(md) == pytest.approx(-999900.0)
 
     def test_fill_value_fallback(self):
-        md = _FakeMDArray(ndv=None, attrs={"_FillValue": -9999.0})
+        md = _fake_md_array(ndv=None, attrs={"_FillValue": -9999.0})
         assert NetCDF._md_array_no_data(md) == pytest.approx(-9999.0)
 
     def test_missing_value_preferred_over_fill_value(self):
-        md = _FakeMDArray(ndv=None, attrs={"missing_value": 1.0, "_FillValue": 2.0})
+        md = _fake_md_array(ndv=None, attrs={"missing_value": 1.0, "_FillValue": 2.0})
         assert NetCDF._md_array_no_data(md) == pytest.approx(1.0)
 
     def test_none_when_no_value_or_attrs(self):
-        assert NetCDF._md_array_no_data(_FakeMDArray()) is None
-
-
-class _FakeCoord:
-    """Coordinate MDArray stub returning a fixed array (or ``None``)."""
-
-    def __init__(self, values) -> None:
-        self._values = values
-
-    def ReadAsArray(self):  # noqa: N802  # NOSONAR: mirrors GDAL SWIG API
-        return self._values
-
-
-class _FakeGroup:
-    """Root-group stub: returns a coord, returns ``None``, or raises like GDAL."""
-
-    def __init__(self, arrays) -> None:
-        self._arrays = arrays
-
-    def OpenMDArray(self, name):  # noqa: N802  # NOSONAR: mirrors GDAL SWIG API
-        if name not in self._arrays:
-            raise RuntimeError(f"Array {name} does not exist")
-        return self._arrays[name]
+        assert NetCDF._md_array_no_data(_fake_md_array()) is None
 
 
 class TestReadAxisCoords:
     """``_read_axis_coords`` returns float64 values or a clear error."""
 
     def test_success_returns_float64(self):
-        rg = _FakeGroup({"x": _FakeCoord(np.array([0, 1, 2]))})
+        rg = _fake_group({"x": np.array([0, 1, 2])})
         out = NetCDF._read_axis_coords(rg, "x", "x")
         assert out.dtype == np.float64
         assert list(out) == [0.0, 1.0, 2.0]
 
     def test_missing_array_raises_clear_error(self):
-        rg = _FakeGroup({})
+        rg = _fake_group({})
         with pytest.raises(ValueError, match="no 1-D coordinate variable"):
             NetCDF._read_axis_coords(rg, "y", "y")
 
     def test_none_values_raises_clear_error(self):
-        rg = _FakeGroup({"y": _FakeCoord(None)})
+        rg = _fake_group({"y": None})
         with pytest.raises(ValueError, match="no 1-D coordinate variable"):
             NetCDF._read_axis_coords(rg, "y", "y")
 
