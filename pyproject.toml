@@ -359,10 +359,15 @@ libstdcxx-ng = "*"
 
 
 [tool.pixi.dependencies]
-gdal = ">=3.10.0,<4"
-libgdal-netcdf = ">=3.10.0,<4"
-libgdal-hdf4 = ">=3.10.0,<4"
-libgdal-grib = ">=3.10.0,<4"
+# Upper bound matches [tool.pixi.feature.wheel-build.dependencies] so the dev /
+# CI conda envs can never resolve a gdal newer than the one vendored into the
+# published wheels (the SWIG bindings are ABI-locked to libgdal). Keep the floor
+# a range for broad solvability across the py311-py314 matrix; raise this ceiling
+# and the wheel-build pin together, in one deliberate PR, when moving gdal minor.
+gdal = ">=3.10.0,<3.13"
+libgdal-netcdf = ">=3.10.0,<3.13"
+libgdal-hdf4 = ">=3.10.0,<3.13"
+libgdal-grib = ">=3.10.0,<3.13"
 # cftime decodes non-standard NetCDF calendars (360_day, noleap, julian, ...)
 # in pyramids.netcdf.utils — reachable from core NetCDF reads, so it is a core dep.
 cftime = ">=1.6.4"
