@@ -83,25 +83,44 @@ def activate_vendored_osgeo(pkg_dir: Path) -> bool:
     proj_data = data_dir / "proj_data"
     gdal_plugins = data_dir / "gdalplugins"
     ca_bundle = data_dir / "ssl" / "cacert.pem"
-    # setdefault is intentional: user-set GDAL_DATA / PROJ_DATA /
-    # PROJ_LIB / GDAL_DRIVER_PATH always win over the wheel's bundled
-    # data dirs. This lets advanced users override (e.g. point PROJ at
-    # a custom grid bundle) without having to unset our values first.
-    # Side effect: changing these env vars after import has no effect
-    # — the bootstrap reads them once at first `import pyramids`.
+    # setdefault for the DATA dirs is intentional: a user-set GDAL_DATA /
+    # PROJ_DATA / PROJ_LIB wins over the wheel's bundled data dirs. These
+    # are version-tolerant resource files, and overriding them is a
+    # legitimate advanced use case (e.g. pointing PROJ at a custom grid
+    # bundle). Side effect: changing these env vars after import has no
+    # effect — the bootstrap reads them once at first `import pyramids`.
     if gdal_data.is_dir():
         os.environ.setdefault("GDAL_DATA", str(gdal_data))
     if proj_data.is_dir():
         os.environ.setdefault("PROJ_DATA", str(proj_data))
         os.environ.setdefault("PROJ_LIB", str(proj_data))
     if gdal_plugins.is_dir():
-        # GDAL loads NetCDF / HDF4 / HDF5 drivers from this dir on
-        # Windows. The directory is populated by
-        # install-and-vendor-osgeo only on Windows builds —
-        # conda-forge's libgdal on Linux/macOS links those drivers in
-        # statically, so the dir is absent there and the is_dir()
-        # guard makes the bootstrap cross-platform.
-        os.environ.setdefault("GDAL_DRIVER_PATH", str(gdal_plugins))
+        # GDAL_DRIVER_PATH is handled DIFFERENTLY from the data dirs above:
+        # it points at compiled driver plugins (gdal_netCDF.so,
+        # gdal_HDF5.so, gdal_GRIB.so, ...) that are ABI-locked to the exact
+        # bundled libgdal build, so it is FORCED to the bundled dir rather
+        # than setdefault'd. conda-forge now ships these drivers as plugins
+        # on every platform (not statically linked), and we vendor them
+        # into `_data/gdalplugins/`.
+        #
+        # The failure this prevents (issue #465): when the wheel is
+        # imported inside an activated conda env, conda's activate.d already
+        # exports GDAL_DRIVER_PATH pointing at conda's own gdalplugins,
+        # built for a DIFFERENT libgdal version. With setdefault that
+        # inherited value would win, so the bundled libgdal would try to
+        # load conda's mismatched plugins; GDAL refuses to register them
+        # ("Function GDALRegister_netCDF of .../gdal_netCDF.so did not
+        # register a driver netCDF") and every NetCDF/HDF5 read then fails
+        # with "not recognized as being in a supported file format".
+        #
+        # A foreign GDAL_DRIVER_PATH is never safe for the bundled libgdal,
+        # so we override it. Power users who really want the bundled GDAL to
+        # load plugins from an external dir can set PYRAMIDS_KEEP_GDAL_ENV=1
+        # to restore the old "inherited GDAL_DRIVER_PATH wins" behaviour.
+        if os.environ.get("PYRAMIDS_KEEP_GDAL_ENV") == "1":
+            os.environ.setdefault("GDAL_DRIVER_PATH", str(gdal_plugins))
+        else:
+            os.environ["GDAL_DRIVER_PATH"] = str(gdal_plugins)
     if ca_bundle.is_file():
         # The bundled libcurl bakes its CA path to the wheel-build
         # prefix (`.pixi/envs/wheel-build/ssl/cacert.pem`), which is
