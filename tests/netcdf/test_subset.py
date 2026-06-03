@@ -280,7 +280,9 @@ class TestAxisRole:
             ({"standard_name": "grid_latitude"}, "Y"),
             ({"standard_name": "grid_longitude"}, "X"),
             ({"units": "degrees_north"}, "Y"),
+            ({"units": "degree_n"}, "Y"),
             ({"units": "degrees_east"}, "X"),
+            ({"units": "degree_e"}, "X"),
             ({"units": "metre"}, None),
             ({"long_name": "something"}, None),
         ],
@@ -322,6 +324,29 @@ class TestAxisRole:
         rg = Mock()
         rg.OpenMDArray.side_effect = lambda name: coord
         assert NetCDF._axis_role(rg, "y") == "Y", "unreadable attr should be skipped"
+
+
+class TestAssertFullRank:
+    """``_assert_full_rank`` guards that a windowed read kept one axis per dim."""
+
+    def test_matching_rank_is_accepted(self):
+        """An array with one axis per dimension passes (returns ``None``).
+
+        Test scenario:
+            A (1, 4, 5) read for a 3-D variable -> no error.
+        """
+        assert NetCDF._assert_full_rank(np.zeros((1, 4, 5)), 3, "soil") is None
+
+    def test_squeezed_read_raises(self):
+        """A read missing an axis raises a clear ``RuntimeError``.
+
+        Test scenario:
+            A (4, 5) read for a 3-D variable -> RuntimeError naming the variable
+            and the expected axis count.
+        """
+        with pytest.raises(RuntimeError, match="returned 2 axes, expected 3") as exc:
+            NetCDF._assert_full_rank(np.zeros((4, 5)), 3, "soil")
+        assert "soil" in str(exc.value), f"variable name missing: {exc.value}"
 
 
 class TestCfSpatialAxes:

@@ -4689,11 +4689,7 @@ class NetCDF(Dataset):
         arr = np.asarray(md_arr[tuple(slices)].ReadAsArray())
         # The read must keep one axis per dimension (incl. size-1 pinned ones) for
         # the y/x axis indices to stay valid; fail loudly if a future GDAL squeezes.
-        if arr.ndim != len(dim_names):
-            raise RuntimeError(
-                f"windowed read of {variable!r} returned {arr.ndim} axes, expected "
-                f"{len(dim_names)} (one per dimension); cannot locate the spatial axes."
-            )
+        self._assert_full_rank(arr, len(dim_names), variable)
         # Move the spatial axes to the trailing (y, x) positions — they may be
         # interleaved in storage (e.g. (time, y, soil_layers, x)) — then collapse
         # every remaining (non-spatial) axis onto the band axis, in dim order.
@@ -4798,6 +4794,45 @@ class NetCDF(Dataset):
         return arr, geo
 
     @staticmethod
+    def _assert_full_rank(arr: np.ndarray, n_dims: int, variable: str) -> None:
+        """Assert a windowed read kept one axis per dimension (incl. size-1 ones).
+
+        ``subset`` locates the spatial axes by their dimension index, so the array
+        returned by the windowed read must have exactly ``n_dims`` axes; a future
+        GDAL that squeezed singleton axes would invalidate those indices.
+
+        Args:
+            arr: The array returned by the windowed MDArray read.
+            n_dims: The variable's dimension count.
+            variable: Variable name, for the error message.
+
+        Raises:
+            RuntimeError: when ``arr.ndim != n_dims``.
+
+        Examples:
+            - A matching rank is accepted (returns ``None``)::
+
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> NetCDF._assert_full_rank(np.zeros((1, 4, 5)), 3, "soil") is None
+                True
+
+            - A squeezed read is rejected::
+
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> NetCDF._assert_full_rank(np.zeros((4, 5)), 3, "soil")
+                Traceback (most recent call last):
+                    ...
+                RuntimeError: windowed read of 'soil' returned 2 axes, expected 3; cannot locate the spatial axes.
+        """
+        if arr.ndim != n_dims:
+            raise RuntimeError(
+                f"windowed read of {variable!r} returned {arr.ndim} axes, expected "
+                f"{n_dims}; cannot locate the spatial axes."
+            )
+
+    @staticmethod
     def _axis_role(rg: Any, name: str) -> str | None:
         """CF spatial role of a coordinate variable: ``"Y"``, ``"X"``, or ``None``.
 
@@ -4838,11 +4873,11 @@ class NetCDF(Dataset):
         standard = attrs.get("standard_name", "")
         units = attrs.get("units", "")
         if standard in ("latitude", "projection_y_coordinate", "grid_latitude") or (
-            units in ("degrees_north", "degree_north", "degrees_n")
+            units in ("degrees_north", "degree_north", "degrees_n", "degree_n")
         ):
             return "Y"
         if standard in ("longitude", "projection_x_coordinate", "grid_longitude") or (
-            units in ("degrees_east", "degree_east", "degrees_e")
+            units in ("degrees_east", "degree_east", "degrees_e", "degree_e")
         ):
             return "X"
         return None
