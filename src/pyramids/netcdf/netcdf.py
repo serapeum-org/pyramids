@@ -153,6 +153,17 @@ _REDUCERS: dict[str, tuple[Any, Any]] = {
 # ``grid_mapping_name="geostationary"`` grid-mapping).
 GEOSTATIONARY_PROJECTION = "Geostationary_Satellite"
 
+# Well-known dimension names for the spatial axes, used by
+# ``NetCDF._detect_spatial_axes`` as a fallback when the coordinate variables
+# carry no CF axis / standard_name / units attributes (e.g. NWM names them
+# plainly ``x`` / ``y``). Compared case-insensitively.
+_Y_DIM_NAMES = frozenset(
+    {"y", "lat", "latitude", "rlat", "south_north", "northing", "grid_latitude"}
+)
+_X_DIM_NAMES = frozenset(
+    {"x", "lon", "longitude", "rlon", "west_east", "easting", "grid_longitude"}
+)
+
 
 def _contiguous_range(
     coords: np.ndarray,
@@ -2755,6 +2766,63 @@ class NetCDF(Dataset):
                     time_stamp = list(map(func, time_vals.reshape(-1)))
         return time_stamp
 
+    @property
+    def dimension_sizes(self) -> dict[str, int]:
+        """Logical size of every dimension, in storage order, as ``{name: size}``.
+
+        Reads the true dimension lengths from the multidimensional root group
+        (e.g. ``{"time": 128568, "y": 3840, "x": 4608}``). Prefer this over
+        :attr:`shape` on a chunked cloud store: ``shape`` reflects the classic
+        single-raster view (band count + a chunk-sized window), so a remote Zarr
+        whose CF time axis GDAL can't parse reports ``(0, chunk_y, chunk_x)``
+        rather than the logical grid. Empty for a variable subset (no root group).
+
+        Returns:
+            dict[str, int]: Mapping of dimension name to its length; ``{}`` when
+            the cube is a variable subset rather than a root MDIM container.
+
+        Examples:
+            - True grid sizes of a NWM retrospective cube (needs the bucket)::
+
+                >>> nc.dimension_sizes  # doctest: +SKIP
+                {'soil_layers_stag': 4, 'time': 128568, 'vis_nir': 2, 'x': 4608, 'y': 3840}
+        """
+        rg = self._raster.GetRootGroup() if self._raster is not None else None
+        if rg is None:
+            return {}
+        return {dim.GetName(): int(dim.GetSize()) for dim in rg.GetDimensions()}
+
+    def get_time_values(self, var_name: str = "time") -> np.ndarray | None:
+        """Raw (undecoded) values of the time coordinate, or ``None`` if absent.
+
+        Use this when :meth:`get_time_variable` returns ``None`` because the
+        store's CF ``units`` are not parseable — some cloud Zarr stores do not
+        surface ``units`` through GDAL, so dates can't be decoded. The raw
+        offsets, together with the dimension's ``calendar`` / ``units`` attributes
+        (``meta_data.get_dimension(var_name).attrs``) and :attr:`dimension_sizes`,
+        let a caller map a date window to integer indices for :meth:`subset` and
+        detect out-of-range — instead of hard-coding an unverifiable schedule.
+
+        Args:
+            var_name: Name of the time coordinate / dimension. Defaults to
+                ``"time"``.
+
+        Returns:
+            numpy.ndarray or None: The raw coordinate values, or ``None`` when
+            the store has no such dimension.
+
+        Examples:
+            - Raw 3-hourly offsets of the NWM retrospective cube (needs the
+              bucket)::
+
+                >>> nc.get_time_values("time")[:3]  # doctest: +SKIP
+                array([0, 3, 6])
+        """
+        names = self.dimension_names
+        if names is None or var_name not in names:
+            return None
+        return self._read_variable(var_name)
+
     def _get_dimension_names(self) -> list[str] | None:
         """Return all dimension names, in storage order.
 
@@ -4475,6 +4543,8 @@ class NetCDF(Dataset):
         bbox: tuple[float, float, float, float] | list[float] | None = None,
         crs: int | str = 4326,
         densify: int = 25,
+        y_dim: str | None = None,
+        x_dim: str | None = None,
         **dims: int | tuple[int, int] | slice,
     ) -> Dataset:
         """Read a windowed ``(variable, time, bbox)`` slice of a gridded cube.
@@ -4511,10 +4581,19 @@ class NetCDF(Dataset):
             densify: Points per bbox edge used when reprojecting the box onto a
                 projected grid, so the envelope encloses the curved boundary
                 (conservative over-cover). Defaults to ``25``.
+            y_dim: Name of the ``y`` (row) dimension. Defaults to ``None`` —
+                auto-detected from CF axis / ``standard_name`` / ``units``
+                attributes, then well-known names (``y``/``lat``/…), then the
+                trailing two dims. Pass it (with ``x_dim``) to override when the
+                spatial axes can't be inferred.
+            x_dim: Name of the ``x`` (column) dimension. ``None`` auto-detects as
+                for ``y_dim``. Pass both ``y_dim`` and ``x_dim`` together.
             **dims: Index selector for any extra non-spatial dimension (e.g.
                 ``vis_nir=0``, ``soil_layers_stag=2``). Required for every such
-                dimension whose length is > 1. A key that is not a selectable
-                non-spatial dimension of the variable is an error.
+                dimension whose length is > 1, **including a layer dim
+                interleaved between ``y`` and ``x``** (e.g. NWM ``SOIL_M`` is
+                ``(time, y, soil_layers_stag, x)`` — pass ``soil_layers_stag=0``).
+                A key that is not a selectable non-spatial dimension is an error.
 
         Returns:
             Dataset: A georeferenced raster on the store's native CRS — one band
@@ -4569,8 +4648,11 @@ class NetCDF(Dataset):
             )
         dim_names = [d.GetName() for d in dim_objs]
         dim_sizes = [int(d.GetSize()) for d in dim_objs]
-        # GDAL exposes a gridded MDArray with the spatial axes last: (..., y, x).
-        y_axis, x_axis = len(dim_objs) - 2, len(dim_objs) - 1
+        # Locate the spatial axes by CF attributes / well-known names (falling
+        # back to the trailing two dims), so a variable whose layer dim is
+        # interleaved between y and x — e.g. NWM SOIL_M (time, y, soil_layers, x)
+        # — is windowed correctly rather than mistaking the layer dim for y.
+        y_axis, x_axis = self._detect_spatial_axes(rg, dim_names, y_dim, x_dim)
         x_coords = self._read_axis_coords(rg, dim_names[x_axis], "x")
         y_coords = self._read_axis_coords(rg, dim_names[y_axis], "y")
 
@@ -4605,7 +4687,10 @@ class NetCDF(Dataset):
             (x_start, x_stop), (y_start, y_stop), time, dims,
         )
         arr = np.asarray(md_arr[tuple(slices)].ReadAsArray())
-        # Collapse every selected non-spatial axis onto the band axis.
+        # Move the spatial axes to the trailing (y, x) positions — they may be
+        # interleaved in storage (e.g. (time, y, soil_layers, x)) — then collapse
+        # every remaining (non-spatial) axis onto the band axis, in dim order.
+        arr = np.moveaxis(arr, (y_axis, x_axis), (-2, -1))
         arr = arr.reshape(-1, arr.shape[-2], arr.shape[-1])
         arr, geo = self._north_up_geobox(
             arr, x_coords, y_coords, (x_start, x_stop), (y_start, y_stop)
@@ -4704,6 +4789,87 @@ class NetCDF(Dataset):
             float(y_vals[0] + d_y / 2.0), 0.0, -float(d_y),
         )
         return arr, geo
+
+    @staticmethod
+    def _axis_role(rg: Any, name: str) -> str | None:
+        """CF spatial role of a coordinate variable: ``"Y"``, ``"X"``, or ``None``.
+
+        Inspects the coordinate array's ``axis`` / ``standard_name`` / ``units``
+        attributes. Returns ``None`` when the dimension has no coordinate array
+        or no recognisable spatial attribute.
+        """
+        try:
+            coord = rg.OpenMDArray(name)
+        except RuntimeError:
+            coord = None
+        if coord is None:
+            return None
+        attrs: dict[str, str] = {}
+        for attr in coord.GetAttributes():
+            try:
+                attrs[attr.GetName().lower()] = attr.ReadAsString().lower()
+            except (RuntimeError, AttributeError):
+                continue
+        axis = attrs.get("axis")
+        if axis in ("y", "x"):
+            return axis.upper()
+        standard = attrs.get("standard_name", "")
+        units = attrs.get("units", "")
+        if standard in ("latitude", "projection_y_coordinate", "grid_latitude") or (
+            units in ("degrees_north", "degree_north", "degrees_n")
+        ):
+            return "Y"
+        if standard in ("longitude", "projection_x_coordinate", "grid_longitude") or (
+            units in ("degrees_east", "degree_east", "degrees_e")
+        ):
+            return "X"
+        return None
+
+    @staticmethod
+    def _detect_spatial_axes(
+        rg: Any,
+        dim_names: list[str],
+        y_dim: str | None,
+        x_dim: str | None,
+    ) -> tuple[int, int]:
+        """Resolve the ``(y_axis, x_axis)`` indices of a gridded variable.
+
+        Resolution order: an explicit ``y_dim`` / ``x_dim`` override → CF axis /
+        ``standard_name`` / ``units`` attributes on the coordinate variables →
+        well-known dimension names (``y``/``lat``/…, ``x``/``lon``/…) → the two
+        trailing dimensions (the common ``(…, y, x)`` layout).
+
+        Raises:
+            ValueError: if only one of ``y_dim`` / ``x_dim`` is given, or a named
+                override is not a dimension of the variable.
+        """
+        if (y_dim is None) != (x_dim is None):
+            raise ValueError("pass both y_dim and x_dim, or neither.")
+        if y_dim is not None:
+            for value, label in ((y_dim, "y_dim"), (x_dim, "x_dim")):
+                if value not in dim_names:
+                    raise ValueError(
+                        f"{label}={value!r} is not a dimension of this variable; "
+                        f"available: {dim_names}"
+                    )
+            return dim_names.index(y_dim), dim_names.index(x_dim)
+        y_idx = x_idx = None
+        if rg is not None:
+            for axis, name in enumerate(dim_names):
+                role = NetCDF._axis_role(rg, name)
+                if role == "Y" and y_idx is None:
+                    y_idx = axis
+                elif role == "X" and x_idx is None:
+                    x_idx = axis
+        if y_idx is None or x_idx is None:
+            lowered = [n.lower() for n in dim_names]
+            y_named = next((i for i, n in enumerate(lowered) if n in _Y_DIM_NAMES), None)
+            x_named = next((i for i, n in enumerate(lowered) if n in _X_DIM_NAMES), None)
+            if y_named is not None and x_named is not None:
+                y_idx, x_idx = y_named, x_named
+        if y_idx is None or x_idx is None:
+            return len(dim_names) - 2, len(dim_names) - 1
+        return y_idx, x_idx
 
     @staticmethod
     def _read_axis_coords(rg: Any, name: str, axis_label: str) -> np.ndarray:

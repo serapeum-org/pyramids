@@ -286,6 +286,7 @@ def _synthetic_cube(
     with_coords=True,
     with_extra=False,
     with_no_time=False,
+    with_interleaved=False,
     x_descending=False,
     step=1.0,
 ):
@@ -294,21 +295,27 @@ def _synthetic_cube(
     The ``y`` axis ascends (south->north) so the north-up normalisation in
     ``subset`` is exercised. ``temp`` holds ``np.arange`` values so band
     orientation can be verified exactly; with ``with_extra`` a 4-D ``flux`` adds
-    a non-spatial ``level`` axis for ``**dims`` coverage; with ``with_no_time`` a
-    3-D ``ens(member, y, x)`` adds a non-time leading axis. ``with_coords=False``
+    a non-spatial ``level`` axis (``time, level, y, x``) for ``**dims`` coverage;
+    with ``with_interleaved`` a 4-D ``soil`` puts the layer dim BETWEEN the
+    spatial axes (``time, y, level, x``); with ``with_no_time`` a 3-D
+    ``ens(member, y, x)`` adds a non-time leading axis. ``with_coords=False``
     drops the ``y`` / ``x`` coordinate variables (the missing-coordinate case).
     ``step`` scales the ``x`` / ``y`` cell spacing (to test cell-size handling).
     """
     xr = pytest.importorskip("xarray")
-    n_t, n_y, n_x = 3, 4, 5
+    n_t, n_y, n_x, n_lev = 3, 4, 5, 2
     temp = np.arange(n_t * n_y * n_x, dtype="float64").reshape(n_t, n_y, n_x)
     data_vars = {"temp": (("time", "y", "x"), temp)}
     if with_extra:
-        n_lev = 2
         flux = np.arange(n_t * n_lev * n_y * n_x, dtype="float64").reshape(
             n_t, n_lev, n_y, n_x
         )
         data_vars["flux"] = (("time", "level", "y", "x"), flux)
+    if with_interleaved:
+        soil = np.arange(n_t * n_y * n_lev * n_x, dtype="float64").reshape(
+            n_t, n_y, n_lev, n_x
+        )
+        data_vars["soil"] = (("time", "y", "level", "x"), soil)
     if with_no_time:
         n_member = 2
         ens = np.arange(n_member * n_y * n_x, dtype="float64").reshape(
@@ -324,8 +331,8 @@ def _synthetic_cube(
             "y": 10.0 + np.arange(n_y, dtype="float64") * step,  # ascending
             "x": x_vals,
         }
-        if with_extra:
-            coords["level"] = np.arange(2)
+        if with_extra or with_interleaved:
+            coords["level"] = np.arange(n_lev)
         if with_no_time:
             coords["member"] = np.arange(2)
     ds = xr.Dataset(data_vars, coords=coords)
@@ -459,6 +466,78 @@ class TestSubsetOffline:
         assert abs(ds.geotransform[5]) == pytest.approx(1000.0)
 
 
+class TestDimensionSizesAndTimeValues:
+    """G-1: surface true dimension sizes + raw time values (CF-unparseable case)."""
+
+    def test_dimension_sizes_reports_true_lengths(self, tmp_path):
+        nc = _synthetic_cube(tmp_path, with_extra=True)
+        assert nc.dimension_sizes == {"time": 3, "y": 4, "x": 5, "level": 2}
+
+    def test_get_time_values_returns_raw_coordinate(self, tmp_path):
+        # The synthetic store has no CF time units (like the NWM Zarr), so
+        # get_time_variable() is None but the raw coordinate is still readable.
+        nc = _synthetic_cube(tmp_path)
+        assert nc.get_time_variable() is None
+        assert list(nc.get_time_values("time")) == [0, 1, 2]
+
+    def test_get_time_values_missing_dim_returns_none(self, tmp_path):
+        nc = _synthetic_cube(tmp_path)
+        assert nc.get_time_values("nope") is None
+
+
+class TestDetectSpatialAxes:
+    """G-2: locate the spatial axes by override / CF attrs / name / trailing."""
+
+    def test_explicit_override(self):
+        assert NetCDF._detect_spatial_axes(None, ["time", "y", "lev", "x"], "y", "x") == (1, 3)
+
+    def test_only_one_override_raises(self):
+        with pytest.raises(ValueError, match="both y_dim and x_dim"):
+            NetCDF._detect_spatial_axes(None, ["y", "x"], "y", None)
+
+    def test_unknown_override_raises(self):
+        with pytest.raises(ValueError, match="not a dimension"):
+            NetCDF._detect_spatial_axes(None, ["y", "x"], "lat", "lon")
+
+    def test_well_known_names_when_no_attrs(self):
+        # rg=None -> CF-attr detection skipped; fall back to known names. y/x are
+        # interleaved around a layer dim, so this is NOT the trailing-two case.
+        assert NetCDF._detect_spatial_axes(None, ["time", "y", "soil", "x"], None, None) == (1, 3)
+
+    def test_trailing_two_fallback(self):
+        assert NetCDF._detect_spatial_axes(None, ["time", "a", "b"], None, None) == (1, 2)
+
+
+class TestSubsetInterleavedLayer:
+    """G-2: window a variable whose layer dim sits between y and x."""
+
+    def test_interleaved_layer_selected_by_name(self, tmp_path):
+        nc = _synthetic_cube(tmp_path, with_interleaved=True)
+        ds = nc.subset("soil", time=0, level=1)
+        assert (ds.rows, ds.columns) == (4, 5)
+        assert ds.band_count == 1
+
+    def test_interleaved_layer_correct_orientation_and_values(self, tmp_path):
+        # soil is (time, y, level, x); y ascends -> output row 0 is the
+        # northernmost (y index 3). Values are arange over (t, y, level, x).
+        nc = _synthetic_cube(tmp_path, with_interleaved=True)
+        ds = nc.subset("soil", time=0, level=0)
+        n_y, n_x, n_lev = 4, 5, 2
+        full = np.arange(3 * n_y * n_lev * n_x, dtype="float64").reshape(3, n_y, n_lev, n_x)
+        expected_row0 = full[0, 3, 0, :]  # time 0, y index 3 (north), level 0
+        assert list(np.asarray(ds.read_array())[0]) == list(expected_row0)
+
+    def test_interleaved_unselected_layer_raises(self, tmp_path):
+        nc = _synthetic_cube(tmp_path, with_interleaved=True)
+        with pytest.raises(ValueError, match="must be selected"):
+            nc.subset("soil", time=0)
+
+    def test_explicit_y_x_dim_override(self, tmp_path):
+        nc = _synthetic_cube(tmp_path, with_interleaved=True)
+        ds = nc.subset("soil", time=0, level=0, y_dim="y", x_dim="x")
+        assert (ds.rows, ds.columns) == (4, 5)
+
+
 @pytest.mark.slow
 @pytest.mark.vfs
 class TestSubsetLiveNWM:
@@ -497,3 +576,39 @@ class TestSubsetLiveNWM:
             pytest.skip(f"NWM store unreachable: {exc}")
 
         assert ds.band_count == 3
+
+    def test_dimension_sizes_and_time_values(self):
+        # G-1: true dim sizes + raw time coordinate are surfaced even though GDAL
+        # can't parse the CF time units (so get_time_variable() is None).
+        from pyramids.base.remote import CloudConfig
+
+        try:
+            with CloudConfig(aws_no_sign_request=True, aws_region="us-east-1"):
+                nc = NetCDF.read_file(NWM_LDASOUT)
+                sizes = nc.dimension_sizes
+                time_vals = nc.get_time_values("time")
+        except (RuntimeError, OSError) as exc:
+            pytest.skip(f"NWM store unreachable: {exc}")
+
+        assert sizes.get("time") == 128568
+        assert sizes.get("y") == 3840 and sizes.get("x") == 4608
+        assert time_vals is not None and time_vals.size == 128568
+
+    def test_subset_interleaved_layer_variable(self):
+        # G-2: SOIL_M is (time, y, soil_layers_stag, x) — layer between y and x.
+        from pyramids.base.remote import CloudConfig
+
+        try:
+            with CloudConfig(aws_no_sign_request=True, aws_region="us-east-1"):
+                nc = NetCDF.read_file(NWM_LDASOUT)
+                ds = nc.subset(
+                    "SOIL_M", time=0, soil_layers_stag=0,
+                    bbox=(-78.0, 38.0, -75.0, 40.0),
+                )
+        except (RuntimeError, OSError) as exc:
+            pytest.skip(f"NWM store unreachable: {exc}")
+
+        assert ds.rows > 0 and ds.columns > 0
+        assert ds.rows < 3840 and ds.columns < 4608
+        assert ds.band_count == 1
+        assert "Lambert_Conformal_Conic" in (ds.crs or "")
