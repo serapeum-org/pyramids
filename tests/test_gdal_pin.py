@@ -39,12 +39,17 @@ def _env_features(env_spec) -> list:
     return env_spec["features"] if isinstance(env_spec, dict) else env_spec
 
 
-def _load_gdal_spec():
-    """Import ``gdal_spec`` from ``ci/gdal-pin.py`` (a non-importable hyphenated path)."""
+# The packages ci/setup-gdal-micromamba.sh asks ci/gdal-pin.py to resolve — the shared
+# gdal libs plus build-only swig. gdal-pin.py must serve every one of them.
+MICROMAMBA_PACKAGES = ["gdal", "libgdal-netcdf", "libgdal-hdf4", "swig"]
+
+
+def _load_gdal_pin():
+    """Import ``ci/gdal-pin.py`` as a module (its hyphenated path is not importable)."""
     spec = importlib.util.spec_from_file_location("gdal_pin", GDAL_PIN_SCRIPT)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.gdal_spec
+    return module
 
 
 def test_gdal_feature_pins_every_package():
@@ -65,5 +70,11 @@ def test_every_environment_references_gdal_feature(env: str):
 
 def test_gdal_pin_script_matches_pyproject():
     """``ci/gdal-pin.py`` must emit the shared gdal pin CI installs the wheel against."""
-    gdal_spec = _load_gdal_spec()
-    assert gdal_spec(PYPROJECT) == _load_pixi()["feature"]["gdal"]["dependencies"]["gdal"]
+    assert _load_gdal_pin().gdal_spec(PYPROJECT) == _load_pixi()["feature"]["gdal"]["dependencies"]["gdal"]
+
+
+def test_gdal_pin_script_resolves_micromamba_packages():
+    """``ci/gdal-pin.py`` must resolve every pin ci/setup-gdal-micromamba.sh requests."""
+    pins = _load_gdal_pin().feature_pins()
+    missing = [pkg for pkg in MICROMAMBA_PACKAGES if pkg not in pins]
+    assert not missing, f"ci/gdal-pin.py cannot resolve {missing} that setup-gdal-micromamba.sh requests"

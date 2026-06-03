@@ -83,38 +83,22 @@ mkdir -p "${MAMBA_ROOT_PREFIX}"
 # pre-mkdir.
 rm -rf "${PIXI_ENV}"
 
-# Pin sources are the single sources of truth in pyproject.toml: the three
-# gdal pins live in [tool.pixi.feature.gdal.dependencies] (shared by every
-# environment), and swig — build-only — lives in
-# [tool.pixi.feature.wheel-build.dependencies]. Read them at runtime so a
-# tightening of either pyproject range can never drift away from this
-# cross-compile branch unnoticed. micromamba accepts a conda match-spec when
-# concatenated as ``<name><spec>`` (e.g. ``gdal>=3.12,<3.13``) — the same form
-# pyproject uses.
-#
-# Read all four pins in one Python subprocess (previous form spawned four
-# separate Python processes for ~80 ms each = ~300 ms wasted per cross-compile
-# run). Newline-separated stdout maps deterministically onto the four bash
-# variables via `read`.
-PYPROJECT="$(cd "$(dirname "$0")/.." && pwd)/pyproject.toml"
-if [[ ! -f "${PYPROJECT}" ]]; then
-    echo "ERROR: pyproject.toml not found at ${PYPROJECT}" >&2
+# All four native build/test pins live once in pyproject.toml — the three gdal libs
+# in [tool.pixi.feature.gdal.dependencies], build-only swig in
+# [tool.pixi.feature.wheel-build.dependencies]. ci/gdal-pin.py is the single reader of
+# those tables; calling it here keeps this cross-compile branch from re-encoding (or
+# drifting from) the pins. One subprocess emits all four specs, newline-separated,
+# mapped onto the bash vars via `read`. micromamba accepts a conda match-spec
+# concatenated as ``<name><spec>`` (e.g. ``gdal>=3.12,<3.13``).
+GDAL_PIN="$(cd "$(dirname "$0")" && pwd)/gdal-pin.py"
+if [[ ! -f "${GDAL_PIN}" ]]; then
+    echo "ERROR: gdal-pin.py not found at ${GDAL_PIN}" >&2
     exit 1
 fi
 
 { read -r GDAL_SPEC; read -r LIBGDAL_NETCDF_SPEC; \
-  read -r LIBGDAL_HDF4_SPEC; read -r SWIG_SPEC; } < <(python3 - "${PYPROJECT}" <<'PY'
-import sys, tomllib
-with open(sys.argv[1], "rb") as f:
-    feature = tomllib.load(f)["tool"]["pixi"]["feature"]
-gdal_deps = feature["gdal"]["dependencies"]
-swig_deps = feature["wheel-build"]["dependencies"]
-print(gdal_deps["gdal"])
-print(gdal_deps["libgdal-netcdf"])
-print(gdal_deps["libgdal-hdf4"])
-print(swig_deps["swig"])
-PY
-)
+  read -r LIBGDAL_HDF4_SPEC; read -r SWIG_SPEC; } \
+  < <(python3 "${GDAL_PIN}" gdal libgdal-netcdf libgdal-hdf4 swig)
 
 echo "--- Wheel-build pins (from pyproject.toml) ---"
 echo "  gdal${GDAL_SPEC}"

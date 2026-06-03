@@ -1,16 +1,21 @@
-"""Print the gdal version spec the wheels are built against (single source of truth).
+"""Print the conda pins the wheels are built against (single source of truth).
 
-Reads ``[tool.pixi.feature.gdal.dependencies].gdal`` from ``pyproject.toml`` and prints
-it verbatim (e.g. ``>=3.12,<3.13``). That feature is shared by every pixi environment,
-so the value is the one the published wheels vendor. CI's conda-forge-shape wheel test
-(``.github/workflows/pure-wheel-test.yml``) uses the output to ``conda install`` gdal at
-that exact pin, so the test environment can never drift to a different gdal than the one
-we build and ship against.
+The native build/test stack is pinned once in two ``pyproject.toml`` features:
+``[tool.pixi.feature.gdal.dependencies]`` (the shared gdal / libgdal-* libs every
+environment lists) and ``[tool.pixi.feature.wheel-build.dependencies]`` (build-only
+``swig``). This script reads those features and prints each requested package's version
+spec verbatim, one per line, so every consumer installs the exact pins the published
+wheels vendor instead of re-encoding them:
 
-Usage (from the repo root)::
+- ``.github/workflows/pure-wheel-test.yml`` — the conda-forge-shape wheel test
+- ``ci/setup-gdal-micromamba.sh`` — the macOS x86_64 cross-compile env
 
-    spec=$(python ci/gdal-pin.py)        # ->  >=3.12,<3.13
-    conda install -y "gdal${spec}" "libgdal-netcdf${spec}" ...
+``pyproject.toml`` is located relative to this file, so the script works from any cwd.
+
+Usage::
+
+    spec=$(python ci/gdal-pin.py)                    # default: gdal ->  >=3.12,<3.13
+    python ci/gdal-pin.py gdal libgdal-netcdf swig   # one spec per line
 """
 
 from __future__ import annotations
@@ -19,19 +24,27 @@ import sys
 import tomllib
 from pathlib import Path
 
+PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 
-def gdal_spec(pyproject: Path) -> str:
-    """Return the shared gdal version spec from ``pyproject``."""
+
+def feature_pins(pyproject: Path = PYPROJECT) -> dict[str, str]:
+    """Return the conda pins from the gdal and wheel-build features, merged by name."""
     with pyproject.open("rb") as fh:
-        cfg = tomllib.load(fh)
-    return cfg["tool"]["pixi"]["feature"]["gdal"]["dependencies"]["gdal"]
+        feature = tomllib.load(fh)["tool"]["pixi"]["feature"]
+    return {**feature["gdal"]["dependencies"], **feature["wheel-build"]["dependencies"]}
 
 
-def main() -> int:
-    """Print the spec; the project root is the current working directory."""
-    print(gdal_spec(Path("pyproject.toml")))
+def gdal_spec(pyproject: Path = PYPROJECT) -> str:
+    """Return the shared gdal version spec from ``pyproject``."""
+    return feature_pins(pyproject)["gdal"]
+
+
+def main(argv: list[str]) -> int:
+    """Print the spec for each requested package (default: gdal), one per line."""
+    pins = feature_pins()
+    print("\n".join(pins[name] for name in (argv or ["gdal"])))
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
