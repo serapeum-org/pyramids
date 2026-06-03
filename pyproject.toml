@@ -257,30 +257,29 @@ mypy = { cmd = "mypy", description = "Run mypy type checking" }
 
 
 [tool.pixi.environments]
-default = {features = ["viz"], solve-group = "default" }
-dev = { features = ["viz", "dev", "xarray", "lazy", "stac", "netcdf-lazy", "parquet", "parquet-lazy"], solve-group = "default" }
-netcdf-lazy = { features = ["viz", "dev", "lazy", "netcdf-lazy"], solve-group = "default" }
-parquet = { features = ["viz", "dev", "xarray", "lazy", "parquet"], solve-group = "default" }
-parquet-lazy = { features = ["viz", "dev", "xarray", "lazy", "parquet", "parquet-lazy"], solve-group = "default" }
-notebook = { features = ["viz", "notebook", "lazy"], solve-group = "default" }
-docs = { features = ["docs"], solve-group = "docs" }
-# py3XX envs (tests.yml matrix) include `lazy` so the `xarray-tests` step
-# has the xarray data stack (zarr / dask / s3fs / fsspec) that the
-# xarray-marked interop tests (e.g. LabeledDataset) require — these run
-# with real deps, never skipped. `parquet` (pyarrow) is deliberately NOT
-# added here: it would un-skip the `core` OGR-Parquet tests, which need
-# GDAL's libgdal-arrow-parquet driver (absent on the Linux/macOS runners).
-# Those parquet paths are exercised by the parquet extras-package matrix.
-# Bare-core (no-lazy) installs are covered by the `default` env.
-py311 = { features = ["py311", "viz", "dev", "xarray", "lazy"], solve-group = "py311" }
-py312 = { features = ["py312", "viz", "dev", "xarray", "lazy"], solve-group = "py312" }
-py313 = { features = ["py313", "viz", "dev", "xarray", "lazy"], solve-group = "py313" }
-py314 = { features = ["py314", "viz", "dev", "xarray", "lazy"], solve-group = "py314" }
+# Every env lists the shared `gdal` feature so the single GDAL pin reaches all of
+# them, incl. no-default-feature wheel-build. tests/test_gdal_pin.py enforces it.
+default = {features = ["gdal", "viz"], solve-group = "default" }
+dev = { features = ["gdal", "viz", "dev", "xarray", "lazy", "stac", "netcdf-lazy", "parquet", "parquet-lazy"], solve-group = "default" }
+netcdf-lazy = { features = ["gdal", "viz", "dev", "lazy", "netcdf-lazy"], solve-group = "default" }
+parquet = { features = ["gdal", "viz", "dev", "xarray", "lazy", "parquet"], solve-group = "default" }
+parquet-lazy = { features = ["gdal", "viz", "dev", "xarray", "lazy", "parquet", "parquet-lazy"], solve-group = "default" }
+notebook = { features = ["gdal", "viz", "notebook", "lazy"], solve-group = "default" }
+docs = { features = ["gdal", "docs"], solve-group = "docs" }
+# py3XX envs include `lazy` so the `xarray-tests` step has the xarray data stack
+# (zarr / dask / s3fs / fsspec) its interop tests need, run with real deps. `parquet`
+# (pyarrow) is left out on purpose: it would un-skip the core OGR-Parquet tests, which
+# need GDAL's libgdal-arrow-parquet driver (absent on the runners) — the parquet extras
+# matrix covers those. Bare-core (no-lazy) installs are covered by the `default` env.
+py311 = { features = ["gdal", "py311", "viz", "dev", "xarray", "lazy"], solve-group = "py311" }
+py312 = { features = ["gdal", "py312", "viz", "dev", "xarray", "lazy"], solve-group = "py312" }
+py313 = { features = ["gdal", "py313", "viz", "dev", "xarray", "lazy"], solve-group = "py313" }
+py314 = { features = ["gdal", "py314", "viz", "dev", "xarray", "lazy"], solve-group = "py314" }
 # wheel-build: lean env inside the cibuildwheel container.
 # no-default-feature = true keeps pyramids-gis (and its pandas/numpy
 # transitive deps) out of the build container so cibuildwheel's pip
 # can resolve them against the target Python's manylinux wheels.
-wheel-build = { features = ["wheel-build"], solve-group = "wheel-build", no-default-feature = true }
+wheel-build = { features = ["gdal", "wheel-build"], solve-group = "wheel-build", no-default-feature = true }
 
 
 [tool.pixi.feature.py311.dependencies]
@@ -306,15 +305,11 @@ fsspec = ">=2024.1.0"
 s3fs = ">=2024.1.0"
 flox = ">=0.9.0"
 
-# HDF5-linking libraries must come from conda-forge so they share the
-# same HDF5 binary that libgdal-netcdf is linked against. PyPI wheels for
-# h5py bundle their own HDF5 copy, which causes DLL-shadowing on Windows
-# (h5py fails with "DLL load failed while importing defs") once more
-# than one HDF5 backend is loaded in-process.
-#
-# pyramids' lazy NetCDF path is pure GDAL MDArray — it does NOT import
-# netCDF4, h5netcdf, or cftime. kerchunk needs h5py to walk HDF5 chunk
-# metadata; nothing else in this feature pulls HDF5-adjacent libraries.
+# HDF5-linking libs must come from conda-forge to share the one HDF5 binary
+# libgdal-netcdf links against; PyPI h5py wheels bundle their own copy, which
+# DLL-shadows on Windows ("DLL load failed while importing defs") once two HDF5
+# backends load in-process. Only kerchunk needs h5py here (to walk HDF5 chunk
+# metadata) — the lazy NetCDF path itself is pure GDAL MDArray, no netCDF4/h5netcdf.
 [tool.pixi.feature.netcdf-lazy.dependencies]
 kerchunk = ">=0.2.10"
 # h5py 3.16 moved to hdf5 2.x, but libgdal-netcdf still links hdf5 1.14.x.
@@ -336,15 +331,18 @@ dask-geopandas = ">=0.5.0"
 [tool.pixi.feature.stac.dependencies]
 pystac-client = ">=0.8.0"
 
-# Pinned tighter than [tool.pixi.dependencies] because the SWIG Python
-# bindings are version-locked to libgdal. ci/setup-gdal-micromamba.sh
-# reads these pins via tomllib for the macOS x86_64 cross-compile path,
-# so this block is the single source of truth.
-[tool.pixi.feature.wheel-build.dependencies]
+# Single source of truth for the conda GDAL pin (SWIG osgeo bindings are ABI-locked to
+# libgdal). Listed by every environment; ci/gdal-pin.py and ci/setup-gdal-micromamba.sh
+# read it so CI installs the same range. Bump all four together on a new gdal minor.
+[tool.pixi.feature.gdal.dependencies]
 gdal = ">=3.12,<3.13"
 libgdal-netcdf = ">=3.12,<3.13"
 libgdal-hdf4 = ">=3.12,<3.13"
 libgdal-grib = ">=3.12,<3.13"
+
+# swig builds the osgeo bindings against libgdal; build-only, so it stays in the
+# wheel-build feature (not the shared gdal feature). setup-gdal-micromamba.sh reads it.
+[tool.pixi.feature.wheel-build.dependencies]
 swig = ">=4.3,<5"
 
 # libstdcxx-ng provides the GCC-13 libstdc++.so.6 that conda-forge's GDAL
@@ -359,10 +357,7 @@ libstdcxx-ng = "*"
 
 
 [tool.pixi.dependencies]
-gdal = ">=3.10.0,<4"
-libgdal-netcdf = ">=3.10.0,<4"
-libgdal-hdf4 = ">=3.10.0,<4"
-libgdal-grib = ">=3.10.0,<4"
+# The GDAL pin lives in the shared `gdal` feature, not here (see above).
 # cftime decodes non-standard NetCDF calendars (360_day, noleap, julian, ...)
 # in pyramids.netcdf.utils — reachable from core NetCDF reads, so it is a core dep.
 cftime = ">=1.6.4"
@@ -386,12 +381,10 @@ build-verbosity = 3
 # test-wheels matrix instead.
 test-skip = "*"
 
-# PACKAGE_DATA + PIXI_NO_PATH_UPDATE are duplicated in each per-platform
-# [tool.cibuildwheel.<platform>.environment] block below. Despite docs
-# suggesting otherwise, cibuildwheel's `environment` table uses REPLACE
-# semantics across overrides, not merge. Hoisting them to a shared
-# top-level block silently broke every build with
-# "PACKAGE_DATA != 1; skipping" (commit 607d3153).
+# PACKAGE_DATA + PIXI_NO_PATH_UPDATE are repeated in each per-platform
+# [tool.cibuildwheel.<platform>.environment] block below: cibuildwheel REPLACES the
+# `environment` table across overrides (not merges, despite docs), so hoisting them
+# to a shared block silently broke every build ("PACKAGE_DATA != 1"; commit 607d3153).
 
 [tool.cibuildwheel.linux]
 # manylinux_2_28 build image covers Ubuntu 20.04+ / RHEL 8+. Need 2_28
