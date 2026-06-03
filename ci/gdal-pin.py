@@ -1,10 +1,11 @@
 """Print the gdal version spec the wheels are built against (single source of truth).
 
-Reads ``[tool.pixi.feature.wheel-build.dependencies].gdal`` from ``pyproject.toml``
-and prints it verbatim (e.g. ``>=3.12,<3.13``). CI's conda-forge-shape wheel test
-(``.github/workflows/wheel-test.yml``) uses the output to ``conda install`` gdal at
-the exact pin the published wheels vendor, so the test environment can never drift
-to a different gdal than the one we build and ship against.
+Reads ``[tool.pixi.feature.gdal.dependencies].gdal`` from ``pyproject.toml`` and prints
+it verbatim (e.g. ``>=3.12,<3.13``). That feature is shared by every pixi environment,
+so the value is the one the published wheels vendor. CI's conda-forge-shape wheel test
+(``.github/workflows/pure-wheel-test.yml``) uses the output to ``conda install`` gdal at
+that exact pin, so the test environment can never drift to a different gdal than the one
+we build and ship against.
 
 Usage (from the repo root)::
 
@@ -20,10 +21,10 @@ from pathlib import Path
 
 
 def gdal_spec(pyproject: Path) -> str:
-    """Return the wheel-build gdal version spec from ``pyproject``."""
+    """Return the shared gdal version spec from ``pyproject``."""
     with pyproject.open("rb") as fh:
         cfg = tomllib.load(fh)
-    return cfg["tool"]["pixi"]["feature"]["wheel-build"]["dependencies"]["gdal"]
+    return cfg["tool"]["pixi"]["feature"]["gdal"]["dependencies"]["gdal"]
 
 
 def main() -> int:
