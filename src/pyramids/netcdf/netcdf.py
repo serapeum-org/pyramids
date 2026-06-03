@@ -4804,6 +4804,21 @@ class NetCDF(Dataset):
         Inspects the coordinate array's ``axis`` / ``standard_name`` / ``units``
         attributes. Returns ``None`` when the dimension has no coordinate array
         or no recognisable spatial attribute.
+
+        Args:
+            rg: The store's multidimensional root :class:`osgeo.gdal.Group`.
+            name: Dimension / coordinate name to inspect.
+
+        Returns:
+            str or None: ``"Y"`` for a latitude / northing axis, ``"X"`` for a
+            longitude / easting axis, or ``None`` when the role can't be
+            determined.
+
+        Examples:
+            - Inspect a latitude coordinate of an opened multidim store::
+
+                >>> nc._axis_role(nc._raster.GetRootGroup(), "lat")  # doctest: +SKIP
+                'Y'
         """
         try:
             coord = rg.OpenMDArray(name)
@@ -4846,9 +4861,33 @@ class NetCDF(Dataset):
         well-known dimension names (``y``/``lat``/…, ``x``/``lon``/…) → the two
         trailing dimensions (the common ``(…, y, x)`` layout).
 
+        Args:
+            rg: The multidimensional root group (``None`` skips CF-attribute
+                detection — used by the pure name/trailing fallbacks).
+            dim_names: The variable's dimension names, in storage order.
+            y_dim: Optional explicit name of the ``y`` dimension.
+            x_dim: Optional explicit name of the ``x`` dimension.
+
+        Returns:
+            tuple[int, int]: The ``(y_axis, x_axis)`` indices into ``dim_names``.
+
         Raises:
             ValueError: if only one of ``y_dim`` / ``x_dim`` is given, the two are
                 equal, or a named override is not a dimension of the variable.
+
+        Examples:
+            - A layer dim interleaved between ``y`` and ``x`` is still resolved
+              by name (``rg=None`` skips the CF-attribute step)::
+
+                >>> from pyramids.netcdf import NetCDF
+                >>> NetCDF._detect_spatial_axes(None, ["time", "y", "level", "x"], None, None)
+                (1, 3)
+
+            - An explicit override wins regardless of position::
+
+                >>> from pyramids.netcdf import NetCDF
+                >>> NetCDF._detect_spatial_axes(None, ["time", "y", "x"], "y", "x")
+                (1, 2)
         """
         override = NetCDF._override_spatial_axes(dim_names, y_dim, x_dim)
         if override is not None:
@@ -4865,9 +4904,32 @@ class NetCDF(Dataset):
     ) -> tuple[int, int] | None:
         """Validate and apply an explicit ``y_dim`` / ``x_dim`` override.
 
-        Returns the ``(y_axis, x_axis)`` indices when both are given, or ``None``
-        when neither is (so detection proceeds). Raises on a partial or invalid
-        override.
+        Args:
+            dim_names: The variable's dimension names, in storage order.
+            y_dim: Explicit ``y`` dimension name, or ``None``.
+            x_dim: Explicit ``x`` dimension name, or ``None``.
+
+        Returns:
+            tuple[int, int] or None: The ``(y_axis, x_axis)`` indices when both
+            names are given; ``None`` when neither is (so auto-detection
+            proceeds).
+
+        Raises:
+            ValueError: when exactly one name is given, the two are equal, or a
+                name is not a dimension of the variable.
+
+        Examples:
+            - Both names resolve to their indices::
+
+                >>> from pyramids.netcdf import NetCDF
+                >>> NetCDF._override_spatial_axes(["time", "y", "x"], "y", "x")
+                (1, 2)
+
+            - Neither name defers to auto-detection (returns ``None``)::
+
+                >>> from pyramids.netcdf import NetCDF
+                >>> NetCDF._override_spatial_axes(["y", "x"], None, None) is None
+                True
         """
         if y_dim is None and x_dim is None:
             return None
@@ -4891,6 +4953,21 @@ class NetCDF(Dataset):
 
         Returns ``None`` when there is no root group or the coordinate variables
         don't carry recognisable spatial attributes for both axes.
+
+        Args:
+            rg: The multidimensional root group, or ``None``.
+            dim_names: The variable's dimension names, in storage order.
+
+        Returns:
+            tuple[int, int] or None: The ``(y_axis, x_axis)`` indices when both
+            spatial axes are identified from coordinate attributes, else ``None``.
+
+        Examples:
+            - Without a root group there are no attributes to read::
+
+                >>> from pyramids.netcdf import NetCDF
+                >>> NetCDF._cf_spatial_axes(None, ["time", "y", "x"]) is None
+                True
         """
         if rg is None:
             return None
@@ -4907,7 +4984,31 @@ class NetCDF(Dataset):
 
     @staticmethod
     def _named_spatial_axes(dim_names: list[str]) -> tuple[int, int] | None:
-        """``(y_axis, x_axis)`` from well-known dimension names, or ``None``."""
+        """``(y_axis, x_axis)`` from well-known dimension names, or ``None``.
+
+        Matches each dimension name case-insensitively against
+        :data:`_Y_DIM_NAMES` / :data:`_X_DIM_NAMES`.
+
+        Args:
+            dim_names: The variable's dimension names, in storage order.
+
+        Returns:
+            tuple[int, int] or None: The ``(y_axis, x_axis)`` indices when both a
+            y-like and an x-like name are present, else ``None``.
+
+        Examples:
+            - Recognised names resolve even when interleaved::
+
+                >>> from pyramids.netcdf import NetCDF
+                >>> NetCDF._named_spatial_axes(["time", "y", "soil", "x"])
+                (1, 3)
+
+            - Unrecognised names return ``None``::
+
+                >>> from pyramids.netcdf import NetCDF
+                >>> NetCDF._named_spatial_axes(["time", "a", "b"]) is None
+                True
+        """
         lowered = [n.lower() for n in dim_names]
         y_named = next((i for i, n in enumerate(lowered) if n in _Y_DIM_NAMES), None)
         x_named = next((i for i, n in enumerate(lowered) if n in _X_DIM_NAMES), None)
