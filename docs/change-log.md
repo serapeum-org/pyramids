@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.31.0 (2026-06-03)
+
+### Fix
+
+- **bootstrap**: force GDAL_DRIVER_PATH to the bundled plugins (#465)
+
 ## 0.30.0 (2026-06-02)
 
 ### Feat
