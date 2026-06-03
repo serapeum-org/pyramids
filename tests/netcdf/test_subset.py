@@ -238,6 +238,132 @@ def _fake_group(arrays):
     return rg
 
 
+def _fake_group_with_attrs(coords):
+    """A Mock root group whose coords expose CF attributes via ``GetAttributes``.
+
+    ``coords`` maps a dimension name to either a ``{attr_name: value}`` dict (the
+    coordinate's string attributes) or ``None`` to make ``OpenMDArray`` raise as
+    GDAL does for a dimension with no coordinate variable.
+    """
+
+    def open_mdarray(name):
+        if name not in coords or coords[name] is None:
+            raise RuntimeError(f"Array {name} does not exist")
+        attr_objs = []
+        for attr_name, value in coords[name].items():
+            attr = Mock()
+            attr.GetName.return_value = attr_name
+            attr.ReadAsString.return_value = value
+            attr_objs.append(attr)
+        coord = Mock()
+        coord.GetAttributes.return_value = attr_objs
+        return coord
+
+    rg = Mock()
+    rg.OpenMDArray.side_effect = open_mdarray
+    return rg
+
+
+class TestAxisRole:
+    """``_axis_role`` maps a coordinate's CF attributes to ``"Y"``/``"X"``/None."""
+
+    @pytest.mark.parametrize(
+        "attrs, expected",
+        [
+            ({"axis": "Y"}, "Y"),
+            ({"axis": "X"}, "X"),
+            ({"axis": "T"}, None),
+            ({"standard_name": "latitude"}, "Y"),
+            ({"standard_name": "longitude"}, "X"),
+            ({"standard_name": "projection_y_coordinate"}, "Y"),
+            ({"standard_name": "projection_x_coordinate"}, "X"),
+            ({"standard_name": "grid_latitude"}, "Y"),
+            ({"standard_name": "grid_longitude"}, "X"),
+            ({"units": "degrees_north"}, "Y"),
+            ({"units": "degrees_east"}, "X"),
+            ({"units": "metre"}, None),
+            ({"long_name": "something"}, None),
+        ],
+    )
+    def test_attribute_roles(self, attrs, expected):
+        """Each recognised CF attribute maps to the right axis role (else None).
+
+        Args:
+            attrs: The coordinate variable's string attributes.
+            expected: The expected ``"Y"`` / ``"X"`` / ``None`` role.
+        """
+        rg = _fake_group_with_attrs({"c": attrs})
+        assert NetCDF._axis_role(rg, "c") == expected, f"attrs={attrs}"
+
+    def test_missing_coordinate_is_none(self):
+        """A dimension with no coordinate variable yields ``None`` (not an error).
+
+        Test scenario:
+            ``OpenMDArray`` raises ``RuntimeError`` -> role is ``None``.
+        """
+        rg = _fake_group_with_attrs({"c": None})
+        assert NetCDF._axis_role(rg, "c") is None, "missing coord should be None"
+
+    def test_unreadable_attribute_is_skipped(self):
+        """An attribute whose ``ReadAsString`` raises is skipped; others still read.
+
+        Test scenario:
+            A numeric ``valid_min`` (ReadAsString raises) alongside ``axis=Y`` ->
+            still detected as ``"Y"``.
+        """
+        bad = Mock()
+        bad.GetName.return_value = "valid_min"
+        bad.ReadAsString.side_effect = RuntimeError("not a string")
+        good = Mock()
+        good.GetName.return_value = "axis"
+        good.ReadAsString.return_value = "Y"
+        coord = Mock()
+        coord.GetAttributes.return_value = [bad, good]
+        rg = Mock()
+        rg.OpenMDArray.side_effect = lambda name: coord
+        assert NetCDF._axis_role(rg, "y") == "Y", "unreadable attr should be skipped"
+
+
+class TestCfSpatialAxes:
+    """``_cf_spatial_axes`` finds the spatial axes from coordinate attributes."""
+
+    def test_none_when_no_root_group(self):
+        """``rg is None`` -> ``None`` (detection falls through to names).
+
+        Test scenario:
+            No multidimensional root group available.
+        """
+        assert NetCDF._cf_spatial_axes(None, ["time", "y", "x"]) is None
+
+    def test_detects_interleaved_axes_by_attrs(self):
+        """CF attrs locate y/x even when a layer dim is interleaved between them.
+
+        Test scenario:
+            ``(time, y, level, x)`` with axis attrs on y/x -> ``(1, 3)``.
+        """
+        rg = _fake_group_with_attrs(
+            {
+                "time": {"axis": "T"},
+                "y": {"axis": "Y"},
+                "level": {"long_name": "soil layer"},
+                "x": {"axis": "X"},
+            }
+        )
+        out = NetCDF._cf_spatial_axes(rg, ["time", "y", "level", "x"])
+        assert out == (1, 3), f"expected (1, 3), got {out}"
+
+    def test_none_when_only_one_axis_has_attrs(self):
+        """Only one recognisable spatial axis -> ``None`` (incomplete).
+
+        Test scenario:
+            y carries an axis attr but x does not -> cannot resolve a pair.
+        """
+        rg = _fake_group_with_attrs(
+            {"time": None, "y": {"axis": "Y"}, "x": {"long_name": "col"}}
+        )
+        assert NetCDF._cf_spatial_axes(rg, ["time", "y", "x"]) is None
+
+
 class TestMdArrayNoData:
     """``_md_array_no_data`` prefers the driver value, then CF attrs, else None."""
 
@@ -483,6 +609,13 @@ class TestDimensionSizesAndTimeValues:
     def test_get_time_values_missing_dim_returns_none(self, tmp_path):
         nc = _synthetic_cube(tmp_path)
         assert nc.get_time_values("nope") is None
+
+    def test_dimension_sizes_empty_for_variable_subset(self, tmp_path):
+        # A variable subset is a classic-mode dataset with no root group, so
+        # dimension_sizes is empty (documented behaviour).
+        nc = _synthetic_cube(tmp_path)
+        var = nc.get_variable("temp")
+        assert var.dimension_sizes == {}
 
 
 class TestDetectSpatialAxes:
