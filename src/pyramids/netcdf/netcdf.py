@@ -4687,6 +4687,13 @@ class NetCDF(Dataset):
             (x_start, x_stop), (y_start, y_stop), time, dims,
         )
         arr = np.asarray(md_arr[tuple(slices)].ReadAsArray())
+        # The read must keep one axis per dimension (incl. size-1 pinned ones) for
+        # the y/x axis indices to stay valid; fail loudly if a future GDAL squeezes.
+        if arr.ndim != len(dim_names):
+            raise RuntimeError(
+                f"windowed read of {variable!r} returned {arr.ndim} axes, expected "
+                f"{len(dim_names)} (one per dimension); cannot locate the spatial axes."
+            )
         # Move the spatial axes to the trailing (y, x) positions — they may be
         # interleaved in storage (e.g. (time, y, soil_layers, x)) — then collapse
         # every remaining (non-spatial) axis onto the band axis, in dim order.
@@ -4840,36 +4847,73 @@ class NetCDF(Dataset):
         trailing dimensions (the common ``(…, y, x)`` layout).
 
         Raises:
-            ValueError: if only one of ``y_dim`` / ``x_dim`` is given, or a named
-                override is not a dimension of the variable.
+            ValueError: if only one of ``y_dim`` / ``x_dim`` is given, the two are
+                equal, or a named override is not a dimension of the variable.
         """
+        override = NetCDF._override_spatial_axes(dim_names, y_dim, x_dim)
+        if override is not None:
+            return override
+        return (
+            NetCDF._cf_spatial_axes(rg, dim_names)
+            or NetCDF._named_spatial_axes(dim_names)
+            or (len(dim_names) - 2, len(dim_names) - 1)
+        )
+
+    @staticmethod
+    def _override_spatial_axes(
+        dim_names: list[str], y_dim: str | None, x_dim: str | None
+    ) -> tuple[int, int] | None:
+        """Validate and apply an explicit ``y_dim`` / ``x_dim`` override.
+
+        Returns the ``(y_axis, x_axis)`` indices when both are given, or ``None``
+        when neither is (so detection proceeds). Raises on a partial or invalid
+        override.
+        """
+        if y_dim is None and x_dim is None:
+            return None
         if (y_dim is None) != (x_dim is None):
             raise ValueError("pass both y_dim and x_dim, or neither.")
-        if y_dim is not None:
-            for value, label in ((y_dim, "y_dim"), (x_dim, "x_dim")):
-                if value not in dim_names:
-                    raise ValueError(
-                        f"{label}={value!r} is not a dimension of this variable; "
-                        f"available: {dim_names}"
-                    )
-            return dim_names.index(y_dim), dim_names.index(x_dim)
+        if y_dim == x_dim:
+            raise ValueError(f"y_dim and x_dim must differ; both are {y_dim!r}.")
+        for value, label in ((y_dim, "y_dim"), (x_dim, "x_dim")):
+            if value not in dim_names:
+                raise ValueError(
+                    f"{label}={value!r} is not a dimension of this variable; "
+                    f"available: {dim_names}"
+                )
+        return dim_names.index(y_dim), dim_names.index(x_dim)
+
+    @staticmethod
+    def _cf_spatial_axes(
+        rg: Any, dim_names: list[str]
+    ) -> tuple[int, int] | None:
+        """``(y_axis, x_axis)`` from CF coordinate attributes, or ``None``.
+
+        Returns ``None`` when there is no root group or the coordinate variables
+        don't carry recognisable spatial attributes for both axes.
+        """
+        if rg is None:
+            return None
         y_idx = x_idx = None
-        if rg is not None:
-            for axis, name in enumerate(dim_names):
-                role = NetCDF._axis_role(rg, name)
-                if role == "Y" and y_idx is None:
-                    y_idx = axis
-                elif role == "X" and x_idx is None:
-                    x_idx = axis
-        if y_idx is None or x_idx is None:
-            lowered = [n.lower() for n in dim_names]
-            y_named = next((i for i, n in enumerate(lowered) if n in _Y_DIM_NAMES), None)
-            x_named = next((i for i, n in enumerate(lowered) if n in _X_DIM_NAMES), None)
-            if y_named is not None and x_named is not None:
-                y_idx, x_idx = y_named, x_named
-        if y_idx is None or x_idx is None:
-            return len(dim_names) - 2, len(dim_names) - 1
-        return y_idx, x_idx
+        for axis, name in enumerate(dim_names):
+            role = NetCDF._axis_role(rg, name)
+            if role == "Y" and y_idx is None:
+                y_idx = axis
+            elif role == "X" and x_idx is None:
+                x_idx = axis
+            if y_idx is not None and x_idx is not None:
+                return y_idx, x_idx
+        return None
+
+    @staticmethod
+    def _named_spatial_axes(dim_names: list[str]) -> tuple[int, int] | None:
+        """``(y_axis, x_axis)`` from well-known dimension names, or ``None``."""
+        lowered = [n.lower() for n in dim_names]
+        y_named = next((i for i, n in enumerate(lowered) if n in _Y_DIM_NAMES), None)
+        x_named = next((i for i, n in enumerate(lowered) if n in _X_DIM_NAMES), None)
+        if y_named is not None and x_named is not None:
+            return y_named, x_named
+        return None
 
     @staticmethod
     def _read_axis_coords(rg: Any, name: str, axis_label: str) -> np.ndarray:

@@ -499,6 +499,10 @@ class TestDetectSpatialAxes:
         with pytest.raises(ValueError, match="not a dimension"):
             NetCDF._detect_spatial_axes(None, ["y", "x"], "lat", "lon")
 
+    def test_equal_override_raises(self):
+        with pytest.raises(ValueError, match="must differ"):
+            NetCDF._detect_spatial_axes(None, ["time", "y", "x"], "x", "x")
+
     def test_well_known_names_when_no_attrs(self):
         # rg=None -> CF-attr detection skipped; fall back to known names. y/x are
         # interleaved around a layer dim, so this is NOT the trailing-two case.
@@ -536,6 +540,21 @@ class TestSubsetInterleavedLayer:
         nc = _synthetic_cube(tmp_path, with_interleaved=True)
         ds = nc.subset("soil", time=0, level=0, y_dim="y", x_dim="x")
         assert (ds.rows, ds.columns) == (4, 5)
+
+    def test_interleaved_layer_range_is_multiband_in_c_order(self, tmp_path):
+        # L3: a ranged interleaved layer -> one band per layer, labelled and
+        # ordered to match the C-order band flatten after moveaxis.
+        nc = _synthetic_cube(tmp_path, with_interleaved=True)
+        ds = nc.subset("soil", time=0, level=(0, 2))
+        assert ds.band_count == 2
+        assert ds.band_names == ["level=0", "level=1"]
+        n_y, n_x, n_lev = 4, 5, 2
+        full = np.arange(3 * n_y * n_lev * n_x, dtype="float64").reshape(
+            3, n_y, n_lev, n_x
+        )
+        bands = np.asarray(ds.read_array())  # (2, rows, cols); row 0 = north (y=3)
+        assert list(bands[0][0]) == list(full[0, 3, 0, :])
+        assert list(bands[1][0]) == list(full[0, 3, 1, :])
 
 
 @pytest.mark.slow
