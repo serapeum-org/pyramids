@@ -104,10 +104,13 @@ echo "build-icu-min-data: configuring + building ICU data (filtered)"
 (
     cd "${src}"
     chmod +x configure runConfigureICU || true
-    ICU_DATA_FILTER_FILE="${work}/filter.json" \
-        ./runConfigureICU Linux \
-            --disable-tests --disable-samples --disable-extras --disable-layoutex \
-            --enable-shared --disable-static --with-data-packaging=library
+    # Export the filter so BOTH configure and the data build (`make`, where the
+    # ICU Data Build Tool actually applies the filter) see it. Setting it only
+    # as a prefix to runConfigureICU left `make` unfiltered → full 32 MB data.
+    export ICU_DATA_FILTER_FILE="${work}/filter.json"
+    ./runConfigureICU Linux \
+        --disable-tests --disable-samples --disable-extras --disable-layoutex \
+        --enable-shared --disable-static --with-data-packaging=library
     make -j"$(nproc)"
 )
 
