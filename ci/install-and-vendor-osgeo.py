@@ -240,22 +240,13 @@ def _copy_tree_replacing(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst, ignore=_IGNORE_BYTECODE)
 
 
-def _strip_vendored_extensions(osgeo_dir: Path) -> None:
-    """Strip debug symbols from the vendored SWIG extension modules (T1.2).
-
-    The `osgeo/_gdal._osr._ogr…` extensions arrive un-stripped from the pip
-    GDAL build; `strip --strip-unneeded` shaves several MB. No-op on Windows
-    (`.pyd` linkage is delvewheel's job and `strip` is GNU/macOS only).
-    """
-    if sys.platform.startswith("win") or os.name == "nt":
-        return
-    strip_args = ["-x"] if sys.platform == "darwin" else ["--strip-unneeded"]
-    for so in sorted(osgeo_dir.glob("*.so")):
-        try:
-            subprocess.run(["strip", *strip_args, str(so)], check=True)
-            print(f"[install-and-vendor-osgeo] stripped {so.name}", flush=True)
-        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-            print(f"[install-and-vendor-osgeo] strip skipped {so.name}: {exc}", flush=True)
+# NOTE: stripping the vendored SWIG `.so` (an earlier T1.2) is NOT safe.
+# `strip --strip-unneeded` removes the local symbols SWIG uses to share its
+# runtime type table across `_gdal`/`_ogr`/`_gdal_array`, which breaks
+# cross-module calls — e.g. `_gdal_array.MDArrayIONumPy` can no longer
+# receive an MDArray created in `_gdal`, so NetCDF multidim `ReadAsArray`
+# fails on a subset of Python builds. Left un-stripped; the ICU stub is the
+# real size lever.
 
 
 def _prune_unused_bindings(osgeo_dir: Path) -> None:
@@ -377,7 +368,6 @@ def vendor_osgeo_into_package() -> None:
     (vendor_dir / "__init__.py").touch()
     _patch_vendored_osgeo_init(vendor_dir / "osgeo" / "__init__.py")
     _prune_unused_bindings(vendor_dir / "osgeo")      # T1.3 — drop unused GNM bindings
-    _strip_vendored_extensions(vendor_dir / "osgeo")  # T1.2 — strip SWIG .so debug symbols
 
     # 1b. Vendor osgeo_utils/ — GDAL's pip package ships a sibling
     # top-level package for utility scripts (gdal_polygonize, etc.).
