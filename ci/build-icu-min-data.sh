@@ -42,12 +42,31 @@ echo "build-icu-min-data: ICU ${icu_ver} (major ${icu_major})"
 work=$(mktemp -d)
 trap 'rm -rf "${work}"' EXIT
 
+# Download helper. The manylinux container's curl is built without an HTTPS
+# backend (curl: (4) ...), so prefer wget (what rasterio uses here), then fall
+# back to curl, then python urllib.
+_fetch() {  # _fetch <url> <dest>
+    if command -v wget >/dev/null 2>&1; then
+        wget --retry-connrefused --tries=5 --timeout=120 -qO "$2" "$1" && return 0
+    fi
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --retry 3 "$1" -o "$2" && return 0
+    fi
+    for py in python3 python; do
+        if command -v "${py}" >/dev/null 2>&1; then
+            "${py}" -c "import urllib.request,sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" "$1" "$2" \
+                && return 0
+        fi
+    done
+    return 1
+}
+
 # Fetch the prepared ICU4C source tarball for this release.
 tag="release-${icu_ver//./-}"
 tgz="icu4c-${icu_ver//./_}-src.tgz"
 url="https://github.com/unicode-org/icu/releases/download/${tag}/${tgz}"
 echo "build-icu-min-data: fetching ${url}"
-curl -fsSL --retry 3 "${url}" -o "${work}/icu.tgz"
+_fetch "${url}" "${work}/icu.tgz"
 tar -xzf "${work}/icu.tgz" -C "${work}"
 src="${work}/icu/source"
 if [[ ! -d "${src}" ]]; then
