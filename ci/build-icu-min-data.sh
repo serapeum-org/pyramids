@@ -107,11 +107,12 @@ echo "build-icu-min-data: configuring + building ICU data (filtered)"
     # Export the filter so BOTH configure and the data build (`make`, where the
     # ICU Data Build Tool applies it) see it.
     export ICU_DATA_FILTER_FILE="${work}/filter.json"
-    # The release tarball ships a prebuilt FULL data archive (data/in/*.dat);
-    # ICU repackages that as-is and never runs the buildtool, so the filter is
-    # ignored (→ a still-32 MB libicudata). Remove it so the data is rebuilt
-    # from source with the filter applied.
-    rm -f data/in/*.dat data/in/*.dat.gz
+    # NOTE: the release `-sources.tgz` ships a prebuilt full data archive
+    # (data/in/*.dat) that ICU repackages verbatim, ignoring the filter;
+    # deleting it breaks the build ("No rule to make target out/tmp/icudata.lst")
+    # because the tarball's data Makefile doesn't wire up the filter-aware Data
+    # Build Tool for a bare from-source rebuild. Applying the filter needs the
+    # git-archive source (full data tree + buildtool) — tracked as a follow-up.
     ./runConfigureICU Linux \
         --disable-tests --disable-samples --disable-extras --disable-layoutex \
         --enable-shared --disable-static --with-data-packaging=library
