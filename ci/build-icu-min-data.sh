@@ -61,9 +61,11 @@ _fetch() {  # _fetch <url> <dest>
     return 1
 }
 
-# Fetch the prepared ICU4C source tarball for this release.
-tag="release-${icu_ver//./-}"
-tgz="icu4c-${icu_ver//./_}-src.tgz"
+# Fetch the prepared ICU4C source tarball for this release. Asset naming is
+# `icu4c-<ver>-sources.tgz` under tag `release-<ver>` (dots, not dashes), e.g.
+# release-78.3/icu4c-78.3-sources.tgz. It extracts to `icu/source/`.
+tag="release-${icu_ver}"
+tgz="icu4c-${icu_ver}-sources.tgz"
 url="https://github.com/unicode-org/icu/releases/download/${tag}/${tgz}"
 echo "build-icu-min-data: fetching ${url}"
 _fetch "${url}" "${work}/icu.tgz"
