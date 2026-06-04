@@ -222,13 +222,54 @@ def install_gdal_python_bindings() -> None:
     subprocess.run(cmd, env=env, check=True)
 
 
+# Python bytecode is regenerated on first import; shipping it only bloats
+# the wheel (~2 MB of `_vendor/**/__pycache__`). Skip it on every copy (T1.1).
+_IGNORE_BYTECODE = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo")
+
+
 def _copy_tree_replacing(src: Path, dst: Path) -> None:
-    """Copy a directory, removing the destination first if it exists."""
+    """Copy a directory, removing the destination first if it exists.
+
+    Excludes Python bytecode (`__pycache__`/`*.pyc`) — it is regenerated on
+    first import and only inflates the wheel (T1.1).
+    """
     if dst.exists():
         shutil.rmtree(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
     print(f"[install-and-vendor-osgeo] copy {src} -> {dst}", flush=True)
-    shutil.copytree(src, dst)
+    shutil.copytree(src, dst, ignore=_IGNORE_BYTECODE)
+
+
+def _strip_vendored_extensions(osgeo_dir: Path) -> None:
+    """Strip debug symbols from the vendored SWIG extension modules (T1.2).
+
+    The `osgeo/_gdal._osr._ogr…` extensions arrive un-stripped from the pip
+    GDAL build; `strip --strip-unneeded` shaves several MB. No-op on Windows
+    (`.pyd` linkage is delvewheel's job and `strip` is GNU/macOS only).
+    """
+    if sys.platform.startswith("win") or os.name == "nt":
+        return
+    strip_args = ["-x"] if sys.platform == "darwin" else ["--strip-unneeded"]
+    for so in sorted(osgeo_dir.glob("*.so")):
+        try:
+            subprocess.run(["strip", *strip_args, str(so)], check=True)
+            print(f"[install-and-vendor-osgeo] stripped {so.name}", flush=True)
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            print(f"[install-and-vendor-osgeo] strip skipped {so.name}: {exc}", flush=True)
+
+
+def _prune_unused_bindings(osgeo_dir: Path) -> None:
+    """Drop the GNM (Geographic Network Model) bindings — unused by pyramids (T1.3).
+
+    Removes `_gnm.<ext>` + `gnm.py` (+ `gnmconst.py`). pyramids has no GNM code
+    path and `osgeo/__init__.py` does not auto-import it, so the ~1.2 MB binding
+    is pure wheel bloat. Other vendored modules (`osgeo_utils`, used by COG
+    validation + `gdal2xyz`) are intentionally kept.
+    """
+    for pattern in ("_gnm*.so", "_gnm*.pyd", "gnm.py", "gnmconst.py"):
+        for f in osgeo_dir.glob(pattern):
+            f.unlink()
+            print(f"[install-and-vendor-osgeo] pruned {f.name}", flush=True)
 
 
 _BOOTSTRAP_TEMPLATE_PATH = Path(__file__).resolve().parent / "_osgeo_bootstrap.py"
@@ -335,6 +376,8 @@ def vendor_osgeo_into_package() -> None:
     _copy_tree_replacing(osgeo_src, vendor_dir / "osgeo")
     (vendor_dir / "__init__.py").touch()
     _patch_vendored_osgeo_init(vendor_dir / "osgeo" / "__init__.py")
+    _prune_unused_bindings(vendor_dir / "osgeo")      # T1.3 — drop unused GNM bindings
+    _strip_vendored_extensions(vendor_dir / "osgeo")  # T1.2 — strip SWIG .so debug symbols
 
     # 1b. Vendor osgeo_utils/ — GDAL's pip package ships a sibling
     # top-level package for utility scripts (gdal_polygonize, etc.).
