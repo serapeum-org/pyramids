@@ -224,13 +224,8 @@ jobs:
       - name: Run core test suite
         shell: bash
         # --timeout-method=thread: signal-based timeouts don't work on Windows.
-        # Exclude vfs/slow: a few `core` tests (e.g. TestSubsetLiveNWM) also read
-        # LIVE remote datasets over /vsicurl and flake on connection resets /
-        # timeouts on the runners, intermittently failing the wheel smoke job.
-        # The bundled wheel's network path is already covered deterministically
-        # by verify-wheel.py's /vsicurl CA check; this step should stay hermetic.
         timeout-minutes: 10
-        run: pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m "core and not vfs and not slow" tests/
+        run: pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m core tests/
 
   release:
     name: Publish to PyPI + attach to GitHub release
