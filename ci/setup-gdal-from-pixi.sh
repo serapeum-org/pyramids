@@ -282,17 +282,6 @@ else
     fi
 fi
 
-# 4b. (Opt-in) shrink the bundled ICU data (~30 MB) by rebuilding it
-# charset-only. OFF by default (PYRAMIDS_ICU_STUB=1 to enable): the charset
-# filter does not yet apply via the ICU release tarball's data build — see
-# ci/build-icu-min-data.sh. Linux-only; non-fatal (keeps the full libicudata).
-if [[ "$(uname -s)" == "Linux" ]] && [[ "${PYRAMIDS_ICU_STUB:-0}" == "1" ]]; then
-    echo "--- Rebuilding ICU data (charset-only) ---"
-    if ! bash "$(dirname "$0")/build-icu-min-data.sh" "${BUILD_PREFIX}" "${PIXI_ENV}"; then
-        echo "WARNING: ICU min-data rebuild failed; keeping the full libicudata" >&2
-    fi
-fi
-
 # 5. Diagnostic output. Uses `nullglob` + first-match-from-array to
 # avoid the `ls "..."* 2>/dev/null | head -1` anti-pattern that hides
 # all errors (not just "no match"). Each `_*` array can be empty if no
