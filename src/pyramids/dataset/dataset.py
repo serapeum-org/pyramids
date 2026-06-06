@@ -2303,9 +2303,11 @@ class Dataset(RasterBase):
                 unit-pixel grid with the origin at ``(0, 0)``.
             epsg: EPSG code for the projection. Default 4326.
             no_data_value: No-data sentinel stamped on every band at
-                creation. Default :data:`DEFAULT_NO_DATA_VALUE`. Must be set
-                here so sparse unwritten blocks read back as no-data rather
-                than 0.
+                creation. Default :data:`DEFAULT_NO_DATA_VALUE`. Keep it set
+                so sparse unwritten blocks read back as no-data rather than 0.
+                Passing ``None`` skips the band fill and stamps no sentinel,
+                which opts out of that guarantee — a sparse GTiff's unwritten
+                blocks then read back as **0**, not no-data.
             driver_type: GDAL driver. ``"GTiff"`` (default) writes a
                 disk-backed file and requires `path`; ``"MEM"`` keeps the
                 raster in RAM and requires `path` to be `None`. Note that any
@@ -2422,7 +2424,10 @@ class Dataset(RasterBase):
                 template's band count.
             no_data_value: No-data sentinel for the output. Defaults to the
                 template's first-band no-data value; pass an explicit value
-                to override.
+                to override. If this resolves to ``None`` (passed explicitly,
+                or inherited from a template with no no-data set), no sentinel
+                is stamped and a sparse GTiff's unwritten blocks read back as
+                **0**, not no-data.
             path: Output path (``.tif``) for a disk-backed raster. `None`
                 (default) keeps the raster in memory (MEM driver).
             options: GDAL creation options for the GTiff driver. `None`

@@ -136,6 +136,28 @@ class TestCreateEmpty:
             f"unwritten block should read as nodata -9999, got {np.unique(far)}"
         )
 
+    def test_no_data_none_sparse_block_reads_as_zero(self, tmp_path: Path):
+        """With no_data_value=None, an unwritten sparse GTiff block reads back as 0.
+
+        Test scenario:
+            Documents the opt-out caveat: passing ``no_data_value=None`` skips the band
+            fill and stamps no sentinel, so SPARSE_OK has no no-data to return for
+            never-written blocks — they read back as 0, not no-data. This is the
+            documented downside of dropping the sentinel, and the inverse of
+            ``test_unwritten_block_reads_as_nodata``.
+        """
+        path = tmp_path / "sparse_no_nodata.tif"
+        ds = Dataset.create_empty(
+            1024, 1024, dtype="float32", no_data_value=None, path=path
+        )
+        ds.write_array(np.ones((4, 4), dtype="float32"), window=(0, 0, 4, 4))
+        del ds
+        reopened = Dataset.read_file(str(path))
+        far = reopened.read_array(window=[1000, 1000, 4, 4])
+        assert np.all(far == 0), (
+            f"with no nodata, unwritten block should read as 0, got {np.unique(far)}"
+        )
+
     def test_default_options_are_tiled_sparse_bigtiff(self, tmp_path: Path):
         """The default GTiff is tiled, sparse, and BigTIFF.
 
