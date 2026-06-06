@@ -24,12 +24,20 @@ set -euo pipefail
 
 BUILD_PREFIX="$1"
 PIXI_ENV="$2"
+TARGET_ARCH="${3:-$(uname -m)}"   # cibuildwheel target arch (may differ from host on macOS)
+HOST_ARCH="$(uname -m)"
 
 case "$(uname -s)" in
     Darwin) OS=macos; LIBEXT=dylib; ICU_CFG=MacOSX ;;
     Linux)  OS=linux; LIBEXT=so;    ICU_CFG=Linux  ;;
     *) echo "build-icu-min-data: unsupported OS $(uname -s); skipping"; exit 0 ;;
 esac
+
+# Cross-compile when the target arch differs from the build host (macOS
+# x86_64 wheels built on the arm64 runner). Normalize x86_64/amd64 spelling.
+_norm_arch() { case "$1" in x86_64|amd64|AMD64) echo x86_64 ;; arm64|aarch64) echo arm64 ;; *) echo "$1" ;; esac; }
+CROSS=0
+[[ "$(_norm_arch "${TARGET_ARCH}")" != "$(_norm_arch "${HOST_ARCH}")" ]] && CROSS=1
 
 # Locate the bundled libicudata (real files, not symlinks).
 shopt -s nullglob
@@ -112,31 +120,57 @@ cat > "${work}/filter.json" <<'JSON'
 }
 JSON
 
-echo "build-icu-min-data: configuring + building ICU data (filtered)"
-(
-    cd "${src}"
-    chmod +x configure runConfigureICU || true
-    export ICU_DATA_FILTER_FILE="${work}/filter.json"
-    if [[ "${OS}" == "macos" ]]; then
-        # ICU must build against the system toolchain: configure's test binary
-        # otherwise dies with "dyld: Symbol not found: _iconv" because conda's
-        # libiconv is on the DYLD path, and configure needs SDKROOT to find the
-        # macOS SDK ("C compiler cannot create executables").
-        export SDKROOT="${SDKROOT:-$(xcrun --show-sdk-path 2>/dev/null || true)}"
-        unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH 2>/dev/null || true
-    fi
-    ./runConfigureICU "${ICU_CFG}" \
-        --disable-tests --disable-samples --disable-extras --disable-layoutex \
+chmod +x "${src}/configure" "${src}/runConfigureICU" || true
+_ncpu="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+
+# Configure + build ICU in <build_dir> (in-source if build_dir == src, else
+# a VPATH build). Extra configure args are passed through. ICU_ARCH_FLAGS adds
+# a target -arch for the cross build.
+_run_icu_build() {
+    local bd="$1"; shift
+    mkdir -p "${bd}"
+    (
+        cd "${bd}"
+        export ICU_DATA_FILTER_FILE="${work}/filter.json"
+        if [[ "${OS}" == "macos" ]]; then
+            # System toolchain: conda's libiconv on the DYLD path otherwise
+            # breaks configure's test binary (dyld: _iconv), and configure
+            # needs SDKROOT for the macOS SDK.
+            export SDKROOT="${SDKROOT:-$(xcrun --show-sdk-path 2>/dev/null || true)}"
+            unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH 2>/dev/null || true
+        fi
+        if [[ -n "${ICU_ARCH_FLAGS:-}" ]]; then
+            export CFLAGS="${CFLAGS:-} ${ICU_ARCH_FLAGS}"
+            export CXXFLAGS="${CXXFLAGS:-} ${ICU_ARCH_FLAGS}"
+            export LDFLAGS="${LDFLAGS:-} ${ICU_ARCH_FLAGS}"
+        fi
+        "${src}/runConfigureICU" "${ICU_CFG}" \
+            --disable-tests --disable-samples --disable-extras --disable-layoutex "$@"
+        make -j"${_ncpu}"
+    )
+}
+
+if [[ "${CROSS}" == "1" ]]; then
+    echo "build-icu-min-data: cross-compiling ${HOST_ARCH} -> ${TARGET_ARCH}"
+    # 1) Host build (native): tools (genrb/pkgdata) + the filtered data the
+    #    cross build reuses. 2) Cross build: target-arch libs via the host tools.
+    _run_icu_build "${work}/host"
+    ICU_ARCH_FLAGS="-arch ${TARGET_ARCH}" _run_icu_build "${work}/cross" \
+        --with-cross-build="${work}/host" \
         --enable-shared --disable-static --with-data-packaging=library
-    make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
-)
+    out_root="${work}/cross"
+else
+    echo "build-icu-min-data: configuring + building ICU data (filtered)"
+    _run_icu_build "${src}" --enable-shared --disable-static --with-data-packaging=library
+    out_root="${src}"
+fi
 
 if [[ "${OS}" == "macos" ]]; then
     built_pat="libicudata.*.dylib"   # libicudata.78.3.dylib
 else
     built_pat="libicudata.so.*"      # libicudata.so.78.3
 fi
-built=$(find "${src}/lib" "${src}/data/out" -name "${built_pat}" -type f 2>/dev/null | head -1 || true)
+built=$(find "${out_root}/lib" "${out_root}/data/out" -name "${built_pat}" -type f 2>/dev/null | head -1 || true)
 if [[ -z "${built}" ]]; then
     echo "build-icu-min-data: ERROR built libicudata not found under ${src}" >&2
     exit 1

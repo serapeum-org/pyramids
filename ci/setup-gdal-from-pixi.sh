@@ -283,27 +283,15 @@ else
 fi
 
 # 4b. Shrink the bundled ICU data (~30 MB) by rebuilding it charset-only from
-# the git-archive ICU source (#472). Linux any-arch (native runners) and macOS
-# native arch only — the macOS x86_64-on-arm64 cross-build is deferred (#472).
-# Windows ships no libicudata. Toggle off with PYRAMIDS_ICU_STUB=0; non-fatal.
-_icu_stub_run=0
-if [[ "${PYRAMIDS_ICU_STUB:-1}" == "1" ]]; then
-    case "$(uname -s)" in
-        Linux) _icu_stub_run=1 ;;
-        Darwin)
-            _host_arch="$(uname -m)"
-            _tgt_arch="${CIBW_ARCHS:-${CIBW_ARCHS_MACOS:-$_host_arch}}"
-            if [[ "${_tgt_arch}" == "${_host_arch}" ]]; then
-                _icu_stub_run=1
-            else
-                echo "ICU stub: skipping macOS cross-build (${_host_arch} -> ${_tgt_arch}); see #472"
-            fi
-            ;;
-    esac
-fi
-if [[ "${_icu_stub_run}" == "1" ]]; then
-    echo "--- Rebuilding ICU data (charset-only) ---"
-    if ! bash "$(dirname "$0")/build-icu-min-data.sh" "${BUILD_PREFIX}" "${PIXI_ENV}"; then
+# the git-archive ICU source (#472). Linux + macOS, including the macOS
+# x86_64-on-arm64 cross-build (build-icu-min-data.sh detects cross from the
+# target arch and uses ICU --with-cross-build). Windows ships no libicudata.
+# Toggle off with PYRAMIDS_ICU_STUB=0; non-fatal.
+if [[ "${PYRAMIDS_ICU_STUB:-1}" == "1" ]] && [[ "$(uname -s)" =~ ^(Linux|Darwin)$ ]]; then
+    _icu_target_arch="${CIBW_ARCHS:-${CIBW_ARCHS_MACOS:-$(uname -m)}}"
+    echo "--- Rebuilding ICU data (charset-only, target ${_icu_target_arch}) ---"
+    if ! bash "$(dirname "$0")/build-icu-min-data.sh" \
+            "${BUILD_PREFIX}" "${PIXI_ENV}" "${_icu_target_arch}"; then
         echo "WARNING: ICU min-data rebuild failed; keeping the full libicudata" >&2
     fi
 fi
