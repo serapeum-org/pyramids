@@ -182,6 +182,35 @@ class TestCreateEmpty:
             f"default geo mismatch: {ds.geotransform}"
         )
 
+    def test_multiband_allocation_writes_bands_independently(self, tmp_path: Path):
+        """A multi-band ``create_empty`` allocates N bands that write/read independently.
+
+        Test scenario:
+            ``create_empty(..., bands=3)`` on disk produces a 3-band raster. Writing a
+            distinct value into band 0 and band 2 (leaving band 1 untouched) and reading
+            each back confirms the band count and that bands do not bleed into one
+            another — band 1 stays at the no-data sentinel, bands 0 and 2 hold their
+            written values. All existing create_empty tests are single-band, so this is
+            the only multi-band coverage.
+        """
+        path = tmp_path / "multiband.tif"
+        ds = Dataset.create_empty(
+            8, 8, bands=3, dtype="float32", no_data_value=-9999.0, path=path
+        )
+        assert ds.band_count == 3, f"expected 3 bands, got {ds.band_count}"
+        ds.write_array(np.full((4, 4), 1.0, dtype="float32"), band=0, window=(0, 0, 4, 4))
+        ds.write_array(np.full((4, 4), 7.0, dtype="float32"), band=2, window=(0, 0, 4, 4))
+        del ds
+        reopened = Dataset.read_file(str(path))
+        band0 = reopened.read_array(band=0, window=[0, 0, 4, 4])
+        band1 = reopened.read_array(band=1, window=[0, 0, 4, 4])
+        band2 = reopened.read_array(band=2, window=[0, 0, 4, 4])
+        assert np.all(band0 == 1.0), f"band 0 should be 1.0, got {np.unique(band0)}"
+        assert np.all(band1 == -9999.0), (
+            f"untouched band 1 should be nodata, got {np.unique(band1)}"
+        )
+        assert np.all(band2 == 7.0), f"band 2 should be 7.0, got {np.unique(band2)}"
+
     def test_sparse_allocation_is_small_on_disk(self, tmp_path: Path):
         """A large empty sparse GTiff costs almost no disk before any write.
 
@@ -331,6 +360,22 @@ class TestEmptyLike:
         out = Dataset.empty_like(template, no_data_value=0)
         assert out.no_data_value[0] == 0, (
             f"nodata override ignored: {out.no_data_value[0]}"
+        )
+
+    def test_explicit_none_nodata_stamps_no_sentinel(self, template: Dataset):
+        """``no_data_value=None`` produces a raster with no no-data sentinel.
+
+        Test scenario:
+            Passing ``no_data_value=None`` explicitly (distinct from the
+            ``_INHERIT_NO_DATA`` default that copies the template's -9999, and from an
+            override value) routes through ``_build_dataset`` with no-data set to None,
+            which skips the band fill entirely. The resulting first-band no-data must be
+            None — the documented "stamp no sentinel" behaviour. This is the only
+            coverage of the None branch.
+        """
+        out = Dataset.empty_like(template, no_data_value=None)
+        assert out.no_data_value[0] is None, (
+            f"expected no no-data sentinel, got {out.no_data_value[0]}"
         )
 
     def test_disk_backed_roundtrip(self, template: Dataset, tmp_path: Path):
