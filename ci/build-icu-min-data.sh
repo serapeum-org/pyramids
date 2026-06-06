@@ -88,7 +88,7 @@ cat > "${work}/filter.json" <<'JSON'
     "brkitr_dictionaries": "exclude",
     "brkitr_rules": "exclude",
     "brkitr_tree": "exclude",
-    "collation_tree": "exclude",
+    "coll_tree": "exclude",
     "curr_tree": "exclude",
     "lang_tree": "exclude",
     "locales_tree": "exclude",
