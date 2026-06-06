@@ -2307,7 +2307,8 @@ class Dataset(RasterBase):
                 so sparse unwritten blocks read back as no-data rather than 0.
                 Passing ``None`` skips the band fill and stamps no sentinel,
                 which opts out of that guarantee — a sparse GTiff's unwritten
-                blocks then read back as **0**, not no-data.
+                blocks then read back as **0**, not no-data — and emits a
+                :class:`UserWarning`.
             driver_type: GDAL driver. ``"GTiff"`` (default) writes a
                 disk-backed file and requires `path`; ``"MEM"`` keeps the
                 raster in RAM and requires `path` to be `None`. Note that any
@@ -2375,6 +2376,13 @@ class Dataset(RasterBase):
                 "driver_type='MEM' for an in-memory one. (Without a path the GTiff "
                 "tiled/sparse/BigTIFF options would be silently dropped.)"
             )
+        if no_data_value is None:
+            warnings.warn(
+                "create_empty(no_data_value=None) stamps no no-data sentinel, so "
+                "unwritten cells read back as 0, not no-data. Pass a no_data_value "
+                "to keep the 'unwritten == no-data' guarantee.",
+                stacklevel=2,
+            )
         gdal_dtype = numpy_to_gdal_dtype(dtype)
         crs_wkt = sr_from_epsg(epsg).ExportToWkt()
         if geo is None:
@@ -2427,7 +2435,7 @@ class Dataset(RasterBase):
                 to override. If this resolves to ``None`` (passed explicitly,
                 or inherited from a template with no no-data set), no sentinel
                 is stamped and a sparse GTiff's unwritten blocks read back as
-                **0**, not no-data.
+                **0**, not no-data — and a :class:`UserWarning` is emitted.
             path: Output path (``.tif``) for a disk-backed raster. `None`
                 (default) keeps the raster in memory (MEM driver).
             options: GDAL creation options for the GTiff driver. `None`
@@ -2488,6 +2496,15 @@ class Dataset(RasterBase):
             if no_data_value is _INHERIT_NO_DATA
             else no_data_value
         )
+        if nodata is None:
+            warnings.warn(
+                "empty_like produced a raster with no no-data sentinel "
+                "(no_data_value resolved to None, explicitly or inherited from a "
+                "template with no no-data), so unwritten cells read back as 0, not "
+                "no-data. Pass no_data_value to keep the 'unwritten == no-data' "
+                "guarantee.",
+                stacklevel=2,
+            )
         driver_type = "GTiff" if path is not None else "MEM"
         if options is None and driver_type == "GTiff":
             options = list(OUT_OF_CORE_CREATION_OPTIONS)

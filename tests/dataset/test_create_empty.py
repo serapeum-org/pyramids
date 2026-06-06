@@ -147,9 +147,10 @@ class TestCreateEmpty:
             ``test_unwritten_block_reads_as_nodata``.
         """
         path = tmp_path / "sparse_no_nodata.tif"
-        ds = Dataset.create_empty(
-            1024, 1024, dtype="float32", no_data_value=None, path=path
-        )
+        with pytest.warns(UserWarning, match="read back as 0"):
+            ds = Dataset.create_empty(
+                1024, 1024, dtype="float32", no_data_value=None, path=path
+            )
         ds.write_array(np.ones((4, 4), dtype="float32"), window=(0, 0, 4, 4))
         del ds
         reopened = Dataset.read_file(str(path))
@@ -385,17 +386,18 @@ class TestEmptyLike:
         )
 
     def test_explicit_none_nodata_stamps_no_sentinel(self, template: Dataset):
-        """``no_data_value=None`` produces a raster with no no-data sentinel.
+        """``no_data_value=None`` produces a raster with no no-data sentinel and warns.
 
         Test scenario:
             Passing ``no_data_value=None`` explicitly (distinct from the
             ``_INHERIT_NO_DATA`` default that copies the template's -9999, and from an
             override value) routes through ``_build_dataset`` with no-data set to None,
             which skips the band fill entirely. The resulting first-band no-data must be
-            None — the documented "stamp no sentinel" behaviour. This is the only
-            coverage of the None branch.
+            None, and a UserWarning must be emitted so the unwritten-reads-0 consequence
+            is visible at runtime.
         """
-        out = Dataset.empty_like(template, no_data_value=None)
+        with pytest.warns(UserWarning, match="no no-data sentinel"):
+            out = Dataset.empty_like(template, no_data_value=None)
         assert out.no_data_value[0] is None, (
             f"expected no no-data sentinel, got {out.no_data_value[0]}"
         )
