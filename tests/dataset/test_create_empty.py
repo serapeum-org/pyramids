@@ -24,13 +24,15 @@ pytestmark = pytest.mark.core
 class TestCreateEmpty:
     """Tests for :meth:`pyramids.dataset.Dataset.create_empty`."""
 
-    def test_mem_allocation_reads_back_as_nodata(self):
-        """An unwritten MEM raster has the configured shape and reads as no-data.
+    def test_mem_allocation_stamps_nodata_metadata(self):
+        """An unwritten MEM raster has the configured shape and no-data metadata.
 
         Test scenario:
             ``create_empty(4, 5, driver_type="MEM")`` allocates a 1-band 4x5 raster
             whose cells are untouched. Shape and band count match the request and the
-            no-data sentinel is stamped on the band.
+            no-data sentinel is stamped on the band metadata. (This asserts the
+            *metadata* only — see ``test_mem_unwritten_cells_read_as_zero`` for the
+            distinct cell-contents behaviour of the MEM driver.)
         """
         ds = Dataset.create_empty(
             4, 5, dtype="float32", no_data_value=-9999.0, driver_type="MEM"
@@ -40,6 +42,24 @@ class TestCreateEmpty:
         )
         assert ds.no_data_value[0] == -9999.0, (
             f"nodata not stamped, got {ds.no_data_value[0]}"
+        )
+
+    def test_mem_unwritten_cells_read_as_nodata(self):
+        """MEM unwritten cells read back as the no-data sentinel, not 0.
+
+        Test scenario:
+            ``_build_dataset`` fills every band with the no-data value at allocation
+            (``GDALRasterBand.Fill``), so a never-written MEM cell reads back as -9999,
+            matching the sparse-GTiff behaviour in
+            ``test_unwritten_block_reads_as_nodata``. This pins the cross-driver
+            guarantee that unwritten cells are no-data, not 0.
+        """
+        ds = Dataset.create_empty(
+            4, 4, dtype="float32", no_data_value=-9999.0, driver_type="MEM"
+        )
+        whole = ds.read_array()
+        assert np.all(whole == -9999.0), (
+            f"unwritten MEM cells should read as nodata -9999, got {np.unique(whole)}"
         )
 
     def test_window_write_read_roundtrip_mem(self):
@@ -162,6 +182,38 @@ class TestCreateEmpty:
             f"default geo mismatch: {ds.geotransform}"
         )
 
+    def test_sparse_allocation_is_small_on_disk(self, tmp_path: Path):
+        """A large empty sparse GTiff costs almost no disk before any write.
+
+        Test scenario:
+            ``create_empty`` allocates a 10 000 x 10 000 float32 raster — 400 MB if
+            materialised — but with SPARSE_OK and the no-data fill optimised away by
+            GDAL (an all-no-data block is not allocated), the file on disk must stay
+            tiny (header + metadata only). This is the headline out-of-core guarantee:
+            never-written blocks cost no disk.
+        """
+        path = tmp_path / "sparse.tif"
+        ds = Dataset.create_empty(10_000, 10_000, dtype="float32", path=path)
+        del ds
+        size = path.stat().st_size
+        materialised = 10_000 * 10_000 * 4
+        assert size < materialised // 100, (
+            f"sparse GTiff is {size / 1e6:.2f} MB; a materialised raster would be "
+            f"{materialised / 1e6:.0f} MB — SPARSE_OK is not in effect"
+        )
+
+    def test_gtiff_without_path_raises(self):
+        """``create_empty`` with the default GTiff driver but no path raises ValueError.
+
+        Test scenario:
+            ``create_empty(rows, cols)`` defaults to ``driver_type="GTiff"`` but with no
+            ``path`` the underlying driver would silently fall back to MEM and drop the
+            tiled / sparse / BigTIFF options. The method must reject that combination
+            loudly rather than hand back a surprising in-memory raster.
+        """
+        with pytest.raises(ValueError, match="needs a path"):
+            Dataset.create_empty(4, 4)
+
     @pytest.mark.slow
     def test_bigtiff_past_4gb_ceiling(self, tmp_path: Path):
         """A logical raster past the 4 GB classic-TIFF ceiling allocates and writes.
@@ -175,27 +227,32 @@ class TestCreateEmpty:
         """
         path = tmp_path / "big.tif"
         ds = Dataset.create_empty(50_000, 90_000, dtype="int8", path=path)
-        ds.write_array(
-            np.ones((4, 4), dtype="int8"), window=(49_996, 89_996, 4, 4)
-        )
+        # write_array window is (row_off, col_off, n_rows, n_cols); the far corner
+        # of a 50_000-row x 90_000-col raster.
+        ds.write_array(np.ones((4, 4), dtype="int8"), window=(49_996, 89_996, 4, 4))
         del ds
         info = gdal.Info(str(path))
         assert "BigTIFF" in info or "BIGTIFF" in info.upper(), (
             f"file should be BigTIFF, gdalinfo:\n{info[:400]}"
         )
         reopened = Dataset.read_file(str(path))
-        back = reopened.read_array(window=[49_996, 89_996, 4, 4])
+        # read_array window is (col_off, row_off, n_cols, n_rows) — the opposite axis
+        # order of write_array (it forwards straight to GDAL ReadAsArray(xoff, yoff,
+        # xsize, ysize)). Mirror the write corner with the axes swapped.
+        back = reopened.read_array(window=[89_996, 49_996, 4, 4])
         assert np.all(back == 1), f"far-corner write past 4GB failed: {np.unique(back)}"
 
     @pytest.mark.slow
-    def test_allocation_is_constant_ram(self, tmp_path: Path):
-        """Allocating a huge raster does not materialise a full-size array.
+    def test_allocation_allocates_no_full_python_buffer(self, tmp_path: Path):
+        """Allocating a huge raster materialises no full-size NumPy buffer on the Python side.
 
         Test scenario:
             A 20 000 x 20 000 float32 dense array would need ~1.6 GB of RAM. The
-            header-only ``create_empty`` must allocate in O(1) — tracemalloc on the
-            Python side should show a peak far below the dense-array size (a few MB,
-            not gigabytes), proving no full buffer is created.
+            header-only ``create_empty`` must not build one — ``tracemalloc`` (which
+            sees Python-level allocations only, not GDAL's C++ block cache) should show
+            a peak far below the dense-array size. This guards against an accidental
+            NumPy full-array materialisation in the Python code path; it does not bound
+            GDAL's native allocations (see the review's L2 note).
         """
         path = tmp_path / "o1.tif"
         dense_bytes = 20_000 * 20_000 * 4
@@ -285,7 +342,10 @@ class TestEmptyLike:
         """
         path = tmp_path / "like.tif"
         out = Dataset.empty_like(template, path=path)
-        out.write_array(np.full((2, 2), 7.0, dtype="float32"), window=(0, 0, 2, 2))
+        # template is 3-band, so target band 0 explicitly when writing a 2-D block.
+        out.write_array(
+            np.full((2, 2), 7.0, dtype="float32"), band=0, window=(0, 0, 2, 2)
+        )
         del out
         reopened = Dataset.read_file(str(path))
         back = reopened.read_array(band=0, window=[0, 0, 2, 2])

@@ -2285,8 +2285,11 @@ class Dataset(RasterBase):
         and BigTIFF** (see :data:`OUT_OF_CORE_CREATION_OPTIONS`), so a
         50 000 x 50 000 float32 raster is created in O(1) RAM, never-written
         blocks cost no disk, and writes past the 4 GB classic-TIFF ceiling
-        succeed. Unwritten blocks read back as ``no_data_value`` (not 0), so
-        downstream code must treat unwritten tiles as no-data.
+        succeed. A never-written cell reads back as ``no_data_value`` (not 0) —
+        on GTiff because SPARSE_OK + the band no-data sentinel returns no-data
+        for unwritten blocks, and on MEM because the band is filled with the
+        no-data value at allocation — so downstream code must treat unwritten
+        tiles as no-data.
 
         Args:
             rows: Number of rows of the output raster.
@@ -2314,12 +2317,17 @@ class Dataset(RasterBase):
                 change compression.
 
         Returns:
-            Dataset: An empty raster whose bands are unwritten (sparse) and
-            read back as `no_data_value`.
+            Dataset: An empty raster. On the GTiff driver the bands are
+            unwritten (sparse) and read back as `no_data_value`; on the MEM
+            driver the buffer is zero-initialised.
+
+        Raises:
+            ValueError: ``driver_type="GTiff"`` (the default) is requested
+                without a `path`. Pass a `path`, or use ``driver_type="MEM"``
+                for an in-memory raster.
 
         Examples:
-            - Allocate an in-memory empty raster and confirm it reads as
-              no-data before any write:
+            - Allocate an in-memory empty raster and read its no-data metadata:
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
@@ -2328,7 +2336,7 @@ class Dataset(RasterBase):
                 ... )
                 >>> (ds.rows, ds.columns, ds.band_count)
                 (4, 5, 1)
-                >>> ds.no_data_value[0]
+                >>> float(ds.no_data_value[0])
                 -9999.0
 
                 ```
@@ -2344,12 +2352,19 @@ class Dataset(RasterBase):
 
                 ```
         """
+        if driver_type == "GTiff" and path is None:
+            raise ValueError(
+                "create_empty(driver_type='GTiff') needs a path to write the raster "
+                "to; pass path='out.tif' for a disk-backed raster, or "
+                "driver_type='MEM' for an in-memory one. (Without a path the GTiff "
+                "tiled/sparse/BigTIFF options would be silently dropped.)"
+            )
         gdal_dtype = numpy_to_gdal_dtype(dtype)
         crs_wkt = sr_from_epsg(epsg).ExportToWkt()
         if geo is None:
             geo = (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)
         if options is None and driver_type == "GTiff":
-            options = OUT_OF_CORE_CREATION_OPTIONS
+            options = list(OUT_OF_CORE_CREATION_OPTIONS)
         return cls._build_dataset(
             cols,
             rows,
@@ -2432,7 +2447,7 @@ class Dataset(RasterBase):
         )
         driver_type = "GTiff" if path is not None else "MEM"
         if options is None and driver_type == "GTiff":
-            options = OUT_OF_CORE_CREATION_OPTIONS
+            options = list(OUT_OF_CORE_CREATION_OPTIONS)
         return cls._build_dataset(
             template.columns,
             template.rows,
