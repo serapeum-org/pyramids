@@ -131,8 +131,12 @@ echo "build-icu-min-data: configuring + building ICU data (filtered)"
     make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
 )
 
-built=$(find "${src}/lib" "${src}/data/out" -name "libicudata.*${LIBEXT}" -type f 2>/dev/null \
-        | grep -E "libicudata\.(so\.|[0-9])" | head -1 || true)
+if [[ "${OS}" == "macos" ]]; then
+    built_pat="libicudata.*.dylib"   # libicudata.78.3.dylib
+else
+    built_pat="libicudata.so.*"      # libicudata.so.78.3
+fi
+built=$(find "${src}/lib" "${src}/data/out" -name "${built_pat}" -type f 2>/dev/null | head -1 || true)
 if [[ -z "${built}" ]]; then
     echo "build-icu-min-data: ERROR built libicudata not found under ${src}" >&2
     exit 1
