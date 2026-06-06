@@ -117,6 +117,14 @@ echo "build-icu-min-data: configuring + building ICU data (filtered)"
     cd "${src}"
     chmod +x configure runConfigureICU || true
     export ICU_DATA_FILTER_FILE="${work}/filter.json"
+    if [[ "${OS}" == "macos" ]]; then
+        # ICU must build against the system toolchain: configure's test binary
+        # otherwise dies with "dyld: Symbol not found: _iconv" because conda's
+        # libiconv is on the DYLD path, and configure needs SDKROOT to find the
+        # macOS SDK ("C compiler cannot create executables").
+        export SDKROOT="${SDKROOT:-$(xcrun --show-sdk-path 2>/dev/null || true)}"
+        unset DYLD_LIBRARY_PATH DYLD_FALLBACK_LIBRARY_PATH 2>/dev/null || true
+    fi
     ./runConfigureICU "${ICU_CFG}" \
         --disable-tests --disable-samples --disable-extras --disable-layoutex \
         --enable-shared --disable-static --with-data-packaging=library
