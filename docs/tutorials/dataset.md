@@ -1,5 +1,13 @@
 ﻿# dataset
 
+!!! warning "Legacy API — being rewritten"
+    Many code samples further down this page use an older static `Raster.<method>` API
+    (`Raster.createRaster`, `Raster.getProjectionData`, `Raster.projectRaster`, …) that has
+    been removed. For the current, supported API see the runnable notebooks under
+    **Examples → Dataset** (start with [Dataset basics](../examples/dataset/dataset.ipynb)),
+    the [Raster basics](raster-basics.md) and [Datacube basics](datacube-basics.md) tutorials,
+    and the [Dataset API reference](../reference/dataset/index.md).
+
 - dataset module contains Two classes `Dataset` and `DatasetCollection`.
 - Dataset represent a raster object which could be created from reading a geotiff, netcdf, ascii or any file
     format/driver supported by gdal.
@@ -7,8 +15,8 @@
 - The raster could have different variables (like netcdf file) and these variable can have similar or different
     dimensions.
 
-- DataCube represent a stack of raster's which have the same dimensions, contains data that have same dimensions (rows
-    & columns).
+- DatasetCollection represents a stack of rasters which share the same dimensions and georeferencing
+    (rows & columns).
 
 
 ## Dataset
@@ -583,8 +591,9 @@ dataset.to_file("examples/data/dem/dem5km_rhine.nc", driver="netcdf")
 
 ### convert_longitude
 - some files (especially netcdf files) uses longitude values from 0 degrees to 360 degrees, instead of the usual,
-    GIS-standard, arrangement of -180 degrees to 180 degrees for longitude centered on the Prime Meridian, and -90 degrees
-    to 90 degrees for latitude centered on the Equator. the `convert_longitude` method corrects such behavior.
+    GIS-standard, arrangement of -180 degrees to 180 degrees for longitude centered on the Prime Meridian, and
+    -90 degrees to 90 degrees for latitude centered on the Equator. the `convert_longitude` method corrects such
+    behavior.
 
 ![](./../_images/dataset/0-360-longitude-withbase-map.png)
 
@@ -834,8 +843,8 @@ resulted Geotransform = (432968.1206170588, 4000.0, 0.0, 520007.787999178, 0.0, 
 ### align
 - `matchRasterAlignment` method matches the coordinate system and the number of of rows & columns between two rasters
     alignment_src is the source of the coordinate system, number of rows, number of columns & cell size data_src is the
-    source of data values in cells the result will be a raster with the same structure like alignment_src but with values
-    from data_src using Nearest Neighbour interpolation algorithm
+    source of data values in cells the result will be a raster with the same structure like alignment_src but with
+    values from data_src using Nearest Neighbour interpolation algorithm
 
 #### Parameters
     alignment_src : [gdal.dataset/string]
@@ -1079,8 +1088,8 @@ Map.plot(dst, title="Flow Accumulation")
 
 ### nearestNeighbour
 
-- `nearestCell` calculates the the indices (row, col) of nearest cell in a given raster to a station coordinate system of
-    the raster has to be projected to be able to calculate the distance
+- `nearestCell` calculates the the indices (row, col) of nearest cell in a given raster to a station coordinate
+    system of the raster has to be projected to be able to calculate the distance
 
 #### Parameters
     Raster: [gdal.dataset]

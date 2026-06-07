@@ -7,5 +7,7 @@ This section collects significant architectural decisions for the pyramids proje
 - ADR-0003: I/O format choices
 - ADR-0004: Dependency graphing approach
 - ADR-0005: Versioned documentation strategy
+- ADR-0006: Docker image
 
-Each ADR includes context, decision, and consequences. New ADRs should follow the numbering convention and be immutable once accepted.
+Each ADR includes context, decision, and consequences. New ADRs should follow the numbering
+convention and be immutable once accepted.
