@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import subprocess
 import tracemalloc
+import warnings
 from pathlib import Path
 
 import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, NoDataSentinelWarning
 from pyramids.dataset.dataset import OUT_OF_CORE_CREATION_OPTIONS
 
 pytestmark = pytest.mark.core
@@ -142,12 +143,12 @@ class TestCreateEmpty:
         Test scenario:
             Documents the opt-out caveat: passing ``no_data_value=None`` skips the band
             fill and stamps no sentinel, so SPARSE_OK has no no-data to return for
-            never-written blocks — they read back as 0, not no-data. This is the
-            documented downside of dropping the sentinel, and the inverse of
+            never-written blocks — they read back as 0, not no-data. The disk/GTiff
+            path emits a ``NoDataSentinelWarning``. Inverse of
             ``test_unwritten_block_reads_as_nodata``.
         """
         path = tmp_path / "sparse_no_nodata.tif"
-        with pytest.warns(UserWarning, match="read back as 0"):
+        with pytest.warns(NoDataSentinelWarning, match="read back as 0"):
             ds = Dataset.create_empty(
                 1024, 1024, dtype="float32", no_data_value=None, path=path
             )
@@ -157,6 +158,25 @@ class TestCreateEmpty:
         far = reopened.read_array(window=[1000, 1000, 4, 4])
         assert np.all(far == 0), (
             f"with no nodata, unwritten block should read as 0, got {np.unique(far)}"
+        )
+
+    def test_mem_none_nodata_does_not_warn(self):
+        """create_empty(MEM, no_data_value=None) does not emit NoDataSentinelWarning.
+
+        Test scenario:
+            The MEM driver is a dense in-RAM buffer, not a sparse GTiff, so a
+            sentinel-free MEM raster is an ordinary choice (mask / RGB / scratch) and
+            must not trigger the disk-only ``NoDataSentinelWarning``. Scopes the warning
+            to the GTiff path — the complement of
+            ``test_no_data_none_sparse_block_reads_as_zero``.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", NoDataSentinelWarning)
+            ds = Dataset.create_empty(
+                4, 4, dtype="float32", no_data_value=None, driver_type="MEM"
+            )
+        assert ds.no_data_value[0] is None, (
+            f"expected no sentinel, got {ds.no_data_value[0]}"
         )
 
     def test_default_options_are_tiled_sparse_bigtiff(self, tmp_path: Path):
@@ -389,19 +409,35 @@ class TestEmptyLike:
             f"nodata override ignored: {out.no_data_value[0]}"
         )
 
-    def test_explicit_none_nodata_stamps_no_sentinel(self, template: Dataset):
-        """``no_data_value=None`` produces a raster with no no-data sentinel and warns.
+    def test_explicit_none_nodata_stamps_no_sentinel_mem(self, template: Dataset):
+        """In-RAM ``empty_like(no_data_value=None)`` stamps no sentinel and does not warn.
 
         Test scenario:
             Passing ``no_data_value=None`` explicitly (distinct from the
             ``_INHERIT_NO_DATA`` default that copies the template's -9999, and from an
             override value) routes through ``_build_dataset`` with no-data set to None,
-            which skips the band fill entirely. The resulting first-band no-data must be
-            None, and a UserWarning must be emitted so the unwritten-reads-0 consequence
-            is visible at runtime.
+            which skips the band fill. With no ``path`` the result is an in-RAM MEM
+            raster, so the disk-only ``NoDataSentinelWarning`` must NOT fire; the
+            first-band no-data must be None.
         """
-        with pytest.warns(UserWarning, match="no no-data sentinel"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", NoDataSentinelWarning)
             out = Dataset.empty_like(template, no_data_value=None)
+        assert out.no_data_value[0] is None, (
+            f"expected no no-data sentinel, got {out.no_data_value[0]}"
+        )
+
+    def test_none_nodata_disk_warns(self, template: Dataset, tmp_path: Path):
+        """Disk-backed ``empty_like(no_data_value=None)`` emits NoDataSentinelWarning.
+
+        Test scenario:
+            With a ``path`` the result is a sparse GTiff, where a missing sentinel makes
+            unwritten blocks read back as 0 — so a ``NoDataSentinelWarning`` must be
+            emitted. Complement of the MEM case above.
+        """
+        path = tmp_path / "like_no_nodata.tif"
+        with pytest.warns(NoDataSentinelWarning, match="read back as"):
+            out = Dataset.empty_like(template, no_data_value=None, path=path)
         assert out.no_data_value[0] is None, (
             f"expected no no-data sentinel, got {out.no_data_value[0]}"
         )

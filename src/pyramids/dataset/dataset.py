@@ -87,6 +87,18 @@ OUT_OF_CORE_CREATION_OPTIONS = [
 ]
 
 
+class NoDataSentinelWarning(UserWarning):
+    """Warns that a disk-backed sparse raster was allocated with no no-data sentinel.
+
+    Emitted by :meth:`Dataset.create_empty` / :meth:`Dataset.empty_like` when the
+    target is a sparse GTiff and ``no_data_value`` resolves to ``None``: with no
+    sentinel, never-written blocks read back as ``0`` rather than no-data. Callers
+    who intentionally build sentinel-free rasters can silence it precisely with
+    ``warnings.filterwarnings("ignore", category=NoDataSentinelWarning)`` instead of
+    muting every :class:`UserWarning`.
+    """
+
+
 def _derive_band_names(paths: list[str]) -> list[str]:
     """Derive band names from a list of single-band raster paths.
 
@@ -2307,8 +2319,9 @@ class Dataset(RasterBase):
                 so sparse unwritten blocks read back as no-data rather than 0.
                 Passing ``None`` skips the band fill and stamps no sentinel,
                 which opts out of that guarantee — a sparse GTiff's unwritten
-                blocks then read back as **0**, not no-data — and emits a
-                :class:`UserWarning`.
+                blocks then read back as **0**, not no-data. On the disk/GTiff
+                path this emits a :class:`NoDataSentinelWarning`; the in-RAM
+                ``"MEM"`` driver is dense and does not warn.
             driver_type: GDAL driver. ``"GTiff"`` (default) writes a
                 disk-backed file and requires `path`; ``"MEM"`` keeps the
                 raster in RAM and requires `path` to be `None`. Note that any
@@ -2376,11 +2389,18 @@ class Dataset(RasterBase):
                 "driver_type='MEM' for an in-memory one. (Without a path the GTiff "
                 "tiled/sparse/BigTIFF options would be silently dropped.)"
             )
-        if no_data_value is None:
+        # Only the disk/GTiff path is sparse, where a missing sentinel makes
+        # never-written blocks read back as 0 instead of no-data. The MEM driver
+        # (path is None) is a dense in-RAM buffer where a sentinel-free raster is
+        # an ordinary, unsurprising choice — don't warn there. (A non-None path
+        # always yields a GTiff, including the MEM+path promotion.)
+        if no_data_value is None and path is not None:
             warnings.warn(
-                "create_empty(no_data_value=None) stamps no no-data sentinel, so "
-                "unwritten cells read back as 0, not no-data. Pass a no_data_value "
-                "to keep the 'unwritten == no-data' guarantee.",
+                "create_empty(no_data_value=None) on a disk/GTiff target stamps no "
+                "no-data sentinel, so unwritten sparse blocks read back as 0, not "
+                "no-data. Pass a no_data_value to keep the 'unwritten == no-data' "
+                "guarantee.",
+                NoDataSentinelWarning,
                 stacklevel=2,
             )
         gdal_dtype = numpy_to_gdal_dtype(dtype)
@@ -2435,7 +2455,9 @@ class Dataset(RasterBase):
                 to override. If this resolves to ``None`` (passed explicitly,
                 or inherited from a template with no no-data set), no sentinel
                 is stamped and a sparse GTiff's unwritten blocks read back as
-                **0**, not no-data — and a :class:`UserWarning` is emitted.
+                **0**, not no-data; on the disk/GTiff path (``path`` given)
+                this emits a :class:`NoDataSentinelWarning` (the in-RAM MEM
+                result does not warn).
             path: Output path (``.tif``) for a disk-backed raster. `None`
                 (default) keeps the raster in memory (MEM driver).
             options: GDAL creation options for the GTiff driver. `None`
@@ -2496,13 +2518,17 @@ class Dataset(RasterBase):
             if no_data_value is _INHERIT_NO_DATA
             else no_data_value
         )
-        if nodata is None:
+        # Warn only for the disk/GTiff target (path given), where a missing
+        # sentinel makes unwritten sparse blocks read back as 0. An in-RAM MEM
+        # result (no path) is dense and a sentinel-free raster is unsurprising.
+        if nodata is None and path is not None:
             warnings.warn(
-                "empty_like produced a raster with no no-data sentinel "
+                "empty_like produced a disk/GTiff raster with no no-data sentinel "
                 "(no_data_value resolved to None, explicitly or inherited from a "
-                "template with no no-data), so unwritten cells read back as 0, not "
-                "no-data. Pass no_data_value to keep the 'unwritten == no-data' "
-                "guarantee.",
+                "template with no no-data), so unwritten sparse blocks read back as "
+                "0, not no-data. Pass no_data_value to keep the 'unwritten == "
+                "no-data' guarantee.",
+                NoDataSentinelWarning,
                 stacklevel=2,
             )
         driver_type = "GTiff" if path is not None else "MEM"
