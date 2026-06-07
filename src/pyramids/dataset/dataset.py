@@ -2334,7 +2334,9 @@ class Dataset(RasterBase):
             options: GDAL creation options. `None` (default) uses
                 :data:`OUT_OF_CORE_CREATION_OPTIONS` for GTiff. Override to
                 align ``BLOCKXSIZE`` / ``BLOCKYSIZE`` to your tile size or to
-                change compression. Ignored by the MEM driver.
+                change compression. Applies only to the disk/GTiff driver;
+                passing `options` without a `path` raises rather than silently
+                dropping them.
 
         Returns:
             Dataset: An empty raster whose bands read back as `no_data_value`
@@ -2344,7 +2346,9 @@ class Dataset(RasterBase):
             at allocation, so unwritten MEM cells read back as no-data too.
 
         Raises:
-            ValueError: ``driver_type="GTiff"`` (the default) is requested
+            ValueError: ``options`` is given without a ``path`` (creation
+                options apply only to the disk/GTiff driver); or
+                ``driver_type="GTiff"`` (the default) is requested
                 without a `path`. Pass a `path`, or use ``driver_type="MEM"``
                 for an in-memory raster.
 
@@ -2388,6 +2392,15 @@ class Dataset(RasterBase):
                 "to; pass path='out.tif' for a disk-backed raster, or "
                 "driver_type='MEM' for an in-memory one. (Without a path the GTiff "
                 "tiled/sparse/BigTIFF options would be silently dropped.)"
+            )
+        # Creation options apply only to the disk/GTiff driver (path given); the
+        # MEM driver takes none. Reject explicit options that would be dropped
+        # rather than silently ignoring them.
+        if options is not None and path is None:
+            raise ValueError(
+                "create_empty received `options` but no `path`: GDAL creation "
+                "options apply only to the disk/GTiff driver. Pass a `path`, or drop "
+                "`options` for the in-memory MEM raster."
             )
         # Only the disk/GTiff path is sparse, where a missing sentinel makes
         # never-written blocks read back as 0 instead of no-data. The MEM driver
@@ -2450,21 +2463,31 @@ class Dataset(RasterBase):
                 reuses the template's dtype.
             bands: Number of output bands. `None` (default) reuses the
                 template's band count.
-            no_data_value: No-data sentinel for the output. Defaults to the
-                template's first-band no-data value; pass an explicit value
-                to override. If this resolves to ``None`` (passed explicitly,
-                or inherited from a template with no no-data set), no sentinel
-                is stamped and a sparse GTiff's unwritten blocks read back as
-                **0**, not no-data; on the disk/GTiff path (``path`` given)
-                this emits a :class:`NoDataSentinelWarning` (the in-RAM MEM
-                result does not warn).
+            no_data_value: No-data sentinel for the output. Default inherits
+                from the template: when the band count is unchanged and every
+                template band has a sentinel, the **per-band** no-data values
+                are preserved; otherwise (a `bands` override, or a template
+                band with no sentinel) the template's first-band value is used.
+                Pass an explicit scalar or per-band list to override. If this
+                resolves to ``None`` (passed explicitly, or inherited from a
+                template with no no-data set), no sentinel is stamped and a
+                sparse GTiff's unwritten blocks read back as **0**, not no-data;
+                on the disk/GTiff path (``path`` given) this emits a
+                :class:`NoDataSentinelWarning` (the in-RAM MEM result does not
+                warn).
             path: Output path (``.tif``) for a disk-backed raster. `None`
                 (default) keeps the raster in memory (MEM driver).
             options: GDAL creation options for the GTiff driver. `None`
-                (default) uses :data:`OUT_OF_CORE_CREATION_OPTIONS`.
+                (default) uses :data:`OUT_OF_CORE_CREATION_OPTIONS`. Applies
+                only to the disk/GTiff driver; passing `options` without a
+                `path` raises rather than silently dropping them.
 
         Returns:
             Dataset: An empty raster matching the template's footprint.
+
+        Raises:
+            ValueError: ``options`` is given without a ``path`` (creation
+                options apply only to the disk/GTiff driver).
 
         Examples:
             - Allocate an empty raster shaped like an existing one, with a
@@ -2509,15 +2532,27 @@ class Dataset(RasterBase):
               template footprint *and* writes a supplied array.
             - :meth:`write_array`: Scatter a window into the allocated raster.
         """
+        if options is not None and path is None:
+            raise ValueError(
+                "empty_like received `options` but no `path`: GDAL creation options "
+                "apply only to the disk/GTiff driver. Pass a `path`, or drop "
+                "`options` for the in-memory MEM raster."
+            )
         gdal_dtype = (
             template.gdal_dtype[0] if dtype is None else numpy_to_gdal_dtype(dtype)
         )
         n_bands = template.band_count if bands is None else bands
-        nodata = (
-            template.no_data_value[0]
-            if no_data_value is _INHERIT_NO_DATA
-            else no_data_value
-        )
+        if no_data_value is not _INHERIT_NO_DATA:
+            nodata = no_data_value
+        else:
+            template_nd = template.no_data_value
+            # Preserve the template's per-band sentinels when the band count is
+            # unchanged and every band actually has one; otherwise (band-count
+            # override, or a band with no sentinel) fall back to band 0's value.
+            if bands is None and all(v is not None for v in template_nd):
+                nodata = list(template_nd)
+            else:
+                nodata = template_nd[0]
         # Warn only for the disk/GTiff target (path given), where a missing
         # sentinel makes unwritten sparse blocks read back as 0. An in-RAM MEM
         # result (no path) is dense and a sentinel-free raster is unsurprising.

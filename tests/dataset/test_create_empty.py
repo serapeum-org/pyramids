@@ -258,6 +258,19 @@ class TestCreateEmpty:
             f"band 2 should be 7.0, got {np.unique(band2)}"
         )
 
+    def test_options_without_path_raises(self):
+        """Passing `options` with no `path` (MEM target) raises instead of dropping them.
+
+        Test scenario:
+            GDAL creation options apply only to the disk/GTiff driver; the MEM driver
+            takes none. Supplying `options` with `driver_type="MEM"` (no path) must
+            raise rather than silently ignore the list.
+        """
+        with pytest.raises(ValueError, match="apply only to the disk/GTiff driver"):
+            Dataset.create_empty(
+                4, 4, driver_type="MEM", options=["TILED=YES"]
+            )
+
     def test_sparse_allocation_is_small_on_disk(self, tmp_path: Path):
         """A large empty sparse GTiff costs almost no disk before any write.
 
@@ -396,6 +409,28 @@ class TestEmptyLike:
         """
         out = Dataset.empty_like(template, bands=1)
         assert out.band_count == 1, f"band count not overridden: {out.band_count}"
+
+    def test_inherits_per_band_nodata(self):
+        """empty_like preserves each band's no-data value, not just band 0's.
+
+        Test scenario:
+            Build a 3-band template whose bands carry *different* no-data sentinels,
+            then ``empty_like`` it with the band count unchanged. Every band's sentinel
+            must be copied through — previously only band 0's value was broadcast to all
+            bands, losing the per-band values.
+        """
+        arr = np.ones((3, 4, 5), dtype="float32")
+        template = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 10.0),
+            cell_size=0.5,
+            epsg=4326,
+            no_data_value=[-1.0, -2.0, -3.0],
+        )
+        out = Dataset.empty_like(template)
+        assert list(out.no_data_value) == pytest.approx([-1.0, -2.0, -3.0]), (
+            f"per-band no-data not preserved, got {out.no_data_value}"
+        )
 
     def test_nodata_override(self, template: Dataset):
         """An explicit ``no_data_value`` overrides the template's sentinel.
