@@ -388,10 +388,9 @@ def _archive_members(dir_vsi: str, member_glob: str = "*") -> list[str]:
     return members
 
 
-# Public aliases for the archive-listing helpers above. These are now used across
-# subsystems (dataset.collection, dataset.dataset, basemap.features), so expose them as
-# supported entry points without the leading underscore. The underscore names are kept
-# for the historical internal callers.
+# Public aliases for the archive-listing helpers above, exposed as supported entry
+# points without the leading underscore. The underscore names are kept for the internal
+# callers (dataset.collection, dataset.dataset).
 archive_dir_vsi = _archive_dir_vsi
 archive_members = _archive_members
 
