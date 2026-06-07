@@ -15,11 +15,14 @@
 # the git archive has the full data tree and no prebuilt .dat, so `make` runs
 # the filter-aware ICU Data Build Tool.
 #
-# Linux (any arch, native runner) and macOS (native arch only — the
-# x86_64-on-arm64 cross-build is tracked in #472). Windows ships no libicudata,
-# so there is nothing to do there.
+# Linux (any arch, native runner) and macOS, including the macOS x86_64 wheel
+# cross-built on the arm64 runner (target arch != host -> ICU --with-cross-build,
+# building host tools + filtered data first). Windows ships no libicudata, so
+# there is nothing to do there.
 #
-# Usage: build-icu-min-data.sh <BUILD_PREFIX> <PIXI_ENV>
+# Usage: build-icu-min-data.sh <BUILD_PREFIX> <PIXI_ENV> [TARGET_ARCH]
+#   TARGET_ARCH defaults to the build host arch; pass the cibuildwheel target
+#   arch (e.g. x86_64 on the macOS arm64 runner) to trigger the cross-build.
 set -euo pipefail
 
 BUILD_PREFIX="$1"
