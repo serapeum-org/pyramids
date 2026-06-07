@@ -93,13 +93,14 @@ def from_orca(
 
     .. deprecated::
         NEMO ORCA is a specialized curvilinear ocean-model grid, not a generic GIS
-        grid. This adapter is slated for removal from pyramids (candidate for a
-        separate ``[grids]`` extra or package). Emits a :class:`DeprecationWarning`.
+        grid. This adapter is moving to earthlens and will be removed from pyramids
+        — see serapeum-org/earthlens#384. Emits a :class:`DeprecationWarning`.
     """
     warnings.warn(
-        "from_orca is deprecated and will be removed from pyramids: NEMO ORCA is a "
-        "specialized ocean-model grid, not a generic GIS primitive. Move it to a "
-        "dedicated grids/EO package or the [grids] extra.",
+        "from_orca is deprecated and will move to earthlens (and be removed from "
+        "pyramids): NEMO ORCA is a specialized ocean-model grid, not a generic GIS "
+        "primitive. Tracking: serapeum-org/earthlens#384 "
+        "(https://github.com/serapeum-org/earthlens/issues/384).",
         DeprecationWarning,
         stacklevel=2,
     )

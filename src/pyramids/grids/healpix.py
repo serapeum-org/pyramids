@@ -189,14 +189,15 @@ def from_healpix(
 
     .. deprecated::
         HEALPix is a specialized cosmology/astronomy pixelization, not a generic
-        GIS grid. This adapter is slated for removal from pyramids (candidate for
-        a separate ``[grids]`` extra or package). Emits a
+        GIS grid. This adapter is moving to earthlens and will be removed from
+        pyramids — see serapeum-org/earthlens#384. Emits a
         :class:`DeprecationWarning`.
     """
     warnings.warn(
-        "from_healpix is deprecated and will be removed from pyramids: HEALPix is "
-        "a specialized scientific grid, not a generic GIS primitive. Move it to a "
-        "dedicated grids/EO package or the [grids] extra.",
+        "from_healpix is deprecated and will move to earthlens (and be removed from "
+        "pyramids): HEALPix is a specialized scientific grid, not a generic GIS "
+        "primitive. Tracking: serapeum-org/earthlens#384 "
+        "(https://github.com/serapeum-org/earthlens/issues/384).",
         DeprecationWarning,
         stacklevel=2,
     )

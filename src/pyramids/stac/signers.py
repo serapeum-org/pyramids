@@ -548,9 +548,10 @@ class EarthdataSigner(_BearerProviderSigner):
 
     .. deprecated::
         NASA-Earthdata-specific OAuth is an Earth-observation **provider**
-        integration, not generic GIS cloud auth; slated for removal from
-        pyramids. Prefer :class:`BearerTokenSigner` with an externally-minted
-        token. Instantiating this class emits a :class:`DeprecationWarning`.
+        integration, not generic GIS cloud auth; moving to earthlens and will be
+        removed from pyramids — see serapeum-org/earthlens#384. The generic
+        :class:`Signer` protocol + :class:`BearerTokenSigner` stay in pyramids.
+        Instantiating this class emits a :class:`DeprecationWarning`.
 
 
     Uses a pre-minted token when given (or `$EARTHDATA_TOKEN` / `$EARTHDATA_PAT`),
@@ -591,11 +592,12 @@ class EarthdataSigner(_BearerProviderSigner):
     ) -> None:
         """Store EDL credentials / static token; init the token cache."""
         warnings.warn(
-            "EarthdataSigner is deprecated and will be removed from pyramids: "
-            "NASA-Earthdata-specific OAuth is an Earth-observation provider "
-            "integration, not generic GIS cloud auth. Use the generic "
-            "BearerTokenSigner with an externally-minted token, or move the "
-            "agency signer to an EO/provider package.",
+            "EarthdataSigner is deprecated and will move to earthlens (and be "
+            "removed from pyramids): NASA-Earthdata-specific OAuth is an "
+            "Earth-observation provider integration, not generic GIS cloud auth. "
+            "The generic Signer protocol + BearerTokenSigner stay in pyramids. "
+            "Tracking: serapeum-org/earthlens#384 "
+            "(https://github.com/serapeum-org/earthlens/issues/384).",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -652,9 +654,10 @@ class CDSESigner(_BearerProviderSigner):
 
     .. deprecated::
         Copernicus-CDSE-specific OAuth is an Earth-observation **provider**
-        integration, not generic GIS cloud auth; slated for removal from
-        pyramids. Prefer :class:`BearerTokenSigner` with an externally-minted
-        token. Instantiating this class emits a :class:`DeprecationWarning`.
+        integration, not generic GIS cloud auth; moving to earthlens and will be
+        removed from pyramids — see serapeum-org/earthlens#384. The generic
+        :class:`Signer` protocol + :class:`BearerTokenSigner` stay in pyramids.
+        Instantiating this class emits a :class:`DeprecationWarning`.
 
     Mints an access token from the CDSE Keycloak token endpoint with a password
     grant (`$CDSE_USERNAME` / `$CDSE_PASSWORD`, public client `cdse-public`), then
@@ -688,11 +691,12 @@ class CDSESigner(_BearerProviderSigner):
     ) -> None:
         """Store CDSE credentials; init the token + refresh-token cache."""
         warnings.warn(
-            "CDSESigner is deprecated and will be removed from pyramids: "
-            "Copernicus-CDSE-specific OAuth is an Earth-observation provider "
-            "integration, not generic GIS cloud auth. Use the generic "
-            "BearerTokenSigner with an externally-minted token, or move the "
-            "agency signer to an EO/provider package.",
+            "CDSESigner is deprecated and will move to earthlens (and be removed "
+            "from pyramids): Copernicus-CDSE-specific OAuth is an Earth-observation "
+            "provider integration, not generic GIS cloud auth. The generic Signer "
+            "protocol + BearerTokenSigner stay in pyramids. "
+            "Tracking: serapeum-org/earthlens#384 "
+            "(https://github.com/serapeum-org/earthlens/issues/384).",
             DeprecationWarning,
             stacklevel=2,
         )
