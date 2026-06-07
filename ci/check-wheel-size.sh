@@ -61,16 +61,20 @@ esac
 
 # Build-only artifacts that must never ship in a wheel: a leaked C/C++ header
 # tree (BUILD_PREFIX/include lands as an `include/` subtree), static archives
-# (.a / .lib), and pkgconfig files (.pc). We flag the `include/` subtree rather
-# than a bare `*.h`, so a legitimate data file that merely ends in `.h` does not
-# false-trip the gate (only a real header *tree* does). A Python member walk is
-# more reliable than unzip text parsing.
+# (.a), and pkgconfig files (.pc). We flag the `include/` subtree rather than a
+# bare `*.h`, so a legitimate data file that merely ends in `.h` does not
+# false-trip the gate (only a real header *tree* does). `.lib` is deliberately
+# NOT flagged: it collides with the LGPL license texts the wheel ships
+# (`COPYING.LIB` / `COPYING3.LIB`), and delvewheel bundles DLLs, not static
+# libs. A Python member walk is more reliable than unzip text parsing.
 _leak_members() {  # _leak_members <wheel> -> prints any leaking archive members
     local whl="$1"
     "${PY}" - "${whl}" <<'PY'
 import sys, zipfile
-# Extensions no shipped data file legitimately uses (unambiguous build output).
-build_exts = (".a", ".lib", ".pc")
+# Extensions no shipped data/license file legitimately uses (unambiguous build
+# output). Note: NOT ".lib" — that matches the COPYING.LIB / COPYING3.LIB
+# license texts under _licenses/.
+build_exts = (".a", ".pc")
 with zipfile.ZipFile(sys.argv[1]) as zf:
     for name in zf.namelist():
         low = name.lower()
