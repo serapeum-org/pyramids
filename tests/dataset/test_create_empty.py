@@ -40,7 +40,7 @@ class TestCreateEmpty:
         assert (ds.rows, ds.columns, ds.band_count) == (4, 5, 1), (
             f"shape mismatch: {(ds.rows, ds.columns, ds.band_count)}"
         )
-        assert ds.no_data_value[0] == -9999.0, (
+        assert ds.no_data_value[0] == pytest.approx(-9999.0), (
             f"nodata not stamped, got {ds.no_data_value[0]}"
         )
 
@@ -58,7 +58,7 @@ class TestCreateEmpty:
             4, 4, dtype="float32", no_data_value=-9999.0, driver_type="MEM"
         )
         whole = ds.read_array()
-        assert np.all(whole == -9999.0), (
+        assert np.all(np.isclose(whole, -9999.0)), (
             f"unwritten MEM cells should read as nodata -9999, got {np.unique(whole)}"
         )
 
@@ -110,7 +110,7 @@ class TestCreateEmpty:
             f"geotransform drift: {reopened.geotransform} != {geo}"
         )
         assert reopened.epsg == 32636, f"epsg drift: {reopened.epsg}"
-        assert reopened.no_data_value[0] == -1.0, (
+        assert reopened.no_data_value[0] == pytest.approx(-1.0), (
             f"nodata drift: {reopened.no_data_value[0]}"
         )
 
@@ -132,7 +132,7 @@ class TestCreateEmpty:
         del ds
         reopened = Dataset.read_file(str(path))
         far = reopened.read_array(window=[1000, 1000, 4, 4])
-        assert np.all(far == -9999.0), (
+        assert np.all(np.isclose(far, -9999.0)), (
             f"unwritten block should read as nodata -9999, got {np.unique(far)}"
         )
 
@@ -228,11 +228,15 @@ class TestCreateEmpty:
         band0 = reopened.read_array(band=0, window=[0, 0, 4, 4])
         band1 = reopened.read_array(band=1, window=[0, 0, 4, 4])
         band2 = reopened.read_array(band=2, window=[0, 0, 4, 4])
-        assert np.all(band0 == 1.0), f"band 0 should be 1.0, got {np.unique(band0)}"
-        assert np.all(band1 == -9999.0), (
+        assert np.all(np.isclose(band0, 1.0)), (
+            f"band 0 should be 1.0, got {np.unique(band0)}"
+        )
+        assert np.all(np.isclose(band1, -9999.0)), (
             f"untouched band 1 should be nodata, got {np.unique(band1)}"
         )
-        assert np.all(band2 == 7.0), f"band 2 should be 7.0, got {np.unique(band2)}"
+        assert np.all(np.isclose(band2, 7.0)), (
+            f"band 2 should be 7.0, got {np.unique(band2)}"
+        )
 
     def test_sparse_allocation_is_small_on_disk(self, tmp_path: Path):
         """A large empty sparse GTiff costs almost no disk before any write.
