@@ -2062,10 +2062,17 @@ class DatasetCollection:
         # (the user explicitly asked to render). Delegates the cleopatra
         # call to :func:`render_array` (D-2 — shared with `Analysis.plot`).
         data = np.stack([ds.read_array(band=band) for ds in self.datasets], axis=0)
+        # Sanitise an unset no-data value (``None``) to ``np.nan`` before
+        # building the exclusion list — mirrors ``Analysis.plot`` (the
+        # ``Dataset.plot`` engine). A raw ``None`` would reach cleopatra as
+        # ``[None]`` and crash in ``np.isclose(array, None)`` (``array - None``).
+        # ``np.nan`` masks nothing, so a collection of nodata-less rasters (e.g.
+        # Google Earth Engine exports) renders every cell instead of raising.
+        no_data_value = [np.nan if v is None else v for v in self.base.no_data_value]
         exclude_value = (
-            [self.base.no_data_value[band], exclude_value]
+            [no_data_value[band], exclude_value]
             if exclude_value is not None
-            else [self.base.no_data_value[band]]
+            else [no_data_value[band]]
         )
         return render_array(
             arr=data,

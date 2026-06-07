@@ -479,6 +479,34 @@ class TestPlotDatasetCollection:
         cleo = cube.plot()
         assert isinstance(cleo, ArrayGlyph)
 
+    @pytest.mark.plot
+    def test_plot_no_nodata_value_does_not_crash(self, tmp_path):
+        """`DatasetCollection.plot()` must render rasters that carry no no-data value.
+
+        Regression for #480: rasters written without a no-data value (common for
+        external exports, e.g. Google Earth Engine ``getDownloadURL``) report
+        ``no_data_value == (None,)``. Previously the animate path forwarded
+        ``[None]`` to cleopatra, which crashed in ``np.isclose(array, None)`` with
+        ``TypeError: unsupported operand type(s) for -: 'float' and 'NoneType'``.
+        The ``None`` -> ``np.nan`` sanitisation (mirroring ``Analysis.plot``) masks
+        nothing and renders every cell instead of raising.
+        """
+        rng = np.random.default_rng(0)
+        files = []
+        for i in range(3):
+            arr = rng.random((1, 12, 12), dtype="float32")
+            ds = Dataset.create_from_array(
+                arr=arr, geo=(0, 0.1, 0, 2, 0, -0.1), epsg=4326, no_data_value=None
+            )
+            path = tmp_path / f"frame_{i}.tif"
+            ds.to_file(str(path))
+            files.append(str(path))
+
+        cube = DatasetCollection.from_files(files)
+        assert cube.base.no_data_value == (None,), "precondition: nodata is unset"
+        glyph = cube.plot(band=0)
+        assert isinstance(glyph, ArrayGlyph)
+
 
 class TestColorTable:
 
