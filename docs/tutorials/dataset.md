@@ -7,8 +7,8 @@
 - The raster could have different variables (like netcdf file) and these variable can have similar or different
     dimensions.
 
-- DataCube represent a stack of raster's which have the same dimensions, contains data that have same dimensions (rows
-    & columns).
+- DatasetCollection represents a stack of rasters which share the same dimensions and georeferencing
+    (rows & columns).
 
 
 ## Dataset

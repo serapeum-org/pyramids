@@ -126,7 +126,7 @@ nav:
       - Vectorize Operations: reference/dataset/vectorize.md
       - Band Metadata Operations: reference/dataset/band_metadata.md
       - Cell Operations: reference/dataset/cell.md
-    - DatasetCollection: reference/dataset_collection.md
+    - DatasetCollection: reference/dataset/collection.md
     - Zarr: reference/zarr.md
     - Exotic grids: reference/grids.md
     - Feature:
