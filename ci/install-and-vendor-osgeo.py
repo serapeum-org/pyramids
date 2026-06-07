@@ -292,6 +292,53 @@ def _prune_hdf4_plugin(plugins_dir: Path) -> None:
             print(f"[install-and-vendor-osgeo] pruned HDF4 plugin {f.name}", flush=True)
 
 
+# Driver-specific GDAL_DATA support files for formats pyramids does not target
+# (niche OGR vector + a few niche raster drivers). Removing each only disables
+# that one driver's auxiliary data — geometry/raster reads of common formats are
+# unaffected, and NOTHING here is CRS data. This is a deliberate denylist (drop
+# only known-niche files) rather than an allowlist, so every `.wkt` / datum /
+# ellipsoid / schema / TileMatrixSet / EPSG table is kept untouched (T1.5, #474).
+_GDAL_DATA_DROP = (
+    "default.rsc",          # MapInfo symbology (TAB/MIF geometry reads don't need it)
+    "nitf_spec.xml",        # NITF (defense imagery)
+    "nitf_spec.xsd",
+    "ruian_*.gfs",          # RUIAN — Czech cadastre (OGR)
+    "s57*.csv",             # S-57 — ENC nautical charts (OGR)
+    "jpfgdgml_*.gfs",       # Japanese FGD GML (OGR)
+    "inspire_cp_*.gfs",     # INSPIRE cadastral (OGR)
+    "gmlasconf.xsd",        # GMLAS — GML application schemas (OGR)
+    "gmlasconf.xml",
+    "plscenesconf.json",    # Planet PLScenes
+    "eedaconf.json",        # Earth Engine Data API
+    "vdv452.xml",           # VDV-452 public-transport (OGR)
+    "vdv452.xsd",
+    "MM_m_idofic.csv",      # MiraMon (OGR)
+    "pdfcomposition.xsd",   # PDF composition
+    "seed_2d.dgn",          # DGN write seeds (Microstation)
+    "seed_3d.dgn",
+    "bag_template.xml",     # BAG bathymetry
+    "pds4_template.xml",    # PDS4 planetary
+    "vicar.json",           # VICAR planetary
+    "template_tiles.mapml",  # MapML output template
+    "leaflet_template.html",  # gdal2tiles leaflet template
+)
+
+
+def _trim_gdal_data(gdal_data_dir: Path) -> None:
+    """Drop niche-driver GDAL_DATA support files pyramids never exercises (T1.5).
+
+    See :data:`_GDAL_DATA_DROP`. Keeps every CRS / datum / ellipsoid / schema /
+    TileMatrixSet file, so coordinate-system resolution is untouched; only the
+    auxiliary data for formats pyramids does not target is removed (~1.4 MB).
+    """
+    removed = 0
+    for pattern in _GDAL_DATA_DROP:
+        for f in gdal_data_dir.glob(pattern):
+            f.unlink()
+            removed += 1
+    print(f"[install-and-vendor-osgeo] trimmed {removed} niche GDAL_DATA files", flush=True)
+
+
 _BOOTSTRAP_TEMPLATE_PATH = Path(__file__).resolve().parent / "_osgeo_bootstrap.py"
 
 
@@ -417,7 +464,9 @@ def vendor_osgeo_into_package() -> None:
     gdal_data_src = share_dir / "gdal"
     if not gdal_data_src.is_dir():
         raise RuntimeError(f"GDAL_DATA not found at {gdal_data_src}")
-    _copy_tree_replacing(gdal_data_src, src_pyramids / "_data" / "gdal_data")
+    gdal_data_dst = src_pyramids / "_data" / "gdal_data"
+    _copy_tree_replacing(gdal_data_src, gdal_data_dst)
+    _trim_gdal_data(gdal_data_dst)  # T1.5 — drop niche-driver support files
 
     # 3. Vendor PROJ_DATA
     proj_data_src = share_dir / "proj"
