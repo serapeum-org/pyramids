@@ -116,8 +116,19 @@ if [[ -n "${_expected_sha}" ]]; then
         exit 1
     fi
     echo "build-icu-min-data: ICU source SHA256 verified"
+elif [[ "${PYRAMIDS_ICU_ALLOW_UNPINNED:-0}" == "1" ]]; then
+    echo "build-icu-min-data: WARNING no pinned SHA256 for ICU ${icu_ver}; source unverified" \
+         "(PYRAMIDS_ICU_ALLOW_UNPINNED=1)" >&2
 else
-    echo "build-icu-min-data: WARNING no pinned SHA256 for ICU ${icu_ver}; source unverified" >&2
+    # No pin for this ICU version (e.g. an ICU bump). Refuse to compile an
+    # unverified source tarball into the shipped wheel. Pin the new hash in
+    # _icu_sha256 (compute it with `sha256sum` on the release-<ver> archive),
+    # or set PYRAMIDS_ICU_ALLOW_UNPINNED=1 to deliberately opt out. The size
+    # gate guards size, not integrity, so a missing pin must fail loudly here.
+    echo "build-icu-min-data: ERROR no pinned SHA256 for ICU ${icu_ver}; refusing to build an" >&2
+    echo "  unverified source tarball into the wheel. Pin its sha256 in _icu_sha256(), or set" >&2
+    echo "  PYRAMIDS_ICU_ALLOW_UNPINNED=1 to opt out." >&2
+    exit 1
 fi
 
 tar -xzf "${work}/icu.tgz" -C "${work}"
