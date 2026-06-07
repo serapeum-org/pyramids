@@ -288,7 +288,12 @@ fi
 # target arch and uses ICU --with-cross-build). Windows ships no libicudata.
 # Toggle off with PYRAMIDS_ICU_STUB=0; non-fatal.
 if [[ "${PYRAMIDS_ICU_STUB:-1}" == "1" ]] && [[ "$(uname -s)" =~ ^(Linux|Darwin)$ ]]; then
+    # build-icu-min-data.sh wants a single target arch. CIBW_ARCHS can hold a
+    # list (space- or comma-separated) if a job ever builds several arches;
+    # take the first token so the cross-build detection gets one concrete arch.
     _icu_target_arch="${CIBW_ARCHS:-${CIBW_ARCHS_MACOS:-$(uname -m)}}"
+    _icu_target_arch="${_icu_target_arch//,/ }"
+    _icu_target_arch="${_icu_target_arch%% *}"
     echo "--- Rebuilding ICU data (charset-only, target ${_icu_target_arch}) ---"
     if ! bash "$(dirname "$0")/build-icu-min-data.sh" \
             "${BUILD_PREFIX}" "${PIXI_ENV}" "${_icu_target_arch}"; then
@@ -307,7 +312,13 @@ if [[ "${PYRAMIDS_ICU_STUB:-1}" == "1" ]] && [[ "$(uname -s)" =~ ^(Linux|Darwin)
     shopt -u nullglob
     for _f in "${_icudata[@]}"; do
         [[ -L "${_f}" ]] && continue   # real files only
-        _sz=$(stat -c%s "${_f}" 2>/dev/null || stat -f%z "${_f}" 2>/dev/null || echo 0)
+        # Fail loudly if the size is unreadable rather than falling back to 0,
+        # which would pass the gate (0 < ceiling) and hide a real regression.
+        _sz=$(stat -c%s "${_f}" 2>/dev/null || stat -f%z "${_f}" 2>/dev/null || true)
+        if [[ ! "${_sz}" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: could not read the size of ${_f} to size-gate the ICU rebuild." >&2
+            exit 1
+        fi
         if (( _sz > _icu_max_bytes )); then
             echo "ERROR: ${_f} is $(( _sz / 1024 / 1024 )) MB (> 12 MB) — the ICU charset" >&2
             echo "       rebuild did not apply, so the wheel would ship full-size ICU." >&2
