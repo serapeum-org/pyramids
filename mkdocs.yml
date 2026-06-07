@@ -167,6 +167,11 @@ nav:
           - Lazy NetCDF: tutorials/lazy/lazy-netcdf.md
           - Lazy collections (DatasetCollection): tutorials/lazy/lazy-collection.md
           - Lazy vector reads (FeatureCollection): tutorials/lazy/lazy-vector.md
+          - Using pyramids with Dask (notebook): examples/dask/overview.ipynb
+          - Dask quickstart — Dataset: examples/dask/dataset.ipynb
+          - Dask quickstart — DatasetCollection: examples/dask/collection.ipynb
+          - Dask quickstart — FeatureCollection: examples/dask/feature.ipynb
+          - Dask quickstart — NetCDF: examples/dask/netcdf.ipynb
       - Dataset:
           - Overview: tutorials/dataset.md
           - Raster basics: tutorials/raster-basics.md
@@ -208,7 +213,7 @@ nav:
           - UGRID:
               - Mesh exploration: examples/netcdf/ugrid/ugrid-mesh-exploration.ipynb
               - River channel: examples/netcdf/ugrid/ugrid-river-channel.ipynb
-              - Dask (FVCOM NECOFS via OPeNDAP): examples/netcdf/ugrid/dask-lazy-ugrid.ipynb
+              - Dask (mesh → raster bridge): examples/netcdf/ugrid/dask-lazy-ugrid.ipynb
   - How-to:
       - Dev Container: how-to/devcontainer.md
       - Docker & GHCR: how-to/docker.md
