@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import re
 import sys
-import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -124,7 +123,8 @@ def main() -> None:
     # Best-effort: any network/parse failure downgrades to a notice (never fatal).
     try:
         releases = _fetch_releases()
-    except (urllib.error.URLError, OSError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
+        # OSError covers urllib.error.URLError; ValueError covers JSONDecodeError.
         _notice(f"wheel-size-delta: skipped (could not read PyPI: {exc})")
         return
 
