@@ -222,13 +222,112 @@ def install_gdal_python_bindings() -> None:
     subprocess.run(cmd, env=env, check=True)
 
 
+# Python bytecode is regenerated on first import; shipping it only bloats
+# the wheel (~2 MB of `_vendor/**/__pycache__`). Skip it on every copy (T1.1).
+_IGNORE_BYTECODE = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo")
+
+
 def _copy_tree_replacing(src: Path, dst: Path) -> None:
-    """Copy a directory, removing the destination first if it exists."""
+    """Copy a directory, removing the destination first if it exists.
+
+    Excludes Python bytecode (`__pycache__`/`*.pyc`) — it is regenerated on
+    first import and only inflates the wheel (T1.1).
+    """
     if dst.exists():
         shutil.rmtree(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
     print(f"[install-and-vendor-osgeo] copy {src} -> {dst}", flush=True)
-    shutil.copytree(src, dst)
+    shutil.copytree(src, dst, ignore=_IGNORE_BYTECODE)
+
+
+def _strip_vendored_extensions(osgeo_dir: Path) -> None:
+    """Strip debug symbols from the vendored SWIG extension modules (T1.2).
+
+    The `osgeo/_gdal._osr._ogr…` extensions arrive un-stripped from the pip
+    GDAL build; `strip --strip-unneeded` shaves several MB. Verified safe:
+    local (non-network) NetCDF multidim `ReadAsArray` round-trips still pass
+    in the wheel-test matrix with the extensions stripped. No-op on Windows
+    (`.pyd` linkage is delvewheel's job and `strip` is GNU/macOS only).
+    """
+    if sys.platform.startswith("win") or os.name == "nt":
+        return
+    strip_args = ["-x"] if sys.platform == "darwin" else ["--strip-unneeded"]
+    for so in sorted(osgeo_dir.glob("*.so")):
+        try:
+            subprocess.run(["strip", *strip_args, str(so)], check=True)
+            print(f"[install-and-vendor-osgeo] stripped {so.name}", flush=True)
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            print(f"[install-and-vendor-osgeo] strip skipped {so.name}: {exc}", flush=True)
+
+
+def _prune_unused_bindings(osgeo_dir: Path) -> None:
+    """Drop the GNM (Geographic Network Model) bindings — unused by pyramids (T1.3).
+
+    Removes `_gnm.<ext>` + `gnm.py` (+ `gnmconst.py`). pyramids has no GNM code
+    path and `osgeo/__init__.py` does not auto-import it, so the ~1.2 MB binding
+    is pure wheel bloat. Other vendored modules (`osgeo_utils`, used by COG
+    validation + `gdal2xyz`) are intentionally kept.
+    """
+    for pattern in ("_gnm*.so", "_gnm*.pyd", "gnm.py", "gnmconst.py"):
+        for f in osgeo_dir.glob(pattern):
+            f.unlink()
+            print(f"[install-and-vendor-osgeo] pruned {f.name}", flush=True)
+
+
+# Driver-specific GDAL_DATA support files for formats pyramids does not target
+# (niche OGR vector + a few niche raster drivers). Removing each only disables
+# that one driver's auxiliary data — geometry/raster reads of common formats are
+# unaffected, and NOTHING here is CRS data. This is a deliberate denylist (drop
+# only known-niche files) rather than an allowlist, so every `.wkt` / datum /
+# ellipsoid / schema / TileMatrixSet / EPSG table is kept untouched (T1.5, #474).
+_GDAL_DATA_DROP = (
+    "default.rsc",          # MapInfo symbology (TAB/MIF geometry reads don't need it)
+    "nitf_spec.xml",        # NITF (defense imagery)
+    "nitf_spec.xsd",
+    "ruian_*.gfs",          # RUIAN — Czech cadastre (OGR)
+    "s57*.csv",             # S-57 — ENC nautical charts (OGR)
+    "jpfgdgml_*.gfs",       # Japanese FGD GML (OGR)
+    "inspire_cp_*.gfs",     # INSPIRE cadastral (OGR)
+    "gmlasconf.xsd",        # GMLAS — GML application schemas (OGR)
+    "gmlasconf.xml",
+    "plscenesconf.json",    # Planet PLScenes
+    "eedaconf.json",        # Earth Engine Data API
+    "vdv452.xml",           # VDV-452 public-transport (OGR)
+    "vdv452.xsd",
+    "MM_m_idofic.csv",      # MiraMon (OGR)
+    "pdfcomposition.xsd",   # PDF composition
+    "seed_2d.dgn",          # DGN write seeds (Microstation)
+    "seed_3d.dgn",
+    "bag_template.xml",     # BAG bathymetry
+    "pds4_template.xml",    # PDS4 planetary
+    "vicar.json",           # VICAR planetary
+    "template_tiles.mapml",  # MapML output template
+    "leaflet_template.html",  # gdal2tiles leaflet template
+)
+
+
+def _trim_gdal_data(gdal_data_dir: Path) -> None:
+    """Drop niche-driver GDAL_DATA support files pyramids never exercises (T1.5).
+
+    See :data:`_GDAL_DATA_DROP`. Keeps every CRS / datum / ellipsoid / schema /
+    TileMatrixSet file, so coordinate-system resolution is untouched; only the
+    auxiliary data for formats pyramids does not target is removed (~1.4 MB).
+    """
+    removed = 0
+    for pattern in _GDAL_DATA_DROP:
+        for f in gdal_data_dir.glob(pattern):
+            f.unlink()
+            removed += 1
+    print(f"[install-and-vendor-osgeo] trimmed {removed} niche GDAL_DATA files", flush=True)
+    if removed == 0:
+        # Every pattern matched nothing — almost certainly a GDAL layout/rename,
+        # not an intentional state. Warn loudly so the silently-lost ~1 MB win is
+        # visible rather than passing as a green no-op (T1.5 review N1, #474).
+        print(
+            "[install-and-vendor-osgeo] WARNING: GDAL_DATA trim matched 0 files; "
+            "the denylist may be stale for this GDAL version — size win lost",
+            flush=True,
+        )
 
 
 _BOOTSTRAP_TEMPLATE_PATH = Path(__file__).resolve().parent / "_osgeo_bootstrap.py"
@@ -335,6 +434,8 @@ def vendor_osgeo_into_package() -> None:
     _copy_tree_replacing(osgeo_src, vendor_dir / "osgeo")
     (vendor_dir / "__init__.py").touch()
     _patch_vendored_osgeo_init(vendor_dir / "osgeo" / "__init__.py")
+    _prune_unused_bindings(vendor_dir / "osgeo")      # T1.3 — drop unused GNM bindings
+    _strip_vendored_extensions(vendor_dir / "osgeo")  # T1.2 — strip SWIG .so debug symbols
 
     # 1b. Vendor osgeo_utils/ — GDAL's pip package ships a sibling
     # top-level package for utility scripts (gdal_polygonize, etc.).
@@ -354,7 +455,9 @@ def vendor_osgeo_into_package() -> None:
     gdal_data_src = share_dir / "gdal"
     if not gdal_data_src.is_dir():
         raise RuntimeError(f"GDAL_DATA not found at {gdal_data_src}")
-    _copy_tree_replacing(gdal_data_src, src_pyramids / "_data" / "gdal_data")
+    gdal_data_dst = src_pyramids / "_data" / "gdal_data"
+    _copy_tree_replacing(gdal_data_src, gdal_data_dst)
+    _trim_gdal_data(gdal_data_dst)  # T1.5 — drop niche-driver support files
 
     # 3. Vendor PROJ_DATA
     proj_data_src = share_dir / "proj"

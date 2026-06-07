@@ -1,3 +1,4 @@
+import os
 import random
 from pathlib import Path
 from typing import List, Tuple
@@ -24,6 +25,31 @@ from shapely.geometry import Polygon
 from tests._marks import EXTRA_MARKERS
 from tests.dataset.conftest import *
 from tests.feature.conftest import *
+
+# GDAL_DATA as configured by `import pyramids` above (the vendored
+# `_data/gdal_data` in a bundled wheel, or conda's `share/gdal` in dev).
+# Captured once so `_stabilize_gdal_data` can re-assert it after each test.
+_GDAL_DATA_BOOTSTRAP = os.environ.get("GDAL_DATA")
+
+
+@pytest.fixture(autouse=True)
+def _stabilize_gdal_data():
+    """Re-assert the bundled GDAL_DATA after every test (order-independence).
+
+    A few tests mutate ``GDAL_DATA`` (the bootstrap-override tests) or
+    re-instantiate ``Config``, transiently pointing GDAL at a directory
+    without the driver support files (e.g. ``grib2_table_4_5.csv``). GDAL
+    caches its data dir internally, so that pollution otherwise leaks into
+    later tests in an order-dependent way — surfacing as
+    ``Cannot find grib2_table_4_5.csv`` on a GRIB write only when an earlier
+    ``vfs``/``slow`` test didn't happen to re-warm the cache first. Restoring
+    both the env var and the GDAL config option after each test keeps the
+    suite deterministic regardless of selection/order.
+    """
+    yield
+    if _GDAL_DATA_BOOTSTRAP is not None:
+        os.environ["GDAL_DATA"] = _GDAL_DATA_BOOTSTRAP
+        gdal.SetConfigOption("GDAL_DATA", _GDAL_DATA_BOOTSTRAP)
 
 
 def pytest_collection_modifyitems(config, items):
