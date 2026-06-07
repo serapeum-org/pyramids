@@ -138,10 +138,12 @@ jobs:
         env:
           CIBW_ARCHS_MACOS: ${{ matrix.arch }}
 
-      - name: Report wheel sizes
-        shell: bash
-        run: bash ci/check-wheel-size.sh wheelhouse
-
+      # NOTE: the wheel size/leak gate (ci/check-wheel-size.sh) runs only in the
+      # Linux build job. Adding it here trips CodeQL's cache-poisoning rule
+      # (a repo script run in a workflow_run-triggered job). The data trim that
+      # changes wheel size (install-and-vendor-osgeo.py) already runs on every
+      # platform; only the post-build *assertion* is Linux-only. See #474 / the
+      # PR review notes.
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-macos-${{ matrix.arch }}
@@ -173,10 +175,8 @@ jobs:
         env:
           CIBW_ARCHS_WINDOWS: ${{ matrix.arch }}
 
-      - name: Report wheel sizes
-        shell: bash
-        run: bash ci/check-wheel-size.sh wheelhouse
-
+      # See the macOS job: the size/leak gate is Linux-only to avoid CodeQL's
+      # cache-poisoning rule; the size-changing trim runs on all platforms.
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-windows-${{ matrix.arch }}

@@ -17,14 +17,16 @@ from __future__ import annotations
 import json
 import re
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
+# PEP 440-correct ordering when available (it almost always is on the CI
+# runner — pip vendors it). Falls back to a numeric-split key otherwise; the
+# broad except is intentional — packaging is optional here.
 try:
-    # PEP 440-correct ordering when available (it almost always is on the CI
-    # runner — pip vendors it). Falls back to a numeric-split key otherwise.
     from packaging.version import InvalidVersion, Version
-except Exception:  # noqa: BLE001 - optional; the regex fallback below suffices
+except ImportError:
     Version = None
     InvalidVersion = Exception
 
@@ -73,24 +75,13 @@ def _version_key(version: str):
 
 
 def _fetch_releases() -> dict:
+    # PYPI_JSON is a constant https URL (no scheme/host injection).
     with urllib.request.urlopen(PYPI_JSON, timeout=30) as resp:
         return json.load(resp).get("releases", {})
 
 
-def main() -> int:
-    wheel_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "wheelhouse")
-    wheels = sorted(wheel_dir.glob("*.whl"))
-    if not wheels:
-        _notice(f"wheel-size-delta: no wheels in {wheel_dir}; nothing to compare")
-        return 0
-
-    try:
-        releases = _fetch_releases()
-    except Exception as exc:  # noqa: BLE001 - best-effort, never fail the build
-        _notice(f"wheel-size-delta: skipped (could not read PyPI: {exc})")
-        return 0
-
-    # Map each published platform/ABI tag -> {version: compressed_size}.
+def _index_releases_by_tag(releases: dict) -> dict[str, dict[str, int]]:
+    """Map each published ``{python}-{abi}-{platform}`` tag -> {version: size}."""
     by_tag: dict[str, dict[str, int]] = {}
     for version, files in releases.items():
         for f in files:
@@ -99,29 +90,48 @@ def main() -> int:
             tag = _tag(f.get("filename", ""))
             if tag:
                 by_tag.setdefault(tag, {})[version] = f.get("size", 0)
+    return by_tag
 
+
+def _report_delta(whl: Path, by_tag: dict[str, dict[str, int]]) -> None:
+    """Emit one ``::notice::`` line for ``whl`` vs the newest prior release of its tag."""
+    cur_bytes = whl.stat().st_size
+    cur_mb = cur_bytes / 1048576
+    prev = by_tag.get(_tag(whl.name) or "", {})
+    cur_ver = _version(whl.name)
+    # The newest published version of this tag that isn't the one we built now.
+    candidates = {v: s for v, s in prev.items() if v != cur_ver and s}
+    if not candidates:
+        _notice(f"{whl.name}: {cur_mb:.1f} MB (no prior PyPI wheel for this tag)")
+        return
+    prev_ver = max(candidates, key=_version_key)  # numeric order: 0.10.0 > 0.9.0
+    prev_bytes = candidates[prev_ver]
+    delta_mb = (cur_bytes - prev_bytes) / 1048576
+    sign = "+" if delta_mb >= 0 else "-"
+    _notice(
+        f"{whl.name}: {cur_mb:.1f} MB vs {prev_ver} {prev_bytes / 1048576:.1f} MB "
+        f"(delta {sign}{abs(delta_mb):.1f} MB)"
+    )
+
+
+def main() -> None:
+    wheel_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "wheelhouse")
+    wheels = sorted(wheel_dir.glob("*.whl"))
+    if not wheels:
+        _notice(f"wheel-size-delta: no wheels in {wheel_dir}; nothing to compare")
+        return
+
+    # Best-effort: any network/parse failure downgrades to a notice (never fatal).
+    try:
+        releases = _fetch_releases()
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        _notice(f"wheel-size-delta: skipped (could not read PyPI: {exc})")
+        return
+
+    by_tag = _index_releases_by_tag(releases)
     for whl in wheels:
-        cur_bytes = whl.stat().st_size
-        cur_mb = cur_bytes / 1048576
-        tag = _tag(whl.name)
-        cur_ver = _version(whl.name)
-        prev = by_tag.get(tag or "", {})
-        # Compare against the newest published version of this tag that isn't
-        # the one we're building now.
-        candidates = {v: s for v, s in prev.items() if v != cur_ver and s}
-        if not candidates:
-            _notice(f"{whl.name}: {cur_mb:.1f} MB (no prior PyPI wheel for this tag)")
-            continue
-        prev_ver = max(candidates, key=_version_key)  # numeric order: 0.10.0 > 0.9.0
-        prev_bytes = candidates[prev_ver]
-        delta_mb = (cur_bytes - prev_bytes) / 1048576
-        sign = "+" if delta_mb >= 0 else "-"
-        _notice(
-            f"{whl.name}: {cur_mb:.1f} MB vs {prev_ver} {prev_bytes / 1048576:.1f} MB "
-            f"(delta {sign}{abs(delta_mb):.1f} MB)"
-        )
-    return 0
+        _report_delta(whl, by_tag)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

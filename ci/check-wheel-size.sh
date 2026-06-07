@@ -100,20 +100,20 @@ for whl in "${wheels[@]}"; do
     uncompressed_mb=$(awk -v s="${uncompressed}" 'BEGIN {printf "%.1f", s/1048576}')
     echo "::notice::${base}: ${compressed_mb} MB compressed / ${uncompressed_mb} MB installed"
 
-    if [ "${compressed}" -gt "${compressed_budget}" ]; then
+    if [[ "${compressed}" -gt "${compressed_budget}" ]]; then
         echo "::error::${base} exceeds ${WHEEL_SIZE_BUDGET_MB} MB compressed budget" \
-             "— see planning/bundle/wheel-size-analysis.md"
+             "— see planning/bundle/wheel-size-analysis.md" >&2
         exit 1
     fi
-    if [ "${uncompressed}" -gt "${installed_budget}" ]; then
+    if [[ "${uncompressed}" -gt "${installed_budget}" ]]; then
         echo "::error::${base} exceeds ${WHEEL_INSTALLED_BUDGET_MB} MB installed (uncompressed)" \
              "budget — install-footprint regression; see planning/bundle/size/" \
-             "wheel-size-optimization-plan.md (T3.1)"
+             "wheel-size-optimization-plan.md (T3.1)" >&2
         exit 1
     fi
 
     leaks=$(_leak_members "${whl}")
-    if [ -n "${leaks}" ]; then
+    if [[ -n "${leaks}" ]]; then
         echo "::error::${base} ships build-only artifacts (headers/.a/.pc leak, T3.3):" >&2
         echo "${leaks}" | sed 's/^/  /' >&2
         exit 1
