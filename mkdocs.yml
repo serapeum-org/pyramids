@@ -170,7 +170,7 @@ nav:
       - Dataset:
           - Overview: tutorials/dataset.md
           - Raster basics: tutorials/raster-basics.md
-          - Datacube basics: tutorials/datacube-basics.md
+          - DatasetCollection basics: tutorials/datacube-basics.md
           - Dataset basics: examples/dataset/dataset.ipynb
           - Spatial operations: examples/dataset/spatial-operation-methods.ipynb
           - Convert longitude: examples/dataset/convert-longitude.ipynb

@@ -85,11 +85,11 @@ from pyramids.dataset import Dataset
 path = "tests/data/geotiff/dem.tif"  # adjust path as needed
 
 ds = Dataset.read_file(path)
-print(ds.width, ds.height, ds.transform)
-print(ds.meta)
+print(ds.columns, ds.rows, ds.geotransform)
+print(ds.epsg, ds.cell_size, ds.no_data_value)
 
 # Access array data
-arr = ds.read()
+arr = ds.read_array()
 print(arr.shape, arr.dtype)
 
 # Save a single band to a new GeoTIFF (writes alongside input by default)

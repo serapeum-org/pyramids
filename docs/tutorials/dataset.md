@@ -1,5 +1,13 @@
 ﻿# dataset
 
+!!! warning "Legacy API — being rewritten"
+    Many code samples further down this page use an older static `Raster.<method>` API
+    (`Raster.createRaster`, `Raster.getProjectionData`, `Raster.projectRaster`, …) that has
+    been removed. For the current, supported API see the runnable notebooks under
+    **Examples → Dataset** (start with [Dataset basics](../examples/dataset/dataset.ipynb)),
+    the [Raster basics](raster-basics.md) and [Datacube basics](datacube-basics.md) tutorials,
+    and the [Dataset API reference](../reference/dataset/index.md).
+
 - dataset module contains Two classes `Dataset` and `DatasetCollection`.
 - Dataset represent a raster object which could be created from reading a geotiff, netcdf, ascii or any file
     format/driver supported by gdal.
