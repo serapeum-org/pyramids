@@ -230,6 +230,7 @@ nav:
         - ADR-0003 IO formats: adr/0003-io-formats.md
         - ADR-0004 Dependency graphing: adr/0004-dependency-graphing.md
         - ADR-0005 Versioning docs: adr/0005-versioning-docs.md
+        - ADR-0006 Docker image: adr/0006-docker-image.md
 
 extra:
   social:
