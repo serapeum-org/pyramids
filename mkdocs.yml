@@ -128,7 +128,6 @@ nav:
       - Cell Operations: reference/dataset/cell.md
     - DatasetCollection: reference/dataset_collection.md
     - Zarr: reference/zarr.md
-    - Exotic grids: reference/grids.md
     - Feature:
       - Overview: reference/feature/index.md
       - Geometry helpers: reference/feature/geometry.md
@@ -189,8 +188,6 @@ nav:
           - Zarr cubes — append & region: examples/zarr/zarr-cube.ipynb
           - Multiscale pyramids — fast previews: examples/zarr/zarr-pyramid-preview.ipynb
           - Foreign GeoZarr stores: examples/zarr/zarr-foreign-geozarr.ipynb
-      - Grids:
-          - Exotic model-grid adapters: examples/grids/grids.ipynb
       - Feature:
           - FeatureCollection tutorial: tutorials/feature.md
           - Dask (Overture Maps on AWS): examples/feature/dask-lazy-features.ipynb
@@ -199,7 +196,6 @@ nav:
           - STAC tutorial: tutorials/stac.md
           - STAC (offline, local data): examples/stac/stac-local.ipynb
           - STAC (live cloud — Earth Search): examples/stac/stac-cloud-earth-search.ipynb
-          - STAC (live cloud — Planetary Computer): examples/stac/stac-cloud-planetary-computer.ipynb
       - Basemap:
           - Basemap example: examples/basemap/basemap-example.ipynb
       - NetCDF:

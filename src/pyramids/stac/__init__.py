@@ -10,9 +10,9 @@ thin :func:`open_client` wrapper over `pystac-client`.
 - :func:`open_client` — open a `pystac-client` Client with a signer wired in
   (requires the `[stac]` extra).
 
-Provider-specific signers that need remote-sensing SDKs (Microsoft Planetary
-Computer's `planetary-computer`, NASA Earthdata's `earthaccess`) are out of
-scope for pyramids; implement the :class:`Signer` protocol downstream for those.
+Provider-specific signers that hardcode a single Earth-observation catalog
+(Microsoft Planetary Computer, NASA Earthdata, Copernicus CDSE) live in
+earthlens, which implements the :class:`Signer` protocol downstream.
 """
 
 from __future__ import annotations
@@ -31,9 +31,6 @@ from pyramids.stac.signers import (
     AnonymousSigner,
     AWSRequesterPaysSigner,
     BearerTokenSigner,
-    CDSESigner,
-    EarthdataSigner,
-    PlanetaryComputerSigner,
     Signer,
 )
 
@@ -41,9 +38,6 @@ __all__ = [
     "AWSRequesterPaysSigner",
     "AnonymousSigner",
     "BearerTokenSigner",
-    "CDSESigner",
-    "EarthdataSigner",
-    "PlanetaryComputerSigner",
     "Signer",
     "affine_to_geotransform",
     "build_vrt_from_stac",

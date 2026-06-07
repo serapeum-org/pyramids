@@ -759,7 +759,7 @@ def from_point(
         resolution: Pixel size in metres.
         units: `"px"` (default) or `"m"`.
         stac: STAC API root URL. Defaults to the Microsoft Planetary Computer
-            (which needs a :class:`pyramids.stac.signers.PlanetaryComputerSigner`).
+            (which needs an ``earthlens.stac.PlanetaryComputerSigner``).
         query: Optional STAC `query` extension dict (e.g.
             `{"eo:cloud_cover": {"lt": 10}}`).
         signer: Optional signer, forwarded to both the search and the reads.
@@ -778,7 +778,7 @@ def from_point(
           a PC signer required):
             ```python
             >>> from pyramids.dataset import DatasetCollection  # doctest: +SKIP
-            >>> from pyramids.stac import PlanetaryComputerSigner  # doctest: +SKIP
+            >>> from earthlens.stac import PlanetaryComputerSigner  # doctest: +SKIP
             >>> cube = DatasetCollection.from_point(  # doctest: +SKIP
             ...     lat=46.0, lon=11.0, collection="sentinel-2-l2a",
             ...     bands=["B04", "B03", "B02"],

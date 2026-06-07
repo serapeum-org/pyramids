@@ -23,15 +23,9 @@ classDiagram
     class AnonymousSigner
     class AWSRequesterPaysSigner
     class BearerTokenSigner
-    class PlanetaryComputerSigner
-    class EarthdataSigner
-    class CDSESigner
     Signer <|.. AnonymousSigner
     Signer <|.. AWSRequesterPaysSigner
     Signer <|.. BearerTokenSigner
-    Signer <|.. PlanetaryComputerSigner
-    Signer <|.. EarthdataSigner
-    Signer <|.. CDSESigner
 ```
 
 ## Public API at a glance
@@ -45,7 +39,7 @@ classDiagram
 | Mosaic one asset across items (lazy VRT) | `build_vrt_from_stac` | [Assets](assets.md) |
 | Download assets to local files (`[stac]` extra) | `download_item` | [Assets](assets.md) |
 | Serialize items ↔ GeoParquet (`[parquet]` extra) | `to_geoparquet` · `from_geoparquet` | [Assets](assets.md) |
-| Cloud credentials (6 signers) | `Signer` protocol + concrete signers | [Signers](signers.md) |
+| Cloud credentials (generic signers) | `Signer` protocol + concrete signers | [Signers](signers.md) |
 
 Two STAC entry points live on the raster classes (documented there):
 
