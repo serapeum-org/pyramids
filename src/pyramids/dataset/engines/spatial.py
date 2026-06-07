@@ -43,10 +43,11 @@ class Spatial(_Engine):
     def set_crs(self, crs: str | None = None, epsg: int | None = None) -> None:
         """Set the Coordinate Reference System (CRS).
 
-            Set the Coordinate Reference System (CRS) of a
+        Assign the CRS of the raster in place, from either a WKT string (``crs``) or an EPSG
+        code (``epsg``). Exactly one of the two must be supplied.
 
         Args:
-            crs (str):
+            crs (str | None):
                 Optional if epsg is specified. WKT string. i.e.
                     ```
                     'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84", 6378137,298.257223563,AUTHORITY["EPSG","7030"],
@@ -54,8 +55,15 @@ class Spatial(_Engine):
                     0.0174532925199433,AUTHORITY["EPSG","9122"]],AXIS["Latitude",NORTH],AXIS["Longitude",EAST],
                     AUTHORITY["EPSG","4326"]]'
                     ```
-            epsg (int):
+            epsg (int | None):
                 Optional if crs is specified. EPSG code specifying the projection.
+
+        Returns:
+            None: The CRS is set on the underlying dataset in place.
+
+        Raises:
+            TypeError: If the dataset is backed by an ASCII driver, which cannot store a CRS.
+            ValueError: If neither ``crs`` nor ``epsg`` is provided.
         """
         # first change the projection of the gdal dataset object
         # second change the epsg attribute of the Dataset object
@@ -313,20 +321,24 @@ class Spatial(_Engine):
     def resample(
         self, cell_size: int | float, method: str = "nearest neighbor"
     ) -> Dataset:
-        """resample.
+        """Resample a raster to a new cell size.
 
-        resample method reprojects a raster to any projection (default the WGS84 web mercator projection,
-        without resampling). The function returns a GDAL in-memory file object.
+        Resample the raster to ``cell_size`` using the requested interpolation method, keeping the
+        existing CRS and extent. Returns a new in-memory Dataset; the source is left unchanged.
 
         Args:
-            cell_size (int):
-                New cell size to resample the raster. If None, raster will not be resampled.
+            cell_size (int | float):
+                New cell size to resample the raster to, in the units of the raster CRS.
             method (str):
                 Resampling method: "nearest neighbor", "cubic", or "bilinear". Default is "nearest neighbor".
 
         Returns:
             Dataset:
                 A new resampled Dataset.
+
+        Raises:
+            TypeError: If ``method`` is not a string.
+            ValueError: If ``method`` is not one of the supported interpolation methods.
 
         Examples:
             - Create a 4-band 10×10 dataset at lon/lat (0, 0) with a 0.05° cell size, then resample to a

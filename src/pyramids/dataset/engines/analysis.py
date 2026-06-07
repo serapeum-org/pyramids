@@ -149,7 +149,18 @@ class Analysis(_Engine):
         return df
 
     def _get_stats(self, band: int | None = None) -> list[float]:
-        """_get_stats."""
+        """Return summary statistics for one band.
+
+        Reads GDAL band statistics, computing them on the fly when the cached values are
+        absent or empty.
+
+        Args:
+            band (int | None):
+                Zero-based band index. Defaults to the first band (0) when None.
+
+        Returns:
+            list[float]: The ``[minimum, maximum, mean, standard_deviation]`` values.
+        """
         band_index = band if band is not None else 0
         band_i = self._ds._iloc(band_index)
         try:

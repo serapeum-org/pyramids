@@ -91,21 +91,75 @@ class _GroupedCollection:
         return result
 
     def mean(self, *, skipna: bool = True) -> dict:
+        """Per-label mean over the time axis.
+
+        Args:
+            skipna (bool):
+                Ignore NaNs in the reduction. Default is True.
+
+        Returns:
+            dict: Mapping of ``{label: ndarray}`` with one reduced array per group.
+        """
         return self._reduce_per_label("mean", skipna=skipna)
 
     def sum(self, *, skipna: bool = True) -> dict:
+        """Per-label sum over the time axis.
+
+        Args:
+            skipna (bool):
+                Ignore NaNs in the reduction. Default is True.
+
+        Returns:
+            dict: Mapping of ``{label: ndarray}`` with one reduced array per group.
+        """
         return self._reduce_per_label("sum", skipna=skipna)
 
     def min(self, *, skipna: bool = True) -> dict:
+        """Per-label minimum over the time axis.
+
+        Args:
+            skipna (bool):
+                Ignore NaNs in the reduction. Default is True.
+
+        Returns:
+            dict: Mapping of ``{label: ndarray}`` with one reduced array per group.
+        """
         return self._reduce_per_label("min", skipna=skipna)
 
     def max(self, *, skipna: bool = True) -> dict:
+        """Per-label maximum over the time axis.
+
+        Args:
+            skipna (bool):
+                Ignore NaNs in the reduction. Default is True.
+
+        Returns:
+            dict: Mapping of ``{label: ndarray}`` with one reduced array per group.
+        """
         return self._reduce_per_label("max", skipna=skipna)
 
     def std(self, *, skipna: bool = True) -> dict:
+        """Per-label standard deviation over the time axis.
+
+        Args:
+            skipna (bool):
+                Ignore NaNs in the reduction. Default is True.
+
+        Returns:
+            dict: Mapping of ``{label: ndarray}`` with one reduced array per group.
+        """
         return self._reduce_per_label("std", skipna=skipna)
 
     def var(self, *, skipna: bool = True) -> dict:
+        """Per-label variance over the time axis.
+
+        Args:
+            skipna (bool):
+                Ignore NaNs in the reduction. Default is True.
+
+        Returns:
+            dict: Mapping of ``{label: ndarray}`` with one reduced array per group.
+        """
         return self._reduce_per_label("var", skipna=skipna)
 
 
