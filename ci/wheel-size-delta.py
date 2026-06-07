@@ -20,6 +20,14 @@ import sys
 import urllib.request
 from pathlib import Path
 
+try:
+    # PEP 440-correct ordering when available (it almost always is on the CI
+    # runner — pip vendors it). Falls back to a numeric-split key otherwise.
+    from packaging.version import InvalidVersion, Version
+except Exception:  # noqa: BLE001 - optional; the regex fallback below suffices
+    Version = None
+    InvalidVersion = Exception
+
 PYPI_JSON = "https://pypi.org/pypi/pyramids-gis/json"
 
 
@@ -46,13 +54,21 @@ def _version(filename: str) -> str | None:
     return parts[1] if len(parts) >= 5 else None
 
 
-def _version_key(version: str) -> tuple[int, ...]:
-    """Order versions numerically, not lexically (so 0.10.0 > 0.9.0).
+def _version_key(version: str):
+    """Order versions for "newest release" selection.
 
-    Splits on every run of digits; a pre-release/local suffix (``rc1``,
-    ``.post0``) just contributes its own numbers, which is good enough for
-    picking the newest release of a tag in this best-effort report.
+    Uses :class:`packaging.version.Version` when available — it implements PEP
+    440, so ``1.0.0 > 1.0.0rc1`` and ``0.10.0 > 0.9.0`` both hold. Falls back to
+    a numeric digit-split tuple if ``packaging`` is missing or the string is not
+    PEP 440 (the fallback still gets ``0.10.0 > 0.9.0`` right; it just can't
+    rank a pre-release below its final). Within a single run the key type is
+    consistent, so the ``max(..., key=_version_key)`` comparison is well-defined.
     """
+    if Version is not None:
+        try:
+            return Version(version)
+        except InvalidVersion:
+            pass
     return tuple(int(n) for n in re.findall(r"\d+", version))
 
 

@@ -59,18 +59,22 @@ case "$(uname -s)" in
     *)      stat_size_flag=("-c%s") ;;
 esac
 
-# Build-only artifacts that must never ship in a wheel: C/C++ headers (an
-# include/ tree), static archives (.a / .lib), and pkgconfig files (.pc). A
-# Python member walk is more reliable than unzip text parsing.
+# Build-only artifacts that must never ship in a wheel: a leaked C/C++ header
+# tree (BUILD_PREFIX/include lands as an `include/` subtree), static archives
+# (.a / .lib), and pkgconfig files (.pc). We flag the `include/` subtree rather
+# than a bare `*.h`, so a legitimate data file that merely ends in `.h` does not
+# false-trip the gate (only a real header *tree* does). A Python member walk is
+# more reliable than unzip text parsing.
 _leak_members() {  # _leak_members <wheel> -> prints any leaking archive members
     local whl="$1"
     "${PY}" - "${whl}" <<'PY'
 import sys, zipfile
-patterns = (".a", ".pc", ".h", ".hpp", ".hxx")
+# Extensions no shipped data file legitimately uses (unambiguous build output).
+build_exts = (".a", ".lib", ".pc")
 with zipfile.ZipFile(sys.argv[1]) as zf:
     for name in zf.namelist():
         low = name.lower()
-        if low.endswith(patterns) or "/include/" in low:
+        if low.endswith(build_exts) or "/include/" in low or low.startswith("include/"):
             print(name)
 PY
 }
