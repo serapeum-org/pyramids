@@ -68,6 +68,36 @@ _COLLABORATOR_ATTRS = ("io", "spatial", "bands", "analysis", "cell", "vectorize"
 # "caller explicitly passed `None`" (which means "stamp no no-data sentinel").
 _INHERIT_NO_DATA = object()
 
+# Default GTiff creation options for out-of-core allocation
+# (`create_empty` / `empty_like`). TILED keeps windowed writes block-aligned
+# so a `write_array(window=)` does not amplify into a full-row rewrite;
+# SPARSE_OK lets never-written blocks cost no disk (they read back as the
+# band no-data value, not 0); BIGTIFF is mandatory past the 4 GB
+# classic-TIFF ceiling (a 2.7 B-cell float32 raster is ~10 GB) and must be
+# set at creation, not switched mid-write. DEFLATE matches the COG-writer
+# convention. Callers can override the whole list (e.g. to align
+# BLOCKXSIZE/BLOCKYSIZE to a different tile size).
+OUT_OF_CORE_CREATION_OPTIONS = [
+    "TILED=YES",
+    "BLOCKXSIZE=512",
+    "BLOCKYSIZE=512",
+    "SPARSE_OK=TRUE",
+    "BIGTIFF=YES",
+    "COMPRESS=DEFLATE",
+]
+
+
+class NoDataSentinelWarning(UserWarning):
+    """Warns that a disk-backed sparse raster was allocated with no no-data sentinel.
+
+    Emitted by :meth:`Dataset.create_empty` / :meth:`Dataset.empty_like` when the
+    target is a sparse GTiff and ``no_data_value`` resolves to ``None``: with no
+    sentinel, never-written blocks read back as ``0`` rather than no-data. Callers
+    who intentionally build sentinel-free rasters can silence it precisely with
+    ``warnings.filterwarnings("ignore", category=NoDataSentinelWarning)`` instead of
+    muting every :class:`UserWarning`.
+    """
+
 
 def _derive_band_names(paths: list[str]) -> list[str]:
     """Derive band names from a list of single-band raster paths.
@@ -2051,6 +2081,7 @@ class Dataset(RasterBase):
         dtype: int,
         driver: str = "MEM",
         path: str | Path | None = None,
+        options: list[str] | None = None,
     ) -> gdal.Dataset:
         """Create a GDAL driver.
 
@@ -2069,6 +2100,12 @@ class Dataset(RasterBase):
                 Driver type ["GTiff", "MEM"].
             path (str):
                 Path to save the GTiff driver.
+            options (list[str] | None):
+                GDAL creation options for the disk driver (e.g.
+                ``["TILED=YES", "SPARSE_OK=TRUE", "BIGTIFF=YES"]``). When
+                `None` (default), GTiff falls back to ``["COMPRESS=LZW"]`` —
+                the historical behaviour. Ignored for the MEM driver, which
+                takes no creation options.
 
         Returns:
             gdal driver
@@ -2085,9 +2122,11 @@ class Dataset(RasterBase):
                     "The path to save the created raster should end with .tif"
                 )
             # LZW is a lossless compression method achieve the highest compression but with a lot
-            # of computations.
+            # of computations. Callers that need tiled / sparse / BigTIFF
+            # output (e.g. create_empty) pass their own options.
+            creation_options = ["COMPRESS=LZW"] if options is None else options
             src = gdal.GetDriverByName(driver).Create(
-                str(path), cols, rows, bands, dtype, ["COMPRESS=LZW"]
+                str(path), cols, rows, bands, dtype, creation_options
             )
         else:
             # for memory drivers
@@ -2109,6 +2148,7 @@ class Dataset(RasterBase):
         path: str | Path | None = None,
         access: str = "write",
         array: np.ndarray | None = None,
+        options: list[str] | None = None,
     ) -> Dataset:
         """Build a Dataset: allocate, set geo/CRS, optionally fill no-data, optionally write.
 
@@ -2146,11 +2186,18 @@ class Dataset(RasterBase):
                 `bands x rows x cols` (or `rows x cols` for a
                 single-band array). Default `None` (allocate but
                 don't write).
+            options: GDAL creation options forwarded to
+                :meth:`_create_dataset` for disk drivers (e.g. the
+                tiled / sparse / BigTIFF set used by :meth:`create_empty`).
+                `None` (default) keeps the historical ``["COMPRESS=LZW"]``
+                for GTiff and is ignored by the MEM driver.
 
         Returns:
             Dataset: A fully configured Dataset object.
         """
-        dst = cls._create_dataset(cols, rows, bands, dtype, driver=driver, path=path)
+        dst = cls._create_dataset(
+            cols, rows, bands, dtype, driver=driver, path=path, options=options
+        )
         dst.SetGeoTransform(geo)
         dst.SetProjection(crs)
         dst_obj = cls(dst, access=access)
@@ -2224,6 +2271,316 @@ class Dataset(RasterBase):
             crs_wkt,
             no_data_value,
             path=path,
+        )
+
+    @classmethod
+    def create_empty(
+        cls,
+        rows: int,
+        cols: int,
+        *,
+        bands: int = 1,
+        dtype: str = "float32",
+        geo: tuple[float, float, float, float, float, float] | None = None,
+        epsg: int = 4326,
+        no_data_value: Any = DEFAULT_NO_DATA_VALUE,
+        driver_type: str = "GTiff",
+        path: str | Path | None = None,
+        options: list[str] | None = None,
+    ) -> Dataset:
+        """Allocate an empty, header-only raster without materialising a full array.
+
+        Out-of-core algorithms allocate the output once and scatter result
+        windows into it with
+        ``write_array(array, window=(row_off, col_off, n_rows, n_cols))``.
+        For the default ``driver_type="GTiff"`` the file is **tiled, sparse,
+        and BigTIFF** (see :data:`OUT_OF_CORE_CREATION_OPTIONS`), so a
+        50 000 x 50 000 float32 raster is created in O(1) RAM, never-written
+        blocks cost no disk, and writes past the 4 GB classic-TIFF ceiling
+        succeed. A never-written cell reads back as ``no_data_value`` (not 0) —
+        on GTiff because SPARSE_OK + the band no-data sentinel returns no-data
+        for unwritten blocks, and on MEM because the band is filled with the
+        no-data value at allocation — so downstream code must treat unwritten
+        tiles as no-data.
+
+        Args:
+            rows: Number of rows of the output raster.
+            cols: Number of columns of the output raster.
+            bands: Number of bands. Default 1.
+            dtype: NumPy dtype name for the bands (e.g. ``"float32"``,
+                ``"int16"``). Default ``"float32"``.
+            geo: Geotransform
+                ``(top_left_x, pixel_w, row_skew, top_left_y, col_skew,
+                pixel_h)``. Default ``(0.0, 1.0, 0.0, 0.0, 0.0, -1.0)`` — a
+                unit-pixel grid with the origin at ``(0, 0)``.
+            epsg: EPSG code for the projection. Default 4326.
+            no_data_value: No-data sentinel stamped on every band at
+                creation. Default :data:`DEFAULT_NO_DATA_VALUE`. Keep it set
+                so sparse unwritten blocks read back as no-data rather than 0.
+                Passing ``None`` skips the band fill and stamps no sentinel,
+                which opts out of that guarantee — a sparse GTiff's unwritten
+                blocks then read back as **0**, not no-data. On the disk/GTiff
+                path this emits a :class:`NoDataSentinelWarning`; the in-RAM
+                ``"MEM"`` driver is dense and does not warn.
+            driver_type: GDAL driver. ``"GTiff"`` (default) writes a
+                disk-backed file and requires `path`; ``"MEM"`` keeps the
+                raster in RAM and requires `path` to be `None`. Note that any
+                non-`None` `path` produces a GTiff regardless of `driver_type`
+                — the underlying allocator promotes ``"MEM"`` + `path` to
+                GTiff.
+            path: Output path (``.tif``) for a disk-backed raster. Pass a path
+                for the GTiff driver; leave as `None` for an in-memory
+                ``"MEM"`` raster.
+            options: GDAL creation options. `None` (default) uses
+                :data:`OUT_OF_CORE_CREATION_OPTIONS` for GTiff. Override to
+                align ``BLOCKXSIZE`` / ``BLOCKYSIZE`` to your tile size or to
+                change compression. Applies only to the disk/GTiff driver;
+                passing `options` without a `path` raises rather than silently
+                dropping them.
+
+        Returns:
+            Dataset: An empty raster whose bands read back as `no_data_value`
+            before any write. On GTiff this is sparse — SPARSE_OK keeps
+            never-written blocks unallocated and GDAL returns the no-data
+            sentinel for them; on MEM every band is filled with `no_data_value`
+            at allocation, so unwritten MEM cells read back as no-data too.
+
+        Raises:
+            ValueError: ``options`` is given without a ``path`` (creation
+                options apply only to the disk/GTiff driver); or
+                ``driver_type="GTiff"`` (the default) is requested
+                without a `path`. Pass a `path`, or use ``driver_type="MEM"``
+                for an in-memory raster.
+
+        Examples:
+            - Allocate an in-memory empty raster and read its no-data metadata:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_empty(
+                ...     4, 5, dtype="float32", no_data_value=-9999.0, driver_type="MEM"
+                ... )
+                >>> (ds.rows, ds.columns, ds.band_count)
+                (4, 5, 1)
+                >>> float(ds.no_data_value[0])
+                -9999.0
+
+                ```
+            - Allocate, then scatter a window into it and read it back:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_empty(4, 4, dtype="float32", driver_type="MEM")
+                >>> block = np.arange(4, dtype="float32").reshape(2, 2)
+                >>> ds.write_array(block, window=(1, 1, 2, 2))
+                >>> ds.read_array(window=[1, 1, 2, 2]).tolist()
+                [[0.0, 1.0], [2.0, 3.0]]
+
+                ```
+
+        See Also:
+            - :meth:`empty_like`: Allocate an empty raster shaped like an
+              existing template instead of from explicit dimensions.
+            - :meth:`create`: Allocate a raster and eagerly fill every cell
+              with the no-data value (no sparse / BigTIFF defaults).
+            - :meth:`write_array`: Scatter a window into the allocated raster
+              (``window=(row_off, col_off, n_rows, n_cols)``).
+        """
+        if driver_type == "GTiff" and path is None:
+            raise ValueError(
+                "create_empty(driver_type='GTiff') needs a path to write the raster "
+                "to; pass path='out.tif' for a disk-backed raster, or "
+                "driver_type='MEM' for an in-memory one. (Without a path the GTiff "
+                "tiled/sparse/BigTIFF options would be silently dropped.)"
+            )
+        # Creation options apply only to the disk/GTiff driver (path given); the
+        # MEM driver takes none. Reject explicit options that would be dropped
+        # rather than silently ignoring them.
+        if options is not None and path is None:
+            raise ValueError(
+                "create_empty received `options` but no `path`: GDAL creation "
+                "options apply only to the disk/GTiff driver. Pass a `path`, or drop "
+                "`options` for the in-memory MEM raster."
+            )
+        # Only the disk/GTiff path is sparse, where a missing sentinel makes
+        # never-written blocks read back as 0 instead of no-data. The MEM driver
+        # (path is None) is a dense in-RAM buffer where a sentinel-free raster is
+        # an ordinary, unsurprising choice — don't warn there. (A non-None path
+        # always yields a GTiff, including the MEM+path promotion.)
+        if no_data_value is None and path is not None:
+            warnings.warn(
+                "create_empty(no_data_value=None) on a disk/GTiff target stamps no "
+                "no-data sentinel, so unwritten sparse blocks read back as 0, not "
+                "no-data. Pass a no_data_value to keep the 'unwritten == no-data' "
+                "guarantee.",
+                NoDataSentinelWarning,
+                stacklevel=2,
+            )
+        gdal_dtype = numpy_to_gdal_dtype(dtype)
+        crs_wkt = sr_from_epsg(epsg).ExportToWkt()
+        if geo is None:
+            geo = (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)
+        if options is None and driver_type == "GTiff":
+            options = list(OUT_OF_CORE_CREATION_OPTIONS)
+        return cls._build_dataset(
+            cols,
+            rows,
+            bands,
+            gdal_dtype,
+            geo,
+            crs_wkt,
+            no_data_value,
+            driver=driver_type,
+            path=path,
+            options=options,
+            array=None,
+        )
+
+    @classmethod
+    def empty_like(
+        cls,
+        template: Dataset,
+        *,
+        dtype: str | None = None,
+        bands: int | None = None,
+        no_data_value: Any = _INHERIT_NO_DATA,
+        path: str | Path | None = None,
+        options: list[str] | None = None,
+    ) -> Dataset:
+        """Allocate an empty raster aligned to a template's geo / epsg / shape / nodata.
+
+        The header-only sibling of :meth:`dataset_like` — same spatial
+        footprint as `template` (geotransform, CRS, rows, columns, no-data),
+        but **no array is written**, so it can allocate an out-of-core output
+        the size of an input DEM without materialising it. Backed by GTiff
+        when `path` is given (tiled / sparse / BigTIFF via
+        :data:`OUT_OF_CORE_CREATION_OPTIONS`), otherwise MEM.
+
+        Args:
+            template: Source raster whose geotransform, CRS, shape, and
+                no-data value the output copies.
+            dtype: NumPy dtype name for the output bands. `None` (default)
+                reuses the template's dtype.
+            bands: Number of output bands. `None` (default) reuses the
+                template's band count.
+            no_data_value: No-data sentinel for the output. Default inherits
+                from the template: when the band count is unchanged and every
+                template band has a sentinel, the **per-band** no-data values
+                are preserved; otherwise (a `bands` override, or a template
+                band with no sentinel) the template's first-band value is used.
+                Pass an explicit scalar or per-band list to override. If this
+                resolves to ``None`` (passed explicitly, or inherited from a
+                template with no no-data set), no sentinel is stamped and a
+                sparse GTiff's unwritten blocks read back as **0**, not no-data;
+                on the disk/GTiff path (``path`` given) this emits a
+                :class:`NoDataSentinelWarning` (the in-RAM MEM result does not
+                warn).
+            path: Output path (``.tif``) for a disk-backed raster. `None`
+                (default) keeps the raster in memory (MEM driver).
+            options: GDAL creation options for the GTiff driver. `None`
+                (default) uses :data:`OUT_OF_CORE_CREATION_OPTIONS`. Applies
+                only to the disk/GTiff driver; passing `options` without a
+                `path` raises rather than silently dropping them.
+
+        Returns:
+            Dataset: An empty raster matching the template's footprint.
+
+        Raises:
+            ValueError: ``options`` is given without a ``path`` (creation
+                options apply only to the disk/GTiff driver).
+
+        Examples:
+            - Allocate an empty raster shaped like an existing one, with a
+              different dtype:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> template = Dataset.create_from_array(
+                ...     np.ones((3, 4, 5), dtype="float32"),
+                ...     top_left_corner=(0.0, 10.0), cell_size=0.5, epsg=4326,
+                ...     no_data_value=-9999.0,
+                ... )
+                >>> out = Dataset.empty_like(template, dtype="int16")
+                >>> (out.rows, out.columns, out.band_count, out.epsg)
+                (4, 5, 3, 4326)
+                >>> out.geotransform == template.geotransform
+                True
+
+                ```
+            - Reduce the band count and inherit the template's no-data value,
+              then confirm the empty output reads back as no-data:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> template = Dataset.create_from_array(
+                ...     np.ones((3, 4, 4), dtype="float32"),
+                ...     top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326,
+                ...     no_data_value=-9999.0,
+                ... )
+                >>> out = Dataset.empty_like(template, bands=1)
+                >>> out.band_count
+                1
+                >>> float(out.no_data_value[0])
+                -9999.0
+
+                ```
+
+        See Also:
+            - :meth:`create_empty`: Allocate an empty raster from explicit
+              dimensions / CRS instead of copying a template.
+            - :meth:`dataset_like`: The array-writing sibling — copies the
+              template footprint *and* writes a supplied array.
+            - :meth:`write_array`: Scatter a window into the allocated raster.
+        """
+        if options is not None and path is None:
+            raise ValueError(
+                "empty_like received `options` but no `path`: GDAL creation options "
+                "apply only to the disk/GTiff driver. Pass a `path`, or drop "
+                "`options` for the in-memory MEM raster."
+            )
+        gdal_dtype = (
+            template.gdal_dtype[0] if dtype is None else numpy_to_gdal_dtype(dtype)
+        )
+        n_bands = template.band_count if bands is None else bands
+        if no_data_value is not _INHERIT_NO_DATA:
+            nodata = no_data_value
+        else:
+            template_nd = template.no_data_value
+            # Preserve the template's per-band sentinels when the band count is
+            # unchanged and every band actually has one; otherwise (band-count
+            # override, or a band with no sentinel) fall back to band 0's value.
+            if bands is None and all(v is not None for v in template_nd):
+                nodata = list(template_nd)
+            else:
+                nodata = template_nd[0]
+        # Warn only for the disk/GTiff target (path given), where a missing
+        # sentinel makes unwritten sparse blocks read back as 0. An in-RAM MEM
+        # result (no path) is dense and a sentinel-free raster is unsurprising.
+        if nodata is None and path is not None:
+            warnings.warn(
+                "empty_like produced a disk/GTiff raster with no no-data sentinel "
+                "(no_data_value resolved to None, explicitly or inherited from a "
+                "template with no no-data), so unwritten sparse blocks read back as "
+                "0, not no-data. Pass no_data_value to keep the 'unwritten == "
+                "no-data' guarantee.",
+                NoDataSentinelWarning,
+                stacklevel=2,
+            )
+        driver_type = "GTiff" if path is not None else "MEM"
+        if options is None and driver_type == "GTiff":
+            options = list(OUT_OF_CORE_CREATION_OPTIONS)
+        return cls._build_dataset(
+            template.columns,
+            template.rows,
+            n_bands,
+            gdal_dtype,
+            template.geotransform,
+            template.crs,
+            nodata,
+            driver=driver_type,
+            path=path,
+            options=options,
+            array=None,
         )
 
     @classmethod
