@@ -186,8 +186,8 @@ nav:
           - COG basics (offline): examples/cog/cog-basics.ipynb
           - COG with real data: examples/cog/cog-real-data.ipynb
           - Dask (Sentinel-2 COGs on AWS): examples/dataset/dask-lazy-datasets.ipynb
-          - Dask — Dataset (local data): examples/dataset/lazy-dataset-complete.ipynb
-          - Dask — DatasetCollection (local data): examples/dataset/lazy-collection-complete.ipynb
+          - Dask — Dataset (complete cookbook): examples/dataset/lazy-dataset-complete.ipynb
+          - Dask — DatasetCollection (complete cookbook): examples/dataset/lazy-collection-complete.ipynb
       - Zarr:
           - Zarr basics (offline): examples/zarr/zarr-basics.ipynb
           - Zarr cubes — append & region: examples/zarr/zarr-cube.ipynb
@@ -198,7 +198,7 @@ nav:
       - Feature:
           - FeatureCollection tutorial: tutorials/feature.md
           - Dask (Overture Maps on AWS): examples/feature/dask-lazy-features.ipynb
-          - Dask — LazyFeatureCollection (local data): examples/feature/lazy-feature-complete.ipynb
+          - Dask — LazyFeatureCollection (complete cookbook): examples/feature/lazy-feature-complete.ipynb
       - STAC:
           - STAC tutorial: tutorials/stac.md
           - STAC (offline, local data): examples/stac/stac-local.ipynb
@@ -209,7 +209,7 @@ nav:
       - NetCDF:
           - Plotting NetCDF data: tutorials/netcdf-plotting.md
           - Dask (ERA5 on AWS): examples/netcdf/dask-lazy-netcdf.ipynb
-          - Dask — NetCDF (local data): examples/netcdf/lazy-netcdf-complete.ipynb
+          - Dask — NetCDF (complete cookbook): examples/netcdf/lazy-netcdf-complete.ipynb
           - UGRID:
               - Mesh exploration: examples/netcdf/ugrid/ugrid-mesh-exploration.ipynb
               - River channel: examples/netcdf/ugrid/ugrid-river-channel.ipynb
