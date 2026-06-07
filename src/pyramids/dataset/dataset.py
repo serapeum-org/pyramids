@@ -575,6 +575,15 @@ class Dataset(RasterBase):
                         self.get_band_by_color("blue"),
                     ]
                     if None in candidate:
+                        warnings.warn(
+                            "The implicit Sentinel-2 RGB band order [2, 1, 0] used "
+                            "when colour-interpretation is absent is deprecated and "
+                            "will be removed: it is a remote-sensing sensor "
+                            "assumption, not a generic raster default. Pass an "
+                            "explicit rgb=[...] (e.g. via rgb_options) instead.",
+                            DeprecationWarning,
+                            stacklevel=3,
+                        )
                         resolved_rgb = [2, 1, 0]
                     else:
                         resolved_rgb = [int(v) for v in candidate]
@@ -1399,6 +1408,14 @@ class Dataset(RasterBase):
             A new :class:`Dataset` with converted values and updated
             :attr:`band_units`.
 
+        .. deprecated::
+            Physical value-unit conversion (Kelvin/Celsius, m/s/knots, Pa/hPa,
+            m/mm) is atmospheric/geophysical domain logic, not a generic GIS
+            raster primitive, and will be **removed** from pyramids. Keep the
+            unit *metadata* on :attr:`band_units` and perform the value
+            conversion in the downstream science-domain consumer. Calling this
+            method emits a :class:`DeprecationWarning`.
+
         Raises:
             ValueError: ``band`` is out of range, a converted band has no source unit
                 set, or the ``(source, target)`` pair is unsupported.
@@ -1436,6 +1453,14 @@ class Dataset(RasterBase):
 
                 ```
         """
+        warnings.warn(
+            "Dataset.convert_units is deprecated and will be removed: physical "
+            "value-unit conversion (K/celsius, m s-1/knots, Pa/hPa, m/mm) is "
+            "domain logic, not a GIS primitive. Keep unit metadata on band_units "
+            "and convert values in the downstream science-domain consumer.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if band is not None and not 0 <= band < self.band_count:
             raise ValueError(
                 f"band {band} is out of range for a {self.band_count}-band dataset."

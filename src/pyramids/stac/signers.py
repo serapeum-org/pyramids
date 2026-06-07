@@ -32,6 +32,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import warnings
 from datetime import datetime, timezone
 from typing import Any, Callable, Protocol, runtime_checkable
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -545,6 +546,13 @@ class _BearerProviderSigner(_BaseSigner):
 class EarthdataSigner(_BearerProviderSigner):
     """NASA Earthdata (EDL) bearer signer — native, no `earthaccess` SDK.
 
+    .. deprecated::
+        NASA-Earthdata-specific OAuth is an Earth-observation **provider**
+        integration, not generic GIS cloud auth; slated for removal from
+        pyramids. Prefer :class:`BearerTokenSigner` with an externally-minted
+        token. Instantiating this class emits a :class:`DeprecationWarning`.
+
+
     Uses a pre-minted token when given (or `$EARTHDATA_TOKEN` / `$EARTHDATA_PAT`),
     otherwise mints one from the EDL `find_or_create_token` endpoint with HTTP
     Basic auth (`$EARTHDATA_USERNAME` / `$EARTHDATA_PASSWORD`). The token is sent
@@ -582,6 +590,15 @@ class EarthdataSigner(_BearerProviderSigner):
         timeout: float = 30.0,
     ) -> None:
         """Store EDL credentials / static token; init the token cache."""
+        warnings.warn(
+            "EarthdataSigner is deprecated and will be removed from pyramids: "
+            "NASA-Earthdata-specific OAuth is an Earth-observation provider "
+            "integration, not generic GIS cloud auth. Use the generic "
+            "BearerTokenSigner with an externally-minted token, or move the "
+            "agency signer to an EO/provider package.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__(refresh_window=refresh_window, timeout=timeout)
         self._username = username or os.environ.get("EARTHDATA_USERNAME")
         self._password = password or os.environ.get("EARTHDATA_PASSWORD")
@@ -633,6 +650,12 @@ class EarthdataSigner(_BearerProviderSigner):
 class CDSESigner(_BearerProviderSigner):
     """Copernicus Data Space Ecosystem (CDSE) bearer signer via Keycloak OAuth2.
 
+    .. deprecated::
+        Copernicus-CDSE-specific OAuth is an Earth-observation **provider**
+        integration, not generic GIS cloud auth; slated for removal from
+        pyramids. Prefer :class:`BearerTokenSigner` with an externally-minted
+        token. Instantiating this class emits a :class:`DeprecationWarning`.
+
     Mints an access token from the CDSE Keycloak token endpoint with a password
     grant (`$CDSE_USERNAME` / `$CDSE_PASSWORD`, public client `cdse-public`), then
     refreshes it with the refresh-token grant. The access token is sent as a
@@ -664,6 +687,15 @@ class CDSESigner(_BearerProviderSigner):
         timeout: float = 30.0,
     ) -> None:
         """Store CDSE credentials; init the token + refresh-token cache."""
+        warnings.warn(
+            "CDSESigner is deprecated and will be removed from pyramids: "
+            "Copernicus-CDSE-specific OAuth is an Earth-observation provider "
+            "integration, not generic GIS cloud auth. Use the generic "
+            "BearerTokenSigner with an externally-minted token, or move the "
+            "agency signer to an EO/provider package.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__(refresh_window=refresh_window, timeout=timeout)
         self._username = username or os.environ.get("CDSE_USERNAME")
         self._password = password or os.environ.get("CDSE_PASSWORD")

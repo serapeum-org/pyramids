@@ -19,6 +19,7 @@ import os
 import shutil
 import tempfile
 import urllib.request
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -195,7 +196,20 @@ def natural_earth(
             134
 
             ```
+
+    .. deprecated::
+        Fetching reference basemap/vector data is a plotting convenience (the
+        contextily niche), not a core GIS primitive, and is slated for removal
+        from pyramids in favour of a separate basemap/viz package. Emits a
+        :class:`DeprecationWarning`.
     """
+    warnings.warn(
+        "natural_earth is deprecated and will be removed from pyramids: fetching "
+        "reference vector data is a plotting convenience, not a core GIS primitive. "
+        "Use a dedicated basemap/viz package (e.g. cleopatra) instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if layer not in _LAYERS:
         raise ValueError(
             f"unknown Natural Earth layer {layer!r}; choose from {available_layers()}."
@@ -306,7 +320,19 @@ def relief(resolution: str = "low") -> Dataset:
             (3, 4326)
 
             ```
+
+    .. deprecated::
+        Fetching a reference relief backdrop is a plotting convenience, not a
+        core GIS primitive, and is slated for removal from pyramids in favour of
+        a separate basemap/viz package. Emits a :class:`DeprecationWarning`.
     """
+    warnings.warn(
+        "relief is deprecated and will be removed from pyramids: fetching a "
+        "reference relief backdrop is a plotting convenience, not a core GIS "
+        "primitive. Use a dedicated basemap/viz package instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if resolution not in _RELIEF_PRODUCTS:
         raise ValueError(
             f"unknown relief resolution {resolution!r}; choose from "

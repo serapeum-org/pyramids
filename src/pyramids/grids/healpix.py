@@ -14,6 +14,7 @@ The pixel centres are then handed to the same scattered-point bridge
 from __future__ import annotations
 
 import math
+import warnings
 
 import numpy as np
 from geopandas import GeoDataFrame, points_from_xy
@@ -185,7 +186,20 @@ def from_healpix(
     See Also:
         - :func:`pyramids.grids.from_octahedral`: the sibling point-based adapter this
           function delegates to via `grid_points`.
+
+    .. deprecated::
+        HEALPix is a specialized cosmology/astronomy pixelization, not a generic
+        GIS grid. This adapter is slated for removal from pyramids (candidate for
+        a separate ``[grids]`` extra or package). Emits a
+        :class:`DeprecationWarning`.
     """
+    warnings.warn(
+        "from_healpix is deprecated and will be removed from pyramids: HEALPix is "
+        "a specialized scientific grid, not a generic GIS primitive. Move it to a "
+        "dedicated grids/EO package or the [grids] extra.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     values = np.asarray(values, dtype=np.float64).ravel()
     npix = values.size
 

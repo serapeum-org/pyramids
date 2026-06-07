@@ -10,6 +10,8 @@ third-party dependencies.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 from geopandas import GeoDataFrame, points_from_xy
 
@@ -81,7 +83,20 @@ def from_octahedral(
         - :func:`pyramids.grids.from_orca`: regrid curvilinear ``(ny, nx)`` fields.
         - :func:`pyramids.dataset.ops.interpolate.grid_points`: the scattered-point
           interpolation this adapter delegates to.
+
+    .. deprecated::
+        ECMWF octahedral reduced-Gaussian grids are a specialized NWP model layout,
+        not a generic GIS grid. This adapter is slated for removal from pyramids
+        (candidate for a separate ``[grids]`` extra or package). Emits a
+        :class:`DeprecationWarning`.
     """
+    warnings.warn(
+        "from_octahedral is deprecated and will be removed from pyramids: the ECMWF "
+        "octahedral reduced-Gaussian grid is a specialized NWP layout, not a generic "
+        "GIS primitive. Move it to a dedicated grids/EO package or the [grids] extra.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     lats = np.asarray(lats, dtype=np.float64).ravel()
     lons = np.asarray(lons, dtype=np.float64).ravel()
     values = np.asarray(values, dtype=np.float64).ravel()

@@ -269,12 +269,26 @@ def from_stac(
         skip_missing: When `True`, items missing any requested asset are
             dropped instead of raising. When `False` (default), a missing
             asset raises :class:`~pyramids.base._errors.StacAssetError`.
-        groupby: When `"solar_day"`, items sharing a solar day (their UTC
-            datetime shifted by the item-centroid longitude) are mosaicked
-            together — overlapping same-overpass tiles fuse into one timestep
-            via `merge_rasters(method="first")` (first-valid fuser).
-            The resulting `time_length` is the number of distinct solar days.
-            Single-asset only. `None` (default) keeps one timestep per item.
+        groupby: How items map to timesteps. `None` (default) keeps one
+            timestep per item.
+
+            `"solar_day"` produces one timestep per acquisition date for
+            **tiled optical Earth-observation** catalogs (Sentinel-2, Landsat,
+            HLS, MODIS), where one overpass of an AOI is delivered as many
+            granules/tiles. Each item's solar day is its UTC timestamp shifted
+            by `centroid_longitude / 15` hours (≈ local solar time; see
+            :func:`_solar_day`), reduced to a calendar date — the shift keeps a
+            single overpass on one date instead of splitting it across
+            UTC midnight. Items sharing a solar day are mosaicked with
+            `merge_rasters(method="first")` (first-valid pixel wins on overlap;
+            see :func:`_from_stac_solar_day`). `time_length` is the number of
+            distinct solar days, in chronological order. Single-asset only.
+
+            .. deprecated::
+                Slated for removal — optical-EO overpass mosaicking is domain
+                logic, not a generic STAC primitive. Emits a
+                :class:`DeprecationWarning`. Build it downstream over the
+                generic `groupby=None` loader.
         like: Optional target grid as an existing
             :class:`~pyramids.dataset.Dataset`; every timestep of the built
             cube is reprojected/resampled onto its CRS + grid (via
@@ -344,6 +358,14 @@ def from_stac(
     if groupby is not None:
         if groupby != "solar_day":
             raise ValueError(f"groupby must be None or 'solar_day', got {groupby!r}.")
+        warnings.warn(
+            "from_stac(groupby='solar_day') is deprecated and will be removed: "
+            "solar-day overpass mosaicking is optical Earth-observation domain "
+            "logic, not a generic STAC primitive. Build it in the downstream EO "
+            "consumer over the generic from_stac(groupby=None) loader.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if not isinstance(asset, str):
             raise ValueError(
                 "groupby='solar_day' supports a single asset (str), not a "

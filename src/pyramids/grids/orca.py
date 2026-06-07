@@ -90,7 +90,19 @@ def from_orca(
         - :func:`pyramids.grids.from_octahedral`: regrid ragged per-point fields.
         - :meth:`pyramids.netcdf.ugrid.dataset.UgridDataset.to_dataset`: the mesh→raster
           bridge this adapter delegates to.
+
+    .. deprecated::
+        NEMO ORCA is a specialized curvilinear ocean-model grid, not a generic GIS
+        grid. This adapter is slated for removal from pyramids (candidate for a
+        separate ``[grids]`` extra or package). Emits a :class:`DeprecationWarning`.
     """
+    warnings.warn(
+        "from_orca is deprecated and will be removed from pyramids: NEMO ORCA is a "
+        "specialized ocean-model grid, not a generic GIS primitive. Move it to a "
+        "dedicated grids/EO package or the [grids] extra.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     lon2d = np.asarray(lon2d, dtype=np.float64)
     lat2d = np.asarray(lat2d, dtype=np.float64)
     data2d = np.asarray(data2d, dtype=np.float64)
