@@ -591,8 +591,9 @@ dataset.to_file("examples/data/dem/dem5km_rhine.nc", driver="netcdf")
 
 ### convert_longitude
 - some files (especially netcdf files) uses longitude values from 0 degrees to 360 degrees, instead of the usual,
-    GIS-standard, arrangement of -180 degrees to 180 degrees for longitude centered on the Prime Meridian, and -90 degrees
-    to 90 degrees for latitude centered on the Equator. the `convert_longitude` method corrects such behavior.
+    GIS-standard, arrangement of -180 degrees to 180 degrees for longitude centered on the Prime Meridian, and
+    -90 degrees to 90 degrees for latitude centered on the Equator. the `convert_longitude` method corrects such
+    behavior.
 
 ![](./../_images/dataset/0-360-longitude-withbase-map.png)
 
@@ -842,8 +843,8 @@ resulted Geotransform = (432968.1206170588, 4000.0, 0.0, 520007.787999178, 0.0, 
 ### align
 - `matchRasterAlignment` method matches the coordinate system and the number of of rows & columns between two rasters
     alignment_src is the source of the coordinate system, number of rows, number of columns & cell size data_src is the
-    source of data values in cells the result will be a raster with the same structure like alignment_src but with values
-    from data_src using Nearest Neighbour interpolation algorithm
+    source of data values in cells the result will be a raster with the same structure like alignment_src but with
+    values from data_src using Nearest Neighbour interpolation algorithm
 
 #### Parameters
     alignment_src : [gdal.dataset/string]
@@ -1087,8 +1088,8 @@ Map.plot(dst, title="Flow Accumulation")
 
 ### nearestNeighbour
 
-- `nearestCell` calculates the the indices (row, col) of nearest cell in a given raster to a station coordinate system of
-    the raster has to be projected to be able to calculate the distance
+- `nearestCell` calculates the the indices (row, col) of nearest cell in a given raster to a station coordinate
+    system of the raster has to be projected to be able to calculate the distance
 
 #### Parameters
     Raster: [gdal.dataset]
