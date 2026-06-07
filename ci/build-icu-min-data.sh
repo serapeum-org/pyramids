@@ -38,7 +38,7 @@ esac
 
 # Cross-compile when the target arch differs from the build host (macOS
 # x86_64 wheels built on the arm64 runner). Normalize x86_64/amd64 spelling.
-_norm_arch() { case "$1" in x86_64|amd64|AMD64) echo x86_64 ;; arm64|aarch64) echo arm64 ;; *) echo "$1" ;; esac; }
+_norm_arch() { local arch="$1"; case "${arch}" in x86_64|amd64|AMD64) echo x86_64 ;; arm64|aarch64) echo arm64 ;; *) echo "${arch}" ;; esac; }
 CROSS=0
 [[ "$(_norm_arch "${TARGET_ARCH}")" != "$(_norm_arch "${HOST_ARCH}")" ]] && CROSS=1
 
@@ -71,15 +71,16 @@ trap 'rm -rf "${work}"' EXIT
 
 # Download helper: wget (manylinux curl lacks HTTPS) -> curl -> python.
 _fetch() {  # _fetch <url> <dest>
+    local url="$1" dest="$2"
     if command -v wget >/dev/null 2>&1; then
-        wget --retry-connrefused --tries=5 --timeout=120 -qO "$2" "$1" && return 0
+        wget --retry-connrefused --tries=5 --timeout=120 -qO "${dest}" "${url}" && return 0
     fi
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --retry 3 "$1" -o "$2" && return 0
+        curl -fsSL --retry 3 "${url}" -o "${dest}" && return 0
     fi
     for py in python3 python; do
         if command -v "${py}" >/dev/null 2>&1; then
-            "${py}" -c "import urllib.request,sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" "$1" "$2" \
+            "${py}" -c "import urllib.request,sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" "${url}" "${dest}" \
                 && return 0
         fi
     done
@@ -91,7 +92,8 @@ _fetch() {  # _fetch <url> <dest>
 # auto-generated archives are normally byte-stable per tag; if github ever
 # recompresses and this mismatches, the build fails loudly — re-verify + update.
 _icu_sha256() {
-    case "$1" in
+    local ver="$1"
+    case "${ver}" in
         78.3) echo "f06bcab72736ee9d55689033b8198a178562354128cf38edb2afc2e67e3fd931" ;;
         *)    echo "" ;;
     esac
