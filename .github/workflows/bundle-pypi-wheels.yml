@@ -29,6 +29,10 @@ concurrency:
 
 env:
   WHEEL_SIZE_BUDGET_MB: "120"
+  # Uncompressed (install-footprint) ceiling enforced by ci/check-wheel-size.sh
+  # (T3.1, #474). Generous backstop above the current per-platform footprint
+  # (~143 MB Linux x86_64 post-#471); catches a regression without false-failing.
+  WHEEL_INSTALLED_BUDGET_MB: "250"
   # Toolchain pins for the GDAL-extraction scripts (ci/setup-gdal-*.sh,
   # .ps1). macOS / Windows cibuildwheel runs before-all on the host and
   # inherits these directly; the Linux container build forwards them via
@@ -97,7 +101,11 @@ jobs:
 
       - name: Report wheel sizes
         shell: bash
-        run: bash ci/check-wheel-size.sh wheelhouse
+        run: |
+          bash ci/check-wheel-size.sh wheelhouse
+          # T3.2 (#474): best-effort size delta vs the previous PyPI release.
+          # Non-fatal — never block the build on the comparison.
+          python3 ci/wheel-size-delta.py wheelhouse || true
 
       - uses: actions/upload-artifact@v4
         with:
