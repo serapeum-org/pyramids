@@ -199,14 +199,15 @@ def natural_earth(
 
     .. deprecated::
         Fetching reference basemap/vector data is a plotting convenience (the
-        contextily niche), not a core GIS primitive, and is slated for removal
-        from pyramids in favour of a separate basemap/viz package. Emits a
+        contextily niche), not a core GIS primitive, and is being moved to
+        cleopatra (the viz layer) — see serapeum-org/cleopatra#165. Emits a
         :class:`DeprecationWarning`.
     """
     warnings.warn(
-        "natural_earth is deprecated and will be removed from pyramids: fetching "
-        "reference vector data is a plotting convenience, not a core GIS primitive. "
-        "Use a dedicated basemap/viz package (e.g. cleopatra) instead.",
+        "natural_earth is deprecated and will move to cleopatra (the viz layer): "
+        "fetching reference vector data is a plotting convenience, not a core GIS "
+        "primitive. Tracking: serapeum-org/cleopatra#165 "
+        "(https://github.com/serapeum-org/cleopatra/issues/165).",
         DeprecationWarning,
         stacklevel=2,
     )
@@ -323,13 +324,14 @@ def relief(resolution: str = "low") -> Dataset:
 
     .. deprecated::
         Fetching a reference relief backdrop is a plotting convenience, not a
-        core GIS primitive, and is slated for removal from pyramids in favour of
-        a separate basemap/viz package. Emits a :class:`DeprecationWarning`.
+        core GIS primitive, and is being moved to cleopatra (the viz layer) —
+        see serapeum-org/cleopatra#165. Emits a :class:`DeprecationWarning`.
     """
     warnings.warn(
-        "relief is deprecated and will be removed from pyramids: fetching a "
-        "reference relief backdrop is a plotting convenience, not a core GIS "
-        "primitive. Use a dedicated basemap/viz package instead.",
+        "relief is deprecated and will move to cleopatra (the viz layer): "
+        "fetching a reference relief backdrop is a plotting convenience, not a "
+        "core GIS primitive. Tracking: serapeum-org/cleopatra#165 "
+        "(https://github.com/serapeum-org/cleopatra/issues/165).",
         DeprecationWarning,
         stacklevel=2,
     )
