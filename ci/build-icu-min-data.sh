@@ -83,10 +83,40 @@ _fetch() {  # _fetch <url> <dest>
     return 1
 }
 
+# Pinned SHA256 of the ICU git-archive source tarballs. The tarball is compiled
+# into the shipped wheel's libicudata, so verify it (supply chain). github's
+# auto-generated archives are normally byte-stable per tag; if github ever
+# recompresses and this mismatches, the build fails loudly — re-verify + update.
+_icu_sha256() {
+    case "$1" in
+        78.3) echo "f06bcab72736ee9d55689033b8198a178562354128cf38edb2afc2e67e3fd931" ;;
+        *)    echo "" ;;
+    esac
+}
+
 tag="release-${icu_ver}"
 url="https://github.com/unicode-org/icu/archive/refs/tags/${tag}.tar.gz"
 echo "build-icu-min-data: fetching ${url}"
 _fetch "${url}" "${work}/icu.tgz"
+
+_expected_sha="$(_icu_sha256 "${icu_ver}")"
+if [[ -n "${_expected_sha}" ]]; then
+    if command -v sha256sum >/dev/null 2>&1; then
+        _actual_sha=$(sha256sum "${work}/icu.tgz" | awk '{print $1}')
+    else
+        _actual_sha=$(shasum -a 256 "${work}/icu.tgz" | awk '{print $1}')
+    fi
+    if [[ "${_actual_sha}" != "${_expected_sha}" ]]; then
+        echo "build-icu-min-data: ERROR ICU source SHA256 mismatch for ${icu_ver}" >&2
+        echo "  expected ${_expected_sha}" >&2
+        echo "  actual   ${_actual_sha}" >&2
+        exit 1
+    fi
+    echo "build-icu-min-data: ICU source SHA256 verified"
+else
+    echo "build-icu-min-data: WARNING no pinned SHA256 for ICU ${icu_ver}; source unverified" >&2
+fi
+
 tar -xzf "${work}/icu.tgz" -C "${work}"
 src=$(find "${work}" -maxdepth 3 -type d -path '*/icu4c/source' | head -1)
 if [[ -z "${src}" || ! -d "${src}" ]]; then
