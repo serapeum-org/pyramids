@@ -161,7 +161,7 @@ from pyramids._vendor.osgeo import gdal
 
 ---
 
-### `plugin gdal_netCDF.so is not available` / NetCDF/HDF4/HDF5 drivers missing
+### `plugin gdal_netCDF.so is not available` / NetCDF/HDF5 drivers missing
 
 **Symptoms:**
 ```
@@ -273,11 +273,12 @@ from osgeo import gdal     # now finds them
 
 ### Wheel too large / slow download
 
-Our wheel is ~63 MB (vs rasterio's ~26 MB) because it bundles HDF4,
-HDF5, and NetCDF drivers. If you don't need these:
+Our wheel bundles GDAL with HDF5 and NetCDF drivers (the larger native
+libs), which makes it bigger than a raster-only build such as rasterio's.
+If you don't need these:
 
-- The conda-forge package is modular and only pulls in HDF4/NetCDF if
-  you explicitly install `libgdal-netcdf`, `libgdal-hdf4`.
+- The conda-forge package is modular and only pulls in NetCDF/HDF5 if
+  you explicitly install `libgdal-netcdf` (HDF4 is not bundled).
 - We don't currently ship a "lite" wheel without these drivers. File an
   issue if that would be valuable.
 
