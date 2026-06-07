@@ -282,6 +282,52 @@ else
     fi
 fi
 
+# 4b. Shrink the bundled ICU data (~30 MB) by rebuilding it charset-only from
+# the git-archive ICU source (#472). Linux + macOS, including the macOS
+# x86_64-on-arm64 cross-build (build-icu-min-data.sh detects cross from the
+# target arch and uses ICU --with-cross-build). Windows ships no libicudata.
+# Toggle off with PYRAMIDS_ICU_STUB=0; non-fatal.
+if [[ "${PYRAMIDS_ICU_STUB:-1}" == "1" ]] && [[ "$(uname -s)" =~ ^(Linux|Darwin)$ ]]; then
+    # build-icu-min-data.sh wants a single target arch. CIBW_ARCHS can hold a
+    # list (space- or comma-separated) if a job ever builds several arches;
+    # take the first token so the cross-build detection gets one concrete arch.
+    _icu_target_arch="${CIBW_ARCHS:-${CIBW_ARCHS_MACOS:-$(uname -m)}}"
+    _icu_target_arch="${_icu_target_arch//,/ }"
+    _icu_target_arch="${_icu_target_arch%% *}"
+    echo "--- Rebuilding ICU data (charset-only, target ${_icu_target_arch}) ---"
+    if ! bash "$(dirname "$0")/build-icu-min-data.sh" \
+            "${BUILD_PREFIX}" "${PIXI_ENV}" "${_icu_target_arch}"; then
+        echo "WARNING: ICU min-data rebuild failed; keeping the full libicudata" >&2
+    fi
+
+    # Size gate: the rebuild is best-effort (non-fatal above so transient infra
+    # — a download blip, etc. — only warns). But a *persistent* failure would
+    # silently ship the full ~33 MB libicudata with green CI, defeating the
+    # whole optimization. Assert the bundled libicudata actually shrank; FAIL
+    # the build if it didn't (re-run for a transient cause). Ceiling 12 MB: the
+    # charset-only lib is ~6 MB, the full one ~33 MB.
+    _icu_max_bytes=$(( 12 * 1024 * 1024 ))
+    shopt -s nullglob
+    _icudata=( "${BUILD_PREFIX}"/lib/libicudata.* "${BUILD_PREFIX}"/lib64/libicudata.* )
+    shopt -u nullglob
+    for _f in "${_icudata[@]}"; do
+        [[ -L "${_f}" ]] && continue   # real files only
+        # Fail loudly if the size is unreadable rather than falling back to 0,
+        # which would pass the gate (0 < ceiling) and hide a real regression.
+        _sz=$(stat -c%s "${_f}" 2>/dev/null || stat -f%z "${_f}" 2>/dev/null || true)
+        if [[ ! "${_sz}" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: could not read the size of ${_f} to size-gate the ICU rebuild." >&2
+            exit 1
+        fi
+        if (( _sz > _icu_max_bytes )); then
+            echo "ERROR: ${_f} is $(( _sz / 1024 / 1024 )) MB (> 12 MB) — the ICU charset" >&2
+            echo "       rebuild did not apply, so the wheel would ship full-size ICU." >&2
+            echo "       Failing the build (re-run if the cause was transient)." >&2
+            exit 1
+        fi
+    done
+fi
+
 # 5. Diagnostic output. Uses `nullglob` + first-match-from-array to
 # avoid the `ls "..."* 2>/dev/null | head -1` anti-pattern that hides
 # all errors (not just "no match"). Each `_*` array can be empty if no
