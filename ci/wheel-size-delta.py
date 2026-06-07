@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 import sys
 import urllib.request
 from pathlib import Path
@@ -43,6 +44,16 @@ def _tag(filename: str) -> str | None:
 def _version(filename: str) -> str | None:
     parts = filename[:-4].split("-")
     return parts[1] if len(parts) >= 5 else None
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    """Order versions numerically, not lexically (so 0.10.0 > 0.9.0).
+
+    Splits on every run of digits; a pre-release/local suffix (``rc1``,
+    ``.post0``) just contributes its own numbers, which is good enough for
+    picking the newest release of a tag in this best-effort report.
+    """
+    return tuple(int(n) for n in re.findall(r"\d+", version))
 
 
 def _fetch_releases() -> dict:
@@ -85,7 +96,7 @@ def main() -> int:
         if not candidates:
             _notice(f"{whl.name}: {cur_mb:.1f} MB (no prior PyPI wheel for this tag)")
             continue
-        prev_ver = max(candidates)  # string max is fine for the usual semver shape
+        prev_ver = max(candidates, key=_version_key)  # numeric order: 0.10.0 > 0.9.0
         prev_bytes = candidates[prev_ver]
         delta_mb = (cur_bytes - prev_bytes) / 1048576
         sign = "+" if delta_mb >= 0 else "-"

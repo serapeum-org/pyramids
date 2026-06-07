@@ -138,6 +138,10 @@ jobs:
         env:
           CIBW_ARCHS_MACOS: ${{ matrix.arch }}
 
+      - name: Report wheel sizes
+        shell: bash
+        run: bash ci/check-wheel-size.sh wheelhouse
+
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-macos-${{ matrix.arch }}
@@ -168,6 +172,10 @@ jobs:
         uses: pypa/cibuildwheel@8d2b08b68458a16aeb24b64e68a09ab1c8e82084 # v3.4
         env:
           CIBW_ARCHS_WINDOWS: ${{ matrix.arch }}
+
+      - name: Report wheel sizes
+        shell: bash
+        run: bash ci/check-wheel-size.sh wheelhouse
 
       - uses: actions/upload-artifact@v4
         with:

@@ -319,6 +319,15 @@ def _trim_gdal_data(gdal_data_dir: Path) -> None:
             f.unlink()
             removed += 1
     print(f"[install-and-vendor-osgeo] trimmed {removed} niche GDAL_DATA files", flush=True)
+    if removed == 0:
+        # Every pattern matched nothing — almost certainly a GDAL layout/rename,
+        # not an intentional state. Warn loudly so the silently-lost ~1 MB win is
+        # visible rather than passing as a green no-op (T1.5 review N1, #474).
+        print(
+            "[install-and-vendor-osgeo] WARNING: GDAL_DATA trim matched 0 files; "
+            "the denylist may be stale for this GDAL version — size win lost",
+            flush=True,
+        )
 
 
 _BOOTSTRAP_TEMPLATE_PATH = Path(__file__).resolve().parent / "_osgeo_bootstrap.py"
