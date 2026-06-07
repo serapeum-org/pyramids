@@ -261,6 +261,16 @@ class BearerTokenSigner(_BaseSigner):
 class PlanetaryComputerSigner(_BaseSigner):
     """Native Microsoft Planetary Computer SAS signer (no SDK dependency).
 
+    .. deprecated::
+        Microsoft-Planetary-Computer SAS signing is an Earth-observation
+        **provider** integration (it hardcodes the PC token endpoint and a
+        PC-specific public-bucket carve-out), not generic GIS cloud auth; moving
+        to earthlens and will be removed from pyramids — see
+        serapeum-org/earthlens#384. The generic :class:`Signer` protocol +
+        :class:`BearerTokenSigner` stay in pyramids. Instantiating this class
+        emits a :class:`DeprecationWarning`.
+
+
     PC hosts Sentinel / Landsat / many collections behind short-lived Shared
     Access Signature (SAS) tokens. This signer mints a token per
     `(account, container)` from the PC token endpoint and appends it to the
@@ -338,6 +348,16 @@ class PlanetaryComputerSigner(_BaseSigner):
                 refetched.
             timeout: Token-request timeout in seconds.
         """
+        warnings.warn(
+            "PlanetaryComputerSigner is deprecated and will move to earthlens (and "
+            "be removed from pyramids): Microsoft-Planetary-Computer SAS signing is "
+            "an Earth-observation provider integration, not generic GIS cloud auth. "
+            "The generic Signer protocol + BearerTokenSigner stay in pyramids. "
+            "Tracking: serapeum-org/earthlens#384 "
+            "(https://github.com/serapeum-org/earthlens/issues/384).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._sas_url = (
             sas_url or os.environ.get("PC_SDK_SAS_URL") or self._DEFAULT_SAS_URL
         ).rstrip("/")
