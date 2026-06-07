@@ -4,6 +4,8 @@ Time-stacked collection of co-registered rasters. Holds N rasters that share
 a spatial template (rows, columns, cell size, CRS) and exposes them along a
 single time axis for multi-temporal analysis.
 
+![DatasetCollection diagram](../../_images/pyramids-multi-dataset.svg)
+
 ## The two paths
 
 The class operates through **two distinct backing paths**, each serving a

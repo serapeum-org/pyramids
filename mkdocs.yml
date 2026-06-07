@@ -126,7 +126,7 @@ nav:
       - Vectorize Operations: reference/dataset/vectorize.md
       - Band Metadata Operations: reference/dataset/band_metadata.md
       - Cell Operations: reference/dataset/cell.md
-    - DatasetCollection: reference/dataset_collection.md
+    - DatasetCollection: reference/dataset/collection.md
     - Zarr: reference/zarr.md
     - Feature:
       - Overview: reference/feature/index.md
@@ -166,10 +166,15 @@ nav:
           - Lazy NetCDF: tutorials/lazy/lazy-netcdf.md
           - Lazy collections (DatasetCollection): tutorials/lazy/lazy-collection.md
           - Lazy vector reads (FeatureCollection): tutorials/lazy/lazy-vector.md
+          - Using pyramids with Dask (notebook): examples/dask/overview.ipynb
+          - Dask quickstart — Dataset: examples/dask/dataset.ipynb
+          - Dask quickstart — DatasetCollection: examples/dask/collection.ipynb
+          - Dask quickstart — FeatureCollection: examples/dask/feature.ipynb
+          - Dask quickstart — NetCDF: examples/dask/netcdf.ipynb
       - Dataset:
           - Overview: tutorials/dataset.md
           - Raster basics: tutorials/raster-basics.md
-          - Datacube basics: tutorials/datacube-basics.md
+          - DatasetCollection basics: tutorials/datacube-basics.md
           - Dataset basics: examples/dataset/dataset.ipynb
           - Spatial operations: examples/dataset/spatial-operation-methods.ipynb
           - Convert longitude: examples/dataset/convert-longitude.ipynb
@@ -181,8 +186,8 @@ nav:
           - COG basics (offline): examples/cog/cog-basics.ipynb
           - COG with real data: examples/cog/cog-real-data.ipynb
           - Dask (Sentinel-2 COGs on AWS): examples/dataset/dask-lazy-datasets.ipynb
-          - Dask — Dataset (local data): examples/dataset/lazy-dataset-complete.ipynb
-          - Dask — DatasetCollection (local data): examples/dataset/lazy-collection-complete.ipynb
+          - Dask — Dataset (complete cookbook): examples/dataset/lazy-dataset-complete.ipynb
+          - Dask — DatasetCollection (complete cookbook): examples/dataset/lazy-collection-complete.ipynb
       - Zarr:
           - Zarr basics (offline): examples/zarr/zarr-basics.ipynb
           - Zarr cubes — append & region: examples/zarr/zarr-cube.ipynb
@@ -191,7 +196,7 @@ nav:
       - Feature:
           - FeatureCollection tutorial: tutorials/feature.md
           - Dask (Overture Maps on AWS): examples/feature/dask-lazy-features.ipynb
-          - Dask — LazyFeatureCollection (local data): examples/feature/lazy-feature-complete.ipynb
+          - Dask — LazyFeatureCollection (complete cookbook): examples/feature/lazy-feature-complete.ipynb
       - STAC:
           - STAC tutorial: tutorials/stac.md
           - STAC (offline, local data): examples/stac/stac-local.ipynb
@@ -201,11 +206,11 @@ nav:
       - NetCDF:
           - Plotting NetCDF data: tutorials/netcdf-plotting.md
           - Dask (ERA5 on AWS): examples/netcdf/dask-lazy-netcdf.ipynb
-          - Dask — NetCDF (local data): examples/netcdf/lazy-netcdf-complete.ipynb
+          - Dask — NetCDF (complete cookbook): examples/netcdf/lazy-netcdf-complete.ipynb
           - UGRID:
               - Mesh exploration: examples/netcdf/ugrid/ugrid-mesh-exploration.ipynb
               - River channel: examples/netcdf/ugrid/ugrid-river-channel.ipynb
-              - Dask (FVCOM NECOFS via OPeNDAP): examples/netcdf/ugrid/dask-lazy-ugrid.ipynb
+              - Dask (mesh → raster bridge): examples/netcdf/ugrid/dask-lazy-ugrid.ipynb
   - How-to:
       - Dev Container: how-to/devcontainer.md
       - Docker & GHCR: how-to/docker.md
@@ -227,6 +232,7 @@ nav:
         - ADR-0003 IO formats: adr/0003-io-formats.md
         - ADR-0004 Dependency graphing: adr/0004-dependency-graphing.md
         - ADR-0005 Versioning docs: adr/0005-versioning-docs.md
+        - ADR-0006 Docker image: adr/0006-docker-image.md
 
 extra:
   social:

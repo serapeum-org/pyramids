@@ -24,9 +24,11 @@ Current release info
 
 pyramids - GIS utility package
 =====================================================================
-**pyramids** is a GIS utility package using gdal, ....
-
-pyramids
+**pyramids** is a GIS utility package built on GDAL/OGR for working with raster data (GeoTIFF,
+NetCDF), vector data (shapefiles, GeoJSON), and multi-temporal datacubes. It provides a high-level,
+Pythonic API for reading, writing, cropping, reprojecting, aligning, mosaicking, and rasterizing
+geospatial data, with first-class support for Cloud Optimized GeoTIFFs, STAC catalogs, lazy/Dask
+computation, and cloud object stores (S3 / GCS / Azure / HTTPS).
 
 ![1](./_images/package-work-flow/overall.png)
 
@@ -83,11 +85,11 @@ from pyramids.dataset import Dataset
 path = "tests/data/geotiff/dem.tif"  # adjust path as needed
 
 ds = Dataset.read_file(path)
-print(ds.width, ds.height, ds.transform)
-print(ds.meta)
+print(ds.columns, ds.rows, ds.geotransform)
+print(ds.epsg, ds.cell_size, ds.no_data_value)
 
 # Access array data
-arr = ds.read()
+arr = ds.read_array()
 print(arr.shape, arr.dtype)
 
 # Save a single band to a new GeoTIFF (writes alongside input by default)
