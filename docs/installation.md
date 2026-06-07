@@ -16,7 +16,7 @@ installation required.
 pip install pyramids-gis
 ```
 
-That's it. The wheel includes GDAL 3.12, PROJ, GEOS, HDF5, NetCDF,
+That's it. The wheel includes GDAL 3.12, PROJ, GEOS, HDF4/5, NetCDF,
 libtiff, and all other native dependencies. No `gdal-config`, no
 `apt install libgdal-dev`, no OSGeo4W installer needed.
 
@@ -242,7 +242,7 @@ runtime issues.
 
 `pyramids-gis` is licensed under GPLv3. The platform wheels published on
 PyPI bundle **GDAL** and its native dependencies — PROJ, GEOS, libtiff,
-libgeotiff, NetCDF-C, HDF5, libcurl, OpenSSL, libxml2, libpng,
+libgeotiff, NetCDF-C, HDF5 / HDF4, libcurl, OpenSSL, libxml2, libpng,
 libjpeg-turbo, libwebp, zlib / libdeflate / zstd / lz4 / bzip2 / liblzma,
 and on Linux the GCC 13 libstdc++ — each under its own MIT, BSD, LGPL,
 or Apache license.

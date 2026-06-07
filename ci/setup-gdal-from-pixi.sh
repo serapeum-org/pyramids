@@ -230,22 +230,10 @@ fi
 
 # GDAL plugins (libgdal-netcdf / libgdal-hdf4) live in a separate
 # subdirectory and are loaded at runtime via GDAL_DRIVER_PATH. These
-# MUST be bundled or NetCDF/HDF5 drivers will be unavailable.
+# MUST be bundled or NetCDF/HDF4/HDF5 drivers will be unavailable.
 if [[ -d "${PIXI_ENV}/lib/gdalplugins" ]]; then
     mkdir -p "${BUILD_PREFIX}/lib/gdalplugins"
     cp -a "${PIXI_ENV}/lib/gdalplugins/." "${BUILD_PREFIX}/lib/gdalplugins/"
-fi
-
-# Drop the HDF4 driver (T1.4, issue #474): pyramids reads no HDF4 rasters,
-# and shipping gdal_HDF4 is what drags libdf + libmfhdf (~1.2 MB) into the
-# repaired wheel. install-and-vendor-osgeo.py prunes the plugin from the
-# wheel's _data/gdalplugins (cross-platform); here we also drop it + its two
-# libs from BUILD_PREFIX so the repair search path and the diagnostics below
-# don't carry them. netCDF / HDF5 / GRIB plugins are kept.
-rm -f "${BUILD_PREFIX}"/lib/gdalplugins/gdal_HDF4*.so 2>/dev/null || true
-rm -f "${BUILD_PREFIX}"/lib/libdf.so* "${BUILD_PREFIX}"/lib/libmfhdf.so* 2>/dev/null || true
-if [[ -d "${BUILD_PREFIX}/lib64" ]]; then
-    rm -f "${BUILD_PREFIX}"/lib64/libdf.so* "${BUILD_PREFIX}"/lib64/libmfhdf.so* 2>/dev/null || true
 fi
 
 # Build tooling needed downstream

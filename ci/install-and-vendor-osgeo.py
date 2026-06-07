@@ -274,24 +274,6 @@ def _prune_unused_bindings(osgeo_dir: Path) -> None:
             print(f"[install-and-vendor-osgeo] pruned {f.name}", flush=True)
 
 
-def _prune_hdf4_plugin(plugins_dir: Path) -> None:
-    """Drop the HDF4 GDAL driver plugin — unused by pyramids (T1.4, issue #474).
-
-    `gdal_HDF4.{so,dll,dylib}` is a dlopen'd driver plugin (not linked into
-    libgdal). The wheel-repair tools (auditwheel / delocate / delvewheel) walk
-    every shared object in the wheel and bundle its dependency closure, so
-    shipping this plugin is what drags `libdf` + `libmfhdf` (~1.2 MB) into the
-    wheel — libs nothing else links. pyramids reads no HDF4 rasters (no code
-    path or test fixture uses the driver; audit in #474), so removing the
-    plugin here keeps the two libs out of the repaired wheel. netCDF / HDF5 /
-    GRIB plugins are deliberately kept.
-    """
-    for pattern in ("gdal_HDF4.so", "gdal_HDF4.dll", "gdal_HDF4.dylib", "gdal_HDF4Image.*"):
-        for f in plugins_dir.glob(pattern):
-            f.unlink()
-            print(f"[install-and-vendor-osgeo] pruned HDF4 plugin {f.name}", flush=True)
-
-
 # Driver-specific GDAL_DATA support files for formats pyramids does not target
 # (niche OGR vector + a few niche raster drivers). Removing each only disables
 # that one driver's auxiliary data — geometry/raster reads of common formats are
@@ -484,9 +466,7 @@ def vendor_osgeo_into_package() -> None:
     # bootstrap in `src/pyramids/__init__.py` mirrors this guard.
     plugins_src = lib_dir / "gdalplugins"
     if plugins_src.is_dir():
-        plugins_dst = src_pyramids / "_data" / "gdalplugins"
-        _copy_tree_replacing(plugins_src, plugins_dst)
-        _prune_hdf4_plugin(plugins_dst)  # T1.4 — drop unused HDF4 driver (+ libdf/libmfhdf)
+        _copy_tree_replacing(plugins_src, src_pyramids / "_data" / "gdalplugins")
 
     # 5. Vendor the curl CA bundle. conda-forge's libcurl bakes its
     # default CA path to `<build-prefix>/ssl/cacert.pem`, which does not
