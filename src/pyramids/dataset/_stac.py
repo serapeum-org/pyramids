@@ -283,12 +283,6 @@ def from_stac(
             `merge_rasters(method="first")` (first-valid pixel wins on overlap;
             see :func:`_from_stac_solar_day`). `time_length` is the number of
             distinct solar days, in chronological order. Single-asset only.
-
-            .. deprecated::
-                Slated for removal — optical-EO overpass mosaicking is domain
-                logic, not a generic STAC primitive. Emits a
-                :class:`DeprecationWarning`. Build it downstream over the
-                generic `groupby=None` loader.
         like: Optional target grid as an existing
             :class:`~pyramids.dataset.Dataset`; every timestep of the built
             cube is reprojected/resampled onto its CRS + grid (via
@@ -358,14 +352,6 @@ def from_stac(
     if groupby is not None:
         if groupby != "solar_day":
             raise ValueError(f"groupby must be None or 'solar_day', got {groupby!r}.")
-        warnings.warn(
-            "from_stac(groupby='solar_day') is deprecated and will be removed: "
-            "solar-day overpass mosaicking is optical Earth-observation domain "
-            "logic, not a generic STAC primitive. Build it in the downstream EO "
-            "consumer over the generic from_stac(groupby=None) loader.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
         if not isinstance(asset, str):
             raise ValueError(
                 "groupby='solar_day' supports a single asset (str), not a "

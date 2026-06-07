@@ -1331,14 +1331,6 @@ class DatasetCollection:
                 stack from tiled imagery over an AOI that spans several tiles.
                 Do **not** use it for non-overpass data (climate model output,
                 already-mosaicked products) — there `groupby=None` is correct.
-
-                .. deprecated::
-                    `groupby="solar_day"` is scheduled for removal: solar-day
-                    overpass mosaicking is optical-EO domain logic, not a generic
-                    STAC primitive, and emits a :class:`DeprecationWarning`. Build
-                    it downstream over the generic `groupby=None` loader (group
-                    item ids by solar day yourself, then
-                    `merge_rasters(method="first")` per group).
             like: Optional target-grid :class:`~pyramids.dataset.Dataset`;
                 every timestep is aligned onto its CRS + grid. Mutually
                 exclusive with `crs`/`resolution`/`bounds`.
