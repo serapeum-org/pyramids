@@ -491,9 +491,10 @@ class TestPlotDatasetCollection:
         The ``None`` -> ``np.nan`` sanitisation (mirroring ``Analysis.plot``) masks
         nothing and renders every cell instead of raising.
         """
+        rng = np.random.default_rng(0)
         files = []
         for i in range(3):
-            arr = np.random.rand(1, 12, 12).astype("float32")
+            arr = rng.random((1, 12, 12), dtype="float32")
             ds = Dataset.create_from_array(
                 arr=arr, geo=(0, 0.1, 0, 2, 0, -0.1), epsg=4326, no_data_value=None
             )
