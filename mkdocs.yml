@@ -186,6 +186,10 @@ nav:
           - No-data & gap filling: examples/operations/nodata-gap-filling.ipynb
           - Overviews (image pyramids): examples/operations/overviews.ipynb
           - Visualization gallery: examples/operations/visualization.ipynb
+          - Windowed & tiled reads: examples/operations/windowed-reads.ipynb
+          - Raster algebra & apply: examples/operations/raster-algebra.ipynb
+          - Vector geometry toolkit: examples/operations/vector-geometry.ipynb
+          - Color tables & band colors: examples/operations/color-tables.ipynb
       - Dataset:
           - Overview: tutorials/dataset.md
           - Raster basics: tutorials/raster-basics.md
