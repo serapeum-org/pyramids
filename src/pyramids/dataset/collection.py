@@ -1360,9 +1360,31 @@ class DatasetCollection:
                 default) or raise on mismatch (`False`).
             skip_missing: Drop items missing any requested asset
                 (`True`) instead of raising (`False`, default).
-            groupby: `"solar_day"` mosaics same-solar-day items into one
-                timestep each (single-asset only); `None` (default) keeps
-                one timestep per item.
+            groupby: How to collapse items into timesteps. `None` (default)
+                keeps **one timestep per item** — the generic behaviour.
+
+                `"solar_day"` instead produces **one timestep per acquisition
+                date**, fusing all items that belong to the same satellite
+                overpass. This is for **tiled optical Earth-observation**
+                catalogs (Sentinel-2, Landsat, HLS, MODIS), where a single pass
+                over an area of interest is delivered as many separate
+                granules/tiles — without grouping you would get N
+                tile-timesteps for what is really one acquisition.
+
+                *Mechanism.* Each item's "solar day" is its UTC timestamp shifted
+                by `centroid_longitude / 15` hours (15° of longitude ≈ 1 hour of
+                local solar time), reduced to a calendar date. The longitude
+                shift keeps one overpass on a single date instead of splitting it
+                across the UTC-midnight boundary. Items sharing a solar day are
+                mosaicked with `merge_rasters(method="first")` (first-valid
+                pixel wins where tiles overlap). The resulting `time_length` is
+                the number of distinct solar days, in chronological order.
+                Single-asset only.
+
+                Use it when you want an analysis-ready, one-timestep-per-date
+                stack from tiled imagery over an AOI that spans several tiles.
+                Do **not** use it for non-overpass data (climate model output,
+                already-mosaicked products) — there `groupby=None` is correct.
             like: Optional target-grid :class:`~pyramids.dataset.Dataset`;
                 every timestep is aligned onto its CRS + grid. Mutually
                 exclusive with `crs`/`resolution`/`bounds`.

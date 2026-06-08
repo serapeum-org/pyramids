@@ -269,12 +269,20 @@ def from_stac(
         skip_missing: When `True`, items missing any requested asset are
             dropped instead of raising. When `False` (default), a missing
             asset raises :class:`~pyramids.base._errors.StacAssetError`.
-        groupby: When `"solar_day"`, items sharing a solar day (their UTC
-            datetime shifted by the item-centroid longitude) are mosaicked
-            together — overlapping same-overpass tiles fuse into one timestep
-            via `merge_rasters(method="first")` (first-valid fuser).
-            The resulting `time_length` is the number of distinct solar days.
-            Single-asset only. `None` (default) keeps one timestep per item.
+        groupby: How items map to timesteps. `None` (default) keeps one
+            timestep per item.
+
+            `"solar_day"` produces one timestep per acquisition date for
+            **tiled optical Earth-observation** catalogs (Sentinel-2, Landsat,
+            HLS, MODIS), where one overpass of an AOI is delivered as many
+            granules/tiles. Each item's solar day is its UTC timestamp shifted
+            by `centroid_longitude / 15` hours (≈ local solar time; see
+            :func:`_solar_day`), reduced to a calendar date — the shift keeps a
+            single overpass on one date instead of splitting it across
+            UTC midnight. Items sharing a solar day are mosaicked with
+            `merge_rasters(method="first")` (first-valid pixel wins on overlap;
+            see :func:`_from_stac_solar_day`). `time_length` is the number of
+            distinct solar days, in chronological order. Single-asset only.
         like: Optional target grid as an existing
             :class:`~pyramids.dataset.Dataset`; every timestep of the built
             cube is reprojected/resampled onto its CRS + grid (via
@@ -751,7 +759,7 @@ def from_point(
         resolution: Pixel size in metres.
         units: `"px"` (default) or `"m"`.
         stac: STAC API root URL. Defaults to the Microsoft Planetary Computer
-            (which needs a :class:`pyramids.stac.signers.PlanetaryComputerSigner`).
+            (which needs an ``earthlens.stac.PlanetaryComputerSigner``).
         query: Optional STAC `query` extension dict (e.g.
             `{"eo:cloud_cover": {"lt": 10}}`).
         signer: Optional signer, forwarded to both the search and the reads.
@@ -770,7 +778,7 @@ def from_point(
           a PC signer required):
             ```python
             >>> from pyramids.dataset import DatasetCollection  # doctest: +SKIP
-            >>> from pyramids.stac import PlanetaryComputerSigner  # doctest: +SKIP
+            >>> from earthlens.stac import PlanetaryComputerSigner  # doctest: +SKIP
             >>> cube = DatasetCollection.from_point(  # doctest: +SKIP
             ...     lat=46.0, lon=11.0, collection="sentinel-2-l2a",
             ...     bands=["B04", "B03", "B02"],

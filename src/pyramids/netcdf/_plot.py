@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
+import warnings
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -1240,6 +1241,16 @@ class NetCDFPlot:
                     x_arr = self._squeeze_leading_axes(x_arr, data_shape)
                     y_arr = self._squeeze_leading_axes(y_arr, data_shape)
                     if self._coord_shapes_match(x_arr, y_arr, data_shape):
+                        warnings.warn(
+                            "Resolving curvilinear coordinates by hardcoded "
+                            f"model-specific names ({x_name!r}, {y_name!r}) is "
+                            "deprecated and will be removed: WRF/ROMS/NEMO name "
+                            "heuristics are domain knowledge, not a generic GIS "
+                            "convention. Set the CF `coordinates` attribute, or pass "
+                            "`coords=` explicitly.",
+                            DeprecationWarning,
+                            stacklevel=3,
+                        )
                         result = (x_arr, y_arr)
                         break
                     logger.debug(

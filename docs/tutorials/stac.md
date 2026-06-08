@@ -110,7 +110,7 @@ to the grid, expands to a square AOI, searches the collection, and stacks the
 bands.
 
 ```python
-from pyramids.stac import PlanetaryComputerSigner
+from earthlens.stac import PlanetaryComputerSigner  # PC signing lives in earthlens
 
 cube = DatasetCollection.from_point(
     lat=46.0, lon=11.0, collection="sentinel-2-l2a",
@@ -162,16 +162,23 @@ arr = ds.read_array(bbox=aoi)      # sources read lazily
 ## Signing cloud credentials
 
 Cloud STAC archives authenticate at one of three boundaries; pick the signer for
-where the credential lives (see [Signers](../reference/stac/signers.md)):
+where the credential lives (see [Signers](../reference/stac/signers.md)). The
+**generic** signers ship in pyramids:
 
 ```python
 from pyramids.stac import (
     AnonymousSigner, AWSRequesterPaysSigner, BearerTokenSigner,
-    PlanetaryComputerSigner, EarthdataSigner, CDSESigner,
 )
 
 # AWS Requester-Pays bucket (s3://usgs-landsat, …)
 ds = load_asset(item, "B4", signer=AWSRequesterPaysSigner(region="us-west-2"))
+```
+
+**Provider-specific** signers that hardcode a single Earth-observation catalog
+implement the same `Signer` protocol but ship in **earthlens**:
+
+```python
+from earthlens.stac import PlanetaryComputerSigner, EarthdataSigner, CDSESigner
 
 # Microsoft Planetary Computer — native SAS token in the URL (no SDK)
 cube = DatasetCollection.from_stac(items, asset="visual", signer=PlanetaryComputerSigner())
