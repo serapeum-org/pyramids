@@ -155,17 +155,25 @@ def _write_to_file_sync(
         xmin, ymin, _, _ = ds.bbox
         _io.to_ascii(arr, ds.cell_size, xmin, ymin, no_data_value, path)
     else:
-        options = ["COMPRESS=DEFLATE"]
-        if tile_length is not None:
-            options += [
-                "TILED=YES",
-                f"TILE_LENGTH={tile_length}",
-            ]
-            if ds._block_size is not None and ds._block_size != []:
+        # COMPRESS=DEFLATE and the TILED/BLOCK options are GeoTIFF creation
+        # options. Applying them to other drivers is at best ignored and at
+        # worst breaks the output — e.g. on the netCDF driver COMPRESS=DEFLATE
+        # forces the NC4C format, which some GDAL builds cannot read back,
+        # making ``to_file("out.nc")`` produce an unreadable file. Only emit
+        # them for GeoTIFF; user-supplied creation_options always pass through.
+        options: list[str] = []
+        if driver_name == "GTiff":
+            options.append("COMPRESS=DEFLATE")
+            if tile_length is not None:
                 options += [
-                    "BLOCKXSIZE={}".format(ds._block_size[0][0]),
-                    "BLOCKYSIZE={}".format(ds._block_size[0][1]),
+                    "TILED=YES",
+                    f"TILE_LENGTH={tile_length}",
                 ]
+                if ds._block_size is not None and ds._block_size != []:
+                    options += [
+                        "BLOCKXSIZE={}".format(ds._block_size[0][0]),
+                        "BLOCKYSIZE={}".format(ds._block_size[0][1]),
+                    ]
         if creation_options is not None:
             options += creation_options
 
