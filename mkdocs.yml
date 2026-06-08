@@ -175,6 +175,13 @@ nav:
           - GeoTIFF ↔ NetCDF: examples/conversions/geotiff-netcdf.ipynb
           - Other raster formats (ASCII / COG / Zarr): examples/conversions/raster-formats.ipynb
           - Vector formats (Shapefile / GeoPackage / GeoParquet): examples/conversions/vector-formats.ipynb
+      - Operations:
+          - Reproject, resample & align: examples/operations/reproject-resample-align.ipynb
+          - Crop & mask: examples/operations/crop-mask.ipynb
+          - Mosaic & merge: examples/operations/mosaic-merge.ipynb
+          - Zonal statistics: examples/operations/zonal-statistics.ipynb
+          - Extract at points: examples/operations/extract-at-points.ipynb
+          - Rasterize ↔ vectorize: examples/operations/rasterize-vectorize.ipynb
       - Dataset:
           - Overview: tutorials/dataset.md
           - Raster basics: tutorials/raster-basics.md
