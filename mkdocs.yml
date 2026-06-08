@@ -182,6 +182,10 @@ nav:
           - Zonal statistics: examples/operations/zonal-statistics.ipynb
           - Extract at points: examples/operations/extract-at-points.ipynb
           - Rasterize ↔ vectorize: examples/operations/rasterize-vectorize.ipynb
+          - Terrain analysis: examples/operations/terrain-analysis.ipynb
+          - No-data & gap filling: examples/operations/nodata-gap-filling.ipynb
+          - Overviews (image pyramids): examples/operations/overviews.ipynb
+          - Visualization gallery: examples/operations/visualization.ipynb
       - Dataset:
           - Overview: tutorials/dataset.md
           - Raster basics: tutorials/raster-basics.md
