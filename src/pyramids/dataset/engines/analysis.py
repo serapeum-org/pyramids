@@ -448,6 +448,13 @@ class Analysis(_Engine):
             )
             values = get_pixels2(arr, exclude_list)
         else:
+            geom_types = set(getattr(mask, "geom_type", []))
+            if geom_types - {"Point", "MultiPoint"}:
+                raise ValueError(
+                    "extract(mask=...) expects point geometries — one value is read "
+                    f"per point; got {sorted(geom_types)}. For polygon zones use "
+                    "Dataset.zonal_stats(); to clip a raster use Dataset.crop()."
+                )
             indices = self._ds.map_to_array_coordinates(mask)
             if arr.ndim > 2:
                 values = arr[:, indices[:, 0], indices[:, 1]]

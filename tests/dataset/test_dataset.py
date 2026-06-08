@@ -1874,6 +1874,22 @@ class TestExtract:
         assert len(values) == len(coello_gauges)
         assert np.array_equal(values, [4, 6, 1, 5, 49, 88])
 
+    def test_extract_with_polygon_mask_raises(self, src: gdal.Dataset):
+        """extract(mask=) reads one value per point; a polygon mask must raise.
+
+        Regression: a polygon mask previously failed with a cryptic broadcast
+        error from map_to_array_coordinates instead of a clear message.
+        """
+        import geopandas as gpd
+        from shapely.geometry import Polygon
+
+        ds = Dataset(src)
+        polys = gpd.GeoDataFrame(
+            geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])], crs=ds.epsg
+        )
+        with pytest.raises(ValueError, match="point geometries"):
+            ds.extract(mask=polys)
+
 
 class TestOverlay:
     def test_single_band(self, rhine_raster: gdal.Dataset, germany_classes: Path):
