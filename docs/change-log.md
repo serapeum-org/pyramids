@@ -1,6 +1,27 @@
 ﻿# Change log
 
 
+## 0.32.0 (2026-06-08)
+
+### Feat
+
+- **dataset**: add create_empty / empty_like out-of-core raster allocators (#473)
+- **netcdf**: surface time coord/length and window interleaved-layer variables (#468)
+
+### Fix
+
+- **collection**: render DatasetCollection.plot() when rasters have no nodata (#481)
+
+### Refactor
+
+- remove out-of-scope domain surfaces (grids, EO signers, natural_earth/relief) (#476)
+- remove out-of-scope domain surfaces; deprecate the rest
+
+### Perf
+
+- **wheels**: trim niche GDAL_DATA and add wheel size/leak guardrails (#475)
+- **wheels**: shrink the bundled platform wheel 18-27% and make wheel CI deterministic (#471)
+
 ## 0.31.0 (2026-06-03)
 
 ### Fix
