@@ -126,12 +126,14 @@ nav:
       - Vectorize Operations: reference/dataset/vectorize.md
       - Band Metadata Operations: reference/dataset/band_metadata.md
       - Cell Operations: reference/dataset/cell.md
+      - Merge & stack: reference/dataset/merge.md
     - DatasetCollection: reference/dataset/collection.md
     - Zarr: reference/zarr.md
     - Feature:
       - Overview: reference/feature/index.md
       - Geometry helpers: reference/feature/geometry.md
     - CRS helpers: reference/base/crs.md
+    - Basemap: reference/basemap.md
     - STAC:
       - Overview: reference/stac/index.md
       - Signers: reference/stac/signers.md
@@ -160,6 +162,7 @@ nav:
         - Visualization: reference/netcdf/ugrid/plot.md
     - config: reference/config.md
   - Examples:
+      - "How do I…?": examples/index.md
       - Lazy / Dask:
           - Overview: tutorials/lazy/lazy-compute.md
           - Lazy rasters (Dataset): tutorials/lazy/lazy-raster.md
