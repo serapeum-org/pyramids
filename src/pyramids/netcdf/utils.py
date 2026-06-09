@@ -13,7 +13,9 @@ from pyramids.base._utils import gdal_to_numpy_dtype, import_cftime
 AttributeScalar: TypeAlias = bool | int | float | str
 AttributeVector: TypeAlias = list[AttributeScalar]
 AttributeValue: TypeAlias = AttributeScalar | AttributeVector
-_ORIGIN_RE = re.compile(r'^\s*([A-Za-z]+)\s+since\s+(.+?)\s*$', re.IGNORECASE)
+# Matched against the stripped string: the lazy `(.+?)\s*$` tail of the previous
+# pattern backtracked polynomially on long non-matching input (SonarCloud S5852).
+_ORIGIN_RE = re.compile(r"^([A-Za-z]+)\s+since\s+(.+)$", re.IGNORECASE)
 
 
 def _full_name_with_fallback(group: gdal.Group, default_name: str | None = None) -> str:
@@ -425,7 +427,7 @@ def _parse_units_origin(units: str) -> tuple[str, datetime]:
         _normalize_origin_string: Normalizes the origin
             portion of the string.
     """
-    m = _ORIGIN_RE.match(units)
+    m = _ORIGIN_RE.match(units.strip())
     if not m:
         raise ValueError(f"Unrecognized time units: {units!r}")
 
