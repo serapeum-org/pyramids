@@ -12,6 +12,7 @@ covers the reproject-before-composite behaviour and its ``_prepare_sources`` /
 from __future__ import annotations
 
 from contextlib import nullcontext
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -230,6 +231,105 @@ class TestMergeMethod:
         monkeypatch.setattr(merge_mod.gdal, "BuildVRT", lambda *a, **k: None)
         with pytest.raises(RuntimeError, match="gdal.BuildVRT returned None"):
             merge_rasters([pa, pb], tmp_path / "x.tif", method="sum")
+
+
+@pytest.fixture(scope="function")
+def disjoint_pair(tmp_path):
+    """Two 4x4 int32 rasters with a 4-column gap between them.
+
+    Raster A (value 10) covers columns 0..3 and raster B (value 20) covers
+    columns 8..11 of the 12-wide union grid, leaving columns 4..7 with no
+    source coverage.
+
+    Returns:
+        tuple[str, str]: (path_a, path_b).
+    """
+    a = np.full((4, 4), 10, dtype="int32")
+    b = np.full((4, 4), 20, dtype="int32")
+    pa = _write(tmp_path / "left.tif", a, (0, 4))
+    pb = _write(tmp_path / "right.tif", b, (8, 4))
+    return pa, pb
+
+
+class TestMergeRastersInputContracts:
+    """Input/output contracts of ``merge_rasters`` beyond the overlap rule."""
+
+    def test_zorder_init_fills_uncovered_pixels(self, disjoint_pair, tmp_path):
+        """``init`` fills pixels no source covers on the z-order path.
+
+        Test scenario:
+            Two disjoint tiles leave columns 4..7 uncovered; with
+            ``init=-1.0`` / ``no_data_value=-1.0`` those pixels read -1 and
+            the output advertises -1 as its nodata marker.
+        """
+        pa, pb = disjoint_pair
+        out = tmp_path / "gap.tif"
+        merge_rasters([pa, pb], out, no_data_value=-1.0, init=-1.0, method="last")
+        ds = Dataset.read_file(str(out))
+        arr = ds.read_array()
+        assert arr.shape == (4, 12), f"Expected union shape (4, 12), got {arr.shape}"
+        assert arr[0, 5] == -1, f"Uncovered pixel should hold init=-1, got {arr[0, 5]}"
+        assert ds.no_data_value[0] == -1.0, (
+            f"Output nodata should be -1.0, got {ds.no_data_value[0]}"
+        )
+
+    def test_zorder_preserves_source_dtype(self, disjoint_pair, tmp_path):
+        """The z-order path keeps the sources' integer dtype.
+
+        Test scenario:
+            int32 sources merged with method='last' produce an int32 output
+            (BuildVRT + Translate copy the band type through).
+        """
+        pa, pb = disjoint_pair
+        out = tmp_path / "dtype_zorder.tif"
+        merge_rasters([pa, pb], out, no_data_value=-1.0, init=-1.0, method="last")
+        arr = Dataset.read_file(str(out)).read_array()
+        assert arr.dtype == np.int32, f"z-order should preserve int32, got {arr.dtype}"
+
+    def test_reduce_promotes_to_float64(self, disjoint_pair, tmp_path):
+        """The reduction path writes Float64 regardless of the source dtype.
+
+        Test scenario:
+            int32 sources merged with method='max' produce a float64 output —
+            the documented dtype contract of the NaN-aware reducer.
+        """
+        pa, pb = disjoint_pair
+        out = tmp_path / "dtype_reduce.tif"
+        merge_rasters([pa, pb], out, no_data_value=-1.0, method="max")
+        arr = Dataset.read_file(str(out)).read_array()
+        assert arr.dtype == np.float64, f"reduce should write float64, got {arr.dtype}"
+
+    def test_n_ignores_source_value_in_zorder(self, overlapping_pair, tmp_path):
+        """``n`` marks a source value as nodata on the z-order path too.
+
+        Test scenario:
+            With n=20 every pixel of raster B (all 20s) is treated as source
+            nodata: the overlap strip falls back to A's 10 and B-only columns
+            become the init fill.
+        """
+        pa, pb = overlapping_pair
+        out = tmp_path / "n_zorder.tif"
+        merge_rasters([pa, pb], out, no_data_value=-1.0, init=-1.0, n=20, method="last")
+        arr = Dataset.read_file(str(out)).read_array()
+        assert arr[0, 2] == 10.0, f"Overlap should fall back to A=10, got {arr[0, 2]}"
+        assert arr[0, 5] == -1.0, f"B-only column should be init=-1, got {arr[0, 5]}"
+        assert arr[0, 0] == 10.0, f"A-only column changed: {arr[0, 0]}"
+
+    def test_path_object_inputs(self, disjoint_pair, tmp_path):
+        """``src`` entries and ``dst`` may be ``pathlib.Path`` objects.
+
+        Test scenario:
+            The signature accepts str | Path; passing Path for every argument
+            produces the same mosaic as the str form.
+        """
+        pa, pb = disjoint_pair
+        out = tmp_path / "path_objects.tif"
+        merge_rasters([Path(pa), Path(pb)], Path(out), no_data_value=-1.0, init=-1.0)
+        arr = Dataset.read_file(str(out)).read_array()
+        assert arr.shape == (4, 12), f"Expected union shape (4, 12), got {arr.shape}"
+        assert arr[0, 0] == 10 and arr[0, 11] == 20, (
+            f"Tile values lost: left={arr[0, 0]}, right={arr[0, 11]}"
+        )
 
 
 class TestDatasetCollectionMergeMethod:
