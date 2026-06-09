@@ -268,8 +268,10 @@ class TestMergeRastersInputContracts:
         ds = Dataset.read_file(str(out))
         arr = ds.read_array()
         assert arr.shape == (4, 12), f"Expected union shape (4, 12), got {arr.shape}"
-        assert arr[0, 5] == -1, f"Uncovered pixel should hold init=-1, got {arr[0, 5]}"
-        assert ds.no_data_value[0] == -1.0, (
+        assert arr[0, 5] == pytest.approx(-1), (
+            f"Uncovered pixel should hold init=-1, got {arr[0, 5]}"
+        )
+        assert ds.no_data_value[0] == pytest.approx(-1.0), (
             f"Output nodata should be -1.0, got {ds.no_data_value[0]}"
         )
 
@@ -311,9 +313,13 @@ class TestMergeRastersInputContracts:
         out = tmp_path / "n_zorder.tif"
         merge_rasters([pa, pb], out, no_data_value=-1.0, init=-1.0, n=20, method="last")
         arr = Dataset.read_file(str(out)).read_array()
-        assert arr[0, 2] == 10.0, f"Overlap should fall back to A=10, got {arr[0, 2]}"
-        assert arr[0, 5] == -1.0, f"B-only column should be init=-1, got {arr[0, 5]}"
-        assert arr[0, 0] == 10.0, f"A-only column changed: {arr[0, 0]}"
+        assert arr[0, 2] == pytest.approx(10.0), (
+            f"Overlap should fall back to A=10, got {arr[0, 2]}"
+        )
+        assert arr[0, 5] == pytest.approx(-1.0), (
+            f"B-only column should be init=-1, got {arr[0, 5]}"
+        )
+        assert arr[0, 0] == pytest.approx(10.0), f"A-only column changed: {arr[0, 0]}"
 
     def test_path_object_inputs(self, disjoint_pair, tmp_path):
         """``src`` entries and ``dst`` may be ``pathlib.Path`` objects.
@@ -327,7 +333,7 @@ class TestMergeRastersInputContracts:
         merge_rasters([Path(pa), Path(pb)], Path(out), no_data_value=-1.0, init=-1.0)
         arr = Dataset.read_file(str(out)).read_array()
         assert arr.shape == (4, 12), f"Expected union shape (4, 12), got {arr.shape}"
-        assert arr[0, 0] == 10 and arr[0, 11] == 20, (
+        assert arr[0, 0] == pytest.approx(10) and arr[0, 11] == pytest.approx(20), (
             f"Tile values lost: left={arr[0, 0]}, right={arr[0, 11]}"
         )
 
