@@ -28,7 +28,7 @@ jobs:
           ref: ${{ github.ref }}
 
       - name: Build and publish sdist only (emergency fallback)
-        uses: serapeum-org/github-actions/actions/release/pypi@pypi-release/v1
+        uses: serapeum-org/github-actions/actions/release/pypi@65da263cc0f804cba87da3cbe6024d528831be1d  # pypi-release/v1
         with:
           pypi-username: __token__
           pypi-password: ${{ secrets.PYPI_PUBLISH }}
