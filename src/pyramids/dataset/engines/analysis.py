@@ -448,6 +448,17 @@ class Analysis(_Engine):
             )
             values = get_pixels2(arr, exclude_list)
         else:
+            geom_types = set(getattr(mask, "geom_type", []))
+            # map(str, ...) — missing geometries yield float nan, which is not
+            # orderable against the str type names.
+            if geom_types - {"Point"}:
+                raise ValueError(
+                    "extract(mask=...) expects Point geometries — one value is read "
+                    f"per point; got {sorted(map(str, geom_types))}. For polygon "
+                    "zones use Dataset.zonal_stats(); to clip a raster use "
+                    "Dataset.crop(); explode MultiPoint masks into single points "
+                    "first."
+                )
             indices = self._ds.map_to_array_coordinates(mask)
             if arr.ndim > 2:
                 values = arr[:, indices[:, 0], indices[:, 1]]

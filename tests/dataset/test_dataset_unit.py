@@ -1519,6 +1519,60 @@ class TestToFile:
             err_msg="File data differs from original",
         )
 
+    def test_to_file_netcdf_roundtrip(self, tmp_path):
+        """to_file('.nc') must write a NetCDF that can be reopened.
+
+        Regression: the writer applied ``COMPRESS=DEFLATE`` to every driver,
+        which forces the netCDF driver into the NC4C format. Some GDAL builds
+        cannot read NC4C back, so ``to_file("out.nc")`` produced a file that
+        no reader (not even GDAL) could open. The fix scopes the GeoTIFF
+        creation options to the GeoTIFF driver only.
+        """
+        from pyramids.netcdf import NetCDF
+
+        arr = np.array(
+            [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]],
+            dtype=np.float32,
+        )
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+        )
+        path = tmp_path / "output.nc"
+        ds.to_file(path)
+        assert path.exists(), "File should exist after to_file"
+        # The whole point of the regression: the written file is readable again.
+        reopened = NetCDF.read_file(str(path))
+        assert reopened.variable_names, "NetCDF should expose at least one variable"
+        values = reopened.get_variable(reopened.variable_names[0]).read_array()
+        np.testing.assert_array_almost_equal(
+            np.asarray(values).squeeze(),
+            arr,
+            err_msg="NetCDF round-trip data differs from original",
+        )
+
+    def test_to_file_geotiff_keeps_deflate(self, tmp_path):
+        """GeoTIFF output must stay DEFLATE-compressed by default.
+
+        Locks the other half of the per-driver creation-options fix: scoping
+        the options to GTiff must not drop the GeoTIFF default compression.
+        """
+        from osgeo import gdal
+
+        arr = np.zeros((20, 20), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+        )
+        path = tmp_path / "compressed.tif"
+        ds.to_file(path)
+        info = gdal.Info(str(path))
+        assert "COMPRESSION=DEFLATE" in info, "GeoTIFF lost its default DEFLATE"
+
     def test_to_file_wrong_type_raises(self, single_band_dataset):
         """to_file with a non-string path should raise TypeError."""
         with pytest.raises(TypeError, match="string"):

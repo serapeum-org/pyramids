@@ -1874,6 +1874,46 @@ class TestExtract:
         assert len(values) == len(coello_gauges)
         assert np.array_equal(values, [4, 6, 1, 5, 49, 88])
 
+    def test_extract_with_polygon_mask_raises(self, src: gdal.Dataset):
+        """extract(mask=) reads one value per point; a polygon mask must raise.
+
+        Regression: a polygon mask previously failed with a cryptic broadcast
+        error from map_to_array_coordinates instead of a clear message.
+        """
+        import geopandas as gpd
+        from shapely.geometry import Polygon
+
+        ds = Dataset(src)
+        polys = gpd.GeoDataFrame(
+            geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])], crs=ds.epsg
+        )
+        with pytest.raises(ValueError, match="Point geometries"):
+            ds.extract(mask=polys)
+
+    def test_extract_with_multipoint_mask_raises(self, src: gdal.Dataset):
+        """MultiPoint masks are rejected — downstream coordinate mapping reads
+        one row per point geometry, so multi-part points fail past the guard."""
+        import geopandas as gpd
+        from shapely.geometry import MultiPoint
+
+        ds = Dataset(src)
+        mask = gpd.GeoDataFrame(
+            geometry=[MultiPoint([(0.0, 0.0), (1.0, 1.0)])], crs=ds.epsg
+        )
+        with pytest.raises(ValueError, match="Point geometries"):
+            ds.extract(mask=mask)
+
+    def test_extract_with_missing_geometry_raises_cleanly(self, src: gdal.Dataset):
+        """A mask holding missing geometries (geom_type nan) must raise the
+        clear ValueError, not a TypeError from sorting str against nan."""
+        import geopandas as gpd
+        from shapely.geometry import Point
+
+        ds = Dataset(src)
+        mask = gpd.GeoDataFrame(geometry=[Point(0.0, 0.0), None], crs=ds.epsg)
+        with pytest.raises(ValueError, match="Point geometries"):
+            ds.extract(mask=mask)
+
 
 class TestOverlay:
     def test_single_band(self, rhine_raster: gdal.Dataset, germany_classes: Path):

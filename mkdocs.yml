@@ -126,12 +126,14 @@ nav:
       - Vectorize Operations: reference/dataset/vectorize.md
       - Band Metadata Operations: reference/dataset/band_metadata.md
       - Cell Operations: reference/dataset/cell.md
+      - Merge & stack: reference/dataset/merge.md
     - DatasetCollection: reference/dataset/collection.md
     - Zarr: reference/zarr.md
     - Feature:
       - Overview: reference/feature/index.md
       - Geometry helpers: reference/feature/geometry.md
     - CRS helpers: reference/base/crs.md
+    - Basemap: reference/basemap.md
     - STAC:
       - Overview: reference/stac/index.md
       - Signers: reference/stac/signers.md
@@ -160,6 +162,7 @@ nav:
         - Visualization: reference/netcdf/ugrid/plot.md
     - config: reference/config.md
   - Examples:
+      - "How do I…?": examples/index.md
       - Lazy / Dask:
           - Overview: tutorials/lazy/lazy-compute.md
           - Lazy rasters (Dataset): tutorials/lazy/lazy-raster.md
@@ -171,6 +174,25 @@ nav:
           - Dask quickstart — DatasetCollection: examples/dask/collection.ipynb
           - Dask quickstart — FeatureCollection: examples/dask/feature.ipynb
           - Dask quickstart — NetCDF: examples/dask/netcdf.ipynb
+      - Format conversions:
+          - GeoTIFF ↔ NetCDF: examples/conversions/geotiff-netcdf.ipynb
+          - Other raster formats (ASCII / COG / Zarr): examples/conversions/raster-formats.ipynb
+          - Vector formats (Shapefile / GeoPackage / GeoParquet): examples/conversions/vector-formats.ipynb
+      - Operations:
+          - Reproject, resample & align: examples/operations/reproject-resample-align.ipynb
+          - Crop & mask: examples/operations/crop-mask.ipynb
+          - Mosaic & merge: examples/operations/mosaic-merge.ipynb
+          - Zonal statistics: examples/operations/zonal-statistics.ipynb
+          - Extract at points: examples/operations/extract-at-points.ipynb
+          - Rasterize ↔ vectorize: examples/operations/rasterize-vectorize.ipynb
+          - Terrain analysis: examples/operations/terrain-analysis.ipynb
+          - No-data & gap filling: examples/operations/nodata-gap-filling.ipynb
+          - Overviews (image pyramids): examples/operations/overviews.ipynb
+          - Visualization gallery: examples/operations/visualization.ipynb
+          - Windowed & tiled reads: examples/operations/windowed-reads.ipynb
+          - Raster algebra & apply: examples/operations/raster-algebra.ipynb
+          - Vector geometry toolkit: examples/operations/vector-geometry.ipynb
+          - Color tables & band colors: examples/operations/color-tables.ipynb
       - Dataset:
           - Overview: tutorials/dataset.md
           - Raster basics: tutorials/raster-basics.md

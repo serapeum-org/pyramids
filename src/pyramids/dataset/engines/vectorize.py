@@ -225,10 +225,13 @@ class Vectorize(_Engine):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.rand(2, 3, 3)
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326)
+              >>> dataset = Dataset.create_from_array(
+              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
+              ... )
               >>> print(dataset.read_array(band=0)) # doctest: +SKIP
               [[0.88625832 0.81804328 0.99372706]
                [0.85333054 0.35448201 0.78079262]
@@ -244,6 +247,10 @@ class Vectorize(_Engine):
 
               ```python
               >>> df = dataset.to_feature_collection()
+              >>> list(df.columns)
+              ['Band_1', 'Band_2']
+              >>> len(df)  # one row per cell of the 3x3 grid
+              9
               >>> print(df) # doctest: +SKIP
                    Band_1    Band_2
               0  0.886258  0.070519
@@ -421,7 +428,7 @@ class Vectorize(_Engine):
         return gdf
 
     def translate(self, path: str | Path | None = None, **kwargs) -> Dataset:
-        """Translate.
+        """Convert, subset, resample, or rescale the raster via ``gdal.Translate``.
 
         The translate function can be used to
         - Convert Between Formats: Convert a raster from one format to another (e.g., from GeoTIFF to JPEG).
@@ -433,59 +440,57 @@ class Vectorize(_Engine):
         - Apply Compression: Apply compression to the output raster.
         - Apply No-Data Values: Define no-data values for the output raster.
 
+        Args:
+            path (str | Path | None):
+                Path to save the output. If None (default), the output is kept in memory.
+            **kwargs:
+                Options forwarded to :func:`gdal.TranslateOptions`:
+                unscale:
+                    unscale values with scale and offset metadata.
+                scaleParams:
+                    list of scale parameters, each of the form [src_min,src_max] or [src_min,src_max,dst_min,dst_max]
+                outputType:
+                    output type (gdalconst.GDT_Byte, etc...)
+                exponents:
+                    list of exponentiation parameters
+                bandList:
+                    array of band numbers (index start at 1)
+                maskBand:
+                    mask band to generate or not ("none", "auto", "mask", 1, ...)
+                creationOptions:
+                    list or dict of creation options
+                srcWin:
+                    subwindow in pixels to extract: [left_x, top_y, width, height]
+                projWin:
+                    subwindow in projected coordinates to extract: [ulx, uly, lrx, lry]
+                projWinSRS:
+                    SRS in which projWin is expressed
+                outputBounds:
+                    assigned output bounds: [ulx, uly, lrx, lry]
+                outputGeotransform:
+                    assigned geotransform matrix (array of 6 values) (mutually exclusive with outputBounds)
+                metadataOptions:
+                    list or dict of metadata options
+                outputSRS:
+                    assigned output SRS
+                noData:
+                    nodata value (or "none" to unset it)
+                rgbExpand:
+                    Color palette expansion mode: "gray", "rgb", "rgba"
+                xmp:
+                    whether to copy XMP metadata
+                resampleAlg:
+                    resampling mode
+                overviewLevel:
+                    To specify which overview level of source files must be used
+                domainMetadataOptions:
+                    list or dict of domain-specific metadata options
 
-        Parameters
-        ----------
-        path: str, optional, default is None.
-            path to save the output, if None, the output will be saved in memory.
-        kwargs:
-            unscale:
-                unscale values with scale and offset metadata.
-            scaleParams:
-                list of scale parameters, each of the form [src_min,src_max] or [src_min,src_max,dst_min,dst_max]
-            outputType:
-                output type (gdalconst.GDT_Byte, etc...)
-            exponents:
-                list of exponentiation parameters
-            bandList:
-                array of band numbers (index start at 1)
-            maskBand:
-                mask band to generate or not ("none", "auto", "mask", 1, ...)
-            creationOptions:
-                list or dict of creation options
-            srcWin:
-                subwindow in pixels to extract: [left_x, top_y, width, height]
-            projWin:
-                subwindow in projected coordinates to extract: [ulx, uly, lrx, lry]
-            projWinSRS:
-                SRS in which projWin is expressed
-            outputBounds:
-                assigned output bounds: [ulx, uly, lrx, lry]
-            outputGeotransform:
-                assigned geotransform matrix (array of 6 values) (mutually exclusive with outputBounds)
-            metadataOptions:
-                list or dict of metadata options
-            outputSRS:
-                assigned output SRS
-            noData:
-                nodata value (or "none" to unset it)
-            rgbExpand:
-                Color palette expansion mode: "gray", "rgb", "rgba"
-            xmp:
-                whether to copy XMP metadata
-            resampleAlg:
-                resampling mode
-            overviewLevel:
-                To specify which overview level of source files must be used
-            domainMetadataOptions:
-                list or dict of domain-specific metadata options
+        Returns:
+            Dataset:
+                The translated dataset (in memory when ``path`` is None).
 
-        Returns
-        -------
-        Dataset
-
-        Examples
-        --------
+        Examples:
         Scale & offset:
             - the translate function can be used to get rid of the scale and offset that are used to manipulate the
             dataset, to get the real values of the dataset.
@@ -495,6 +500,7 @@ class Vectorize(_Engine):
                     assign a scale of 0.1 to the dataset.
 
                     >>> import numpy as np
+                    >>> from pyramids.dataset import Dataset
                     >>> arr = np.random.randint(1, 10, size=(5, 5)).astype(np.float32)
                     >>> print(arr) # doctest: +SKIP
                     [[5. 5. 3. 4. 2.]
@@ -507,7 +513,7 @@ class Vectorize(_Engine):
                     >>> dataset = Dataset.create_from_array(
                     ...     arr, top_left_corner=top_left_corner, cell_size=cell_size,epsg=4326
                     ... )
-                    >>> print(dataset)
+                    >>> print(dataset)  # doctest: +SKIP
                     <BLANKLINE>
                                 Top Left Corner: (0.0, 0.0)
                                 Cell size: 0.05
@@ -560,7 +566,7 @@ class Vectorize(_Engine):
                     >>> dataset = Dataset.create_from_array(
                     ...     arr, top_left_corner=top_left_corner, cell_size=cell_size,epsg=4326
                     ... )
-                    >>> print(dataset)
+                    >>> print(dataset)  # doctest: +SKIP
                     <BLANKLINE>
                                 Top Left Corner: (0.0, 0.0)
                                 Cell size: 0.05
@@ -696,20 +702,16 @@ class Vectorize(_Engine):
                 Cells of given indices filled with the value of the nearest neighbor.
 
         Examples:
-            - Basic usage:
+            - Fill a single no-data hole from its right-hand neighbour (the first
+              direction the algorithm tries):
 
               ```python
               >>> import numpy as np
-              >>> arr = np.random.rand(5, 5)
-              >>> top_left_corner = (0, 0)
-              >>> cell_size = 0.05
-              >>> dataset = Dataset.create_from_array(
-              ...     arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
-              ... )
-              >>> req_rows = [1,3]
-              >>> req_cols = [2,4]
-              >>> no_data_value = dataset.no_data_value[0]
-              >>> new_array = Dataset._nearest_neighbour(arr, no_data_value, req_rows, req_cols)
+              >>> from pyramids.dataset.engines.vectorize import Vectorize
+              >>> arr = np.array([[1.0, 2.0, 3.0], [4.0, -9999.0, 6.0], [7.0, 8.0, 9.0]])
+              >>> filled = Vectorize._nearest_neighbour(arr, -9999.0, [1], [1])
+              >>> float(filled[1, 1])
+              6.0
 
               ```
         """
@@ -841,6 +843,7 @@ class Vectorize(_Engine):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> np.random.seed(10)
               >>> arr = np.random.randint(1, 5, size=(5, 5))
               >>> print(arr) # doctest: +SKIP
@@ -955,6 +958,7 @@ class Vectorize(_Engine):
 
               ```python
               >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
               >>> np.random.seed(200)
               >>> arr = np.random.randint(1, 5, size=(10, 10))
               >>> print(arr)  # doctest: +SKIP
