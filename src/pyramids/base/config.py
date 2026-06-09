@@ -415,15 +415,18 @@ class EnvironmentVariables:
             path (str | pathlib.Path): Directory to prepend to PATH.
 
         Examples:
-            - Prepend a directory to PATH safely
+            - Prepend a directory to PATH safely. The example uses a relative, colon-free
+              name so it prints identically on Windows and POSIX (on POSIX, a drive-style
+              path like ``C:/example/bin`` would be split at the colon by ``os.pathsep``):
                 ```python
                 >>> import os
                 >>> from pyramids.base.config import EnvironmentVariables
                 >>> env = EnvironmentVariables()
                 >>> original = env.path
-                >>> env.prepend("C:/example/bin")
+                >>> env.prepend("example-bin")
                 >>> print(env.paths[0])
-                C:/example/bin
+                example-bin
+                >>> os.environ["PATH"] = original  # restore
 
                 ```
         """
