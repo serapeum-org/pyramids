@@ -15,6 +15,7 @@ import pytest
 
 DOCTEST_MODULES = [
     "pyramids.dataset.engines.spatial",
+    "pyramids.dataset.engines.vectorize",
     "pyramids.base.crs",
     "pyramids.base.config",
     "pyramids.io.sniff",
