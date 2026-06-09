@@ -9,6 +9,7 @@ To add a module: confirm ``pytest --doctest-modules <path>`` passes, then list i
 
 import doctest
 import importlib
+import os
 
 import pytest
 
@@ -18,6 +19,19 @@ DOCTEST_MODULES = [
     "pyramids.base.config",
     "pyramids.io.sniff",
 ]
+
+
+@pytest.fixture(autouse=True)
+def _restore_path():
+    """Snapshot PATH around each doctest run.
+
+    The ``EnvironmentVariables.prepend`` example mutates ``os.environ['PATH']``
+    and restores it in its last line — but a failure earlier in the example
+    would leak the mutation into the rest of the test session.
+    """
+    original = os.environ.get("PATH", "")
+    yield
+    os.environ["PATH"] = original
 
 
 @pytest.mark.parametrize("module_name", DOCTEST_MODULES)

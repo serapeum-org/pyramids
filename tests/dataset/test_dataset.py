@@ -1887,8 +1887,32 @@ class TestExtract:
         polys = gpd.GeoDataFrame(
             geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])], crs=ds.epsg
         )
-        with pytest.raises(ValueError, match="point geometries"):
+        with pytest.raises(ValueError, match="Point geometries"):
             ds.extract(mask=polys)
+
+    def test_extract_with_multipoint_mask_raises(self, src: gdal.Dataset):
+        """MultiPoint masks are rejected — downstream coordinate mapping reads
+        one row per point geometry, so multi-part points fail past the guard."""
+        import geopandas as gpd
+        from shapely.geometry import MultiPoint
+
+        ds = Dataset(src)
+        mask = gpd.GeoDataFrame(
+            geometry=[MultiPoint([(0.0, 0.0), (1.0, 1.0)])], crs=ds.epsg
+        )
+        with pytest.raises(ValueError, match="Point geometries"):
+            ds.extract(mask=mask)
+
+    def test_extract_with_missing_geometry_raises_cleanly(self, src: gdal.Dataset):
+        """A mask holding missing geometries (geom_type nan) must raise the
+        clear ValueError, not a TypeError from sorting str against nan."""
+        import geopandas as gpd
+        from shapely.geometry import Point
+
+        ds = Dataset(src)
+        mask = gpd.GeoDataFrame(geometry=[Point(0.0, 0.0), None], crs=ds.epsg)
+        with pytest.raises(ValueError, match="Point geometries"):
+            ds.extract(mask=mask)
 
 
 class TestOverlay:

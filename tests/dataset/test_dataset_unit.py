@@ -1553,6 +1553,26 @@ class TestToFile:
             err_msg="NetCDF round-trip data differs from original",
         )
 
+    def test_to_file_geotiff_keeps_deflate(self, tmp_path):
+        """GeoTIFF output must stay DEFLATE-compressed by default.
+
+        Locks the other half of the per-driver creation-options fix: scoping
+        the options to GTiff must not drop the GeoTIFF default compression.
+        """
+        from osgeo import gdal
+
+        arr = np.zeros((20, 20), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+        )
+        path = tmp_path / "compressed.tif"
+        ds.to_file(path)
+        info = gdal.Info(str(path))
+        assert "COMPRESSION=DEFLATE" in info, "GeoTIFF lost its default DEFLATE"
+
     def test_to_file_wrong_type_raises(self, single_band_dataset):
         """to_file with a non-string path should raise TypeError."""
         with pytest.raises(TypeError, match="string"):

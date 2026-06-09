@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -162,6 +163,11 @@ def _write_to_file_sync(
         # making ``to_file("out.nc")`` produce an unreadable file. Only emit
         # them for GeoTIFF; user-supplied creation_options always pass through.
         options: list[str] = []
+        if driver_name != "GTiff" and tile_length is not None:
+            logging.getLogger("pyramids.dataset").warning(
+                "tile_length is a GeoTIFF-only option and is ignored for the "
+                f"{driver_name} driver."
+            )
         if driver_name == "GTiff":
             options.append("COMPRESS=DEFLATE")
             if tile_length is not None:
