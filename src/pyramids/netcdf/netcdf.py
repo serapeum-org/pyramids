@@ -1713,26 +1713,83 @@ class NetCDF(Dataset):
             result = self._preserve_netcdf_metadata(result)
         return result
 
+    def _container_spatial_dims(self, rg: Any) -> tuple[str, str] | None:
+        """Names of the container's ``(y, x)`` dimensions, or ``None`` if undetected.
+
+        Detects the spatial axes over the root group's full dimension list using
+        the same CF-attribute / well-known-name machinery as :meth:`subset`.
+        """
+        all_dims = [d.GetName() for d in rg.GetDimensions()]
+        if len(all_dims) < 2:
+            return None
+        y_axis, x_axis = self._detect_spatial_axes(rg, all_dims, None, None)
+        return all_dims[y_axis], all_dims[x_axis]
+
+    def _variable_has_axes(
+        self, rg: Any, var_name: str, y_name: str, x_name: str
+    ) -> bool:
+        """True when ``var_name`` is gridded — its dims include both ``y`` and ``x``.
+
+        Checks the MDArray's dimensions directly (without ``get_variable``, which
+        can't build a classic raster for a non-spatial 1-D variable), so a
+        non-spatial auxiliary variable is identified before any spatial op runs.
+        """
+        try:
+            md = rg.OpenMDArray(var_name)
+        except RuntimeError:
+            return False
+        if md is None:
+            return False
+        var_dims = {d.GetName() for d in md.GetDimensions()}
+        return y_name in var_dims and x_name in var_dims
+
     def _apply_to_all_variables(self, operation, op_kwargs):
-        """Apply an operation to every variable in the container.
+        """Apply a spatial operation to every gridded variable in the container.
+
+        Non-spatial auxiliary variables (e.g. ERA5's ``expver`` / ``number``,
+        which have no ``y`` / ``x`` axes) are skipped with a warning rather than
+        crashing the fan-out — only variables carrying both spatial axes can be
+        cropped / reprojected.
 
         Args:
             operation: Name of the Dataset method to call (e.g. "crop").
             op_kwargs: Keyword arguments to pass to the method.
 
         Returns:
-            NetCDF: New container with the operation applied to all variables.
+            NetCDF: New container with the operation applied to all gridded
+            variables.
 
         Raises:
-            ValueError: If the container has no data variables.
+            ValueError: If the container has no data variables, or none of them
+                are spatial (have both ``y`` / ``x`` axes).
         """
         if not self.variable_names:
             raise ValueError(
                 "Cannot apply operation to an empty container (no data variables)."
             )
 
+        rg = self._raster.GetRootGroup() if self._raster is not None else None
+        spatial = self._container_spatial_dims(rg) if rg is not None else None
+        spatial_vars = [
+            name
+            for name in self.variable_names
+            if spatial is not None and self._variable_has_axes(rg, name, *spatial)
+        ]
+        skipped = [n for n in self.variable_names if n not in spatial_vars]
+        if not spatial_vars:
+            raise ValueError(
+                f"{operation}() needs at least one spatial (y, x) variable; none of "
+                f"{self.variable_names} have both spatial axes."
+            )
+        if skipped:
+            warnings.warn(
+                f"{operation}() skipped non-spatial variable(s) {skipped} (no y/x "
+                "axes); they are not carried into the result.",
+                stacklevel=3,
+            )
+
         result = None
-        for var_name in self.variable_names:
+        for var_name in spatial_vars:
             var = self.get_variable(var_name)
             var_result = getattr(var, operation)(**op_kwargs)
             # to_crs returns a VRT — materialize before the source goes
