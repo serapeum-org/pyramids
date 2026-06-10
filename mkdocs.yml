@@ -114,6 +114,7 @@ nav:
   - Installation: installation.md
   - Troubleshooting: troubleshooting.md
   - Scope: SCOPE.md
+  - Comparison: comparison-other-gis-packages.md
   - Overview:
     - Codebase Map: overview/codebase-map.md
     - How it works: overview/how-it-works.md
