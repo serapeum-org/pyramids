@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import gzip
-import random
+import secrets
 import tarfile
 import time
 import warnings
@@ -77,7 +77,7 @@ def new_vsimem_path(suffix: str = ".tif") -> str:
         bytes_to_gdal: Uses this to back an in-memory dataset.
         silent_unlink: Removes the path once the dataset is gone.
     """
-    return f"/vsimem/{time.time_ns()}_{random.randint(0, 999_999)}{suffix}"
+    return f"/vsimem/{time.time_ns()}_{secrets.randbelow(1_000_000)}{suffix}"
 
 
 def silent_unlink(path: str) -> None:
