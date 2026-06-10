@@ -21,7 +21,11 @@ from osgeo_utils import gdal2xyz
 from pandas import DataFrame
 
 from pyramids.base._errors import OutOfBoundsError, ReadOnlyError
-from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
+from pyramids.base._file_manager import (
+    CachingFileManager,
+    ThreadLocalFileManager,
+    gdal_raster_open,
+)
 from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base.protocols import ArrayLike
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS, RESAMPLING_METHODS
@@ -64,6 +68,7 @@ class IO(_Engine):
         lock: Any = None,
         bbox: tuple[float, float, float, float] | list[float] | None = None,
         epsg: Any = None,
+        threadsafe: bool = False,
     ) -> ArrayLike:
         """Read the values stored in a given band (eager or lazy).
 
@@ -135,6 +140,21 @@ class IO(_Engine):
                   context-manager semantics is used as-is.
 
                 Ignored when `chunks is None`.
+            threadsafe (bool, keyword-only):
+                Opt into per-thread GDAL handles so concurrent reads from
+                multiple threads never share a handle (same-handle
+                concurrent access is undefined behaviour in GDAL):
+
+                - Eager path: each calling thread reads through its own
+                  read-only handle, opened lazily from the dataset's path
+                  and reused for the thread's lifetime.
+                - Lazy path (`chunks=`): the dask chunk reader uses a
+                  per-thread file manager; pair with `lock=False` for
+                  genuinely parallel chunk reads.
+
+                Requires a reopenable path (on disk or `/vsimem/`); a pure
+                in-memory MEM dataset raises :class:`ValueError`. Default
+                `False` (shared-handle behaviour, unchanged).
 
         Returns:
             ArrayLike:
@@ -259,8 +279,13 @@ class IO(_Engine):
                     "read_array(chunks=..., window=...) is not supported; "
                     "read lazily and slice the resulting dask array instead."
                 )
-            arr = self._lazy_read_array(band=band, chunks=chunks, lock=lock)
+            arr = self._lazy_read_array(
+                band=band, chunks=chunks, lock=lock, threadsafe=threadsafe
+            )
             self._ds._backend = "dask"
+        elif threadsafe:
+            arr = self._threadsafe_eager_read(band=band, window=window)
+            self._ds._backend = "numpy"
         else:
             if band is None and self._ds.band_count > 1:
                 if window is None:
@@ -300,11 +325,82 @@ class IO(_Engine):
             self._ds._backend = "numpy"
         return arr
 
+    def _require_reopenable_path(self: Dataset) -> str:
+        """Return the dataset's path if per-thread handles can reopen it.
+
+        Per-thread reads work by opening one read-only handle per thread from
+        the dataset's path. ``/vsimem/`` paths qualify (the virtual filesystem
+        is process-global); a pure MEM dataset (empty description) does not.
+
+        Returns:
+            str: The reopenable path.
+
+        Raises:
+            ValueError: The dataset has no reopenable path (in-memory MEM
+                dataset). Write it to disk or ``/vsimem/`` first.
+        """
+        path = self._ds._file_name
+        if not path:
+            raise ValueError(
+                "threadsafe reads need a reopenable path: this dataset is a "
+                "pure in-memory (MEM) dataset. Write it to disk or /vsimem/ "
+                "(e.g. to_file) first."
+            )
+        return path
+
+    def _threadsafe_eager_read(
+        self: Dataset,
+        band: int | None,
+        window: GeoDataFrame | list[int] | None,
+    ) -> np.ndarray:
+        """Eagerly read through this thread's private handle.
+
+        Routes the read through a :class:`ThreadLocalFileManager` cached on
+        the Dataset, so concurrent callers on different threads never touch
+        the same GDAL handle (same-handle concurrent access is undefined
+        behaviour in GDAL). The shared handle owned by the Dataset is not
+        used at all on this path.
+
+        Args:
+            band: Band index, or ``None`` for all bands.
+            window: Same forms as :meth:`read_array`.
+
+        Returns:
+            np.ndarray: The requested pixels.
+        """
+        manager = getattr(self._ds, "_thread_manager", None)
+        if manager is None:
+            manager = ThreadLocalFileManager(
+                gdal_raster_open, self._require_reopenable_path(), "read_only"
+            )
+            self._ds._thread_manager = manager
+        handle = manager.acquire()
+        if isinstance(window, GeoDataFrame):
+            window = self._convert_polygon_to_window(window)
+        window_args = tuple(window) if window is not None else ()
+        _validate_band_index(band, self._ds.band_count)
+        if band is None and self._ds.band_count > 1:
+            if window is None:
+                arr = handle.ReadAsArray()
+            else:
+                arr = np.stack(
+                    [
+                        handle.GetRasterBand(i + 1).ReadAsArray(*window_args)
+                        for i in range(self._ds.band_count)
+                    ],
+                    axis=0,
+                )
+        else:
+            effective_band = 0 if band is None else band
+            arr = handle.GetRasterBand(effective_band + 1).ReadAsArray(*window_args)
+        return np.asarray(arr)
+
     def _lazy_read_array(
         self: Dataset,
         band: int | None,
         chunks: int | tuple | dict | str,
         lock: Any,
+        threadsafe: bool = False,
     ) -> Any:
         """Build a :class:`dask.array.Array` view over this dataset.
 
@@ -379,12 +475,21 @@ class IO(_Engine):
         # lock. Sharing one non-reentrant lock between the two would
         # deadlock. Using lock=False here delegates concurrency control
         # to the outer `with effective_lock` in _io_module._read_chunk.
-        manager = CachingFileManager(
-            gdal_raster_open,
-            self._ds._file_name,
-            "read_only",
-            lock=False,
-        )
+        if threadsafe:
+            # One read-only handle per worker thread: chunk reads never
+            # contend, so pair this with lock=False for parallel reads.
+            manager: Any = ThreadLocalFileManager(
+                gdal_raster_open,
+                self._require_reopenable_path(),
+                "read_only",
+            )
+        else:
+            manager = CachingFileManager(
+                gdal_raster_open,
+                self._ds._file_name,
+                "read_only",
+                lock=False,
+            )
         meta = np.empty((0,) * len(shape), dtype=dtype)
         arr = da.map_blocks(
             _io_module._read_chunk,
