@@ -1,25 +1,40 @@
-"""Command-line interface for pyramids — currently the `cog` command group.
+"""Command-line interface for pyramids.
 
-Exposes the common Cloud Optimized GeoTIFF workflow from the shell, built on the
-pyramids `COG` engine and the standard-library :mod:`argparse` (no extra
-dependency):
+Thin, scriptable wrappers over the library's primitives, built on the
+standard-library :mod:`argparse` (no extra dependency):
 
-- `pyramids cog create IN OUT [--profile P] [--compress C] [--blocksize N]`
-- `pyramids cog validate FILE [--strict]`
-- `pyramids cog info FILE`
+- `pyramids cog create|validate|info ...` — the Cloud Optimized GeoTIFF group
+- `pyramids info FILE [--json]` — raster metadata at a glance
+- `pyramids bounds FILE [--crs CRS] [--json]` — bounding box
+- `pyramids clip SRC DST (--bbox MINX MINY MAXX MAXY | --vector PATH)` — crop
+- `pyramids warp SRC DST --crs CRS [--resampling M]` — reproject
+- `pyramids merge SRC... DST` — mosaic
+- `pyramids overview FILE [--resampling M] [--levels N...]` — build overviews
+- `pyramids sample FILE --points "x,y;x,y..." [--json]` — point sampling
+- `pyramids convert SRC DST [--driver NAME]` — format conversion
 
-The entry point is registered as the `pyramids` console script; the functions
-here are also callable in-process (`main([...])`) for testing.
+Every command maps 1:1 onto an existing library call — no business logic lives
+here. Expected user errors (missing file, bad CRS, unknown driver) exit
+non-zero with a one-line message instead of a traceback. The entry point is
+registered as the `pyramids` console script; the functions here are also
+callable in-process (`main([...])`) for testing.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from typing import Sequence
 
+from osgeo import osr
+from pandas import DataFrame
+
+from pyramids.base.crs import sr_from_user_input, sr_from_wkt
 from pyramids.dataset import Dataset
 from pyramids.dataset.cog import PROFILES, cog_info, validate
+from pyramids.dataset.merge import merge_rasters
+from pyramids.feature import FeatureCollection
 
 
 def _cmd_create(args: argparse.Namespace) -> int:
@@ -102,6 +117,191 @@ def _cmd_info(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_raster_info(args: argparse.Namespace) -> int:
+    """Handle `pyramids info` — print raster metadata.
+
+    Args:
+        args: Parsed arguments with `file` and `json`.
+
+    Returns:
+        int: `0` on success.
+    """
+    ds = Dataset.read_file(args.file)
+    payload = {
+        "path": args.file,
+        "driver": ds.raster.GetDriver().ShortName,
+        "epsg": ds.epsg,
+        "bands": ds.band_count,
+        "rows": ds.rows,
+        "columns": ds.columns,
+        "cell_size": ds.cell_size,
+        "dtype": list(ds.dtype),
+        "no_data_value": [
+            None if value is None else float(value) for value in ds.no_data_value
+        ],
+        "bounds": [float(value) for value in ds.bbox],
+    }
+    if args.json:
+        print(json.dumps(payload))
+    else:
+        for key, value in payload.items():
+            print(f"{key}: {value}")
+    return 0
+
+
+def _cmd_bounds(args: argparse.Namespace) -> int:
+    """Handle `pyramids bounds` — print the bounding box.
+
+    With `--crs` the four corners are reprojected and the min/max taken —
+    a corner-based approximation (no edge densification).
+
+    Args:
+        args: Parsed arguments with `file`, `crs`, and `json`.
+
+    Returns:
+        int: `0` on success.
+    """
+    ds = Dataset.read_file(args.file)
+    min_x, min_y, max_x, max_y = [float(value) for value in ds.bbox]
+    if args.crs:
+        src_sr = sr_from_wkt(ds.crs)
+        dst_sr = sr_from_user_input(args.crs)
+        src_sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        dst_sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        transformer = osr.CoordinateTransformation(src_sr, dst_sr)
+        corners = transformer.TransformPoints(
+            [(min_x, min_y), (min_x, max_y), (max_x, min_y), (max_x, max_y)]
+        )
+        xs = [corner[0] for corner in corners]
+        ys = [corner[1] for corner in corners]
+        min_x, min_y, max_x, max_y = min(xs), min(ys), max(xs), max(ys)
+    payload = {"bounds": [min_x, min_y, max_x, max_y]}
+    if args.json:
+        print(json.dumps(payload))
+    else:
+        print(f"{min_x} {min_y} {max_x} {max_y}")
+    return 0
+
+
+def _cmd_clip(args: argparse.Namespace) -> int:
+    """Handle `pyramids clip` — crop a raster by bbox or vector mask.
+
+    Args:
+        args: Parsed arguments with `input`, `output`, `bbox`, and `vector`.
+
+    Returns:
+        int: `0` on success.
+    """
+    ds = Dataset.read_file(args.input)
+    if args.vector:
+        mask = FeatureCollection.read_file(args.vector)
+    else:
+        mask = FeatureCollection.from_bbox(tuple(args.bbox), epsg=ds.epsg)
+    clipped = ds.crop(mask)
+    clipped.to_file(args.output)
+    print(f"wrote {args.output}")
+    return 0
+
+
+def _cmd_warp(args: argparse.Namespace) -> int:
+    """Handle `pyramids warp` — reproject a raster.
+
+    Args:
+        args: Parsed arguments with `input`, `output`, `crs`, `resampling`.
+
+    Returns:
+        int: `0` on success.
+    """
+    ds = Dataset.read_file(args.input)
+    warped = ds.to_crs(args.crs, method=args.resampling)
+    warped.to_file(args.output)
+    print(f"wrote {args.output}")
+    return 0
+
+
+def _cmd_merge(args: argparse.Namespace) -> int:
+    """Handle `pyramids merge` — mosaic rasters into one file.
+
+    Args:
+        args: Parsed arguments with `inputs` (>= 2 paths) and `output`.
+
+    Returns:
+        int: `0` on success.
+    """
+    merge_rasters(args.inputs, args.output)
+    print(f"wrote {args.output}")
+    return 0
+
+
+def _cmd_overview(args: argparse.Namespace) -> int:
+    """Handle `pyramids overview` — build image pyramids in place.
+
+    Args:
+        args: Parsed arguments with `file`, `resampling`, and `levels`.
+
+    Returns:
+        int: `0` on success.
+    """
+    ds = Dataset.read_file(args.file, read_only=False)
+    ds.create_overviews(
+        resampling_method=args.resampling, overview_levels=args.levels
+    )
+    counts = ds.overview_count
+    print(f"built {counts[0] if counts else 0} overview level(s) for {args.file}")
+    return 0
+
+
+def _cmd_sample(args: argparse.Namespace) -> int:
+    """Handle `pyramids sample` — read band values at points.
+
+    Args:
+        args: Parsed arguments with `file`, `points` (``"x,y;x,y..."``),
+            and `json`.
+
+    Returns:
+        int: `0` on success.
+    """
+    pairs = [chunk for chunk in args.points.split(";") if chunk.strip()]
+    if not pairs:
+        raise ValueError("--points must contain at least one 'x,y' pair.")
+    xs, ys = [], []
+    for chunk in pairs:
+        x_str, y_str = chunk.split(",")
+        xs.append(float(x_str))
+        ys.append(float(y_str))
+    ds = Dataset.read_file(args.file)
+    values = ds.sample(DataFrame({"x": xs, "y": ys}))
+    # ds.sample returns (bands, points); transpose to one row per point.
+    per_point = values.T.tolist()
+    if args.json:
+        print(json.dumps({"values": per_point}))
+    else:
+        for (x, y), point_values in zip(zip(xs, ys), per_point):
+            print(f"{x},{y}: {point_values}")
+    return 0
+
+
+def _cmd_convert(args: argparse.Namespace) -> int:
+    """Handle `pyramids convert` — re-save a raster in another format.
+
+    The driver is inferred from the output extension unless `--driver` is
+    given (a pyramids catalog driver name, e.g. ``geotiff``, ``ascii``).
+
+    Args:
+        args: Parsed arguments with `input`, `output`, and `driver`.
+
+    Returns:
+        int: `0` on success.
+    """
+    ds = Dataset.read_file(args.input)
+    if args.driver:
+        ds.to_file(args.output, driver=args.driver)
+    else:
+        ds.to_file(args.output)
+    print(f"wrote {args.output}")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser.
 
@@ -139,6 +339,70 @@ def _build_parser() -> argparse.ArgumentParser:
     info.add_argument("file", help="raster path to inspect")
     info.set_defaults(func=_cmd_info)
 
+    raster_info = sub.add_parser("info", help="print raster metadata")
+    raster_info.add_argument("file", help="raster path to inspect")
+    raster_info.add_argument("--json", action="store_true", help="emit JSON")
+    raster_info.set_defaults(func=_cmd_raster_info)
+
+    bounds = sub.add_parser("bounds", help="print the raster bounding box")
+    bounds.add_argument("file", help="raster path to inspect")
+    bounds.add_argument(
+        "--crs", help="reproject the corners to this CRS (corner-based approximation)"
+    )
+    bounds.add_argument("--json", action="store_true", help="emit JSON")
+    bounds.set_defaults(func=_cmd_bounds)
+
+    clip = sub.add_parser("clip", help="crop a raster by bbox or vector mask")
+    clip.add_argument("input", help="source raster path")
+    clip.add_argument("output", help="destination raster path")
+    clip_how = clip.add_mutually_exclusive_group(required=True)
+    clip_how.add_argument(
+        "--bbox", nargs=4, type=float, metavar=("MINX", "MINY", "MAXX", "MAXY"),
+        help="clip extent in the raster CRS",
+    )
+    clip_how.add_argument("--vector", help="vector file whose polygons clip the raster")
+    clip.set_defaults(func=_cmd_clip)
+
+    warp = sub.add_parser("warp", help="reproject a raster")
+    warp.add_argument("input", help="source raster path")
+    warp.add_argument("output", help="destination raster path")
+    warp.add_argument("--crs", required=True, help="target CRS (EPSG code, WKT, PROJ4)")
+    warp.add_argument(
+        "--resampling", default="nearest neighbor", help="resampling method"
+    )
+    warp.set_defaults(func=_cmd_warp)
+
+    merge = sub.add_parser("merge", help="mosaic rasters into one file")
+    merge.add_argument("inputs", nargs="+", help="source raster paths (two or more)")
+    merge.add_argument("output", help="destination raster path")
+    merge.set_defaults(func=_cmd_merge)
+
+    overview = sub.add_parser("overview", help="build image pyramids in place")
+    overview.add_argument("file", help="raster path to build overviews for")
+    overview.add_argument(
+        "--resampling", default="nearest", help="overview resampling method"
+    )
+    overview.add_argument(
+        "--levels", nargs="+", type=int, help="decimation levels (e.g. 2 4 8)"
+    )
+    overview.set_defaults(func=_cmd_overview)
+
+    sample = sub.add_parser("sample", help="read band values at points")
+    sample.add_argument("file", help="raster path to sample")
+    sample.add_argument(
+        "--points", required=True, help="semicolon-separated 'x,y' pairs"
+    )
+    sample.add_argument("--json", action="store_true", help="emit JSON")
+    sample.set_defaults(func=_cmd_sample)
+
+    convert = sub.add_parser("convert", help="re-save a raster in another format")
+    convert.add_argument("input", help="source raster path")
+    convert.add_argument("output", help="destination raster path")
+    convert.add_argument(
+        "--driver", help="pyramids catalog driver name (default: from extension)"
+    )
+    convert.set_defaults(func=_cmd_convert)
+
     return parser
 
 
@@ -162,7 +426,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        result = args.func(args)
+    except (ValueError, TypeError, FileNotFoundError, OSError, RuntimeError) as exc:
+        # Expected user errors (missing file, bad CRS, unknown driver, ...)
+        # exit non-zero with a one-line message instead of a traceback.
+        print(f"error: {exc}", file=sys.stderr)
+        result = 1
+    return result
 
 
 if __name__ == "__main__":  # pragma: no cover
