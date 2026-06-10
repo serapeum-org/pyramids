@@ -111,59 +111,9 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Installation: installation.md
-  - Troubleshooting: troubleshooting.md
-  - Scope: SCOPE.md
-  - Comparison: comparison-other-gis-packages.md
-  - Overview:
-    - Codebase Map: overview/codebase-map.md
-    - How it works: overview/how-it-works.md
-    - Architecture: overview/architecture.md
-    - Detailed diagrams (UML & sequences): overview/diagrams.md
-  - Reference:
-    - Dataset:
-      - Overview: reference/dataset/index.md
-      - I/O Operations: reference/dataset/io.md
-      - Spatial Operations: reference/dataset/spatial.md
-      - Analysis Operations: reference/dataset/analysis.md
-      - Vectorize Operations: reference/dataset/vectorize.md
-      - Band Metadata Operations: reference/dataset/band_metadata.md
-      - Cell Operations: reference/dataset/cell.md
-      - Merge & stack: reference/dataset/merge.md
-    - DatasetCollection: reference/dataset/collection.md
-    - Zarr: reference/zarr.md
-    - Feature:
-      - Overview: reference/feature/index.md
-      - Geometry helpers: reference/feature/geometry.md
-    - CRS helpers: reference/base/crs.md
-    - Basemap: reference/basemap.md
-    - STAC:
-      - Overview: reference/stac/index.md
-      - Signers: reference/stac/signers.md
-      - Assets, VRT & GeoParquet: reference/stac/assets.md
-    - Cloud Optimized GeoTIFF:
-      - Overview & writing: reference/cog/index.md
-      - Read, inspect & validate: reference/cog/read.md
-      - Command line: reference/cog/cli.md
-    - NetCDF:
-      - NetCDF Class: reference/netcdf/index.md
-      - Plotting: reference/netcdf/plot.md
-      - Data Models: reference/netcdf/models.md
-      - Metadata: reference/netcdf/metadata.md
-      - Dimensions: reference/netcdf/dimensions.md
-      - Utilities: reference/netcdf/utils.md
-      - CF Conventions: reference/netcdf/cf/index.md
-      - UGRID:
-        - Overview: reference/netcdf/ugrid/index.md
-        - UgridDataset: reference/netcdf/ugrid/dataset.md
-        - Mesh2d: reference/netcdf/ugrid/mesh.md
-        - Connectivity: reference/netcdf/ugrid/connectivity.md
-        - Spatial Operations: reference/netcdf/ugrid/spatial.md
-        - Interpolation: reference/netcdf/ugrid/interpolation.md
-        - I/O: reference/netcdf/ugrid/io.md
-        - Data Models: reference/netcdf/ugrid/models.md
-        - Visualization: reference/netcdf/ugrid/plot.md
-    - config: reference/config.md
+  - Getting Started:
+    - Installation: installation.md
+    - Troubleshooting: troubleshooting.md
   - Examples:
       - "How do I…?": examples/index.md
       - Lazy / Dask:
@@ -236,6 +186,55 @@ nav:
               - Mesh exploration: examples/netcdf/ugrid/ugrid-mesh-exploration.ipynb
               - River channel: examples/netcdf/ugrid/ugrid-river-channel.ipynb
               - Dask (mesh → raster bridge): examples/netcdf/ugrid/dask-lazy-ugrid.ipynb
+  - Reference:
+    - Dataset:
+      - Overview: reference/dataset/index.md
+      - I/O Operations: reference/dataset/io.md
+      - Spatial Operations: reference/dataset/spatial.md
+      - Analysis Operations: reference/dataset/analysis.md
+      - Vectorize Operations: reference/dataset/vectorize.md
+      - Band Metadata Operations: reference/dataset/band_metadata.md
+      - Cell Operations: reference/dataset/cell.md
+      - Merge & stack: reference/dataset/merge.md
+    - DatasetCollection: reference/dataset/collection.md
+    - Zarr: reference/zarr.md
+    - Feature:
+      - Overview: reference/feature/index.md
+      - Geometry helpers: reference/feature/geometry.md
+    - CRS helpers: reference/base/crs.md
+    - Basemap: reference/basemap.md
+    - STAC:
+      - Overview: reference/stac/index.md
+      - Signers: reference/stac/signers.md
+      - Assets, VRT & GeoParquet: reference/stac/assets.md
+    - Cloud Optimized GeoTIFF:
+      - Overview & writing: reference/cog/index.md
+      - Read, inspect & validate: reference/cog/read.md
+      - Command line: reference/cog/cli.md
+    - NetCDF:
+      - NetCDF Class: reference/netcdf/index.md
+      - Plotting: reference/netcdf/plot.md
+      - Data Models: reference/netcdf/models.md
+      - Metadata: reference/netcdf/metadata.md
+      - Dimensions: reference/netcdf/dimensions.md
+      - Utilities: reference/netcdf/utils.md
+      - CF Conventions: reference/netcdf/cf/index.md
+      - UGRID:
+        - Overview: reference/netcdf/ugrid/index.md
+        - UgridDataset: reference/netcdf/ugrid/dataset.md
+        - Mesh2d: reference/netcdf/ugrid/mesh.md
+        - Connectivity: reference/netcdf/ugrid/connectivity.md
+        - Spatial Operations: reference/netcdf/ugrid/spatial.md
+        - Interpolation: reference/netcdf/ugrid/interpolation.md
+        - I/O: reference/netcdf/ugrid/io.md
+        - Data Models: reference/netcdf/ugrid/models.md
+        - Visualization: reference/netcdf/ugrid/plot.md
+    - config: reference/config.md
+  - Overview:
+    - Codebase Map: overview/codebase-map.md
+    - How it works: overview/how-it-works.md
+    - Architecture: overview/architecture.md
+    - Detailed diagrams (UML & sequences): overview/diagrams.md
   - How-to:
       - Dev Container: how-to/devcontainer.md
       - Docker & GHCR: how-to/docker.md
@@ -244,6 +243,8 @@ nav:
       - Wheel Build Flow: how-to/wheel-build-flow.md
       - FAQ & Troubleshooting: how-to/faq.md
   - About:
+    - Scope: SCOPE.md
+    - Comparison: comparison-other-gis-packages.md
     - Change-log: change-log.md
     - Code of Conduct: CODE_OF_CONDUCT.md
     - Contributing: contributing.md
