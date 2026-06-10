@@ -2134,6 +2134,56 @@ class NetCDF(Dataset):
             result = self._preserve_netcdf_metadata(result)
         return result
 
+    def warped_view(
+        self,
+        crs: int | str | Any,
+        method: str = "nearest neighbor",
+        *,
+        cell_size: float | None = None,
+        bbox: tuple[float, float, float, float] | None = None,
+    ) -> NetCDF:
+        """Return a lazy, reprojected view of a **variable subset**.
+
+        Delegates to :meth:`pyramids.dataset.Dataset.warped_view` and re-wraps
+        the VRT-backed result as `NetCDF`, preserving the variable-subset
+        metadata (band dims, scale/offset, parent reference) so `sel()` and
+        `read_array(unpack=True)` keep working on the view.
+
+        A **root MDIM container** cannot be viewed lazily: a warped VRT is a
+        classic single-variable raster, and warping every variable eagerly
+        would contradict the lazy contract. Use :meth:`get_variable` to pick a
+        variable first, or :meth:`to_crs` for an eager whole-container warp.
+
+        Args:
+            crs: Target CRS in any form :meth:`pyproj.CRS.from_user_input`
+                accepts (EPSG int, ``"EPSG:3857"``, WKT, PROJ4, pyproj CRS).
+            method: Resampling method used when windows are read. Defaults to
+                ``"nearest neighbor"``.
+            cell_size: Optional output pixel size in target-CRS units (applied
+                to both axes). ``None`` keeps the source resolution.
+            bbox: Optional ``(min_x, min_y, max_x, max_y)`` output extent in
+                the **target** CRS; ``None`` covers the warped source extent.
+
+        Returns:
+            NetCDF: A read-only, VRT-backed reprojected view of the variable.
+
+        Raises:
+            ValueError: Called on a root MDIM container instead of a variable
+                subset.
+
+        See Also:
+            NetCDF.to_crs: The eager reprojection (handles whole containers).
+        """
+        if self._is_md_array and not self._is_subset and self.band_count == 0:
+            raise ValueError(
+                "warped_view works on a single variable, not a root NetCDF "
+                "container — call get_variable(<name>) first and warp that, "
+                "or use to_crs() for an eager whole-container reprojection."
+            )
+        result = super().warped_view(crs, method, cell_size=cell_size, bbox=bbox)
+        result = self._preserve_netcdf_metadata(result)
+        return result
+
     def resample(
         self,
         cell_size: float,

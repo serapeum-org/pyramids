@@ -34,6 +34,31 @@ from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines.vectorize import Vectorize
 
 
+def _dst_srs_arg(dst_sr: osr.SpatialReference) -> str:
+    """Derive the ``dstSRS`` argument to hand to :func:`gdal.Warp`.
+
+    Prefer the ``"<AUTHORITY>:<code>"`` form when one exists so the output WKT
+    GDAL writes is the canonical GDAL/PROJ form (matching historical bytes for
+    EPSG codes and avoiding a GDAL warning when the authority is ESRI). Fall
+    back to the explicit WKT for CRSes carrying no authority at all (custom
+    orthographic proj4 strings, etc.). See #418.
+
+    Args:
+        dst_sr: The target spatial reference.
+
+    Returns:
+        str: An authority string such as ``"EPSG:3857"``, or the full WKT when
+            the SRS carries no authority.
+    """
+    dst_auth = dst_sr.GetAuthorityName(None)
+    dst_code = dst_sr.GetAuthorityCode(None)
+    if dst_auth is not None and dst_code is not None:
+        srs_arg = f"{dst_auth}:{dst_code}"
+    else:
+        srs_arg = dst_sr.ExportToWkt()
+    return srs_arg
+
+
 class Spatial(_Engine):
 
     def _get_crs(self) -> str:
@@ -236,21 +261,8 @@ class Spatial(_Engine):
         if maintain_alignment:
             dst_obj = self._reproject_with_ReprojectImage(dst_sr, resampling_method)
         else:
-            # Prefer the "<AUTHORITY>:<code>" form when one exists so the
-            # output WKT GDAL writes is the canonical GDAL/PROJ form
-            # (matching historical bytes for EPSG codes and avoiding a
-            # GDAL warning when the authority is ESRI). Fall back to the
-            # explicit WKT for CRSes carrying no authority at all
-            # (custom orthographic proj4 strings, etc.). See #418.
-            dst_auth = dst_sr.GetAuthorityName(None)
-            dst_code = dst_sr.GetAuthorityCode(None)
-            dst_srs_arg = (
-                f"{dst_auth}:{dst_code}"
-                if dst_auth is not None and dst_code is not None
-                else dst_sr.ExportToWkt()
-            )
             dst = gdal.Warp(
-                "", self._ds.raster, dstSRS=dst_srs_arg, format="VRT"
+                "", self._ds.raster, dstSRS=_dst_srs_arg(dst_sr), format="VRT"
             )
             dst_obj = self._ds.__class__(dst)
 
@@ -291,6 +303,7 @@ class Spatial(_Engine):
             Dataset: A read-only, VRT-backed reprojected view.
 
         Raises:
+            CRSError: ``crs`` cannot be interpreted as a CRS.
             TypeError: ``method`` is not a string.
             ValueError: ``method`` is not a supported resampling method.
             RuntimeError: GDAL could not build the warped VRT.
@@ -342,13 +355,7 @@ class Spatial(_Engine):
                 f"existing methods are {sorted(INTERPOLATION_METHODS)}"
             )
         resample_alg = INTERPOLATION_METHODS[method]
-        dst_auth = dst_sr.GetAuthorityName(None)
-        dst_code = dst_sr.GetAuthorityCode(None)
-        dst_srs_arg = (
-            f"{dst_auth}:{dst_code}"
-            if dst_auth is not None and dst_code is not None
-            else dst_sr.ExportToWkt()
-        )
+        dst_srs_arg = _dst_srs_arg(dst_sr)
         options = gdal.WarpOptions(
             format="VRT",
             dstSRS=dst_srs_arg,

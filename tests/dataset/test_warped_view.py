@@ -1,8 +1,9 @@
 """Tests for `Dataset.warped_view` — the lazy VRT-backed reprojected view.
 
-Covers laziness semantics (VRT backing, no temp files), parity with the eager
-`to_crs`, windowed reads on the view, source-lifetime pinning, parameter
-validation, cell_size/bbox control, and view chaining.
+Covers laziness semantics (VRT backing), parity with the eager `to_crs`,
+windowed reads on the view, source-lifetime pinning, parameter validation,
+cell_size/bbox control, view chaining, nodata propagation, the no-authority
+CRS fallback, and NetCDF variable-subset vs container behavior.
 """
 
 from __future__ import annotations
@@ -11,8 +12,11 @@ import gc
 
 import numpy as np
 import pytest
+from osgeo import osr
 
 from pyramids.dataset import Dataset
+from pyramids.errors import CRSError
+from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -116,6 +120,32 @@ class TestWarpedView:
         assert chained.epsg == 4326, f"chained view CRS wrong: {chained.epsg}"
         assert chained.read_array().size > 0, "chained view must be readable"
 
+    def test_no_authority_crs_uses_wkt_fallback(self, src_dataset):
+        """A proj4 target with no authority code warps via the WKT fallback.
+
+        Test scenario:
+            A bespoke orthographic proj4 string has no <AUTHORITY>:<code>
+            form, so the dstSRS argument falls back to the exported WKT.
+        """
+        proj4 = "+proj=ortho +lat_0=39 +lon_0=-9 +datum=WGS84 +units=m +no_defs"
+        view = src_dataset.warped_view(proj4)
+        sr = osr.SpatialReference(wkt=view.crs)
+        assert sr.IsProjected() == 1, "ortho view must carry a projected CRS"
+        assert view.read_array().size > 0, "ortho view must be readable"
+
+    def test_nodata_propagates_to_view(self, src_dataset):
+        """The view inherits the source no-data value through the VRT."""
+        view = src_dataset.warped_view(3857)
+        assert view.no_data_value == pytest.approx(src_dataset.no_data_value), (
+            f"nodata lost in the view: {view.no_data_value} "
+            f"!= {src_dataset.no_data_value}"
+        )
+
+    def test_invalid_crs_raises(self, src_dataset):
+        """A string that is not a CRS raises CRSError before any warp."""
+        with pytest.raises(CRSError, match="could not interpret"):
+            src_dataset.warped_view("not-a-crs")
+
     def test_invalid_method_raises(self, src_dataset):
         """An unsupported resampling method raises ValueError listing names."""
         with pytest.raises(ValueError, match="does not exist"):
@@ -134,3 +164,31 @@ class TestWarpedView:
             via_facade.read_array(), via_engine.read_array(),
             err_msg="facade and engine outputs differ",
         )
+
+
+class TestWarpedViewNetCDF:
+    """warped_view on NetCDF: variable subsets work, containers refuse."""
+
+    nc_path = "tests/data/netcdf/noah-precipitation-1979.nc"
+
+    def test_variable_subset_view_keeps_netcdf_identity(self):
+        """A variable-subset view is a NetCDF tagged as a subset, not a container.
+
+        Test scenario:
+            Warp one variable of an MDIM file; the view must keep the
+            subset flags (so container-only code paths stay off) and be
+            readable in the target CRS.
+        """
+        nc = NetCDF.read_file(self.nc_path)
+        var = nc.get_variable(nc.variable_names[0])
+        view = var.warped_view(3857)
+        assert isinstance(view, NetCDF), f"view type wrong: {type(view).__name__}"
+        assert view._is_subset, "view must keep the variable-subset flag"
+        assert view.epsg == 3857, f"view CRS wrong: {view.epsg}"
+        assert view.read_array().size > 0, "subset view must be readable"
+
+    def test_root_container_refuses_lazy_view(self):
+        """A root MDIM container raises a clear error instead of a GDAL one."""
+        nc = NetCDF.read_file(self.nc_path)
+        with pytest.raises(ValueError, match="get_variable"):
+            nc.warped_view(3857)
