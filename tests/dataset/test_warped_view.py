@@ -115,8 +115,16 @@ class TestWarpedView:
         )
 
     def test_view_of_view_chains(self, src_dataset):
-        """A warped view can itself be warped (virtual pipeline chaining)."""
+        """A warped view can itself be warped (virtual pipeline chaining).
+
+        Test scenario:
+            Chain two views inline (the intermediate view is only reachable
+            through the pin), drop the original source, and read — the pin
+            chain must keep the whole pipeline alive.
+        """
         chained = src_dataset.warped_view(3857).warped_view(4326)
+        del src_dataset
+        gc.collect()
         assert chained.epsg == 4326, f"chained view CRS wrong: {chained.epsg}"
         assert chained.read_array().size > 0, "chained view must be readable"
 
