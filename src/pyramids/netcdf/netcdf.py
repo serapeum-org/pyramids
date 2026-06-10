@@ -1322,6 +1322,7 @@ class NetCDF(Dataset):
         epsg: Any = None,
         chunks: Any = None,
         lock: Any = None,
+        masked: bool = False,
     ) -> ArrayLike:
         """Read array from the dataset (eager by default, lazy with `chunks`).
 
@@ -1373,6 +1374,13 @@ class NetCDF(Dataset):
                 `dask.distributed.Lock` when a client is active).
                 `False` → :class:`pyramids.base._locks.DummyLock`.
                 Only meaningful when `chunks` is not `None`.
+            masked: When `True`, return a :class:`numpy.ma.MaskedArray`
+                with the variable's no-data / fill cells masked (eager
+                path only; combining with `chunks` raises
+                :class:`NotImplementedError`). The mask is built from the
+                raw stored values before any `unpack` scaling, matching CF
+                `_FillValue` semantics; the scale/offset arithmetic
+                preserves the mask. Default is `False`.
 
         Returns:
             np.ndarray or dask.array.Array: The array data, eager
@@ -1457,6 +1465,7 @@ class NetCDF(Dataset):
                 epsg=epsg,
                 chunks=chunks,
                 lock=lock,
+                masked=masked,
             )
         if variable is not None and variable != self._source_var_name:
             raise ValueError(
@@ -1471,6 +1480,7 @@ class NetCDF(Dataset):
                 window=window,
                 bbox=bbox,
                 epsg=epsg,
+                masked=masked,
             )
             if unpack:
                 result = _apply_unpack(
@@ -1479,6 +1489,11 @@ class NetCDF(Dataset):
                     getattr(self, "_offset", None),
                 )
         else:
+            if masked:
+                raise NotImplementedError(
+                    "read_array(masked=True) is not supported together with "
+                    "chunks=; read eagerly, or mask the dask array yourself."
+                )
             parent = self._parent_nc if self._parent_nc is not None else self
             path = parent._file_name
             if path.startswith("NETCDF"):

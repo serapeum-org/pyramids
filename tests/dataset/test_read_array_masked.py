@@ -1,0 +1,186 @@
+"""Tests for `read_array(masked=True)` — MaskedArray reads honouring nodata and mask bands.
+
+Covers the `IO.read_array` masked path (nodata comparison, NaN nodata, GDAL
+mask bands, multi-band stacking, windowed reads), the unchanged default
+behaviour, the dask guard, and the `NetCDF.read_array` threading.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+from osgeo import gdal, osr
+
+from pyramids.dataset import Dataset
+from pyramids.netcdf import NetCDF
+
+pytestmark = pytest.mark.core
+
+
+@pytest.fixture(scope="function")
+def nodata_dataset() -> Dataset:
+    """A 2x2 float32 dataset with one -9999 nodata cell at (0, 1).
+
+    Returns:
+        Dataset: Single-band in-memory dataset, nodata -9999.
+    """
+    arr = np.array([[1.0, -9999.0], [3.0, 4.0]], dtype="float32")
+    return Dataset.create_from_array(
+        arr, top_left_corner=(0, 2), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+    )
+
+
+@pytest.fixture(scope="function")
+def mask_band_dataset(tmp_path) -> Dataset:
+    """A GTiff with a PER_DATASET internal mask band masking cell (0, 1).
+
+    The dataset has no nodata marker — the only invalidity signal is the
+    GDAL mask band, exercising the flags-based branch.
+
+    Returns:
+        Dataset: Single-band dataset whose mask band zeroes one cell.
+    """
+    path = str(tmp_path / "masked.tif")
+    drv = gdal.GetDriverByName("GTiff")
+    ds = drv.Create(path, 2, 2, 1, gdal.GDT_Float32)
+    ds.SetGeoTransform((0, 1, 0, 2, 0, -1))
+    sr = osr.SpatialReference()
+    sr.ImportFromEPSG(4326)
+    ds.SetProjection(sr.ExportToWkt())
+    ds.GetRasterBand(1).WriteArray(np.array([[1, 2], [3, 4]], dtype="float32"))
+    ds.CreateMaskBand(gdal.GMF_PER_DATASET)
+    ds.GetRasterBand(1).GetMaskBand().WriteArray(
+        np.array([[255, 0], [255, 255]], dtype="uint8")
+    )
+    ds.FlushCache()
+    ds = None
+    return Dataset.read_file(path)
+
+
+class TestMaskedReads:
+    """Tests for read_array(masked=True) on Dataset."""
+
+    def test_nodata_cells_are_masked(self, nodata_dataset):
+        """Cells equal to the nodata marker are masked; others are not.
+
+        Test scenario:
+            One -9999 cell -> mask count 1; `filled(0)` replaces it with 0
+            while valid cells keep their values.
+        """
+        result = nodata_dataset.read_array(band=0, masked=True)
+        assert isinstance(result, np.ma.MaskedArray), f"got {type(result).__name__}"
+        assert result.mask.sum() == 1, f"expected 1 masked cell, got {result.mask.sum()}"
+        assert result.mask[0, 1], "the -9999 cell must be the masked one"
+        filled = result.filled(0)
+        assert filled[0, 1] == 0, "filled() must replace the masked cell"
+        assert filled[1, 1] == pytest.approx(4.0), "valid cells must survive filled()"
+
+    def test_nan_nodata_masks_nan_cells(self):
+        """A NaN nodata marker masks the NaN cells (NaN-aware comparison).
+
+        Test scenario:
+            `value == nan` is always False, so the implementation must use
+            isnan for float NaN nodata.
+        """
+        arr = np.array([[np.nan, 2.0], [3.0, 4.0]], dtype="float32")
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0, 2), cell_size=1.0, epsg=4326, no_data_value=np.nan
+        )
+        result = ds.read_array(band=0, masked=True)
+        assert result.mask.sum() == 1, f"NaN cell not masked: {result.mask}"
+        assert result.mask[0, 0], "the NaN cell must be the masked one"
+
+    def test_multi_band_per_band_masks(self):
+        """An all-bands read stacks a per-band mask.
+
+        Test scenario:
+            Band 0 has one nodata cell, band 1 none — the 3-D mask reflects
+            each band independently.
+        """
+        band0 = np.array([[1.0, -9999.0], [3.0, 4.0]], dtype="float32")
+        band1 = np.full((2, 2), 7.0, dtype="float32")
+        ds = Dataset.create_from_array(
+            np.stack([band0, band1]),
+            top_left_corner=(0, 2), cell_size=1.0, epsg=4326, no_data_value=-9999.0,
+        )
+        result = ds.read_array(masked=True)
+        assert result.shape == (2, 2, 2), f"unexpected shape {result.shape}"
+        assert result.mask[0].sum() == 1, "band 0 must have one masked cell"
+        assert result.mask[1].sum() == 0, "band 1 must have no masked cells"
+
+    def test_gdal_mask_band_is_honoured(self, mask_band_dataset):
+        """A PER_DATASET internal mask band masks cells without any nodata.
+
+        Test scenario:
+            The only invalidity signal is the mask band (flags branch); the
+            zeroed mask cell is masked in the result.
+        """
+        result = mask_band_dataset.read_array(band=0, masked=True)
+        assert result.mask.sum() == 1, f"mask band ignored: {result.mask}"
+        assert result[0, 1] is np.ma.masked, "cell (0,1) must be masked"
+
+    def test_windowed_read_masks_by_nodata(self, nodata_dataset):
+        """A windowed masked read applies the nodata mask to the window.
+
+        Test scenario:
+            Window covering the top row contains the nodata cell; the mask
+            aligns with the window shape.
+        """
+        result = nodata_dataset.read_array(band=0, window=[0, 0, 2, 1], masked=True)
+        assert result.shape == (1, 2), f"unexpected window shape {result.shape}"
+        assert result.mask.sum() == 1, "window must contain one masked cell"
+
+    def test_default_returns_plain_ndarray(self, nodata_dataset):
+        """masked=False (default) keeps the historical plain-ndarray contract.
+
+        Test scenario:
+            No MaskedArray unless explicitly requested.
+        """
+        result = nodata_dataset.read_array(band=0)
+        assert type(result) is np.ndarray, f"default changed: {type(result).__name__}"
+
+    def test_chunks_with_masked_raises(self, nodata_dataset):
+        """masked=True with chunks= raises NotImplementedError.
+
+        Test scenario:
+            Lazy masked reads are explicitly unsupported in v1.
+        """
+        with pytest.raises(NotImplementedError, match="masked=True"):
+            nodata_dataset.read_array(band=0, chunks=2, masked=True)
+
+
+class TestNetCDFMaskedReads:
+    """Tests for the masked= threading through NetCDF.read_array."""
+
+    @pytest.fixture
+    def nc_subset(self) -> NetCDF:
+        """A single-variable NetCDF subset with one -9999 cell.
+
+        Returns:
+            NetCDF: The `t` variable subset of an in-memory container.
+        """
+        arr = np.array([[[1.0, -9999.0], [3.0, 4.0]]], dtype="float32")
+        nc = NetCDF.create_from_array(
+            arr, top_left_corner=(0, 2), cell_size=1.0, epsg=4326,
+            variable_name="t", no_data_value=-9999.0,
+        )
+        return nc.get_variable("t")
+
+    def test_subset_masked_read(self, nc_subset):
+        """A variable subset honours masked=True through the super() path.
+
+        Test scenario:
+            The nodata cell is masked exactly as on a plain Dataset.
+        """
+        result = nc_subset.read_array(masked=True)
+        assert isinstance(result, np.ma.MaskedArray), f"got {type(result).__name__}"
+        assert result.mask.sum() == 1, f"expected 1 masked cell, got {result.mask.sum()}"
+
+    def test_lazy_masked_raises(self, nc_subset):
+        """The NetCDF lazy path rejects masked=True explicitly.
+
+        Test scenario:
+            chunks= + masked= raises before any dask graph is built.
+        """
+        with pytest.raises(NotImplementedError, match="masked=True"):
+            nc_subset.read_array(chunks=2, masked=True)
