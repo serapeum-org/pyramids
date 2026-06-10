@@ -1,3 +1,10 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/_images/branding/banner-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/_images/branding/docs-header-light.svg">
+  <img alt="pyramids — GIS utilities for rasters, vectors & datacubes, built on GDAL/OGR"
+       src="docs/_images/branding/docs-header-light.svg" width="100%">
+</picture>
+
 [![Documentations](https://img.shields.io/badge/Documentations-blue?logo=github&logoColor=white)](https://serapeum-org.github.io/pyramids/main/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/pyramids-gis.png)](https://img.shields.io/pypi/pyversions/pyramids-gis)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
@@ -26,6 +33,8 @@ pyramids - GIS utility package
 =====================================================================
 **pyramids** is a GIS utility package built on top of GDAL/OGR for working with raster data (GeoTIFF, NetCDF),
 vector data (shapefiles, GeoJSON), and multi-temporal datacubes.
+
+![pyramids at a glance — every GDAL format, none of the boilerplate](docs/_images/branding/feature-animated.gif)
 
 `pyramids-gis` is licensed under GPLv3 (see [LICENSE.md](LICENSE.md)). The
 platform wheels published on PyPI bundle [GDAL](https://gdal.org/) and its
@@ -61,7 +70,7 @@ graph LR
     Plotting -->|delegates| cleopatra(["cleopatra<br/>ArrayGlyph · MeshGlyph · tiles"])
 ```
 
-For detailed architecture diagrams, see
+For the class relationships, internal layers, and detailed architecture diagrams, see
 [docs/overview/architecture.md](docs/overview/architecture.md).
 
 Main Features

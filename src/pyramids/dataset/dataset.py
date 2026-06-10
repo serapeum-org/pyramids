@@ -971,6 +971,10 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`IO.to_file <pyramids.dataset.engines.IO.to_file>`."""
         return self.io.to_file(*args, **kwargs)
 
+    def to_bytes(self, *args, **kwargs):
+        """Facade — delegates to :meth:`IO.to_bytes <pyramids.dataset.engines.IO.to_bytes>`."""
+        return self.io.to_bytes(*args, **kwargs)
+
     def to_raster(self, *args, **kwargs):
         """Facade — delegates to :meth:`IO.to_raster <pyramids.dataset.engines.IO.to_raster>`."""
         return self.io.to_raster(*args, **kwargs)

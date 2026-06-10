@@ -4,7 +4,17 @@ Time-stacked collection of co-registered rasters. Holds N rasters that share
 a spatial template (rows, columns, cell size, CRS) and exposes them along a
 single time axis for multi-temporal analysis.
 
-![DatasetCollection diagram](../../_images/pyramids-multi-dataset.svg)
+```mermaid
+flowchart LR
+    SRC["<b>time-stacked sources</b><br/>folder of co-registered rasters<br/>archive · STAC items"] -->|"from_files · from_archive<br/>from_stac · read_multiple_files"| DC(("DatasetCollection"))
+
+    DC --> PR["<b>properties</b><br/>time_length · rows · columns<br/>meta · values"]
+    DC --> AC["<b>access</b><br/>iloc · head · tail · first · last"]
+    DC --> TS["<b>per-timestep ops</b><br/>crop · to_crs · align<br/>apply · overlay · merge"]
+    DC --> LZ["<b>lazy cube — Dask</b><br/>data — (time, bands, rows, cols)<br/>mean · sum · min · max · std · var<br/>groupby(labels)"]
+    DC --> VI["<b>visualize</b><br/>plot"]
+    DC --> WR["<b>write</b><br/>to_file · to_cog_stack<br/>to_zarr · to_netcdf · to_kerchunk"]
+```
 
 ## The two paths
 
