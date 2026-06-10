@@ -57,6 +57,12 @@ def _json_safe(value: float | None) -> float | None:
     return result
 
 
+_HELP_SRC_RASTER = "source raster path"
+_HELP_DST_RASTER = "destination raster path"
+_HELP_INSPECT_RASTER = "raster path to inspect"
+_HELP_JSON = "emit JSON"
+
+
 def _cmd_create(args: argparse.Namespace) -> int:
     """Handle `pyramids cog create`.
 
@@ -356,7 +362,7 @@ def _build_parser() -> argparse.ArgumentParser:
     cog_sub = cog.add_subparsers(dest="command", required=True)
 
     create = cog_sub.add_parser("create", help="write a raster as a COG")
-    create.add_argument("input", help="source raster path")
+    create.add_argument("input", help=_HELP_SRC_RASTER)
     create.add_argument("output", help="destination COG path")
     create.add_argument(
         "--profile", choices=sorted(PROFILES), help="named compression profile"
@@ -374,25 +380,25 @@ def _build_parser() -> argparse.ArgumentParser:
     val.set_defaults(func=_cmd_validate)
 
     info = cog_sub.add_parser("info", help="print structured COG metadata")
-    info.add_argument("file", help="raster path to inspect")
+    info.add_argument("file", help=_HELP_INSPECT_RASTER)
     info.set_defaults(func=_cmd_info)
 
     raster_info = sub.add_parser("info", help="print raster metadata")
-    raster_info.add_argument("file", help="raster path to inspect")
-    raster_info.add_argument("--json", action="store_true", help="emit JSON")
+    raster_info.add_argument("file", help=_HELP_INSPECT_RASTER)
+    raster_info.add_argument("--json", action="store_true", help=_HELP_JSON)
     raster_info.set_defaults(func=_cmd_raster_info)
 
     bounds = sub.add_parser("bounds", help="print the raster bounding box")
-    bounds.add_argument("file", help="raster path to inspect")
+    bounds.add_argument("file", help=_HELP_INSPECT_RASTER)
     bounds.add_argument(
         "--crs", help="reproject the corners to this CRS (corner-based approximation)"
     )
-    bounds.add_argument("--json", action="store_true", help="emit JSON")
+    bounds.add_argument("--json", action="store_true", help=_HELP_JSON)
     bounds.set_defaults(func=_cmd_bounds)
 
     clip = sub.add_parser("clip", help="crop a raster by bbox or vector mask")
-    clip.add_argument("input", help="source raster path")
-    clip.add_argument("output", help="destination raster path")
+    clip.add_argument("input", help=_HELP_SRC_RASTER)
+    clip.add_argument("output", help=_HELP_DST_RASTER)
     clip_how = clip.add_mutually_exclusive_group(required=True)
     clip_how.add_argument(
         "--bbox",
@@ -405,8 +411,8 @@ def _build_parser() -> argparse.ArgumentParser:
     clip.set_defaults(func=_cmd_clip)
 
     warp = sub.add_parser("warp", help="reproject a raster")
-    warp.add_argument("input", help="source raster path")
-    warp.add_argument("output", help="destination raster path")
+    warp.add_argument("input", help=_HELP_SRC_RASTER)
+    warp.add_argument("output", help=_HELP_DST_RASTER)
     warp.add_argument("--crs", required=True, help="target CRS (EPSG code, WKT, PROJ4)")
     warp.add_argument(
         "--resampling", default="nearest neighbor", help="resampling method"
@@ -415,7 +421,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     merge = sub.add_parser("merge", help="mosaic rasters into one file")
     merge.add_argument("inputs", nargs="+", help="source raster paths (two or more)")
-    merge.add_argument("output", help="destination raster path")
+    merge.add_argument("output", help=_HELP_DST_RASTER)
     merge.set_defaults(func=_cmd_merge)
 
     overview = sub.add_parser("overview", help="build image pyramids in place")
@@ -433,12 +439,12 @@ def _build_parser() -> argparse.ArgumentParser:
     sample.add_argument(
         "--points", required=True, help="semicolon-separated 'x,y' pairs"
     )
-    sample.add_argument("--json", action="store_true", help="emit JSON")
+    sample.add_argument("--json", action="store_true", help=_HELP_JSON)
     sample.set_defaults(func=_cmd_sample)
 
     convert = sub.add_parser("convert", help="re-save a raster in another format")
-    convert.add_argument("input", help="source raster path")
-    convert.add_argument("output", help="destination raster path")
+    convert.add_argument("input", help=_HELP_SRC_RASTER)
+    convert.add_argument("output", help=_HELP_DST_RASTER)
     convert.add_argument(
         "--driver",
         help="catalog (geotiff) or GDAL (GTiff) driver name (default: from extension)",
@@ -473,7 +479,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (
         ValueError,
         TypeError,
-        FileNotFoundError,
         OSError,
         RuntimeError,
         _PyramidsError,
