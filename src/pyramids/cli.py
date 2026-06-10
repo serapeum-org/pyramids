@@ -323,7 +323,8 @@ def _cmd_convert(args: argparse.Namespace) -> int:
     """Handle `pyramids convert` — re-save a raster in another format.
 
     The driver is inferred from the output extension unless `--driver` is
-    given (a pyramids catalog driver name, e.g. ``geotiff``, ``ascii``).
+    given — a pyramids catalog driver name (e.g. ``geotiff``, ``ascii``)
+    or a GDAL driver name (e.g. ``GTiff``, ``COG``).
 
     Args:
         args: Parsed arguments with `input`, `output`, and `driver`.
@@ -332,10 +333,7 @@ def _cmd_convert(args: argparse.Namespace) -> int:
         int: `0` on success.
     """
     ds = Dataset.read_file(args.input)
-    if args.driver:
-        ds.to_file(args.output, driver=args.driver)
-    else:
-        ds.to_file(args.output)
+    ds.to_file(args.output, driver=args.driver)
     print(f"wrote {args.output}")
     return 0
 
@@ -442,7 +440,8 @@ def _build_parser() -> argparse.ArgumentParser:
     convert.add_argument("input", help="source raster path")
     convert.add_argument("output", help="destination raster path")
     convert.add_argument(
-        "--driver", help="pyramids catalog driver name (default: from extension)"
+        "--driver",
+        help="catalog (geotiff) or GDAL (GTiff) driver name (default: from extension)",
     )
     convert.set_defaults(func=_cmd_convert)
 

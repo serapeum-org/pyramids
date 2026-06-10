@@ -15,6 +15,7 @@ import pytest
 
 from pyramids.cli import main
 from pyramids.dataset import Dataset
+from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
 
@@ -88,6 +89,14 @@ class TestBoundsCommand:
         assert bounds[0] == pytest.approx(0.0, abs=1e-6), "min_x wrong"
         assert bounds[2] == pytest.approx(890_555.9, rel=1e-3), "max_x wrong"
 
+    def test_invalid_crs_one_line_error(self, src_raster, capsys):
+        """An uninterpretable --crs exits 1 with a clean message."""
+        rc = main(["bounds", src_raster, "--crs", "not-a-crs"])
+        err = capsys.readouterr().err
+        assert rc == 1, "bad CRS must exit 1"
+        assert err.startswith("error: "), f"unexpected stderr: {err}"
+        assert "Traceback" not in err, "tracebacks must not leak to users"
+
 
 class TestClipCommand:
     """`pyramids clip`."""
@@ -98,6 +107,20 @@ class TestClipCommand:
         assert main(["clip", src_raster, out_path, "--bbox", "1", "1", "5", "5"]) == 0
         clipped = Dataset.read_file(out_path)
         assert (clipped.rows, clipped.columns) == (4, 4), "clip extent wrong"
+
+    def test_vector_clip_writes_subset(self, src_raster, tmp_path, capsys):
+        """--vector crops to the mask polygon's extent.
+
+        Test scenario:
+            A rectangular GeoJSON mask covering (1, 1, 5, 5) yields the
+            same 4x4 subset as the equivalent --bbox clip.
+        """
+        mask_path = str(tmp_path / "mask.geojson")
+        FeatureCollection.from_bbox((1.0, 1.0, 5.0, 5.0), epsg=4326).to_file(mask_path)
+        out_path = str(tmp_path / "clip_vec.tif")
+        assert main(["clip", src_raster, out_path, "--vector", mask_path]) == 0
+        clipped = Dataset.read_file(out_path)
+        assert (clipped.rows, clipped.columns) == (4, 4), "vector clip extent wrong"
 
     def test_bbox_and_vector_mutually_exclusive(self, src_raster, tmp_path, capsys):
         """Passing both --bbox and --vector is rejected by argparse."""
