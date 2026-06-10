@@ -303,6 +303,26 @@ class IO(_Engine):
 
               ```
 
+            - A boundless read keeps the full window shape; pixels outside the
+              raster take ``fill_value`` (or the band's no-data value, or the
+              dtype's zero — in that precedence):
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, Window
+              >>> arr_b = np.arange(9, dtype="float32").reshape(3, 3)
+              >>> dataset_b = Dataset.create_from_array(
+              ...     arr_b, top_left_corner=(0, 3), cell_size=1.0, epsg=4326,
+              ...     no_data_value=-9.0,
+              ... )
+              >>> dataset_b.read_array(
+              ...     band=0, window=Window(-1, -1, 2, 2), boundless=True
+              ... )
+              array([[-9., -9.],
+                     [-9.,  0.]], dtype=float32)
+
+              ```
+
         See Also:
             - Dataset.get_tile: Read the dataset in chunks.
             - Dataset.get_block_arrangement: Get block arrangement to read the dataset in chunks.
