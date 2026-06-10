@@ -9,8 +9,6 @@ constant resolution), plus the wiring through `Dataset.resample` and
 
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
 import pytest
 from osgeo import gdal
@@ -125,13 +123,17 @@ class TestResolveResampling:
             f"error should list valid methods, got: {exc.value}"
         )
 
-    def test_non_string_raises_type_error(self):
+    @pytest.mark.parametrize("bad_method", [3, None, b"bilinear"])
+    def test_non_string_raises_type_error(self, bad_method):
         """A non-string method raises TypeError.
 
+        Args:
+            bad_method: Non-string value a caller might pass by mistake.
+
         Test scenario:
-            Passing an int (e.g. a raw GDAL constant) is rejected explicitly.
+            An int (e.g. a raw GDAL constant), None, and a bytes name are
+            all rejected explicitly.
         """
-        bad_method: Any = 3
         with pytest.raises(TypeError, match="must be a string"):
             resolve_resampling(bad_method)
 
