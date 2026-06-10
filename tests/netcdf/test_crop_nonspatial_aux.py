@@ -18,6 +18,7 @@ numeric ``number`` aux reproduces it faithfully.
 from __future__ import annotations
 
 import warnings
+from unittest.mock import Mock
 
 import geopandas as gpd
 import numpy as np
@@ -31,12 +32,13 @@ xr = pytest.importorskip("xarray")
 pytestmark = pytest.mark.core
 
 
-def _era5_like_cube(*, with_spatial=True, with_aux=True):
+def _era5_like_cube(*, with_spatial=True, with_aux=True, with_second_spatial=False):
     """Build an ERA5-shaped multidimensional cube via ``NetCDF.from_xarray``.
 
     Args:
         with_spatial: Include the gridded ``t2m(valid_time, latitude, longitude)``.
         with_aux: Include the non-spatial 1-D ``number(valid_time)`` auxiliary.
+        with_second_spatial: Also include a second gridded ``tp`` variable.
 
     Returns:
         NetCDF: The opened multi-variable container.
@@ -49,6 +51,11 @@ def _era5_like_cube(*, with_spatial=True, with_aux=True):
         data_vars["t2m"] = (
             ("valid_time", "latitude", "longitude"),
             np.ones((n_t, n_lat, n_lon), "float32"),
+        )
+    if with_second_spatial:
+        data_vars["tp"] = (
+            ("valid_time", "latitude", "longitude"),
+            np.full((n_t, n_lat, n_lon), 2.0, "float32"),
         )
     if with_aux:
         data_vars["number"] = (("valid_time",), np.array([0, 0, 1, 1], dtype="int32"))
@@ -149,3 +156,172 @@ class TestCropNonSpatialAux:
         assert "t2m" in reduced.variable_names, "spatial t2m should be reduced"
         assert "number" in reduced.variable_names, "non-spatial aux should be carried"
         assert reduced.get_variable("t2m").band_count == 1, "valid_time collapsed to 1"
+
+
+class TestMultiSpatialPlusAux:
+    """A container with two gridded variables + one aux crops all spatial, carries aux."""
+
+    def test_crop_keeps_every_spatial_and_carries_aux(self):
+        """Two spatial variables are both cropped; the aux is carried through.
+
+        Test scenario:
+            ``t2m`` + ``tp`` (both gridded) + 1-D ``number`` -> the fan-out builds
+            a multi-variable result containing all three.
+        """
+        cube = _era5_like_cube(with_second_spatial=True)
+        cropped = cube.crop(mask=_MASK, touch=True)
+        for name in ("t2m", "tp", "number"):
+            assert name in cropped.variable_names, f"{name} should be in the result"
+        assert cropped.get_variable("tp").band_count == 4, "tp keeps its 4 bands"
+
+
+def _dim(name):
+    """A Mock GDAL dimension whose ``GetName()`` returns ``name``."""
+    dim = Mock()
+    dim.GetName.return_value = name
+    return dim
+
+
+def _attr(name, value):
+    """A Mock GDAL attribute exposing ``GetName()`` / ``ReadAsString()``."""
+    attr = Mock()
+    attr.GetName.return_value = name
+    attr.ReadAsString.return_value = value
+    return attr
+
+
+def _fake_rg(var_dims, coord_attrs=None):
+    """A Mock root group: ``OpenMDArray(name)`` -> a variable MDArray or a coordinate.
+
+    Args:
+        var_dims: ``{var_name: [dim_name, ...]}`` for the variable(s) under test.
+        coord_attrs: ``{dim_name: {attr: value}}`` driving CF detection; a name in
+            neither map raises ``RuntimeError`` as GDAL does.
+    """
+    coord_attrs = coord_attrs or {}
+
+    def open_mdarray(name):
+        if name in var_dims:
+            md = Mock()
+            md.GetDimensions.return_value = [_dim(d) for d in var_dims[name]]
+            return md
+        if name in coord_attrs:
+            coord = Mock()
+            coord.GetAttributes.return_value = [
+                _attr(k, v) for k, v in coord_attrs[name].items()
+            ]
+            return coord
+        raise RuntimeError(f"Array {name} does not exist")
+
+    rg = Mock()
+    rg.OpenMDArray.side_effect = open_mdarray
+    return rg
+
+
+class TestVariableIsSpatial:
+    """``_variable_is_spatial`` decides griddability from a variable's own dims."""
+
+    def test_one_dim_is_not_spatial(self):
+        """A 1-D variable (e.g. ``number(valid_time)``) is non-spatial.
+
+        Test scenario:
+            A single-dimension variable cannot form a raster -> ``False``.
+        """
+        rg = _fake_rg({"number": ["valid_time"]})
+        assert NetCDF._variable_is_spatial(NetCDF, rg, "number") is False
+
+    def test_two_non_spatial_dims_is_not_spatial(self):
+        """A 2-D variable with no recognised spatial axes is non-spatial.
+
+        Test scenario:
+            ``time_bnds(valid_time, nbnds)`` — no CF attrs, no known names -> the
+            fan-out must not treat bounds as a raster.
+        """
+        rg = _fake_rg({"time_bnds": ["valid_time", "nbnds"]})
+        assert NetCDF._variable_is_spatial(NetCDF, rg, "time_bnds") is False
+
+    def test_known_name_axes_is_spatial(self):
+        """Well-known ``y`` / ``x`` dimension names mark a variable spatial.
+
+        Test scenario:
+            ``t2m(valid_time, y, x)`` -> ``True`` via name detection.
+        """
+        rg = _fake_rg({"t2m": ["valid_time", "y", "x"]})
+        assert NetCDF._variable_is_spatial(NetCDF, rg, "t2m") is True
+
+    def test_cf_attr_axes_is_spatial(self):
+        """CF ``standard_name`` attributes mark a variable spatial.
+
+        Test scenario:
+            ``t2m(time, rows, cols)`` whose ``rows`` / ``cols`` coords carry
+            ``latitude`` / ``longitude`` -> ``True`` via CF detection (names alone
+            wouldn't match).
+        """
+        rg = _fake_rg(
+            {"t2m": ["time", "rows", "cols"]},
+            coord_attrs={
+                "time": {"axis": "T"},
+                "rows": {"standard_name": "latitude"},
+                "cols": {"standard_name": "longitude"},
+            },
+        )
+        assert NetCDF._variable_is_spatial(NetCDF, rg, "t2m") is True
+
+    def test_missing_variable_is_not_spatial(self):
+        """A variable whose ``OpenMDArray`` raises is treated as non-spatial.
+
+        Test scenario:
+            ``OpenMDArray`` raises ``RuntimeError`` -> ``False`` (no crash).
+        """
+        rg = _fake_rg({})
+        assert NetCDF._variable_is_spatial(NetCDF, rg, "ghost") is False
+
+    def test_none_mdarray_is_not_spatial(self):
+        """A ``None`` MDArray is treated as non-spatial.
+
+        Test scenario:
+            ``OpenMDArray`` returns ``None`` -> ``False``.
+        """
+        rg = Mock()
+        rg.OpenMDArray.side_effect = lambda name: None
+        assert NetCDF._variable_is_spatial(NetCDF, rg, "v") is False
+
+
+class TestSpatialVariableNames:
+    """``_spatial_variable_names`` lists only the gridded variables."""
+
+    def test_lists_only_gridded_variables(self):
+        """The 1-D aux is excluded from the spatial variable list.
+
+        Test scenario:
+            ``t2m`` + ``number`` container -> ``["t2m"]``.
+        """
+        cube = _era5_like_cube()
+        assert cube._spatial_variable_names() == ["t2m"]
+
+    def test_variable_subset_has_no_root_group(self):
+        """A classic-mode variable subset (no root group) yields an empty list.
+
+        Test scenario:
+            ``get_variable`` returns a classic dataset with ``GetRootGroup() is
+            None`` -> ``[]``.
+        """
+        cube = _era5_like_cube()
+        assert cube.get_variable("t2m")._spatial_variable_names() == []
+
+
+class TestCarryAuxVariablesWarn:
+    """``_carry_aux_variables`` warns (not raises) when a copy fails."""
+
+    def test_warns_when_add_variable_fails(self):
+        """A failed ``add_variable`` warns and does not abort the operation.
+
+        Test scenario:
+            ``result.add_variable`` raises ``RuntimeError`` -> a ``UserWarning``
+            naming the variable, no exception propagated.
+        """
+        cube = _era5_like_cube()
+        result = Mock()
+        result.add_variable.side_effect = RuntimeError("boom")
+        with pytest.warns(UserWarning, match="could not carry"):
+            cube._carry_aux_variables(result, ["number"], "crop")
