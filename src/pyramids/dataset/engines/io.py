@@ -26,6 +26,7 @@ from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base.protocols import ArrayLike
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS, RESAMPLING_METHODS
+from pyramids.dataset.engines.cog import _RESAMPLING_ALG
 from pyramids.dataset.ops import io as _io_module
 from pyramids.dataset.ops.io import _LAZY_IMPORT_ERROR
 from pyramids.dataset.window import Window
@@ -66,6 +67,8 @@ class IO(_Engine):
         lock: Any = None,
         bbox: tuple[float, float, float, float] | list[float] | None = None,
         epsg: Any = None,
+        out_shape: tuple[int, int] | None = None,
+        resampling: str = "nearest",
     ) -> ArrayLike:
         """Read the values stored in a given band (eager or lazy).
 
@@ -142,6 +145,22 @@ class IO(_Engine):
                   context-manager semantics is used as-is.
 
                 Ignored when `chunks is None`.
+            out_shape (tuple[int, int] | None, keyword-only):
+                Target ``(rows, cols)`` for a decimated (or enlarged) read.
+                GDAL resamples while reading (``buf_xsize``/``buf_ysize``)
+                and pulls from a matching overview level when one exists, so
+                previews of pyramided rasters never touch the full-resolution
+                pixels. Composes with ``window=`` (decimate a sub-window).
+                Not supported together with ``chunks=``
+                (:class:`NotImplementedError`). Default ``None`` (native
+                resolution, unchanged).
+            resampling (str, keyword-only):
+                Decimation algorithm for ``out_shape`` reads (``"nearest"``,
+                ``"bilinear"``, ``"cubic"``, ``"cubic_spline"``,
+                ``"lanczos"``, ``"average"``, ``"mode"``, ...). Averaging
+                algorithms mix no-data into edge cells — prefer
+                ``"nearest"`` (the default) on rasters with a no-data
+                marker. Ignored when ``out_shape`` is ``None``.
 
         Returns:
             ArrayLike:
@@ -266,8 +285,16 @@ class IO(_Engine):
                     "read_array(chunks=..., window=...) is not supported; "
                     "read lazily and slice the resulting dask array instead."
                 )
+            if out_shape is not None:
+                raise NotImplementedError(
+                    "read_array(out_shape=...) is not supported together with "
+                    "chunks=; decimate eagerly, or coarsen the dask array."
+                )
             arr = self._lazy_read_array(band=band, chunks=chunks, lock=lock)
             self._ds._backend = "dask"
+        elif out_shape is not None:
+            arr = self._decimated_read(band, window, out_shape, resampling)
+            self._ds._backend = "numpy"
         else:
             if band is None and self._ds.band_count > 1:
                 if window is None:
@@ -405,6 +432,89 @@ class IO(_Engine):
             single_band=single_band,
         )
         return arr
+
+    def _decimated_read(
+        self: Dataset,
+        band: int | None,
+        window: Window | list[int] | GeoDataFrame | None,
+        out_shape: tuple[int, int],
+        resampling: str,
+    ) -> np.ndarray:
+        """Read at a reduced (or enlarged) resolution via GDAL's buffer args.
+
+        Delegates the decimation to ``ReadAsArray(buf_xsize=, buf_ysize=,
+        resample_alg=)`` — GDAL automatically pulls from an overview level
+        when one matches the requested size, so previewing a raster with
+        overviews never reads the full-resolution pixels.
+
+        Args:
+            band: Band index, or ``None`` for all bands.
+            window: Optional sub-window (Window / x-first list /
+                GeoDataFrame) to decimate; ``None`` reads the whole raster.
+            out_shape: Target ``(rows, cols)`` of the returned array.
+            resampling: Decimation algorithm name from
+                :data:`pyramids.dataset.engines.cog._RESAMPLING_ALG`
+                (``"nearest"``, ``"bilinear"``, ``"cubic"``,
+                ``"cubic_spline"``, ``"lanczos"``, ``"average"``,
+                ``"mode"``, ...). ``average``-style algorithms mix no-data
+                into edge cells — prefer ``nearest`` on rasters with a
+                no-data marker.
+
+        Returns:
+            np.ndarray: ``out_shape`` for a single band,
+                ``(bands, rows, cols)`` for an all-bands read.
+
+        Raises:
+            TypeError: ``resampling`` is not a string.
+            ValueError: ``out_shape`` is malformed or ``resampling`` unknown.
+        """
+        if not isinstance(resampling, str):
+            raise TypeError(
+                f"resampling method must be a string, got {type(resampling).__name__}."
+            )
+        key = resampling.lower().strip()
+        if key not in _RESAMPLING_ALG:
+            raise ValueError(
+                f"unknown resampling {resampling!r}; "
+                f"choose from {sorted(_RESAMPLING_ALG)}"
+            )
+        if (
+            not isinstance(out_shape, (tuple, list))
+            or len(out_shape) != 2
+            or int(out_shape[0]) <= 0
+            or int(out_shape[1]) <= 0
+        ):
+            raise ValueError(
+                f"out_shape must be a positive (rows, cols) pair, got {out_shape!r}."
+            )
+        rows, cols = int(out_shape[0]), int(out_shape[1])
+        alg = _RESAMPLING_ALG[key]
+        if isinstance(window, GeoDataFrame):
+            window = self._convert_polygon_to_window(window)
+        if isinstance(window, Window):
+            window_args = window.to_read_args()
+        elif window is not None:
+            window_args = tuple(int(value) for value in window)
+        else:
+            window_args = ()
+        _validate_band_index(band, self._ds.band_count)
+        if band is None and self._ds.band_count > 1:
+            arr = np.stack(
+                [
+                    self._ds._iloc(i).ReadAsArray(
+                        *window_args, buf_xsize=cols, buf_ysize=rows,
+                        resample_alg=alg,
+                    )
+                    for i in range(self._ds.band_count)
+                ],
+                axis=0,
+            )
+        else:
+            effective_band = 0 if band is None else band
+            arr = self._ds._iloc(effective_band).ReadAsArray(
+                *window_args, buf_xsize=cols, buf_ysize=rows, resample_alg=alg
+            )
+        return np.asarray(arr)
 
     def _read_block(
         self: Dataset,
