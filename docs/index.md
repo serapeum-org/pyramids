@@ -32,6 +32,8 @@ Pythonic API for reading, writing, cropping, reprojecting, aligning, mosaicking,
 geospatial data, with first-class support for Cloud Optimized GeoTIFFs, STAC catalogs, lazy/Dask
 computation, and cloud object stores (S3 / GCS / Azure / HTTPS).
 
+![pyramids at a glance — every GDAL format, none of the boilerplate](_images/branding/feature-animated.gif)
+
 ```mermaid
 flowchart LR
     subgraph Read["Read — any GDAL/OGR driver"]
