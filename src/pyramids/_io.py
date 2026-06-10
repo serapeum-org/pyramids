@@ -180,7 +180,8 @@ def read_vsi_bytes(path: str) -> bytes:
         gdal.VSIFSeekL(handle, 0, 2)
         size = gdal.VSIFTellL(handle)
         gdal.VSIFSeekL(handle, 0, 0)
-        data = gdal.VSIFReadL(1, size, handle)
+        # VSIFReadL returns None (not b"") for a zero-byte read.
+        data = gdal.VSIFReadL(1, size, handle) if size else b""
     finally:
         gdal.VSIFCloseL(handle)
     return bytes(data)

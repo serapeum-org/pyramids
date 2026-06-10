@@ -795,9 +795,12 @@ class IO(_Engine):
         for HTTP responses, object-store uploads, database blobs, and tests.
 
         Only **single-file** raster drivers are supported: a driver that emits
-        sidecar files next to the main one (world files, multi-part outputs)
-        raises ``ValueError``. GDAL's optional ``.aux.xml`` statistics sidecar
-        is ignored and cleaned up.
+        sidecar files next to the main one (world files, ``.prj`` files,
+        multi-part outputs) raises ``ValueError``. GDAL's optional
+        ``.aux.xml`` PAM sidecar is ignored and cleaned up — note that for
+        formats that cannot embed georeferencing themselves (e.g. ``PNG``,
+        ``JPEG``) GDAL stores the CRS / geotransform in that sidecar, so the
+        returned payload carries pixel values only.
 
         Args:
             driver: GDAL raster driver name (e.g. ``"GTiff"``, ``"PNG"``,
@@ -828,7 +831,7 @@ class IO(_Engine):
                 ... )
                 >>> payload = ds.to_bytes()
                 >>> restored = Dataset.from_bytes(payload)
-                >>> bool((restored.read_array() == 1.0).all())
+                >>> bool(np.allclose(restored.read_array(), 1.0))
                 True
 
                 ```

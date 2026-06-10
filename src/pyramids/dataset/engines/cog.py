@@ -17,6 +17,7 @@ import numpy as np
 from osgeo import gdal
 from pyproj import Transformer
 
+from pyramids._io import read_vsi_bytes, silent_unlink
 from pyramids.base._errors import FailedToSaveError, OutOfBoundsError
 from pyramids.base._utils import (
     default_cog_overview_resampling,
@@ -35,7 +36,6 @@ from pyramids.dataset.cog import (
     validate_blocksize,
     validate_profile,
 )
-from pyramids._io import read_vsi_bytes
 from pyramids.dataset.cog.validate import _resolve_read_config, config_context
 from pyramids.dataset.engines._base import _Engine
 
@@ -547,7 +547,11 @@ class COG(_Engine):
                     f"could not reopen in-memory COG at {vsi_path}"
                 ) from exc
         finally:
-            gdal.Unlink(vsi_path)
+            # silent_unlink: when to_cog fails before creating the file, a
+            # plain gdal.Unlink raises under gdal.UseExceptions() and masks
+            # the original exception. Sweep the PAM sidecar too.
+            silent_unlink(vsi_path)
+            silent_unlink(f"{vsi_path}.aux.xml")
         return data
 
     def _translate_with_statistics_retry(

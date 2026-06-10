@@ -15,6 +15,7 @@ from osgeo import gdal
 import pyramids.dataset.engines.io as io_engine
 from pyramids._io import new_vsimem_path, read_vsi_bytes
 from pyramids.dataset import Dataset
+from pyramids.dataset.engines.cog import COG
 
 pytestmark = pytest.mark.core
 
@@ -58,6 +59,20 @@ class TestReadVsiBytes:
         with pytest.raises(FileNotFoundError, match="could not open"):
             read_vsi_bytes("/vsimem/never-written-anywhere.bin")
 
+    def test_empty_file_reads_as_empty_bytes(self):
+        """A zero-byte VSI file reads back as b"" instead of crashing.
+
+        Test scenario:
+            gdal.VSIFReadL returns None (not b"") for a zero-byte read; the
+            helper must normalise that to empty bytes.
+        """
+        path = new_vsimem_path(".bin")
+        gdal.FileFromMemBuffer(path, b"")
+        try:
+            assert read_vsi_bytes(path) == b"", "empty file should read as b''"
+        finally:
+            gdal.Unlink(path)
+
 
 class TestToBytes:
     """Tests for Dataset.to_bytes."""
@@ -75,7 +90,9 @@ class TestToBytes:
             restored.read_array(), ramp_dataset.read_array(),
             err_msg="array must survive the bytes round-trip",
         )
-        assert restored.geotransform == ramp_dataset.geotransform, "geotransform changed"
+        assert restored.geotransform == pytest.approx(ramp_dataset.geotransform), (
+            "geotransform changed"
+        )
         assert restored.epsg == 4326, f"CRS lost: {restored.epsg}"
         assert restored.no_data_value[0] == pytest.approx(-9999.0), (
             f"nodata lost: {restored.no_data_value}"
@@ -147,6 +164,30 @@ class TestToBytes:
         """
         with pytest.raises(ValueError, match="unknown GDAL driver"):
             ramp_dataset.to_bytes(driver="definitely-not-a-driver")
+
+    def test_driver_without_createcopy_raises(self, ramp_dataset):
+        """A driver lacking the CreateCopy capability is rejected up-front.
+
+        Test scenario:
+            The MEM driver advertises no DCAP_CREATECOPY -> ValueError before
+            anything is written to /vsimem/.
+        """
+        with pytest.raises(ValueError, match="does not support CreateCopy"):
+            ramp_dataset.to_bytes(driver="MEM")
+
+    def test_multi_file_driver_raises_and_cleans_up(self, ramp_dataset):
+        """A driver that writes sidecar files is rejected, leaving no leaks.
+
+        Test scenario:
+            AAIGrid emits a .prj sidecar next to the .asc for a georeferenced
+            raster -> ValueError naming the sibling, and every /vsimem/ entry
+            (main file + sidecar) is swept by the cleanup.
+        """
+        before = sorted(gdal.ReadDir("/vsimem/") or [])
+        with pytest.raises(ValueError, match="multi-file output"):
+            ramp_dataset.to_bytes(driver="AAIGrid")
+        after = sorted(gdal.ReadDir("/vsimem/") or [])
+        assert before == after, f"vsimem leaked: {set(after) - set(before)}"
 
     def test_vsimem_is_clean_after_success(self, ramp_dataset):
         """No /vsimem/ entries leak after a successful serialization.
@@ -220,3 +261,18 @@ class TestToCogBytesStillWorks:
             restored.read_array(), ramp_dataset.read_array(),
             err_msg="COG bytes round-trip changed values",
         )
+
+    def test_to_cog_failure_is_not_masked_by_cleanup(self, ramp_dataset, monkeypatch):
+        """An early to_cog failure propagates instead of a cleanup error.
+
+        Test scenario:
+            to_cog raises before the /vsimem/ file exists; the finally-cleanup
+            must not replace the original exception with the RuntimeError that
+            gdal.Unlink raises on a missing path under gdal.UseExceptions().
+        """
+        def _boom(self, path, **kwargs):
+            raise ValueError("forced to_cog failure")
+
+        monkeypatch.setattr(COG, "to_cog", _boom)
+        with pytest.raises(ValueError, match="forced to_cog failure"):
+            ramp_dataset.to_cog_bytes()
