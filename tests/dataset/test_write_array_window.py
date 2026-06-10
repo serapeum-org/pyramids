@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from pyramids.base._errors import OutOfBoundsError, ReadOnlyError
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, Window
 
 pytestmark = pytest.mark.core
 
@@ -49,9 +49,9 @@ class TestWriteArrayWindow:
         """A window write updates exactly the targeted sub-region.
 
         Test scenario:
-            window=(1,1,2,2) sets the inner 2x2 to ones; surrounding cells stay 0.
+            Window(1, 1, 2, 2) sets the inner 2x2 to ones; surrounding cells stay 0.
         """
-        blank.write_array(np.ones((2, 2)), window=(1, 1, 2, 2))
+        blank.write_array(np.ones((2, 2)), window=Window(1, 1, 2, 2))
         arr = blank.read_array()
         assert arr[1:3, 1:3].tolist() == [[1.0, 1.0], [1.0, 1.0]], f"Window not written: {arr}"
         assert arr[0, 0] == 0.0 and arr[4, 4] == 0.0, "Cells outside the window changed"
@@ -79,9 +79,9 @@ class TestWriteArrayWindow:
         """A band-targeted window write touches only that band.
 
         Test scenario:
-            band=1 with window=(0,0,2,2) sets band-1's corner; band 0 stays 0.
+            band=1 with Window(0, 0, 2, 2) sets band-1's corner; band 0 stays 0.
         """
-        blank_multiband.write_array(np.full((2, 2), 3.0), band=1, window=(0, 0, 2, 2))
+        blank_multiband.write_array(np.full((2, 2), 3.0), band=1, window=Window(0, 0, 2, 2))
         arr = blank_multiband.read_array()
         assert arr[1, 0, 0] == 3.0, f"Band 1 not patched: {arr[1, 0, 0]}"
         assert arr[0, 0, 0] == 0.0, f"Band 0 should be untouched: {arr[0, 0, 0]}"
@@ -111,9 +111,9 @@ class TestWriteArrayWindow:
         """A window flush against the bottom-right edge is valid.
 
         Test scenario:
-            window=(3,3,2,2) ends exactly at row/col 5 (the raster size).
+            Window(3, 3, 2, 2) ends exactly at row/col 5 (the raster size).
         """
-        blank.write_array(np.ones((2, 2)), window=(3, 3, 2, 2))
+        blank.write_array(np.ones((2, 2)), window=Window(3, 3, 2, 2))
         assert blank.read_array()[3:5, 3:5].sum() == 4.0, "Edge-aligned window not written"
 
     def test_window_shape_mismatch_raises(self, blank):
@@ -123,16 +123,16 @@ class TestWriteArrayWindow:
             A 3x3 array given a 2x2 window is rejected.
         """
         with pytest.raises(ValueError, match="does not match the window size"):
-            blank.write_array(np.ones((3, 3)), window=(0, 0, 2, 2))
+            blank.write_array(np.ones((3, 3)), window=Window(0, 0, 2, 2))
 
     def test_window_out_of_bounds_raises(self, blank):
         """A window extending past the raster raises OutOfBoundsError.
 
         Test scenario:
-            window=(4,4,3,3) would reach row/col 7 on a 5x5 raster.
+            Window(4, 4, 3, 3) would reach row/col 7 on a 5x5 raster.
         """
         with pytest.raises(OutOfBoundsError, match="falls outside"):
-            blank.write_array(np.ones((3, 3)), window=(4, 4, 3, 3))
+            blank.write_array(np.ones((3, 3)), window=Window(4, 4, 3, 3))
 
     def test_top_left_corner_out_of_bounds_raises(self, blank):
         """A top_left_corner placement past the raster raises OutOfBoundsError.
@@ -147,10 +147,10 @@ class TestWriteArrayWindow:
         """A negative offset raises OutOfBoundsError.
 
         Test scenario:
-            window=(-1,0,2,2) has a negative row offset.
+            Window(0, -1, 2, 2) has a negative row offset.
         """
         with pytest.raises(OutOfBoundsError, match="falls outside"):
-            blank.write_array(np.ones((2, 2)), window=(-1, 0, 2, 2))
+            blank.write_array(np.ones((2, 2)), window=Window(0, -1, 2, 2))
 
     def test_band_out_of_range_raises(self, blank_multiband):
         """A band index beyond the raster raises ValueError.
@@ -159,7 +159,7 @@ class TestWriteArrayWindow:
             band=9 on a 2-band raster is out of range.
         """
         with pytest.raises(ValueError, match="out of range"):
-            blank_multiband.write_array(np.ones((2, 2)), band=9, window=(0, 0, 2, 2))
+            blank_multiband.write_array(np.ones((2, 2)), band=9, window=Window(0, 0, 2, 2))
 
     def test_band_write_requires_2d_array(self, blank_multiband):
         """A band-targeted write with a non-2D array raises ValueError.
@@ -186,4 +186,4 @@ class TestWriteArrayWindow:
         )
         read_only = Dataset.read_file(str(path), read_only=True)
         with pytest.raises(ReadOnlyError, match="read-only"):
-            read_only.write_array(np.ones((2, 2)), window=(0, 0, 2, 2))
+            read_only.write_array(np.ones((2, 2)), window=Window(0, 0, 2, 2))

@@ -1,0 +1,225 @@
+"""First-class pixel-space window for raster reads and writes.
+
+A :class:`Window` names a rectangular block of pixels by column/row offset and
+size — **x-first**, matching GDAL's ``ReadAsArray(xoff, yoff, xsize, ysize)``
+argument order. It is accepted everywhere pyramids takes a window
+(:meth:`Dataset.read_array`, :meth:`Dataset.write_array`,
+:meth:`Dataset.iter_blocks`) and replaces the two historical bare-sequence
+forms, whose axis orders disagreed (the read list was x-first, the write tuple
+y-first).
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+from osgeo import gdal
+
+
+@dataclass(frozen=True)
+class Window:
+    """A rectangular pixel-space window: column/row offset plus size.
+
+    The field order is **x-first** (column before row), matching GDAL's
+    ``ReadAsArray(xoff, yoff, xsize, ysize)``.
+
+    Args:
+        col_off: Column (x) offset of the window's left edge, in pixels.
+        row_off: Row (y) offset of the window's top edge, in pixels.
+        cols: Window width in pixels (> 0).
+        rows: Window height in pixels (> 0).
+
+    Raises:
+        ValueError: ``cols`` or ``rows`` is not strictly positive.
+
+    Examples:
+        - Name a 2x3 block starting at column 4, row 1 and inspect it:
+            ```python
+            >>> from pyramids.dataset.window import Window
+            >>> w = Window(col_off=4, row_off=1, cols=2, rows=3)
+            >>> w.shape
+            (3, 2)
+            >>> w.to_read_args()
+            (4, 1, 2, 3)
+
+            ```
+        - Windows are immutable value objects:
+            ```python
+            >>> from pyramids.dataset.window import Window
+            >>> Window(0, 0, 2, 2) == Window(0, 0, 2, 2)
+            True
+
+            ```
+        - A non-positive size is rejected:
+            ```python
+            >>> from pyramids.dataset.window import Window
+            >>> try:
+            ...     Window(0, 0, 0, 2)
+            ... except ValueError as exc:
+            ...     print("strictly positive" in str(exc))
+            True
+
+            ```
+    """
+
+    col_off: int
+    row_off: int
+    cols: int
+    rows: int
+
+    def __post_init__(self):
+        """Validate the window geometry."""
+        if self.cols <= 0 or self.rows <= 0:
+            raise ValueError(
+                f"window size must be strictly positive, got "
+                f"cols={self.cols}, rows={self.rows}."
+            )
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """``(rows, cols)`` — the numpy shape of an array read from this window."""
+        return (self.rows, self.cols)
+
+    def to_read_args(self) -> tuple[int, int, int, int]:
+        """Return ``(xoff, yoff, xsize, ysize)`` for ``ReadAsArray``/``WriteArray``.
+
+        Returns:
+            tuple[int, int, int, int]: GDAL-ordered window arguments.
+        """
+        return (self.col_off, self.row_off, self.cols, self.rows)
+
+    @classmethod
+    def from_bounds(
+        cls,
+        bbox: tuple[float, float, float, float],
+        geotransform: tuple[float, float, float, float, float, float],
+    ) -> "Window":
+        """Build the pixel window covering a map-space bounding box.
+
+        Pixel offsets are floored and the far edge is ceiled, so the window
+        always fully covers ``bbox`` (it may extend one pixel beyond a bbox
+        edge that does not fall on a pixel boundary).
+
+        Args:
+            bbox: ``(min_x, min_y, max_x, max_y)`` in the raster's CRS.
+            geotransform: The GDAL 6-tuple of the raster.
+
+        Returns:
+            Window: The covering pixel window.
+
+        Raises:
+            ValueError: ``bbox`` is inverted (min >= max on either axis).
+
+        Examples:
+            - A unit-cell grid with origin (0, 4): the bbox (1, 1, 3, 3)
+              covers a 2x2 block starting at column 1, row 1:
+                ```python
+                >>> from pyramids.dataset.window import Window
+                >>> gt = (0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
+                >>> Window.from_bounds((1.0, 1.0, 3.0, 3.0), gt)
+                Window(col_off=1, row_off=1, cols=2, rows=2)
+
+                ```
+            - Round-trip through to_bounds returns the same box on aligned
+              input:
+                ```python
+                >>> from pyramids.dataset.window import Window
+                >>> gt = (0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
+                >>> Window.from_bounds((1.0, 1.0, 3.0, 3.0), gt).to_bounds(gt)
+                (1.0, 1.0, 3.0, 3.0)
+
+                ```
+        """
+        min_x, min_y, max_x, max_y = bbox
+        if min_x >= max_x or min_y >= max_y:
+            raise ValueError(f"bbox must be (min_x, min_y, max_x, max_y), got {bbox}.")
+        inverse = gdal.InvGeoTransform(geotransform)
+        left, top = gdal.ApplyGeoTransform(inverse, min_x, max_y)
+        right, bottom = gdal.ApplyGeoTransform(inverse, max_x, min_y)
+        col_off = int(left)
+        row_off = int(top)
+        cols = max(1, int(math.ceil(right)) - col_off)
+        rows = max(1, int(math.ceil(bottom)) - row_off)
+        return cls(col_off=col_off, row_off=row_off, cols=cols, rows=rows)
+
+    def to_bounds(
+        self,
+        geotransform: tuple[float, float, float, float, float, float],
+    ) -> tuple[float, float, float, float]:
+        """Return the map-space ``(min_x, min_y, max_x, max_y)`` of this window.
+
+        Args:
+            geotransform: The GDAL 6-tuple of the raster.
+
+        Returns:
+            tuple[float, float, float, float]: The window's bounding box.
+        """
+        left, top = gdal.ApplyGeoTransform(
+            list(geotransform), float(self.col_off), float(self.row_off)
+        )
+        right, bottom = gdal.ApplyGeoTransform(
+            list(geotransform),
+            float(self.col_off + self.cols),
+            float(self.row_off + self.rows),
+        )
+        return (min(left, right), min(top, bottom), max(left, right), max(top, bottom))
+
+    def intersection(self, other: "Window") -> "Window | None":
+        """Return the overlapping window, or ``None`` when disjoint.
+
+        Args:
+            other: The window to intersect with.
+
+        Returns:
+            Window | None: The overlap, or ``None`` if the windows do not
+                share any pixel.
+
+        Examples:
+            - Two overlapping blocks share a 1x1 corner:
+                ```python
+                >>> from pyramids.dataset.window import Window
+                >>> Window(0, 0, 2, 2).intersection(Window(1, 1, 2, 2))
+                Window(col_off=1, row_off=1, cols=1, rows=1)
+
+                ```
+            - Disjoint blocks intersect to None:
+                ```python
+                >>> from pyramids.dataset.window import Window
+                >>> Window(0, 0, 2, 2).intersection(Window(5, 5, 2, 2)) is None
+                True
+
+                ```
+        """
+        col_off = max(self.col_off, other.col_off)
+        row_off = max(self.row_off, other.row_off)
+        col_end = min(self.col_off + self.cols, other.col_off + other.cols)
+        row_end = min(self.row_off + self.rows, other.row_off + other.rows)
+        result: "Window | None" = None
+        if col_end > col_off and row_end > row_off:
+            result = Window(col_off, row_off, col_end - col_off, row_end - row_off)
+        return result
+
+    def union(self, other: "Window") -> "Window":
+        """Return the smallest window containing both windows.
+
+        Args:
+            other: The window to merge with.
+
+        Returns:
+            Window: The bounding window of the pair.
+
+        Examples:
+            - The union of two corner blocks spans the enclosing rectangle:
+                ```python
+                >>> from pyramids.dataset.window import Window
+                >>> Window(0, 0, 2, 2).union(Window(3, 3, 2, 2))
+                Window(col_off=0, row_off=0, cols=5, rows=5)
+
+                ```
+        """
+        col_off = min(self.col_off, other.col_off)
+        row_off = min(self.row_off, other.row_off)
+        col_end = max(self.col_off + self.cols, other.col_off + other.cols)
+        row_end = max(self.row_off + self.rows, other.row_off + other.rows)
+        return Window(col_off, row_off, col_end - col_off, row_end - row_off)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import pickle
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generator
@@ -27,6 +28,7 @@ from pyramids.base.protocols import ArrayLike
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS, RESAMPLING_METHODS
 from pyramids.dataset.ops import io as _io_module
 from pyramids.dataset.ops.io import _LAZY_IMPORT_ERROR
+from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
@@ -58,7 +60,7 @@ class IO(_Engine):
     def read_array(
         self: Dataset,
         band: int | None = None,
-        window: GeoDataFrame | list[int] | None = None,
+        window: Window | GeoDataFrame | list[int] | None = None,
         *,
         chunks: int | tuple | dict | str | None = None,
         lock: Any = None,
@@ -82,8 +84,13 @@ class IO(_Engine):
         Args:
             band (int, optional):
                 The band you want to get its data. If None, data of all bands will be read. Default is None.
-            window (List[int] | GeoDataFrame, optional):
-                Specify a block of data to read from the dataset. The window can be specified in two ways:
+            window (Window | List[int] | GeoDataFrame, optional):
+                Specify a block of data to read from the dataset. The window can be specified in three ways:
+
+                - :class:`~pyramids.dataset.window.Window` (preferred):
+                    A first-class pixel window (``col_off``, ``row_off``, ``cols``, ``rows``) — the
+                    same object :meth:`write_array` accepts, so a block read back with a ``Window``
+                    can be written back with the identical object.
 
                 - List:
                     Window specified as a list of 4 integers [offset_x, offset_y, window_columns, window_rows].
@@ -400,7 +407,9 @@ class IO(_Engine):
         return arr
 
     def _read_block(
-        self: Dataset, band: int, window: list[int] | GeoDataFrame | None = None
+        self: Dataset,
+        band: int,
+        window: Window | list[int] | GeoDataFrame | None = None,
     ) -> np.ndarray:
         """Read block of data from the dataset.
 
@@ -425,6 +434,8 @@ class IO(_Engine):
         """
         if isinstance(window, GeoDataFrame):
             window = self._convert_polygon_to_window(window)
+        if isinstance(window, Window):
+            window = list(window.to_read_args())
         if not isinstance(window, (list, tuple)):
             raise ValueError(f"window must be a list of 4 integers, got {type(window)}")
         try:
@@ -461,7 +472,7 @@ class IO(_Engine):
         top_left_corner: list[int] | None = None,
         *,
         band: int | None = None,
-        window: tuple[int, int, int, int] | None = None,
+        window: Window | tuple[int, int, int, int] | None = None,
     ) -> None:
         """Write an array (or a sub-window of one) into the dataset in place.
 
@@ -484,9 +495,15 @@ class IO(_Engine):
                 Zero-based band to write into. ``None`` (default) writes starting
                 at the first band (a 3D array spans bands). When given, ``array``
                 must be ``2D``.
-            window (tuple[int, int, int, int] | None):
-                ``(row_off, col_off, n_rows, n_cols)`` target window. The array's
-                trailing two dimensions must equal ``(n_rows, n_cols)``.
+            window (Window | tuple[int, int, int, int] | None):
+                Target window. Pass a
+                :class:`~pyramids.dataset.window.Window` (x-first, the same
+                object :meth:`read_array` accepts). The legacy bare tuple form
+                ``(row_off, col_off, n_rows, n_cols)`` — note its **y-first**
+                order, the opposite of ``read_array``'s window list — is
+                deprecated and emits a :class:`DeprecationWarning`; it will be
+                removed in the next major release. The array's trailing two
+                dimensions must equal the window's ``(rows, cols)``.
 
         Raises:
             ReadOnlyError: The dataset is opened read-only.
@@ -535,11 +552,11 @@ class IO(_Engine):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, Window
               >>> dataset = Dataset.create_from_array(
               ...     np.zeros((5, 5)), top_left_corner=(0, 5), cell_size=1.0, epsg=4326
               ... )
-              >>> dataset.write_array(np.ones((2, 2)), window=(1, 1, 2, 2))
+              >>> dataset.write_array(np.ones((2, 2)), window=Window(1, 1, 2, 2))
               >>> dataset.read_array()[1:3, 1:3].tolist()
               [[1.0, 1.0], [1.0, 1.0]]
 
@@ -552,7 +569,20 @@ class IO(_Engine):
             )
 
         if window is not None:
-            yoff, xoff, n_rows, n_cols = window
+            if isinstance(window, Window):
+                xoff, yoff, n_cols, n_rows = window.to_read_args()
+            else:
+                warnings.warn(
+                    "Passing write_array a bare (row_off, col_off, n_rows, "
+                    "n_cols) tuple is deprecated: its y-first order is the "
+                    "opposite of read_array's window. Pass a "
+                    "pyramids.dataset.window.Window (x-first, shared by both "
+                    "methods) instead; the tuple form will be removed in the "
+                    "next major release.",
+                    DeprecationWarning,
+                    stacklevel=3,
+                )
+                yoff, xoff, n_rows, n_cols = window
             if array.shape[-2:] != (n_rows, n_cols):
                 raise ValueError(
                     f"array spatial shape {array.shape[-2:]} does not match the "

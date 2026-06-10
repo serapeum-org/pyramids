@@ -2317,7 +2317,8 @@ class Dataset(RasterBase):
 
         Out-of-core algorithms allocate the output once and scatter result
         windows into it with
-        ``write_array(array, window=(row_off, col_off, n_rows, n_cols))``.
+        ``write_array(array, window=Window(col_off, row_off, cols, rows))``
+        (see :class:`~pyramids.dataset.window.Window`).
         For the default ``driver_type="GTiff"`` the file is **tiled, sparse,
         and BigTIFF** (see :data:`OUT_OF_CORE_CREATION_OPTIONS`), so a
         50 000 x 50 000 float32 raster is created in O(1) RAM, never-written
@@ -2395,9 +2396,10 @@ class Dataset(RasterBase):
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset import Window
                 >>> ds = Dataset.create_empty(4, 4, dtype="float32", driver_type="MEM")
                 >>> block = np.arange(4, dtype="float32").reshape(2, 2)
-                >>> ds.write_array(block, window=(1, 1, 2, 2))
+                >>> ds.write_array(block, window=Window(1, 1, 2, 2))
                 >>> ds.read_array(window=[1, 1, 2, 2]).tolist()
                 [[0.0, 1.0], [2.0, 3.0]]
 
