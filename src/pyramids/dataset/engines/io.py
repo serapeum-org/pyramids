@@ -812,6 +812,9 @@ class IO(_Engine):
         Raises:
             ValueError: ``driver`` is unknown, does not support ``CreateCopy``,
                 or produced a multi-file output.
+            RuntimeError: The driver cannot represent the dataset faithfully
+                (strict copy — e.g. ``PNG`` asked to encode ``float32``); no
+                silent downcasting is performed.
             FailedToSaveError: GDAL could not encode the dataset.
 
         Examples:
@@ -879,7 +882,10 @@ class IO(_Engine):
         stem = vsi_path.rsplit("/", 1)[1].rsplit(".", 1)[0]
         options = [f"{key}={value}" for key, value in (creation_options or {}).items()]
         try:
-            out = drv.CreateCopy(vsi_path, self._ds._raster, 0, options)
+            # strict=1 (the GDAL default): a driver that cannot represent the
+            # dataset faithfully (e.g. PNG asked to encode float32) must fail
+            # loudly instead of silently downcasting the payload.
+            out = drv.CreateCopy(vsi_path, self._ds._raster, 1, options)
             if out is None:
                 raise FailedToSaveError(
                     f"GDAL driver {driver!r} failed to encode the dataset."

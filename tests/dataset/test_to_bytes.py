@@ -126,6 +126,19 @@ class TestToBytes:
             err_msg="PNG round-trip changed pixel values",
         )
 
+    def test_strict_copy_rejects_lossy_driver(self, ramp_dataset):
+        """A driver that cannot represent the dtype fails loudly (strict copy).
+
+        Test scenario:
+            PNG supports Byte/UInt16 only; serializing a float32 dataset must
+            raise (no silent downcast) and leave /vsimem/ clean.
+        """
+        before = sorted(gdal.ReadDir("/vsimem/") or [])
+        with pytest.raises(RuntimeError, match="PNG driver"):
+            ramp_dataset.to_bytes(driver="PNG")
+        after = sorted(gdal.ReadDir("/vsimem/") or [])
+        assert before == after, f"vsimem leaked: {set(after) - set(before)}"
+
     def test_unknown_driver_raises(self, ramp_dataset):
         """An unknown driver name raises ValueError naming the driver.
 
