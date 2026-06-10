@@ -24,17 +24,37 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from typing import Sequence
 
 from osgeo import osr
 from pandas import DataFrame
 
+from pyramids.base._errors import _PyramidsError
 from pyramids.base.crs import sr_from_user_input, sr_from_wkt
 from pyramids.dataset import Dataset
 from pyramids.dataset.cog import PROFILES, cog_info, validate
 from pyramids.dataset.merge import merge_rasters
 from pyramids.feature import FeatureCollection
+
+
+def _json_safe(value: float | None) -> float | None:
+    """Map non-finite floats to `None` so the JSON output stays parseable.
+
+    `json.dumps` serializes NaN/Infinity as bare `NaN` / `Infinity`,
+    which is not valid JSON and breaks strict consumers (e.g. `jq`).
+
+    Args:
+        value: A float (possibly NaN/infinite) or `None`.
+
+    Returns:
+        float | None: `value` unchanged, or `None` when it is not finite.
+    """
+    result: float | None = value
+    if isinstance(value, float) and not math.isfinite(value):
+        result = None
+    return result
 
 
 def _cmd_create(args: argparse.Namespace) -> int:
@@ -137,7 +157,8 @@ def _cmd_raster_info(args: argparse.Namespace) -> int:
         "cell_size": ds.cell_size,
         "dtype": list(ds.dtype),
         "no_data_value": [
-            None if value is None else float(value) for value in ds.no_data_value
+            None if value is None else _json_safe(float(value))
+            for value in ds.no_data_value
         ],
         "bounds": [float(value) for value in ds.bbox],
     }
@@ -162,7 +183,7 @@ def _cmd_bounds(args: argparse.Namespace) -> int:
         int: `0` on success.
     """
     ds = Dataset.read_file(args.file)
-    min_x, min_y, max_x, max_y = [float(value) for value in ds.bbox]
+    min_x, min_y, max_x, max_y = (float(value) for value in ds.bbox)
     if args.crs:
         src_sr = sr_from_wkt(ds.crs)
         dst_sr = sr_from_user_input(args.crs)
@@ -227,7 +248,12 @@ def _cmd_merge(args: argparse.Namespace) -> int:
 
     Returns:
         int: `0` on success.
+
+    Raises:
+        ValueError: Fewer than two input rasters are given.
     """
+    if len(args.inputs) < 2:
+        raise ValueError("merge needs at least two input rasters.")
     merge_rasters(args.inputs, args.output)
     print(f"wrote {args.output}")
     return 0
@@ -243,9 +269,7 @@ def _cmd_overview(args: argparse.Namespace) -> int:
         int: `0` on success.
     """
     ds = Dataset.read_file(args.file, read_only=False)
-    ds.create_overviews(
-        resampling_method=args.resampling, overview_levels=args.levels
-    )
+    ds.create_overviews(resampling_method=args.resampling, overview_levels=args.levels)
     counts = ds.overview_count
     print(f"built {counts[0] if counts else 0} overview level(s) for {args.file}")
     return 0
@@ -254,12 +278,18 @@ def _cmd_overview(args: argparse.Namespace) -> int:
 def _cmd_sample(args: argparse.Namespace) -> int:
     """Handle `pyramids sample` — read band values at points.
 
+    Points outside the raster extent sample as the band's no-data fill
+    (NaN when none is set) and are printed as `None` / JSON `null`.
+
     Args:
         args: Parsed arguments with `file`, `points` (``"x,y;x,y..."``),
             and `json`.
 
     Returns:
         int: `0` on success.
+
+    Raises:
+        ValueError: `points` is empty or a chunk is not a numeric `'x,y'` pair.
     """
     pairs = [chunk for chunk in args.points.split(";") if chunk.strip()]
     if not pairs:
@@ -269,12 +299,18 @@ def _cmd_sample(args: argparse.Namespace) -> int:
         parts = chunk.split(",")
         if len(parts) != 2:
             raise ValueError(f"bad point {chunk.strip()!r}; expected 'x,y'.")
-        xs.append(float(parts[0]))
-        ys.append(float(parts[1]))
+        try:
+            xs.append(float(parts[0]))
+            ys.append(float(parts[1]))
+        except ValueError:
+            raise ValueError(
+                f"bad point {chunk.strip()!r}; coordinates must be numeric."
+            ) from None
     ds = Dataset.read_file(args.file)
     values = ds.sample(DataFrame({"x": xs, "y": ys}))
     # ds.sample returns (bands, points); transpose to one row per point.
-    per_point = values.T.tolist()
+    # Out-of-bounds points come back as NaN — emit them as None/null.
+    per_point = [[_json_safe(value) for value in row] for row in values.T.tolist()]
     if args.json:
         print(json.dumps({"values": per_point}))
     else:
@@ -309,9 +345,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     Returns:
         argparse.ArgumentParser: The configured parser with the `cog`
-        command group and its `create` / `validate` / `info` subcommands.
+        command group (`create` / `validate` / `info`) and the
+        single-shot raster commands (`info`, `bounds`, `clip`, `warp`,
+        `merge`, `overview`, `sample`, `convert`).
     """
-    parser = argparse.ArgumentParser(prog="pyramids", description="pyramids GIS toolkit")
+    parser = argparse.ArgumentParser(
+        prog="pyramids", description="pyramids GIS toolkit"
+    )
     sub = parser.add_subparsers(dest="group", required=True)
 
     cog = sub.add_parser("cog", help="Cloud Optimized GeoTIFF commands")
@@ -332,9 +372,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     val = cog_sub.add_parser("validate", help="validate a COG")
     val.add_argument("file", help="raster path to validate")
-    val.add_argument(
-        "--strict", action="store_true", help="treat warnings as errors"
-    )
+    val.add_argument("--strict", action="store_true", help="treat warnings as errors")
     val.set_defaults(func=_cmd_validate)
 
     info = cog_sub.add_parser("info", help="print structured COG metadata")
@@ -359,7 +397,10 @@ def _build_parser() -> argparse.ArgumentParser:
     clip.add_argument("output", help="destination raster path")
     clip_how = clip.add_mutually_exclusive_group(required=True)
     clip_how.add_argument(
-        "--bbox", nargs=4, type=float, metavar=("MINX", "MINY", "MAXX", "MAXY"),
+        "--bbox",
+        nargs=4,
+        type=float,
+        metavar=("MINX", "MINY", "MAXX", "MAXY"),
         help="clip extent in the raster CRS",
     )
     clip_how.add_argument("--vector", help="vector file whose polygons clip the raster")
@@ -430,7 +471,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         result = args.func(args)
-    except (ValueError, TypeError, FileNotFoundError, OSError, RuntimeError) as exc:
+    except (
+        ValueError,
+        TypeError,
+        FileNotFoundError,
+        OSError,
+        RuntimeError,
+        _PyramidsError,
+    ) as exc:
         # Expected user errors (missing file, bad CRS, unknown driver, ...)
         # exit non-zero with a one-line message instead of a traceback.
         print(f"error: {exc}", file=sys.stderr)

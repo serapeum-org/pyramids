@@ -11,6 +11,7 @@ from osgeo import gdal
 
 from pyramids import _io
 from pyramids.base._errors import (
+    DriverNotExistError,
     FailedToSaveError,
 )
 from pyramids.base._file_manager import CachingFileManager
@@ -146,8 +147,19 @@ def _write_to_file_sync(
         )
 
     path = Path(path)
-    extension = path.suffix[1:]
-    driver = CATALOG.get_driver_name_by_extension(extension)
+    if driver is None:
+        extension = path.suffix[1:]
+        driver = CATALOG.get_driver_name_by_extension(extension)
+    elif not CATALOG.exists(driver):
+        # Accept GDAL driver names (e.g. "GTiff") as well as catalog keys
+        # (e.g. "geotiff") before declaring the driver unknown.
+        catalog_key = CATALOG.get_driver_name(driver)
+        if catalog_key is None:
+            raise DriverNotExistError(
+                f"The driver: {driver!r} is not in the driver catalog. Known "
+                f"driver names: {sorted(CATALOG.catalog)}"
+            )
+        driver = catalog_key
     driver_name = CATALOG.get_gdal_name(driver)
 
     if driver == "ascii":

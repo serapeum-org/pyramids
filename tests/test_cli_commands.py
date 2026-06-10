@@ -29,7 +29,10 @@ def src_raster(tmp_path) -> str:
     path = str(tmp_path / "src.tif")
     Dataset.create_from_array(
         np.arange(64, dtype="float32").reshape(8, 8),
-        top_left_corner=(0, 8), cell_size=1.0, epsg=4326, no_data_value=-9999.0,
+        top_left_corner=(0, 8),
+        cell_size=1.0,
+        epsg=4326,
+        no_data_value=-9999.0,
     ).to_file(path)
     return path
 
@@ -48,8 +51,8 @@ class TestInfoCommand:
         assert payload["epsg"] == 4326, f"epsg wrong: {payload['epsg']}"
         assert (payload["bands"], payload["rows"], payload["columns"]) == (1, 8, 8)
         assert payload["dtype"] == ["float32"], f"dtype wrong: {payload['dtype']}"
-        assert payload["no_data_value"] == [-9999.0], "nodata wrong"
-        assert payload["bounds"] == [0.0, 0.0, 8.0, 8.0], "bounds wrong"
+        assert payload["no_data_value"] == pytest.approx([-9999.0]), "nodata wrong"
+        assert payload["bounds"] == pytest.approx([0.0, 0.0, 8.0, 8.0]), "bounds wrong"
 
     def test_plain_output_lists_keys(self, src_raster, capsys):
         """The human-readable form prints key: value lines."""
@@ -99,10 +102,20 @@ class TestClipCommand:
     def test_bbox_and_vector_mutually_exclusive(self, src_raster, tmp_path, capsys):
         """Passing both --bbox and --vector is rejected by argparse."""
         with pytest.raises(SystemExit):
-            main([
-                "clip", src_raster, str(tmp_path / "o.tif"),
-                "--bbox", "1", "1", "5", "5", "--vector", "mask.geojson",
-            ])
+            main(
+                [
+                    "clip",
+                    src_raster,
+                    str(tmp_path / "o.tif"),
+                    "--bbox",
+                    "1",
+                    "1",
+                    "5",
+                    "5",
+                    "--vector",
+                    "mask.geojson",
+                ]
+            )
 
 
 class TestWarpCommand:
@@ -116,10 +129,17 @@ class TestWarpCommand:
 
     def test_invalid_resampling_one_line_error(self, src_raster, tmp_path, capsys):
         """An unknown resampling exits 1 with a clean message."""
-        rc = main([
-            "warp", src_raster, str(tmp_path / "w.tif"),
-            "--crs", "3857", "--resampling", "sinc",
-        ])
+        rc = main(
+            [
+                "warp",
+                src_raster,
+                str(tmp_path / "w.tif"),
+                "--crs",
+                "3857",
+                "--resampling",
+                "sinc",
+            ]
+        )
         assert rc == 1, "bad resampling must exit 1"
         assert "error: " in capsys.readouterr().err, "expected one-line error"
 
@@ -132,12 +152,26 @@ class TestMergeCommand:
         second = str(tmp_path / "b.tif")
         Dataset.create_from_array(
             np.ones((8, 8), dtype="float32"),
-            top_left_corner=(4, 8), cell_size=1.0, epsg=4326, no_data_value=-9999.0,
+            top_left_corner=(4, 8),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
         ).to_file(second)
         out_path = str(tmp_path / "merged.tif")
         assert main(["merge", src_raster, second, out_path]) == 0
         merged = Dataset.read_file(out_path)
         assert merged.columns > 8, "mosaic must span both tiles"
+
+    def test_single_input_rejected(self, src_raster, tmp_path, capsys):
+        """One source raster exits 1 with a clean message.
+
+        Test scenario:
+            `merge a.tif out.tif` parses as one input + the output; the
+            command must reject it instead of silently copying the file.
+        """
+        rc = main(["merge", src_raster, str(tmp_path / "m.tif")])
+        assert rc == 1, "single-input merge must exit 1"
+        assert "at least two" in capsys.readouterr().err, "expected guidance"
 
 
 class TestOverviewCommand:
@@ -146,9 +180,9 @@ class TestOverviewCommand:
     def test_builds_requested_levels(self, src_raster, capsys):
         """--levels builds that many overview levels in place."""
         assert main(["overview", src_raster, "--levels", "2", "4"]) == 0
-        assert Dataset.read_file(src_raster).overview_count[0] == 2, (
-            "expected 2 overview levels"
-        )
+        assert (
+            Dataset.read_file(src_raster).overview_count[0] == 2
+        ), "expected 2 overview levels"
 
 
 class TestSampleCommand:
@@ -160,11 +194,21 @@ class TestSampleCommand:
         Test scenario:
             (0.5, 7.5) is cell (0, 0) = 0; (3.5, 4.5) is cell (3, 3) = 27.
         """
-        assert main([
-            "sample", src_raster, "--points", "0.5,7.5;3.5,4.5", "--json",
-        ]) == 0
+        assert (
+            main(
+                [
+                    "sample",
+                    src_raster,
+                    "--points",
+                    "0.5,7.5;3.5,4.5",
+                    "--json",
+                ]
+            )
+            == 0
+        )
         values = json.loads(capsys.readouterr().out)["values"]
-        assert values == [[0.0], [27.0]], f"per-point values wrong: {values}"
+        expected = [pytest.approx([0.0]), pytest.approx([27.0])]
+        assert values == expected, f"per-point values wrong: {values}"
 
     def test_empty_points_rejected(self, src_raster, capsys):
         """An empty --points exits 1 with a clean message."""
@@ -178,6 +222,34 @@ class TestSampleCommand:
         assert rc == 1, "malformed point must exit 1"
         assert "expected 'x,y'" in capsys.readouterr().err, "expected format hint"
 
+    def test_non_numeric_point_rejected(self, src_raster, capsys):
+        """A non-numeric coordinate exits 1 naming the bad chunk."""
+        rc = main(["sample", src_raster, "--points", "a,2"])
+        err = capsys.readouterr().err
+        assert rc == 1, "non-numeric point must exit 1"
+        assert "'a,2'" in err, f"error must name the bad chunk: {err}"
+        assert "numeric" in err, f"expected a numeric hint: {err}"
+
+    def test_out_of_bounds_point_is_json_null(self, tmp_path, capsys):
+        """An outside point emits JSON null, keeping the payload parseable.
+
+        Test scenario:
+            On a raster without nodata, (100, 100) is outside the 8x8
+            extent and samples as NaN, which `json.dumps` would emit as
+            bare `NaN` (invalid JSON) — the CLI must map it to null.
+        """
+        path = str(tmp_path / "no_nodata.tif")
+        Dataset.create_from_array(
+            np.arange(64, dtype="float32").reshape(8, 8),
+            top_left_corner=(0, 8),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=None,
+        ).to_file(path)
+        assert main(["sample", path, "--points", "100,100", "--json"]) == 0
+        values = json.loads(capsys.readouterr().out)["values"]
+        assert values == [[None]], f"out-of-bounds must be null: {values}"
+
 
 class TestConvertCommand:
     """`pyramids convert`."""
@@ -188,9 +260,47 @@ class TestConvertCommand:
         assert main(["convert", src_raster, out_path]) == 0
         converted = Dataset.read_file(out_path)
         np.testing.assert_array_equal(
-            converted.read_array(), Dataset.read_file(src_raster).read_array(),
+            converted.read_array(),
+            Dataset.read_file(src_raster).read_array(),
             err_msg="conversion must preserve values",
         )
+
+    def test_explicit_driver_overrides_extension(self, src_raster, tmp_path, capsys):
+        """--driver wins over the output extension.
+
+        Test scenario:
+            `.nc` would infer NetCDF; `--driver geotiff` must produce a
+            GTiff file regardless.
+        """
+        out_path = str(tmp_path / "tiff_in_disguise.nc")
+        assert main(["convert", src_raster, out_path, "--driver", "geotiff"]) == 0
+        converted = Dataset.read_file(out_path)
+        driver = converted.raster.GetDriver().ShortName
+        assert driver == "GTiff", f"--driver geotiff ignored; wrote {driver}"
+
+    def test_unknown_driver_one_line_error(self, src_raster, tmp_path, capsys):
+        """An unknown --driver exits 1 with a clean message."""
+        rc = main(
+            [
+                "convert",
+                src_raster,
+                str(tmp_path / "o.tif"),
+                "--driver",
+                "bogus",
+            ]
+        )
+        err = capsys.readouterr().err
+        assert rc == 1, "unknown driver must exit 1"
+        assert err.startswith("error: "), f"unexpected stderr: {err}"
+        assert "Traceback" not in err, "tracebacks must not leak to users"
+
+    def test_unknown_extension_one_line_error(self, src_raster, tmp_path, capsys):
+        """An extension absent from the catalog exits 1 with a clean message."""
+        rc = main(["convert", src_raster, str(tmp_path / "o.unknown")])
+        err = capsys.readouterr().err
+        assert rc == 1, "unknown extension must exit 1"
+        assert err.startswith("error: "), f"unexpected stderr: {err}"
+        assert "Traceback" not in err, "tracebacks must not leak to users"
 
 
 class TestHelpSurface:
