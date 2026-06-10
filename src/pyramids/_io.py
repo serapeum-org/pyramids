@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import gzip
-import random
+import secrets
 import tarfile
 import time
 import warnings
@@ -77,7 +77,7 @@ def new_vsimem_path(suffix: str = ".tif") -> str:
         bytes_to_gdal: Uses this to back an in-memory dataset.
         silent_unlink: Removes the path once the dataset is gone.
     """
-    return f"/vsimem/{time.time_ns()}_{random.randint(0, 999_999)}{suffix}"
+    return f"/vsimem/{time.time_ns()}_{secrets.randbelow(1_000_000)}{suffix}"
 
 
 def silent_unlink(path: str) -> None:
@@ -121,6 +121,70 @@ def silent_unlink(path: str) -> None:
         gdal.Unlink(path)
     except Exception:  # pragma: no cover - cleanup must never raise
         pass
+
+
+def read_vsi_bytes(path: str) -> bytes:
+    """Read the full contents of a GDAL VSI file as bytes.
+
+    The standard ``VSIFOpenL`` / seek-to-end / ``VSIFReadL`` dance used to pull
+    an in-memory (``/vsimem/``) or other VSI file back into Python — shared by
+    every ``to_*_bytes`` serializer so the read-back logic lives in one place.
+
+    Args:
+        path: The VSI path to read (e.g. a ``/vsimem/...`` path produced by
+            :func:`new_vsimem_path`).
+
+    Returns:
+        bytes: The complete file contents.
+
+    Raises:
+        FileNotFoundError: The path cannot be opened (it does not exist or was
+            already unlinked).
+
+    Examples:
+        - Write a buffer to ``/vsimem/`` and read it back:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids._io import new_vsimem_path, read_vsi_bytes, silent_unlink
+            >>> path = new_vsimem_path(".bin")
+            >>> _ = gdal.FileFromMemBuffer(path, b"payload")
+            >>> read_vsi_bytes(path)
+            b'payload'
+            >>> silent_unlink(path)
+
+            ```
+        - A missing path raises ``FileNotFoundError``:
+            ```python
+            >>> from pyramids._io import read_vsi_bytes
+            >>> try:
+            ...     read_vsi_bytes("/vsimem/never-written.bin")
+            ... except FileNotFoundError as exc:
+            ...     print("could not open" in str(exc))
+            True
+
+            ```
+
+    See Also:
+        new_vsimem_path: Mints unique ``/vsimem/`` paths to write into.
+        silent_unlink: Removes the path once the bytes are extracted.
+    """
+    try:
+        handle = gdal.VSIFOpenL(path, "rb")
+    except RuntimeError:
+        # Under gdal.UseExceptions() a missing path raises instead of
+        # returning None; normalise both shapes to FileNotFoundError.
+        handle = None
+    if handle is None:
+        raise FileNotFoundError(f"could not open VSI path {path!r} for reading.")
+    try:
+        gdal.VSIFSeekL(handle, 0, 2)
+        size = gdal.VSIFTellL(handle)
+        gdal.VSIFSeekL(handle, 0, 0)
+        # VSIFReadL returns None (not b"") for a zero-byte read.
+        data = gdal.VSIFReadL(1, size, handle) if size else b""
+    finally:
+        gdal.VSIFCloseL(handle)
+    return bytes(data)
 
 
 def _is_zip(path: str):

@@ -47,6 +47,37 @@ graph TD
     Convert --> DS
 ```
 
+## Class Relationships & Internal Layers
+
+How the classes relate to each other, the engine mixins behind the `Dataset` facade, and the
+plotting layer's delegation to cleopatra:
+
+```mermaid
+graph LR
+    GeoTIFF & NetCDF & Shapefile & UGRID -->|read| pyramids
+    subgraph pyramids
+        direction TB
+        Dataset
+        NetCDF_class[NetCDF]
+        UgridDataset
+        DatasetCollection
+        FeatureCollection
+        subgraph Engines["Dataset engines (ds.io · ds.spatial · ds.bands · ds.analysis · ds.cell · ds.vectorize · ds.cog)"]
+        end
+        subgraph Plotting["Plotting layer — _plot_helpers.render_array · mesh_render · NetCDFPlot · Selectors / ColourOpts / FacetSpec · basemap"]
+        end
+    end
+    Dataset -->|crop · reproject · align| Dataset
+    Dataset --- Engines
+    FeatureCollection -->|rasterize| Dataset
+    UgridDataset -->|interpolate| Dataset
+    Dataset -->|vectorize| FeatureCollection
+    DatasetCollection -->|lazy temporal stack| Dataset
+    NetCDF_class -->|extends| Dataset
+    Dataset & NetCDF_class & DatasetCollection & UgridDataset -->|plot| Plotting
+    Plotting -->|delegates| cleopatra(["cleopatra<br/>ArrayGlyph · MeshGlyph · tiles"])
+```
+
 ## Class API Overview
 
 ```mermaid

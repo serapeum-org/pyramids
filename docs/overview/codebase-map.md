@@ -5,6 +5,37 @@ of the `pyramids` package.
 
 ## Packages and Modules
 
+The main components and how they relate — data classes on top, the support layers they share
+underneath:
+
+```mermaid
+flowchart TB
+    subgraph DATA["data classes"]
+        direction LR
+        DS["<b>pyramids.dataset</b><br/>Dataset · DatasetCollection · RasterBase<br/>engines · ops · cog · merge"]
+        NC["<b>pyramids.netcdf</b><br/>NetCDF · CF conventions · kerchunk"]
+        UG["<b>pyramids.netcdf.ugrid</b><br/>UgridDataset · Mesh2d"]
+        FC["<b>pyramids.feature</b><br/>FeatureCollection · Coords"]
+    end
+
+    ST["<b>pyramids.stac</b><br/>catalog search · asset loading · signers"]
+
+    subgraph SUPPORT["support layers"]
+        direction LR
+        BASE["<b>pyramids.base</b><br/>crs · config · remote · file cache<br/>errors · protocols · RasterMeta"]
+        IO["<b>pyramids._io · pyramids.io</b><br/>zip / gzip / tar · s3 / gs / az VSI<br/>format sniffing"]
+        BM["<b>pyramids.basemap</b><br/>web-tile plot underlays"]
+    end
+
+    NC -->|extends| DS
+    UG -->|interpolates to| DS
+    ST -->|loads items into| DS
+    FC -->|rasterize| DS
+    DS -->|vectorize| FC
+    DATA --> BASE
+    DS & FC --> IO
+```
+
 - `pyramids.base`
   - Cross-cutting primitives shared across the raster and vector subpackages:
     - `pyramids.base.crs` — single source of truth for `osr.SpatialReference`
@@ -42,6 +73,14 @@ of the `pyramids` package.
   - `FeatureCollection` (GeoPandas + OGR DataSource hybrid) and the
     `Coords` / `GeometryCoords` value-object classes that replace the old
     static-method shims.
+- `pyramids.stac`
+  - STAC catalog access: `open_client` / `search` (pystac-client wrappers),
+    `load_asset` / `download_item` for reading assets into `Dataset` (and
+    `DatasetCollection.from_stac` for temporal stacks), `build_vrt_from_stac`,
+    GeoParquet item I/O (`to_geoparquet` / `from_geoparquet`), and the signer
+    family (`Signer`, `AnonymousSigner`, `BearerTokenSigner`,
+    `AWSRequesterPaysSigner`) for authenticated cloud reads. Requires the
+    `[stac]` extra.
 - `pyramids.basemap`
   - `add_basemap` / `get_provider` — thin wrappers over `cleopatra.tiles`
     (the `[viz]` extra's `cleopatra[tiles]`) for web-tile plot underlays.
