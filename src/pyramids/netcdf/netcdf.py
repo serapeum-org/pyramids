@@ -1399,6 +1399,8 @@ class NetCDF(Dataset):
                 ``chunks=`` + ``window=`` rule).
             ImportError: If `chunks` is given but `dask` is not
                 installed. Install the `[lazy]` extra.
+            NotImplementedError: If `masked=True` is combined with
+                `chunks` (lazy masked reads are not supported yet).
 
         Examples:
             - Eager bbox read on a root container — the container
