@@ -73,6 +73,14 @@ flowchart TB
   - `FeatureCollection` (GeoPandas + OGR DataSource hybrid) and the
     `Coords` / `GeometryCoords` value-object classes that replace the old
     static-method shims.
+- `pyramids.stac`
+  - STAC catalog access: `open_client` / `search` (pystac-client wrappers),
+    `load_asset` / `download_item` for reading assets into `Dataset` (and
+    `DatasetCollection.from_stac` for temporal stacks), `build_vrt_from_stac`,
+    GeoParquet item I/O (`to_geoparquet` / `from_geoparquet`), and the signer
+    family (`Signer`, `AnonymousSigner`, `BearerTokenSigner`,
+    `AWSRequesterPaysSigner`) for authenticated cloud reads. Requires the
+    `[stac]` extra.
 - `pyramids.basemap`
   - `add_basemap` / `get_provider` — thin wrappers over `cleopatra.tiles`
     (the `[viz]` extra's `cleopatra[tiles]`) for web-tile plot underlays.
