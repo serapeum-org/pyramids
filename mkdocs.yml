@@ -117,8 +117,7 @@ nav:
     - Codebase Map: overview/codebase-map.md
     - How it works: overview/how-it-works.md
     - Architecture: overview/architecture.md
-  - Architecture:
-    - Diagrams: architecture/diagrams.md
+    - Detailed diagrams (UML & sequences): overview/diagrams.md
   - Reference:
     - Dataset:
       - Overview: reference/dataset/index.md
