@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.dataset import Dataset, Window, NoDataSentinelWarning
+from pyramids.dataset import Dataset, NoDataSentinelWarning, Window
 from pyramids.dataset.dataset import OUT_OF_CORE_CREATION_OPTIONS
 
 pytestmark = pytest.mark.core
@@ -316,8 +316,8 @@ class TestCreateEmpty:
         """
         path = tmp_path / "big.tif"
         ds = Dataset.create_empty(50_000, 90_000, dtype="int8", path=path)
-        # write_array window is (row_off, col_off, n_rows, n_cols); the far corner
-        # of a 50_000-row x 90_000-col raster.
+        # Window is (col_off, row_off, cols, rows); the far corner of a
+        # 50_000-row x 90_000-col raster.
         ds.write_array(np.ones((4, 4), dtype="int8"), window=Window(89_996, 49_996, 4, 4))
         del ds
         info = gdal.Info(str(path))
