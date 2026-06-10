@@ -128,7 +128,9 @@ class TestThreadsafeEagerReads:
         mem = Dataset.create_from_array(
             arr, top_left_corner=(0, 8), cell_size=1.0, epsg=4326
         )
-        gdal.GetDriverByName("GTiff").CreateCopy(path, mem.raster)
+        copy = gdal.GetDriverByName("GTiff").CreateCopy(path, mem.raster)
+        copy.FlushCache()
+        copy = None
         ds = Dataset.read_file(path)
         try:
             np.testing.assert_array_equal(
@@ -271,6 +273,9 @@ class TestThreadLocalManagerSemantics:
         assert ds._thread_manager is not None, "read must have cached the manager"
         ds.close()
         assert ds._thread_manager is None, "close() must drop the manager"
+        with pytest.raises(ValueError, match="closed Dataset"):
+            ds.read_array(band=0, threadsafe=True)
+        assert ds._thread_manager is None, "a rejected read must not re-cache"
         os.remove(path)
 
     def test_manager_is_pickle_safe(self, tiled_raster):

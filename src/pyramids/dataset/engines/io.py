@@ -387,9 +387,17 @@ class IO(_Engine):
 
         Raises:
             ValueError: `band` is out of range, `window` is not a list
-                of 4 integers, or the dataset has no reopenable path.
+                of 4 integers, the dataset has no reopenable path, or the
+                dataset has been closed (a read here would silently
+                re-open per-thread handles that :meth:`Dataset.close`
+                just released, re-locking the file).
             OutOfBoundsError: `window` falls outside the raster.
         """
+        if self._ds._raster is None:
+            raise ValueError(
+                "read_array(threadsafe=True) on a closed Dataset; re-open "
+                "it with Dataset.read_file first."
+            )
         _validate_band_index(band, self._ds.band_count)
         if isinstance(window, GeoDataFrame):
             window = self._convert_polygon_to_window(window)
