@@ -35,6 +35,8 @@ if TYPE_CHECKING:
 
 from pyramids.dataset.engines._base import _Engine
 
+_VSIMEM_PREFIX = "/vsimem/"
+
 
 def _validate_band_index(band: int | None, band_count: int) -> None:
     """Raise ``ValueError`` if `band` is outside the valid range.
@@ -752,7 +754,7 @@ class IO(_Engine):
             # raises for MEM / /vsimem/ datasets — catching it now
             # surfaces a clear error before the graph materialises.
             file_name = getattr(self._ds, "_file_name", "") or ""
-            if not file_name or file_name.startswith("/vsimem/"):
+            if not file_name or file_name.startswith(_VSIMEM_PREFIX):
                 raise pickle.PicklingError(
                     "to_file(compute=False) requires an on-disk Dataset "
                     "— call .to_file(path) first to anchor the MEM "
@@ -897,9 +899,9 @@ class IO(_Engine):
             out = None
             siblings = [
                 name
-                for name in (gdal.ReadDir("/vsimem/") or [])
+                for name in (gdal.ReadDir(_VSIMEM_PREFIX) or [])
                 if name.startswith(stem)
-                and f"/vsimem/{name}" != vsi_path
+                and f"{_VSIMEM_PREFIX}{name}" != vsi_path
                 and not name.endswith(".aux.xml")
             ]
             if siblings:
@@ -909,9 +911,9 @@ class IO(_Engine):
                 )
             payload = read_vsi_bytes(vsi_path)
         finally:
-            for name in gdal.ReadDir("/vsimem/") or []:
+            for name in gdal.ReadDir(_VSIMEM_PREFIX) or []:
                 if name.startswith(stem):
-                    silent_unlink(f"/vsimem/{name}")
+                    silent_unlink(f"{_VSIMEM_PREFIX}{name}")
         return payload
 
     def to_raster(
