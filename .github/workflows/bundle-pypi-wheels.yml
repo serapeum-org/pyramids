@@ -64,7 +64,7 @@ jobs:
           pip install build
           python -m build --sdist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: dist/*.tar.gz
@@ -107,7 +107,7 @@ jobs:
           # Non-fatal — never block the build on the comparison.
           python3 ci/wheel-size-delta.py wheelhouse || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-linux-${{ matrix.arch }}
           path: wheelhouse/*.whl
@@ -144,7 +144,7 @@ jobs:
       # changes wheel size (install-and-vendor-osgeo.py) already runs on every
       # platform; only the post-build *assertion* is Linux-only. See #474 / the
       # PR review notes.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-macos-${{ matrix.arch }}
           path: wheelhouse/*.whl
@@ -177,7 +177,7 @@ jobs:
 
       # See the macOS job: the size/leak gate is Linux-only to avoid CodeQL's
       # cache-poisoning rule; the size-changing trim runs on all platforms.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-windows-${{ matrix.arch }}
           path: wheelhouse/*.whl
