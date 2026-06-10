@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OutOfBoundsError
 from pyramids.dataset import Dataset, Window
 
 pytestmark = pytest.mark.core
@@ -77,6 +78,47 @@ class TestOutShapeReads:
         window_values = ramp_dataset.read_array(band=0)[:32, :32]
         assert result.min() >= window_values.min(), "values leaked from outside the window"
         assert result.max() <= window_values.max(), "values leaked from outside the window"
+        slice_ds = Dataset.create_from_array(
+            window_values, top_left_corner=(0, 32), cell_size=1.0, epsg=4326
+        )
+        np.testing.assert_array_equal(
+            result, slice_ds.read_array(band=0, out_shape=(16, 16)),
+            err_msg="window+out_shape must equal decimating the same slice",
+        )
+
+    def test_list_window_matches_window_object(self, ramp_dataset):
+        """The legacy x-first list window composes with out_shape too."""
+        via_object = ramp_dataset.read_array(
+            band=0, window=Window(0, 0, 32, 32), out_shape=(16, 16)
+        )
+        via_list = ramp_dataset.read_array(
+            band=0, window=[0, 0, 32, 32], out_shape=(16, 16)
+        )
+        np.testing.assert_array_equal(
+            via_list, via_object,
+            err_msg="list and Window forms must decimate identically",
+        )
+
+    def test_bbox_composes_with_out_shape(self, ramp_dataset):
+        """A bbox sub-window decimates the same pixels the native bbox read sees.
+
+        Test scenario:
+            The ramp grid spans x 0..64, y 0..64 (origin top-left at
+            (0, 64), unit cells); bbox (0, 32, 32, 64) is the top-left
+            quadrant. The decimated bbox read must equal decimating the
+            native-resolution bbox read of the same area.
+        """
+        via_bbox = ramp_dataset.read_array(
+            band=0, bbox=(0.0, 32.0, 32.0, 64.0), out_shape=(16, 16)
+        )
+        native = ramp_dataset.read_array(band=0, bbox=(0.0, 32.0, 32.0, 64.0))
+        slice_ds = Dataset.create_from_array(
+            native, top_left_corner=(0, 64), cell_size=1.0, epsg=4326
+        )
+        np.testing.assert_array_equal(
+            via_bbox, slice_ds.read_array(band=0, out_shape=(16, 16)),
+            err_msg="bbox+out_shape must decimate the native bbox window",
+        )
 
     def test_upsampling(self, ramp_dataset):
         """An out_shape larger than the source enlarges the array."""
@@ -95,6 +137,21 @@ class TestOutShapeReads:
         np.testing.assert_array_equal(
             result[1] - result[0], np.ones((16, 16), dtype="float32"),
             err_msg="per-band values must decimate independently",
+        )
+
+    def test_multi_band_window_composition(self):
+        """An all-bands read composes a window with out_shape."""
+        base = np.arange(64 * 64, dtype="float32").reshape(64, 64)
+        ds = Dataset.create_from_array(
+            np.stack([base, base + 1.0]),
+            top_left_corner=(0, 64), cell_size=1.0, epsg=4326,
+        )
+        result = ds.read_array(window=Window(0, 0, 32, 32), out_shape=(8, 8))
+        assert result.shape == (2, 8, 8), f"unexpected shape {result.shape}"
+        single = ds.read_array(band=0, window=Window(0, 0, 32, 32), out_shape=(8, 8))
+        np.testing.assert_array_equal(
+            result[0], single,
+            err_msg="stacked band 0 must equal the single-band windowed read",
         )
 
     def test_overview_backed_read(self, ramp_dataset, tmp_path):
@@ -124,15 +181,38 @@ class TestOutShapeReads:
         )
         assert result.shape == (32, 32), "normalised name must be accepted"
 
-    @pytest.mark.parametrize("bad_shape", [(0, 5), (5, -1), (5,), "32"])
+    @pytest.mark.parametrize(
+        "bad_shape",
+        [(0, 5), (5, -1), (5,), "32", (True, True), (None, 4), (32.5, 16), ("3", "2")],
+    )
     def test_invalid_out_shape_rejected(self, ramp_dataset, bad_shape):
         """Malformed out_shape values raise ValueError.
+
+        Bools, None, floats (silent truncation), and numeric strings are
+        rejected alongside non-positive sizes and wrong-length inputs.
 
         Args:
             bad_shape: The invalid shape under test.
         """
         with pytest.raises(ValueError, match="out_shape"):
             ramp_dataset.read_array(band=0, out_shape=bad_shape)
+
+    def test_short_list_window_rejected(self, ramp_dataset):
+        """A bare window list of the wrong length raises ValueError."""
+        with pytest.raises(ValueError, match="window"):
+            ramp_dataset.read_array(band=0, window=[0, 0, 32], out_shape=(16, 16))
+
+    def test_out_of_bounds_window_raises(self, ramp_dataset):
+        """A window beyond the raster raises OutOfBoundsError, not GDAL's error."""
+        with pytest.raises(OutOfBoundsError):
+            ramp_dataset.read_array(
+                band=0, window=Window(48, 48, 32, 32), out_shape=(8, 8)
+            )
+
+    def test_band_index_validated(self, ramp_dataset):
+        """An out-of-range band raises the shared band-index ValueError."""
+        with pytest.raises(ValueError, match="band index"):
+            ramp_dataset.read_array(band=3, out_shape=(8, 8))
 
     def test_unknown_resampling_rejected(self, ramp_dataset):
         """An unregistered algorithm raises ValueError listing the choices."""

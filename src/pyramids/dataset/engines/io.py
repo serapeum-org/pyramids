@@ -56,6 +56,40 @@ def _validate_band_index(band: int | None, band_count: int) -> None:
         )
 
 
+def _validate_out_shape(out_shape: Any) -> tuple[int, int]:
+    """Validate an ``out_shape`` argument and normalise it to plain ints.
+
+    Accepts a two-element tuple/list of positive Python or NumPy
+    integers. Bools are rejected — ``True``/``False`` are almost
+    certainly a bug, not a one-pixel request. Floats are rejected too,
+    even integral ones, so a shape computed with ``/`` instead of
+    ``//`` fails loudly instead of being silently truncated.
+
+    Args:
+        out_shape: The value handed to ``read_array(out_shape=...)``.
+
+    Returns:
+        tuple[int, int]: The validated ``(rows, cols)`` pair.
+
+    Raises:
+        ValueError: `out_shape` is not a pair of positive integers.
+    """
+    valid = isinstance(out_shape, (tuple, list)) and len(out_shape) == 2
+    if valid:
+        valid = all(
+            isinstance(size, (int, np.integer))
+            and not isinstance(size, bool)
+            and size > 0
+            for size in out_shape
+        )
+    if not valid:
+        raise ValueError(
+            f"out_shape must be a (rows, cols) pair of positive integers, "
+            f"got {out_shape!r}."
+        )
+    return int(out_shape[0]), int(out_shape[1])
+
+
 class IO(_Engine):
 
     def read_array(
@@ -150,13 +184,13 @@ class IO(_Engine):
                 GDAL resamples while reading (``buf_xsize``/``buf_ysize``)
                 and pulls from a matching overview level when one exists, so
                 previews of pyramided rasters never touch the full-resolution
-                pixels. Composes with ``window=`` (decimate a sub-window).
-                Not supported together with ``chunks=``
+                pixels. Composes with ``window=`` or ``bbox=`` (decimate a
+                sub-window). Not supported together with ``chunks=``
                 (:class:`NotImplementedError`). Default ``None`` (native
                 resolution, unchanged).
             resampling (str, keyword-only):
                 Decimation algorithm for ``out_shape`` reads (``"nearest"``,
-                ``"bilinear"``, ``"cubic"``, ``"cubic_spline"``,
+                ``"bilinear"``, ``"cubic"``, ``"cubicspline"``,
                 ``"lanczos"``, ``"average"``, ``"mode"``, ...). Averaging
                 algorithms mix no-data into edge cells — prefer
                 ``"nearest"`` (the default) on rasters with a no-data
@@ -455,7 +489,7 @@ class IO(_Engine):
             resampling: Decimation algorithm name from
                 :data:`pyramids.dataset.engines.cog._RESAMPLING_ALG`
                 (``"nearest"``, ``"bilinear"``, ``"cubic"``,
-                ``"cubic_spline"``, ``"lanczos"``, ``"average"``,
+                ``"cubicspline"``, ``"lanczos"``, ``"average"``,
                 ``"mode"``, ...). ``average``-style algorithms mix no-data
                 into edge cells — prefer ``nearest`` on rasters with a
                 no-data marker.
@@ -466,7 +500,9 @@ class IO(_Engine):
 
         Raises:
             TypeError: ``resampling`` is not a string.
-            ValueError: ``out_shape`` is malformed or ``resampling`` unknown.
+            ValueError: ``out_shape`` or ``window`` is malformed,
+                ``resampling`` is unknown, or ``band`` is out of range.
+            OutOfBoundsError: ``window`` falls outside the raster.
         """
         if not isinstance(resampling, str):
             raise TypeError(
@@ -478,22 +514,18 @@ class IO(_Engine):
                 f"unknown resampling {resampling!r}; "
                 f"choose from {sorted(_RESAMPLING_ALG)}"
             )
-        if (
-            not isinstance(out_shape, (tuple, list))
-            or len(out_shape) != 2
-            or int(out_shape[0]) <= 0
-            or int(out_shape[1]) <= 0
-        ):
-            raise ValueError(
-                f"out_shape must be a positive (rows, cols) pair, got {out_shape!r}."
-            )
-        rows, cols = int(out_shape[0]), int(out_shape[1])
+        rows, cols = _validate_out_shape(out_shape)
         alg = _RESAMPLING_ALG[key]
         if isinstance(window, GeoDataFrame):
             window = self._convert_polygon_to_window(window)
         if isinstance(window, Window):
-            window_args = window.to_read_args()
+            window_args: tuple[int, ...] = window.to_read_args()
         elif window is not None:
+            if not isinstance(window, (list, tuple)) or len(window) != 4:
+                raise ValueError(
+                    "window must be a Window, an [xoff, yoff, xsize, ysize] "
+                    f"list of 4 integers, or a GeoDataFrame, got {window!r}."
+                )
             window_args = tuple(int(value) for value in window)
         else:
             window_args = ()
@@ -501,20 +533,59 @@ class IO(_Engine):
         if band is None and self._ds.band_count > 1:
             arr = np.stack(
                 [
-                    self._ds._iloc(i).ReadAsArray(
-                        *window_args, buf_xsize=cols, buf_ysize=rows,
-                        resample_alg=alg,
-                    )
+                    self._decimated_band_read(i, window_args, rows, cols, alg)
                     for i in range(self._ds.band_count)
                 ],
                 axis=0,
             )
         else:
             effective_band = 0 if band is None else band
-            arr = self._ds._iloc(effective_band).ReadAsArray(
-                *window_args, buf_xsize=cols, buf_ysize=rows, resample_alg=alg
+            arr = self._decimated_band_read(
+                effective_band, window_args, rows, cols, alg
             )
-        return np.asarray(arr)
+        return arr
+
+    def _decimated_band_read(
+        self: Dataset,
+        band: int,
+        window_args: tuple[int, ...],
+        rows: int,
+        cols: int,
+        alg: int,
+    ) -> np.ndarray:
+        """Run one decimated band read, normalising the out-of-range error.
+
+        Args:
+            band: Zero-based band index (already validated).
+            window_args: ``(xoff, yoff, xsize, ysize)`` sub-window, or
+                ``()`` for the full raster.
+            rows: Target buffer height (GDAL's ``buf_ysize``).
+            cols: Target buffer width (GDAL's ``buf_xsize``).
+            alg: A GDAL ``GRIORA_*`` resampling constant.
+
+        Returns:
+            np.ndarray: The decimated block, shape ``(rows, cols)``.
+
+        Raises:
+            OutOfBoundsError: The window falls outside the raster —
+                the same exception the native-resolution window path
+                (:meth:`_read_block`) raises.
+        """
+        try:
+            block = self._ds._iloc(band).ReadAsArray(
+                *window_args,
+                buf_xsize=cols,
+                buf_ysize=rows,
+                resample_alg=alg,
+            )
+        except RuntimeError as exc:
+            if "Access window out of range in RasterIO()" not in str(exc):
+                raise
+            raise OutOfBoundsError(
+                f"The window you entered ({list(window_args)}) is out of "
+                f"the raster bounds: {self._ds.rows, self._ds.columns}"
+            ) from exc
+        return np.asarray(block)
 
     def _read_block(
         self: Dataset,
