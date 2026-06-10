@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 from osgeo import gdal, osr
 
-from pyramids.base._utils import INTERPOLATION_METHODS
+from pyramids.base._utils import resolve_resampling
 from pyramids.base.remote import signer_cloud_config
 from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
 
@@ -298,11 +298,7 @@ def _prepare_sources(
         RuntimeError: A source could not be opened, or a reprojecting
             :func:`gdal.Warp` failed.
     """
-    if resampling not in INTERPOLATION_METHODS:
-        raise ValueError(
-            f"resampling must be one of {sorted(INTERPOLATION_METHODS)}, "
-            f"got {resampling!r}."
-        )
+    resample_alg = resolve_resampling(resampling)
 
     # Open each source once; read its CRS from that same handle.
     opened: list = []
@@ -334,7 +330,6 @@ def _prepare_sources(
     # the compositor open datasets uniformly — gdal.BuildVRT rejects a mix of
     # path strings and dataset objects.
     target_wkt = target_srs.ExportToWkt()
-    resample_alg = INTERPOLATION_METHODS[resampling]
     sources: list = []
     for dataset, srs in zip(opened, source_srs):
         if srs.IsSame(target_srs):

@@ -48,11 +48,19 @@ _RESAMPLING_ALG: dict[str, int] = {
     "bilinear": gdal.GRIORA_Bilinear,
     "cubic": gdal.GRIORA_Cubic,
     "cubicspline": gdal.GRIORA_CubicSpline,
+    "cubic_spline": gdal.GRIORA_CubicSpline,
     "lanczos": gdal.GRIORA_Lanczos,
     "average": gdal.GRIORA_Average,
     "mode": gdal.GRIORA_Mode,
+    **({"gauss": gdal.GRIORA_Gauss} if hasattr(gdal, "GRIORA_Gauss") else {}),
+    **({"rms": gdal.GRIORA_RMS} if hasattr(gdal, "GRIORA_RMS") else {}),
 }
-"""Map a resampling name to its GDAL ``GRIORA_*`` decimated-read algorithm."""
+"""Map a resampling name to its GDAL ``GRIORA_*`` decimated-read algorithm.
+
+The names mirror :data:`pyramids.base._utils.INTERPOLATION_METHODS` where the
+two algorithm families overlap (``cubic_spline`` is accepted alongside the
+historical ``cubicspline``); ``gauss`` / ``rms`` are guarded for older GDAL.
+"""
 
 
 _PALETTE_GDAL_DTYPES: frozenset[int] = frozenset({gdal.GDT_Byte, gdal.GDT_UInt16})
@@ -860,6 +868,7 @@ class COG(_Engine):
 
                 ```
         """
+        resampling = resampling.lower().strip()
         if resampling not in _RESAMPLING_ALG:
             raise ValueError(
                 f"unknown resampling {resampling!r}; "
@@ -997,6 +1006,7 @@ class COG(_Engine):
 
                 ```
         """
+        resampling = resampling.lower().strip()
         if resampling not in _RESAMPLING_ALG:
             raise ValueError(
                 f"unknown resampling {resampling!r}; "

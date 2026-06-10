@@ -15,7 +15,7 @@ from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal, osr
 
 from pyramids.base._domain import is_no_data
-from pyramids.base._utils import INTERPOLATION_METHODS
+from pyramids.base._utils import resolve_resampling
 from pyramids.base.crs import (
     epsg_from_wkt,
     reproject_coordinates,
@@ -109,8 +109,10 @@ class Spatial(_Engine):
                 are filled with the source's nodata value when one is configured, or
                 with GDAL's dtype-default fill value otherwise.
             method (str):
-                resampling method. Default is "nearest neighbor". See https://gisgeography.com/raster-resampling/.
-                Allowed values: "nearest neighbor", "cubic", "bilinear".
+                Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
+                (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
+                "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms;
+                "sum"/"rms" need GDAL >= 3.1/3.3). See https://gisgeography.com/raster-resampling/.
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the raster the same after reprojection.
                 Default is False.
@@ -221,17 +223,7 @@ class Spatial(_Engine):
 
         """
         dst_sr = sr_from_user_input(to_epsg)
-        if not isinstance(method, str):
-            raise TypeError(
-                "Please enter a correct method, for more information, see documentation "
-            )
-        if method not in INTERPOLATION_METHODS.keys():
-            raise ValueError(
-                f"The given interpolation method: {method} does not exist, existing methods are "
-                f"{INTERPOLATION_METHODS.keys()}"
-            )
-
-        resampling_method: Any = INTERPOLATION_METHODS.get(method)
+        resampling_method: Any = resolve_resampling(method)
 
         if maintain_alignment:
             dst_obj = self._reproject_with_ReprojectImage(dst_sr, resampling_method)
@@ -330,7 +322,10 @@ class Spatial(_Engine):
             cell_size (int | float):
                 New cell size to resample the raster to, in the units of the raster CRS.
             method (str):
-                Resampling method: "nearest neighbor", "cubic", or "bilinear". Default is "nearest neighbor".
+                Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
+                (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
+                "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms;
+                "sum"/"rms" need GDAL >= 3.1/3.3).
 
         Returns:
             Dataset:
@@ -364,17 +359,7 @@ class Spatial(_Engine):
               ![resample-source](./../../_images/dataset/resample-source.png)
               ![resample-new](./../../_images/dataset/resample-new.png)
         """
-        if not isinstance(method, str):
-            raise TypeError(
-                "Please enter a correct method, for more information, see documentation"
-            )
-        if method not in INTERPOLATION_METHODS.keys():
-            raise ValueError(
-                f"The given interpolation method does not exist, existing methods are "
-                f"{INTERPOLATION_METHODS.keys()}"
-            )
-
-        resampling_method: Any = INTERPOLATION_METHODS.get(method)
+        resampling_method: Any = resolve_resampling(method)
 
         sr_src = sr_from_wkt(self._ds.crs)
 

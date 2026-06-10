@@ -635,7 +635,10 @@ class RasterBase(ABC):
             to_epsg (int):
                 Reference number to the new projection (https://epsg.io/) (default 3857 the reference no of WGS84 web mercator).
             method (str):
-                Resampling technique. See https://gisgeography.com/raster-resampling/. Options include "nearest neighbor", "cubic", and "bilinear". Default is "nearest neighbor".
+                Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
+                (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
+                "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms).
+                See https://gisgeography.com/raster-resampling/.
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the raster the same after reprojection. Default is False.
             inplace (bool):

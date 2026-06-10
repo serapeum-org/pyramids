@@ -489,7 +489,7 @@ class TestMergeRastersDstCrs:
             before any compositing.
         """
         pa, pb = shared_crs_pair
-        with pytest.raises(ValueError, match="resampling must be one of"):
+        with pytest.raises(ValueError, match="does not exist"):
             merge_rasters([pa, pb], tmp_path / "bad.tif", dst_crs=3857, resampling="sinc")
 
     @pytest.mark.parametrize("resampling", ["nearest neighbor", "bilinear", "cubic"])

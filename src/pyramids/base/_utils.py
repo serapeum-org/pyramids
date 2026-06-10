@@ -145,11 +145,91 @@ COLOR_TABLE = DataFrame(
     columns=["id", "gdal_constant", "name"],
     data=list(zip(range(len(COLOR_NAMES)), COLOR_INTERPRETATIONS, COLOR_NAMES)),
 )
+# Resampling-method name -> GDAL warp/translate constant. Covers every
+# ``gdal.GRA_*`` algorithm of the supported GDAL floor; the snake_case names
+# match rasterio's ``Resampling`` enum so users migrating from rasterio can
+# keep their method strings. ``"nearest neighbor"`` is the historical pyramids
+# name and stays as an alias of ``"nearest"``. Constants introduced by newer
+# GDAL versions are guarded with ``hasattr`` so importing pyramids never fails
+# on an older GDAL.
 INTERPOLATION_METHODS = {
     "nearest neighbor": gdal.GRA_NearestNeighbour,
-    "cubic": gdal.GRA_Cubic,
+    "nearest": gdal.GRA_NearestNeighbour,
     "bilinear": gdal.GRA_Bilinear,
+    "cubic": gdal.GRA_Cubic,
+    "cubic_spline": gdal.GRA_CubicSpline,
+    "lanczos": gdal.GRA_Lanczos,
+    "average": gdal.GRA_Average,
+    "mode": gdal.GRA_Mode,
+    "max": gdal.GRA_Max,
+    "min": gdal.GRA_Min,
+    "med": gdal.GRA_Med,
+    "q1": gdal.GRA_Q1,
+    "q3": gdal.GRA_Q3,
+    **({"sum": gdal.GRA_Sum} if hasattr(gdal, "GRA_Sum") else {}),
+    **({"rms": gdal.GRA_RMS} if hasattr(gdal, "GRA_RMS") else {}),
 }
+
+
+def resolve_resampling(method: str) -> int:
+    """Resolve a resampling-method name to its GDAL ``GRA_*`` constant.
+
+    Normalises case and surrounding whitespace, so ``"Lanczos"`` and
+    ``" average "`` are accepted. The valid names are the keys of
+    :data:`INTERPOLATION_METHODS` (rasterio-style snake_case plus the
+    historical ``"nearest neighbor"`` alias).
+
+    Args:
+        method: Resampling method name, case-insensitive (e.g. ``"nearest"``,
+            ``"bilinear"``, ``"cubic"``, ``"average"``, ``"lanczos"``).
+
+    Returns:
+        int: The matching ``gdal.GRA_*`` constant.
+
+    Raises:
+        TypeError: ``method`` is not a string.
+        ValueError: ``method`` does not name a supported algorithm; the
+            message lists the valid names.
+
+    Examples:
+        - Names are case- and whitespace-insensitive:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import resolve_resampling
+            >>> resolve_resampling(" Bilinear ") == gdal.GRA_Bilinear
+            True
+
+            ```
+        - The historical pyramids name still resolves:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids.base._utils import resolve_resampling
+            >>> resolve_resampling("nearest neighbor") == gdal.GRA_NearestNeighbour
+            True
+
+            ```
+        - Unknown names are rejected with the valid set in the message:
+            ```python
+            >>> from pyramids.base._utils import resolve_resampling
+            >>> try:
+            ...     resolve_resampling("sinc")
+            ... except ValueError as exc:
+            ...     print("does not exist" in str(exc))
+            True
+
+            ```
+    """
+    if not isinstance(method, str):
+        raise TypeError(
+            f"resampling method must be a string, got {type(method).__name__}."
+        )
+    key = method.lower().strip()
+    if key not in INTERPOLATION_METHODS:
+        raise ValueError(
+            f"The given interpolation method: {method!r} does not exist, "
+            f"existing methods are {sorted(INTERPOLATION_METHODS)}"
+        )
+    return INTERPOLATION_METHODS[key]
 
 
 def color_name_to_gdal_constant(color_name: str) -> int:
