@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import pickle
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generator
@@ -37,6 +38,17 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
+
+_THREAD_MANAGER_CREATION_LOCK = threading.Lock()
+"""Guards the lazy creation of a Dataset's per-thread file manager.
+
+Without it, two threads making their first ``threadsafe=True`` read on the
+same Dataset could each build a :class:`ThreadLocalFileManager` and one
+would silently displace the other — harmless for correctness (each thread
+keeps a local reference for its in-flight read) but it discards the warm
+manager and re-opens handles. Creation is rare, so one process-wide lock
+is cheaper than a per-dataset one.
+"""
 
 
 def _validate_band_index(band: int | None, band_count: int) -> None:
@@ -149,12 +161,17 @@ class IO(_Engine):
                   read-only handle, opened lazily from the dataset's path
                   and reused for the thread's lifetime.
                 - Lazy path (`chunks=`): the dask chunk reader uses a
-                  per-thread file manager; pair with `lock=False` for
-                  genuinely parallel chunk reads.
+                  per-thread file manager and `lock=None` defaults to
+                  lock-free chunk reads (pass an explicit lock object to
+                  re-serialize them).
 
                 Requires a reopenable path (on disk or `/vsimem/`); a pure
-                in-memory MEM dataset raises :class:`ValueError`. Default
-                `False` (shared-handle behaviour, unchanged).
+                in-memory MEM dataset raises :class:`ValueError`. The
+                per-thread handles re-open that path, so they see the
+                on-disk state: when the dataset is open in update mode,
+                flush pending writes (e.g. ``FlushCache``) before reading
+                with `threadsafe=True`. Default `False` (shared-handle
+                behaviour, unchanged).
 
         Returns:
             ArrayLike:
@@ -367,18 +384,33 @@ class IO(_Engine):
 
         Returns:
             np.ndarray: The requested pixels.
+
+        Raises:
+            ValueError: `band` is out of range, `window` is not a list
+                of 4 integers, or the dataset has no reopenable path.
+            OutOfBoundsError: `window` falls outside the raster.
         """
-        manager = getattr(self._ds, "_thread_manager", None)
-        if manager is None:
-            manager = ThreadLocalFileManager(
-                gdal_raster_open, self._require_reopenable_path(), "read_only"
-            )
-            self._ds._thread_manager = manager
-        handle = manager.acquire()
+        _validate_band_index(band, self._ds.band_count)
         if isinstance(window, GeoDataFrame):
             window = self._convert_polygon_to_window(window)
+        if window is not None and not isinstance(window, (list, tuple)):
+            # Same contract as the default path's _read_block.
+            raise ValueError(
+                f"window must be a list of 4 integers, got {type(window)}"
+            )
         window_args = tuple(window) if window is not None else ()
-        _validate_band_index(band, self._ds.band_count)
+        manager = getattr(self._ds, "_thread_manager", None)
+        if manager is None:
+            with _THREAD_MANAGER_CREATION_LOCK:
+                manager = getattr(self._ds, "_thread_manager", None)
+                if manager is None:
+                    manager = ThreadLocalFileManager(
+                        gdal_raster_open,
+                        self._require_reopenable_path(),
+                        "read_only",
+                    )
+                    self._ds._thread_manager = manager
+        handle = manager.acquire()
         try:
             if band is None and self._ds.band_count > 1:
                 if window is None:
@@ -437,8 +469,12 @@ class IO(_Engine):
                 :func:`dask.array.core.normalize_chunks` (an int, a
                 per-axis tuple, a dict, the string `"auto"`, or
                 `-1` for a single chunk).
-            lock: `None` → :func:`default_lock`; `False` →
-                :class:`DummyLock`; otherwise passed through unchanged.
+            lock: `None` → :func:`default_lock` (or :class:`DummyLock`
+                when `threadsafe` is true); `False` → :class:`DummyLock`;
+                otherwise passed through unchanged.
+            threadsafe: Use a :class:`ThreadLocalFileManager` (one handle
+                per worker thread) instead of the shared-handle
+                :class:`CachingFileManager`. Requires a reopenable path.
 
         Returns:
             dask.array.Array: A lazy array wrapping this dataset.
@@ -468,7 +504,9 @@ class IO(_Engine):
             shape = (self._ds.band_count, self._ds.rows, self._ds.columns)
             block_w, block_h = self._ds._block_size[0]
             previous_chunks = (1, block_h, block_w)
-        if lock is False:
+        if lock is False or (lock is None and threadsafe):
+            # threadsafe chunk readers hold per-thread handles, so the
+            # chunk lock serves no purpose unless the caller insists.
             effective_lock: Any = DummyLock()
         elif lock is None:
             effective_lock = default_lock()
@@ -488,7 +526,7 @@ class IO(_Engine):
         # to the outer `with effective_lock` in _io_module._read_chunk.
         if threadsafe:
             # One read-only handle per worker thread: chunk reads never
-            # contend, so pair this with lock=False for parallel reads.
+            # contend, so lock=None resolved to DummyLock above.
             manager: Any = ThreadLocalFileManager(
                 gdal_raster_open,
                 self._require_reopenable_path(),

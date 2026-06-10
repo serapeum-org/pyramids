@@ -2093,10 +2093,21 @@ class Dataset(RasterBase):
         """Close the dataset.
 
         Safe to call multiple times — subsequent calls after the first are no-ops.
+
+        Also releases the per-thread file manager created by
+        ``read_array(threadsafe=True)``: the calling thread's handle is
+        closed eagerly and the manager reference is dropped, so handles
+        held by other (finished) threads are released with it. Without
+        this, lingering read-only handles would keep the file locked on
+        Windows after ``close()``.
         """
         if self._raster is not None:
             self._raster.FlushCache()
             self._raster = None
+        manager = getattr(self, "_thread_manager", None)
+        if manager is not None:
+            manager.close()
+            self._thread_manager = None
 
     @staticmethod
     def _create_dataset(

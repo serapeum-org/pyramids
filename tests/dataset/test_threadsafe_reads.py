@@ -1,19 +1,23 @@
 """Tests for thread-safe parallel reads via per-thread GDAL handles.
 
 Covers `read_array(threadsafe=True)` on the eager path (serial equivalence,
-parallel disjoint and overlapping windows, MEM rejection, handle identity per
-thread) and the lazy path (`chunks=, lock=False, threadsafe=True` equality
-with the locked default).
+parallel disjoint and overlapping windows, racing first reads, vsimem
+support, MEM rejection, error-contract parity, handle identity per thread,
+close() releasing the manager) and the lazy path (`chunks=` with
+`threadsafe=True`, with and without an explicit lock, equality with the
+locked default).
 """
 
 from __future__ import annotations
 
+import os
 import pickle
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.base._errors import OutOfBoundsError
 from pyramids.base._file_manager import ThreadLocalFileManager, gdal_raster_open
@@ -89,6 +93,53 @@ class TestThreadsafeEagerReads:
                 result, results[0], err_msg="concurrent overlapping reads diverged"
             )
 
+    def test_concurrent_first_reads_create_one_manager(self, tiled_raster):
+        """Eight simultaneous first reads agree and leave one cached manager.
+
+        Test scenario:
+            All threads hit the lazy manager-creation branch at the same
+            time (barrier-released); the creation lock must leave exactly
+            one manager cached on the Dataset and every read correct.
+        """
+        ds, arr = tiled_raster
+        barrier = threading.Barrier(8)
+
+        def read(_):
+            barrier.wait()
+            return ds.read_array(band=0, window=[0, 0, 64, 64], threadsafe=True)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(read, range(8)))
+        for result in results:
+            np.testing.assert_array_equal(
+                result, arr[:64, :64], err_msg="racing first reads diverged"
+            )
+        assert ds._thread_manager is not None, "manager must be cached after reads"
+
+    def test_vsimem_path_supported(self):
+        """A /vsimem/ raster reads through per-thread handles.
+
+        Test scenario:
+            The GDAL virtual filesystem is process-global, so vsimem paths
+            are reopenable and must be accepted by the threadsafe path.
+        """
+        path = "/vsimem/threadsafe_reads.tif"
+        arr = np.arange(64, dtype="float32").reshape(8, 8)
+        mem = Dataset.create_from_array(
+            arr, top_left_corner=(0, 8), cell_size=1.0, epsg=4326
+        )
+        gdal.GetDriverByName("GTiff").CreateCopy(path, mem.raster)
+        ds = Dataset.read_file(path)
+        try:
+            np.testing.assert_array_equal(
+                ds.read_array(band=0, threadsafe=True),
+                arr,
+                err_msg="vsimem threadsafe read returned wrong pixels",
+            )
+        finally:
+            ds.close()
+            gdal.Unlink(path)
+
     def test_mem_dataset_rejected(self):
         """A pure in-memory MEM dataset raises a clear ValueError.
 
@@ -117,6 +168,44 @@ class TestThreadsafeEagerReads:
         )
         windowed = ds.read_array(window=[1, 1, 4, 3], threadsafe=True)
         assert windowed.shape == (3, 3, 4), f"windowed all-bands shape {windowed.shape}"
+        np.testing.assert_array_equal(
+            windowed,
+            ds.read_array(window=[1, 1, 4, 3]),
+            err_msg="windowed all-bands read diverged from the default path",
+        )
+
+    def test_bbox_window_matches_default(self, tiled_raster):
+        """A bbox read on the threadsafe path equals the default path.
+
+        Test scenario:
+            bbox is converted to a FeatureCollection window upstream; the
+            threadsafe path must resolve it identically to _read_block.
+        """
+        ds, _ = tiled_raster
+        bbox = (10.0, 200.0, 42.0, 232.0)
+        np.testing.assert_array_equal(
+            ds.read_array(band=0, bbox=bbox, threadsafe=True),
+            ds.read_array(band=0, bbox=bbox),
+            err_msg="bbox threadsafe read diverged from the default path",
+        )
+
+    def test_invalid_band_rejected_before_any_handle(self, tiled_raster):
+        """An out-of-range band raises ValueError, like the default path.
+
+        Test scenario:
+            Validation runs before the per-thread manager is created, so a
+            bad band leaves no manager behind.
+        """
+        ds, _ = tiled_raster
+        with pytest.raises(ValueError, match="band index"):
+            ds.read_array(band=99, threadsafe=True)
+        assert ds._thread_manager is None, "failed validation must not open handles"
+
+    def test_invalid_window_type_rejected(self, tiled_raster):
+        """A non-list window raises the same ValueError as _read_block."""
+        ds, _ = tiled_raster
+        with pytest.raises(ValueError, match="window must be a list"):
+            ds.read_array(band=0, window="0,0,4,4", threadsafe=True)
 
     def test_out_of_bounds_window_contract(self, tiled_raster):
         """An OOB window raises OutOfBoundsError, matching the default path.
@@ -162,6 +251,28 @@ class TestThreadLocalManagerSemantics:
             "different threads must hold different handles"
         )
 
+    def test_close_releases_thread_manager(self, tmp_path):
+        """close() drops the per-thread manager and unlocks the file.
+
+        Test scenario:
+            After close() the cached manager is gone and the file can be
+            deleted — on Windows a lingering read-only handle would make
+            os.remove fail with a sharing violation.
+        """
+        path = str(tmp_path / "closable.tif")
+        Dataset.create_from_array(
+            np.ones((8, 8), dtype="float32"),
+            top_left_corner=(0, 8),
+            cell_size=1.0,
+            epsg=4326,
+        ).to_file(path)
+        ds = Dataset.read_file(path)
+        ds.read_array(band=0, threadsafe=True)
+        assert ds._thread_manager is not None, "read must have cached the manager"
+        ds.close()
+        assert ds._thread_manager is None, "close() must drop the manager"
+        os.remove(path)
+
     def test_manager_is_pickle_safe(self, tiled_raster):
         """The manager survives a pickle round-trip (dask-graph requirement)."""
         ds, arr = tiled_raster
@@ -182,6 +293,22 @@ class TestThreadsafeLazyReads:
         np.testing.assert_array_equal(
             lockfree.compute(), locked.compute(),
             err_msg="lock-free chunked compute diverged from the locked default",
+        )
+
+    def test_default_lock_is_lockfree_when_threadsafe(self, tiled_raster):
+        """threadsafe=True without an explicit lock still computes correctly.
+
+        Test scenario:
+            lock=None with threadsafe=True resolves to DummyLock (per-thread
+            handles need no chunk lock), so the parallel compute must equal
+            the locked default without the caller passing lock=False.
+        """
+        ds, arr = tiled_raster
+        lazy = ds.read_array(band=0, chunks=64, threadsafe=True)
+        np.testing.assert_array_equal(
+            lazy.compute(),
+            arr,
+            err_msg="threadsafe default-lock compute returned wrong pixels",
         )
 
     def test_mem_dataset_rejected_on_lazy_path(self):

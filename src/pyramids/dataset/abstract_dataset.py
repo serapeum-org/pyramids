@@ -86,6 +86,9 @@ class RasterBase(ABC):
             )
         self._access = access
         self._raster = src
+        # Per-thread file manager for read_array(threadsafe=True); created
+        # lazily by the IO engine and released by close().
+        self._thread_manager = None
         self._geotransform = src.GetGeoTransform()
         self._cell_size = self._geotransform[1]
         self._file_name = src.GetDescription()
