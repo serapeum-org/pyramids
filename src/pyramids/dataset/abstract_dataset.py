@@ -640,8 +640,8 @@ class RasterBase(ABC):
             method (str):
                 Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
                 (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
-                "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms).
-                See https://gisgeography.com/raster-resampling/.
+                "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms;
+                "sum"/"rms" need GDAL >= 3.1/3.3). See https://gisgeography.com/raster-resampling/.
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the raster the same after reprojection. Default is False.
             inplace (bool):

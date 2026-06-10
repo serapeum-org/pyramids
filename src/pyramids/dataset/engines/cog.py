@@ -63,6 +63,37 @@ historical ``cubicspline``); ``gauss`` / ``rms`` are guarded for older GDAL.
 """
 
 
+def _resolve_read_resampling(resampling: str) -> int:
+    """Resolve a decimated-read resampling name to its ``GRIORA_*`` constant.
+
+    Normalises case and surrounding whitespace before the lookup, mirroring
+    :func:`pyramids.base._utils.resolve_resampling` for the warp family.
+
+    Args:
+        resampling: Method name, case-insensitive (a key of
+            :data:`_RESAMPLING_ALG`).
+
+    Returns:
+        int: The matching ``gdal.GRIORA_*`` constant.
+
+    Raises:
+        TypeError: ``resampling`` is not a string.
+        ValueError: ``resampling`` does not name a registered algorithm; the
+            message lists the valid names.
+    """
+    if not isinstance(resampling, str):
+        raise TypeError(
+            f"resampling method must be a string, got {type(resampling).__name__}."
+        )
+    key = resampling.lower().strip()
+    if key not in _RESAMPLING_ALG:
+        raise ValueError(
+            f"unknown resampling {key!r}; "
+            f"choose from {sorted(_RESAMPLING_ALG)}"
+        )
+    return _RESAMPLING_ALG[key]
+
+
 _PALETTE_GDAL_DTYPES: frozenset[int] = frozenset({gdal.GDT_Byte, gdal.GDT_UInt16})
 """GDAL dtypes for which a colour table (palette) is meaningful."""
 
@@ -831,8 +862,10 @@ class COG(_Engine):
                 height.
             bbox_crs: EPSG code of `bbox`. Reprojected to the dataset CRS
                 when different. Defaults to 4326 (WGS84 lon/lat).
-            resampling: One of `nearest`, `bilinear`, `cubic`,
-                `cubicspline`, `lanczos`, `average`, `mode`.
+            resampling: Resampling method, case-insensitive. One of `nearest`,
+                `bilinear`, `cubic`, `cubicspline` (alias `cubic_spline`),
+                `lanczos`, `average`, `mode`, plus `gauss` and `rms` when the
+                GDAL build provides them.
             band: 0-based band index. `None` reads all bands.
 
         Returns:
@@ -842,6 +875,7 @@ class COG(_Engine):
             only — no transform, bounds, or CRS is attached.
 
         Raises:
+            TypeError: `resampling` is not a string.
             ValueError: Unknown `resampling`.
             OutOfBoundsError: The window does not intersect the raster at all.
 
@@ -868,16 +902,7 @@ class COG(_Engine):
 
                 ```
         """
-        if not isinstance(resampling, str):
-            raise TypeError(
-                f"resampling method must be a string, got {type(resampling).__name__}."
-            )
-        resampling = resampling.lower().strip()
-        if resampling not in _RESAMPLING_ALG:
-            raise ValueError(
-                f"unknown resampling {resampling!r}; "
-                f"choose from {sorted(_RESAMPLING_ALG)}"
-            )
+        alg = _resolve_read_resampling(resampling)
         ds = self._ds._raster
         min_x, min_y, max_x, max_y = self._reproject_bbox(bbox, bbox_crs)
         inv = gdal.InvGeoTransform(ds.GetGeoTransform())
@@ -907,7 +932,6 @@ class COG(_Engine):
 
         out_w = dst_width if dst_width is not None else req_xsize
         out_h = dst_height if dst_height is not None else req_ysize
-        alg = _RESAMPLING_ALG[resampling]
         source = ds if band is None else ds.GetRasterBand(band + 1)
 
         fully_inside = (
@@ -997,6 +1021,7 @@ class COG(_Engine):
             or CRS is attached to the returned array.
 
         Raises:
+            TypeError: `resampling` is not a string.
             ValueError: Unknown `resampling`.
 
         Examples:
@@ -1010,23 +1035,13 @@ class COG(_Engine):
 
                 ```
         """
-        if not isinstance(resampling, str):
-            raise TypeError(
-                f"resampling method must be a string, got {type(resampling).__name__}."
-            )
-        resampling = resampling.lower().strip()
-        if resampling not in _RESAMPLING_ALG:
-            raise ValueError(
-                f"unknown resampling {resampling!r}; "
-                f"choose from {sorted(_RESAMPLING_ALG)}"
-            )
+        alg = _resolve_read_resampling(resampling)
         width, height = self._ds.columns, self._ds.rows
         scale = max(width, height) / max_size
         if scale <= 1:
             out_w, out_h = width, height
         else:
             out_w, out_h = max(1, round(width / scale)), max(1, round(height / scale))
-        alg = _RESAMPLING_ALG[resampling]
         ds = self._ds._raster
         source = ds if band is None else ds.GetRasterBand(band + 1)
         return np.asarray(

@@ -223,7 +223,7 @@ class Spatial(_Engine):
 
         """
         dst_sr = sr_from_user_input(to_epsg)
-        resampling_method: Any = resolve_resampling(method)
+        resampling_method: int = resolve_resampling(method)
 
         if maintain_alignment:
             dst_obj = self._reproject_with_ReprojectImage(dst_sr, resampling_method)
@@ -242,7 +242,11 @@ class Spatial(_Engine):
                 else dst_sr.ExportToWkt()
             )
             dst = gdal.Warp(
-                "", self._ds.raster, dstSRS=dst_srs_arg, format="VRT"
+                "",
+                self._ds.raster,
+                dstSRS=dst_srs_arg,
+                format="VRT",
+                resampleAlg=resampling_method,
             )
             dst_obj = self._ds.__class__(dst)
 
@@ -359,7 +363,7 @@ class Spatial(_Engine):
               ![resample-source](./../../_images/dataset/resample-source.png)
               ![resample-new](./../../_images/dataset/resample-new.png)
         """
-        resampling_method: Any = resolve_resampling(method)
+        resampling_method: int = resolve_resampling(method)
 
         sr_src = sr_from_wkt(self._ds.crs)
 
@@ -406,7 +410,7 @@ class Spatial(_Engine):
     def _reproject_with_ReprojectImage(
         self,
         dst_sr: osr.SpatialReference,
-        method: str = "nearest neighbor",
+        method: int = gdal.GRA_NearestNeighbour,
     ) -> Dataset:
         """Reproject the dataset by deriving an extent from corner reprojection.
 
@@ -436,11 +440,11 @@ class Spatial(_Engine):
                 Built from ``Spatial.to_crs(..., maintain_alignment=True)``
                 via :func:`pyramids.base.crs.sr_from_user_input`, but callers
                 may pass any pre-built SRS.
-            method: GDAL resampling algorithm (e.g. ``gdal.GRA_NearestNeighbour``,
-                ``gdal.GRA_Bilinear``, ``gdal.GRA_Cubic``). The default string
-                ``"nearest neighbor"`` is a placeholder for the typed enum;
-                pass the resolved enum through :data:`INTERPOLATION_METHODS`
-                when calling from outside :meth:`to_crs`.
+            method: GDAL resampling algorithm constant (e.g.
+                ``gdal.GRA_NearestNeighbour``, ``gdal.GRA_Bilinear``,
+                ``gdal.GRA_Cubic``). Resolve a method *name* through
+                :func:`pyramids.base._utils.resolve_resampling` when calling
+                from outside :meth:`to_crs`.
 
         Returns:
             Dataset: A new ``Dataset`` covering the reprojected extent. Cell

@@ -180,6 +180,36 @@ class TestResampleAllMethods:
         dst = src.to_crs(3857, method="average")
         assert dst.epsg == 3857, f"expected EPSG:3857 output, got {dst.epsg}"
 
+    @pytest.mark.parametrize(
+        ("method", "vrt_alg"),
+        [
+            ("nearest", "NearestNeighbour"),
+            ("average", "Average"),
+            ("bilinear", "Bilinear"),
+        ],
+    )
+    def test_to_crs_default_path_applies_method(self, method, vrt_alg):
+        """The default (non-aligned) warp branch honours ``method``.
+
+        Args:
+            method: Registry method name passed to ``to_crs``.
+            vrt_alg: GDAL's serialized algorithm name expected in the VRT.
+
+        Test scenario:
+            ``to_crs`` without ``maintain_alignment`` builds a warped VRT; its
+            serialized warp options must carry the requested algorithm rather
+            than GDAL's nearest default — guarding against the method being
+            validated but silently dropped before :func:`gdal.Warp`.
+        """
+        src = _checkerboard_dataset(8)
+        warped = src.to_crs(3857, method=method)
+        xml = warped.raster.GetMetadata("xml:VRT")
+        xml = xml[0] if isinstance(xml, (list, tuple)) else str(xml)
+        assert f"<ResampleAlg>{vrt_alg}</ResampleAlg>" in xml, (
+            f"warped VRT must record {vrt_alg!r}; warp options were: "
+            f"{[line.strip() for line in xml.splitlines() if 'ResampleAlg' in line]}"
+        )
+
 
 class TestMergeRastersNewMethods:
     """merge_rasters accepts the expanded resampling names on reprojection."""
