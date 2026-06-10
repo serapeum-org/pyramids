@@ -1739,21 +1739,60 @@ class NetCDF(Dataset):
             or self._named_spatial_axes(var_dims) is not None
         )
 
+    def _spatial_variable_names(self) -> list[str]:
+        """Names of the container's gridded variables (have a recognised (y, x) pair).
+
+        Used by every spatial fan-out (``crop`` / ``to_crs`` / ``resample`` /
+        ``reduce``) so they act only on griddable variables; the remaining
+        non-spatial auxiliary variables are carried through by
+        :meth:`_carry_aux_variables`.
+        """
+        rg = self._raster.GetRootGroup() if self._raster is not None else None
+        if rg is None:
+            return []
+        return [n for n in self.variable_names if self._variable_is_spatial(rg, n)]
+
+    def _carry_aux_variables(
+        self, result: "NetCDF", aux_vars: list[str], operation: str
+    ) -> None:
+        """Copy non-spatial auxiliary variables into ``result`` unchanged.
+
+        They can't be cropped/reprojected/reduced through the raster path but must
+        survive the op, so each is copied verbatim (dims / values / attrs) via
+        :meth:`add_variable`. Best-effort: a copy failure for one variable warns
+        rather than failing the whole operation.
+
+        Args:
+            result: The container built from the spatial variables.
+            aux_vars: Names of the non-spatial variables to carry through.
+            operation: Operation name, for the warning message.
+        """
+        for var_name in aux_vars:
+            try:
+                result.add_variable(self, var_name)
+            except (RuntimeError, ValueError) as exc:
+                warnings.warn(
+                    f"{operation}() could not carry non-spatial variable "
+                    f"{var_name!r} into the result: {exc}",
+                    stacklevel=3,
+                )
+
     def _apply_to_all_variables(self, operation, op_kwargs):
         """Apply a spatial operation to every gridded variable in the container.
 
+        Only variables carrying both spatial axes are cropped / reprojected.
         Non-spatial auxiliary variables (e.g. ERA5's ``expver`` / ``number``,
-        which have no ``y`` / ``x`` axes) are skipped with a warning rather than
-        crashing the fan-out — only variables carrying both spatial axes can be
-        cropped / reprojected.
+        which have no ``y`` / ``x`` axes) can't go through the raster op, so they
+        are **carried through unchanged** into the result rather than crashing the
+        fan-out.
 
         Args:
             operation: Name of the Dataset method to call (e.g. "crop").
             op_kwargs: Keyword arguments to pass to the method.
 
         Returns:
-            NetCDF: New container with the operation applied to all gridded
-            variables.
+            NetCDF: New container with the operation applied to every gridded
+            variable and the non-spatial auxiliary variables carried through.
 
         Raises:
             ValueError: If the container has no data variables, or none of them
@@ -1764,12 +1803,7 @@ class NetCDF(Dataset):
                 "Cannot apply operation to an empty container (no data variables)."
             )
 
-        rg = self._raster.GetRootGroup() if self._raster is not None else None
-        spatial_vars = [
-            name
-            for name in self.variable_names
-            if rg is not None and self._variable_is_spatial(rg, name)
-        ]
+        spatial_vars = self._spatial_variable_names()
         aux_vars = [n for n in self.variable_names if n not in spatial_vars]
         if not spatial_vars:
             raise ValueError(
@@ -1850,20 +1884,7 @@ class NetCDF(Dataset):
                 ds._band_dim_sizes = var._band_dim_sizes
                 result.set_variable(var_name, ds)
 
-        # Carry non-spatial auxiliary variables (e.g. ERA5 expver / number) through
-        # unchanged — they can't be cropped/reprojected, but must survive the op so
-        # the result is the same cube minus the spatial subsetting. add_variable
-        # copies the MDArray (dims/values/attrs) verbatim into the result group.
-        for var_name in aux_vars:
-            try:
-                result.add_variable(self, var_name)
-            except Exception as exc:  # best-effort: never fail the whole op on an aux
-                warnings.warn(
-                    f"{operation}() could not carry non-spatial variable "
-                    f"{var_name!r} into the result: {exc}",
-                    stacklevel=3,
-                )
-
+        self._carry_aux_variables(result, aux_vars, operation)
         return result
 
     def reduce(
@@ -1940,9 +1961,15 @@ class NetCDF(Dataset):
 
         group_positions = self._resolve_group_positions(dim, groupby)
 
+        # Reduce only the gridded variables; non-spatial auxiliaries (no y/x axes)
+        # can't go through the raster reduce path, so they are carried through
+        # unchanged below — the same split crop / to_crs use (#513).
+        spatial_vars = self._spatial_variable_names()
+        aux_vars = [n for n in self.variable_names if n not in spatial_vars]
+
         result = None
         found = False
-        for var_name in self.variable_names:
+        for var_name in spatial_vars:
             var = self.get_variable(var_name)
             arr = self._materialize_variable_array(var)
             band_names = list(var._band_dim_names)
@@ -1981,6 +2008,7 @@ class NetCDF(Dataset):
                 f"Dimension {dim!r} is not a non-spatial dimension of any "
                 f"variable in this container."
             )
+        self._carry_aux_variables(result, aux_vars, "reduce")
         return result
 
     @staticmethod
