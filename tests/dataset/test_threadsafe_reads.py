@@ -8,12 +8,14 @@ with the locked default).
 
 from __future__ import annotations
 
+import pickle
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OutOfBoundsError
 from pyramids.base._file_manager import ThreadLocalFileManager, gdal_raster_open
 from pyramids.dataset import Dataset
 
@@ -116,6 +118,17 @@ class TestThreadsafeEagerReads:
         windowed = ds.read_array(window=[1, 1, 4, 3], threadsafe=True)
         assert windowed.shape == (3, 3, 4), f"windowed all-bands shape {windowed.shape}"
 
+    def test_out_of_bounds_window_contract(self, tiled_raster):
+        """An OOB window raises OutOfBoundsError, matching the default path.
+
+        Test scenario:
+            The threadsafe path translates GDAL's access-window error into
+            the same domain exception _read_block raises.
+        """
+        ds, _ = tiled_raster
+        with pytest.raises(OutOfBoundsError, match="out of the raster bounds"):
+            ds.read_array(band=0, window=[250, 250, 32, 32], threadsafe=True)
+
     def test_default_path_untouched(self, tiled_raster):
         """threadsafe=False (default) never creates the per-thread manager."""
         ds, _ = tiled_raster
@@ -151,8 +164,6 @@ class TestThreadLocalManagerSemantics:
 
     def test_manager_is_pickle_safe(self, tiled_raster):
         """The manager survives a pickle round-trip (dask-graph requirement)."""
-        import pickle
-
         ds, arr = tiled_raster
         manager = ThreadLocalFileManager(gdal_raster_open, ds.file_name, "read_only")
         restored = pickle.loads(pickle.dumps(manager))

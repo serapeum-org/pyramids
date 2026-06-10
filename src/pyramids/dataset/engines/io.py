@@ -379,20 +379,31 @@ class IO(_Engine):
             window = self._convert_polygon_to_window(window)
         window_args = tuple(window) if window is not None else ()
         _validate_band_index(band, self._ds.band_count)
-        if band is None and self._ds.band_count > 1:
-            if window is None:
-                arr = handle.ReadAsArray()
+        try:
+            if band is None and self._ds.band_count > 1:
+                if window is None:
+                    arr = handle.ReadAsArray()
+                else:
+                    arr = np.stack(
+                        [
+                            handle.GetRasterBand(i + 1).ReadAsArray(*window_args)
+                            for i in range(self._ds.band_count)
+                        ],
+                        axis=0,
+                    )
             else:
-                arr = np.stack(
-                    [
-                        handle.GetRasterBand(i + 1).ReadAsArray(*window_args)
-                        for i in range(self._ds.band_count)
-                    ],
-                    axis=0,
+                effective_band = 0 if band is None else band
+                arr = handle.GetRasterBand(effective_band + 1).ReadAsArray(
+                    *window_args
                 )
-        else:
-            effective_band = 0 if band is None else band
-            arr = handle.GetRasterBand(effective_band + 1).ReadAsArray(*window_args)
+        except RuntimeError as exc:
+            # Same contract as the default path's _read_block.
+            if "Access window out of range" in str(exc):
+                raise OutOfBoundsError(
+                    f"The window you entered ({window}) is out of the raster "
+                    f"bounds: {self._ds.rows, self._ds.columns}"
+                ) from exc
+            raise
         return np.asarray(arr)
 
     def _lazy_read_array(
