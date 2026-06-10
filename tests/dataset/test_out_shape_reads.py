@@ -43,7 +43,7 @@ class TestOutShapeReads:
             top_left_corner=(0, 16), cell_size=1.0, epsg=4326,
         )
         result = ds.read_array(band=0, out_shape=(8, 8))
-        assert (result == 5.0).all(), "constant values must survive decimation"
+        assert np.isclose(result, 5.0).all(), "constant values must survive decimation"
 
     def test_average_differs_from_nearest_on_checkerboard(self):
         """The resampling string actually reaches GDAL.
