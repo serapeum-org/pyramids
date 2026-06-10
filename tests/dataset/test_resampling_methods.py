@@ -261,6 +261,25 @@ class TestCogEngineResamplingNames:
             f"error should list valid methods, got: {exc.value}"
         )
 
+    def test_read_part_rejects_non_string_resampling(self, ramp):
+        """``read_part`` raises TypeError for a non-string resampling.
+
+        Test scenario:
+            Passing a raw GDAL constant (int) must produce a clear TypeError,
+            not an AttributeError from the normalisation.
+        """
+        with pytest.raises(TypeError, match="must be a string"):
+            ramp.read_part(tuple(ramp.bbox), bbox_crs=4326, resampling=1)
+
+    def test_preview_rejects_non_string_resampling(self, ramp):
+        """``preview`` raises TypeError for a non-string resampling.
+
+        Test scenario:
+            Same guard as read_part on the thumbnail path.
+        """
+        with pytest.raises(TypeError, match="must be a string"):
+            ramp.preview(max_size=16, resampling=2)
+
     def test_griora_guards_match_gdal(self):
         """``gauss``/``rms`` registration tracks the GDAL build's GRIORA set.
 
