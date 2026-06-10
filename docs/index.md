@@ -1,3 +1,5 @@
+![pyramids — GIS utilities for rasters, vectors & datacubes, built on GDAL/OGR](_images/branding/docs-header-light.svg)
+
 [![Documentations](https://img.shields.io/badge/Documentations-blue?logo=github&logoColor=white)](https://serapeum-org.github.io/pyramids/main/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/pyramids-gis.png)](https://img.shields.io/pypi/pyversions/pyramids-gis)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
@@ -30,7 +32,49 @@ Pythonic API for reading, writing, cropping, reprojecting, aligning, mosaicking,
 geospatial data, with first-class support for Cloud Optimized GeoTIFFs, STAC catalogs, lazy/Dask
 computation, and cloud object stores (S3 / GCS / Azure / HTTPS).
 
-![1](./_images/package-work-flow/overall.png)
+![pyramids at a glance — every GDAL format, none of the boilerplate](_images/branding/feature-animated.gif)
+
+```mermaid
+flowchart LR
+    subgraph Read["Read — any GDAL/OGR driver"]
+        direction TB
+        RAS["GeoTIFF · COG · ASCII<br/>NetCDF · GRIB · Zarr"]
+        VEC["Shapefile · GeoJSON<br/>GeoPackage · GeoParquet"]
+        STK["raster folder · archive<br/>STAC items"]
+    end
+
+    subgraph pyramids["pyramids"]
+        direction TB
+        DS["Dataset — single raster"]
+        NC["NetCDF — variables · time"]
+        DC["DatasetCollection — time stack"]
+        FC["FeatureCollection — vector"]
+        UG["UgridDataset — mesh"]
+    end
+
+    RAS -->|read_file| DS
+    RAS -->|read_file| NC
+    RAS -->|read_file| UG
+    VEC -->|read_file| FC
+    STK -->|from_files · from_stac| DC
+
+    NC -.->|extends| DS
+    DC -->|per timestep| DS
+    FC -->|rasterize| DS
+    DS -->|vectorize · contour| FC
+    UG -->|to_dataset| DS
+
+    subgraph Operate["Operate"]
+        direction TB
+        OPS["crop · reproject · resample · align<br/>mosaic · zonal stats · extract<br/>terrain · raster algebra · plot"]
+        LAZY["lazy reads · reductions<br/>groupby — Dask"]
+    end
+
+    DS --- OPS
+    DC --- LAZY
+
+    OPS & LAZY -->|"to_file · to_cog · to_zarr<br/>to_netcdf · to_parquet"| OUT(["GeoTIFF · COG · NetCDF<br/>ASCII · Zarr · GeoParquet"])
+```
 
 Main Features
 -------------
@@ -102,5 +146,3 @@ print("Saved to", out)
 - Explore the Tutorials for end-to-end workflows.
 - See How it works for architecture and data flow.
 - Browse the API Reference for details of classes and functions.
-
-![Dataset diagram](./_images/pyramids-dataset.svg)

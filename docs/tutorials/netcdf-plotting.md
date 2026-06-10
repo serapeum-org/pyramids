@@ -220,4 +220,4 @@ selectors, curvilinear coordinates, facet stack, and animation axis, then hands 
 array to the shared `pyramids.dataset._plot_helpers.render_array` core — the same renderer used by
 `Dataset.plot`, `DatasetCollection.plot` (animate mode), and (via `mesh_render`) `UgridDataset.plot`.
 That core builds a cleopatra `ArrayGlyph` and dispatches to `plot` / `facet` / `animate`. See the
-[architecture diagrams](../architecture/diagrams.md#uml-class-plotting-layer).
+[architecture diagrams](../overview/diagrams.md#uml-class-plotting-layer).
