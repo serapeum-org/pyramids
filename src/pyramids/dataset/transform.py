@@ -92,9 +92,9 @@ class GeoTransform(NamedTuple):
     def __rmul__(self, other: object) -> tuple[float, float]:  # type: ignore[override]
         """Reject reflected multiplication such as ``2 * transform``.
 
-        Plain tuples implement ``n * t`` as sequence repetition; for a
-        transform that would silently build a meaningless 12-element tuple,
-        so the reflected operator is disabled.
+        Plain tuples implement ``n * t`` as sequence repetition, which for a
+        transform would silently build a meaningless 12-element tuple; the
+        reflected operator is therefore disabled.
 
         Args:
             other: The left operand of ``other * transform``.
@@ -157,7 +157,9 @@ y_origin=4.0, column_rotation=0.0, pixel_height=-1.0)
         if min_x >= max_x or min_y >= max_y:
             raise ValueError(f"bbox must be (min_x, min_y, max_x, max_y), got {bbox}.")
         if rows <= 0 or cols <= 0:
-            raise ValueError(f"rows/cols must be positive, got rows={rows}, cols={cols}.")
+            raise ValueError(
+                f"rows/cols must be positive, got rows={rows}, cols={cols}."
+            )
         return cls(
             x_origin=float(min_x),
             pixel_width=(max_x - min_x) / cols,

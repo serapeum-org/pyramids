@@ -27,7 +27,9 @@ def unit_dataset() -> Dataset:
         Dataset: Single-band in-memory dataset.
     """
     return Dataset.create_from_array(
-        np.ones((4, 4), dtype="float32"), top_left_corner=(0, 4), cell_size=1.0,
+        np.ones((4, 4), dtype="float32"),
+        top_left_corner=(0, 4),
+        cell_size=1.0,
         epsg=4326,
     )
 
@@ -40,7 +42,8 @@ def rect_dataset() -> Dataset:
         Dataset: Single-band dataset, 4 rows x 3 cols.
     """
     return Dataset.create_from_array(
-        np.ones((4, 3), dtype="float32"), geo=(10.0, 2.0, 0.0, 8.0, 0.0, -0.5),
+        np.ones((4, 3), dtype="float32"),
+        geo=(10.0, 2.0, 0.0, 8.0, 0.0, -0.5),
         epsg=4326,
     )
 
@@ -53,7 +56,8 @@ def rotated_dataset() -> Dataset:
         Dataset: Single-band dataset, 4 rows x 4 cols, skewed grid.
     """
     return Dataset.create_from_array(
-        np.ones((4, 4), dtype="float32"), geo=(100.0, 1.0, 0.2, 200.0, 0.1, -1.0),
+        np.ones((4, 4), dtype="float32"),
+        geo=(100.0, 1.0, 0.2, 200.0, 0.1, -1.0),
         epsg=4326,
     )
 
@@ -106,7 +110,9 @@ class TestGeoTransform:
         """
         x, y = gt * (3, 2)
         col, row = gt.inverse * (x, y)
-        assert (col, row) == pytest.approx((3.0, 2.0)), f"inverse round-trip: {(col, row)}"
+        assert (col, row) == pytest.approx(
+            (3.0, 2.0)
+        ), f"inverse round-trip: {(col, row)}"
 
     def test_singular_transform_raises(self):
         """A zero transform cannot be inverted and raises ValueError."""
@@ -122,7 +128,9 @@ class TestGeoTransform:
         gt = GeoTransform.from_bounds((0.0, 0.0, 4.0, 4.0), rows=4, cols=4)
         expected = GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
         assert tuple(gt) == pytest.approx(tuple(expected)), f"unexpected {gt}"
-        assert gt * (4, 4) == pytest.approx((4.0, 0.0)), "bottom-right must close the box"
+        assert gt * (4, 4) == pytest.approx(
+            (4.0, 0.0)
+        ), "bottom-right must close the box"
 
     @pytest.mark.parametrize(
         "bbox, rows, cols, match",
@@ -220,7 +228,10 @@ class TestRowCol:
 
     def test_round_trip_through_xy(self, unit_dataset):
         """rowcol(xy(r, c)) returns (r, c) through cell centres."""
-        assert unit_dataset.rowcol(*unit_dataset.xy(3, 1)) == (3, 1), "round-trip broken"
+        assert unit_dataset.rowcol(*unit_dataset.xy(3, 1)) == (
+            3,
+            1,
+        ), "round-trip broken"
 
     def test_non_square_pixels(self, rect_dataset):
         """rowcol honours rectangular pixels.
