@@ -9,6 +9,8 @@ constant resolution), plus the wiring through `Dataset.resample` and
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
 from osgeo import gdal
@@ -129,8 +131,9 @@ class TestResolveResampling:
         Test scenario:
             Passing an int (e.g. a raw GDAL constant) is rejected explicitly.
         """
+        bad_method: Any = 3
         with pytest.raises(TypeError, match="must be a string"):
-            resolve_resampling(3)
+            resolve_resampling(bad_method)
 
 
 class TestResampleAllMethods:
