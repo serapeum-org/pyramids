@@ -21,7 +21,8 @@ from osgeo import gdal
 from osgeo_utils import gdal2xyz
 from pandas import DataFrame
 
-from pyramids.base._errors import OutOfBoundsError, ReadOnlyError
+from pyramids._io import new_vsimem_path, read_vsi_bytes, silent_unlink
+from pyramids.base._errors import FailedToSaveError, OutOfBoundsError, ReadOnlyError
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base.protocols import ArrayLike
@@ -36,6 +37,8 @@ if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
+
+_VSIMEM_PREFIX = "/vsimem/"
 
 
 def _validate_band_index(band: int | None, band_count: int) -> None:
@@ -962,7 +965,7 @@ class IO(_Engine):
             # raises for MEM / /vsimem/ datasets — catching it now
             # surfaces a clear error before the graph materialises.
             file_name = getattr(self._ds, "_file_name", "") or ""
-            if not file_name or file_name.startswith("/vsimem/"):
+            if not file_name or file_name.startswith(_VSIMEM_PREFIX):
                 raise pickle.PicklingError(
                     "to_file(compute=False) requires an on-disk Dataset "
                     "— call .to_file(path) first to anchor the MEM "
@@ -991,6 +994,138 @@ class IO(_Engine):
                 driver,
             )
         return result
+
+    def to_bytes(
+        self: Dataset,
+        driver: str = "GTiff",
+        creation_options: dict[str, Any] | None = None,
+    ) -> bytes:
+        """Serialize the dataset into an in-memory file and return its bytes.
+
+        Writes the raster to a GDAL ``/vsimem/`` path with the requested driver
+        (no temp file on disk), reads the bytes back, and unlinks the virtual
+        file. The write-side counterpart of :meth:`Dataset.from_bytes` — useful
+        for HTTP responses, object-store uploads, database blobs, and tests.
+
+        Only **single-file** raster drivers are supported: a driver that emits
+        sidecar files next to the main one (world files, ``.prj`` files,
+        multi-part outputs) raises ``ValueError``. GDAL's optional
+        ``.aux.xml`` PAM sidecar is ignored and cleaned up — note that for
+        formats that cannot embed georeferencing themselves (e.g. ``PNG``,
+        ``JPEG``) GDAL stores the CRS / geotransform in that sidecar, so the
+        returned payload carries pixel values only.
+
+        Args:
+            driver: GDAL raster driver name (e.g. ``"GTiff"``, ``"PNG"``,
+                ``"JPEG"``). Defaults to ``"GTiff"``. The driver must support
+                ``CreateCopy``.
+            creation_options: Optional driver creation options as a mapping,
+                e.g. ``{"COMPRESS": "DEFLATE"}`` for GTiff.
+
+        Returns:
+            bytes: The complete file contents in the requested format.
+
+        Raises:
+            ValueError: ``driver`` is unknown, does not support ``CreateCopy``,
+                or produced a multi-file output.
+            RuntimeError: The driver cannot represent the dataset faithfully
+                (strict copy — e.g. ``PNG`` asked to encode ``float32``); no
+                silent downcasting is performed.
+            FailedToSaveError: GDAL could not encode the dataset.
+
+        Examples:
+            - Round-trip a raster through GTiff bytes:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4), dtype="float32"),
+                ...     top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ... )
+                >>> payload = ds.to_bytes()
+                >>> restored = Dataset.from_bytes(payload)
+                >>> bool(np.allclose(restored.read_array(), 1.0))
+                True
+
+                ```
+            - Compressed GTiff bytes are smaller than uncompressed for
+              repetitive data:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.zeros((64, 64), dtype="float32"),
+                ...     top_left_corner=(0, 64), cell_size=1.0, epsg=4326,
+                ... )
+                >>> small = ds.to_bytes(creation_options={"COMPRESS": "DEFLATE"})
+                >>> len(small) < len(ds.to_bytes())
+                True
+
+                ```
+            - An unknown driver is rejected:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((2, 2)), top_left_corner=(0, 2), cell_size=1.0, epsg=4326,
+                ... )
+                >>> try:
+                ...     ds.to_bytes(driver="not-a-driver")
+                ... except ValueError as exc:
+                ...     print("unknown GDAL driver" in str(exc))
+                True
+
+                ```
+
+        See Also:
+            Dataset.from_bytes: Open a raster held in memory as bytes.
+            Dataset.to_cog_bytes: The COG-specific bytes serializer.
+        """
+        drv = gdal.GetDriverByName(driver)
+        if drv is None:
+            raise ValueError(f"unknown GDAL driver {driver!r}.")
+        if drv.GetMetadataItem(gdal.DCAP_CREATECOPY) != "YES":
+            raise ValueError(
+                f"driver {driver!r} does not support CreateCopy; choose a "
+                "copy-capable single-file raster driver (e.g. GTiff, PNG)."
+            )
+        extension = (
+            drv.GetMetadataItem(gdal.DMD_EXTENSION)
+            or (drv.GetMetadataItem(gdal.DMD_EXTENSIONS) or "").split(" ")[0]
+            or "bin"
+        )
+        vsi_path = new_vsimem_path(f".{extension}")
+        stem = vsi_path.rsplit("/", 1)[1].rsplit(".", 1)[0]
+        options = [f"{key}={value}" for key, value in (creation_options or {}).items()]
+        try:
+            # strict=1 (the GDAL default): a driver that cannot represent the
+            # dataset faithfully (e.g. PNG asked to encode float32) must fail
+            # loudly instead of silently downcasting the payload.
+            out = drv.CreateCopy(vsi_path, self._ds._raster, 1, options)
+            if out is None:
+                raise FailedToSaveError(
+                    f"GDAL driver {driver!r} failed to encode the dataset."
+                )
+            out.FlushCache()
+            out = None
+            siblings = [
+                name
+                for name in (gdal.ReadDir(_VSIMEM_PREFIX) or [])
+                if name.startswith(stem)
+                and f"{_VSIMEM_PREFIX}{name}" != vsi_path
+                and not name.endswith(".aux.xml")
+            ]
+            if siblings:
+                raise ValueError(
+                    f"driver {driver!r} produced a multi-file output "
+                    f"({siblings}); to_bytes supports single-file drivers only."
+                )
+            payload = read_vsi_bytes(vsi_path)
+        finally:
+            for name in gdal.ReadDir(_VSIMEM_PREFIX) or []:
+                if name.startswith(stem):
+                    silent_unlink(f"{_VSIMEM_PREFIX}{name}")
+        return payload
 
     def to_raster(
         self: Dataset,

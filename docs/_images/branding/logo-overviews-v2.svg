@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 624" width="512" height="624"
+  role="img" aria-label="pyramids overviews logo v2: downscaled raster levels hanging from a GDAL/OGR foundation slab">
+  <g transform="translate(0,162)">
+    <g>
+      <polygon points="256,397 282,410 256,423 230,410" fill="#9FA98F"/>
+      <polygon points="230,410 256,423 256,437 230,424" fill="#828C74"/>
+      <polygon points="256,423 282,410 282,424 256,437" fill="#6F7A62"/>
+    </g>
+    <g>
+      <polygon points="202,356 256,383 256,399 202,372" fill="#878E75"/>
+      <polygon points="256,383 310,356 310,372 256,399" fill="#707762"/>
+      <g transform="matrix(54,27,54,-27,202,356)" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="0.012">
+        <rect x="0" y="0" width="0.5" height="0.5" fill="#B2A37E"/>
+        <rect x="0.5" y="0" width="0.5" height="0.5" fill="#8AA4A9"/>
+        <rect x="0" y="0.5" width="0.5" height="0.5" fill="#8AA4A9"/>
+        <rect x="0.5" y="0.5" width="0.5" height="0.5" fill="#97A68E"/>
+      </g>
+    </g>
+    <g>
+      <polygon points="168,290 256,334 256,352 168,308" fill="#8C9379"/>
+      <polygon points="256,334 344,290 344,308 256,352" fill="#747B64"/>
+      <g transform="matrix(88,44,88,-44,168,290)" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="0.01">
+        <rect x="0" y="0" width="0.334" height="0.334" fill="#93A88C"/>
+        <rect x="0.333" y="0" width="0.334" height="0.334" fill="#BBA97E"/>
+        <rect x="0.666" y="0" width="0.334" height="0.334" fill="#84A7AE"/>
+        <rect x="0" y="0.333" width="0.334" height="0.334" fill="#BBA97E"/>
+        <rect x="0.333" y="0.333" width="0.334" height="0.334" fill="#84A7AE"/>
+        <rect x="0.666" y="0.333" width="0.334" height="0.334" fill="#93A88C"/>
+        <rect x="0" y="0.666" width="0.334" height="0.334" fill="#84A7AE"/>
+        <rect x="0.333" y="0.666" width="0.334" height="0.334" fill="#93A88C"/>
+        <rect x="0.666" y="0.666" width="0.334" height="0.334" fill="#BBA97E"/>
+      </g>
+    </g>
+    <g>
+      <polygon points="130,212 256,275 256,295 130,232" fill="#99A084"/>
+      <polygon points="256,275 382,212 382,232 256,295" fill="#7F866C"/>
+      <g transform="matrix(126,63,126,-63,130,212)" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="0.008">
+        <rect x="0" y="0" width="0.25" height="0.25" fill="#9AB286"/>
+        <rect x="0.25" y="0" width="0.25" height="0.25" fill="#CDB67F"/>
+        <rect x="0.5" y="0" width="0.25" height="0.25" fill="#9AB286"/>
+        <rect x="0.75" y="0" width="0.25" height="0.25" fill="#74A8B5"/>
+        <rect x="0" y="0.25" width="0.25" height="0.25" fill="#CDB67F"/>
+        <rect x="0.25" y="0.25" width="0.25" height="0.25" fill="#9AB286"/>
+        <rect x="0.5" y="0.25" width="0.25" height="0.25" fill="#74A8B5"/>
+        <rect x="0.75" y="0.25" width="0.25" height="0.25" fill="#9AB286"/>
+        <rect x="0" y="0.5" width="0.25" height="0.25" fill="#9AB286"/>
+        <rect x="0.25" y="0.5" width="0.25" height="0.25" fill="#74A8B5"/>
+        <rect x="0.5" y="0.5" width="0.25" height="0.25" fill="#9AB286"/>
+        <rect x="0.75" y="0.5" width="0.25" height="0.25" fill="#CDB67F"/>
+        <rect x="0" y="0.75" width="0.25" height="0.25" fill="#74A8B5"/>
+        <rect x="0.25" y="0.75" width="0.25" height="0.25" fill="#9AB286"/>
+        <rect x="0.5" y="0.75" width="0.25" height="0.25" fill="#CDB67F"/>
+        <rect x="0.75" y="0.75" width="0.25" height="0.25" fill="#9AB286"/>
+      </g>
+    </g>
+    <g>
+      <polygon points="86,120 256,205 256,229 86,144" fill="#A89F72"/>
+      <polygon points="256,205 426,120 426,144 256,229" fill="#8D855E"/>
+      <g transform="matrix(170,85,170,-85,86,120)" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="0.005">
+        <rect x="0" y="0" width="0.125" height="0.125" fill="#D9BC7E"/>
+        <rect x="0.125" y="0" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.25" y="0" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.375" y="0" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.5" y="0" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.625" y="0" width="0.125" height="0.125" fill="#D9BC7E"/>
+        <rect x="0.75" y="0" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0.875" y="0" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0" y="0.125" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.125" y="0.125" width="0.125" height="0.125" fill="#D9BC7E"/>
+        <rect x="0.25" y="0.125" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.375" y="0.125" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.5" y="0.125" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.625" y="0.125" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0.75" y="0.125" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0.875" y="0.125" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0" y="0.25" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.125" y="0.25" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.25" y="0.25" width="0.125" height="0.125" fill="#D9BC7E"/>
+        <rect x="0.375" y="0.25" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.5" y="0.25" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0.625" y="0.25" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0.75" y="0.25" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.875" y="0.25" width="0.125" height="0.125" fill="#D9BC7E"/>
+        <rect x="0" y="0.375" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.125" y="0.375" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.25" y="0.375" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.375" y="0.375" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0.5" y="0.375" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0.625" y="0.375" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.75" y="0.375" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.875" y="0.375" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0" y="0.5" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.125" y="0.5" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.25" y="0.5" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0.375" y="0.5" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0.5" y="0.5" width="0.125" height="0.125" fill="#D9BC7E"/>
+        <rect x="0.625" y="0.5" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.75" y="0.5" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.875" y="0.5" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0" y="0.625" width="0.125" height="0.125" fill="#D9BC7E"/>
+        <rect x="0.125" y="0.625" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0.25" y="0.625" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0.375" y="0.625" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.5" y="0.625" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.625" y="0.625" width="0.125" height="0.125" fill="#D9BC7E"/>
+        <rect x="0.75" y="0.625" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.875" y="0.625" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0" y="0.75" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0.125" y="0.75" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0.25" y="0.75" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.375" y="0.75" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.5" y="0.75" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.625" y="0.75" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.75" y="0.75" width="0.125" height="0.125" fill="#D9BC7E"/>
+        <rect x="0.875" y="0.75" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0" y="0.875" width="0.125" height="0.125" fill="#5FA8C0"/>
+        <rect x="0.125" y="0.875" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.25" y="0.875" width="0.125" height="0.125" fill="#D9BC7E"/>
+        <rect x="0.375" y="0.875" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.5" y="0.875" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.625" y="0.875" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.75" y="0.875" width="0.125" height="0.125" fill="#8FB573"/>
+        <rect x="0.875" y="0.875" width="0.125" height="0.125" fill="#D9BC7E"/>
+      </g>
+    </g>
+  </g>
+  <!-- GDAL/OGR foundation slab (drawn last so the full-res level tucks beneath it) -->
+  <g>
+    <polygon points="64,130 256,226 256,256 64,160" fill="#0E3F47"/>
+    <polygon points="256,226 448,130 448,160 256,256" fill="#0A323A"/>
+    <polygon points="256,34 448,130 256,226 64,130" fill="#14555E"/>
+    <polygon points="256,34 448,130 256,226 64,130" fill="none" stroke="#F2C879"
+      stroke-opacity="0.25" stroke-width="1.5"/>
+    <g transform="matrix(192,96,192,-96,64,130)">
+      <path d="M0.2 0 V1 M0.4 0 V1 M0.6 0 V1 M0.8 0 V1 M0 0.2 H1 M0 0.4 H1 M0 0.6 H1 M0 0.8 H1"
+        fill="none" stroke="#1E6B74" stroke-width="0.006"/>
+    </g>
+    <text transform="matrix(0.894,0.447,0,1,64,130)" x="36" y="21" font-size="15" letter-spacing="3"
+      fill="#8FD8D2" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-weight="600">GDAL / OGR</text>
+  </g>
+</svg>

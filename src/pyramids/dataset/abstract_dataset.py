@@ -30,6 +30,7 @@ from pyramids.base._utils import (
 )
 from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
 from pyramids.base.protocols import ArrayLike
+from pyramids.dataset.transform import GeoTransform
 from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
 
@@ -188,6 +189,175 @@ class RasterBase(ABC):
     def geotransform(self):
         """WKT projection.(x, cell_size, 0, y, 0, -cell_size)."""
         return self._geotransform
+
+    @property
+    def transform(self) -> GeoTransform:
+        """The geotransform as an affine-style :class:`GeoTransform` object.
+
+        Unlike the bare :attr:`geotransform` tuple, the returned object has
+        named fields and algebra: ``transform * (col, row)`` maps pixel to map
+        space, ``transform.inverse * (x, y)`` maps back.
+
+        Examples:
+            - Map the top-left pixel corner and invert back:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ... )
+                >>> ds.transform * (0, 0)
+                (0.0, 4.0)
+                >>> ds.transform.inverse * (2.0, 3.0)
+                (2.0, 1.0)
+
+                ```
+        """
+        return GeoTransform(*self._geotransform)
+
+    def xy(
+        self,
+        rows: Number | list[Number] | np.ndarray,
+        cols: Number | list[Number] | np.ndarray,
+        *,
+        center: bool = True,
+    ) -> tuple[Any, Any]:
+        """Return the map coordinates ``(x, y)`` of array cells.
+
+        The rasterio-style companion of :meth:`rowcol`. Computed from the
+        exact affine :attr:`transform`, so non-square pixels and rotated
+        grids are handled; scalar input returns scalars, sequence input
+        returns lists. (For point-table workflows use the cell engine's
+        :meth:`array_to_map_coordinates`, which assumes square pixels.)
+
+        Args:
+            rows: Row index (or indices) of the cell(s).
+            cols: Column index (or indices) of the cell(s).
+            center: ``True`` (default) returns the cell centre, ``False`` the
+                top-left cell corner.
+
+        Returns:
+            tuple: ``(x, y)`` scalars for scalar input, ``(xs, ys)`` lists for
+                sequence input.
+
+        Examples:
+            - The centre of the top-left cell of a unit grid at (0, 4):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ... )
+                >>> ds.xy(0, 0)
+                (0.5, 3.5)
+                >>> ds.xy(0, 0, center=False)
+                (0.0, 4.0)
+
+                ```
+            - Vectorised input returns coordinate lists:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ... )
+                >>> xs, ys = ds.xy([0, 1], [0, 1])
+                >>> xs
+                [0.5, 1.5]
+                >>> ys
+                [3.5, 2.5]
+
+                ```
+
+        See Also:
+            rowcol: The inverse, mapping map coordinates to cell indices.
+            transform: The affine-style geotransform object.
+        """
+        scalar = np.isscalar(rows) and np.isscalar(cols)
+        rows_arr = np.atleast_1d(np.asarray(rows, dtype=float))
+        cols_arr = np.atleast_1d(np.asarray(cols, dtype=float))
+        shift = 0.5 if center else 0.0
+        gt = self.transform
+        xs_arr = (
+            gt.x_origin
+            + (cols_arr + shift) * gt.pixel_width
+            + (rows_arr + shift) * gt.row_rotation
+        )
+        ys_arr = (
+            gt.y_origin
+            + (cols_arr + shift) * gt.column_rotation
+            + (rows_arr + shift) * gt.pixel_height
+        )
+        xs = [float(value) for value in xs_arr]
+        ys = [float(value) for value in ys_arr]
+        result = (xs[0], ys[0]) if scalar else (xs, ys)
+        return result
+
+    def rowcol(
+        self,
+        x: Number | list[Number] | np.ndarray,
+        y: Number | list[Number] | np.ndarray,
+    ) -> tuple[Any, Any]:
+        """Return the array indices ``(row, col)`` of map coordinates.
+
+        The rasterio-style companion of :meth:`xy`. Computed from the exact
+        inverse affine :attr:`transform`, so non-square pixels and rotated
+        grids are handled; scalar input returns scalar ints, sequence input
+        returns index arrays. (For point-table workflows use the cell
+        engine's :meth:`map_to_array_coordinates`, which assumes square
+        pixels.)
+
+        Args:
+            x: X (longitude/easting) coordinate(s).
+            y: Y (latitude/northing) coordinate(s).
+
+        Returns:
+            tuple: ``(row, col)`` ints for scalar input, ``(rows, cols)``
+                arrays for sequence input.
+
+        Examples:
+            - The cell containing a point on a unit grid at (0, 4):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ... )
+                >>> ds.rowcol(0.5, 3.5)
+                (0, 0)
+                >>> ds.rowcol(2.5, 1.5)
+                (2, 2)
+
+                ```
+            - xy/rowcol round-trip through cell centres:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ... )
+                >>> ds.rowcol(*ds.xy(3, 1))
+                (3, 1)
+
+                ```
+
+        See Also:
+            xy: The inverse, mapping cell indices to map coordinates.
+            transform: The affine-style geotransform object.
+        """
+        scalar = np.isscalar(x) and np.isscalar(y)
+        x_arr = np.atleast_1d(np.asarray(x, dtype=float))
+        y_arr = np.atleast_1d(np.asarray(y, dtype=float))
+        inv = self.transform.inverse
+        cols_f = inv.x_origin + x_arr * inv.pixel_width + y_arr * inv.row_rotation
+        rows_f = inv.y_origin + x_arr * inv.column_rotation + y_arr * inv.pixel_height
+        rows_idx = np.floor(rows_f).astype(int)
+        cols_idx = np.floor(cols_f).astype(int)
+        if scalar:
+            result = (int(rows_idx[0]), int(cols_idx[0]))
+        else:
+            result = (rows_idx, cols_idx)
+        return result
 
     @property
     def top_left_corner(self):

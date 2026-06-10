@@ -16,7 +16,7 @@ Do not import this module from user code; its signatures are unstable.
 from __future__ import annotations
 
 import io
-import random
+import secrets
 import time
 from contextlib import contextmanager
 from typing import Iterator
@@ -61,7 +61,7 @@ def _new_vsimem_path() -> str:
 
             ```
     """
-    return f"/vsimem/{time.time_ns()}_{random.randint(0, 999_999)}.geojson"
+    return f"/vsimem/{time.time_ns()}_{secrets.randbelow(1_000_000)}.geojson"
 
 
 @contextmanager
