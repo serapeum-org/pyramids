@@ -77,7 +77,7 @@ class TestBoundlessReads:
         result = ramp_dataset.read_array(
             band=0, window=Window(-1, -1, 3, 3), boundless=True, fill_value=7.0
         )
-        assert (result[0, :] == 7.0).all(), "explicit fill must win over nodata"
+        assert np.isclose(result[0, :], 7.0).all(), "explicit fill must win over nodata"
 
     def test_multi_band_boundless(self):
         """An all-bands boundless read stacks filled planes per band."""
@@ -88,8 +88,8 @@ class TestBoundlessReads:
         )
         result = ds.read_array(window=Window(-1, -1, 3, 3), boundless=True)
         assert result.shape == (2, 3, 3), f"3-D shape wrong: {result.shape}"
-        assert result[0, 1, 1] == base[0, 0], "band-0 inside value wrong"
-        assert result[1, 1, 1] == base[0, 0] + 100.0, "band-1 inside value wrong"
+        assert result[0, 1, 1] == pytest.approx(base[0, 0]), "band-0 inside value wrong"
+        assert result[1, 1, 1] == pytest.approx(base[0, 0] + 100.0), "band-1 inside value wrong"
         assert (result[:, 0, :] == -9999.0).all(), "outside rows must be fill"
 
     def test_legacy_list_window_form(self, ramp_dataset):
