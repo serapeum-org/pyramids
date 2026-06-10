@@ -868,6 +868,10 @@ class COG(_Engine):
 
                 ```
         """
+        if not isinstance(resampling, str):
+            raise TypeError(
+                f"resampling method must be a string, got {type(resampling).__name__}."
+            )
         resampling = resampling.lower().strip()
         if resampling not in _RESAMPLING_ALG:
             raise ValueError(
@@ -1006,6 +1010,10 @@ class COG(_Engine):
 
                 ```
         """
+        if not isinstance(resampling, str):
+            raise TypeError(
+                f"resampling method must be a string, got {type(resampling).__name__}."
+            )
         resampling = resampling.lower().strip()
         if resampling not in _RESAMPLING_ALG:
             raise ValueError(

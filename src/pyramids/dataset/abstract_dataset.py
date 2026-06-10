@@ -35,6 +35,9 @@ from pyramids.feature import FeatureCollection
 DEFAULT_NO_DATA_VALUE = -9999
 CATALOG = Catalog()
 OVERVIEW_LEVELS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
+# Overview-build resampling names (gdal.Dataset.BuildOverviews family). This is a
+# different GDAL name-space from the warp algorithms in
+# pyramids.base._utils.INTERPOLATION_METHODS (gdal.GRA_*) used by to_crs/resample.
 RESAMPLING_METHODS = [
     "NEAREST",
     "CUBIC",
