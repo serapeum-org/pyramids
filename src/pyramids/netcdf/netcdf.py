@@ -1724,6 +1724,35 @@ class NetCDF(Dataset):
         check reads the MDArray's dimensions directly (not via ``get_variable``,
         which can't build a classic raster for a non-spatial variable), so an
         auxiliary variable is identified before any spatial op runs.
+
+        Args:
+            rg: The root :class:`osgeo.gdal.Group` of the open store, used to
+                open the named array and resolve its dimensions.
+            var_name: Name of the variable to classify.
+
+        Returns:
+            bool: ``True`` when the variable has at least two dimensions with a
+            recognised ``(y, x)`` pair among them; ``False`` for a 1-D / scalar
+            auxiliary variable, a 2-D variable with no spatial axes, or a name
+            that cannot be opened as an MDArray.
+
+        Examples:
+            - A gridded ``t2m(valid_time, lat, lon)`` variable is spatial, so
+              ``crop`` / ``to_crs`` will operate on it (requires an open store):
+                ```python
+                >>> rg = nc._raster.GetRootGroup()  # doctest: +SKIP
+                >>> nc._variable_is_spatial(rg, "t2m")  # doctest: +SKIP
+                True
+
+                ```
+            - A 1-D ``number(valid_time)`` auxiliary variable is not spatial, so
+              it is carried through unchanged instead:
+                ```python
+                >>> rg = nc._raster.GetRootGroup()  # doctest: +SKIP
+                >>> nc._variable_is_spatial(rg, "number")  # doctest: +SKIP
+                False
+
+                ```
         """
         try:
             md = rg.OpenMDArray(var_name)
@@ -1746,6 +1775,27 @@ class NetCDF(Dataset):
         ``reduce``) so they act only on griddable variables; the remaining
         non-spatial auxiliary variables are carried through by
         :meth:`_carry_aux_variables`.
+
+        Returns:
+            list[str]: Names of the gridded variables, in declaration order.
+            Empty when the store has no root group (e.g. a closed or
+            single-variable raster handle) or no variable carries a ``(y, x)``
+            pair.
+
+        Examples:
+            - An ERA5-shaped container reports only its gridded variables,
+              leaving the 1-D ``number`` auxiliary out (requires an open store):
+                ```python
+                >>> nc._spatial_variable_names()  # doctest: +SKIP
+                ['t2m']
+
+                ```
+            - A single-variable view (no root group) yields an empty list:
+                ```python
+                >>> nc.get_variable("t2m")._spatial_variable_names()  # doctest: +SKIP
+                []
+
+                ```
         """
         rg = self._raster.GetRootGroup() if self._raster is not None else None
         if rg is None:
@@ -1766,6 +1816,22 @@ class NetCDF(Dataset):
             result: The container built from the spatial variables.
             aux_vars: Names of the non-spatial variables to carry through.
             operation: Operation name, for the warning message.
+
+        Returns:
+            None: ``result`` is mutated in place — each carried variable is
+            added to it. A copy failure for one variable emits a
+            :class:`UserWarning` naming that variable and continues.
+
+        Examples:
+            - Carry an ERA5 cube's 1-D ``number`` auxiliary into a freshly
+              cropped result so it survives the op (requires an open store):
+                ```python
+                >>> cropped = nc._apply_to_all_variables("crop", {"mask": mask})  # doctest: +SKIP
+                >>> nc._carry_aux_variables(cropped, ["number"], "crop")  # doctest: +SKIP
+                >>> sorted(cropped.variable_names)  # doctest: +SKIP
+                ['number', 't2m']
+
+                ```
         """
         for var_name in aux_vars:
             try:
@@ -1901,7 +1967,10 @@ class NetCDF(Dataset):
         `pressure_level`, `depth`, an ensemble member, …) of every variable
         that has it, leaving variables without `dim` and all other dimensions,
         coordinates, CRS, and the grid untouched. The result is a new
-        :class:`NetCDF` container — no xarray involved.
+        :class:`NetCDF` container — no xarray involved. Only gridded variables
+        are reduced; non-spatial auxiliary variables (no ``y`` / ``x`` axes,
+        e.g. ERA5's ``number``) are carried through unchanged rather than
+        crashing the fan-out (#513).
 
         Args:
             dim: Name of the non-spatial dimension to reduce. Must be one of a
