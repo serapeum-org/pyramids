@@ -130,6 +130,22 @@ class TestMaskedReads:
         assert result.shape == (1, 2), f"unexpected window shape {result.shape}"
         assert result.mask.sum() == 1, "window must contain one masked cell"
 
+    def test_float_precision_nodata_is_masked(self):
+        """A nodata value that is not exactly representable still masks.
+
+        Test scenario:
+            nodata 0.1 stored in a float32 band differs from the python
+            double 0.1; the tolerance-based comparison (is_no_data) must
+            still mask the cell where an exact == would miss it.
+        """
+        arr = np.array([[0.1, 2.0], [3.0, 4.0]], dtype="float32")
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0, 2), cell_size=1.0, epsg=4326, no_data_value=0.1
+        )
+        result = ds.read_array(band=0, masked=True)
+        assert result.mask[0, 0], "float32-precision nodata cell must be masked"
+        assert result.mask.sum() == 1, f"expected 1 masked cell, got {result.mask.sum()}"
+
     def test_default_returns_plain_ndarray(self, nodata_dataset):
         """masked=False (default) keeps the historical plain-ndarray contract.
 
@@ -184,3 +200,20 @@ class TestNetCDFMaskedReads:
         """
         with pytest.raises(NotImplementedError, match="masked=True"):
             nc_subset.read_array(chunks=2, masked=True)
+
+    def test_unpack_preserves_mask(self, nc_subset):
+        """CF unpack scaling preserves the mask built from raw values.
+
+        Test scenario:
+            With scale/offset attributes faked on the subset, masked +
+            unpack returns a MaskedArray whose mask matches the raw
+            no-data cells and whose valid values are scaled.
+        """
+        nc_subset._scale = 2.0
+        nc_subset._offset = 1.0
+        result = nc_subset.read_array(masked=True, unpack=True)
+        assert isinstance(result, np.ma.MaskedArray), "unpack dropped the mask wrapper"
+        assert result.mask.sum() == 1, f"mask lost through unpack: {result.mask}"
+        assert result[0, 0] == pytest.approx(1.0 * 2.0 + 1.0), (
+            f"valid cell not scaled: {result[0, 0]}"
+        )

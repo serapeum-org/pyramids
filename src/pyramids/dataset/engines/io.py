@@ -20,6 +20,7 @@ from osgeo import gdal
 from osgeo_utils import gdal2xyz
 from pandas import DataFrame
 
+from pyramids.base._domain import is_no_data
 from pyramids.base._errors import OutOfBoundsError, ReadOnlyError
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._locks import DummyLock, default_lock
@@ -335,10 +336,11 @@ class IO(_Engine):
     ) -> np.ma.MaskedArray:
         """Wrap an eagerly-read array as a MaskedArray of its invalid pixels.
 
-        Builds the per-band mask from the no-data marker (NaN-aware) and, for
-        full reads, the band's GDAL mask band (alpha / internal masks).
-        ``GMF_NODATA``-derived mask bands are skipped — they duplicate the
-        no-data comparison already applied.
+        Builds the per-band mask from the no-data marker (via
+        :func:`pyramids.base._domain.is_no_data` — NaN-safe and
+        float-precision-tolerant) and, for full reads, the band's GDAL mask
+        band (alpha / internal masks). ``GMF_NODATA``-derived mask bands are
+        skipped — they duplicate the no-data comparison already applied.
 
         Args:
             arr: The array returned by the eager read — 2-D for a single
@@ -362,11 +364,12 @@ class IO(_Engine):
         for index, data in zip(indices, slices):
             nodata = self._ds.no_data_value[index]
             if nodata is None:
+                # No marker set: nothing to mask by value. (is_no_data treats
+                # None as a NaN sentinel, which would wrongly mask valid NaNs
+                # on bands that never declared a no-data value.)
                 mask = np.zeros(data.shape, dtype=bool)
-            elif isinstance(nodata, float) and np.isnan(nodata):
-                mask = np.isnan(data)
             else:
-                mask = data == nodata
+                mask = is_no_data(data, nodata)
             if not windowed:
                 gdal_band = self._ds._iloc(index)
                 flags = gdal_band.GetMaskFlags()
