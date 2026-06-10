@@ -13,9 +13,10 @@ from pyramids.base._utils import gdal_to_numpy_dtype, import_cftime
 AttributeScalar: TypeAlias = bool | int | float | str
 AttributeVector: TypeAlias = list[AttributeScalar]
 AttributeValue: TypeAlias = AttributeScalar | AttributeVector
-# Matched against the stripped string: the lazy `(.+?)\s*$` tail of the previous
-# pattern backtracked polynomially on long non-matching input (SonarCloud S5852).
-_ORIGIN_RE = re.compile(r"^([A-Za-z]+)\s+since\s+(.+)$", re.IGNORECASE)
+# Matched against the stripped string. Written to be linear-time: `\s+` borders
+# only `\S`-led groups (no overlap, so no backtracking ambiguity — S5852), and
+# the class is single-cased because IGNORECASE already covers A-Z (S5869).
+_ORIGIN_RE = re.compile(r"^([a-z]+)\s+since\s+(\S.*)$", re.IGNORECASE)
 
 
 def _full_name_with_fallback(group: gdal.Group, default_name: str | None = None) -> str:
