@@ -72,7 +72,7 @@ class TestMaskedReads:
         assert result.mask.sum() == 1, f"expected 1 masked cell, got {result.mask.sum()}"
         assert result.mask[0, 1], "the -9999 cell must be the masked one"
         filled = result.filled(0)
-        assert filled[0, 1] == 0, "filled() must replace the masked cell"
+        assert filled[0, 1] == pytest.approx(0.0), "filled() must replace the masked cell"
         assert filled[1, 1] == pytest.approx(4.0), "valid cells must survive filled()"
 
     def test_nan_nodata_masks_nan_cells(self):
@@ -129,6 +129,65 @@ class TestMaskedReads:
         result = nodata_dataset.read_array(band=0, window=[0, 0, 2, 1], masked=True)
         assert result.shape == (1, 2), f"unexpected window shape {result.shape}"
         assert result.mask.sum() == 1, "window must contain one masked cell"
+
+    def test_windowed_read_honours_mask_band(self, mask_band_dataset):
+        """A windowed masked read slices the GDAL mask band to the window.
+
+        Test scenario:
+            The mask band zeroes cell (0, 1); a window covering the top row
+            must mask exactly that cell, proving the mask band is read with
+            the same pixel offsets as the data.
+        """
+        result = mask_band_dataset.read_array(band=0, window=[0, 0, 2, 1], masked=True)
+        assert result.shape == (1, 2), f"unexpected window shape {result.shape}"
+        assert result.mask.sum() == 1, f"mask band ignored in window: {result.mask}"
+        assert result.mask[0, 1], "the mask-band-zeroed cell must be masked"
+
+    def test_bbox_masked_read(self):
+        """A bbox-driven masked read masks nodata within the resolved window.
+
+        Test scenario:
+            On a 4x4 raster the bbox resolves to the central 2x2 block,
+            which contains one -9999 cell; the geometry window resolves to
+            pixel offsets and the mask aligns with the returned block.
+        """
+        arr = np.full((4, 4), 5.0, dtype="float32")
+        arr[1, 1] = -9999.0
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0, 4), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+        )
+        result = ds.read_array(band=0, bbox=(1.0, 1.0, 3.0, 3.0), masked=True)
+        assert isinstance(result, np.ma.MaskedArray), f"got {type(result).__name__}"
+        assert result.shape == (2, 2), f"unexpected bbox shape {result.shape}"
+        assert result.mask.sum() == 1, f"bbox window must mask the -9999 cell: {result.mask}"
+        masked_at = tuple(np.argwhere(result.mask)[0])
+        assert result.data[masked_at] == pytest.approx(-9999.0), (
+            "the mask must sit on the -9999 cell of the returned block"
+        )
+
+    def test_no_nodata_marker_leaves_nan_unmasked(self, tmp_path):
+        """A band without a nodata marker masks nothing, even valid NaNs.
+
+        Test scenario:
+            No nodata, no mask band — a NaN cell is ordinary data and the
+            mask must be all-False (is_no_data's None-as-NaN sentinel must
+            not be applied to undeclared bands).
+        """
+        path = str(tmp_path / "no_nodata.tif")
+        drv = gdal.GetDriverByName("GTiff")
+        ds = drv.Create(path, 2, 2, 1, gdal.GDT_Float32)
+        ds.SetGeoTransform((0, 1, 0, 2, 0, -1))
+        sr = osr.SpatialReference()
+        sr.ImportFromEPSG(4326)
+        ds.SetProjection(sr.ExportToWkt())
+        ds.GetRasterBand(1).WriteArray(
+            np.array([[np.nan, 2.0], [3.0, 4.0]], dtype="float32")
+        )
+        ds.FlushCache()
+        ds = None
+        result = Dataset.read_file(path).read_array(band=0, masked=True)
+        assert isinstance(result, np.ma.MaskedArray), f"got {type(result).__name__}"
+        assert result.mask.sum() == 0, f"nothing must be masked: {result.mask}"
 
     def test_float_precision_nodata_is_masked(self):
         """A nodata value that is not exactly representable still masks.

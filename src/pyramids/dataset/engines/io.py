@@ -144,10 +144,9 @@ class IO(_Engine):
 
                 - the band's no-data marker (NaN-aware: a NaN nodata masks
                   the NaN cells), and
-                - the band's GDAL mask band (alpha / internal masks) for
-                  full reads. Windowed reads mask by no-data only, since
-                  the mask band cannot be sliced to a geometry-resolved
-                  window.
+                - the band's GDAL mask band (alpha / internal masks).
+                  Windowed reads (including `bbox`) slice the mask band
+                  with the same resolved pixel window as the data.
 
                 Only supported on the eager path; combining it with
                 `chunks` raises :class:`NotImplementedError`. Default is
@@ -324,7 +323,7 @@ class IO(_Engine):
                     arr = self._read_block(band, window)
             self._ds._backend = "numpy"
             if masked:
-                arr = self._to_masked(arr, band, windowed=window is not None)
+                arr = self._to_masked(arr, band, window=window)
         return arr
 
     def _to_masked(
@@ -332,28 +331,34 @@ class IO(_Engine):
         arr: np.ndarray,
         band: int | None,
         *,
-        windowed: bool,
+        window: GeoDataFrame | list[int] | None,
     ) -> np.ma.MaskedArray:
         """Wrap an eagerly-read array as a MaskedArray of its invalid pixels.
 
         Builds the per-band mask from the no-data marker (via
         :func:`pyramids.base._domain.is_no_data` — NaN-safe and
-        float-precision-tolerant) and, for full reads, the band's GDAL mask
-        band (alpha / internal masks). ``GMF_NODATA``-derived mask bands are
-        skipped — they duplicate the no-data comparison already applied.
+        float-precision-tolerant) and the band's GDAL mask band (alpha /
+        internal masks). Windowed reads slice the mask band with the same
+        resolved pixel window as the data. ``GMF_NODATA``-derived mask
+        bands are skipped — they duplicate the no-data comparison already
+        applied.
 
         Args:
             arr: The array returned by the eager read — 2-D for a single
                 band, 3-D ``(bands, rows, cols)`` for an all-bands read.
             band: The band index the read resolved to, or ``None`` for an
                 all-bands (3-D) read.
-            windowed: ``True`` when the read was windowed; mask bands are
-                skipped in that case because they cannot be sliced to a
-                geometry-resolved window.
+            window: The window the read used — a geometry
+                (GeoDataFrame/FeatureCollection, e.g. built from a
+                ``bbox``), a ``[xoff, yoff, xsize, ysize]`` list, or
+                ``None`` for a full read. Geometries are resolved to pixel
+                offsets exactly as :meth:`_read_block` resolves them.
 
         Returns:
             np.ma.MaskedArray: ``arr`` with invalid pixels masked.
         """
+        if isinstance(window, GeoDataFrame):
+            window = self._convert_polygon_to_window(window)
         if arr.ndim == 2:
             indices = [0 if band is None else band]
             slices = [arr]
@@ -370,11 +375,17 @@ class IO(_Engine):
                 mask = np.zeros(data.shape, dtype=bool)
             else:
                 mask = is_no_data(data, nodata)
-            if not windowed:
-                gdal_band = self._ds._iloc(index)
-                flags = gdal_band.GetMaskFlags()
-                if flags not in (gdal.GMF_ALL_VALID, gdal.GMF_NODATA):
-                    mask = mask | (gdal_band.GetMaskBand().ReadAsArray() == 0)
+            gdal_band = self._ds._iloc(index)
+            flags = gdal_band.GetMaskFlags()
+            if flags not in (gdal.GMF_ALL_VALID, gdal.GMF_NODATA):
+                mask_band = gdal_band.GetMaskBand()
+                if window is None:
+                    band_mask = mask_band.ReadAsArray()
+                else:
+                    band_mask = mask_band.ReadAsArray(
+                        window[0], window[1], window[2], window[3]
+                    )
+                mask = mask | (band_mask == 0)
             masks.append(mask)
         full_mask = masks[0] if arr.ndim == 2 else np.stack(masks, axis=0)
         return np.ma.MaskedArray(arr, mask=full_mask)
