@@ -137,8 +137,10 @@ class Window:
         inverse = gdal.InvGeoTransform(geotransform)
         left, top = gdal.ApplyGeoTransform(inverse, min_x, max_y)
         right, bottom = gdal.ApplyGeoTransform(inverse, max_x, min_y)
-        col_off = int(left)
-        row_off = int(top)
+        # floor (not int(): it truncates toward zero) so bboxes extending
+        # left of / above the raster origin resolve to negative offsets.
+        col_off = int(math.floor(left))
+        row_off = int(math.floor(top))
         cols = max(1, int(math.ceil(right)) - col_off)
         rows = max(1, int(math.ceil(bottom)) - row_off)
         return cls(col_off=col_off, row_off=row_off, cols=cols, rows=rows)

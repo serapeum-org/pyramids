@@ -87,6 +87,19 @@ class TestWindow:
         w = Window.from_bounds((0.5, 0.5, 1.5, 1.5), GT_UNIT)
         assert w == Window(0, 2, 2, 2), f"covering window wrong: {w}"
 
+    def test_from_bounds_negative_offsets_floor(self):
+        """A bbox extending left of / above the origin floors to negative offsets.
+
+        Test scenario:
+            int() truncates toward zero, which would wrongly map left=-0.5 to
+            column 0; floor must map it to column -1 so the window still
+            covers the bbox.
+        """
+        w = Window.from_bounds((-0.5, 3.5, 1.0, 4.5), GT_UNIT)
+        assert w.col_off == -1, f"col_off must floor to -1, got {w.col_off}"
+        assert w.row_off == -1, f"row_off must floor to -1, got {w.row_off}"
+        assert w.cols >= 2 and w.rows >= 2, f"window must cover the bbox: {w}"
+
     def test_from_bounds_inverted_bbox_rejected(self):
         """An inverted bbox raises ValueError."""
         with pytest.raises(ValueError, match="min_x, min_y, max_x, max_y"):

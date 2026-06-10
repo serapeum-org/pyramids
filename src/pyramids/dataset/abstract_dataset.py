@@ -460,7 +460,7 @@ class RasterBase(ABC):
             block_windows: The windows-only variant (no pixel reads).
         """
         for block in self.block_windows(band, window=window):
-            yield block, self.read_array(band=band, window=list(block.to_read_args()))
+            yield block, self.read_array(band=band, window=block)
 
     @property
     def file_name(self):
