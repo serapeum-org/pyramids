@@ -44,6 +44,32 @@ shipped license texts are documented in [THIRD_PARTY_LICENSES.md](docs/about/THI
 if you use `pyramids-gis` in publications please also cite GDAL itself per
 [gdal.org/cite_gdal.html](https://gdal.org/cite_gdal.html).
 
+```mermaid
+graph LR
+    GeoTIFF & NetCDF & Shapefile & UGRID -->|read| pyramids
+    subgraph pyramids
+        direction TB
+        Dataset
+        NetCDF_class[NetCDF]
+        UgridDataset
+        DatasetCollection
+        FeatureCollection
+        subgraph Engines["Dataset engines (ds.io · ds.spatial · ds.bands · ds.analysis · ds.cell · ds.vectorize · ds.cog)"]
+        end
+        subgraph Plotting["Plotting layer — _plot_helpers.render_array · mesh_render · NetCDFPlot · Selectors / ColourOpts / FacetSpec · basemap"]
+        end
+    end
+    Dataset -->|crop · reproject · align| Dataset
+    Dataset --- Engines
+    FeatureCollection -->|rasterize| Dataset
+    UgridDataset -->|interpolate| Dataset
+    Dataset -->|vectorize| FeatureCollection
+    DatasetCollection -->|lazy temporal stack| Dataset
+    NetCDF_class -->|extends| Dataset
+    Dataset & NetCDF_class & DatasetCollection & UgridDataset -->|plot| Plotting
+    Plotting -->|delegates| cleopatra(["cleopatra<br/>ArrayGlyph · MeshGlyph · tiles"])
+```
+
 For the class relationships, internal layers, and detailed architecture diagrams, see
 [docs/overview/architecture.md](docs/overview/architecture.md).
 
