@@ -8,6 +8,7 @@ Owns the IO family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 import logging
+import math
 import pickle
 import warnings
 from collections.abc import Callable
@@ -53,6 +54,38 @@ def _validate_band_index(band: int | None, band_count: int) -> None:
         raise ValueError(
             f"band index should be between 0 and {band_count - 1}, " f"got {band}"
         )
+
+
+def _validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
+    """Reject an explicit boundless fill that an integer band cannot hold.
+
+    ``np.full`` casts the fill unsafely, so an out-of-range or fractional
+    fill on an integer band would silently wrap (e.g. ``-9999.0`` on a
+    ``uint8`` band becomes ``241``) instead of failing. Float dtypes are
+    not checked — precision loss on cast is standard NumPy semantics.
+
+    Args:
+        fill_value: The user-supplied fill.
+        dtype: The band's NumPy dtype.
+
+    Raises:
+        ValueError: ``dtype`` is integral and `fill_value` is not finite,
+            not a whole number, or outside the dtype's value range.
+    """
+    if dtype.kind in "iu":
+        value = float(fill_value)
+        info = np.iinfo(dtype)
+        if (
+            not math.isfinite(value)
+            or not value.is_integer()
+            or value < info.min
+            or value > info.max
+        ):
+            raise ValueError(
+                f"fill_value={fill_value!r} is not representable in the band "
+                f"dtype {dtype.name} (whole numbers in [{info.min}, "
+                f"{info.max}])."
+            )
 
 
 class IO(_Engine):
@@ -156,7 +189,9 @@ class IO(_Engine):
             fill_value (float | None, keyword-only):
                 Explicit fill for outside pixels on a boundless read.
                 `None` (default) defers to the band's no-data value, then to
-                the dtype's zero.
+                the dtype's zero. Must be representable in the band dtype
+                (a whole number within range for integer bands) and requires
+                `boundless=True`; anything else raises :class:`ValueError`.
 
         Returns:
             ArrayLike:
@@ -166,9 +201,13 @@ class IO(_Engine):
                 `"dask"` after the call.
 
         Raises:
-            ValueError: If `band` is out of range or `chunks` is
+            ValueError: If `band` is out of range, `chunks` is
                 combined with `window` (the lazy path reads the
-                full array and expects dask to slice it down).
+                full array and expects dask to slice it down) or
+                with `boundless=True`, `boundless=True` is given
+                without a pixel window, or `fill_value` is given
+                without `boundless=True` or cannot be represented
+                in the band dtype.
             ImportError: If `chunks` is non-None and `dask` is not
                 installed.
 
@@ -268,6 +307,16 @@ class IO(_Engine):
             - Dataset.get_tile: Read the dataset in chunks.
             - Dataset.get_block_arrangement: Get block arrangement to read the dataset in chunks.
         """
+        if fill_value is not None and not boundless:
+            raise ValueError(
+                "read_array(fill_value=...) only applies to boundless reads; "
+                "pass boundless=True as well."
+            )
+        if boundless and chunks is not None:
+            raise ValueError(
+                "read_array(chunks=..., boundless=True) is not supported; "
+                "boundless fills apply to eager windowed reads only."
+            )
         if bbox is not None:
             if window is not None:
                 raise ValueError(
@@ -459,6 +508,10 @@ class IO(_Engine):
         Returns:
             np.ndarray: ``(rows, cols)`` for a single band, ``(bands, rows,
                 cols)`` for an all-bands read — always the full window shape.
+
+        Raises:
+            ValueError: ``band`` is out of range, or ``fill_value`` cannot be
+                represented in a band's integer dtype.
         """
         if not isinstance(window, Window):
             col_off, row_off, cols, rows = window
@@ -474,6 +527,7 @@ class IO(_Engine):
         for index in band_indices:
             dtype = np.dtype(self._ds.numpy_dtype[index])
             if fill_value is not None:
+                _validate_fill_value(fill_value, dtype)
                 fill = fill_value
             elif self._ds.no_data_value[index] is not None:
                 fill = self._ds.no_data_value[index]
