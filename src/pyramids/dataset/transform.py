@@ -73,11 +73,39 @@ class GeoTransform(NamedTuple):
         Returns:
             tuple[float, float]: The ``(x, y)`` map coordinate of the pixel's
                 reference corner (or the supplied fractional position).
+
+        Raises:
+            TypeError: ``col_row`` is not a two-element ``(col, row)`` pair —
+                in particular, ``transform * n`` tuple repetition is not
+                supported.
         """
-        col, row = col_row
+        try:
+            col, row = col_row
+        except (TypeError, ValueError) as error:
+            raise TypeError(
+                f"GeoTransform multiplication expects a (col, row) pair, got {col_row!r}."
+            ) from error
         x = self.x_origin + col * self.pixel_width + row * self.row_rotation
         y = self.y_origin + col * self.column_rotation + row * self.pixel_height
         return (x, y)
+
+    def __rmul__(self, other: object) -> tuple[float, float]:  # type: ignore[override]
+        """Reject reflected multiplication such as ``2 * transform``.
+
+        Plain tuples implement ``n * t`` as sequence repetition; for a
+        transform that would silently build a meaningless 12-element tuple,
+        so the reflected operator is disabled.
+
+        Args:
+            other: The left operand of ``other * transform``.
+
+        Raises:
+            TypeError: Always — write ``transform * (col, row)`` instead.
+        """
+        raise TypeError(
+            f"unsupported operand for *: {other!r} * GeoTransform; "
+            "write transform * (col, row) instead."
+        )
 
     @property
     def inverse(self) -> "GeoTransform":
