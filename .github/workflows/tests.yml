@@ -30,7 +30,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: serapeum-org/github-actions/actions/python-setup/pixi@pixi/v1
+        uses: serapeum-org/github-actions/actions/python-setup/pixi@65da263cc0f804cba87da3cbe6024d528831be1d  # pixi/v1
         with:
           environments: ${{ matrix.environment }}
           activate-environment: ${{ matrix.environment }}
@@ -46,7 +46,7 @@ jobs:
         run: pixi run -e ${{ matrix.environment }} xarray-tests --cov-fail-under=84
 
       - name: Upload coverage reports to Codecov with GitHub Action
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac  # v5
 
       - name: test Jupyter notebooks
         run: pixi run -e ${{ matrix.environment }} notebooks
@@ -77,7 +77,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: serapeum-org/github-actions/actions/python-setup/pixi@pixi/v1
+        uses: serapeum-org/github-actions/actions/python-setup/pixi@65da263cc0f804cba87da3cbe6024d528831be1d  # pixi/v1
         with:
           environments: ${{ matrix.target.env }}
           activate-environment: ${{ matrix.target.env }}
@@ -95,4 +95,4 @@ jobs:
           --cov-fail-under=0
 
       - name: Upload coverage reports to Codecov with GitHub Action
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac  # v5

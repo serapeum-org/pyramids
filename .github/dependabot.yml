@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # Keep SHA-pinned action references current: Dependabot understands the
+  # `uses: owner/repo@<sha>  # <tag>` convention and updates both the pin and
+  # the tag comment when a new release appears.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - dev
