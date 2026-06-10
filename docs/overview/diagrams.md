@@ -1,6 +1,9 @@
-# Architecture Diagrams
+# Detailed Diagrams (UML & Sequences)
 
-Below are core diagrams describing the system at multiple levels.
+Deep-dive diagrams for contributors: UML class structure, key call sequences, and the module
+dependency graph. For the C4 context/containers/components view, see
+[How it works](how-it-works.md); for the high-level architecture, see
+[Architecture](architecture.md).
 
 ## UML Class: Raster Core (with engines)
 
