@@ -172,6 +172,12 @@ class TestSampleCommand:
         assert rc == 1, "empty points must exit 1"
         assert "at least one" in capsys.readouterr().err, "expected guidance"
 
+    def test_malformed_point_rejected(self, src_raster, capsys):
+        """A point that is not 'x,y' exits 1 naming the bad chunk."""
+        rc = main(["sample", src_raster, "--points", "1,2,3"])
+        assert rc == 1, "malformed point must exit 1"
+        assert "expected 'x,y'" in capsys.readouterr().err, "expected format hint"
+
 
 class TestConvertCommand:
     """`pyramids convert`."""

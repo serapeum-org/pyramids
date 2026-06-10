@@ -266,9 +266,11 @@ def _cmd_sample(args: argparse.Namespace) -> int:
         raise ValueError("--points must contain at least one 'x,y' pair.")
     xs, ys = [], []
     for chunk in pairs:
-        x_str, y_str = chunk.split(",")
-        xs.append(float(x_str))
-        ys.append(float(y_str))
+        parts = chunk.split(",")
+        if len(parts) != 2:
+            raise ValueError(f"bad point {chunk.strip()!r}; expected 'x,y'.")
+        xs.append(float(parts[0]))
+        ys.append(float(parts[1]))
     ds = Dataset.read_file(args.file)
     values = ds.sample(DataFrame({"x": xs, "y": ys}))
     # ds.sample returns (bands, points); transpose to one row per point.
