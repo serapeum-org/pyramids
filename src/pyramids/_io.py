@@ -123,6 +123,69 @@ def silent_unlink(path: str) -> None:
         pass
 
 
+def read_vsi_bytes(path: str) -> bytes:
+    """Read the full contents of a GDAL VSI file as bytes.
+
+    The standard ``VSIFOpenL`` / seek-to-end / ``VSIFReadL`` dance used to pull
+    an in-memory (``/vsimem/``) or other VSI file back into Python — shared by
+    every ``to_*_bytes`` serializer so the read-back logic lives in one place.
+
+    Args:
+        path: The VSI path to read (e.g. a ``/vsimem/...`` path produced by
+            :func:`new_vsimem_path`).
+
+    Returns:
+        bytes: The complete file contents.
+
+    Raises:
+        FileNotFoundError: The path cannot be opened (it does not exist or was
+            already unlinked).
+
+    Examples:
+        - Write a buffer to ``/vsimem/`` and read it back:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids._io import new_vsimem_path, read_vsi_bytes, silent_unlink
+            >>> path = new_vsimem_path(".bin")
+            >>> _ = gdal.FileFromMemBuffer(path, b"payload")
+            >>> read_vsi_bytes(path)
+            b'payload'
+            >>> silent_unlink(path)
+
+            ```
+        - A missing path raises ``FileNotFoundError``:
+            ```python
+            >>> from pyramids._io import read_vsi_bytes
+            >>> try:
+            ...     read_vsi_bytes("/vsimem/never-written.bin")
+            ... except FileNotFoundError as exc:
+            ...     print("could not open" in str(exc))
+            True
+
+            ```
+
+    See Also:
+        new_vsimem_path: Mints unique ``/vsimem/`` paths to write into.
+        silent_unlink: Removes the path once the bytes are extracted.
+    """
+    try:
+        handle = gdal.VSIFOpenL(path, "rb")
+    except RuntimeError:
+        # Under gdal.UseExceptions() a missing path raises instead of
+        # returning None; normalise both shapes to FileNotFoundError.
+        handle = None
+    if handle is None:
+        raise FileNotFoundError(f"could not open VSI path {path!r} for reading.")
+    try:
+        gdal.VSIFSeekL(handle, 0, 2)
+        size = gdal.VSIFTellL(handle)
+        gdal.VSIFSeekL(handle, 0, 0)
+        data = gdal.VSIFReadL(1, size, handle)
+    finally:
+        gdal.VSIFCloseL(handle)
+    return bytes(data)
+
+
 def _is_zip(path: str):
     return path.endswith(".zip") or path.__contains__(".zip")
 

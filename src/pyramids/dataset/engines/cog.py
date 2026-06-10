@@ -35,6 +35,7 @@ from pyramids.dataset.cog import (
     validate_blocksize,
     validate_profile,
 )
+from pyramids._io import read_vsi_bytes
 from pyramids.dataset.cog.validate import _resolve_read_config, config_context
 from pyramids.dataset.engines._base import _Engine
 
@@ -539,21 +540,15 @@ class COG(_Engine):
         vsi_path = f"/vsimem/{uuid.uuid4().hex}.tif"
         try:
             self.to_cog(vsi_path, **kwargs)
-            handle = gdal.VSIFOpenL(vsi_path, "rb")
-            if handle is None:
+            try:
+                data = read_vsi_bytes(vsi_path)
+            except FileNotFoundError as exc:
                 raise FailedToSaveError(
                     f"could not reopen in-memory COG at {vsi_path}"
-                )
-            try:
-                gdal.VSIFSeekL(handle, 0, 2)  # SEEK_END
-                size = gdal.VSIFTellL(handle)
-                gdal.VSIFSeekL(handle, 0, 0)  # SEEK_SET
-                data = gdal.VSIFReadL(1, size, handle)
-            finally:
-                gdal.VSIFCloseL(handle)
+                ) from exc
         finally:
             gdal.Unlink(vsi_path)
-        return bytes(data)
+        return data
 
     def _translate_with_statistics_retry(
         self,
