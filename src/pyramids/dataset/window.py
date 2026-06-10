@@ -12,6 +12,7 @@ y-first).
 from __future__ import annotations
 
 import math
+import numbers
 from dataclasses import dataclass
 
 from osgeo import gdal
@@ -31,6 +32,8 @@ class Window:
         rows: Window height in pixels (> 0).
 
     Raises:
+        TypeError: Any field is not an integer (GDAL would silently round a
+            fractional offset to a neighbouring pixel).
         ValueError: ``cols`` or ``rows`` is not strictly positive.
 
     Examples:
@@ -70,6 +73,14 @@ class Window:
 
     def __post_init__(self):
         """Validate the window geometry."""
+        for name in ("col_off", "row_off", "cols", "rows"):
+            value = getattr(self, name)
+            if not isinstance(value, numbers.Integral):
+                raise TypeError(
+                    f"window fields must be integers, got {name}={value!r}; "
+                    f"GDAL silently rounds fractional offsets to a "
+                    f"neighbouring pixel."
+                )
         if self.cols <= 0 or self.rows <= 0:
             raise ValueError(
                 f"window size must be strictly positive, got "

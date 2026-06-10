@@ -57,6 +57,32 @@ class TestWindow:
         with pytest.raises(ValueError, match="strictly positive"):
             Window(0, 0, cols, rows)
 
+    @pytest.mark.parametrize(
+        "col_off, row_off, cols, rows",
+        [(1.5, 0, 2, 2), (0, 0.5, 2, 2), (0, 0, 2.0, 2), (0, 0, 2, 2.5)],
+    )
+    def test_non_integer_fields_rejected(self, col_off, row_off, cols, rows):
+        """Fractional fields raise TypeError instead of silently shifting.
+
+        Test scenario:
+            GDAL rounds a fractional offset to a neighbouring pixel without
+            any error, silently misaddressing the window — so the value
+            object must reject non-integral fields up front.
+
+        Args:
+            col_off: Column offset under test.
+            row_off: Row offset under test.
+            cols: Window width under test.
+            rows: Window height under test.
+        """
+        with pytest.raises(TypeError, match="must be integers"):
+            Window(col_off, row_off, cols, rows)
+
+    def test_numpy_integer_fields_accepted(self):
+        """Numpy integer fields are valid (numbers.Integral covers them)."""
+        w = Window(np.int64(1), np.int32(2), np.int64(3), np.int32(2))
+        assert w.to_read_args() == (1, 2, 3, 2), f"unexpected read args from {w}"
+
     def test_equality_and_immutability(self):
         """Windows are frozen value objects.
 
