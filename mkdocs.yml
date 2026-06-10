@@ -7,6 +7,8 @@ repo_name: serapeum-org/pyramids
 theme:
   name: material
   language: en
+  logo: _images/branding/logo-layers-v2.svg
+  favicon: _images/branding/logo-layers-v2.svg
   features:
     - navigation.instant
     - navigation.tracking
