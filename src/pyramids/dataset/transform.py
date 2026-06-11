@@ -81,6 +81,7 @@ class GeoTransform(NamedTuple):
         """
         try:
             col, row = col_row
+            col, row = float(col), float(row)
         except (TypeError, ValueError) as error:
             raise TypeError(
                 f"GeoTransform multiplication expects a (col, row) pair, got {col_row!r}."
