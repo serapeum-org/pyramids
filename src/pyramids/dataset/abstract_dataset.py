@@ -36,6 +36,9 @@ from pyramids.feature import FeatureCollection
 DEFAULT_NO_DATA_VALUE = -9999
 CATALOG = Catalog()
 OVERVIEW_LEVELS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
+# Overview-build resampling names (gdal.Dataset.BuildOverviews family). This is a
+# different GDAL name-space from the warp algorithms in
+# pyramids.base._utils.INTERPOLATION_METHODS (gdal.GRA_*) used by to_crs/resample.
 RESAMPLING_METHODS = [
     "NEAREST",
     "CUBIC",
@@ -805,7 +808,10 @@ class RasterBase(ABC):
             to_epsg (int):
                 Reference number to the new projection (https://epsg.io/) (default 3857 the reference no of WGS84 web mercator).
             method (str):
-                Resampling technique. See https://gisgeography.com/raster-resampling/. Options include "nearest neighbor", "cubic", and "bilinear". Default is "nearest neighbor".
+                Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
+                (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
+                "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms;
+                "sum"/"rms" need GDAL >= 3.1/3.3). See https://gisgeography.com/raster-resampling/.
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the raster the same after reprojection. Default is False.
             inplace (bool):
