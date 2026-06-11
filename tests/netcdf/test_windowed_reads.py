@@ -325,22 +325,16 @@ class TestReadVariableClassicMode:
             noah_nc_path,
             open_as_multi_dimensional=False,
         )
-        var_names = nc.variable_names
-        if not var_names:
-            pytest.skip("No variables found in classic-mode dataset")
-        result_no_window = nc._read_variable(var_names[0])
+        result_no_window = nc._read_variable(nc.variable_names[0])
         result_with_window = nc._read_variable(
-            var_names[0],
+            nc.variable_names[0],
             window=[(0, 1)],
         )
-        if result_no_window is not None and result_with_window is not None:
-            assert_array_equal(
-                result_no_window,
-                result_with_window,
-                err_msg=(
-                    "Classic mode should ignore window and return " "the full variable"
-                ),
-            )
+        assert_array_equal(
+            result_no_window,
+            result_with_window,
+            err_msg="Classic mode should ignore window and return the full variable",
+        )
 
     def test_classic_mode_nonexistent_variable_returns_none(
         self,
@@ -899,12 +893,7 @@ class TestSelOnDiskFile:
             pyramids_created_nc_3d,
             open_as_multi_dimensional=True,
         )
-        var_names = nc.variable_names
-        if not var_names:
-            pytest.skip("No variables in 3D NetCDF")
-        var = nc.get_variable(var_names[0])
-        if var._band_dim_name is None or var._band_dim_values is None:
-            pytest.skip("Variable has no band dimension")
+        var = nc.get_variable(nc.variable_names[0])
         first_coord = var._band_dim_values[0]
         result = var.sel(**{var._band_dim_name: first_coord})
         assert isinstance(
@@ -924,14 +913,9 @@ class TestSelOnDiskFile:
             noah_nc_path,
             open_as_multi_dimensional=True,
         )
-        var_names = nc.variable_names
-        if not var_names:
-            pytest.skip("No variables in noah NetCDF")
-        full = nc._read_variable(var_names[0])
-        if full is None:
-            pytest.skip("Could not read variable")
+        full = nc._read_variable(nc.variable_names[0])
         window = [(0, 1)] * full.ndim
-        windowed = nc._read_variable(var_names[0], window=window)
+        windowed = nc._read_variable(nc.variable_names[0], window=window)
         assert windowed is not None, "Windowed read on on-disk NC should succeed"
         assert windowed.size == 1, (
             f"Single-element window should return 1 value, " f"got {windowed.size}"
