@@ -125,6 +125,19 @@ class TestWriteArrayWindow:
         with pytest.raises(ValueError, match="does not match the window size"):
             blank.write_array(np.ones((3, 3)), window=Window(0, 0, 2, 2))
 
+    def test_legacy_tuple_wrong_length_raises_clear_error(self, blank):
+        """A deprecated tuple of the wrong length gives a clear error (L6).
+
+        Test scenario:
+            A 3-element legacy tuple used to raise a bare "not enough values to
+            unpack"; it must now raise a ValueError naming the expected 4-integer
+            (row_off, col_off, n_rows, n_cols) form. The deprecation warning still
+            fires first.
+        """
+        with pytest.warns(DeprecationWarning):
+            with pytest.raises(ValueError, match="tuple of 4 integers"):
+                blank.write_array(np.ones((2, 2)), window=(0, 0, 2))
+
     def test_window_out_of_bounds_raises(self, blank):
         """A window extending past the raster raises OutOfBoundsError.
 

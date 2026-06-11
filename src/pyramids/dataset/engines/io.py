@@ -1339,6 +1339,12 @@ class IO(_Engine):
                     DeprecationWarning,
                     stacklevel=3,
                 )
+                if not isinstance(window, (list, tuple)) or len(window) != 4:
+                    raise ValueError(
+                        "write_array window must be a Window or a "
+                        "(row_off, col_off, n_rows, n_cols) tuple of 4 integers, "
+                        f"got {window!r}."
+                    )
                 yoff, xoff, n_rows, n_cols = window
             if array.shape[-2:] != (n_rows, n_cols):
                 raise ValueError(
