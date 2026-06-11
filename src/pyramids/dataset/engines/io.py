@@ -906,12 +906,11 @@ class IO(_Engine):
         # to the outer `with effective_lock` in _io_module._read_chunk.
         if threadsafe:
             # One read-only handle per worker thread: chunk reads never
-            # contend, so lock=None resolved to DummyLock above.
-            manager: Any = ThreadLocalFileManager(
-                gdal_raster_open,
-                self._require_reopenable_path(),
-                "read_only",
-            )
+            # contend, so lock=None resolved to DummyLock above. Reuse the
+            # Dataset-cached manager so Dataset.close() can release every
+            # worker handle — a fresh manager here would leak its per-thread
+            # handles past close().
+            manager: Any = self._get_thread_manager()
         else:
             manager = CachingFileManager(
                 gdal_raster_open,

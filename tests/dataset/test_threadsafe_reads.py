@@ -295,6 +295,40 @@ class TestThreadLocalManagerSemantics:
         assert ds._thread_manager is None, "a rejected read must not re-cache"
         os.remove(path)
 
+    def test_close_releases_worker_thread_handles(self, tmp_path):
+        """close() releases handles opened by OTHER threads, not just the caller (H4).
+
+        Test scenario:
+            A worker thread performs a threadsafe read (opening its own per-thread
+            handle) and exits. ``close()`` must close that worker's handle too — the
+            manager tracks every handle, not just the closing thread's — so the file
+            becomes deletable (on Windows a lingering read handle locks the file).
+        """
+        path = str(tmp_path / "worker.tif")
+        Dataset.create_from_array(
+            np.arange(64, dtype="float32").reshape(8, 8),
+            top_left_corner=(0, 8),
+            cell_size=1.0,
+            epsg=4326,
+        ).to_file(path)
+        ds = Dataset.read_file(path)
+
+        def worker():
+            ds.read_array(band=0, threadsafe=True)
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join()
+        manager = ds._thread_manager
+        assert manager is not None and len(manager._handles) >= 1, (
+            "the worker thread's handle must be tracked on the manager"
+        )
+        ds.close()
+        assert manager._handles == [], "close() must release every tracked handle"
+        assert ds._thread_manager is None, "close() must drop the manager"
+        os.remove(path)
+        assert not os.path.exists(path), "file must be unlocked after close()"
+
     def test_manager_is_pickle_safe(self, tiled_raster):
         """The manager survives a pickle round-trip (dask-graph requirement)."""
         ds, _ = tiled_raster
