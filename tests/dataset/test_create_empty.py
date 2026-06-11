@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.dataset import Dataset, NoDataSentinelWarning
+from pyramids.dataset import Dataset, NoDataSentinelWarning, Window
 from pyramids.dataset.dataset import OUT_OF_CORE_CREATION_OPTIONS
 
 pytestmark = pytest.mark.core
@@ -67,12 +67,12 @@ class TestCreateEmpty:
         """A window scattered into an empty MEM raster reads back unchanged.
 
         Test scenario:
-            Allocate empty, ``write_array(block, window=(1, 1, 2, 2))``, then read the
+            Allocate empty, ``write_array(block, window=Window(1, 1, 2, 2))``, then read the
             same window — the values round-trip exactly.
         """
         ds = Dataset.create_empty(4, 4, dtype="float32", driver_type="MEM")
         block = np.arange(4, dtype="float32").reshape(2, 2)
-        ds.write_array(block, window=(1, 1, 2, 2))
+        ds.write_array(block, window=Window(1, 1, 2, 2))
         back = ds.read_array(window=[1, 1, 2, 2])
         assert back.tolist() == block.tolist(), f"window did not round-trip: {back}"
 
@@ -87,7 +87,7 @@ class TestCreateEmpty:
         path = tmp_path / "empty.tif"
         ds = Dataset.create_empty(64, 64, dtype="float32", epsg=3857, path=path)
         block = np.full((8, 8), 5.0, dtype="float32")
-        ds.write_array(block, window=(0, 0, 8, 8))
+        ds.write_array(block, window=Window(0, 0, 8, 8))
         del ds
         reopened = Dataset.read_file(str(path))
         back = reopened.read_array(window=[0, 0, 8, 8])
@@ -129,7 +129,7 @@ class TestCreateEmpty:
         ds = Dataset.create_empty(
             1024, 1024, dtype="float32", no_data_value=-9999.0, path=path
         )
-        ds.write_array(np.ones((4, 4), dtype="float32"), window=(0, 0, 4, 4))
+        ds.write_array(np.ones((4, 4), dtype="float32"), window=Window(0, 0, 4, 4))
         del ds
         reopened = Dataset.read_file(str(path))
         far = reopened.read_array(window=[1000, 1000, 4, 4])
@@ -152,7 +152,7 @@ class TestCreateEmpty:
             ds = Dataset.create_empty(
                 1024, 1024, dtype="float32", no_data_value=None, path=path
             )
-        ds.write_array(np.ones((4, 4), dtype="float32"), window=(0, 0, 4, 4))
+        ds.write_array(np.ones((4, 4), dtype="float32"), window=Window(0, 0, 4, 4))
         del ds
         reopened = Dataset.read_file(str(path))
         far = reopened.read_array(window=[1000, 1000, 4, 4])
@@ -241,8 +241,8 @@ class TestCreateEmpty:
             8, 8, bands=3, dtype="float32", no_data_value=-9999.0, path=path
         )
         assert ds.band_count == 3, f"expected 3 bands, got {ds.band_count}"
-        ds.write_array(np.full((4, 4), 1.0, dtype="float32"), band=0, window=(0, 0, 4, 4))
-        ds.write_array(np.full((4, 4), 7.0, dtype="float32"), band=2, window=(0, 0, 4, 4))
+        ds.write_array(np.full((4, 4), 1.0, dtype="float32"), band=0, window=Window(0, 0, 4, 4))
+        ds.write_array(np.full((4, 4), 7.0, dtype="float32"), band=2, window=Window(0, 0, 4, 4))
         del ds
         reopened = Dataset.read_file(str(path))
         band0 = reopened.read_array(band=0, window=[0, 0, 4, 4])
@@ -316,9 +316,9 @@ class TestCreateEmpty:
         """
         path = tmp_path / "big.tif"
         ds = Dataset.create_empty(50_000, 90_000, dtype="int8", path=path)
-        # write_array window is (row_off, col_off, n_rows, n_cols); the far corner
-        # of a 50_000-row x 90_000-col raster.
-        ds.write_array(np.ones((4, 4), dtype="int8"), window=(49_996, 89_996, 4, 4))
+        # Window is (col_off, row_off, cols, rows); the far corner of a
+        # 50_000-row x 90_000-col raster.
+        ds.write_array(np.ones((4, 4), dtype="int8"), window=Window(89_996, 49_996, 4, 4))
         del ds
         info = gdal.Info(str(path))
         assert "BigTIFF" in info or "BIGTIFF" in info.upper(), (
@@ -488,7 +488,7 @@ class TestEmptyLike:
         out = Dataset.empty_like(template, path=path)
         # template is 3-band, so target band 0 explicitly when writing a 2-D block.
         out.write_array(
-            np.full((2, 2), 7.0, dtype="float32"), band=0, window=(0, 0, 2, 2)
+            np.full((2, 2), 7.0, dtype="float32"), band=0, window=Window(0, 0, 2, 2)
         )
         del out
         reopened = Dataset.read_file(str(path))
