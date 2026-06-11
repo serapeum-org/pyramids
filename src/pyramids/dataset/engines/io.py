@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import pickle
+import threading
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -22,8 +23,13 @@ from osgeo_utils import gdal2xyz
 from pandas import DataFrame
 
 from pyramids._io import new_vsimem_path, read_vsi_bytes, silent_unlink
+from pyramids.base._domain import is_no_data
 from pyramids.base._errors import FailedToSaveError, OutOfBoundsError, ReadOnlyError
-from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
+from pyramids.base._file_manager import (
+    CachingFileManager,
+    ThreadLocalFileManager,
+    gdal_raster_open,
+)
 from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base.protocols import ArrayLike
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS, RESAMPLING_METHODS
@@ -39,6 +45,17 @@ if TYPE_CHECKING:
 from pyramids.dataset.engines._base import _Engine
 
 _VSIMEM_PREFIX = "/vsimem/"
+
+_THREAD_MANAGER_CREATION_LOCK = threading.Lock()
+"""Guards the lazy creation of a Dataset's per-thread file manager.
+
+Without it, two threads making their first ``threadsafe=True`` read on the
+same Dataset could each build a :class:`ThreadLocalFileManager` and one
+would silently displace the other — harmless for correctness (each thread
+keeps a local reference for its in-flight read) but it discards the warm
+manager and re-opens handles. Creation is rare, so one process-wide lock
+is cheaper than a per-dataset one.
+"""
 
 
 def _validate_band_index(band: int | None, band_count: int) -> None:
@@ -106,6 +123,8 @@ class IO(_Engine):
         epsg: Any = None,
         out_shape: tuple[int, int] | None = None,
         resampling: str = "nearest",
+        masked: bool = False,
+        threadsafe: bool = False,
     ) -> ArrayLike:
         """Read the values stored in a given band (eager or lazy).
 
@@ -188,9 +207,9 @@ class IO(_Engine):
                 and pulls from a matching overview level when one exists, so
                 previews of pyramided rasters never touch the full-resolution
                 pixels. Composes with ``window=`` or ``bbox=`` (decimate a
-                sub-window). Not supported together with ``chunks=``
-                (:class:`NotImplementedError`). Default ``None`` (native
-                resolution, unchanged).
+                sub-window). Not supported together with ``chunks=`` or
+                ``masked=True`` (:class:`NotImplementedError`). Default
+                ``None`` (native resolution, unchanged).
             resampling (str, keyword-only):
                 Decimation algorithm for ``out_shape`` reads (``"nearest"``,
                 ``"bilinear"``, ``"cubic"``, ``"cubicspline"``,
@@ -198,12 +217,48 @@ class IO(_Engine):
                 algorithms mix no-data into edge cells — prefer
                 ``"nearest"`` (the default) on rasters with a no-data
                 marker. Ignored when ``out_shape`` is ``None``.
+            masked (bool, keyword-only):
+                When `True`, return a :class:`numpy.ma.MaskedArray` with
+                invalid pixels masked instead of a plain array. The mask
+                combines, per band:
+
+                - the band's no-data marker (NaN-aware: a NaN nodata masks
+                  the NaN cells), and
+                - the band's GDAL mask band (alpha / internal masks).
+                  Windowed reads (including `bbox`) slice the mask band
+                  with the same resolved pixel window as the data.
+
+                Only supported on the eager, non-`threadsafe` path;
+                combining it with `chunks` or `threadsafe=True` raises
+                :class:`NotImplementedError`. Default is `False` (plain
+                array, unchanged behaviour).
+            threadsafe (bool, keyword-only):
+                Opt into per-thread GDAL handles so concurrent reads from
+                multiple threads never share a handle (same-handle
+                concurrent access is undefined behaviour in GDAL):
+
+                - Eager path: each calling thread reads through its own
+                  read-only handle, opened lazily from the dataset's path
+                  and reused for the thread's lifetime.
+                - Lazy path (`chunks=`): the dask chunk reader uses a
+                  per-thread file manager and `lock=None` defaults to
+                  lock-free chunk reads (pass an explicit lock object to
+                  re-serialize them).
+
+                Requires a reopenable path (on disk or `/vsimem/`); a pure
+                in-memory MEM dataset raises :class:`ValueError`. The
+                per-thread handles re-open that path, so they see the
+                on-disk state: when the dataset is open in update mode,
+                flush pending writes (e.g. ``FlushCache``) before reading
+                with `threadsafe=True`. Default `False` (shared-handle
+                behaviour, unchanged).
 
         Returns:
             ArrayLike:
                 :class:`numpy.ndarray` when `chunks is None`,
-                :class:`dask.array.Array` otherwise. The instance
-                attribute :attr:`_backend` records `"numpy"` or
+                :class:`dask.array.Array` otherwise (and a
+                :class:`numpy.ma.MaskedArray` when `masked=True`). The
+                instance attribute :attr:`_backend` records `"numpy"` or
                 `"dask"` after the call.
 
         Raises:
@@ -212,6 +267,12 @@ class IO(_Engine):
                 full array and expects dask to slice it down).
             ImportError: If `chunks` is non-None and `dask` is not
                 installed.
+            NotImplementedError: If `out_shape` is combined with `chunks`
+                (decimate eagerly instead), or if `masked=True` is combined
+                with `chunks` (lazy masked reads are not supported yet),
+                `out_shape` (decimation and masking are not combined yet),
+                or `threadsafe=True` (the mask band would be read from the
+                shared handle).
 
         Examples:
             - Create `Dataset` consisting of 4 bands, 5 rows, and 5 columns at the point lon/lat (0, 0):
@@ -327,10 +388,33 @@ class IO(_Engine):
                     "read_array(out_shape=...) is not supported together with "
                     "chunks=; decimate eagerly, or coarsen the dask array."
                 )
-            arr = self._lazy_read_array(band=band, chunks=chunks, lock=lock)
+            if masked:
+                raise NotImplementedError(
+                    "read_array(masked=True) is not supported together with "
+                    "chunks=; read eagerly, or mask the dask array yourself."
+                )
+            arr = self._lazy_read_array(
+                band=band, chunks=chunks, lock=lock, threadsafe=threadsafe
+            )
             self._ds._backend = "dask"
         elif out_shape is not None:
+            if masked:
+                raise NotImplementedError(
+                    "read_array(out_shape=...) is not supported together with "
+                    "masked=True; decimation and masking are not combined yet. "
+                    "Read decimated without masked, or mask the result yourself."
+                )
             arr = self._decimated_read(band, window, out_shape, resampling)
+            self._ds._backend = "numpy"
+        elif threadsafe:
+            if masked:
+                raise NotImplementedError(
+                    "read_array(threadsafe=True) is not supported together "
+                    "with masked=True; the mask band would be read from the "
+                    "shared handle, defeating the per-thread isolation. Read "
+                    "masked without threadsafe, or mask the result yourself."
+                )
+            arr = self._threadsafe_eager_read(band=band, window=window)
             self._ds._backend = "numpy"
         else:
             if band is None and self._ds.band_count > 1:
@@ -369,13 +453,241 @@ class IO(_Engine):
                 else:
                     arr = self._read_block(band, window)
             self._ds._backend = "numpy"
+            if masked:
+                arr = self._to_masked(arr, band, window=window)
         return arr
+
+    def _require_reopenable_path(self: Dataset) -> str:
+        """Return the dataset's path if per-thread handles can reopen it.
+
+        Per-thread reads work by opening one read-only handle per thread from
+        the dataset's path. ``/vsimem/`` paths qualify (the virtual filesystem
+        is process-global); a pure MEM dataset (empty description) does not.
+
+        Returns:
+            str: The reopenable path.
+
+        Raises:
+            ValueError: The dataset has no reopenable path (in-memory MEM
+                dataset). Write it to disk or ``/vsimem/`` first.
+        """
+        path = self._ds._file_name
+        if not path:
+            raise ValueError(
+                "threadsafe reads need a reopenable path: this dataset is a "
+                "pure in-memory (MEM) dataset. Write it to disk or /vsimem/ "
+                "(e.g. to_file) first."
+            )
+        return path
+
+    def _threadsafe_eager_read(
+        self: Dataset,
+        band: int | None,
+        window: GeoDataFrame | list[int] | None,
+    ) -> np.ndarray:
+        """Eagerly read through this thread's private handle.
+
+        Routes the read through a :class:`ThreadLocalFileManager` cached on
+        the Dataset, so concurrent callers on different threads never touch
+        the same GDAL handle (same-handle concurrent access is undefined
+        behaviour in GDAL). The shared handle owned by the Dataset is not
+        used at all on this path.
+
+        Args:
+            band: Band index, or ``None`` for all bands.
+            window: Same forms as :meth:`read_array`.
+
+        Returns:
+            np.ndarray: The requested pixels.
+
+        Raises:
+            ValueError: `band` is out of range, `window` is not a list
+                of 4 integers, the dataset has no reopenable path, or the
+                dataset has been closed (a read here would silently
+                re-open per-thread handles that :meth:`Dataset.close`
+                just released, re-locking the file).
+            OutOfBoundsError: `window` falls outside the raster.
+        """
+        if self._ds._raster is None:
+            raise ValueError(
+                "read_array(threadsafe=True) on a closed Dataset; re-open "
+                "it with Dataset.read_file first."
+            )
+        _validate_band_index(band, self._ds.band_count)
+        if isinstance(window, GeoDataFrame):
+            window = self._convert_polygon_to_window(window)
+        if window is not None and not isinstance(window, (list, tuple)):
+            # Same contract as the default path's _read_block.
+            raise ValueError(
+                f"window must be a list of 4 integers, got {type(window)}"
+            )
+        handle = self._get_thread_manager().acquire()
+        try:
+            arr = self._read_via_handle(handle, band, window)
+        except RuntimeError as exc:
+            # Same contract as the default path's _read_block.
+            if "Access window out of range" in str(exc):
+                raise OutOfBoundsError(
+                    f"The window you entered ({window}) is out of the raster "
+                    f"bounds: {self._ds.rows, self._ds.columns}"
+                ) from exc
+            raise
+        return np.asarray(arr)
+
+    def _get_thread_manager(self: Dataset) -> ThreadLocalFileManager:
+        """Return the Dataset's per-thread handle manager, creating it once.
+
+        Uses double-checked locking on the module-level creation lock so
+        racing threads never build two managers for the same Dataset.
+
+        Returns:
+            ThreadLocalFileManager: The manager cached on the Dataset.
+        """
+        manager = getattr(self._ds, "_thread_manager", None)
+        if manager is None:
+            with _THREAD_MANAGER_CREATION_LOCK:
+                manager = getattr(self._ds, "_thread_manager", None)
+                if manager is None:
+                    manager = ThreadLocalFileManager(
+                        gdal_raster_open,
+                        self._require_reopenable_path(),
+                        "read_only",
+                    )
+                    self._ds._thread_manager = manager
+        return manager
+
+    def _read_via_handle(
+        self: Dataset,
+        handle: gdal.Dataset,
+        band: int | None,
+        window: list[int] | None,
+    ) -> np.ndarray:
+        """Read the requested bands/window from a private GDAL handle.
+
+        Args:
+            handle: The thread-local ``gdal.Dataset`` to read from.
+            band: Band index, or ``None`` for all bands.
+            window: Resolved ``[xoff, yoff, xsize, ysize]`` pixel window,
+                or ``None`` for a full read.
+
+        Returns:
+            np.ndarray: The requested pixels.
+        """
+        window_args = tuple(window) if window is not None else ()
+        if band is None and self._ds.band_count > 1:
+            if window is None:
+                arr = handle.ReadAsArray()
+            else:
+                arr = np.stack(
+                    [
+                        handle.GetRasterBand(i + 1).ReadAsArray(*window_args)
+                        for i in range(self._ds.band_count)
+                    ],
+                    axis=0,
+                )
+        else:
+            effective_band = 0 if band is None else band
+            arr = handle.GetRasterBand(effective_band + 1).ReadAsArray(
+                *window_args
+            )
+        return arr
+
+    def _to_masked(
+        self: Dataset,
+        arr: np.ndarray,
+        band: int | None,
+        *,
+        window: GeoDataFrame | list[int] | None,
+    ) -> np.ma.MaskedArray:
+        """Wrap an eagerly-read array as a MaskedArray of its invalid pixels.
+
+        Builds the per-band mask from the no-data marker (via
+        :func:`pyramids.base._domain.is_no_data` — NaN-safe and
+        float-precision-tolerant) and the band's GDAL mask band (alpha /
+        internal masks). Windowed reads slice the mask band with the same
+        resolved pixel window as the data. ``GMF_NODATA``-derived mask
+        bands are skipped — they duplicate the no-data comparison already
+        applied.
+
+        Args:
+            arr: The array returned by the eager read — 2-D for a single
+                band, 3-D ``(bands, rows, cols)`` for an all-bands read.
+            band: The band index the read resolved to, or ``None`` for an
+                all-bands (3-D) read.
+            window: The window the read used — a geometry
+                (GeoDataFrame/FeatureCollection, e.g. built from a
+                ``bbox``), a ``[xoff, yoff, xsize, ysize]`` list, or
+                ``None`` for a full read. Geometries are resolved to pixel
+                offsets exactly as :meth:`_read_block` resolves them.
+
+        Returns:
+            np.ma.MaskedArray: ``arr`` with invalid pixels masked.
+        """
+        if isinstance(window, GeoDataFrame):
+            window = self._convert_polygon_to_window(window)
+        if arr.ndim == 2:
+            indices = [0 if band is None else band]
+            slices = [arr]
+        else:
+            indices = list(range(arr.shape[0]))
+            slices = [arr[i] for i in indices]
+        masks = [
+            self._band_mask(index, data, window)
+            for index, data in zip(indices, slices)
+        ]
+        full_mask = masks[0] if arr.ndim == 2 else np.stack(masks, axis=0)
+        return np.ma.MaskedArray(arr, mask=full_mask)
+
+    def _band_mask(
+        self: Dataset,
+        index: int,
+        data: np.ndarray,
+        window: list[int] | None,
+    ) -> np.ndarray:
+        """Build the invalid-pixel mask for one band of an eager read.
+
+        Combines the no-data comparison (NaN-safe via
+        :func:`pyramids.base._domain.is_no_data`) with the band's GDAL
+        mask band (alpha / internal masks). ``GMF_NODATA``-derived mask
+        bands are skipped — they duplicate the no-data comparison
+        already applied.
+
+        Args:
+            index: Zero-based band index.
+            data: The band's 2-D data array.
+            window: The resolved ``[xoff, yoff, xsize, ysize]`` pixel
+                window of the read, or ``None`` for a full read.
+
+        Returns:
+            np.ndarray: Boolean mask, ``True`` where the pixel is
+            invalid.
+        """
+        nodata = self._ds.no_data_value[index]
+        if nodata is None:
+            # No marker set: nothing to mask by value. (is_no_data treats
+            # None as a NaN sentinel, which would wrongly mask valid NaNs
+            # on bands that never declared a no-data value.)
+            mask = np.zeros(data.shape, dtype=bool)
+        else:
+            mask = is_no_data(data, nodata)
+        gdal_band = self._ds._iloc(index)
+        if gdal_band.GetMaskFlags() not in (gdal.GMF_ALL_VALID, gdal.GMF_NODATA):
+            mask_band = gdal_band.GetMaskBand()
+            if window is None:
+                band_mask = mask_band.ReadAsArray()
+            else:
+                band_mask = mask_band.ReadAsArray(
+                    window[0], window[1], window[2], window[3]
+                )
+            mask = mask | (band_mask == 0)
+        return mask
 
     def _lazy_read_array(
         self: Dataset,
         band: int | None,
         chunks: int | tuple | dict | str,
         lock: Any,
+        threadsafe: bool = False,
     ) -> Any:
         """Build a :class:`dask.array.Array` view over this dataset.
 
@@ -401,8 +713,12 @@ class IO(_Engine):
                 :func:`dask.array.core.normalize_chunks` (an int, a
                 per-axis tuple, a dict, the string `"auto"`, or
                 `-1` for a single chunk).
-            lock: `None` → :func:`default_lock`; `False` →
-                :class:`DummyLock`; otherwise passed through unchanged.
+            lock: `None` → :func:`default_lock` (or :class:`DummyLock`
+                when `threadsafe` is true); `False` → :class:`DummyLock`;
+                otherwise passed through unchanged.
+            threadsafe: Use a :class:`ThreadLocalFileManager` (one handle
+                per worker thread) instead of the shared-handle
+                :class:`CachingFileManager`. Requires a reopenable path.
 
         Returns:
             dask.array.Array: A lazy array wrapping this dataset.
@@ -432,7 +748,9 @@ class IO(_Engine):
             shape = (self._ds.band_count, self._ds.rows, self._ds.columns)
             block_w, block_h = self._ds._block_size[0]
             previous_chunks = (1, block_h, block_w)
-        if lock is False:
+        if lock is False or (lock is None and threadsafe):
+            # threadsafe chunk readers hold per-thread handles, so the
+            # chunk lock serves no purpose unless the caller insists.
             effective_lock: Any = DummyLock()
         elif lock is None:
             effective_lock = default_lock()
@@ -450,12 +768,21 @@ class IO(_Engine):
         # lock. Sharing one non-reentrant lock between the two would
         # deadlock. Using lock=False here delegates concurrency control
         # to the outer `with effective_lock` in _io_module._read_chunk.
-        manager = CachingFileManager(
-            gdal_raster_open,
-            self._ds._file_name,
-            "read_only",
-            lock=False,
-        )
+        if threadsafe:
+            # One read-only handle per worker thread: chunk reads never
+            # contend, so lock=None resolved to DummyLock above.
+            manager: Any = ThreadLocalFileManager(
+                gdal_raster_open,
+                self._require_reopenable_path(),
+                "read_only",
+            )
+        else:
+            manager = CachingFileManager(
+                gdal_raster_open,
+                self._ds._file_name,
+                "read_only",
+                lock=False,
+            )
         meta = np.empty((0,) * len(shape), dtype=dtype)
         arr = da.map_blocks(
             _io_module._read_chunk,

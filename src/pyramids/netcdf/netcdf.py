@@ -1322,6 +1322,7 @@ class NetCDF(Dataset):
         epsg: Any = None,
         chunks: Any = None,
         lock: Any = None,
+        masked: bool = False,
     ) -> ArrayLike:
         """Read array from the dataset (eager by default, lazy with `chunks`).
 
@@ -1373,6 +1374,13 @@ class NetCDF(Dataset):
                 `dask.distributed.Lock` when a client is active).
                 `False` → :class:`pyramids.base._locks.DummyLock`.
                 Only meaningful when `chunks` is not `None`.
+            masked: When `True`, return a :class:`numpy.ma.MaskedArray`
+                with the variable's no-data / fill cells masked (eager
+                path only; combining with `chunks` raises
+                :class:`NotImplementedError`). The mask is built from the
+                raw stored values before any `unpack` scaling, matching CF
+                `_FillValue` semantics; the scale/offset arithmetic
+                preserves the mask. Default is `False`.
 
         Returns:
             np.ndarray or dask.array.Array: The array data, eager
@@ -1391,6 +1399,8 @@ class NetCDF(Dataset):
                 ``chunks=`` + ``window=`` rule).
             ImportError: If `chunks` is given but `dask` is not
                 installed. Install the `[lazy]` extra.
+            NotImplementedError: If `masked=True` is combined with
+                `chunks` (lazy masked reads are not supported yet).
 
         Examples:
             - Eager bbox read on a root container — the container
@@ -1457,6 +1467,7 @@ class NetCDF(Dataset):
                 epsg=epsg,
                 chunks=chunks,
                 lock=lock,
+                masked=masked,
             )
         if variable is not None and variable != self._source_var_name:
             raise ValueError(
@@ -1471,6 +1482,7 @@ class NetCDF(Dataset):
                 window=window,
                 bbox=bbox,
                 epsg=epsg,
+                masked=masked,
             )
             if unpack:
                 result = _apply_unpack(
@@ -1479,6 +1491,11 @@ class NetCDF(Dataset):
                     getattr(self, "_offset", None),
                 )
         else:
+            if masked:
+                raise NotImplementedError(
+                    "read_array(masked=True) is not supported together with "
+                    "chunks=; read eagerly, or mask the dask array yourself."
+                )
             parent = self._parent_nc if self._parent_nc is not None else self
             path = parent._file_name
             if path.startswith("NETCDF"):
@@ -2289,6 +2306,56 @@ class NetCDF(Dataset):
                 maintain_alignment=maintain_alignment,
             )
             result = self._preserve_netcdf_metadata(result)
+        return result
+
+    def warped_view(
+        self,
+        crs: int | str | Any,
+        method: str = "nearest neighbor",
+        *,
+        cell_size: float | None = None,
+        bbox: tuple[float, float, float, float] | None = None,
+    ) -> NetCDF:
+        """Return a lazy, reprojected view of a **variable subset**.
+
+        Delegates to :meth:`pyramids.dataset.Dataset.warped_view` and re-wraps
+        the VRT-backed result as `NetCDF`, preserving the variable-subset
+        metadata (band dims, scale/offset, parent reference) so `sel()` and
+        `read_array(unpack=True)` keep working on the view.
+
+        A **root MDIM container** cannot be viewed lazily: a warped VRT is a
+        classic single-variable raster, and warping every variable eagerly
+        would contradict the lazy contract. Use :meth:`get_variable` to pick a
+        variable first, or :meth:`to_crs` for an eager whole-container warp.
+
+        Args:
+            crs: Target CRS in any form :meth:`pyproj.CRS.from_user_input`
+                accepts (EPSG int, ``"EPSG:3857"``, WKT, PROJ4, pyproj CRS).
+            method: Resampling method used when windows are read. Defaults to
+                ``"nearest neighbor"``.
+            cell_size: Optional output pixel size in target-CRS units (applied
+                to both axes). ``None`` keeps the source resolution.
+            bbox: Optional ``(min_x, min_y, max_x, max_y)`` output extent in
+                the **target** CRS; ``None`` covers the warped source extent.
+
+        Returns:
+            NetCDF: A read-only, VRT-backed reprojected view of the variable.
+
+        Raises:
+            ValueError: Called on a root MDIM container instead of a variable
+                subset.
+
+        See Also:
+            NetCDF.to_crs: The eager reprojection (handles whole containers).
+        """
+        if self._is_md_array and not self._is_subset and self.band_count == 0:
+            raise ValueError(
+                "warped_view works on a single variable, not a root NetCDF "
+                "container — call get_variable(<name>) first and warp that, "
+                "or use to_crs() for an eager whole-container reprojection."
+            )
+        result = super().warped_view(crs, method, cell_size=cell_size, bbox=bbox)
+        result = self._preserve_netcdf_metadata(result)
         return result
 
     def resample(

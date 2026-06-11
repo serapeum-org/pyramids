@@ -939,6 +939,10 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Spatial.to_crs <pyramids.dataset.engines.Spatial.to_crs>`."""
         return self.spatial.to_crs(*args, **kwargs)
 
+    def warped_view(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Spatial.warped_view <pyramids.dataset.engines.Spatial.warped_view>`."""
+        return self.spatial.warped_view(*args, **kwargs)
+
     def set_crs(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.set_crs <pyramids.dataset.engines.Spatial.set_crs>`."""
         return self.spatial.set_crs(*args, **kwargs)
@@ -2097,10 +2101,21 @@ class Dataset(RasterBase):
         """Close the dataset.
 
         Safe to call multiple times — subsequent calls after the first are no-ops.
+
+        Also releases the per-thread file manager created by
+        ``read_array(threadsafe=True)``: the calling thread's handle is
+        closed eagerly and the manager reference is dropped, so handles
+        held by other (finished) threads are released with it. Without
+        this, lingering read-only handles would keep the file locked on
+        Windows after ``close()``.
         """
         if self._raster is not None:
             self._raster.FlushCache()
             self._raster = None
+        manager = getattr(self, "_thread_manager", None)
+        if manager is not None:
+            manager.close()
+            self._thread_manager = None
 
     @staticmethod
     def _create_dataset(

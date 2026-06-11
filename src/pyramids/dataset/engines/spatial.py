@@ -34,6 +34,31 @@ from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines.vectorize import Vectorize
 
 
+def _dst_srs_arg(dst_sr: osr.SpatialReference) -> str:
+    """Derive the ``dstSRS`` argument to hand to :func:`gdal.Warp`.
+
+    Prefer the ``"<AUTHORITY>:<code>"`` form when one exists so the output WKT
+    GDAL writes is the canonical GDAL/PROJ form (matching historical bytes for
+    EPSG codes and avoiding a GDAL warning when the authority is ESRI). Fall
+    back to the explicit WKT for CRSes carrying no authority at all (custom
+    orthographic proj4 strings, etc.). See #418.
+
+    Args:
+        dst_sr: The target spatial reference.
+
+    Returns:
+        str: An authority string such as ``"EPSG:3857"``, or the full WKT when
+            the SRS carries no authority.
+    """
+    dst_auth = dst_sr.GetAuthorityName(None)
+    dst_code = dst_sr.GetAuthorityCode(None)
+    if dst_auth is not None and dst_code is not None:
+        srs_arg = f"{dst_auth}:{dst_code}"
+    else:
+        srs_arg = dst_sr.ExportToWkt()
+    return srs_arg
+
+
 class Spatial(_Engine):
 
     def _get_crs(self) -> str:
@@ -228,29 +253,116 @@ class Spatial(_Engine):
         if maintain_alignment:
             dst_obj = self._reproject_with_ReprojectImage(dst_sr, resampling_method)
         else:
-            # Prefer the "<AUTHORITY>:<code>" form when one exists so the
-            # output WKT GDAL writes is the canonical GDAL/PROJ form
-            # (matching historical bytes for EPSG codes and avoiding a
-            # GDAL warning when the authority is ESRI). Fall back to the
-            # explicit WKT for CRSes carrying no authority at all
-            # (custom orthographic proj4 strings, etc.). See #418.
-            dst_auth = dst_sr.GetAuthorityName(None)
-            dst_code = dst_sr.GetAuthorityCode(None)
-            dst_srs_arg = (
-                f"{dst_auth}:{dst_code}"
-                if dst_auth is not None and dst_code is not None
-                else dst_sr.ExportToWkt()
-            )
             dst = gdal.Warp(
                 "",
                 self._ds.raster,
-                dstSRS=dst_srs_arg,
+                dstSRS=_dst_srs_arg(dst_sr),
                 format="VRT",
                 resampleAlg=resampling_method,
             )
             dst_obj = self._ds.__class__(dst)
 
         return dst_obj
+
+    def warped_view(
+        self,
+        crs: int | str | Any,
+        method: str = "nearest neighbor",
+        *,
+        cell_size: float | None = None,
+        bbox: tuple[float, float, float, float] | None = None,
+    ) -> Dataset:
+        """Return a lazy, reprojected **view** of the dataset (no pixels warped yet).
+
+        Builds an in-memory warped VRT: nothing is resampled until a window is
+        read, and a windowed read warps **only that window**. This is the lazy
+        counterpart of :meth:`to_crs` — prefer it for tile serving, partial
+        reads of reprojected data, and chained virtual pipelines; prefer
+        :meth:`to_crs` when you will consume the whole reprojected raster.
+
+        The returned Dataset keeps a reference to its source, so the source
+        handle cannot be garbage-collected underneath the view.
+
+        Args:
+            crs: Target CRS in any form :meth:`pyproj.CRS.from_user_input`
+                accepts (EPSG int, ``"EPSG:3857"``, WKT, PROJ4, pyproj CRS).
+            method: Resampling method used when windows are read. Any name
+                accepted by :func:`pyramids.base._utils.resolve_resampling`
+                (case- and whitespace-insensitive). Default is
+                ``"nearest neighbor"``.
+            cell_size: Optional output pixel size in target-CRS units (applied
+                to both axes). ``None`` lets GDAL pick the size that preserves
+                the source resolution.
+            bbox: Optional ``(min_x, min_y, max_x, max_y)`` output extent in
+                the **target** CRS; ``None`` covers the warped source extent.
+
+        Returns:
+            Dataset: A read-only, VRT-backed reprojected view.
+
+        Raises:
+            CRSError: ``crs`` cannot be interpreted as a CRS.
+            TypeError: ``method`` is not a string.
+            ValueError: ``method`` is not a supported resampling method.
+            RuntimeError: GDAL could not build the warped VRT.
+
+        Examples:
+            - A view reports the warped CRS without materialising pixels, and
+              a windowed read matches the eager reprojection:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> src = Dataset.create_from_array(
+                ...     np.random.rand(8, 8).astype("float32"),
+                ...     top_left_corner=(0, 8), cell_size=0.01, epsg=4326,
+                ... )
+                >>> view = src.warped_view(3857)
+                >>> view.epsg
+                3857
+                >>> eager = src.to_crs(3857)
+                >>> bool(np.allclose(view.read_array(), eager.read_array()))
+                True
+
+                ```
+            - The view holds its source alive (safe to drop the original):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> src = Dataset.create_from_array(
+                ...     np.ones((4, 4), dtype="float32"),
+                ...     top_left_corner=(0, 4), cell_size=0.01, epsg=4326,
+                ... )
+                >>> view = src.warped_view(3857)
+                >>> del src
+                >>> view.read_array().shape == (view.rows, view.columns)
+                True
+
+                ```
+
+        See Also:
+            Spatial.to_crs: The eager reprojection (materialises the result).
+        """
+        dst_sr = sr_from_user_input(crs)
+        resample_alg: int = resolve_resampling(method)
+        dst_srs_arg = _dst_srs_arg(dst_sr)
+        options = gdal.WarpOptions(
+            format="VRT",
+            dstSRS=dst_srs_arg,
+            resampleAlg=resample_alg,
+            xRes=cell_size,
+            yRes=cell_size,
+            outputBounds=bbox,
+            multithread=True,
+        )
+        vrt = gdal.Warp("", self._ds.raster, options=options)
+        if vrt is None:
+            raise RuntimeError(
+                f"GDAL could not build a warped VRT onto {dst_srs_arg!r}."
+            )
+        view = self._ds.__class__(vrt, access="read_only")
+        # The VRT references the source GDAL handle; pin the source Dataset on
+        # the view so Python cannot garbage-collect it underneath the VRT.
+        view._warp_source = self._ds
+        return view
 
     def _get_epsg(self) -> int:
         """Get the EPSG number.
