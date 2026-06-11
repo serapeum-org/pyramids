@@ -164,6 +164,21 @@ class TestWarpedView:
         with pytest.raises(TypeError, match="must be a string"):
             src_dataset.warped_view(3857, method=1)
 
+    @pytest.mark.parametrize("bad_cell_size", [0, -0.05])
+    def test_non_positive_cell_size_raises(self, src_dataset, bad_cell_size):
+        """A zero or negative cell_size raises a clear ValueError (L7).
+
+        Args:
+            bad_cell_size: A non-positive cell size under test.
+        """
+        with pytest.raises(ValueError, match="cell_size must be positive"):
+            src_dataset.warped_view(3857, cell_size=bad_cell_size)
+
+    def test_inverted_bbox_raises(self, src_dataset):
+        """An inverted bbox (min >= max) raises a clear ValueError (L7)."""
+        with pytest.raises(ValueError, match="min_x < max_x"):
+            src_dataset.warped_view(4326, bbox=(0.04, 7.96, 0.0, 8.0))
+
     def test_facade_delegates(self, src_dataset):
         """Dataset.warped_view delegates to the spatial engine."""
         via_facade = src_dataset.warped_view(3857)

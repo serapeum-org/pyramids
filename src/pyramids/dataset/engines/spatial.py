@@ -347,6 +347,18 @@ class Spatial(_Engine):
         dst_sr = sr_from_user_input(crs)
         resample_alg: int = resolve_resampling(method)
         dst_srs_arg = _dst_srs_arg(dst_sr)
+        if cell_size is not None and cell_size <= 0:
+            raise ValueError(f"cell_size must be positive, got {cell_size}.")
+        if bbox is not None:
+            if len(bbox) != 4:
+                raise ValueError(
+                    f"bbox must be (min_x, min_y, max_x, max_y), got {bbox!r}."
+                )
+            min_x, min_y, max_x, max_y = bbox
+            if min_x >= max_x or min_y >= max_y:
+                raise ValueError(
+                    f"bbox must have min_x < max_x and min_y < max_y, got {bbox!r}."
+                )
         options = gdal.WarpOptions(
             format="VRT",
             dstSRS=dst_srs_arg,
