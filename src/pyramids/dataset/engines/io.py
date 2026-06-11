@@ -281,8 +281,9 @@ class IO(_Engine):
             boundless (bool, keyword-only):
                 Allow the window to extend past the raster extent. The output
                 keeps the full requested window shape; pixels outside the
-                raster are set to `fill_value` (or the band's no-data value,
-                or the dtype zero — in that precedence). Requires a pixel
+                raster are set to `fill_value`, else the band's no-data value
+                when it is representable in the band dtype, else the dtype zero
+                (in that precedence). Requires a pixel
                 window (:class:`~pyramids.dataset.window.Window` or the
                 x-first list form); geometry windows are clipped by
                 definition and raise :class:`ValueError`. Default `False`
@@ -1114,8 +1115,9 @@ class IO(_Engine):
 
         The output always has the full requested window shape. The part of the
         window inside the raster is read normally; everything outside is set
-        to ``fill_value`` (or, when that is ``None``, the band's no-data value,
-        falling back to the dtype's zero when no marker is set).
+        to ``fill_value`` (or, when that is ``None``, the band's no-data value
+        when it fits the band dtype, falling back to the dtype's zero otherwise
+        — e.g. a float ``-9999`` marker on a ``uint8`` band).
 
         Args:
             band: Band index, or ``None`` for all bands.
@@ -1123,7 +1125,8 @@ class IO(_Engine):
                 :class:`~pyramids.dataset.window.Window` or the x-first list
                 form.
             fill_value: Explicit fill for outside pixels; ``None`` defers to
-                the band's no-data value, then to the dtype zero.
+                the band's no-data value when it is representable in the band
+                dtype, otherwise to the dtype zero.
 
         Returns:
             np.ndarray: ``(rows, cols)`` for a single band, ``(bands, rows,
