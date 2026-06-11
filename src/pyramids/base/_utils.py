@@ -719,14 +719,6 @@ def import_dask(message: str):
         raise OptionalPackageDoesNotExist(message)
 
 
-def import_cftime(message: str):
-    """Import cftime."""
-    try:
-        import cftime  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
-
-
 def import_xarray(message: str):
     """Import and return xarray (ships via the optional [xarray] extra)."""
     try:

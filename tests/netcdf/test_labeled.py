@@ -8,6 +8,7 @@ import os
 import warnings
 from pathlib import Path
 
+import cftime
 import numpy as np
 import pandas as pd
 import pytest
@@ -277,7 +278,6 @@ class TestLabeledDatasetTimeSlice:
             store.select_time("2010-06-01", time_dim="when")
 
     def test_cftime_axis(self, tmp_path: Path):
-        cftime = pytest.importorskip("cftime")
         times = [cftime.DatetimeNoLeap(2010, 6, d) for d in (1, 2, 3, 4)]
         ds = xr.Dataset(
             {"q": (("time", "feature_id"), np.zeros((4, 2), "f4"))},
