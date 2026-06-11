@@ -939,6 +939,10 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Spatial.to_crs <pyramids.dataset.engines.Spatial.to_crs>`."""
         return self.spatial.to_crs(*args, **kwargs)
 
+    def warped_view(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Spatial.warped_view <pyramids.dataset.engines.Spatial.warped_view>`."""
+        return self.spatial.warped_view(*args, **kwargs)
+
     def set_crs(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.set_crs <pyramids.dataset.engines.Spatial.set_crs>`."""
         return self.spatial.set_crs(*args, **kwargs)

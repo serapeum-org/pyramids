@@ -23,6 +23,7 @@ from osgeo_utils import gdal2xyz
 from pandas import DataFrame
 
 from pyramids._io import new_vsimem_path, read_vsi_bytes, silent_unlink
+from pyramids.base._domain import is_no_data
 from pyramids.base._errors import FailedToSaveError, OutOfBoundsError, ReadOnlyError
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._locks import DummyLock, default_lock
@@ -104,6 +105,7 @@ class IO(_Engine):
         epsg: Any = None,
         boundless: bool = False,
         fill_value: float | None = None,
+        masked: bool = False,
     ) -> ArrayLike:
         """Read the values stored in a given band (eager or lazy).
 
@@ -195,12 +197,27 @@ class IO(_Engine):
                 the dtype's zero. Must be representable in the band dtype
                 (a whole number within range for integer bands) and requires
                 `boundless=True`; anything else raises :class:`ValueError`.
+            masked (bool, keyword-only):
+                When `True`, return a :class:`numpy.ma.MaskedArray` with
+                invalid pixels masked instead of a plain array. The mask
+                combines, per band:
+
+                - the band's no-data marker (NaN-aware: a NaN nodata masks
+                  the NaN cells), and
+                - the band's GDAL mask band (alpha / internal masks).
+                  Windowed reads (including `bbox`) slice the mask band
+                  with the same resolved pixel window as the data.
+
+                Only supported on the eager path; combining it with
+                `chunks` raises :class:`NotImplementedError`. Default is
+                `False` (plain array, unchanged behaviour).
 
         Returns:
             ArrayLike:
                 :class:`numpy.ndarray` when `chunks is None`,
-                :class:`dask.array.Array` otherwise. The instance
-                attribute :attr:`_backend` records `"numpy"` or
+                :class:`dask.array.Array` otherwise (and a
+                :class:`numpy.ma.MaskedArray` when `masked=True`). The
+                instance attribute :attr:`_backend` records `"numpy"` or
                 `"dask"` after the call.
 
         Raises:
@@ -213,6 +230,10 @@ class IO(_Engine):
                 in the band dtype.
             ImportError: If `chunks` is non-None and `dask` is not
                 installed.
+            NotImplementedError: If `masked=True` is combined with
+                `chunks` (lazy masked reads are not supported yet) or with
+                `boundless=True` (boundless fills and masking are not
+                combined yet).
 
         Examples:
             - Create `Dataset` consisting of 4 bands, 5 rows, and 5 columns at the point lon/lat (0, 0):
@@ -353,9 +374,21 @@ class IO(_Engine):
                     "read_array(chunks=..., window=...) is not supported; "
                     "read lazily and slice the resulting dask array instead."
                 )
+            if masked:
+                raise NotImplementedError(
+                    "read_array(masked=True) is not supported together with "
+                    "chunks=; read eagerly, or mask the dask array yourself."
+                )
             arr = self._lazy_read_array(band=band, chunks=chunks, lock=lock)
             self._ds._backend = "dask"
         elif boundless:
+            if masked:
+                raise NotImplementedError(
+                    "read_array(boundless=True) is not supported together "
+                    "with masked=True; boundless fills and masking are not "
+                    "combined yet. Read boundless without masked, or mask the "
+                    "result yourself."
+                )
             if window is None:
                 raise ValueError(
                     "read_array(boundless=True) requires a window; a full read "
@@ -406,7 +439,99 @@ class IO(_Engine):
                 else:
                     arr = self._read_block(band, window)
             self._ds._backend = "numpy"
+            if masked:
+                arr = self._to_masked(arr, band, window=window)
         return arr
+
+    def _to_masked(
+        self: Dataset,
+        arr: np.ndarray,
+        band: int | None,
+        *,
+        window: GeoDataFrame | list[int] | None,
+    ) -> np.ma.MaskedArray:
+        """Wrap an eagerly-read array as a MaskedArray of its invalid pixels.
+
+        Builds the per-band mask from the no-data marker (via
+        :func:`pyramids.base._domain.is_no_data` — NaN-safe and
+        float-precision-tolerant) and the band's GDAL mask band (alpha /
+        internal masks). Windowed reads slice the mask band with the same
+        resolved pixel window as the data. ``GMF_NODATA``-derived mask
+        bands are skipped — they duplicate the no-data comparison already
+        applied.
+
+        Args:
+            arr: The array returned by the eager read — 2-D for a single
+                band, 3-D ``(bands, rows, cols)`` for an all-bands read.
+            band: The band index the read resolved to, or ``None`` for an
+                all-bands (3-D) read.
+            window: The window the read used — a geometry
+                (GeoDataFrame/FeatureCollection, e.g. built from a
+                ``bbox``), a ``[xoff, yoff, xsize, ysize]`` list, or
+                ``None`` for a full read. Geometries are resolved to pixel
+                offsets exactly as :meth:`_read_block` resolves them.
+
+        Returns:
+            np.ma.MaskedArray: ``arr`` with invalid pixels masked.
+        """
+        if isinstance(window, GeoDataFrame):
+            window = self._convert_polygon_to_window(window)
+        if arr.ndim == 2:
+            indices = [0 if band is None else band]
+            slices = [arr]
+        else:
+            indices = list(range(arr.shape[0]))
+            slices = [arr[i] for i in indices]
+        masks = [
+            self._band_mask(index, data, window)
+            for index, data in zip(indices, slices)
+        ]
+        full_mask = masks[0] if arr.ndim == 2 else np.stack(masks, axis=0)
+        return np.ma.MaskedArray(arr, mask=full_mask)
+
+    def _band_mask(
+        self: Dataset,
+        index: int,
+        data: np.ndarray,
+        window: list[int] | None,
+    ) -> np.ndarray:
+        """Build the invalid-pixel mask for one band of an eager read.
+
+        Combines the no-data comparison (NaN-safe via
+        :func:`pyramids.base._domain.is_no_data`) with the band's GDAL
+        mask band (alpha / internal masks). ``GMF_NODATA``-derived mask
+        bands are skipped — they duplicate the no-data comparison
+        already applied.
+
+        Args:
+            index: Zero-based band index.
+            data: The band's 2-D data array.
+            window: The resolved ``[xoff, yoff, xsize, ysize]`` pixel
+                window of the read, or ``None`` for a full read.
+
+        Returns:
+            np.ndarray: Boolean mask, ``True`` where the pixel is
+            invalid.
+        """
+        nodata = self._ds.no_data_value[index]
+        if nodata is None:
+            # No marker set: nothing to mask by value. (is_no_data treats
+            # None as a NaN sentinel, which would wrongly mask valid NaNs
+            # on bands that never declared a no-data value.)
+            mask = np.zeros(data.shape, dtype=bool)
+        else:
+            mask = is_no_data(data, nodata)
+        gdal_band = self._ds._iloc(index)
+        if gdal_band.GetMaskFlags() not in (gdal.GMF_ALL_VALID, gdal.GMF_NODATA):
+            mask_band = gdal_band.GetMaskBand()
+            if window is None:
+                band_mask = mask_band.ReadAsArray()
+            else:
+                band_mask = mask_band.ReadAsArray(
+                    window[0], window[1], window[2], window[3]
+                )
+            mask = mask | (band_mask == 0)
+        return mask
 
     def _lazy_read_array(
         self: Dataset,
