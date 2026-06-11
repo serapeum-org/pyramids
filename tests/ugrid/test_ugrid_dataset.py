@@ -106,8 +106,6 @@ class TestUgridDatasetReadFile:
             A regular structured NetCDF should raise ValueError.
         """
         nc_path = Path("tests/data/netcdf/noah-precipitation-1979.nc")
-        if not nc_path.exists():
-            pytest.skip("Noah NetCDF test file not available")
         with pytest.raises(ValueError, match="No UGRID mesh topology"):
             UgridDataset.read_file(nc_path)
 
