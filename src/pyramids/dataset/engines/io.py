@@ -368,30 +368,56 @@ class IO(_Engine):
         else:
             indices = list(range(arr.shape[0]))
             slices = [arr[i] for i in indices]
-        masks = []
-        for index, data in zip(indices, slices):
-            nodata = self._ds.no_data_value[index]
-            if nodata is None:
-                # No marker set: nothing to mask by value. (is_no_data treats
-                # None as a NaN sentinel, which would wrongly mask valid NaNs
-                # on bands that never declared a no-data value.)
-                mask = np.zeros(data.shape, dtype=bool)
-            else:
-                mask = is_no_data(data, nodata)
-            gdal_band = self._ds._iloc(index)
-            flags = gdal_band.GetMaskFlags()
-            if flags not in (gdal.GMF_ALL_VALID, gdal.GMF_NODATA):
-                mask_band = gdal_band.GetMaskBand()
-                if window is None:
-                    band_mask = mask_band.ReadAsArray()
-                else:
-                    band_mask = mask_band.ReadAsArray(
-                        window[0], window[1], window[2], window[3]
-                    )
-                mask = mask | (band_mask == 0)
-            masks.append(mask)
+        masks = [
+            self._band_mask(index, data, window)
+            for index, data in zip(indices, slices)
+        ]
         full_mask = masks[0] if arr.ndim == 2 else np.stack(masks, axis=0)
         return np.ma.MaskedArray(arr, mask=full_mask)
+
+    def _band_mask(
+        self: Dataset,
+        index: int,
+        data: np.ndarray,
+        window: list[int] | None,
+    ) -> np.ndarray:
+        """Build the invalid-pixel mask for one band of an eager read.
+
+        Combines the no-data comparison (NaN-safe via
+        :func:`pyramids.base._domain.is_no_data`) with the band's GDAL
+        mask band (alpha / internal masks). ``GMF_NODATA``-derived mask
+        bands are skipped — they duplicate the no-data comparison
+        already applied.
+
+        Args:
+            index: Zero-based band index.
+            data: The band's 2-D data array.
+            window: The resolved ``[xoff, yoff, xsize, ysize]`` pixel
+                window of the read, or ``None`` for a full read.
+
+        Returns:
+            np.ndarray: Boolean mask, ``True`` where the pixel is
+            invalid.
+        """
+        nodata = self._ds.no_data_value[index]
+        if nodata is None:
+            # No marker set: nothing to mask by value. (is_no_data treats
+            # None as a NaN sentinel, which would wrongly mask valid NaNs
+            # on bands that never declared a no-data value.)
+            mask = np.zeros(data.shape, dtype=bool)
+        else:
+            mask = is_no_data(data, nodata)
+        gdal_band = self._ds._iloc(index)
+        if gdal_band.GetMaskFlags() not in (gdal.GMF_ALL_VALID, gdal.GMF_NODATA):
+            mask_band = gdal_band.GetMaskBand()
+            if window is None:
+                band_mask = mask_band.ReadAsArray()
+            else:
+                band_mask = mask_band.ReadAsArray(
+                    window[0], window[1], window[2], window[3]
+                )
+            mask = mask | (band_mask == 0)
+        return mask
 
     def _lazy_read_array(
         self: Dataset,
