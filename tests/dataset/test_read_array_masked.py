@@ -75,6 +75,39 @@ class TestMaskedReads:
         assert filled[0, 1] == pytest.approx(0.0), "filled() must replace the masked cell"
         assert filled[1, 1] == pytest.approx(4.0), "valid cells must survive filled()"
 
+    def test_valid_pixel_near_large_sentinel_not_masked(self):
+        """A valid float pixel close to a large sentinel is not masked (M1).
+
+        Test scenario:
+            With the default fuzzy ``is_no_data`` tolerance (rtol=0.001) a valid
+            ``-9990`` pixel is within 0.1% of a ``-9999`` marker and would be
+            wrongly masked. Only the exact ``-9999`` cell may be masked.
+        """
+        arr = np.array([[-9999.0, -9990.0], [-9000.0, 1.0]], dtype="float32")
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0, 2), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+        )
+        result = ds.read_array(band=0, masked=True)
+        assert result.mask[0, 0], "the exact -9999 cell must be masked"
+        assert not result.mask[0, 1], "a valid -9990 pixel must not be masked"
+        assert result.mask.sum() == 1, f"only one cell may be masked, got {result.mask.sum()}"
+
+    def test_integer_band_uses_exact_nodata_equality(self):
+        """Integer bands mask only the exact marker, never near values (M1).
+
+        Test scenario:
+            An int16 band with a ``-100`` marker: ``-100`` is masked but the
+            adjacent ``-99`` (within 1% of the marker) is not.
+        """
+        arr = np.array([[-100, -99], [0, 5]], dtype="int16")
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0, 2), cell_size=1.0, epsg=4326, no_data_value=-100
+        )
+        result = ds.read_array(band=0, masked=True)
+        assert result.mask[0, 0], "the exact -100 cell must be masked"
+        assert not result.mask[0, 1], "a valid -99 pixel must not be masked"
+        assert result.mask.sum() == 1, f"only one cell may be masked, got {result.mask.sum()}"
+
     def test_nan_nodata_masks_nan_cells(self):
         """A NaN nodata marker masks the NaN cells (NaN-aware comparison).
 

@@ -805,8 +805,16 @@ class IO(_Engine):
             # None as a NaN sentinel, which would wrongly mask valid NaNs
             # on bands that never declared a no-data value.)
             mask = np.zeros(data.shape, dtype=bool)
+        elif data.dtype.kind in "iu":
+            # Integer bands: exact equality. The default fuzzy is_no_data
+            # tolerance (rtol=0.001) would mask valid pixels within 0.1% of a
+            # large sentinel (e.g. -9990 next to a -9999 marker).
+            mask = data == nodata
         else:
-            mask = is_no_data(data, nodata)
+            # Float bands: keep NaN-safety but drop the relative tolerance so
+            # only (near-)exact matches are masked, not values merely close to
+            # a large sentinel.
+            mask = is_no_data(data, nodata, rtol=0.0)
         gdal_band = self._ds._iloc(index)
         if gdal_band.GetMaskFlags() not in (gdal.GMF_ALL_VALID, gdal.GMF_NODATA):
             mask_band = gdal_band.GetMaskBand()
