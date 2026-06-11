@@ -2,6 +2,8 @@
 cell methods parsing, and valid range masking (CF-5, CF-6, CF-7, CF-10, CF-11).
 """
 
+import sys
+
 import numpy as np
 import pytest
 
@@ -261,21 +263,19 @@ class TestCalendarSupport:
         result = func(1)
         assert "2000-01-02" in result, f"Expected 2000-01-02, got {result}"
 
-    def test_non_standard_without_cftime_raises(self):
-        """Non-standard calendar without cftime raises ImportError.
+    def test_non_standard_without_cftime_raises(self, monkeypatch):
+        """Non-standard calendar without cftime raises ImportError naming cftime.
 
         Test scenario:
-            If cftime is not installed, requesting 360_day should fail
-            with a helpful message. We skip this test if cftime IS
-            installed (since the import would succeed).
+            Simulate cftime being absent (``sys.modules['cftime'] = None`` makes
+            a fresh ``import cftime`` fail) and request a 360_day calendar. The
+            real ``import_cftime`` path must run and raise an ImportError whose
+            message points the user at cftime — regardless of whether cftime is
+            actually installed in the environment.
         """
-        try:
-            import cftime  # noqa: F401
-
-            pytest.skip("cftime is installed, cannot test ImportError")
-        except ImportError:
-            with pytest.raises(ImportError, match="cftime"):
-                create_time_conversion_func("days since 2000-01-01", calendar="360_day")
+        monkeypatch.setitem(sys.modules, "cftime", None)
+        with pytest.raises(ImportError, match="cftime"):
+            create_time_conversion_func("days since 2000-01-01", calendar="360_day")
 
     def test_360_day_calendar(self):
         """360_day calendar: 30 days per month."""
