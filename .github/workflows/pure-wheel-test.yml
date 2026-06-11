@@ -52,7 +52,7 @@ jobs:
           pixi run -e dev python -m zipfile -l dist/*.whl | grep "base/data/config.yaml"
 
       - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheel
           path: dist/*.whl
@@ -77,13 +77,13 @@ jobs:
           ref: ${{ inputs.branch || github.ref }}
 
       - name: Download wheel artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: wheel
           path: dist/
 
       - name: Install Conda (Miniforge)
-        uses: conda-incubator/setup-miniconda@fc2d68f6413eb2d87b895e92f8584b5b94a10167 # v3
+        uses: conda-incubator/setup-miniconda@8ee1f361103df19b6f8c8655fd3967a8ecb162d5 # v4.0.1
         with:
           miniforge-version: latest
           python-version: ${{ matrix.python-version }}
@@ -165,13 +165,13 @@ jobs:
           ref: ${{ inputs.branch || github.ref }}
 
       - name: Download wheel artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: wheel
           path: dist/
 
       - name: Install Conda (Miniforge)
-        uses: conda-incubator/setup-miniconda@fc2d68f6413eb2d87b895e92f8584b5b94a10167 # v3
+        uses: conda-incubator/setup-miniconda@8ee1f361103df19b6f8c8655fd3967a8ecb162d5 # v4.0.1
         with:
           miniforge-version: latest
           python-version: ${{ matrix.python-version }}
