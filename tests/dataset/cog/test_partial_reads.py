@@ -159,6 +159,25 @@ class TestReadPart:
         with pytest.raises(ValueError, match="unknown resampling"):
             ramp_4326.read_part(tuple(ramp_4326.bbox), resampling="bogus")
 
+    def test_nearest_neighbor_alias_accepted(self, ramp_4326):
+        """The 'nearest neighbor' alias resolves like the warp family (L1).
+
+        Test scenario:
+            The decimated-read registry accepts the historical
+            ``"nearest neighbor"`` spelling (used by to_crs/resample), not only
+            ``"nearest"``, so the resampling vocabulary is consistent across
+            read paths.
+        """
+        via_alias = ramp_4326.read_part(
+            tuple(ramp_4326.bbox), bbox_crs=4326, resampling="nearest neighbor"
+        )
+        via_short = ramp_4326.read_part(
+            tuple(ramp_4326.bbox), bbox_crs=4326, resampling="nearest"
+        )
+        np.testing.assert_array_equal(
+            via_alias, via_short, err_msg="'nearest neighbor' must equal 'nearest'"
+        )
+
     def test_non_intersecting_bbox_raises(self, ramp_4326):
         """A bbox outside the raster extent raises OutOfBoundsError.
 

@@ -46,6 +46,7 @@ _AVERAGING_RESAMPLERS: frozenset[str] = frozenset(
 
 _RESAMPLING_ALG: dict[str, int] = {
     "nearest": gdal.GRIORA_NearestNeighbour,
+    "nearest neighbor": gdal.GRIORA_NearestNeighbour,
     "bilinear": gdal.GRIORA_Bilinear,
     "cubic": gdal.GRIORA_Cubic,
     "cubicspline": gdal.GRIORA_CubicSpline,
