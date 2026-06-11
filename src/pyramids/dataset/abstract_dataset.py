@@ -610,6 +610,12 @@ class RasterBase(ABC):
         array is the block's pixels, so arbitrarily large rasters can be
         processed block-by-block in constant memory.
 
+        This iterator is **serial**: it reads each block through the shared
+        handle and does not accept ``threadsafe`` / ``chunks``. To read blocks
+        in parallel, iterate :meth:`block_windows` and call
+        ``read_array(window=..., threadsafe=True)`` per window from worker
+        threads instead.
+
         Args:
             band: Band index to read. Default 0.
             window: Optional region of interest; only intersecting blocks
