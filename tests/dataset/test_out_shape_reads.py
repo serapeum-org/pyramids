@@ -224,6 +224,11 @@ class TestOutShapeReads:
         with pytest.raises(NotImplementedError, match="out_shape"):
             ramp_dataset.read_array(band=0, chunks=8, out_shape=(8, 8))
 
+    def test_resampling_without_out_shape_rejected(self, ramp_dataset):
+        """A non-default resampling without out_shape raises, not silently ignored (L13)."""
+        with pytest.raises(ValueError, match="only applies to out_shape"):
+            ramp_dataset.read_array(band=0, resampling="bilinear")
+
     def test_default_resolution_unchanged(self, ramp_dataset):
         """out_shape=None keeps the historical native-resolution read."""
         result = ramp_dataset.read_array(band=0)

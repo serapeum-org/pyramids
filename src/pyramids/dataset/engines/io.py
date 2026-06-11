@@ -504,6 +504,13 @@ class IO(_Engine):
                 "defeating the per-thread isolation. Read decimated without "
                 "threadsafe, or decimate a threadsafe full read yourself."
             )
+        if out_shape is None and isinstance(resampling, str) and (
+            resampling.strip().lower() != "nearest"
+        ):
+            raise ValueError(
+                "read_array(resampling=...) only applies to out_shape reads; "
+                "pass out_shape=(rows, cols) as well."
+            )
         if bbox is not None:
             if window is not None:
                 raise ValueError(
