@@ -2298,9 +2298,12 @@ class DatasetCollection:
                 Robinson, Mollweide) are warped directly against the spatial
                 reference. Default ``3857`` (WGS84 web mercator).
             method (str):
-                Resampling technique. Default is "nearest neighbor". See
-                https://gisgeography.com/raster-resampling/. Accepted
-                values are "nearest neighbor", "cubic", "bilinear".
+                Resampling method, case-insensitive. Default is "nearest neighbor".
+                Allowed values: "nearest" (alias "nearest neighbor"),
+                "bilinear", "cubic", "cubic_spline", "lanczos", "average",
+                "mode", "max", "min", "med", "q1", "q3", "sum", and "rms"
+                (the GDAL warp algorithms; "sum"/"rms" need GDAL >= 3.1/3.3).
+                See https://gisgeography.com/raster-resampling/.
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the
                 raster the same after reprojection. Default is False.
