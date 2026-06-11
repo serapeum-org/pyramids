@@ -325,3 +325,20 @@ class TestCarryAuxVariablesWarn:
         result.add_variable.side_effect = RuntimeError("boom")
         with pytest.warns(UserWarning, match="could not carry"):
             cube._carry_aux_variables(result, ["number"], "crop")
+
+    def test_aggregates_multiple_failures_into_one_warning(self):
+        """Several failed carries produce one warning naming all of them (M4).
+
+        Test scenario:
+            Two aux variables fail to copy; a single aggregated ``UserWarning``
+            must name both rather than emitting one warning per variable, so the
+            data loss is visible at a glance.
+        """
+        cube = _era5_like_cube()
+        result = Mock()
+        result.add_variable.side_effect = RuntimeError("boom")
+        with pytest.warns(UserWarning, match="could not carry 2 non-spatial") as record:
+            cube._carry_aux_variables(result, ["number", "expver"], "crop")
+        assert len(record) == 1, f"must emit exactly one warning, got {len(record)}"
+        message = str(record[0].message)
+        assert "'number'" in message and "'expver'" in message, message

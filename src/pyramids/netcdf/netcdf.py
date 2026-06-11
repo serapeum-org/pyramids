@@ -1850,15 +1850,23 @@ class NetCDF(Dataset):
 
                 ```
         """
+        dropped: list[tuple[str, Exception]] = []
         for var_name in aux_vars:
             try:
                 result.add_variable(self, var_name)
             except (RuntimeError, ValueError) as exc:
-                warnings.warn(
-                    f"{operation}() could not carry non-spatial variable "
-                    f"{var_name!r} into the result: {exc}",
-                    stacklevel=3,
-                )
+                dropped.append((var_name, exc))
+        if dropped:
+            # One aggregated warning naming every dropped variable, so a silent
+            # data loss across crop/to_crs/resample/reduce is hard to miss in a
+            # pipeline rather than scattered across per-variable warnings.
+            names = ", ".join(repr(name) for name, _ in dropped)
+            reasons = "; ".join(f"{name!r}: {exc}" for name, exc in dropped)
+            warnings.warn(
+                f"{operation}() could not carry {len(dropped)} non-spatial "
+                f"variable(s) ({names}) into the result: {reasons}",
+                stacklevel=3,
+            )
 
     def _apply_to_all_variables(self, operation, op_kwargs):
         """Apply a spatial operation to every gridded variable in the container.
