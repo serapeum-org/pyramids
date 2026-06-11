@@ -8,6 +8,7 @@ Owns the IO family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 import logging
+import math
 import pickle
 import threading
 import warnings
@@ -110,6 +111,38 @@ def _validate_out_shape(out_shape: Any) -> tuple[int, int]:
     return int(out_shape[0]), int(out_shape[1])
 
 
+def _validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
+    """Reject an explicit boundless fill that an integer band cannot hold.
+
+    ``np.full`` casts the fill unsafely, so an out-of-range or fractional
+    fill on an integer band would silently wrap (e.g. ``-9999.0`` on a
+    ``uint8`` band becomes ``241``) instead of failing. Float dtypes are
+    not checked — precision loss on cast is standard NumPy semantics.
+
+    Args:
+        fill_value: The user-supplied fill.
+        dtype: The band's NumPy dtype.
+
+    Raises:
+        ValueError: ``dtype`` is integral and `fill_value` is not finite,
+            not a whole number, or outside the dtype's value range.
+    """
+    if dtype.kind in "iu":
+        value = float(fill_value)
+        info = np.iinfo(dtype)
+        if (
+            not math.isfinite(value)
+            or not value.is_integer()
+            or value < info.min
+            or value > info.max
+        ):
+            raise ValueError(
+                f"fill_value={fill_value!r} is not representable in the band "
+                f"dtype {dtype.name} (whole numbers in [{info.min}, "
+                f"{info.max}])."
+            )
+
+
 class IO(_Engine):
 
     def read_array(
@@ -123,6 +156,8 @@ class IO(_Engine):
         epsg: Any = None,
         out_shape: tuple[int, int] | None = None,
         resampling: str = "nearest",
+        boundless: bool = False,
+        fill_value: float | None = None,
         masked: bool = False,
         threadsafe: bool = False,
     ) -> ArrayLike:
@@ -217,6 +252,21 @@ class IO(_Engine):
                 algorithms mix no-data into edge cells — prefer
                 ``"nearest"`` (the default) on rasters with a no-data
                 marker. Ignored when ``out_shape`` is ``None``.
+            boundless (bool, keyword-only):
+                Allow the window to extend past the raster extent. The output
+                keeps the full requested window shape; pixels outside the
+                raster are set to `fill_value` (or the band's no-data value,
+                or the dtype zero — in that precedence). Requires a pixel
+                window (:class:`~pyramids.dataset.window.Window` or the
+                x-first list form); geometry windows are clipped by
+                definition and raise :class:`ValueError`. Default `False`
+                (out-of-range windows raise, unchanged).
+            fill_value (float | None, keyword-only):
+                Explicit fill for outside pixels on a boundless read.
+                `None` (default) defers to the band's no-data value, then to
+                the dtype's zero. Must be representable in the band dtype
+                (a whole number within range for integer bands) and requires
+                `boundless=True`; anything else raises :class:`ValueError`.
             masked (bool, keyword-only):
                 When `True`, return a :class:`numpy.ma.MaskedArray` with
                 invalid pixels masked instead of a plain array. The mask
@@ -262,17 +312,24 @@ class IO(_Engine):
                 `"dask"` after the call.
 
         Raises:
-            ValueError: If `band` is out of range or `chunks` is
+            ValueError: If `band` is out of range, `chunks` is
                 combined with `window` (the lazy path reads the
-                full array and expects dask to slice it down).
+                full array and expects dask to slice it down) or
+                with `boundless=True`, `boundless=True` is given
+                without a pixel window, or `fill_value` is given
+                without `boundless=True` or cannot be represented
+                in the band dtype.
             ImportError: If `chunks` is non-None and `dask` is not
                 installed.
             NotImplementedError: If `out_shape` is combined with `chunks`
-                (decimate eagerly instead), or if `masked=True` is combined
+                (decimate eagerly instead) or with `boundless=True`
+                (decimated boundless reads are not combined yet), or if
+                `masked=True` is combined
                 with `chunks` (lazy masked reads are not supported yet),
                 `out_shape` (decimation and masking are not combined yet),
-                or `threadsafe=True` (the mask band would be read from the
-                shared handle).
+                `boundless=True` (boundless fills and masking are not
+                combined yet), or `threadsafe=True` (the mask band would
+                be read from the shared handle).
 
         Examples:
             - Create `Dataset` consisting of 4 bands, 5 rows, and 5 columns at the point lon/lat (0, 0):
@@ -366,10 +423,47 @@ class IO(_Engine):
 
               ```
 
+            - A boundless read keeps the full window shape; pixels outside the
+              raster take ``fill_value`` (or the band's no-data value, or the
+              dtype's zero — in that precedence):
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset, Window
+              >>> arr_b = np.arange(9, dtype="float32").reshape(3, 3)
+              >>> dataset_b = Dataset.create_from_array(
+              ...     arr_b, top_left_corner=(0, 3), cell_size=1.0, epsg=4326,
+              ...     no_data_value=-9.0,
+              ... )
+              >>> dataset_b.read_array(
+              ...     band=0, window=Window(-1, -1, 2, 2), boundless=True
+              ... )
+              array([[-9., -9.],
+                     [-9.,  0.]], dtype=float32)
+
+              ```
+
         See Also:
             - Dataset.get_tile: Read the dataset in chunks.
             - Dataset.get_block_arrangement: Get block arrangement to read the dataset in chunks.
         """
+        if fill_value is not None and not boundless:
+            raise ValueError(
+                "read_array(fill_value=...) only applies to boundless reads; "
+                "pass boundless=True as well."
+            )
+        if boundless and chunks is not None:
+            raise ValueError(
+                "read_array(chunks=..., boundless=True) is not supported; "
+                "boundless fills apply to eager windowed reads only."
+            )
+        if boundless and out_shape is not None:
+            raise NotImplementedError(
+                "read_array(out_shape=...) is not supported together with "
+                "boundless=True; decimated boundless reads are not combined "
+                "yet. Read boundless at native resolution and decimate the "
+                "result yourself."
+            )
         if bbox is not None:
             if window is not None:
                 raise ValueError(
@@ -405,6 +499,27 @@ class IO(_Engine):
                     "Read decimated without masked, or mask the result yourself."
                 )
             arr = self._decimated_read(band, window, out_shape, resampling)
+            self._ds._backend = "numpy"
+        elif boundless:
+            if masked:
+                raise NotImplementedError(
+                    "read_array(boundless=True) is not supported together "
+                    "with masked=True; boundless fills and masking are not "
+                    "combined yet. Read boundless without masked, or mask the "
+                    "result yourself."
+                )
+            if window is None:
+                raise ValueError(
+                    "read_array(boundless=True) requires a window; a full read "
+                    "cannot extend past the raster."
+                )
+            if isinstance(window, GeoDataFrame):
+                raise ValueError(
+                    "boundless reads need a pixel window (Window or "
+                    "[col_off, row_off, cols, rows] list); geometry windows "
+                    "are clipped by definition."
+                )
+            arr = self._boundless_read(band, window, fill_value)
             self._ds._backend = "numpy"
         elif threadsafe:
             if masked:
@@ -916,6 +1031,68 @@ class IO(_Engine):
                 f"the raster bounds: {self._ds.rows, self._ds.columns}"
             ) from exc
         return np.asarray(block)
+
+    def _boundless_read(
+        self: Dataset,
+        band: int | None,
+        window: Window | list[int] | tuple[int, ...],
+        fill_value: float | None,
+    ) -> np.ndarray:
+        """Read a window that may extend past the raster, filling the outside.
+
+        The output always has the full requested window shape. The part of the
+        window inside the raster is read normally; everything outside is set
+        to ``fill_value`` (or, when that is ``None``, the band's no-data value,
+        falling back to the dtype's zero when no marker is set).
+
+        Args:
+            band: Band index, or ``None`` for all bands.
+            window: The (possibly out-of-bounds) pixel window — a
+                :class:`~pyramids.dataset.window.Window` or the x-first list
+                form.
+            fill_value: Explicit fill for outside pixels; ``None`` defers to
+                the band's no-data value, then to the dtype zero.
+
+        Returns:
+            np.ndarray: ``(rows, cols)`` for a single band, ``(bands, rows,
+                cols)`` for an all-bands read — always the full window shape.
+
+        Raises:
+            ValueError: ``band`` is out of range, or ``fill_value`` cannot be
+                represented in a band's integer dtype.
+        """
+        if not isinstance(window, Window):
+            col_off, row_off, cols, rows = window
+            window = Window(int(col_off), int(row_off), int(cols), int(rows))
+        _validate_band_index(band, self._ds.band_count)
+        all_bands = band is None and self._ds.band_count > 1
+        band_indices = (
+            list(range(self._ds.band_count)) if all_bands else [band or 0]
+        )
+        raster_window = Window(0, 0, self._ds.columns, self._ds.rows)
+        inside = window.intersection(raster_window)
+        planes = []
+        for index in band_indices:
+            dtype = np.dtype(self._ds.numpy_dtype[index])
+            if fill_value is not None:
+                _validate_fill_value(fill_value, dtype)
+                fill = fill_value
+            elif self._ds.no_data_value[index] is not None:
+                fill = self._ds.no_data_value[index]
+            else:
+                fill = 0
+            plane = np.full(window.shape, fill, dtype=dtype)
+            if inside is not None:
+                data = self._ds._iloc(index).ReadAsArray(*inside.to_read_args())
+                row_start = inside.row_off - window.row_off
+                col_start = inside.col_off - window.col_off
+                plane[
+                    row_start : row_start + inside.rows,
+                    col_start : col_start + inside.cols,
+                ] = data
+            planes.append(plane)
+        result = planes[0] if not all_bands else np.stack(planes, axis=0)
+        return result
 
     def _read_block(
         self: Dataset,
