@@ -140,6 +140,7 @@ def read_vsi_bytes(path: str) -> bytes:
     Raises:
         FileNotFoundError: The path cannot be opened (it does not exist or was
             already unlinked).
+        OSError: A short read returned fewer than the file's byte count.
 
     Examples:
         - Write a buffer to ``/vsimem/`` and read it back:
@@ -184,7 +185,15 @@ def read_vsi_bytes(path: str) -> bytes:
         data = gdal.VSIFReadL(1, size, handle) if size else b""
     finally:
         gdal.VSIFCloseL(handle)
-    return bytes(data)
+    payload = bytes(data)
+    if len(payload) != size:
+        # VSIFReadL can return fewer than `size` bytes without raising; fail
+        # loudly so a truncated serialization never returns a corrupt buffer.
+        raise OSError(
+            f"short read on VSI path {path!r}: expected {size} bytes, "
+            f"got {len(payload)}."
+        )
+    return payload
 
 
 def _is_zip(path: str):

@@ -75,6 +75,29 @@ class TestReadVsiBytes:
         finally:
             gdal.Unlink(path)
 
+    def test_short_read_raises(self, monkeypatch):
+        """A truncated VSIFReadL raises OSError, not a corrupt buffer (L8).
+
+        Test scenario:
+            VSIFReadL can return fewer bytes than the file holds without raising;
+            the helper must detect the short read and fail loudly rather than
+            return a truncated payload.
+        """
+        path = new_vsimem_path(".bin")
+        gdal.FileFromMemBuffer(path, b"payload-bytes")
+        real_read = gdal.VSIFReadL
+        monkeypatch.setattr(
+            gdal,
+            "VSIFReadL",
+            lambda size, count, handle: (real_read(size, count, handle) or b"")[:3],
+        )
+        try:
+            with pytest.raises(OSError, match="short read"):
+                read_vsi_bytes(path)
+        finally:
+            monkeypatch.undo()
+            gdal.Unlink(path)
+
 
 class TestToBytes:
     """Tests for Dataset.to_bytes."""
