@@ -138,6 +138,9 @@ class Spatial(_Engine):
                 (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
                 "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms;
                 "sum"/"rms" need GDAL >= 3.1/3.3). See https://gisgeography.com/raster-resampling/.
+                Note: the aggregating algorithms ("average", "mode", "med", "q1", "q3", "sum", "rms")
+                are not no-data-aware on this warp path — no-data cells inside a resampling kernel are
+                mixed into the result. Prefer "nearest" on rasters that carry a no-data marker.
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the raster the same after reprojection.
                 Default is False.
@@ -441,7 +444,10 @@ class Spatial(_Engine):
                 Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
                 (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
                 "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms;
-                "sum"/"rms" need GDAL >= 3.1/3.3).
+                "sum"/"rms" need GDAL >= 3.1/3.3). Note: the aggregating algorithms ("average", "mode",
+                "med", "q1", "q3", "sum", "rms") are not no-data-aware on this warp path — no-data cells
+                inside a resampling kernel are mixed into the result. Prefer "nearest" on rasters that
+                carry a no-data marker.
 
         Returns:
             Dataset:
