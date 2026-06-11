@@ -57,6 +57,32 @@ class TestWindow:
         with pytest.raises(ValueError, match="strictly positive"):
             Window(0, 0, cols, rows)
 
+    @pytest.mark.parametrize(
+        "col_off, row_off, cols, rows",
+        [(1.5, 0, 2, 2), (0, 0.5, 2, 2), (0, 0, 2.0, 2), (0, 0, 2, 2.5)],
+    )
+    def test_non_integer_fields_rejected(self, col_off, row_off, cols, rows):
+        """Fractional fields raise TypeError instead of silently shifting.
+
+        Test scenario:
+            GDAL rounds a fractional offset to a neighbouring pixel without
+            any error, silently misaddressing the window — so the value
+            object must reject non-integral fields up front.
+
+        Args:
+            col_off: Column offset under test.
+            row_off: Row offset under test.
+            cols: Window width under test.
+            rows: Window height under test.
+        """
+        with pytest.raises(TypeError, match="must be integers"):
+            Window(col_off, row_off, cols, rows)
+
+    def test_numpy_integer_fields_accepted(self):
+        """Numpy integer fields are valid (numbers.Integral covers them)."""
+        w = Window(np.int64(1), np.int32(2), np.int64(3), np.int32(2))
+        assert w.to_read_args() == (1, 2, 3, 2), f"unexpected read args from {w}"
+
     def test_equality_and_immutability(self):
         """Windows are frozen value objects.
 
@@ -76,7 +102,9 @@ class TestWindow:
         """
         w = Window.from_bounds((1.0, 1.0, 3.0, 3.0), GT_UNIT)
         assert w == Window(1, 1, 2, 2), f"unexpected window {w}"
-        assert w.to_bounds(GT_UNIT) == (1.0, 1.0, 3.0, 3.0), "bounds round-trip failed"
+        assert w.to_bounds(GT_UNIT) == pytest.approx(
+            (1.0, 1.0, 3.0, 3.0)
+        ), "bounds round-trip failed"
 
     def test_from_bounds_unaligned_covers(self):
         """A bbox not on pixel edges expands to fully cover it.
@@ -104,6 +132,23 @@ class TestWindow:
         """An inverted bbox raises ValueError."""
         with pytest.raises(ValueError, match="min_x, min_y, max_x, max_y"):
             Window.from_bounds((3.0, 1.0, 1.0, 3.0), GT_UNIT)
+
+    def test_from_bounds_south_up_geotransform(self):
+        """A south-up grid (positive dy) maps the bbox to the right rows.
+
+        Test scenario:
+            Origin at y=0 with rows growing northwards: bbox (1, 1, 3, 3)
+            is still the 2x2 block starting at column 1, row 1 — the corner
+            mapping must not collapse the row extent to a clamped size of 1.
+        """
+        gt_south_up = (0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+        w = Window.from_bounds((1.0, 1.0, 3.0, 3.0), gt_south_up)
+        assert w == Window(1, 1, 2, 2), f"south-up window wrong: {w}"
+
+    def test_from_bounds_singular_geotransform_rejected(self):
+        """A non-invertible geotransform raises ValueError."""
+        with pytest.raises(ValueError, match="singular"):
+            Window.from_bounds((1.0, 1.0, 3.0, 3.0), (0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 
     def test_intersection_overlap_and_disjoint(self):
         """Intersection returns the overlap, or None when disjoint."""
@@ -218,6 +263,18 @@ class TestBlockIteration:
         assert blocks, "ROI must intersect at least one block"
         assert all(w.intersection(roi) == w for w in blocks), "blocks not clipped to ROI"
         assert sum(w.cols * w.rows for w in blocks) == 9, "ROI coverage must be exact"
+
+    def test_block_windows_disjoint_roi_yields_nothing(self, ramp_dataset):
+        """An ROI entirely outside the raster yields no blocks.
+
+        Test scenario:
+            The 6x6 raster's blocks all live in [0, 6); an ROI starting at
+            column/row 10 intersects none of them, so the generator is empty.
+        """
+        roi = Window(10, 10, 2, 2)
+        assert list(ramp_dataset.block_windows(window=roi)) == [], (
+            "an ROI outside the raster must yield no blocks"
+        )
 
     def test_iter_blocks_rebuilds_raster(self, ramp_dataset):
         """Streaming blocks and reassembling them reproduces the raster."""
