@@ -143,18 +143,22 @@ class TestCropNonSpatialAux:
         assert "t2m" in reprojected.variable_names, "spatial t2m should be reprojected"
         assert "number" in reprojected.variable_names, "non-spatial aux should be carried"
 
-    def test_reduce_also_carries_nonspatial_aux(self):
-        """``reduce`` (its own fan-out loop) tolerates the aux variable too.
+    def test_reduce_drops_aux_spanning_the_reduced_dim(self):
+        """reduce drops an aux variable that spans the reduced dim, with a warning (M5).
 
         Test scenario:
-            Reducing the time dimension of an ERA5-shaped cube reduces ``t2m``
-            and carries the non-spatial ``number`` through instead of crashing
-            in ``get_variable`` (the same #513 defect class).
+            ``number(valid_time)`` spans the reduced dimension; carrying it
+            verbatim would leave an inconsistent ``valid_time`` length while
+            ``t2m`` collapses it. reduce must drop the spanning aux and warn,
+            not produce a malformed container or crash in ``get_variable``.
         """
         cube = _era5_like_cube()
-        reduced = cube.reduce("valid_time", "mean")
+        with pytest.warns(UserWarning, match="span the reduced dimension"):
+            reduced = cube.reduce("valid_time", "mean")
         assert "t2m" in reduced.variable_names, "spatial t2m should be reduced"
-        assert "number" in reduced.variable_names, "non-spatial aux should be carried"
+        assert (
+            "number" not in reduced.variable_names
+        ), "an aux variable spanning the reduced dim must be dropped"
         assert reduced.get_variable("t2m").band_count == 1, "valid_time collapsed to 1"
 
 

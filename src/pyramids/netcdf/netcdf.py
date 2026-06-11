@@ -2102,7 +2102,27 @@ class NetCDF(Dataset):
                 f"Dimension {dim!r} is not a non-spatial dimension of any "
                 f"variable in this container."
             )
-        self._carry_aux_variables(result, aux_vars, "reduce")
+        # Auxiliary variables that span the reduced dimension cannot be carried
+        # verbatim — they would keep the full-length axis while the gridded
+        # variables collapse it, leaving an inconsistent dimension length. Drop
+        # those with a warning; carry the rest unchanged.
+        rg = self._raster.GetRootGroup()
+        carry_aux: list[str] = []
+        spanning_aux: list[str] = []
+        for name in aux_vars:
+            try:
+                var_dims = [d.GetName() for d in rg.OpenMDArray(name).GetDimensions()]
+            except RuntimeError:
+                var_dims = []
+            (spanning_aux if dim in var_dims else carry_aux).append(name)
+        if spanning_aux:
+            warnings.warn(
+                f"reduce() dropped auxiliary variable(s) {spanning_aux} that span "
+                f"the reduced dimension {dim!r}; carrying them unchanged would "
+                f"leave an inconsistent {dim!r} length in the result.",
+                stacklevel=2,
+            )
+        self._carry_aux_variables(result, carry_aux, "reduce")
         return result
 
     @staticmethod
