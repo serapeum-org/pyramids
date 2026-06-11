@@ -23,7 +23,7 @@ from osgeo import gdal
 from osgeo_utils import gdal2xyz
 from pandas import DataFrame
 
-from pyramids._io import new_vsimem_path, read_vsi_bytes, silent_unlink
+from pyramids._io import new_vsimem_path, read_vsi_bytes
 from pyramids.base._domain import is_no_data
 from pyramids.base._errors import FailedToSaveError, OutOfBoundsError, ReadOnlyError
 from pyramids.base._file_manager import (
@@ -1631,8 +1631,13 @@ class IO(_Engine):
             or (drv.GetMetadataItem(gdal.DMD_EXTENSIONS) or "").split(" ")[0]
             or "bin"
         )
-        vsi_path = new_vsimem_path(f".{extension}")
-        stem = vsi_path.rsplit("/", 1)[1].rsplit(".", 1)[0]
+        # Write into a unique /vsimem/ subdirectory so sibling detection and
+        # cleanup are scoped to this call. A global /vsimem/ prefix scan is racy
+        # under concurrent serialization (another thread's path could share the
+        # prefix) and O(total vsimem files) on every call.
+        vsi_dir = new_vsimem_path("")
+        out_name = f"out.{extension}"
+        vsi_path = f"{vsi_dir}/{out_name}"
         options = [f"{key}={value}" for key, value in (creation_options or {}).items()]
         try:
             # strict=1 (the GDAL default): a driver that cannot represent the
@@ -1647,10 +1652,8 @@ class IO(_Engine):
             out = None
             siblings = [
                 name
-                for name in (gdal.ReadDir(_VSIMEM_PREFIX) or [])
-                if name.startswith(stem)
-                and f"{_VSIMEM_PREFIX}{name}" != vsi_path
-                and not name.endswith(".aux.xml")
+                for name in (gdal.ReadDir(vsi_dir) or [])
+                if name != out_name and not name.endswith(".aux.xml")
             ]
             if siblings:
                 raise ValueError(
@@ -1659,9 +1662,13 @@ class IO(_Engine):
                 )
             payload = read_vsi_bytes(vsi_path)
         finally:
-            for name in gdal.ReadDir(_VSIMEM_PREFIX) or []:
-                if name.startswith(stem):
-                    silent_unlink(f"{_VSIMEM_PREFIX}{name}")
+            # Best-effort cleanup: never let it mask a CreateCopy failure. The
+            # subdir may not exist if CreateCopy failed before writing anything,
+            # in which case RmdirRecursive raises — swallow only that.
+            try:
+                gdal.RmdirRecursive(vsi_dir)
+            except RuntimeError:
+                pass
         return payload
 
     def to_raster(

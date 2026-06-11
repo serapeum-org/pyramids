@@ -8,6 +8,8 @@ validation, creation options, `/vsimem/` hygiene, and
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 import pytest
 from osgeo import gdal
@@ -242,6 +244,38 @@ class TestToBytes:
         assert ramp_dataset.to_bytes() == ramp_dataset.io.to_bytes(), (
             "facade and engine outputs differ"
         )
+
+    def test_concurrent_to_bytes_are_independent(self):
+        """Parallel to_bytes calls do not cross-contaminate (M2).
+
+        Test scenario:
+            Each call serializes into its own unique /vsimem/ subdirectory, so
+            eight threads each encoding a distinct constant raster must every one
+            round-trip back to its own values — a global prefix scan could have
+            unlinked or mis-detected another call's files.
+        """
+        datasets = [
+            Dataset.create_from_array(
+                np.full((4, 4), value, dtype="float32"),
+                top_left_corner=(0, 4),
+                cell_size=1.0,
+                epsg=4326,
+            )
+            for value in range(8)
+        ]
+        results: dict[int, bytes] = {}
+
+        def encode(i: int) -> None:
+            results[i] = datasets[i].to_bytes()
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(encode, range(8)))
+
+        for value, payload in results.items():
+            restored = Dataset.from_bytes(payload)
+            assert np.allclose(restored.read_array(), float(value)), (
+                f"payload {value} did not round-trip to its own values"
+            )
 
 
 class TestToCogBytesStillWorks:
