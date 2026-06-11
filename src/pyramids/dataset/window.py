@@ -12,6 +12,7 @@ y-first).
 from __future__ import annotations
 
 import math
+import numbers
 from dataclasses import dataclass
 
 from osgeo import gdal
@@ -31,6 +32,8 @@ class Window:
         rows: Window height in pixels (> 0).
 
     Raises:
+        TypeError: Any field is not an integer (GDAL would silently round a
+            fractional offset to a neighbouring pixel).
         ValueError: ``cols`` or ``rows`` is not strictly positive.
 
     Examples:
@@ -70,6 +73,14 @@ class Window:
 
     def __post_init__(self):
         """Validate the window geometry."""
+        for name in ("col_off", "row_off", "cols", "rows"):
+            value = getattr(self, name)
+            if not isinstance(value, numbers.Integral):
+                raise TypeError(
+                    f"window fields must be integers, got {name}={value!r}; "
+                    f"GDAL silently rounds fractional offsets to a "
+                    f"neighbouring pixel."
+                )
         if self.cols <= 0 or self.rows <= 0:
             raise ValueError(
                 f"window size must be strictly positive, got "
@@ -109,7 +120,8 @@ class Window:
             Window: The covering pixel window.
 
         Raises:
-            ValueError: ``bbox`` is inverted (min >= max on either axis).
+            ValueError: ``bbox`` is inverted (min >= max on either axis), or
+                ``geotransform`` is singular (not invertible).
 
         Examples:
             - A unit-cell grid with origin (0, 4): the bbox (1, 1, 3, 3)
@@ -135,14 +147,26 @@ class Window:
         if min_x >= max_x or min_y >= max_y:
             raise ValueError(f"bbox must be (min_x, min_y, max_x, max_y), got {bbox}.")
         inverse = gdal.InvGeoTransform(geotransform)
-        left, top = gdal.ApplyGeoTransform(inverse, min_x, max_y)
-        right, bottom = gdal.ApplyGeoTransform(inverse, max_x, min_y)
+        if inverse is None:
+            raise ValueError(
+                f"geotransform {geotransform} is singular and cannot be inverted."
+            )
+        # Project all four bbox corners: under a south-up (positive dy) or
+        # rotated geotransform the min/max pixel coordinates do not come from
+        # the (min_x, max_y) / (max_x, min_y) corners alone.
+        corners = [
+            gdal.ApplyGeoTransform(inverse, x, y)
+            for x in (min_x, max_x)
+            for y in (min_y, max_y)
+        ]
+        cols_px = [corner[0] for corner in corners]
+        rows_px = [corner[1] for corner in corners]
         # floor (not int(): it truncates toward zero) so bboxes extending
         # left of / above the raster origin resolve to negative offsets.
-        col_off = int(math.floor(left))
-        row_off = int(math.floor(top))
-        cols = max(1, int(math.ceil(right)) - col_off)
-        rows = max(1, int(math.ceil(bottom)) - row_off)
+        col_off = int(math.floor(min(cols_px)))
+        row_off = int(math.floor(min(rows_px)))
+        cols = max(1, int(math.ceil(max(cols_px))) - col_off)
+        rows = max(1, int(math.ceil(max(rows_px))) - row_off)
         return cls(col_off=col_off, row_off=row_off, cols=cols, rows=rows)
 
     def to_bounds(
