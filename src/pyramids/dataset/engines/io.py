@@ -490,6 +490,20 @@ class IO(_Engine):
                 "yet. Read boundless at native resolution and decimate the "
                 "result yourself."
             )
+        if boundless and threadsafe:
+            raise NotImplementedError(
+                "read_array(boundless=True) is not supported together with "
+                "threadsafe=True; the boundless read uses the shared handle, "
+                "defeating the per-thread isolation. Read boundless without "
+                "threadsafe, or pad the result yourself."
+            )
+        if out_shape is not None and threadsafe:
+            raise NotImplementedError(
+                "read_array(out_shape=...) is not supported together with "
+                "threadsafe=True; the decimated read uses the shared handle, "
+                "defeating the per-thread isolation. Read decimated without "
+                "threadsafe, or decimate a threadsafe full read yourself."
+            )
         if bbox is not None:
             if window is not None:
                 raise ValueError(

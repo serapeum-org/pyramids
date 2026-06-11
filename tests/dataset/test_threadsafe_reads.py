@@ -226,6 +226,18 @@ class TestThreadsafeEagerReads:
         with pytest.raises(ValueError, match="window must be a Window or a list"):
             ds.read_array(band=0, window="0,0,4,4", threadsafe=True)
 
+    def test_boundless_with_threadsafe_rejected(self, tiled_raster):
+        """boundless=True + threadsafe=True raises, not a silent shared-handle read (L4)."""
+        ds, _ = tiled_raster
+        with pytest.raises(NotImplementedError, match="boundless=True.*threadsafe"):
+            ds.read_array(band=0, window=[0, 0, 4, 4], boundless=True, threadsafe=True)
+
+    def test_out_shape_with_threadsafe_rejected(self, tiled_raster):
+        """out_shape + threadsafe=True raises, not a silent shared-handle read (L12)."""
+        ds, _ = tiled_raster
+        with pytest.raises(NotImplementedError, match="out_shape.*threadsafe"):
+            ds.read_array(band=0, out_shape=(8, 8), threadsafe=True)
+
     def test_out_of_bounds_window_contract(self, tiled_raster):
         """An OOB window raises OutOfBoundsError, matching the default path.
 
