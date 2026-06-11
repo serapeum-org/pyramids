@@ -702,12 +702,25 @@ class IO(_Engine):
 
         Returns:
             ThreadLocalFileManager: The manager cached on the Dataset.
+
+        Raises:
+            ValueError: The Dataset was closed; building a manager now would
+                re-open per-thread handles that :meth:`Dataset.close` just
+                released, re-locking the file.
         """
         manager = getattr(self._ds, "_thread_manager", None)
         if manager is None:
             with _THREAD_MANAGER_CREATION_LOCK:
                 manager = getattr(self._ds, "_thread_manager", None)
                 if manager is None:
+                    # Re-check under the lock: if close() nulled _raster after
+                    # the caller's own guard, do not re-cache a manager (which
+                    # would re-open and re-lock the file post-close).
+                    if self._ds._raster is None:
+                        raise ValueError(
+                            "read_array(threadsafe=True) on a closed Dataset; "
+                            "re-open it with Dataset.read_file first."
+                        )
                     manager = ThreadLocalFileManager(
                         gdal_raster_open,
                         self._require_reopenable_path(),

@@ -341,6 +341,27 @@ class TestThreadLocalManagerSemantics:
         os.remove(path)
         assert not os.path.exists(path), "file must be unlocked after close()"
 
+    def test_get_thread_manager_rejects_closed_dataset(self, tmp_path):
+        """_get_thread_manager refuses to re-cache a manager after close (L5).
+
+        Test scenario:
+            After close() nulls the raster, building a new per-thread manager
+            would re-open and re-lock the file. The creation path re-checks the
+            closed state under the lock and raises instead.
+        """
+        path = str(tmp_path / "closed.tif")
+        Dataset.create_from_array(
+            np.ones((8, 8), dtype="float32"),
+            top_left_corner=(0, 8),
+            cell_size=1.0,
+            epsg=4326,
+        ).to_file(path)
+        ds = Dataset.read_file(path)
+        ds.close()
+        with pytest.raises(ValueError, match="closed Dataset"):
+            ds.io._get_thread_manager()
+        os.remove(path)
+
     def test_manager_is_pickle_safe(self, tiled_raster):
         """The manager survives a pickle round-trip (dask-graph requirement)."""
         ds, _ = tiled_raster
