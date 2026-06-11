@@ -19,7 +19,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from numbers import Number
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
@@ -31,11 +31,15 @@ from pyramids.base._utils import (
 from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
 from pyramids.base.protocols import ArrayLike
 from pyramids.dataset.transform import GeoTransform
+from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
 
 DEFAULT_NO_DATA_VALUE = -9999
 CATALOG = Catalog()
 OVERVIEW_LEVELS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
+# Overview-build resampling names (gdal.Dataset.BuildOverviews family). This is a
+# different GDAL name-space from the warp algorithms in
+# pyramids.base._utils.INTERPOLATION_METHODS (gdal.GRA_*) used by to_crs/resample.
 RESAMPLING_METHODS = [
     "NEAREST",
     "CUBIC",
@@ -526,6 +530,114 @@ class RasterBase(ABC):
 
         self._block_size = value
 
+    def block_windows(
+        self, band: int = 0, *, window: Window | None = None
+    ) -> Generator[Window, None, None]:
+        """Yield a :class:`Window` for every native block of ``band``.
+
+        Walks the raster in its on-disk block layout (tiles for tiled
+        formats, full-width strips otherwise), clipping edge blocks to the
+        raster extent. With ``window`` given, only blocks intersecting it
+        are yielded, clipped to the window — useful for streaming a region.
+
+        Yields windows only (no pixel reads), so it suits write pipelines
+        and planners; use :meth:`iter_blocks` to also read each block.
+
+        Args:
+            band: Band index whose block layout drives the walk. Default 0.
+            window: Optional region of interest; only intersecting blocks
+                are yielded, clipped to it.
+
+        Yields:
+            Window: The next block window, row-major.
+
+        Examples:
+            - The block windows of a 5x5 in-memory raster tile it exactly
+              once (MEM rasters expose full-width strip blocks):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((5, 5)), top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
+                ... )
+                >>> windows = list(ds.block_windows())
+                >>> sum(w.cols * w.rows for w in windows) == ds.rows * ds.columns
+                True
+
+                ```
+            - Restrict the walk to a region of interest:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset.window import Window
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((6, 6)), top_left_corner=(0, 6), cell_size=1.0, epsg=4326,
+                ... )
+                >>> roi = Window(col_off=1, row_off=1, cols=3, rows=3)
+                >>> all(w.intersection(roi) == w for w in ds.block_windows(window=roi))
+                True
+
+                ```
+
+        See Also:
+            iter_blocks: The reading variant, yielding ``(Window, ndarray)``.
+        """
+        block_x, block_y = self.block_size[band]
+        for row in range(0, self.rows, block_y):
+            for col in range(0, self.columns, block_x):
+                block = Window(
+                    col_off=col,
+                    row_off=row,
+                    cols=min(block_x, self.columns - col),
+                    rows=min(block_y, self.rows - row),
+                )
+                if window is not None:
+                    block = block.intersection(window)
+                    if block is None:
+                        continue
+                yield block
+
+    def iter_blocks(
+        self, band: int = 0, *, window: Window | None = None
+    ) -> Generator[tuple[Window, np.ndarray], None, None]:
+        """Yield ``(Window, ndarray)`` for every native block of ``band``.
+
+        The streaming read companion of :meth:`block_windows`: each yielded
+        array is the block's pixels, so arbitrarily large rasters can be
+        processed block-by-block in constant memory.
+
+        Args:
+            band: Band index to read. Default 0.
+            window: Optional region of interest; only intersecting blocks
+                are yielded, clipped to it.
+
+        Yields:
+            tuple[Window, np.ndarray]: The block window and its pixel values
+                (shape ``window.shape``), row-major.
+
+        Examples:
+            - Stream a raster and rebuild it block-by-block:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> src_arr = np.arange(25, dtype="float32").reshape(5, 5)
+                >>> ds = Dataset.create_from_array(
+                ...     src_arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
+                ... )
+                >>> rebuilt = np.zeros_like(src_arr)
+                >>> for w, block in ds.iter_blocks():
+                ...     rebuilt[w.row_off : w.row_off + w.rows, w.col_off : w.col_off + w.cols] = block
+                >>> bool((rebuilt == src_arr).all())
+                True
+
+                ```
+
+        See Also:
+            block_windows: The windows-only variant (no pixel reads).
+        """
+        for block in self.block_windows(band, window=window):
+            yield block, self.read_array(band=band, window=block)
+
     @property
     def file_name(self):
         """File name."""
@@ -808,7 +920,10 @@ class RasterBase(ABC):
             to_epsg (int):
                 Reference number to the new projection (https://epsg.io/) (default 3857 the reference no of WGS84 web mercator).
             method (str):
-                Resampling technique. See https://gisgeography.com/raster-resampling/. Options include "nearest neighbor", "cubic", and "bilinear". Default is "nearest neighbor".
+                Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
+                (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
+                "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms;
+                "sum"/"rms" need GDAL >= 3.1/3.3). See https://gisgeography.com/raster-resampling/.
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the raster the same after reprojection. Default is False.
             inplace (bool):

@@ -15,7 +15,7 @@ from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal, osr
 
 from pyramids.base._domain import is_no_data
-from pyramids.base._utils import INTERPOLATION_METHODS
+from pyramids.base._utils import resolve_resampling
 from pyramids.base.crs import (
     epsg_from_wkt,
     reproject_coordinates,
@@ -32,6 +32,31 @@ if TYPE_CHECKING:
 
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines.vectorize import Vectorize
+
+
+def _dst_srs_arg(dst_sr: osr.SpatialReference) -> str:
+    """Derive the ``dstSRS`` argument to hand to :func:`gdal.Warp`.
+
+    Prefer the ``"<AUTHORITY>:<code>"`` form when one exists so the output WKT
+    GDAL writes is the canonical GDAL/PROJ form (matching historical bytes for
+    EPSG codes and avoiding a GDAL warning when the authority is ESRI). Fall
+    back to the explicit WKT for CRSes carrying no authority at all (custom
+    orthographic proj4 strings, etc.). See #418.
+
+    Args:
+        dst_sr: The target spatial reference.
+
+    Returns:
+        str: An authority string such as ``"EPSG:3857"``, or the full WKT when
+            the SRS carries no authority.
+    """
+    dst_auth = dst_sr.GetAuthorityName(None)
+    dst_code = dst_sr.GetAuthorityCode(None)
+    if dst_auth is not None and dst_code is not None:
+        srs_arg = f"{dst_auth}:{dst_code}"
+    else:
+        srs_arg = dst_sr.ExportToWkt()
+    return srs_arg
 
 
 class Spatial(_Engine):
@@ -109,8 +134,10 @@ class Spatial(_Engine):
                 are filled with the source's nodata value when one is configured, or
                 with GDAL's dtype-default fill value otherwise.
             method (str):
-                resampling method. Default is "nearest neighbor". See https://gisgeography.com/raster-resampling/.
-                Allowed values: "nearest neighbor", "cubic", "bilinear".
+                Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
+                (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
+                "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms;
+                "sum"/"rms" need GDAL >= 3.1/3.3). See https://gisgeography.com/raster-resampling/.
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the raster the same after reprojection.
                 Default is False.
@@ -221,40 +248,121 @@ class Spatial(_Engine):
 
         """
         dst_sr = sr_from_user_input(to_epsg)
-        if not isinstance(method, str):
-            raise TypeError(
-                "Please enter a correct method, for more information, see documentation "
-            )
-        if method not in INTERPOLATION_METHODS.keys():
-            raise ValueError(
-                f"The given interpolation method: {method} does not exist, existing methods are "
-                f"{INTERPOLATION_METHODS.keys()}"
-            )
-
-        resampling_method: Any = INTERPOLATION_METHODS.get(method)
+        resampling_method: int = resolve_resampling(method)
 
         if maintain_alignment:
             dst_obj = self._reproject_with_ReprojectImage(dst_sr, resampling_method)
         else:
-            # Prefer the "<AUTHORITY>:<code>" form when one exists so the
-            # output WKT GDAL writes is the canonical GDAL/PROJ form
-            # (matching historical bytes for EPSG codes and avoiding a
-            # GDAL warning when the authority is ESRI). Fall back to the
-            # explicit WKT for CRSes carrying no authority at all
-            # (custom orthographic proj4 strings, etc.). See #418.
-            dst_auth = dst_sr.GetAuthorityName(None)
-            dst_code = dst_sr.GetAuthorityCode(None)
-            dst_srs_arg = (
-                f"{dst_auth}:{dst_code}"
-                if dst_auth is not None and dst_code is not None
-                else dst_sr.ExportToWkt()
-            )
             dst = gdal.Warp(
-                "", self._ds.raster, dstSRS=dst_srs_arg, format="VRT"
+                "",
+                self._ds.raster,
+                dstSRS=_dst_srs_arg(dst_sr),
+                format="VRT",
+                resampleAlg=resampling_method,
             )
             dst_obj = self._ds.__class__(dst)
 
         return dst_obj
+
+    def warped_view(
+        self,
+        crs: int | str | Any,
+        method: str = "nearest neighbor",
+        *,
+        cell_size: float | None = None,
+        bbox: tuple[float, float, float, float] | None = None,
+    ) -> Dataset:
+        """Return a lazy, reprojected **view** of the dataset (no pixels warped yet).
+
+        Builds an in-memory warped VRT: nothing is resampled until a window is
+        read, and a windowed read warps **only that window**. This is the lazy
+        counterpart of :meth:`to_crs` — prefer it for tile serving, partial
+        reads of reprojected data, and chained virtual pipelines; prefer
+        :meth:`to_crs` when you will consume the whole reprojected raster.
+
+        The returned Dataset keeps a reference to its source, so the source
+        handle cannot be garbage-collected underneath the view.
+
+        Args:
+            crs: Target CRS in any form :meth:`pyproj.CRS.from_user_input`
+                accepts (EPSG int, ``"EPSG:3857"``, WKT, PROJ4, pyproj CRS).
+            method: Resampling method used when windows are read. Any name
+                accepted by :func:`pyramids.base._utils.resolve_resampling`
+                (case- and whitespace-insensitive). Default is
+                ``"nearest neighbor"``.
+            cell_size: Optional output pixel size in target-CRS units (applied
+                to both axes). ``None`` lets GDAL pick the size that preserves
+                the source resolution.
+            bbox: Optional ``(min_x, min_y, max_x, max_y)`` output extent in
+                the **target** CRS; ``None`` covers the warped source extent.
+
+        Returns:
+            Dataset: A read-only, VRT-backed reprojected view.
+
+        Raises:
+            CRSError: ``crs`` cannot be interpreted as a CRS.
+            TypeError: ``method`` is not a string.
+            ValueError: ``method`` is not a supported resampling method.
+            RuntimeError: GDAL could not build the warped VRT.
+
+        Examples:
+            - A view reports the warped CRS without materialising pixels, and
+              a windowed read matches the eager reprojection:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> src = Dataset.create_from_array(
+                ...     np.random.rand(8, 8).astype("float32"),
+                ...     top_left_corner=(0, 8), cell_size=0.01, epsg=4326,
+                ... )
+                >>> view = src.warped_view(3857)
+                >>> view.epsg
+                3857
+                >>> eager = src.to_crs(3857)
+                >>> bool(np.allclose(view.read_array(), eager.read_array()))
+                True
+
+                ```
+            - The view holds its source alive (safe to drop the original):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> src = Dataset.create_from_array(
+                ...     np.ones((4, 4), dtype="float32"),
+                ...     top_left_corner=(0, 4), cell_size=0.01, epsg=4326,
+                ... )
+                >>> view = src.warped_view(3857)
+                >>> del src
+                >>> view.read_array().shape == (view.rows, view.columns)
+                True
+
+                ```
+
+        See Also:
+            Spatial.to_crs: The eager reprojection (materialises the result).
+        """
+        dst_sr = sr_from_user_input(crs)
+        resample_alg: int = resolve_resampling(method)
+        dst_srs_arg = _dst_srs_arg(dst_sr)
+        options = gdal.WarpOptions(
+            format="VRT",
+            dstSRS=dst_srs_arg,
+            resampleAlg=resample_alg,
+            xRes=cell_size,
+            yRes=cell_size,
+            outputBounds=bbox,
+            multithread=True,
+        )
+        vrt = gdal.Warp("", self._ds.raster, options=options)
+        if vrt is None:
+            raise RuntimeError(
+                f"GDAL could not build a warped VRT onto {dst_srs_arg!r}."
+            )
+        view = self._ds.__class__(vrt, access="read_only")
+        # The VRT references the source GDAL handle; pin the source Dataset on
+        # the view so Python cannot garbage-collect it underneath the VRT.
+        view._warp_source = self._ds
+        return view
 
     def _get_epsg(self) -> int:
         """Get the EPSG number.
@@ -330,7 +438,10 @@ class Spatial(_Engine):
             cell_size (int | float):
                 New cell size to resample the raster to, in the units of the raster CRS.
             method (str):
-                Resampling method: "nearest neighbor", "cubic", or "bilinear". Default is "nearest neighbor".
+                Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
+                (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
+                "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms;
+                "sum"/"rms" need GDAL >= 3.1/3.3).
 
         Returns:
             Dataset:
@@ -364,17 +475,7 @@ class Spatial(_Engine):
               ![resample-source](./../../_images/dataset/resample-source.png)
               ![resample-new](./../../_images/dataset/resample-new.png)
         """
-        if not isinstance(method, str):
-            raise TypeError(
-                "Please enter a correct method, for more information, see documentation"
-            )
-        if method not in INTERPOLATION_METHODS.keys():
-            raise ValueError(
-                f"The given interpolation method does not exist, existing methods are "
-                f"{INTERPOLATION_METHODS.keys()}"
-            )
-
-        resampling_method: Any = INTERPOLATION_METHODS.get(method)
+        resampling_method: int = resolve_resampling(method)
 
         sr_src = sr_from_wkt(self._ds.crs)
 
@@ -421,7 +522,7 @@ class Spatial(_Engine):
     def _reproject_with_ReprojectImage(
         self,
         dst_sr: osr.SpatialReference,
-        method: str = "nearest neighbor",
+        method: int = gdal.GRA_NearestNeighbour,
     ) -> Dataset:
         """Reproject the dataset by deriving an extent from corner reprojection.
 
@@ -451,11 +552,11 @@ class Spatial(_Engine):
                 Built from ``Spatial.to_crs(..., maintain_alignment=True)``
                 via :func:`pyramids.base.crs.sr_from_user_input`, but callers
                 may pass any pre-built SRS.
-            method: GDAL resampling algorithm (e.g. ``gdal.GRA_NearestNeighbour``,
-                ``gdal.GRA_Bilinear``, ``gdal.GRA_Cubic``). The default string
-                ``"nearest neighbor"`` is a placeholder for the typed enum;
-                pass the resolved enum through :data:`INTERPOLATION_METHODS`
-                when calling from outside :meth:`to_crs`.
+            method: GDAL resampling algorithm constant (e.g.
+                ``gdal.GRA_NearestNeighbour``, ``gdal.GRA_Bilinear``,
+                ``gdal.GRA_Cubic``). Resolve a method *name* through
+                :func:`pyramids.base._utils.resolve_resampling` when calling
+                from outside :meth:`to_crs`.
 
         Returns:
             Dataset: A new ``Dataset`` covering the reprojected extent. Cell

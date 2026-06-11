@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import pickle
 import threading
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generator
@@ -22,6 +23,7 @@ from osgeo_utils import gdal2xyz
 from pandas import DataFrame
 
 from pyramids._io import new_vsimem_path, read_vsi_bytes, silent_unlink
+from pyramids.base._domain import is_no_data
 from pyramids.base._errors import FailedToSaveError, OutOfBoundsError, ReadOnlyError
 from pyramids.base._file_manager import (
     CachingFileManager,
@@ -33,6 +35,7 @@ from pyramids.base.protocols import ArrayLike
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS, RESAMPLING_METHODS
 from pyramids.dataset.ops import io as _io_module
 from pyramids.dataset.ops.io import _LAZY_IMPORT_ERROR
+from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
@@ -77,12 +80,13 @@ class IO(_Engine):
     def read_array(
         self: Dataset,
         band: int | None = None,
-        window: GeoDataFrame | list[int] | None = None,
+        window: Window | GeoDataFrame | list[int] | None = None,
         *,
         chunks: int | tuple | dict | str | None = None,
         lock: Any = None,
         bbox: tuple[float, float, float, float] | list[float] | None = None,
         epsg: Any = None,
+        masked: bool = False,
         threadsafe: bool = False,
     ) -> ArrayLike:
         """Read the values stored in a given band (eager or lazy).
@@ -102,8 +106,13 @@ class IO(_Engine):
         Args:
             band (int, optional):
                 The band you want to get its data. If None, data of all bands will be read. Default is None.
-            window (List[int] | GeoDataFrame, optional):
-                Specify a block of data to read from the dataset. The window can be specified in two ways:
+            window (Window | List[int] | GeoDataFrame, optional):
+                Specify a block of data to read from the dataset. The window can be specified in three ways:
+
+                - :class:`~pyramids.dataset.window.Window` (preferred):
+                    A first-class pixel window (``col_off``, ``row_off``, ``cols``, ``rows``) — the
+                    same object :meth:`write_array` accepts, so a block read back with a ``Window``
+                    can be written back with the identical object.
 
                 - List:
                     Window specified as a list of 4 integers [offset_x, offset_y, window_columns, window_rows].
@@ -155,6 +164,21 @@ class IO(_Engine):
                   context-manager semantics is used as-is.
 
                 Ignored when `chunks is None`.
+            masked (bool, keyword-only):
+                When `True`, return a :class:`numpy.ma.MaskedArray` with
+                invalid pixels masked instead of a plain array. The mask
+                combines, per band:
+
+                - the band's no-data marker (NaN-aware: a NaN nodata masks
+                  the NaN cells), and
+                - the band's GDAL mask band (alpha / internal masks).
+                  Windowed reads (including `bbox`) slice the mask band
+                  with the same resolved pixel window as the data.
+
+                Only supported on the eager, non-`threadsafe` path;
+                combining it with `chunks` or `threadsafe=True` raises
+                :class:`NotImplementedError`. Default is `False` (plain
+                array, unchanged behaviour).
             threadsafe (bool, keyword-only):
                 Opt into per-thread GDAL handles so concurrent reads from
                 multiple threads never share a handle (same-handle
@@ -179,8 +203,9 @@ class IO(_Engine):
         Returns:
             ArrayLike:
                 :class:`numpy.ndarray` when `chunks is None`,
-                :class:`dask.array.Array` otherwise. The instance
-                attribute :attr:`_backend` records `"numpy"` or
+                :class:`dask.array.Array` otherwise (and a
+                :class:`numpy.ma.MaskedArray` when `masked=True`). The
+                instance attribute :attr:`_backend` records `"numpy"` or
                 `"dask"` after the call.
 
         Raises:
@@ -189,6 +214,10 @@ class IO(_Engine):
                 full array and expects dask to slice it down).
             ImportError: If `chunks` is non-None and `dask` is not
                 installed.
+            NotImplementedError: If `masked=True` is combined with
+                `chunks` (lazy masked reads are not supported yet) or with
+                `threadsafe=True` (the mask band would be read from the
+                shared handle).
 
         Examples:
             - Create `Dataset` consisting of 4 bands, 5 rows, and 5 columns at the point lon/lat (0, 0):
@@ -299,11 +328,23 @@ class IO(_Engine):
                     "read_array(chunks=..., window=...) is not supported; "
                     "read lazily and slice the resulting dask array instead."
                 )
+            if masked:
+                raise NotImplementedError(
+                    "read_array(masked=True) is not supported together with "
+                    "chunks=; read eagerly, or mask the dask array yourself."
+                )
             arr = self._lazy_read_array(
                 band=band, chunks=chunks, lock=lock, threadsafe=threadsafe
             )
             self._ds._backend = "dask"
         elif threadsafe:
+            if masked:
+                raise NotImplementedError(
+                    "read_array(threadsafe=True) is not supported together "
+                    "with masked=True; the mask band would be read from the "
+                    "shared handle, defeating the per-thread isolation. Read "
+                    "masked without threadsafe, or mask the result yourself."
+                )
             arr = self._threadsafe_eager_read(band=band, window=window)
             self._ds._backend = "numpy"
         else:
@@ -343,6 +384,8 @@ class IO(_Engine):
                 else:
                     arr = self._read_block(band, window)
             self._ds._backend = "numpy"
+            if masked:
+                arr = self._to_masked(arr, band, window=window)
         return arr
 
     def _require_reopenable_path(self: Dataset) -> str:
@@ -480,6 +523,96 @@ class IO(_Engine):
             )
         return arr
 
+    def _to_masked(
+        self: Dataset,
+        arr: np.ndarray,
+        band: int | None,
+        *,
+        window: GeoDataFrame | list[int] | None,
+    ) -> np.ma.MaskedArray:
+        """Wrap an eagerly-read array as a MaskedArray of its invalid pixels.
+
+        Builds the per-band mask from the no-data marker (via
+        :func:`pyramids.base._domain.is_no_data` — NaN-safe and
+        float-precision-tolerant) and the band's GDAL mask band (alpha /
+        internal masks). Windowed reads slice the mask band with the same
+        resolved pixel window as the data. ``GMF_NODATA``-derived mask
+        bands are skipped — they duplicate the no-data comparison already
+        applied.
+
+        Args:
+            arr: The array returned by the eager read — 2-D for a single
+                band, 3-D ``(bands, rows, cols)`` for an all-bands read.
+            band: The band index the read resolved to, or ``None`` for an
+                all-bands (3-D) read.
+            window: The window the read used — a geometry
+                (GeoDataFrame/FeatureCollection, e.g. built from a
+                ``bbox``), a ``[xoff, yoff, xsize, ysize]`` list, or
+                ``None`` for a full read. Geometries are resolved to pixel
+                offsets exactly as :meth:`_read_block` resolves them.
+
+        Returns:
+            np.ma.MaskedArray: ``arr`` with invalid pixels masked.
+        """
+        if isinstance(window, GeoDataFrame):
+            window = self._convert_polygon_to_window(window)
+        if arr.ndim == 2:
+            indices = [0 if band is None else band]
+            slices = [arr]
+        else:
+            indices = list(range(arr.shape[0]))
+            slices = [arr[i] for i in indices]
+        masks = [
+            self._band_mask(index, data, window)
+            for index, data in zip(indices, slices)
+        ]
+        full_mask = masks[0] if arr.ndim == 2 else np.stack(masks, axis=0)
+        return np.ma.MaskedArray(arr, mask=full_mask)
+
+    def _band_mask(
+        self: Dataset,
+        index: int,
+        data: np.ndarray,
+        window: list[int] | None,
+    ) -> np.ndarray:
+        """Build the invalid-pixel mask for one band of an eager read.
+
+        Combines the no-data comparison (NaN-safe via
+        :func:`pyramids.base._domain.is_no_data`) with the band's GDAL
+        mask band (alpha / internal masks). ``GMF_NODATA``-derived mask
+        bands are skipped — they duplicate the no-data comparison
+        already applied.
+
+        Args:
+            index: Zero-based band index.
+            data: The band's 2-D data array.
+            window: The resolved ``[xoff, yoff, xsize, ysize]`` pixel
+                window of the read, or ``None`` for a full read.
+
+        Returns:
+            np.ndarray: Boolean mask, ``True`` where the pixel is
+            invalid.
+        """
+        nodata = self._ds.no_data_value[index]
+        if nodata is None:
+            # No marker set: nothing to mask by value. (is_no_data treats
+            # None as a NaN sentinel, which would wrongly mask valid NaNs
+            # on bands that never declared a no-data value.)
+            mask = np.zeros(data.shape, dtype=bool)
+        else:
+            mask = is_no_data(data, nodata)
+        gdal_band = self._ds._iloc(index)
+        if gdal_band.GetMaskFlags() not in (gdal.GMF_ALL_VALID, gdal.GMF_NODATA):
+            mask_band = gdal_band.GetMaskBand()
+            if window is None:
+                band_mask = mask_band.ReadAsArray()
+            else:
+                band_mask = mask_band.ReadAsArray(
+                    window[0], window[1], window[2], window[3]
+                )
+            mask = mask | (band_mask == 0)
+        return mask
+
     def _lazy_read_array(
         self: Dataset,
         band: int | None,
@@ -596,7 +729,9 @@ class IO(_Engine):
         return arr
 
     def _read_block(
-        self: Dataset, band: int, window: list[int] | GeoDataFrame | None = None
+        self: Dataset,
+        band: int,
+        window: Window | list[int] | GeoDataFrame | None = None,
     ) -> np.ndarray:
         """Read block of data from the dataset.
 
@@ -621,6 +756,8 @@ class IO(_Engine):
         """
         if isinstance(window, GeoDataFrame):
             window = self._convert_polygon_to_window(window)
+        if isinstance(window, Window):
+            window = list(window.to_read_args())
         if not isinstance(window, (list, tuple)):
             raise ValueError(f"window must be a list of 4 integers, got {type(window)}")
         try:
@@ -657,7 +794,7 @@ class IO(_Engine):
         top_left_corner: list[int] | None = None,
         *,
         band: int | None = None,
-        window: tuple[int, int, int, int] | None = None,
+        window: Window | tuple[int, int, int, int] | None = None,
     ) -> None:
         """Write an array (or a sub-window of one) into the dataset in place.
 
@@ -680,9 +817,15 @@ class IO(_Engine):
                 Zero-based band to write into. ``None`` (default) writes starting
                 at the first band (a 3D array spans bands). When given, ``array``
                 must be ``2D``.
-            window (tuple[int, int, int, int] | None):
-                ``(row_off, col_off, n_rows, n_cols)`` target window. The array's
-                trailing two dimensions must equal ``(n_rows, n_cols)``.
+            window (Window | tuple[int, int, int, int] | None):
+                Target window. Pass a
+                :class:`~pyramids.dataset.window.Window` (x-first, the same
+                object :meth:`read_array` accepts). The legacy bare tuple form
+                ``(row_off, col_off, n_rows, n_cols)`` — note its **y-first**
+                order, the opposite of ``read_array``'s window list — is
+                deprecated and emits a :class:`DeprecationWarning`; it will be
+                removed in the next major release. The array's trailing two
+                dimensions must equal the window's ``(rows, cols)``.
 
         Raises:
             ReadOnlyError: The dataset is opened read-only.
@@ -731,11 +874,11 @@ class IO(_Engine):
 
               ```python
               >>> import numpy as np
-              >>> from pyramids.dataset import Dataset
+              >>> from pyramids.dataset import Dataset, Window
               >>> dataset = Dataset.create_from_array(
               ...     np.zeros((5, 5)), top_left_corner=(0, 5), cell_size=1.0, epsg=4326
               ... )
-              >>> dataset.write_array(np.ones((2, 2)), window=(1, 1, 2, 2))
+              >>> dataset.write_array(np.ones((2, 2)), window=Window(1, 1, 2, 2))
               >>> dataset.read_array()[1:3, 1:3].tolist()
               [[1.0, 1.0], [1.0, 1.0]]
 
@@ -748,7 +891,20 @@ class IO(_Engine):
             )
 
         if window is not None:
-            yoff, xoff, n_rows, n_cols = window
+            if isinstance(window, Window):
+                xoff, yoff, n_cols, n_rows = window.to_read_args()
+            else:
+                warnings.warn(
+                    "Passing write_array a bare (row_off, col_off, n_rows, "
+                    "n_cols) tuple is deprecated: its y-first order is the "
+                    "opposite of read_array's window. Pass a "
+                    "pyramids.dataset.window.Window (x-first, shared by both "
+                    "methods) instead; the tuple form will be removed in the "
+                    "next major release.",
+                    DeprecationWarning,
+                    stacklevel=3,
+                )
+                yoff, xoff, n_rows, n_cols = window
             if array.shape[-2:] != (n_rows, n_cols):
                 raise ValueError(
                     f"array spatial shape {array.shape[-2:]} does not match the "
