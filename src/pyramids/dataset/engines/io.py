@@ -111,6 +111,30 @@ def _validate_out_shape(out_shape: Any) -> tuple[int, int]:
     return int(out_shape[0]), int(out_shape[1])
 
 
+def _fill_value_fits(fill_value: float, dtype: np.dtype) -> bool:
+    """Return whether ``fill_value`` is representable in ``dtype``.
+
+    Integer dtypes require a finite whole number within the dtype's range;
+    float dtypes accept any value (precision loss on cast is standard NumPy
+    semantics). Used both to validate an explicit fill and to decide whether a
+    band's no-data marker can serve as the boundless fill or must fall back to
+    the dtype zero.
+
+    Args:
+        fill_value: The candidate fill.
+        dtype: The band's NumPy dtype.
+
+    Returns:
+        bool: ``True`` when ``fill_value`` can be stored in ``dtype`` without
+            wrapping or truncation.
+    """
+    if dtype.kind not in "iu":
+        return True
+    value = float(fill_value)
+    info = np.iinfo(dtype)
+    return math.isfinite(value) and value.is_integer() and info.min <= value <= info.max
+
+
 def _validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
     """Reject an explicit boundless fill that an integer band cannot hold.
 
@@ -127,20 +151,13 @@ def _validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
         ValueError: ``dtype`` is integral and `fill_value` is not finite,
             not a whole number, or outside the dtype's value range.
     """
-    if dtype.kind in "iu":
-        value = float(fill_value)
+    if not _fill_value_fits(fill_value, dtype):
         info = np.iinfo(dtype)
-        if (
-            not math.isfinite(value)
-            or not value.is_integer()
-            or value < info.min
-            or value > info.max
-        ):
-            raise ValueError(
-                f"fill_value={fill_value!r} is not representable in the band "
-                f"dtype {dtype.name} (whole numbers in [{info.min}, "
-                f"{info.max}])."
-            )
+        raise ValueError(
+            f"fill_value={fill_value!r} is not representable in the band "
+            f"dtype {dtype.name} (whole numbers in [{info.min}, "
+            f"{info.max}])."
+        )
 
 
 class IO(_Engine):
@@ -1078,11 +1095,15 @@ class IO(_Engine):
         planes = []
         for index in band_indices:
             dtype = np.dtype(self._ds.numpy_dtype[index])
+            marker = self._ds.no_data_value[index]
             if fill_value is not None:
                 _validate_fill_value(fill_value, dtype)
                 fill = fill_value
-            elif self._ds.no_data_value[index] is not None:
-                fill = self._ds.no_data_value[index]
+            elif marker is not None and _fill_value_fits(marker, dtype):
+                # Use the band's no-data marker only when it fits the dtype;
+                # a float marker like -9999.0 on a uint8 band would otherwise
+                # wrap silently, so fall through to the dtype zero instead.
+                fill = marker
             else:
                 fill = 0
             plane = np.full(window.shape, fill, dtype=dtype)

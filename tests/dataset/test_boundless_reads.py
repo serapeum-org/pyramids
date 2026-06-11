@@ -11,6 +11,7 @@ from __future__ import annotations
 import geopandas as gpd
 import numpy as np
 import pytest
+from osgeo import gdal
 from shapely.geometry import box
 
 from pyramids.base._errors import OutOfBoundsError
@@ -151,6 +152,34 @@ class TestBoundlessReads:
         np.testing.assert_array_equal(
             result[1:, 1:], arr[:2, :2], err_msg="inside part must be real data"
         )
+
+    def test_integer_band_unrepresentable_nodata_falls_back_to_zero(self, tmp_path):
+        """A no-data marker too large for the integer band fills with 0, not a wrap (H2).
+
+        Test scenario:
+            A ``Byte`` GeoTIFF written with a raw ``-9999`` no-data marker (GDAL
+            stores it verbatim — pyramids only clamps markers set through its own
+            API). On a boundless read the marker cannot be held in ``uint8``, so the
+            outside fill must fall back to the dtype zero rather than silently
+            wrapping ``-9999`` to 241.
+        """
+        path = str(tmp_path / "byte_oob_nodata.tif")
+        out = gdal.GetDriverByName("GTiff").Create(path, 6, 6, 1, gdal.GDT_Byte)
+        out.SetGeoTransform((0.0, 1.0, 0.0, 6.0, 0.0, -1.0))
+        band = out.GetRasterBand(1)
+        band.WriteArray(np.arange(36, dtype="uint8").reshape(6, 6))
+        band.SetNoDataValue(-9999)
+        band.FlushCache()
+        out = None
+
+        ds = Dataset.read_file(path)
+        assert float(ds.no_data_value[0]) == -9999.0, (
+            "test precondition: GDAL must preserve the out-of-range Byte nodata"
+        )
+        result = ds.read_array(band=0, window=Window(-1, -1, 3, 3), boundless=True)
+        assert result.dtype == np.uint8, f"band dtype must be kept, got {result.dtype}"
+        assert (result[0, :] == 0).all(), "outside row must fall back to dtype zero"
+        assert not np.any(result == 241), "must not contain the wrapped -9999 fill"
 
     def test_unrepresentable_fill_value_rejected(self):
         """A fill the integer band dtype cannot hold raises instead of wrapping."""
