@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from typing import Sequence
 
@@ -59,6 +60,23 @@ def _json_safe(value: float | None) -> float | None:
 
 _HELP_SRC_RASTER = "source raster path"
 _HELP_DST_RASTER = "destination raster path"
+_HELP_OVERWRITE = "replace the output if it already exists"
+
+
+def _refuse_existing(path: str, overwrite: bool) -> None:
+    """Raise if ``path`` exists and ``--overwrite`` was not passed.
+
+    Args:
+        path: Destination path the command is about to write.
+        overwrite: Whether the user passed ``--overwrite``.
+
+    Raises:
+        ValueError: ``path`` already exists and ``overwrite`` is ``False``.
+    """
+    if not overwrite and os.path.exists(path):
+        raise ValueError(
+            f"output {path!r} already exists; pass --overwrite to replace it."
+        )
 _HELP_INSPECT_RASTER = "raster path to inspect"
 _HELP_JSON = "emit JSON"
 
@@ -191,6 +209,11 @@ def _cmd_bounds(args: argparse.Namespace) -> int:
     ds = Dataset.read_file(args.file)
     min_x, min_y, max_x, max_y = (float(value) for value in ds.bbox)
     if args.crs:
+        if not ds.crs:
+            raise ValueError(
+                "bounds --crs needs a source CRS, but the raster has none; "
+                "cannot reproject its bounds."
+            )
         src_sr = sr_from_wkt(ds.crs)
         dst_sr = sr_from_user_input(args.crs)
         src_sr.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
@@ -223,7 +246,13 @@ def _cmd_clip(args: argparse.Namespace) -> int:
     if args.vector:
         mask = FeatureCollection.read_file(args.vector)
     else:
+        if not ds.crs:
+            raise ValueError(
+                "clip --bbox needs the raster to have a CRS to interpret the "
+                "bbox, but it has none; clip with a --vector mask instead."
+            )
         mask = FeatureCollection.from_bbox(tuple(args.bbox), epsg=ds.epsg)
+    _refuse_existing(args.output, args.overwrite)
     clipped = ds.crop(mask)
     clipped.to_file(args.output)
     print(f"wrote {args.output}")
@@ -239,6 +268,7 @@ def _cmd_warp(args: argparse.Namespace) -> int:
     Returns:
         int: `0` on success.
     """
+    _refuse_existing(args.output, args.overwrite)
     ds = Dataset.read_file(args.input)
     warped = ds.to_crs(args.crs, method=args.resampling)
     warped.to_file(args.output)
@@ -260,6 +290,7 @@ def _cmd_merge(args: argparse.Namespace) -> int:
     """
     if len(args.inputs) < 2:
         raise ValueError("merge needs at least two input rasters.")
+    _refuse_existing(args.output, args.overwrite)
     merge_rasters(args.inputs, args.output)
     print(f"wrote {args.output}")
     return 0
@@ -275,7 +306,14 @@ def _cmd_overview(args: argparse.Namespace) -> int:
         int: `0` on success.
     """
     ds = Dataset.read_file(args.file, read_only=False)
-    ds.create_overviews(resampling_method=args.resampling, overview_levels=args.levels)
+    # create_overviews validates against GDAL's overview RESAMPLING_METHODS
+    # ("nearest", "average", "gauss", "cubic", ...). Accept the warp-family
+    # "nearest neighbor" spelling too, so the resampling vocabulary is
+    # consistent with `warp` / `merge` across subcommands (L9).
+    resampling = args.resampling
+    if resampling.strip().lower() == "nearest neighbor":
+        resampling = "nearest"
+    ds.create_overviews(resampling_method=resampling, overview_levels=args.levels)
     counts = ds.overview_count
     print(f"built {counts[0] if counts else 0} overview level(s) for {args.file}")
     return 0
@@ -338,6 +376,7 @@ def _cmd_convert(args: argparse.Namespace) -> int:
     Returns:
         int: `0` on success.
     """
+    _refuse_existing(args.output, args.overwrite)
     ds = Dataset.read_file(args.input)
     ds.to_file(args.output, driver=args.driver)
     print(f"wrote {args.output}")
@@ -408,6 +447,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="clip extent in the raster CRS",
     )
     clip_how.add_argument("--vector", help="vector file whose polygons clip the raster")
+    clip.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     clip.set_defaults(func=_cmd_clip)
 
     warp = sub.add_parser("warp", help="reproject a raster")
@@ -417,17 +457,22 @@ def _build_parser() -> argparse.ArgumentParser:
     warp.add_argument(
         "--resampling", default="nearest neighbor", help="resampling method"
     )
+    warp.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     warp.set_defaults(func=_cmd_warp)
 
     merge = sub.add_parser("merge", help="mosaic rasters into one file")
     merge.add_argument("inputs", nargs="+", help="source raster paths (two or more)")
     merge.add_argument("output", help=_HELP_DST_RASTER)
+    merge.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     merge.set_defaults(func=_cmd_merge)
 
     overview = sub.add_parser("overview", help="build image pyramids in place")
     overview.add_argument("file", help="raster path to build overviews for")
     overview.add_argument(
-        "--resampling", default="nearest", help="overview resampling method"
+        "--resampling",
+        default="nearest",
+        help="overview resampling: nearest (alias 'nearest neighbor'), average, "
+        "gauss, cubic, mode, ...",
     )
     overview.add_argument(
         "--levels", nargs="+", type=int, help="decimation levels (e.g. 2 4 8)"
@@ -449,6 +494,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--driver",
         help="catalog (geotiff) or GDAL (GTiff) driver name (default: from extension)",
     )
+    convert.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     convert.set_defaults(func=_cmd_convert)
 
     return parser

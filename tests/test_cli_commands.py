@@ -12,12 +12,28 @@ import json
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.cli import main
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
+
+
+def _crsless_raster(tmp_path) -> str:
+    """Write a tiny GeoTIFF with a geotransform but no CRS.
+
+    Returns:
+        str: Path to the CRS-less raster.
+    """
+    path = str(tmp_path / "no_crs.tif")
+    out = gdal.GetDriverByName("GTiff").Create(path, 8, 8, 1, gdal.GDT_Float32)
+    out.SetGeoTransform((0.0, 1.0, 0.0, 8.0, 0.0, -1.0))
+    out.GetRasterBand(1).WriteArray(np.arange(64, dtype="float32").reshape(8, 8))
+    out.FlushCache()
+    out = None
+    return path
 
 
 @pytest.fixture(scope="function")
@@ -97,6 +113,14 @@ class TestBoundsCommand:
         assert err.startswith("error: "), f"unexpected stderr: {err}"
         assert "Traceback" not in err, "tracebacks must not leak to users"
 
+    def test_crs_on_crsless_raster_clear_error(self, tmp_path, capsys):
+        """bounds --crs on a raster without a CRS names the real cause (L10)."""
+        path = _crsless_raster(tmp_path)
+        rc = main(["bounds", path, "--crs", "EPSG:3857"])
+        err = capsys.readouterr().err
+        assert rc == 1, "reprojecting bounds of a CRS-less raster must exit 1"
+        assert "source CRS" in err, f"error should name the missing source CRS: {err}"
+
 
 class TestClipCommand:
     """`pyramids clip`."""
@@ -121,6 +145,28 @@ class TestClipCommand:
         assert main(["clip", src_raster, out_path, "--vector", mask_path]) == 0
         clipped = Dataset.read_file(out_path)
         assert (clipped.rows, clipped.columns) == (4, 4), "vector clip extent wrong"
+
+    def test_bbox_on_crsless_raster_clear_error(self, tmp_path, capsys):
+        """clip --bbox on a CRS-less raster gives a clear error, not a low-level one (L10)."""
+        path = _crsless_raster(tmp_path)
+        out = str(tmp_path / "out.tif")
+        rc = main(["clip", path, out, "--bbox", "1", "1", "5", "5"])
+        err = capsys.readouterr().err
+        assert rc == 1, "clip on a CRS-less raster must exit 1"
+        assert "has none" in err, f"error should name the missing CRS: {err}"
+
+    def test_refuses_to_overwrite_without_flag(self, src_raster, tmp_path, capsys):
+        """clip refuses to clobber an existing output unless --overwrite (N5)."""
+        out = str(tmp_path / "exists.tif")
+        assert main(["clip", src_raster, out, "--bbox", "1", "1", "5", "5"]) == 0
+        rc = main(["clip", src_raster, out, "--bbox", "1", "1", "5", "5"])
+        err = capsys.readouterr().err
+        assert rc == 1, "a second write without --overwrite must be refused"
+        assert "already exists" in err, f"error should mention the existing file: {err}"
+        assert (
+            main(["clip", src_raster, out, "--bbox", "1", "1", "5", "5", "--overwrite"])
+            == 0
+        ), "--overwrite must allow replacing the output"
 
     def test_bbox_and_vector_mutually_exclusive(self, src_raster, tmp_path, capsys):
         """Passing both --bbox and --vector is rejected by argparse."""
@@ -206,6 +252,13 @@ class TestOverviewCommand:
         assert (
             Dataset.read_file(src_raster).overview_count[0] == 2
         ), "expected 2 overview levels"
+
+    def test_nearest_neighbor_alias_accepted(self, src_raster, capsys):
+        """The warp-family 'nearest neighbor' spelling is accepted here too (L9)."""
+        rc = main(
+            ["overview", src_raster, "--levels", "2", "--resampling", "nearest neighbor"]
+        )
+        assert rc == 0, f"'nearest neighbor' should be accepted, got rc={rc}"
 
 
 class TestSampleCommand:
