@@ -2354,8 +2354,12 @@ class NetCDF(Dataset):
                 "container — call get_variable(<name>) first and warp that, "
                 "or use to_crs() for an eager whole-container reprojection."
             )
-        result = super().warped_view(crs, method, cell_size=cell_size, bbox=bbox)
-        result = self._preserve_netcdf_metadata(result)
+        pinned = super().warped_view(crs, method, cell_size=cell_size, bbox=bbox)
+        result = self._preserve_netcdf_metadata(pinned)
+        # Carry the GC pin: the VRT references the source GDAL handle, so the
+        # re-wrapped NetCDF view must keep the source alive too. _preserve_netcdf
+        # _metadata builds a fresh NetCDF and would otherwise drop _warp_source.
+        result._warp_source = getattr(pinned, "_warp_source", self)
         return result
 
     def resample(

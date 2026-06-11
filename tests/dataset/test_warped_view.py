@@ -195,6 +195,30 @@ class TestWarpedViewNetCDF:
         assert view.epsg == 3857, f"view CRS wrong: {view.epsg}"
         assert view.read_array().size > 0, "subset view must be readable"
 
+    def test_variable_subset_view_pins_source_through_gc(self):
+        """A NetCDF view keeps its source alive after the source refs drop (H3).
+
+        Test scenario:
+            Warp one variable, drop the container and variable references, force a
+            gc pass, then read the view again. It must still read identical pixels
+            because the re-wrapped NetCDF view carries the ``_warp_source`` pin —
+            without it, _preserve_netcdf_metadata drops the pin and GC can free the
+            source handle underneath the VRT.
+        """
+        nc = NetCDF.read_file(self.nc_path)
+        var = nc.get_variable(nc.variable_names[0])
+        view = var.warped_view(3857)
+        assert view._warp_source is not None, "view must pin its source"
+        expected = view.read_array()
+        del nc
+        del var
+        gc.collect()
+        np.testing.assert_array_equal(
+            view.read_array(),
+            expected,
+            err_msg="view must read identical pixels after the source is GC'd",
+        )
+
     def test_root_container_refuses_lazy_view(self):
         """A root MDIM container raises a clear error instead of a GDAL one."""
         nc = NetCDF.read_file(self.nc_path)
