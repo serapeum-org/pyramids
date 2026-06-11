@@ -1819,6 +1819,25 @@ class NetCDF(Dataset):
             return []
         return [n for n in self.variable_names if self._variable_is_spatial(rg, n)]
 
+    def _variable_dim_names(self, rg: Any, var_name: str) -> list[str]:
+        """Return a variable's dimension names, or ``[]`` if it can't be opened.
+
+        Args:
+            rg: The store's root :class:`osgeo.gdal.Group`.
+            var_name: Name of the variable (MDArray) to inspect.
+
+        Returns:
+            list[str]: The variable's dimension names in storage order, or an
+            empty list when the variable is missing or unreadable.
+        """
+        try:
+            md = rg.OpenMDArray(var_name)
+        except RuntimeError:
+            return []
+        if md is None:
+            return []
+        return [d.GetName() for d in md.GetDimensions()]
+
     def _carry_aux_variables(
         self, result: "NetCDF", aux_vars: list[str], operation: str
     ) -> None:
@@ -1900,6 +1919,21 @@ class NetCDF(Dataset):
             raise ValueError(
                 f"{operation}() needs at least one spatial (y, x) variable; none of "
                 f"{self.variable_names} have both spatial axes."
+            )
+
+        # A >=2-D variable demoted to "aux" is almost certainly a grid whose axes
+        # were not recognised (no CF axis attributes / no known x/y names). Warn
+        # so it is not silently carried through untransformed.
+        rg = self._raster.GetRootGroup()
+        demoted = [n for n in aux_vars if len(self._variable_dim_names(rg, n)) >= 2]
+        if demoted:
+            warnings.warn(
+                f"{operation}() is carrying {len(demoted)} multi-dimensional "
+                f"variable(s) {demoted} through unchanged because their axes were "
+                f"not recognised as spatial (no CF axis attributes or known x/y "
+                f"names); they will NOT be cropped/reprojected. Add CF axis "
+                f"metadata (standard_name / axis) or rename the axes to y/x.",
+                stacklevel=3,
             )
 
         result = None
@@ -2112,10 +2146,7 @@ class NetCDF(Dataset):
         carry_aux: list[str] = []
         spanning_aux: list[str] = []
         for name in aux_vars:
-            try:
-                var_dims = [d.GetName() for d in rg.OpenMDArray(name).GetDimensions()]
-            except RuntimeError:
-                var_dims = []
+            var_dims = self._variable_dim_names(rg, name)
             (spanning_aux if dim in var_dims else carry_aux).append(name)
         if spanning_aux:
             warnings.warn(

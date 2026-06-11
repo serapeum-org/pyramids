@@ -161,6 +161,40 @@ class TestCropNonSpatialAux:
         ), "an aux variable spanning the reduced dim must be dropped"
         assert reduced.get_variable("t2m").band_count == 1, "valid_time collapsed to 1"
 
+    def test_unrecognised_grid_demoted_to_aux_warns(self):
+        """A 2-D variable with non-standard axes warns when demoted to aux (M6).
+
+        Test scenario:
+            ``weird(alpha, beta)`` is a real grid but its axes carry no CF
+            metadata and no known x/y names, so it is classified non-spatial and
+            carried through untransformed. crop must warn that it is NOT being
+            cropped/reprojected, rather than dropping it silently.
+        """
+        n_t = 4
+        lat = np.arange(5.0, 0.0, -1.0)
+        lon = np.arange(0.0, 5.0, 1.0)
+        ds = xr.Dataset(
+            {
+                "t2m": (
+                    ("valid_time", "latitude", "longitude"),
+                    np.ones((n_t, 5, 5), "float32"),
+                ),
+                "weird": (("alpha", "beta"), np.ones((5, 5), "float32")),
+            },
+            coords={
+                "valid_time": np.arange(n_t),
+                "latitude": lat,
+                "longitude": lon,
+                "alpha": np.arange(5.0),
+                "beta": np.arange(5.0),
+            },
+        )
+        ds.latitude.attrs.update(units="degrees_north", standard_name="latitude")
+        ds.longitude.attrs.update(units="degrees_east", standard_name="longitude")
+        cube = NetCDF.from_xarray(ds)
+        with pytest.warns(UserWarning, match="not recognised as spatial"):
+            cube.crop(_MASK)
+
 
 class TestMultiSpatialPlusAux:
     """A container with two gridded variables + one aux crops all spatial, carries aux."""
