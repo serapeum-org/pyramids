@@ -1995,7 +1995,9 @@ class NetCDF(Dataset):
         :class:`NetCDF` container — no xarray involved. Only gridded variables
         are reduced; non-spatial auxiliary variables (no ``y`` / ``x`` axes,
         e.g. ERA5's ``number``) are carried through unchanged rather than
-        crashing the fan-out (#513).
+        crashing the fan-out (#513) — except an auxiliary variable that itself
+        spans `dim`, which is dropped with a warning (carrying it verbatim would
+        leave an inconsistent `dim` length against the collapsed variables).
 
         Args:
             dim: Name of the non-spatial dimension to reduce. Must be one of a

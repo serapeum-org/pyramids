@@ -783,11 +783,11 @@ class IO(_Engine):
     ) -> np.ndarray:
         """Build the invalid-pixel mask for one band of an eager read.
 
-        Combines the no-data comparison (NaN-safe via
-        :func:`pyramids.base._domain.is_no_data`) with the band's GDAL
-        mask band (alpha / internal masks). ``GMF_NODATA``-derived mask
-        bands are skipped — they duplicate the no-data comparison
-        already applied.
+        Combines the no-data comparison (exact equality on integer bands;
+        near-exact and NaN-safe via :func:`pyramids.base._domain.is_no_data`
+        with ``rtol=0`` on float bands) with the band's GDAL mask band
+        (alpha / internal masks). ``GMF_NODATA``-derived mask bands are
+        skipped — they duplicate the no-data comparison already applied.
 
         Args:
             index: Zero-based band index.
