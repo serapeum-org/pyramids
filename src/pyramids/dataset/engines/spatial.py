@@ -286,9 +286,10 @@ class Spatial(_Engine):
         Args:
             crs: Target CRS in any form :meth:`pyproj.CRS.from_user_input`
                 accepts (EPSG int, ``"EPSG:3857"``, WKT, PROJ4, pyproj CRS).
-            method: Resampling method used when windows are read. One of
-                :data:`pyramids.base._utils.INTERPOLATION_METHODS`. Default
-                is ``"nearest neighbor"``.
+            method: Resampling method used when windows are read. Any name
+                accepted by :func:`pyramids.base._utils.resolve_resampling`
+                (case- and whitespace-insensitive). Default is
+                ``"nearest neighbor"``.
             cell_size: Optional output pixel size in target-CRS units (applied
                 to both axes). ``None`` lets GDAL pick the size that preserves
                 the source resolution.
@@ -341,16 +342,7 @@ class Spatial(_Engine):
             Spatial.to_crs: The eager reprojection (materialises the result).
         """
         dst_sr = sr_from_user_input(crs)
-        if not isinstance(method, str):
-            raise TypeError(
-                f"resampling method must be a string, got {type(method).__name__}."
-            )
-        if method not in INTERPOLATION_METHODS:
-            raise ValueError(
-                f"The given interpolation method: {method} does not exist, "
-                f"existing methods are {sorted(INTERPOLATION_METHODS)}"
-            )
-        resample_alg = INTERPOLATION_METHODS[method]
+        resample_alg: int = resolve_resampling(method)
         dst_srs_arg = _dst_srs_arg(dst_sr)
         options = gdal.WarpOptions(
             format="VRT",
