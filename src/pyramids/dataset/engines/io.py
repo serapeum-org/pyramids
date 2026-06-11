@@ -631,10 +631,14 @@ class IO(_Engine):
         _validate_band_index(band, self._ds.band_count)
         if isinstance(window, GeoDataFrame):
             window = self._convert_polygon_to_window(window)
+        if isinstance(window, Window):
+            # Accept the first-class Window like every other read path does.
+            window = list(window.to_read_args())
         if window is not None and not isinstance(window, (list, tuple)):
             # Same contract as the default path's _read_block.
             raise ValueError(
-                f"window must be a list of 4 integers, got {type(window)}"
+                f"window must be a Window or a list of 4 integers, "
+                f"got {type(window)}"
             )
         handle = self._get_thread_manager().acquire()
         try:

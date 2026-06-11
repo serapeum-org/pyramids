@@ -22,6 +22,7 @@ from osgeo import gdal
 from pyramids.base._errors import OutOfBoundsError
 from pyramids.base._file_manager import ThreadLocalFileManager, gdal_raster_open
 from pyramids.dataset import Dataset
+from pyramids.dataset.window import Window
 
 pytestmark = pytest.mark.core
 
@@ -51,6 +52,22 @@ class TestThreadsafeEagerReads:
             ds.read_array(band=0, threadsafe=True),
             ds.read_array(band=0),
             err_msg="threadsafe path must produce identical pixels",
+        )
+
+    def test_window_object_accepted(self, tiled_raster):
+        """A Window object is accepted on the threadsafe path (regression: H1).
+
+        Test scenario:
+            ``read_array(window=Window(...), threadsafe=True)`` must produce the
+            same pixels as the default path with the same Window, rather than
+            raising "window must be a list of 4 integers".
+        """
+        ds, _ = tiled_raster
+        win = Window(32, 64, 48, 16)
+        np.testing.assert_array_equal(
+            ds.read_array(band=0, window=win, threadsafe=True),
+            ds.read_array(band=0, window=win),
+            err_msg="threadsafe path must accept a Window like the default path",
         )
 
     def test_parallel_disjoint_windows(self, tiled_raster):
@@ -206,7 +223,7 @@ class TestThreadsafeEagerReads:
     def test_invalid_window_type_rejected(self, tiled_raster):
         """A non-list window raises the same ValueError as _read_block."""
         ds, _ = tiled_raster
-        with pytest.raises(ValueError, match="window must be a list"):
+        with pytest.raises(ValueError, match="window must be a Window or a list"):
             ds.read_array(band=0, window="0,0,4,4", threadsafe=True)
 
     def test_out_of_bounds_window_contract(self, tiled_raster):
