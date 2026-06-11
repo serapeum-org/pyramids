@@ -280,7 +280,7 @@ class TestThreadLocalManagerSemantics:
 
     def test_manager_is_pickle_safe(self, tiled_raster):
         """The manager survives a pickle round-trip (dask-graph requirement)."""
-        ds, arr = tiled_raster
+        ds, _ = tiled_raster
         manager = ThreadLocalFileManager(gdal_raster_open, ds.file_name, "read_only")
         restored = pickle.loads(pickle.dumps(manager))
         handle = restored.acquire()

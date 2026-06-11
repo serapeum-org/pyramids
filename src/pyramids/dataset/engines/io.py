@@ -409,7 +409,28 @@ class IO(_Engine):
             raise ValueError(
                 f"window must be a list of 4 integers, got {type(window)}"
             )
-        window_args = tuple(window) if window is not None else ()
+        handle = self._get_thread_manager().acquire()
+        try:
+            arr = self._read_via_handle(handle, band, window)
+        except RuntimeError as exc:
+            # Same contract as the default path's _read_block.
+            if "Access window out of range" in str(exc):
+                raise OutOfBoundsError(
+                    f"The window you entered ({window}) is out of the raster "
+                    f"bounds: {self._ds.rows, self._ds.columns}"
+                ) from exc
+            raise
+        return np.asarray(arr)
+
+    def _get_thread_manager(self: Dataset) -> ThreadLocalFileManager:
+        """Return the Dataset's per-thread handle manager, creating it once.
+
+        Uses double-checked locking on the module-level creation lock so
+        racing threads never build two managers for the same Dataset.
+
+        Returns:
+            ThreadLocalFileManager: The manager cached on the Dataset.
+        """
         manager = getattr(self._ds, "_thread_manager", None)
         if manager is None:
             with _THREAD_MANAGER_CREATION_LOCK:
@@ -421,33 +442,43 @@ class IO(_Engine):
                         "read_only",
                     )
                     self._ds._thread_manager = manager
-        handle = manager.acquire()
-        try:
-            if band is None and self._ds.band_count > 1:
-                if window is None:
-                    arr = handle.ReadAsArray()
-                else:
-                    arr = np.stack(
-                        [
-                            handle.GetRasterBand(i + 1).ReadAsArray(*window_args)
-                            for i in range(self._ds.band_count)
-                        ],
-                        axis=0,
-                    )
+        return manager
+
+    def _read_via_handle(
+        self: Dataset,
+        handle: gdal.Dataset,
+        band: int | None,
+        window: list[int] | None,
+    ) -> np.ndarray:
+        """Read the requested bands/window from a private GDAL handle.
+
+        Args:
+            handle: The thread-local ``gdal.Dataset`` to read from.
+            band: Band index, or ``None`` for all bands.
+            window: Resolved ``[xoff, yoff, xsize, ysize]`` pixel window,
+                or ``None`` for a full read.
+
+        Returns:
+            np.ndarray: The requested pixels.
+        """
+        window_args = tuple(window) if window is not None else ()
+        if band is None and self._ds.band_count > 1:
+            if window is None:
+                arr = handle.ReadAsArray()
             else:
-                effective_band = 0 if band is None else band
-                arr = handle.GetRasterBand(effective_band + 1).ReadAsArray(
-                    *window_args
+                arr = np.stack(
+                    [
+                        handle.GetRasterBand(i + 1).ReadAsArray(*window_args)
+                        for i in range(self._ds.band_count)
+                    ],
+                    axis=0,
                 )
-        except RuntimeError as exc:
-            # Same contract as the default path's _read_block.
-            if "Access window out of range" in str(exc):
-                raise OutOfBoundsError(
-                    f"The window you entered ({window}) is out of the raster "
-                    f"bounds: {self._ds.rows, self._ds.columns}"
-                ) from exc
-            raise
-        return np.asarray(arr)
+        else:
+            effective_band = 0 if band is None else band
+            arr = handle.GetRasterBand(effective_band + 1).ReadAsArray(
+                *window_args
+            )
+        return arr
 
     def _lazy_read_array(
         self: Dataset,
