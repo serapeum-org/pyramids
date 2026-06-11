@@ -257,6 +257,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      # upload-artifact v4+ does NOT merge same-name uploads, so every build job
+      # uploads to a unique name (sdist, wheels-<os>-<arch>); this gather relies on
+      # download-artifact v4+ `merge-multiple` to collect them all into dist/.
+      # Keep the per-job names unique if you add build matrix entries.
       - name: Download all artifacts from this run
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
