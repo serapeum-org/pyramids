@@ -279,7 +279,9 @@ class RasterBase(ABC):
             rowcol: The inverse, mapping map coordinates to cell indices.
             transform: The affine-style geotransform object.
         """
-        scalar = np.isscalar(rows) and np.isscalar(cols)
+        # np.ndim == 0 treats Python scalars, NumPy scalars, and 0-d arrays
+        # alike; np.isscalar misses 0-d arrays (np.isscalar(np.array(5)) is False).
+        scalar = np.ndim(rows) == 0 and np.ndim(cols) == 0
         rows_arr = np.atleast_1d(np.asarray(rows, dtype=float))
         cols_arr = np.atleast_1d(np.asarray(cols, dtype=float))
         shift = 0.5 if center else 0.0
@@ -351,7 +353,9 @@ class RasterBase(ABC):
             xy: The inverse, mapping cell indices to map coordinates.
             transform: The affine-style geotransform object.
         """
-        scalar = np.isscalar(x) and np.isscalar(y)
+        # np.ndim == 0 treats Python scalars, NumPy scalars, and 0-d arrays
+        # alike; np.isscalar misses 0-d arrays (np.isscalar(np.array(5)) is False).
+        scalar = np.ndim(x) == 0 and np.ndim(y) == 0
         x_arr = np.atleast_1d(np.asarray(x, dtype=float))
         y_arr = np.atleast_1d(np.asarray(y, dtype=float))
         inv = self.transform.inverse
