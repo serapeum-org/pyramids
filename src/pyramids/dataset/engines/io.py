@@ -152,6 +152,15 @@ def _validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
             not a whole number, or outside the dtype's value range.
     """
     if not _fill_value_fits(fill_value, dtype):
+        # _fill_value_fits only ever returns False for integer dtypes, so the
+        # band here is integral; distinguish a NaN/inf fill (needs a float band)
+        # from a merely out-of-range / fractional one.
+        if not math.isfinite(float(fill_value)):
+            raise ValueError(
+                f"fill_value={fill_value!r} is not representable in the integer "
+                f"band dtype {dtype.name}; NaN/inf fills require a floating-point "
+                f"band."
+            )
         info = np.iinfo(dtype)
         raise ValueError(
             f"fill_value={fill_value!r} is not representable in the band "

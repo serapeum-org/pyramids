@@ -196,6 +196,20 @@ class TestBoundlessReads:
                     fill_value=bad_fill,
                 )
 
+    def test_nan_fill_on_integer_band_has_clear_message(self):
+        """A NaN fill on an integer band names the real fix: use a float band (L3)."""
+        arr = np.arange(36, dtype="uint8").reshape(6, 6)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326, no_data_value=None
+        )
+        with pytest.raises(ValueError, match="floating-point band"):
+            ds.read_array(
+                band=0,
+                window=Window(-1, -1, 3, 3),
+                boundless=True,
+                fill_value=float("nan"),
+            )
+
     def test_nan_fill_value_on_float_band(self, ramp_dataset):
         """NaN is a valid explicit fill for a float band."""
         result = ramp_dataset.read_array(
