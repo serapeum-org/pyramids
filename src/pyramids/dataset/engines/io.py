@@ -34,6 +34,7 @@ from pyramids.base._file_manager import (
 from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base.protocols import ArrayLike
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS, RESAMPLING_METHODS
+from pyramids.dataset.engines.cog import _RESAMPLING_ALG
 from pyramids.dataset.ops import io as _io_module
 from pyramids.dataset.ops.io import _LAZY_IMPORT_ERROR
 from pyramids.dataset.window import Window
@@ -74,6 +75,40 @@ def _validate_band_index(band: int | None, band_count: int) -> None:
         raise ValueError(
             f"band index should be between 0 and {band_count - 1}, " f"got {band}"
         )
+
+
+def _validate_out_shape(out_shape: Any) -> tuple[int, int]:
+    """Validate an ``out_shape`` argument and normalise it to plain ints.
+
+    Accepts a two-element tuple/list of positive Python or NumPy
+    integers. Bools are rejected — ``True``/``False`` are almost
+    certainly a bug, not a one-pixel request. Floats are rejected too,
+    even integral ones, so a shape computed with ``/`` instead of
+    ``//`` fails loudly instead of being silently truncated.
+
+    Args:
+        out_shape: The value handed to ``read_array(out_shape=...)``.
+
+    Returns:
+        tuple[int, int]: The validated ``(rows, cols)`` pair.
+
+    Raises:
+        ValueError: `out_shape` is not a pair of positive integers.
+    """
+    valid = isinstance(out_shape, (tuple, list)) and len(out_shape) == 2
+    if valid:
+        valid = all(
+            isinstance(size, (int, np.integer))
+            and not isinstance(size, bool)
+            and size > 0
+            for size in out_shape
+        )
+    if not valid:
+        raise ValueError(
+            f"out_shape must be a (rows, cols) pair of positive integers, "
+            f"got {out_shape!r}."
+        )
+    return int(out_shape[0]), int(out_shape[1])
 
 
 def _validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
@@ -119,6 +154,8 @@ class IO(_Engine):
         lock: Any = None,
         bbox: tuple[float, float, float, float] | list[float] | None = None,
         epsg: Any = None,
+        out_shape: tuple[int, int] | None = None,
+        resampling: str = "nearest",
         boundless: bool = False,
         fill_value: float | None = None,
         masked: bool = False,
@@ -199,6 +236,22 @@ class IO(_Engine):
                   context-manager semantics is used as-is.
 
                 Ignored when `chunks is None`.
+            out_shape (tuple[int, int] | None, keyword-only):
+                Target ``(rows, cols)`` for a decimated (or enlarged) read.
+                GDAL resamples while reading (``buf_xsize``/``buf_ysize``)
+                and pulls from a matching overview level when one exists, so
+                previews of pyramided rasters never touch the full-resolution
+                pixels. Composes with ``window=`` or ``bbox=`` (decimate a
+                sub-window). Not supported together with ``chunks=`` or
+                ``masked=True`` (:class:`NotImplementedError`). Default
+                ``None`` (native resolution, unchanged).
+            resampling (str, keyword-only):
+                Decimation algorithm for ``out_shape`` reads (``"nearest"``,
+                ``"bilinear"``, ``"cubic"``, ``"cubicspline"``,
+                ``"lanczos"``, ``"average"``, ``"mode"``, ...). Averaging
+                algorithms mix no-data into edge cells — prefer
+                ``"nearest"`` (the default) on rasters with a no-data
+                marker. Ignored when ``out_shape`` is ``None``.
             boundless (bool, keyword-only):
                 Allow the window to extend past the raster extent. The output
                 keeps the full requested window shape; pixels outside the
@@ -268,11 +321,15 @@ class IO(_Engine):
                 in the band dtype.
             ImportError: If `chunks` is non-None and `dask` is not
                 installed.
-            NotImplementedError: If `masked=True` is combined with
-                `chunks` (lazy masked reads are not supported yet), with
+            NotImplementedError: If `out_shape` is combined with `chunks`
+                (decimate eagerly instead) or with `boundless=True`
+                (decimated boundless reads are not combined yet), or if
+                `masked=True` is combined
+                with `chunks` (lazy masked reads are not supported yet),
+                `out_shape` (decimation and masking are not combined yet),
                 `boundless=True` (boundless fills and masking are not
-                combined yet), or with `threadsafe=True` (the mask band
-                would be read from the shared handle).
+                combined yet), or `threadsafe=True` (the mask band would
+                be read from the shared handle).
 
         Examples:
             - Create `Dataset` consisting of 4 bands, 5 rows, and 5 columns at the point lon/lat (0, 0):
@@ -400,6 +457,13 @@ class IO(_Engine):
                 "read_array(chunks=..., boundless=True) is not supported; "
                 "boundless fills apply to eager windowed reads only."
             )
+        if boundless and out_shape is not None:
+            raise NotImplementedError(
+                "read_array(out_shape=...) is not supported together with "
+                "boundless=True; decimated boundless reads are not combined "
+                "yet. Read boundless at native resolution and decimate the "
+                "result yourself."
+            )
         if bbox is not None:
             if window is not None:
                 raise ValueError(
@@ -413,6 +477,11 @@ class IO(_Engine):
                     "read_array(chunks=..., window=...) is not supported; "
                     "read lazily and slice the resulting dask array instead."
                 )
+            if out_shape is not None:
+                raise NotImplementedError(
+                    "read_array(out_shape=...) is not supported together with "
+                    "chunks=; decimate eagerly, or coarsen the dask array."
+                )
             if masked:
                 raise NotImplementedError(
                     "read_array(masked=True) is not supported together with "
@@ -422,6 +491,15 @@ class IO(_Engine):
                 band=band, chunks=chunks, lock=lock, threadsafe=threadsafe
             )
             self._ds._backend = "dask"
+        elif out_shape is not None:
+            if masked:
+                raise NotImplementedError(
+                    "read_array(out_shape=...) is not supported together with "
+                    "masked=True; decimation and masking are not combined yet. "
+                    "Read decimated without masked, or mask the result yourself."
+                )
+            arr = self._decimated_read(band, window, out_shape, resampling)
+            self._ds._backend = "numpy"
         elif boundless:
             if masked:
                 raise NotImplementedError(
@@ -833,6 +911,126 @@ class IO(_Engine):
             single_band=single_band,
         )
         return arr
+
+    def _decimated_read(
+        self: Dataset,
+        band: int | None,
+        window: Window | list[int] | GeoDataFrame | None,
+        out_shape: tuple[int, int],
+        resampling: str,
+    ) -> np.ndarray:
+        """Read at a reduced (or enlarged) resolution via GDAL's buffer args.
+
+        Delegates the decimation to ``ReadAsArray(buf_xsize=, buf_ysize=,
+        resample_alg=)`` — GDAL automatically pulls from an overview level
+        when one matches the requested size, so previewing a raster with
+        overviews never reads the full-resolution pixels.
+
+        Args:
+            band: Band index, or ``None`` for all bands.
+            window: Optional sub-window (Window / x-first list /
+                GeoDataFrame) to decimate; ``None`` reads the whole raster.
+            out_shape: Target ``(rows, cols)`` of the returned array.
+            resampling: Decimation algorithm name from
+                :data:`pyramids.dataset.engines.cog._RESAMPLING_ALG`
+                (``"nearest"``, ``"bilinear"``, ``"cubic"``,
+                ``"cubicspline"``, ``"lanczos"``, ``"average"``,
+                ``"mode"``, ...). ``average``-style algorithms mix no-data
+                into edge cells — prefer ``nearest`` on rasters with a
+                no-data marker.
+
+        Returns:
+            np.ndarray: ``out_shape`` for a single band,
+                ``(bands, rows, cols)`` for an all-bands read.
+
+        Raises:
+            TypeError: ``resampling`` is not a string.
+            ValueError: ``out_shape`` or ``window`` is malformed,
+                ``resampling`` is unknown, or ``band`` is out of range.
+            OutOfBoundsError: ``window`` falls outside the raster.
+        """
+        if not isinstance(resampling, str):
+            raise TypeError(
+                f"resampling method must be a string, got {type(resampling).__name__}."
+            )
+        key = resampling.lower().strip()
+        if key not in _RESAMPLING_ALG:
+            raise ValueError(
+                f"unknown resampling {resampling!r}; "
+                f"choose from {sorted(_RESAMPLING_ALG)}"
+            )
+        rows, cols = _validate_out_shape(out_shape)
+        alg = _RESAMPLING_ALG[key]
+        if isinstance(window, GeoDataFrame):
+            window = self._convert_polygon_to_window(window)
+        if isinstance(window, Window):
+            window_args: tuple[int, ...] = window.to_read_args()
+        elif window is not None:
+            if not isinstance(window, (list, tuple)) or len(window) != 4:
+                raise ValueError(
+                    "window must be a Window, an [xoff, yoff, xsize, ysize] "
+                    f"list of 4 integers, or a GeoDataFrame, got {window!r}."
+                )
+            window_args = tuple(int(value) for value in window)
+        else:
+            window_args = ()
+        _validate_band_index(band, self._ds.band_count)
+        if band is None and self._ds.band_count > 1:
+            arr = np.stack(
+                [
+                    self._decimated_band_read(i, window_args, rows, cols, alg)
+                    for i in range(self._ds.band_count)
+                ],
+                axis=0,
+            )
+        else:
+            effective_band = 0 if band is None else band
+            arr = self._decimated_band_read(
+                effective_band, window_args, rows, cols, alg
+            )
+        return arr
+
+    def _decimated_band_read(
+        self: Dataset,
+        band: int,
+        window_args: tuple[int, ...],
+        rows: int,
+        cols: int,
+        alg: int,
+    ) -> np.ndarray:
+        """Run one decimated band read, normalising the out-of-range error.
+
+        Args:
+            band: Zero-based band index (already validated).
+            window_args: ``(xoff, yoff, xsize, ysize)`` sub-window, or
+                ``()`` for the full raster.
+            rows: Target buffer height (GDAL's ``buf_ysize``).
+            cols: Target buffer width (GDAL's ``buf_xsize``).
+            alg: A GDAL ``GRIORA_*`` resampling constant.
+
+        Returns:
+            np.ndarray: The decimated block, shape ``(rows, cols)``.
+
+        Raises:
+            OutOfBoundsError: The window falls outside the raster —
+                the same exception the native-resolution window path
+                (:meth:`_read_block`) raises.
+        """
+        try:
+            block = self._ds._iloc(band).ReadAsArray(
+                *window_args,
+                buf_xsize=cols,
+                buf_ysize=rows,
+                resample_alg=alg,
+            )
+        except RuntimeError as exc:
+            if "Access window out of range in RasterIO()" not in str(exc):
+                raise
+            raise OutOfBoundsError(
+                f"The window you entered ({list(window_args)}) is out of "
+                f"the raster bounds: {self._ds.rows, self._ds.columns}"
+            ) from exc
+        return np.asarray(block)
 
     def _boundless_read(
         self: Dataset,
