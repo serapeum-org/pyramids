@@ -975,12 +975,12 @@ class TestRemoveVariable:
 MSWEP_PATH = Path("tests/data/netcdf/MSWEP_1979010100.nc")
 
 
-@pytest.mark.skipif(
-    not MSWEP_PATH.exists(),
-    reason=f"{MSWEP_PATH} not available (untracked test data)",
-)
 class TestMSWEPFile:
-    """Tests using the MSWEP test file for real-world coverage."""
+    """Tests using the MSWEP test file for real-world coverage.
+
+    ``MSWEP_PATH`` is committed test data; if it is ever missing these tests
+    must fail loudly rather than skip silently, so there is no ``.exists()`` gate.
+    """
 
     def test_read_mswep_mdim(self):
         """Verify reading MSWEP file in multidimensional mode.
@@ -988,7 +988,7 @@ class TestMSWEPFile:
         Uses tests/data/netcdf/MSWEP_1979010100.nc to hit real code paths.
         """
         nc = NetCDF.read_file(
-            "tests/data/netcdf/MSWEP_1979010100.nc",
+            str(MSWEP_PATH),
             open_as_multi_dimensional=True,
         )
         assert (
@@ -1003,7 +1003,7 @@ class TestMSWEPFile:
     def test_mswep_dimension_names(self):
         """Verify MSWEP file has correct dimension names."""
         nc = NetCDF.read_file(
-            "tests/data/netcdf/MSWEP_1979010100.nc",
+            str(MSWEP_PATH),
             open_as_multi_dimensional=True,
         )
         dims = nc.dimension_names
@@ -1014,7 +1014,7 @@ class TestMSWEPFile:
     def test_mswep_meta_data(self):
         """Verify MSWEP metadata is accessible."""
         nc = NetCDF.read_file(
-            "tests/data/netcdf/MSWEP_1979010100.nc",
+            str(MSWEP_PATH),
             open_as_multi_dimensional=True,
         )
         md = nc.meta_data
@@ -1025,7 +1025,7 @@ class TestMSWEPFile:
     def test_mswep_get_all_metadata(self):
         """Verify get_all_metadata populates dimension overview."""
         nc = NetCDF.read_file(
-            "tests/data/netcdf/MSWEP_1979010100.nc",
+            str(MSWEP_PATH),
             open_as_multi_dimensional=True,
         )
         md = nc.get_all_metadata()
@@ -1034,7 +1034,7 @@ class TestMSWEPFile:
     def test_mswep_lon_lat(self):
         """Verify lon/lat are readable from MSWEP file."""
         nc = NetCDF.read_file(
-            "tests/data/netcdf/MSWEP_1979010100.nc",
+            str(MSWEP_PATH),
             open_as_multi_dimensional=True,
         )
         lon = nc.lon

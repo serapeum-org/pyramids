@@ -12,9 +12,9 @@ behavior without any real network I/O:
   GDAL's job and doesn't need to be re-tested here.
 * ``file://`` paths are exercised against a real tmp_path file — the
   rewrite is a no-op string operation, no network.
-* Real cloud-service tests (``s3://`` etc.) are marked ``vfs`` and
-  skipped by default — they run only when real credentials are in
-  the environment. They document the intended surface.
+* ``s3://`` is the same string rewrite, so it is tested the same way —
+  by mocking ``geopandas.read_file`` and asserting the ``/vsis3/...``
+  path. No network, no credentials, no skip.
 
 Why mock instead of a local HTTP server: GDAL ``/vsicurl/`` on Windows
 loopback can hang indefinitely against ``http.server``'s default
@@ -115,26 +115,33 @@ class TestFileUrlRead:
         assert len(fc) == 1
 
 
-@pytest.mark.vfs
-class TestCloudReads:
-    """Cloud-service reads (s3:// etc.) — gated behind the ``vfs`` marker.
+class TestS3Rewrite:
+    """``s3://`` URLs reach ``gpd.read_file`` as ``/vsis3/...``.
 
-    Skipped by default. Run with ``pytest -m vfs`` when you have real
-    AWS / GS / Azure credentials available in the environment. Each
-    test opens a well-known public or user-controlled object; replace
-    the URLs as needed for your setup.
+    Mirrors :class:`TestHttpRewrite`: the s3 surface is the same string rewrite,
+    so it is tested by mocking ``geopandas.read_file`` (no network, no
+    credentials) rather than by an always-skipping placeholder.
     """
 
-    def test_s3_read_requires_credentials(self):
-        """Placeholder: s3:// URL round-trip.
+    def _fake_gdf(self) -> gpd.GeoDataFrame:
+        return gpd.GeoDataFrame(
+            {"id": [1, 2, 3]},
+            geometry=[Point(0, 0), Point(1, 1), Point(2, 2)],
+            crs="EPSG:4326",
+        )
 
-        Fill in with a bucket/object you control. The default is
-        skipped unless the AWS_* env vars are set AND the ``vfs``
-        marker is selected via ``-m vfs``. This test documents the
-        intended public surface; it is not expected to run in CI.
-        """
-        import os
+    def test_s3_url_is_rewritten_to_vsis3(self, monkeypatch):
+        """An ``s3://`` URL reaches ``gpd.read_file`` as ``/vsis3/...``."""
+        captured: dict[str, object] = {}
 
-        if not os.environ.get("AWS_ACCESS_KEY_ID"):
-            pytest.skip("AWS credentials not in env; skipping s3:// test")
-        pytest.skip("no concrete s3:// fixture; this is a documentation stub")
+        def fake_read_file(path, **kwargs):
+            captured["path"] = path
+            return self._fake_gdf()
+
+        monkeypatch.setattr("pyramids.feature.collection.gpd.read_file", fake_read_file)
+
+        fc = FeatureCollection.read_file("s3://my-bucket/path/points.geojson")
+
+        assert captured["path"] == "/vsis3/my-bucket/path/points.geojson"
+        assert isinstance(fc, FeatureCollection)
+        assert len(fc) == 3
