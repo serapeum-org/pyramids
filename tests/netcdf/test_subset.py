@@ -11,12 +11,14 @@ retrospective store exercises the full remote path end to end.
 
 from __future__ import annotations
 
+import os
 from unittest.mock import Mock
 
 import numpy as np
 import pytest
 from osgeo import osr
 
+from pyramids.base.remote import CloudConfig
 from pyramids.netcdf.netcdf import (
     NetCDF,
     _clamp_bound,
@@ -27,6 +29,63 @@ from pyramids.netcdf.netcdf import (
 pytestmark = pytest.mark.core
 
 NWM_LDASOUT = "s3://noaa-nwm-retrospective-3-0-pds/CONUS/zarr/ldasout.zarr"
+
+# The live NWM tests hit a public S3 bucket; opt in explicitly so the default
+# suite never depends on network reachability of a third-party store.
+_RUN_LIVE_NWM = os.environ.get("PYRAMIDS_RUN_NWM_SUBSET_TEST") == "1"
+
+# Transport-level failures that justify a graceful skip of a live read. Anything
+# NOT matching these (a real read_file / subset defect) must propagate and fail
+# the test rather than be masked as "store unreachable".
+_NETWORK_ERROR_MARKERS = (
+    "curl error",
+    "could not connect",
+    "could not resolve",
+    "connection timed out",
+    "connection refused",
+    "connection reset",
+    "operation timed out",
+    "timed out",
+    "name or service not known",
+    "temporary failure in name resolution",
+    "network is unreachable",
+    "no route to host",
+    "http response code: 0",
+)
+
+
+def _skip_if_network_else_raise(exc: BaseException) -> None:
+    """Skip on a genuine transport error; re-raise a real failure.
+
+    A live S3 read should tolerate the bucket being unreachable, but must never
+    mask a code bug. Only connection-shaped errors skip; anything else (a real
+    ``read_file`` / ``subset`` defect) propagates and fails the test.
+
+    Args:
+        exc: The exception caught around the remote read.
+
+    Raises:
+        BaseException: ``exc`` itself, when it is not a transport error.
+    """
+    if any(marker in str(exc).lower() for marker in _NETWORK_ERROR_MARKERS):
+        pytest.skip(f"NWM store unreachable: {exc}")
+    raise exc
+
+
+class TestNwmReachabilityGuard:
+    """The live-NWM guard skips on transport errors but re-raises real failures."""
+
+    def test_transport_error_skips(self):
+        """A connection-shaped error skips gracefully, not fails."""
+        with pytest.raises(pytest.skip.Exception):
+            _skip_if_network_else_raise(
+                RuntimeError("CURL error: Could not resolve host for the bucket")
+            )
+
+    def test_real_failure_propagates(self):
+        """A non-transport error (a real bug) is re-raised, never masked as 'unreachable'."""
+        with pytest.raises(ValueError, match="not found"):
+            _skip_if_network_else_raise(ValueError("variable 'ACCET' not found"))
 
 
 class TestContiguousRange:
@@ -717,24 +776,29 @@ class TestSubsetInterleavedLayer:
 
 @pytest.mark.slow
 @pytest.mark.vfs
+@pytest.mark.skipif(
+    not _RUN_LIVE_NWM,
+    reason="set PYRAMIDS_RUN_NWM_SUBSET_TEST=1 to run the live NWM S3 subset test",
+)
 class TestSubsetLiveNWM:
     """Opt-in live test against the public NWM retrospective gridded Zarr.
 
-    Run with ``pytest -m "slow and vfs" tests/netcdf/test_subset.py``. Skipped by
-    default and skipped gracefully when the bucket is unreachable. Verifies the
-    three fixes together: anonymous remote multidim open (region pinned), CRS
-    preserved on the windowed slice, and a bounded ``(time, bbox)`` read.
+    Off by default — it hits a public S3 bucket, so it runs only when
+    ``PYRAMIDS_RUN_NWM_SUBSET_TEST=1`` is set (and is also marked ``slow``/``vfs``).
+    When it runs, a transport-level failure skips gracefully via
+    :func:`_skip_if_network_else_raise`, but a real ``read_file`` / ``subset``
+    defect propagates and fails. Verifies the three fixes together: anonymous
+    remote multidim open (region pinned), CRS preserved on the windowed slice,
+    and a bounded ``(time, bbox)`` read.
     """
 
     def test_subset_one_timestep_bbox(self):
-        from pyramids.base.remote import CloudConfig
-
         try:
             with CloudConfig(aws_no_sign_request=True, aws_region="us-east-1"):
                 nc = NetCDF.read_file(NWM_LDASOUT)
                 ds = nc.subset("ACCET", time=0, bbox=(-78.0, 38.0, -75.0, 40.0))
-        except (RuntimeError, OSError) as exc:  # network / bucket unreachable
-            pytest.skip(f"NWM store unreachable: {exc}")
+        except (RuntimeError, OSError) as exc:  # transport vs. real failure
+            _skip_if_network_else_raise(exc)
 
         assert ds.rows > 0 and ds.columns > 0
         # Far smaller than the full 3840 x 4608 grid -> the read was windowed.
@@ -743,29 +807,25 @@ class TestSubsetLiveNWM:
         assert "Lambert_Conformal_Conic" in (ds.crs or "")
 
     def test_subset_time_range_is_multiband(self):
-        from pyramids.base.remote import CloudConfig
-
         try:
             with CloudConfig(aws_no_sign_request=True, aws_region="us-east-1"):
                 nc = NetCDF.read_file(NWM_LDASOUT)
                 ds = nc.subset("ACCET", time=(0, 3), bbox=(-78.0, 38.0, -75.0, 40.0))
         except (RuntimeError, OSError) as exc:
-            pytest.skip(f"NWM store unreachable: {exc}")
+            _skip_if_network_else_raise(exc)
 
         assert ds.band_count == 3
 
     def test_dimension_sizes_and_time_values(self):
         # G-1: true dim sizes + raw time coordinate are surfaced even though GDAL
         # can't parse the CF time units (so get_time_variable() is None).
-        from pyramids.base.remote import CloudConfig
-
         try:
             with CloudConfig(aws_no_sign_request=True, aws_region="us-east-1"):
                 nc = NetCDF.read_file(NWM_LDASOUT)
                 sizes = nc.dimension_sizes
                 time_vals = nc.get_time_values("time")
         except (RuntimeError, OSError) as exc:
-            pytest.skip(f"NWM store unreachable: {exc}")
+            _skip_if_network_else_raise(exc)
 
         assert sizes.get("time") == 128568
         assert sizes.get("y") == 3840 and sizes.get("x") == 4608
@@ -773,8 +833,6 @@ class TestSubsetLiveNWM:
 
     def test_subset_interleaved_layer_variable(self):
         # G-2: SOIL_M is (time, y, soil_layers_stag, x) — layer between y and x.
-        from pyramids.base.remote import CloudConfig
-
         try:
             with CloudConfig(aws_no_sign_request=True, aws_region="us-east-1"):
                 nc = NetCDF.read_file(NWM_LDASOUT)
@@ -783,7 +841,7 @@ class TestSubsetLiveNWM:
                     bbox=(-78.0, 38.0, -75.0, 40.0),
                 )
         except (RuntimeError, OSError) as exc:
-            pytest.skip(f"NWM store unreachable: {exc}")
+            _skip_if_network_else_raise(exc)
 
         assert ds.rows > 0 and ds.columns > 0
         assert ds.rows < 3840 and ds.columns < 4608
