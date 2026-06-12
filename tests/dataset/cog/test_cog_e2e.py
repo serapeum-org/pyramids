@@ -4,7 +4,7 @@ Covers the public user journey:
 
 1. :meth:`Dataset.create_from_array` -> :meth:`Dataset.to_cog` ->
    :meth:`Dataset.read_file` round-trip array equality.
-2. Every supported compression type (skip if unavailable in the build).
+2. Every compression type (DEFLATE/LZW/ZSTD/NONE/LERC) round-trips.
 3. CRS, no-data, and multi-band preservation across a round trip.
 4. Web-optimized COG (GoogleMapsCompatible tiling scheme).
 5. LERC lossy compression tolerance.
