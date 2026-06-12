@@ -804,6 +804,10 @@ class IO(_Engine):
         Returns:
             np.ma.MaskedArray: ``arr`` with invalid pixels masked.
         """
+        if isinstance(window, Window):
+            # _band_mask slices the mask band with window[0..3]; a Window is not
+            # subscriptable, so normalize it to a pixel list first (mirrors _read_block).
+            window = list(window.to_read_args())
         if isinstance(window, GeoDataFrame):
             window = self._convert_polygon_to_window(window)
         if arr.ndim == 2:

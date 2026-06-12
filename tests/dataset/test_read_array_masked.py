@@ -12,6 +12,7 @@ import pytest
 from osgeo import gdal, osr
 
 from pyramids.dataset import Dataset
+from pyramids.dataset.window import Window
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -174,6 +175,22 @@ class TestMaskedReads:
         result = mask_band_dataset.read_array(band=0, window=[0, 0, 2, 1], masked=True)
         assert result.shape == (1, 2), f"unexpected window shape {result.shape}"
         assert result.mask.sum() == 1, f"mask band ignored in window: {result.mask}"
+        assert result.mask[0, 1], "the mask-band-zeroed cell must be masked"
+
+    def test_window_object_masked_read_honours_mask_band(self, mask_band_dataset):
+        """A ``Window`` object composes with ``masked=True`` on a mask-band raster.
+
+        Test scenario:
+            The same top-row window as the list form, but expressed as a
+            ``Window`` object. Before normalization in ``_to_masked`` this
+            raised ``TypeError: 'Window' object is not subscriptable`` because
+            ``_band_mask`` slices the mask band with ``window[0..3]``.
+        """
+        result = mask_band_dataset.read_array(
+            band=0, window=Window(0, 0, 2, 1), masked=True
+        )
+        assert result.shape == (1, 2), f"unexpected window shape {result.shape}"
+        assert result.mask.sum() == 1, f"mask band ignored in Window read: {result.mask}"
         assert result.mask[0, 1], "the mask-band-zeroed cell must be masked"
 
     def test_bbox_masked_read(self):
