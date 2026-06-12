@@ -689,6 +689,13 @@ class IO(_Engine):
                 f"window must be a Window or a list of 4 integers, "
                 f"got {type(window)}"
             )
+        if window is not None and len(window) != 4:
+            # Catch a wrong-length sequence here, before _read_via_handle splats
+            # it into ReadAsArray and produces an opaque GDAL arity error.
+            raise ValueError(
+                f"window must be a list of 4 integers [xoff, yoff, xsize, ysize], "
+                f"got {len(window)}: {window}"
+            )
         handle = self._get_thread_manager().acquire()
         try:
             arr = self._read_via_handle(handle, band, window)

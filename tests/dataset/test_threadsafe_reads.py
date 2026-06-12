@@ -226,6 +226,12 @@ class TestThreadsafeEagerReads:
         with pytest.raises(ValueError, match="window must be a Window or a list"):
             ds.read_array(band=0, window="0,0,4,4", threadsafe=True)
 
+    def test_wrong_length_window_rejected(self, tiled_raster):
+        """A 3-element window raises a clear length error, not an opaque GDAL one."""
+        ds, _ = tiled_raster
+        with pytest.raises(ValueError, match="list of 4 integers"):
+            ds.read_array(band=0, window=[0, 0, 4], threadsafe=True)
+
     def test_boundless_with_threadsafe_rejected(self, tiled_raster):
         """boundless=True + threadsafe=True raises, not a silent shared-handle read (L4)."""
         ds, _ = tiled_raster
