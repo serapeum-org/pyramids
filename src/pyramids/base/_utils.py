@@ -170,6 +170,14 @@ INTERPOLATION_METHODS = {
     **({"rms": gdal.GRA_RMS} if hasattr(gdal, "GRA_RMS") else {}),
 }
 
+# Methods that exist only on newer GDAL; used to give a version-aware error when
+# they are requested on a build that lacks them, instead of a generic "does not
+# exist" that lists a method set differing from the documented one.
+_VERSION_GATED_METHODS = {
+    "sum": ("GRA_Sum", "3.1"),
+    "rms": ("GRA_RMS", "3.3"),
+}
+
 
 def resolve_resampling(method: str) -> int:
     """Resolve a resampling-method name to its GDAL ``GRA_*`` constant.
@@ -225,6 +233,13 @@ def resolve_resampling(method: str) -> int:
         )
     key = method.lower().strip()
     if key not in INTERPOLATION_METHODS:
+        if key in _VERSION_GATED_METHODS:
+            attr, min_ver = _VERSION_GATED_METHODS[key]
+            raise ValueError(
+                f"resampling method {method!r} requires GDAL >= {min_ver} "
+                f"(gdal.{attr} is unavailable in the installed GDAL "
+                f"{gdal.__version__})."
+            )
         raise ValueError(
             f"The given interpolation method: {method!r} does not exist, "
             f"existing methods are {sorted(INTERPOLATION_METHODS)}"

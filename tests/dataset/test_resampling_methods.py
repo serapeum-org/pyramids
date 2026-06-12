@@ -123,6 +123,19 @@ class TestResolveResampling:
             f"error should list valid methods, got: {exc.value}"
         )
 
+    def test_version_gated_method_names_the_gdal_requirement(self, monkeypatch):
+        """A version-gated method missing on the build names the GDAL version (N4).
+
+        Test scenario:
+            Simulate an older GDAL without ``GRA_Sum`` by removing ``"sum"`` from
+            the registry; resolving it must mention the GDAL version requirement,
+            not the generic "does not exist" listing.
+        """
+        monkeypatch.delitem(INTERPOLATION_METHODS, "sum", raising=False)
+        with pytest.raises(ValueError, match="requires GDAL >= 3.1") as exc:
+            resolve_resampling("sum")
+        assert "GRA_Sum" in str(exc.value), f"message should name the constant: {exc.value}"
+
     @pytest.mark.parametrize("bad_method", [3, None, b"bilinear"])
     def test_non_string_raises_type_error(self, bad_method):
         """A non-string method raises TypeError.
