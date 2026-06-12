@@ -248,6 +248,8 @@ def _cmd_clip(args: argparse.Namespace) -> int:
     ds = Dataset.read_file(args.input)
     if args.vector:
         mask = FeatureCollection.read_file(args.vector)
+        _refuse_existing(args.output, args.overwrite)
+        clipped = ds.crop(mask)
     else:
         if not ds.crs:
             raise ValueError(
@@ -264,9 +266,10 @@ def _cmd_clip(args: argparse.Namespace) -> int:
                 f"clip --bbox {clip_bbox} does not intersect the raster extent "
                 f"{tuple(ds.bbox)}; nothing to clip."
             )
-        mask = FeatureCollection.from_bbox(clip_bbox, epsg=ds.epsg)
-    _refuse_existing(args.output, args.overwrite)
-    clipped = ds.crop(mask)
+        _refuse_existing(args.output, args.overwrite)
+        # Use crop's native bbox path (epsg defaults to the dataset CRS) rather
+        # than hand-wrapping the bbox in a FeatureCollection.
+        clipped = ds.crop(bbox=clip_bbox)
     clipped.to_file(args.output)
     print(f"wrote {args.output}")
     return 0
