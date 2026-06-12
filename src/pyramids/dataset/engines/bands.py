@@ -28,7 +28,7 @@ from pyramids.base._utils import (
     require_cleopatra,
 )
 from pyramids.dataset.abstract_dataset import DEFAULT_NO_DATA_VALUE
-from pyramids.feature import FeatureCollection, create_polygon
+from pyramids.feature import create_polygon
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
@@ -931,6 +931,11 @@ class Bands(_Engine):
         if not isinstance(no_data_value, (list, tuple)):
             no_data_value = [no_data_value] * self._ds.band_count
         no_data_value = self._check_no_data_value(no_data_value)
+        # Read-only is detected from GDAL's Fill() error below, not from
+        # self._ds.access: wrapping a gdal.Open(path, GA_Update) handle with the
+        # default Dataset(...) constructor reports access == "read_only" while the
+        # handle is genuinely writable, so the access flag would block legitimate
+        # writes. GDAL's error reflects the handle's true write mode.
         for band in range(self._ds.band_count):
             try:
                 # now the no_data_value is converted to the dtype of the raster bands and updated in the

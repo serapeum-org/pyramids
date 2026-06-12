@@ -520,10 +520,24 @@ class TestNoDataValue:
         src_no_data_value: float,
     ):
         src = Dataset(src_set_no_data_value)
-        try:
+        # The fill-based path writes pixels; on a read-only handle it must raise
+        # deterministically via the access flag, not depend on GDAL's error text (N3).
+        with pytest.raises(ReadOnlyError):
             src.bands._set_no_data_value(-99999.0)
-        except ReadOnlyError:
-            pass
+
+    def test_no_data_value_setter_allowed_read_only(
+        self,
+        src_set_no_data_value: gdal.Dataset,
+    ):
+        """Setting the no_data_value marker (metadata only) stays valid read-only (N3).
+
+        The setter changes only the attribute, not pixels, so GDAL permits it on a
+        read-only handle; the read-only guard applies only to the fill-based path.
+        """
+        src = Dataset(src_set_no_data_value)
+        assert src.access == "read_only", "fixture must be read-only for this test"
+        src.no_data_value = -123.0
+        assert src.no_data_value[0] == -123.0, "metadata-only setter must still work"
 
     def test_set_no_data_value(
         self,
