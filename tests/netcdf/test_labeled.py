@@ -129,6 +129,13 @@ class TestLabeledDatasetRead:
         store = LabeledDataset.read_file(nc_store)
         assert list(store["feature_id"].values) == [101, 202, 303]
 
+    def test_time_coord_decoded_to_datetime(self, nc_store: Path):
+        """A CF time coordinate is decoded to datetime64, not raw numbers."""
+        store = LabeledDataset.read_file(nc_store)
+        times = store["time"].values
+        assert np.issubdtype(times.dtype, np.datetime64), f"got {times.dtype}"
+        assert str(times[0]).startswith("2010-06-01")
+
     def test_repr_is_structure_only(self, nc_store: Path):
         store = LabeledDataset.read_file(nc_store)
         text = repr(store)
@@ -294,6 +301,28 @@ class TestLabeledDatasetTimeSlice:
         store = LabeledDataset.read_file(path)
         sub = store.select_time("2010-06-02", "2010-06-03")
         assert sub.sizes["time"] == 2
+        # a non-standard calendar decodes to cftime objects, not datetime64.
+        decoded = store["time"].values
+        assert isinstance(decoded[0], cftime.DatetimeNoLeap), f"got {type(decoded[0])}"
+
+
+class TestLabeledDatasetClose:
+    """close() / context manager release the GDAL store handle."""
+
+    def test_close_releases_handle(self, nc_store: Path):
+        """After close() the file is unlocked and can be removed (Windows)."""
+        store = LabeledDataset.read_file(nc_store)
+        assert store["streamflow"].shape == (N_TIME, N_FEAT)
+        store.close()
+        nc_store.unlink()
+        assert not nc_store.exists(), "file must be removable after close()"
+
+    def test_context_manager_closes(self, nc_store: Path):
+        """The store is usable inside a with-block and closed on exit."""
+        with LabeledDataset.read_file(nc_store) as store:
+            assert store.variables == ["streamflow"]
+        nc_store.unlink()
+        assert not nc_store.exists(), "file must be removable after the with-block"
 
 
 class TestLabeledDatasetBbox:
@@ -363,6 +392,12 @@ class TestLabeledDatasetWrite:
         assert len(df) == N_TIME * N_FEAT
         for col in ("time", "feature_id", "streamflow"):
             assert col in df.columns
+
+    def test_to_dataframe_time_is_datetime(self, nc_store: Path):
+        """The tidy table's time column is decoded datetimes, not raw numbers."""
+        store = LabeledDataset.read_file(nc_store)
+        df = store.to_dataframe()
+        assert np.issubdtype(df["time"].dtype, np.datetime64), f"got {df['time'].dtype}"
 
     def test_to_dataframe_values_match(self, nc_store: Path):
         store = LabeledDataset.read_file(nc_store)

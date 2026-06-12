@@ -362,12 +362,46 @@ class LabeledDataset:
             for axis, loc in enumerate(local):
                 if loc is not None:
                     values = np.take(values, loc, axis=axis)
+        values = self._maybe_decode_time(arr, values)
         keep_axes = tuple(i for i, d in enumerate(dim_names) if d not in self._scalar_dims)
         scalar_axes = tuple(i for i, d in enumerate(dim_names) if d in self._scalar_dims)
         if scalar_axes:
             values = np.squeeze(values, axis=scalar_axes)
         out_dims = tuple(dim_names[i] for i in keep_axes)
         return values, out_dims
+
+    @staticmethod
+    def _maybe_decode_time(arr: gdal.MDArray, values: np.ndarray) -> np.ndarray:
+        """Decode a CF time array's numeric values to datetimes.
+
+        A coordinate with a ``<interval> since <date>`` unit is decoded with
+        ``cftime`` so reads (``__getitem__`` / ``to_dataframe``) return real
+        timestamps rather than raw numbers. Standard calendars yield
+        ``datetime64[ns]``; non-standard calendars (``360_day`` / ``noleap`` …)
+        yield ``cftime`` objects. Non-time arrays pass through unchanged.
+
+        Args:
+            arr: The source MDArray (its unit / calendar drive the decode).
+            values: The numeric values already read for ``arr``.
+
+        Returns:
+            np.ndarray: Decoded datetimes for a time axis, else ``values``.
+        """
+        unit = arr.GetUnit()
+        if not unit or " since " not in unit:
+            return values
+        cal_attr = _get_attr(arr, "calendar")
+        calendar = cal_attr.ReadAsString() if cal_attr is not None else "standard"
+        standard = calendar in ("standard", "gregorian", "proleptic_gregorian")
+        decoded = np.asarray(
+            cftime.num2date(values, unit, calendar, only_use_cftime_datetimes=not standard)
+        )
+        if standard:
+            try:
+                return decoded.astype("datetime64[ns]")
+            except (ValueError, TypeError):
+                return decoded
+        return decoded
 
     def _coord_full(self, name: str) -> np.ndarray:
         """Read a coordinate's full (unselected) values."""
@@ -718,6 +752,26 @@ class LabeledDataset:
         path = Path(path)
         self.to_dataframe().to_csv(str(path), index=False, **kwargs)
         return path
+
+    def close(self) -> None:
+        """Release the underlying GDAL store handle.
+
+        Drops this view's reference to the open ``gdal.Dataset``; once no view
+        holds it, GDAL closes the file (on Windows this frees the handle so the
+        store can be unlinked). The store is unusable afterwards. Also usable as
+        a context manager (``with LabeledDataset.read_file(...) as store: ...``).
+        """
+        self._ds = None
+        self._group = None
+
+    def __enter__(self) -> LabeledDataset:
+        """Enter the runtime context, returning ``self``."""
+        return self
+
+    def __exit__(self, *exc: Any) -> bool:
+        """Close the store on context exit; never suppresses exceptions."""
+        self.close()
+        return False
 
     def __getitem__(self, key: str) -> _LabeledArray:
         """Return a variable or coordinate as a small `(values, dims, shape)` view."""
