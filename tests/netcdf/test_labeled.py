@@ -92,6 +92,27 @@ class TestLabeledDatasetRead:
         store = LabeledDataset.read_file(zarr_store, engine="zarr")
         assert store.variables == ["streamflow"]
 
+    def test_zarr_v3_string_coord_degrades_gracefully(self, tmp_path: Path):
+        """A Zarr v3 string coord GDAL can't read is skipped with a warning.
+
+        Test scenario:
+            GDAL's Zarr driver rejects Zarr v3 string arrays
+            (https://github.com/OSGeo/gdal/issues/13782). On GDAL versions where
+            the store still opens, the unreadable string coord (``gage_id``) is
+            dropped with a warning and the numeric data stays available.
+        """
+        path = tmp_path / "v3.zarr"
+        _streamflow_dataset().to_zarr(path, mode="w", zarr_format=3)
+        with pytest.warns(UserWarning, match="13782"):
+            store = LabeledDataset.read_file(path)
+        assert "gage_id" not in store.coordinates, "v3 string coord must be dropped"
+        assert "feature_id" in store.coordinates
+        assert store.variables == ["streamflow"]
+        np.testing.assert_array_equal(
+            store["streamflow"].values,
+            np.arange(N_TIME * N_FEAT, dtype="f4").reshape(N_TIME, N_FEAT),
+        )
+
     def test_variables_subset(self, nc_store: Path):
         store = LabeledDataset.read_file(nc_store, variables=["streamflow"])
         assert store.variables == ["streamflow"]

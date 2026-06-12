@@ -177,8 +177,18 @@ class LabeledDataset:
         except RuntimeError as exc:
             # gdal.UseExceptions() raises (rather than returning None) for a
             # missing / unrecognised store; normalise to a clear ValueError.
+            hint = ""
+            if "data_type" in str(exc):
+                # GDAL >= 3.13 fails the whole open when a Zarr v3 string array is
+                # present, so per-array degradation is not possible there.
+                hint = (
+                    " — this store has a Zarr v3 string array, which GDAL's Zarr "
+                    "driver cannot read (see "
+                    "https://github.com/OSGeo/gdal/issues/13782)."
+                )
             raise ValueError(
-                f"GDAL could not open {source!r} as a multidimensional store: {exc}"
+                f"GDAL could not open {source!r} as a multidimensional store: "
+                f"{exc}{hint}"
             ) from exc
         if ds is None:
             raise ValueError(
@@ -190,6 +200,30 @@ class LabeledDataset:
             raise ValueError(f"group {group!r} not found in {source!r}.")
         return cls._from_group(ds, grp, variables)
 
+    @staticmethod
+    def _readable_arrays(grp: gdal.Group) -> tuple[list[str], list[str]]:
+        """Split a group's arrays into those GDAL can read and those it cannot.
+
+        GDAL's Zarr driver rejects Zarr v3 string-typed arrays — they list in
+        ``GetMDArrayNames()`` but raise ``RuntimeError`` on access
+        (https://github.com/OSGeo/gdal/issues/13782). Probe each array so an
+        otherwise-numeric store still opens; the unreadable ones are reported.
+
+        Returns:
+            tuple[list[str], list[str]]: ``(readable, skipped)`` array names.
+        """
+        readable: list[str] = []
+        skipped: list[str] = []
+        for name in grp.GetMDArrayNames():
+            try:
+                arr = grp.OpenMDArray(name)
+                arr.GetDimensions()
+                arr.GetDataType()
+                readable.append(name)
+            except RuntimeError:
+                skipped.append(name)
+        return readable, skipped
+
     @classmethod
     def _from_group(
         cls,
@@ -198,25 +232,32 @@ class LabeledDataset:
         variables: Iterable[str] | None,
     ) -> LabeledDataset:
         """Classify a group's arrays into coordinates and data variables."""
-        array_names = list(grp.GetMDArrayNames())
-        # Real dimensions are those some array actually spans; this drops phantom
-        # group dimensions (e.g. a `string8` char-length axis a string array
-        # carries internally but does not expose on its own GetDimensions()).
-        used_dims: set[str] = set()
+        array_names, skipped = cls._readable_arrays(grp)
+        if skipped:
+            warnings.warn(
+                f"skipping {len(skipped)} array(s) GDAL cannot read ({skipped}); "
+                "GDAL's Zarr driver does not support Zarr v3 string data types "
+                "(see https://github.com/OSGeo/gdal/issues/13782). The store's "
+                "numeric data is still available.",
+                stacklevel=3,
+            )
+        # Derive dimensions from the readable arrays only — grp.GetDimensions()
+        # itself raises when the group holds an unreadable v3-string array
+        # (GDAL resolves array types while enumerating dimensions). This also
+        # drops phantom char-length dimensions, which no array exposes.
+        dim_order: list[str] = []
+        full_sizes: dict[str, int] = {}
+        dim_coords: set[str] = set()
         for name in array_names:
-            used_dims.update(d.GetName() for d in grp.OpenMDArray(name).GetDimensions())
-        dim_order = [d.GetName() for d in grp.GetDimensions() if d.GetName() in used_dims]
-        full_sizes = {
-            d.GetName(): int(d.GetSize())
-            for d in grp.GetDimensions()
-            if d.GetName() in used_dims
-        }
-        # Dimension coordinates: an array named like a dimension's indexing var.
-        dim_coords = set()
-        for dim in grp.GetDimensions():
-            iv = dim.GetIndexingVariable()
-            if iv is not None:
-                dim_coords.add(iv.GetName())
+            adims = grp.OpenMDArray(name).GetDimensions()
+            for dim in adims:
+                dn = dim.GetName()
+                if dn not in full_sizes:
+                    full_sizes[dn] = int(dim.GetSize())
+                    dim_order.append(dn)
+            # A dimension coordinate is a 1-D array named like its own dimension.
+            if len(adims) == 1 and adims[0].GetName() == name:
+                dim_coords.add(name)
         # Auxiliary coordinates: anything listed in a variable's `coordinates`
         # attribute (CF). Data variables: the rest.
         aux_coords: set[str] = set()
