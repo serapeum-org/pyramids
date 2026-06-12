@@ -42,7 +42,10 @@ env:
 
 jobs:
   build-sdist:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -71,7 +74,10 @@ jobs:
           retention-days: 3
 
   build-linux-wheels:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ${{ matrix.runs-on }}
     permissions:
       contents: read
@@ -114,7 +120,10 @@ jobs:
           retention-days: 3
 
   build-macos-wheels:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
     permissions:
       contents: read
     strategy:
@@ -151,7 +160,10 @@ jobs:
           retention-days: 3
 
   build-windows-wheels:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: windows-2022
     permissions:
       contents: read
@@ -253,7 +265,10 @@ jobs:
     needs: [build-sdist, build-linux-wheels, build-macos-wheels, build-windows-wheels, test-wheels]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     permissions:
       contents: write
     steps:
