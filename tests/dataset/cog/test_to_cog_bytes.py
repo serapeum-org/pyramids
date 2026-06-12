@@ -84,12 +84,8 @@ class TestToCogBytes:
 
         Test scenario:
             Passing compress="ZSTD" produces a COG whose IMAGE_STRUCTURE
-            compression is ZSTD (when the GDAL build supports it; otherwise the
-            write raises and the test is skipped).
+            compression is ZSTD.
         """
-        meta = gdal.GetDriverByName("GTiff").GetMetadataItem("DMD_CREATIONOPTIONLIST")
-        if "ZSTD" not in (meta or ""):
-            pytest.skip("GDAL build lacks ZSTD")
         blob = float_dataset.to_cog_bytes(compress="ZSTD")
         out = tmp_path / "zstd.tif"
         out.write_bytes(blob)

@@ -56,11 +56,7 @@ class TestRoundtrip:
         assert by == 256
         reopened = None
 
-    def test_compress_zstd_if_supported(
-        self, mem_dataset, tmp_path, gtiff_compression_list
-    ):
-        if "ZSTD" not in gtiff_compression_list:
-            pytest.skip("GDAL build lacks ZSTD support")
+    def test_compress_zstd(self, mem_dataset, tmp_path):
         out = tmp_path / "out.tif"
         dst = translate_to_cog(mem_dataset, out, {"COMPRESS": "ZSTD"})
         dst.FlushCache()

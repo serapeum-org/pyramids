@@ -39,27 +39,6 @@ def multiband_dataset() -> Dataset:
     )
 
 
-@pytest.fixture
-def compression_support() -> set[str]:
-    """Compression algorithms available in the current GTiff driver."""
-    meta = gdal.GetDriverByName("GTiff").GetMetadataItem("DMD_CREATIONOPTIONLIST") or ""
-    algos = set()
-    for alg in [
-        "NONE",
-        "LZW",
-        "DEFLATE",
-        "ZSTD",
-        "WEBP",
-        "LERC",
-        "LERC_DEFLATE",
-        "LERC_ZSTD",
-        "JPEG",
-    ]:
-        if f">{alg}<" in meta:
-            algos.add(alg)
-    return algos
-
-
 class TestCanonicalRoundtrip:
     """The acceptance-criteria round-trip from the plan."""
 
@@ -106,9 +85,7 @@ class TestMultiBandRoundtrip:
 
 class TestEveryCompression:
     @pytest.mark.parametrize("method", ["DEFLATE", "LZW", "ZSTD", "NONE", "LERC"])
-    def test_round_trip(self, float_dataset_128, tmp_path, compression_support, method):
-        if method not in compression_support:
-            pytest.skip(f"GDAL build lacks {method}")
+    def test_round_trip(self, float_dataset_128, tmp_path, method):
         out = float_dataset_128.to_cog(tmp_path / f"{method}.tif", compress=method)
         reopened = Dataset.read_file(out)
         reopened_arr = reopened.read_array()
@@ -124,11 +101,7 @@ class TestEveryCompression:
 
 
 class TestLercTolerance:
-    def test_lerc_with_max_z_error(
-        self, float_dataset_128, tmp_path, compression_support
-    ):
-        if "LERC" not in compression_support:
-            pytest.skip("LERC unavailable")
+    def test_lerc_with_max_z_error(self, float_dataset_128, tmp_path):
         out = float_dataset_128.to_cog(
             tmp_path / "lerc.tif",
             compress="LERC",

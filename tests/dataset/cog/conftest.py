@@ -40,29 +40,3 @@ def mem_dataset_multiband() -> gdal.Dataset:
     ds = None
 
 
-@pytest.fixture
-def gtiff_compression_list() -> set[str]:
-    """Set of compression algorithms supported by the current GDAL build."""
-    meta = gdal.GetDriverByName("GTiff").GetMetadataItem("DMD_CREATIONOPTIONLIST")
-    # Crude but adequate: scan for tokens inside the <Value> of COMPRESS.
-    algos = set()
-    for alg in [
-        "NONE",
-        "LZW",
-        "PACKBITS",
-        "DEFLATE",
-        "JPEG",
-        "CCITTRLE",
-        "CCITTFAX3",
-        "CCITTFAX4",
-        "ZSTD",
-        "LERC",
-        "LERC_DEFLATE",
-        "LERC_ZSTD",
-        "WEBP",
-        "JXL",
-        "LZMA",
-    ]:
-        if f">{alg}<" in (meta or ""):
-            algos.add(alg)
-    return algos
