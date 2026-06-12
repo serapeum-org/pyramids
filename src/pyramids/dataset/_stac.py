@@ -941,7 +941,11 @@ def to_stac_item(
     # cycle if imported at module load (see _resolve_asset_href above).
     from pyramids.stac._extensions import geotransform_to_affine
 
-    epsg = dataset.epsg
+    # `dataset.epsg` softly defaults to 4326 for a raster with no projection
+    # (epsg_from_wkt(default=4326)), so it can never signal "no CRS". `dataset.crs`
+    # (the WKT) is the honest signal: empty -> treat epsg as absent so the world-bbox
+    # branch fires and the proj:* fields are omitted.
+    epsg = dataset.epsg if dataset.crs else None
     native_bbox = list(dataset.bbox)
     geometry, bbox_4326 = _footprint_4326(native_bbox, epsg, precision)
 

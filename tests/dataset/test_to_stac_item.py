@@ -6,6 +6,7 @@ import warnings
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset._stac import to_stac_item
@@ -127,23 +128,32 @@ class TestToStacItem:
         assert not any(k.startswith("proj:") for k in item["properties"]), item["properties"]
         assert not any("projection" in e for e in item["stac_extensions"]), item["stac_extensions"]
 
-    def test_crs_less_dataset_world_bbox(self):
+    def test_crs_less_dataset_world_bbox(self, tmp_path):
         """A dataset without a CRS gets the world bbox + a warning.
 
         Test scenario:
-            epsg falsy -> bbox [-180,-90,180,90] and a UserWarning.
+            A raster with a geotransform but no projection -> bbox
+            [-180,-90,180,90] and a no-CRS UserWarning. ``dataset.epsg`` softly
+            defaults to 4326 even with no CRS, so the only way to build a genuinely
+            CRS-less raster is raw GDAL with no ``SetProjection`` call.
         """
-        ds = Dataset.create_from_array(
-            np.ones((3, 3), dtype="float32"), top_left_corner=(0.0, 3.0), cell_size=1.0
-        )
-        # create_from_array without epsg may still tag a default; force no CRS.
-        if ds.epsg:
-            pytest.skip("dataset got a default CRS; cannot exercise the CRS-less path here")
+        path = str(tmp_path / "no_crs.tif")
+        out = gdal.GetDriverByName("GTiff").Create(path, 3, 3, 1, gdal.GDT_Float32)
+        out.SetGeoTransform((0.0, 1.0, 0.0, 3.0, 0.0, -1.0))
+        out.GetRasterBand(1).WriteArray(np.ones((3, 3), dtype="float32"))
+        out.FlushCache()
+        out = None
+
+        ds = Dataset.read_file(path)
+        assert not ds.crs, "test precondition: the raster must have no CRS"
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             item = to_stac_item(ds, "x", asset_href="s.tif")
         assert item["bbox"] == [-180.0, -90.0, 180.0, 90.0], f"bbox: {item['bbox']}"
         assert any("no CRS" in str(w.message) for w in caught), "expected a no-CRS warning"
+        assert not any(
+            k.startswith("proj:") for k in item["properties"]
+        ), f"a CRS-less item must not advertise proj:* fields: {item['properties']}"
 
     def test_round_trip_through_from_stac(self, wgs84_dataset, tmp_path):
         """to_stac_item -> from_stac rebuilds a collection over the asset.
