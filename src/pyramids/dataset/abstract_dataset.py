@@ -321,7 +321,7 @@ class RasterBase(ABC):
 
         Returns:
             tuple: ``(row, col)`` ints for scalar input, ``(rows, cols)``
-                arrays for sequence input.
+                lists of ints for sequence input (symmetric with :meth:`xy`).
 
         Examples:
             - The cell containing a point on a unit grid at (0, 4):
@@ -366,7 +366,12 @@ class RasterBase(ABC):
         if scalar:
             result = (int(rows_idx[0]), int(cols_idx[0]))
         else:
-            result = (rows_idx, cols_idx)
+            # Return Python lists for sequence input, matching xy() (and rasterio)
+            # so the two companions have a symmetric container contract.
+            result = (
+                [int(value) for value in rows_idx],
+                [int(value) for value in cols_idx],
+            )
         return result
 
     @property

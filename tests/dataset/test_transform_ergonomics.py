@@ -245,10 +245,12 @@ class TestRowCol:
         assert np.ndim(row) == 0 and np.ndim(col) == 0, "0-d input must yield scalars"
 
     def test_vectorised(self, unit_dataset):
-        """Sequence input returns row/col arrays."""
+        """Sequence input returns row/col lists of ints, symmetric with xy (N2)."""
         rows, cols = unit_dataset.rowcol([0.5, 2.5], [3.5, 1.5])
-        assert rows.tolist() == [0, 2], f"rows wrong: {rows}"
-        assert cols.tolist() == [0, 2], f"cols wrong: {cols}"
+        assert rows == [0, 2], f"rows wrong: {rows}"
+        assert cols == [0, 2], f"cols wrong: {cols}"
+        assert isinstance(rows, list) and isinstance(cols, list), "rowcol must return lists"
+        assert all(isinstance(v, int) for v in rows + cols), "elements must be plain ints"
 
     def test_round_trip_through_xy(self, unit_dataset):
         """rowcol(xy(r, c)) returns (r, c) through cell centres."""
