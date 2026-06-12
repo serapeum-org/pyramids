@@ -536,7 +536,7 @@ class RasterBase(ABC):
 
     def block_windows(
         self, band: int = 0, *, window: Window | None = None
-    ) -> Generator[Window, None, None]:
+    ) -> Generator[Window]:
         """Yield a :class:`Window` for every native block of ``band``.
 
         Walks the raster in its on-disk block layout (tiles for tiled
@@ -587,8 +587,19 @@ class RasterBase(ABC):
             iter_blocks: The reading variant, yielding ``(Window, ndarray)``.
         """
         block_x, block_y = self.block_size[band]
-        for row in range(0, self.rows, block_y):
-            for col in range(0, self.columns, block_x):
+        if window is None:
+            row_start, row_stop = 0, self.rows
+            col_start, col_stop = 0, self.columns
+        else:
+            # Walk only the blocks that can intersect the ROI: start at the
+            # block-aligned floor of the window and stop at its far edge, instead
+            # of building and discarding every block of the whole raster.
+            row_start = max(0, (window.row_off // block_y) * block_y)
+            col_start = max(0, (window.col_off // block_x) * block_x)
+            row_stop = min(self.rows, window.row_off + window.rows)
+            col_stop = min(self.columns, window.col_off + window.cols)
+        for row in range(row_start, row_stop, block_y):
+            for col in range(col_start, col_stop, block_x):
                 block = Window(
                     col_off=col,
                     row_off=row,
@@ -603,7 +614,7 @@ class RasterBase(ABC):
 
     def iter_blocks(
         self, band: int = 0, *, window: Window | None = None
-    ) -> Generator[tuple[Window, np.ndarray], None, None]:
+    ) -> Generator[tuple[Window, np.ndarray]]:
         """Yield ``(Window, ndarray)`` for every native block of ``band``.
 
         The streaming read companion of :meth:`block_windows`: each yielded
