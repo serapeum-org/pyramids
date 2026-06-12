@@ -286,6 +286,15 @@ class Spatial(_Engine):
         The returned Dataset keeps a reference to its source, so the source
         handle cannot be garbage-collected underneath the view.
 
+        Note:
+            The view captures its source **by handle, not by value**: the VRT
+            re-reads the source's geotransform, projection, and pixels lazily on
+            each windowed read. Mutating the source in place after the view is
+            built (for example :meth:`set_crs` or anything that rewrites the
+            geotransform) leaves the view reading from the now-changed source and
+            is undefined. Treat the source as read-only for the lifetime of the
+            view, or rebuild the view after mutating the source.
+
         Args:
             crs: Target CRS in any form :meth:`pyproj.CRS.from_user_input`
                 accepts (EPSG int, ``"EPSG:3857"``, WKT, PROJ4, pyproj CRS).
