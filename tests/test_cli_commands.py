@@ -9,6 +9,7 @@ suite in `tests/dataset/cog/test_cli.py`.
 from __future__ import annotations
 
 import json
+import os
 
 import numpy as np
 import pytest
@@ -154,6 +155,15 @@ class TestClipCommand:
         err = capsys.readouterr().err
         assert rc == 1, "clip on a CRS-less raster must exit 1"
         assert "has none" in err, f"error should name the missing CRS: {err}"
+
+    def test_bbox_disjoint_from_raster_clear_error(self, src_raster, tmp_path, capsys):
+        """clip --bbox outside the raster extent gives a clear error, not an IndexError (L4)."""
+        out = str(tmp_path / "out.tif")
+        rc = main(["clip", src_raster, out, "--bbox", "100", "100", "110", "110"])
+        err = capsys.readouterr().err
+        assert rc == 1, "a disjoint clip bbox must exit 1"
+        assert "does not intersect" in err, f"error should name the disjoint bbox: {err}"
+        assert not os.path.exists(out), "no output should be written for a disjoint clip"
 
     def test_refuses_to_overwrite_without_flag(self, src_raster, tmp_path, capsys):
         """clip refuses to clobber an existing output unless --overwrite (N5)."""

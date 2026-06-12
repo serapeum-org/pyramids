@@ -77,6 +77,8 @@ def _refuse_existing(path: str, overwrite: bool) -> None:
         raise ValueError(
             f"output {path!r} already exists; pass --overwrite to replace it."
         )
+
+
 _HELP_INSPECT_RASTER = "raster path to inspect"
 _HELP_JSON = "emit JSON"
 
@@ -251,7 +253,17 @@ def _cmd_clip(args: argparse.Namespace) -> int:
                 "clip --bbox needs the raster to have a CRS to interpret the "
                 "bbox, but it has none; clip with a --vector mask instead."
             )
-        mask = FeatureCollection.from_bbox(tuple(args.bbox), epsg=ds.epsg)
+        clip_bbox = tuple(args.bbox)
+        # A bbox disjoint from the raster crops to an empty grid, which surfaces
+        # deep inside crop as an opaque IndexError. Catch it here with a clear message.
+        rminx, rminy, rmaxx, rmaxy = ds.bbox
+        bminx, bminy, bmaxx, bmaxy = clip_bbox
+        if bminx >= rmaxx or bmaxx <= rminx or bminy >= rmaxy or bmaxy <= rminy:
+            raise ValueError(
+                f"clip --bbox {clip_bbox} does not intersect the raster extent "
+                f"{tuple(ds.bbox)}; nothing to clip."
+            )
+        mask = FeatureCollection.from_bbox(clip_bbox, epsg=ds.epsg)
     _refuse_existing(args.output, args.overwrite)
     clipped = ds.crop(mask)
     clipped.to_file(args.output)
