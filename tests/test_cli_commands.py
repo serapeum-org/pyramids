@@ -406,3 +406,31 @@ class TestHelpSurface:
             main([command, "--help"])
         assert exc.value.code == 0, f"{command} --help must exit 0"
         assert command in capsys.readouterr().out, "help text must name the command"
+
+
+class TestUnexpectedErrors:
+    """An internal error not in main()'s expected set still gets one line, not a traceback (L5)."""
+
+    def test_unexpected_exception_one_line(self, src_raster, monkeypatch, capsys):
+        """A non-listed exception (e.g. KeyError) exits 1 with a one-line message."""
+
+        def boom(_args):
+            raise KeyError("internal")
+
+        monkeypatch.setattr("pyramids.cli._cmd_raster_info", boom)
+        rc = main(["info", src_raster])
+        err = capsys.readouterr().err
+        assert rc == 1, "an unexpected internal error must exit 1"
+        assert err.startswith("error: unexpected failure"), f"unexpected stderr: {err}"
+        assert "Traceback" not in err, "tracebacks must not leak to users"
+
+    def test_debug_env_reraises_for_stack(self, src_raster, monkeypatch):
+        """With PYRAMIDS_DEBUG set, the original exception propagates for the full stack."""
+
+        def boom(_args):
+            raise KeyError("internal")
+
+        monkeypatch.setattr("pyramids.cli._cmd_raster_info", boom)
+        monkeypatch.setenv("PYRAMIDS_DEBUG", "1")
+        with pytest.raises(KeyError):
+            main(["info", src_raster])

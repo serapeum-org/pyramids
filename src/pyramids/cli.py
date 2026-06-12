@@ -545,6 +545,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         # exit non-zero with a one-line message instead of a traceback.
         print(f"error: {exc}", file=sys.stderr)
         result = 1
+    except Exception as exc:  # noqa: BLE001
+        # An unexpected internal error (a bug, or a GDAL error type not listed
+        # above) still gets a one-line message for the CLI user rather than a raw
+        # traceback — unless PYRAMIDS_DEBUG is set, which re-raises the full stack.
+        if os.environ.get("PYRAMIDS_DEBUG"):
+            raise
+        print(f"error: unexpected failure: {exc}", file=sys.stderr)
+        result = 1
     return result
 
 
