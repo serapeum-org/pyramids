@@ -270,6 +270,14 @@ class TestOverviewCommand:
         )
         assert rc == 0, f"'nearest neighbor' should be accepted, got rc={rc}"
 
+    def test_non_power_of_two_levels_rejected(self, src_raster, capsys):
+        """A non-power-of-two --levels is rejected up front with a clear error (L6)."""
+        rc = main(["overview", src_raster, "--levels", "3", "5"])
+        err = capsys.readouterr().err
+        assert rc == 1, "non-power-of-two levels must exit 1"
+        assert "power-of-two" in err, f"error should name the constraint: {err}"
+        assert "[3, 5]" in err, f"error should list the offending levels: {err}"
+
 
 class TestSampleCommand:
     """`pyramids sample`."""

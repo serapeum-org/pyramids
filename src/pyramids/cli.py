@@ -35,6 +35,7 @@ from pandas import DataFrame
 from pyramids.base._errors import _PyramidsError
 from pyramids.base.crs import sr_from_user_input, sr_from_wkt
 from pyramids.dataset import Dataset
+from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS
 from pyramids.dataset.cog import PROFILES, cog_info, validate
 from pyramids.dataset.merge import merge_rasters
 from pyramids.feature import FeatureCollection
@@ -317,6 +318,15 @@ def _cmd_overview(args: argparse.Namespace) -> int:
     Returns:
         int: `0` on success.
     """
+    if args.levels is not None:
+        # Validate up front, before opening the file in update mode, so a bad
+        # level fails with a clear message instead of after the write handle opens.
+        invalid = [lvl for lvl in args.levels if lvl not in OVERVIEW_LEVELS]
+        if invalid:
+            raise ValueError(
+                f"overview --levels must be power-of-two reduction factors "
+                f"{OVERVIEW_LEVELS}; got invalid {invalid}."
+            )
     ds = Dataset.read_file(args.file, read_only=False)
     # create_overviews validates against GDAL's overview RESAMPLING_METHODS
     # ("nearest", "average", "gauss", "cubic", ...). Accept the warp-family
@@ -487,7 +497,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "gauss, cubic, mode, ...",
     )
     overview.add_argument(
-        "--levels", nargs="+", type=int, help="decimation levels (e.g. 2 4 8)"
+        "--levels",
+        nargs="+",
+        type=int,
+        help="power-of-two decimation levels (2, 4, 8, ... 2048); e.g. 2 4 8",
     )
     overview.set_defaults(func=_cmd_overview)
 
