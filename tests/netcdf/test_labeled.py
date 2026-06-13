@@ -118,9 +118,15 @@ class TestLabeledDatasetRead:
         assert store.variables == ["streamflow"]
 
     def test_variables_unknown_name_raises(self, nc_store: Path):
-        """An unknown name in ``variables=`` raises KeyError, not a silent empty subset."""
+        """An unknown name in ``variables=`` raises KeyError and releases the handle.
+
+        The KeyError must not leak the open GDAL handle (a leaked read handle keeps
+        the file locked on Windows), so the store file is unlinkable afterward.
+        """
         with pytest.raises(KeyError, match="not found"):
             LabeledDataset.read_file(nc_store, variables=["streamflow", "typo"])
+        nc_store.unlink()  # raises PermissionError on Windows if the handle leaked
+        assert not nc_store.exists()
 
     def test_getitem_and_contains(self, nc_store: Path):
         store = LabeledDataset.read_file(nc_store)

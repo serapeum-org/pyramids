@@ -199,16 +199,26 @@ class LabeledDataset:
         root = ds.GetRootGroup()
         try:
             grp = root.OpenGroup(group) if group else root
-        except RuntimeError:
+        except RuntimeError as exc:
             # Under gdal.UseExceptions() a missing group raises rather than
-            # returning None; normalize to a clear ValueError below.
-            grp = None
+            # returning None. Release the handle (Windows keeps the file open
+            # until the gdal.Dataset is dropped) and re-raise as a clear
+            # ValueError, chaining the GDAL cause so a non-missing-group failure
+            # (e.g. a corrupt store) stays legible.
+            ds = None
+            raise ValueError(
+                f"group {group!r} not found in {source!r}: {exc}"
+            ) from exc
         if grp is None:
-            # Release the handle before raising so the store isn't left locked
-            # (Windows keeps the file open until the gdal.Dataset is dropped).
             ds = None
             raise ValueError(f"group {group!r} not found in {source!r}.")
-        return cls._from_group(ds, grp, variables)
+        # Close the handle on any error while classifying the group (e.g. an
+        # unknown name in `variables`) so it isn't left locked on Windows.
+        try:
+            return cls._from_group(ds, grp, variables)
+        except Exception:
+            ds = None
+            raise
 
     @staticmethod
     def _readable_arrays(grp: gdal.Group) -> tuple[list[str], list[str]]:
