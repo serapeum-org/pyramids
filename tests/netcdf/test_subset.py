@@ -706,7 +706,9 @@ class TestDetectSpatialAxes:
     """G-2: locate the spatial axes by override / CF attrs / name / trailing."""
 
     def test_explicit_override(self):
-        assert NetCDF._detect_spatial_axes(None, ["time", "y", "lev", "x"], "y", "x") == (1, 3)
+        assert NetCDF._detect_spatial_axes(
+            None, ["time", "y", "lev", "x"], "y", "x"
+        ) == (1, 3)
 
     def test_only_one_override_raises(self):
         with pytest.raises(ValueError, match="both y_dim and x_dim"):
@@ -723,10 +725,15 @@ class TestDetectSpatialAxes:
     def test_well_known_names_when_no_attrs(self):
         # rg=None -> CF-attr detection skipped; fall back to known names. y/x are
         # interleaved around a layer dim, so this is NOT the trailing-two case.
-        assert NetCDF._detect_spatial_axes(None, ["time", "y", "soil", "x"], None, None) == (1, 3)
+        assert NetCDF._detect_spatial_axes(
+            None, ["time", "y", "soil", "x"], None, None
+        ) == (1, 3)
 
     def test_trailing_two_fallback(self):
-        assert NetCDF._detect_spatial_axes(None, ["time", "a", "b"], None, None) == (1, 2)
+        assert NetCDF._detect_spatial_axes(None, ["time", "a", "b"], None, None) == (
+            1,
+            2,
+        )
 
 
 class TestSubsetInterleavedLayer:
@@ -744,7 +751,9 @@ class TestSubsetInterleavedLayer:
         nc = _synthetic_cube(tmp_path, with_interleaved=True)
         ds = nc.subset("soil", time=0, level=0)
         n_y, n_x, n_lev = 4, 5, 2
-        full = np.arange(3 * n_y * n_lev * n_x, dtype="float64").reshape(3, n_y, n_lev, n_x)
+        full = np.arange(3 * n_y * n_lev * n_x, dtype="float64").reshape(
+            3, n_y, n_lev, n_x
+        )
         expected_row0 = full[0, 3, 0, :]  # time 0, y index 3 (north), level 0
         assert list(np.asarray(ds.read_array())[0]) == list(expected_row0)
 
@@ -837,7 +846,9 @@ class TestSubsetLiveNWM:
             with CloudConfig(aws_no_sign_request=True, aws_region="us-east-1"):
                 nc = NetCDF.read_file(NWM_LDASOUT)
                 ds = nc.subset(
-                    "SOIL_M", time=0, soil_layers_stag=0,
+                    "SOIL_M",
+                    time=0,
+                    soil_layers_stag=0,
                     bbox=(-78.0, 38.0, -75.0, 40.0),
                 )
         except (RuntimeError, OSError) as exc:

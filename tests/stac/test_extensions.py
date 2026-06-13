@@ -162,7 +162,11 @@ class TestReadExtensionMetadata:
         Test scenario:
             An asset carrying proj:code returns that string as crs.
         """
-        item = {"assets": {"a": {"href": "x.tif", "proj:code": "EPSG:3035", "proj:epsg": 4326}}}
+        item = {
+            "assets": {
+                "a": {"href": "x.tif", "proj:code": "EPSG:3035", "proj:epsg": 4326}
+            }
+        }
         assert read_extension_metadata(item, "a")["crs"] == "EPSG:3035"
 
     def test_asset_overrides_item(self):
@@ -193,7 +197,11 @@ class TestReadExtensionMetadata:
             crs/geotransform/raster_bands are None.
         """
         meta = read_extension_metadata({"href": "x.tif"})
-        assert (meta["crs"], meta["geotransform"], meta["raster_bands"]) == (None, None, None)
+        assert (meta["crs"], meta["geotransform"], meta["raster_bands"]) == (
+            None,
+            None,
+            None,
+        )
 
     def test_band_names_none_when_incomplete(self):
         """band_names is None when any eo band lacks a name/common_name.
@@ -201,7 +209,14 @@ class TestReadExtensionMetadata:
         Test scenario:
             One band has neither name nor common_name -> band_names None.
         """
-        item = {"assets": {"a": {"href": "x.tif", "eo:bands": [{"name": "B01"}, {"center_wavelength": 0.5}]}}}
+        item = {
+            "assets": {
+                "a": {
+                    "href": "x.tif",
+                    "eo:bands": [{"name": "B01"}, {"center_wavelength": 0.5}],
+                }
+            }
+        }
         assert read_extension_metadata(item, "a")["band_names"] is None
 
     def test_pystac_like_asset_extra_fields(self):

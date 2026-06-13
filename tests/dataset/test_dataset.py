@@ -652,9 +652,9 @@ class TestNoDataValue:
             dataset = Dataset.create_from_array(
                 arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
             )
-        assert dataset.no_data_value[0] == -9999, (
-            f"{dtype}: expected default no-data -9999, got {dataset.no_data_value[0]}"
-        )
+        assert (
+            dataset.no_data_value[0] == -9999
+        ), f"{dtype}: expected default no-data -9999, got {dataset.no_data_value[0]}"
 
 
 class TestSetCRS:
@@ -989,9 +989,9 @@ class TestReproject:
         dst = src_ds.to_crs(to_epsg="ESRI:54030")
         dst_sr = osr.SpatialReference(wkt=dst.crs)
         assert dst_sr.IsProjected() == 1
-        assert "Robinson" in dst_sr.GetName(), (
-            f"expected Robinson in dst CRS name, got {dst_sr.GetName()!r}"
-        )
+        assert (
+            "Robinson" in dst_sr.GetName()
+        ), f"expected Robinson in dst CRS name, got {dst_sr.GetName()!r}"
 
     def test_mollweide_esri_authority_string_maintain_alignment(
         self,
@@ -1009,9 +1009,9 @@ class TestReproject:
         dst = src_ds.to_crs(to_epsg="ESRI:54009", maintain_alignment=True)
         dst_sr = osr.SpatialReference(wkt=dst.crs)
         assert dst_sr.IsProjected() == 1
-        assert "Mollweide" in dst_sr.GetName(), (
-            f"expected Mollweide in dst CRS name, got {dst_sr.GetName()!r}"
-        )
+        assert (
+            "Mollweide" in dst_sr.GetName()
+        ), f"expected Mollweide in dst CRS name, got {dst_sr.GetName()!r}"
         dst_shape = dst.raster.ReadAsArray().shape
         # Mollweide projects so differently from the source CRS that the
         # corner-sampled cell-step calculation can drift by a single
@@ -1082,9 +1082,9 @@ class TestReproject:
         out = dst.read_array()
         nodata = dst.no_data_value[0]
         corners = np.array([out[0, 0], out[0, -1], out[-1, 0], out[-1, -1]])
-        assert np.allclose(corners, nodata), (
-            f"off-disc corner pixels should equal nodata={nodata}, got {corners}"
-        )
+        assert np.allclose(
+            corners, nodata
+        ), f"off-disc corner pixels should equal nodata={nodata}, got {corners}"
 
     def test_to_crs_non_epsg_with_bilinear_resampling(self):
         """to_crs runs the bilinear resampling path against a non-EPSG target (#418).
@@ -1106,9 +1106,9 @@ class TestReproject:
         )
         dst = ds.to_crs(to_epsg="ESRI:54009", method="bilinear")
         dst_sr = osr.SpatialReference(wkt=dst.crs)
-        assert "Mollweide" in dst_sr.GetName(), (
-            f"expected Mollweide in dst CRS name, got {dst_sr.GetName()!r}"
-        )
+        assert (
+            "Mollweide" in dst_sr.GetName()
+        ), f"expected Mollweide in dst CRS name, got {dst_sr.GetName()!r}"
         out = dst.read_array()
         finite = out[out != dst.no_data_value[0]]
         assert finite.size > 0, "bilinear warp should produce at least one finite cell"
@@ -1162,9 +1162,9 @@ class TestReproject:
             no_data_value=-9999.0,
         )
         dst = ds.to_crs(to_epsg="ESRI:54030")
-        assert dst.band_count == ds.band_count, (
-            f"band count drift: src={ds.band_count}, dst={dst.band_count}"
-        )
+        assert (
+            dst.band_count == ds.band_count
+        ), f"band count drift: src={ds.band_count}, dst={dst.band_count}"
 
     def test_to_crs_same_epsg_maintain_alignment_is_identity(self):
         """to_crs(source_epsg, maintain_alignment=True) returns a bit-identical raster (M1).

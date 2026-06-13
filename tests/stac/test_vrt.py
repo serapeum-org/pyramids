@@ -18,7 +18,11 @@ pytestmark = pytest.mark.core
 def _write(path, arr, top_left, *, cell_size=1.0, epsg=4326, nodata=-9999.0):
     """Write `arr` to `path` as a GeoTIFF and return the path string."""
     ds = Dataset.create_from_array(
-        arr, top_left_corner=top_left, cell_size=cell_size, epsg=epsg, no_data_value=nodata
+        arr,
+        top_left_corner=top_left,
+        cell_size=cell_size,
+        epsg=epsg,
+        no_data_value=nodata,
     )
     ds.to_file(str(path))
     return str(path)
@@ -62,8 +66,12 @@ class TestBuildVrtFromStac:
         """
         ds = build_vrt_from_stac(adjacent_tiles, asset="data")
         arr = ds.read_array()
-        assert float(arr[0, 0]) == 10.0, f"left half should be tile A=10, got {arr[0, 0]}"
-        assert float(arr[0, 7]) == 20.0, f"right half should be tile B=20, got {arr[0, 7]}"
+        assert (
+            float(arr[0, 0]) == 10.0
+        ), f"left half should be tile A=10, got {arr[0, 0]}"
+        assert (
+            float(arr[0, 7]) == 20.0
+        ), f"right half should be tile B=20, got {arr[0, 7]}"
 
     def test_separate_stacks_bands(self, tmp_path):
         """separate=True makes one band per source (same-grid sources).
@@ -77,7 +85,9 @@ class TestBuildVrtFromStac:
         pb = _write(tmp_path / "sb.tif", b, (0.0, 3.0))
         items = [{"assets": {"d": {"href": pa}}}, {"assets": {"d": {"href": pb}}}]
         ds = build_vrt_from_stac(items, asset="d", separate=True)
-        assert ds.band_count == 2, f"separate=True should give 2 bands, got {ds.band_count}"
+        assert (
+            ds.band_count == 2
+        ), f"separate=True should give 2 bands, got {ds.band_count}"
 
     def test_signer_applied_to_each_source(self, adjacent_tiles):
         """signer.sign_href is applied to every source href before the build.
@@ -100,7 +110,9 @@ class TestBuildVrtFromStac:
 
         signer = _RecordingSigner()
         build_vrt_from_stac(adjacent_tiles, asset="data", signer=signer)
-        assert len(signer.seen) == 2, f"sign_href should fire per source, got {signer.seen}"
+        assert (
+            len(signer.seen) == 2
+        ), f"sign_href should fire per source, got {signer.seen}"
 
     def test_empty_items_raises(self):
         """No items raises a clear ValueError.

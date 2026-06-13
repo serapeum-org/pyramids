@@ -105,7 +105,9 @@ class TestConfigApplication:
         arr = np.ones((64, 64), dtype="float32")
         ds = Dataset.create_from_array(arr, geo=_GEOTRANSFORM, epsg=4326)
         out = ds.to_cog(tmp_path / "cfg.tif", config={"GDAL_NUM_THREADS": "1"})
-        assert Dataset.read_file(str(out)).validate_cog().is_valid, "config write invalid"
+        assert (
+            Dataset.read_file(str(out)).validate_cog().is_valid
+        ), "config write invalid"
 
     def test_validate_with_config(self, float_cog):
         """validate accepts a config dict and still validates.
@@ -129,7 +131,9 @@ class TestConfigApplication:
             An explicit config does not change the reported compression.
         """
         info = cog_info(float_cog, config={"GDAL_NUM_THREADS": "1"})
-        assert info.compression == "DEFLATE", f"unexpected compression {info.compression}"
+        assert (
+            info.compression == "DEFLATE"
+        ), f"unexpected compression {info.compression}"
 
     def test_config_context_applies_and_restores(self):
         """config_context applies options inside and restores them after (L3).

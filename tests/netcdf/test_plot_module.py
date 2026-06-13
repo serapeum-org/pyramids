@@ -46,7 +46,9 @@ def test_plot_facade_delegates_to_engine():
     """``NetCDF.plot`` constructs a ``NetCDFPlot`` and calls ``.run``."""
     nc = _make_3d_nc()
     sentinel = object()
-    with patch.object(NetCDFPlot, "run", autospec=True, return_value=sentinel) as mock_run:
+    with patch.object(
+        NetCDFPlot, "run", autospec=True, return_value=sentinel
+    ) as mock_run:
         out = nc.plot(variable="t2m")
     assert out is sentinel
     assert mock_run.call_count == 1

@@ -38,7 +38,9 @@ class TestSignerCloudConfig:
         Test scenario:
             ``signer_cloud_config(None)`` installs no GDAL config.
         """
-        assert isinstance(signer_cloud_config(None), nullcontext), "expected a no-op context"
+        assert isinstance(
+            signer_cloud_config(None), nullcontext
+        ), "expected a no-op context"
 
     def test_signer_returns_seeded_cloudconfig(self):
         """A signer yields a CloudConfig carrying its ``gdal_env()``.
@@ -48,9 +50,9 @@ class TestSignerCloudConfig:
         """
         ctx = signer_cloud_config(_EnvSigner({"AWS_REQUEST_PAYER": "requester"}))
         assert isinstance(ctx, CloudConfig), f"expected CloudConfig, got {type(ctx)}"
-        assert ctx.as_gdal_config() == {"AWS_REQUEST_PAYER": "requester"}, (
-            f"unexpected config: {ctx.as_gdal_config()}"
-        )
+        assert ctx.as_gdal_config() == {
+            "AWS_REQUEST_PAYER": "requester"
+        }, f"unexpected config: {ctx.as_gdal_config()}"
 
     def test_config_active_within_block(self):
         """The signer's config is live inside the block and torn down after.
@@ -60,8 +62,12 @@ class TestSignerCloudConfig:
         """
         assert gdal.GetConfigOption("GDAL_HTTP_TIMEOUT") is None, "precondition: unset"
         with signer_cloud_config(_EnvSigner({"GDAL_HTTP_TIMEOUT": "42"})):
-            assert gdal.GetConfigOption("GDAL_HTTP_TIMEOUT") == "42", "config not active in block"
-        assert gdal.GetConfigOption("GDAL_HTTP_TIMEOUT") is None, "config not restored after block"
+            assert (
+                gdal.GetConfigOption("GDAL_HTTP_TIMEOUT") == "42"
+            ), "config not active in block"
+        assert (
+            gdal.GetConfigOption("GDAL_HTTP_TIMEOUT") is None
+        ), "config not restored after block"
 
 
 class TestToVsi:
@@ -230,7 +236,9 @@ class TestCloudConfigAsGdalConfig:
         """
         cfg = CloudConfig(aws_region="ap-south-1").as_gdal_config()
         assert cfg["AWS_REGION"] == "ap-south-1", f"AWS_REGION wrong: {cfg}"
-        assert cfg["AWS_DEFAULT_REGION"] == "ap-south-1", f"AWS_DEFAULT_REGION wrong: {cfg}"
+        assert (
+            cfg["AWS_DEFAULT_REGION"] == "ap-south-1"
+        ), f"AWS_DEFAULT_REGION wrong: {cfg}"
 
     def test_no_default_region_without_region(self):
         """AWS_DEFAULT_REGION is absent when aws_region is not provided.

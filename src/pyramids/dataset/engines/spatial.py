@@ -669,7 +669,11 @@ class Spatial(_Engine):
             # In a geographic source whose longitudes wrap past 180, shift the
             # left edge into the western hemisphere before reprojecting so the
             # corner-derived extent does not collapse across the dateline.
-            west_edge = src_gt[0] - 360 if src_sr.IsGeographic() and src_gt[0] > 180 else src_gt[0]
+            west_edge = (
+                src_gt[0] - 360
+                if src_sr.IsGeographic() and src_gt[0] > 180
+                else src_gt[0]
+            )
             xs = [west_edge, west_edge + src_gt[1] * src_x]
             ys = [src_gt[3], src_gt[3] + src_gt[5] * src_y]
             [ulx, lrx], [uly, lry] = reproject_coordinates(

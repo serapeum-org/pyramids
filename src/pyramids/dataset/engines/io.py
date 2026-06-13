@@ -505,8 +505,10 @@ class IO(_Engine):
                 "defeating the per-thread isolation. Read decimated without "
                 "threadsafe, or decimate a threadsafe full read yourself."
             )
-        if out_shape is None and isinstance(resampling, str) and (
-            resampling.strip().lower() != "nearest"
+        if (
+            out_shape is None
+            and isinstance(resampling, str)
+            and (resampling.strip().lower() != "nearest")
         ):
             raise ValueError(
                 "read_array(resampling=...) only applies to out_shape reads; "
@@ -775,9 +777,7 @@ class IO(_Engine):
                 )
         else:
             effective_band = 0 if band is None else band
-            arr = handle.GetRasterBand(effective_band + 1).ReadAsArray(
-                *window_args
-            )
+            arr = handle.GetRasterBand(effective_band + 1).ReadAsArray(*window_args)
         return arr
 
     def _to_masked(
@@ -824,8 +824,7 @@ class IO(_Engine):
             indices = list(range(arr.shape[0]))
             slices = [arr[i] for i in indices]
         masks = [
-            self._band_mask(index, data, window)
-            for index, data in zip(indices, slices)
+            self._band_mask(index, data, window) for index, data in zip(indices, slices)
         ]
         full_mask = masks[0] if arr.ndim == 2 else np.stack(masks, axis=0)
         return np.ma.MaskedArray(arr, mask=full_mask)
@@ -1158,9 +1157,7 @@ class IO(_Engine):
             window = Window(int(col_off), int(row_off), int(cols), int(rows))
         _validate_band_index(band, self._ds.band_count)
         all_bands = band is None and self._ds.band_count > 1
-        band_indices = (
-            list(range(self._ds.band_count)) if all_bands else [band or 0]
-        )
+        band_indices = list(range(self._ds.band_count)) if all_bands else [band or 0]
         raster_window = Window(0, 0, self._ds.columns, self._ds.rows)
         inside = window.intersection(raster_window)
         planes = []

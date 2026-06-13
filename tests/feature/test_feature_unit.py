@@ -39,7 +39,7 @@ from shapely.geometry import (
 )
 from shapely.geometry.collection import GeometryCollection
 
-from pyramids.dataset import Dataset
+from pyramids.base._errors import CRSError
 from pyramids.base.crs import (
     _epsg_from_db_match,
     create_sr_from_proj,
@@ -48,7 +48,7 @@ from pyramids.base.crs import (
     reproject_coordinates,
     sr_from_epsg,
 )
-from pyramids.base._errors import CRSError
+from pyramids.dataset import Dataset
 from pyramids.feature import (
     FeatureCollection,
     explode_gdf,
@@ -370,9 +370,7 @@ class TestExplodeGdf:
 
     def test_no_multipolygon_unchanged(self, simple_polygon_gdf: GeoDataFrame):
         """A GDF without multi-geometries should be returned with same row count."""
-        result = explode_gdf(
-            simple_polygon_gdf.copy(), geometry="multipolygon"
-        )
+        result = explode_gdf(simple_polygon_gdf.copy(), geometry="multipolygon")
         assert len(result) == len(simple_polygon_gdf)
 
     def test_input_gdf_not_mutated(self):
@@ -426,33 +424,23 @@ class TestMultiGeomHandler:
     """Tests for ``_multi_geom_handler``."""
 
     def test_multipoint_x(self, multipoint_geom: MultiPoint):
-        result = multi_geom_handler(
-            multipoint_geom, "x", "multipoint"
-        )
+        result = multi_geom_handler(multipoint_geom, "x", "multipoint")
         assert result == [1.0, 3.0, 5.0]
 
     def test_multipoint_y(self, multipoint_geom: MultiPoint):
-        result = multi_geom_handler(
-            multipoint_geom, "y", "multipoint"
-        )
+        result = multi_geom_handler(multipoint_geom, "y", "multipoint")
         assert result == [2.0, 4.0, 6.0]
 
     def test_multilinestring_x(self, multilinestring_geom: MultiLineString):
-        result = multi_geom_handler(
-            multilinestring_geom, "x", "multilinestring"
-        )
+        result = multi_geom_handler(multilinestring_geom, "x", "multilinestring")
         assert result == [[0.0, 1.0], [2.0, 3.0]]
 
     def test_multilinestring_y(self, multilinestring_geom: MultiLineString):
-        result = multi_geom_handler(
-            multilinestring_geom, "y", "multilinestring"
-        )
+        result = multi_geom_handler(multilinestring_geom, "y", "multilinestring")
         assert result == [[0.0, 1.0], [2.0, 3.0]]
 
     def test_multipolygon_x(self, multipolygon_geom: MultiPolygon):
-        result = multi_geom_handler(
-            multipolygon_geom, "x", "multipolygon"
-        )
+        result = multi_geom_handler(multipolygon_geom, "x", "multipolygon")
         assert len(result) == 2
         for coords in result:
             assert isinstance(coords, list)
@@ -519,16 +507,12 @@ class TestReprojectCoordinates:
 
         src = CRS.from_epsg(4326)
         dst = CRS.from_epsg(3857)
-        x, y = reproject_coordinates(
-            [31.0], [30.0], from_crs=src, to_crs=dst
-        )
+        x, y = reproject_coordinates([31.0], [30.0], from_crs=src, to_crs=dst)
         assert len(x) == 1 and len(y) == 1
 
     def test_wgs84_to_web_mercator_values(self):
         """Concrete value check at (31, 30) into Web Mercator."""
-        x, y = reproject_coordinates(
-            [31.0], [30.0], from_crs=4326, to_crs=3857
-        )
+        x, y = reproject_coordinates([31.0], [30.0], from_crs=4326, to_crs=3857)
         assert round(x[0]) == 3450904
         assert round(y[0]) == 3503550
 
@@ -548,9 +532,7 @@ class TestReprojectCoordinates:
     def test_length_mismatch_raises(self):
         """``len(x) != len(y)`` raises ValueError."""
         with pytest.raises(ValueError, match="equal length"):
-            reproject_coordinates(
-                [31.0, 32.0], [30.0], from_crs=4326, to_crs=3857
-            )
+            reproject_coordinates([31.0, 32.0], [30.0], from_crs=4326, to_crs=3857)
 
     def test_invalid_crs_raises_pyramids_crs_error(self):
         """C23: malformed CRS raises pyramids ``CRSError``, not pyproj's.
@@ -602,9 +584,7 @@ class TestReprojectCoordinates:
         from pyramids.base._errors import CRSError
 
         with pytest.raises(CRSError, match="from_crs="):
-            reproject_coordinates(
-                [0.0], [0.0], from_crs=object(), to_crs=4326
-            )
+            reproject_coordinates([0.0], [0.0], from_crs=object(), to_crs=4326)
 
     def test_out_of_range_epsg_wraps_as_pyramids_crs_error(self):
         """M1: an out-of-range EPSG int wraps via the ValueError arm.
@@ -617,9 +597,7 @@ class TestReprojectCoordinates:
         from pyramids.base._errors import CRSError
 
         with pytest.raises(CRSError, match="reproject_coordinates"):
-            reproject_coordinates(
-                [0.0], [0.0], from_crs=999999999, to_crs=4326
-            )
+            reproject_coordinates([0.0], [0.0], from_crs=999999999, to_crs=4326)
 
     def test_bare_attribute_error_is_not_swallowed(self, monkeypatch):
         """M1: unrelated exceptions leak out with their typed cause.
@@ -641,9 +619,7 @@ class TestReprojectCoordinates:
         monkeypatch.setattr(pyproj.Transformer, "from_crs", _raise_attr_error)
 
         with pytest.raises(AttributeError, match="simulated unrelated"):
-            reproject_coordinates(
-                [31.0], [30.0], from_crs=4326, to_crs=3857
-            )
+            reproject_coordinates([31.0], [30.0], from_crs=4326, to_crs=3857)
 
 
 class TestParquetPyarrowGuard:
@@ -763,9 +739,7 @@ class TestReadParquetBboxKwarg:
 
         with _w.catch_warnings(record=True) as caught:
             _w.simplefilter("always")
-            reproject_coordinates(
-                [31.0], [30.0], from_crs=4326, to_crs=3857
-            )
+            reproject_coordinates([31.0], [30.0], from_crs=4326, to_crs=3857)
         future = [w for w in caught if issubclass(w.category, FutureWarning)]
         assert not future, (
             f"reproject_coordinates must not emit FutureWarning; got: "

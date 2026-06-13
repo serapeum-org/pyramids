@@ -44,7 +44,12 @@ class TestWindow:
         """
         w = Window(col_off=4, row_off=1, cols=2, rows=3)
         assert w.shape == (3, 2), f"shape must be (rows, cols), got {w.shape}"
-        assert w.to_read_args() == (4, 1, 2, 3), "read args must be (xoff, yoff, xsize, ysize)"
+        assert w.to_read_args() == (
+            4,
+            1,
+            2,
+            3,
+        ), "read args must be (xoff, yoff, xsize, ysize)"
 
     @pytest.mark.parametrize("cols, rows", [(0, 2), (2, 0), (-1, 2), (2, -3)])
     def test_non_positive_size_rejected(self, cols, rows):
@@ -271,7 +276,7 @@ class TestBlockIteration:
         total = sum(w.cols * w.rows for w in blocks)
         assert total == 36, f"blocks must cover every pixel once, got {total}"
         for i, a in enumerate(blocks):
-            for b in blocks[i + 1:]:
+            for b in blocks[i + 1 :]:
                 assert a.intersection(b) is None, f"overlapping blocks {a} / {b}"
 
     def test_block_windows_clipped_to_roi(self, ramp_dataset):
@@ -279,7 +284,9 @@ class TestBlockIteration:
         roi = Window(1, 1, 3, 3)
         blocks = list(ramp_dataset.block_windows(window=roi))
         assert blocks, "ROI must intersect at least one block"
-        assert all(w.intersection(roi) == w for w in blocks), "blocks not clipped to ROI"
+        assert all(
+            w.intersection(roi) == w for w in blocks
+        ), "blocks not clipped to ROI"
         assert sum(w.cols * w.rows for w in blocks) == 9, "ROI coverage must be exact"
 
     def test_block_windows_disjoint_roi_yields_nothing(self, ramp_dataset):
@@ -290,16 +297,18 @@ class TestBlockIteration:
             column/row 10 intersects none of them, so the generator is empty.
         """
         roi = Window(10, 10, 2, 2)
-        assert list(ramp_dataset.block_windows(window=roi)) == [], (
-            "an ROI outside the raster must yield no blocks"
-        )
+        assert (
+            list(ramp_dataset.block_windows(window=roi)) == []
+        ), "an ROI outside the raster must yield no blocks"
 
     def test_iter_blocks_rebuilds_raster(self, ramp_dataset):
         """Streaming blocks and reassembling them reproduces the raster."""
         src = ramp_dataset.read_array(band=0)
         rebuilt = np.zeros_like(src)
         for w, block in ramp_dataset.iter_blocks():
-            rebuilt[w.row_off : w.row_off + w.rows, w.col_off : w.col_off + w.cols] = block
+            rebuilt[w.row_off : w.row_off + w.rows, w.col_off : w.col_off + w.cols] = (
+                block
+            )
         np.testing.assert_array_equal(rebuilt, src, err_msg="block rebuild mismatch")
 
     def test_iter_blocks_round_trip_write(self, ramp_dataset, tmp_path):
@@ -312,7 +321,9 @@ class TestBlockIteration:
         path = str(tmp_path / "copy.tif")
         empty = Dataset.create_from_array(
             np.zeros((6, 6), dtype="float32"),
-            top_left_corner=(0, 6), cell_size=1.0, epsg=4326,
+            top_left_corner=(0, 6),
+            cell_size=1.0,
+            epsg=4326,
         )
         for w, block in ramp_dataset.iter_blocks():
             empty.write_array(block, window=w)
@@ -332,9 +343,13 @@ class TestBlockIteration:
         path = str(tmp_path / "tiled.tif")
         big = Dataset.create_from_array(
             np.zeros((512, 512), dtype="float32"),
-            top_left_corner=(0, 512), cell_size=1.0, epsg=4326,
+            top_left_corner=(0, 512),
+            cell_size=1.0,
+            epsg=4326,
         )
-        big.to_file(path, creation_options=["TILED=YES", "BLOCKXSIZE=256", "BLOCKYSIZE=256"])
+        big.to_file(
+            path, creation_options=["TILED=YES", "BLOCKXSIZE=256", "BLOCKYSIZE=256"]
+        )
         tiled = Dataset.read_file(path)
         blocks = list(tiled.block_windows())
         assert len(blocks) == 4, f"expected 4 tiles, got {len(blocks)}"
@@ -353,19 +368,31 @@ class TestBlockIteration:
         path = str(tmp_path / "tiled.tif")
         Dataset.create_from_array(
             np.zeros((512, 512), dtype="float32"),
-            top_left_corner=(0, 512), cell_size=1.0, epsg=4326,
-        ).to_file(path, creation_options=["TILED=YES", "BLOCKXSIZE=256", "BLOCKYSIZE=256"])
+            top_left_corner=(0, 512),
+            cell_size=1.0,
+            epsg=4326,
+        ).to_file(
+            path, creation_options=["TILED=YES", "BLOCKXSIZE=256", "BLOCKYSIZE=256"]
+        )
         tiled = Dataset.read_file(path)
 
         inside = Window(col_off=300, row_off=300, cols=100, rows=100)
         blocks = list(tiled.block_windows(window=inside))
-        assert len(blocks) == 1, f"ROI inside one tile must yield one block, got {len(blocks)}"
-        assert blocks[0] == inside, f"the single block must clip to the ROI: {blocks[0]}"
+        assert (
+            len(blocks) == 1
+        ), f"ROI inside one tile must yield one block, got {len(blocks)}"
+        assert (
+            blocks[0] == inside
+        ), f"the single block must clip to the ROI: {blocks[0]}"
 
         spanning = Window(col_off=200, row_off=300, cols=120, rows=100)
         spanned = list(tiled.block_windows(window=spanning))
-        assert len(spanned) == 2, f"ROI spanning two tiles must yield two blocks, got {len(spanned)}"
-        assert all(w.intersection(spanning) == w for w in spanned), "blocks must be ROI-clipped"
-        assert sum(w.cols * w.rows for w in spanned) == spanning.cols * spanning.rows, (
-            "the ROI-clipped blocks must cover the ROI exactly"
-        )
+        assert (
+            len(spanned) == 2
+        ), f"ROI spanning two tiles must yield two blocks, got {len(spanned)}"
+        assert all(
+            w.intersection(spanning) == w for w in spanned
+        ), "blocks must be ROI-clipped"
+        assert (
+            sum(w.cols * w.rows for w in spanned) == spanning.cols * spanning.rows
+        ), "the ROI-clipped blocks must cover the ROI exactly"

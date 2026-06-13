@@ -93,7 +93,9 @@ class TestCropNonSpatialAux:
         assert "t2m" in cropped.variable_names, "spatial t2m should survive the crop"
         assert "number" in cropped.variable_names, "non-spatial aux should be carried"
         t2m = cropped.get_variable("t2m")
-        assert t2m.band_count == 4, f"4 valid_time bands should survive, got {t2m.band_count}"
+        assert (
+            t2m.band_count == 4
+        ), f"4 valid_time bands should survive, got {t2m.band_count}"
 
     def test_crop_carries_aux_values_unchanged(self):
         """The carried non-spatial variable keeps its raw values.
@@ -103,9 +105,12 @@ class TestCropNonSpatialAux:
         """
         cube = _era5_like_cube()
         cropped = cube.crop(mask=_MASK, touch=True)
-        assert list(_raw_values(cropped, "number")) == [0, 0, 1, 1], (
-            "carried aux values should be unchanged"
-        )
+        assert list(_raw_values(cropped, "number")) == [
+            0,
+            0,
+            1,
+            1,
+        ], "carried aux values should be unchanged"
 
     def test_crop_does_not_warn(self):
         """A cube with a carried aux variable crops without any skip/carry warning.
@@ -117,8 +122,14 @@ class TestCropNonSpatialAux:
         with warnings.catch_warnings(record=True) as records:
             warnings.simplefilter("always")
             cube.crop(mask=_MASK, touch=True)
-        noise = [r for r in records if "non-spatial" in str(r.message) or "carry" in str(r.message)]
-        assert not noise, f"unexpected skip/carry warning: {[str(r.message) for r in noise]}"
+        noise = [
+            r
+            for r in records
+            if "non-spatial" in str(r.message) or "carry" in str(r.message)
+        ]
+        assert (
+            not noise
+        ), f"unexpected skip/carry warning: {[str(r.message) for r in noise]}"
 
     def test_all_nonspatial_container_raises(self):
         """A container with no gridded variable raises a clear error.
@@ -141,7 +152,9 @@ class TestCropNonSpatialAux:
         cube = _era5_like_cube()
         reprojected = cube.to_crs(3857)
         assert "t2m" in reprojected.variable_names, "spatial t2m should be reprojected"
-        assert "number" in reprojected.variable_names, "non-spatial aux should be carried"
+        assert (
+            "number" in reprojected.variable_names
+        ), "non-spatial aux should be carried"
 
     def test_reduce_drops_aux_spanning_the_reduced_dim(self):
         """reduce drops an aux variable that spans the reduced dim, with a warning (M5).

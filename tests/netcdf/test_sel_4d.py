@@ -11,6 +11,7 @@ Covers issue #311. Uses two fixtures:
 Style: Google-style docstrings, <=120 char lines, descriptive
 assertions.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -58,18 +59,19 @@ class TestFourDimVariableMetadata:
 
     def test_both_band_dims_tracked(self, synth_var):
         """``_band_dim_names`` lists both non-spatial dims in storage order."""
-        assert synth_var._band_dim_names == ("time", "pressure_level"), (
-            f"Expected ('time', 'pressure_level'), got {synth_var._band_dim_names!r}"
-        )
+        assert synth_var._band_dim_names == (
+            "time",
+            "pressure_level",
+        ), f"Expected ('time', 'pressure_level'), got {synth_var._band_dim_names!r}"
 
     def test_primary_band_dim_legacy_fields(self, synth_var):
         """Legacy ``_band_dim_name`` / ``_band_dim_values`` point at the primary dim."""
-        assert synth_var._band_dim_name == "time", (
-            f"primary dim must be 'time', got {synth_var._band_dim_name!r}"
-        )
-        assert synth_var._band_dim_values == TIME_VALUES, (
-            f"primary values mismatch: {synth_var._band_dim_values!r}"
-        )
+        assert (
+            synth_var._band_dim_name == "time"
+        ), f"primary dim must be 'time', got {synth_var._band_dim_name!r}"
+        assert (
+            synth_var._band_dim_values == TIME_VALUES
+        ), f"primary values mismatch: {synth_var._band_dim_values!r}"
 
     def test_values_map_keyed_by_dim_name(self, synth_var):
         """``_band_dim_values_map`` carries coords per dim, by dim name."""
@@ -78,9 +80,10 @@ class TestFourDimVariableMetadata:
 
     def test_sizes_in_storage_order(self, synth_var):
         """``_band_dim_sizes`` matches the dim ordering."""
-        assert synth_var._band_dim_sizes == (NT, NL), (
-            f"sizes must be ({NT}, {NL}), got {synth_var._band_dim_sizes}"
-        )
+        assert synth_var._band_dim_sizes == (
+            NT,
+            NL,
+        ), f"sizes must be ({NT}, {NL}), got {synth_var._band_dim_sizes}"
 
     def test_md_array_dims_lock_storage_order(self, synth_var):
         """Band dims appear first in storage order; spatial dims follow.
@@ -89,12 +92,13 @@ class TestFourDimVariableMetadata:
         ``subset_lat_*`` when materializing the y-flip), so check the
         positions of the band dims only.
         """
-        assert synth_var._md_array_dims[:2] == ["time", "pressure_level"], (
-            f"band dims must be first two: {synth_var._md_array_dims}"
-        )
-        assert len(synth_var._md_array_dims) == 4, (
-            f"4-D variable must have 4 dims: {synth_var._md_array_dims}"
-        )
+        assert synth_var._md_array_dims[:2] == [
+            "time",
+            "pressure_level",
+        ], f"band dims must be first two: {synth_var._md_array_dims}"
+        assert (
+            len(synth_var._md_array_dims) == 4
+        ), f"4-D variable must have 4 dims: {synth_var._md_array_dims}"
 
 
 class TestSelByPressureLevel:
@@ -103,17 +107,19 @@ class TestSelByPressureLevel:
     def test_select_single_level_returns_one_per_time(self, synth_var):
         """Pinning one level keeps every time step → shape (NT, NY, NX)."""
         result = synth_var.sel(pressure_level=500)
-        assert result.read_array().shape == (NT, NY, NX), (
-            f"Expected ({NT}, {NY}, {NX}), got {result.read_array().shape}"
-        )
+        assert result.read_array().shape == (
+            NT,
+            NY,
+            NX,
+        ), f"Expected ({NT}, {NY}, {NX}), got {result.read_array().shape}"
 
     def test_select_single_level_pixel_values_match_encoding(self, synth_var):
         """Each band's top-left pixel matches ``encode(t, l=2, y=NY-1, x=0)``."""
         arr = synth_var.sel(pressure_level=500).read_array()
         for t in range(NT):
-            assert arr[t, 0, 0] == _expect(t, 2), (
-                f"Band {t}: expected {_expect(t, 2)}, got {arr[t, 0, 0]}"
-            )
+            assert arr[t, 0, 0] == _expect(
+                t, 2
+            ), f"Band {t}: expected {_expect(t, 2)}, got {arr[t, 0, 0]}"
 
     def test_pressure_level_values_preserved_after_pin(self, synth_var):
         """``_band_dim_values_map`` reflects the pinned level; time dim untouched."""
@@ -125,16 +131,19 @@ class TestSelByPressureLevel:
         """Selecting two levels keeps NT*2 bands."""
         result = synth_var.sel(pressure_level=[1000, 500])
         # Two pinned levels × NT times = NT*2 bands.
-        assert result.read_array().shape == (NT * 2, NY, NX), (
-            f"Expected ({NT * 2}, {NY}, {NX}), got {result.read_array().shape}"
-        )
+        assert result.read_array().shape == (
+            NT * 2,
+            NY,
+            NX,
+        ), f"Expected ({NT * 2}, {NY}, {NX}), got {result.read_array().shape}"
 
     def test_sel_updates_band_dim_sizes(self, synth_var):
         """``_band_dim_sizes`` reflects the pinned axis after sel()."""
         result = synth_var.sel(pressure_level=500)
-        assert result._band_dim_sizes == (NT, 1), (
-            f"Expected ({NT}, 1), got {result._band_dim_sizes}"
-        )
+        assert result._band_dim_sizes == (
+            NT,
+            1,
+        ), f"Expected ({NT}, 1), got {result._band_dim_sizes}"
 
 
 class TestSelByTime:
@@ -143,9 +152,11 @@ class TestSelByTime:
     def test_select_single_time_collapses_to_levels(self, synth_var):
         """Pinning one time leaves NL levels → shape (NL, NY, NX)."""
         result = synth_var.sel(time=12)
-        assert result.read_array().shape == (NL, NY, NX), (
-            f"Expected ({NL}, {NY}, {NX}), got {result.read_array().shape}"
-        )
+        assert result.read_array().shape == (
+            NL,
+            NY,
+            NX,
+        ), f"Expected ({NL}, {NY}, {NX}), got {result.read_array().shape}"
 
     def test_select_single_time_pixel_values(self, synth_var):
         """Each level-band's top-left matches ``encode(t=2, l, y=NY-1, x=0)``."""
@@ -164,24 +175,21 @@ class TestSelChained:
         """``sel(time=…).sel(pressure_level=…)`` flattens to a single 2-D map."""
         result = synth_var.sel(time=12).sel(pressure_level=500)
         # 1 time × 1 level → squeezed to 2-D.
-        assert result.read_array().shape == (NY, NX), (
-            f"Expected ({NY}, {NX}), got {result.read_array().shape}"
-        )
+        assert result.read_array().shape == (
+            NY,
+            NX,
+        ), f"Expected ({NY}, {NX}), got {result.read_array().shape}"
 
     def test_pin_level_then_time_same_result(self, synth_var):
         """sel commutes over different dims (assert byte-identical arrays)."""
         a = synth_var.sel(time=12).sel(pressure_level=500).read_array()
         b = synth_var.sel(pressure_level=500).sel(time=12).read_array()
-        assert_array_equal(
-            a, b, err_msg="sel() must commute over different dims"
-        )
+        assert_array_equal(a, b, err_msg="sel() must commute over different dims")
 
     def test_chained_pixel_value(self, synth_var):
         """The single pinned cell is exactly ``encode(2, 2, NY-1, 0)``."""
         arr = synth_var.sel(time=12).sel(pressure_level=500).read_array()
-        assert arr[0, 0] == _expect(2, 2), (
-            f"Expected {_expect(2, 2)}, got {arr[0, 0]}"
-        )
+        assert arr[0, 0] == _expect(2, 2), f"Expected {_expect(2, 2)}, got {arr[0, 0]}"
 
 
 class TestSelErrorMessages:
@@ -223,27 +231,24 @@ class TestEra5RealFixture:
             "valid_time",
             "pressure_level",
         ), f"got {era5_var._band_dim_names!r}"
-        assert era5_var._band_dim_sizes == (self.ERA5_NT, self.ERA5_NL), (
-            f"got {era5_var._band_dim_sizes!r}"
-        )
+        assert era5_var._band_dim_sizes == (
+            self.ERA5_NT,
+            self.ERA5_NL,
+        ), f"got {era5_var._band_dim_sizes!r}"
         assert era5_var._band_dim_values_map["pressure_level"] == [500.0]
 
     def test_sel_pressure_level_passes_through_time_bands(self, era5_var):
         """sel(pressure_level=500) keeps every time step (NL is already 1)."""
         result = era5_var.sel(pressure_level=500)
         expected = (self.ERA5_NT, self.ERA5_NY, self.ERA5_NX)
-        assert result.read_array().shape == expected, (
-            f"got {result.read_array().shape}"
-        )
+        assert result.read_array().shape == expected, f"got {result.read_array().shape}"
 
     def test_sel_valid_time_collapses_to_2d(self, era5_var):
         """A single valid_time pin collapses to 2-D (1 time × 1 level)."""
         first_t = era5_var._band_dim_values_map["valid_time"][0]
         result = era5_var.sel(valid_time=first_t)
         expected = (self.ERA5_NY, self.ERA5_NX)
-        assert result.read_array().shape == expected, (
-            f"got {result.read_array().shape}"
-        )
+        assert result.read_array().shape == expected, f"got {result.read_array().shape}"
 
 
 class TestRootContainer4DSpatialOps:
@@ -266,12 +271,14 @@ class TestRootContainer4DSpatialOps:
             variable_name="temp",
         )
         var = nc.get_variable("temp")
-        assert var._band_dim_names == ("time", "level"), (
-            f"expected ('time', 'level'), got {var._band_dim_names!r}"
-        )
-        assert var._band_dim_sizes == (2, 3), (
-            f"expected sizes (2, 3), got {var._band_dim_sizes!r}"
-        )
+        assert var._band_dim_names == (
+            "time",
+            "level",
+        ), f"expected ('time', 'level'), got {var._band_dim_names!r}"
+        assert var._band_dim_sizes == (
+            2,
+            3,
+        ), f"expected sizes (2, 3), got {var._band_dim_sizes!r}"
         assert var._band_dim_values_map["time"] == [10.0, 20.0]
         assert var._band_dim_values_map["level"] == [1000.0, 850.0, 500.0]
 
@@ -294,7 +301,7 @@ class TestRootContainer4DSpatialOps:
             NetCDF.create_from_array(
                 arr=arr,
                 geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
-                extra_dims=[("time", [1, 2])],   # only 1 entry, need 2
+                extra_dims=[("time", [1, 2])],  # only 1 entry, need 2
                 variable_name="temp",
             )
 
@@ -327,15 +334,15 @@ class TestRootContainer4DSpatialOps:
             f"crop on root container dropped a band-dim: "
             f"got {inner._band_dim_names!r}"
         )
-        assert inner._band_dim_sizes == (4, 1), (
-            f"sizes mismatch after crop: {inner._band_dim_sizes!r}"
-        )
+        assert inner._band_dim_sizes == (
+            4,
+            1,
+        ), f"sizes mismatch after crop: {inner._band_dim_sizes!r}"
         assert inner._band_dim_values_map["pressure_level"] == [500.0]
         # sel() across either axis still works on the cropped container.
         sub = inner.sel(pressure_level=500)
         assert sub.read_array().shape[0] == 4, (
-            f"pin level should leave 4 time bands, got "
-            f"{sub.read_array().shape}"
+            f"pin level should leave 4 time bands, got " f"{sub.read_array().shape}"
         )
 
     def test_crop_root_container_synthetic_4d_round_trip(self):
@@ -360,12 +367,14 @@ class TestRootContainer4DSpatialOps:
         result = nc.crop(mask=mask)
         inner = result.get_variable("temperature")
 
-        assert inner._band_dim_names == ("time", "pressure_level"), (
-            f"got {inner._band_dim_names!r}"
-        )
-        assert inner._band_dim_sizes == (NT, NL), (
-            f"sizes mismatch: {inner._band_dim_sizes!r}"
-        )
+        assert inner._band_dim_names == (
+            "time",
+            "pressure_level",
+        ), f"got {inner._band_dim_names!r}"
+        assert inner._band_dim_sizes == (
+            NT,
+            NL,
+        ), f"sizes mismatch: {inner._band_dim_sizes!r}"
         # Values must round-trip
         assert inner._band_dim_values_map["time"] == TIME_VALUES
         assert inner._band_dim_values_map["pressure_level"] == LEVEL_VALUES
@@ -399,20 +408,19 @@ class TestPreserveNetcdfMetadataSelfHeal:
         nc = NetCDF.read_file(SYNTH_PATH)
         var = nc.get_variable("temperature")
         sub = var.sel(pressure_level=500)
-        assert sub._band_dim_values == TIME_VALUES, (
-            f"post-sel values broken: {sub._band_dim_values!r}"
-        )
+        assert (
+            sub._band_dim_values == TIME_VALUES
+        ), f"post-sel values broken: {sub._band_dim_values!r}"
         # Round-trip through preserve a second time. Wrapping a fresh
         # Dataset of the same shape simulates a downstream spatial op
         # that doesn't refill afterwards.
         rewrapped = sub._preserve_netcdf_metadata(sub)
         assert rewrapped._band_dim_values == TIME_VALUES, (
-            f"self-heal failed; values dropped to "
-            f"{rewrapped._band_dim_values!r}"
+            f"self-heal failed; values dropped to " f"{rewrapped._band_dim_values!r}"
         )
-        assert rewrapped._band_dim_name == "time", (
-            f"primary dim must stay 'time', got {rewrapped._band_dim_name!r}"
-        )
+        assert (
+            rewrapped._band_dim_name == "time"
+        ), f"primary dim must stay 'time', got {rewrapped._band_dim_name!r}"
 
     def test_self_heal_keeps_none_when_no_match_available(self):
         """If no map entry matches the new band count, the value stays None.
@@ -429,17 +437,16 @@ class TestPreserveNetcdfMetadataSelfHeal:
         var = nc.get_variable("temperature")
         # Start from the unmodified 4-D variable. Tamper with state so
         # preserve's guard fires AND the self-heal lookup misses.
-        var._band_dim_sizes = (NT, NL, 99)        # bogus size, prod != band_count
+        var._band_dim_sizes = (NT, NL, 99)  # bogus size, prod != band_count
         var._band_dim_names = ("time", "pressure_level", "fake")
         var._band_dim_values_map = {
-            "time": [],                            # wrong-length primary entry
+            "time": [],  # wrong-length primary entry
             "pressure_level": LEVEL_VALUES,
             "fake": [],
         }
         rewrapped = var._preserve_netcdf_metadata(var)
         assert rewrapped._band_dim_values is None, (
-            f"self-heal injected a stale list: "
-            f"{rewrapped._band_dim_values!r}"
+            f"self-heal injected a stale list: " f"{rewrapped._band_dim_values!r}"
         )
 
 
@@ -456,9 +463,7 @@ def _make_4d_writable_nc():
         for level in range(NL):
             for y in range(NY):
                 for x in range(NX):
-                    arr[t, level, y, x] = (
-                        t * 1000.0 + level * 100.0 + y * 10.0 + x
-                    )
+                    arr[t, level, y, x] = t * 1000.0 + level * 100.0 + y * 10.0 + x
     return NetCDF.create_from_array(
         arr=arr,
         geo=(-10.0, 1.0, 0, 44.0, 0, -1.0),
@@ -523,7 +528,7 @@ class TestSel4DRoundTrip:
         """
         nc = _make_4d_writable_nc()
         var = nc.get_variable("temperature")
-        subset = var.sel(time=12)   # (1, NL) shape after pinning t=2
+        subset = var.sel(time=12)  # (1, NL) shape after pinning t=2
         nc.set_variable("temp_t12", subset)
 
         reloaded = nc.get_variable("temp_t12")

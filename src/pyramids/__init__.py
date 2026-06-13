@@ -1,4 +1,5 @@
 """pyramids - GIS utility package"""
+
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError

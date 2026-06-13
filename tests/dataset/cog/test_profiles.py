@@ -195,4 +195,6 @@ class TestToCogProfile:
             profile='deflate' yields a valid COG.
         """
         out = float_dataset.to_cog(tmp_path / "d.tif", profile="deflate")
-        assert Dataset.read_file(str(out)).validate_cog().is_valid, "profile COG invalid"
+        assert (
+            Dataset.read_file(str(out)).validate_cog().is_valid
+        ), "profile COG invalid"

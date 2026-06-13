@@ -151,7 +151,9 @@ class TestFromStacSigner:
         signer = _RecordingSigner()
         coll = DatasetCollection.from_stac(stac_items, asset="data", signer=signer)
         assert coll.time_length == 3, f"expected 3 timesteps, got {coll.time_length}"
-        assert signer.seen == three_tifs, f"sign_href should see each href once, got {signer.seen}"
+        assert (
+            signer.seen == three_tifs
+        ), f"sign_href should see each href once, got {signer.seen}"
 
     def test_gdal_env_captured_on_collection(self, stac_items):
         """The signer's gdal_env() is persisted on the returned collection.
@@ -162,9 +164,9 @@ class TestFromStacSigner:
         """
         signer = _RecordingSigner(env={"GDAL_HTTP_TIMEOUT": "30"})
         coll = DatasetCollection.from_stac(stac_items, asset="data", signer=signer)
-        assert coll._gdal_env == {"GDAL_HTTP_TIMEOUT": "30"}, (
-            f"signer env not captured: {coll._gdal_env}"
-        )
+        assert coll._gdal_env == {
+            "GDAL_HTTP_TIMEOUT": "30"
+        }, f"signer env not captured: {coll._gdal_env}"
 
     def test_no_signer_empty_gdal_env(self, stac_items):
         """Without a signer the collection captures no GDAL config.
@@ -190,17 +192,25 @@ class TestFromStacSigner:
             captured["gdal_env"] = gdal_env
             return "COLL"
 
-        monkeypatch.setattr(DatasetCollection, "from_files", classmethod(
-            lambda cls, files, *, meta=None, gdal_env=None: fake_from_files(files, meta=meta, gdal_env=gdal_env)
-        ))
+        monkeypatch.setattr(
+            DatasetCollection,
+            "from_files",
+            classmethod(
+                lambda cls, files, *, meta=None, gdal_env=None: fake_from_files(
+                    files, meta=meta, gdal_env=gdal_env
+                )
+            ),
+        )
         signer = _RecordingSigner(env={"AWS_REQUEST_PAYER": "requester"}, suffix="?s")
-        DatasetCollection.from_stac(stac_items, asset="data", patch_url=lambda h: f"{h}?p", signer=signer)
-        assert all(f.endswith("?p?s") for f in captured["files"]), (
-            f"patch_url should run before signer: {captured['files']}"
+        DatasetCollection.from_stac(
+            stac_items, asset="data", patch_url=lambda h: f"{h}?p", signer=signer
         )
-        assert captured["gdal_env"] == {"AWS_REQUEST_PAYER": "requester"}, (
-            f"signer env not forwarded to from_files: {captured['gdal_env']}"
-        )
+        assert all(
+            f.endswith("?p?s") for f in captured["files"]
+        ), f"patch_url should run before signer: {captured['files']}"
+        assert captured["gdal_env"] == {
+            "AWS_REQUEST_PAYER": "requester"
+        }, f"signer env not forwarded to from_files: {captured['gdal_env']}"
 
     def test_from_files_gdal_env_persisted(self, three_tifs):
         """from_files(gdal_env=...) persists the mapping on the collection.
@@ -208,8 +218,12 @@ class TestFromStacSigner:
         Test scenario:
             A direct from_files call with a GDAL env stores it on _gdal_env.
         """
-        coll = DatasetCollection.from_files(three_tifs, gdal_env={"GDAL_HTTP_TIMEOUT": "15"})
-        assert coll._gdal_env == {"GDAL_HTTP_TIMEOUT": "15"}, f"env not persisted: {coll._gdal_env}"
+        coll = DatasetCollection.from_files(
+            three_tifs, gdal_env={"GDAL_HTTP_TIMEOUT": "15"}
+        )
+        assert coll._gdal_env == {
+            "GDAL_HTTP_TIMEOUT": "15"
+        }, f"env not persisted: {coll._gdal_env}"
 
 
 class TestCollectionGdalEnvLazyReads:
@@ -233,9 +247,13 @@ class TestCollectionGdalEnvLazyReads:
             return real(*args, **kwargs)
 
         monkeypatch.setattr(coll_mod.Dataset, "read_file", staticmethod(spy))
-        coll = DatasetCollection.from_files(three_tifs, gdal_env={"PYRAMIDS_TEST_KEY": "on"})
+        coll = DatasetCollection.from_files(
+            three_tifs, gdal_env={"PYRAMIDS_TEST_KEY": "on"}
+        )
         _ = coll.datasets
-        assert seen and all(v == "on" for v in seen), f"env not active for every open: {seen}"
+        assert seen and all(
+            v == "on" for v in seen
+        ), f"env not active for every open: {seen}"
 
     def test_path_a_no_env_leaves_option_unset(self, three_tifs, monkeypatch):
         """Path A: without a persisted env the sentinel option stays unset.
@@ -256,7 +274,9 @@ class TestCollectionGdalEnvLazyReads:
         monkeypatch.setattr(coll_mod.Dataset, "read_file", staticmethod(spy))
         coll = DatasetCollection.from_files(three_tifs)
         _ = coll.datasets
-        assert seen and all(v is None for v in seen), f"unexpected env without signer: {seen}"
+        assert seen and all(
+            v is None for v in seen
+        ), f"unexpected env without signer: {seen}"
 
     def test_path_b_read_time_step_installs_env(self, three_tifs, monkeypatch):
         """Path B: `_read_time_step` installs the env around the worker open.
@@ -287,7 +307,9 @@ class TestCollectionGdalEnvLazyReads:
         from pyramids.dataset.collection import _read_time_step
 
         arr = _read_time_step(three_tifs[0])
-        assert arr.shape[0] == 1, f"single-band read should be (1, R, C), got {arr.shape}"
+        assert (
+            arr.shape[0] == 1
+        ), f"single-band read should be (1, R, C), got {arr.shape}"
 
     def test_gdal_env_survives_pickle(self, three_tifs):
         """H4: the persisted env survives pickling (so it reaches dask workers).
@@ -298,11 +320,13 @@ class TestCollectionGdalEnvLazyReads:
         """
         import pickle
 
-        coll = DatasetCollection.from_files(three_tifs, gdal_env={"AWS_REQUEST_PAYER": "requester"})
-        restored = pickle.loads(pickle.dumps(coll))
-        assert restored._gdal_env == {"AWS_REQUEST_PAYER": "requester"}, (
-            f"env lost across pickle: {restored._gdal_env}"
+        coll = DatasetCollection.from_files(
+            three_tifs, gdal_env={"AWS_REQUEST_PAYER": "requester"}
         )
+        restored = pickle.loads(pickle.dumps(coll))
+        assert restored._gdal_env == {
+            "AWS_REQUEST_PAYER": "requester"
+        }, f"env lost across pickle: {restored._gdal_env}"
 
 
 class TestBboxAndMaxItems:
@@ -382,7 +406,12 @@ class TestHorizontalBounds:
             ``[w, s, min_z, e, n, max_z]`` → ``(w, s, e, n)`` (indices 0,1,3,4).
         """
         result = _horizontal_bounds([1.0, 2.0, 100.0, 3.0, 4.0, 500.0])
-        assert result == (1.0, 2.0, 3.0, 4.0), f"3D bbox horizontal extent wrong: {result}"
+        assert result == (
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+        ), f"3D bbox horizontal extent wrong: {result}"
 
     def test_integer_members_coerced_to_float(self):
         """Integer bbox members are returned as floats.
@@ -392,9 +421,13 @@ class TestHorizontalBounds:
         """
         result = _horizontal_bounds([0, 0, 10, 10])
         assert result == (0.0, 0.0, 10.0, 10.0)
-        assert all(isinstance(v, float) for v in result), f"members not floats: {result}"
+        assert all(
+            isinstance(v, float) for v in result
+        ), f"members not floats: {result}"
 
-    @pytest.mark.parametrize("bad", [[1, 2, 3], [1, 2, 3, 4, 5], [1, 2, 3, 4, 5, 6, 7], []])
+    @pytest.mark.parametrize(
+        "bad", [[1, 2, 3], [1, 2, 3, 4, 5], [1, 2, 3, 4, 5, 6, 7], []]
+    )
     def test_invalid_length_raises(self, bad):
         """A bbox that is neither 4- nor 6-element raises ValueError.
 
@@ -453,7 +486,11 @@ class TestValidateLonLatBbox:
 
     @pytest.mark.parametrize(
         "bbox",
-        [(-180.0, -90.0, 180.0, 90.0), (0.0, 0.0, 1.0, 1.0), [10.0, 20.0, 0.0, 30.0, 40.0, 500.0]],
+        [
+            (-180.0, -90.0, 180.0, 90.0),
+            (0.0, 0.0, 1.0, 1.0),
+            [10.0, 20.0, 0.0, 30.0, 40.0, 500.0],
+        ],
     )
     def test_valid_lonlat_passes(self, bbox):
         """A box within +/-180 / +/-90 (2D or 3D) is accepted.
@@ -468,7 +505,11 @@ class TestValidateLonLatBbox:
 
     @pytest.mark.parametrize(
         "bbox",
-        [(600000.0, 5000000.0, 601000.0, 5001000.0), (0.0, -91.0, 1.0, 1.0), (-181.0, 0.0, 1.0, 1.0)],
+        [
+            (600000.0, 5000000.0, 601000.0, 5001000.0),
+            (0.0, -91.0, 1.0, 1.0),
+            (-181.0, 0.0, 1.0, 1.0),
+        ],
     )
     def test_projected_or_out_of_range_raises(self, bbox):
         """A projected / out-of-range box raises ValueError.
@@ -490,7 +531,11 @@ class TestValidateLonLatBbox:
             A UTM-metre bbox passed to from_stac raises before any read.
         """
         with pytest.raises(ValueError, match="lon/lat"):
-            DatasetCollection.from_stac(stac_items, asset="data", bbox=(500000.0, 4000000.0, 501000.0, 4001000.0))
+            DatasetCollection.from_stac(
+                stac_items,
+                asset="data",
+                bbox=(500000.0, 4000000.0, 501000.0, 4001000.0),
+            )
 
     def test_from_stac_filters_3d_bbox_items(self, three_tifs):
         """``from_stac`` bbox-filters items carrying 3D bboxes end-to-end.
@@ -501,11 +546,19 @@ class TestValidateLonLatBbox:
             unpacking a 3D item bbox).
         """
         items = [
-            {"id": f"i{i}", "bbox": [0.0, 0.0, 10.0, 1.0, 1.0, 200.0], "assets": {"data": {"href": p}}}
+            {
+                "id": f"i{i}",
+                "bbox": [0.0, 0.0, 10.0, 1.0, 1.0, 200.0],
+                "assets": {"data": {"href": p}},
+            }
             for i, p in enumerate(three_tifs)
         ]
-        coll = DatasetCollection.from_stac(items, asset="data", bbox=(0.0, 0.0, 0.5, 0.5))
-        assert coll.time_length == 3, f"all 3 overlapping 3D-bbox items should pass, got {coll.time_length}"
+        coll = DatasetCollection.from_stac(
+            items, asset="data", bbox=(0.0, 0.0, 0.5, 0.5)
+        )
+        assert (
+            coll.time_length == 3
+        ), f"all 3 overlapping 3D-bbox items should pass, got {coll.time_length}"
 
 
 @pytest.fixture
@@ -532,7 +585,9 @@ def multi_asset_items(tmp_path):
             p = str(tmp_path / f"scene{scene}_{name}.tif")
             ds.to_file(p)
             assets[name] = {"href": p}
-        items.append({"id": f"scene-{scene}", "bbox": [0.0, 0.0, 1.0, 1.0], "assets": assets})
+        items.append(
+            {"id": f"scene-{scene}", "bbox": [0.0, 0.0, 1.0, 1.0], "assets": assets}
+        )
     return items
 
 
@@ -546,11 +601,17 @@ class TestFromStacMultiAsset:
             asset=["red","green","blue"] over two scenes -> 2 timesteps, each a
             3-band raster whose band names are the asset keys.
         """
-        coll = DatasetCollection.from_stac(multi_asset_items, asset=["red", "green", "blue"])
+        coll = DatasetCollection.from_stac(
+            multi_asset_items, asset=["red", "green", "blue"]
+        )
         assert coll.time_length == 2, f"expected 2 timesteps, got {coll.time_length}"
         first = coll.datasets[0]
         assert first.band_count == 3, f"expected 3 bands, got {first.band_count}"
-        assert first.band_names == ["red", "green", "blue"], f"band names: {first.band_names}"
+        assert first.band_names == [
+            "red",
+            "green",
+            "blue",
+        ], f"band names: {first.band_names}"
 
     def test_band_order_preserved(self, multi_asset_items):
         """Bands carry each asset's values in the requested order.
@@ -558,11 +619,15 @@ class TestFromStacMultiAsset:
         Test scenario:
             Band 1 == red(1), band 2 == green(2), band 3 == blue(3).
         """
-        coll = DatasetCollection.from_stac(multi_asset_items, asset=["red", "green", "blue"])
+        coll = DatasetCollection.from_stac(
+            multi_asset_items, asset=["red", "green", "blue"]
+        )
         arr = coll.datasets[0].read_array()
         assert arr.shape[0] == 3, f"expected 3 bands, got {arr.shape}"
         assert float(arr[0, 0, 0]) == 1.0, f"band1 should be red=1, got {arr[0, 0, 0]}"
-        assert float(arr[1, 0, 0]) == 2.0, f"band2 should be green=2, got {arr[1, 0, 0]}"
+        assert (
+            float(arr[1, 0, 0]) == 2.0
+        ), f"band2 should be green=2, got {arr[1, 0, 0]}"
         assert float(arr[2, 0, 0]) == 3.0, f"band3 should be blue=3, got {arr[2, 0, 0]}"
 
     def test_band_order_follows_asset_sequence(self, multi_asset_items):
@@ -575,7 +640,9 @@ class TestFromStacMultiAsset:
         first = coll.datasets[0]
         assert first.band_names == ["blue", "red"], f"band names: {first.band_names}"
         arr = first.read_array()
-        assert float(arr[0, 0, 0]) == 3.0 and float(arr[1, 0, 0]) == 1.0, f"order wrong: {arr[:, 0, 0]}"
+        assert (
+            float(arr[0, 0, 0]) == 3.0 and float(arr[1, 0, 0]) == 1.0
+        ), f"order wrong: {arr[:, 0, 0]}"
 
     def test_single_asset_str_is_single_band(self, multi_asset_items):
         """A plain str keeps the single-asset (single-band) behaviour.
@@ -608,7 +675,9 @@ class TestFromStacMultiAsset:
         coll = DatasetCollection.from_stac(
             multi_asset_items, asset=["red", "blue"], skip_missing=True
         )
-        assert coll.time_length == 1, f"expected 1 surviving item, got {coll.time_length}"
+        assert (
+            coll.time_length == 1
+        ), f"expected 1 surviving item, got {coll.time_length}"
 
     def test_skip_missing_all_gone_raises(self, multi_asset_items):
         """When every item is skipped, a clear ValueError is raised.
@@ -617,7 +686,9 @@ class TestFromStacMultiAsset:
             No item has "nir"; skip_missing drops them all -> ValueError.
         """
         with pytest.raises(ValueError, match="produced no items"):
-            DatasetCollection.from_stac(multi_asset_items, asset=["red", "nir"], skip_missing=True)
+            DatasetCollection.from_stac(
+                multi_asset_items, asset=["red", "nir"], skip_missing=True
+            )
 
     def test_align_true_resamples_mixed_resolution(self, tmp_path):
         """align=True (default) resamples a coarser asset onto the first's grid.
@@ -627,10 +698,16 @@ class TestFromStacMultiAsset:
             on red's grid without raising.
         """
         red = Dataset.create_from_array(
-            np.full((4, 4), 1.0, dtype=np.float32), top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326
+            np.full((4, 4), 1.0, dtype=np.float32),
+            top_left_corner=(0.0, 4.0),
+            cell_size=1.0,
+            epsg=4326,
         )
         green = Dataset.create_from_array(
-            np.full((2, 2), 2.0, dtype=np.float32), top_left_corner=(0.0, 4.0), cell_size=2.0, epsg=4326
+            np.full((2, 2), 2.0, dtype=np.float32),
+            top_left_corner=(0.0, 4.0),
+            cell_size=2.0,
+            epsg=4326,
         )
         rp, gp = str(tmp_path / "r.tif"), str(tmp_path / "g.tif")
         red.to_file(rp)
@@ -639,7 +716,10 @@ class TestFromStacMultiAsset:
         coll = DatasetCollection.from_stac(items, asset=["red", "green"], align=True)
         out = coll.datasets[0]
         assert out.band_count == 2, f"expected 2 bands, got {out.band_count}"
-        assert out.read_array().shape[1:] == (4, 4), f"should be on red's 4x4 grid, got {out.read_array().shape}"
+        assert out.read_array().shape[1:] == (
+            4,
+            4,
+        ), f"should be on red's 4x4 grid, got {out.read_array().shape}"
 
     def test_align_false_mismatch_raises(self, tmp_path):
         """align=False raises AlignmentError on a grid mismatch.
@@ -648,10 +728,16 @@ class TestFromStacMultiAsset:
             The 10 m / 20 m pair cannot stack without resampling.
         """
         red = Dataset.create_from_array(
-            np.full((4, 4), 1.0, dtype=np.float32), top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326
+            np.full((4, 4), 1.0, dtype=np.float32),
+            top_left_corner=(0.0, 4.0),
+            cell_size=1.0,
+            epsg=4326,
         )
         green = Dataset.create_from_array(
-            np.full((2, 2), 2.0, dtype=np.float32), top_left_corner=(0.0, 4.0), cell_size=2.0, epsg=4326
+            np.full((2, 2), 2.0, dtype=np.float32),
+            top_left_corner=(0.0, 4.0),
+            cell_size=2.0,
+            epsg=4326,
         )
         rp, gp = str(tmp_path / "r.tif"), str(tmp_path / "g.tif")
         red.to_file(rp)
@@ -704,7 +790,10 @@ class TestSolarDayHelper:
         Test scenario:
             A 10:00Z item at lon 0 -> that same date.
         """
-        item = {"bbox": [-0.5, 0.0, 0.5, 1.0], "properties": {"datetime": "2021-06-01T10:00:00Z"}}
+        item = {
+            "bbox": [-0.5, 0.0, 0.5, 1.0],
+            "properties": {"datetime": "2021-06-01T10:00:00Z"},
+        }
         assert _solar_day(item) == "2021-06-01", f"got {_solar_day(item)}"
 
     def test_longitude_shift_crosses_midnight(self):
@@ -713,7 +802,10 @@ class TestSolarDayHelper:
         Test scenario:
             23:00Z at lon ~150E shifts +10h -> next calendar day.
         """
-        item = {"bbox": [149.0, 0.0, 151.0, 1.0], "properties": {"datetime": "2021-06-01T23:00:00Z"}}
+        item = {
+            "bbox": [149.0, 0.0, 151.0, 1.0],
+            "properties": {"datetime": "2021-06-01T23:00:00Z"},
+        }
         assert _solar_day(item) == "2021-06-02", f"got {_solar_day(item)}"
 
 
@@ -726,8 +818,12 @@ class TestFromStacSolarDay:
         Test scenario:
             3 items over 2 solar days -> time_length 2.
         """
-        coll = DatasetCollection.from_stac(solar_day_items, asset="data", groupby="solar_day")
-        assert coll.time_length == 2, f"expected 2 solar-day timesteps, got {coll.time_length}"
+        coll = DatasetCollection.from_stac(
+            solar_day_items, asset="data", groupby="solar_day"
+        )
+        assert (
+            coll.time_length == 2
+        ), f"expected 2 solar-day timesteps, got {coll.time_length}"
 
     def test_chronological_order(self, solar_day_items):
         """The per-day mosaics are stacked in chronological order.
@@ -735,10 +831,14 @@ class TestFromStacSolarDay:
         Test scenario:
             06-01 (first-valid mosaic of value 10) precedes 06-05 (value 12).
         """
-        coll = DatasetCollection.from_stac(solar_day_items, asset="data", groupby="solar_day")
+        coll = DatasetCollection.from_stac(
+            solar_day_items, asset="data", groupby="solar_day"
+        )
         first = coll.datasets[0].read_array()
         last = coll.datasets[1].read_array()
-        assert float(first[0, 0]) == 10.0, f"first day should be first-valid 10, got {first[0, 0]}"
+        assert (
+            float(first[0, 0]) == 10.0
+        ), f"first day should be first-valid 10, got {first[0, 0]}"
         assert float(last[0, 0]) == 12.0, f"second day should be 12, got {last[0, 0]}"
 
     def test_invalid_groupby_raises(self, solar_day_items):
@@ -757,7 +857,9 @@ class TestFromStacSolarDay:
             solar-day fusing is single-asset only.
         """
         with pytest.raises(ValueError, match="single asset"):
-            DatasetCollection.from_stac(solar_day_items, asset=["data", "data"], groupby="solar_day")
+            DatasetCollection.from_stac(
+                solar_day_items, asset=["data", "data"], groupby="solar_day"
+            )
 
 
 class TestAntimeridian:
@@ -828,7 +930,10 @@ class TestAntimeridian:
             A 23:00Z item wrapping the dateline (centroid ~180, +12h) rolls into
             the next solar day.
         """
-        item = {"bbox": [170.0, 0.0, -170.0, 5.0], "properties": {"datetime": "2021-06-01T23:00:00Z"}}
+        item = {
+            "bbox": [170.0, 0.0, -170.0, 5.0],
+            "properties": {"datetime": "2021-06-01T23:00:00Z"},
+        }
         assert _solar_day(item) == "2021-06-02", f"got {_solar_day(item)}"
 
 
@@ -846,11 +951,17 @@ class TestFromStacMultiAssetUint16:
         """
         b10 = Dataset.create_from_array(
             np.arange(16, dtype="uint16").reshape(4, 4),
-            top_left_corner=(0.0, 40.0), cell_size=10.0, epsg=32630, no_data_value=0,
+            top_left_corner=(0.0, 40.0),
+            cell_size=10.0,
+            epsg=32630,
+            no_data_value=0,
         )
         b20 = Dataset.create_from_array(
             (np.arange(4, dtype="uint16") + 1).reshape(2, 2),
-            top_left_corner=(0.0, 40.0), cell_size=20.0, epsg=32630, no_data_value=0,
+            top_left_corner=(0.0, 40.0),
+            cell_size=20.0,
+            epsg=32630,
+            no_data_value=0,
         )
         p10, p20 = str(tmp_path / "B04.tif"), str(tmp_path / "B05.tif")
         b10.to_file(p10)
@@ -861,4 +972,7 @@ class TestFromStacMultiAssetUint16:
         assert out.band_count == 2, f"expected 2 bands, got {out.band_count}"
         assert out.dtype[0] == "uint16", f"expected uint16, got {out.dtype}"
         assert out.band_names == ["B04", "B05"], f"band names: {out.band_names}"
-        assert (out.rows, out.columns) == (4, 4), f"grid should match the 10 m band: {(out.rows, out.columns)}"
+        assert (out.rows, out.columns) == (
+            4,
+            4,
+        ), f"grid should match the 10 m band: {(out.rows, out.columns)}"

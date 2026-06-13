@@ -377,12 +377,10 @@ class TestDimAttrsTopupFromClassic:
         md = MetadataBuilder(ds).build()
 
         assert (
-            md.dimensions["valid_time"].attrs.get("units")
-            == "seconds since 1970-01-01"
+            md.dimensions["valid_time"].attrs.get("units") == "seconds since 1970-01-01"
         ), "classic units should be merged into the dim attrs"
         assert (
-            md.dimensions["valid_time"].attrs.get("calendar")
-            == "proleptic_gregorian"
+            md.dimensions["valid_time"].attrs.get("calendar") == "proleptic_gregorian"
         ), "multidim calendar must not be overwritten by the classic value"
 
     def test_existing_units_not_overwritten(self):
@@ -497,9 +495,7 @@ class TestReadClassicMetadataForTopup:
         with patch("pyramids.netcdf.metadata.gdal.Open", return_value=classic_ds):
             md = builder._read_classic_metadata_for_topup()
 
-        assert md == {
-            "time#units": "days"
-        }, f"expected reopen result, got {md}"
+        assert md == {"time#units": "days"}, f"expected reopen result, got {md}"
 
     def test_netcdf_prefixed_hash_keys_do_not_short_circuit(self):
         """`NETCDF_*#…` keys must NOT count as classic dim-attr keys.
@@ -522,9 +518,7 @@ class TestReadClassicMetadataForTopup:
         with patch("pyramids.netcdf.metadata.gdal.Open", return_value=classic_ds):
             md = builder._read_classic_metadata_for_topup()
 
-        assert md == {
-            "valid_time#units": "secs"
-        }, f"expected reopen result, got {md}"
+        assert md == {"valid_time#units": "secs"}, f"expected reopen result, got {md}"
 
     def test_reopens_in_classic_mode_when_existing_metadata_empty(self):
         """Multidim dataset reopens transparently and returns classic metadata.
@@ -547,9 +541,7 @@ class TestReadClassicMetadataForTopup:
             md = builder._read_classic_metadata_for_topup()
 
         mock_open.assert_called_once_with("/some/file.nc")
-        assert md == {
-            "valid_time#units": "secs"
-        }, f"expected reopen metadata, got {md}"
+        assert md == {"valid_time#units": "secs"}, f"expected reopen metadata, got {md}"
 
     def test_reopen_returns_none_yields_empty_dict(self):
         """``gdal.Open`` returning ``None`` is treated as a no-op.
@@ -623,9 +615,7 @@ class TestReadClassicMetadataForTopup:
             md = builder._read_classic_metadata_for_topup()
 
         mock_open.assert_not_called()
-        assert (
-            md == {}
-        ), f"expected empty dict on GetDescription failure, got {md}"
+        assert md == {}, f"expected empty dict on GetDescription failure, got {md}"
 
     def test_get_metadata_runtime_error_falls_through_to_reopen(self):
         """``GetMetadata`` raising still allows the reopen path to run.
@@ -686,9 +676,7 @@ class TestReadClassicMetadataForTopup:
         with patch("pyramids.netcdf.metadata.gdal.Open", return_value=classic_ds):
             md = builder._read_classic_metadata_for_topup()
 
-        assert (
-            md == {}
-        ), f"expected empty dict when reopened md is None, got {md}"
+        assert md == {}, f"expected empty dict when reopened md is None, got {md}"
 
     def test_repeat_calls_use_cache_and_skip_reopen(self):
         """Second call returns the cached result without re-opening.
@@ -764,9 +752,9 @@ class TestReadClassicMetadataForTopup:
             MetadataBuilder(ds)._read_classic_metadata_for_topup()
             MetadataBuilder(ds)._read_classic_metadata_for_topup()
 
-        assert mock_open.call_count == 2, (
-            f"each fresh builder should reopen, ran {mock_open.call_count} times"
-        )
+        assert (
+            mock_open.call_count == 2
+        ), f"each fresh builder should reopen, ran {mock_open.call_count} times"
 
 
 class TestDimAttrsTopupFromClassicExtras:
@@ -815,9 +803,7 @@ class TestDimAttrsTopupFromClassicExtras:
         attrs = md.dimensions["t"].attrs
         assert attrs.get("units") == "days", f"units missing: {attrs}"
         assert "calendar" not in attrs, f"calendar must stay absent: {attrs}"
-        assert (
-            attrs.get("long_name") == "time"
-        ), f"pre-existing attr lost: {attrs}"
+        assert attrs.get("long_name") == "time", f"pre-existing attr lost: {attrs}"
 
     def test_partial_fallback_calendar_only_no_units(self):
         """Classic provides only ``calendar``; ``units`` stays absent.
@@ -833,9 +819,7 @@ class TestDimAttrsTopupFromClassicExtras:
         md = MetadataBuilder(ds).build()
 
         attrs = md.dimensions["t"].attrs
-        assert (
-            attrs.get("calendar") == "gregorian"
-        ), f"calendar missing: {attrs}"
+        assert attrs.get("calendar") == "gregorian", f"calendar missing: {attrs}"
         assert "units" not in attrs, f"units must stay absent: {attrs}"
 
     def test_classic_value_falsy_does_not_add(self):
@@ -950,9 +934,7 @@ class TestMetadataBuilderTopupIntegration:
 
         mock_topup.assert_called_once()
         args, _kwargs = mock_topup.call_args
-        assert "t" in args[0], (
-            f"topup invoked with wrong dimensions arg: {args[0]}"
-        )
+        assert "t" in args[0], f"topup invoked with wrong dimensions arg: {args[0]}"
 
     def test_build_skips_topup_when_no_root_group(self):
         """No-MDIM datasets bypass the topup call entirely.

@@ -100,7 +100,9 @@ class TestMetadataForwarding:
         )
         src_band = byte_dataset._raster.GetRasterBand(1)
         assert src_band.GetColorTable() is None, "source colour table was mutated"
-        assert byte_dataset._raster.GetMetadataItem("STAMP") is None, "source metadata mutated"
+        assert (
+            byte_dataset._raster.GetMetadataItem("STAMP") is None
+        ), "source metadata mutated"
 
     def test_colormap_on_float_raises(self, tmp_path):
         """A colormap on a non-Byte/UInt16 band raises a clear ValueError (L2).
@@ -115,7 +117,9 @@ class TestMetadataForwarding:
         """
         arr = np.random.default_rng(1).random((32, 32)).astype("float32")
         ds = Dataset.create_from_array(arr, geo=_GEOTRANSFORM, epsg=4326)
-        with pytest.raises(ValueError, match="colormap is only supported on Byte/UInt16"):
+        with pytest.raises(
+            ValueError, match="colormap is only supported on Byte/UInt16"
+        ):
             ds.to_cog(tmp_path / "f_cmap.tif", colormap={0: (1, 2, 3, 255)})
 
     def test_colormap_on_float_after_cast_succeeds(self, tmp_path):

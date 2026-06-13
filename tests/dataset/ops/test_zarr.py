@@ -88,16 +88,20 @@ class TestRoundtripEager:
         """
         arr = np.arange(2 * 3 * 4, dtype=np.float32).reshape(2, 3, 4)
         ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326,
+            arr,
+            top_left_corner=(0.0, 3.0),
+            cell_size=1.0,
+            epsg=4326,
             no_data_value=[5.0, 6.0],
         )
         src_path = str(tmp_path / "nd_src.tif")
         ds.to_file(src_path)
         Dataset.read_file(src_path).to_zarr(str(tmp_path / "nd.zarr"))
         reloaded = Dataset.from_zarr(str(tmp_path / "nd.zarr"))
-        assert tuple(reloaded.no_data_value) == (5.0, 6.0), (
-            f"per-band no-data not recovered: {reloaded.no_data_value}"
-        )
+        assert tuple(reloaded.no_data_value) == (
+            5.0,
+            6.0,
+        ), f"per-band no-data not recovered: {reloaded.no_data_value}"
 
     @requires_zarr
     def test_absent_nodata_roundtrip(self, tmp_path):
@@ -109,16 +113,19 @@ class TestRoundtripEager:
         """
         arr = np.arange(12, dtype=np.float32).reshape(3, 4)
         ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326,
+            arr,
+            top_left_corner=(0.0, 3.0),
+            cell_size=1.0,
+            epsg=4326,
             no_data_value=None,
         )
         src_path = str(tmp_path / "none_src.tif")
         ds.to_file(src_path)
         Dataset.read_file(src_path).to_zarr(str(tmp_path / "none.zarr"))
         reloaded = Dataset.from_zarr(str(tmp_path / "none.zarr"))
-        assert tuple(reloaded.no_data_value) == (None,), (
-            f"absent no-data not preserved: {reloaded.no_data_value}"
-        )
+        assert tuple(reloaded.no_data_value) == (
+            None,
+        ), f"absent no-data not preserved: {reloaded.no_data_value}"
 
     @requires_zarr
     def test_projected_crs_roundtrip(self, tmp_path):
@@ -159,9 +166,10 @@ class TestRoundtripEager:
         ds.to_file(src_path)
         Dataset.read_file(src_path).to_zarr(str(tmp_path / "bn.zarr"))
         reloaded = Dataset.from_zarr(str(tmp_path / "bn.zarr"))
-        assert reloaded.band_names == ["alpha", "beta"], (
-            f"band names not restored: {reloaded.band_names}"
-        )
+        assert reloaded.band_names == [
+            "alpha",
+            "beta",
+        ], f"band names not restored: {reloaded.band_names}"
 
 
 class TestComputeFalseDefers:
@@ -200,7 +208,9 @@ class TestComputeFalseDefers:
         store = str(tmp_path / "compute_meta.zarr")
         small_dataset.to_zarr(store, compute=False).compute()
         attrs = dict(zarr.open_group(store, mode="r")["data"].attrs)
-        assert int(attrs["epsg"]) == 4326, f"epsg attr not finalized: {attrs.get('epsg')}"
+        assert (
+            int(attrs["epsg"]) == 4326
+        ), f"epsg attr not finalized: {attrs.get('epsg')}"
         assert "GeoTransform" in attrs, f"GeoTransform attr missing: {attrs}"
 
 
@@ -263,12 +273,12 @@ class TestImportErrorPath:
         with pytest.raises(OptionalPackageDoesNotExist) as exc_info:
             small_dataset.to_zarr(str(tmp_path / "nope.zarr"))
         message = str(exc_info.value)
-        assert "pip install 'pyramids-gis[lazy]'" in message, (
-            f"PyPI install hint missing from message: {message!r}"
-        )
-        assert "conda install -c conda-forge pyramids-lazy" in message, (
-            f"conda-forge install hint missing from message: {message!r}"
-        )
+        assert (
+            "pip install 'pyramids-gis[lazy]'" in message
+        ), f"PyPI install hint missing from message: {message!r}"
+        assert (
+            "conda install -c conda-forge pyramids-lazy" in message
+        ), f"conda-forge install hint missing from message: {message!r}"
 
 
 class TestGeoZarrLayout:
@@ -289,16 +299,18 @@ class TestGeoZarrLayout:
         group = zarr.open_group(store, mode="r")
         keys = set(group.array_keys())
         assert {"data", "spatial_ref", "x", "y"} <= keys, f"missing arrays: {keys}"
-        assert group["data"].attrs["grid_mapping"] == "spatial_ref", (
-            f"grid_mapping not set: {dict(group['data'].attrs)}"
-        )
-        assert group["data"].attrs["_ARRAY_DIMENSIONS"] == ["band", "y", "x"], (
-            f"data dims wrong: {group['data'].attrs.get('_ARRAY_DIMENSIONS')}"
-        )
+        assert (
+            group["data"].attrs["grid_mapping"] == "spatial_ref"
+        ), f"grid_mapping not set: {dict(group['data'].attrs)}"
+        assert group["data"].attrs["_ARRAY_DIMENSIONS"] == [
+            "band",
+            "y",
+            "x",
+        ], f"data dims wrong: {group['data'].attrs.get('_ARRAY_DIMENSIONS')}"
         sr_attrs = dict(group["spatial_ref"].attrs)
-        assert "crs_wkt" in sr_attrs and "GeoTransform" in sr_attrs, (
-            f"spatial_ref attrs incomplete: {sorted(sr_attrs)}"
-        )
+        assert (
+            "crs_wkt" in sr_attrs and "GeoTransform" in sr_attrs
+        ), f"spatial_ref attrs incomplete: {sorted(sr_attrs)}"
         assert group["x"].shape == (small_dataset.columns,), "x length mismatch"
         assert group["y"].shape == (small_dataset.rows,), "y length mismatch"
 
@@ -356,9 +368,9 @@ class TestCompressor:
         store = str(tmp_path / "zstd.zarr")
         small_dataset.to_zarr(store, compressor=BloscCodec(cname="zstd"))
         compressors = zarr.open_group(store, mode="r")["data"].compressors
-        assert any("zstd" in str(getattr(c, "cname", "")) for c in compressors), (
-            f"zstd codec not applied: {compressors}"
-        )
+        assert any(
+            "zstd" in str(getattr(c, "cname", "")) for c in compressors
+        ), f"zstd codec not applied: {compressors}"
         np.testing.assert_array_equal(
             np.atleast_3d(Dataset.from_zarr(store).read_array()).squeeze(),
             np.atleast_3d(small_dataset.read_array()).squeeze(),
@@ -374,9 +386,9 @@ class TestCompressor:
         """
         store = str(tmp_path / "raw.zarr")
         small_dataset.to_zarr(store, compressor=None)
-        assert zarr.open_group(store, mode="r")["data"].compressors == (), (
-            "expected no compressors"
-        )
+        assert (
+            zarr.open_group(store, mode="r")["data"].compressors == ()
+        ), "expected no compressors"
 
 
 class TestMultiscalePyramid:
@@ -413,7 +425,9 @@ class TestMultiscalePyramid:
         assert isinstance(ms, list) and len(ms) == 1, f"multiscales not a list: {ms}"
         paths = [d["path"] for d in ms[0]["datasets"]]
         assert paths == ["data", "data_2", "data_4"], f"paths {paths}"
-        scales = [d["coordinateTransformations"][0]["scale"][1] for d in ms[0]["datasets"]]
+        scales = [
+            d["coordinateTransformations"][0]["scale"][1] for d in ms[0]["datasets"]
+        ]
         assert scales == [1.0, 2.0, 4.0], f"scales {scales}"
         assert ms[0]["axes"][0]["name"] == "band" and ms[0]["axes"][2]["name"] == "x"
 
@@ -428,8 +442,13 @@ class TestMultiscalePyramid:
         store = str(tmp_path / "ms2.zarr")
         big_dataset.to_zarr(store, overview_factors=[2, 4])
         lvl2 = Dataset.from_zarr(store, level=2)
-        assert (lvl2.rows, lvl2.columns) == (8, 8), f"level-2 dims {(lvl2.rows, lvl2.columns)}"
-        assert lvl2.cell_size == pytest.approx(2.0), f"level-2 cell_size {lvl2.cell_size}"
+        assert (lvl2.rows, lvl2.columns) == (
+            8,
+            8,
+        ), f"level-2 dims {(lvl2.rows, lvl2.columns)}"
+        assert lvl2.cell_size == pytest.approx(
+            2.0
+        ), f"level-2 cell_size {lvl2.cell_size}"
         assert lvl2.epsg == 4326, f"level-2 epsg {lvl2.epsg}"
         assert Dataset.from_zarr(store).rows == 16, "level-1 should be full res"
 
@@ -469,7 +488,10 @@ class TestMultiscalePyramid:
         """
         arr = np.arange(2 * 8 * 8, dtype=np.float32).reshape(2, 8, 8)
         ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=4326,
+            arr,
+            top_left_corner=(0.0, 8.0),
+            cell_size=1.0,
+            epsg=4326,
             no_data_value=[-1.0, -2.0],
         )
         ds.band_names = ["red", "nir"]
@@ -479,12 +501,14 @@ class TestMultiscalePyramid:
             str(tmp_path / "ms_meta.zarr"), overview_factors=[2]
         )
         lvl2 = Dataset.from_zarr(str(tmp_path / "ms_meta.zarr"), level=2)
-        assert tuple(lvl2.no_data_value) == (-1.0, -2.0), (
-            f"level nodata not preserved: {lvl2.no_data_value}"
-        )
-        assert lvl2.band_names == ["red", "nir"], (
-            f"level band names not preserved: {lvl2.band_names}"
-        )
+        assert tuple(lvl2.no_data_value) == (
+            -1.0,
+            -2.0,
+        ), f"level nodata not preserved: {lvl2.no_data_value}"
+        assert lvl2.band_names == [
+            "red",
+            "nir",
+        ], f"level band names not preserved: {lvl2.band_names}"
 
 
 class TestResolveStore:
@@ -514,8 +538,9 @@ class TestResolveStore:
             options — not silently drop them or wrap in an FSMap (which v3
             rejects with `component=`).
         """
-        from pyramids.dataset.ops._zarr import _resolve_store
         from zarr.storage import FsspecStore
+
+        from pyramids.dataset.ops._zarr import _resolve_store
 
         calls: list = []
 

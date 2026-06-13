@@ -116,9 +116,7 @@ class TestToCogStackKwargs:
 class TestToCogStackWorksAfterReadMultipleFiles:
     """to_cog_stack works directly after read_multiple_files (post-L-3)."""
 
-    def test_succeeds_without_explicit_load(
-        self, rasters_folder_path: str, tmp_path
-    ):
+    def test_succeeds_without_explicit_load(self, rasters_folder_path: str, tmp_path):
         """read_multiple_files + to_cog_stack with no extra step.
 
         Test scenario:

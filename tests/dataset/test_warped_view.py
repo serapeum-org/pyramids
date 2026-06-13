@@ -51,9 +51,9 @@ class TestWarpedView:
     def test_view_is_vrt_backed(self, src_dataset):
         """The view is backed by the VRT driver (lazy), not a materialised copy."""
         view = src_dataset.warped_view(3857)
-        assert view.raster.GetDriver().ShortName == "VRT", (
-            f"expected VRT backing, got {view.raster.GetDriver().ShortName}"
-        )
+        assert (
+            view.raster.GetDriver().ShortName == "VRT"
+        ), f"expected VRT backing, got {view.raster.GetDriver().ShortName}"
 
     def test_full_read_matches_eager_to_crs(self, src_dataset):
         """Reading the whole view equals the eager to_crs result.
@@ -64,7 +64,8 @@ class TestWarpedView:
         view = src_dataset.warped_view(3857)
         eager = src_dataset.to_crs(3857)
         np.testing.assert_allclose(
-            view.read_array(), eager.read_array(),
+            view.read_array(),
+            eager.read_array(),
             err_msg="lazy view must equal the eager reprojection",
         )
 
@@ -78,7 +79,8 @@ class TestWarpedView:
         full = view.read_array(band=0)
         window = view.read_array(band=0, window=[1, 1, 3, 3])
         np.testing.assert_allclose(
-            window, full[1:4, 1:4],
+            window,
+            full[1:4, 1:4],
             err_msg="windowed view read must match the full-read slice",
         )
 
@@ -94,9 +96,9 @@ class TestWarpedView:
     def test_cell_size_honoured(self, src_dataset):
         """cell_size= sets the output pixel size on both axes."""
         view = src_dataset.warped_view(4326, cell_size=0.05)
-        assert view.cell_size == pytest.approx(0.05), (
-            f"cell_size not applied: {view.cell_size}"
-        )
+        assert view.cell_size == pytest.approx(
+            0.05
+        ), f"cell_size not applied: {view.cell_size}"
 
     def test_bbox_clips_the_view(self, src_dataset):
         """bbox= restricts the view to the requested target-CRS extent.
@@ -106,13 +108,13 @@ class TestWarpedView:
             whose bounds match the request.
         """
         view = src_dataset.warped_view(4326, bbox=(0.0, 7.96, 0.04, 8.0))
-        assert view.columns == 4 and view.rows == 4, (
-            f"bbox grid wrong: {view.rows}x{view.columns}"
-        )
+        assert (
+            view.columns == 4 and view.rows == 4
+        ), f"bbox grid wrong: {view.rows}x{view.columns}"
         top_left_x, top_left_y = view.top_left_corner
-        assert (top_left_x, top_left_y) == pytest.approx((0.0, 8.0)), (
-            f"bbox origin wrong: {(top_left_x, top_left_y)}"
-        )
+        assert (top_left_x, top_left_y) == pytest.approx(
+            (0.0, 8.0)
+        ), f"bbox origin wrong: {(top_left_x, top_left_y)}"
 
     def test_view_of_view_chains(self, src_dataset):
         """A warped view can itself be warped (virtual pipeline chaining).
@@ -184,7 +186,8 @@ class TestWarpedView:
         via_facade = src_dataset.warped_view(3857)
         via_engine = src_dataset.spatial.warped_view(3857)
         np.testing.assert_allclose(
-            via_facade.read_array(), via_engine.read_array(),
+            via_facade.read_array(),
+            via_engine.read_array(),
             err_msg="facade and engine outputs differ",
         )
 

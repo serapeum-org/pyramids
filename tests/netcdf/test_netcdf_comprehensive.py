@@ -310,9 +310,9 @@ class TestNoDataValue:
         var = nc.get_variable("elevation")
         original = tuple(var.no_data_value)
         var._no_data_value = [-1.0]
-        assert var.no_data_value == (-1.0,), (
-            f"Expected (-1.0,), got {var.no_data_value}"
-        )
+        assert var.no_data_value == (
+            -1.0,
+        ), f"Expected (-1.0,), got {var.no_data_value}"
         assert var.no_data_value != original, "no_data_value should have changed"
 
 

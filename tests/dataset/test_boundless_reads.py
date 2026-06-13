@@ -173,9 +173,9 @@ class TestBoundlessReads:
         out = None
 
         ds = Dataset.read_file(path)
-        assert float(ds.no_data_value[0]) == -9999.0, (
-            "test precondition: GDAL must preserve the out-of-range Byte nodata"
-        )
+        assert (
+            float(ds.no_data_value[0]) == -9999.0
+        ), "test precondition: GDAL must preserve the out-of-range Byte nodata"
         result = ds.read_array(band=0, window=Window(-1, -1, 3, 3), boundless=True)
         assert result.dtype == np.uint8, f"band dtype must be kept, got {result.dtype}"
         assert (result[0, :] == 0).all(), "outside row must fall back to dtype zero"

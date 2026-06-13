@@ -27,9 +27,8 @@ import pytest
 from shapely.geometry import LineString, Point, Polygon, box
 
 from pyramids.base._errors import CRSError
-from pyramids.feature import FeatureCollection
-from pyramids.feature import get_line_coords, get_poly_coords
 from pyramids.base.crs import reproject_coordinates
+from pyramids.feature import FeatureCollection, get_line_coords, get_poly_coords
 
 pytestmark = pytest.mark.core
 
@@ -126,9 +125,7 @@ class TestReprojectEdges:
     """Edge cases of ``reproject_coordinates``."""
 
     def test_empty_lists(self):
-        x, y = reproject_coordinates(
-            [], [], from_crs=4326, to_crs=3857
-        )
+        x, y = reproject_coordinates([], [], from_crs=4326, to_crs=3857)
         assert x == [] and y == []
 
     def test_precision_zero_rounds_to_int(self):

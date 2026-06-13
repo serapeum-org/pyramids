@@ -70,7 +70,9 @@ class TestCli:
         assert "valid COG" in capsys.readouterr().out, "should report validity"
         assert out.exists(), "output file should exist"
 
-    def test_create_refuses_existing_without_overwrite(self, source_tif, tmp_path, capsys):
+    def test_create_refuses_existing_without_overwrite(
+        self, source_tif, tmp_path, capsys
+    ):
         """`cog create` refuses to clobber an existing output unless --overwrite.
 
         Args:

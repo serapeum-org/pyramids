@@ -212,8 +212,7 @@ class TestCloseHandle:
         debug_records = [
             r
             for r in caplog.records
-            if r.levelname == "DEBUG"
-            and "close handle failed" in r.getMessage()
+            if r.levelname == "DEBUG" and "close handle failed" in r.getMessage()
         ]
         assert debug_records, (
             "Expected a DEBUG log line for the swallowed RuntimeError; "

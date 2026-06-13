@@ -70,11 +70,16 @@ def test_every_environment_references_gdal_feature(env: str):
 
 def test_gdal_pin_script_matches_pyproject():
     """``ci/gdal-pin.py`` must emit the shared gdal pin CI installs the wheel against."""
-    assert _load_gdal_pin().gdal_spec(PYPROJECT) == _load_pixi()["feature"]["gdal"]["dependencies"]["gdal"]
+    assert (
+        _load_gdal_pin().gdal_spec(PYPROJECT)
+        == _load_pixi()["feature"]["gdal"]["dependencies"]["gdal"]
+    )
 
 
 def test_gdal_pin_script_resolves_micromamba_packages():
     """``ci/gdal-pin.py`` must resolve every pin ci/setup-gdal-micromamba.sh requests."""
     pins = _load_gdal_pin().feature_pins()
     missing = [pkg for pkg in MICROMAMBA_PACKAGES if pkg not in pins]
-    assert not missing, f"ci/gdal-pin.py cannot resolve {missing} that setup-gdal-micromamba.sh requests"
+    assert (
+        not missing
+    ), f"ci/gdal-pin.py cannot resolve {missing} that setup-gdal-micromamba.sh requests"

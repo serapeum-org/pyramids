@@ -169,11 +169,33 @@ _X_DIM_NAMES = frozenset(
 # >= 2 *unrecognised* axes is a likely unrecognised grid.
 _NONSPATIAL_AXIS_NAMES = frozenset(
     {
-        "time", "valid_time", "t", "step", "forecast_period", "lead_time",
-        "level", "lev", "plev", "pressure", "depth", "height", "z", "altitude",
-        "member", "number", "ensemble", "realization",
-        "bnds", "bounds", "nv", "nbnds", "nvertices", "vertices",
-        "string_length", "nchar", "nstrings",
+        "time",
+        "valid_time",
+        "t",
+        "step",
+        "forecast_period",
+        "lead_time",
+        "level",
+        "lev",
+        "plev",
+        "pressure",
+        "depth",
+        "height",
+        "z",
+        "altitude",
+        "member",
+        "number",
+        "ensemble",
+        "realization",
+        "bnds",
+        "bounds",
+        "nv",
+        "nbnds",
+        "nvertices",
+        "vertices",
+        "string_length",
+        "nchar",
+        "nstrings",
     }
 )
 
@@ -288,9 +310,7 @@ def _range_bounds(
     return _clamp_bound(int(selector[0]), size), _clamp_bound(int(selector[1]), size)
 
 
-def _resolve_index_selector(
-    selector: Any, size: int, dim_name: str
-) -> tuple[int, int]:
+def _resolve_index_selector(selector: Any, size: int, dim_name: str) -> tuple[int, int]:
     """Resolve a non-spatial dimension selector to a half-open ``(start, stop)``.
 
     ``None`` is allowed only for a length-1 dimension; an ``int`` selects one
@@ -2216,7 +2236,9 @@ class NetCDF(Dataset):
             # Full-resolution timestamps: the default "%Y-%m-%d" truncates to
             # whole days, which would collapse every sub-daily frequency
             # ("1H"/"3H"/"6H") into a single per-day bucket.
-            times = self.get_time_variable(var_name=dim, time_format="%Y-%m-%d %H:%M:%S")
+            times = self.get_time_variable(
+                var_name=dim, time_format="%Y-%m-%d %H:%M:%S"
+            )
             if times is None:
                 raise ValueError(
                     f"Cannot group dimension {dim!r} by frequency {groupby!r}: "
@@ -4995,8 +5017,15 @@ class NetCDF(Dataset):
                 f"non-spatial dimensions are {sorted(selectable)}."
             )
         slices, ranged_axes = self._plan_band_slices(
-            dim_names, dim_sizes, x_axis, y_axis, time_axis,
-            (x_start, x_stop), (y_start, y_stop), time, dims,
+            dim_names,
+            dim_sizes,
+            x_axis,
+            y_axis,
+            time_axis,
+            (x_start, x_stop),
+            (y_start, y_stop),
+            time,
+            dims,
         )
         arr = np.asarray(md_arr[tuple(slices)].ReadAsArray())
         # The read must keep one axis per dimension (incl. size-1 pinned ones) for
@@ -5089,8 +5118,8 @@ class NetCDF(Dataset):
         Cell size comes from the full coordinate spacing so a 1-cell-wide window
         still carries the store's true resolution.
         """
-        x_vals = x_coords[x_window[0]:x_window[1]]
-        y_vals = y_coords[y_window[0]:y_window[1]]
+        x_vals = x_coords[x_window[0] : x_window[1]]
+        y_vals = y_coords[y_window[0] : y_window[1]]
         if x_vals.size > 1 and x_vals[0] > x_vals[-1]:
             arr = arr[:, :, ::-1]
             x_vals = x_vals[::-1]
@@ -5100,8 +5129,12 @@ class NetCDF(Dataset):
         d_x = abs(x_coords[1] - x_coords[0]) if x_coords.size > 1 else 1.0
         d_y = abs(y_coords[1] - y_coords[0]) if y_coords.size > 1 else d_x
         geo = (
-            float(x_vals[0] - d_x / 2.0), float(d_x), 0.0,
-            float(y_vals[0] + d_y / 2.0), 0.0, -float(d_y),
+            float(x_vals[0] - d_x / 2.0),
+            float(d_x),
+            0.0,
+            float(y_vals[0] + d_y / 2.0),
+            0.0,
+            -float(d_y),
         )
         return arr, geo
 
@@ -5293,9 +5326,7 @@ class NetCDF(Dataset):
         return dim_names.index(y_dim), dim_names.index(x_dim)
 
     @staticmethod
-    def _cf_spatial_axes(
-        rg: Any, dim_names: list[str]
-    ) -> tuple[int, int] | None:
+    def _cf_spatial_axes(rg: Any, dim_names: list[str]) -> tuple[int, int] | None:
         """``(y_axis, x_axis)`` from CF coordinate attributes, or ``None``.
 
         Returns ``None`` when there is no root group or the coordinate variables
@@ -5503,7 +5534,9 @@ class NetCDF(Dataset):
         """
         min_x, min_y, max_x, max_y = (float(v) for v in bbox)
         src = osr.SpatialReference()
-        src.SetFromUserInput(f"EPSG:{src_crs}" if isinstance(src_crs, int) else str(src_crs))
+        src.SetFromUserInput(
+            f"EPSG:{src_crs}" if isinstance(src_crs, int) else str(src_crs)
+        )
         src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         if dst_srs is None or src.IsSame(dst_srs):
             return min_x, min_y, max_x, max_y
@@ -5511,14 +5544,22 @@ class NetCDF(Dataset):
         dst.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         transform = osr.CoordinateTransformation(src, dst)
         edge = np.linspace(0.0, 1.0, max(int(densify), 2))
-        xs = np.concatenate([
-            min_x + edge * (max_x - min_x), min_x + edge * (max_x - min_x),
-            np.full_like(edge, min_x), np.full_like(edge, max_x),
-        ])
-        ys = np.concatenate([
-            np.full_like(edge, min_y), np.full_like(edge, max_y),
-            min_y + edge * (max_y - min_y), min_y + edge * (max_y - min_y),
-        ])
+        xs = np.concatenate(
+            [
+                min_x + edge * (max_x - min_x),
+                min_x + edge * (max_x - min_x),
+                np.full_like(edge, min_x),
+                np.full_like(edge, max_x),
+            ]
+        )
+        ys = np.concatenate(
+            [
+                np.full_like(edge, min_y),
+                np.full_like(edge, max_y),
+                min_y + edge * (max_y - min_y),
+                min_y + edge * (max_y - min_y),
+            ]
+        )
         proj_x: list[float] = []
         proj_y: list[float] = []
         for px, py in zip(xs, ys):

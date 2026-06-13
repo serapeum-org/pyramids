@@ -16,7 +16,9 @@ try:
 except ImportError:
     HAS_PYARROW = False
 
-requires_pyarrow = pytest.mark.skipif(not HAS_PYARROW, reason="pyarrow ([parquet] extra) not installed")
+requires_pyarrow = pytest.mark.skipif(
+    not HAS_PYARROW, reason="pyarrow ([parquet] extra) not installed"
+)
 
 
 def _item(item_id, lon, lat):
@@ -69,10 +71,19 @@ class TestRoundTrip:
         path = str(tmp_path / "items.parquet")
         to_geoparquet(items, path)
         restored = from_geoparquet(path)
-        assert [r["id"] for r in restored] == ["a", "b"], f"ids: {[r['id'] for r in restored]}"
-        assert restored[0]["properties"]["eo:cloud_cover"] == 12, restored[0]["properties"]
-        assert restored[0]["assets"]["data"]["href"] == "s3://b/a.tif", restored[0]["assets"]
-        assert restored[0]["geometry"]["coordinates"] == [1.0, 2.0], restored[0]["geometry"]
+        assert [r["id"] for r in restored] == [
+            "a",
+            "b",
+        ], f"ids: {[r['id'] for r in restored]}"
+        assert restored[0]["properties"]["eo:cloud_cover"] == 12, restored[0][
+            "properties"
+        ]
+        assert restored[0]["assets"]["data"]["href"] == "s3://b/a.tif", restored[0][
+            "assets"
+        ]
+        assert restored[0]["geometry"]["coordinates"] == [1.0, 2.0], restored[0][
+            "geometry"
+        ]
 
     def test_round_trip_feeds_from_stac(self, tmp_path):
         """Restored items can drive from_stac (the intended consumer).
@@ -89,13 +100,18 @@ class TestRoundTrip:
         for i in range(2):
             p = str(tmp_path / f"r{i}.tif")
             Dataset.create_from_array(
-                np.ones((3, 3), "float32"), top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326
+                np.ones((3, 3), "float32"),
+                top_left_corner=(0.0, 3.0),
+                cell_size=1.0,
+                epsg=4326,
             ).to_file(p)
             items.append(
                 {
                     "id": f"r{i}",
-                    "geometry": {"type": "Polygon",
-                                 "coordinates": [[[0, 0], [3, 0], [3, 3], [0, 3], [0, 0]]]},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[[0, 0], [3, 0], [3, 3], [0, 3], [0, 0]]],
+                    },
                     "bbox": [0.0, 0.0, 3.0, 3.0],
                     "properties": {"datetime": "2023-06-0%dT00:00:00Z" % (i + 1)},
                     "assets": {"data": {"href": p, "type": "image/tiff"}},
@@ -117,10 +133,15 @@ class TestRoundTrip:
         from pyramids.dataset import Dataset
 
         ds = Dataset.create_from_array(
-            np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0, epsg=4326
+            np.ones((4, 4), "float32"),
+            top_left_corner=(0.0, 4.0),
+            cell_size=1.0,
+            epsg=4326,
         )
         item = ds.to_stac_item("scene-1", asset_href="s3://b/s.tif")
         path = str(tmp_path / "one.parquet")
         to_geoparquet([item], path)
         restored = from_geoparquet(path)[0]
-        assert restored["properties"]["proj:code"] == "EPSG:4326", restored["properties"]
+        assert restored["properties"]["proj:code"] == "EPSG:4326", restored[
+            "properties"
+        ]

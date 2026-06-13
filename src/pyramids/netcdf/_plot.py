@@ -97,22 +97,24 @@ def _reject_forbidden_kwargs(kwargs: dict[str, Any]) -> None:
 # correct allow-list would be *longer* — cleopatra's animate accepts most
 # of `DEFAULT_OPTIONS` plus `interval` / `points` / ... — and a *small*
 # allow-list would silently drop legitimate kwargs like `interval`.)
-_ANIMATE_DROP_KWARGS = frozenset({
-    "kind",
-    "coords",
-    "extend",
-    "cbar_kwargs",
-    "aspect",
-    "levels",
-    "center",
-    "norm",
-    "robust",
-    "rgb",
-    "_facet_stack",
-    "facet_kwargs",
-    "_chunks",
-    "_extent",
-})
+_ANIMATE_DROP_KWARGS = frozenset(
+    {
+        "kind",
+        "coords",
+        "extend",
+        "cbar_kwargs",
+        "aspect",
+        "levels",
+        "center",
+        "norm",
+        "robust",
+        "rgb",
+        "_facet_stack",
+        "facet_kwargs",
+        "_chunks",
+        "_extent",
+    }
+)
 
 
 class NetCDFPlot:
@@ -179,7 +181,10 @@ class NetCDFPlot:
                 if name not in {"self", "nc", "variable", "kwargs"}
             }
             return self._delegate_to_variable(
-                nc, variable, **passthrough, **kwargs,
+                nc,
+                variable,
+                **passthrough,
+                **kwargs,
             )
         if variable is not None and variable != nc._source_var_name:
             raise ValueError(
@@ -191,13 +196,18 @@ class NetCDFPlot:
         faceting_active = facet.col is not None or facet.row is not None
         if faceting_active:
             self._validate_facet_dims(
-                nc, col=facet.col, row=facet.row, col_wrap=facet.col_wrap,
+                nc,
+                col=facet.col,
+                row=facet.row,
+                col_wrap=facet.col_wrap,
                 resolved_sel=resolved_sel,
             )
         animate_dim: str | None = None
         if animate is not None and animate is not False:
             animate_dim = self._resolve_animate_dim(
-                nc, animate=animate, faceting_active=faceting_active,
+                nc,
+                animate=animate,
+                faceting_active=faceting_active,
                 resolved_sel=resolved_sel,
             )
 
@@ -216,15 +226,24 @@ class NetCDFPlot:
             )
 
         analysis_kwargs = self._build_render_kwargs(
-            pinned, colour=colour, coords=coords, kind=kind,
-            ax=ax, figsize=figsize, title=title, base_kwargs=kwargs,
+            pinned,
+            colour=colour,
+            coords=coords,
+            kind=kind,
+            ax=ax,
+            figsize=figsize,
+            title=title,
+            base_kwargs=kwargs,
         )
 
         # After pinning every selected dim the variable is 2-D, so the
         # engine always renders the first (and only) flattened band.
         if faceting_active:
             stack, facet_kwargs = self._build_facet_stack(
-                pinned, col=facet.col, row=facet.row, col_wrap=facet.col_wrap,
+                pinned,
+                col=facet.col,
+                row=facet.row,
+                col_wrap=facet.col_wrap,
             )
             analysis_kwargs["facet_kwargs"] = facet_kwargs
             analysis_kwargs["_facet_stack"] = stack
@@ -233,13 +252,18 @@ class NetCDFPlot:
             # `self._ds`, so pass `pinned.bbox` explicitly (M6).
             analysis_kwargs["_extent"] = pinned.bbox
             result = pinned.analysis.plot(
-                band=0, exclude_value=exclude_value, basemap=basemap,
+                band=0,
+                exclude_value=exclude_value,
+                basemap=basemap,
                 **analysis_kwargs,
             )
         elif animate_dim is not None:
             result = self._render_animate(
-                pinned, animate_dim=animate_dim, analysis_kwargs=analysis_kwargs,
-                exclude_value=exclude_value, basemap=basemap,
+                pinned,
+                animate_dim=animate_dim,
+                analysis_kwargs=analysis_kwargs,
+                exclude_value=exclude_value,
+                basemap=basemap,
             )
         else:
             if chunks is not None:
@@ -247,7 +271,9 @@ class NetCDFPlot:
             else:
                 self._maybe_log_lazy_hint(pinned)
             result = pinned.analysis.plot(
-                band=0, exclude_value=exclude_value, basemap=basemap,
+                band=0,
+                exclude_value=exclude_value,
+                basemap=basemap,
                 **analysis_kwargs,
             )
 
@@ -283,9 +309,7 @@ class NetCDFPlot:
             )
         return nc.get_variable(variable).plot(**plot_kwargs)
 
-    def _resolve_selectors(
-        self, nc: NetCDF, selectors: Selectors
-    ) -> dict[str, Any]:
+    def _resolve_selectors(self, nc: NetCDF, selectors: Selectors) -> dict[str, Any]:
         """Flatten a :class:`Selectors` into a ``{dim_name: label}`` dict.
 
         Merges, in priority order: the raw ``sel`` dict, then the
@@ -529,9 +553,7 @@ class NetCDFPlot:
         if row is not None:
             facet_targets.append(row)
         if row is not None and col is None:
-            raise ValueError(
-                "Faceting on `row=` requires `col=` as well. Pass both."
-            )
+            raise ValueError("Faceting on `row=` requires `col=` as well. Pass both.")
         for name in facet_targets:
             if name not in nc._band_dim_names:
                 raise ValueError(
@@ -547,9 +569,7 @@ class NetCDFPlot:
         if col_wrap is not None and (
             not isinstance(col_wrap, (int, np.integer)) or col_wrap < 1
         ):
-            raise ValueError(
-                f"`col_wrap` must be a positive int, got {col_wrap!r}."
-            )
+            raise ValueError(f"`col_wrap` must be a positive int, got {col_wrap!r}.")
 
     def _build_facet_stack(
         self,
@@ -644,9 +664,7 @@ class NetCDFPlot:
         """
         col_values = list(nc._band_dim_values_map.get(col, []))
         if not col_values:
-            col_values = list(range(nc._band_dim_sizes[
-                nc._band_dim_names.index(col)
-            ]))
+            col_values = list(range(nc._band_dim_sizes[nc._band_dim_names.index(col)]))
         slices: list[Any] = []
         if row is None:
             for value in col_values:
@@ -662,15 +680,13 @@ class NetCDFPlot:
         else:
             row_values = list(nc._band_dim_values_map.get(row, []))
             if not row_values:
-                row_values = list(range(nc._band_dim_sizes[
-                    nc._band_dim_names.index(row)
-                ]))
+                row_values = list(
+                    range(nc._band_dim_sizes[nc._band_dim_names.index(row)])
+                )
             for col_value in col_values:
                 row_slices: list[Any] = []
                 for row_value in row_values:
-                    pinned = nc.sel(**{col: col_value}).sel(
-                        **{row: row_value}
-                    )
+                    pinned = nc.sel(**{col: col_value}).sel(**{row: row_value})
                     row_slices.append(pinned.read_array(band=0))
                 slices.append(np.stack(row_slices, axis=0))
             stack = np.stack(slices, axis=0)
@@ -776,14 +792,11 @@ class NetCDFPlot:
             )
         if not nc._band_dim_names:
             raise ValueError(
-                "`animate=` was passed but this variable has no band "
-                "dimension."
+                "`animate=` was passed but this variable has no band " "dimension."
             )
         if animate is True:
             free_dims = [
-                name
-                for name in nc._band_dim_names
-                if name not in resolved_sel
+                name for name in nc._band_dim_names if name not in resolved_sel
             ]
             if len(free_dims) != 1:
                 raise ValueError(
@@ -914,22 +927,16 @@ class NetCDFPlot:
         animate_axis = nc._band_dim_names.index(animate_dim)
         dim_values_raw = nc._band_dim_values_map.get(animate_dim)
         if dim_values_raw is None:
-            frame_labels: list[Any] = list(
-                range(nc._band_dim_sizes[animate_axis])
-            )
+            frame_labels: list[Any] = list(range(nc._band_dim_sizes[animate_axis]))
         else:
             decoded = (
                 nc.get_time_variable(animate_dim)
                 if animate_dim.lower() in ("time", "valid_time", "t")
                 else None
             )
-            frame_labels = (
-                decoded if decoded is not None else list(dim_values_raw)
-            )
+            frame_labels = decoded if decoded is not None else list(dim_values_raw)
 
-        no_data_value = [
-            np.nan if v is None else v for v in nc.no_data_value
-        ]
+        no_data_value = [np.nan if v is None else v for v in nc.no_data_value]
         resolved_exclude = (
             [no_data_value[0], exclude_value]
             if exclude_value is not None
@@ -944,7 +951,7 @@ class NetCDFPlot:
         # GDAL's row-major flatten (last band dim varies fastest) that's
         # `i * stride`, `stride = prod(_band_dim_sizes[axis+1:])`. One
         # stable handle, one disk read per frame.
-        frame_stride = math.prod(nc._band_dim_sizes[animate_axis + 1:])
+        frame_stride = math.prod(nc._band_dim_sizes[animate_axis + 1 :])
 
         def _data_getter(i: int) -> np.ndarray:
             return nc.read_array(band=i * frame_stride)
@@ -1218,7 +1225,9 @@ class NetCDFPlot:
                     "Explicit `coords=` shapes %s / %s don't match the data "
                     "slice shape %s; ignoring the supplied coords and falling "
                     "back to auto-detection / the geotransform extent.",
-                    x_arr.shape, y_arr.shape, data_shape,
+                    x_arr.shape,
+                    y_arr.shape,
+                    data_shape,
                 )
 
         if result is None and data_shape is not None:
@@ -1230,10 +1239,7 @@ class NetCDFPlot:
 
         if result is None and data_shape is not None:
             for x_name, y_name in self._CURVILINEAR_NAME_PAIRS:
-                if (
-                    x_name in parent.variable_names
-                    and y_name in parent.variable_names
-                ):
+                if x_name in parent.variable_names and y_name in parent.variable_names:
                     x_arr = parent._read_variable(x_name)
                     y_arr = parent._read_variable(y_name)
                     if x_arr is None or y_arr is None:
@@ -1257,14 +1263,20 @@ class NetCDFPlot:
                         "Conventional curvilinear coord pair (%r, %r) is "
                         "present on the NetCDF but shapes %s / %s don't match "
                         "the data slice shape %s; skipping this pair.",
-                        x_name, y_name, x_arr.shape, y_arr.shape, data_shape,
+                        x_name,
+                        y_name,
+                        x_arr.shape,
+                        y_arr.shape,
+                        data_shape,
                     )
 
         return result
 
     @staticmethod
     def _coerce_coord_spec(
-        spec: Any, parent: NetCDF, axis_label: str,
+        spec: Any,
+        parent: NetCDF,
+        axis_label: str,
     ) -> np.ndarray:
         """Convert a single coord spec (str or array) to a numpy array.
 
@@ -1304,7 +1316,8 @@ class NetCDFPlot:
 
     @staticmethod
     def _squeeze_leading_axes(
-        arr: np.ndarray, data_shape: tuple[int, int],
+        arr: np.ndarray,
+        data_shape: tuple[int, int],
     ) -> np.ndarray:
         """Drop leading singleton/time axes so a coord matches the slice shape.
 
@@ -1362,7 +1375,9 @@ class NetCDFPlot:
         return result
 
     def _cf_coordinates_pair(
-        self, nc: NetCDF, parent: NetCDF,
+        self,
+        nc: NetCDF,
+        parent: NetCDF,
     ) -> tuple[np.ndarray, np.ndarray] | None:
         """Parse the CF `coordinates` attribute into an `(x, y)` array pair.
 
@@ -1402,7 +1417,8 @@ class NetCDFPlot:
                     arr = parent._read_variable(name)
                     if arr is not None:
                         candidate_arrays[name] = self._squeeze_leading_axes(
-                            arr, data_shape,
+                            arr,
+                            data_shape,
                         )
             rows, cols = data_shape
             x_candidates: list[tuple[str, np.ndarray]] = []

@@ -183,7 +183,10 @@ def write_dataset_to_zarr(
         _finalize_metadata(resolved_store, metadata)
         if overview_factors:
             _write_overview_levels(
-                ds, resolved_store, sorted(overview_factors), overview_resampling,
+                ds,
+                resolved_store,
+                sorted(overview_factors),
+                overview_resampling,
                 metadata,
             )
         result: Any = None
@@ -228,7 +231,9 @@ def _write_overview_levels(
     ]
     for ov_index, factor in enumerate(factors):
         levels = [
-            np.asarray(ds.raster.GetRasterBand(b + 1).GetOverview(ov_index).ReadAsArray())
+            np.asarray(
+                ds.raster.GetRasterBand(b + 1).GetOverview(ov_index).ReadAsArray()
+            )
             for b in range(band_count)
         ]
         level_arr = np.stack(levels, axis=0)

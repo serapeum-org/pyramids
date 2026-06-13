@@ -78,7 +78,11 @@ def _scalar_fill_value_shim() -> Iterator[None]:
     original = modules[0].encode_fill_value
 
     def _scalarized(value: Any, dtype: Any, object_codec: Any = None) -> Any:
-        if value is not None and getattr(value, "ndim", 0) and np.asarray(value).size == 1:
+        if (
+            value is not None
+            and getattr(value, "ndim", 0)
+            and np.asarray(value).size == 1
+        ):
             value = np.asarray(value).reshape(()).item()
         return original(value, dtype, object_codec)
 

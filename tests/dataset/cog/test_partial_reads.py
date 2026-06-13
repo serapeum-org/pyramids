@@ -283,7 +283,9 @@ class TestReadPart:
         out = ds.read_part(
             (0.5, 9.5, 1.5, 10.5), dst_width=100, dst_height=100, bbox_crs=4326, band=0
         )
-        assert out[10, 10] == -1.0, f"expected NoData -1 in padded region, got {out[10, 10]}"
+        assert (
+            out[10, 10] == -1.0
+        ), f"expected NoData -1 in padded region, got {out[10, 10]}"
 
 
 class TestPreview:

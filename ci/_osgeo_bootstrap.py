@@ -26,11 +26,15 @@
 # identifiers below would clash with user code if they were.
 import os as _pyramids_os
 import sys as _pyramids_sys
+
 if _pyramids_sys.platform == "win32":
     _pyramids_libs = _pyramids_os.path.abspath(
         _pyramids_os.path.join(
             _pyramids_os.path.dirname(__file__),
-            "..", "..", "..", "pyramids_gis.libs",
+            "..",
+            "..",
+            "..",
+            "pyramids_gis.libs",
         )
     )
     if _pyramids_os.path.isdir(_pyramids_libs):

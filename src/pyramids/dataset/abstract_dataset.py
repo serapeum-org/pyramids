@@ -541,7 +541,7 @@ class RasterBase(ABC):
 
     def block_windows(
         self, band: int = 0, *, window: Window | None = None
-    ) -> Generator[Window, None, None]:
+    ) -> Generator[Window]:
         """Yield a :class:`Window` for every native block of ``band``.
 
         Walks the raster in its on-disk block layout (tiles for tiled
@@ -619,7 +619,7 @@ class RasterBase(ABC):
 
     def iter_blocks(
         self, band: int = 0, *, window: Window | None = None
-    ) -> Generator[tuple[Window, np.ndarray], None, None]:
+    ) -> Generator[tuple[Window, np.ndarray]]:
         """Yield ``(Window, ndarray)`` for every native block of ``band``.
 
         The streaming read companion of :meth:`block_windows`: each yielded

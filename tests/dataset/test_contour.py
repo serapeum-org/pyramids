@@ -25,7 +25,9 @@ def ramp() -> Dataset:
         Dataset: EPSG:4326 ramp suitable for predictable horizontal contours.
     """
     arr = np.tile(np.arange(10, dtype=np.float32), (10, 1))
-    return Dataset.create_from_array(arr, top_left_corner=(0, 10), cell_size=1.0, epsg=4326)
+    return Dataset.create_from_array(
+        arr, top_left_corner=(0, 10), cell_size=1.0, epsg=4326
+    )
 
 
 @pytest.fixture(scope="function")
@@ -36,7 +38,9 @@ def flat() -> Dataset:
         Dataset: EPSG:4326 constant raster.
     """
     arr = np.full((6, 6), 5.0, dtype=np.float32)
-    return Dataset.create_from_array(arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326)
+    return Dataset.create_from_array(
+        arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326
+    )
 
 
 class TestContour:
@@ -50,14 +54,19 @@ class TestContour:
             2, 4, 6, 8 — four LineString features carrying those elevations.
         """
         fc = ramp.contour(interval=2.0)
-        assert isinstance(fc, FeatureCollection), f"Expected FeatureCollection, got {type(fc)}"
+        assert isinstance(
+            fc, FeatureCollection
+        ), f"Expected FeatureCollection, got {type(fc)}"
         assert len(fc) == 4, f"Expected 4 contour lines, got {len(fc)}"
-        assert sorted(fc["elev"].tolist()) == [2.0, 4.0, 6.0, 8.0], (
-            f"Unexpected elevations: {sorted(fc['elev'].tolist())}"
-        )
-        assert fc.geometry.geom_type.unique().tolist() == ["LineString"], (
-            f"Expected LineString geometries, got {fc.geometry.geom_type.unique().tolist()}"
-        )
+        assert sorted(fc["elev"].tolist()) == [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+        ], f"Unexpected elevations: {sorted(fc['elev'].tolist())}"
+        assert fc.geometry.geom_type.unique().tolist() == [
+            "LineString"
+        ], f"Expected LineString geometries, got {fc.geometry.geom_type.unique().tolist()}"
 
     def test_crs_preserved(self, ramp):
         """The output FeatureCollection carries the source raster CRS.
@@ -75,9 +84,11 @@ class TestContour:
             fixed_levels=[3, 5, 7] yields three lines at those elevations.
         """
         fc = ramp.contour(fixed_levels=[3.0, 5.0, 7.0])
-        assert sorted(fc["elev"].tolist()) == [3.0, 5.0, 7.0], (
-            f"Unexpected elevations: {sorted(fc['elev'].tolist())}"
-        )
+        assert sorted(fc["elev"].tolist()) == [
+            3.0,
+            5.0,
+            7.0,
+        ], f"Unexpected elevations: {sorted(fc['elev'].tolist())}"
 
     def test_base_offset(self, ramp):
         """The base anchor shifts the regular interval grid.
@@ -86,9 +97,13 @@ class TestContour:
             interval=2, base=1 yields odd levels 1, 3, 5, 7, 9 within 0..9.
         """
         fc = ramp.contour(interval=2.0, base=1.0)
-        assert sorted(fc["elev"].tolist()) == [1.0, 3.0, 5.0, 7.0, 9.0], (
-            f"Unexpected elevations: {sorted(fc['elev'].tolist())}"
-        )
+        assert sorted(fc["elev"].tolist()) == [
+            1.0,
+            3.0,
+            5.0,
+            7.0,
+            9.0,
+        ], f"Unexpected elevations: {sorted(fc['elev'].tolist())}"
 
     def test_custom_attribute_name(self, ramp):
         """The elevation attribute is written under the requested column name.
@@ -109,10 +124,13 @@ class TestContour:
         """
         fc = ramp.contour(interval=2.0, polygonize=True)
         geom_types = set(fc.geometry.geom_type.unique().tolist())
-        assert geom_types <= {"Polygon", "MultiPolygon"}, f"Unexpected geom types: {geom_types}"
-        assert "elev_min" in fc.columns and "elev_max" in fc.columns, (
-            f"min/max columns missing: {list(fc.columns)}"
-        )
+        assert geom_types <= {
+            "Polygon",
+            "MultiPolygon",
+        }, f"Unexpected geom types: {geom_types}"
+        assert (
+            "elev_min" in fc.columns and "elev_max" in fc.columns
+        ), f"min/max columns missing: {list(fc.columns)}"
 
     def test_polygonize_custom_attribute(self, ramp):
         """Polygon mode honours the custom attribute base name.
@@ -121,9 +139,9 @@ class TestContour:
             attribute='z' with polygonize=True produces 'z_min' and 'z_max'.
         """
         fc = ramp.contour(interval=2.0, polygonize=True, attribute="z")
-        assert "z_min" in fc.columns and "z_max" in fc.columns, (
-            f"z_min/z_max columns missing: {list(fc.columns)}"
-        )
+        assert (
+            "z_min" in fc.columns and "z_max" in fc.columns
+        ), f"z_min/z_max columns missing: {list(fc.columns)}"
 
     def test_band_selection(self):
         """A non-default band is contoured when band= is supplied.
@@ -135,11 +153,14 @@ class TestContour:
         flat_band = np.zeros((5, 5), dtype=np.float32)
         ramp_band = np.tile(np.arange(5, dtype=np.float32), (5, 1))
         arr = np.stack([flat_band, ramp_band])
-        ds = Dataset.create_from_array(arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326)
-        fc = ds.contour(interval=2.0, band=1)
-        assert sorted(fc["elev"].tolist()) == [2.0, 4.0], (
-            f"Unexpected elevations for band 1: {sorted(fc['elev'].tolist())}"
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
         )
+        fc = ds.contour(interval=2.0, band=1)
+        assert sorted(fc["elev"].tolist()) == [
+            2.0,
+            4.0,
+        ], f"Unexpected elevations for band 1: {sorted(fc['elev'].tolist())}"
 
     def test_nodata_handled(self):
         """A band with a no-data value still contours its valid pixels.
@@ -151,13 +172,17 @@ class TestContour:
         arr = np.tile(np.arange(10, dtype=np.float32), (10, 1))
         arr[:, 0] = -9999.0
         ds = Dataset.create_from_array(
-            arr, top_left_corner=(0, 10), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+            arr,
+            top_left_corner=(0, 10),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
         )
         fc = ds.contour(interval=2.0)
         assert len(fc) > 0, "Expected contours from the valid gradient, got none"
-        assert min(fc["elev"].tolist()) >= 2.0, (
-            f"No-data region should not produce negative contours: {sorted(fc['elev'].tolist())}"
-        )
+        assert (
+            min(fc["elev"].tolist()) >= 2.0
+        ), f"No-data region should not produce negative contours: {sorted(fc['elev'].tolist())}"
 
     def test_no_nodata_value(self):
         """A band with no no-data value set still contours (NODATA option omitted).
@@ -170,11 +195,16 @@ class TestContour:
         ds = Dataset.create_from_array(
             arr, top_left_corner=(0, 10), cell_size=1.0, epsg=4326, no_data_value=None
         )
-        assert ds.raster.GetRasterBand(1).GetNoDataValue() is None, "fixture should have no nodata"
+        assert (
+            ds.raster.GetRasterBand(1).GetNoDataValue() is None
+        ), "fixture should have no nodata"
         fc = ds.contour(interval=2.0)
-        assert sorted(fc["elev"].tolist()) == [2.0, 4.0, 6.0, 8.0], (
-            f"Unexpected elevations: {sorted(fc['elev'].tolist())}"
-        )
+        assert sorted(fc["elev"].tolist()) == [
+            2.0,
+            4.0,
+            6.0,
+            8.0,
+        ], f"Unexpected elevations: {sorted(fc['elev'].tolist())}"
 
     def test_flat_raster_empty(self, flat):
         """A constant raster produces an empty FeatureCollection, not an error.
@@ -183,7 +213,9 @@ class TestContour:
             A flat value-5 raster contoured at interval=2 has no level crossings.
         """
         fc = flat.contour(interval=2.0)
-        assert isinstance(fc, FeatureCollection), f"Expected FeatureCollection, got {type(fc)}"
+        assert isinstance(
+            fc, FeatureCollection
+        ), f"Expected FeatureCollection, got {type(fc)}"
         assert len(fc) == 0, f"Expected an empty collection, got {len(fc)} features"
 
     def test_neither_interval_nor_levels_raises(self, ramp):
@@ -245,5 +277,7 @@ class TestContour:
                 return None
 
         monkeypatch.setattr(vec_mod.ogr, "GetDriverByName", lambda name: _NullDriver())
-        with pytest.raises(RuntimeError, match="Failed to create in-memory OGR DataSource"):
+        with pytest.raises(
+            RuntimeError, match="Failed to create in-memory OGR DataSource"
+        ):
             ramp.contour(interval=2.0)

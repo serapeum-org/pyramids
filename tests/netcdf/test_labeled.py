@@ -47,7 +47,9 @@ def _streamflow_dataset(**extra_coords) -> xr.Dataset:
         "gage_id": ("feature_id", np.array(["01010000", "01010500", "01011000"])),
     }
     coords.update(extra_coords)
-    return xr.Dataset({"streamflow": (("time", "feature_id"), streamflow)}, coords=coords)
+    return xr.Dataset(
+        {"streamflow": (("time", "feature_id"), streamflow)}, coords=coords
+    )
 
 
 @pytest.fixture
@@ -258,7 +260,9 @@ class TestLabeledDatasetSelect:
             store.select_by_coord("nope", ["x"])
 
     def test_select_by_coord_requires_1d(self, tmp_path: Path):
-        ds = _streamflow_dataset(grid=(("time", "feature_id"), np.zeros((N_TIME, N_FEAT))))
+        ds = _streamflow_dataset(
+            grid=(("time", "feature_id"), np.zeros((N_TIME, N_FEAT)))
+        )
         path = tmp_path / "grid.nc"
         ds.to_netcdf(path)
         ds.close()
@@ -315,7 +319,9 @@ class TestLabeledDatasetTimeSlice:
 
     def test_select_time_composes_with_select(self, nc_store: Path):
         store = LabeledDataset.read_file(nc_store)
-        sub = store.select(feature_id=[101, 202]).select_time("2010-06-01", "2010-06-02")
+        sub = store.select(feature_id=[101, 202]).select_time(
+            "2010-06-01", "2010-06-02"
+        )
         assert sub.sizes == {"time": 2, "feature_id": 2}
 
     def test_out_of_range_window_raises(self, nc_store: Path):
@@ -395,7 +401,9 @@ class TestLabeledDatasetBbox:
             store.select_bbox((-77, 40, -75, 42), lon="x")
 
     def test_non_1d_coord_raises(self, tmp_path: Path):
-        ds = _streamflow_dataset(grid=(("time", "feature_id"), np.zeros((N_TIME, N_FEAT))))
+        ds = _streamflow_dataset(
+            grid=(("time", "feature_id"), np.zeros((N_TIME, N_FEAT)))
+        )
         path = tmp_path / "grid.nc"
         ds.to_netcdf(path)
         ds.close()
@@ -474,7 +482,9 @@ class TestLabeledDatasetWrite:
         with pytest.warns(UserWarning, match="realising"):
             store.to_dataframe()
 
-    def test_to_parquet_missing_pyarrow_raises(self, tmp_path: Path, nc_store, monkeypatch):
+    def test_to_parquet_missing_pyarrow_raises(
+        self, tmp_path: Path, nc_store, monkeypatch
+    ):
         def _raise(_msg):
             raise OptionalPackageDoesNotExist("no pyarrow")
 

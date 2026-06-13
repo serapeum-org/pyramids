@@ -21,6 +21,7 @@ explicitly by the caller (resolved via `pyramids.__path__`) rather
 than derived from `__file__`, so this module can move anywhere within
 the package without the vendor-dir resolution breaking.
 """
+
 from __future__ import annotations
 
 import os
