@@ -378,8 +378,15 @@ class TestThreadLocalManagerSemantics:
         assert handle.RasterXSize == 256, "restored manager must reopen the file"
 
 
+@pytest.mark.lazy
 class TestThreadsafeLazyReads:
-    """The dask wiring: chunks= + lock=False + threadsafe=True."""
+    """The dask wiring: chunks= + lock=False + threadsafe=True.
+
+    Tagged ``lazy`` so the conftest hook auto-skips these when the lazy stack
+    (dask / zarr) is absent — e.g. the bare-wheel smoke test that installs the
+    wheel without the ``[lazy]`` extra. Without it they error with
+    ``ModuleNotFoundError: No module named 'dask'`` instead of skipping.
+    """
 
     def test_lockfree_equals_locked(self, tiled_raster):
         """The lock-free per-thread-handle compute equals the locked default."""
