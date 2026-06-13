@@ -243,6 +243,24 @@ class TestWindowedIO:
 class TestBlockIteration:
     """block_windows / iter_blocks generators."""
 
+    def test_generator_return_hints_resolve(self):
+        """``get_type_hints`` resolves on the generator-returning methods.
+
+        Test scenario:
+            ``typing.Generator`` requires its 3-argument form
+            (``Generator[Y, None, None]``) to resolve on Python < 3.13. The
+            1-argument shorthand imports fine under ``from __future__ import
+            annotations`` but raises ``TypeError`` in ``get_type_hints`` on
+            py311/py312, breaking mkdocstrings. Guard both methods.
+        """
+        import typing
+
+        from pyramids.dataset.abstract_dataset import RasterBase
+
+        for method in (RasterBase.block_windows, RasterBase.iter_blocks):
+            hints = typing.get_type_hints(method)
+            assert "return" in hints, f"{method.__name__} return hint missing"
+
     def test_block_windows_tile_exactly_once(self, ramp_dataset):
         """The yielded windows partition the raster exactly.
 
