@@ -971,9 +971,13 @@ class IO(_Engine):
         if threadsafe:
             # One read-only handle per worker thread: chunk reads never
             # contend, so lock=None resolved to DummyLock above. Reuse the
-            # Dataset-cached manager so Dataset.close() can release every
-            # worker handle — a fresh manager here would leak its per-thread
-            # handles past close().
+            # Dataset-cached manager so Dataset.close() can release the worker
+            # handles — a fresh manager here would leak its per-thread handles
+            # past close(). NOTE: this release reaches only handles opened in
+            # *this* process (the default threaded scheduler). Under
+            # dask.distributed the manager is pickled to each worker process
+            # with a fresh handle list, so client-side close() cannot reach
+            # those remote handles; they are released at worker-process exit.
             manager: Any = self._get_thread_manager()
         else:
             manager = CachingFileManager(
