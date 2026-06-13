@@ -165,6 +165,17 @@ class TestClipCommand:
         assert "does not intersect" in err, f"error should name the disjoint bbox: {err}"
         assert not os.path.exists(out), "no output should be written for a disjoint clip"
 
+    def test_vector_disjoint_from_raster_clear_error(self, src_raster, tmp_path, capsys):
+        """clip --vector with a mask outside the raster extent gives a clear error (L3)."""
+        mask_path = str(tmp_path / "far_mask.geojson")
+        FeatureCollection.from_bbox((100.0, 100.0, 110.0, 110.0), epsg=4326).to_file(mask_path)
+        out = str(tmp_path / "out.tif")
+        rc = main(["clip", src_raster, out, "--vector", mask_path])
+        err = capsys.readouterr().err
+        assert rc == 1, "a disjoint vector mask must exit 1"
+        assert "does not intersect" in err, f"error should name the disjoint mask: {err}"
+        assert not os.path.exists(out), "no output should be written for a disjoint clip"
+
     def test_refuses_to_overwrite_without_flag(self, src_raster, tmp_path, capsys):
         """clip refuses to clobber an existing output unless --overwrite (N5)."""
         out = str(tmp_path / "exists.tif")

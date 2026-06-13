@@ -80,6 +80,22 @@ def _refuse_existing(path: str, overwrite: bool) -> None:
         )
 
 
+def _bbox_disjoint(a, b) -> bool:
+    """Return True when two ``(minx, miny, maxx, maxy)`` extents do not overlap.
+
+    Args:
+        a: First extent ``(minx, miny, maxx, maxy)``.
+        b: Second extent ``(minx, miny, maxx, maxy)``.
+
+    Returns:
+        bool: ``True`` when the rectangles share no area (edge-touching counts
+        as disjoint, since a zero-area clip yields an empty grid).
+    """
+    aminx, aminy, amaxx, amaxy = a
+    bminx, bminy, bmaxx, bmaxy = b
+    return aminx >= bmaxx or amaxx <= bminx or aminy >= bmaxy or amaxy <= bminy
+
+
 _HELP_INSPECT_RASTER = "raster path to inspect"
 _HELP_JSON = "emit JSON"
 
@@ -247,8 +263,19 @@ def _cmd_clip(args: argparse.Namespace) -> int:
         int: `0` on success.
     """
     ds = Dataset.read_file(args.input)
+    # A mask/bbox disjoint from the raster crops to an empty grid, which surfaces
+    # deep inside crop as an opaque IndexError; intersect-check up front for both
+    # the --vector and --bbox paths and raise a clear message instead.
     if args.vector:
         mask = FeatureCollection.read_file(args.vector)
+        mask_extent = mask.total_bounds
+        if mask.crs is not None and ds.crs and mask.epsg != ds.epsg:
+            mask_extent = mask.to_crs(ds.epsg).total_bounds
+        if _bbox_disjoint(mask_extent, ds.bbox):
+            raise ValueError(
+                f"clip --vector mask extent {tuple(mask_extent)} does not "
+                f"intersect the raster extent {tuple(ds.bbox)}; nothing to clip."
+            )
         _refuse_existing(args.output, args.overwrite)
         clipped = ds.crop(mask)
     else:
@@ -258,11 +285,7 @@ def _cmd_clip(args: argparse.Namespace) -> int:
                 "bbox, but it has none; clip with a --vector mask instead."
             )
         clip_bbox = tuple(args.bbox)
-        # A bbox disjoint from the raster crops to an empty grid, which surfaces
-        # deep inside crop as an opaque IndexError. Catch it here with a clear message.
-        rminx, rminy, rmaxx, rmaxy = ds.bbox
-        bminx, bminy, bmaxx, bmaxy = clip_bbox
-        if bminx >= rmaxx or bmaxx <= rminx or bminy >= rmaxy or bmaxy <= rminy:
+        if _bbox_disjoint(clip_bbox, ds.bbox):
             raise ValueError(
                 f"clip --bbox {clip_bbox} does not intersect the raster extent "
                 f"{tuple(ds.bbox)}; nothing to clip."
