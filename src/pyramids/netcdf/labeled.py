@@ -157,7 +157,9 @@ class LabeledDataset:
 
         Raises:
             ValueError: GDAL could not open the store as a multidimensional
-                dataset.
+                dataset, or the named ``group`` does not exist.
+            KeyError: A name in ``variables`` is not a data variable in the
+                store.
 
         Examples:
             - Open the NWM retrospective Zarr anonymously::
@@ -278,6 +280,14 @@ class LabeledDataset:
         var_names = [n for n in array_names if n not in coord_names]
         if variables is not None:
             wanted = list(variables)
+            missing = [n for n in wanted if n not in var_names]
+            if missing:
+                # Fail loudly on a typo'd / absent name instead of silently
+                # returning an empty subset; mirrors select()'s KeyError contract.
+                raise KeyError(
+                    f"variable(s) {missing} not found; available data variables "
+                    f"are {var_names}."
+                )
             var_names = [n for n in var_names if n in wanted]
         return cls(
             ds,

@@ -117,6 +117,11 @@ class TestLabeledDatasetRead:
         store = LabeledDataset.read_file(nc_store, variables=["streamflow"])
         assert store.variables == ["streamflow"]
 
+    def test_variables_unknown_name_raises(self, nc_store: Path):
+        """An unknown name in ``variables=`` raises KeyError, not a silent empty subset."""
+        with pytest.raises(KeyError, match="not found"):
+            LabeledDataset.read_file(nc_store, variables=["streamflow", "typo"])
+
     def test_getitem_and_contains(self, nc_store: Path):
         store = LabeledDataset.read_file(nc_store)
         assert "streamflow" in store
