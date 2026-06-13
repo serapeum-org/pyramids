@@ -172,7 +172,11 @@ class LabeledDataset:
         source = str(path)
         gdal_path = _to_vsi(source) if _is_remote_url(source) else source
         if _is_zarr_store(source, engine):
-            gdal_path = f'ZARR:"{gdal_path}"' if not gdal_path.startswith("ZARR:") else gdal_path
+            gdal_path = (
+                f'ZARR:"{gdal_path}"'
+                if not gdal_path.startswith("ZARR:")
+                else gdal_path
+            )
         try:
             with CloudConfig(aws_no_sign_request=anon):
                 ds = gdal.OpenEx(gdal_path, gdal.OF_MULTIDIM_RASTER)
@@ -206,9 +210,7 @@ class LabeledDataset:
             # ValueError, chaining the GDAL cause so a non-missing-group failure
             # (e.g. a corrupt store) stays legible.
             ds = None
-            raise ValueError(
-                f"group {group!r} not found in {source!r}: {exc}"
-            ) from exc
+            raise ValueError(f"group {group!r} not found in {source!r}: {exc}") from exc
         if grp is None:
             ds = None
             raise ValueError(f"group {group!r} not found in {source!r}.")
@@ -261,10 +263,35 @@ class LabeledDataset:
                 "numeric data is still available.",
                 stacklevel=3,
             )
-        # Derive dimensions from the readable arrays only — grp.GetDimensions()
-        # itself raises when the group holds an unreadable v3-string array
-        # (GDAL resolves array types while enumerating dimensions). This also
-        # drops phantom char-length dimensions, which no array exposes.
+        dim_order, full_sizes, dim_coords = cls._derive_dimensions(grp, array_names)
+        aux_coords = cls._aux_coordinate_names(grp, array_names, dim_coords)
+        coord_names = [n for n in array_names if n in dim_coords or n in aux_coords]
+        var_names = [n for n in array_names if n not in coord_names]
+        var_names = cls._apply_variable_filter(var_names, variables)
+        return cls(
+            ds,
+            grp,
+            coord_names=coord_names,
+            var_names=var_names,
+            dim_order=dim_order,
+            full_sizes=full_sizes,
+        )
+
+    @staticmethod
+    def _derive_dimensions(
+        grp: gdal.Group, array_names: list[str]
+    ) -> tuple[list[str], dict[str, int], set[str]]:
+        """Derive ``(dim_order, full_sizes, dim_coords)`` from the readable arrays.
+
+        ``grp.GetDimensions()`` itself raises when the group holds an unreadable
+        v3-string array (GDAL resolves array types while enumerating dimensions),
+        so dimensions are derived from the readable arrays only — which also drops
+        phantom char-length dimensions that no array exposes.
+
+        Returns:
+            tuple: dimension order, each dimension's full size, and the set of
+            dimension-coordinate names (1-D arrays named like their own dimension).
+        """
         dim_order: list[str] = []
         full_sizes: dict[str, int] = {}
         dim_coords: set[str] = set()
@@ -275,38 +302,45 @@ class LabeledDataset:
                 if dn not in full_sizes:
                     full_sizes[dn] = int(dim.GetSize())
                     dim_order.append(dn)
-            # A dimension coordinate is a 1-D array named like its own dimension.
             if len(adims) == 1 and adims[0].GetName() == name:
                 dim_coords.add(name)
-        # Auxiliary coordinates: anything listed in a variable's `coordinates`
-        # attribute (CF). Data variables: the rest.
+        return dim_order, full_sizes, dim_coords
+
+    @staticmethod
+    def _aux_coordinate_names(
+        grp: gdal.Group, array_names: list[str], dim_coords: set[str]
+    ) -> set[str]:
+        """Names listed in any data variable's CF ``coordinates`` attribute."""
         aux_coords: set[str] = set()
-        data_candidates = [n for n in array_names if n not in dim_coords]
-        for name in data_candidates:
+        for name in array_names:
+            if name in dim_coords:
+                continue
             attr = _get_attr(grp.OpenMDArray(name), "coordinates")
             if attr is not None:
                 aux_coords.update(attr.ReadAsString().split())
-        coord_names = [n for n in array_names if n in dim_coords or n in aux_coords]
-        var_names = [n for n in array_names if n not in coord_names]
-        if variables is not None:
-            wanted = list(variables)
-            missing = [n for n in wanted if n not in var_names]
-            if missing:
-                # Fail loudly on a typo'd / absent name instead of silently
-                # returning an empty subset; mirrors select()'s KeyError contract.
-                raise KeyError(
-                    f"variable(s) {missing} not found; available data variables "
-                    f"are {var_names}."
-                )
-            var_names = [n for n in var_names if n in wanted]
-        return cls(
-            ds,
-            grp,
-            coord_names=coord_names,
-            var_names=var_names,
-            dim_order=dim_order,
-            full_sizes=full_sizes,
-        )
+        return aux_coords
+
+    @staticmethod
+    def _apply_variable_filter(
+        var_names: list[str], variables: Iterable[str] | None
+    ) -> list[str]:
+        """Restrict ``var_names`` to ``variables``, raising on unknown names.
+
+        Raises:
+            KeyError: A requested name is not a data variable (fail loudly on a
+            typo instead of silently returning an empty subset, mirroring
+            ``select()``'s contract).
+        """
+        if variables is None:
+            return var_names
+        wanted = list(variables)
+        missing = [n for n in wanted if n not in var_names]
+        if missing:
+            raise KeyError(
+                f"variable(s) {missing} not found; available data variables "
+                f"are {var_names}."
+            )
+        return [n for n in var_names if n in wanted]
 
     def _replace(
         self, index: dict[str, np.ndarray], scalar_dims: frozenset[str]
@@ -366,33 +400,58 @@ class LabeledDataset:
         """
         arr = self._group.OpenMDArray(name)
         dim_names = self._array_dims(name)
-        is_string = arr.GetDataType().GetClass() == gdal.GEDTC_STRING
-        if is_string:
-            values = np.asarray(arr.Read(), dtype=object)
-            for axis, dim in enumerate(dim_names):
-                idx = self._index.get(dim)
-                if idx is not None:
-                    values = np.take(values, np.asarray(idx), axis=axis)
+        if arr.GetDataType().GetClass() == gdal.GEDTC_STRING:
+            values = self._read_string_selection(arr, dim_names)
         else:
-            starts, counts, local = [], [], []
-            for dim in dim_names:
-                idx = self._index.get(dim)
-                if idx is None:
-                    starts.append(0)
-                    counts.append(self._full_sizes[dim])
-                    local.append(None)
-                else:
-                    lo, hi = int(idx.min()), int(idx.max())
-                    starts.append(lo)
-                    counts.append(hi - lo + 1)
-                    local.append(np.asarray(idx) - lo)
-            values = np.asarray(arr.ReadAsArray(array_start_idx=starts, count=counts))
-            for axis, loc in enumerate(local):
-                if loc is not None:
-                    values = np.take(values, loc, axis=axis)
+            values = self._read_numeric_selection(arr, dim_names)
         values = self._maybe_decode_time(arr, values)
-        keep_axes = tuple(i for i, d in enumerate(dim_names) if d not in self._scalar_dims)
-        scalar_axes = tuple(i for i, d in enumerate(dim_names) if d in self._scalar_dims)
+        return self._squeeze_scalar_dims(values, dim_names)
+
+    def _read_string_selection(
+        self, arr: gdal.MDArray, dim_names: list[str]
+    ) -> np.ndarray:
+        """Full-read a string array (GDAL has no strided string read) and apply
+        the current per-dimension fancy index."""
+        values = np.asarray(arr.Read(), dtype=object)
+        for axis, dim in enumerate(dim_names):
+            idx = self._index.get(dim)
+            if idx is not None:
+                values = np.take(values, np.asarray(idx), axis=axis)
+        return values
+
+    def _read_numeric_selection(
+        self, arr: gdal.MDArray, dim_names: list[str]
+    ) -> np.ndarray:
+        """Strided ``ReadAsArray`` over each selected dim's index span, then a
+        local fancy index to pick the exact requested labels within the span."""
+        starts, counts, local = [], [], []
+        for dim in dim_names:
+            idx = self._index.get(dim)
+            if idx is None:
+                starts.append(0)
+                counts.append(self._full_sizes[dim])
+                local.append(None)
+            else:
+                lo, hi = int(idx.min()), int(idx.max())
+                starts.append(lo)
+                counts.append(hi - lo + 1)
+                local.append(np.asarray(idx) - lo)
+        values = np.asarray(arr.ReadAsArray(array_start_idx=starts, count=counts))
+        for axis, loc in enumerate(local):
+            if loc is not None:
+                values = np.take(values, loc, axis=axis)
+        return values
+
+    def _squeeze_scalar_dims(
+        self, values: np.ndarray, dim_names: list[str]
+    ) -> tuple[np.ndarray, tuple[str, ...]]:
+        """Squeeze out scalar-selected dimensions, returning ``(values, dims)``."""
+        keep_axes = tuple(
+            i for i, d in enumerate(dim_names) if d not in self._scalar_dims
+        )
+        scalar_axes = tuple(
+            i for i, d in enumerate(dim_names) if d in self._scalar_dims
+        )
         if scalar_axes:
             values = np.squeeze(values, axis=scalar_axes)
         out_dims = tuple(dim_names[i] for i in keep_axes)
@@ -422,7 +481,9 @@ class LabeledDataset:
         calendar = cal_attr.ReadAsString() if cal_attr is not None else "standard"
         standard = calendar in ("standard", "gregorian", "proleptic_gregorian")
         decoded = np.asarray(
-            cftime.num2date(values, unit, calendar, only_use_cftime_datetimes=not standard)
+            cftime.num2date(
+                values, unit, calendar, only_use_cftime_datetimes=not standard
+            )
         )
         if standard:
             try:
@@ -498,7 +559,9 @@ class LabeledDataset:
             # Positions within the current selection, in REQUEST order.
             positions = [int(np.flatnonzero(current == v)[0]) for v in requested]
             base = self._index.get(dim)
-            base = np.arange(self._full_sizes[dim]) if base is None else np.asarray(base)
+            base = (
+                np.arange(self._full_sizes[dim]) if base is None else np.asarray(base)
+            )
             index[dim] = base[positions]
             if is_scalar:
                 scalar.add(dim)
@@ -553,7 +616,12 @@ class LabeledDataset:
         """Convert a date string / datetime to the time axis's numeric scale."""
         ts = pd.Timestamp(value)
         dt = cftime.datetime(
-            ts.year, ts.month, ts.day, ts.hour, ts.minute, ts.second,
+            ts.year,
+            ts.month,
+            ts.day,
+            ts.hour,
+            ts.minute,
+            ts.second,
             ts.microsecond,
             calendar=calendar,
         )
@@ -608,7 +676,9 @@ class LabeledDataset:
                 f"[{full.min()}, {full.max()}] in '{unit}'"
             )
         base = self._index.get(time_dim)
-        base = np.arange(self._full_sizes[time_dim]) if base is None else np.asarray(base)
+        base = (
+            np.arange(self._full_sizes[time_dim]) if base is None else np.asarray(base)
+        )
         index = dict(self._index)
         index[time_dim] = base[np.flatnonzero(mask)]
         return self._replace(index, self._scalar_dims)
@@ -831,7 +901,9 @@ class _LabeledArray:
 
     __slots__ = ("values", "dims", "shape")
 
-    def __init__(self, values: np.ndarray, dims: tuple[str, ...], shape: tuple[int, ...]):
+    def __init__(
+        self, values: np.ndarray, dims: tuple[str, ...], shape: tuple[int, ...]
+    ):
         self.values = values
         self.dims = dims
         self.shape = shape
