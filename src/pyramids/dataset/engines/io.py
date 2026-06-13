@@ -866,9 +866,11 @@ class IO(_Engine):
             # large sentinel (e.g. -9990 next to a -9999 marker).
             mask = data == nodata
         else:
-            # Float bands: keep NaN-safety but drop the relative tolerance so
-            # only (near-)exact matches are masked, not values merely close to
-            # a large sentinel.
+            # Float bands: keep NaN-safety but drop the *relative* tolerance so
+            # values merely close to a large sentinel are not masked. Note this
+            # still applies np.isclose's default absolute tolerance (atol=1e-8),
+            # i.e. near-exact (not bit-exact) matching — fine for real sentinels
+            # (-9999.0, NaN); pass atol=0.0 if bit-exact float masking is needed.
             mask = is_no_data(data, nodata, rtol=0.0)
         gdal_band = self._ds._iloc(index)
         if gdal_band.GetMaskFlags() not in (gdal.GMF_ALL_VALID, gdal.GMF_NODATA):
