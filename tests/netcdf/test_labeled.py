@@ -151,6 +151,19 @@ class TestLabeledDatasetRead:
         with pytest.raises(ValueError, match="could not open"):
             LabeledDataset.read_file(tmp_path / "does-not-exist.nc")
 
+    def test_missing_group_raises_and_releases_handle(self, nc_store: Path):
+        """A bad ``group`` name raises and does not leak the GDAL handle.
+
+        Test scenario:
+            ``read_file(group="nope")`` raises ValueError; the store file is
+            then removable, proving the open handle was released before the
+            raise (a leaked read handle keeps the file locked on Windows).
+        """
+        with pytest.raises(ValueError, match="not found"):
+            LabeledDataset.read_file(nc_store, group="nope")
+        nc_store.unlink()  # raises PermissionError on Windows if the handle leaked
+        assert not nc_store.exists()
+
 
 class TestLabeledDatasetSelect:
     """Select by label dimension and by a secondary 1-D coord."""

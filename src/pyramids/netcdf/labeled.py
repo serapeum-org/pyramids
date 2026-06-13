@@ -195,8 +195,16 @@ class LabeledDataset:
                 f"GDAL could not open {source!r} as a multidimensional store."
             )
         root = ds.GetRootGroup()
-        grp = root.OpenGroup(group) if group else root
+        try:
+            grp = root.OpenGroup(group) if group else root
+        except RuntimeError:
+            # Under gdal.UseExceptions() a missing group raises rather than
+            # returning None; normalize to a clear ValueError below.
+            grp = None
         if grp is None:
+            # Release the handle before raising so the store isn't left locked
+            # (Windows keeps the file open until the gdal.Dataset is dropped).
+            ds = None
             raise ValueError(f"group {group!r} not found in {source!r}.")
         return cls._from_group(ds, grp, variables)
 
