@@ -63,15 +63,14 @@ minimal:
 
 | Extra            | Pulls                                            | Enables                                      |
 |------------------|--------------------------------------------------|----------------------------------------------|
-| `[lazy]`         | `dask`, `zarr`, `fsspec`, `flox`                 | Raster + NetCDF lazy reads, Zarr, groupby    |
-| `[netcdf-lazy]`  | `[lazy]` + `kerchunk`, `h5py`                    | `to_kerchunk`, `combine_kerchunk` manifests  |
+| `[lazy]`         | `dask`, `zarr`, `fsspec`, `flox`, `kerchunk`, `h5py` | Raster + NetCDF lazy reads, Zarr, groupby, `to_kerchunk`/`combine_kerchunk` manifests |
 | `[parquet-lazy]` | `[lazy]` + `pyarrow`, `dask-geopandas`           | `LazyFeatureCollection`, GeoParquet          |
 | `[xarray]`       | `xarray`                                         | `NetCDF.to_xarray()` / `.from_xarray()`      |
 
 Install one or many:
 
 ```bash
-pip install 'pyramids-gis[lazy,netcdf-lazy,parquet-lazy,stac,zonal]'
+pip install 'pyramids-gis[lazy,parquet-lazy,stac,zonal]'
 ```
 
 When an extra is missing, the corresponding entry point raises a

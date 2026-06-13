@@ -24,13 +24,12 @@ libtiff, and all other native dependencies. No `gdal-config`, no
 
 - `viz`: `cleopatra[tiles]` (plotting + basemap tiles via mercantile /
   xyzservices / Pillow)
-- `lazy`: dask / distributed / zarr / fsspec / flox (powers
-  `Dataset.read_array(chunks=…)`, `DatasetCollection.data`,
-  `DatasetCollection.to_zarr`)
+- `lazy`: dask / distributed / zarr / fsspec / flox / kerchunk / h5py
+  (powers `Dataset.read_array(chunks=…)`, `DatasetCollection.data`,
+  `DatasetCollection.to_zarr`, and `NetCDF.to_kerchunk` /
+  `combine_kerchunk` HDF5/NetCDF reference manifests)
 - `xarray`: xarray (required for `DatasetCollection.to_netcdf` and
   `NetCDF.from_xarray`)
-- `netcdf-lazy`: `[lazy]` + kerchunk + h5py (HDF5/NetCDF chunked reads
-  via kerchunk references)
 - `parquet`: pyarrow (vector parquet I/O)
 - `parquet-lazy`: `[lazy]` + `[parquet]` + dask-geopandas (lazy vector
   reads)

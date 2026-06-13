@@ -16,8 +16,7 @@ formats (Zarr + kerchunk).
 Installing the extras:
 
 ```bash
-pip install 'pyramids-gis[lazy]'         # cube + reductions + Zarr
-pip install 'pyramids-gis[netcdf-lazy]'  # + to_kerchunk
+pip install 'pyramids-gis[lazy]'         # cube + reductions + Zarr + to_kerchunk
 # from_stac needs no extra — it's duck-typed over any iterable of
 # STAC-like items (pystac.Item, raw JSON dicts, etc.). Users who
 # build items via pystac-client install pystac themselves.
@@ -248,7 +247,7 @@ GeoTIFF-backed collections raise `NotImplementedError` on
 `to_kerchunk` — the GeoTIFF manifest path needs `kerchunk.tiff` +
 `tifffile` which isn't yet wired. Use `to_zarr` for those today.
 
-Kerchunk lives behind `[netcdf-lazy]`.
+Kerchunk lives behind `[lazy]`.
 
 ## When to use which output
 
@@ -317,7 +316,7 @@ write is at `docs/examples/dataset/dask-lazy-datasets.ipynb`.
 - `collection.data`, the six reductions, and `to_zarr` raise
   `ImportError` for the `[lazy]` extra when missing.
 - `collection.to_kerchunk` raises `ImportError` for
-  `[netcdf-lazy]`; also raises `NotImplementedError` on
+  `[lazy]`; also raises `NotImplementedError` on
   GeoTIFF-backed collections regardless of extras.
 - `DatasetCollection.from_stac` needs no pyramids extra — the
   implementation is duck-typed and does not import pystac.

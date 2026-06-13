@@ -20,8 +20,7 @@ basics.
 Installing the extras:
 
 ```bash
-pip install 'pyramids-gis[lazy]'          # read_array + open_mfdataset
-pip install 'pyramids-gis[netcdf-lazy]'   # + kerchunk manifests + h5py
+pip install 'pyramids-gis[lazy]'   # read_array + open_mfdataset + kerchunk manifests (h5py)
 ```
 
 ## Reading one variable lazily
@@ -173,9 +172,8 @@ mapper = fsspec.get_mapper(
 ds = xr.open_zarr(mapper, consolidated=False)   # lazy, zero-copy
 ```
 
-Kerchunk is behind `[netcdf-lazy]`. `to_kerchunk` and
-`combine_kerchunk` raise a branded `ImportError` naming the extra
-when it's absent.
+Kerchunk ships in `[lazy]`. `to_kerchunk` and `combine_kerchunk`
+raise a branded `ImportError` naming the extra when it's absent.
 
 ### When to use kerchunk vs `open_mfdataset`
 
@@ -211,8 +209,8 @@ semantics (handle pooling, distributed-safe pickling) on the read
 side, and xarray's ergonomics on the downstream side — no backend
 adapter layer in between.
 
-Install: `[netcdf-lazy]` pulls `kerchunk` + `h5py`; add the
-`[xarray]` extra on top if you want `xr.DataArray` / `.to_xarray()` /
+Install: `[lazy]` pulls `kerchunk` + `h5py`; add the `[xarray]`
+extra on top if you want `xr.DataArray` / `.to_xarray()` /
 `.from_xarray()`.
 
 ## A worked pipeline — ERA5 on AWS
@@ -257,7 +255,7 @@ extra:
 ImportError: dask is required for lazy NetCDF reads; install pyramids-gis[lazy]
 ```
 
-Calls that need kerchunk name `[netcdf-lazy]`. `NetCDF.to_xarray()` /
+Calls that need kerchunk name `[lazy]`. `NetCDF.to_xarray()` /
 `.from_xarray()` name `[xarray]`. The eager
 `NetCDF.read_array(chunks=None)` path is always available and does
 not touch dask / xarray / kerchunk.
