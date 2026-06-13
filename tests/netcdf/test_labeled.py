@@ -6,7 +6,7 @@ multidimensional API (no xarray/dask) and exposes its dims, coords, and variable
 without forcing a raster interpretation.
 
 Fixtures are written with xarray purely as test scaffolding (the production class
-reads them via GDAL); they are gated on the optional ``[xarray]`` extra.
+reads them via GDAL); they are gated on the optional ``xarray`` dependency.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ pytestmark = pytest.mark.xarray
 N_TIME, N_FEAT = 4, 3
 
 
-def _streamflow_dataset(**extra_coords) -> "xr.Dataset":
+def _streamflow_dataset(**extra_coords) -> xr.Dataset:
     """A ``(time, feature_id)`` streamflow store with NWM-like coordinates."""
     feature_id = np.array([101, 202, 303], dtype="int64")
     time = np.array(

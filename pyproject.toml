@@ -54,7 +54,6 @@ lazy = [
     "kerchunk>=0.2.10",
     "h5py>=3.8.0",
 ]
-xarray = ["xarray>=2023.1.0"]
 parquet = ["pyarrow>=10.0.0"]
 parquet-lazy = ["pyramids-gis[lazy,parquet]", "dask-geopandas>=0.5.0"]
 stac = ["pystac-client>=0.8.0", "stac-asset>=0.4.7"]
@@ -229,7 +228,7 @@ markers = [
     # ``tests/_marks.py`` + ``pytest_collection_modifyitems``. ``viz`` is
     # spelled ``plot`` above; don't register a duplicate.
     "lazy: tests requiring the [lazy] extra (dask, distributed, zarr, fsspec, flox)",
-    "xarray: tests requiring the [xarray] extra (xarray)",
+    "xarray: tests requiring xarray (a peer interop dep; `pip install xarray`)",
     "netcdf_lazy: tests requiring kerchunk + h5py (now part of the [lazy] extra)",
     "parquet: tests requiring the [parquet] extra (pyarrow)",
     "parquet_lazy: tests requiring the [parquet-lazy] extra (dask-geopandas, + parquet, + lazy)",
@@ -331,6 +330,14 @@ dask-geopandas = ">=0.5.0"
 
 [tool.pixi.feature.stac.dependencies]
 pystac-client = ">=0.8.0"
+
+# xarray is intentionally NOT a [project.optional-dependencies] extra: pyramids is
+# GDAL-backed, not xarray-backed, so xarray is a peer for the to_xarray / from_xarray /
+# to_netcdf interop helpers only — install it directly (`pip install xarray`) when you
+# want them. This pixi feature exists solely so the dev / CI environments have xarray to
+# exercise those code paths; it does not surface a user-facing extra or conda subpackage.
+[tool.pixi.feature.xarray.pypi-dependencies]
+xarray = ">=2023.1.0"
 
 # Single source of truth for the conda GDAL pin (SWIG osgeo bindings are ABI-locked to
 # libgdal). Listed by every environment; ci/gdal-pin.py and ci/setup-gdal-micromamba.sh

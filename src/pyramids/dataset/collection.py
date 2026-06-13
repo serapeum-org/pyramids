@@ -1077,7 +1077,7 @@ class DatasetCollection:
         path: str | Path,
         *,
         time_dim: str = "time",
-        time_coords: "Sequence[Any] | None" = None,
+        time_coords: Sequence[Any] | None = None,
         var_per_band: bool = True,
     ) -> None:
         """Write the collection's ``(T, B, Y, X)`` cube to a single NetCDF.
@@ -1117,8 +1117,8 @@ class DatasetCollection:
         Raises:
             OptionalPackageDoesNotExist: When ``xarray`` is not
                 installed. Install with one of: PyPI
-                ``pip install 'pyramids-gis[xarray]'`` or conda-forge
-                ``conda install -c conda-forge pyramids-xarray``.
+                ``pip install xarray`` or conda-forge
+                ``conda install -c conda-forge xarray``.
             ValueError: When ``len(time_coords) != self.time_length``.
             RuntimeError: When :meth:`NetCDF.from_xarray` fails to write
                 the file.
@@ -1165,8 +1165,8 @@ class DatasetCollection:
             raise OptionalPackageDoesNotExist(
                 "DatasetCollection.to_netcdf requires the optional 'xarray' "
                 "dependency. Install with one of:\n"
-                "  - PyPI:        pip install 'pyramids-gis[xarray]'\n"
-                "  - conda-forge: conda install -c conda-forge pyramids-xarray"
+                "  - PyPI:        pip install xarray\n"
+                "  - conda-forge: conda install -c conda-forge xarray"
             ) from exc
 
         if time_coords is not None:

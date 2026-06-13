@@ -11,8 +11,8 @@ likely under future refactors:
 2. Pickle a lazy NetCDF variable subset across a spawn subprocess + do
    the compute on the worker (dask.distributed shape).
 3. ``to_kerchunk`` manifest consumed via xarray ``engine="kerchunk"``
-   — gated on the ``[xarray]`` extra since xarray is the canonical
-   downstream kerchunk consumer, not a pyramids dependency.
+   — gated on the optional ``xarray`` dependency since xarray is the
+   canonical downstream kerchunk consumer, not a pyramids dependency.
 """
 
 from __future__ import annotations

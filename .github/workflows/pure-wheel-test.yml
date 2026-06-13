@@ -149,10 +149,11 @@ jobs:
         python-version: ["3.13"]
         extra:
           - { name: viz,          pip_extra: "viz",          marker: "plot",         dir: "tests/" }
-          # xarray-marked tests include the LabeledDataset reader, which needs the lazy
-          # data stack (zarr / dask / s3fs) to open Zarr stores, chunk, and read remote
-          # URLs — so install [xarray,lazy], not [xarray] alone.
-          - { name: xarray,       pip_extra: "xarray,lazy",  marker: "xarray",       dir: "tests/" }
+          # xarray is not a pyramids extra (it's a peer interop dep) — install it
+          # directly via `extra_pip`. The xarray-marked tests also include the
+          # LabeledDataset reader, which needs the lazy data stack (zarr / dask /
+          # s3fs) to open Zarr stores, chunk, and read remote URLs — hence [lazy].
+          - { name: xarray,       pip_extra: "lazy",         extra_pip: "xarray",    marker: "xarray",       dir: "tests/" }
           - { name: lazy,         pip_extra: "lazy",         marker: "lazy",         dir: "tests/" }
           - { name: netcdf-lazy,  pip_extra: "lazy",         marker: "netcdf_lazy",  dir: "tests/netcdf/lazy" }
           - { name: parquet,      pip_extra: "parquet",      marker: "parquet",      dir: "tests/feature" }
@@ -199,6 +200,10 @@ jobs:
         run: |
           WHEEL=$(ls dist/*.whl)
           pip install "${WHEEL}[${{ matrix.extra.pip_extra }}]"
+          # Peer interop deps that are not pyramids extras (e.g. xarray).
+          if [ -n "${{ matrix.extra.extra_pip }}" ]; then
+            pip install "${{ matrix.extra.extra_pip }}"
+          fi
 
       - name: Verify package import
         shell: bash -el {0}

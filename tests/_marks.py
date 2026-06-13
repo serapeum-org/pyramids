@@ -78,7 +78,7 @@ requires_lazy = pytest.mark.skipif(
     not _HAS_LAZY, reason="pyramids-gis[lazy] not installed"
 )
 requires_xarray = pytest.mark.skipif(
-    not _HAS_XARRAY, reason="pyramids-gis[xarray] not installed"
+    not _HAS_XARRAY, reason="xarray not installed (pip install xarray)"
 )
 requires_netcdf_lazy = pytest.mark.skipif(
     not _HAS_NETCDF_LAZY, reason="kerchunk + h5py (pyramids-gis[lazy]) not installed"

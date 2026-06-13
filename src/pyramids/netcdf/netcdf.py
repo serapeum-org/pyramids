@@ -4730,17 +4730,17 @@ class NetCDF(Dataset):
         The entire conversion goes through GDAL's Multidimensional
         API — the same reader the rest of pyramids' NetCDF code uses.
         No xarray engine plugin (`netcdf4`, `h5netcdf`,
-        `scipy.io.netcdf`) is involved, so the `[xarray]` extra
-        does not need to pull a NetCDF backend: pyramids is the
-        backend. The returned `xr.Dataset` holds already-
+        `scipy.io.netcdf`) is involved, so xarray does not need to
+        pull a NetCDF backend: pyramids is the backend. The returned
+        `xr.Dataset` holds already-
         materialised numpy arrays; for lazy reads use
         :meth:`read_array(chunks=...)` and wrap the result in
         :class:`xarray.DataArray` yourself.
 
         Requires the optional `xarray` package. Install with one of:
 
-        - PyPI: ``pip install 'pyramids-gis[xarray]'``
-        - conda-forge: ``conda install -c conda-forge pyramids-xarray``
+        - PyPI: ``pip install xarray``
+        - conda-forge: ``conda install -c conda-forge xarray``
 
         Returns:
             xarray.Dataset: An xarray Dataset with the same
@@ -4765,8 +4765,8 @@ class NetCDF(Dataset):
         except ImportError:
             raise OptionalPackageDoesNotExist(
                 "xarray is required for to_xarray(). Install with one of:\n"
-                "  - PyPI:        pip install 'pyramids-gis[xarray]'\n"
-                "  - conda-forge: conda install -c conda-forge pyramids-xarray"
+                "  - PyPI:        pip install xarray\n"
+                "  - conda-forge: conda install -c conda-forge xarray"
             )
 
         rg = self._raster.GetRootGroup()
@@ -5516,8 +5516,8 @@ class NetCDF(Dataset):
         attributes from the `xarray.Dataset` and writes them to a
         NetCDF file through pyramids' own GDAL Multidimensional
         writer. No xarray engine plugin (`netcdf4`, `h5netcdf`)
-        is invoked — pyramids is the writer, so the `[xarray]`
-        extra does not need to pull a NetCDF backend.
+        is invoked — pyramids is the writer, so xarray does not
+        need to pull a NetCDF backend.
 
         Usage::
 
@@ -5529,8 +5529,8 @@ class NetCDF(Dataset):
 
         Requires the optional `xarray` package. Install with one of:
 
-        - PyPI: ``pip install 'pyramids-gis[xarray]'``
-        - conda-forge: ``conda install -c conda-forge pyramids-xarray``
+        - PyPI: ``pip install xarray``
+        - conda-forge: ``conda install -c conda-forge xarray``
 
         Args:
             dataset: An `xarray.Dataset` instance.
@@ -5552,8 +5552,8 @@ class NetCDF(Dataset):
         except ImportError:
             raise OptionalPackageDoesNotExist(
                 "xarray is required for from_xarray(). Install with one of:\n"
-                "  - PyPI:        pip install 'pyramids-gis[xarray]'\n"
-                "  - conda-forge: conda install -c conda-forge pyramids-xarray"
+                "  - PyPI:        pip install xarray\n"
+                "  - conda-forge: conda install -c conda-forge xarray"
             )
 
         if not isinstance(dataset, xr.Dataset):
