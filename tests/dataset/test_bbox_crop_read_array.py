@@ -69,7 +69,7 @@ def dataset(tmp_path) -> Dataset:
 
 
 @pytest.fixture()
-def small_bbox() -> Tuple[float, float, float, float]:
+def small_bbox() -> tuple[float, float, float, float]:
     """A bbox covering arr[2:4, 2:4] of the 10×10 fixture (4 pixels).
 
     Returns:
@@ -79,8 +79,8 @@ def small_bbox() -> Tuple[float, float, float, float]:
 
 
 def _bbox_in_3857(
-    bbox_4326: Tuple[float, float, float, float],
-) -> Tuple[float, float, float, float]:
+    bbox_4326: tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
     """Crude Web-Mercator transform of a lon/lat bbox (good enough for unit tests).
 
     Args:

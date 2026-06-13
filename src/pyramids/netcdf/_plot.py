@@ -136,7 +136,7 @@ class NetCDFPlot:
         ("nav_lon", "nav_lat"),
     )
 
-    def __init__(self, nc: "NetCDF") -> None:
+    def __init__(self, nc: NetCDF) -> None:
         self.nc = nc
 
     def run(
@@ -256,7 +256,7 @@ class NetCDFPlot:
         return result
 
     def _delegate_to_variable(
-        self, nc: "NetCDF", variable: str | None, **plot_kwargs: Any
+        self, nc: NetCDF, variable: str | None, **plot_kwargs: Any
     ) -> Any:
         """Drill into ``variable`` on a root MDIM container, then re-dispatch :meth:`run`.
 
@@ -284,7 +284,7 @@ class NetCDFPlot:
         return nc.get_variable(variable).plot(**plot_kwargs)
 
     def _resolve_selectors(
-        self, nc: "NetCDF", selectors: Selectors
+        self, nc: NetCDF, selectors: Selectors
     ) -> dict[str, Any]:
         """Flatten a :class:`Selectors` into a ``{dim_name: label}`` dict.
 
@@ -330,7 +330,7 @@ class NetCDFPlot:
 
     def _build_render_kwargs(
         self,
-        pinned: "NetCDF",
+        pinned: NetCDF,
         *,
         colour: ColourOpts,
         coords: tuple | list | None,
@@ -448,7 +448,7 @@ class NetCDFPlot:
 
     def _validate_facet_dims(
         self,
-        nc: "NetCDF",
+        nc: NetCDF,
         *,
         col: str | None,
         row: str | None,
@@ -553,7 +553,7 @@ class NetCDFPlot:
 
     def _build_facet_stack(
         self,
-        nc: "NetCDF",
+        nc: NetCDF,
         *,
         col: str,
         row: str | None,
@@ -684,7 +684,7 @@ class NetCDFPlot:
 
     def _resolve_animate_dim(
         self,
-        nc: "NetCDF",
+        nc: NetCDF,
         *,
         animate: bool | str,
         faceting_active: bool,
@@ -819,7 +819,7 @@ class NetCDFPlot:
 
     def _render_animate(
         self,
-        nc: "NetCDF",
+        nc: NetCDF,
         *,
         animate_dim: str,
         analysis_kwargs: dict[str, Any],
@@ -978,7 +978,7 @@ class NetCDFPlot:
             **animate_kwargs,
         )
 
-    def _maybe_log_lazy_hint(self, nc: "NetCDF") -> None:
+    def _maybe_log_lazy_hint(self, nc: NetCDF) -> None:
         """Log a hint when the variable size warrants explicit chunking.
 
         The static-plot path reads the full variable into memory by
@@ -1077,7 +1077,7 @@ class NetCDFPlot:
 
     def _resolve_curvilinear_coords(
         self,
-        nc: "NetCDF",
+        nc: NetCDF,
         *,
         coords: tuple | list | None,
     ) -> tuple[np.ndarray, np.ndarray] | None:
@@ -1264,7 +1264,7 @@ class NetCDFPlot:
 
     @staticmethod
     def _coerce_coord_spec(
-        spec: Any, parent: "NetCDF", axis_label: str,
+        spec: Any, parent: NetCDF, axis_label: str,
     ) -> np.ndarray:
         """Convert a single coord spec (str or array) to a numpy array.
 
@@ -1362,7 +1362,7 @@ class NetCDFPlot:
         return result
 
     def _cf_coordinates_pair(
-        self, nc: "NetCDF", parent: "NetCDF",
+        self, nc: NetCDF, parent: NetCDF,
     ) -> tuple[np.ndarray, np.ndarray] | None:
         """Parse the CF `coordinates` attribute into an `(x, y)` array pair.
 
@@ -1467,7 +1467,7 @@ class NetCDFPlot:
         y_is_lat = "lat" in yl
         return x_is_lon and y_is_lat
 
-    def _resolve_time_dim_name(self, nc: "NetCDF") -> str:
+    def _resolve_time_dim_name(self, nc: NetCDF) -> str:
         """Return the band-dim name that represents the time axis.
 
         Scans `nc._band_dim_names` (case-insensitive) for one of `time`,
@@ -1534,7 +1534,7 @@ class NetCDFPlot:
                 return name
         return nc._band_dim_names[0]
 
-    def _resolve_level_dim_name(self, nc: "NetCDF") -> str:
+    def _resolve_level_dim_name(self, nc: NetCDF) -> str:
         """Return the band-dim name that represents the vertical axis.
 
         Auto-detection scans `nc._band_dim_names` (case-insensitive) for
@@ -1611,7 +1611,7 @@ class NetCDFPlot:
             f"{list(nc._band_dim_names)}."
         )
 
-    def _resolve_member_dim_name(self, nc: "NetCDF") -> str:
+    def _resolve_member_dim_name(self, nc: NetCDF) -> str:
         """Return the band-dim name that represents the ensemble axis.
 
         Auto-detection scans `nc._band_dim_names` (case-insensitive) for

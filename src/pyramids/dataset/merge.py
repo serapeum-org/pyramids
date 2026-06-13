@@ -351,7 +351,7 @@ def _prepare_sources(
         )
         if warped is None:
             raise RuntimeError(
-                f"gdal.Warp returned None reprojecting a source to the target CRS."
+                "gdal.Warp returned None reprojecting a source to the target CRS."
             )
         sources.append(warped)
     return sources, sources

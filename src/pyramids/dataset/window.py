@@ -105,7 +105,7 @@ class Window:
         cls,
         bbox: tuple[float, float, float, float],
         geotransform: tuple[float, float, float, float, float, float],
-    ) -> "Window":
+    ) -> Window:
         """Build the pixel window covering a map-space bounding box.
 
         Pixel offsets are floored and the far edge is ceiled, so the window
@@ -191,7 +191,7 @@ class Window:
         )
         return (min(left, right), min(top, bottom), max(left, right), max(top, bottom))
 
-    def intersection(self, other: "Window") -> "Window | None":
+    def intersection(self, other: Window) -> Window | None:
         """Return the overlapping window, or ``None`` when disjoint.
 
         Args:
@@ -221,12 +221,12 @@ class Window:
         row_off = max(self.row_off, other.row_off)
         col_end = min(self.col_off + self.cols, other.col_off + other.cols)
         row_end = min(self.row_off + self.rows, other.row_off + other.rows)
-        result: "Window | None" = None
+        result: Window | None = None
         if col_end > col_off and row_end > row_off:
             result = Window(col_off, row_off, col_end - col_off, row_end - row_off)
         return result
 
-    def union(self, other: "Window") -> "Window":
+    def union(self, other: Window) -> Window:
         """Return the smallest window containing both windows.
 
         Args:

@@ -38,5 +38,3 @@ def mem_dataset_multiband() -> gdal.Dataset:
     ds.FlushCache()
     yield ds
     ds = None
-
-

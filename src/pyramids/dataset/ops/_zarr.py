@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import import_dask, import_zarr, lazy_extra_hint
 from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset.ops._geobox_zarr import (
@@ -382,7 +381,7 @@ def _normalize_no_data(attrs: dict[str, Any]) -> Any:
     return None
 
 
-def _apply_band_names(dataset: "Dataset", attrs: dict[str, Any]) -> None:
+def _apply_band_names(dataset: Dataset, attrs: dict[str, Any]) -> None:
     """Restore band names from the store, warning (and skipping) on a length mismatch (Z-5)."""
     band_names = attrs.get("band_names") or []
     if not band_names:

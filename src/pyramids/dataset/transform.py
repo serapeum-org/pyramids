@@ -109,7 +109,7 @@ class GeoTransform(NamedTuple):
         )
 
     @property
-    def inverse(self) -> "GeoTransform":
+    def inverse(self) -> GeoTransform:
         """The inverted transform, mapping ``(x, y)`` map space to ``(col, row)``.
 
         Returns:
@@ -130,7 +130,7 @@ class GeoTransform(NamedTuple):
         bbox: tuple[float, float, float, float],
         rows: int,
         cols: int,
-    ) -> "GeoTransform":
+    ) -> GeoTransform:
         """Build the north-up transform fitting ``bbox`` to a grid shape.
 
         Args:
