@@ -70,6 +70,27 @@ class TestCli:
         assert "valid COG" in capsys.readouterr().out, "should report validity"
         assert out.exists(), "output file should exist"
 
+    def test_create_refuses_existing_without_overwrite(self, source_tif, tmp_path, capsys):
+        """`cog create` refuses to clobber an existing output unless --overwrite.
+
+        Args:
+            source_tif: Fixture source raster.
+            tmp_path: pytest temp directory.
+            capsys: pytest stdout/stderr capture.
+
+        Test scenario:
+            A second create to the same path exits 1 with an "already exists"
+            message; passing --overwrite then succeeds.
+        """
+        out = tmp_path / "exists.tif"
+        assert main(["cog", "create", source_tif, str(out)]) == 0
+        capsys.readouterr()
+        code = main(["cog", "create", source_tif, str(out)])
+        err = capsys.readouterr().err
+        assert code == 1, "a second create without --overwrite must be refused"
+        assert "already exists" in err, f"error should name the existing file: {err}"
+        assert main(["cog", "create", source_tif, str(out), "--overwrite"]) == 0
+
     def test_validate_valid_returns_0(self, cog_tif, capsys):
         """`cog validate` returns 0 for a valid COG.
 

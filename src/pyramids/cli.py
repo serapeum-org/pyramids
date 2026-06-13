@@ -89,11 +89,12 @@ def _cmd_create(args: argparse.Namespace) -> int:
 
     Args:
         args: Parsed arguments with `input`, `output`, `profile`,
-            `compress`, `blocksize`, and `no_validate`.
+            `compress`, `blocksize`, `no_validate`, and `overwrite`.
 
     Returns:
         int: `0` on success, `1` when post-write validation fails.
     """
+    _refuse_existing(args.output, args.overwrite)
     ds = Dataset.read_file(args.input)
     kwargs: dict = {}
     if args.profile:
@@ -436,6 +437,7 @@ def _build_parser() -> argparse.ArgumentParser:
     create.add_argument(
         "--no-validate", action="store_true", help="skip post-write validation"
     )
+    create.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     create.set_defaults(func=_cmd_create)
 
     val = cog_sub.add_parser("validate", help="validate a COG")
