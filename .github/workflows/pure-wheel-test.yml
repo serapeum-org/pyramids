@@ -155,7 +155,7 @@ jobs:
           # s3fs) to open Zarr stores, chunk, and read remote URLs — hence [lazy].
           - { name: xarray,       pip_extra: "lazy",         extra_pip: "xarray",    marker: "xarray",       dir: "tests/" }
           - { name: lazy,         pip_extra: "lazy",         marker: "lazy",         dir: "tests/" }
-          - { name: netcdf-lazy,  pip_extra: "lazy",         marker: "netcdf_lazy",  dir: "tests/netcdf/lazy" }
+          - { name: netcdf_lazy,  pip_extra: "lazy",         marker: "netcdf_lazy",  dir: "tests/netcdf/lazy" }
           - { name: parquet,      pip_extra: "parquet",      marker: "parquet",      dir: "tests/feature" }
           - { name: parquet_lazy, pip_extra: "parquet",      marker: "parquet_lazy", dir: "tests/feature/lazy" }
 
