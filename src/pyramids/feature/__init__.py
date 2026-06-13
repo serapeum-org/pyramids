@@ -51,9 +51,10 @@ _LAZY_FC_INSTALL_HINT = (
 # The PEP-562 `__getattr__` hook satisfies both: attribute lookups for
 # `LazyFeatureCollection` try the real import, and raise a branded
 # :class:`ImportError` when dask-geopandas is absent.
-# `hasattr(module, "LazyFeatureCollection")` returns False on minimal installs (because
-# `__getattr__` raised), so library authors can guard with a clean
-# `hasattr` check instead of an `isinstance` against `None`.
+# Note: do NOT probe with `hasattr(module, "LazyFeatureCollection")` — on a
+# minimal install `__getattr__` raises ImportError (not AttributeError), which
+# `hasattr` does not swallow, so it propagates rather than returning False. Use
+# `has_lazy_backend()` (or `is_lazy_fc(obj)` for dispatch) to check availability.
 try:
     import_dask_geopandas(_LAZY_FC_INSTALL_HINT)
 except OptionalPackageDoesNotExist:  # pragma: no cover - minimal install path
