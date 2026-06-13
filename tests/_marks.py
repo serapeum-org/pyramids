@@ -87,7 +87,7 @@ requires_parquet = pytest.mark.skipif(
     not _HAS_PARQUET, reason="pyramids-gis[parquet] not installed"
 )
 requires_parquet_lazy = pytest.mark.skipif(
-    not _HAS_PARQUET_LAZY, reason="pyramids-gis[parquet-lazy] not installed"
+    not _HAS_PARQUET_LAZY, reason="dask-geopandas (pyramids-gis[parquet]) not installed"
 )
 requires_stac = pytest.mark.skipif(
     not _HAS_STAC, reason="pyramids-gis[stac] not installed"

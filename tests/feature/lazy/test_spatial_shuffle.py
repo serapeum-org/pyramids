@@ -9,7 +9,7 @@ branch's refactor policy.
 Validation paths that previously ran without dask-geopandas (TypeError
 on bad input, ImportError on missing dep) no longer apply: the
 instance method is only reachable from a LazyFC, which itself requires
-the ``[parquet-lazy]`` extra.
+the ``[parquet]`` extra.
 """
 
 from __future__ import annotations

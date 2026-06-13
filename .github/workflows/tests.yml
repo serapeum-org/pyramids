@@ -69,7 +69,7 @@ jobs:
           # suite in every extras env while still covering the code
           # that each extra activates.
           - { name: netcdf_lazy,  env: lazy,         dir: tests/netcdf/lazy }
-          - { name: parquet_lazy, env: parquet-lazy, dir: tests/feature/lazy }
+          - { name: parquet_lazy, env: parquet,      dir: tests/feature/lazy }
 
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5

@@ -125,7 +125,7 @@ class TestValidation:
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
         dummy = str(tmp_path / "ignored.parquet")
-        with pytest.raises(ImportError, match="pyramids-gis\\[parquet-lazy\\]"):
+        with pytest.raises(ImportError, match="pyramids-gis\\[parquet\\]"):
             FeatureCollection.read_parquet(dummy, backend="dask")
 
     @requires_dask_geopandas

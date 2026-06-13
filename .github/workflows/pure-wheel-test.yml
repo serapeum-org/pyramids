@@ -157,7 +157,7 @@ jobs:
           - { name: lazy,         pip_extra: "lazy",         marker: "lazy",         dir: "tests/" }
           - { name: netcdf-lazy,  pip_extra: "lazy",         marker: "netcdf_lazy",  dir: "tests/netcdf/lazy" }
           - { name: parquet,      pip_extra: "parquet",      marker: "parquet",      dir: "tests/feature" }
-          - { name: parquet-lazy, pip_extra: "parquet-lazy", marker: "parquet_lazy", dir: "tests/feature/lazy" }
+          - { name: parquet_lazy, pip_extra: "parquet",      marker: "parquet_lazy", dir: "tests/feature/lazy" }
 
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5

@@ -34,11 +34,11 @@ from pyramids.feature.geometry import (
 _LAZY_FC_INSTALL_HINT = (
     "LazyFeatureCollection requires the optional 'dask-geopandas' "
     "dependency. Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[parquet-lazy]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-parquet-lazy"
+    "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-parquet"
 )
 
-# LazyFeatureCollection is only available when the [parquet-lazy] extra
+# LazyFeatureCollection is only available when the [parquet] extra
 # is installed. Two design goals:
 #
 # 1. Eager import on `from pyramids.feature import LazyFeatureCollection`
@@ -78,7 +78,7 @@ def __getattr__(name: str) -> object:
 
 
 def has_lazy_backend() -> bool:
-    """Return True when the `[parquet-lazy]` extra is installed.
+    """Return True when the `[parquet]` extra is installed.
 
     public feature-detection helper that avoids the
     `try/except ImportError` dance for consumers that only need to

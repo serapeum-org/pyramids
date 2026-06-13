@@ -54,8 +54,7 @@ lazy = [
     "kerchunk>=0.2.10",
     "h5py>=3.8.0",
 ]
-parquet = ["pyarrow>=10.0.0"]
-parquet-lazy = ["pyramids-gis[lazy,parquet]", "dask-geopandas>=0.5.0"]
+parquet = ["pyarrow>=10.0.0", "pyramids-gis[lazy]", "dask-geopandas>=0.5.0"]
 stac = ["pystac-client>=0.8.0", "stac-asset>=0.4.7"]
 
 [dependency-groups]
@@ -231,7 +230,7 @@ markers = [
     "xarray: tests requiring xarray (a peer interop dep; `pip install xarray`)",
     "netcdf_lazy: tests requiring kerchunk + h5py (now part of the [lazy] extra)",
     "parquet: tests requiring the [parquet] extra (pyarrow)",
-    "parquet_lazy: tests requiring the [parquet-lazy] extra (dask-geopandas, + parquet, + lazy)",
+    "parquet_lazy: tests requiring dask-geopandas (now part of the [parquet] extra)",
     "stac: tests requiring the [stac] extra (pystac-client)",
 ]
 
@@ -261,10 +260,9 @@ mypy = { cmd = "mypy", description = "Run mypy type checking" }
 # Every env lists the shared `gdal` feature so the single GDAL pin reaches all of
 # them, incl. no-default-feature wheel-build. tests/test_gdal_pin.py enforces it.
 default = {features = ["gdal", "viz"], solve-group = "default" }
-dev = { features = ["gdal", "viz", "dev", "xarray", "lazy", "stac", "parquet", "parquet-lazy"], solve-group = "default" }
+dev = { features = ["gdal", "viz", "dev", "xarray", "lazy", "stac", "parquet"], solve-group = "default" }
 lazy = { features = ["gdal", "viz", "dev", "lazy"], solve-group = "default" }
 parquet = { features = ["gdal", "viz", "dev", "xarray", "lazy", "parquet"], solve-group = "default" }
-parquet-lazy = { features = ["gdal", "viz", "dev", "xarray", "lazy", "parquet", "parquet-lazy"], solve-group = "default" }
 notebook = { features = ["gdal", "viz", "notebook", "lazy"], solve-group = "default" }
 docs = { features = ["gdal", "docs"], solve-group = "docs" }
 # py3XX envs include `lazy` so the `xarray-tests` step has the xarray data stack
@@ -324,8 +322,8 @@ hdf5 = "1.14.*"
 
 [tool.pixi.feature.parquet.dependencies]
 pyarrow = ">=10.0.0"
-
-[tool.pixi.feature.parquet-lazy.dependencies]
+# dask-geopandas powers the lazy LazyFeatureCollection / GeoParquet path; it ships
+# in the [parquet] extra alongside pyarrow (the lazy dask/zarr stack comes via [lazy]).
 dask-geopandas = ">=0.5.0"
 
 [tool.pixi.feature.stac.dependencies]
