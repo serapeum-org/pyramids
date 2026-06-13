@@ -321,3 +321,33 @@ class TestBlockIteration:
         blocks = list(tiled.block_windows())
         assert len(blocks) == 4, f"expected 4 tiles, got {len(blocks)}"
         assert all(w.shape == (256, 256) for w in blocks), "tile shapes wrong"
+
+    def test_block_windows_roi_selects_only_intersecting_tiles(self, tmp_path):
+        """An ROI yields only the intersecting tiles on a multi-block raster.
+
+        Test scenario:
+            On a 512x512 raster with 256x256 tiles, an ROI wholly inside the
+            bottom-right tile yields exactly that one (ROI-clipped) block, and an
+            ROI straddling the two bottom tiles yields exactly those two. This
+            pins the block-aligned loop bounds that build only the tiles which can
+            intersect the ROI, rather than every tile of the raster.
+        """
+        path = str(tmp_path / "tiled.tif")
+        Dataset.create_from_array(
+            np.zeros((512, 512), dtype="float32"),
+            top_left_corner=(0, 512), cell_size=1.0, epsg=4326,
+        ).to_file(path, creation_options=["TILED=YES", "BLOCKXSIZE=256", "BLOCKYSIZE=256"])
+        tiled = Dataset.read_file(path)
+
+        inside = Window(col_off=300, row_off=300, cols=100, rows=100)
+        blocks = list(tiled.block_windows(window=inside))
+        assert len(blocks) == 1, f"ROI inside one tile must yield one block, got {len(blocks)}"
+        assert blocks[0] == inside, f"the single block must clip to the ROI: {blocks[0]}"
+
+        spanning = Window(col_off=200, row_off=300, cols=120, rows=100)
+        spanned = list(tiled.block_windows(window=spanning))
+        assert len(spanned) == 2, f"ROI spanning two tiles must yield two blocks, got {len(spanned)}"
+        assert all(w.intersection(spanning) == w for w in spanned), "blocks must be ROI-clipped"
+        assert sum(w.cols * w.rows for w in spanned) == spanning.cols * spanning.rows, (
+            "the ROI-clipped blocks must cover the ROI exactly"
+        )
