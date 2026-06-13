@@ -734,15 +734,6 @@ def import_dask(message: str):
         raise OptionalPackageDoesNotExist(message)
 
 
-def import_xarray(message: str):
-    """Import and return xarray (ships via the optional [xarray] extra)."""
-    try:
-        import xarray
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
-    return xarray
-
-
 def import_kerchunk(message: str):
     """Import kerchunk."""
     try:

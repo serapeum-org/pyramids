@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_dask, import_kerchunk, import_xarray
+from pyramids.base._utils import import_dask, import_kerchunk
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.netcdf_lazy
@@ -36,9 +36,8 @@ except OptionalPackageDoesNotExist:  # pragma: no cover
 else:
     HAS_DASK = True
 try:
-    import_xarray("xarray not installed")
     import xarray as xr
-except OptionalPackageDoesNotExist:  # pragma: no cover
+except ImportError:  # pragma: no cover
     HAS_XARRAY = False
 else:
     HAS_XARRAY = True
