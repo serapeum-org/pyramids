@@ -209,9 +209,9 @@ semantics (handle pooling, distributed-safe pickling) on the read
 side, and xarray's ergonomics on the downstream side — no backend
 adapter layer in between.
 
-Install: `[lazy]` pulls `kerchunk` + `h5py`; add the `[xarray]`
-extra on top if you want `xr.DataArray` / `.to_xarray()` /
-`.from_xarray()`.
+Install: `[lazy]` pulls `kerchunk` + `h5py`; add `xarray` (a peer dep,
+not a pyramids extra — `pip install xarray`) if you want `xr.DataArray`
+/ `.to_xarray()` / `.from_xarray()`.
 
 ## A worked pipeline — ERA5 on AWS
 
@@ -256,7 +256,7 @@ ImportError: dask is required for lazy NetCDF reads; install pyramids-gis[lazy]
 ```
 
 Calls that need kerchunk name `[lazy]`. `NetCDF.to_xarray()` /
-`.from_xarray()` name `[xarray]`. The eager
+`.from_xarray()` name `xarray` (a peer dep, `pip install xarray`). The eager
 `NetCDF.read_array(chunks=None)` path is always available and does
 not touch dask / xarray / kerchunk.
 

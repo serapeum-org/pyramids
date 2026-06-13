@@ -28,7 +28,7 @@ SHA and shows the combined coverage on the dashboard.
 
 ## The optional-dependency groups
 
-pyramids ships a minimal core plus seven opt-in extras declared in
+pyramids ships a minimal core plus six opt-in extras declared in
 [`pyproject.toml`](../../pyproject.toml) under
 `[project.optional-dependencies]`. Each extra turns on a feature family:
 
@@ -36,9 +36,13 @@ pyramids ships a minimal core plus seven opt-in extras declared in
 | --- | --- | --- |
 | `viz` | `cleopatra` | Plotting helpers, basemaps |
 | `lazy` | `dask`, `distributed`, `zarr`, `fsspec`, `kerchunk`, `h5py` | Dask-backed lazy array paths + kerchunk NetCDF manifests |
-| `xarray` | `xarray` | `NetCDF.to_xarray()` / `.from_xarray()` round-trip |
 | `parquet` | `pyarrow` | Eager GeoParquet read / write |
 | `parquet-lazy` | `dask-geopandas` + `parquet` + `lazy` | Lazy `LazyFeatureCollection` |
+
+`xarray` is **not** an extra: pyramids is GDAL-backed, so xarray is a peer for the
+`to_xarray` / `from_xarray` / `to_netcdf` interop helpers only — `pip install xarray`
+directly. It is still wired as a pixi *feature* (`[tool.pixi.feature.xarray]`) so the
+`dev` / CI environments have it to exercise those code paths.
 
 End-users install exactly what they need:
 
@@ -139,7 +143,7 @@ identifiers):
 | --- | --- |
 | `@pytest.mark.plot` | `viz` (plotting / basemap tests) |
 | `@pytest.mark.lazy` | `lazy` |
-| `@pytest.mark.xarray` | `xarray` |
+| `@pytest.mark.xarray` | `xarray` (peer dep / pixi feature, not an extra) |
 | `@pytest.mark.netcdf_lazy` | `lazy` (kerchunk + h5py) |
 | `@pytest.mark.parquet` | `parquet` |
 | `@pytest.mark.parquet_lazy` | `parquet-lazy` |

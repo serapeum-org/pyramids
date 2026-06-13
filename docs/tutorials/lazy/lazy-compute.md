@@ -65,7 +65,10 @@ minimal:
 |------------------|--------------------------------------------------|----------------------------------------------|
 | `[lazy]`         | `dask`, `zarr`, `fsspec`, `flox`, `kerchunk`, `h5py` | Raster + NetCDF lazy reads, Zarr, groupby, `to_kerchunk`/`combine_kerchunk` manifests |
 | `[parquet-lazy]` | `[lazy]` + `pyarrow`, `dask-geopandas`           | `LazyFeatureCollection`, GeoParquet          |
-| `[xarray]`       | `xarray`                                         | `NetCDF.to_xarray()` / `.from_xarray()`      |
+
+xarray interop (`NetCDF.to_xarray()` / `.from_xarray()`,
+`DatasetCollection.to_netcdf`) is **not** a pyramids extra — pyramids is
+GDAL-backed, so xarray is a peer. `pip install xarray` directly for those helpers.
 
 Install one or many:
 
