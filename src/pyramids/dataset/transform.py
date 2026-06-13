@@ -81,6 +81,10 @@ class GeoTransform(NamedTuple):
         """
         try:
             col, row = col_row
+            if isinstance(col, str) or isinstance(row, str):
+                # float() would coerce numeric strings; the contract is numeric
+                # (col, row) — reject strings rather than silently accept "2".
+                raise TypeError("(col, row) must be numeric, not str")
             col, row = float(col), float(row)
         except (TypeError, ValueError) as error:
             raise TypeError(

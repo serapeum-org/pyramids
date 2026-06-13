@@ -94,6 +94,12 @@ class TestGeoTransform:
         with pytest.raises(TypeError, match=r"\(col, row\) pair"):
             _ = gt * ("a", "b")
 
+    def test_mul_rejects_numeric_string_pair(self):
+        """A numeric-string pair is rejected, not coerced via float() (N2)."""
+        gt = GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
+        with pytest.raises(TypeError, match=r"\(col, row\) pair"):
+            _ = gt * ("2", "1")
+
     def test_rmul_rejects_tuple_repetition(self):
         """n * transform must not silently build a 12-element tuple."""
         gt = GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
