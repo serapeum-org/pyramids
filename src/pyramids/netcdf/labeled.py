@@ -472,7 +472,10 @@ class LabeledDataset:
         for dim, values in labels.items():
             self._require_coord(dim)
             current = self._coord_current(dim, dim)
-            is_scalar = not isinstance(values, (list, tuple, np.ndarray))
+            # np.ndim == 0 treats Python scalars, numpy scalars, and 0-d arrays
+            # alike (a 0-d ndarray is not iterable, so the isinstance check alone
+            # mis-classified it as a sequence and raised on list()).
+            is_scalar = np.ndim(values) == 0
             requested = [values] if is_scalar else list(values)
             if not requested:
                 raise ValueError(
@@ -541,6 +544,7 @@ class LabeledDataset:
         ts = pd.Timestamp(value)
         dt = cftime.datetime(
             ts.year, ts.month, ts.day, ts.hour, ts.minute, ts.second,
+            ts.microsecond,
             calendar=calendar,
         )
         return float(cftime.date2num(dt, unit, calendar))
@@ -695,9 +699,10 @@ class LabeledDataset:
 
                 >>> df = store.select(feature_id=[101]).to_dataframe()  # doctest: +SKIP
         """
-        if self._estimated_nbytes() > _LARGE_REALISE_BYTES:
+        nbytes = self._estimated_nbytes()
+        if nbytes > _LARGE_REALISE_BYTES:
             warnings.warn(
-                f"realising ~{self._estimated_nbytes() / 1e9:.1f} GB into a "
+                f"realising ~{nbytes / 1e9:.1f} GB into a "
                 "DataFrame; slice with select / select_time / select_bbox first "
                 "to avoid loading the whole store into memory.",
                 stacklevel=2,

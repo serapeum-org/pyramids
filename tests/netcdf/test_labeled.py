@@ -187,6 +187,21 @@ class TestLabeledDatasetSelect:
             sub["streamflow"].values, store["streamflow"].values[:, [0, 2]]
         )
 
+    def test_select_accepts_0d_array_as_scalar(self, nc_store: Path):
+        """A 0-d numpy array label selects exactly like a Python scalar (N3).
+
+        Before the fix, a 0-d ndarray was mis-classified as a sequence and
+        ``select`` raised on ``list(0d_array)``; now it squeezes the dimension
+        just like the equivalent Python scalar.
+        """
+        store = LabeledDataset.read_file(nc_store)
+        by_scalar = store.select(feature_id=101)
+        by_0d = store.select(feature_id=np.array(101))
+        assert by_0d.sizes == by_scalar.sizes, "0-d array must match scalar select"
+        np.testing.assert_array_equal(
+            by_0d["streamflow"].values, by_scalar["streamflow"].values
+        )
+
     def test_select_returns_new_instance(self, nc_store: Path):
         store = LabeledDataset.read_file(nc_store)
         sub = store.select(feature_id=[202])
