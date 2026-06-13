@@ -15,7 +15,7 @@ dependencies each slice exercises, and how to reproduce any CI job locally.
               │   (OS × py-version)  │   (OS × extra)              │
               │                      │                             │
               │   env: py311/12/13   │   env: lazy /               │
-              │                      │        parquet-lazy         │
+              │                      │        parquet               │
               │   suite: full repo   │                             │
               │                      │                             │
               │   gate: cov ≥ 88%    │   suite: one sub-dir        │
@@ -28,7 +28,7 @@ SHA and shows the combined coverage on the dashboard.
 
 ## The optional-dependency groups
 
-pyramids ships a minimal core plus six opt-in extras declared in
+pyramids ships a minimal core plus five opt-in extras declared in
 [`pyproject.toml`](../../pyproject.toml) under
 `[project.optional-dependencies]`. Each extra turns on a feature family:
 
@@ -36,8 +36,7 @@ pyramids ships a minimal core plus six opt-in extras declared in
 | --- | --- | --- |
 | `viz` | `cleopatra` | Plotting helpers, basemaps |
 | `lazy` | `dask`, `distributed`, `zarr`, `fsspec`, `kerchunk`, `h5py` | Dask-backed lazy array paths + kerchunk NetCDF manifests |
-| `parquet` | `pyarrow` | Eager GeoParquet read / write |
-| `parquet-lazy` | `dask-geopandas` + `parquet` + `lazy` | Lazy `LazyFeatureCollection` |
+| `parquet` | `pyarrow`, `dask-geopandas` (+ `[lazy]`) | Eager GeoParquet I/O **and** the lazy `LazyFeatureCollection` |
 
 `xarray` is **not** an extra: pyramids is GDAL-backed, so xarray is a peer for the
 `to_xarray` / `from_xarray` / `to_netcdf` interop helpers only — `pip install xarray`
@@ -48,7 +47,7 @@ End-users install exactly what they need:
 
 ```bash
 pip install "pyramids-gis[lazy]"          # lazy raster + NetCDF + kerchunk
-pip install "pyramids-gis[parquet-lazy]"  # lazy vectors via dask-geopandas
+pip install "pyramids-gis[parquet]"       # eager + lazy GeoParquet (pyarrow + dask-geopandas)
 ```
 
 ## The pixi environments
@@ -61,8 +60,7 @@ so incremental solves stay cheap (~8–15 s when adding one extra on top of `dev
 | --- | --- |
 | `dev` | Core + `viz` + `xarray` + `lazy`. The "everything except heavy natives" env. |
 | `lazy` | `dev` + the Dask/Zarr lazy stack and the HDF5-linking bits from conda-forge (kerchunk, h5py — pinned to hdf5 1.14). |
-| `parquet` | `dev` + `pyarrow` (conda-forge). |
-| `parquet-lazy` | `dev` + `parquet` + `dask-geopandas` (conda-forge). |
+| `parquet` | `dev` + `pyarrow` + `dask-geopandas` (conda-forge) + `[lazy]`. Runs both eager and lazy GeoParquet tests. |
 | `py311` / `py312` / `py313` / `py314` | Same as `dev`, pinned Python. What `main-package` CI uses. |
 | `docs` | Everything needed to build the MkDocs site. |
 | `notebook` | Jupyter + viz only. Used to validate the example notebooks. |
@@ -91,7 +89,7 @@ specific `netcdf4` build string so the HDF5 shared library matches
 | `tests/dataset/ops/test_zonal_stats.py` | core | ✅ | — | `dev` |
 | `tests/dataset/test_stac.py` | core (duck-typed, no pystac dep) | ✅ | — | `dev` |
 | `tests/feature/` (excl. `lazy/`) | core + `parquet` (some) | ✅ | — | `dev` |
-| `tests/feature/lazy/` | `parquet-lazy` | ✅ (skips) | ✅ `parquet-lazy` | `parquet-lazy` |
+| `tests/feature/lazy/` | `parquet` | ✅ (skips) | ✅ `parquet` | `parquet` |
 | `tests/netcdf/` (excl. `lazy/`) | `xarray` | ✅ (xarray-tests step) | — | `dev` |
 | `tests/netcdf/lazy/` | `lazy` | ✅ (most skip without kerchunk) | ✅ `lazy` | `lazy` |
 | `tests/ugrid/` | `xarray` | ✅ | — | `dev` |
@@ -115,7 +113,7 @@ pixi run -e dev test-all             # everything in one go
 
 ```bash
 pixi run -e lazy         pytest -vvv tests/netcdf/lazy
-pixi run -e parquet-lazy pytest -vvv tests/feature/lazy
+pixi run -e parquet pytest -vvv tests/feature/lazy
 ```
 
 These two commands mirror the two extras-package matrix entries. If they pass
@@ -127,7 +125,7 @@ locally and `dev` passes too, CI should be green.
 pixi install -e dev
 # Opt in to the extras you need to hack on:
 pixi install -e lazy
-pixi install -e parquet-lazy
+pixi install -e parquet
 ```
 
 Each extras env reuses the `default` solve group, so adding one on top of an
@@ -146,7 +144,7 @@ identifiers):
 | `@pytest.mark.xarray` | `xarray` (peer dep / pixi feature, not an extra) |
 | `@pytest.mark.netcdf_lazy` | `lazy` (kerchunk + h5py) |
 | `@pytest.mark.parquet` | `parquet` |
-| `@pytest.mark.parquet_lazy` | `parquet-lazy` |
+| `@pytest.mark.parquet_lazy` | `parquet` (dask-geopandas) |
 
 `tests/conftest.py` runs a `pytest_collection_modifyitems` hook that, for each
 test tagged with one of these markers, auto-applies the matching
@@ -227,4 +225,4 @@ single test.
 
 A reader call used a backend name that isn't supported. `FeatureCollection.read_file`
 and `read_parquet` both accept `backend="pandas"` (the eager default) or
-`backend="dask"` (requires the `parquet-lazy` extra).
+`backend="dask"` (requires the `parquet` extra).

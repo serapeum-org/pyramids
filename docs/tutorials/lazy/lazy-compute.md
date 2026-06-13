@@ -64,7 +64,7 @@ minimal:
 | Extra            | Pulls                                            | Enables                                      |
 |------------------|--------------------------------------------------|----------------------------------------------|
 | `[lazy]`         | `dask`, `zarr`, `fsspec`, `flox`, `kerchunk`, `h5py` | Raster + NetCDF lazy reads, Zarr, groupby, `to_kerchunk`/`combine_kerchunk` manifests |
-| `[parquet-lazy]` | `[lazy]` + `pyarrow`, `dask-geopandas`           | `LazyFeatureCollection`, GeoParquet          |
+| `[parquet]`      | `pyarrow`, `dask-geopandas` + `[lazy]`           | Eager GeoParquet I/O + lazy `LazyFeatureCollection` |
 
 xarray interop (`NetCDF.to_xarray()` / `.from_xarray()`,
 `DatasetCollection.to_netcdf`) is **not** a pyramids extra — pyramids is
@@ -73,7 +73,7 @@ GDAL-backed, so xarray is a peer. `pip install xarray` directly for those helper
 Install one or many:
 
 ```bash
-pip install 'pyramids-gis[lazy,parquet-lazy,stac,zonal]'
+pip install 'pyramids-gis[lazy,parquet,stac,zonal]'
 ```
 
 When an extra is missing, the corresponding entry point raises a
@@ -197,7 +197,7 @@ from pyramids.feature import is_lazy_fc, has_lazy_backend
   at subsystem boundaries where the next step is pure numpy.
 - `is_lazy_fc(obj)` — `True` for `LazyFeatureCollection`, `False`
   otherwise (including minimal installs without dask-geopandas).
-- `has_lazy_backend()` — `True` when the `[parquet-lazy]` extra is
+- `has_lazy_backend()` — `True` when the `[parquet]` extra is
   available.
 
 ## Pickle & handle hygiene — `CachingFileManager`
