@@ -163,6 +163,19 @@ _Y_DIM_NAMES = frozenset(
 _X_DIM_NAMES = frozenset(
     {"x", "lon", "longitude", "rlon", "west_east", "easting", "grid_longitude"}
 )
+# Dimension names that clearly denote a non-spatial axis. Used to suppress the
+# "demoted grid" warning for legitimately non-spatial N-D aux variables
+# (e.g. a (time, level) table, time-bounds (time, nv)) — only a variable with
+# >= 2 *unrecognised* axes is a likely unrecognised grid.
+_NONSPATIAL_AXIS_NAMES = frozenset(
+    {
+        "time", "valid_time", "t", "step", "forecast_period", "lead_time",
+        "level", "lev", "plev", "pressure", "depth", "height", "z", "altitude",
+        "member", "number", "ensemble", "realization",
+        "bnds", "bounds", "nv", "nbnds", "nvertices", "vertices",
+        "string_length", "nchar", "nstrings",
+    }
+)
 
 
 def _contiguous_range(
@@ -1921,11 +1934,21 @@ class NetCDF(Dataset):
                 f"{self.variable_names} have both spatial axes."
             )
 
-        # A >=2-D variable demoted to "aux" is almost certainly a grid whose axes
-        # were not recognised (no CF axis attributes / no known x/y names). Warn
-        # so it is not silently carried through untransformed.
+        # A variable with >= 2 *unrecognised* axes is likely a grid whose axes
+        # were not recognised (no CF axis attributes / no known x/y names) and is
+        # carried through untransformed — warn. Axes that are clearly non-spatial
+        # (time / vertical / ensemble / bounds) don't count, so a legitimately
+        # non-spatial N-D aux variable (e.g. (time, level)) does not trip the warning.
         rg = self._raster.GetRootGroup()
-        demoted = [n for n in aux_vars if len(self._variable_dim_names(rg, n)) >= 2]
+        demoted = []
+        for n in aux_vars:
+            unknown_axes = [
+                d
+                for d in self._variable_dim_names(rg, n)
+                if d.lower() not in _NONSPATIAL_AXIS_NAMES
+            ]
+            if len(unknown_axes) >= 2:
+                demoted.append(n)
         if demoted:
             warnings.warn(
                 f"{operation}() is carrying {len(demoted)} multi-dimensional "

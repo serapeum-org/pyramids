@@ -195,6 +195,45 @@ class TestCropNonSpatialAux:
         with pytest.warns(UserWarning, match="not recognised as spatial"):
             cube.crop(_MASK)
 
+    def test_nonspatial_2d_aux_does_not_warn_demotion(self):
+        """A legit non-spatial 2-D aux ``(valid_time, level)`` does not trip the warning (L5).
+
+        Test scenario:
+            A ``lut(valid_time, level)`` lookup table has two *recognised*
+            non-spatial axes, so it is carried through without the alarming
+            "not recognised as spatial" demotion warning (which is reserved for
+            variables with >= 2 unrecognised axes, i.e. a likely unmapped grid).
+        """
+        n_t, n_lev = 4, 3
+        lat = np.arange(5.0, 0.0, -1.0)
+        lon = np.arange(0.0, 5.0, 1.0)
+        ds = xr.Dataset(
+            {
+                "t2m": (
+                    ("valid_time", "latitude", "longitude"),
+                    np.ones((n_t, 5, 5), "float32"),
+                ),
+                "lut": (("valid_time", "level"), np.ones((n_t, n_lev), "float32")),
+            },
+            coords={
+                "valid_time": np.arange(n_t),
+                "latitude": lat,
+                "longitude": lon,
+                "level": np.arange(n_lev),
+            },
+        )
+        ds.latitude.attrs.update(units="degrees_north", standard_name="latitude")
+        ds.longitude.attrs.update(units="degrees_east", standard_name="longitude")
+        cube = NetCDF.from_xarray(ds)
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            cube.crop(_MASK)
+        demotion = [r for r in records if "not recognised as spatial" in str(r.message)]
+        assert not demotion, (
+            f"non-spatial 2-D aux must not trip the demotion warning: "
+            f"{[str(r.message) for r in demotion]}"
+        )
+
 
 class TestMultiSpatialPlusAux:
     """A container with two gridded variables + one aux crops all spatial, carries aux."""
