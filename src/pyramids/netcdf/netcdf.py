@@ -1839,7 +1839,7 @@ class NetCDF(Dataset):
         return [d.GetName() for d in md.GetDimensions()]
 
     def _carry_aux_variables(
-        self, result: "NetCDF", aux_vars: list[str], operation: str
+        self, result: NetCDF, aux_vars: list[str], operation: str
     ) -> None:
         """Copy non-spatial auxiliary variables into ``result`` unchanged.
 
@@ -2884,7 +2884,7 @@ class NetCDF(Dataset):
 
         Thin forwarder to :func:`pyramids.netcdf._kerchunk.to_kerchunk`
         using `self._file_name` as the source path. Requires the
-        `[netcdf-lazy]` optional extra.
+        `[lazy]` optional extra.
 
         Args:
             output_path: Path where the manifest JSON is written.
@@ -2916,7 +2916,7 @@ class NetCDF(Dataset):
 
         Thin forwarder to
         :func:`pyramids.netcdf._kerchunk.combine_kerchunk`. Requires
-        the `[netcdf-lazy]` optional extra.
+        the `[lazy]` optional extra.
 
         Args:
             paths: Sequence of NetCDF paths to combine.

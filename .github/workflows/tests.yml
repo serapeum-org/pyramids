@@ -68,7 +68,7 @@ jobs:
           # paths. Keeping CI subdir-scoped avoids re-running the full
           # suite in every extras env while still covering the code
           # that each extra activates.
-          - { name: netcdf_lazy,  env: netcdf-lazy,  dir: tests/netcdf/lazy }
+          - { name: netcdf_lazy,  env: lazy,         dir: tests/netcdf/lazy }
           - { name: parquet_lazy, env: parquet-lazy, dir: tests/feature/lazy }
 
     steps:
