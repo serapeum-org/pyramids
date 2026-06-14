@@ -35,6 +35,7 @@ from pandas import DataFrame
 from pyramids.base._errors import _PyramidsError
 from pyramids.base.crs import sr_from_user_input, sr_from_wkt
 from pyramids.dataset import Dataset
+from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS
 from pyramids.dataset.cog import PROFILES, cog_info, validate
 from pyramids.dataset.merge import merge_rasters
@@ -316,6 +317,67 @@ def _cmd_warp(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_georeference(args: argparse.Namespace) -> int:
+    """Handle `pyramids georeference` — warp a raster from ground-control points.
+
+    Args:
+        args: Parsed args with `input`, `output`, `gcp` (list of [pixel, line,
+            x, y]), `gcp_crs`, `transform`, `order`, `to_crs`, `resampling`,
+            `overwrite`.
+
+    Returns:
+        int: `0` on success.
+    """
+    _refuse_existing(args.output, args.overwrite)
+    points = [
+        GroundControlPoint(col=pixel, row=line, x=x, y=y)
+        for pixel, line, x, y in args.gcp
+    ]
+    source = Dataset.read_file(args.input)
+    # Reconstruct in a writable MEM dataset so attaching GCPs does not mutate the
+    # input file; the source geotransform is irrelevant — GCPs replace it.
+    working = Dataset.create_from_array(
+        source.read_array(),
+        top_left_corner=source.top_left_corner,
+        cell_size=source.cell_size,
+        epsg=source.epsg or 4326,
+        no_data_value=source.no_data_value,
+    )
+    working.set_gcps(points, args.gcp_crs)
+    out = working.georeference(
+        to_epsg=args.to_crs,
+        method=args.resampling,
+        transform=args.transform,
+        order=args.order,
+    )
+    out.to_file(args.output)
+    print(f"wrote {args.output}")
+    return 0
+
+
+def _cmd_orthorectify(args: argparse.Namespace) -> int:
+    """Handle `pyramids orthorectify` — orthorectify a raster from its RPCs.
+
+    Args:
+        args: Parsed args with `input`, `output`, `dem`, `rpc_height`, `to_crs`,
+            `resampling`, `overwrite`. The input must already carry RPC metadata.
+
+    Returns:
+        int: `0` on success.
+    """
+    _refuse_existing(args.output, args.overwrite)
+    ds = Dataset.read_file(args.input)
+    out = ds.orthorectify(
+        dem=args.dem,
+        rpc_height=args.rpc_height,
+        to_epsg=args.to_crs,
+        method=args.resampling,
+    )
+    out.to_file(args.output)
+    print(f"wrote {args.output}")
+    return 0
+
+
 def _cmd_merge(args: argparse.Namespace) -> int:
     """Handle `pyramids merge` — mosaic rasters into one file.
 
@@ -549,6 +611,61 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     convert.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     convert.set_defaults(func=_cmd_convert)
+
+    georeference = sub.add_parser(
+        "georeference", help="warp a raster from ground-control points"
+    )
+    georeference.add_argument("input", help=_HELP_SRC_RASTER)
+    georeference.add_argument("output", help=_HELP_DST_RASTER)
+    georeference.add_argument(
+        "--gcp",
+        nargs=4,
+        type=float,
+        action="append",
+        required=True,
+        metavar=("PIXEL", "LINE", "X", "Y"),
+        help="a ground-control point 'PIXEL LINE X Y'; repeat for each point",
+    )
+    georeference.add_argument(
+        "--gcp-crs", required=True, help="CRS of the GCP map coordinates"
+    )
+    georeference.add_argument(
+        "--transform",
+        default="polynomial",
+        choices=["polynomial", "tps"],
+        help="transform fitted through the GCPs (default: polynomial)",
+    )
+    georeference.add_argument(
+        "--order", type=int, default=1, help="polynomial order 1-3 (default: 1)"
+    )
+    georeference.add_argument("--to-crs", help="reproject the result to this CRS")
+    georeference.add_argument(
+        "--resampling", default="nearest neighbor", help="resampling method"
+    )
+    georeference.add_argument(
+        "--overwrite", action="store_true", help=_HELP_OVERWRITE
+    )
+    georeference.set_defaults(func=_cmd_georeference)
+
+    orthorectify = sub.add_parser(
+        "orthorectify", help="orthorectify a raster from its RPC sensor model"
+    )
+    orthorectify.add_argument("input", help=_HELP_SRC_RASTER)
+    orthorectify.add_argument("output", help=_HELP_DST_RASTER)
+    orthorectify.add_argument("--dem", help="elevation model raster path")
+    orthorectify.add_argument(
+        "--rpc-height",
+        type=float,
+        help="constant elevation (map units) to use when no --dem is given",
+    )
+    orthorectify.add_argument("--to-crs", help="reproject the result to this CRS")
+    orthorectify.add_argument(
+        "--resampling", default="bilinear", help="resampling method"
+    )
+    orthorectify.add_argument(
+        "--overwrite", action="store_true", help=_HELP_OVERWRITE
+    )
+    orthorectify.set_defaults(func=_cmd_orthorectify)
 
     return parser
 

@@ -472,3 +472,59 @@ class TestUnexpectedErrors:
         monkeypatch.setenv("PYRAMIDS_DEBUG", "1")
         with pytest.raises(KeyError):
             main(["info", src_raster])
+
+
+class TestGeoreferenceCLI:
+    """Tests for `pyramids georeference` and `pyramids orthorectify`."""
+
+    def test_georeference_writes_output(self, src_raster, tmp_path):
+        """georeference warps the input from --gcp points into a 4326 raster.
+
+        Test scenario:
+            Four corner GCPs (10-11E, 49-50N) write a georeferenced GeoTIFF.
+        """
+        out = str(tmp_path / "geo.tif")
+        rc = main(
+            [
+                "georeference", src_raster, out,
+                "--gcp", "0", "0", "10", "50",
+                "--gcp", "8", "0", "11", "50",
+                "--gcp", "0", "8", "10", "49",
+                "--gcp", "8", "8", "11", "49",
+                "--gcp-crs", "4326",
+            ]
+        )
+        assert rc == 0, "georeference must exit 0"
+        assert os.path.exists(out), "output raster must be written"
+        assert Dataset.read_file(out).epsg == 4326
+
+    def test_georeference_refuses_existing(self, src_raster, tmp_path):
+        """Without --overwrite, an existing output is refused (exit 1).
+
+        Test scenario:
+            georeference onto an existing path returns 1 and writes nothing new.
+        """
+        out = str(tmp_path / "exists.tif")
+        Dataset.create_from_array(
+            np.ones((2, 2), "float32"), top_left_corner=(0, 2), cell_size=1.0
+        ).to_file(out)
+        rc = main(
+            [
+                "georeference", src_raster, out,
+                "--gcp", "0", "0", "10", "50",
+                "--gcp-crs", "4326",
+            ]
+        )
+        assert rc == 1, "must refuse an existing output without --overwrite"
+
+    def test_orthorectify_without_rpc_errors_cleanly(self, src_raster, tmp_path):
+        """orthorectify on a raster with no RPC metadata exits 1 (clean error).
+
+        Test scenario:
+            A plain raster has no RPCs; the command reports the error and exits 1
+            rather than crashing.
+        """
+        out = str(tmp_path / "ortho.tif")
+        rc = main(["orthorectify", src_raster, out, "--rpc-height", "100"])
+        assert rc == 1, "must exit 1 when the input has no RPC metadata"
+        assert not os.path.exists(out), "no output on a failed orthorectify"
