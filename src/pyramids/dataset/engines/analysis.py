@@ -21,6 +21,7 @@ from pandas import DataFrame
 from pyramids.base._domain import inside_domain, is_no_data
 from pyramids.base._errors import AlignmentError, OutOfBoundsError
 from pyramids.base._utils import gdal_to_numpy_dtype, require_cleopatra
+from pyramids.dataset._mask import MaskFlags
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.feature import FeatureCollection
 
@@ -987,10 +988,42 @@ class Analysis(_Engine):
             np.ndarray:
                 Array of the mask. 0 value for cells out of the domain, and 255 for cells in the domain.
         """
-        # TODO: there is a CreateMaskBand method in the gdal.Dataset class, it creates a mask band for the dataset
-        #   either internally or externally.
         arr = np.asarray(self._ds._iloc(band).GetMaskBand().ReadAsArray())
         return arr
+
+    def mask_flags(self, band: int = 0) -> MaskFlags:
+        """Decode the GDAL mask flags of ``band`` into a :class:`MaskFlags`.
+
+        Tells you *why* a band is masked (or not): a fully-valid band, a shared
+        per-dataset mask, an alpha-band mask, or a no-data-derived mask.
+
+        Args:
+            band: Band index. Default 0.
+
+        Returns:
+            MaskFlags: the four decoded boolean flags.
+
+        Examples:
+            - A band with a no-data value reports ``nodata``:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0),
+                ...     cell_size=1.0, no_data_value=-9999.0,
+                ... )
+                >>> ds.mask_flags().nodata
+                True
+
+                ```
+        """
+        flags = self._ds._iloc(band).GetMaskFlags()
+        return MaskFlags(
+            all_valid=bool(flags & gdal.GMF_ALL_VALID),
+            per_dataset=bool(flags & gdal.GMF_PER_DATASET),
+            alpha=bool(flags & gdal.GMF_ALPHA),
+            nodata=bool(flags & gdal.GMF_NODATA),
+        )
 
     def footprint(
         self: Dataset,
