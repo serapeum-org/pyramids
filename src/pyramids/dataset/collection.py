@@ -2024,32 +2024,80 @@ class DatasetCollection:
         return self.datasets[i]
 
     def plot(
-        self, band: int = 0, exclude_value: Any | None = None, **kwargs: Any
+        self,
+        band: int = 0,
+        exclude_value: Any | None = None,
+        rgb: list[int] | None = None,
+        surface_reflectance: int | None = None,
+        cutoff: list | None = None,
+        percentile: int | None = None,
+        rgb_options: dict | None = None,
+        **kwargs: Any,
     ) -> ArrayGlyph:
         r"""Render the collection as an animated stack of band slices.
 
             - read the values stored in a given band across every
               ``Dataset`` in the collection and hand the resulting
               ``(time, rows, cols)`` array to cleopatra's animation
-              path.
+              path; or, when ``rgb`` is set, composite the requested
+              bands per timestep into a true-colour
+              ``(time, rows, cols, 3)`` stack for an RGB time-lapse.
 
         Implementation note: this method is a thin caller around the
         shared :func:`pyramids.dataset._plot_helpers.render_array`
-        helper. It stacks one band per ``Dataset`` into a 3-D array
-        and forwards to ``render_array(..., mode="animate",
-        animation_axis_values=...)``. The duplicated ``ArrayGlyph``
-        construction that used to live here is gone — the helper owns
-        the cleopatra dispatch and the same code path serves the
-        single-frame ``Dataset.plot`` and the multi-panel
-        ``NetCDF.plot`` facets. See
+        helper. For the single-band default it stacks one band per
+        ``Dataset`` into a 3-D ``(time, rows, cols)`` array; when
+        ``rgb`` is given it stacks the full multi-band array per
+        ``Dataset`` into a 4-D ``(time, bands, rows, cols)`` array and
+        the helper composites the true-colour frames. Both forward to
+        ``render_array(..., mode="animate", animation_axis_values=...)``.
+        The duplicated ``ArrayGlyph`` construction that used to live
+        here is gone — the helper owns the cleopatra dispatch and the
+        same code path serves the single-frame ``Dataset.plot`` and the
+        multi-panel ``NetCDF.plot`` facets. See
         :mod:`pyramids.dataset._plot_helpers` for the three-mode
         contract.
 
         Args:
             band (int):
                 The band you want to get its data. Default is 0.
+                Ignored when ``rgb`` is set (RGB reads every band).
             exclude_value (Any):
                 Value to exclude from the plot. Default is None.
+                Ignored when ``rgb`` is set (true-colour frames are not
+                masked); passing it together with ``rgb`` emits a
+                :class:`UserWarning`.
+            rgb (list[int], optional):
+                Band indices ``[red, green, blue]`` (or four, with
+                alpha) to composite into a true-colour time-lapse. When
+                set, every timestep is rendered as an RGB frame instead
+                of a single colormapped band, and the result is a
+                ``(time, rows, cols, 3)`` animation with no colorbar.
+                Each ``Dataset`` in the collection must carry at least
+                ``max(rgb) + 1`` bands. Default ``None`` (single-band
+                colormapped animation). **Deprecated**; pass via
+                ``rgb_options={"rgb": [...]}`` instead.
+            surface_reflectance (int, optional):
+                Surface-reflectance scale for normalising RGB bands
+                (e.g. ``10000`` for Sentinel-2, ``255`` for 8-bit).
+                Only used when ``rgb`` is set. Default ``None``.
+                **Deprecated**; pass via
+                ``rgb_options={"surface_reflectance": ...}``.
+            cutoff (list, optional):
+                Per-band clip values for the RGB stretch. Only used when
+                ``rgb`` is set. Default ``None``. **Deprecated**; pass
+                via ``rgb_options={"cutoff": ...}``.
+            percentile (int, optional):
+                Percentile stretch for the RGB bands (takes precedence
+                over ``surface_reflectance``). Only used when ``rgb`` is
+                set. Default ``None``. **Deprecated**; pass via
+                ``rgb_options={"percentile": ...}``.
+            rgb_options (dict, optional):
+                Recommended grouped form of the RGB parameters above.
+                Accepted keys: ``"rgb"``, ``"surface_reflectance"``,
+                ``"cutoff"``, ``"percentile"``. Mirrors
+                :meth:`Dataset.plot`. On collision with a loose kwarg the
+                ``rgb_options`` value wins. Default ``None``.
             **kwargs:
                 | Parameter                  | Type                  | Description |
                 |----------------------------|-----------------------|-------------|
@@ -2081,12 +2129,121 @@ class DatasetCollection:
 
         Returns:
             ArrayGlyph: A plotting/animation handle (from cleopatra.ArrayGlyph).
+                For the single-band default its ``arr`` is the
+                ``(time, rows, cols)`` stack and it carries a colorbar; for
+                an RGB time-lapse its ``arr`` is the composited
+                ``(time, rows, cols, 3)`` stack and ``cbar`` is ``None``.
+
+        Raises:
+            ValueError: When ``rgb`` does not list exactly 3 (RGB) or 4
+                (RGBA) band indices, when any index is negative, or when the
+                collection's datasets carry fewer than ``max(rgb) + 1`` bands.
+                Also raised (via ``_merge_rgb_options``) for an unknown key
+                in ``rgb_options``.
+
+        Warns:
+            UserWarning: When ``exclude_value`` is passed together with
+                ``rgb`` — true-colour frames are not masked, so the value is
+                ignored.
+
+        Examples:
+            - Animate a single band across the collection's timesteps. The
+              call is tagged ``+SKIP`` because it renders through cleopatra /
+              matplotlib (the optional ``[viz]`` extra):
+
+                ```python
+                >>> from pyramids.dataset import DatasetCollection
+                >>> cube = DatasetCollection.read_multiple_files(  # doctest: +SKIP
+                ...     "tests/data/geotiff/rhine"
+                ... )
+                >>> glyph = cube.plot(band=0)  # doctest: +SKIP
+                >>> glyph.arr.ndim  # doctest: +SKIP
+                3
+
+                ```
+            - Composite a true-colour time-lapse from three bands via the
+              grouped ``rgb_options`` form. Every timestep becomes one RGB
+              frame, so the rendered stack is ``(time, rows, cols, 3)`` with
+              no colorbar:
+
+                ```python
+                >>> from pyramids.dataset import DatasetCollection
+                >>> cube = DatasetCollection.read_multiple_files(  # doctest: +SKIP
+                ...     "tests/data/geotiff/sentinel"
+                ... )
+                >>> glyph = cube.plot(  # doctest: +SKIP
+                ...     rgb_options={"rgb": [0, 1, 2], "percentile": 2}
+                ... )
+                >>> glyph.cbar is None  # doctest: +SKIP
+                True
+
+                ```
+
+        See Also:
+            - :meth:`pyramids.dataset.Dataset.plot`: The single-frame
+              renderer (still or RGB still) for one ``Dataset``; shares the
+              ``rgb`` / ``rgb_options`` contract via ``_merge_rgb_options``.
+            - :func:`pyramids.dataset._plot_helpers.render_array`: The shared
+              cleopatra dispatch that composites the true-colour frames for
+              the animate path.
         """
+        # Resolve the grouped ``rgb_options`` against the deprecated loose
+        # kwargs exactly as ``Dataset.plot`` does, so both facades share one
+        # RGB-parameter contract (and one deprecation message).
+        rgb, surface_reflectance, cutoff, percentile = Dataset._merge_rgb_options(
+            rgb_options=rgb_options,
+            rgb=rgb,
+            surface_reflectance=surface_reflectance,
+            cutoff=cutoff,
+            percentile=percentile,
+        )
         # Materialise the cube on demand for plotting. The render helper
         # expects a single (time, rows, cols) numpy array; reading each
         # Dataset's band into one stacked array is fine for a plot call
         # (the user explicitly asked to render). Delegates the cleopatra
         # call to :func:`render_array` (D-2 — shared with `Analysis.plot`).
+        if rgb is not None:
+            # RGB time-lapse: read the FULL multi-band array per timestep and
+            # stack to (time, bands, rows, cols); render_array composites the
+            # true-colour frames. Guard the band layout here so a misshapen
+            # ``rgb`` raises a clear error instead of cleopatra silently
+            # collapsing the time axis into the colour channels (issue #538).
+            if len(rgb) not in (3, 4):
+                raise ValueError(
+                    f"rgb must list 3 band indices (RGB) or 4 (RGBA), got "
+                    f"{rgb!r} with {len(rgb)} entries."
+                )
+            if min(rgb) < 0:
+                raise ValueError(
+                    f"rgb band indices must be non-negative, got {rgb!r}."
+                )
+            if exclude_value is not None:
+                warnings.warn(
+                    "exclude_value is ignored for RGB animations; true-colour "
+                    "frames are not masked. Drop exclude_value, or render a "
+                    "single band to mask by no-data.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            needed = max(rgb) + 1
+            if self.base.band_count < needed:
+                raise ValueError(
+                    f"rgb={rgb} needs at least {needed} bands, but the "
+                    f"collection's datasets have {self.base.band_count}."
+                )
+            data = np.stack(
+                [ds.read_array(band=None) for ds in self.datasets], axis=0
+            )
+            return render_array(
+                arr=data,
+                rgb=rgb,
+                surface_reflectance=surface_reflectance,
+                cutoff=cutoff,
+                percentile=percentile,
+                mode="animate",
+                animation_axis_values=list(range(self.time_length)),
+                **kwargs,
+            )
         data = np.stack([ds.read_array(band=band) for ds in self.datasets], axis=0)
         # Sanitise an unset no-data value (``None``) to ``np.nan`` before
         # building the exclusion list — mirrors ``Analysis.plot`` (the

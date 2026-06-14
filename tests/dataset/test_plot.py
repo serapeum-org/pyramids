@@ -519,6 +519,138 @@ class TestPlotDatasetCollection:
         glyph = cube.plot(band=0)
         assert isinstance(glyph, ArrayGlyph)
 
+    @staticmethod
+    def _rgb_cube(tmp_path, n_times=4, n_bands=3, dim=8):
+        """Build a co-registered multi-band DatasetCollection for RGB tests."""
+        rng = np.random.default_rng(0)
+        files = []
+        for t in range(n_times):
+            arr = (rng.random((n_bands, dim, dim), dtype="float32") * 255).astype(
+                "float32"
+            )
+            ds = Dataset.create_from_array(
+                arr=arr, geo=(0, 1, 0, 0, 0, -1), epsg=4326
+            )
+            path = tmp_path / f"rgb_{t}.tif"
+            ds.to_file(str(path))
+            files.append(str(path))
+        return DatasetCollection.from_files(files)
+
+    @pytest.mark.plot
+    def test_rgb_animate_keeps_every_frame(self, tmp_path):
+        """`plot(rgb=...)` returns a true-colour animation, one frame per timestep.
+
+        Regression for #538: passing ``rgb`` used to flow through ``**kwargs`` into
+        ``render_array``'s ``rgb`` parameter with a single-band ``(time, rows, cols)``
+        stack, so cleopatra read the time axis as the RGB channels — collapsing the
+        frames into a single ``(rows, cols, 3)`` still. The dedicated ``rgb`` path now
+        stacks every band per timestep and composites a ``(time, rows, cols, 3)`` stack,
+        so all four frames survive.
+        """
+        cube = self._rgb_cube(tmp_path, n_times=4)
+        glyph = cube.plot(rgb_options={"rgb": [0, 1, 2], "percentile": 2})
+        assert isinstance(glyph, ArrayGlyph)
+        assert glyph.arr.shape == (4, 8, 8, 3), "must keep all 4 true-colour frames"
+        assert glyph.cbar is None, "true-colour frames carry no colorbar"
+
+    @pytest.mark.plot
+    def test_rgb_insufficient_bands_raises(self, tmp_path):
+        """A misshapen `rgb=` raises instead of silently dropping frames (#538)."""
+        cube = self._rgb_cube(tmp_path, n_times=3, n_bands=2)
+        with pytest.raises(ValueError, match="needs at least 3 bands"):
+            cube.plot(rgb_options={"rgb": [0, 1, 2]})
+
+    @pytest.mark.plot
+    def test_rgb_loose_kwarg_is_deprecated(self, tmp_path):
+        """The loose top-level `rgb=` still works but warns, mirroring Dataset.plot."""
+        cube = self._rgb_cube(tmp_path, n_times=3)
+        with pytest.warns(DeprecationWarning, match="rgb_options"):
+            glyph = cube.plot(rgb=[0, 1, 2], percentile=2)
+        assert glyph.arr.shape == (3, 8, 8, 3)
+
+    @pytest.mark.plot
+    def test_single_band_path_unchanged(self, tmp_path):
+        """Without `rgb`, plot() still yields a colormapped single-band animation."""
+        cube = self._rgb_cube(tmp_path, n_times=3)
+        glyph = cube.plot(band=0)
+        assert isinstance(glyph, ArrayGlyph)
+        assert glyph.arr.ndim == 3, "single-band animate stays (time, rows, cols)"
+
+    @pytest.mark.plot
+    def test_rgb_surface_reflectance_normalisation(self, tmp_path):
+        """`rgb_options` may normalise via surface_reflectance instead of percentile.
+
+        Exercises the non-percentile branch of cleopatra's ``prepare_array`` through
+        the collection RGB path: the result is still a display-ready
+        ``(time, rows, cols, 3)`` stack in ``[0, 1]``.
+        """
+        cube = self._rgb_cube(tmp_path, n_times=3)
+        glyph = cube.plot(rgb_options={"rgb": [0, 1, 2], "surface_reflectance": 255})
+        assert glyph.arr.shape == (3, 8, 8, 3), "RGB stack keeps every frame"
+        assert float(glyph.arr.min()) >= 0.0 and float(glyph.arr.max()) <= 1.0, (
+            "surface-reflectance frames must be normalised into [0, 1]"
+        )
+
+    @pytest.mark.plot
+    def test_rgb_options_unknown_key_raises(self, tmp_path):
+        """An unknown `rgb_options` key raises (delegated to `_merge_rgb_options`)."""
+        cube = self._rgb_cube(tmp_path, n_times=2)
+        with pytest.raises(ValueError, match=r"Unknown keys in `rgb_options`"):
+            cube.plot(rgb_options={"bogus": 1})
+
+    @pytest.mark.plot
+    def test_rgba_four_channel_animation(self, tmp_path):
+        """A four-index `rgb` composites an RGBA `(time, rows, cols, 4)` time-lapse.
+
+        The alpha channel path is documented ("or four, with alpha"); this guards it
+        against silent regressions in the per-frame compositing.
+        """
+        cube = self._rgb_cube(tmp_path, n_times=3, n_bands=4)
+        glyph = cube.plot(rgb_options={"rgb": [0, 1, 2, 3], "percentile": 2})
+        assert glyph.arr.shape == (3, 8, 8, 4), "RGBA stack keeps four channels"
+        assert glyph.cbar is None, "true-colour frames carry no colorbar"
+
+    @pytest.mark.plot
+    @pytest.mark.parametrize("bad_rgb", [[0, 1], [0], []])
+    def test_rgb_wrong_arity_raises(self, tmp_path, bad_rgb):
+        """An `rgb` list that is not 3 or 4 indices raises a clear arity error.
+
+        Args:
+            bad_rgb: A malformed channel list (too few / empty) that must be rejected
+                before reaching cleopatra (which would give a cryptic message, or
+                ``max([])`` would raise on the empty list).
+        """
+        cube = self._rgb_cube(tmp_path, n_times=2, n_bands=4)
+        with pytest.raises(ValueError, match=r"rgb must list 3 band indices"):
+            cube.plot(rgb_options={"rgb": bad_rgb})
+
+    @pytest.mark.plot
+    def test_rgb_negative_index_raises(self, tmp_path):
+        """A negative `rgb` index is rejected before band-count resolution.
+
+        `max(rgb)` would otherwise underestimate the bands needed and let a
+        wrap-around index through to a cryptic failure deep in cleopatra.
+        """
+        cube = self._rgb_cube(tmp_path, n_times=2, n_bands=4)
+        with pytest.raises(ValueError, match=r"must be non-negative"):
+            cube.plot(rgb_options={"rgb": [-1, 0, 1]})
+
+    @pytest.mark.plot
+    def test_rgb_with_exclude_value_warns(self, tmp_path):
+        """Passing `exclude_value` alongside `rgb` warns that it is ignored."""
+        cube = self._rgb_cube(tmp_path, n_times=2)
+        with pytest.warns(UserWarning, match="exclude_value is ignored"):
+            glyph = cube.plot(exclude_value=0, rgb_options={"rgb": [0, 1, 2]})
+        assert glyph.arr.shape == (2, 8, 8, 3), "RGB stack still rendered"
+
+    @pytest.mark.plot
+    def test_rgb_options_wins_over_loose_kwarg(self, tmp_path):
+        """On collision, `rgb_options` wins over the loose kwarg and still warns."""
+        cube = self._rgb_cube(tmp_path, n_times=2, n_bands=4)
+        with pytest.warns(DeprecationWarning, match="rgb_options` wins"):
+            glyph = cube.plot(rgb=[1, 2, 3], rgb_options={"rgb": [0, 1, 2]})
+        assert glyph.arr.shape == (2, 8, 8, 3), "grouped rgb composited every frame"
+
 
 class TestColorTable:
 
@@ -1445,6 +1577,33 @@ class TestPlotPhase3CrossCutting:
         arr = np.zeros((3, 4, 4), dtype="float32")
         with pytest.raises(ValueError, match=r"facet_kwargs"):
             render_array(arr=arr, mode="facet")
+
+    @pytest.mark.plot
+    def test_render_array_rgb_animate_requires_4d(self):
+        """RGB animate with a single-band 3-D stack raises rather than collapsing.
+
+        Guards the #538 silent-frame-loss: a 3-D ``(time, rows, cols)`` array plus
+        ``rgb`` would otherwise reach cleopatra as a single composited still.
+        """
+        arr = np.zeros((4, 8, 8), dtype="float32")
+        with pytest.raises(ValueError, match=r"RGB animate requires a 4-D"):
+            render_array(
+                arr=arr,
+                rgb=[0, 1, 2],
+                mode="animate",
+                animation_axis_values=[0, 1, 2, 3],
+            )
+
+    @pytest.mark.plot
+    def test_render_array_rgb_animate_none_arr_raises(self):
+        """RGB animate with `arr=None` hits the same 4-D guard and reports None-D."""
+        with pytest.raises(ValueError, match=r"got None-D"):
+            render_array(
+                arr=None,
+                rgb=[0, 1, 2],
+                mode="animate",
+                animation_axis_values=[0],
+            )
 
     @pytest.mark.plot
     def test_render_array_basemap_requires_epsg(self):
