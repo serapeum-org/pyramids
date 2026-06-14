@@ -191,6 +191,10 @@ class TestResolveS3Region:
                 response = urllib.response.addinfourl(
                     io.BytesIO(b""), headers, req.full_url, code=301
                 )
+                # urllib's HTTPErrorProcessor reads response.msg when turning a
+                # non-2xx response into an HTTPError; addinfourl has no .msg, so
+                # set it here (a future urllib change here would surface as an
+                # AttributeError in this test).
                 response.msg = "Moved Permanently"
                 return response
 
