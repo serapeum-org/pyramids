@@ -110,6 +110,21 @@ class TestResolveS3Region:
         )
         assert resolve_s3_region("b") is None
 
+    def test_request_construction_error_returns_none(self, monkeypatch):
+        """A ``ValueError`` building the request resolves to ``None`` (never raises).
+
+        Test scenario:
+            A malformed bucket string makes ``Request(...)`` raise ``ValueError``;
+            the guard inside the helper swallows it so the caller's never-raises
+            contract holds and the open falls back to GDAL's behaviour.
+        """
+
+        def _raise(*args, **kwargs):
+            raise ValueError("unknown url type")
+
+        monkeypatch.setattr(remote_mod.urllib.request, "Request", _raise)
+        assert resolve_s3_region("bad bucket") is None
+
     def test_returns_none_when_region_header_absent(self, monkeypatch):
         """A 200 response without the region header resolves to ``None``.
 
