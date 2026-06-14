@@ -212,6 +212,12 @@ def resolve_s3_region(bucket: str, *, timeout: float = 5.0) -> str | None:
             'eu-central-1'
 
             ```
+
+    See Also:
+        - :class:`CloudConfig`: pass the resolved region as ``aws_region`` to pin
+          ``AWS_REGION`` for a GDAL open.
+        - :meth:`pyramids.netcdf.LabeledDataset.read_file`: the primary caller,
+          which auto-resolves the region for anonymous ``s3://`` stores.
     """
     if bucket not in _S3_REGION_CACHE:
         try:
