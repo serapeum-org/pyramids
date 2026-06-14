@@ -158,30 +158,6 @@ spatial resample/warp is the `rioxarray` accessor's job.
   - **xarray + rioxarray** — your problem is genuinely N-dimensional scientific arrays / large lazy
     datacubes, and you want a CRS-aware raster layer on top.
 
-### Honest conclusion (strict "ships its own API" audit)
-
-Re-auditing every pyramids cell against a concrete public symbol — counting a capability **only** when
-pyramids exposes its own method / function / CLI command, never just because GDAL could do it — the
-breadth claims hold up better than a "thin wrapper" reputation would suggest:
-
-- Of the ~40 capabilities checked, pyramids now ships a real public API for **every raster capability
-  rasterio has**. The previously-flagged gap — **GCP / RPC georeferencing** — is closed
-  (`set_gcps`/`gcps`/`georeference`/`set_rpcs`/`rpcs`/`orthorectify`, routed through `gdal.Warp`). The only
-  remaining rasterio-side item is **GRIB-specific handling**: pyramids opens GRIB via the generic
-  `read_file` (as any GDAL driver does) but exposes no GRIB-*specific* surface (parameter/WMO catalog,
-  message inspection) — a format-metadata nicety, not a raster capability.
-- A further pass for rasterio-only features turned up only one **ergonomic** difference, not a capability:
-  a one-call `geometry_mask` (pyramids goes vector→raster via `from_features`/`rasterize` then reads the
-  mask). Everything substantive — windowed/boundless/decimated/threadsafe reads, `warped_view`, masks,
-  `xy`/`rowcol`, densified bbox reprojection (`feature.bbox.transform_bounds`), nodata `fill`, GCP/RPC, and
-  the raster↔vector CLI verbs (`pyramids shapes`/`rasterize`) — is present.
-- Against **xarray / rioxarray** the differences are **not** capability gaps but *kind-of-tool* and
-  *maturity* differences: they are array-first and far more battle-tested on huge lazy datacubes;
-  pyramids is GDAL/GIS-first and bundles vector + zonal + terrain + STAC that xarray/rioxarray leave to
-  the ecosystem.
-- The honest caveat is therefore **not** "pyramids lacks the features" — it is "pyramids' features are
-  younger and less battle-tested." Surface coverage is broad and genuinely API-backed; maturity,
-  performance tuning, and edge-case hardening are where the established libraries still lead.
 
 > Scope reminder: pyramids stays a *generic* GDAL/OGR toolkit — the breadth above is generic primitives
 > and format support, not domain logic. See [Scope](SCOPE.md) for the boundary.
