@@ -73,3 +73,15 @@ class TestReadWindows:
         """
         blocks = disk_raster.read_windows(quad_windows)
         assert [b.shape for b in blocks] == [(4, 4)] * 4
+
+    def test_mem_dataset_rejected_up_front(self, quad_windows):
+        """A pure-MEM dataset is rejected before any worker runs (review L2).
+
+        Test scenario:
+            read_windows on a MEM dataset raises a clear ValueError.
+        """
+        mem = Dataset.create_from_array(
+            np.ones((8, 8), "float32"), top_left_corner=(0.0, 8.0), cell_size=1.0
+        )
+        with pytest.raises(ValueError, match="path-backed"):
+            mem.read_windows(quad_windows)

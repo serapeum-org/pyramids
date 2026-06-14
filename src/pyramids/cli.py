@@ -498,6 +498,8 @@ def _cmd_calc(args: argparse.Namespace) -> int:
     if len(args.operands) < 2:
         raise ValueError("calc needs at least one input raster and an output path.")
     *inputs, output = args.operands
+    if len(inputs) > 26:
+        raise ValueError("calc supports at most 26 input rasters (bound A..Z).")
     _refuse_existing(output, args.overwrite)
     datasets = [Dataset.read_file(path) for path in inputs]
     names = [chr(ord("A") + index) for index in range(len(datasets))]

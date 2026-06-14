@@ -317,7 +317,10 @@ class Window:
 
                 ```
         """
-        return self.intersection(Window(0, 0, cols, rows))
+        result = None
+        if rows > 0 and cols > 0:
+            result = self.intersection(Window(0, 0, cols, rows))
+        return result
 
     def todict(self) -> dict[str, int]:
         """Return the window as a ``{col_off, row_off, cols, rows}`` dict.

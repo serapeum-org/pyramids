@@ -460,3 +460,11 @@ class TestWindowConveniences:
         gt = (0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
         out = Window(2, 1, 3, 3).transform(gt)
         assert out == (2.0, 1.0, 0.0, 3.0, 0.0, -1.0)
+
+    def test_crop_zero_extent_is_none(self):
+        """crop on a zero-size extent returns None rather than raising (review N2).
+
+        Test scenario:
+            Window(0,0,4,4).crop(0, 0) -> None.
+        """
+        assert Window(0, 0, 4, 4).crop(rows=0, cols=0) is None

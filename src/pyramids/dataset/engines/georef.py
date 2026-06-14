@@ -9,8 +9,9 @@ GDAL toolkit and does not implement any sensor model itself.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Mapping, Sequence
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from osgeo import gdal
@@ -262,6 +263,10 @@ class Georef(_Engine):
         result = self._ds.__class__(dst, access="read_only")
         if lazy:
             result._warp_source = self._ds
+        elif dem_path is not None and dem_path.startswith("/vsimem/orthorectify_dem_"):
+            # A materialised result no longer references the staged DEM, so free
+            # the /vsimem copy we made from a MEM Dataset (a lazy result keeps it).
+            gdal.Unlink(dem_path)
         return result
 
     @staticmethod

@@ -1289,6 +1289,13 @@ class IO(_Engine):
 
                 ```
         """
+        if self._ds.raster.GetDriver().ShortName == "MEM":
+            raise ValueError(
+                "read_windows requires a path-backed dataset (on disk or under "
+                "/vsimem/); a pure in-memory (MEM) dataset cannot be reopened "
+                "per thread. Write it to a path first."
+            )
+
         def _read_one(window: Window) -> np.ndarray:
             return np.asarray(
                 self._ds.read_array(band=band, window=window, threadsafe=True)
