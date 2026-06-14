@@ -2200,6 +2200,18 @@ class DatasetCollection:
                     f"rgb must list 3 band indices (RGB) or 4 (RGBA), got "
                     f"{rgb!r} with {len(rgb)} entries."
                 )
+            if min(rgb) < 0:
+                raise ValueError(
+                    f"rgb band indices must be non-negative, got {rgb!r}."
+                )
+            if exclude_value is not None:
+                warnings.warn(
+                    "exclude_value is ignored for RGB animations; true-colour "
+                    "frames are not masked. Drop exclude_value, or render a "
+                    "single band to mask by no-data.",
+                    UserWarning,
+                    stacklevel=2,
+                )
             needed = max(rgb) + 1
             if self.base.band_count < needed:
                 raise ValueError(

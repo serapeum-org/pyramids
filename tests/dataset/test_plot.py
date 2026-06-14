@@ -625,6 +625,25 @@ class TestPlotDatasetCollection:
             cube.plot(rgb_options={"rgb": bad_rgb})
 
     @pytest.mark.plot
+    def test_rgb_negative_index_raises(self, tmp_path):
+        """A negative `rgb` index is rejected before band-count resolution.
+
+        `max(rgb)` would otherwise underestimate the bands needed and let a
+        wrap-around index through to a cryptic failure deep in cleopatra.
+        """
+        cube = self._rgb_cube(tmp_path, n_times=2, n_bands=4)
+        with pytest.raises(ValueError, match=r"must be non-negative"):
+            cube.plot(rgb_options={"rgb": [-1, 0, 1]})
+
+    @pytest.mark.plot
+    def test_rgb_with_exclude_value_warns(self, tmp_path):
+        """Passing `exclude_value` alongside `rgb` warns that it is ignored."""
+        cube = self._rgb_cube(tmp_path, n_times=2)
+        with pytest.warns(UserWarning, match="exclude_value is ignored"):
+            glyph = cube.plot(exclude_value=0, rgb_options={"rgb": [0, 1, 2]})
+        assert glyph.arr.shape == (2, 8, 8, 3), "RGB stack still rendered"
+
+    @pytest.mark.plot
     def test_rgb_options_wins_over_loose_kwarg(self, tmp_path):
         """On collision, `rgb_options` wins over the loose kwarg and still warns."""
         cube = self._rgb_cube(tmp_path, n_times=2, n_bands=4)

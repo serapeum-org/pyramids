@@ -328,7 +328,9 @@ def render_array(
             ],
             axis=0,
         )
-        rgb = None
+        # The stretch parameters have been consumed by ``prepare_array`` above;
+        # null them so the constructor call below cannot re-read inert values.
+        rgb = surface_reflectance = cutoff = percentile = None
     # Fail fast on an invalid ``color_scale`` with a pyramids-side message
     # that lists the valid options, instead of deferring to a less-targeted
     # cleopatra error deep in the render call. ``ColorScale`` lookup is
