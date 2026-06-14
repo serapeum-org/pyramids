@@ -685,3 +685,54 @@ class TestShapesRasterizeCLI:
         assert main(["shapes", src_raster, vector]) == 0
         rc = main(["rasterize", vector, str(tmp_path / "r.tif")])
         assert rc == 1, "must exit 1 without --cell-size/--like"
+
+    def test_shapes_point_geometry(self, src_raster, tmp_path):
+        """shapes --geometry point emits per-cell point features.
+
+        Test scenario:
+            --geometry point writes a readable vector with finite bounds.
+        """
+        out = str(tmp_path / "pts.geojson")
+        rc = main(["shapes", src_raster, out, "--geometry", "point"])
+        assert rc == 0, "shapes --geometry point must exit 0"
+        assert np.all(np.isfinite(FeatureCollection.read_file(out).total_bounds))
+
+    def test_shapes_refuses_existing(self, src_raster, tmp_path):
+        """shapes refuses an existing output without --overwrite (exit 1).
+
+        Test scenario:
+            An existing destination is not clobbered.
+        """
+        out = str(tmp_path / "exists.geojson")
+        main(["shapes", src_raster, out])
+        rc = main(["shapes", src_raster, out])
+        assert rc == 1, "must refuse an existing output without --overwrite"
+
+    def test_rasterize_with_template(self, src_raster, tmp_path):
+        """rasterize --like adopts a template raster's grid.
+
+        Test scenario:
+            shapes -> vector, then rasterize --like src; the output matches the
+            template's cell size and dimensions.
+        """
+        vector = str(tmp_path / "v.geojson")
+        assert main(["shapes", src_raster, vector]) == 0
+        out = str(tmp_path / "r.tif")
+        rc = main(["rasterize", vector, out, "--like", src_raster])
+        assert rc == 0, "rasterize --like must exit 0"
+        template = Dataset.read_file(src_raster)
+        result = Dataset.read_file(out)
+        assert (result.rows, result.columns) == (template.rows, template.columns)
+
+    def test_rasterize_with_column(self, src_raster, tmp_path):
+        """rasterize --column burns a single named attribute.
+
+        Test scenario:
+            --column Band_1 produces a single-band raster.
+        """
+        vector = str(tmp_path / "v.geojson")
+        assert main(["shapes", src_raster, vector]) == 0
+        out = str(tmp_path / "r.tif")
+        rc = main(["rasterize", vector, out, "--cell-size", "1", "--column", "Band_1"])
+        assert rc == 0, "rasterize --column must exit 0"
+        assert Dataset.read_file(out).band_count == 1
