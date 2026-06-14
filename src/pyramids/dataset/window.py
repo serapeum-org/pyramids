@@ -249,3 +249,160 @@ class Window:
         col_end = max(self.col_off + self.cols, other.col_off + other.cols)
         row_end = max(self.row_off + self.rows, other.row_off + other.rows)
         return Window(col_off, row_off, col_end - col_off, row_end - row_off)
+
+    @classmethod
+    def rounded(
+        cls,
+        col_off: float,
+        row_off: float,
+        cols: float,
+        rows: float,
+    ) -> Window:
+        """Snap possibly-fractional pixel coordinates to an integer ``Window``.
+
+        Offsets are floored and sizes ceiled, so the resulting window always
+        **covers** the fractional region. (A :class:`Window` itself is
+        integer-only; this is the constructor for when upstream math produced
+        fractional pixel coordinates.)
+
+        Args:
+            col_off: Fractional column offset.
+            row_off: Fractional row offset.
+            cols: Fractional width.
+            rows: Fractional height.
+
+        Returns:
+            Window: the covering integer window.
+
+        Examples:
+            - Floor the offsets, ceil the sizes:
+                ```python
+                >>> from pyramids.dataset.window import Window
+                >>> Window.rounded(1.4, 2.6, 9.9, 3.1)
+                Window(col_off=1, row_off=2, cols=10, rows=4)
+
+                ```
+        """
+        return cls(
+            math.floor(col_off),
+            math.floor(row_off),
+            math.ceil(cols),
+            math.ceil(rows),
+        )
+
+    def crop(self, rows: int, cols: int) -> Window | None:
+        """Clamp the window to a raster's ``(rows, cols)`` pixel extent.
+
+        Args:
+            rows: The raster's height in pixels.
+            cols: The raster's width in pixels.
+
+        Returns:
+            Window | None: the part of this window inside the extent, or
+                ``None`` when the window lies entirely outside it.
+
+        Examples:
+            - An oversized window is clamped to the raster:
+                ```python
+                >>> from pyramids.dataset.window import Window
+                >>> Window(0, 0, 100, 100).crop(rows=8, cols=8)
+                Window(col_off=0, row_off=0, cols=8, rows=8)
+
+                ```
+            - A window fully outside the extent clamps to None:
+                ```python
+                >>> from pyramids.dataset.window import Window
+                >>> Window(20, 20, 5, 5).crop(rows=8, cols=8) is None
+                True
+
+                ```
+        """
+        return self.intersection(Window(0, 0, cols, rows))
+
+    def todict(self) -> dict[str, int]:
+        """Return the window as a ``{col_off, row_off, cols, rows}`` dict.
+
+        Returns:
+            dict[str, int]: the four fields, suitable for JSON / round-trip.
+
+        Examples:
+            - Serialise and round-trip through :meth:`from_dict`:
+                ```python
+                >>> from pyramids.dataset.window import Window
+                >>> d = Window(4, 1, 2, 3).todict()
+                >>> sorted(d.items())
+                [('col_off', 4), ('cols', 2), ('row_off', 1), ('rows', 3)]
+                >>> Window.from_dict(d)
+                Window(col_off=4, row_off=1, cols=2, rows=3)
+
+                ```
+        """
+        return {
+            "col_off": self.col_off,
+            "row_off": self.row_off,
+            "cols": self.cols,
+            "rows": self.rows,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, int]) -> Window:
+        """Build a ``Window`` from a ``{col_off, row_off, cols, rows}`` dict.
+
+        Args:
+            data: A mapping with the four window fields.
+
+        Returns:
+            Window: the reconstructed window.
+        """
+        return cls(
+            col_off=data["col_off"],
+            row_off=data["row_off"],
+            cols=data["cols"],
+            rows=data["rows"],
+        )
+
+    def __iter__(self):
+        """Iterate ``(col_off, row_off, cols, rows)`` so ``tuple(window)`` works.
+
+        Yields:
+            int: the four fields in GDAL (x-first) order.
+        """
+        yield from (self.col_off, self.row_off, self.cols, self.rows)
+
+    def transform(
+        self,
+        geotransform: tuple[float, float, float, float, float, float],
+    ) -> tuple[float, float, float, float, float, float]:
+        """Return the geotransform of *this window* (its own top-left origin).
+
+        The pixel size and rotation terms are unchanged; only the origin (indices
+        0 and 3) shift to the window's top-left corner — the geotransform you
+        write a cropped sub-raster with.
+
+        Args:
+            geotransform: The parent raster's GDAL 6-tuple.
+
+        Returns:
+            tuple: the window's geotransform.
+
+        Examples:
+            - The origin shifts to the window; the cell size is preserved:
+                ```python
+                >>> from pyramids.dataset.window import Window
+                >>> gt = (0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
+                >>> Window(2, 1, 3, 3).transform(gt)
+                (2.0, 1.0, 0.0, 3.0, 0.0, -1.0)
+
+                ```
+        """
+        origin_x, origin_y = gdal.ApplyGeoTransform(
+            list(geotransform), float(self.col_off), float(self.row_off)
+        )
+        return (
+            origin_x,
+            geotransform[1],
+            geotransform[2],
+            origin_y,
+            geotransform[4],
+            geotransform[5],
+        )
