@@ -48,7 +48,7 @@ comparatively new. Read the tables as *surface coverage*, with the maturity row 
 | Capability | pyramids | rasterio | xarray | rioxarray |
 |---|---|---|---|---|
 | GDAL raster formats (GeoTIFF, …) | ✓ `Dataset` | ✓✓ standard | ◐ `→rioxarray` | ✓ `open_rasterio` |
-| Windowed read & write | ✓ `read/write_array(window=)` + `Window` algebra | ✓✓ `Window` | ◐ Dask chunks | ◐ Dask chunks |
+| Windowed read & write | ✓ `read/write_array(window=)` + Window math | ✓✓ `Window` | ◐ Dask chunks | ◐ Dask chunks |
 | In-memory raster (bytes) | ✓ `from_bytes`/`to_bytes` | ✓ `MemoryFile` | ◐ `→rioxarray` | ◐ via `MemoryFile` |
 | Overviews / pyramids | ✓ `create_overviews`, `read_overview_array` | ✓ `build_overviews` | ✗ `→rio` | ◐ `→rasterio` |
 | COG write / validate / inspect | ✓✓ `to_cog` | ◐ `→rio-cogeo` | ✗ `→rioxarray` | ◐ `to_raster(COG)` |
