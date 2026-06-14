@@ -240,6 +240,7 @@ nav:
   - How-to:
       - Dev Container: how-to/devcontainer.md
       - Docker & GHCR: how-to/docker.md
+      - Parallel windowed reads: how-to/parallel-reads.md
       - Recipes: how-to/recipes.md
       - Testing & CI: how-to/testing.md
       - Wheel Build Flow: how-to/wheel-build-flow.md
