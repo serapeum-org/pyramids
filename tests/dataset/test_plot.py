@@ -599,6 +599,32 @@ class TestPlotDatasetCollection:
             cube.plot(rgb_options={"bogus": 1})
 
     @pytest.mark.plot
+    def test_rgba_four_channel_animation(self, tmp_path):
+        """A four-index `rgb` composites an RGBA `(time, rows, cols, 4)` time-lapse.
+
+        The alpha channel path is documented ("or four, with alpha"); this guards it
+        against silent regressions in the per-frame compositing.
+        """
+        cube = self._rgb_cube(tmp_path, n_times=3, n_bands=4)
+        glyph = cube.plot(rgb_options={"rgb": [0, 1, 2, 3], "percentile": 2})
+        assert glyph.arr.shape == (3, 8, 8, 4), "RGBA stack keeps four channels"
+        assert glyph.cbar is None, "true-colour frames carry no colorbar"
+
+    @pytest.mark.plot
+    @pytest.mark.parametrize("bad_rgb", [[0, 1], [0], []])
+    def test_rgb_wrong_arity_raises(self, tmp_path, bad_rgb):
+        """An `rgb` list that is not 3 or 4 indices raises a clear arity error.
+
+        Args:
+            bad_rgb: A malformed channel list (too few / empty) that must be rejected
+                before reaching cleopatra (which would give a cryptic message, or
+                ``max([])`` would raise on the empty list).
+        """
+        cube = self._rgb_cube(tmp_path, n_times=2, n_bands=4)
+        with pytest.raises(ValueError, match=r"rgb must list 3 band indices"):
+            cube.plot(rgb_options={"rgb": bad_rgb})
+
+    @pytest.mark.plot
     def test_rgb_options_wins_over_loose_kwarg(self, tmp_path):
         """On collision, `rgb_options` wins over the loose kwarg and still warns."""
         cube = self._rgb_cube(tmp_path, n_times=2, n_bands=4)

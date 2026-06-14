@@ -2195,6 +2195,11 @@ class DatasetCollection:
             # true-colour frames. Guard the band layout here so a misshapen
             # ``rgb`` raises a clear error instead of cleopatra silently
             # collapsing the time axis into the colour channels (issue #538).
+            if len(rgb) not in (3, 4):
+                raise ValueError(
+                    f"rgb must list 3 band indices (RGB) or 4 (RGBA), got "
+                    f"{rgb!r} with {len(rgb)} entries."
+                )
             needed = max(rgb) + 1
             if self.base.band_count < needed:
                 raise ValueError(
