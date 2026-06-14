@@ -124,7 +124,7 @@ spatial resample/warp is the `rioxarray` accessor's job.
 
 | Capability | pyramids | rasterio | xarray | rioxarray |
 |---|---|---|---|---|
-| CLI | ✓ `pyramids` | ✓ `rio` | ✗ | ✗ |
+| CLI | ✓ `pyramids` (incl. `edit-info`, `calc`, `georeference`) | ✓ `rio` | ✗ | ✗ |
 | Plotting | ◐ `→cleopatra` | ✓ `rasterio.plot` | ✓✓ `xarray.plot` | ✓✓ `xarray.plot` |
 | Maturity / adoption / community | younger | ✓✓✓ standard | ✓✓✓ huge (Pangeo) | ✓✓ widely used |
 | Stability / docs depth | growing | ✓✓✓ | ✓✓✓ | ✓✓ |

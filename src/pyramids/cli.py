@@ -12,6 +12,14 @@ standard-library :mod:`argparse` (no extra dependency):
 - `pyramids overview FILE [--resampling M] [--levels N...]` — build overviews
 - `pyramids sample FILE --points "x,y;x,y..." [--json]` — point sampling
 - `pyramids convert SRC DST [--driver NAME]` — format conversion
+- `pyramids georeference SRC DST --gcp PIXEL LINE X Y ... --gcp-crs CRS` —
+  warp from ground-control points
+- `pyramids orthorectify SRC DST [--dem PATH | --rpc-height H]` — RPC
+  orthorectification
+- `pyramids edit-info FILE [--crs CRS] [--nodata V] [--tag K=V...]` — edit
+  CRS / nodata / tags in place
+- `pyramids calc EXPR SRC... DST [--dtype T]` — evaluate a band expression
+  (safe AST evaluator, no `eval`)
 
 Every command maps 1:1 onto an existing library call — no business logic lives
 here. Expected user errors (missing file, bad CRS, unknown driver) exit
