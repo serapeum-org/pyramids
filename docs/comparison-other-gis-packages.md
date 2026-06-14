@@ -53,7 +53,7 @@ comparatively new. Read the tables as *surface coverage*, with the maturity row 
 | Overviews / pyramids | ✓ `create_overviews`, `read_overview_array` | ✓ `build_overviews` | ✗ `→rio` | ◐ `→rasterio` |
 | COG write / validate / inspect | ✓✓ `to_cog` | ◐ `→rio-cogeo` | ✗ `→rioxarray` | ◐ `to_raster(COG)` |
 | Decimated reads (preview / tile) | ✓✓ `out_shape` + `preview` | ◐ `out_shape` | ◐ `→rioxarray` | ◐ `overview_level` |
-| No-data / masks / colour interp | ✓ | ✓ | ◐ `.where` | ✓ `.rio.nodata` |
+| No-data / masks / colour interp | ✓ `mask_flags`/`read_masks`/`band_color` | ✓ | ◐ `.where` | ✓ `.rio.nodata` |
 
 ### CRS, warping & alignment
 
@@ -118,7 +118,7 @@ spatial resample/warp is the `rioxarray` accessor's job.
 | STAC search / load / mosaic | ✓✓ `stac/` | ✗ `→pystac-client` | ✗ `→stackstac` | ✗ `→stackstac` |
 | Requester-pays / signing | ✓ `Signer` | ◐ `AWSSession` | ✗ `→fsspec` | ◐ rasterio session |
 | Lazy / Dask-backed arrays | ✓ Dask `chunks=` | ✗ `→rioxarray` | ✓✓✓ standard | ✓✓✓ standard |
-| Concurrent windowed reads | ✓ `read_array(threadsafe=)` | ✓✓ | ✓ via Dask | ✓ via Dask |
+| Concurrent windowed reads | ✓ `read_array(threadsafe=)`, `read_windows` | ✓✓ | ✓ via Dask | ✓ via Dask |
 
 ### Tooling & maturity
 
@@ -134,13 +134,13 @@ spatial resample/warp is the `rioxarray` accessor's job.
 - **rasterio's real strengths:** maturity, stability, enormous adoption, the most granular windowed-I/O
   API, and a deep, composable raster ecosystem (`rio-cogeo`, `rio-tiler`, `rasterstats`). Its narrow core
   is a *feature*. pyramids now matches it on boundless windowed reads, decimated `out_shape` reads,
-  in-memory byte round-trips, per-thread concurrent reads, **and lazy on-the-fly warping** (`warped_view`
-  builds a VRT and warps only the window you read — pyramids' `WarpedVRT` equivalent) — and those
-  read/window/transform paths got a dedicated robustness-and-correctness audit (transform arithmetic,
-  window algebra, threadsafe / decimated / masked reads) backed by a large test suite, so they are no
-  longer "new and unproven." The one raster capability rasterio still has that pyramids does **not** is
-  **GCP / RPC georeferencing** — applying ground-control points or rational-polynomial coefficients to
-  georeference raw/ungeoreferenced imagery. pyramids assumes an affine geotransform throughout.
+  in-memory byte round-trips, per-thread concurrent reads (`read_windows`), lazy on-the-fly warping
+  (`warped_view` — its `WarpedVRT` equivalent), per-band mask-flag introspection (`mask_flags`/
+  `read_masks`), pixel↔map accessors (`xy`/`rowcol`), and — the last remaining capability gap, now closed —
+  **GCP / RPC georeferencing** (`set_gcps`/`georeference`/`set_rpcs`/`orthorectify`). With that, there is no
+  longer a *raster capability* rasterio has that pyramids lacks; rasterio's edge is now **maturity,
+  ecosystem depth, and ergonomic polish** (the granular `windows` algebra, the `rio` plugin family), not
+  missing features. Treat the surface ✓s as real, with the maturity rows as the honest counterweight.
 - **xarray's real strengths:** the de-facto standard for N-dimensional labelled arrays and datacubes —
   NetCDF/CF, Zarr, Dask-backed lazy compute, `groupby`/reductions, label-based selection, and faceted
   plotting. Outside its remit (CRS, warping, GIS raster ops) it leans on `rioxarray` / `xrspatial`.
@@ -164,12 +164,18 @@ Re-auditing every pyramids cell against a concrete public symbol — counting a 
 pyramids exposes its own method / function / CLI command, never just because GDAL could do it — the
 breadth claims hold up better than a "thin wrapper" reputation would suggest:
 
-- Of the ~40 capabilities checked, pyramids ships a real public API for all but **two**, and both gaps
-  are against rasterio, not against xarray/rioxarray:
-    - **GCP / RPC georeferencing** — no API to georeference raw imagery from ground-control points or
-      rational-polynomial coefficients; pyramids assumes an affine geotransform throughout.
-    - **GRIB** — opens via the generic `read_file` (any GDAL driver does), but there is **no**
-      GRIB-specific surface (no parameter/WMO catalog, no message inspection).
+- Of the ~40 capabilities checked, pyramids now ships a real public API for **every raster capability
+  rasterio has**. The previously-flagged gap — **GCP / RPC georeferencing** — is closed
+  (`set_gcps`/`gcps`/`georeference`/`set_rpcs`/`rpcs`/`orthorectify`, routed through `gdal.Warp`). The only
+  remaining rasterio-side item is **GRIB-specific handling**: pyramids opens GRIB via the generic
+  `read_file` (as any GDAL driver does) but exposes no GRIB-*specific* surface (parameter/WMO catalog,
+  message inspection) — a format-metadata nicety, not a raster capability.
+- A further pass for rasterio-only features turned up only **ergonomic / CLI conveniences**, not
+  capabilities: a one-call `geometry_mask` (pyramids goes vector→raster via `from_features` then reads the
+  mask), and `rio shapes`/`rio rasterize` as *CLI* subcommands (pyramids ships the Python API —
+  `to_feature_collection`/`from_features` — but not those two CLI verbs). Everything substantive — windowed/
+  boundless/decimated/threadsafe reads, `warped_view`, masks, `xy`/`rowcol`, densified bbox reprojection
+  (`feature.bbox.transform_bounds`), nodata `fill`, GCP/RPC — is present.
 - Against **xarray / rioxarray** the differences are **not** capability gaps but *kind-of-tool* and
   *maturity* differences: they are array-first and far more battle-tested on huge lazy datacubes;
   pyramids is GDAL/GIS-first and bundles vector + zonal + terrain + STAC that xarray/rioxarray leave to
