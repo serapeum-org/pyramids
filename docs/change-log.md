@@ -1,6 +1,17 @@
 ﻿# Change log
 
 
+## 0.34.0 (2026-06-14)
+
+### Feat
+
+- **collection**: RGB true-colour animation in DatasetCollection.plot (#557)
+- **dataset**: GCP/RPC georeferencing + mask, window, CLI & parallel-read ergonomics (#536)
+
+### Fix
+
+- **netcdf**: resolve S3 bucket region for anonymous LabeledDataset reads (#537)
+
 ## 0.33.0 (2026-06-14)
 
 ### Feat
