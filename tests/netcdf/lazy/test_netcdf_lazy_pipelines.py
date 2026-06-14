@@ -100,7 +100,6 @@ class TestNetCDFLazyPipelines:
     @pytest.mark.xarray
     @requires_kerchunk
     @requires_xarray
-    @skip_kerchunk_xarray_on_ci
     def test_kerchunk_roundtrip_via_xarray(self, tmp_path):
         """to_kerchunk manifest opens with xarray engine="kerchunk".
 
