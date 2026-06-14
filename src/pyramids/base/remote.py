@@ -220,26 +220,30 @@ def resolve_s3_region(bucket: str, *, timeout: float = 5.0) -> str | None:
           which auto-resolves the region for anonymous ``s3://`` stores.
     """
     if bucket not in _S3_REGION_CACHE:
+        region = None
+        # Path-style global endpoint (`s3.amazonaws.com/<bucket>`) rather than the
+        # virtual-hosted host (`<bucket>.s3.amazonaws.com`): the latter's TLS cert
+        # (`*.s3.amazonaws.com`) does not match a dot-containing bucket name, which
+        # would fail the handshake for exactly those buckets. The global endpoint
+        # still returns `x-amz-bucket-region` on its redirect.
         try:
-            # Path-style global endpoint (`s3.amazonaws.com/<bucket>`) rather than
-            # the virtual-hosted host (`<bucket>.s3.amazonaws.com`): the latter's
-            # TLS cert (`*.s3.amazonaws.com`) does not match a dot-containing bucket
-            # name, which would fail the handshake for exactly those buckets. The
-            # global endpoint still returns `x-amz-bucket-region` on its redirect.
-            # Construction stays inside the try so this helper never raises — the
-            # caller relies on a `None` return for every failure mode.
             request = urllib.request.Request(
                 f"https://s3.amazonaws.com/{bucket}", method="HEAD"
             )
+        except ValueError:
+            # A malformed bucket string can make Request() reject the URL; treat it
+            # as "region unknown" so this helper never raises for the caller.
+            request = None
+        if request is not None:
             opener = urllib.request.build_opener(_NoRedirectHandler)
-            with opener.open(request, timeout=timeout) as response:
-                region = response.headers.get("x-amz-bucket-region")
-        except urllib.error.HTTPError as exc:
-            region = exc.headers.get("x-amz-bucket-region") if exc.headers else None
-        except (OSError, ValueError):
-            # urllib.error.URLError and ssl.SSLError derive from OSError; ValueError
-            # guards a malformed bucket string reaching Request().
-            region = None
+            try:
+                with opener.open(request, timeout=timeout) as response:
+                    region = response.headers.get("x-amz-bucket-region")
+            except urllib.error.HTTPError as exc:
+                region = exc.headers.get("x-amz-bucket-region") if exc.headers else None
+            except OSError:
+                # urllib.error.URLError and ssl.SSLError both derive from OSError.
+                region = None
         _S3_REGION_CACHE[bucket] = region
     return _S3_REGION_CACHE[bucket]
 
