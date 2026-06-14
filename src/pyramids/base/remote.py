@@ -148,6 +148,11 @@ def is_remote(path: str) -> bool:
 
 # Per-process cache of resolved S3 bucket regions (None caches a failed probe so
 # a single offline/blocked attempt is not retried on every open of the bucket).
+# Intentionally lock-free: two threads racing the first probe of the same bucket
+# may both issue a HEAD, but the writes are idempotent (same region) and dict
+# insertion is atomic under the GIL, so the only cost is one redundant request.
+# A lock here would have to wrap the network call and would needlessly serialise
+# probes of *different* buckets.
 _S3_REGION_CACHE: dict[str, str | None] = {}
 
 
