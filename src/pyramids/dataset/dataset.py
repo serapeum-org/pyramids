@@ -945,6 +945,26 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Georef.set_gcps <pyramids.dataset.engines.Georef.set_gcps>`."""
         return self.georef.set_gcps(*args, **kwargs)
 
+    @property
+    def gcps(self):
+        """Facade — :attr:`Georef.gcps <pyramids.dataset.engines.Georef.gcps>`."""
+        return self.georef.gcps
+
+    @property
+    def gcp_count(self):
+        """Facade — :attr:`Georef.gcp_count <pyramids.dataset.engines.Georef.gcp_count>`."""
+        return self.georef.gcp_count
+
+    @property
+    def gcp_projection(self):
+        """Facade — :attr:`Georef.gcp_projection <pyramids.dataset.engines.Georef.gcp_projection>`."""
+        return self.georef.gcp_projection
+
+    @property
+    def has_gcps(self):
+        """Facade — :attr:`Georef.has_gcps <pyramids.dataset.engines.Georef.has_gcps>`."""
+        return self.georef.has_gcps
+
     def warped_view(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.warped_view <pyramids.dataset.engines.Spatial.warped_view>`."""
         return self.spatial.warped_view(*args, **kwargs)

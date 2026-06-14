@@ -80,6 +80,44 @@ class TestGroundControlPoint:
         assert back.id is None and back.info is None
 
 
+class TestReadGCPs:
+    """Tests for the GCP read properties (gcps / gcp_count / gcp_projection / has_gcps)."""
+
+    def test_plain_raster_has_no_gcps(self, writable_dataset):
+        """A raster with no GCPs reports zero / empty / None.
+
+        Test scenario:
+            Fresh dataset: gcp_count 0, gcps [], gcp_projection None, has_gcps False.
+        """
+        assert writable_dataset.gcp_count == 0
+        assert writable_dataset.gcps == []
+        assert writable_dataset.gcp_projection is None
+        assert writable_dataset.has_gcps is False
+
+    def test_reads_attached_gcps(self, writable_dataset, corner_gcps):
+        """After set_gcps the read properties return the points and CRS.
+
+        Test scenario:
+            4 corner points attached -> count 4, has_gcps True, projection mentions
+            4326, and the first point's pixel/map coords match the input.
+        """
+        writable_dataset.set_gcps(corner_gcps, 4326)
+        assert writable_dataset.gcp_count == 4
+        assert writable_dataset.has_gcps is True
+        assert "4326" in writable_dataset.gcp_projection
+        first = writable_dataset.gcps[0]
+        assert (first.col, first.row, first.x, first.y) == (0.0, 0.0, 10.0, 50.0)
+
+    def test_round_trip_preserves_points(self, writable_dataset, corner_gcps):
+        """The read-back points equal the value objects passed to set_gcps.
+
+        Test scenario:
+            set_gcps then gcps returns equal GroundControlPoint records.
+        """
+        writable_dataset.set_gcps(corner_gcps, 4326)
+        assert writable_dataset.gcps == corner_gcps
+
+
 class TestSetGCPs:
     """Tests for Georef.set_gcps (and the Dataset facade)."""
 
