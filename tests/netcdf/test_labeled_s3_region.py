@@ -10,8 +10,11 @@ These tests are fully offline — the HTTP probe and the GDAL open are mocked.
 
 from __future__ import annotations
 
+import email.message
+import io
 import urllib.error
 import urllib.request
+import urllib.response
 
 import pytest
 from osgeo import gdal
@@ -151,6 +154,40 @@ class TestResolveS3Region:
             handler, urllib.request.HTTPRedirectHandler
         ), "must subclass urllib's redirect handler"
         handler.redirect_request("request", "fp", 301, "Moved", {}, "https://elsewhere")
+
+    def test_real_301_flow_reads_region_header(self, monkeypatch):
+        """A real 301 driven through ``_NoRedirectHandler`` yields the region.
+
+        Test scenario:
+            A fake HTTPS transport returns a 301 carrying ``x-amz-bucket-region``.
+            The real ``build_opener(_NoRedirectHandler)`` chain must suppress the
+            redirect, raise ``HTTPError``, and let ``resolve_s3_region`` read the
+            header off it — exercising the handler end-to-end, not just a mocked
+            ``HTTPError``.
+        """
+        headers = email.message.Message()
+        headers["x-amz-bucket-region"] = "eu-central-1"
+
+        class _Fake301HTTPSHandler(urllib.request.HTTPSHandler):
+            """Fake transport that answers every request with a 301 + region header."""
+
+            def https_open(self, req):
+                """Return a 301 response carrying the region header."""
+                response = urllib.response.addinfourl(
+                    io.BytesIO(b""), headers, req.full_url, code=301
+                )
+                response.msg = "Moved Permanently"
+                return response
+
+        real_build_opener = urllib.request.build_opener
+
+        def build_with_fake_transport(*handlers):
+            return real_build_opener(*handlers, _Fake301HTTPSHandler())
+
+        monkeypatch.setattr(
+            remote_mod.urllib.request, "build_opener", build_with_fake_transport
+        )
+        assert resolve_s3_region("regional-bucket") == "eu-central-1"
 
     def test_result_is_cached(self, monkeypatch):
         """The probe runs once per bucket; the cached value is reused.
