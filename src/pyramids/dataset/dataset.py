@@ -945,6 +945,10 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Georef.set_gcps <pyramids.dataset.engines.Georef.set_gcps>`."""
         return self.georef.set_gcps(*args, **kwargs)
 
+    def georeference(self, *args, **kwargs):
+        """Facade — :meth:`Georef.georeference <pyramids.dataset.engines.Georef.georeference>`."""
+        return self.georef.georeference(*args, **kwargs)
+
     @property
     def gcps(self):
         """Facade — :attr:`Georef.gcps <pyramids.dataset.engines.Georef.gcps>`."""

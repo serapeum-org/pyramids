@@ -10,10 +10,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Sequence
 
+from osgeo import gdal
+
 from pyramids.base._errors import ReadOnlyError
+from pyramids.base._utils import resolve_resampling
 from pyramids.base.crs import sr_from_user_input
 from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines.spatial import _dst_srs_arg
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
@@ -133,3 +137,99 @@ class Georef(_Engine):
             raise ValueError("set_gcps requires at least one GroundControlPoint.")
         wkt = sr_from_user_input(projection).ExportToWkt()
         self._ds.raster.SetGCPs([point.to_gdal() for point in gcp_list], wkt)
+
+    def georeference(
+        self: Georef,
+        *,
+        to_epsg: int | str | None = None,
+        method: str = "nearest neighbor",
+        transform: str = "polynomial",
+        order: int = 1,
+        cell_size: float | None = None,
+        lazy: bool = False,
+    ) -> Dataset:
+        """Warp the dataset **from its GCPs** into an affine-geotransform raster.
+
+        Fits a transform through the attached ground-control points and resamples
+        the pixels onto a regular grid — the step that turns a GCP-tagged scan or
+        mosaic into a normal georeferenced raster. The GCPs are read from the
+        source automatically (attach them first with :meth:`set_gcps`).
+
+        Args:
+            to_epsg: Target CRS for the output. ``None`` warps into the GCPs' own
+                CRS; otherwise reprojects to ``to_epsg`` in the same pass (any
+                form :func:`pyramids.base.crs.sr_from_user_input` accepts).
+            method: Resampling method (see :meth:`Spatial.to_crs`). Default
+                ``"nearest neighbor"``.
+            transform: ``"polynomial"`` (default) fits a polynomial of degree
+                ``order``; ``"tps"`` fits a thin-plate spline (good for many,
+                irregularly-spaced points / local warps).
+            order: Polynomial degree, one of ``1``/``2``/``3``. Ignored when
+                ``transform="tps"``.
+            cell_size: Output pixel size in target-CRS units (both axes). ``None``
+                lets GDAL pick a size that preserves the source resolution.
+            lazy: ``True`` returns a VRT-backed view (pixels warped per read);
+                ``False`` (default) materialises the result in memory.
+
+        Returns:
+            Dataset: the georeferenced raster.
+
+        Raises:
+            ValueError: the dataset has no GCPs, or ``transform``/``order`` is
+                invalid.
+            RuntimeError: GDAL could not build the warp.
+
+        Examples:
+            - Georeference an 8x8 image from four corner GCPs in EPSG:4326:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset._gcp import GroundControlPoint
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((8, 8), "float32"), top_left_corner=(0.0, 8.0), cell_size=1.0
+                ... )
+                >>> ds.set_gcps([
+                ...     GroundControlPoint(row=0, col=0, x=10.0, y=50.0),
+                ...     GroundControlPoint(row=0, col=8, x=11.0, y=50.0),
+                ...     GroundControlPoint(row=8, col=0, x=10.0, y=49.0),
+                ...     GroundControlPoint(row=8, col=8, x=11.0, y=49.0),
+                ... ], 4326)
+                >>> out = ds.georeference()
+                >>> out.epsg
+                4326
+
+                ```
+        """
+        if self._ds.raster.GetGCPCount() == 0:
+            raise ValueError("dataset has no GCPs; call set_gcps first.")
+        if transform not in {"polynomial", "tps"}:
+            raise ValueError(
+                f"transform must be 'polynomial' or 'tps', got {transform!r}."
+            )
+        if transform == "polynomial" and order not in (1, 2, 3):
+            raise ValueError(f"order must be 1, 2, or 3, got {order!r}.")
+        # Force the GCP transformer: GDAL otherwise prefers an affine geotransform
+        # when the source carries one, ignoring the GCPs. METHOD=GCP_* makes the
+        # warp fit the points regardless.
+        if transform == "tps":
+            transformer_options = ["METHOD=GCP_TPS"]
+        else:
+            transformer_options = ["METHOD=GCP_POLYNOMIAL", f"MAX_GCP_ORDER={order}"]
+        warp_kwargs: dict = {
+            "format": "VRT" if lazy else "MEM",
+            "resampleAlg": resolve_resampling(method),
+            "xRes": cell_size,
+            "yRes": cell_size,
+            "transformerOptions": transformer_options,
+        }
+        if to_epsg is not None:
+            warp_kwargs["dstSRS"] = _dst_srs_arg(sr_from_user_input(to_epsg))
+        dst = gdal.Warp("", self._ds.raster, options=gdal.WarpOptions(**warp_kwargs))
+        if dst is None:
+            raise RuntimeError("GDAL could not warp the dataset from its GCPs.")
+        result = self._ds.__class__(dst, access="read_only")
+        if lazy:
+            # The VRT references the source GDAL handle; pin the source Dataset so
+            # it cannot be garbage-collected underneath the view.
+            result._warp_source = self._ds
+        return result

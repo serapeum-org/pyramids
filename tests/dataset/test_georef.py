@@ -118,6 +118,83 @@ class TestReadGCPs:
         assert writable_dataset.gcps == corner_gcps
 
 
+class TestWarpFromGCPs:
+    """Tests for Georef.georeference (warp from GCPs)."""
+
+    def test_no_gcps_raises(self, writable_dataset):
+        """georeference without GCPs is rejected.
+
+        Test scenario:
+            A dataset with no GCPs raises ValueError mentioning GCPs.
+        """
+        with pytest.raises(ValueError, match="no GCPs"):
+            writable_dataset.georeference()
+
+    def test_polynomial_warp_into_gcp_crs(self, writable_dataset, corner_gcps):
+        """Default warp lands in the GCP CRS and brackets the GCP extent.
+
+        Test scenario:
+            4 corner GCPs (10-11E, 49-50N) -> epsg 4326 and bbox covers that box.
+        """
+        writable_dataset.set_gcps(corner_gcps, 4326)
+        out = writable_dataset.georeference()
+        assert out.epsg == 4326
+        xmin, ymin, xmax, ymax = out.bbox
+        assert xmin <= 10.0 + 1e-6 and xmax >= 11.0 - 1e-6
+        assert ymin <= 49.0 + 1e-6 and ymax >= 50.0 - 1e-6
+
+    def test_tps_transform(self, writable_dataset, corner_gcps):
+        """A thin-plate-spline warp also produces a 4326 raster.
+
+        Test scenario:
+            transform="tps" warps into the GCP CRS without error.
+        """
+        writable_dataset.set_gcps(corner_gcps, 4326)
+        out = writable_dataset.georeference(transform="tps")
+        assert out.epsg == 4326
+
+    def test_reproject_in_same_pass(self, writable_dataset, corner_gcps):
+        """to_epsg reprojects the georeferenced result in one pass.
+
+        Test scenario:
+            georeference(to_epsg=3857) yields a Web-Mercator raster.
+        """
+        writable_dataset.set_gcps(corner_gcps, 4326)
+        out = writable_dataset.georeference(to_epsg=3857)
+        assert out.epsg == 3857
+
+    def test_lazy_equals_eager(self, writable_dataset, corner_gcps):
+        """A lazy VRT view reads the same pixels as the eager result.
+
+        Test scenario:
+            lazy=True and lazy=False produce allclose arrays.
+        """
+        writable_dataset.set_gcps(corner_gcps, 4326)
+        eager = writable_dataset.georeference(lazy=False)
+        lazy = writable_dataset.georeference(lazy=True)
+        assert np.allclose(np.asarray(eager.read_array()), np.asarray(lazy.read_array()))
+
+    def test_invalid_transform_raises(self, writable_dataset, corner_gcps):
+        """An unsupported transform name is rejected.
+
+        Test scenario:
+            transform="bogus" raises ValueError.
+        """
+        writable_dataset.set_gcps(corner_gcps, 4326)
+        with pytest.raises(ValueError, match="polynomial.*tps|transform must"):
+            writable_dataset.georeference(transform="bogus")
+
+    def test_invalid_order_raises(self, writable_dataset, corner_gcps):
+        """A polynomial order outside 1-3 is rejected.
+
+        Test scenario:
+            order=7 raises ValueError.
+        """
+        writable_dataset.set_gcps(corner_gcps, 4326)
+        with pytest.raises(ValueError, match="order must"):
+            writable_dataset.georeference(order=7)
+
+
 class TestSetGCPs:
     """Tests for Georef.set_gcps (and the Dataset facade)."""
 
