@@ -206,8 +206,13 @@ def resolve_s3_region(bucket: str, *, timeout: float = 10.0) -> str | None:
             ```
     """
     if bucket not in _S3_REGION_CACHE:
+        # Path-style global endpoint (`s3.amazonaws.com/<bucket>`) rather than the
+        # virtual-hosted host (`<bucket>.s3.amazonaws.com`): the latter's TLS cert
+        # (`*.s3.amazonaws.com`) does not match a dot-containing bucket name, which
+        # would fail the handshake for exactly those buckets. The global endpoint
+        # still returns `x-amz-bucket-region` on its redirect.
         request = urllib.request.Request(
-            f"https://{bucket}.s3.amazonaws.com", method="HEAD"
+            f"https://s3.amazonaws.com/{bucket}", method="HEAD"
         )
         opener = urllib.request.build_opener(_NoRedirectHandler)
         try:
