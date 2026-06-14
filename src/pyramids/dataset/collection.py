@@ -2128,6 +2128,51 @@ class DatasetCollection:
 
         Returns:
             ArrayGlyph: A plotting/animation handle (from cleopatra.ArrayGlyph).
+                For the single-band default its ``arr`` is the
+                ``(time, rows, cols)`` stack and it carries a colorbar; for
+                an RGB time-lapse its ``arr`` is the composited
+                ``(time, rows, cols, 3)`` stack and ``cbar`` is ``None``.
+
+        Examples:
+            - Animate a single band across the collection's timesteps. The
+              call is tagged ``+SKIP`` because it renders through cleopatra /
+              matplotlib (the optional ``[viz]`` extra):
+
+                ```python
+                >>> from pyramids.dataset import DatasetCollection
+                >>> cube = DatasetCollection.read_multiple_files(  # doctest: +SKIP
+                ...     "tests/data/geotiff/rhine"
+                ... )
+                >>> glyph = cube.plot(band=0)  # doctest: +SKIP
+                >>> glyph.arr.ndim  # doctest: +SKIP
+                3
+
+                ```
+            - Composite a true-colour time-lapse from three bands via the
+              grouped ``rgb_options`` form. Every timestep becomes one RGB
+              frame, so the rendered stack is ``(time, rows, cols, 3)`` with
+              no colorbar:
+
+                ```python
+                >>> from pyramids.dataset import DatasetCollection
+                >>> cube = DatasetCollection.read_multiple_files(  # doctest: +SKIP
+                ...     "tests/data/geotiff/sentinel"
+                ... )
+                >>> glyph = cube.plot(  # doctest: +SKIP
+                ...     rgb_options={"rgb": [0, 1, 2], "percentile": 2}
+                ... )
+                >>> glyph.cbar is None  # doctest: +SKIP
+                True
+
+                ```
+
+        See Also:
+            - :meth:`pyramids.dataset.Dataset.plot`: The single-frame
+              renderer (still or RGB still) for one ``Dataset``; shares the
+              ``rgb`` / ``rgb_options`` contract via ``_merge_rgb_options``.
+            - :func:`pyramids.dataset._plot_helpers.render_array`: The shared
+              cleopatra dispatch that composites the true-colour frames for
+              the animate path.
         """
         # Resolve the grouped ``rgb_options`` against the deprecated loose
         # kwargs exactly as ``Dataset.plot`` does, so both facades share one

@@ -208,6 +208,45 @@ def render_array(
 
             ```
 
+        - RGB animation path. The stack is 4-D
+          ``(time, bands, rows, cols)`` and ``rgb`` selects the colour
+          channels; the helper composites each timestep into a
+          display-ready true-colour frame before cleopatra renders it:
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset._plot_helpers import render_array
+            >>> stack = np.random.rand(4, 3, 8, 8).astype(np.float32)
+            >>> cleo = render_array(  # doctest: +SKIP
+            ...     arr=stack,
+            ...     rgb=[0, 1, 2],
+            ...     percentile=2,
+            ...     mode="animate",
+            ...     animation_axis_values=[0, 1, 2, 3],
+            ... )
+
+            ```
+
+        - Passing ``rgb`` with a single-band 3-D stack is rejected
+          before any compositing, so the time axis is never silently
+          read as the colour channels (guards the #538 frame loss):
+
+            ```python
+            >>> import numpy as np
+            >>> from pyramids.dataset._plot_helpers import render_array
+            >>> bad = np.random.rand(4, 8, 8).astype(np.float32)
+            >>> render_array(  # doctest: +IGNORE_EXCEPTION_DETAIL
+            ...     arr=bad,
+            ...     rgb=[0, 1, 2],
+            ...     mode="animate",
+            ...     animation_axis_values=[0, 1, 2, 3],
+            ... )
+            Traceback (most recent call last):
+                ...
+            ValueError: RGB animate requires a 4-D (time, bands, rows, cols)...
+
+            ```
+
         - Facet path used by :meth:`pyramids.netcdf.NetCDF.plot`. The
           caller pre-builds the stack with ``_build_facet_stack`` and
           passes the matching ``facet_kwargs`` dict (containing

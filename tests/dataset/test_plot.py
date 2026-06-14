@@ -576,6 +576,36 @@ class TestPlotDatasetCollection:
         assert isinstance(glyph, ArrayGlyph)
         assert glyph.arr.ndim == 3, "single-band animate stays (time, rows, cols)"
 
+    @pytest.mark.plot
+    def test_rgb_surface_reflectance_normalisation(self, tmp_path):
+        """`rgb_options` may normalise via surface_reflectance instead of percentile.
+
+        Exercises the non-percentile branch of cleopatra's ``prepare_array`` through
+        the collection RGB path: the result is still a display-ready
+        ``(time, rows, cols, 3)`` stack in ``[0, 1]``.
+        """
+        cube = self._rgb_cube(tmp_path, n_times=3)
+        glyph = cube.plot(rgb_options={"rgb": [0, 1, 2], "surface_reflectance": 255})
+        assert glyph.arr.shape == (3, 8, 8, 3), "RGB stack keeps every frame"
+        assert float(glyph.arr.min()) >= 0.0 and float(glyph.arr.max()) <= 1.0, (
+            "surface-reflectance frames must be normalised into [0, 1]"
+        )
+
+    @pytest.mark.plot
+    def test_rgb_options_unknown_key_raises(self, tmp_path):
+        """An unknown `rgb_options` key raises (delegated to `_merge_rgb_options`)."""
+        cube = self._rgb_cube(tmp_path, n_times=2)
+        with pytest.raises(ValueError, match=r"Unknown keys in `rgb_options`"):
+            cube.plot(rgb_options={"bogus": 1})
+
+    @pytest.mark.plot
+    def test_rgb_options_wins_over_loose_kwarg(self, tmp_path):
+        """On collision, `rgb_options` wins over the loose kwarg and still warns."""
+        cube = self._rgb_cube(tmp_path, n_times=2, n_bands=4)
+        with pytest.warns(DeprecationWarning, match="rgb_options` wins"):
+            glyph = cube.plot(rgb=[1, 2, 3], rgb_options={"rgb": [0, 1, 2]})
+        assert glyph.arr.shape == (2, 8, 8, 3), "grouped rgb composited every frame"
+
 
 class TestColorTable:
 
@@ -1517,6 +1547,17 @@ class TestPlotPhase3CrossCutting:
                 rgb=[0, 1, 2],
                 mode="animate",
                 animation_axis_values=[0, 1, 2, 3],
+            )
+
+    @pytest.mark.plot
+    def test_render_array_rgb_animate_none_arr_raises(self):
+        """RGB animate with `arr=None` hits the same 4-D guard and reports None-D."""
+        with pytest.raises(ValueError, match=r"got None-D"):
+            render_array(
+                arr=None,
+                rgb=[0, 1, 2],
+                mode="animate",
+                animation_axis_values=[0],
             )
 
     @pytest.mark.plot
