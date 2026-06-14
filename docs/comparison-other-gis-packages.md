@@ -48,7 +48,7 @@ comparatively new. Read the tables as *surface coverage*, with the maturity row 
 | Capability | pyramids | rasterio | xarray | rioxarray |
 |---|---|---|---|---|
 | GDAL raster formats (GeoTIFF, …) | ✓ `Dataset` | ✓✓ standard | ◐ `→rioxarray` | ✓ `open_rasterio` |
-| Windowed read & write | ✓ `read/write_array(window=)` + boundless | ✓✓ `Window` | ◐ Dask chunks | ◐ Dask chunks |
+| Windowed read & write | ✓ `read/write_array(window=)`, boundless, `Window` algebra | ✓✓ `Window` | ◐ Dask chunks | ◐ Dask chunks |
 | In-memory raster (bytes) | ✓ `from_bytes`/`to_bytes` | ✓ `MemoryFile` | ◐ `→rioxarray` | ◐ via `MemoryFile` |
 | Overviews / pyramids | ✓ `create_overviews`, `read_overview_array` | ✓ `build_overviews` | ✗ `→rio` | ◐ `→rasterio` |
 | COG write / validate / inspect | ✓✓ `to_cog` | ◐ `→rio-cogeo` | ✗ `→rioxarray` | ◐ `to_raster(COG)` |
@@ -124,7 +124,7 @@ spatial resample/warp is the `rioxarray` accessor's job.
 
 | Capability | pyramids | rasterio | xarray | rioxarray |
 |---|---|---|---|---|
-| CLI | ✓ `pyramids` (incl. `edit-info`, `calc`, `georeference`) | ✓ `rio` | ✗ | ✗ |
+| CLI | ✓ `pyramids` (incl. `edit-info`, `calc`, `georeference`, `shapes`, `rasterize`) | ✓ `rio` | ✗ | ✗ |
 | Plotting | ◐ `→cleopatra` | ✓ `rasterio.plot` | ✓✓ `xarray.plot` | ✓✓ `xarray.plot` |
 | Maturity / adoption / community | younger | ✓✓✓ standard | ✓✓✓ huge (Pangeo) | ✓✓ widely used |
 | Stability / docs depth | growing | ✓✓✓ | ✓✓✓ | ✓✓ |
