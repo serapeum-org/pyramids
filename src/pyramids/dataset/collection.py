@@ -2065,7 +2065,8 @@ class DatasetCollection:
             exclude_value (Any):
                 Value to exclude from the plot. Default is None.
                 Ignored when ``rgb`` is set (true-colour frames are not
-                masked).
+                masked); passing it together with ``rgb`` emits a
+                :class:`UserWarning`.
             rgb (list[int], optional):
                 Band indices ``[red, green, blue]`` (or four, with
                 alpha) to composite into a true-colour time-lapse. When
@@ -2132,6 +2133,18 @@ class DatasetCollection:
                 ``(time, rows, cols)`` stack and it carries a colorbar; for
                 an RGB time-lapse its ``arr`` is the composited
                 ``(time, rows, cols, 3)`` stack and ``cbar`` is ``None``.
+
+        Raises:
+            ValueError: When ``rgb`` does not list exactly 3 (RGB) or 4
+                (RGBA) band indices, when any index is negative, or when the
+                collection's datasets carry fewer than ``max(rgb) + 1`` bands.
+                Also raised (via ``_merge_rgb_options``) for an unknown key
+                in ``rgb_options``.
+
+        Warns:
+            UserWarning: When ``exclude_value`` is passed together with
+                ``rgb`` — true-colour frames are not masked, so the value is
+                ignored.
 
         Examples:
             - Animate a single band across the collection's timesteps. The
