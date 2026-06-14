@@ -106,6 +106,49 @@ class TestResolveS3Region:
         )
         assert resolve_s3_region("b") is None
 
+    def test_returns_none_when_region_header_absent(self, monkeypatch):
+        """A 200 response without the region header resolves to ``None``.
+
+        Test scenario:
+            The bucket answers but omits ``x-amz-bucket-region`` (e.g. a
+            non-S3 endpoint); the probe yields ``None`` rather than crashing.
+        """
+        opener = _FakeOpener(response=_FakeResponse({}))
+        monkeypatch.setattr(
+            remote_mod.urllib.request, "build_opener", lambda *a, **k: opener
+        )
+        assert resolve_s3_region("b") is None
+
+    def test_http_error_without_headers_returns_none(self, monkeypatch):
+        """An ``HTTPError`` carrying no headers resolves to ``None``.
+
+        Test scenario:
+            The error has ``headers is None``; the ``exc.headers else None``
+            guard returns ``None`` instead of raising ``AttributeError``.
+        """
+        err = urllib.error.HTTPError(
+            url="https://b.s3.amazonaws.com", code=403, msg="Forbidden", hdrs=None, fp=None
+        )
+        opener = _FakeOpener(error=err)
+        monkeypatch.setattr(
+            remote_mod.urllib.request, "build_opener", lambda *a, **k: opener
+        )
+        assert resolve_s3_region("b") is None
+
+    def test_no_redirect_handler_suppresses_redirect(self):
+        """``_NoRedirectHandler.redirect_request`` returns ``None`` (no follow).
+
+        Test scenario:
+            Returning ``None`` makes urllib raise ``HTTPError`` for a 3xx
+            instead of following the ``Location``, so the region header on the
+            error is readable.
+        """
+        handler = remote_mod._NoRedirectHandler()
+        result = handler.redirect_request(
+            "request", "fp", 301, "Moved", {}, "https://elsewhere"
+        )
+        assert result is None, f"redirect must not be followed, got {result!r}"
+
     def test_result_is_cached(self, monkeypatch):
         """The probe runs once per bucket; the cached value is reused.
 
@@ -167,6 +210,19 @@ class TestReadFileRegionWiring:
             )
         assert captured["region"] == "eu-central-1"
         assert captured["nosign"] == "YES"
+
+    def test_anonymous_s3_unresolved_region_falls_back(self, monkeypatch):
+        """When the region cannot be resolved, the open proceeds with none pinned.
+
+        Test scenario:
+            ``resolve_s3_region`` returns ``None`` (offline); ``AWS_REGION`` is
+            left unset so GDAL's own behaviour is preserved (no regression).
+        """
+        monkeypatch.setattr(labeled_mod, "resolve_s3_region", lambda bucket: None)
+        captured = self._capture_open(monkeypatch)
+        with pytest.raises(ValueError):
+            LabeledDataset.read_file("s3://bucket/store.zarr", anon=True)
+        assert captured["region"] in (None, ""), f"region should be unset, got {captured['region']!r}"
 
     def test_explicit_region_overrides_and_skips_probe(self, monkeypatch):
         """An explicit ``region`` is used verbatim and the probe is not called.

@@ -152,10 +152,26 @@ _S3_REGION_CACHE: dict[str, str | None] = {}
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Suppress redirect-following so an S3 301 surfaces as a readable HTTPError."""
+    """A ``urllib`` redirect handler that never follows redirects.
+
+    Used by :func:`resolve_s3_region` so an S3 ``PermanentRedirect`` (HTTP 301)
+    is raised as an :class:`urllib.error.HTTPError` we can read the
+    ``x-amz-bucket-region`` header off, instead of being silently followed (or
+    looping) by the default handler.
+    """
 
     def redirect_request(self, *args: Any, **kwargs: Any) -> None:
-        """Return ``None`` so urllib raises ``HTTPError`` on a 3xx instead of following it."""
+        """Refuse to build a redirected request.
+
+        Args:
+            *args: The positional arguments urllib passes (``req``, ``fp``,
+                ``code``, ``msg``, ``headers``, ``newurl``); all ignored.
+            **kwargs: Ignored.
+
+        Returns:
+            None: signals urllib to raise :class:`urllib.error.HTTPError` for the
+            3xx response rather than following its ``Location`` header.
+        """
         return None
 
 
