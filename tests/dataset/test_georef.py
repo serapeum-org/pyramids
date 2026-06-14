@@ -16,6 +16,24 @@ from pyramids.dataset._gcp import GroundControlPoint
 pytestmark = pytest.mark.core
 
 
+RPC_SAMPLE: dict[str, str] = {
+    "HEIGHT_OFF": "100",
+    "HEIGHT_SCALE": "50",
+    "LAT_OFF": "49.5",
+    "LAT_SCALE": "0.5",
+    "LONG_OFF": "10.5",
+    "LONG_SCALE": "0.5",
+    "LINE_OFF": "4",
+    "LINE_SCALE": "4",
+    "SAMP_OFF": "4",
+    "SAMP_SCALE": "4",
+    "LINE_NUM_COEFF": " ".join(["0"] * 20),
+    "LINE_DEN_COEFF": " ".join(["1"] + ["0"] * 19),
+    "SAMP_NUM_COEFF": " ".join(["0"] * 20),
+    "SAMP_DEN_COEFF": " ".join(["1"] + ["0"] * 19),
+}
+
+
 @pytest.fixture
 def corner_gcps() -> list[GroundControlPoint]:
     """Four corner control points of an 8x8 raster in EPSG:4326.
@@ -116,6 +134,30 @@ class TestReadGCPs:
         """
         writable_dataset.set_gcps(corner_gcps, 4326)
         assert writable_dataset.gcps == corner_gcps
+
+
+class TestReadRPC:
+    """Tests for the RPC read properties (rpcs / has_rpcs)."""
+
+    def test_plain_raster_has_no_rpcs(self, writable_dataset):
+        """A raster without RPC metadata reports None / False.
+
+        Test scenario:
+            Fresh dataset: rpcs is None, has_rpcs is False.
+        """
+        assert writable_dataset.rpcs is None
+        assert writable_dataset.has_rpcs is False
+
+    def test_reads_rpc_metadata(self, writable_dataset):
+        """rpcs returns the RPC domain set on the underlying raster.
+
+        Test scenario:
+            After SetMetadata(RPC_SAMPLE, "RPC"), rpcs["HEIGHT_OFF"] matches and
+            has_rpcs is True.
+        """
+        writable_dataset.raster.SetMetadata(RPC_SAMPLE, "RPC")
+        assert writable_dataset.has_rpcs is True
+        assert writable_dataset.rpcs["HEIGHT_OFF"] == "100"
 
 
 class TestWarpFromGCPs:

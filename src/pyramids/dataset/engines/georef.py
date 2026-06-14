@@ -85,6 +85,43 @@ class Georef(_Engine):
         """
         return self._ds.raster.GetGCPCount() > 0
 
+    @property
+    def rpcs(self: Georef) -> dict[str, str] | None:
+        """The dataset's rational-polynomial coefficients, or ``None`` if absent.
+
+        RPCs live in GDAL's ``"RPC"`` metadata domain — a vendor sensor model of
+        ~90 string coefficients (``LINE_NUM_COEFF``, ``HEIGHT_OFF``, ...) shipped
+        with raw high-resolution satellite imagery.
+
+        Returns:
+            dict[str, str] | None: the RPC coefficient mapping, or ``None`` when
+            the dataset has no RPC metadata.
+
+        Examples:
+            - A plain raster has no RPCs:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+                ... )
+                >>> ds.rpcs is None
+                True
+
+                ```
+        """
+        metadata = self._ds.raster.GetMetadata("RPC")
+        return metadata or None
+
+    @property
+    def has_rpcs(self: Georef) -> bool:
+        """``True`` when the dataset carries RPC metadata.
+
+        Returns:
+            bool: whether an RPC sensor model is attached.
+        """
+        return bool(self._ds.raster.GetMetadata("RPC"))
+
     def set_gcps(
         self: Georef,
         gcps: Sequence[GroundControlPoint],
