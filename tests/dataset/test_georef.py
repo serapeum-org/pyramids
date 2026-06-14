@@ -6,16 +6,29 @@ ground-control points, generated via ``set_gcps`` rather than shipping a binary.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from pyramids.base._errors import ReadOnlyError
 from pyramids.dataset import Dataset
 from pyramids.dataset._gcp import GroundControlPoint
+from pyramids.dataset.engines.georef import Georef
 
 pytestmark = pytest.mark.core
 
 
+def _rpc_coeff(term_index: int) -> str:
+    """A 20-term RPC coefficient string with a single 1 at ``term_index``."""
+    coeffs = ["0"] * 20
+    coeffs[term_index] = "1"
+    return " ".join(coeffs)
+
+
+# A near-identity RPC: sample tracks longitude (term L = index 1), line tracks
+# latitude (term P = index 2), both denominators are the constant 1. Maps the
+# 8x8 image onto roughly [10, 11]E x [49, 50]N at HEIGHT_OFF elevation.
 RPC_SAMPLE: dict[str, str] = {
     "HEIGHT_OFF": "100",
     "HEIGHT_SCALE": "50",
@@ -27,10 +40,10 @@ RPC_SAMPLE: dict[str, str] = {
     "LINE_SCALE": "4",
     "SAMP_OFF": "4",
     "SAMP_SCALE": "4",
-    "LINE_NUM_COEFF": " ".join(["0"] * 20),
-    "LINE_DEN_COEFF": " ".join(["1"] + ["0"] * 19),
-    "SAMP_NUM_COEFF": " ".join(["0"] * 20),
-    "SAMP_DEN_COEFF": " ".join(["1"] + ["0"] * 19),
+    "SAMP_NUM_COEFF": _rpc_coeff(1),
+    "SAMP_DEN_COEFF": _rpc_coeff(0),
+    "LINE_NUM_COEFF": _rpc_coeff(2),
+    "LINE_DEN_COEFF": _rpc_coeff(0),
 }
 
 
@@ -208,6 +221,92 @@ class TestSetRPC:
         ds = Dataset.read_file(str(path), read_only=True)
         with pytest.raises(ReadOnlyError):
             ds.set_rpcs(RPC_SAMPLE)
+
+
+class TestOrthorectify:
+    """Tests for Georef.orthorectify (warp from RPCs)."""
+
+    @pytest.fixture
+    def rpc_dataset(self) -> Dataset:
+        """An 8x8 raster carrying the near-identity RPC sensor model."""
+        ds = Dataset.create_from_array(
+            np.arange(64).reshape(8, 8).astype("float32"),
+            top_left_corner=(0.0, 8.0),
+            cell_size=1.0,
+        )
+        ds.raster.SetMetadata(RPC_SAMPLE, "RPC")
+        return ds
+
+    def test_no_rpc_raises(self, writable_dataset):
+        """orthorectify without RPC metadata is rejected.
+
+        Test scenario:
+            A dataset with no RPC raises ValueError mentioning RPC.
+        """
+        with pytest.raises(ValueError, match="no RPC"):
+            writable_dataset.orthorectify(rpc_height=100)
+
+    def test_constant_height_produces_map_grid(self, rpc_dataset):
+        """A constant-height ortho yields a finite, map-projected raster.
+
+        Test scenario:
+            rpc_height at HEIGHT_OFF -> non-empty raster with a real EPSG and a
+            finite bbox bracketing the RPC extent.
+        """
+        out = rpc_dataset.orthorectify(rpc_height=100)
+        assert out.columns > 0 and out.rows > 0
+        assert out.epsg == 4326
+        xmin, ymin, xmax, ymax = out.bbox
+        assert all(np.isfinite([xmin, ymin, xmax, ymax]))
+
+    def test_no_dem_no_height_warns(self, rpc_dataset, caplog):
+        """Omitting both dem and rpc_height logs a height-0 warning.
+
+        Test scenario:
+            orthorectify() with no elevation emits a WARNING and still returns.
+        """
+        import logging as _logging
+
+        with caplog.at_level(_logging.WARNING):
+            out = rpc_dataset.orthorectify()
+        assert out.columns > 0
+        assert any("height 0" in record.message for record in caplog.records)
+
+    def test_resolve_dem_path_none_str_path(self):
+        """_resolve_dem_path passes None / str / Path through to a path string.
+
+        Test scenario:
+            None -> None; a str and a Path both become the str path. (The full
+            RPC_DEM warp is GDAL-version-fragile with synthetic coefficients, so
+            the DEM *handling* is unit-tested here rather than warped.)
+        """
+        assert Georef._resolve_dem_path(None) is None
+        assert Georef._resolve_dem_path("dem.tif") == "dem.tif"
+        assert Georef._resolve_dem_path(Path("a/dem.tif")) == str(Path("a/dem.tif"))
+
+    def test_resolve_dem_path_file_backed_dataset(self, tmp_path):
+        """A file-backed DEM Dataset resolves to its on-disk path.
+
+        Test scenario:
+            A Dataset read from disk yields a path ending in the file name.
+        """
+        dem_path = tmp_path / "dem.tif"
+        Dataset.create_from_array(
+            np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+        ).to_file(str(dem_path))
+        resolved = Georef._resolve_dem_path(Dataset.read_file(str(dem_path)))
+        assert resolved.endswith("dem.tif")
+
+    def test_resolve_dem_path_mem_dataset_staged_to_vsimem(self):
+        """An in-memory DEM Dataset is staged to a /vsimem/ path.
+
+        Test scenario:
+            A MEM-backed Dataset (no on-disk description) resolves to /vsimem/.
+        """
+        dem = Dataset.create_from_array(
+            np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+        )
+        assert Georef._resolve_dem_path(dem).startswith("/vsimem/")
 
 
 class TestWarpFromGCPs:

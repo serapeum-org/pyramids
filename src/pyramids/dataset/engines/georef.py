@@ -8,7 +8,10 @@ GDAL toolkit and does not implement any sensor model itself.
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Mapping, Sequence
+from uuid import uuid4
 
 from osgeo import gdal
 
@@ -21,6 +24,8 @@ from pyramids.dataset.engines.spatial import _dst_srs_arg
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
+
+logger = logging.getLogger(__name__)
 
 # The offsets, scales, and four coefficient vectors every RPC sensor model needs.
 _REQUIRED_RPC_KEYS: frozenset[str] = frozenset(
@@ -191,6 +196,97 @@ class Georef(_Engine):
             )
         stringified = {key: str(value) for key, value in rpc.items()}
         self._ds.raster.SetMetadata(stringified, "RPC")
+
+    def orthorectify(
+        self: Georef,
+        *,
+        dem: str | Path | Dataset | None = None,
+        to_epsg: int | str | None = None,
+        method: str = "bilinear",
+        rpc_height: float | None = None,
+        cell_size: float | None = None,
+        lazy: bool = False,
+    ) -> Dataset:
+        """Orthorectify the dataset from its RPC sensor model onto a map grid.
+
+        Uses the attached rational-polynomial coefficients (attach them first
+        with :meth:`set_rpcs`) and, ideally, a digital elevation model to remove
+        terrain-induced distortion and produce a map-projected raster.
+
+        Args:
+            dem: Elevation model used to evaluate the RPCs — a raster path or a
+                :class:`Dataset` (an in-memory dataset is staged to ``/vsimem/``).
+                ``None`` falls back to a constant height.
+            to_epsg: Target CRS. ``None`` keeps the RPCs' native geographic CRS.
+            method: Resampling method. Default ``"bilinear"``.
+            rpc_height: Constant elevation (map units) to use when no ``dem`` is
+                given. If both ``dem`` and ``rpc_height`` are ``None`` GDAL uses
+                height ``0`` and a ``logging.WARNING`` is emitted.
+            cell_size: Output pixel size in target-CRS units. ``None`` lets GDAL
+                pick.
+            lazy: ``True`` returns a VRT-backed view; ``False`` (default)
+                materialises the result.
+
+        Returns:
+            Dataset: the orthorectified raster.
+
+        Raises:
+            ValueError: the dataset has no RPC metadata.
+            RuntimeError: GDAL could not build the warp.
+        """
+        if not self._ds.raster.GetMetadata("RPC"):
+            raise ValueError("dataset has no RPC metadata; call set_rpcs first.")
+        transformer_options = ["METHOD=RPC"]
+        dem_path = self._resolve_dem_path(dem)
+        if dem_path is not None:
+            transformer_options.append(f"RPC_DEM={dem_path}")
+        elif rpc_height is not None:
+            transformer_options.append(f"RPC_HEIGHT={rpc_height}")
+        else:
+            logger.warning(
+                "orthorectify: no DEM and no rpc_height given; GDAL will use "
+                "height 0, which is rarely correct over real terrain."
+            )
+        warp_kwargs: dict = {
+            "format": "VRT" if lazy else "MEM",
+            "resampleAlg": resolve_resampling(method),
+            "xRes": cell_size,
+            "yRes": cell_size,
+            "transformerOptions": transformer_options,
+        }
+        if to_epsg is not None:
+            warp_kwargs["dstSRS"] = _dst_srs_arg(sr_from_user_input(to_epsg))
+        dst = gdal.Warp("", self._ds.raster, options=gdal.WarpOptions(**warp_kwargs))
+        if dst is None:
+            raise RuntimeError("GDAL could not orthorectify the dataset.")
+        result = self._ds.__class__(dst, access="read_only")
+        if lazy:
+            result._warp_source = self._ds
+        return result
+
+    @staticmethod
+    def _resolve_dem_path(dem: str | Path | Dataset | None) -> str | None:
+        """Resolve a DEM argument to a GDAL-openable path.
+
+        Args:
+            dem: ``None``, a filesystem path, or a Dataset. A file-backed Dataset
+                yields its path; an in-memory one is staged to ``/vsimem/``.
+
+        Returns:
+            str | None: the path GDAL's ``RPC_DEM`` should open, or ``None``.
+        """
+        if dem is None:
+            result = None
+        elif isinstance(dem, (str, Path)):
+            result = str(dem)
+        else:
+            description = dem.raster.GetDescription()
+            if description:
+                result = description
+            else:
+                result = f"/vsimem/orthorectify_dem_{uuid4().hex}.tif"
+                gdal.Translate(result, dem.raster)
+        return result
 
     def set_gcps(
         self: Georef,

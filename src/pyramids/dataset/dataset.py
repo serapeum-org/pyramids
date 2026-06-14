@@ -983,6 +983,10 @@ class Dataset(RasterBase):
         """Facade — :meth:`Georef.set_rpcs <pyramids.dataset.engines.Georef.set_rpcs>`."""
         return self.georef.set_rpcs(*args, **kwargs)
 
+    def orthorectify(self, *args, **kwargs):
+        """Facade — :meth:`Georef.orthorectify <pyramids.dataset.engines.Georef.orthorectify>`."""
+        return self.georef.orthorectify(*args, **kwargs)
+
     def warped_view(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.warped_view <pyramids.dataset.engines.Spatial.warped_view>`."""
         return self.spatial.warped_view(*args, **kwargs)
