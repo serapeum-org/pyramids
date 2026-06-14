@@ -1065,7 +1065,16 @@ class Analysis(_Engine):
 
                 ```
         """
-        read_args = window.to_read_args() if window is not None else ()
+        if window is None:
+            read_args: tuple = ()
+        else:
+            clamped = window.crop(self._ds.rows, self._ds.columns)
+            if clamped is None:
+                raise OutOfBoundsError(
+                    f"window {window} lies entirely outside the raster "
+                    f"({self._ds.rows}x{self._ds.columns})."
+                )
+            read_args = clamped.to_read_args()
         bands = [band] if band is not None else range(self._ds.band_count)
         masks = [
             np.asarray(self._ds._iloc(index).GetMaskBand().ReadAsArray(*read_args))

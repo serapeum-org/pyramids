@@ -624,3 +624,23 @@ class TestCalc:
         rc = main(["calc", "A * 2", src_raster, out, "--dtype", "float64"])
         assert rc == 0
         assert np.asarray(Dataset.read_file(out).read_array()).dtype == np.float64
+
+    def test_sets_crs_from_authority_string(self, src_raster):
+        """edit-info accepts EPSG:NNNN / PROJ4, not just a bare integer (review M1).
+
+        Test scenario:
+            --crs "EPSG:3857" sets the CRS without a cryptic error.
+        """
+        rc = main(["edit-info", src_raster, "--crs", "EPSG:3857"])
+        assert rc == 0, "authority-string CRS must be accepted"
+        assert Dataset.read_file(src_raster).epsg == 3857
+
+    def test_invalid_crs_leaves_file_unchanged(self, src_raster):
+        """An invalid --crs fails cleanly and does not mutate the file (review M1).
+
+        Test scenario:
+            --crs not-a-crs exits 1 and the EPSG stays 4326 (no partial write).
+        """
+        rc = main(["edit-info", src_raster, "--crs", "not-a-crs"])
+        assert rc == 1, "invalid CRS must exit 1"
+        assert Dataset.read_file(src_raster).epsg == 4326, "no partial write"

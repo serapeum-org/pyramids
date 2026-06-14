@@ -532,10 +532,11 @@ def _cmd_edit_info(args: argparse.Namespace) -> int:
     ds = Dataset.read_file(args.input, read_only=False)
     edited = False
     if args.crs is not None:
-        if str(args.crs).isdigit():
-            ds.set_crs(epsg=int(args.crs))
-        else:
-            ds.set_crs(crs=args.crs)
+        # Resolve any accepted CRS form (EPSG int, "EPSG:3857", WKT, PROJ4) to WKT
+        # *before* touching the file, so an invalid CRS fails cleanly with nothing
+        # half-applied, and `set_crs` (which expects WKT) gets what it wants.
+        wkt = sr_from_user_input(args.crs).ExportToWkt()
+        ds.set_crs(crs=wkt)
         edited = True
     if args.nodata is not None:
         ds.no_data_value = args.nodata

@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.base._errors import ReadOnlyError
+from pyramids.base._errors import OutOfBoundsError, ReadOnlyError
 from pyramids.dataset import Dataset, Window
 
 pytestmark = pytest.mark.core
@@ -145,3 +145,25 @@ class TestCreateMaskBand:
         ds = Dataset.read_file(path, read_only=True)
         with pytest.raises(ReadOnlyError):
             ds.create_mask_band()
+
+
+class TestReadMasksWindowBounds:
+    """Tests for read_masks window validation (review L1)."""
+
+    def test_oversized_window_is_clamped(self, nodata_dataset):
+        """An oversized window is clamped to the raster instead of crashing.
+
+        Test scenario:
+            Window(0,0,100,100) on a 4x4 raster returns the 4x4 in-bounds mask.
+        """
+        mask = nodata_dataset.read_masks(0, window=Window(0, 0, 100, 100))
+        assert mask.shape == (4, 4)
+
+    def test_fully_outside_window_raises(self, nodata_dataset):
+        """A window entirely outside the raster raises OutOfBoundsError.
+
+        Test scenario:
+            Window(20,20,5,5) on a 4x4 raster is rejected with a clear error.
+        """
+        with pytest.raises(OutOfBoundsError):
+            nodata_dataset.read_masks(0, window=Window(20, 20, 5, 5))
