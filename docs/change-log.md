@@ -1,6 +1,26 @@
 ﻿# Change log
 
 
+## 0.33.0 (2026-06-14)
+
+### Feat
+
+- NetCDF GDAL-multidim LabeledDataset rewrite, extras consolidation, wheel/CLI hardening (#520)
+- **dataset**: decimated (out_shape) reads in the core read_array (#512)
+- **dataset**: boundless windowed reads with fill values (#511)
+- **dataset**: thread-safe parallel reads via per-thread GDAL handles (#510)
+- **dataset**: add read_array(masked=True) returning a MaskedArray (#503)
+- **dataset**: add first-class Window object with block iteration (#504)
+- **dataset**: add warped_view - a lazy VRT-backed reprojected view (#508)
+- **dataset**: expand resampling methods to the full GDAL set (#501)
+- **dataset**: add Dataset.to_bytes for in-memory serialization (#502)
+- **cli**: add info/bounds/clip/warp/merge/overview/sample/convert subcommands (#509)
+- **dataset**: add xy()/rowcol() aliases and a GeoTransform object (#506)
+
+### Fix
+
+- **netcdf**: carry non-spatial aux variables through container spatial ops (#514)
+
 ## 0.32.0 (2026-06-08)
 
 ### Feat
