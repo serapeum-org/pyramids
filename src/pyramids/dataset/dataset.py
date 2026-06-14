@@ -1027,6 +1027,10 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`IO.read_array <pyramids.dataset.engines.IO.read_array>`."""
         return self.io.read_array(*args, **kwargs)
 
+    def read_windows(self, *args, **kwargs):
+        """Facade — delegates to :meth:`IO.read_windows <pyramids.dataset.engines.IO.read_windows>`."""
+        return self.io.read_windows(*args, **kwargs)
+
     def write_array(self, *args, **kwargs):
         """Facade — delegates to :meth:`IO.write_array <pyramids.dataset.engines.IO.write_array>`."""
         return self.io.write_array(*args, **kwargs)

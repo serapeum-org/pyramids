@@ -12,7 +12,8 @@ import math
 import pickle
 import threading
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generator
 
@@ -1246,6 +1247,56 @@ class IO(_Engine):
         x_size = arr_indeces[1, 0] - arr_indeces[0, 0]
         y_size = arr_indeces[1, 1] - arr_indeces[0, 1]
         return [xoff, yoff, x_size, y_size]
+
+    def read_windows(
+        self: Dataset,
+        windows: Sequence[Window],
+        *,
+        band: int | None = None,
+        threads: int = 4,
+    ) -> list[np.ndarray]:
+        """Read many windows concurrently, preserving input order.
+
+        Fans the windows across a thread pool, reading each through a per-thread
+        GDAL handle (:meth:`read_array` with ``threadsafe=True``). GDAL releases
+        the GIL during I/O, so this scales for I/O-bound reads (large/remote
+        rasters). The dataset must be path-backed (on disk or ``/vsimem/``); a
+        pure-MEM dataset cannot be reopened per thread.
+
+        Args:
+            windows: The :class:`Window` blocks to read.
+            band: Band index, or ``None`` for all bands (per :meth:`read_array`).
+            threads: Worker-thread count. ``1`` reads sequentially.
+
+        Returns:
+            list[numpy.ndarray]: one array per input window, in the same order.
+
+        Examples:
+            - Parallel reads match the sequential reads, in order:
+                ```python
+                >>> import numpy as np, tempfile, os
+                >>> from pyramids.dataset import Dataset, Window
+                >>> path = os.path.join(tempfile.mkdtemp(), "r.tif")
+                >>> Dataset.create_from_array(
+                ...     np.arange(64, dtype="float32").reshape(8, 8),
+                ...     top_left_corner=(0.0, 8.0), cell_size=1.0,
+                ... ).to_file(path)
+                >>> ds = Dataset.read_file(path)
+                >>> wins = [Window(0, 0, 4, 4), Window(4, 4, 4, 4)]
+                >>> blocks = ds.read_windows(wins)
+                >>> [b.shape for b in blocks]
+                [(4, 4), (4, 4)]
+
+                ```
+        """
+        def _read_one(window: Window) -> np.ndarray:
+            return np.asarray(
+                self._ds.read_array(band=band, window=window, threadsafe=True)
+            )
+
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            results = list(executor.map(_read_one, windows))
+        return results
 
     def write_array(
         self: Dataset,
