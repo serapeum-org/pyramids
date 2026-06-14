@@ -28,7 +28,7 @@ import pandas as pd
 from osgeo import gdal
 
 from pyramids.base._utils import import_pyarrow
-from pyramids.base.remote import CloudConfig, _to_vsi
+from pyramids.base.remote import CloudConfig, _to_vsi, resolve_s3_region
 
 # Soft guard: realising a store this large into a DataFrame loads it all into
 # memory. Above this many bytes the write methods warn the caller to slice first
@@ -134,6 +134,7 @@ class LabeledDataset:
         group: str | None = None,
         engine: str | None = None,
         anon: bool = False,
+        region: str | None = None,
     ) -> LabeledDataset:
         """Open a label-indexed NetCDF or Zarr store lazily via GDAL multidim.
 
@@ -151,6 +152,12 @@ class LabeledDataset:
                 for NetCDF/HDF5. `None` infers from the path suffix.
             anon: Open the remote store anonymously (unsigned;
                 `AWS_NO_SIGN_REQUEST` for S3 and the equivalent elsewhere).
+            region: Pin the S3 bucket region (sets `AWS_REGION` for the open).
+                Leave `None` and, for an anonymous S3 store, the region is
+                auto-resolved from the bucket — GDAL skips region resolution
+                under `AWS_NO_SIGN_REQUEST`, so a bucket outside `us-east-1`
+                would otherwise fail with an unfollowed `PermanentRedirect`
+                (see issue #535). An explicit value always wins.
 
         Returns:
             LabeledDataset: The opened store.
@@ -177,8 +184,20 @@ class LabeledDataset:
                 if not gdal_path.startswith("ZARR:")
                 else gdal_path
             )
+        # GDAL does not auto-resolve the bucket region under AWS_NO_SIGN_REQUEST,
+        # so an anonymous read of a bucket outside us-east-1 hits an unfollowed
+        # PermanentRedirect. Resolve and pin it before the open (issue #535); an
+        # explicit `region` always wins.
+        effective_region = region
+        if (
+            effective_region is None
+            and anon
+            and source.split("://", 1)[0].lower() == "s3"
+        ):
+            bucket = source.split("://", 1)[1].split("/", 1)[0]
+            effective_region = resolve_s3_region(bucket)
         try:
-            with CloudConfig(aws_no_sign_request=anon):
+            with CloudConfig(aws_no_sign_request=anon, aws_region=effective_region):
                 ds = gdal.OpenEx(gdal_path, gdal.OF_MULTIDIM_RASTER)
         except RuntimeError as exc:
             # gdal.UseExceptions() raises (rather than returning None) for a
