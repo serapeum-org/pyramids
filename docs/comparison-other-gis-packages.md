@@ -170,12 +170,11 @@ breadth claims hold up better than a "thin wrapper" reputation would suggest:
   remaining rasterio-side item is **GRIB-specific handling**: pyramids opens GRIB via the generic
   `read_file` (as any GDAL driver does) but exposes no GRIB-*specific* surface (parameter/WMO catalog,
   message inspection) — a format-metadata nicety, not a raster capability.
-- A further pass for rasterio-only features turned up only **ergonomic / CLI conveniences**, not
-  capabilities: a one-call `geometry_mask` (pyramids goes vector→raster via `from_features` then reads the
-  mask), and `rio shapes`/`rio rasterize` as *CLI* subcommands (pyramids ships the Python API —
-  `to_feature_collection`/`from_features` — but not those two CLI verbs). Everything substantive — windowed/
-  boundless/decimated/threadsafe reads, `warped_view`, masks, `xy`/`rowcol`, densified bbox reprojection
-  (`feature.bbox.transform_bounds`), nodata `fill`, GCP/RPC — is present.
+- A further pass for rasterio-only features turned up only one **ergonomic** difference, not a capability:
+  a one-call `geometry_mask` (pyramids goes vector→raster via `from_features`/`rasterize` then reads the
+  mask). Everything substantive — windowed/boundless/decimated/threadsafe reads, `warped_view`, masks,
+  `xy`/`rowcol`, densified bbox reprojection (`feature.bbox.transform_bounds`), nodata `fill`, GCP/RPC, and
+  the raster↔vector CLI verbs (`pyramids shapes`/`rasterize`) — is present.
 - Against **xarray / rioxarray** the differences are **not** capability gaps but *kind-of-tool* and
   *maturity* differences: they are array-first and far more battle-tested on huge lazy datacubes;
   pyramids is GDAL/GIS-first and bundles vector + zonal + terrain + STAC that xarray/rioxarray leave to

@@ -644,3 +644,44 @@ class TestCalc:
         rc = main(["edit-info", src_raster, "--crs", "not-a-crs"])
         assert rc == 1, "invalid CRS must exit 1"
         assert Dataset.read_file(src_raster).epsg == 4326, "no partial write"
+
+
+class TestShapesRasterizeCLI:
+    """Tests for `pyramids shapes` and `pyramids rasterize`."""
+
+    def test_shapes_writes_vector(self, src_raster, tmp_path):
+        """shapes vectorizes the raster into a readable vector file.
+
+        Test scenario:
+            shapes src.tif out.geojson writes per-cell polygons (64 cells).
+        """
+        out = str(tmp_path / "shapes.geojson")
+        rc = main(["shapes", src_raster, out])
+        assert rc == 0, "shapes must exit 0"
+        assert os.path.exists(out)
+        assert np.all(np.isfinite(FeatureCollection.read_file(out).total_bounds))
+
+    def test_rasterize_round_trips(self, src_raster, tmp_path):
+        """rasterize burns a vector (from shapes) back into a raster.
+
+        Test scenario:
+            shapes -> vector, then rasterize --cell-size 1 -> a raster file.
+        """
+        vector = str(tmp_path / "v.geojson")
+        assert main(["shapes", src_raster, vector]) == 0
+        out = str(tmp_path / "r.tif")
+        rc = main(["rasterize", vector, out, "--cell-size", "1"])
+        assert rc == 0, "rasterize must exit 0"
+        assert os.path.exists(out)
+        assert Dataset.read_file(out).cell_size == 1
+
+    def test_rasterize_without_grid_errors(self, src_raster, tmp_path):
+        """rasterize without --cell-size or --like exits 1.
+
+        Test scenario:
+            A missing output grid is a clean user error.
+        """
+        vector = str(tmp_path / "v.geojson")
+        assert main(["shapes", src_raster, vector]) == 0
+        rc = main(["rasterize", vector, str(tmp_path / "r.tif")])
+        assert rc == 1, "must exit 1 without --cell-size/--like"

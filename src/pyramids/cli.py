@@ -20,6 +20,9 @@ standard-library :mod:`argparse` (no extra dependency):
   CRS / nodata / tags in place
 - `pyramids calc EXPR SRC... DST [--dtype T]` — evaluate a band expression
   (safe AST evaluator, no `eval`)
+- `pyramids shapes SRC DST [--geometry polygon|point]` — vectorize a raster
+- `pyramids rasterize SRC DST (--cell-size S | --like RASTER) [--column C]` —
+  burn a vector into a raster
 
 Every command maps 1:1 onto an existing library call — no business logic lives
 here. Expected user errors (missing file, bad CRS, unknown driver) exit
@@ -520,6 +523,52 @@ def _cmd_calc(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_shapes(args: argparse.Namespace) -> int:
+    """Handle `pyramids shapes` — vectorize a raster to a vector file.
+
+    Args:
+        args: Parsed args with `input`, `output`, `geometry`, `overwrite`.
+
+    Returns:
+        int: `0` on success.
+    """
+    _refuse_existing(args.output, args.overwrite)
+    ds = Dataset.read_file(args.input)
+    gdf = ds.to_feature_collection(add_geometry=args.geometry)
+    FeatureCollection(gdf).to_file(args.output, driver=args.driver)
+    print(f"wrote {args.output}")
+    return 0
+
+
+def _cmd_rasterize(args: argparse.Namespace) -> int:
+    """Handle `pyramids rasterize` — burn a vector into a new raster.
+
+    Args:
+        args: Parsed args with `input` (vector), `output`, and one of
+            `cell_size` / `like` (template raster), plus optional `column`.
+
+    Returns:
+        int: `0` on success.
+
+    Raises:
+        ValueError: Neither `--cell-size` nor `--like` is given.
+    """
+    _refuse_existing(args.output, args.overwrite)
+    if args.cell_size is None and args.like is None:
+        raise ValueError("rasterize needs --cell-size or --like (a template raster).")
+    features = FeatureCollection.read_file(args.input)
+    template = Dataset.read_file(args.like) if args.like else None
+    out = Dataset.from_features(
+        features,
+        cell_size=args.cell_size,
+        template=template,
+        column_name=args.column,
+    )
+    out.to_file(args.output)
+    print(f"wrote {args.output}")
+    return 0
+
+
 def _cmd_edit_info(args: argparse.Namespace) -> int:
     """Handle `pyramids edit-info` — edit a raster's CRS / nodata / tags in place.
 
@@ -871,6 +920,38 @@ def _build_parser() -> argparse.ArgumentParser:
     calc.add_argument("--dtype", help="output numpy dtype (e.g. float32)")
     calc.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     calc.set_defaults(func=_cmd_calc)
+
+    shapes = sub.add_parser("shapes", help="vectorize a raster to a vector file")
+    shapes.add_argument("input", help=_HELP_SRC_RASTER)
+    shapes.add_argument("output", help="destination vector path")
+    shapes.add_argument(
+        "--geometry",
+        choices=["polygon", "point"],
+        default="polygon",
+        help="per-cell geometry to emit (default: polygon)",
+    )
+    shapes.add_argument(
+        "--driver", default="geojson", help="OGR vector driver (default: geojson)"
+    )
+    shapes.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
+    shapes.set_defaults(func=_cmd_shapes)
+
+    rasterize = sub.add_parser(
+        "rasterize", help="burn a vector into a new raster"
+    )
+    rasterize.add_argument("input", help="source vector path")
+    rasterize.add_argument("output", help=_HELP_DST_RASTER)
+    rasterize.add_argument(
+        "--cell-size", type=float, help="output cell size (required unless --like)"
+    )
+    rasterize.add_argument(
+        "--like", help="template raster whose grid/CRS the output adopts"
+    )
+    rasterize.add_argument(
+        "--column", help="attribute column to burn (default: all non-geometry columns)"
+    )
+    rasterize.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
+    rasterize.set_defaults(func=_cmd_rasterize)
 
     return parser
 
