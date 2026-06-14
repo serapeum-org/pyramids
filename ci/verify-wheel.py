@@ -33,10 +33,16 @@ import tempfile
 import textwrap
 from pathlib import Path
 
+# `import pyramids` runs the vendor bootstrap in pyramids/__init__.py, which injects
+# pyramids/_vendor/osgeo onto sys.path. It MUST precede `import osgeo`, so the order is
+# pinned against isort's first-party regrouping (profile=black would otherwise float
+# `import pyramids` below the third-party osgeo block and break the bare osgeo import).
+# isort: off
+import pyramids
 import osgeo
 from osgeo import gdal, ogr, osr  # noqa: F401 — ogr import is a smoke test
 
-import pyramids
+# isort: on
 
 # Stable, valid-TLS HTTPS endpoint for the CA-trust check. Small text
 # file (not a raster) — VSIFOpenL forces the curl TLS handshake + CA
