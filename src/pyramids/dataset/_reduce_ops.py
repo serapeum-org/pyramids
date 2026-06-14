@@ -42,7 +42,7 @@ def resolve_dask_op(op_name: str, *, skipna: bool) -> tuple[Callable[..., Any], 
     """
     if op_name not in _SUPPORTED_OPS:
         raise ValueError(
-            f"Unsupported reduction {op_name!r}; supported: " f"{_SUPPORTED_OPS}"
+            f"Unsupported reduction {op_name!r}; supported: {_SUPPORTED_OPS}"
         )
     try:
         import dask.array as da

@@ -414,7 +414,7 @@ def _resolve_target_grid(
         return None
     if any(v is None for v in explicit):
         raise ValueError(
-            "crs, resolution, and bounds must all be given together (or use " "like=)."
+            "crs, resolution, and bounds must all be given together (or use like=)."
         )
     if anchor != "edge":
         raise ValueError(f"anchor must be 'edge', got {anchor!r}.")

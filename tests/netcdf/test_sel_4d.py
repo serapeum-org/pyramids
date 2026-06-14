@@ -342,7 +342,7 @@ class TestRootContainer4DSpatialOps:
         # sel() across either axis still works on the cropped container.
         sub = inner.sel(pressure_level=500)
         assert sub.read_array().shape[0] == 4, (
-            f"pin level should leave 4 time bands, got " f"{sub.read_array().shape}"
+            f"pin level should leave 4 time bands, got {sub.read_array().shape}"
         )
 
     def test_crop_root_container_synthetic_4d_round_trip(self):
@@ -416,7 +416,7 @@ class TestPreserveNetcdfMetadataSelfHeal:
         # that doesn't refill afterwards.
         rewrapped = sub._preserve_netcdf_metadata(sub)
         assert rewrapped._band_dim_values == TIME_VALUES, (
-            f"self-heal failed; values dropped to " f"{rewrapped._band_dim_values!r}"
+            f"self-heal failed; values dropped to {rewrapped._band_dim_values!r}"
         )
         assert (
             rewrapped._band_dim_name == "time"
@@ -446,7 +446,7 @@ class TestPreserveNetcdfMetadataSelfHeal:
         }
         rewrapped = var._preserve_netcdf_metadata(var)
         assert rewrapped._band_dim_values is None, (
-            f"self-heal injected a stale list: " f"{rewrapped._band_dim_values!r}"
+            f"self-heal injected a stale list: {rewrapped._band_dim_values!r}"
         )
 
 

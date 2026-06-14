@@ -77,7 +77,7 @@ class TestPointAoiBbox:
         """
         import math
 
-        _, (w, s, e, n) = _point_aoi_bbox(
+        _, (w, _, e, _) = _point_aoi_bbox(
             46.0, 11.0, edge_size=64, resolution=10.0, units="px"
         )
         expected_deg = 640.0 / (111_320.0 * math.cos(math.radians(46.0)))

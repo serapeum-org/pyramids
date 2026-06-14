@@ -792,7 +792,7 @@ class NetCDFPlot:
             )
         if not nc._band_dim_names:
             raise ValueError(
-                "`animate=` was passed but this variable has no band " "dimension."
+                "`animate=` was passed but this variable has no band dimension."
             )
         if animate is True:
             free_dims = [
