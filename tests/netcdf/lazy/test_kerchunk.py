@@ -78,9 +78,10 @@ class TestCombineKerchunk:
 
 
 class TestImportError:
-    """Missing kerchunk raises actionable ImportError."""
+    """Missing kerchunk raises actionable ImportError on the paths that need it."""
 
-    def test_to_kerchunk_raises_without_kerchunk(self, tmp_path, monkeypatch):
+    def test_native_to_kerchunk_works_without_kerchunk(self, tmp_path, monkeypatch):
+        """The default (native) single-file path needs h5py, not kerchunk (#530)."""
         import builtins
 
         real_import = builtins.__import__
@@ -92,11 +93,16 @@ class TestImportError:
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
         nc = NetCDF.read_file(FIXTURE, open_as_multi_dimensional=False)
-        with pytest.raises(ImportError, match="pyramids-gis\\[lazy\\]"):
-            nc.to_kerchunk(tmp_path / "refs.json")
+        out = tmp_path / "refs.json"
+        result = nc.to_kerchunk(out)
+        assert out.exists()
+        assert "refs" in result and "values/.zarray" in result["refs"]
 
-    def test_combine_raises_without_kerchunk(self, tmp_path, monkeypatch):
+    def test_kerchunk_backend_raises_without_kerchunk(self, tmp_path, monkeypatch):
+        """Explicitly forcing the kerchunk backend still requires kerchunk."""
         import builtins
+
+        from pyramids.netcdf._kerchunk import to_kerchunk
 
         real_import = builtins.__import__
 
@@ -107,7 +113,23 @@ class TestImportError:
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
         with pytest.raises(ImportError, match="pyramids-gis\\[lazy\\]"):
-            NetCDF.combine_kerchunk(
-                [FIXTURE],
-                tmp_path / "refs.json",
-            )
+            to_kerchunk(FIXTURE, tmp_path / "refs.json", backend="kerchunk")
+
+    def test_kerchunk_backend_combine_raises_without_kerchunk(
+        self, tmp_path, monkeypatch
+    ):
+        """Forcing the kerchunk backend on combine still requires kerchunk."""
+        import builtins
+
+        from pyramids.netcdf._kerchunk import combine_kerchunk
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name.startswith("kerchunk"):
+                raise ImportError("no kerchunk")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        with pytest.raises(ImportError, match="pyramids-gis\\[lazy\\]"):
+            combine_kerchunk([FIXTURE], tmp_path / "refs.json", backend="kerchunk")
