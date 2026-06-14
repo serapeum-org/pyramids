@@ -160,6 +160,56 @@ class TestReadRPC:
         assert writable_dataset.rpcs["HEIGHT_OFF"] == "100"
 
 
+class TestSetRPC:
+    """Tests for Georef.set_rpcs."""
+
+    def test_round_trip(self, writable_dataset):
+        """set_rpcs writes the RPC domain so rpcs reads it back.
+
+        Test scenario:
+            A complete RPC dict set then read returns equal values.
+        """
+        writable_dataset.set_rpcs(RPC_SAMPLE)
+        assert writable_dataset.rpcs["HEIGHT_OFF"] == "100"
+        assert writable_dataset.rpcs["LINE_DEN_COEFF"].split()[0] == "1"
+
+    def test_stringifies_numeric_values(self, writable_dataset):
+        """Numeric RPC values are stringified before writing.
+
+        Test scenario:
+            HEIGHT_OFF given as a float comes back as its string form.
+        """
+        rpc = dict(RPC_SAMPLE)
+        rpc["HEIGHT_OFF"] = 123.5
+        writable_dataset.set_rpcs(rpc)
+        assert writable_dataset.rpcs["HEIGHT_OFF"] == "123.5"
+
+    def test_missing_keys_raise(self, writable_dataset):
+        """A dict missing required keys is rejected, listing them.
+
+        Test scenario:
+            Dropping HEIGHT_OFF raises ValueError naming the missing key.
+        """
+        rpc = dict(RPC_SAMPLE)
+        del rpc["HEIGHT_OFF"]
+        with pytest.raises(ValueError, match="HEIGHT_OFF"):
+            writable_dataset.set_rpcs(rpc)
+
+    def test_read_only_raises(self, tmp_path):
+        """A read-only dataset rejects set_rpcs.
+
+        Test scenario:
+            read_only=True raises ReadOnlyError.
+        """
+        path = tmp_path / "plain.tif"
+        Dataset.create_from_array(
+            np.ones((4, 4), dtype="float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+        ).to_file(str(path))
+        ds = Dataset.read_file(str(path), read_only=True)
+        with pytest.raises(ReadOnlyError):
+            ds.set_rpcs(RPC_SAMPLE)
+
+
 class TestWarpFromGCPs:
     """Tests for Georef.georeference (warp from GCPs)."""
 

@@ -8,7 +8,7 @@ GDAL toolkit and does not implement any sensor model itself.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Mapping, Sequence
 
 from osgeo import gdal
 
@@ -21,6 +21,26 @@ from pyramids.dataset.engines.spatial import _dst_srs_arg
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
+
+# The offsets, scales, and four coefficient vectors every RPC sensor model needs.
+_REQUIRED_RPC_KEYS: frozenset[str] = frozenset(
+    {
+        "LINE_OFF",
+        "SAMP_OFF",
+        "LAT_OFF",
+        "LONG_OFF",
+        "HEIGHT_OFF",
+        "LINE_SCALE",
+        "SAMP_SCALE",
+        "LAT_SCALE",
+        "LONG_SCALE",
+        "HEIGHT_SCALE",
+        "LINE_NUM_COEFF",
+        "LINE_DEN_COEFF",
+        "SAMP_NUM_COEFF",
+        "SAMP_DEN_COEFF",
+    }
+)
 
 
 class Georef(_Engine):
@@ -121,6 +141,56 @@ class Georef(_Engine):
             bool: whether an RPC sensor model is attached.
         """
         return bool(self._ds.raster.GetMetadata("RPC"))
+
+    def set_rpcs(self: Georef, rpc: Mapping[str, str | float]) -> None:
+        """Attach rational-polynomial coefficients (an RPC sensor model).
+
+        Values are stringified before being written to GDAL's ``"RPC"`` metadata
+        domain. The dataset must be writable.
+
+        Args:
+            rpc: The RPC coefficient mapping. Must contain every required key:
+                the five ``*_OFF`` offsets, the five ``*_SCALE`` scales, and the
+                four coefficient vectors (``LINE_NUM_COEFF``, ``LINE_DEN_COEFF``,
+                ``SAMP_NUM_COEFF``, ``SAMP_DEN_COEFF``).
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only.
+            ValueError: One or more required RPC keys are missing (the error
+                lists them).
+
+        Examples:
+            - Round-trip a coefficient set through the RPC domain:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> rpc = {k: "0" for k in (
+                ...     "LINE_OFF", "SAMP_OFF", "LAT_OFF", "LONG_OFF", "HEIGHT_OFF",
+                ...     "LINE_SCALE", "SAMP_SCALE", "LAT_SCALE", "LONG_SCALE",
+                ...     "HEIGHT_SCALE", "LINE_NUM_COEFF", "LINE_DEN_COEFF",
+                ...     "SAMP_NUM_COEFF", "SAMP_DEN_COEFF",
+                ... )}
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+                ... )
+                >>> ds.set_rpcs(rpc)
+                >>> ds.rpcs["HEIGHT_OFF"]
+                '0'
+
+                ```
+        """
+        if self._ds.access == "read_only":
+            raise ReadOnlyError(
+                "The Dataset is opened read-only. Please read the dataset using "
+                "read_only=False to attach RPC metadata."
+            )
+        missing = _REQUIRED_RPC_KEYS - set(rpc)
+        if missing:
+            raise ValueError(
+                f"RPC metadata is missing required keys: {sorted(missing)}"
+            )
+        stringified = {key: str(value) for key, value in rpc.items()}
+        self._ds.raster.SetMetadata(stringified, "RPC")
 
     def set_gcps(
         self: Georef,
