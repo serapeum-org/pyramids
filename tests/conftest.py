@@ -8,8 +8,6 @@ import numpy as np
 import pandas as pd
 import pytest
 from geopandas import GeoDataFrame
-from osgeo import gdal
-from osgeo.gdal import Dataset
 from pandas import DataFrame
 from shapely import wkt
 from shapely.geometry import Polygon
@@ -19,8 +17,17 @@ from shapely.geometry import Polygon
 # add_dll_directory + PATH prepend). Must run BEFORE any
 # `from osgeo import ...` anywhere in the test tree. The alias makes
 # the side-effect-only intent obvious so this isn't mistaken for an
-# unused import.
+# unused import. The order is pinned against isort's first-party
+# regrouping (profile=black would otherwise float `import pyramids`
+# below the third-party osgeo block — fatal in a bare bundled-wheel
+# env, where osgeo only exists under pyramids/_vendor and is unimportable
+# until the bootstrap injects it onto sys.path).
+# isort: off
 import pyramids as _pyramids_bootstrap  # noqa: F401
+from osgeo import gdal
+from osgeo.gdal import Dataset
+
+# isort: on
 from tests._marks import EXTRA_MARKERS
 from tests.dataset.conftest import *
 from tests.feature.conftest import *
