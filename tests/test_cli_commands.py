@@ -736,3 +736,42 @@ class TestShapesRasterizeCLI:
         rc = main(["rasterize", vector, out, "--cell-size", "1", "--column", "Band_1"])
         assert rc == 0, "rasterize --column must exit 0"
         assert Dataset.read_file(out).band_count == 1
+
+    def test_shapes_refuses_large_without_flag(self, src_raster, tmp_path, monkeypatch):
+        """shapes refuses an over-threshold raster without --allow-large (review L1).
+
+        Test scenario:
+            With the cell-count cap lowered to 4, a 64-cell raster is refused
+            (exit 1, nothing written).
+        """
+        monkeypatch.setattr("pyramids.cli._SHAPES_MAX_CELLS", 4)
+        out = str(tmp_path / "big.geojson")
+        rc = main(["shapes", src_raster, out])
+        assert rc == 1, "an over-threshold shapes must exit 1"
+        assert not os.path.exists(out), "no output on a refused shapes"
+
+    def test_shapes_allow_large_overrides(self, src_raster, tmp_path, monkeypatch):
+        """--allow-large overrides the cell-count guard (review L1).
+
+        Test scenario:
+            With the cap lowered to 4, --allow-large still vectorizes the raster.
+        """
+        monkeypatch.setattr("pyramids.cli._SHAPES_MAX_CELLS", 4)
+        out = str(tmp_path / "big.geojson")
+        rc = main(["shapes", src_raster, out, "--allow-large"])
+        assert rc == 0, "--allow-large must proceed"
+        assert os.path.exists(out)
+
+    def test_rasterize_both_grid_args_notes(self, src_raster, tmp_path, capsys):
+        """rasterize notes that --cell-size is ignored when --like is given (review N1).
+
+        Test scenario:
+            Passing both still succeeds and prints a clarifying note to stderr.
+        """
+        vector = str(tmp_path / "v.geojson")
+        assert main(["shapes", src_raster, vector]) == 0
+        capsys.readouterr()
+        out = str(tmp_path / "r.tif")
+        rc = main(["rasterize", vector, out, "--cell-size", "1", "--like", src_raster])
+        assert rc == 0
+        assert "ignored" in capsys.readouterr().err

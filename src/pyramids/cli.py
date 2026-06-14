@@ -523,17 +523,38 @@ def _cmd_calc(args: argparse.Namespace) -> int:
     return 0
 
 
+# `shapes` emits one feature per cell, so it does not scale like a region-
+# dissolving polygonizer; refuse above this cell count unless --allow-large.
+_SHAPES_MAX_CELLS = 4_000_000
+
+
 def _cmd_shapes(args: argparse.Namespace) -> int:
     """Handle `pyramids shapes` — vectorize a raster to a vector file.
 
+    Emits **one feature per cell** (a square polygon, or a centre point with
+    ``--geometry point``) carrying the band value — it is *not* a region-
+    dissolving polygonizer. Above `_SHAPES_MAX_CELLS` cells it refuses unless
+    `--allow-large` is given, since one feature per cell can exhaust memory.
+
     Args:
-        args: Parsed args with `input`, `output`, `geometry`, `overwrite`.
+        args: Parsed args with `input`, `output`, `geometry`, `driver`,
+            `allow_large`, `overwrite`.
 
     Returns:
         int: `0` on success.
+
+    Raises:
+        ValueError: The raster exceeds `_SHAPES_MAX_CELLS` and `--allow-large`
+            was not passed.
     """
     _refuse_existing(args.output, args.overwrite)
     ds = Dataset.read_file(args.input)
+    cells = ds.rows * ds.columns
+    if cells > _SHAPES_MAX_CELLS and not args.allow_large:
+        raise ValueError(
+            f"shapes emits one feature per cell ({cells:,} cells here), which can "
+            f"exhaust memory; crop/downsample first, or pass --allow-large to proceed."
+        )
     gdf = ds.to_feature_collection(add_geometry=args.geometry)
     FeatureCollection(gdf).to_file(args.output, driver=args.driver)
     print(f"wrote {args.output}")
@@ -556,6 +577,11 @@ def _cmd_rasterize(args: argparse.Namespace) -> int:
     _refuse_existing(args.output, args.overwrite)
     if args.cell_size is None and args.like is None:
         raise ValueError("rasterize needs --cell-size or --like (a template raster).")
+    if args.cell_size is not None and args.like is not None:
+        print(
+            "note: --cell-size is ignored because --like sets the output grid",
+            file=sys.stderr,
+        )
     features = FeatureCollection.read_file(args.input)
     template = Dataset.read_file(args.like) if args.like else None
     out = Dataset.from_features(
@@ -921,7 +947,9 @@ def _build_parser() -> argparse.ArgumentParser:
     calc.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     calc.set_defaults(func=_cmd_calc)
 
-    shapes = sub.add_parser("shapes", help="vectorize a raster to a vector file")
+    shapes = sub.add_parser(
+        "shapes", help="vectorize a raster to a vector file (one feature per cell)"
+    )
     shapes.add_argument("input", help=_HELP_SRC_RASTER)
     shapes.add_argument("output", help="destination vector path")
     shapes.add_argument(
@@ -933,6 +961,12 @@ def _build_parser() -> argparse.ArgumentParser:
     shapes.add_argument(
         "--driver", default="geojson", help="OGR vector driver (default: geojson)"
     )
+    shapes.add_argument(
+        "--allow-large",
+        action="store_true",
+        help="proceed even when the raster has more than ~4M cells "
+        "(one feature per cell can exhaust memory)",
+    )
     shapes.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     shapes.set_defaults(func=_cmd_shapes)
 
@@ -942,7 +976,9 @@ def _build_parser() -> argparse.ArgumentParser:
     rasterize.add_argument("input", help="source vector path")
     rasterize.add_argument("output", help=_HELP_DST_RASTER)
     rasterize.add_argument(
-        "--cell-size", type=float, help="output cell size (required unless --like)"
+        "--cell-size",
+        type=float,
+        help="output cell size (required unless --like; ignored when --like is given)",
     )
     rasterize.add_argument(
         "--like", help="template raster whose grid/CRS the output adopts"
