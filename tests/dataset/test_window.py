@@ -396,3 +396,75 @@ class TestBlockIteration:
         assert (
             sum(w.cols * w.rows for w in spanned) == spanning.cols * spanning.rows
         ), "the ROI-clipped blocks must cover the ROI exactly"
+
+
+class TestWindowConveniences:
+    """Tests for the WIN-1 conveniences (rounded/crop/todict/from_dict/iter/transform)."""
+
+    def test_rounded_floors_offsets_ceils_sizes(self):
+        """rounded snaps fractional pixel coords to a covering integer window.
+
+        Test scenario:
+            (1.4, 2.6, 9.9, 3.1) -> offsets floored (1, 2), sizes ceiled (10, 4).
+        """
+        assert Window.rounded(1.4, 2.6, 9.9, 3.1) == Window(1, 2, 10, 4)
+
+    def test_crop_clamps_oversized_window(self):
+        """crop limits a window to the raster extent.
+
+        Test scenario:
+            A 100x100 window cropped to an 8x8 raster becomes 8x8 at the origin.
+        """
+        assert Window(0, 0, 100, 100).crop(rows=8, cols=8) == Window(0, 0, 8, 8)
+
+    def test_crop_negative_offsets(self):
+        """crop clips a window hanging off the top-left to the in-bounds part.
+
+        Test scenario:
+            Window(-2, -2, 5, 5) cropped to 8x8 keeps the 3x3 in-bounds corner.
+        """
+        assert Window(-2, -2, 5, 5).crop(rows=8, cols=8) == Window(0, 0, 3, 3)
+
+    def test_crop_fully_outside_is_none(self):
+        """A window entirely outside the extent crops to None.
+
+        Test scenario:
+            Window(20, 20, 5, 5) does not overlap an 8x8 raster.
+        """
+        assert Window(20, 20, 5, 5).crop(rows=8, cols=8) is None
+
+    def test_todict_from_dict_round_trip(self):
+        """todict/from_dict round-trip preserves the window.
+
+        Test scenario:
+            from_dict(todict(w)) == w.
+        """
+        w = Window(4, 1, 2, 3)
+        assert Window.from_dict(w.todict()) == w
+
+    def test_iter_yields_gdal_order(self):
+        """Iterating a window yields (col_off, row_off, cols, rows).
+
+        Test scenario:
+            tuple(window) matches to_read_args().
+        """
+        w = Window(4, 1, 2, 3)
+        assert tuple(w) == w.to_read_args()
+
+    def test_transform_shifts_only_origin(self):
+        """transform moves the origin to the window, keeping cell size/rotation.
+
+        Test scenario:
+            A north-up gt: only indices 0 and 3 change.
+        """
+        gt = (0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
+        out = Window(2, 1, 3, 3).transform(gt)
+        assert out == (2.0, 1.0, 0.0, 3.0, 0.0, -1.0)
+
+    def test_crop_zero_extent_is_none(self):
+        """crop on a zero-size extent returns None rather than raising (review N2).
+
+        Test scenario:
+            Window(0,0,4,4).crop(0, 0) -> None.
+        """
+        assert Window(0, 0, 4, 4).crop(rows=0, cols=0) is None

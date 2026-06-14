@@ -12,6 +12,17 @@ standard-library :mod:`argparse` (no extra dependency):
 - `pyramids overview FILE [--resampling M] [--levels N...]` — build overviews
 - `pyramids sample FILE --points "x,y;x,y..." [--json]` — point sampling
 - `pyramids convert SRC DST [--driver NAME]` — format conversion
+- `pyramids georeference SRC DST --gcp PIXEL LINE X Y ... --gcp-crs CRS` —
+  warp from ground-control points
+- `pyramids orthorectify SRC DST [--dem PATH | --rpc-height H]` — RPC
+  orthorectification
+- `pyramids edit-info FILE [--crs CRS] [--nodata V] [--tag K=V...]` — edit
+  CRS / nodata / tags in place
+- `pyramids calc EXPR SRC... DST [--dtype T]` — evaluate a band expression
+  (safe AST evaluator, no `eval`)
+- `pyramids shapes SRC DST [--geometry polygon|point]` — vectorize a raster
+- `pyramids rasterize SRC DST (--cell-size S | --like RASTER) [--column C]` —
+  burn a vector into a raster
 
 Every command maps 1:1 onto an existing library call — no business logic lives
 here. Expected user errors (missing file, bad CRS, unknown driver) exit
@@ -23,18 +34,22 @@ callable in-process (`main([...])`) for testing.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import math
+import operator
 import os
 import sys
 from typing import Sequence
 
+import numpy as np
 from osgeo import osr
 from pandas import DataFrame
 
 from pyramids.base._errors import _PyramidsError
 from pyramids.base.crs import sr_from_user_input, sr_from_wkt
 from pyramids.dataset import Dataset
+from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS
 from pyramids.dataset.cog import PROFILES, cog_info, validate
 from pyramids.dataset.merge import merge_rasters
@@ -316,6 +331,303 @@ def _cmd_warp(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_georeference(args: argparse.Namespace) -> int:
+    """Handle `pyramids georeference` — warp a raster from ground-control points.
+
+    Args:
+        args: Parsed args with `input`, `output`, `gcp` (list of [pixel, line,
+            x, y]), `gcp_crs`, `transform`, `order`, `to_crs`, `resampling`,
+            `overwrite`.
+
+    Returns:
+        int: `0` on success.
+    """
+    _refuse_existing(args.output, args.overwrite)
+    points = [
+        GroundControlPoint(col=pixel, row=line, x=x, y=y)
+        for pixel, line, x, y in args.gcp
+    ]
+    source = Dataset.read_file(args.input)
+    # Reconstruct in a writable MEM dataset so attaching GCPs does not mutate the
+    # input file; the source geotransform is irrelevant — GCPs replace it.
+    working = Dataset.create_from_array(
+        source.read_array(),
+        top_left_corner=source.top_left_corner,
+        cell_size=source.cell_size,
+        epsg=source.epsg or 4326,
+        no_data_value=source.no_data_value,
+    )
+    working.set_gcps(points, args.gcp_crs)
+    out = working.georeference(
+        to_epsg=args.to_crs,
+        method=args.resampling,
+        transform=args.transform,
+        order=args.order,
+    )
+    out.to_file(args.output)
+    print(f"wrote {args.output}")
+    return 0
+
+
+def _cmd_orthorectify(args: argparse.Namespace) -> int:
+    """Handle `pyramids orthorectify` — orthorectify a raster from its RPCs.
+
+    Args:
+        args: Parsed args with `input`, `output`, `dem`, `rpc_height`, `to_crs`,
+            `resampling`, `overwrite`. The input must already carry RPC metadata.
+
+    Returns:
+        int: `0` on success.
+    """
+    _refuse_existing(args.output, args.overwrite)
+    ds = Dataset.read_file(args.input)
+    out = ds.orthorectify(
+        dem=args.dem,
+        rpc_height=args.rpc_height,
+        to_epsg=args.to_crs,
+        method=args.resampling,
+    )
+    out.to_file(args.output)
+    print(f"wrote {args.output}")
+    return 0
+
+
+_CALC_BINOPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Pow: operator.pow,
+    ast.Mod: operator.mod,
+    ast.FloorDiv: operator.floordiv,
+}
+_CALC_UNARYOPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+_CALC_COMPARE = {
+    ast.Lt: operator.lt,
+    ast.Gt: operator.gt,
+    ast.LtE: operator.le,
+    ast.GtE: operator.ge,
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne,
+}
+# The only function calls a `calc` expression may use, all from numpy.
+_CALC_NP_FUNCS = frozenset(
+    {
+        "where", "clip", "log", "log10", "exp", "sqrt", "abs",
+        "minimum", "maximum", "power",
+    }
+)
+
+
+def _safe_calc_eval(node: ast.AST, variables: dict) -> object:
+    """Evaluate one node of a `calc` expression AST against a whitelist.
+
+    This is a deliberately small interpreter — it never uses ``eval``/``exec``,
+    so a hostile expression (``__import__('os')``, attribute access, comprehensions,
+    ...) is rejected with a ``ValueError`` rather than executed.
+
+    Args:
+        node: The AST node to evaluate.
+        variables: Band arrays bound to their names (``A``, ``B``, ...).
+
+    Returns:
+        The numeric / ndarray value of the node.
+
+    Raises:
+        ValueError: The node is not in the allowed grammar.
+    """
+    if isinstance(node, ast.Expression):
+        result = _safe_calc_eval(node.body, variables)
+    elif isinstance(node, ast.BinOp) and type(node.op) in _CALC_BINOPS:
+        result = _CALC_BINOPS[type(node.op)](
+            _safe_calc_eval(node.left, variables),
+            _safe_calc_eval(node.right, variables),
+        )
+    elif isinstance(node, ast.UnaryOp) and type(node.op) in _CALC_UNARYOPS:
+        result = _CALC_UNARYOPS[type(node.op)](
+            _safe_calc_eval(node.operand, variables)
+        )
+    elif (
+        isinstance(node, ast.Compare)
+        and len(node.ops) == 1
+        and type(node.ops[0]) in _CALC_COMPARE
+    ):
+        result = _CALC_COMPARE[type(node.ops[0])](
+            _safe_calc_eval(node.left, variables),
+            _safe_calc_eval(node.comparators[0], variables),
+        )
+    elif isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        result = node.value
+    elif isinstance(node, ast.Name):
+        if node.id not in variables:
+            raise ValueError(f"unknown name in calc expression: {node.id!r}")
+        result = variables[node.id]
+    elif (
+        isinstance(node, ast.Call)
+        and not node.keywords
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "np"
+        and node.func.attr in _CALC_NP_FUNCS
+    ):
+        result = getattr(np, node.func.attr)(
+            *[_safe_calc_eval(arg, variables) for arg in node.args]
+        )
+    else:
+        raise ValueError(
+            "disallowed element in calc expression; only arithmetic over the "
+            "input bands (A, B, ...), comparisons, and a small set of np.<func> "
+            "calls are permitted."
+        )
+    return result
+
+
+def _cmd_calc(args: argparse.Namespace) -> int:
+    """Handle `pyramids calc` — evaluate a band expression into a new raster.
+
+    The expression operates on the input rasters bound to ``A``, ``B``, ... in
+    order; it is evaluated by a small AST whitelist, never ``eval``.
+
+    Args:
+        args: Parsed args with `expr`, `operands` (inputs... + output), `dtype`,
+            `overwrite`.
+
+    Returns:
+        int: `0` on success.
+
+    Raises:
+        ValueError: Fewer than one input + output, or a disallowed expression.
+    """
+    if len(args.operands) < 2:
+        raise ValueError("calc needs at least one input raster and an output path.")
+    *inputs, output = args.operands
+    if len(inputs) > 26:
+        raise ValueError("calc supports at most 26 input rasters (bound A..Z).")
+    _refuse_existing(output, args.overwrite)
+    datasets = [Dataset.read_file(path) for path in inputs]
+    names = [chr(ord("A") + index) for index in range(len(datasets))]
+    variables = {
+        name: np.asarray(ds.read_array()) for name, ds in zip(names, datasets)
+    }
+    result = np.asarray(_safe_calc_eval(ast.parse(args.expr, mode="eval"), variables))
+    if args.dtype:
+        result = result.astype(args.dtype)
+    template = datasets[0]
+    Dataset.create_from_array(
+        result,
+        top_left_corner=template.top_left_corner,
+        cell_size=template.cell_size,
+        epsg=template.epsg or 4326,
+    ).to_file(output)
+    print(f"wrote {output}")
+    return 0
+
+
+# `shapes` emits one feature per cell, so it does not scale like a region-
+# dissolving polygonizer; refuse above this cell count unless --allow-large.
+_SHAPES_MAX_CELLS = 4_000_000
+
+
+def _cmd_shapes(args: argparse.Namespace) -> int:
+    """Handle `pyramids shapes` — vectorize a raster to a vector file.
+
+    Emits **one feature per cell** (a square polygon, or a centre point with
+    ``--geometry point``) carrying the band value — it is *not* a region-
+    dissolving polygonizer. Above `_SHAPES_MAX_CELLS` cells it refuses unless
+    `--allow-large` is given, since one feature per cell can exhaust memory.
+
+    Args:
+        args: Parsed args with `input`, `output`, `geometry`, `driver`,
+            `allow_large`, `overwrite`.
+
+    Returns:
+        int: `0` on success.
+
+    Raises:
+        ValueError: The raster exceeds `_SHAPES_MAX_CELLS` and `--allow-large`
+            was not passed.
+    """
+    _refuse_existing(args.output, args.overwrite)
+    ds = Dataset.read_file(args.input)
+    cells = ds.rows * ds.columns
+    if cells > _SHAPES_MAX_CELLS and not args.allow_large:
+        raise ValueError(
+            f"shapes emits one feature per cell ({cells:,} cells here), which can "
+            f"exhaust memory; crop/downsample first, or pass --allow-large to proceed."
+        )
+    gdf = ds.to_feature_collection(add_geometry=args.geometry)
+    FeatureCollection(gdf).to_file(args.output, driver=args.driver)
+    print(f"wrote {args.output}")
+    return 0
+
+
+def _cmd_rasterize(args: argparse.Namespace) -> int:
+    """Handle `pyramids rasterize` — burn a vector into a new raster.
+
+    Args:
+        args: Parsed args with `input` (vector), `output`, and one of
+            `cell_size` / `like` (template raster), plus optional `column`.
+
+    Returns:
+        int: `0` on success.
+
+    Raises:
+        ValueError: Neither `--cell-size` nor `--like` is given.
+    """
+    _refuse_existing(args.output, args.overwrite)
+    if args.cell_size is None and args.like is None:
+        raise ValueError("rasterize needs --cell-size or --like (a template raster).")
+    if args.cell_size is not None and args.like is not None:
+        print(
+            "note: --cell-size is ignored because --like sets the output grid",
+            file=sys.stderr,
+        )
+    features = FeatureCollection.read_file(args.input)
+    template = Dataset.read_file(args.like) if args.like else None
+    out = Dataset.from_features(
+        features,
+        cell_size=args.cell_size,
+        template=template,
+        column_name=args.column,
+    )
+    out.to_file(args.output)
+    print(f"wrote {args.output}")
+    return 0
+
+
+def _cmd_edit_info(args: argparse.Namespace) -> int:
+    """Handle `pyramids edit-info` — edit a raster's CRS / nodata / tags in place.
+
+    Args:
+        args: Parsed args with `input` and any of `crs`, `nodata`, `tag`.
+
+    Returns:
+        int: `0` on success (a no-edit call prints a notice and still exits 0).
+    """
+    ds = Dataset.read_file(args.input, read_only=False)
+    edited = False
+    if args.crs is not None:
+        # Resolve any accepted CRS form (EPSG int, "EPSG:3857", WKT, PROJ4) to WKT
+        # *before* touching the file, so an invalid CRS fails cleanly with nothing
+        # half-applied, and `set_crs` (which expects WKT) gets what it wants.
+        wkt = sr_from_user_input(args.crs).ExportToWkt()
+        ds.set_crs(crs=wkt)
+        edited = True
+    if args.nodata is not None:
+        ds.no_data_value = args.nodata
+        edited = True
+    for tag in args.tag or []:
+        key, _, value = tag.partition("=")
+        ds.raster.SetMetadataItem(key, value)
+        edited = True
+    if edited:
+        ds.raster.FlushCache()
+        print(f"edited {args.input}")
+    else:
+        print("edit-info: no edits requested (pass --crs / --nodata / --tag)")
+    return 0
+
+
 def _cmd_merge(args: argparse.Namespace) -> int:
     """Handle `pyramids merge` — mosaic rasters into one file.
 
@@ -549,6 +861,133 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     convert.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     convert.set_defaults(func=_cmd_convert)
+
+    georeference = sub.add_parser(
+        "georeference", help="warp a raster from ground-control points"
+    )
+    georeference.add_argument("input", help=_HELP_SRC_RASTER)
+    georeference.add_argument("output", help=_HELP_DST_RASTER)
+    georeference.add_argument(
+        "--gcp",
+        nargs=4,
+        type=float,
+        action="append",
+        required=True,
+        metavar=("PIXEL", "LINE", "X", "Y"),
+        help="a ground-control point 'PIXEL LINE X Y'; repeat for each point",
+    )
+    georeference.add_argument(
+        "--gcp-crs", required=True, help="CRS of the GCP map coordinates"
+    )
+    georeference.add_argument(
+        "--transform",
+        default="polynomial",
+        choices=["polynomial", "tps"],
+        help="transform fitted through the GCPs (default: polynomial)",
+    )
+    georeference.add_argument(
+        "--order", type=int, default=1, help="polynomial order 1-3 (default: 1)"
+    )
+    georeference.add_argument("--to-crs", help="reproject the result to this CRS")
+    georeference.add_argument(
+        "--resampling", default="nearest neighbor", help="resampling method"
+    )
+    georeference.add_argument(
+        "--overwrite", action="store_true", help=_HELP_OVERWRITE
+    )
+    georeference.set_defaults(func=_cmd_georeference)
+
+    orthorectify = sub.add_parser(
+        "orthorectify", help="orthorectify a raster from its RPC sensor model"
+    )
+    orthorectify.add_argument("input", help=_HELP_SRC_RASTER)
+    orthorectify.add_argument("output", help=_HELP_DST_RASTER)
+    orthorectify.add_argument("--dem", help="elevation model raster path")
+    orthorectify.add_argument(
+        "--rpc-height",
+        type=float,
+        help="constant elevation (map units) to use when no --dem is given",
+    )
+    orthorectify.add_argument("--to-crs", help="reproject the result to this CRS")
+    orthorectify.add_argument(
+        "--resampling", default="bilinear", help="resampling method"
+    )
+    orthorectify.add_argument(
+        "--overwrite", action="store_true", help=_HELP_OVERWRITE
+    )
+    orthorectify.set_defaults(func=_cmd_orthorectify)
+
+    edit_info = sub.add_parser(
+        "edit-info", help="edit a raster's CRS / nodata / tags in place"
+    )
+    edit_info.add_argument("input", help="raster path to edit in place")
+    edit_info.add_argument("--crs", help="set the CRS (EPSG code, WKT, PROJ4)")
+    edit_info.add_argument("--nodata", type=float, help="set the no-data value")
+    edit_info.add_argument(
+        "--tag",
+        action="append",
+        metavar="KEY=VALUE",
+        help="set a metadata tag; repeat for each tag",
+    )
+    edit_info.set_defaults(func=_cmd_edit_info)
+
+    calc = sub.add_parser(
+        "calc", help="evaluate a band expression into a new raster"
+    )
+    calc.add_argument(
+        "expr",
+        help="expression over inputs A, B, ... e.g. '(A - B) / (A + B)'",
+    )
+    calc.add_argument(
+        "operands",
+        nargs="+",
+        help="one or more input rasters followed by the output path",
+    )
+    calc.add_argument("--dtype", help="output numpy dtype (e.g. float32)")
+    calc.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
+    calc.set_defaults(func=_cmd_calc)
+
+    shapes = sub.add_parser(
+        "shapes", help="vectorize a raster to a vector file (one feature per cell)"
+    )
+    shapes.add_argument("input", help=_HELP_SRC_RASTER)
+    shapes.add_argument("output", help="destination vector path")
+    shapes.add_argument(
+        "--geometry",
+        choices=["polygon", "point"],
+        default="polygon",
+        help="per-cell geometry to emit (default: polygon)",
+    )
+    shapes.add_argument(
+        "--driver", default="geojson", help="OGR vector driver (default: geojson)"
+    )
+    shapes.add_argument(
+        "--allow-large",
+        action="store_true",
+        help="proceed even when the raster has more than ~4M cells "
+        "(one feature per cell can exhaust memory)",
+    )
+    shapes.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
+    shapes.set_defaults(func=_cmd_shapes)
+
+    rasterize = sub.add_parser(
+        "rasterize", help="burn a vector into a new raster"
+    )
+    rasterize.add_argument("input", help="source vector path")
+    rasterize.add_argument("output", help=_HELP_DST_RASTER)
+    rasterize.add_argument(
+        "--cell-size",
+        type=float,
+        help="output cell size (required unless --like; ignored when --like is given)",
+    )
+    rasterize.add_argument(
+        "--like", help="template raster whose grid/CRS the output adopts"
+    )
+    rasterize.add_argument(
+        "--column", help="attribute column to burn (default: all non-geometry columns)"
+    )
+    rasterize.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
+    rasterize.set_defaults(func=_cmd_rasterize)
 
     return parser
 

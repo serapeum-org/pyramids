@@ -19,9 +19,11 @@ from osgeo import gdal
 from pandas import DataFrame
 
 from pyramids.base._domain import inside_domain, is_no_data
-from pyramids.base._errors import AlignmentError, OutOfBoundsError
+from pyramids.base._errors import AlignmentError, OutOfBoundsError, ReadOnlyError
 from pyramids.base._utils import gdal_to_numpy_dtype, require_cleopatra
+from pyramids.dataset._mask import MaskFlags
 from pyramids.dataset._plot_helpers import render_array
+from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
@@ -987,10 +989,133 @@ class Analysis(_Engine):
             np.ndarray:
                 Array of the mask. 0 value for cells out of the domain, and 255 for cells in the domain.
         """
-        # TODO: there is a CreateMaskBand method in the gdal.Dataset class, it creates a mask band for the dataset
-        #   either internally or externally.
         arr = np.asarray(self._ds._iloc(band).GetMaskBand().ReadAsArray())
         return arr
+
+    def mask_flags(self, band: int = 0) -> MaskFlags:
+        """Decode the GDAL mask flags of ``band`` into a :class:`MaskFlags`.
+
+        Tells you *why* a band is masked (or not): a fully-valid band, a shared
+        per-dataset mask, an alpha-band mask, or a no-data-derived mask.
+
+        Args:
+            band: Band index. Default 0.
+
+        Returns:
+            MaskFlags: the four decoded boolean flags.
+
+        Examples:
+            - A band with a no-data value reports ``nodata``:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0),
+                ...     cell_size=1.0, no_data_value=-9999.0,
+                ... )
+                >>> ds.mask_flags().nodata
+                True
+
+                ```
+        """
+        flags = self._ds._iloc(band).GetMaskFlags()
+        return MaskFlags(
+            all_valid=bool(flags & gdal.GMF_ALL_VALID),
+            per_dataset=bool(flags & gdal.GMF_PER_DATASET),
+            alpha=bool(flags & gdal.GMF_ALPHA),
+            nodata=bool(flags & gdal.GMF_NODATA),
+        )
+
+    def read_masks(
+        self,
+        band: int | None = None,
+        *,
+        window: Window | None = None,
+    ) -> np.ndarray:
+        """Read per-band mask arrays (``0`` invalid, ``255`` valid).
+
+        The companion to :meth:`Dataset.read_array(masked=True) <read_array>`:
+        instead of applying the mask, it returns the mask itself, so you can
+        inspect *which* pixels are masked.
+
+        Args:
+            band: Band index. ``None`` (default) returns every band's mask
+                stacked as ``(band_count, rows, cols)``; an index returns a
+                single ``(rows, cols)`` mask.
+            window: Optional :class:`Window` to read only a sub-block.
+
+        Returns:
+            numpy.ndarray: the mask array(s); ``0`` marks out-of-domain pixels
+            and ``255`` marks valid pixels.
+
+        Examples:
+            - The mask of a no-data raster is ``0`` exactly at the no-data cells:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.array([[1.0, -9999.0, 3.0, 4.0]] * 4, dtype="float32")
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0.0, 4.0), cell_size=1.0, no_data_value=-9999.0,
+                ... )
+                >>> mask = ds.read_masks(0)
+                >>> mask.shape
+                (4, 4)
+                >>> bool((mask[:, 1] == 0).all())
+                True
+
+                ```
+        """
+        if window is None:
+            read_args: tuple = ()
+        else:
+            clamped = window.crop(self._ds.rows, self._ds.columns)
+            if clamped is None:
+                raise OutOfBoundsError(
+                    f"window {window} lies entirely outside the raster "
+                    f"({self._ds.rows}x{self._ds.columns})."
+                )
+            read_args = clamped.to_read_args()
+        bands = [band] if band is not None else range(self._ds.band_count)
+        masks = [
+            np.asarray(self._ds._iloc(index).GetMaskBand().ReadAsArray(*read_args))
+            for index in bands
+        ]
+        result = masks[0] if band is not None else np.stack(masks)
+        return result
+
+    def create_mask_band(self, *, per_dataset: bool = True) -> None:
+        """Create a mask band on the dataset.
+
+        Args:
+            per_dataset: ``True`` (default) creates a single mask shared by every
+                band (``GMF_PER_DATASET``); ``False`` creates a per-band mask.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only.
+
+        Examples:
+            - After creating a per-dataset mask, the flags report it:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> import tempfile, os
+                >>> path = os.path.join(tempfile.mkdtemp(), "m.tif")
+                >>> Dataset.create_from_array(
+                ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+                ... ).to_file(path)
+                >>> ds = Dataset.read_file(path, read_only=False)
+                >>> ds.create_mask_band()
+                >>> ds.mask_flags().per_dataset
+                True
+
+                ```
+        """
+        if self._ds.access == "read_only":
+            raise ReadOnlyError(
+                "The Dataset is opened read-only. Please read the dataset using "
+                "read_only=False to create a mask band."
+            )
+        self._ds.raster.CreateMaskBand(gdal.GMF_PER_DATASET if per_dataset else 0)
 
     def footprint(
         self: Dataset,

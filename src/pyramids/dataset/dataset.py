@@ -36,6 +36,7 @@ from pyramids.dataset.engines import (
     Analysis,
     Bands,
     Cell,
+    Georef,
     Spatial,
     Vectorize,
 )
@@ -248,6 +249,7 @@ class Dataset(RasterBase):
         self.cell = Cell(self)
         self.vectorize = Vectorize(self)
         self.cog = COG(self)
+        self.georef = Georef(self)
 
     def _update_inplace(self, src: gdal.Dataset, access: str | None = None) -> None:
         """Swap internal state from a new GDAL dataset.
@@ -452,6 +454,18 @@ class Dataset(RasterBase):
     def get_mask(self, *args, **kwargs):
         """Facade — delegates to :meth:`Analysis.get_mask <pyramids.dataset.engines.Analysis.get_mask>`."""
         return self.analysis.get_mask(*args, **kwargs)
+
+    def mask_flags(self, *args, **kwargs):
+        """Facade — :meth:`Analysis.mask_flags <pyramids.dataset.engines.Analysis.mask_flags>`."""
+        return self.analysis.mask_flags(*args, **kwargs)
+
+    def read_masks(self, *args, **kwargs):
+        """Facade — :meth:`Analysis.read_masks <pyramids.dataset.engines.Analysis.read_masks>`."""
+        return self.analysis.read_masks(*args, **kwargs)
+
+    def create_mask_band(self, *args, **kwargs):
+        """Facade — :meth:`Analysis.create_mask_band <pyramids.dataset.engines.Analysis.create_mask_band>`."""
+        return self.analysis.create_mask_band(*args, **kwargs)
 
     def footprint(self, *args, **kwargs):
         """Facade — delegates to :meth:`Analysis.footprint <pyramids.dataset.engines.Analysis.footprint>`."""
@@ -939,6 +953,52 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Spatial.to_crs <pyramids.dataset.engines.Spatial.to_crs>`."""
         return self.spatial.to_crs(*args, **kwargs)
 
+    def set_gcps(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Georef.set_gcps <pyramids.dataset.engines.Georef.set_gcps>`."""
+        return self.georef.set_gcps(*args, **kwargs)
+
+    def georeference(self, *args, **kwargs):
+        """Facade — :meth:`Georef.georeference <pyramids.dataset.engines.Georef.georeference>`."""
+        return self.georef.georeference(*args, **kwargs)
+
+    @property
+    def gcps(self):
+        """Facade — :attr:`Georef.gcps <pyramids.dataset.engines.Georef.gcps>`."""
+        return self.georef.gcps
+
+    @property
+    def gcp_count(self):
+        """Facade — :attr:`Georef.gcp_count <pyramids.dataset.engines.Georef.gcp_count>`."""
+        return self.georef.gcp_count
+
+    @property
+    def gcp_projection(self):
+        """Facade — :attr:`Georef.gcp_projection <pyramids.dataset.engines.Georef.gcp_projection>`."""
+        return self.georef.gcp_projection
+
+    @property
+    def has_gcps(self):
+        """Facade — :attr:`Georef.has_gcps <pyramids.dataset.engines.Georef.has_gcps>`."""
+        return self.georef.has_gcps
+
+    @property
+    def rpcs(self):
+        """Facade — :attr:`Georef.rpcs <pyramids.dataset.engines.Georef.rpcs>`."""
+        return self.georef.rpcs
+
+    @property
+    def has_rpcs(self):
+        """Facade — :attr:`Georef.has_rpcs <pyramids.dataset.engines.Georef.has_rpcs>`."""
+        return self.georef.has_rpcs
+
+    def set_rpcs(self, *args, **kwargs):
+        """Facade — :meth:`Georef.set_rpcs <pyramids.dataset.engines.Georef.set_rpcs>`."""
+        return self.georef.set_rpcs(*args, **kwargs)
+
+    def orthorectify(self, *args, **kwargs):
+        """Facade — :meth:`Georef.orthorectify <pyramids.dataset.engines.Georef.orthorectify>`."""
+        return self.georef.orthorectify(*args, **kwargs)
+
     def warped_view(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.warped_view <pyramids.dataset.engines.Spatial.warped_view>`."""
         return self.spatial.warped_view(*args, **kwargs)
@@ -966,6 +1026,10 @@ class Dataset(RasterBase):
     def read_array(self, *args, **kwargs):
         """Facade — delegates to :meth:`IO.read_array <pyramids.dataset.engines.IO.read_array>`."""
         return self.io.read_array(*args, **kwargs)
+
+    def read_windows(self, *args, **kwargs):
+        """Facade — delegates to :meth:`IO.read_windows <pyramids.dataset.engines.IO.read_windows>`."""
+        return self.io.read_windows(*args, **kwargs)
 
     def write_array(self, *args, **kwargs):
         """Facade — delegates to :meth:`IO.write_array <pyramids.dataset.engines.IO.write_array>`."""

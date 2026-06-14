@@ -472,3 +472,306 @@ class TestUnexpectedErrors:
         monkeypatch.setenv("PYRAMIDS_DEBUG", "1")
         with pytest.raises(KeyError):
             main(["info", src_raster])
+
+
+class TestGeoreferenceCLI:
+    """Tests for `pyramids georeference` and `pyramids orthorectify`."""
+
+    def test_georeference_writes_output(self, src_raster, tmp_path):
+        """georeference warps the input from --gcp points into a 4326 raster.
+
+        Test scenario:
+            Four corner GCPs (10-11E, 49-50N) write a georeferenced GeoTIFF.
+        """
+        out = str(tmp_path / "geo.tif")
+        rc = main(
+            [
+                "georeference", src_raster, out,
+                "--gcp", "0", "0", "10", "50",
+                "--gcp", "8", "0", "11", "50",
+                "--gcp", "0", "8", "10", "49",
+                "--gcp", "8", "8", "11", "49",
+                "--gcp-crs", "4326",
+            ]
+        )
+        assert rc == 0, "georeference must exit 0"
+        assert os.path.exists(out), "output raster must be written"
+        assert Dataset.read_file(out).epsg == 4326
+
+    def test_georeference_refuses_existing(self, src_raster, tmp_path):
+        """Without --overwrite, an existing output is refused (exit 1).
+
+        Test scenario:
+            georeference onto an existing path returns 1 and writes nothing new.
+        """
+        out = str(tmp_path / "exists.tif")
+        Dataset.create_from_array(
+            np.ones((2, 2), "float32"), top_left_corner=(0, 2), cell_size=1.0
+        ).to_file(out)
+        rc = main(
+            [
+                "georeference", src_raster, out,
+                "--gcp", "0", "0", "10", "50",
+                "--gcp-crs", "4326",
+            ]
+        )
+        assert rc == 1, "must refuse an existing output without --overwrite"
+
+    def test_orthorectify_without_rpc_errors_cleanly(self, src_raster, tmp_path):
+        """orthorectify on a raster with no RPC metadata exits 1 (clean error).
+
+        Test scenario:
+            A plain raster has no RPCs; the command reports the error and exits 1
+            rather than crashing.
+        """
+        out = str(tmp_path / "ortho.tif")
+        rc = main(["orthorectify", src_raster, out, "--rpc-height", "100"])
+        assert rc == 1, "must exit 1 when the input has no RPC metadata"
+        assert not os.path.exists(out), "no output on a failed orthorectify"
+
+
+class TestEditInfo:
+    """Tests for `pyramids edit-info`."""
+
+    def test_sets_crs_and_nodata(self, src_raster):
+        """edit-info rewrites the CRS and no-data value in place.
+
+        Test scenario:
+            --crs 3857 --nodata 0 on a 4326/-9999 raster; re-read reflects both.
+        """
+        rc = main(["edit-info", src_raster, "--crs", "3857", "--nodata", "0"])
+        assert rc == 0, "edit-info must exit 0"
+        ds = Dataset.read_file(src_raster)
+        assert ds.epsg == 3857
+        assert ds.no_data_value[0] == 0
+
+    def test_sets_tag(self, src_raster):
+        """edit-info writes a metadata tag.
+
+        Test scenario:
+            --tag AREA=test sets the AREA metadata item.
+        """
+        rc = main(["edit-info", src_raster, "--tag", "AREA=test"])
+        assert rc == 0
+        assert Dataset.read_file(src_raster).raster.GetMetadataItem("AREA") == "test"
+
+    def test_no_flags_prints_notice(self, src_raster, capsys):
+        """edit-info with no edit flags prints a notice and exits 0.
+
+        Test scenario:
+            A bare edit-info call no-ops with a helpful message.
+        """
+        rc = main(["edit-info", src_raster])
+        assert rc == 0
+        assert "no edits" in capsys.readouterr().out
+
+
+class TestCalc:
+    """Tests for `pyramids calc` (safe band-expression evaluation)."""
+
+    def _band(self, tmp_path, name, value):
+        """Write a 2x2 constant-value GeoTIFF and return its path."""
+        path = str(tmp_path / name)
+        Dataset.create_from_array(
+            np.full((2, 2), value, "float32"), top_left_corner=(0, 2), cell_size=1.0
+        ).to_file(path)
+        return path
+
+    def test_ndvi_correctness(self, tmp_path):
+        """calc evaluates (A - B) / (A + B) element-wise.
+
+        Test scenario:
+            A=4, B=2 -> NDVI 2/6 = 0.3333 across the output.
+        """
+        a = self._band(tmp_path, "a.tif", 4.0)
+        b = self._band(tmp_path, "b.tif", 2.0)
+        out = str(tmp_path / "ndvi.tif")
+        rc = main(["calc", "(A - B) / (A + B)", a, b, out])
+        assert rc == 0, "calc must exit 0"
+        result = np.asarray(Dataset.read_file(out).read_array())
+        assert np.allclose(result, (4.0 - 2.0) / (4.0 + 2.0))
+
+    def test_np_where_allowed(self, tmp_path):
+        """A whitelisted np.where call is evaluated.
+
+        Test scenario:
+            np.where(A > 3, 1, 0) on A=4 yields all ones.
+        """
+        a = self._band(tmp_path, "a.tif", 4.0)
+        out = str(tmp_path / "w.tif")
+        rc = main(["calc", "np.where(A > 3, 1, 0)", a, out])
+        assert rc == 0
+        assert np.allclose(np.asarray(Dataset.read_file(out).read_array()), 1)
+
+    def test_disallowed_expression_rejected(self, src_raster, tmp_path):
+        """A hostile expression is rejected and writes nothing.
+
+        Test scenario:
+            __import__('os') exits 1 (ValueError) and creates no output.
+        """
+        out = str(tmp_path / "evil.tif")
+        rc = main(["calc", "__import__('os')", src_raster, out])
+        assert rc == 1, "disallowed expression must exit 1"
+        assert not os.path.exists(out), "nothing is written on a rejected expression"
+
+    def test_dtype_flag(self, src_raster, tmp_path):
+        """--dtype casts the result.
+
+        Test scenario:
+            A * 2 with --dtype float64 writes a float64 raster.
+        """
+        out = str(tmp_path / "d.tif")
+        rc = main(["calc", "A * 2", src_raster, out, "--dtype", "float64"])
+        assert rc == 0
+        assert np.asarray(Dataset.read_file(out).read_array()).dtype == np.float64
+
+    def test_sets_crs_from_authority_string(self, src_raster):
+        """edit-info accepts EPSG:NNNN / PROJ4, not just a bare integer (review M1).
+
+        Test scenario:
+            --crs "EPSG:3857" sets the CRS without a cryptic error.
+        """
+        rc = main(["edit-info", src_raster, "--crs", "EPSG:3857"])
+        assert rc == 0, "authority-string CRS must be accepted"
+        assert Dataset.read_file(src_raster).epsg == 3857
+
+    def test_invalid_crs_leaves_file_unchanged(self, src_raster):
+        """An invalid --crs fails cleanly and does not mutate the file (review M1).
+
+        Test scenario:
+            --crs not-a-crs exits 1 and the EPSG stays 4326 (no partial write).
+        """
+        rc = main(["edit-info", src_raster, "--crs", "not-a-crs"])
+        assert rc == 1, "invalid CRS must exit 1"
+        assert Dataset.read_file(src_raster).epsg == 4326, "no partial write"
+
+
+class TestShapesRasterizeCLI:
+    """Tests for `pyramids shapes` and `pyramids rasterize`."""
+
+    def test_shapes_writes_vector(self, src_raster, tmp_path):
+        """shapes vectorizes the raster into a readable vector file.
+
+        Test scenario:
+            shapes src.tif out.geojson writes per-cell polygons (64 cells).
+        """
+        out = str(tmp_path / "shapes.geojson")
+        rc = main(["shapes", src_raster, out])
+        assert rc == 0, "shapes must exit 0"
+        assert os.path.exists(out)
+        assert np.all(np.isfinite(FeatureCollection.read_file(out).total_bounds))
+
+    def test_rasterize_round_trips(self, src_raster, tmp_path):
+        """rasterize burns a vector (from shapes) back into a raster.
+
+        Test scenario:
+            shapes -> vector, then rasterize --cell-size 1 -> a raster file.
+        """
+        vector = str(tmp_path / "v.geojson")
+        assert main(["shapes", src_raster, vector]) == 0
+        out = str(tmp_path / "r.tif")
+        rc = main(["rasterize", vector, out, "--cell-size", "1"])
+        assert rc == 0, "rasterize must exit 0"
+        assert os.path.exists(out)
+        assert Dataset.read_file(out).cell_size == 1
+
+    def test_rasterize_without_grid_errors(self, src_raster, tmp_path):
+        """rasterize without --cell-size or --like exits 1.
+
+        Test scenario:
+            A missing output grid is a clean user error.
+        """
+        vector = str(tmp_path / "v.geojson")
+        assert main(["shapes", src_raster, vector]) == 0
+        rc = main(["rasterize", vector, str(tmp_path / "r.tif")])
+        assert rc == 1, "must exit 1 without --cell-size/--like"
+
+    def test_shapes_point_geometry(self, src_raster, tmp_path):
+        """shapes --geometry point emits per-cell point features.
+
+        Test scenario:
+            --geometry point writes a readable vector with finite bounds.
+        """
+        out = str(tmp_path / "pts.geojson")
+        rc = main(["shapes", src_raster, out, "--geometry", "point"])
+        assert rc == 0, "shapes --geometry point must exit 0"
+        assert np.all(np.isfinite(FeatureCollection.read_file(out).total_bounds))
+
+    def test_shapes_refuses_existing(self, src_raster, tmp_path):
+        """shapes refuses an existing output without --overwrite (exit 1).
+
+        Test scenario:
+            An existing destination is not clobbered.
+        """
+        out = str(tmp_path / "exists.geojson")
+        main(["shapes", src_raster, out])
+        rc = main(["shapes", src_raster, out])
+        assert rc == 1, "must refuse an existing output without --overwrite"
+
+    def test_rasterize_with_template(self, src_raster, tmp_path):
+        """rasterize --like adopts a template raster's grid.
+
+        Test scenario:
+            shapes -> vector, then rasterize --like src; the output matches the
+            template's cell size and dimensions.
+        """
+        vector = str(tmp_path / "v.geojson")
+        assert main(["shapes", src_raster, vector]) == 0
+        out = str(tmp_path / "r.tif")
+        rc = main(["rasterize", vector, out, "--like", src_raster])
+        assert rc == 0, "rasterize --like must exit 0"
+        template = Dataset.read_file(src_raster)
+        result = Dataset.read_file(out)
+        assert (result.rows, result.columns) == (template.rows, template.columns)
+
+    def test_rasterize_with_column(self, src_raster, tmp_path):
+        """rasterize --column burns a single named attribute.
+
+        Test scenario:
+            --column Band_1 produces a single-band raster.
+        """
+        vector = str(tmp_path / "v.geojson")
+        assert main(["shapes", src_raster, vector]) == 0
+        out = str(tmp_path / "r.tif")
+        rc = main(["rasterize", vector, out, "--cell-size", "1", "--column", "Band_1"])
+        assert rc == 0, "rasterize --column must exit 0"
+        assert Dataset.read_file(out).band_count == 1
+
+    def test_shapes_refuses_large_without_flag(self, src_raster, tmp_path, monkeypatch):
+        """shapes refuses an over-threshold raster without --allow-large (review L1).
+
+        Test scenario:
+            With the cell-count cap lowered to 4, a 64-cell raster is refused
+            (exit 1, nothing written).
+        """
+        monkeypatch.setattr("pyramids.cli._SHAPES_MAX_CELLS", 4)
+        out = str(tmp_path / "big.geojson")
+        rc = main(["shapes", src_raster, out])
+        assert rc == 1, "an over-threshold shapes must exit 1"
+        assert not os.path.exists(out), "no output on a refused shapes"
+
+    def test_shapes_allow_large_overrides(self, src_raster, tmp_path, monkeypatch):
+        """--allow-large overrides the cell-count guard (review L1).
+
+        Test scenario:
+            With the cap lowered to 4, --allow-large still vectorizes the raster.
+        """
+        monkeypatch.setattr("pyramids.cli._SHAPES_MAX_CELLS", 4)
+        out = str(tmp_path / "big.geojson")
+        rc = main(["shapes", src_raster, out, "--allow-large"])
+        assert rc == 0, "--allow-large must proceed"
+        assert os.path.exists(out)
+
+    def test_rasterize_both_grid_args_notes(self, src_raster, tmp_path, capsys):
+        """rasterize notes that --cell-size is ignored when --like is given (review N1).
+
+        Test scenario:
+            Passing both still succeeds and prints a clarifying note to stderr.
+        """
+        vector = str(tmp_path / "v.geojson")
+        assert main(["shapes", src_raster, vector]) == 0
+        capsys.readouterr()
+        out = str(tmp_path / "r.tif")
+        rc = main(["rasterize", vector, out, "--cell-size", "1", "--like", src_raster])
+        assert rc == 0
+        assert "ignored" in capsys.readouterr().err
