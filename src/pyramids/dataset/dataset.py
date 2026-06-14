@@ -36,6 +36,7 @@ from pyramids.dataset.engines import (
     Analysis,
     Bands,
     Cell,
+    Georef,
     Spatial,
     Vectorize,
 )
@@ -248,6 +249,7 @@ class Dataset(RasterBase):
         self.cell = Cell(self)
         self.vectorize = Vectorize(self)
         self.cog = COG(self)
+        self.georef = Georef(self)
 
     def _update_inplace(self, src: gdal.Dataset, access: str | None = None) -> None:
         """Swap internal state from a new GDAL dataset.
@@ -938,6 +940,10 @@ class Dataset(RasterBase):
     def to_crs(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.to_crs <pyramids.dataset.engines.Spatial.to_crs>`."""
         return self.spatial.to_crs(*args, **kwargs)
+
+    def set_gcps(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Georef.set_gcps <pyramids.dataset.engines.Georef.set_gcps>`."""
+        return self.georef.set_gcps(*args, **kwargs)
 
     def warped_view(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.warped_view <pyramids.dataset.engines.Spatial.warped_view>`."""

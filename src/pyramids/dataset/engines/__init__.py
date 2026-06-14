@@ -16,6 +16,7 @@ from pyramids.dataset.engines.analysis import Analysis
 from pyramids.dataset.engines.bands import Bands
 from pyramids.dataset.engines.cell import Cell
 from pyramids.dataset.engines.cog import COG
+from pyramids.dataset.engines.georef import Georef
 from pyramids.dataset.engines.io import IO
 from pyramids.dataset.engines.spatial import Spatial
 from pyramids.dataset.engines.vectorize import Vectorize
@@ -25,6 +26,7 @@ __all__ = [
     "Bands",
     "COG",
     "Cell",
+    "Georef",
     "IO",
     "Spatial",
     "Vectorize",
