@@ -18,9 +18,12 @@ Two concerns live in this module:
 
 from __future__ import annotations
 
+import http.client
 import logging
 import os
 import re
+import urllib.error
+import urllib.request
 import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
@@ -142,6 +145,111 @@ def is_remote(path: str) -> bool:
         scheme = urlparse(path).scheme.lower()
         result = scheme in URL_SCHEMES and len(scheme) > 1
     return result
+
+
+# Per-process cache of resolved S3 bucket regions (None caches a failed probe so
+# a single offline/blocked attempt is not retried on every open of the bucket).
+# Intentionally lock-free: two threads racing the first probe of the same bucket
+# may both issue a HEAD, but the writes are idempotent (same region) and dict
+# insertion is atomic under the GIL, so the only cost is one redundant request.
+# A lock here would have to wrap the network call and would needlessly serialise
+# probes of *different* buckets.
+_S3_REGION_CACHE: dict[str, str | None] = {}
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """A ``urllib`` redirect handler that never follows redirects.
+
+    Used by :func:`resolve_s3_region` so an S3 ``PermanentRedirect`` (HTTP 301)
+    is raised as an :class:`urllib.error.HTTPError` we can read the
+    ``x-amz-bucket-region`` header off, instead of being silently followed (or
+    looping) by the default handler.
+    """
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        """Refuse to build a redirected request.
+
+        Args:
+            *args: The positional arguments urllib passes (``req``, ``fp``,
+                ``code``, ``msg``, ``headers``, ``newurl``); all ignored.
+            **kwargs: Ignored.
+
+        Returns:
+            None: signals urllib to raise :class:`urllib.error.HTTPError` for the
+            3xx response rather than following its ``Location`` header.
+        """
+        return None
+
+
+def resolve_s3_region(bucket: str, *, timeout: float = 5.0) -> str | None:
+    """Resolve an S3 bucket's home region via a single anonymous HEAD probe.
+
+    GDAL's ``/vsis3`` skips region auto-resolution under ``AWS_NO_SIGN_REQUEST``
+    (anonymous reads), so a bucket outside ``us-east-1`` answers an open with an
+    unfollowed ``PermanentRedirect`` (HTTP 301). S3 returns the bucket's region
+    in the ``x-amz-bucket-region`` response header on **any** request to the
+    bucket — including the 301 / 403 returned without credentials — so one
+    anonymous HEAD recovers it. The caller can then pin it as ``AWS_REGION``
+    before the open and avoid the redirect (see issue #535). Results are cached
+    per bucket for the life of the process; a failed probe caches ``None`` so it
+    is not retried on every open.
+
+    Args:
+        bucket: The S3 bucket name (no scheme, no key).
+        timeout: Per-request timeout in seconds. Bounds the worst-case latency
+            this adds to the *first* anonymous open of a bucket (the result is
+            cached thereafter); keep it small so a slow/unreachable endpoint
+            does not stall the open.
+
+    Returns:
+        The region string (e.g. ``"eu-central-1"``), or ``None`` when the probe
+        could not determine it (offline, blocked, or no region header present).
+
+    Examples:
+        - Resolve a public bucket's region (needs network — skipped in doctests):
+            ```python
+            >>> from pyramids.base.remote import resolve_s3_region  # doctest: +SKIP
+            >>> resolve_s3_region("noaa-nwm-retrospective-3-0-pds")  # doctest: +SKIP
+            'eu-central-1'
+
+            ```
+
+    See Also:
+        - :class:`CloudConfig`: pass the resolved region as ``aws_region`` to pin
+          ``AWS_REGION`` for a GDAL open.
+        - :meth:`pyramids.netcdf.LabeledDataset.read_file`: the primary caller,
+          which auto-resolves the region for anonymous ``s3://`` stores.
+    """
+    if bucket not in _S3_REGION_CACHE:
+        region = None
+        # Path-style global endpoint (`s3.amazonaws.com/<bucket>`) rather than the
+        # virtual-hosted host (`<bucket>.s3.amazonaws.com`): the latter's TLS cert
+        # (`*.s3.amazonaws.com`) does not match a dot-containing bucket name, which
+        # would fail the handshake for exactly those buckets. The global endpoint
+        # still returns `x-amz-bucket-region` on its redirect.
+        try:
+            request = urllib.request.Request(
+                f"https://s3.amazonaws.com/{bucket}", method="HEAD"
+            )
+        except ValueError:
+            # A malformed bucket string can make Request() reject the URL; treat it
+            # as "region unknown" so this helper never raises for the caller.
+            request = None
+        if request is not None:
+            opener = urllib.request.build_opener(_NoRedirectHandler)
+            try:
+                with opener.open(request, timeout=timeout) as response:
+                    region = response.headers.get("x-amz-bucket-region")
+            except urllib.error.HTTPError as exc:
+                region = exc.headers.get("x-amz-bucket-region") if exc.headers else None
+            except (OSError, http.client.HTTPException):
+                # urllib.error.URLError and ssl.SSLError derive from OSError;
+                # http.client raises HTTPException (e.g. BadStatusLine) for a
+                # malformed response, which is not an OSError. Catch both so the
+                # probe honours its never-raises contract for the caller.
+                region = None
+        _S3_REGION_CACHE[bucket] = region
+    return _S3_REGION_CACHE[bucket]
 
 
 def _to_vsi(path: str) -> str:
