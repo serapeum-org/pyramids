@@ -528,3 +528,39 @@ class TestGeoreferenceCLI:
         rc = main(["orthorectify", src_raster, out, "--rpc-height", "100"])
         assert rc == 1, "must exit 1 when the input has no RPC metadata"
         assert not os.path.exists(out), "no output on a failed orthorectify"
+
+
+class TestEditInfo:
+    """Tests for `pyramids edit-info`."""
+
+    def test_sets_crs_and_nodata(self, src_raster):
+        """edit-info rewrites the CRS and no-data value in place.
+
+        Test scenario:
+            --crs 3857 --nodata 0 on a 4326/-9999 raster; re-read reflects both.
+        """
+        rc = main(["edit-info", src_raster, "--crs", "3857", "--nodata", "0"])
+        assert rc == 0, "edit-info must exit 0"
+        ds = Dataset.read_file(src_raster)
+        assert ds.epsg == 3857
+        assert ds.no_data_value[0] == 0
+
+    def test_sets_tag(self, src_raster):
+        """edit-info writes a metadata tag.
+
+        Test scenario:
+            --tag AREA=test sets the AREA metadata item.
+        """
+        rc = main(["edit-info", src_raster, "--tag", "AREA=test"])
+        assert rc == 0
+        assert Dataset.read_file(src_raster).raster.GetMetadataItem("AREA") == "test"
+
+    def test_no_flags_prints_notice(self, src_raster, capsys):
+        """edit-info with no edit flags prints a notice and exits 0.
+
+        Test scenario:
+            A bare edit-info call no-ops with a helpful message.
+        """
+        rc = main(["edit-info", src_raster])
+        assert rc == 0
+        assert "no edits" in capsys.readouterr().out

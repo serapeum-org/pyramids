@@ -378,6 +378,38 @@ def _cmd_orthorectify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_edit_info(args: argparse.Namespace) -> int:
+    """Handle `pyramids edit-info` — edit a raster's CRS / nodata / tags in place.
+
+    Args:
+        args: Parsed args with `input` and any of `crs`, `nodata`, `tag`.
+
+    Returns:
+        int: `0` on success (a no-edit call prints a notice and still exits 0).
+    """
+    ds = Dataset.read_file(args.input, read_only=False)
+    edited = False
+    if args.crs is not None:
+        if str(args.crs).isdigit():
+            ds.set_crs(epsg=int(args.crs))
+        else:
+            ds.set_crs(crs=args.crs)
+        edited = True
+    if args.nodata is not None:
+        ds.no_data_value = args.nodata
+        edited = True
+    for tag in args.tag or []:
+        key, _, value = tag.partition("=")
+        ds.raster.SetMetadataItem(key, value)
+        edited = True
+    if edited:
+        ds.raster.FlushCache()
+        print(f"edited {args.input}")
+    else:
+        print("edit-info: no edits requested (pass --crs / --nodata / --tag)")
+    return 0
+
+
 def _cmd_merge(args: argparse.Namespace) -> int:
     """Handle `pyramids merge` — mosaic rasters into one file.
 
@@ -666,6 +698,20 @@ def _build_parser() -> argparse.ArgumentParser:
         "--overwrite", action="store_true", help=_HELP_OVERWRITE
     )
     orthorectify.set_defaults(func=_cmd_orthorectify)
+
+    edit_info = sub.add_parser(
+        "edit-info", help="edit a raster's CRS / nodata / tags in place"
+    )
+    edit_info.add_argument("input", help="raster path to edit in place")
+    edit_info.add_argument("--crs", help="set the CRS (EPSG code, WKT, PROJ4)")
+    edit_info.add_argument("--nodata", type=float, help="set the no-data value")
+    edit_info.add_argument(
+        "--tag",
+        action="append",
+        metavar="KEY=VALUE",
+        help="set a metadata tag; repeat for each tag",
+    )
+    edit_info.set_defaults(func=_cmd_edit_info)
 
     return parser
 
