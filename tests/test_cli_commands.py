@@ -564,3 +564,63 @@ class TestEditInfo:
         rc = main(["edit-info", src_raster])
         assert rc == 0
         assert "no edits" in capsys.readouterr().out
+
+
+class TestCalc:
+    """Tests for `pyramids calc` (safe band-expression evaluation)."""
+
+    def _band(self, tmp_path, name, value):
+        """Write a 2x2 constant-value GeoTIFF and return its path."""
+        path = str(tmp_path / name)
+        Dataset.create_from_array(
+            np.full((2, 2), value, "float32"), top_left_corner=(0, 2), cell_size=1.0
+        ).to_file(path)
+        return path
+
+    def test_ndvi_correctness(self, tmp_path):
+        """calc evaluates (A - B) / (A + B) element-wise.
+
+        Test scenario:
+            A=4, B=2 -> NDVI 2/6 = 0.3333 across the output.
+        """
+        a = self._band(tmp_path, "a.tif", 4.0)
+        b = self._band(tmp_path, "b.tif", 2.0)
+        out = str(tmp_path / "ndvi.tif")
+        rc = main(["calc", "(A - B) / (A + B)", a, b, out])
+        assert rc == 0, "calc must exit 0"
+        result = np.asarray(Dataset.read_file(out).read_array())
+        assert np.allclose(result, (4.0 - 2.0) / (4.0 + 2.0))
+
+    def test_np_where_allowed(self, tmp_path):
+        """A whitelisted np.where call is evaluated.
+
+        Test scenario:
+            np.where(A > 3, 1, 0) on A=4 yields all ones.
+        """
+        a = self._band(tmp_path, "a.tif", 4.0)
+        out = str(tmp_path / "w.tif")
+        rc = main(["calc", "np.where(A > 3, 1, 0)", a, out])
+        assert rc == 0
+        assert np.allclose(np.asarray(Dataset.read_file(out).read_array()), 1)
+
+    def test_disallowed_expression_rejected(self, src_raster, tmp_path):
+        """A hostile expression is rejected and writes nothing.
+
+        Test scenario:
+            __import__('os') exits 1 (ValueError) and creates no output.
+        """
+        out = str(tmp_path / "evil.tif")
+        rc = main(["calc", "__import__('os')", src_raster, out])
+        assert rc == 1, "disallowed expression must exit 1"
+        assert not os.path.exists(out), "nothing is written on a rejected expression"
+
+    def test_dtype_flag(self, src_raster, tmp_path):
+        """--dtype casts the result.
+
+        Test scenario:
+            A * 2 with --dtype float64 writes a float64 raster.
+        """
+        out = str(tmp_path / "d.tif")
+        rc = main(["calc", "A * 2", src_raster, out, "--dtype", "float64"])
+        assert rc == 0
+        assert np.asarray(Dataset.read_file(out).read_array()).dtype == np.float64

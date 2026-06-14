@@ -23,12 +23,15 @@ callable in-process (`main([...])`) for testing.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import math
+import operator
 import os
 import sys
 from typing import Sequence
 
+import numpy as np
 from osgeo import osr
 from pandas import DataFrame
 
@@ -378,6 +381,135 @@ def _cmd_orthorectify(args: argparse.Namespace) -> int:
     return 0
 
 
+_CALC_BINOPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Pow: operator.pow,
+    ast.Mod: operator.mod,
+    ast.FloorDiv: operator.floordiv,
+}
+_CALC_UNARYOPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+_CALC_COMPARE = {
+    ast.Lt: operator.lt,
+    ast.Gt: operator.gt,
+    ast.LtE: operator.le,
+    ast.GtE: operator.ge,
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne,
+}
+# The only function calls a `calc` expression may use, all from numpy.
+_CALC_NP_FUNCS = frozenset(
+    {
+        "where", "clip", "log", "log10", "exp", "sqrt", "abs",
+        "minimum", "maximum", "power",
+    }
+)
+
+
+def _safe_calc_eval(node: ast.AST, variables: dict) -> object:
+    """Evaluate one node of a `calc` expression AST against a whitelist.
+
+    This is a deliberately small interpreter — it never uses ``eval``/``exec``,
+    so a hostile expression (``__import__('os')``, attribute access, comprehensions,
+    ...) is rejected with a ``ValueError`` rather than executed.
+
+    Args:
+        node: The AST node to evaluate.
+        variables: Band arrays bound to their names (``A``, ``B``, ...).
+
+    Returns:
+        The numeric / ndarray value of the node.
+
+    Raises:
+        ValueError: The node is not in the allowed grammar.
+    """
+    if isinstance(node, ast.Expression):
+        result = _safe_calc_eval(node.body, variables)
+    elif isinstance(node, ast.BinOp) and type(node.op) in _CALC_BINOPS:
+        result = _CALC_BINOPS[type(node.op)](
+            _safe_calc_eval(node.left, variables),
+            _safe_calc_eval(node.right, variables),
+        )
+    elif isinstance(node, ast.UnaryOp) and type(node.op) in _CALC_UNARYOPS:
+        result = _CALC_UNARYOPS[type(node.op)](
+            _safe_calc_eval(node.operand, variables)
+        )
+    elif (
+        isinstance(node, ast.Compare)
+        and len(node.ops) == 1
+        and type(node.ops[0]) in _CALC_COMPARE
+    ):
+        result = _CALC_COMPARE[type(node.ops[0])](
+            _safe_calc_eval(node.left, variables),
+            _safe_calc_eval(node.comparators[0], variables),
+        )
+    elif isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        result = node.value
+    elif isinstance(node, ast.Name):
+        if node.id not in variables:
+            raise ValueError(f"unknown name in calc expression: {node.id!r}")
+        result = variables[node.id]
+    elif (
+        isinstance(node, ast.Call)
+        and not node.keywords
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "np"
+        and node.func.attr in _CALC_NP_FUNCS
+    ):
+        result = getattr(np, node.func.attr)(
+            *[_safe_calc_eval(arg, variables) for arg in node.args]
+        )
+    else:
+        raise ValueError(
+            "disallowed element in calc expression; only arithmetic over the "
+            "input bands (A, B, ...), comparisons, and a small set of np.<func> "
+            "calls are permitted."
+        )
+    return result
+
+
+def _cmd_calc(args: argparse.Namespace) -> int:
+    """Handle `pyramids calc` — evaluate a band expression into a new raster.
+
+    The expression operates on the input rasters bound to ``A``, ``B``, ... in
+    order; it is evaluated by a small AST whitelist, never ``eval``.
+
+    Args:
+        args: Parsed args with `expr`, `operands` (inputs... + output), `dtype`,
+            `overwrite`.
+
+    Returns:
+        int: `0` on success.
+
+    Raises:
+        ValueError: Fewer than one input + output, or a disallowed expression.
+    """
+    if len(args.operands) < 2:
+        raise ValueError("calc needs at least one input raster and an output path.")
+    *inputs, output = args.operands
+    _refuse_existing(output, args.overwrite)
+    datasets = [Dataset.read_file(path) for path in inputs]
+    names = [chr(ord("A") + index) for index in range(len(datasets))]
+    variables = {
+        name: np.asarray(ds.read_array()) for name, ds in zip(names, datasets)
+    }
+    result = np.asarray(_safe_calc_eval(ast.parse(args.expr, mode="eval"), variables))
+    if args.dtype:
+        result = result.astype(args.dtype)
+    template = datasets[0]
+    Dataset.create_from_array(
+        result,
+        top_left_corner=template.top_left_corner,
+        cell_size=template.cell_size,
+        epsg=template.epsg or 4326,
+    ).to_file(output)
+    print(f"wrote {output}")
+    return 0
+
+
 def _cmd_edit_info(args: argparse.Namespace) -> int:
     """Handle `pyramids edit-info` — edit a raster's CRS / nodata / tags in place.
 
@@ -712,6 +844,22 @@ def _build_parser() -> argparse.ArgumentParser:
         help="set a metadata tag; repeat for each tag",
     )
     edit_info.set_defaults(func=_cmd_edit_info)
+
+    calc = sub.add_parser(
+        "calc", help="evaluate a band expression into a new raster"
+    )
+    calc.add_argument(
+        "expr",
+        help="expression over inputs A, B, ... e.g. '(A - B) / (A + B)'",
+    )
+    calc.add_argument(
+        "operands",
+        nargs="+",
+        help="one or more input rasters followed by the output path",
+    )
+    calc.add_argument("--dtype", help="output numpy dtype (e.g. float32)")
+    calc.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
+    calc.set_defaults(func=_cmd_calc)
 
     return parser
 
