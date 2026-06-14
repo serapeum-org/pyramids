@@ -19,7 +19,7 @@ from osgeo import gdal
 from pandas import DataFrame
 
 from pyramids.base._domain import inside_domain, is_no_data
-from pyramids.base._errors import AlignmentError, OutOfBoundsError
+from pyramids.base._errors import AlignmentError, OutOfBoundsError, ReadOnlyError
 from pyramids.base._utils import gdal_to_numpy_dtype, require_cleopatra
 from pyramids.dataset._mask import MaskFlags
 from pyramids.dataset._plot_helpers import render_array
@@ -1073,6 +1073,40 @@ class Analysis(_Engine):
         ]
         result = masks[0] if band is not None else np.stack(masks)
         return result
+
+    def create_mask_band(self, *, per_dataset: bool = True) -> None:
+        """Create a mask band on the dataset.
+
+        Args:
+            per_dataset: ``True`` (default) creates a single mask shared by every
+                band (``GMF_PER_DATASET``); ``False`` creates a per-band mask.
+
+        Raises:
+            ReadOnlyError: The dataset is opened read-only.
+
+        Examples:
+            - After creating a per-dataset mask, the flags report it:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> import tempfile, os
+                >>> path = os.path.join(tempfile.mkdtemp(), "m.tif")
+                >>> Dataset.create_from_array(
+                ...     np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+                ... ).to_file(path)
+                >>> ds = Dataset.read_file(path, read_only=False)
+                >>> ds.create_mask_band()
+                >>> ds.mask_flags().per_dataset
+                True
+
+                ```
+        """
+        if self._ds.access == "read_only":
+            raise ReadOnlyError(
+                "The Dataset is opened read-only. Please read the dataset using "
+                "read_only=False to create a mask band."
+            )
+        self._ds.raster.CreateMaskBand(gdal.GMF_PER_DATASET if per_dataset else 0)
 
     def footprint(
         self: Dataset,

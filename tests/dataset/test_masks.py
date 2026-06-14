@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
+from pyramids.base._errors import ReadOnlyError
 from pyramids.dataset import Dataset, Window
 
 pytestmark = pytest.mark.core
@@ -112,3 +113,35 @@ class TestReadMasks:
         windowed = nodata_dataset.read_masks(0, window=Window(0, 0, 2, 2))
         assert windowed.shape == (2, 2)
         assert np.array_equal(windowed, full[:2, :2])
+
+
+class TestCreateMaskBand:
+    """Tests for Dataset.create_mask_band."""
+
+    def test_creates_per_dataset_mask(self, tmp_path):
+        """create_mask_band attaches a per-dataset mask the flags then report.
+
+        Test scenario:
+            On a writable GeoTIFF, create_mask_band() -> mask_flags().per_dataset.
+        """
+        path = str(tmp_path / "m.tif")
+        Dataset.create_from_array(
+            np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+        ).to_file(path)
+        ds = Dataset.read_file(path, read_only=False)
+        ds.create_mask_band()
+        assert ds.mask_flags().per_dataset is True
+
+    def test_read_only_raises(self, tmp_path):
+        """A read-only dataset rejects create_mask_band.
+
+        Test scenario:
+            read_only=True raises ReadOnlyError.
+        """
+        path = str(tmp_path / "ro.tif")
+        Dataset.create_from_array(
+            np.ones((4, 4), "float32"), top_left_corner=(0.0, 4.0), cell_size=1.0
+        ).to_file(path)
+        ds = Dataset.read_file(path, read_only=True)
+        with pytest.raises(ReadOnlyError):
+            ds.create_mask_band()
