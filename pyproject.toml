@@ -75,7 +75,8 @@ dev = [
     "commitizen>=4.8.4",
     "mypy>=1.10.0",
     "types-PyYAML>=6.0.0",
-    "pytest-mock>=3.12.0"
+    "pytest-mock>=3.12.0",
+    "pytest-timeout>=2.3.0"
 ]
 docs = [
     "mkdocs >=1.5.3",
@@ -216,10 +217,11 @@ style = [
 env = ["MPLBACKEND=Agg"]
 pythonpath = ["src"]
 testpaths = ["tests"]
-# Dump every thread's traceback (stdlib faulthandler) if a single test runs longer
-# than this, so a hung test (e.g. a flaky kerchunk/fsspec read in the xarray suite)
-# is diagnosable from the CI log instead of silently stalling the job. No legitimate
-# test in this suite runs this long.
+# Fail (don't hang) on a stuck test: pytest-timeout aborts any single test that runs
+# longer than `timeout` and prints its stack; `faulthandler_timeout` (stdlib) dumps an
+# earlier all-thread traceback for diagnosis. A flaky kerchunk/fsspec read in the
+# xarray suite hung CI for ~35 min; no legitimate test in this suite is this slow.
+timeout = 300
 faulthandler_timeout = 120
 markers = [
     "vfs: mark a test as a virtual file system (deselect with '-m \"not vfs\"')",
