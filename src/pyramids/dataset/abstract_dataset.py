@@ -279,7 +279,9 @@ class RasterBase(ABC):
             rowcol: The inverse, mapping map coordinates to cell indices.
             transform: The affine-style geotransform object.
         """
-        scalar = np.isscalar(rows) and np.isscalar(cols)
+        # np.ndim == 0 treats Python scalars, NumPy scalars, and 0-d arrays
+        # alike; np.isscalar misses 0-d arrays (np.isscalar(np.array(5)) is False).
+        scalar = np.ndim(rows) == 0 and np.ndim(cols) == 0
         rows_arr = np.atleast_1d(np.asarray(rows, dtype=float))
         cols_arr = np.atleast_1d(np.asarray(cols, dtype=float))
         shift = 0.5 if center else 0.0
@@ -319,7 +321,7 @@ class RasterBase(ABC):
 
         Returns:
             tuple: ``(row, col)`` ints for scalar input, ``(rows, cols)``
-                arrays for sequence input.
+                lists of ints for sequence input (symmetric with :meth:`xy`).
 
         Examples:
             - The cell containing a point on a unit grid at (0, 4):
@@ -351,7 +353,9 @@ class RasterBase(ABC):
             xy: The inverse, mapping cell indices to map coordinates.
             transform: The affine-style geotransform object.
         """
-        scalar = np.isscalar(x) and np.isscalar(y)
+        # np.ndim == 0 treats Python scalars, NumPy scalars, and 0-d arrays
+        # alike; np.isscalar misses 0-d arrays (np.isscalar(np.array(5)) is False).
+        scalar = np.ndim(x) == 0 and np.ndim(y) == 0
         x_arr = np.atleast_1d(np.asarray(x, dtype=float))
         y_arr = np.atleast_1d(np.asarray(y, dtype=float))
         inv = self.transform.inverse
@@ -362,7 +366,12 @@ class RasterBase(ABC):
         if scalar:
             result = (int(rows_idx[0]), int(cols_idx[0]))
         else:
-            result = (rows_idx, cols_idx)
+            # Return Python lists for sequence input, matching xy() (and rasterio)
+            # so the two companions have a symmetric container contract.
+            result = (
+                [int(value) for value in rows_idx],
+                [int(value) for value in cols_idx],
+            )
         return result
 
     @property
@@ -583,8 +592,19 @@ class RasterBase(ABC):
             iter_blocks: The reading variant, yielding ``(Window, ndarray)``.
         """
         block_x, block_y = self.block_size[band]
-        for row in range(0, self.rows, block_y):
-            for col in range(0, self.columns, block_x):
+        if window is None:
+            row_start, row_stop = 0, self.rows
+            col_start, col_stop = 0, self.columns
+        else:
+            # Walk only the blocks that can intersect the ROI: start at the
+            # block-aligned floor of the window and stop at its far edge, instead
+            # of building and discarding every block of the whole raster.
+            row_start = max(0, (window.row_off // block_y) * block_y)
+            col_start = max(0, (window.col_off // block_x) * block_x)
+            row_stop = min(self.rows, window.row_off + window.rows)
+            col_stop = min(self.columns, window.col_off + window.cols)
+        for row in range(row_start, row_stop, block_y):
+            for col in range(col_start, col_stop, block_x):
                 block = Window(
                     col_off=col,
                     row_off=row,
@@ -605,6 +625,12 @@ class RasterBase(ABC):
         The streaming read companion of :meth:`block_windows`: each yielded
         array is the block's pixels, so arbitrarily large rasters can be
         processed block-by-block in constant memory.
+
+        This iterator is **serial**: it reads each block through the shared
+        handle and does not accept ``threadsafe`` / ``chunks``. To read blocks
+        in parallel, iterate :meth:`block_windows` and call
+        ``read_array(window=..., threadsafe=True)`` per window from worker
+        threads instead.
 
         Args:
             band: Band index to read. Default 0.

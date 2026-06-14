@@ -17,9 +17,7 @@ import pytest
 
 pytestmark = pytest.mark.plot
 
-pytest.importorskip(
-    "cleopatra.tiles", reason="cleopatra[tiles] extra not installed"
-)
+pytest.importorskip("cleopatra.tiles", reason="cleopatra[tiles] extra not installed")
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.basemap.basemap import add_basemap, get_provider
@@ -40,9 +38,9 @@ class TestGetProvider:
             result = get_provider("CartoDB.Positron")
 
         mock_get.assert_called_once_with("CartoDB.Positron")
-        assert result is mock_get.return_value, (
-            "get_provider must return cleopatra.tiles.get_provider's result"
-        )
+        assert (
+            result is mock_get.return_value
+        ), "get_provider must return cleopatra.tiles.get_provider's result"
 
     def test_default_provider_round_trip(self):
         """A no-arg call resolves the real default provider through cleopatra.
@@ -54,9 +52,9 @@ class TestGetProvider:
         """
         provider = get_provider()
         name = getattr(provider, "name", "") or str(provider)
-        assert "openstreetmap" in name.lower(), (
-            f"default provider should be OpenStreetMap, got {provider!r}"
-        )
+        assert (
+            "openstreetmap" in name.lower()
+        ), f"default provider should be OpenStreetMap, got {provider!r}"
 
     def test_missing_extra_raises(self):
         """When the cleopatra ``[tiles]`` extra is absent the guard fires.
@@ -102,9 +100,9 @@ class TestAddBasemap:
             timeout=10,
             retries=2,
         )
-        assert result is mock_add.return_value, (
-            "add_basemap must return cleopatra.tiles.add_tiles's result"
-        )
+        assert (
+            result is mock_add.return_value
+        ), "add_basemap must return cleopatra.tiles.add_tiles's result"
 
     def test_delegates_with_custom_kwargs(self):
         """Caller-supplied options are forwarded to cleopatra unchanged.

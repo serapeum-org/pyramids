@@ -2,7 +2,7 @@
 
 Inspection round-trip is done with :func:`osgeo.gdal.OpenEx` in
 ``OF_MULTIDIM_RASTER`` mode so the assertions don't require an xarray
-NetCDF engine (the ``[xarray]`` extra in CI may not pull ``netcdf4``).
+NetCDF engine (xarray in CI may not pull ``netcdf4``).
 """
 
 from __future__ import annotations

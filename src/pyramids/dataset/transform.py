@@ -81,6 +81,11 @@ class GeoTransform(NamedTuple):
         """
         try:
             col, row = col_row
+            if isinstance(col, str) or isinstance(row, str):
+                # float() would coerce numeric strings; the contract is numeric
+                # (col, row) — reject strings rather than silently accept "2".
+                raise TypeError("(col, row) must be numeric, not str")
+            col, row = float(col), float(row)
         except (TypeError, ValueError) as error:
             raise TypeError(
                 f"GeoTransform multiplication expects a (col, row) pair, got {col_row!r}."
@@ -108,7 +113,7 @@ class GeoTransform(NamedTuple):
         )
 
     @property
-    def inverse(self) -> "GeoTransform":
+    def inverse(self) -> GeoTransform:
         """The inverted transform, mapping ``(x, y)`` map space to ``(col, row)``.
 
         Returns:
@@ -129,7 +134,7 @@ class GeoTransform(NamedTuple):
         bbox: tuple[float, float, float, float],
         rows: int,
         cols: int,
-    ) -> "GeoTransform":
+    ) -> GeoTransform:
         """Build the north-up transform fitting ``bbox`` to a grid shape.
 
         Args:

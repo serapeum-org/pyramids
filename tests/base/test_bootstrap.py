@@ -113,7 +113,9 @@ class TestCaBundle:
         activate_vendored_osgeo(pkg)
 
         assert os.environ["CURL_CA_BUNDLE"] == "/etc/ssl/certs/ca-certificates.crt"
-        assert os.environ["GDAL_HTTP_CAINFO"] == str(pkg / "_data" / "ssl" / "cacert.pem")
+        assert os.environ["GDAL_HTTP_CAINFO"] == str(
+            pkg / "_data" / "ssl" / "cacert.pem"
+        )
 
     def test_no_ca_vars_when_cert_absent(self, vendored_pkg):
         """No CA var is set when the wheel ships no cacert.pem.

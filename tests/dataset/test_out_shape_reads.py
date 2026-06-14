@@ -41,7 +41,9 @@ class TestOutShapeReads:
         """Nearest decimation of a constant raster stays constant."""
         ds = Dataset.create_from_array(
             np.full((16, 16), 5.0, dtype="float32"),
-            top_left_corner=(0, 16), cell_size=1.0, epsg=4326,
+            top_left_corner=(0, 16),
+            cell_size=1.0,
+            epsg=4326,
         )
         result = ds.read_array(band=0, out_shape=(8, 8))
         assert np.isclose(result, 5.0).all(), "constant values must survive decimation"
@@ -60,9 +62,10 @@ class TestOutShapeReads:
         averaged = ds.read_array(band=0, out_shape=(8, 8), resampling="average")
         nearest = ds.read_array(band=0, out_shape=(8, 8), resampling="nearest")
         assert np.allclose(averaged, 50.0), f"average of 0/100 must be 50: {averaged}"
-        assert set(np.unique(nearest)) <= {0.0, 100.0}, (
-            f"nearest must keep original values: {np.unique(nearest)}"
-        )
+        assert set(np.unique(nearest)) <= {
+            0.0,
+            100.0,
+        }, f"nearest must keep original values: {np.unique(nearest)}"
 
     def test_window_composition(self, ramp_dataset):
         """out_shape decimates a sub-window, not the whole raster.
@@ -76,13 +79,18 @@ class TestOutShapeReads:
         )
         assert result.shape == (16, 16), f"unexpected shape {result.shape}"
         window_values = ramp_dataset.read_array(band=0)[:32, :32]
-        assert result.min() >= window_values.min(), "values leaked from outside the window"
-        assert result.max() <= window_values.max(), "values leaked from outside the window"
+        assert (
+            result.min() >= window_values.min()
+        ), "values leaked from outside the window"
+        assert (
+            result.max() <= window_values.max()
+        ), "values leaked from outside the window"
         slice_ds = Dataset.create_from_array(
             window_values, top_left_corner=(0, 32), cell_size=1.0, epsg=4326
         )
         np.testing.assert_array_equal(
-            result, slice_ds.read_array(band=0, out_shape=(16, 16)),
+            result,
+            slice_ds.read_array(band=0, out_shape=(16, 16)),
             err_msg="window+out_shape must equal decimating the same slice",
         )
 
@@ -95,7 +103,8 @@ class TestOutShapeReads:
             band=0, window=[0, 0, 32, 32], out_shape=(16, 16)
         )
         np.testing.assert_array_equal(
-            via_list, via_object,
+            via_list,
+            via_object,
             err_msg="list and Window forms must decimate identically",
         )
 
@@ -116,7 +125,8 @@ class TestOutShapeReads:
             native, top_left_corner=(0, 64), cell_size=1.0, epsg=4326
         )
         np.testing.assert_array_equal(
-            via_bbox, slice_ds.read_array(band=0, out_shape=(16, 16)),
+            via_bbox,
+            slice_ds.read_array(band=0, out_shape=(16, 16)),
             err_msg="bbox+out_shape must decimate the native bbox window",
         )
 
@@ -130,12 +140,15 @@ class TestOutShapeReads:
         base = np.arange(64 * 64, dtype="float32").reshape(64, 64)
         ds = Dataset.create_from_array(
             np.stack([base, base + 1.0]),
-            top_left_corner=(0, 64), cell_size=1.0, epsg=4326,
+            top_left_corner=(0, 64),
+            cell_size=1.0,
+            epsg=4326,
         )
         result = ds.read_array(out_shape=(16, 16))
         assert result.shape == (2, 16, 16), f"unexpected shape {result.shape}"
         np.testing.assert_array_equal(
-            result[1] - result[0], np.ones((16, 16), dtype="float32"),
+            result[1] - result[0],
+            np.ones((16, 16), dtype="float32"),
             err_msg="per-band values must decimate independently",
         )
 
@@ -144,13 +157,16 @@ class TestOutShapeReads:
         base = np.arange(64 * 64, dtype="float32").reshape(64, 64)
         ds = Dataset.create_from_array(
             np.stack([base, base + 1.0]),
-            top_left_corner=(0, 64), cell_size=1.0, epsg=4326,
+            top_left_corner=(0, 64),
+            cell_size=1.0,
+            epsg=4326,
         )
         result = ds.read_array(window=Window(0, 0, 32, 32), out_shape=(8, 8))
         assert result.shape == (2, 8, 8), f"unexpected shape {result.shape}"
         single = ds.read_array(band=0, window=Window(0, 0, 32, 32), out_shape=(8, 8))
         np.testing.assert_array_equal(
-            result[0], single,
+            result[0],
+            single,
             err_msg="stacked band 0 must equal the single-band windowed read",
         )
 
@@ -170,7 +186,8 @@ class TestOutShapeReads:
         decimated = ds.read_array(band=0, out_shape=(32, 32))
         overview = ds.get_overview(band=0, overview_index=0).ReadAsArray()
         np.testing.assert_array_equal(
-            decimated, overview,
+            decimated,
+            overview,
             err_msg="half-resolution read must come from the level-2 overview",
         )
 
@@ -223,6 +240,11 @@ class TestOutShapeReads:
         """out_shape with chunks= raises NotImplementedError."""
         with pytest.raises(NotImplementedError, match="out_shape"):
             ramp_dataset.read_array(band=0, chunks=8, out_shape=(8, 8))
+
+    def test_resampling_without_out_shape_rejected(self, ramp_dataset):
+        """A non-default resampling without out_shape raises, not silently ignored (L13)."""
+        with pytest.raises(ValueError, match="only applies to out_shape"):
+            ramp_dataset.read_array(band=0, resampling="bilinear")
 
     def test_default_resolution_unchanged(self, ramp_dataset):
         """out_shape=None keeps the historical native-resolution read."""

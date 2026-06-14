@@ -134,9 +134,9 @@ class TestSrFromUserInput:
         proj4 = "+proj=ortho +lat_0=39 +lon_0=-9 +datum=WGS84 +units=m +no_defs"
         sr = sr_from_user_input(proj4)
         assert sr.IsProjected() == 1, "ortho must be projected"
-        assert sr.GetAuthorityCode(None) is None, (
-            "ortho carries no authority code by design"
-        )
+        assert (
+            sr.GetAuthorityCode(None) is None
+        ), "ortho carries no authority code by design"
 
     def test_pyproj_crs_round_trips(self):
         """sr_from_user_input accepts a pyproj.CRS instance.
@@ -155,9 +155,9 @@ class TestSrFromUserInput:
             reproject_coordinates), so transforms compose without axis surprises.
         """
         sr = sr_from_user_input(4326)
-        assert sr.GetAxisMappingStrategy() == osr.OAMS_TRADITIONAL_GIS_ORDER, (
-            "axis order should be traditional GIS (x=lon, y=lat)"
-        )
+        assert (
+            sr.GetAxisMappingStrategy() == osr.OAMS_TRADITIONAL_GIS_ORDER
+        ), "axis order should be traditional GIS (x=lon, y=lat)"
 
     def test_bool_rejected(self):
         """sr_from_user_input rejects a bool (an int subclass).
@@ -189,9 +189,9 @@ class TestSrFromUserInput:
         """
         wkt = CRS.from_epsg(3857).to_wkt()
         sr = sr_from_user_input(wkt)
-        assert sr.GetAuthorityCode(None) == "3857", (
-            f"WKT round-trip should preserve EPSG code, got {sr.GetAuthorityCode(None)!r}"
-        )
+        assert (
+            sr.GetAuthorityCode(None) == "3857"
+        ), f"WKT round-trip should preserve EPSG code, got {sr.GetAuthorityCode(None)!r}"
 
     @pytest.mark.parametrize(
         "value",
@@ -225,9 +225,9 @@ class TestSrFromUserInput:
         proj4 = "+proj=laea +lat_0=52 +lon_0=10 +x_0=0 +y_0=0 +ellps=GRS80 +units=m +no_defs"
         sr = sr_from_user_input(proj4)
         assert sr.IsProjected() == 1, "LAEA must be projected"
-        assert sr.GetAuthorityCode(None) is None, (
-            "LAEA proj4 carries no authority code by design"
-        )
+        assert (
+            sr.GetAuthorityCode(None) is None
+        ), "LAEA proj4 carries no authority code by design"
 
     def test_returns_distinct_instances_for_repeated_calls(self):
         """sr_from_user_input returns a fresh SRS each call, never a shared singleton.
@@ -241,6 +241,6 @@ class TestSrFromUserInput:
         sr1 = sr_from_user_input(4326)
         sr2 = sr_from_user_input(4326)
         assert sr1 is not sr2, "repeated calls must return distinct SRS instances"
-        assert sr1.ExportToWkt() == sr2.ExportToWkt(), (
-            "distinct instances should still encode the same CRS"
-        )
+        assert (
+            sr1.ExportToWkt() == sr2.ExportToWkt()
+        ), "distinct instances should still encode the same CRS"

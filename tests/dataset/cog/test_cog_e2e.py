@@ -4,7 +4,7 @@ Covers the public user journey:
 
 1. :meth:`Dataset.create_from_array` -> :meth:`Dataset.to_cog` ->
    :meth:`Dataset.read_file` round-trip array equality.
-2. Every supported compression type (skip if unavailable in the build).
+2. Every compression type (DEFLATE/LZW/ZSTD/NONE/LERC) round-trips.
 3. CRS, no-data, and multi-band preservation across a round trip.
 4. Web-optimized COG (GoogleMapsCompatible tiling scheme).
 5. LERC lossy compression tolerance.
@@ -37,27 +37,6 @@ def multiband_dataset() -> Dataset:
     return Dataset.create_from_array(
         arr, top_left_corner=(0.0, 0.0), cell_size=0.001, epsg=4326
     )
-
-
-@pytest.fixture
-def compression_support() -> set[str]:
-    """Compression algorithms available in the current GTiff driver."""
-    meta = gdal.GetDriverByName("GTiff").GetMetadataItem("DMD_CREATIONOPTIONLIST") or ""
-    algos = set()
-    for alg in [
-        "NONE",
-        "LZW",
-        "DEFLATE",
-        "ZSTD",
-        "WEBP",
-        "LERC",
-        "LERC_DEFLATE",
-        "LERC_ZSTD",
-        "JPEG",
-    ]:
-        if f">{alg}<" in meta:
-            algos.add(alg)
-    return algos
 
 
 class TestCanonicalRoundtrip:
@@ -106,9 +85,7 @@ class TestMultiBandRoundtrip:
 
 class TestEveryCompression:
     @pytest.mark.parametrize("method", ["DEFLATE", "LZW", "ZSTD", "NONE", "LERC"])
-    def test_round_trip(self, float_dataset_128, tmp_path, compression_support, method):
-        if method not in compression_support:
-            pytest.skip(f"GDAL build lacks {method}")
+    def test_round_trip(self, float_dataset_128, tmp_path, method):
         out = float_dataset_128.to_cog(tmp_path / f"{method}.tif", compress=method)
         reopened = Dataset.read_file(out)
         reopened_arr = reopened.read_array()
@@ -124,11 +101,7 @@ class TestEveryCompression:
 
 
 class TestLercTolerance:
-    def test_lerc_with_max_z_error(
-        self, float_dataset_128, tmp_path, compression_support
-    ):
-        if "LERC" not in compression_support:
-            pytest.skip("LERC unavailable")
+    def test_lerc_with_max_z_error(self, float_dataset_128, tmp_path):
         out = float_dataset_128.to_cog(
             tmp_path / "lerc.tif",
             compress="LERC",

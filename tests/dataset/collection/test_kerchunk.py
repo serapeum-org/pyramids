@@ -106,5 +106,5 @@ class TestErrors:
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
         collection = DatasetCollection.from_files([NC_FIXTURE])
-        with pytest.raises(ImportError, match="pyramids-gis\\[netcdf-lazy\\]"):
+        with pytest.raises(ImportError, match="pyramids-gis\\[lazy\\]"):
             collection.to_kerchunk(tmp_path / "nope.json")

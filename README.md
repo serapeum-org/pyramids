@@ -140,7 +140,7 @@ pip install pyramids-gis
 
 ```
 pip install pyramids-gis[viz]      # cleopatra plotting support
-pip install pyramids-gis[xarray]   # xarray/NetCDF4 interoperability
+pip install xarray                 # to_xarray / from_xarray / to_netcdf interop (peer dep, not an extra)
 ```
 
 Quick start

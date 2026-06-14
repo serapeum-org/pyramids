@@ -77,7 +77,9 @@ class TestReduceTime:
         assert len(result) == 1, f"Jan-only data is one month, got {len(result)}"
         label, ds = result[0]
         assert isinstance(ds, Dataset), f"Expected a Dataset, got {type(ds)}"
-        assert float(ds.read_array()[0, 0]) == pytest.approx(1.5), "mean(0,1,2,3) should be 1.5"
+        assert float(ds.read_array()[0, 0]) == pytest.approx(
+            1.5
+        ), "mean(0,1,2,3) should be 1.5"
 
     @requires_dask
     def test_window_grid_is_preserved(self, daily_files, daily_times):
@@ -90,7 +92,9 @@ class TestReduceTime:
         _, ds = coll.reduce_time(daily_times, freq="1MS", op="mean")[0]
         assert ds.geotransform == _GEO, f"geotransform not preserved: {ds.geotransform}"
         assert ds.epsg == 4326, f"epsg not preserved: {ds.epsg}"
-        assert ds.no_data_value[0] == _NODATA, f"no-data not preserved: {ds.no_data_value[0]}"
+        assert (
+            ds.no_data_value[0] == _NODATA
+        ), f"no-data not preserved: {ds.no_data_value[0]}"
 
     @requires_dask
     def test_two_day_windows_split_and_sorted(self, daily_files, daily_times):
@@ -116,7 +120,9 @@ class TestReduceTime:
         """
         coll = DatasetCollection.from_files(daily_files)
         label, _ = coll.reduce_time(daily_times, freq="1MS", op="mean")[0]
-        assert isinstance(label, pd.Timestamp), f"Expected a Timestamp, got {type(label)}"
+        assert isinstance(
+            label, pd.Timestamp
+        ), f"Expected a Timestamp, got {type(label)}"
         assert label == pd.Timestamp("2022-01-01"), f"Unexpected window label: {label}"
 
     @requires_dask
@@ -128,7 +134,9 @@ class TestReduceTime:
         """
         coll = DatasetCollection.from_files(daily_files)
         _, ds = coll.reduce_time(daily_times, freq="1MS", op="sum")[0]
-        assert float(ds.read_array()[0, 0]) == pytest.approx(6.0), "sum(0,1,2,3) should be 6"
+        assert float(ds.read_array()[0, 0]) == pytest.approx(
+            6.0
+        ), "sum(0,1,2,3) should be 6"
 
     @requires_dask
     @pytest.mark.parametrize("op, expected", [("min", 0.0), ("max", 3.0)])
@@ -157,8 +165,12 @@ class TestReduceTime:
         times = ["2022-01-01", "2022-01-02", "2022-02-01", "2022-02-02"]
         result = coll.reduce_time(times, freq="1MS", op="mean")
         assert len(result) == 2, "two distinct months → two windows"
-        assert float(result[0][1].read_array()[0, 0]) == pytest.approx(0.5), "Jan mean of 0,1"
-        assert float(result[1][1].read_array()[0, 0]) == pytest.approx(2.5), "Feb mean of 2,3"
+        assert float(result[0][1].read_array()[0, 0]) == pytest.approx(
+            0.5
+        ), "Jan mean of 0,1"
+        assert float(result[1][1].read_array()[0, 0]) == pytest.approx(
+            2.5
+        ), "Feb mean of 2,3"
 
     @requires_dask
     def test_invalid_op_raises(self, daily_files, daily_times):
@@ -180,7 +192,9 @@ class TestReduceTime:
         """
         coll = DatasetCollection.from_files(daily_files)
         with pytest.raises(ValueError, match="times has 3 entries"):
-            coll.reduce_time(["2022-01-01", "2022-01-02", "2022-01-03"], freq="1MS", op="mean")
+            coll.reduce_time(
+                ["2022-01-01", "2022-01-02", "2022-01-03"], freq="1MS", op="mean"
+            )
 
     @requires_dask
     def test_nat_times_raises(self, daily_files):

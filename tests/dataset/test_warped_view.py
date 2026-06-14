@@ -51,9 +51,9 @@ class TestWarpedView:
     def test_view_is_vrt_backed(self, src_dataset):
         """The view is backed by the VRT driver (lazy), not a materialised copy."""
         view = src_dataset.warped_view(3857)
-        assert view.raster.GetDriver().ShortName == "VRT", (
-            f"expected VRT backing, got {view.raster.GetDriver().ShortName}"
-        )
+        assert (
+            view.raster.GetDriver().ShortName == "VRT"
+        ), f"expected VRT backing, got {view.raster.GetDriver().ShortName}"
 
     def test_full_read_matches_eager_to_crs(self, src_dataset):
         """Reading the whole view equals the eager to_crs result.
@@ -64,7 +64,8 @@ class TestWarpedView:
         view = src_dataset.warped_view(3857)
         eager = src_dataset.to_crs(3857)
         np.testing.assert_allclose(
-            view.read_array(), eager.read_array(),
+            view.read_array(),
+            eager.read_array(),
             err_msg="lazy view must equal the eager reprojection",
         )
 
@@ -78,7 +79,8 @@ class TestWarpedView:
         full = view.read_array(band=0)
         window = view.read_array(band=0, window=[1, 1, 3, 3])
         np.testing.assert_allclose(
-            window, full[1:4, 1:4],
+            window,
+            full[1:4, 1:4],
             err_msg="windowed view read must match the full-read slice",
         )
 
@@ -94,9 +96,9 @@ class TestWarpedView:
     def test_cell_size_honoured(self, src_dataset):
         """cell_size= sets the output pixel size on both axes."""
         view = src_dataset.warped_view(4326, cell_size=0.05)
-        assert view.cell_size == pytest.approx(0.05), (
-            f"cell_size not applied: {view.cell_size}"
-        )
+        assert view.cell_size == pytest.approx(
+            0.05
+        ), f"cell_size not applied: {view.cell_size}"
 
     def test_bbox_clips_the_view(self, src_dataset):
         """bbox= restricts the view to the requested target-CRS extent.
@@ -106,13 +108,13 @@ class TestWarpedView:
             whose bounds match the request.
         """
         view = src_dataset.warped_view(4326, bbox=(0.0, 7.96, 0.04, 8.0))
-        assert view.columns == 4 and view.rows == 4, (
-            f"bbox grid wrong: {view.rows}x{view.columns}"
-        )
+        assert (
+            view.columns == 4 and view.rows == 4
+        ), f"bbox grid wrong: {view.rows}x{view.columns}"
         top_left_x, top_left_y = view.top_left_corner
-        assert (top_left_x, top_left_y) == pytest.approx((0.0, 8.0)), (
-            f"bbox origin wrong: {(top_left_x, top_left_y)}"
-        )
+        assert (top_left_x, top_left_y) == pytest.approx(
+            (0.0, 8.0)
+        ), f"bbox origin wrong: {(top_left_x, top_left_y)}"
 
     def test_view_of_view_chains(self, src_dataset):
         """A warped view can itself be warped (virtual pipeline chaining).
@@ -164,12 +166,28 @@ class TestWarpedView:
         with pytest.raises(TypeError, match="must be a string"):
             src_dataset.warped_view(3857, method=1)
 
+    @pytest.mark.parametrize("bad_cell_size", [0, -0.05])
+    def test_non_positive_cell_size_raises(self, src_dataset, bad_cell_size):
+        """A zero or negative cell_size raises a clear ValueError (L7).
+
+        Args:
+            bad_cell_size: A non-positive cell size under test.
+        """
+        with pytest.raises(ValueError, match="cell_size must be positive"):
+            src_dataset.warped_view(3857, cell_size=bad_cell_size)
+
+    def test_inverted_bbox_raises(self, src_dataset):
+        """An inverted bbox (min >= max) raises a clear ValueError (L7)."""
+        with pytest.raises(ValueError, match="min_x < max_x"):
+            src_dataset.warped_view(4326, bbox=(0.04, 7.96, 0.0, 8.0))
+
     def test_facade_delegates(self, src_dataset):
         """Dataset.warped_view delegates to the spatial engine."""
         via_facade = src_dataset.warped_view(3857)
         via_engine = src_dataset.spatial.warped_view(3857)
         np.testing.assert_allclose(
-            via_facade.read_array(), via_engine.read_array(),
+            via_facade.read_array(),
+            via_engine.read_array(),
             err_msg="facade and engine outputs differ",
         )
 
@@ -194,6 +212,30 @@ class TestWarpedViewNetCDF:
         assert view._is_subset, "view must keep the variable-subset flag"
         assert view.epsg == 3857, f"view CRS wrong: {view.epsg}"
         assert view.read_array().size > 0, "subset view must be readable"
+
+    def test_variable_subset_view_pins_source_through_gc(self):
+        """A NetCDF view keeps its source alive after the source refs drop (H3).
+
+        Test scenario:
+            Warp one variable, drop the container and variable references, force a
+            gc pass, then read the view again. It must still read identical pixels
+            because the re-wrapped NetCDF view carries the ``_warp_source`` pin —
+            without it, _preserve_netcdf_metadata drops the pin and GC can free the
+            source handle underneath the VRT.
+        """
+        nc = NetCDF.read_file(self.nc_path)
+        var = nc.get_variable(nc.variable_names[0])
+        view = var.warped_view(3857)
+        assert view._warp_source is not None, "view must pin its source"
+        expected = view.read_array()
+        del nc
+        del var
+        gc.collect()
+        np.testing.assert_array_equal(
+            view.read_array(),
+            expected,
+            err_msg="view must read identical pixels after the source is GC'd",
+        )
 
     def test_root_container_refuses_lazy_view(self):
         """A root MDIM container raises a clear error instead of a GDAL one."""

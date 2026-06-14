@@ -212,8 +212,7 @@ class TestCloseHandle:
         debug_records = [
             r
             for r in caplog.records
-            if r.levelname == "DEBUG"
-            and "close handle failed" in r.getMessage()
+            if r.levelname == "DEBUG" and "close handle failed" in r.getMessage()
         ]
         assert debug_records, (
             "Expected a DEBUG log line for the swallowed RuntimeError; "
@@ -426,6 +425,46 @@ class TestThreadLocalFileManager:
         # Re-acquire on the same thread opens a new handle.
         h2 = fm.acquire()
         assert h2 is not h
+
+    def test_close_releases_all_threads_handles(self):
+        """close() closes handles opened by other threads, not just the caller (H4).
+
+        Test scenario:
+            A worker thread opens its own per-thread handle and exits; the main
+            thread then calls close(). Both the worker's and the caller's handles
+            must be closed because the manager tracks every opened handle rather
+            than only the closing thread's thread-local state.
+        """
+        fm = ThreadLocalFileManager(_fake_opener, "t.tif", "read_only")
+        worker_handles: list = []
+
+        def grab():
+            worker_handles.append(fm.acquire())
+
+        t = threading.Thread(target=grab)
+        t.start()
+        t.join()
+        main_handle = fm.acquire()
+        fm.close()
+        assert worker_handles[0].closed is True, "worker thread handle must be closed"
+        assert main_handle.closed is True, "caller handle must be closed"
+        assert fm._handles == [], "close() must clear the tracked-handle list"
+
+    def test_acquire_after_close_reopens_via_generation_bump(self):
+        """A thread whose handle was closed reopens on next acquire() (H4).
+
+        Test scenario:
+            close() bumps the generation, so the same thread's next acquire() opens
+            a fresh, live handle instead of returning the now-closed handle still
+            cached in its thread-local storage.
+        """
+        fm = ThreadLocalFileManager(_fake_opener, "t.tif", "read_only")
+        first = fm.acquire()
+        fm.close()
+        assert first.closed is True, "the open handle must be closed by close()"
+        second = fm.acquire()
+        assert second is not first, "must reopen after close, not reuse a dead handle"
+        assert second.closed is False, "the reopened handle must be live"
 
     def test_acquire_context_yields_handle(self):
         """`acquire_context()` yields the thread-local handle.

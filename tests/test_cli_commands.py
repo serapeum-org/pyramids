@@ -9,15 +9,32 @@ suite in `tests/dataset/cog/test_cli.py`.
 from __future__ import annotations
 
 import json
+import os
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.cli import main
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
+
+
+def _crsless_raster(tmp_path) -> str:
+    """Write a tiny GeoTIFF with a geotransform but no CRS.
+
+    Returns:
+        str: Path to the CRS-less raster.
+    """
+    path = str(tmp_path / "no_crs.tif")
+    out = gdal.GetDriverByName("GTiff").Create(path, 8, 8, 1, gdal.GDT_Float32)
+    out.SetGeoTransform((0.0, 1.0, 0.0, 8.0, 0.0, -1.0))
+    out.GetRasterBand(1).WriteArray(np.arange(64, dtype="float32").reshape(8, 8))
+    out.FlushCache()
+    out = None
+    return path
 
 
 @pytest.fixture(scope="function")
@@ -97,6 +114,14 @@ class TestBoundsCommand:
         assert err.startswith("error: "), f"unexpected stderr: {err}"
         assert "Traceback" not in err, "tracebacks must not leak to users"
 
+    def test_crs_on_crsless_raster_clear_error(self, tmp_path, capsys):
+        """bounds --crs on a raster without a CRS names the real cause (L10)."""
+        path = _crsless_raster(tmp_path)
+        rc = main(["bounds", path, "--crs", "EPSG:3857"])
+        err = capsys.readouterr().err
+        assert rc == 1, "reprojecting bounds of a CRS-less raster must exit 1"
+        assert "source CRS" in err, f"error should name the missing source CRS: {err}"
+
 
 class TestClipCommand:
     """`pyramids clip`."""
@@ -121,6 +146,60 @@ class TestClipCommand:
         assert main(["clip", src_raster, out_path, "--vector", mask_path]) == 0
         clipped = Dataset.read_file(out_path)
         assert (clipped.rows, clipped.columns) == (4, 4), "vector clip extent wrong"
+
+    def test_bbox_on_crsless_raster_clear_error(self, tmp_path, capsys):
+        """clip --bbox on a CRS-less raster gives a clear error, not a low-level one (L10)."""
+        path = _crsless_raster(tmp_path)
+        out = str(tmp_path / "out.tif")
+        rc = main(["clip", path, out, "--bbox", "1", "1", "5", "5"])
+        err = capsys.readouterr().err
+        assert rc == 1, "clip on a CRS-less raster must exit 1"
+        assert "has none" in err, f"error should name the missing CRS: {err}"
+
+    def test_bbox_disjoint_from_raster_clear_error(self, src_raster, tmp_path, capsys):
+        """clip --bbox outside the raster extent gives a clear error, not an IndexError (L4)."""
+        out = str(tmp_path / "out.tif")
+        rc = main(["clip", src_raster, out, "--bbox", "100", "100", "110", "110"])
+        err = capsys.readouterr().err
+        assert rc == 1, "a disjoint clip bbox must exit 1"
+        assert (
+            "does not intersect" in err
+        ), f"error should name the disjoint bbox: {err}"
+        assert not os.path.exists(
+            out
+        ), "no output should be written for a disjoint clip"
+
+    def test_vector_disjoint_from_raster_clear_error(
+        self, src_raster, tmp_path, capsys
+    ):
+        """clip --vector with a mask outside the raster extent gives a clear error (L3)."""
+        mask_path = str(tmp_path / "far_mask.geojson")
+        FeatureCollection.from_bbox((100.0, 100.0, 110.0, 110.0), epsg=4326).to_file(
+            mask_path
+        )
+        out = str(tmp_path / "out.tif")
+        rc = main(["clip", src_raster, out, "--vector", mask_path])
+        err = capsys.readouterr().err
+        assert rc == 1, "a disjoint vector mask must exit 1"
+        assert (
+            "does not intersect" in err
+        ), f"error should name the disjoint mask: {err}"
+        assert not os.path.exists(
+            out
+        ), "no output should be written for a disjoint clip"
+
+    def test_refuses_to_overwrite_without_flag(self, src_raster, tmp_path, capsys):
+        """clip refuses to clobber an existing output unless --overwrite (N5)."""
+        out = str(tmp_path / "exists.tif")
+        assert main(["clip", src_raster, out, "--bbox", "1", "1", "5", "5"]) == 0
+        rc = main(["clip", src_raster, out, "--bbox", "1", "1", "5", "5"])
+        err = capsys.readouterr().err
+        assert rc == 1, "a second write without --overwrite must be refused"
+        assert "already exists" in err, f"error should mention the existing file: {err}"
+        assert (
+            main(["clip", src_raster, out, "--bbox", "1", "1", "5", "5", "--overwrite"])
+            == 0
+        ), "--overwrite must allow replacing the output"
 
     def test_bbox_and_vector_mutually_exclusive(self, src_raster, tmp_path, capsys):
         """Passing both --bbox and --vector is rejected by argparse."""
@@ -206,6 +285,28 @@ class TestOverviewCommand:
         assert (
             Dataset.read_file(src_raster).overview_count[0] == 2
         ), "expected 2 overview levels"
+
+    def test_nearest_neighbor_alias_accepted(self, src_raster, capsys):
+        """The warp-family 'nearest neighbor' spelling is accepted here too (L9)."""
+        rc = main(
+            [
+                "overview",
+                src_raster,
+                "--levels",
+                "2",
+                "--resampling",
+                "nearest neighbor",
+            ]
+        )
+        assert rc == 0, f"'nearest neighbor' should be accepted, got rc={rc}"
+
+    def test_non_power_of_two_levels_rejected(self, src_raster, capsys):
+        """A non-power-of-two --levels is rejected up front with a clear error (L6)."""
+        rc = main(["overview", src_raster, "--levels", "3", "5"])
+        err = capsys.readouterr().err
+        assert rc == 1, "non-power-of-two levels must exit 1"
+        assert "power-of-two" in err, f"error should name the constraint: {err}"
+        assert "[3, 5]" in err, f"error should list the offending levels: {err}"
 
 
 class TestSampleCommand:
@@ -343,3 +444,31 @@ class TestHelpSurface:
             main([command, "--help"])
         assert exc.value.code == 0, f"{command} --help must exit 0"
         assert command in capsys.readouterr().out, "help text must name the command"
+
+
+class TestUnexpectedErrors:
+    """An internal error not in main()'s expected set still gets one line, not a traceback (L5)."""
+
+    def test_unexpected_exception_one_line(self, src_raster, monkeypatch, capsys):
+        """A non-listed exception (e.g. KeyError) exits 1 with a one-line message."""
+
+        def boom(_args):
+            raise KeyError("internal")
+
+        monkeypatch.setattr("pyramids.cli._cmd_raster_info", boom)
+        rc = main(["info", src_raster])
+        err = capsys.readouterr().err
+        assert rc == 1, "an unexpected internal error must exit 1"
+        assert err.startswith("error: unexpected failure"), f"unexpected stderr: {err}"
+        assert "Traceback" not in err, "tracebacks must not leak to users"
+
+    def test_debug_env_reraises_for_stack(self, src_raster, monkeypatch):
+        """With PYRAMIDS_DEBUG set, the original exception propagates for the full stack."""
+
+        def boom(_args):
+            raise KeyError("internal")
+
+        monkeypatch.setattr("pyramids.cli._cmd_raster_info", boom)
+        monkeypatch.setenv("PYRAMIDS_DEBUG", "1")
+        with pytest.raises(KeyError):
+            main(["info", src_raster])

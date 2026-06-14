@@ -79,9 +79,7 @@ class TestWriteGeobox:
     def _group_with_data(self, tmp_path, bands=2, rows=4, cols=5):
         store = str(tmp_path / "w.zarr")
         group = zarr.open_group(store, mode="w")
-        group.create_array(
-            "data", data=np.zeros((bands, rows, cols), dtype="float32")
-        )
+        group.create_array("data", data=np.zeros((bands, rows, cols), dtype="float32"))
         return group
 
     def test_creates_spatial_ref_and_xy(self, tmp_path):
@@ -93,8 +91,14 @@ class TestWriteGeobox:
         """
         group = self._group_with_data(tmp_path, rows=4, cols=5)
         write_geobox(
-            group, data_name="data", epsg=4326, geotransform=_GT,
-            crs_wkt=_WKT_4326, rows=4, cols=5, dims=["band", "y", "x"],
+            group,
+            data_name="data",
+            epsg=4326,
+            geotransform=_GT,
+            crs_wkt=_WKT_4326,
+            rows=4,
+            cols=5,
+            dims=["band", "y", "x"],
         )
         keys = set(group.array_keys())
         assert {"data", GRID_MAPPING_VAR, "x", "y"} <= keys, f"keys={keys}"
@@ -110,8 +114,14 @@ class TestWriteGeobox:
         """
         group = self._group_with_data(tmp_path, rows=4, cols=5)
         write_geobox(
-            group, data_name="data", epsg=4326, geotransform=_GT,
-            crs_wkt=_WKT_4326, rows=4, cols=5, dims=["band", "y", "x"],
+            group,
+            data_name="data",
+            epsg=4326,
+            geotransform=_GT,
+            crs_wkt=_WKT_4326,
+            rows=4,
+            cols=5,
+            dims=["band", "y", "x"],
         )
         assert group["data"].attrs["_ARRAY_DIMENSIONS"] == ["band", "y", "x"]
         assert group["data"].attrs["grid_mapping"] == GRID_MAPPING_VAR
@@ -127,8 +137,14 @@ class TestWriteGeobox:
         """
         group = self._group_with_data(tmp_path)
         write_geobox(
-            group, data_name="data", epsg=4326, geotransform=_GT,
-            crs_wkt=_WKT_4326, rows=4, cols=5, dims=["band", "y", "x"],
+            group,
+            data_name="data",
+            epsg=4326,
+            geotransform=_GT,
+            crs_wkt=_WKT_4326,
+            rows=4,
+            cols=5,
+            dims=["band", "y", "x"],
         )
         sr = group[GRID_MAPPING_VAR]
         assert sr.attrs["crs_wkt"] == _WKT_4326, "crs_wkt not stored"
@@ -145,8 +161,14 @@ class TestWriteGeobox:
         """
         group = self._group_with_data(tmp_path)
         write_geobox(
-            group, data_name="data", epsg=0, geotransform=_GT,
-            crs_wkt=_WKT_4326, rows=4, cols=5, dims=["band", "y", "x"],
+            group,
+            data_name="data",
+            epsg=0,
+            geotransform=_GT,
+            crs_wkt=_WKT_4326,
+            rows=4,
+            cols=5,
+            dims=["band", "y", "x"],
         )
         sr = group[GRID_MAPPING_VAR]
         assert sr.attrs["epsg"] == 0, f"epsg attr {sr.attrs['epsg']}"
@@ -162,8 +184,14 @@ class TestReadGeobox:
         group = zarr.open_group(store, mode="w")
         group.create_array("data", data=np.zeros((1, 4, 5), dtype="float32"))
         write_geobox(
-            group, data_name="data", epsg=4326, geotransform=_GT,
-            crs_wkt=_WKT_4326, rows=4, cols=5, dims=["band", "y", "x"],
+            group,
+            data_name="data",
+            epsg=4326,
+            geotransform=_GT,
+            crs_wkt=_WKT_4326,
+            rows=4,
+            cols=5,
+            dims=["band", "y", "x"],
         )
         return group
 
@@ -332,7 +360,9 @@ class TestForeignGeoZarr:
         result = read_geobox(group)
         assert result["legacy"] is False, "should not be legacy"
         assert result["epsg"] == 4326, f"epsg {result['epsg']}"
-        np.testing.assert_allclose(result["geotransform"], (0.0, 1.0, 0.0, 3.0, 0.0, -1.0))
+        np.testing.assert_allclose(
+            result["geotransform"], (0.0, 1.0, 0.0, 3.0, 0.0, -1.0)
+        )
 
     def test_read_geobox_derives_transform_from_xy(self, tmp_path):
         """A foreign store without GeoTransform derives it from x/y (FR-8).
@@ -343,4 +373,6 @@ class TestForeignGeoZarr:
         """
         group = self._foreign_group(tmp_path, with_geotransform=False)
         result = read_geobox(group)
-        np.testing.assert_allclose(result["geotransform"], (0.0, 1.0, 0.0, 3.0, 0.0, -1.0))
+        np.testing.assert_allclose(
+            result["geotransform"], (0.0, 1.0, 0.0, 3.0, 0.0, -1.0)
+        )

@@ -22,6 +22,7 @@ from osgeo import gdal
 from pyramids.base._errors import OutOfBoundsError
 from pyramids.base._file_manager import ThreadLocalFileManager, gdal_raster_open
 from pyramids.dataset import Dataset
+from pyramids.dataset.window import Window
 
 pytestmark = pytest.mark.core
 
@@ -53,6 +54,22 @@ class TestThreadsafeEagerReads:
             err_msg="threadsafe path must produce identical pixels",
         )
 
+    def test_window_object_accepted(self, tiled_raster):
+        """A Window object is accepted on the threadsafe path (regression: H1).
+
+        Test scenario:
+            ``read_array(window=Window(...), threadsafe=True)`` must produce the
+            same pixels as the default path with the same Window, rather than
+            raising "window must be a list of 4 integers".
+        """
+        ds, _ = tiled_raster
+        win = Window(32, 64, 48, 16)
+        np.testing.assert_array_equal(
+            ds.read_array(band=0, window=win, threadsafe=True),
+            ds.read_array(band=0, window=win),
+            err_msg="threadsafe path must accept a Window like the default path",
+        )
+
     def test_parallel_disjoint_windows(self, tiled_raster):
         """64 disjoint windows read from 8 threads match the source exactly.
 
@@ -70,7 +87,8 @@ class TestThreadsafeEagerReads:
             for window, block in pool.map(read, windows):
                 col, row, cols, rows = window
                 np.testing.assert_array_equal(
-                    block, arr[row : row + rows, col : col + cols],
+                    block,
+                    arr[row : row + rows, col : col + cols],
                     err_msg=f"window {window} corrupted under concurrency",
                 )
 
@@ -206,8 +224,26 @@ class TestThreadsafeEagerReads:
     def test_invalid_window_type_rejected(self, tiled_raster):
         """A non-list window raises the same ValueError as _read_block."""
         ds, _ = tiled_raster
-        with pytest.raises(ValueError, match="window must be a list"):
+        with pytest.raises(ValueError, match="window must be a Window or a list"):
             ds.read_array(band=0, window="0,0,4,4", threadsafe=True)
+
+    def test_wrong_length_window_rejected(self, tiled_raster):
+        """A 3-element window raises a clear length error, not an opaque GDAL one."""
+        ds, _ = tiled_raster
+        with pytest.raises(ValueError, match="list of 4 integers"):
+            ds.read_array(band=0, window=[0, 0, 4], threadsafe=True)
+
+    def test_boundless_with_threadsafe_rejected(self, tiled_raster):
+        """boundless=True + threadsafe=True raises, not a silent shared-handle read (L4)."""
+        ds, _ = tiled_raster
+        with pytest.raises(NotImplementedError, match="boundless=True.*threadsafe"):
+            ds.read_array(band=0, window=[0, 0, 4, 4], boundless=True, threadsafe=True)
+
+    def test_out_shape_with_threadsafe_rejected(self, tiled_raster):
+        """out_shape + threadsafe=True raises, not a silent shared-handle read (L12)."""
+        ds, _ = tiled_raster
+        with pytest.raises(NotImplementedError, match="out_shape.*threadsafe"):
+            ds.read_array(band=0, out_shape=(8, 8), threadsafe=True)
 
     def test_out_of_bounds_window_contract(self, tiled_raster):
         """An OOB window raises OutOfBoundsError, matching the default path.
@@ -224,9 +260,9 @@ class TestThreadsafeEagerReads:
         """threadsafe=False (default) never creates the per-thread manager."""
         ds, _ = tiled_raster
         ds.read_array(band=0)
-        assert getattr(ds, "_thread_manager", None) is None, (
-            "default reads must not allocate the thread-local manager"
-        )
+        assert (
+            getattr(ds, "_thread_manager", None) is None
+        ), "default reads must not allocate the thread-local manager"
 
 
 class TestThreadLocalManagerSemantics:
@@ -249,9 +285,9 @@ class TestThreadLocalManagerSemantics:
         worker.start()
         worker.join()
         worker_handle_id = next(iter(seen.values()))
-        assert worker_handle_id != id(main_handle_1), (
-            "different threads must hold different handles"
-        )
+        assert worker_handle_id != id(
+            main_handle_1
+        ), "different threads must hold different handles"
 
     def test_close_releases_thread_manager(self, tmp_path):
         """close() drops the per-thread manager and unlocks the file.
@@ -278,6 +314,61 @@ class TestThreadLocalManagerSemantics:
         assert ds._thread_manager is None, "a rejected read must not re-cache"
         os.remove(path)
 
+    def test_close_releases_worker_thread_handles(self, tmp_path):
+        """close() releases handles opened by OTHER threads, not just the caller (H4).
+
+        Test scenario:
+            A worker thread performs a threadsafe read (opening its own per-thread
+            handle) and exits. ``close()`` must close that worker's handle too — the
+            manager tracks every handle, not just the closing thread's — so the file
+            becomes deletable (on Windows a lingering read handle locks the file).
+        """
+        path = str(tmp_path / "worker.tif")
+        Dataset.create_from_array(
+            np.arange(64, dtype="float32").reshape(8, 8),
+            top_left_corner=(0, 8),
+            cell_size=1.0,
+            epsg=4326,
+        ).to_file(path)
+        ds = Dataset.read_file(path)
+
+        def worker():
+            ds.read_array(band=0, threadsafe=True)
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join()
+        manager = ds._thread_manager
+        assert (
+            manager is not None and len(manager._handles) >= 1
+        ), "the worker thread's handle must be tracked on the manager"
+        ds.close()
+        assert manager._handles == [], "close() must release every tracked handle"
+        assert ds._thread_manager is None, "close() must drop the manager"
+        os.remove(path)
+        assert not os.path.exists(path), "file must be unlocked after close()"
+
+    def test_get_thread_manager_rejects_closed_dataset(self, tmp_path):
+        """_get_thread_manager refuses to re-cache a manager after close (L5).
+
+        Test scenario:
+            After close() nulls the raster, building a new per-thread manager
+            would re-open and re-lock the file. The creation path re-checks the
+            closed state under the lock and raises instead.
+        """
+        path = str(tmp_path / "closed.tif")
+        Dataset.create_from_array(
+            np.ones((8, 8), dtype="float32"),
+            top_left_corner=(0, 8),
+            cell_size=1.0,
+            epsg=4326,
+        ).to_file(path)
+        ds = Dataset.read_file(path)
+        ds.close()
+        with pytest.raises(ValueError, match="closed Dataset"):
+            ds.io._get_thread_manager()
+        os.remove(path)
+
     def test_manager_is_pickle_safe(self, tiled_raster):
         """The manager survives a pickle round-trip (dask-graph requirement)."""
         ds, _ = tiled_raster
@@ -287,8 +378,15 @@ class TestThreadLocalManagerSemantics:
         assert handle.RasterXSize == 256, "restored manager must reopen the file"
 
 
+@pytest.mark.lazy
 class TestThreadsafeLazyReads:
-    """The dask wiring: chunks= + lock=False + threadsafe=True."""
+    """The dask wiring: chunks= + lock=False + threadsafe=True.
+
+    Tagged ``lazy`` so the conftest hook auto-skips these when the lazy stack
+    (dask / zarr) is absent — e.g. the bare-wheel smoke test that installs the
+    wheel without the ``[lazy]`` extra. Without it they error with
+    ``ModuleNotFoundError: No module named 'dask'`` instead of skipping.
+    """
 
     def test_lockfree_equals_locked(self, tiled_raster):
         """The lock-free per-thread-handle compute equals the locked default."""
@@ -296,7 +394,8 @@ class TestThreadsafeLazyReads:
         lockfree = ds.read_array(band=0, chunks=64, lock=False, threadsafe=True)
         locked = ds.read_array(band=0, chunks=64)
         np.testing.assert_array_equal(
-            lockfree.compute(), locked.compute(),
+            lockfree.compute(),
+            locked.compute(),
             err_msg="lock-free chunked compute diverged from the locked default",
         )
 

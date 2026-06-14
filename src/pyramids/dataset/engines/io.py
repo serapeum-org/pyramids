@@ -23,7 +23,7 @@ from osgeo import gdal
 from osgeo_utils import gdal2xyz
 from pandas import DataFrame
 
-from pyramids._io import new_vsimem_path, read_vsi_bytes, silent_unlink
+from pyramids._io import new_vsimem_path, read_vsi_bytes
 from pyramids.base._domain import is_no_data
 from pyramids.base._errors import FailedToSaveError, OutOfBoundsError, ReadOnlyError
 from pyramids.base._file_manager import (
@@ -111,6 +111,30 @@ def _validate_out_shape(out_shape: Any) -> tuple[int, int]:
     return int(out_shape[0]), int(out_shape[1])
 
 
+def _fill_value_fits(fill_value: float, dtype: np.dtype) -> bool:
+    """Return whether ``fill_value`` is representable in ``dtype``.
+
+    Integer dtypes require a finite whole number within the dtype's range;
+    float dtypes accept any value (precision loss on cast is standard NumPy
+    semantics). Used both to validate an explicit fill and to decide whether a
+    band's no-data marker can serve as the boundless fill or must fall back to
+    the dtype zero.
+
+    Args:
+        fill_value: The candidate fill.
+        dtype: The band's NumPy dtype.
+
+    Returns:
+        bool: ``True`` when ``fill_value`` can be stored in ``dtype`` without
+            wrapping or truncation.
+    """
+    if dtype.kind not in "iu":
+        return True
+    value = float(fill_value)
+    info = np.iinfo(dtype)
+    return math.isfinite(value) and value.is_integer() and info.min <= value <= info.max
+
+
 def _validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
     """Reject an explicit boundless fill that an integer band cannot hold.
 
@@ -127,20 +151,22 @@ def _validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
         ValueError: ``dtype`` is integral and `fill_value` is not finite,
             not a whole number, or outside the dtype's value range.
     """
-    if dtype.kind in "iu":
-        value = float(fill_value)
-        info = np.iinfo(dtype)
-        if (
-            not math.isfinite(value)
-            or not value.is_integer()
-            or value < info.min
-            or value > info.max
-        ):
+    if not _fill_value_fits(fill_value, dtype):
+        # _fill_value_fits only ever returns False for integer dtypes, so the
+        # band here is integral; distinguish a NaN/inf fill (needs a float band)
+        # from a merely out-of-range / fractional one.
+        if not math.isfinite(float(fill_value)):
             raise ValueError(
-                f"fill_value={fill_value!r} is not representable in the band "
-                f"dtype {dtype.name} (whole numbers in [{info.min}, "
-                f"{info.max}])."
+                f"fill_value={fill_value!r} is not representable in the integer "
+                f"band dtype {dtype.name}; NaN/inf fills require a floating-point "
+                f"band."
             )
+        info = np.iinfo(dtype)
+        raise ValueError(
+            f"fill_value={fill_value!r} is not representable in the band "
+            f"dtype {dtype.name} (whole numbers in [{info.min}, "
+            f"{info.max}])."
+        )
 
 
 class IO(_Engine):
@@ -255,8 +281,9 @@ class IO(_Engine):
             boundless (bool, keyword-only):
                 Allow the window to extend past the raster extent. The output
                 keeps the full requested window shape; pixels outside the
-                raster are set to `fill_value` (or the band's no-data value,
-                or the dtype zero — in that precedence). Requires a pixel
+                raster are set to `fill_value`, else the band's no-data value
+                when it is representable in the band dtype, else the dtype zero
+                (in that precedence). Requires a pixel
                 window (:class:`~pyramids.dataset.window.Window` or the
                 x-first list form); geometry windows are clipped by
                 definition and raise :class:`ValueError`. Default `False`
@@ -464,6 +491,29 @@ class IO(_Engine):
                 "yet. Read boundless at native resolution and decimate the "
                 "result yourself."
             )
+        if boundless and threadsafe:
+            raise NotImplementedError(
+                "read_array(boundless=True) is not supported together with "
+                "threadsafe=True; the boundless read uses the shared handle, "
+                "defeating the per-thread isolation. Read boundless without "
+                "threadsafe, or pad the result yourself."
+            )
+        if out_shape is not None and threadsafe:
+            raise NotImplementedError(
+                "read_array(out_shape=...) is not supported together with "
+                "threadsafe=True; the decimated read uses the shared handle, "
+                "defeating the per-thread isolation. Read decimated without "
+                "threadsafe, or decimate a threadsafe full read yourself."
+            )
+        if (
+            out_shape is None
+            and isinstance(resampling, str)
+            and (resampling.strip().lower() != "nearest")
+        ):
+            raise ValueError(
+                "read_array(resampling=...) only applies to out_shape reads; "
+                "pass out_shape=(rows, cols) as well."
+            )
         if bbox is not None:
             if window is not None:
                 raise ValueError(
@@ -616,11 +666,12 @@ class IO(_Engine):
             np.ndarray: The requested pixels.
 
         Raises:
-            ValueError: `band` is out of range, `window` is not a list
-                of 4 integers, the dataset has no reopenable path, or the
-                dataset has been closed (a read here would silently
-                re-open per-thread handles that :meth:`Dataset.close`
-                just released, re-locking the file).
+            ValueError: `band` is out of range, `window` is not a
+                :class:`~pyramids.dataset.window.Window`, a list of 4
+                integers, or a ``GeoDataFrame``, the dataset has no
+                reopenable path, or the dataset has been closed (a read here
+                would silently re-open per-thread handles that
+                :meth:`Dataset.close` just released, re-locking the file).
             OutOfBoundsError: `window` falls outside the raster.
         """
         if self._ds._raster is None:
@@ -631,10 +682,21 @@ class IO(_Engine):
         _validate_band_index(band, self._ds.band_count)
         if isinstance(window, GeoDataFrame):
             window = self._convert_polygon_to_window(window)
+        if isinstance(window, Window):
+            # Accept the first-class Window like every other read path does.
+            window = list(window.to_read_args())
         if window is not None and not isinstance(window, (list, tuple)):
             # Same contract as the default path's _read_block.
             raise ValueError(
-                f"window must be a list of 4 integers, got {type(window)}"
+                f"window must be a Window or a list of 4 integers, "
+                f"got {type(window)}"
+            )
+        if window is not None and len(window) != 4:
+            # Catch a wrong-length sequence here, before _read_via_handle splats
+            # it into ReadAsArray and produces an opaque GDAL arity error.
+            raise ValueError(
+                f"window must be a list of 4 integers [xoff, yoff, xsize, ysize], "
+                f"got {len(window)}: {window}"
             )
         handle = self._get_thread_manager().acquire()
         try:
@@ -657,12 +719,25 @@ class IO(_Engine):
 
         Returns:
             ThreadLocalFileManager: The manager cached on the Dataset.
+
+        Raises:
+            ValueError: The Dataset was closed; building a manager now would
+                re-open per-thread handles that :meth:`Dataset.close` just
+                released, re-locking the file.
         """
         manager = getattr(self._ds, "_thread_manager", None)
         if manager is None:
             with _THREAD_MANAGER_CREATION_LOCK:
                 manager = getattr(self._ds, "_thread_manager", None)
                 if manager is None:
+                    # Re-check under the lock: if close() nulled _raster after
+                    # the caller's own guard, do not re-cache a manager (which
+                    # would re-open and re-lock the file post-close).
+                    if self._ds._raster is None:
+                        raise ValueError(
+                            "read_array(threadsafe=True) on a closed Dataset; "
+                            "re-open it with Dataset.read_file first."
+                        )
                     manager = ThreadLocalFileManager(
                         gdal_raster_open,
                         self._require_reopenable_path(),
@@ -702,9 +777,7 @@ class IO(_Engine):
                 )
         else:
             effective_band = 0 if band is None else band
-            arr = handle.GetRasterBand(effective_band + 1).ReadAsArray(
-                *window_args
-            )
+            arr = handle.GetRasterBand(effective_band + 1).ReadAsArray(*window_args)
         return arr
 
     def _to_masked(
@@ -738,6 +811,10 @@ class IO(_Engine):
         Returns:
             np.ma.MaskedArray: ``arr`` with invalid pixels masked.
         """
+        if isinstance(window, Window):
+            # _band_mask slices the mask band with window[0..3]; a Window is not
+            # subscriptable, so normalize it to a pixel list first (mirrors _read_block).
+            window = list(window.to_read_args())
         if isinstance(window, GeoDataFrame):
             window = self._convert_polygon_to_window(window)
         if arr.ndim == 2:
@@ -747,8 +824,7 @@ class IO(_Engine):
             indices = list(range(arr.shape[0]))
             slices = [arr[i] for i in indices]
         masks = [
-            self._band_mask(index, data, window)
-            for index, data in zip(indices, slices)
+            self._band_mask(index, data, window) for index, data in zip(indices, slices)
         ]
         full_mask = masks[0] if arr.ndim == 2 else np.stack(masks, axis=0)
         return np.ma.MaskedArray(arr, mask=full_mask)
@@ -761,11 +837,11 @@ class IO(_Engine):
     ) -> np.ndarray:
         """Build the invalid-pixel mask for one band of an eager read.
 
-        Combines the no-data comparison (NaN-safe via
-        :func:`pyramids.base._domain.is_no_data`) with the band's GDAL
-        mask band (alpha / internal masks). ``GMF_NODATA``-derived mask
-        bands are skipped — they duplicate the no-data comparison
-        already applied.
+        Combines the no-data comparison (exact equality on integer bands;
+        near-exact and NaN-safe via :func:`pyramids.base._domain.is_no_data`
+        with ``rtol=0`` on float bands) with the band's GDAL mask band
+        (alpha / internal masks). ``GMF_NODATA``-derived mask bands are
+        skipped — they duplicate the no-data comparison already applied.
 
         Args:
             index: Zero-based band index.
@@ -783,8 +859,18 @@ class IO(_Engine):
             # None as a NaN sentinel, which would wrongly mask valid NaNs
             # on bands that never declared a no-data value.)
             mask = np.zeros(data.shape, dtype=bool)
+        elif data.dtype.kind in "iu":
+            # Integer bands: exact equality. The default fuzzy is_no_data
+            # tolerance (rtol=0.001) would mask valid pixels within 0.1% of a
+            # large sentinel (e.g. -9990 next to a -9999 marker).
+            mask = data == nodata
         else:
-            mask = is_no_data(data, nodata)
+            # Float bands: keep NaN-safety but drop the *relative* tolerance so
+            # values merely close to a large sentinel are not masked. Note this
+            # still applies np.isclose's default absolute tolerance (atol=1e-8),
+            # i.e. near-exact (not bit-exact) matching — fine for real sentinels
+            # (-9999.0, NaN); pass atol=0.0 if bit-exact float masking is needed.
+            mask = is_no_data(data, nodata, rtol=0.0)
         gdal_band = self._ds._iloc(index)
         if gdal_band.GetMaskFlags() not in (gdal.GMF_ALL_VALID, gdal.GMF_NODATA):
             mask_band = gdal_band.GetMaskBand()
@@ -885,12 +971,15 @@ class IO(_Engine):
         # to the outer `with effective_lock` in _io_module._read_chunk.
         if threadsafe:
             # One read-only handle per worker thread: chunk reads never
-            # contend, so lock=None resolved to DummyLock above.
-            manager: Any = ThreadLocalFileManager(
-                gdal_raster_open,
-                self._require_reopenable_path(),
-                "read_only",
-            )
+            # contend, so lock=None resolved to DummyLock above. Reuse the
+            # Dataset-cached manager so Dataset.close() can release the worker
+            # handles — a fresh manager here would leak its per-thread handles
+            # past close(). NOTE: this release reaches only handles opened in
+            # *this* process (the default threaded scheduler). Under
+            # dask.distributed the manager is pickled to each worker process
+            # with a fresh handle list, so client-side close() cannot reach
+            # those remote handles; they are released at worker-process exit.
+            manager: Any = self._get_thread_manager()
         else:
             manager = CachingFileManager(
                 gdal_raster_open,
@@ -1042,8 +1131,9 @@ class IO(_Engine):
 
         The output always has the full requested window shape. The part of the
         window inside the raster is read normally; everything outside is set
-        to ``fill_value`` (or, when that is ``None``, the band's no-data value,
-        falling back to the dtype's zero when no marker is set).
+        to ``fill_value`` (or, when that is ``None``, the band's no-data value
+        when it fits the band dtype, falling back to the dtype's zero otherwise
+        — e.g. a float ``-9999`` marker on a ``uint8`` band).
 
         Args:
             band: Band index, or ``None`` for all bands.
@@ -1051,7 +1141,8 @@ class IO(_Engine):
                 :class:`~pyramids.dataset.window.Window` or the x-first list
                 form.
             fill_value: Explicit fill for outside pixels; ``None`` defers to
-                the band's no-data value, then to the dtype zero.
+                the band's no-data value when it is representable in the band
+                dtype, otherwise to the dtype zero.
 
         Returns:
             np.ndarray: ``(rows, cols)`` for a single band, ``(bands, rows,
@@ -1066,19 +1157,21 @@ class IO(_Engine):
             window = Window(int(col_off), int(row_off), int(cols), int(rows))
         _validate_band_index(band, self._ds.band_count)
         all_bands = band is None and self._ds.band_count > 1
-        band_indices = (
-            list(range(self._ds.band_count)) if all_bands else [band or 0]
-        )
+        band_indices = list(range(self._ds.band_count)) if all_bands else [band or 0]
         raster_window = Window(0, 0, self._ds.columns, self._ds.rows)
         inside = window.intersection(raster_window)
         planes = []
         for index in band_indices:
             dtype = np.dtype(self._ds.numpy_dtype[index])
+            marker = self._ds.no_data_value[index]
             if fill_value is not None:
                 _validate_fill_value(fill_value, dtype)
                 fill = fill_value
-            elif self._ds.no_data_value[index] is not None:
-                fill = self._ds.no_data_value[index]
+            elif marker is not None and _fill_value_fits(marker, dtype):
+                # Use the band's no-data marker only when it fits the dtype;
+                # a float marker like -9999.0 on a uint8 band would otherwise
+                # wrap silently, so fall through to the dtype zero instead.
+                fill = marker
             else:
                 fill = 0
             plane = np.full(window.shape, fill, dtype=dtype)
@@ -1270,6 +1363,12 @@ class IO(_Engine):
                     DeprecationWarning,
                     stacklevel=3,
                 )
+                if not isinstance(window, (list, tuple)) or len(window) != 4:
+                    raise ValueError(
+                        "write_array window must be a Window or a "
+                        "(row_off, col_off, n_rows, n_cols) tuple of 4 integers, "
+                        f"got {window!r}."
+                    )
                 yoff, xoff, n_rows, n_cols = window
             if array.shape[-2:] != (n_rows, n_cols):
                 raise ValueError(
@@ -1598,8 +1697,13 @@ class IO(_Engine):
             or (drv.GetMetadataItem(gdal.DMD_EXTENSIONS) or "").split(" ")[0]
             or "bin"
         )
-        vsi_path = new_vsimem_path(f".{extension}")
-        stem = vsi_path.rsplit("/", 1)[1].rsplit(".", 1)[0]
+        # Write into a unique /vsimem/ subdirectory so sibling detection and
+        # cleanup are scoped to this call. A global /vsimem/ prefix scan is racy
+        # under concurrent serialization (another thread's path could share the
+        # prefix) and O(total vsimem files) on every call.
+        vsi_dir = new_vsimem_path("")
+        out_name = f"out.{extension}"
+        vsi_path = f"{vsi_dir}/{out_name}"
         options = [f"{key}={value}" for key, value in (creation_options or {}).items()]
         try:
             # strict=1 (the GDAL default): a driver that cannot represent the
@@ -1614,10 +1718,8 @@ class IO(_Engine):
             out = None
             siblings = [
                 name
-                for name in (gdal.ReadDir(_VSIMEM_PREFIX) or [])
-                if name.startswith(stem)
-                and f"{_VSIMEM_PREFIX}{name}" != vsi_path
-                and not name.endswith(".aux.xml")
+                for name in (gdal.ReadDir(vsi_dir) or [])
+                if name != out_name and not name.endswith(".aux.xml")
             ]
             if siblings:
                 raise ValueError(
@@ -1626,9 +1728,13 @@ class IO(_Engine):
                 )
             payload = read_vsi_bytes(vsi_path)
         finally:
-            for name in gdal.ReadDir(_VSIMEM_PREFIX) or []:
-                if name.startswith(stem):
-                    silent_unlink(f"{_VSIMEM_PREFIX}{name}")
+            # Best-effort cleanup: never let it mask a CreateCopy failure. The
+            # subdir may not exist if CreateCopy failed before writing anything,
+            # in which case RmdirRecursive raises — swallow only that.
+            try:
+                gdal.RmdirRecursive(vsi_dir)
+            except RuntimeError:
+                pass
         return payload
 
     def to_raster(
@@ -1692,7 +1798,7 @@ class IO(_Engine):
                 xsize = size if size + xoff <= cols else cols - xoff
                 yield xoff, yoff, xsize, ysize
 
-    def get_tile(self: Dataset, size=256) -> Generator[np.ndarray]:
+    def get_tile(self: Dataset, size=256) -> Generator[np.ndarray, None, None]:
         """Get tile.
 
         Args:

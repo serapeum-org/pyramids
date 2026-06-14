@@ -19,19 +19,6 @@ pytestmark = pytest.mark.core
 _GEOTRANSFORM = (0.0, 0.01, 0.0, 10.0, 0.0, -0.01)
 
 
-def _gtiff_supports(token: str) -> bool:
-    """Return whether the GDAL GTiff driver advertises a compression token.
-
-    Args:
-        token: Compression name (e.g. ``"ZSTD"``).
-
-    Returns:
-        bool: True when the build supports it.
-    """
-    meta = gdal.GetDriverByName("GTiff").GetMetadataItem("DMD_CREATIONOPTIONLIST")
-    return token in (meta or "")
-
-
 @pytest.fixture
 def float_dataset() -> Dataset:
     """A 64x64 Float32 Dataset on EPSG:4326.
@@ -138,10 +125,8 @@ class TestToCogProfile:
             tmp_path: pytest temp directory.
 
         Test scenario:
-            The written COG's compression is ZSTD (skipped if unsupported).
+            The written COG's compression is ZSTD.
         """
-        if not _gtiff_supports("ZSTD"):
-            pytest.skip("GDAL build lacks ZSTD")
         out = float_dataset.to_cog(tmp_path / "z.tif", profile="zstd")
         assert _compression(out) == "ZSTD", "profile should set ZSTD compression"
 
@@ -210,4 +195,6 @@ class TestToCogProfile:
             profile='deflate' yields a valid COG.
         """
         out = float_dataset.to_cog(tmp_path / "d.tif", profile="deflate")
-        assert Dataset.read_file(str(out)).validate_cog().is_valid, "profile COG invalid"
+        assert (
+            Dataset.read_file(str(out)).validate_cog().is_valid
+        ), "profile COG invalid"

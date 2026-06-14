@@ -89,12 +89,12 @@ class TestInterpolationMethodsRegistry:
             The registry never references a missing constant (import-safe on
             older GDAL) and never silently drops one that exists.
         """
-        assert ("sum" in INTERPOLATION_METHODS) == hasattr(gdal, "GRA_Sum"), (
-            "'sum' registration must track gdal.GRA_Sum availability"
-        )
-        assert ("rms" in INTERPOLATION_METHODS) == hasattr(gdal, "GRA_RMS"), (
-            "'rms' registration must track gdal.GRA_RMS availability"
-        )
+        assert ("sum" in INTERPOLATION_METHODS) == hasattr(
+            gdal, "GRA_Sum"
+        ), "'sum' registration must track gdal.GRA_Sum availability"
+        assert ("rms" in INTERPOLATION_METHODS) == hasattr(
+            gdal, "GRA_RMS"
+        ), "'rms' registration must track gdal.GRA_RMS availability"
 
 
 class TestResolveResampling:
@@ -106,9 +106,9 @@ class TestResolveResampling:
         Test scenario:
             ``" Lanczos "`` resolves despite case and padding.
         """
-        assert resolve_resampling(" Lanczos ") == gdal.GRA_Lanczos, (
-            "resolver must normalise case/whitespace"
-        )
+        assert (
+            resolve_resampling(" Lanczos ") == gdal.GRA_Lanczos
+        ), "resolver must normalise case/whitespace"
 
     def test_unknown_method_raises_with_valid_names(self):
         """An unsupported name raises ValueError listing valid names.
@@ -119,9 +119,24 @@ class TestResolveResampling:
         """
         with pytest.raises(ValueError, match="does not exist") as exc:
             resolve_resampling("sinc")
-        assert "bilinear" in str(exc.value), (
-            f"error should list valid methods, got: {exc.value}"
-        )
+        assert "bilinear" in str(
+            exc.value
+        ), f"error should list valid methods, got: {exc.value}"
+
+    def test_version_gated_method_names_the_gdal_requirement(self, monkeypatch):
+        """A version-gated method missing on the build names the GDAL version (N4).
+
+        Test scenario:
+            Simulate an older GDAL without ``GRA_Sum`` by removing ``"sum"`` from
+            the registry; resolving it must mention the GDAL version requirement,
+            not the generic "does not exist" listing.
+        """
+        monkeypatch.delitem(INTERPOLATION_METHODS, "sum", raising=False)
+        with pytest.raises(ValueError, match="requires GDAL >= 3.1") as exc:
+            resolve_resampling("sum")
+        assert "GRA_Sum" in str(
+            exc.value
+        ), f"message should name the constant: {exc.value}"
 
     @pytest.mark.parametrize("bad_method", [3, None, b"bilinear"])
     def test_non_string_raises_type_error(self, bad_method):
@@ -154,9 +169,10 @@ class TestResampleAllMethods:
         """
         src = _checkerboard_dataset(8)
         dst = src.resample(2.0, method=method)
-        assert (dst.rows, dst.columns) == (4, 4), (
-            f"{method}: expected 4x4 output, got {(dst.rows, dst.columns)}"
-        )
+        assert (dst.rows, dst.columns) == (
+            4,
+            4,
+        ), f"{method}: expected 4x4 output, got {(dst.rows, dst.columns)}"
 
     def test_average_differs_from_nearest_on_checkerboard(self):
         """``average`` aggregates 0/100 cells; ``nearest`` picks one of them.
@@ -169,10 +185,13 @@ class TestResampleAllMethods:
         src = _checkerboard_dataset(8)
         avg = src.resample(2.0, method="average").read_array()
         near = src.resample(2.0, method="nearest").read_array()
-        assert np.allclose(avg, 50.0), f"average of 0/100 checkerboard must be 50, got {avg}"
-        assert set(np.unique(near)) <= {0.0, 100.0}, (
-            f"nearest must keep original values, got {np.unique(near)}"
-        )
+        assert np.allclose(
+            avg, 50.0
+        ), f"average of 0/100 checkerboard must be 50, got {avg}"
+        assert set(np.unique(near)) <= {
+            0.0,
+            100.0,
+        }, f"nearest must keep original values, got {np.unique(near)}"
 
     def test_to_crs_accepts_new_method(self):
         """``to_crs`` accepts an expanded method name (``average``).
@@ -229,11 +248,15 @@ class TestMergeRastersNewMethods:
         """
         a = Dataset.create_from_array(
             np.full((4, 4), 10.0, dtype="float32"),
-            top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+            top_left_corner=(0, 4),
+            cell_size=1.0,
+            epsg=4326,
         )
         b = Dataset.create_from_array(
             np.full((4, 4), 20.0, dtype="float32"),
-            top_left_corner=(2, 4), cell_size=1.0, epsg=4326,
+            top_left_corner=(2, 4),
+            cell_size=1.0,
+            epsg=4326,
         )
         pa, pb = str(tmp_path / "a.tif"), str(tmp_path / "b.tif")
         a.to_file(pa)
@@ -292,9 +315,9 @@ class TestCogEngineResamplingNames:
         """
         with pytest.raises(ValueError, match="unknown resampling") as exc:
             ramp.read_part(tuple(ramp.bbox), bbox_crs=4326, resampling="Sinc")
-        assert "bilinear" in str(exc.value), (
-            f"error should list valid methods, got: {exc.value}"
-        )
+        assert "bilinear" in str(
+            exc.value
+        ), f"error should list valid methods, got: {exc.value}"
 
     def test_read_part_rejects_non_string_resampling(self, ramp):
         """``read_part`` raises TypeError for a non-string resampling.
@@ -322,9 +345,9 @@ class TestCogEngineResamplingNames:
             The guarded entries are present exactly when the constant exists,
             so imports never break on an older GDAL.
         """
-        assert ("gauss" in _RESAMPLING_ALG) == hasattr(gdal, "GRIORA_Gauss"), (
-            "'gauss' registration must track gdal.GRIORA_Gauss availability"
-        )
-        assert ("rms" in _RESAMPLING_ALG) == hasattr(gdal, "GRIORA_RMS"), (
-            "'rms' registration must track gdal.GRIORA_RMS availability"
-        )
+        assert ("gauss" in _RESAMPLING_ALG) == hasattr(
+            gdal, "GRIORA_Gauss"
+        ), "'gauss' registration must track gdal.GRIORA_Gauss availability"
+        assert ("rms" in _RESAMPLING_ALG) == hasattr(
+            gdal, "GRIORA_RMS"
+        ), "'rms' registration must track gdal.GRIORA_RMS availability"

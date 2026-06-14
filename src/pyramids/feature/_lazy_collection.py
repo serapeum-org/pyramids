@@ -7,7 +7,7 @@ Both classes satisfy the :class:`~pyramids.base.protocols.SpatialObject`
 protocol so consumers accept either via `isinstance(x, SpatialObject)`.
 
 Importing this module requires `dask-geopandas` to be installed (the
-`[parquet-lazy]` extra). The eager `FeatureCollection` is unaffected:
+`[parquet]` extra). The eager `FeatureCollection` is unaffected:
 its readers only import this module from inside the `backend='dask'`
 branch, so minimal installs never evaluate this file.
 """
@@ -67,7 +67,7 @@ class LazyFeatureCollection(dask_geopandas.GeoDataFrame):
     pre-built dask-geopandas frame.
 
     Note:
-        On installs without the `[parquet-lazy]` extra, importing this
+        On installs without the `[parquet]` extra, importing this
         class from :mod:`pyramids.feature` returns `None` (sentinel).
         Consumer code using `isinstance` must guard explicitly:
         `if LazyFeatureCollection is not None and isinstance(x, LazyFeatureCollection):...`.

@@ -88,6 +88,18 @@ class TestGeoTransform:
         with pytest.raises(TypeError, match=r"\(col, row\) pair"):
             _ = gt * 2
 
+    def test_mul_rejects_non_numeric_pair(self):
+        """A 2-element non-numeric pair raises a clear TypeError (N4)."""
+        gt = GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
+        with pytest.raises(TypeError, match=r"\(col, row\) pair"):
+            _ = gt * ("a", "b")
+
+    def test_mul_rejects_numeric_string_pair(self):
+        """A numeric-string pair is rejected, not coerced via float() (N2)."""
+        gt = GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
+        with pytest.raises(TypeError, match=r"\(col, row\) pair"):
+            _ = gt * ("2", "1")
+
     def test_rmul_rejects_tuple_repetition(self):
         """n * transform must not silently build a 12-element tuple."""
         gt = GeoTransform(0.0, 1.0, 0.0, 4.0, 0.0, -1.0)
@@ -168,6 +180,18 @@ class TestXY:
             (0.0, 4.0)
         ), "corner wrong"
 
+    def test_zero_d_array_input_is_scalar(self, unit_dataset):
+        """0-d numpy array input returns scalar coordinates, not lists (M3).
+
+        Test scenario:
+            ``np.isscalar(np.array(0))`` is False, so the old detection wrongly
+            returned ``([x], [y])`` for 0-d inputs. ``xy(np.array(0), ...)`` must
+            return the same scalars as ``xy(0, ...)``.
+        """
+        x, y = unit_dataset.xy(np.array(0), np.array(0))
+        assert (x, y) == pytest.approx((0.5, 3.5)), f"got {(x, y)}"
+        assert np.ndim(x) == 0 and np.ndim(y) == 0, "0-d input must yield scalars"
+
     @pytest.mark.parametrize(
         "rows, cols",
         [([0, 1], [0, 1]), (np.array([0, 1]), np.array([0, 1]))],
@@ -220,11 +244,23 @@ class TestRowCol:
         assert unit_dataset.rowcol(0.5, 3.5) == (0, 0), "top-left cell wrong"
         assert unit_dataset.rowcol(2.5, 1.5) == (2, 2), "interior cell wrong"
 
+    def test_zero_d_array_input_is_scalar(self, unit_dataset):
+        """0-d numpy array input returns scalar (row, col), not arrays (M3)."""
+        row, col = unit_dataset.rowcol(np.array(0.5), np.array(3.5))
+        assert (row, col) == (0, 0), f"got {(row, col)}"
+        assert np.ndim(row) == 0 and np.ndim(col) == 0, "0-d input must yield scalars"
+
     def test_vectorised(self, unit_dataset):
-        """Sequence input returns row/col arrays."""
+        """Sequence input returns row/col lists of ints, symmetric with xy (N2)."""
         rows, cols = unit_dataset.rowcol([0.5, 2.5], [3.5, 1.5])
-        assert rows.tolist() == [0, 2], f"rows wrong: {rows}"
-        assert cols.tolist() == [0, 2], f"cols wrong: {cols}"
+        assert rows == [0, 2], f"rows wrong: {rows}"
+        assert cols == [0, 2], f"cols wrong: {cols}"
+        assert isinstance(rows, list) and isinstance(
+            cols, list
+        ), "rowcol must return lists"
+        assert all(
+            isinstance(v, int) for v in rows + cols
+        ), "elements must be plain ints"
 
     def test_round_trip_through_xy(self, unit_dataset):
         """rowcol(xy(r, c)) returns (r, c) through cell centres."""

@@ -50,11 +50,11 @@ lazy = [
     "fsspec>=2024.1.0",
     "s3fs>=2024.1.0",
     "flox>=0.9.0",
+    # kerchunk + h5py for the NetCDF/HDF5 lazy (Zarr-reference) path.
+    "kerchunk>=0.2.10",
+    "h5py>=3.8.0",
 ]
-xarray = ["xarray>=2023.1.0"]
-netcdf-lazy = ["pyramids-gis[lazy]", "kerchunk>=0.2.10", "h5py>=3.8.0"]
-parquet = ["pyarrow>=10.0.0"]
-parquet-lazy = ["pyramids-gis[lazy,parquet]", "dask-geopandas>=0.5.0"]
+parquet = ["pyarrow>=10.0.0", "pyramids-gis[lazy]", "dask-geopandas>=0.5.0"]
 stac = ["pystac-client>=0.8.0", "stac-asset>=0.4.7"]
 
 [dependency-groups]
@@ -75,7 +75,8 @@ dev = [
     "commitizen>=4.8.4",
     "mypy>=1.10.0",
     "types-PyYAML>=6.0.0",
-    "pytest-mock>=3.12.0"
+    "pytest-mock>=3.12.0",
+    "pytest-timeout>=2.3.0"
 ]
 docs = [
     "mkdocs >=1.5.3",
@@ -216,6 +217,12 @@ style = [
 env = ["MPLBACKEND=Agg"]
 pythonpath = ["src"]
 testpaths = ["tests"]
+# Fail (don't hang) on a stuck test: pytest-timeout aborts any single test that runs
+# longer than `timeout` and prints its stack; `faulthandler_timeout` (stdlib) dumps an
+# earlier all-thread traceback for diagnosis. A flaky kerchunk/fsspec read in the
+# xarray suite hung CI for ~35 min; no legitimate test in this suite is this slow.
+timeout = 300
+faulthandler_timeout = 120
 markers = [
     "vfs: mark a test as a virtual file system (deselect with '-m \"not vfs\"')",
     "slow: mark test as slow (deselect with '-m \"not slow\"')",
@@ -227,10 +234,10 @@ markers = [
     # ``tests/_marks.py`` + ``pytest_collection_modifyitems``. ``viz`` is
     # spelled ``plot`` above; don't register a duplicate.
     "lazy: tests requiring the [lazy] extra (dask, distributed, zarr, fsspec, flox)",
-    "xarray: tests requiring the [xarray] extra (xarray)",
-    "netcdf_lazy: tests requiring the [netcdf-lazy] extra (kerchunk, h5py, + lazy)",
+    "xarray: tests requiring xarray (a peer interop dep; `pip install xarray`)",
+    "netcdf_lazy: tests requiring kerchunk + h5py (now part of the [lazy] extra)",
     "parquet: tests requiring the [parquet] extra (pyarrow)",
-    "parquet_lazy: tests requiring the [parquet-lazy] extra (dask-geopandas, + parquet, + lazy)",
+    "parquet_lazy: tests requiring dask-geopandas (now part of the [parquet] extra)",
     "stac: tests requiring the [stac] extra (pystac-client)",
 ]
 
@@ -260,10 +267,9 @@ mypy = { cmd = "mypy", description = "Run mypy type checking" }
 # Every env lists the shared `gdal` feature so the single GDAL pin reaches all of
 # them, incl. no-default-feature wheel-build. tests/test_gdal_pin.py enforces it.
 default = {features = ["gdal", "viz"], solve-group = "default" }
-dev = { features = ["gdal", "viz", "dev", "xarray", "lazy", "stac", "netcdf-lazy", "parquet", "parquet-lazy"], solve-group = "default" }
-netcdf-lazy = { features = ["gdal", "viz", "dev", "lazy", "netcdf-lazy"], solve-group = "default" }
+dev = { features = ["gdal", "viz", "dev", "xarray", "lazy", "stac", "parquet"], solve-group = "default" }
+lazy = { features = ["gdal", "viz", "dev", "lazy"], solve-group = "default" }
 parquet = { features = ["gdal", "viz", "dev", "xarray", "lazy", "parquet"], solve-group = "default" }
-parquet-lazy = { features = ["gdal", "viz", "dev", "xarray", "lazy", "parquet", "parquet-lazy"], solve-group = "default" }
 notebook = { features = ["gdal", "viz", "notebook", "lazy"], solve-group = "default" }
 docs = { features = ["gdal", "docs"], solve-group = "docs" }
 # py3XX envs include `lazy` so the `xarray-tests` step has the xarray data stack
@@ -304,13 +310,12 @@ zarr = ">=3"
 fsspec = ">=2024.1.0"
 s3fs = ">=2024.1.0"
 flox = ">=0.9.0"
-
-# HDF5-linking libs must come from conda-forge to share the one HDF5 binary
-# libgdal-netcdf links against; PyPI h5py wheels bundle their own copy, which
-# DLL-shadows on Windows ("DLL load failed while importing defs") once two HDF5
-# backends load in-process. Only kerchunk needs h5py here (to walk HDF5 chunk
-# metadata) — the lazy NetCDF path itself is pure GDAL MDArray, no netCDF4/h5netcdf.
-[tool.pixi.feature.netcdf-lazy.dependencies]
+# kerchunk (+ h5py) for the NetCDF/HDF5 lazy Zarr-reference path. HDF5-linking
+# libs must come from conda-forge to share the one HDF5 binary libgdal-netcdf
+# links against; PyPI h5py wheels bundle their own copy, which DLL-shadows on
+# Windows ("DLL load failed while importing defs") once two HDF5 backends load
+# in-process. Only kerchunk needs h5py here (to walk HDF5 chunk metadata) — the
+# lazy NetCDF path itself is pure GDAL MDArray, no netCDF4/h5netcdf.
 kerchunk = ">=0.2.10"
 # h5py 3.16 moved to hdf5 2.x, but libgdal-netcdf still links hdf5 1.14.x.
 # Pin h5py to the last 1.14-compatible release so the whole env shares
@@ -324,12 +329,20 @@ hdf5 = "1.14.*"
 
 [tool.pixi.feature.parquet.dependencies]
 pyarrow = ">=10.0.0"
-
-[tool.pixi.feature.parquet-lazy.dependencies]
+# dask-geopandas powers the lazy LazyFeatureCollection / GeoParquet path; it ships
+# in the [parquet] extra alongside pyarrow (the lazy dask/zarr stack comes via [lazy]).
 dask-geopandas = ">=0.5.0"
 
 [tool.pixi.feature.stac.dependencies]
 pystac-client = ">=0.8.0"
+
+# xarray is intentionally NOT a [project.optional-dependencies] extra: pyramids is
+# GDAL-backed, not xarray-backed, so xarray is a peer for the to_xarray / from_xarray /
+# to_netcdf interop helpers only — install it directly (`pip install xarray`) when you
+# want them. This pixi feature exists solely so the dev / CI environments have xarray to
+# exercise those code paths; it does not surface a user-facing extra or conda subpackage.
+[tool.pixi.feature.xarray.pypi-dependencies]
+xarray = ">=2023.1.0"
 
 # Single source of truth for the conda GDAL pin (SWIG osgeo bindings are ABI-locked to
 # libgdal). Listed by every environment; ci/gdal-pin.py and ci/setup-gdal-micromamba.sh

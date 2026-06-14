@@ -6,8 +6,6 @@ parsing, and CRS detection using the UGRID convention NC test file.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 from osgeo import gdal
@@ -143,12 +141,7 @@ class TestParseUgridTopology:
             without mesh_topology — should return [].
         """
         nc_path = "tests/data/netcdf/noah-precipitation-1979.nc"
-        if not Path(nc_path).exists():
-            pytest.skip("Noah NetCDF test file not available")
-
         ds = gdal.OpenEx(str(nc_path), gdal.OF_MULTIDIM_RASTER)
-        if ds is None:
-            pytest.skip("Cannot open Noah NetCDF as MDIM")
         rg = ds.GetRootGroup()
         topologies = parse_ugrid_topology(rg)
         assert topologies == [], f"Expected empty list, got {topologies}"

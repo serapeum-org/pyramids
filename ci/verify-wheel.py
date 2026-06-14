@@ -33,14 +33,23 @@ import tempfile
 import textwrap
 from pathlib import Path
 
+# `import pyramids` runs the vendor bootstrap in pyramids/__init__.py, which injects
+# pyramids/_vendor/osgeo onto sys.path. It MUST precede `import osgeo`, so the order is
+# pinned against isort's first-party regrouping (profile=black would otherwise float
+# `import pyramids` below the third-party osgeo block and break the bare osgeo import).
+# isort: off
 import pyramids
 import osgeo
 from osgeo import gdal, ogr, osr  # noqa: F401 — ogr import is a smoke test
 
+# isort: on
+
 # Stable, valid-TLS HTTPS endpoint for the CA-trust check. Small text
 # file (not a raster) — VSIFOpenL forces the curl TLS handshake + CA
 # load without needing a valid GeoTIFF on the far end.
-_TLS_PROBE_URL = "/vsicurl/https://raw.githubusercontent.com/OSGeo/gdal/master/LICENSE.TXT"
+_TLS_PROBE_URL = (
+    "/vsicurl/https://raw.githubusercontent.com/OSGeo/gdal/master/LICENSE.TXT"
+)
 # Substrings that mark a CA / trust-store failure (the #412 bug) rather
 # than a generic network problem (timeout, DNS, offline runner).
 _CA_ERROR_MARKERS = ("trust anchors", "cacert", "ca cert", "certificate", "ssl")
@@ -93,11 +102,15 @@ def _check_tls_read() -> None:
     """
     ca_bundle = Path(pyramids.__file__).parent / "_data" / "ssl" / "cacert.pem"
     if not ca_bundle.is_file():
-        _fail(f"bundled wheel is missing {ca_bundle} — CA bundle not vendored (issue #412)")
+        _fail(
+            f"bundled wheel is missing {ca_bundle} — CA bundle not vendored (issue #412)"
+        )
     cainfo = os.environ.get("GDAL_HTTP_CAINFO")
     print(f"GDAL_HTTP_CAINFO: {cainfo}")
     if cainfo != str(ca_bundle):
-        _fail(f"GDAL_HTTP_CAINFO={cainfo!r} not pointed at bundled cert {ca_bundle} (issue #412)")
+        _fail(
+            f"GDAL_HTTP_CAINFO={cainfo!r} not pointed at bundled cert {ca_bundle} (issue #412)"
+        )
 
     gdal.UseExceptions()
     gdal.SetConfigOption("GDAL_HTTP_TIMEOUT", "30")
@@ -167,7 +180,9 @@ def _check_netcdf_driver() -> None:
     """
     plugins = Path(pyramids.__file__).parent / "_data" / "gdalplugins"
     if not plugins.is_dir():
-        _fail(f"bundled wheel is missing {plugins} — driver plugins not vendored (#465)")
+        _fail(
+            f"bundled wheel is missing {plugins} — driver plugins not vendored (#465)"
+        )
 
     gdal.UseExceptions()
     drv = gdal.GetDriverByName("netCDF")
@@ -179,8 +194,7 @@ def _check_netcdf_driver() -> None:
     bogus = tempfile.mkdtemp(prefix="bogus-gdalplugins-")
     env = dict(os.environ)
     env["GDAL_DRIVER_PATH"] = bogus
-    child = textwrap.dedent(
-        """
+    child = textwrap.dedent("""
         import os, sys, tempfile
         import pyramids
         from osgeo import gdal
@@ -200,10 +214,13 @@ def _check_netcdf_driver() -> None:
         print("CHILD_OK final_path=%s" % os.environ.get("GDAL_DRIVER_PATH"))
         sys.stdout.flush()
         os._exit(0)
-        """
-    )
+        """)
     result = subprocess.run(
-        [sys.executable, "-c", child], env=env, capture_output=True, text=True, timeout=180
+        [sys.executable, "-c", child],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
     )
     out = (result.stdout + result.stderr).strip()
     print(f"netCDF override child rc={result.returncode}")
@@ -215,10 +232,16 @@ def _check_netcdf_driver() -> None:
     # CHILD_OK present is a teardown artifact, not a #465 regression. A crash
     # *before* CHILD_OK leaves the marker absent and still fails here.
     if "CHILD_OK" not in result.stdout:
-        _fail(f"netCDF driver lost under a foreign GDAL_DRIVER_PATH — #465 fix not effective:\n{out}")
+        _fail(
+            f"netCDF driver lost under a foreign GDAL_DRIVER_PATH — #465 fix not effective:\n{out}"
+        )
     if bogus in result.stdout:
-        _fail(f"GDAL_DRIVER_PATH still points at the foreign dir {bogus!r} — #465 fix not effective")
-    print("netCDF override OK — bundled driver wins over a foreign GDAL_DRIVER_PATH (#465).")
+        _fail(
+            f"GDAL_DRIVER_PATH still points at the foreign dir {bogus!r} — #465 fix not effective"
+        )
+    print(
+        "netCDF override OK — bundled driver wins over a foreign GDAL_DRIVER_PATH (#465)."
+    )
 
 
 _check_netcdf_driver()

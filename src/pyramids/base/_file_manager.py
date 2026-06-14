@@ -572,6 +572,14 @@ class ThreadLocalFileManager(FileManager):
         self._access = access
         self._kwargs = dict(kwargs or {})
         self._local = threading.local()
+        # Every opened handle is tracked here so close() can release the ones
+        # other threads opened (threading.local storage is unreachable from the
+        # closing thread). The generation counter lets a thread whose handle was
+        # closed by close() reopen on its next acquire() instead of reusing a
+        # now-dead handle.
+        self._handles_lock = threading.Lock()
+        self._handles: list[Any] = []
+        self._generation = 0
 
     def __getstate__(self) -> tuple:
         return (self._opener, self._path, self._access, self._kwargs)
@@ -581,11 +589,15 @@ class ThreadLocalFileManager(FileManager):
         self.__init__(opener, path, access, kwargs)
 
     def acquire(self) -> Any:
-        """Return this thread's handle, opening one on first call."""
-        handle = getattr(self._local, "handle", None)
-        if handle is None:
-            handle = self._opener(self._path, self._access, **self._kwargs)
-            self._local.handle = handle
+        """Return this thread's handle, opening one on first call (or after close)."""
+        entry = getattr(self._local, "entry", None)
+        if entry is not None and entry[1] == self._generation:
+            return entry[0]
+        handle = self._opener(self._path, self._access, **self._kwargs)
+        with self._handles_lock:
+            self._handles.append(handle)
+            generation = self._generation
+        self._local.entry = (handle, generation)
         return handle
 
     @contextmanager
@@ -594,11 +606,15 @@ class ThreadLocalFileManager(FileManager):
         yield self.acquire()
 
     def close(self) -> None:
-        """Close this thread's handle (does not affect other threads)."""
-        handle = getattr(self._local, "handle", None)
-        if handle is not None:
+        """Close every open handle across all threads and reset for reuse."""
+        with self._handles_lock:
+            handles, self._handles = self._handles, []
+            self._generation += 1
+        for handle in handles:
             _close_handle(None, handle)
-            self._local.handle = None
+        # Drop the calling thread's cached entry; other threads reopen on their
+        # next acquire() because the generation no longer matches.
+        self._local.entry = None
 
 
 def _close_all_cached_handles() -> None:  # pragma: no cover - invoked at exit

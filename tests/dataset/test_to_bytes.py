@@ -8,6 +8,8 @@ validation, creation options, `/vsimem/` hygiene, and
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 import pytest
 from osgeo import gdal
@@ -73,6 +75,29 @@ class TestReadVsiBytes:
         finally:
             gdal.Unlink(path)
 
+    def test_short_read_raises(self, monkeypatch):
+        """A truncated VSIFReadL raises OSError, not a corrupt buffer (L8).
+
+        Test scenario:
+            VSIFReadL can return fewer bytes than the file holds without raising;
+            the helper must detect the short read and fail loudly rather than
+            return a truncated payload.
+        """
+        path = new_vsimem_path(".bin")
+        gdal.FileFromMemBuffer(path, b"payload-bytes")
+        real_read = gdal.VSIFReadL
+        monkeypatch.setattr(
+            gdal,
+            "VSIFReadL",
+            lambda size, count, handle: (real_read(size, count, handle) or b"")[:3],
+        )
+        try:
+            with pytest.raises(OSError, match="short read"):
+                read_vsi_bytes(path)
+        finally:
+            monkeypatch.undo()
+            gdal.Unlink(path)
+
 
 class TestToBytes:
     """Tests for Dataset.to_bytes."""
@@ -87,16 +112,17 @@ class TestToBytes:
         payload = ramp_dataset.to_bytes()
         restored = Dataset.from_bytes(payload)
         np.testing.assert_array_equal(
-            restored.read_array(), ramp_dataset.read_array(),
+            restored.read_array(),
+            ramp_dataset.read_array(),
             err_msg="array must survive the bytes round-trip",
         )
-        assert restored.geotransform == pytest.approx(ramp_dataset.geotransform), (
-            "geotransform changed"
-        )
+        assert restored.geotransform == pytest.approx(
+            ramp_dataset.geotransform
+        ), "geotransform changed"
         assert restored.epsg == 4326, f"CRS lost: {restored.epsg}"
-        assert restored.no_data_value[0] == pytest.approx(-9999.0), (
-            f"nodata lost: {restored.no_data_value}"
-        )
+        assert restored.no_data_value[0] == pytest.approx(
+            -9999.0
+        ), f"nodata lost: {restored.no_data_value}"
 
     def test_payload_is_a_tiff_file(self, ramp_dataset):
         """The default payload carries TIFF magic bytes.
@@ -116,13 +142,15 @@ class TestToBytes:
         """
         flat = Dataset.create_from_array(
             np.zeros((64, 64), dtype="float32"),
-            top_left_corner=(0, 64), cell_size=1.0, epsg=4326,
+            top_left_corner=(0, 64),
+            cell_size=1.0,
+            epsg=4326,
         )
         compressed = flat.to_bytes(creation_options={"COMPRESS": "DEFLATE"})
         raw = flat.to_bytes()
-        assert len(compressed) < len(raw), (
-            f"deflate ({len(compressed)}) should beat raw ({len(raw)}) on zeros"
-        )
+        assert len(compressed) < len(
+            raw
+        ), f"deflate ({len(compressed)}) should beat raw ({len(raw)}) on zeros"
 
     def test_png_driver(self):
         """A uint8 dataset serializes to a valid PNG payload.
@@ -133,13 +161,17 @@ class TestToBytes:
         """
         ds = Dataset.create_from_array(
             np.full((8, 8), 7, dtype="uint8"),
-            top_left_corner=(0, 8), cell_size=1.0, epsg=4326, no_data_value=255,
+            top_left_corner=(0, 8),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=255,
         )
         payload = ds.to_bytes(driver="PNG")
         assert payload[:4] == b"\x89PNG", f"not a PNG payload: {payload[:4]!r}"
         restored = Dataset.from_bytes(payload, suffix=".png")
         np.testing.assert_array_equal(
-            restored.read_array(), ds.read_array(),
+            restored.read_array(),
+            ds.read_array(),
             err_msg="PNG round-trip changed pixel values",
         )
 
@@ -207,6 +239,7 @@ class TestToBytes:
             The read-back step is forced to fail after the driver wrote the
             virtual file; the finally-cleanup must still unlink every entry.
         """
+
         def _boom(path):
             raise FileNotFoundError("forced read-back failure")
 
@@ -239,9 +272,41 @@ class TestToBytes:
         Test scenario:
             The facade is a pure delegation of the engine method.
         """
-        assert ramp_dataset.to_bytes() == ramp_dataset.io.to_bytes(), (
-            "facade and engine outputs differ"
-        )
+        assert (
+            ramp_dataset.to_bytes() == ramp_dataset.io.to_bytes()
+        ), "facade and engine outputs differ"
+
+    def test_concurrent_to_bytes_are_independent(self):
+        """Parallel to_bytes calls do not cross-contaminate (M2).
+
+        Test scenario:
+            Each call serializes into its own unique /vsimem/ subdirectory, so
+            eight threads each encoding a distinct constant raster must every one
+            round-trip back to its own values — a global prefix scan could have
+            unlinked or mis-detected another call's files.
+        """
+        datasets = [
+            Dataset.create_from_array(
+                np.full((4, 4), value, dtype="float32"),
+                top_left_corner=(0, 4),
+                cell_size=1.0,
+                epsg=4326,
+            )
+            for value in range(8)
+        ]
+        results: dict[int, bytes] = {}
+
+        def encode(i: int) -> None:
+            results[i] = datasets[i].to_bytes()
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(encode, range(8)))
+
+        for value, payload in results.items():
+            restored = Dataset.from_bytes(payload)
+            assert np.allclose(
+                restored.read_array(), float(value)
+            ), f"payload {value} did not round-trip to its own values"
 
 
 class TestToCogBytesStillWorks:
@@ -258,7 +323,8 @@ class TestToCogBytesStillWorks:
         assert payload[:4] in (b"II*\x00", b"MM\x00*"), "not a TIFF payload"
         restored = Dataset.from_bytes(payload)
         np.testing.assert_array_equal(
-            restored.read_array(), ramp_dataset.read_array(),
+            restored.read_array(),
+            ramp_dataset.read_array(),
             err_msg="COG bytes round-trip changed values",
         )
 
@@ -270,6 +336,7 @@ class TestToCogBytesStillWorks:
             must not replace the original exception with the RuntimeError that
             gdal.Unlink raises on a missing path under gdal.UseExceptions().
         """
+
         def _boom(self, path, **kwargs):
             raise ValueError("forced to_cog failure")
 

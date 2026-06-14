@@ -28,7 +28,9 @@ def single_target() -> Dataset:
     """
     arr = np.zeros((5, 5), dtype="int32")
     arr[2, 2] = 1
-    return Dataset.create_from_array(arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326)
+    return Dataset.create_from_array(
+        arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
+    )
 
 
 @pytest.fixture(scope="function")
@@ -41,7 +43,9 @@ def two_classes() -> Dataset:
     arr = np.zeros((5, 5), dtype="int32")
     arr[2, 2] = 1
     arr[0, 0] = 5
-    return Dataset.create_from_array(arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326)
+    return Dataset.create_from_array(
+        arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
+    )
 
 
 class TestProximity:
@@ -54,7 +58,9 @@ class TestProximity:
             Pixel (2,2) is the target, so its proximity is 0.
         """
         result = single_target.proximity(distance_units="PIXEL").read_array()
-        assert float(result[2, 2]) == 0.0, f"Target pixel should be 0, got {result[2, 2]}"
+        assert (
+            float(result[2, 2]) == pytest.approx(0.0)
+        ), f"Target pixel should be 0, got {result[2, 2]}"
 
     def test_euclidean_growth_pixel_units(self, single_target):
         """Distances grow Euclidean-ally outward in pixel units.
@@ -64,7 +70,9 @@ class TestProximity:
         """
         result = single_target.proximity(distance_units="PIXEL").read_array()
         assert float(result[2, 0]) == pytest.approx(2.0), f"Got {result[2, 0]}"
-        assert float(result[4, 4]) == pytest.approx(2 * math.sqrt(2)), f"Got {result[4, 4]}"
+        assert float(result[4, 4]) == pytest.approx(
+            2 * math.sqrt(2)
+        ), f"Got {result[4, 4]}"
 
     def test_geo_units_scale_by_cell_size(self):
         """GEO units multiply pixel distance by the cell size.
@@ -74,7 +82,9 @@ class TestProximity:
         """
         arr = np.zeros((5, 5), dtype="int32")
         arr[2, 2] = 1
-        ds = Dataset.create_from_array(arr, top_left_corner=(0, 10), cell_size=2.0, epsg=4326)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0, 10), cell_size=2.0, epsg=4326
+        )
         result = ds.proximity(distance_units="GEO").read_array()
         assert float(result[2, 0]) == pytest.approx(4.0), f"Got {result[2, 0]}"
 
@@ -85,9 +95,10 @@ class TestProximity:
             Both (2,2) and (0,0) are targets, so both read 0.
         """
         result = two_classes.proximity(distance_units="PIXEL").read_array()
-        assert float(result[2, 2]) == 0.0 and float(result[0, 0]) == 0.0, (
-            f"Both non-zero pixels should be targets, got {result[2, 2]} / {result[0, 0]}"
-        )
+        assert (
+            float(result[2, 2]) == pytest.approx(0.0)
+            and float(result[0, 0]) == pytest.approx(0.0)
+        ), f"Both non-zero pixels should be targets, got {result[2, 2]} / {result[0, 0]}"
 
     def test_target_values_selects_class(self, two_classes):
         """target_values restricts which pixel values count as targets.
@@ -96,10 +107,12 @@ class TestProximity:
             With target_values=[1] the value-5 pixel at (0,0) is NOT a target;
             its distance is measured to (2,2) = 2*sqrt2.
         """
-        result = two_classes.proximity(distance_units="PIXEL", target_values=[1]).read_array()
-        assert float(result[0, 0]) == pytest.approx(2 * math.sqrt(2)), (
-            f"(0,0) should measure to the value-1 target, got {result[0, 0]}"
-        )
+        result = two_classes.proximity(
+            distance_units="PIXEL", target_values=[1]
+        ).read_array()
+        assert float(result[0, 0]) == pytest.approx(
+            2 * math.sqrt(2)
+        ), f"(0,0) should measure to the value-1 target, got {result[0, 0]}"
 
     def test_max_distance_with_nodata_fill(self, single_target):
         """Pixels beyond max_distance are filled with nodata.
@@ -111,8 +124,12 @@ class TestProximity:
         result = single_target.proximity(
             distance_units="PIXEL", max_distance=1.0, nodata=-1
         ).read_array()
-        assert float(result[4, 4]) == -1.0, f"Far corner should be nodata -1, got {result[4, 4]}"
-        assert float(result[2, 1]) == pytest.approx(1.0), f"Adjacent cell should be 1, got {result[2, 1]}"
+        assert (
+            float(result[4, 4]) == -1.0
+        ), f"Far corner should be nodata -1, got {result[4, 4]}"
+        assert float(result[2, 1]) == pytest.approx(
+            1.0
+        ), f"Adjacent cell should be 1, got {result[2, 1]}"
 
     def test_nodata_tagged_on_band(self, single_target):
         """The nodata value is recorded on the output band.
@@ -121,7 +138,9 @@ class TestProximity:
             proximity(nodata=-1) yields a band reporting no-data -1.
         """
         result = single_target.proximity(nodata=-1)
-        assert result.no_data_value[0] == -1.0, f"Expected nodata -1, got {result.no_data_value[0]}"
+        assert (
+            result.no_data_value[0] == -1.0
+        ), f"Expected nodata -1, got {result.no_data_value[0]}"
 
     def test_output_is_float32_single_band(self, single_target):
         """The output is a single-band Float32 Dataset.
@@ -141,8 +160,13 @@ class TestProximity:
             Shape, geotransform, and EPSG match the source.
         """
         result = single_target.proximity()
-        assert (result.rows, result.columns) == (5, 5), f"Wrong shape: {result.rows}x{result.columns}"
-        assert result.geotransform == single_target.geotransform, "Geotransform not preserved"
+        assert (result.rows, result.columns) == (
+            5,
+            5,
+        ), f"Wrong shape: {result.rows}x{result.columns}"
+        assert (
+            result.geotransform == single_target.geotransform
+        ), "Geotransform not preserved"
         assert result.epsg == 4326, f"Expected EPSG 4326, got {result.epsg}"
 
     def test_band_selection(self):
@@ -156,9 +180,13 @@ class TestProximity:
         target = np.zeros((5, 5), dtype="int32")
         target[2, 2] = 1
         arr = np.stack([zeros, target])
-        ds = Dataset.create_from_array(arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326
+        )
         result = ds.proximity(band=1, distance_units="PIXEL").read_array()
-        assert float(result[2, 2]) == 0.0, f"Band-1 target should be 0, got {result[2, 2]}"
+        assert (
+            float(result[2, 2]) == pytest.approx(0.0)
+        ), f"Band-1 target should be 0, got {result[2, 2]}"
 
     def test_invalid_distance_units_raises(self, single_target):
         """An unknown distance_units value raises ValueError.

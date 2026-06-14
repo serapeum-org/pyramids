@@ -15,7 +15,7 @@ Two helpers:
   user-specified dimension (usually `"time"`).
 
 Kerchunk is not a hard dependency — it lives in the
-`[netcdf-lazy]` optional extra. Helpers raise a clear
+`[lazy]` optional extra. Helpers raise a clear
 :class:`ImportError` when kerchunk is missing.
 """
 
@@ -31,8 +31,8 @@ import numpy as np
 _KERCHUNK_IMPORT_ERROR = (
     "kerchunk is required for NetCDF → Zarr reference manifests. "
     "Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[netcdf-lazy]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-netcdf-lazy"
+    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
 )
 
 
@@ -54,7 +54,7 @@ def _scalar_fill_value_shim() -> Iterator[None]:
     actually call, restoring the originals in a ``finally`` so global state is
     never left modified.
     """
-    # Optional-dependency imports (kerchunk/zarr live in the [netcdf-lazy]
+    # Optional-dependency imports (kerchunk/zarr live in the [lazy]
     # extra); resolved lazily, mirroring _require_kerchunk_single below.
     modules: list[Any] = []
     try:
@@ -78,7 +78,11 @@ def _scalar_fill_value_shim() -> Iterator[None]:
     original = modules[0].encode_fill_value
 
     def _scalarized(value: Any, dtype: Any, object_codec: Any = None) -> Any:
-        if value is not None and getattr(value, "ndim", 0) and np.asarray(value).size == 1:
+        if (
+            value is not None
+            and getattr(value, "ndim", 0)
+            and np.asarray(value).size == 1
+        ):
             value = np.asarray(value).reshape(()).item()
         return original(value, dtype, object_codec)
 
@@ -139,7 +143,7 @@ def to_kerchunk(
 
     Examples:
         - Emit a manifest for one NetCDF file (requires the
-          `[netcdf-lazy]` extra):
+          `[lazy]` extra):
             ```python
             >>> from pathlib import Path  # doctest: +SKIP
             >>> from pyramids.netcdf._kerchunk import to_kerchunk  # doctest: +SKIP

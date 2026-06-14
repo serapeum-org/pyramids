@@ -23,10 +23,7 @@ def ugrid_convention_nc_path():
     Returns:
         Path: Absolute path to ugrid.nc.
     """
-    p = Path("tests/data/netcdf/ugrid/ugrid.nc")
-    if not p.exists():
-        pytest.skip("UGRID convention NC test file not available")
-    return p
+    return Path("tests/data/netcdf/ugrid/ugrid.nc")
 
 
 @pytest.fixture

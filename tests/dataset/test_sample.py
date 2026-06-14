@@ -69,7 +69,10 @@ class TestSample:
         """
         result = two_band.sample(inside_points)
         assert result.shape == (2, 2), f"Expected (2, 2), got {result.shape}"
-        assert result.tolist() == [[0.0, 12.0], [25.0, 37.0]], f"Wrong values: {result.tolist()}"
+        assert result.tolist() == [
+            [0.0, 12.0],
+            [25.0, 37.0],
+        ], f"Wrong values: {result.tolist()}"
 
     def test_single_band_is_1d(self, two_band, inside_points):
         """A single int band returns a flat (n_points,) array.
@@ -88,7 +91,10 @@ class TestSample:
             bands=[1, 0] returns band 1 first, then band 0.
         """
         result = two_band.sample(inside_points, bands=[1, 0])
-        assert result.tolist() == [[25.0, 37.0], [0.0, 12.0]], f"Wrong order/values: {result.tolist()}"
+        assert result.tolist() == [
+            [25.0, 37.0],
+            [0.0, 12.0],
+        ], f"Wrong order/values: {result.tolist()}"
 
     def test_out_of_bounds_nodata(self, two_band, mixed_points):
         """Default policy fills out-of-bounds points with the band no-data value.
@@ -125,7 +131,10 @@ class TestSample:
         """
         result = two_band.sample(mixed_points, bands=0, masked=True)
         assert np.ma.isMaskedArray(result), "Expected a masked array"
-        assert result.mask.tolist() == [False, True], f"Wrong mask: {result.mask.tolist()}"
+        assert result.mask.tolist() == [
+            False,
+            True,
+        ], f"Wrong mask: {result.mask.tolist()}"
         assert result[0] == 12.0, f"Inside value lost: {result[0]}"
 
     def test_masked_output_multiband(self, two_band, mixed_points):
@@ -136,9 +145,10 @@ class TestSample:
         """
         result = two_band.sample(mixed_points, masked=True)
         assert result.shape == (2, 2), f"Expected (2, 2), got {result.shape}"
-        assert result.mask.tolist() == [[False, True], [False, True]], (
-            f"Wrong mask: {result.mask.tolist()}"
-        )
+        assert result.mask.tolist() == [
+            [False, True],
+            [False, True],
+        ], f"Wrong mask: {result.mask.tolist()}"
 
     def test_int_band_without_nodata_promotes_to_float(self, mixed_points):
         """An int band with no no-data value fills out-of-bounds with NaN (float).
@@ -185,9 +195,9 @@ class TestSample:
         """
         sampled = two_band.sample(inside_points, bands=0)
         extracted = two_band.extract(band=0, mask=inside_points)
-        assert sampled.tolist() == extracted.tolist(), (
-            f"sample {sampled.tolist()} != extract {extracted.tolist()}"
-        )
+        assert (
+            sampled.tolist() == extracted.tolist()
+        ), f"sample {sampled.tolist()} != extract {extracted.tolist()}"
 
     def test_empty_band_list(self, two_band, inside_points):
         """An empty band list yields a (0, n_points) array.

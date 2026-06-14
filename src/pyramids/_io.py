@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import gzip
-import secrets
+import itertools
 import tarfile
 import time
 import warnings
@@ -30,14 +30,23 @@ _VSI_ARCHIVE_KINDS: dict[str, str] = {
     "gzip": "/vsigzip/",
 }
 
+# Process-wide monotonic counter guaranteeing `/vsimem/` path uniqueness.
+# `time.time_ns()` repeats within a clock tick (coarse on Windows), so a
+# strictly increasing counter — not entropy — is what makes successive
+# paths collision-proof within a process run. `next()` on an
+# itertools.count is atomic under the GIL.
+_VSIMEM_COUNTER = itertools.count()
+
 
 def new_vsimem_path(suffix: str = ".tif") -> str:
     """Return a fresh, unique GDAL ``/vsimem/`` path.
 
     Mirrors :func:`pyramids.feature._ogr._new_vsimem_path` but takes an
     arbitrary extension so the same scheme can back rasters, NetCDFs, or
-    anything else. The ``<time_ns>_<rand>`` body is collision-proof
-    within a single process run.
+    anything else. The ``<time_ns>_<counter>`` body is collision-proof
+    within a single process run: the strictly increasing counter
+    guarantees uniqueness even when ``time.time_ns()`` repeats within a
+    clock tick.
 
     Args:
         suffix: Extension to append (including the leading dot). Used by
@@ -45,7 +54,7 @@ def new_vsimem_path(suffix: str = ".tif") -> str:
             header. Defaults to ``".tif"``.
 
     Returns:
-        str: A ``/vsimem/<time>_<rand><suffix>`` path.
+        str: A ``/vsimem/<time>_<counter><suffix>`` path.
 
     Examples:
         - A path with no explicit suffix lives under ``/vsimem/`` and ends in ``.tif``:
@@ -77,7 +86,7 @@ def new_vsimem_path(suffix: str = ".tif") -> str:
         bytes_to_gdal: Uses this to back an in-memory dataset.
         silent_unlink: Removes the path once the dataset is gone.
     """
-    return f"/vsimem/{time.time_ns()}_{secrets.randbelow(1_000_000)}{suffix}"
+    return f"/vsimem/{time.time_ns()}_{next(_VSIMEM_COUNTER)}{suffix}"
 
 
 def silent_unlink(path: str) -> None:
@@ -140,6 +149,7 @@ def read_vsi_bytes(path: str) -> bytes:
     Raises:
         FileNotFoundError: The path cannot be opened (it does not exist or was
             already unlinked).
+        OSError: A short read returned fewer than the file's byte count.
 
     Examples:
         - Write a buffer to ``/vsimem/`` and read it back:
@@ -184,7 +194,15 @@ def read_vsi_bytes(path: str) -> bytes:
         data = gdal.VSIFReadL(1, size, handle) if size else b""
     finally:
         gdal.VSIFCloseL(handle)
-    return bytes(data)
+    payload = bytes(data)
+    if len(payload) != size:
+        # VSIFReadL can return fewer than `size` bytes without raising; fail
+        # loudly so a truncated serialization never returns a corrupt buffer.
+        raise OSError(
+            f"short read on VSI path {path!r}: expected {size} bytes, "
+            f"got {len(payload)}."
+        )
+    return payload
 
 
 def _is_zip(path: str):

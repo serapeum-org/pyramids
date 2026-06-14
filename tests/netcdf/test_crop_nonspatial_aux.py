@@ -93,7 +93,9 @@ class TestCropNonSpatialAux:
         assert "t2m" in cropped.variable_names, "spatial t2m should survive the crop"
         assert "number" in cropped.variable_names, "non-spatial aux should be carried"
         t2m = cropped.get_variable("t2m")
-        assert t2m.band_count == 4, f"4 valid_time bands should survive, got {t2m.band_count}"
+        assert (
+            t2m.band_count == 4
+        ), f"4 valid_time bands should survive, got {t2m.band_count}"
 
     def test_crop_carries_aux_values_unchanged(self):
         """The carried non-spatial variable keeps its raw values.
@@ -103,9 +105,12 @@ class TestCropNonSpatialAux:
         """
         cube = _era5_like_cube()
         cropped = cube.crop(mask=_MASK, touch=True)
-        assert list(_raw_values(cropped, "number")) == [0, 0, 1, 1], (
-            "carried aux values should be unchanged"
-        )
+        assert list(_raw_values(cropped, "number")) == [
+            0,
+            0,
+            1,
+            1,
+        ], "carried aux values should be unchanged"
 
     def test_crop_does_not_warn(self):
         """A cube with a carried aux variable crops without any skip/carry warning.
@@ -117,8 +122,14 @@ class TestCropNonSpatialAux:
         with warnings.catch_warnings(record=True) as records:
             warnings.simplefilter("always")
             cube.crop(mask=_MASK, touch=True)
-        noise = [r for r in records if "non-spatial" in str(r.message) or "carry" in str(r.message)]
-        assert not noise, f"unexpected skip/carry warning: {[str(r.message) for r in noise]}"
+        noise = [
+            r
+            for r in records
+            if "non-spatial" in str(r.message) or "carry" in str(r.message)
+        ]
+        assert (
+            not noise
+        ), f"unexpected skip/carry warning: {[str(r.message) for r in noise]}"
 
     def test_all_nonspatial_container_raises(self):
         """A container with no gridded variable raises a clear error.
@@ -141,21 +152,100 @@ class TestCropNonSpatialAux:
         cube = _era5_like_cube()
         reprojected = cube.to_crs(3857)
         assert "t2m" in reprojected.variable_names, "spatial t2m should be reprojected"
-        assert "number" in reprojected.variable_names, "non-spatial aux should be carried"
+        assert (
+            "number" in reprojected.variable_names
+        ), "non-spatial aux should be carried"
 
-    def test_reduce_also_carries_nonspatial_aux(self):
-        """``reduce`` (its own fan-out loop) tolerates the aux variable too.
+    def test_reduce_drops_aux_spanning_the_reduced_dim(self):
+        """reduce drops an aux variable that spans the reduced dim, with a warning (M5).
 
         Test scenario:
-            Reducing the time dimension of an ERA5-shaped cube reduces ``t2m``
-            and carries the non-spatial ``number`` through instead of crashing
-            in ``get_variable`` (the same #513 defect class).
+            ``number(valid_time)`` spans the reduced dimension; carrying it
+            verbatim would leave an inconsistent ``valid_time`` length while
+            ``t2m`` collapses it. reduce must drop the spanning aux and warn,
+            not produce a malformed container or crash in ``get_variable``.
         """
         cube = _era5_like_cube()
-        reduced = cube.reduce("valid_time", "mean")
+        with pytest.warns(UserWarning, match="span the reduced dimension"):
+            reduced = cube.reduce("valid_time", "mean")
         assert "t2m" in reduced.variable_names, "spatial t2m should be reduced"
-        assert "number" in reduced.variable_names, "non-spatial aux should be carried"
+        assert (
+            "number" not in reduced.variable_names
+        ), "an aux variable spanning the reduced dim must be dropped"
         assert reduced.get_variable("t2m").band_count == 1, "valid_time collapsed to 1"
+
+    def test_unrecognised_grid_demoted_to_aux_warns(self):
+        """A 2-D variable with non-standard axes warns when demoted to aux (M6).
+
+        Test scenario:
+            ``weird(alpha, beta)`` is a real grid but its axes carry no CF
+            metadata and no known x/y names, so it is classified non-spatial and
+            carried through untransformed. crop must warn that it is NOT being
+            cropped/reprojected, rather than dropping it silently.
+        """
+        n_t = 4
+        lat = np.arange(5.0, 0.0, -1.0)
+        lon = np.arange(0.0, 5.0, 1.0)
+        ds = xr.Dataset(
+            {
+                "t2m": (
+                    ("valid_time", "latitude", "longitude"),
+                    np.ones((n_t, 5, 5), "float32"),
+                ),
+                "weird": (("alpha", "beta"), np.ones((5, 5), "float32")),
+            },
+            coords={
+                "valid_time": np.arange(n_t),
+                "latitude": lat,
+                "longitude": lon,
+                "alpha": np.arange(5.0),
+                "beta": np.arange(5.0),
+            },
+        )
+        ds.latitude.attrs.update(units="degrees_north", standard_name="latitude")
+        ds.longitude.attrs.update(units="degrees_east", standard_name="longitude")
+        cube = NetCDF.from_xarray(ds)
+        with pytest.warns(UserWarning, match="not recognised as spatial"):
+            cube.crop(_MASK)
+
+    def test_nonspatial_2d_aux_does_not_warn_demotion(self):
+        """A legit non-spatial 2-D aux ``(valid_time, level)`` does not trip the warning (L5).
+
+        Test scenario:
+            A ``lut(valid_time, level)`` lookup table has two *recognised*
+            non-spatial axes, so it is carried through without the alarming
+            "not recognised as spatial" demotion warning (which is reserved for
+            variables with >= 2 unrecognised axes, i.e. a likely unmapped grid).
+        """
+        n_t, n_lev = 4, 3
+        lat = np.arange(5.0, 0.0, -1.0)
+        lon = np.arange(0.0, 5.0, 1.0)
+        ds = xr.Dataset(
+            {
+                "t2m": (
+                    ("valid_time", "latitude", "longitude"),
+                    np.ones((n_t, 5, 5), "float32"),
+                ),
+                "lut": (("valid_time", "level"), np.ones((n_t, n_lev), "float32")),
+            },
+            coords={
+                "valid_time": np.arange(n_t),
+                "latitude": lat,
+                "longitude": lon,
+                "level": np.arange(n_lev),
+            },
+        )
+        ds.latitude.attrs.update(units="degrees_north", standard_name="latitude")
+        ds.longitude.attrs.update(units="degrees_east", standard_name="longitude")
+        cube = NetCDF.from_xarray(ds)
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            cube.crop(_MASK)
+        demotion = [r for r in records if "not recognised as spatial" in str(r.message)]
+        assert not demotion, (
+            f"non-spatial 2-D aux must not trip the demotion warning: "
+            f"{[str(r.message) for r in demotion]}"
+        )
 
 
 class TestMultiSpatialPlusAux:
@@ -325,3 +415,20 @@ class TestCarryAuxVariablesWarn:
         result.add_variable.side_effect = RuntimeError("boom")
         with pytest.warns(UserWarning, match="could not carry"):
             cube._carry_aux_variables(result, ["number"], "crop")
+
+    def test_aggregates_multiple_failures_into_one_warning(self):
+        """Several failed carries produce one warning naming all of them (M4).
+
+        Test scenario:
+            Two aux variables fail to copy; a single aggregated ``UserWarning``
+            must name both rather than emitting one warning per variable, so the
+            data loss is visible at a glance.
+        """
+        cube = _era5_like_cube()
+        result = Mock()
+        result.add_variable.side_effect = RuntimeError("boom")
+        with pytest.warns(UserWarning, match="could not carry 2 non-spatial") as record:
+            cube._carry_aux_variables(result, ["number", "expver"], "crop")
+        assert len(record) == 1, f"must emit exactly one warning, got {len(record)}"
+        message = str(record[0].message)
+        assert "'number'" in message and "'expver'" in message, message

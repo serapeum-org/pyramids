@@ -13,6 +13,7 @@ Provenance (NOAA Open Data on AWS, public domain)::
     s3://noaa-goes16/ABI-L2-CMIPM/2024/180/12/
     OR_ABI-L2-CMIPM1-M6C13_G16_s20241801200284_e20241801200353_c20241801200415.nc
 """
+
 import numpy as np
 import pytest
 from osgeo import gdal

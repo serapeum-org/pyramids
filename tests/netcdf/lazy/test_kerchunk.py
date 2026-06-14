@@ -1,7 +1,7 @@
 """Tests for :meth:`NetCDF.to_kerchunk` / :meth:`NetCDF.combine_kerchunk`.
 
 DASK-14: kerchunk JSON reference manifests. Kerchunk is an optional
-``[netcdf-lazy]`` dependency — tests skip cleanly when it is not
+``[lazy]`` dependency — tests skip cleanly when it is not
 installed.
 """
 
@@ -92,7 +92,7 @@ class TestImportError:
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
         nc = NetCDF.read_file(FIXTURE, open_as_multi_dimensional=False)
-        with pytest.raises(ImportError, match="pyramids-gis\\[netcdf-lazy\\]"):
+        with pytest.raises(ImportError, match="pyramids-gis\\[lazy\\]"):
             nc.to_kerchunk(tmp_path / "refs.json")
 
     def test_combine_raises_without_kerchunk(self, tmp_path, monkeypatch):
@@ -106,7 +106,7 @@ class TestImportError:
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
-        with pytest.raises(ImportError, match="pyramids-gis\\[netcdf-lazy\\]"):
+        with pytest.raises(ImportError, match="pyramids-gis\\[lazy\\]"):
             NetCDF.combine_kerchunk(
                 [FIXTURE],
                 tmp_path / "refs.json",

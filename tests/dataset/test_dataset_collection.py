@@ -399,8 +399,6 @@ def test_merge_instance_method_in_memory_collection(tmp_path: Path):
     assert src.GetRasterBand(1).GetNoDataValue() == 0
 
 
-
-
 class TestApply:
     def test_1(
         self,

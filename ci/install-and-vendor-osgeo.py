@@ -16,6 +16,7 @@ Runs once per target Python version in `CIBW_BEFORE_BUILD`:
 Activation is gated by `PACKAGE_DATA=1` to avoid accidentally running
 during local editable installs.
 """
+
 from __future__ import annotations
 
 import json
@@ -166,19 +167,27 @@ def install_gdal_python_bindings() -> None:
     # one set via workflow inputs. Linux / Windows builds simply leave
     # this empty and skip the arm64 branch.
     macos_target_arch = (
-        os.environ.get("CIBW_ARCHS_MACOS")
-        or os.environ.get("CIBW_ARCHS")
-        or ""
-    ) if is_macos else ""
+        (os.environ.get("CIBW_ARCHS_MACOS") or os.environ.get("CIBW_ARCHS") or "")
+        if is_macos
+        else ""
+    )
     print(
         f"[install-and-vendor-osgeo] macos_target_arch: {macos_target_arch!r}",
         flush=True,
     )
     if is_macos and macos_target_arch == "arm64":
         subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--no-cache-dir",
-             "setuptools>=77.0.3", "wheel"],
-            env=env, check=True,
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--no-cache-dir",
+                "setuptools>=77.0.3",
+                "wheel",
+            ],
+            env=env,
+            check=True,
         )
         py_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
         download_dir = Path(tempfile.mkdtemp(prefix="numpy-dl-"))
@@ -188,35 +197,56 @@ def install_gdal_python_bindings() -> None:
         # tighter than the runtime-pin since the build numpy never
         # ships in the wheel. Bump the cap when numpy 3.x lands.
         subprocess.run(
-            [sys.executable, "-m", "pip", "download",
-             "--no-deps", "--only-binary=:all:",
-             "--platform", "macosx_11_0_arm64",
-             "--python-version", f"{sys.version_info.major}.{sys.version_info.minor}",
-             "--implementation", "cp",
-             "--abi", py_tag,
-             "-d", str(download_dir),
-             "numpy>=2.1,<3"],
-            env=env, check=True,
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "download",
+                "--no-deps",
+                "--only-binary=:all:",
+                "--platform",
+                "macosx_11_0_arm64",
+                "--python-version",
+                f"{sys.version_info.major}.{sys.version_info.minor}",
+                "--implementation",
+                "cp",
+                "--abi",
+                py_tag,
+                "-d",
+                str(download_dir),
+                "numpy>=2.1,<3",
+            ],
+            env=env,
+            check=True,
         )
         numpy_whl = next(download_dir.glob("numpy-*.whl"))
         print(f"[install-and-vendor-osgeo] using {numpy_whl.name}", flush=True)
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "--no-deps", str(numpy_whl)],
-            env=env, check=True,
+            env=env,
+            check=True,
         )
         extra_pip_args.append("--no-build-isolation")
 
     cmd = [
-        sys.executable, "-m", "pip", "install",
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
         "--no-cache-dir",
         *extra_pip_args,
         f"GDAL=={version}",
     ]
     print(f"[install-and-vendor-osgeo] platform: {sys.platform}", flush=True)
     print(f"[install-and-vendor-osgeo] BUILD_PREFIX: {prefix}", flush=True)
-    print(f"[install-and-vendor-osgeo] PATH (head): {env.get('PATH', '')[:300]}", flush=True)
+    print(
+        f"[install-and-vendor-osgeo] PATH (head): {env.get('PATH', '')[:300]}",
+        flush=True,
+    )
     if is_windows:
-        print(f"[install-and-vendor-osgeo] INCLUDE: {env.get('INCLUDE', '')}", flush=True)
+        print(
+            f"[install-and-vendor-osgeo] INCLUDE: {env.get('INCLUDE', '')}", flush=True
+        )
         print(f"[install-and-vendor-osgeo] LIB: {env.get('LIB', '')}", flush=True)
     print(f"[install-and-vendor-osgeo] running: {' '.join(cmd)}", flush=True)
     subprocess.run(cmd, env=env, check=True)
@@ -257,7 +287,9 @@ def _strip_vendored_extensions(osgeo_dir: Path) -> None:
             subprocess.run(["strip", *strip_args, str(so)], check=True)
             print(f"[install-and-vendor-osgeo] stripped {so.name}", flush=True)
         except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-            print(f"[install-and-vendor-osgeo] strip skipped {so.name}: {exc}", flush=True)
+            print(
+                f"[install-and-vendor-osgeo] strip skipped {so.name}: {exc}", flush=True
+            )
 
 
 def _prune_unused_bindings(osgeo_dir: Path) -> None:
@@ -281,26 +313,26 @@ def _prune_unused_bindings(osgeo_dir: Path) -> None:
 # only known-niche files) rather than an allowlist, so every `.wkt` / datum /
 # ellipsoid / schema / TileMatrixSet / EPSG table is kept untouched (T1.5, #474).
 _GDAL_DATA_DROP = (
-    "default.rsc",          # MapInfo symbology (TAB/MIF geometry reads don't need it)
-    "nitf_spec.xml",        # NITF (defense imagery)
+    "default.rsc",  # MapInfo symbology (TAB/MIF geometry reads don't need it)
+    "nitf_spec.xml",  # NITF (defense imagery)
     "nitf_spec.xsd",
-    "ruian_*.gfs",          # RUIAN — Czech cadastre (OGR)
-    "s57*.csv",             # S-57 — ENC nautical charts (OGR)
-    "jpfgdgml_*.gfs",       # Japanese FGD GML (OGR)
-    "inspire_cp_*.gfs",     # INSPIRE cadastral (OGR)
-    "gmlasconf.xsd",        # GMLAS — GML application schemas (OGR)
+    "ruian_*.gfs",  # RUIAN — Czech cadastre (OGR)
+    "s57*.csv",  # S-57 — ENC nautical charts (OGR)
+    "jpfgdgml_*.gfs",  # Japanese FGD GML (OGR)
+    "inspire_cp_*.gfs",  # INSPIRE cadastral (OGR)
+    "gmlasconf.xsd",  # GMLAS — GML application schemas (OGR)
     "gmlasconf.xml",
-    "plscenesconf.json",    # Planet PLScenes
-    "eedaconf.json",        # Earth Engine Data API
-    "vdv452.xml",           # VDV-452 public-transport (OGR)
+    "plscenesconf.json",  # Planet PLScenes
+    "eedaconf.json",  # Earth Engine Data API
+    "vdv452.xml",  # VDV-452 public-transport (OGR)
     "vdv452.xsd",
-    "MM_m_idofic.csv",      # MiraMon (OGR)
-    "pdfcomposition.xsd",   # PDF composition
-    "seed_2d.dgn",          # DGN write seeds (Microstation)
+    "MM_m_idofic.csv",  # MiraMon (OGR)
+    "pdfcomposition.xsd",  # PDF composition
+    "seed_2d.dgn",  # DGN write seeds (Microstation)
     "seed_3d.dgn",
-    "bag_template.xml",     # BAG bathymetry
-    "pds4_template.xml",    # PDS4 planetary
-    "vicar.json",           # VICAR planetary
+    "bag_template.xml",  # BAG bathymetry
+    "pds4_template.xml",  # PDS4 planetary
+    "vicar.json",  # VICAR planetary
     "template_tiles.mapml",  # MapML output template
     "leaflet_template.html",  # gdal2tiles leaflet template
 )
@@ -318,7 +350,10 @@ def _trim_gdal_data(gdal_data_dir: Path) -> None:
         for f in gdal_data_dir.glob(pattern):
             f.unlink()
             removed += 1
-    print(f"[install-and-vendor-osgeo] trimmed {removed} niche GDAL_DATA files", flush=True)
+    print(
+        f"[install-and-vendor-osgeo] trimmed {removed} niche GDAL_DATA files",
+        flush=True,
+    )
     if removed == 0:
         # Every pattern matched nothing — almost certainly a GDAL layout/rename,
         # not an intentional state. Warn loudly so the silently-lost ~1 MB win is
@@ -373,17 +408,15 @@ def _patch_vendored_osgeo_init(init_path: Path) -> None:
     insert_at = 0
     for i, line in enumerate(lines):
         stripped = line.strip()
-        if (not stripped
-                or stripped.startswith("#")
-                or stripped.startswith("from __future__")):
+        if (
+            not stripped
+            or stripped.startswith("#")
+            or stripped.startswith("from __future__")
+        ):
             insert_at = i + 1
             continue
         break
-    patched = (
-        "".join(lines[:insert_at])
-        + bootstrap
-        + "".join(lines[insert_at:])
-    )
+    patched = "".join(lines[:insert_at]) + bootstrap + "".join(lines[insert_at:])
     init_path.write_text(patched, encoding="utf-8")
     print(
         f"[install-and-vendor-osgeo] patched {init_path} with Windows DLL bootstrap",
@@ -434,8 +467,10 @@ def vendor_osgeo_into_package() -> None:
     _copy_tree_replacing(osgeo_src, vendor_dir / "osgeo")
     (vendor_dir / "__init__.py").touch()
     _patch_vendored_osgeo_init(vendor_dir / "osgeo" / "__init__.py")
-    _prune_unused_bindings(vendor_dir / "osgeo")      # T1.3 — drop unused GNM bindings
-    _strip_vendored_extensions(vendor_dir / "osgeo")  # T1.2 — strip SWIG .so debug symbols
+    _prune_unused_bindings(vendor_dir / "osgeo")  # T1.3 — drop unused GNM bindings
+    _strip_vendored_extensions(
+        vendor_dir / "osgeo"
+    )  # T1.2 — strip SWIG .so debug symbols
 
     # 1b. Vendor osgeo_utils/ — GDAL's pip package ships a sibling
     # top-level package for utility scripts (gdal_polygonize, etc.).

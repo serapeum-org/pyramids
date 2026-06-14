@@ -12,6 +12,7 @@ import pytest
 from osgeo import gdal, osr
 
 from pyramids.dataset import Dataset
+from pyramids.dataset.window import Window
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -69,11 +70,52 @@ class TestMaskedReads:
         """
         result = nodata_dataset.read_array(band=0, masked=True)
         assert isinstance(result, np.ma.MaskedArray), f"got {type(result).__name__}"
-        assert result.mask.sum() == 1, f"expected 1 masked cell, got {result.mask.sum()}"
+        assert (
+            result.mask.sum() == 1
+        ), f"expected 1 masked cell, got {result.mask.sum()}"
         assert result.mask[0, 1], "the -9999 cell must be the masked one"
         filled = result.filled(0)
-        assert filled[0, 1] == pytest.approx(0.0), "filled() must replace the masked cell"
+        assert filled[0, 1] == pytest.approx(
+            0.0
+        ), "filled() must replace the masked cell"
         assert filled[1, 1] == pytest.approx(4.0), "valid cells must survive filled()"
+
+    def test_valid_pixel_near_large_sentinel_not_masked(self):
+        """A valid float pixel close to a large sentinel is not masked (M1).
+
+        Test scenario:
+            With the default fuzzy ``is_no_data`` tolerance (rtol=0.001) a valid
+            ``-9990`` pixel is within 0.1% of a ``-9999`` marker and would be
+            wrongly masked. Only the exact ``-9999`` cell may be masked.
+        """
+        arr = np.array([[-9999.0, -9990.0], [-9000.0, 1.0]], dtype="float32")
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0, 2), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+        )
+        result = ds.read_array(band=0, masked=True)
+        assert result.mask[0, 0], "the exact -9999 cell must be masked"
+        assert not result.mask[0, 1], "a valid -9990 pixel must not be masked"
+        assert (
+            result.mask.sum() == 1
+        ), f"only one cell may be masked, got {result.mask.sum()}"
+
+    def test_integer_band_uses_exact_nodata_equality(self):
+        """Integer bands mask only the exact marker, never near values (M1).
+
+        Test scenario:
+            An int16 band with a ``-100`` marker: ``-100`` is masked but the
+            adjacent ``-99`` (within 1% of the marker) is not.
+        """
+        arr = np.array([[-100, -99], [0, 5]], dtype="int16")
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0, 2), cell_size=1.0, epsg=4326, no_data_value=-100
+        )
+        result = ds.read_array(band=0, masked=True)
+        assert result.mask[0, 0], "the exact -100 cell must be masked"
+        assert not result.mask[0, 1], "a valid -99 pixel must not be masked"
+        assert (
+            result.mask.sum() == 1
+        ), f"only one cell may be masked, got {result.mask.sum()}"
 
     def test_nan_nodata_masks_nan_cells(self):
         """A NaN nodata marker masks the NaN cells (NaN-aware comparison).
@@ -101,7 +143,10 @@ class TestMaskedReads:
         band1 = np.full((2, 2), 7.0, dtype="float32")
         ds = Dataset.create_from_array(
             np.stack([band0, band1]),
-            top_left_corner=(0, 2), cell_size=1.0, epsg=4326, no_data_value=-9999.0,
+            top_left_corner=(0, 2),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
         )
         result = ds.read_array(masked=True)
         assert result.shape == (2, 2, 2), f"unexpected shape {result.shape}"
@@ -143,6 +188,24 @@ class TestMaskedReads:
         assert result.mask.sum() == 1, f"mask band ignored in window: {result.mask}"
         assert result.mask[0, 1], "the mask-band-zeroed cell must be masked"
 
+    def test_window_object_masked_read_honours_mask_band(self, mask_band_dataset):
+        """A ``Window`` object composes with ``masked=True`` on a mask-band raster.
+
+        Test scenario:
+            The same top-row window as the list form, but expressed as a
+            ``Window`` object. Before normalization in ``_to_masked`` this
+            raised ``TypeError: 'Window' object is not subscriptable`` because
+            ``_band_mask`` slices the mask band with ``window[0..3]``.
+        """
+        result = mask_band_dataset.read_array(
+            band=0, window=Window(0, 0, 2, 1), masked=True
+        )
+        assert result.shape == (1, 2), f"unexpected window shape {result.shape}"
+        assert (
+            result.mask.sum() == 1
+        ), f"mask band ignored in Window read: {result.mask}"
+        assert result.mask[0, 1], "the mask-band-zeroed cell must be masked"
+
     def test_bbox_masked_read(self):
         """A bbox-driven masked read masks nodata within the resolved window.
 
@@ -159,11 +222,13 @@ class TestMaskedReads:
         result = ds.read_array(band=0, bbox=(1.0, 1.0, 3.0, 3.0), masked=True)
         assert isinstance(result, np.ma.MaskedArray), f"got {type(result).__name__}"
         assert result.shape == (2, 2), f"unexpected bbox shape {result.shape}"
-        assert result.mask.sum() == 1, f"bbox window must mask the -9999 cell: {result.mask}"
+        assert (
+            result.mask.sum() == 1
+        ), f"bbox window must mask the -9999 cell: {result.mask}"
         masked_at = tuple(np.argwhere(result.mask)[0])
-        assert result.data[masked_at] == pytest.approx(-9999.0), (
-            "the mask must sit on the -9999 cell of the returned block"
-        )
+        assert result.data[masked_at] == pytest.approx(
+            -9999.0
+        ), "the mask must sit on the -9999 cell of the returned block"
 
     def test_no_nodata_marker_leaves_nan_unmasked(self, tmp_path):
         """A band without a nodata marker masks nothing, even valid NaNs.
@@ -203,7 +268,9 @@ class TestMaskedReads:
         )
         result = ds.read_array(band=0, masked=True)
         assert result.mask[0, 0], "float32-precision nodata cell must be masked"
-        assert result.mask.sum() == 1, f"expected 1 masked cell, got {result.mask.sum()}"
+        assert (
+            result.mask.sum() == 1
+        ), f"expected 1 masked cell, got {result.mask.sum()}"
 
     def test_default_returns_plain_ndarray(self, nodata_dataset):
         """masked=False (default) keeps the historical plain-ndarray contract.
@@ -236,8 +303,12 @@ class TestNetCDFMaskedReads:
         """
         arr = np.array([[[1.0, -9999.0], [3.0, 4.0]]], dtype="float32")
         nc = NetCDF.create_from_array(
-            arr, top_left_corner=(0, 2), cell_size=1.0, epsg=4326,
-            variable_name="t", no_data_value=-9999.0,
+            arr,
+            top_left_corner=(0, 2),
+            cell_size=1.0,
+            epsg=4326,
+            variable_name="t",
+            no_data_value=-9999.0,
         )
         return nc.get_variable("t")
 
@@ -249,7 +320,9 @@ class TestNetCDFMaskedReads:
         """
         result = nc_subset.read_array(masked=True)
         assert isinstance(result, np.ma.MaskedArray), f"got {type(result).__name__}"
-        assert result.mask.sum() == 1, f"expected 1 masked cell, got {result.mask.sum()}"
+        assert (
+            result.mask.sum() == 1
+        ), f"expected 1 masked cell, got {result.mask.sum()}"
 
     def test_lazy_masked_raises(self, nc_subset):
         """The NetCDF lazy path rejects masked=True explicitly.
@@ -273,6 +346,6 @@ class TestNetCDFMaskedReads:
         result = nc_subset.read_array(masked=True, unpack=True)
         assert isinstance(result, np.ma.MaskedArray), "unpack dropped the mask wrapper"
         assert result.mask.sum() == 1, f"mask lost through unpack: {result.mask}"
-        assert result[0, 0] == pytest.approx(1.0 * 2.0 + 1.0), (
-            f"valid cell not scaled: {result[0, 0]}"
-        )
+        assert result[0, 0] == pytest.approx(
+            1.0 * 2.0 + 1.0
+        ), f"valid cell not scaled: {result[0, 0]}"

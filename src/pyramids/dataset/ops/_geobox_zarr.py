@@ -99,6 +99,7 @@ def write_geobox(
         cols: Raster column count.
         dims: Dimension names of the data array, e.g. ``["band", "y", "x"]``.
     """
+
     def _put(name: str, values: np.ndarray, var_dims: list[str]):
         values = np.asarray(values)
         arr = group.create_array(
@@ -189,8 +190,16 @@ def finalize_zarr_metadata(
 
 
 _NON_DATA_ARRAYS = {
-    "x", "y", "lon", "lat", "longitude", "latitude",
-    "time", "band", GRID_MAPPING_VAR, "crs",
+    "x",
+    "y",
+    "lon",
+    "lat",
+    "longitude",
+    "latitude",
+    "time",
+    "band",
+    GRID_MAPPING_VAR,
+    "crs",
 }
 
 
@@ -274,7 +283,10 @@ def read_geobox(group: Any, *, data_name: str | None = None) -> dict[str, Any]:
     # Warn (but don't fail) when the store advertises a schema version we don't
     # know about — keeps forward-compat soft instead of brittle.
     schema_version = group.attrs.get("pyramids_zarr_version")
-    if schema_version is not None and str(schema_version) not in {"1", ZARR_SCHEMA_VERSION}:
+    if schema_version is not None and str(schema_version) not in {
+        "1",
+        ZARR_SCHEMA_VERSION,
+    }:
         warnings.warn(
             f"unknown pyramids_zarr_version {schema_version!r}; attempting to "
             f"read with the v{ZARR_SCHEMA_VERSION} schema",

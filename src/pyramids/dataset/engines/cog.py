@@ -46,6 +46,7 @@ _AVERAGING_RESAMPLERS: frozenset[str] = frozenset(
 
 _RESAMPLING_ALG: dict[str, int] = {
     "nearest": gdal.GRIORA_NearestNeighbour,
+    "nearest neighbor": gdal.GRIORA_NearestNeighbour,
     "bilinear": gdal.GRIORA_Bilinear,
     "cubic": gdal.GRIORA_Cubic,
     "cubicspline": gdal.GRIORA_CubicSpline,
@@ -485,9 +486,7 @@ class COG(_Engine):
                 translate_kwargs["outputType"] = numpy_to_gdal_dtype(out_dtype)
             if nodata is not None:
                 translate_kwargs["noData"] = nodata
-            mem = gdal.Translate(
-                "", self._ds._raster, format="MEM", **translate_kwargs
-            )
+            mem = gdal.Translate("", self._ds._raster, format="MEM", **translate_kwargs)
         else:
             # Stamp-only: copy so the user's dataset is not mutated.
             mem = gdal.GetDriverByName("MEM").CreateCopy("", self._ds._raster)
@@ -631,7 +630,10 @@ class COG(_Engine):
             # translate_to_cog wraps CreateCopy RuntimeErrors into
             # FailedToSaveError; a deferred STATISTICS failure at FlushCache
             # time surfaces as a raw RuntimeError — catch both.
-            statistics_on = str(options.get("STATISTICS", "")).upper() in ("YES", "TRUE")
+            statistics_on = str(options.get("STATISTICS", "")).upper() in (
+                "YES",
+                "TRUE",
+            )
             if statistics_on and "valid pixels" in str(exc).lower():
                 retry = {k: v for k, v in options.items() if k != "STATISTICS"}
                 _run(retry)

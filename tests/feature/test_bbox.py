@@ -181,7 +181,9 @@ class TestTransform:
 
         via_obj = transform((0.0, 0.0, 1.0, 1.0), CRS.from_epsg(4326), 3857)
         via_int = transform((0.0, 0.0, 1.0, 1.0), 4326, 3857)
-        assert via_obj == pytest.approx(via_int), f"CRS-object src mismatch: {via_obj} vs {via_int}"
+        assert via_obj == pytest.approx(
+            via_int
+        ), f"CRS-object src mismatch: {via_obj} vs {via_int}"
 
     def test_src_crs_accepts_wkt(self):
         """A WKT string is accepted for the source CRS.

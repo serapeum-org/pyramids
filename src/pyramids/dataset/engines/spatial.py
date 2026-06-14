@@ -138,6 +138,9 @@ class Spatial(_Engine):
                 (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
                 "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms;
                 "sum"/"rms" need GDAL >= 3.1/3.3). See https://gisgeography.com/raster-resampling/.
+                Note: the aggregating algorithms ("average", "mode", "med", "q1", "q3", "sum", "rms")
+                are not no-data-aware on this warp path — no-data cells inside a resampling kernel are
+                mixed into the result. Prefer "nearest" on rasters that carry a no-data marker.
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the raster the same after reprojection.
                 Default is False.
@@ -283,6 +286,15 @@ class Spatial(_Engine):
         The returned Dataset keeps a reference to its source, so the source
         handle cannot be garbage-collected underneath the view.
 
+        Note:
+            The view captures its source **by handle, not by value**: the VRT
+            re-reads the source's geotransform, projection, and pixels lazily on
+            each windowed read. Mutating the source in place after the view is
+            built (for example :meth:`set_crs` or anything that rewrites the
+            geotransform) leaves the view reading from the now-changed source and
+            is undefined. Treat the source as read-only for the lifetime of the
+            view, or rebuild the view after mutating the source.
+
         Args:
             crs: Target CRS in any form :meth:`pyproj.CRS.from_user_input`
                 accepts (EPSG int, ``"EPSG:3857"``, WKT, PROJ4, pyproj CRS).
@@ -344,6 +356,18 @@ class Spatial(_Engine):
         dst_sr = sr_from_user_input(crs)
         resample_alg: int = resolve_resampling(method)
         dst_srs_arg = _dst_srs_arg(dst_sr)
+        if cell_size is not None and cell_size <= 0:
+            raise ValueError(f"cell_size must be positive, got {cell_size}.")
+        if bbox is not None:
+            if len(bbox) != 4:
+                raise ValueError(
+                    f"bbox must be (min_x, min_y, max_x, max_y), got {bbox!r}."
+                )
+            min_x, min_y, max_x, max_y = bbox
+            if min_x >= max_x or min_y >= max_y:
+                raise ValueError(
+                    f"bbox must have min_x < max_x and min_y < max_y, got {bbox!r}."
+                )
         options = gdal.WarpOptions(
             format="VRT",
             dstSRS=dst_srs_arg,
@@ -441,7 +465,10 @@ class Spatial(_Engine):
                 Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
                 (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
                 "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms;
-                "sum"/"rms" need GDAL >= 3.1/3.3).
+                "sum"/"rms" need GDAL >= 3.1/3.3). Note: the aggregating algorithms ("average", "mode",
+                "med", "q1", "q3", "sum", "rms") are not no-data-aware on this warp path — no-data cells
+                inside a resampling kernel are mixed into the result. Prefer "nearest" on rasters that
+                carry a no-data marker.
 
         Returns:
             Dataset:
@@ -642,7 +669,11 @@ class Spatial(_Engine):
             # In a geographic source whose longitudes wrap past 180, shift the
             # left edge into the western hemisphere before reprojecting so the
             # corner-derived extent does not collapse across the dateline.
-            west_edge = src_gt[0] - 360 if src_sr.IsGeographic() and src_gt[0] > 180 else src_gt[0]
+            west_edge = (
+                src_gt[0] - 360
+                if src_sr.IsGeographic() and src_gt[0] > 180
+                else src_gt[0]
+            )
             xs = [west_edge, west_edge + src_gt[1] * src_x]
             ys = [src_gt[3], src_gt[3] + src_gt[5] * src_y]
             [ulx, lrx], [uly, lry] = reproject_coordinates(

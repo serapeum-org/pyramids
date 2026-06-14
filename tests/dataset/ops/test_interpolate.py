@@ -78,8 +78,12 @@ class TestGridPoints:
         """
         ds = grid_points(corner_points, "val", Dataset, cell_size=1.0)
         arr = ds.read_array()
-        assert float(np.nanmin(arr)) >= 10.0 - 1e-6, f"min below range: {np.nanmin(arr)}"
-        assert float(np.nanmax(arr)) <= 40.0 + 1e-6, f"max above range: {np.nanmax(arr)}"
+        assert (
+            float(np.nanmin(arr)) >= 10.0 - 1e-6
+        ), f"min below range: {np.nanmin(arr)}"
+        assert (
+            float(np.nanmax(arr)) <= 40.0 + 1e-6
+        ), f"max above range: {np.nanmax(arr)}"
 
     def test_explicit_width_height_overrides_cell_size(self, corner_points):
         """Explicit width/height set the output shape directly.
@@ -100,7 +104,10 @@ class TestGridPoints:
         ds = grid_points(
             corner_points, "val", Dataset, algorithm="nearest", width=8, height=8
         )
-        assert (ds.rows, ds.columns) == (8, 8), f"Unexpected shape: {ds.rows}x{ds.columns}"
+        assert (ds.rows, ds.columns) == (
+            8,
+            8,
+        ), f"Unexpected shape: {ds.rows}x{ds.columns}"
 
     def test_bbox_override_sets_extent(self, corner_points):
         """An explicit bbox overrides the points' total bounds.
@@ -112,7 +119,10 @@ class TestGridPoints:
         ds = grid_points(
             corner_points, "val", Dataset, cell_size=1.0, bbox=(-5.0, -5.0, 15.0, 15.0)
         )
-        assert (ds.rows, ds.columns) == (20, 20), f"Unexpected shape: {ds.rows}x{ds.columns}"
+        assert (ds.rows, ds.columns) == (
+            20,
+            20,
+        ), f"Unexpected shape: {ds.rows}x{ds.columns}"
         geo = ds.geotransform
         assert geo[0] == pytest.approx(-5.0), f"x-origin not at bbox minx: {geo[0]}"
         assert geo[3] == pytest.approx(15.0), f"y-origin not at bbox maxy: {geo[3]}"
@@ -133,7 +143,10 @@ class TestGridPoints:
             With neither epsg nor a points CRS, gdal.Grid still returns a raster.
         """
         ds = grid_points(crsless_points, "val", Dataset, cell_size=1.0)
-        assert (ds.rows, ds.columns) == (10, 10), f"Unexpected shape: {ds.rows}x{ds.columns}"
+        assert (ds.rows, ds.columns) == (
+            10,
+            10,
+        ), f"Unexpected shape: {ds.rows}x{ds.columns}"
 
     def test_default_algorithm_constant(self):
         """The module's default algorithm is inverse-distance weighting.
@@ -141,9 +154,9 @@ class TestGridPoints:
         Test scenario:
             The exported default string starts with ``invdist``.
         """
-        assert _DEFAULT_ALGORITHM.startswith("invdist"), (
-            f"Default algorithm should be IDW, got {_DEFAULT_ALGORITHM!r}"
-        )
+        assert _DEFAULT_ALGORITHM.startswith(
+            "invdist"
+        ), f"Default algorithm should be IDW, got {_DEFAULT_ALGORITHM!r}"
 
     def test_missing_value_column_raises(self, corner_points):
         """A value_column not present in the layer raises ValueError.
@@ -153,7 +166,9 @@ class TestGridPoints:
         """
         with pytest.raises(ValueError, match="not in the points columns") as exc:
             grid_points(corner_points, "missing", Dataset, cell_size=1.0)
-        assert "missing" in str(exc.value), f"Column name absent from error: {exc.value}"
+        assert "missing" in str(
+            exc.value
+        ), f"Column name absent from error: {exc.value}"
 
     def test_degenerate_bounds_raises(self, corner_points):
         """A zero-area bbox raises ValueError before calling gdal.Grid.
@@ -223,7 +238,10 @@ class TestDatasetFromPoints:
         """
         ds = Dataset.from_points(corner_points, "val", cell_size=1.0)
         assert isinstance(ds, Dataset), f"Expected a Dataset, got {type(ds)}"
-        assert (ds.rows, ds.columns) == (10, 10), f"Unexpected shape: {ds.rows}x{ds.columns}"
+        assert (ds.rows, ds.columns) == (
+            10,
+            10,
+        ), f"Unexpected shape: {ds.rows}x{ds.columns}"
 
     def test_from_points_algorithm_and_epsg(self, corner_points):
         """Dataset.from_points forwards algorithm and epsg overrides.
@@ -234,5 +252,8 @@ class TestDatasetFromPoints:
         ds = Dataset.from_points(
             corner_points, "val", algorithm="nearest", width=12, height=12, epsg=3857
         )
-        assert (ds.rows, ds.columns) == (12, 12), f"Unexpected shape: {ds.rows}x{ds.columns}"
+        assert (ds.rows, ds.columns) == (
+            12,
+            12,
+        ), f"Unexpected shape: {ds.rows}x{ds.columns}"
         assert ds.epsg == 3857, f"Expected EPSG 3857, got {ds.epsg}"
