@@ -519,6 +519,63 @@ class TestPlotDatasetCollection:
         glyph = cube.plot(band=0)
         assert isinstance(glyph, ArrayGlyph)
 
+    @staticmethod
+    def _rgb_cube(tmp_path, n_times=4, n_bands=3, dim=8):
+        """Build a co-registered multi-band DatasetCollection for RGB tests."""
+        rng = np.random.default_rng(0)
+        files = []
+        for t in range(n_times):
+            arr = (rng.random((n_bands, dim, dim), dtype="float32") * 255).astype(
+                "float32"
+            )
+            ds = Dataset.create_from_array(
+                arr=arr, geo=(0, 1, 0, 0, 0, -1), epsg=4326
+            )
+            path = tmp_path / f"rgb_{t}.tif"
+            ds.to_file(str(path))
+            files.append(str(path))
+        return DatasetCollection.from_files(files)
+
+    @pytest.mark.plot
+    def test_rgb_animate_keeps_every_frame(self, tmp_path):
+        """`plot(rgb=...)` returns a true-colour animation, one frame per timestep.
+
+        Regression for #538: passing ``rgb`` used to flow through ``**kwargs`` into
+        ``render_array``'s ``rgb`` parameter with a single-band ``(time, rows, cols)``
+        stack, so cleopatra read the time axis as the RGB channels — collapsing the
+        frames into a single ``(rows, cols, 3)`` still. The dedicated ``rgb`` path now
+        stacks every band per timestep and composites a ``(time, rows, cols, 3)`` stack,
+        so all four frames survive.
+        """
+        cube = self._rgb_cube(tmp_path, n_times=4)
+        glyph = cube.plot(rgb_options={"rgb": [0, 1, 2], "percentile": 2})
+        assert isinstance(glyph, ArrayGlyph)
+        assert glyph.arr.shape == (4, 8, 8, 3), "must keep all 4 true-colour frames"
+        assert glyph.cbar is None, "true-colour frames carry no colorbar"
+
+    @pytest.mark.plot
+    def test_rgb_insufficient_bands_raises(self, tmp_path):
+        """A misshapen `rgb=` raises instead of silently dropping frames (#538)."""
+        cube = self._rgb_cube(tmp_path, n_times=3, n_bands=2)
+        with pytest.raises(ValueError, match="needs at least 3 bands"):
+            cube.plot(rgb_options={"rgb": [0, 1, 2]})
+
+    @pytest.mark.plot
+    def test_rgb_loose_kwarg_is_deprecated(self, tmp_path):
+        """The loose top-level `rgb=` still works but warns, mirroring Dataset.plot."""
+        cube = self._rgb_cube(tmp_path, n_times=3)
+        with pytest.warns(DeprecationWarning, match="rgb_options"):
+            glyph = cube.plot(rgb=[0, 1, 2], percentile=2)
+        assert glyph.arr.shape == (3, 8, 8, 3)
+
+    @pytest.mark.plot
+    def test_single_band_path_unchanged(self, tmp_path):
+        """Without `rgb`, plot() still yields a colormapped single-band animation."""
+        cube = self._rgb_cube(tmp_path, n_times=3)
+        glyph = cube.plot(band=0)
+        assert isinstance(glyph, ArrayGlyph)
+        assert glyph.arr.ndim == 3, "single-band animate stays (time, rows, cols)"
+
 
 class TestColorTable:
 
@@ -1445,6 +1502,22 @@ class TestPlotPhase3CrossCutting:
         arr = np.zeros((3, 4, 4), dtype="float32")
         with pytest.raises(ValueError, match=r"facet_kwargs"):
             render_array(arr=arr, mode="facet")
+
+    @pytest.mark.plot
+    def test_render_array_rgb_animate_requires_4d(self):
+        """RGB animate with a single-band 3-D stack raises rather than collapsing.
+
+        Guards the #538 silent-frame-loss: a 3-D ``(time, rows, cols)`` array plus
+        ``rgb`` would otherwise reach cleopatra as a single composited still.
+        """
+        arr = np.zeros((4, 8, 8), dtype="float32")
+        with pytest.raises(ValueError, match=r"RGB animate requires a 4-D"):
+            render_array(
+                arr=arr,
+                rgb=[0, 1, 2],
+                mode="animate",
+                animation_axis_values=[0, 1, 2, 3],
+            )
 
     @pytest.mark.plot
     def test_render_array_basemap_requires_epsg(self):

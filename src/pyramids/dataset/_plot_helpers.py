@@ -108,7 +108,12 @@ def render_array(
             * ``"plot"`` — 2-D ``(rows, cols)``; or 3-D
               ``(bands, rows, cols)`` when ``rgb`` is set so cleopatra
               can pick the colour channels.
-            * ``"animate"`` — 3-D ``(time, rows, cols)``.
+            * ``"animate"`` — 3-D ``(time, rows, cols)`` for a
+              single-band colormapped time-lapse; or 4-D
+              ``(time, bands, rows, cols)`` when ``rgb`` is set, which
+              this helper composites into display-ready true-colour
+              frames before handing cleopatra a
+              ``(time, rows, cols, 3|4)`` stack.
             * ``"facet"`` — 3-D ``(N, rows, cols)`` or 4-D
               ``(Ncol, Nrow, rows, cols)``.
         extent: Optional ``[xmin, ymin, xmax, ymax]`` extent. Mutually
@@ -118,7 +123,10 @@ def render_array(
             set the renderer routes via pcolormesh.
         exclude_value: Per-band no-data values to mask before rendering.
         rgb: Three- or four-element list of band indices for RGB
-            compositing. Sentinel-only; only meaningful for ``"plot"``.
+            compositing. Sentinel-only; meaningful for ``"plot"`` (a
+            single true-colour still) and ``"animate"`` (a true-colour
+            time-lapse, which requires a 4-D ``(time, bands, rows,
+            cols)`` ``arr``).
         surface_reflectance: Sentinel surface-reflectance scale factor.
         cutoff: Sentinel per-band clip values.
         percentile: Sentinel percentile-stretch value.
@@ -250,6 +258,38 @@ def render_array(
         raise ValueError("`facet_kwargs` is required when mode='facet'.")
     if basemap and basemap_epsg is None:
         raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
+
+    # RGB animate: cleopatra's ``ArrayGlyph.animate`` renders a 4-D
+    # ``(time, rows, cols, 3|4)`` stack as true colour only when each frame is
+    # already display-ready (floats in ``[0, 1]`` / ``uint8``). We own that
+    # compositing here — the single backend abstraction — so the constructor
+    # receives a finished stack and must NOT re-run its own ``rgb`` preparation
+    # (which would re-collapse the first axis). We composite each timestep's
+    # ``(bands, rows, cols)`` slice with the same ``prepare_array`` cleopatra
+    # uses for the single-frame ``plot`` RGB path, then drop ``rgb`` so the
+    # 4-D stack flows straight through.
+    if mode == "animate" and rgb is not None:
+        if arr is None or arr.ndim != 4:
+            raise ValueError(
+                "RGB animate requires a 4-D (time, bands, rows, cols) array; "
+                f"got {None if arr is None else arr.ndim}-D. Pass rgb only with "
+                "a multi-band temporal stack."
+            )
+        compositor = ArrayGlyph(np.zeros((1, 1)))
+        arr = np.stack(
+            [
+                compositor.prepare_array(
+                    arr[frame],
+                    rgb=rgb,
+                    surface_reflectance=surface_reflectance,
+                    cutoff=cutoff,
+                    percentile=percentile,
+                )
+                for frame in range(arr.shape[0])
+            ],
+            axis=0,
+        )
+        rgb = None
     # Fail fast on an invalid ``color_scale`` with a pyramids-side message
     # that lists the valid options, instead of deferring to a less-targeted
     # cleopatra error deep in the render call. ``ColorScale`` lookup is
