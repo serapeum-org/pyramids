@@ -64,7 +64,7 @@ comparatively new. Read the tables as *surface coverage*, with the maturity row 
 | Resample (spatial) | ✓ `resample` | ✓ resampling enums | ✗ `→rioxarray` | ✓ `reproject(resampling=)` |
 | Align / snap to target grid | ✓ `align` | ◐ manual | ◐ `align` (labels) | ✓✓ `reproject_match` |
 | CRS / affine transforms | ✓ | ✓✓ `Affine` | ✗ `→rioxarray` | ✓✓ `.rio.crs` |
-| GCP / RPC georeferencing | ✗ | ✓✓ `gcps` / `rpcs` | ✗ | ◐ `→rasterio` |
+| GCP / RPC georeferencing | ✓ `set_gcps`/`georeference`/`orthorectify` | ✓✓ `gcps`/`rpcs` | ✗ | ◐ `→rasterio` |
 
 Note: xarray's own `.resample` operates on a labelled dimension (e.g. time), not spatial reprojection —
 spatial resample/warp is the `rioxarray` accessor's job.

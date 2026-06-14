@@ -149,6 +149,7 @@ nav:
       - Dataset:
           - Overview: tutorials/dataset.md
           - Raster basics: tutorials/raster-basics.md
+          - Georeferencing (GCPs & RPCs): tutorials/georeferencing.md
           - DatasetCollection basics: tutorials/datacube-basics.md
           - Dataset basics: examples/dataset/dataset.ipynb
           - Spatial operations: examples/dataset/spatial-operation-methods.ipynb
@@ -195,6 +196,7 @@ nav:
       - Vectorize Operations: reference/dataset/vectorize.md
       - Band Metadata Operations: reference/dataset/band_metadata.md
       - Cell Operations: reference/dataset/cell.md
+      - Georeferencing (GCPs & RPCs): reference/dataset/georef.md
       - Merge & stack: reference/dataset/merge.md
     - DatasetCollection: reference/dataset/collection.md
     - Zarr: reference/zarr.md
