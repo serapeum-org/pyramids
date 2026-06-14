@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.dataset import Dataset
+from pyramids.dataset import Dataset, Window
 
 pytestmark = pytest.mark.core
 
@@ -77,3 +77,38 @@ class TestMaskFlags:
         flags = alpha_dataset.mask_flags(0)
         assert flags.alpha is True
         assert flags.per_dataset is True
+
+
+class TestReadMasks:
+    """Tests for Dataset.read_masks."""
+
+    def test_single_band_mask_marks_nodata(self, nodata_dataset):
+        """read_masks(0) returns a (rows, cols) mask that is 0 at nodata cells.
+
+        Test scenario:
+            Column 2 is the nodata column -> mask 0 there, 255 elsewhere.
+        """
+        mask = nodata_dataset.read_masks(0)
+        assert mask.shape == (4, 4)
+        assert bool((mask[:, 2] == 0).all())
+        assert bool((mask[:, 0] == 255).all())
+
+    def test_all_bands_stacked(self, alpha_dataset):
+        """read_masks() stacks every band's mask as (band_count, rows, cols).
+
+        Test scenario:
+            A 2-band raster yields a (2, 4, 4) mask stack.
+        """
+        masks = alpha_dataset.read_masks()
+        assert masks.shape == (2, 4, 4)
+
+    def test_windowed_mask_matches_full_slice(self, nodata_dataset):
+        """A windowed mask equals the full mask sliced to the window.
+
+        Test scenario:
+            read_masks(0, window=Window(0,0,2,2)) == read_masks(0)[:2, :2].
+        """
+        full = nodata_dataset.read_masks(0)
+        windowed = nodata_dataset.read_masks(0, window=Window(0, 0, 2, 2))
+        assert windowed.shape == (2, 2)
+        assert np.array_equal(windowed, full[:2, :2])

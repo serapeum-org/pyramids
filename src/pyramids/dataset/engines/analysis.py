@@ -23,6 +23,7 @@ from pyramids.base._errors import AlignmentError, OutOfBoundsError
 from pyramids.base._utils import gdal_to_numpy_dtype, require_cleopatra
 from pyramids.dataset._mask import MaskFlags
 from pyramids.dataset._plot_helpers import render_array
+from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
 
 if TYPE_CHECKING:
@@ -1024,6 +1025,54 @@ class Analysis(_Engine):
             alpha=bool(flags & gdal.GMF_ALPHA),
             nodata=bool(flags & gdal.GMF_NODATA),
         )
+
+    def read_masks(
+        self,
+        band: int | None = None,
+        *,
+        window: Window | None = None,
+    ) -> np.ndarray:
+        """Read per-band mask arrays (``0`` invalid, ``255`` valid).
+
+        The companion to :meth:`Dataset.read_array(masked=True) <read_array>`:
+        instead of applying the mask, it returns the mask itself, so you can
+        inspect *which* pixels are masked.
+
+        Args:
+            band: Band index. ``None`` (default) returns every band's mask
+                stacked as ``(band_count, rows, cols)``; an index returns a
+                single ``(rows, cols)`` mask.
+            window: Optional :class:`Window` to read only a sub-block.
+
+        Returns:
+            numpy.ndarray: the mask array(s); ``0`` marks out-of-domain pixels
+            and ``255`` marks valid pixels.
+
+        Examples:
+            - The mask of a no-data raster is ``0`` exactly at the no-data cells:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.array([[1.0, -9999.0, 3.0, 4.0]] * 4, dtype="float32")
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0.0, 4.0), cell_size=1.0, no_data_value=-9999.0,
+                ... )
+                >>> mask = ds.read_masks(0)
+                >>> mask.shape
+                (4, 4)
+                >>> bool((mask[:, 1] == 0).all())
+                True
+
+                ```
+        """
+        read_args = window.to_read_args() if window is not None else ()
+        bands = [band] if band is not None else range(self._ds.band_count)
+        masks = [
+            np.asarray(self._ds._iloc(index).GetMaskBand().ReadAsArray(*read_args))
+            for index in bands
+        ]
+        result = masks[0] if band is not None else np.stack(masks)
+        return result
 
     def footprint(
         self: Dataset,

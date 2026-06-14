@@ -459,6 +459,10 @@ class Dataset(RasterBase):
         """Facade — :meth:`Analysis.mask_flags <pyramids.dataset.engines.Analysis.mask_flags>`."""
         return self.analysis.mask_flags(*args, **kwargs)
 
+    def read_masks(self, *args, **kwargs):
+        """Facade — :meth:`Analysis.read_masks <pyramids.dataset.engines.Analysis.read_masks>`."""
+        return self.analysis.read_masks(*args, **kwargs)
+
     def footprint(self, *args, **kwargs):
         """Facade — delegates to :meth:`Analysis.footprint <pyramids.dataset.engines.Analysis.footprint>`."""
         return self.analysis.footprint(*args, **kwargs)
