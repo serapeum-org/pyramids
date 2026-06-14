@@ -11,6 +11,7 @@ These tests are fully offline — the HTTP probe and the GDAL open are mocked.
 from __future__ import annotations
 
 import urllib.error
+import urllib.request
 
 import pytest
 from osgeo import gdal
@@ -135,19 +136,21 @@ class TestResolveS3Region:
         )
         assert resolve_s3_region("b") is None
 
-    def test_no_redirect_handler_suppresses_redirect(self):
-        """``_NoRedirectHandler.redirect_request`` returns ``None`` (no follow).
+    def test_no_redirect_handler_is_a_noop_redirect_handler(self):
+        """``_NoRedirectHandler`` is a redirect handler whose redirect is a no-op.
 
         Test scenario:
-            Returning ``None`` makes urllib raise ``HTTPError`` for a 3xx
-            instead of following the ``Location``, so the region header on the
-            error is readable.
+            It subclasses urllib's redirect handler, and invoking
+            ``redirect_request`` does not raise (it suppresses the redirect so
+            urllib raises ``HTTPError`` on a 3xx instead of following it). The
+            end-to-end header read through this handler is covered by
+            ``test_real_301_flow_reads_region_header``.
         """
         handler = remote_mod._NoRedirectHandler()
-        result = handler.redirect_request(
-            "request", "fp", 301, "Moved", {}, "https://elsewhere"
-        )
-        assert result is None, f"redirect must not be followed, got {result!r}"
+        assert isinstance(
+            handler, urllib.request.HTTPRedirectHandler
+        ), "must subclass urllib's redirect handler"
+        handler.redirect_request("request", "fp", 301, "Moved", {}, "https://elsewhere")
 
     def test_result_is_cached(self, monkeypatch):
         """The probe runs once per bucket; the cached value is reused.
