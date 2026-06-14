@@ -59,7 +59,7 @@ class TestProximity:
         """
         result = single_target.proximity(distance_units="PIXEL").read_array()
         assert (
-            float(result[2, 2]) == 0.0
+            float(result[2, 2]) == pytest.approx(0.0)
         ), f"Target pixel should be 0, got {result[2, 2]}"
 
     def test_euclidean_growth_pixel_units(self, single_target):
@@ -96,7 +96,8 @@ class TestProximity:
         """
         result = two_classes.proximity(distance_units="PIXEL").read_array()
         assert (
-            float(result[2, 2]) == 0.0 and float(result[0, 0]) == 0.0
+            float(result[2, 2]) == pytest.approx(0.0)
+            and float(result[0, 0]) == pytest.approx(0.0)
         ), f"Both non-zero pixels should be targets, got {result[2, 2]} / {result[0, 0]}"
 
     def test_target_values_selects_class(self, two_classes):
@@ -184,7 +185,7 @@ class TestProximity:
         )
         result = ds.proximity(band=1, distance_units="PIXEL").read_array()
         assert (
-            float(result[2, 2]) == 0.0
+            float(result[2, 2]) == pytest.approx(0.0)
         ), f"Band-1 target should be 0, got {result[2, 2]}"
 
     def test_invalid_distance_units_raises(self, single_target):

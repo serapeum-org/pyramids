@@ -122,7 +122,7 @@ class TestWriteArrayWindow:
         blank_multiband.write_array(np.ones((2, 5, 5)))
         arr = blank_multiband.read_array()
         assert (
-            arr[0].sum() == 25.0 and arr[1].sum() == 25.0
+            arr[0].sum() == pytest.approx(25.0) and arr[1].sum() == pytest.approx(25.0)
         ), "Multiband write incomplete"
 
     def test_window_at_edge_is_allowed(self, blank):
@@ -133,7 +133,7 @@ class TestWriteArrayWindow:
         """
         blank.write_array(np.ones((2, 2)), window=Window(3, 3, 2, 2))
         assert (
-            blank.read_array()[3:5, 3:5].sum() == 4.0
+            blank.read_array()[3:5, 3:5].sum() == pytest.approx(4.0)
         ), "Edge-aligned window not written"
 
     def test_window_shape_mismatch_raises(self, blank):

@@ -202,7 +202,7 @@ class TestMergeMethod:
         merge_rasters([pa, pb], out, no_data_value=-1.0, n=20, method="min")
         arr = Dataset.read_file(str(out)).read_array()
         assert (
-            arr[0, 2] == 10.0
+            arr[0, 2] == pytest.approx(10.0)
         ), f"Overlap min ignoring 20 should be 10, got {arr[0, 2]}"
         assert (
             arr[0, 5] == -1.0
@@ -372,7 +372,7 @@ class TestDatasetCollectionMergeMethod:
         collection.merge(out, no_data_value=-9999.0, method="sum")
         arr = Dataset.read_file(str(out)).read_array()
         assert (
-            arr[0, 2] == 30.0
+            arr[0, 2] == pytest.approx(30.0)
         ), f"Collection sum overlap should be 30, got {arr[0, 2]}"
 
 
