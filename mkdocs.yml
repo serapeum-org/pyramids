@@ -156,6 +156,7 @@ nav:
           - Convert longitude: examples/dataset/convert-longitude.ipynb
           - DatasetCollection (guide): tutorials/dataset_collection.md
           - Dataset collection: examples/dataset/dataset_collection.ipynb
+          - RGB animation (DatasetCollection): examples/dataset/rgb_animation.ipynb
           - STAC solar-day grouping: examples/dataset/stac-solar-day.ipynb
           - South America: examples/dataset/south-america.ipynb
           - Cloud Optimized GeoTIFFs: tutorials/cog.md
