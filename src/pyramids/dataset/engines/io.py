@@ -1798,7 +1798,7 @@ class IO(_Engine):
                 xsize = size if size + xoff <= cols else cols - xoff
                 yield xoff, yoff, xsize, ysize
 
-    def get_tile(self: Dataset, size=256) -> Generator[np.ndarray]:
+    def get_tile(self: Dataset, size=256) -> Generator[np.ndarray, None, None]:
         """Get tile.
 
         Args:
