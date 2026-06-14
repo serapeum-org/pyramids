@@ -43,9 +43,9 @@ class TestNetCDFCropBbox:
             with the same variable list as the source.
         """
         cropped = root_nc.crop(bbox=INSIDE_BBOX)
-        assert sorted(cropped.variables) == sorted(root_nc.variables), (
-            f"Variables changed: {sorted(cropped.variables)!r}"
-        )
+        assert sorted(cropped.variables) == sorted(
+            root_nc.variables
+        ), f"Variables changed: {sorted(cropped.variables)!r}"
 
     def test_bbox_default_epsg_matches_dataset(self, root_nc: NetCDF):
         """Test explicit ``epsg=`` of the dataset's CRS matches the default.
@@ -61,9 +61,7 @@ class TestNetCDFCropBbox:
         with_epsg = root_nc.crop(bbox=INSIDE_BBOX, epsg=root_nc.epsg)
         a = without_epsg.get_variable("Band1").read_array()
         b = with_epsg.get_variable("Band1").read_array()
-        assert a.shape == b.shape, (
-            f"Shape mismatch: {a.shape} vs {b.shape}"
-        )
+        assert a.shape == b.shape, f"Shape mismatch: {a.shape} vs {b.shape}"
 
     def test_bbox_equivalent_to_explicit_fc(self, root_nc: NetCDF):
         """Test ``crop(bbox=…)`` matches ``crop(mask=FC.from_bbox(…))``.
@@ -78,9 +76,9 @@ class TestNetCDFCropBbox:
         via_bbox = root_nc.crop(bbox=INSIDE_BBOX).get_variable("Band1").read_array()
         fc = FeatureCollection.from_bbox(INSIDE_BBOX, epsg=root_nc.epsg)
         via_fc = root_nc.crop(mask=fc).get_variable("Band1").read_array()
-        assert via_bbox.shape == via_fc.shape, (
-            f"Shape mismatch: {via_bbox.shape} vs {via_fc.shape}"
-        )
+        assert (
+            via_bbox.shape == via_fc.shape
+        ), f"Shape mismatch: {via_bbox.shape} vs {via_fc.shape}"
 
     def test_mask_path_still_works(self, root_nc: NetCDF):
         """Test pre-PY-8 ``mask=`` callers see no regression.
@@ -116,9 +114,9 @@ class TestNetCDFCropForeignCRS:
         # EPSG:3857 metres — corners roughly (30°E, -30°N) ± a few degrees
         mercator_bbox = (3_000_000.0, -4_000_000.0, 4_000_000.0, -3_000_000.0)
         cropped = root_nc.crop(bbox=mercator_bbox, epsg=3857)
-        assert sorted(cropped.variables) == sorted(root_nc.variables), (
-            f"Variables changed: {sorted(cropped.variables)!r}"
-        )
+        assert sorted(cropped.variables) == sorted(
+            root_nc.variables
+        ), f"Variables changed: {sorted(cropped.variables)!r}"
         full_arr = root_nc.get_variable("Band1").read_array()
         cropped_arr = cropped.get_variable("Band1").read_array()
         assert cropped_arr.size < full_arr.size, (
@@ -140,7 +138,9 @@ class TestNetCDFCropForeignCRS:
         mercator_bbox = (3_000_000.0, -4_000_000.0, 4_000_000.0, -3_000_000.0)
         full = root_nc.read_array(variable="Band1")
         windowed = root_nc.read_array(
-            variable="Band1", bbox=mercator_bbox, epsg=3857,
+            variable="Band1",
+            bbox=mercator_bbox,
+            epsg=3857,
         )
         assert windowed.shape != full.shape, (
             f"Foreign-CRS bbox was a no-op: full={full.shape} "
@@ -268,9 +268,9 @@ class TestNetCDFCropMutex:
         try:
             root_nc.crop(bbox=INSIDE_BBOX, epsg=4326)
         except ValueError as exc:
-            assert "explicit `epsg=`" not in str(exc), (
-                f"Guard fired despite explicit epsg=: {exc}"
-            )
+            assert "explicit `epsg=`" not in str(
+                exc
+            ), f"Guard fired despite explicit epsg=: {exc}"
         except Exception:
             pass  # other downstream errors are out-of-scope here
 
@@ -290,7 +290,8 @@ class TestNetCDFReadArrayBbox:
         """
         full = root_nc.read_array(variable="Band1")
         windowed = root_nc.read_array(
-            variable="Band1", bbox=(10.0, -50.0, 50.0, -20.0),
+            variable="Band1",
+            bbox=(10.0, -50.0, 50.0, -20.0),
         )
         assert windowed.shape != full.shape, (
             f"Windowed read should differ from full: full={full.shape} "
@@ -317,12 +318,12 @@ class TestNetCDFReadArrayBbox:
         full = var.read_array()
         windowed = var.read_array(bbox=(10.0, -50.0, 50.0, -20.0))
         assert windowed.ndim in (2, 3), f"Unexpected ndim: {windowed.ndim}"
-        assert windowed.shape != full.shape, (
-            f"bbox was a no-op: full={full.shape} windowed={windowed.shape}"
-        )
-        assert windowed.size < full.size, (
-            f"bbox didn't reduce size: full={full.size} windowed={windowed.size}"
-        )
+        assert (
+            windowed.shape != full.shape
+        ), f"bbox was a no-op: full={full.shape} windowed={windowed.shape}"
+        assert (
+            windowed.size < full.size
+        ), f"bbox didn't reduce size: full={full.size} windowed={windowed.size}"
 
     def test_window_and_bbox_together_raises(self, root_nc: NetCDF):
         """Test ``window=`` + ``bbox=`` together raises ``ValueError``.

@@ -163,6 +163,41 @@ _Y_DIM_NAMES = frozenset(
 _X_DIM_NAMES = frozenset(
     {"x", "lon", "longitude", "rlon", "west_east", "easting", "grid_longitude"}
 )
+# Dimension names that clearly denote a non-spatial axis. Used to suppress the
+# "demoted grid" warning for legitimately non-spatial N-D aux variables
+# (e.g. a (time, level) table, time-bounds (time, nv)) — only a variable with
+# >= 2 *unrecognised* axes is a likely unrecognised grid.
+_NONSPATIAL_AXIS_NAMES = frozenset(
+    {
+        "time",
+        "valid_time",
+        "t",
+        "step",
+        "forecast_period",
+        "lead_time",
+        "level",
+        "lev",
+        "plev",
+        "pressure",
+        "depth",
+        "height",
+        "z",
+        "altitude",
+        "member",
+        "number",
+        "ensemble",
+        "realization",
+        "bnds",
+        "bounds",
+        "nv",
+        "nbnds",
+        "nvertices",
+        "vertices",
+        "string_length",
+        "nchar",
+        "nstrings",
+    }
+)
 
 
 def _contiguous_range(
@@ -275,9 +310,7 @@ def _range_bounds(
     return _clamp_bound(int(selector[0]), size), _clamp_bound(int(selector[1]), size)
 
 
-def _resolve_index_selector(
-    selector: Any, size: int, dim_name: str
-) -> tuple[int, int]:
+def _resolve_index_selector(selector: Any, size: int, dim_name: str) -> tuple[int, int]:
     """Resolve a non-spatial dimension selector to a half-open ``(start, stop)``.
 
     ``None`` is allowed only for a length-1 dimension; an ``int`` selects one
@@ -1322,6 +1355,7 @@ class NetCDF(Dataset):
         epsg: Any = None,
         chunks: Any = None,
         lock: Any = None,
+        masked: bool = False,
     ) -> ArrayLike:
         """Read array from the dataset (eager by default, lazy with `chunks`).
 
@@ -1373,6 +1407,13 @@ class NetCDF(Dataset):
                 `dask.distributed.Lock` when a client is active).
                 `False` → :class:`pyramids.base._locks.DummyLock`.
                 Only meaningful when `chunks` is not `None`.
+            masked: When `True`, return a :class:`numpy.ma.MaskedArray`
+                with the variable's no-data / fill cells masked (eager
+                path only; combining with `chunks` raises
+                :class:`NotImplementedError`). The mask is built from the
+                raw stored values before any `unpack` scaling, matching CF
+                `_FillValue` semantics; the scale/offset arithmetic
+                preserves the mask. Default is `False`.
 
         Returns:
             np.ndarray or dask.array.Array: The array data, eager
@@ -1391,6 +1432,8 @@ class NetCDF(Dataset):
                 ``chunks=`` + ``window=`` rule).
             ImportError: If `chunks` is given but `dask` is not
                 installed. Install the `[lazy]` extra.
+            NotImplementedError: If `masked=True` is combined with
+                `chunks` (lazy masked reads are not supported yet).
 
         Examples:
             - Eager bbox read on a root container — the container
@@ -1457,6 +1500,7 @@ class NetCDF(Dataset):
                 epsg=epsg,
                 chunks=chunks,
                 lock=lock,
+                masked=masked,
             )
         if variable is not None and variable != self._source_var_name:
             raise ValueError(
@@ -1471,6 +1515,7 @@ class NetCDF(Dataset):
                 window=window,
                 bbox=bbox,
                 epsg=epsg,
+                masked=masked,
             )
             if unpack:
                 result = _apply_unpack(
@@ -1479,6 +1524,11 @@ class NetCDF(Dataset):
                     getattr(self, "_offset", None),
                 )
         else:
+            if masked:
+                raise NotImplementedError(
+                    "read_array(masked=True) is not supported together with "
+                    "chunks=; read eagerly, or mask the dask array yourself."
+                )
             parent = self._parent_nc if self._parent_nc is not None else self
             path = parent._file_name
             if path.startswith("NETCDF"):
@@ -1713,26 +1763,224 @@ class NetCDF(Dataset):
             result = self._preserve_netcdf_metadata(result)
         return result
 
+    def _variable_is_spatial(self, rg: Any, var_name: str) -> bool:
+        """True when ``var_name`` is a gridded variable (can be cropped / reprojected).
+
+        A variable is spatial when it has at least two dimensions and a recognised
+        ``(y, x)`` pair among **its own** dimensions — detected via the CF-attribute
+        / well-known-name machinery (:meth:`_cf_spatial_axes` /
+        :meth:`_named_spatial_axes`), per variable, so a variable on a secondary
+        grid is judged on its own axes rather than one container-wide pair. The
+        check reads the MDArray's dimensions directly (not via ``get_variable``,
+        which can't build a classic raster for a non-spatial variable), so an
+        auxiliary variable is identified before any spatial op runs.
+
+        Args:
+            rg: The root :class:`osgeo.gdal.Group` of the open store, used to
+                open the named array and resolve its dimensions.
+            var_name: Name of the variable to classify.
+
+        Returns:
+            bool: ``True`` when the variable has at least two dimensions with a
+            recognised ``(y, x)`` pair among them; ``False`` for a 1-D / scalar
+            auxiliary variable, a 2-D variable with no spatial axes, or a name
+            that cannot be opened as an MDArray.
+
+        Examples:
+            - A gridded ``t2m(valid_time, lat, lon)`` variable is spatial, so
+              ``crop`` / ``to_crs`` will operate on it (requires an open store):
+                ```python
+                >>> rg = nc._raster.GetRootGroup()  # doctest: +SKIP
+                >>> nc._variable_is_spatial(rg, "t2m")  # doctest: +SKIP
+                True
+
+                ```
+            - A 1-D ``number(valid_time)`` auxiliary variable is not spatial, so
+              it is carried through unchanged instead:
+                ```python
+                >>> rg = nc._raster.GetRootGroup()  # doctest: +SKIP
+                >>> nc._variable_is_spatial(rg, "number")  # doctest: +SKIP
+                False
+
+                ```
+        """
+        try:
+            md = rg.OpenMDArray(var_name)
+        except RuntimeError:
+            return False
+        if md is None:
+            return False
+        var_dims = [d.GetName() for d in md.GetDimensions()]
+        if len(var_dims) < 2:
+            return False
+        return (
+            self._cf_spatial_axes(rg, var_dims) is not None
+            or self._named_spatial_axes(var_dims) is not None
+        )
+
+    def _spatial_variable_names(self) -> list[str]:
+        """Names of the container's gridded variables (have a recognised (y, x) pair).
+
+        Used by every spatial fan-out (``crop`` / ``to_crs`` / ``resample`` /
+        ``reduce``) so they act only on griddable variables; the remaining
+        non-spatial auxiliary variables are carried through by
+        :meth:`_carry_aux_variables`.
+
+        Returns:
+            list[str]: Names of the gridded variables, in declaration order.
+            Empty when the store has no root group (e.g. a closed or
+            single-variable raster handle) or no variable carries a ``(y, x)``
+            pair.
+
+        Examples:
+            - An ERA5-shaped container reports only its gridded variables,
+              leaving the 1-D ``number`` auxiliary out (requires an open store):
+                ```python
+                >>> nc._spatial_variable_names()  # doctest: +SKIP
+                ['t2m']
+
+                ```
+            - A single-variable view (no root group) yields an empty list:
+                ```python
+                >>> nc.get_variable("t2m")._spatial_variable_names()  # doctest: +SKIP
+                []
+
+                ```
+        """
+        rg = self._raster.GetRootGroup() if self._raster is not None else None
+        if rg is None:
+            return []
+        return [n for n in self.variable_names if self._variable_is_spatial(rg, n)]
+
+    def _variable_dim_names(self, rg: Any, var_name: str) -> list[str]:
+        """Return a variable's dimension names, or ``[]`` if it can't be opened.
+
+        Args:
+            rg: The store's root :class:`osgeo.gdal.Group`.
+            var_name: Name of the variable (MDArray) to inspect.
+
+        Returns:
+            list[str]: The variable's dimension names in storage order, or an
+            empty list when the variable is missing or unreadable.
+        """
+        try:
+            md = rg.OpenMDArray(var_name)
+        except RuntimeError:
+            return []
+        if md is None:
+            return []
+        return [d.GetName() for d in md.GetDimensions()]
+
+    def _carry_aux_variables(
+        self, result: NetCDF, aux_vars: list[str], operation: str
+    ) -> None:
+        """Copy non-spatial auxiliary variables into ``result`` unchanged.
+
+        They can't be cropped/reprojected/reduced through the raster path but must
+        survive the op, so each is copied verbatim (dims / values / attrs) via
+        :meth:`add_variable`. Best-effort: a copy failure for one variable warns
+        rather than failing the whole operation.
+
+        Args:
+            result: The container built from the spatial variables.
+            aux_vars: Names of the non-spatial variables to carry through.
+            operation: Operation name, for the warning message.
+
+        Returns:
+            None: ``result`` is mutated in place — each carried variable is
+            added to it. A copy failure for one variable emits a
+            :class:`UserWarning` naming that variable and continues.
+
+        Examples:
+            - Carry an ERA5 cube's 1-D ``number`` auxiliary into a freshly
+              cropped result so it survives the op (requires an open store):
+                ```python
+                >>> cropped = nc._apply_to_all_variables("crop", {"mask": mask})  # doctest: +SKIP
+                >>> nc._carry_aux_variables(cropped, ["number"], "crop")  # doctest: +SKIP
+                >>> sorted(cropped.variable_names)  # doctest: +SKIP
+                ['number', 't2m']
+
+                ```
+        """
+        dropped: list[tuple[str, Exception]] = []
+        for var_name in aux_vars:
+            try:
+                result.add_variable(self, var_name)
+            except (RuntimeError, ValueError) as exc:
+                dropped.append((var_name, exc))
+        if dropped:
+            # One aggregated warning naming every dropped variable, so a silent
+            # data loss across crop/to_crs/resample/reduce is hard to miss in a
+            # pipeline rather than scattered across per-variable warnings.
+            names = ", ".join(repr(name) for name, _ in dropped)
+            reasons = "; ".join(f"{name!r}: {exc}" for name, exc in dropped)
+            warnings.warn(
+                f"{operation}() could not carry {len(dropped)} non-spatial "
+                f"variable(s) ({names}) into the result: {reasons}",
+                stacklevel=3,
+            )
+
     def _apply_to_all_variables(self, operation, op_kwargs):
-        """Apply an operation to every variable in the container.
+        """Apply a spatial operation to every gridded variable in the container.
+
+        Only variables carrying both spatial axes are cropped / reprojected.
+        Non-spatial auxiliary variables (e.g. ERA5's ``expver`` / ``number``,
+        which have no ``y`` / ``x`` axes) can't go through the raster op, so they
+        are **carried through unchanged** into the result rather than crashing the
+        fan-out.
 
         Args:
             operation: Name of the Dataset method to call (e.g. "crop").
             op_kwargs: Keyword arguments to pass to the method.
 
         Returns:
-            NetCDF: New container with the operation applied to all variables.
+            NetCDF: New container with the operation applied to every gridded
+            variable and the non-spatial auxiliary variables carried through.
 
         Raises:
-            ValueError: If the container has no data variables.
+            ValueError: If the container has no data variables, or none of them
+                are spatial (have both ``y`` / ``x`` axes).
         """
         if not self.variable_names:
             raise ValueError(
                 "Cannot apply operation to an empty container (no data variables)."
             )
 
+        spatial_vars = self._spatial_variable_names()
+        aux_vars = [n for n in self.variable_names if n not in spatial_vars]
+        if not spatial_vars:
+            raise ValueError(
+                f"{operation}() needs at least one spatial (y, x) variable; none of "
+                f"{self.variable_names} have both spatial axes."
+            )
+
+        # A variable with >= 2 *unrecognised* axes is likely a grid whose axes
+        # were not recognised (no CF axis attributes / no known x/y names) and is
+        # carried through untransformed — warn. Axes that are clearly non-spatial
+        # (time / vertical / ensemble / bounds) don't count, so a legitimately
+        # non-spatial N-D aux variable (e.g. (time, level)) does not trip the warning.
+        rg = self._raster.GetRootGroup()
+        demoted = []
+        for n in aux_vars:
+            unknown_axes = [
+                d
+                for d in self._variable_dim_names(rg, n)
+                if d.lower() not in _NONSPATIAL_AXIS_NAMES
+            ]
+            if len(unknown_axes) >= 2:
+                demoted.append(n)
+        if demoted:
+            warnings.warn(
+                f"{operation}() is carrying {len(demoted)} multi-dimensional "
+                f"variable(s) {demoted} through unchanged because their axes were "
+                f"not recognised as spatial (no CF axis attributes or known x/y "
+                f"names); they will NOT be cropped/reprojected. Add CF axis "
+                f"metadata (standard_name / axis) or rename the axes to y/x.",
+                stacklevel=3,
+            )
+
         result = None
-        for var_name in self.variable_names:
+        for var_name in spatial_vars:
             var = self.get_variable(var_name)
             var_result = getattr(var, operation)(**op_kwargs)
             # to_crs returns a VRT — materialize before the source goes
@@ -1804,6 +2052,7 @@ class NetCDF(Dataset):
                 ds._band_dim_sizes = var._band_dim_sizes
                 result.set_variable(var_name, ds)
 
+        self._carry_aux_variables(result, aux_vars, operation)
         return result
 
     def reduce(
@@ -1820,7 +2069,12 @@ class NetCDF(Dataset):
         `pressure_level`, `depth`, an ensemble member, …) of every variable
         that has it, leaving variables without `dim` and all other dimensions,
         coordinates, CRS, and the grid untouched. The result is a new
-        :class:`NetCDF` container — no xarray involved.
+        :class:`NetCDF` container — no xarray involved. Only gridded variables
+        are reduced; non-spatial auxiliary variables (no ``y`` / ``x`` axes,
+        e.g. ERA5's ``number``) are carried through unchanged rather than
+        crashing the fan-out (#513) — except an auxiliary variable that itself
+        spans `dim`, which is dropped with a warning (carrying it verbatim would
+        leave an inconsistent `dim` length against the collapsed variables).
 
         Args:
             dim: Name of the non-spatial dimension to reduce. Must be one of a
@@ -1880,9 +2134,15 @@ class NetCDF(Dataset):
 
         group_positions = self._resolve_group_positions(dim, groupby)
 
+        # Reduce only the gridded variables; non-spatial auxiliaries (no y/x axes)
+        # can't go through the raster reduce path, so they are carried through
+        # unchanged below — the same split crop / to_crs use (#513).
+        spatial_vars = self._spatial_variable_names()
+        aux_vars = [n for n in self.variable_names if n not in spatial_vars]
+
         result = None
         found = False
-        for var_name in self.variable_names:
+        for var_name in spatial_vars:
             var = self.get_variable(var_name)
             arr = self._materialize_variable_array(var)
             band_names = list(var._band_dim_names)
@@ -1921,6 +2181,24 @@ class NetCDF(Dataset):
                 f"Dimension {dim!r} is not a non-spatial dimension of any "
                 f"variable in this container."
             )
+        # Auxiliary variables that span the reduced dimension cannot be carried
+        # verbatim — they would keep the full-length axis while the gridded
+        # variables collapse it, leaving an inconsistent dimension length. Drop
+        # those with a warning; carry the rest unchanged.
+        rg = self._raster.GetRootGroup()
+        carry_aux: list[str] = []
+        spanning_aux: list[str] = []
+        for name in aux_vars:
+            var_dims = self._variable_dim_names(rg, name)
+            (spanning_aux if dim in var_dims else carry_aux).append(name)
+        if spanning_aux:
+            warnings.warn(
+                f"reduce() dropped auxiliary variable(s) {spanning_aux} that span "
+                f"the reduced dimension {dim!r}; carrying them unchanged would "
+                f"leave an inconsistent {dim!r} length in the result.",
+                stacklevel=2,
+            )
+        self._carry_aux_variables(result, carry_aux, "reduce")
         return result
 
     @staticmethod
@@ -1958,7 +2236,9 @@ class NetCDF(Dataset):
             # Full-resolution timestamps: the default "%Y-%m-%d" truncates to
             # whole days, which would collapse every sub-daily frequency
             # ("1H"/"3H"/"6H") into a single per-day bucket.
-            times = self.get_time_variable(var_name=dim, time_format="%Y-%m-%d %H:%M:%S")
+            times = self.get_time_variable(
+                var_name=dim, time_format="%Y-%m-%d %H:%M:%S"
+            )
             if times is None:
                 raise ValueError(
                     f"Cannot group dimension {dim!r} by frequency {groupby!r}: "
@@ -2132,6 +2412,60 @@ class NetCDF(Dataset):
                 maintain_alignment=maintain_alignment,
             )
             result = self._preserve_netcdf_metadata(result)
+        return result
+
+    def warped_view(
+        self,
+        crs: int | str | Any,
+        method: str = "nearest neighbor",
+        *,
+        cell_size: float | None = None,
+        bbox: tuple[float, float, float, float] | None = None,
+    ) -> NetCDF:
+        """Return a lazy, reprojected view of a **variable subset**.
+
+        Delegates to :meth:`pyramids.dataset.Dataset.warped_view` and re-wraps
+        the VRT-backed result as `NetCDF`, preserving the variable-subset
+        metadata (band dims, scale/offset, parent reference) so `sel()` and
+        `read_array(unpack=True)` keep working on the view.
+
+        A **root MDIM container** cannot be viewed lazily: a warped VRT is a
+        classic single-variable raster, and warping every variable eagerly
+        would contradict the lazy contract. Use :meth:`get_variable` to pick a
+        variable first, or :meth:`to_crs` for an eager whole-container warp.
+
+        Args:
+            crs: Target CRS in any form :meth:`pyproj.CRS.from_user_input`
+                accepts (EPSG int, ``"EPSG:3857"``, WKT, PROJ4, pyproj CRS).
+            method: Resampling method used when windows are read. Defaults to
+                ``"nearest neighbor"``.
+            cell_size: Optional output pixel size in target-CRS units (applied
+                to both axes). ``None`` keeps the source resolution.
+            bbox: Optional ``(min_x, min_y, max_x, max_y)`` output extent in
+                the **target** CRS; ``None`` covers the warped source extent.
+
+        Returns:
+            NetCDF: A read-only, VRT-backed reprojected view of the variable.
+
+        Raises:
+            ValueError: Called on a root MDIM container instead of a variable
+                subset.
+
+        See Also:
+            NetCDF.to_crs: The eager reprojection (handles whole containers).
+        """
+        if self._is_md_array and not self._is_subset and self.band_count == 0:
+            raise ValueError(
+                "warped_view works on a single variable, not a root NetCDF "
+                "container — call get_variable(<name>) first and warp that, "
+                "or use to_crs() for an eager whole-container reprojection."
+            )
+        pinned = super().warped_view(crs, method, cell_size=cell_size, bbox=bbox)
+        result = self._preserve_netcdf_metadata(pinned)
+        # Carry the GC pin: the VRT references the source GDAL handle, so the
+        # re-wrapped NetCDF view must keep the source alive too. _preserve_netcdf
+        # _metadata builds a fresh NetCDF and would otherwise drop _warp_source.
+        result._warp_source = getattr(pinned, "_warp_source", self)
         return result
 
     def resample(
@@ -2595,7 +2929,7 @@ class NetCDF(Dataset):
 
         Thin forwarder to :func:`pyramids.netcdf._kerchunk.to_kerchunk`
         using `self._file_name` as the source path. Requires the
-        `[netcdf-lazy]` optional extra.
+        `[lazy]` optional extra.
 
         Args:
             output_path: Path where the manifest JSON is written.
@@ -2627,7 +2961,7 @@ class NetCDF(Dataset):
 
         Thin forwarder to
         :func:`pyramids.netcdf._kerchunk.combine_kerchunk`. Requires
-        the `[netcdf-lazy]` optional extra.
+        the `[lazy]` optional extra.
 
         Args:
             paths: Sequence of NetCDF paths to combine.
@@ -4441,17 +4775,17 @@ class NetCDF(Dataset):
         The entire conversion goes through GDAL's Multidimensional
         API — the same reader the rest of pyramids' NetCDF code uses.
         No xarray engine plugin (`netcdf4`, `h5netcdf`,
-        `scipy.io.netcdf`) is involved, so the `[xarray]` extra
-        does not need to pull a NetCDF backend: pyramids is the
-        backend. The returned `xr.Dataset` holds already-
+        `scipy.io.netcdf`) is involved, so xarray does not need to
+        pull a NetCDF backend: pyramids is the backend. The returned
+        `xr.Dataset` holds already-
         materialised numpy arrays; for lazy reads use
         :meth:`read_array(chunks=...)` and wrap the result in
         :class:`xarray.DataArray` yourself.
 
         Requires the optional `xarray` package. Install with one of:
 
-        - PyPI: ``pip install 'pyramids-gis[xarray]'``
-        - conda-forge: ``conda install -c conda-forge pyramids-xarray``
+        - PyPI: ``pip install xarray``
+        - conda-forge: ``conda install -c conda-forge xarray``
 
         Returns:
             xarray.Dataset: An xarray Dataset with the same
@@ -4476,8 +4810,8 @@ class NetCDF(Dataset):
         except ImportError:
             raise OptionalPackageDoesNotExist(
                 "xarray is required for to_xarray(). Install with one of:\n"
-                "  - PyPI:        pip install 'pyramids-gis[xarray]'\n"
-                "  - conda-forge: conda install -c conda-forge pyramids-xarray"
+                "  - PyPI:        pip install xarray\n"
+                "  - conda-forge: conda install -c conda-forge xarray"
             )
 
         rg = self._raster.GetRootGroup()
@@ -4683,8 +5017,15 @@ class NetCDF(Dataset):
                 f"non-spatial dimensions are {sorted(selectable)}."
             )
         slices, ranged_axes = self._plan_band_slices(
-            dim_names, dim_sizes, x_axis, y_axis, time_axis,
-            (x_start, x_stop), (y_start, y_stop), time, dims,
+            dim_names,
+            dim_sizes,
+            x_axis,
+            y_axis,
+            time_axis,
+            (x_start, x_stop),
+            (y_start, y_stop),
+            time,
+            dims,
         )
         arr = np.asarray(md_arr[tuple(slices)].ReadAsArray())
         # The read must keep one axis per dimension (incl. size-1 pinned ones) for
@@ -4777,8 +5118,8 @@ class NetCDF(Dataset):
         Cell size comes from the full coordinate spacing so a 1-cell-wide window
         still carries the store's true resolution.
         """
-        x_vals = x_coords[x_window[0]:x_window[1]]
-        y_vals = y_coords[y_window[0]:y_window[1]]
+        x_vals = x_coords[x_window[0] : x_window[1]]
+        y_vals = y_coords[y_window[0] : y_window[1]]
         if x_vals.size > 1 and x_vals[0] > x_vals[-1]:
             arr = arr[:, :, ::-1]
             x_vals = x_vals[::-1]
@@ -4788,8 +5129,12 @@ class NetCDF(Dataset):
         d_x = abs(x_coords[1] - x_coords[0]) if x_coords.size > 1 else 1.0
         d_y = abs(y_coords[1] - y_coords[0]) if y_coords.size > 1 else d_x
         geo = (
-            float(x_vals[0] - d_x / 2.0), float(d_x), 0.0,
-            float(y_vals[0] + d_y / 2.0), 0.0, -float(d_y),
+            float(x_vals[0] - d_x / 2.0),
+            float(d_x),
+            0.0,
+            float(y_vals[0] + d_y / 2.0),
+            0.0,
+            -float(d_y),
         )
         return arr, geo
 
@@ -4981,9 +5326,7 @@ class NetCDF(Dataset):
         return dim_names.index(y_dim), dim_names.index(x_dim)
 
     @staticmethod
-    def _cf_spatial_axes(
-        rg: Any, dim_names: list[str]
-    ) -> tuple[int, int] | None:
+    def _cf_spatial_axes(rg: Any, dim_names: list[str]) -> tuple[int, int] | None:
         """``(y_axis, x_axis)`` from CF coordinate attributes, or ``None``.
 
         Returns ``None`` when there is no root group or the coordinate variables
@@ -5191,7 +5534,9 @@ class NetCDF(Dataset):
         """
         min_x, min_y, max_x, max_y = (float(v) for v in bbox)
         src = osr.SpatialReference()
-        src.SetFromUserInput(f"EPSG:{src_crs}" if isinstance(src_crs, int) else str(src_crs))
+        src.SetFromUserInput(
+            f"EPSG:{src_crs}" if isinstance(src_crs, int) else str(src_crs)
+        )
         src.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         if dst_srs is None or src.IsSame(dst_srs):
             return min_x, min_y, max_x, max_y
@@ -5199,14 +5544,22 @@ class NetCDF(Dataset):
         dst.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
         transform = osr.CoordinateTransformation(src, dst)
         edge = np.linspace(0.0, 1.0, max(int(densify), 2))
-        xs = np.concatenate([
-            min_x + edge * (max_x - min_x), min_x + edge * (max_x - min_x),
-            np.full_like(edge, min_x), np.full_like(edge, max_x),
-        ])
-        ys = np.concatenate([
-            np.full_like(edge, min_y), np.full_like(edge, max_y),
-            min_y + edge * (max_y - min_y), min_y + edge * (max_y - min_y),
-        ])
+        xs = np.concatenate(
+            [
+                min_x + edge * (max_x - min_x),
+                min_x + edge * (max_x - min_x),
+                np.full_like(edge, min_x),
+                np.full_like(edge, max_x),
+            ]
+        )
+        ys = np.concatenate(
+            [
+                np.full_like(edge, min_y),
+                np.full_like(edge, max_y),
+                min_y + edge * (max_y - min_y),
+                min_y + edge * (max_y - min_y),
+            ]
+        )
         proj_x: list[float] = []
         proj_y: list[float] = []
         for px, py in zip(xs, ys):
@@ -5227,8 +5580,8 @@ class NetCDF(Dataset):
         attributes from the `xarray.Dataset` and writes them to a
         NetCDF file through pyramids' own GDAL Multidimensional
         writer. No xarray engine plugin (`netcdf4`, `h5netcdf`)
-        is invoked — pyramids is the writer, so the `[xarray]`
-        extra does not need to pull a NetCDF backend.
+        is invoked — pyramids is the writer, so xarray does not
+        need to pull a NetCDF backend.
 
         Usage::
 
@@ -5240,8 +5593,8 @@ class NetCDF(Dataset):
 
         Requires the optional `xarray` package. Install with one of:
 
-        - PyPI: ``pip install 'pyramids-gis[xarray]'``
-        - conda-forge: ``conda install -c conda-forge pyramids-xarray``
+        - PyPI: ``pip install xarray``
+        - conda-forge: ``conda install -c conda-forge xarray``
 
         Args:
             dataset: An `xarray.Dataset` instance.
@@ -5263,8 +5616,8 @@ class NetCDF(Dataset):
         except ImportError:
             raise OptionalPackageDoesNotExist(
                 "xarray is required for from_xarray(). Install with one of:\n"
-                "  - PyPI:        pip install 'pyramids-gis[xarray]'\n"
-                "  - conda-forge: conda install -c conda-forge pyramids-xarray"
+                "  - PyPI:        pip install xarray\n"
+                "  - conda-forge: conda install -c conda-forge xarray"
             )
 
         if not isinstance(dataset, xr.Dataset):

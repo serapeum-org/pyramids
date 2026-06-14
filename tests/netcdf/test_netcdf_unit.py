@@ -246,9 +246,9 @@ class TestGetTimeVariable:
         assert (
             len(result) == valid_time.size
         ), f"expected {valid_time.size} timestamps, got {len(result)}"
-        assert result[0].startswith("2022-01-"), (
-            f"expected 2022-01-* from the CDS-Beta sample, got {result[0]}"
-        )
+        assert result[0].startswith(
+            "2022-01-"
+        ), f"expected 2022-01-* from the CDS-Beta sample, got {result[0]}"
 
 
 class TestSpatialOperationDelegates:
@@ -975,12 +975,12 @@ class TestRemoveVariable:
 MSWEP_PATH = Path("tests/data/netcdf/MSWEP_1979010100.nc")
 
 
-@pytest.mark.skipif(
-    not MSWEP_PATH.exists(),
-    reason=f"{MSWEP_PATH} not available (untracked test data)",
-)
 class TestMSWEPFile:
-    """Tests using the MSWEP test file for real-world coverage."""
+    """Tests using the MSWEP test file for real-world coverage.
+
+    ``MSWEP_PATH`` is committed test data; if it is ever missing these tests
+    must fail loudly rather than skip silently, so there is no ``.exists()`` gate.
+    """
 
     def test_read_mswep_mdim(self):
         """Verify reading MSWEP file in multidimensional mode.
@@ -988,7 +988,7 @@ class TestMSWEPFile:
         Uses tests/data/netcdf/MSWEP_1979010100.nc to hit real code paths.
         """
         nc = NetCDF.read_file(
-            "tests/data/netcdf/MSWEP_1979010100.nc",
+            str(MSWEP_PATH),
             open_as_multi_dimensional=True,
         )
         assert (
@@ -1003,7 +1003,7 @@ class TestMSWEPFile:
     def test_mswep_dimension_names(self):
         """Verify MSWEP file has correct dimension names."""
         nc = NetCDF.read_file(
-            "tests/data/netcdf/MSWEP_1979010100.nc",
+            str(MSWEP_PATH),
             open_as_multi_dimensional=True,
         )
         dims = nc.dimension_names
@@ -1014,7 +1014,7 @@ class TestMSWEPFile:
     def test_mswep_meta_data(self):
         """Verify MSWEP metadata is accessible."""
         nc = NetCDF.read_file(
-            "tests/data/netcdf/MSWEP_1979010100.nc",
+            str(MSWEP_PATH),
             open_as_multi_dimensional=True,
         )
         md = nc.meta_data
@@ -1025,7 +1025,7 @@ class TestMSWEPFile:
     def test_mswep_get_all_metadata(self):
         """Verify get_all_metadata populates dimension overview."""
         nc = NetCDF.read_file(
-            "tests/data/netcdf/MSWEP_1979010100.nc",
+            str(MSWEP_PATH),
             open_as_multi_dimensional=True,
         )
         md = nc.get_all_metadata()
@@ -1034,7 +1034,7 @@ class TestMSWEPFile:
     def test_mswep_lon_lat(self):
         """Verify lon/lat are readable from MSWEP file."""
         nc = NetCDF.read_file(
-            "tests/data/netcdf/MSWEP_1979010100.nc",
+            str(MSWEP_PATH),
             open_as_multi_dimensional=True,
         )
         lon = nc.lon
@@ -1463,25 +1463,29 @@ class TestGetVariableMultipleBandDims:
 
         nc = NetCDF(src)
         var = nc.get_variable("temp")
-        assert var._band_dim_names == ("time", "ensemble"), (
-            f"Expected ('time', 'ensemble'), got {var._band_dim_names!r}"
-        )
-        assert var._band_dim_sizes == (2, 2), (
-            f"Expected sizes (2, 2), got {var._band_dim_sizes!r}"
-        )
-        assert var._band_dim_values_map["time"] == [0.0, 1.0], (
-            f"time values mismatch: {var._band_dim_values_map.get('time')!r}"
-        )
+        assert var._band_dim_names == (
+            "time",
+            "ensemble",
+        ), f"Expected ('time', 'ensemble'), got {var._band_dim_names!r}"
+        assert var._band_dim_sizes == (
+            2,
+            2,
+        ), f"Expected sizes (2, 2), got {var._band_dim_sizes!r}"
+        assert var._band_dim_values_map["time"] == [
+            0.0,
+            1.0,
+        ], f"time values mismatch: {var._band_dim_values_map.get('time')!r}"
         assert var._band_dim_values_map["ensemble"] == [1.0, 2.0], (
             f"ensemble values mismatch: "
             f"{var._band_dim_values_map.get('ensemble')!r}"
         )
-        assert var._band_dim_name == "time", (
-            f"legacy primary must be 'time', got {var._band_dim_name!r}"
-        )
-        assert var._band_dim_values == [0.0, 1.0], (
-            f"legacy primary values mismatch: {var._band_dim_values!r}"
-        )
+        assert (
+            var._band_dim_name == "time"
+        ), f"legacy primary must be 'time', got {var._band_dim_name!r}"
+        assert var._band_dim_values == [
+            0.0,
+            1.0,
+        ], f"legacy primary values mismatch: {var._band_dim_values!r}"
 
 
 class TestGetVariableAttrException:
@@ -1705,9 +1709,10 @@ class TestCubeDimensionNames:
         names = var.dimension_names
         assert names is not None, "cube dim names must not be None after fix"
         assert len(names) == 4, f"4-D cube must have 4 dims, got {names!r}"
-        assert names[:2] == ["time", "pressure_level"], (
-            f"band dims must be first two, got {names!r}"
-        )
+        assert names[:2] == [
+            "time",
+            "pressure_level",
+        ], f"band dims must be first two, got {names!r}"
 
     def test_cube_dimension_names_is_independent_copy(self):
         """Mutating the returned list must not alter `_md_array_dims`."""
@@ -1730,9 +1735,9 @@ class TestCubeDimensionNames:
         nc = NetCDF.read_file("tests/data/netcdf/pyramids-netcdf-4d.nc")
         var = nc.get_variable("temperature")
         var._md_array_dims = []
-        assert var.dimension_names is None, (
-            f"empty cache should yield None, got {var.dimension_names!r}"
-        )
+        assert (
+            var.dimension_names is None
+        ), f"empty cache should yield None, got {var.dimension_names!r}"
 
     def test_container_dimension_names_unchanged(self):
         """The container path is unchanged: still reads from the root group.

@@ -365,7 +365,13 @@ def from_stac(
         collection = DatasetCollection.from_files(hrefs, gdal_env=gdal_env)
     else:
         collection = _from_stac_multi_asset(
-            item_list, list(asset), _sign, gdal_env, align, skip_missing, DatasetCollection
+            item_list,
+            list(asset),
+            _sign,
+            gdal_env,
+            align,
+            skip_missing,
+            DatasetCollection,
         )
 
     if target_grid is not None:
@@ -402,16 +408,13 @@ def _resolve_target_grid(
     explicit = (crs, resolution, bounds)
     if like is not None:
         if any(v is not None for v in explicit):
-            raise ValueError(
-                "like= is mutually exclusive with crs/resolution/bounds."
-            )
+            raise ValueError("like= is mutually exclusive with crs/resolution/bounds.")
         return like
     if all(v is None for v in explicit):
         return None
     if any(v is None for v in explicit):
         raise ValueError(
-            "crs, resolution, and bounds must all be given together (or use "
-            "like=)."
+            "crs, resolution, and bounds must all be given together (or use like=)."
         )
     if anchor != "edge":
         raise ValueError(f"anchor must be 'edge', got {anchor!r}.")
@@ -498,9 +501,7 @@ def _solar_day(item: Any) -> str:
     single overpass is not split across the UTC-midnight boundary, then reduced
     to its calendar date.
     """
-    shifted = _item_datetime(item) + timedelta(
-        hours=_item_centroid_lon(item) / 15.0
-    )
+    shifted = _item_datetime(item) + timedelta(hours=_item_centroid_lon(item) / 15.0)
     return shifted.date().isoformat()
 
 
@@ -941,7 +942,11 @@ def to_stac_item(
     # cycle if imported at module load (see _resolve_asset_href above).
     from pyramids.stac._extensions import geotransform_to_affine
 
-    epsg = dataset.epsg
+    # `dataset.epsg` softly defaults to 4326 for a raster with no projection
+    # (epsg_from_wkt(default=4326)), so it can never signal "no CRS". `dataset.crs`
+    # (the WKT) is the honest signal: empty -> treat epsg as absent so the world-bbox
+    # branch fires and the proj:* fields are omitted.
+    epsg = dataset.epsg if dataset.crs else None
     native_bbox = list(dataset.bbox)
     geometry, bbox_4326 = _footprint_4326(native_bbox, epsg, precision)
 

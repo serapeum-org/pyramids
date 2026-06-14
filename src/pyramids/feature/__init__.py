@@ -34,11 +34,11 @@ from pyramids.feature.geometry import (
 _LAZY_FC_INSTALL_HINT = (
     "LazyFeatureCollection requires the optional 'dask-geopandas' "
     "dependency. Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[parquet-lazy]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-parquet-lazy"
+    "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
+    "  - conda-forge: conda install -c conda-forge pyramids-parquet"
 )
 
-# LazyFeatureCollection is only available when the [parquet-lazy] extra
+# LazyFeatureCollection is only available when the [parquet] extra
 # is installed. Two design goals:
 #
 # 1. Eager import on `from pyramids.feature import LazyFeatureCollection`
@@ -51,9 +51,10 @@ _LAZY_FC_INSTALL_HINT = (
 # The PEP-562 `__getattr__` hook satisfies both: attribute lookups for
 # `LazyFeatureCollection` try the real import, and raise a branded
 # :class:`ImportError` when dask-geopandas is absent.
-# `hasattr(module, "LazyFeatureCollection")` returns False on minimal installs (because
-# `__getattr__` raised), so library authors can guard with a clean
-# `hasattr` check instead of an `isinstance` against `None`.
+# Note: do NOT probe with `hasattr(module, "LazyFeatureCollection")` — on a
+# minimal install `__getattr__` raises ImportError (not AttributeError), which
+# `hasattr` does not swallow, so it propagates rather than returning False. Use
+# `has_lazy_backend()` (or `is_lazy_fc(obj)` for dispatch) to check availability.
 try:
     import_dask_geopandas(_LAZY_FC_INSTALL_HINT)
 except OptionalPackageDoesNotExist:  # pragma: no cover - minimal install path
@@ -78,7 +79,7 @@ def __getattr__(name: str) -> object:
 
 
 def has_lazy_backend() -> bool:
-    """Return True when the `[parquet-lazy]` extra is installed.
+    """Return True when the `[parquet]` extra is installed.
 
     public feature-detection helper that avoids the
     `try/except ImportError` dance for consumers that only need to

@@ -25,7 +25,6 @@ from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import (
     import_dask,
     import_kerchunk,
-    import_xarray,
     import_zarr,
 )
 from pyramids.dataset import Dataset, DatasetCollection
@@ -41,9 +40,8 @@ else:
 
 
 try:
-    import_xarray("xarray needed for io_e2e tests")
     import xarray as xr
-except OptionalPackageDoesNotExist:  # pragma: no cover
+except ImportError:  # pragma: no cover
     HAS_XARRAY = False
 else:
     HAS_XARRAY = True

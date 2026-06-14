@@ -246,9 +246,7 @@ class TestToCogResamplingGuardrail:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             int_dataset.to_cog(tmp_path / "i.tif")
-        categorical = [
-            w for w in caught if "categorical" in str(w.message).lower()
-        ]
+        categorical = [w for w in caught if "categorical" in str(w.message).lower()]
         assert not categorical, f"default int write must not warn, got {categorical}"
 
     def test_explicit_average_on_integer_warns(self, int_dataset, tmp_path):
@@ -373,9 +371,7 @@ class TestStatisticsRetry:
         float_dataset.to_cog(tmp_path / "retry2.tif")
         assert len(calls) == 2, f"expected initial call + one retry, got {len(calls)}"
 
-    def test_unrelated_error_propagates(
-        self, float_dataset, tmp_path, monkeypatch
-    ):
+    def test_unrelated_error_propagates(self, float_dataset, tmp_path, monkeypatch):
         """An unrelated error is not swallowed by the retry guard.
 
         Args:
@@ -432,4 +428,6 @@ class TestToCogWriteCogEquivalence:
             out2
         ), "overview decimation must match between to_cog and write_cog"
         assert report is not None and report.is_valid, "write_cog output must validate"
-        assert ds.read_file(str(p1)).validate_cog().is_valid, "to_cog output must validate"
+        assert (
+            ds.read_file(str(p1)).validate_cog().is_valid
+        ), "to_cog output must validate"

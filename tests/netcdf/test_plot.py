@@ -145,9 +145,9 @@ class TestNetCDFPlotVariableResolution:
         """
         nc = _make_3d_nc()
         result = nc.plot(variable="t2m")
-        assert isinstance(result, ArrayGlyph), (
-            f"Expected ArrayGlyph, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, ArrayGlyph
+        ), f"Expected ArrayGlyph, got {type(result).__name__}"
 
     def test_subset_with_matching_variable_renders(self):
         """`variable=<pinned_name>` is accepted on a variable subset.
@@ -401,9 +401,9 @@ class TestNetCDFPlotBandKwargRejected:
         with pytest.raises(TypeError, match=r"band=") as exc_info:
             nc.plot(variable="t2m", band=0)
         msg = str(exc_info.value)
-        assert "Selectors" in msg, (
-            f"band= rejection should point at Selectors(...), got: {msg}"
-        )
+        assert (
+            "Selectors" in msg
+        ), f"band= rejection should point at Selectors(...), got: {msg}"
 
     def test_band_rejection_fires_before_render(self):
         """The `band=` gate runs before any engine call.
@@ -492,12 +492,13 @@ class TestNetCDFPlotDefaultRender:
         var = nc.get_variable("t2m")
         expected = var.read_array()[1]
         result = nc.plot(variable="t2m", selectors=Selectors(time=1))
-        assert isinstance(result, ArrayGlyph), (
-            f"Expected ArrayGlyph, got {type(result).__name__}"
-        )
-        assert result.arr.shape == (5, 5), (
-            f"Expected 2-D (5, 5) slice, got shape {result.arr.shape}"
-        )
+        assert isinstance(
+            result, ArrayGlyph
+        ), f"Expected ArrayGlyph, got {type(result).__name__}"
+        assert result.arr.shape == (
+            5,
+            5,
+        ), f"Expected 2-D (5, 5) slice, got shape {result.arr.shape}"
         assert_array_equal(
             result.arr,
             expected,
@@ -519,9 +520,9 @@ class TestNetCDFPlotDefaultRender:
             variable="temperature",
             selectors=Selectors(time=12, level=500),
         )
-        assert isinstance(result, ArrayGlyph), (
-            f"Expected ArrayGlyph, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, ArrayGlyph
+        ), f"Expected ArrayGlyph, got {type(result).__name__}"
         assert_array_equal(
             result.arr,
             expected,
@@ -616,9 +617,9 @@ class TestNetCDFPlotVariableResolutionEdges:
             )
         msg = str(exc_info.value)
         assert "time" in msg, f"Resolved selectors should be reported, got: {msg}"
-        assert "Remaining shape" in msg, (
-            f"Error must include 'Remaining shape', got: {msg}"
-        )
+        assert (
+            "Remaining shape" in msg
+        ), f"Error must include 'Remaining shape', got: {msg}"
 
 
 class TestNetCDFPlotRejectedKwargsCombinations:
@@ -692,17 +693,17 @@ class TestNetCDFPlotSelectorEdges:
         """``sel={}`` adds no resolved selectors; default render proceeds."""
         nc = _make_3d_nc()
         result = nc.plot(variable="t2m", selectors=Selectors(sel={}))
-        assert isinstance(result, ArrayGlyph), (
-            f"Empty sel dict must be a no-op, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, ArrayGlyph
+        ), f"Empty sel dict must be a no-op, got {type(result).__name__}"
 
     def test_empty_isel_dict_is_noop(self):
         """``isel={}`` adds no resolved selectors; default render proceeds."""
         nc = _make_3d_nc()
         result = nc.plot(variable="t2m", selectors=Selectors(isel={}))
-        assert isinstance(result, ArrayGlyph), (
-            f"Empty isel dict must be a no-op, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, ArrayGlyph
+        ), f"Empty isel dict must be a no-op, got {type(result).__name__}"
 
     def test_time_alias_overrides_sel_entry(self):
         """``time=`` alias is written into ``resolved_sel`` after the raw ``sel``.
@@ -793,18 +794,18 @@ class TestNetCDFPlotSelectorEdges:
         nc = _make_3d_nc()
         with pytest.raises(ValueError, match=r"level=") as exc_info:
             nc.plot(variable="t2m", selectors=Selectors(level=500))
-        assert "['time']" in str(exc_info.value), (
-            f"Band dim names must be reported in the error, got: {exc_info.value}"
-        )
+        assert "['time']" in str(
+            exc_info.value
+        ), f"Band dim names must be reported in the error, got: {exc_info.value}"
 
     def test_member_on_variable_without_ensemble_dim_raises(self):
         """``member=`` on a non-ensemble variable surfaces a clear ValueError."""
         nc = _make_3d_nc()
         with pytest.raises(ValueError, match=r"member=") as exc_info:
             nc.plot(variable="t2m", selectors=Selectors(member=0))
-        assert "['time']" in str(exc_info.value), (
-            f"Available band dims must be listed, got: {exc_info.value}"
-        )
+        assert "['time']" in str(
+            exc_info.value
+        ), f"Available band dims must be listed, got: {exc_info.value}"
 
     def test_under_specified_4d_message_contents(self):
         """Pin-to-one-slice ValueError on 4-D includes resolved and remaining shape.
@@ -822,12 +823,10 @@ class TestNetCDFPlotSelectorEdges:
                 selectors=Selectors(sel={"time": 12}),
             )
         message = str(exc_info.value)
-        assert "Resolved" in message, (
-            f"Error must mention 'Resolved', got: {message}"
-        )
-        assert "Remaining shape" in message, (
-            f"Error must mention 'Remaining shape', got: {message}"
-        )
+        assert "Resolved" in message, f"Error must mention 'Resolved', got: {message}"
+        assert (
+            "Remaining shape" in message
+        ), f"Error must mention 'Remaining shape', got: {message}"
 
 
 class TestNetCDFPlotCoordAxesExtra:
@@ -838,9 +837,9 @@ class TestNetCDFPlotCoordAxesExtra:
         nc = _make_3d_nc()
         with pytest.raises(ValueError, match=r"coords x=") as exc_info:
             nc.plot(variable="t2m", coords=("bogus", "t2m"))
-        assert "bogus" in str(exc_info.value), (
-            f"Error must echo the bad name, got: {exc_info.value}"
-        )
+        assert "bogus" in str(
+            exc_info.value
+        ), f"Error must echo the bad name, got: {exc_info.value}"
 
     def test_coords_pair_both_valid_renders(self):
         """`coords=(<valid>, <valid>)` passes validation and renders.
@@ -853,9 +852,7 @@ class TestNetCDFPlotCoordAxesExtra:
         """
         nc = _make_3d_nc()
         result = nc.plot(variable="t2m", coords=("t2m", "t2m"))
-        assert isinstance(result, ArrayGlyph), (
-            "coords=(<valid>, <valid>) should render"
-        )
+        assert isinstance(result, ArrayGlyph), "coords=(<valid>, <valid>) should render"
 
 
 class TestNetCDFPlotForwardingExtra:
@@ -868,9 +865,9 @@ class TestNetCDFPlotForwardingExtra:
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
             nc.plot(variable="t2m", colour=ColourOpts(cmap="viridis"))
-        assert mock_plot.call_args.kwargs.get("cmap") == "viridis", (
-            f"cmap must be forwarded, got: {mock_plot.call_args.kwargs}"
-        )
+        assert (
+            mock_plot.call_args.kwargs.get("cmap") == "viridis"
+        ), f"cmap must be forwarded, got: {mock_plot.call_args.kwargs}"
 
     def test_vmin_vmax_forwarded(self):
         """``vmin``/``vmax`` are forwarded to the renderer."""
@@ -992,9 +989,9 @@ class TestNetCDFPlotContainerBehaviour:
         nc = _make_3d_nc()
         with pytest.raises(ValueError, match=r"variable=") as exc_info:
             nc.plot()
-        assert "t2m" in str(exc_info.value), (
-            f"Error message must list available variables, got: {exc_info.value}"
-        )
+        assert "t2m" in str(
+            exc_info.value
+        ), f"Error message must list available variables, got: {exc_info.value}"
 
     def test_subset_with_matching_variable_continues_silently(self):
         """``var.plot(variable=var._source_var_name)`` does not raise.
@@ -1010,9 +1007,9 @@ class TestNetCDFPlotContainerBehaviour:
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
             result = var.plot(variable=var._source_var_name)
-        assert result == "ok", (
-            f"Expected the patched render to return 'ok', got: {result!r}"
-        )
+        assert (
+            result == "ok"
+        ), f"Expected the patched render to return 'ok', got: {result!r}"
         assert mock_plot.called, "Analysis.plot was not invoked"
 
 
@@ -1346,9 +1343,9 @@ class TestCurvilinearCoords:
         assert cleo.coords is not None, "curvilinear coords must reach cleopatra"
         assert cleo.coords[0].shape == (6, 7)
         assert cleo.coords[1].shape == (6, 7)
-        assert cleo.extent is None, (
-            "extent must be suppressed when curvilinear coords are present"
-        )
+        assert (
+            cleo.extent is None
+        ), "extent must be suppressed when curvilinear coords are present"
 
     def test_kind_auto_routes_to_pcolormesh_with_2d_coords(self):
         """`kind="auto"` (default) auto-routes when 2-D coords are detected.
@@ -1417,7 +1414,10 @@ class TestCurvilinearCoords:
     def test_roms_naming_convention_auto_detected(self):
         """ROMS-style `lat_rho`/`lon_rho` are auto-detected like WRF."""
         nc, _, _, _ = _make_curvilinear_nc(
-            rows=5, cols=6, x_name="lon_rho", y_name="lat_rho",
+            rows=5,
+            cols=6,
+            x_name="lon_rho",
+            y_name="lat_rho",
         )
         cleo = nc.plot(variable="CANWAT")
         assert cleo.coords is not None
@@ -1474,7 +1474,10 @@ class TestCurvilinearCoords:
     def test_nemo_naming_convention_auto_detected(self):
         """NEMO-style ``nav_lat``/``nav_lon`` are auto-detected like WRF."""
         nc, _, _, _ = _make_curvilinear_nc(
-            rows=5, cols=6, x_name="nav_lon", y_name="nav_lat",
+            rows=5,
+            cols=6,
+            x_name="nav_lon",
+            y_name="nav_lat",
         )
         cleo = nc.plot(variable="CANWAT")
         assert cleo.coords is not None
@@ -1523,7 +1526,8 @@ class TestNetCDFPlotFaceting:
         """`col_wrap=3` wraps N=4 panels into a 2x3 grid."""
         nc = _make_3d_nc(n_times=4)
         grid = nc.plot(
-            variable="t2m", facet=FacetSpec(col="time", col_wrap=3),
+            variable="t2m",
+            facet=FacetSpec(col="time", col_wrap=3),
         )
         assert isinstance(grid, _FacetGrid)
         assert grid.axes.shape == (2, 3)
@@ -1591,7 +1595,8 @@ class TestNetCDFPlotFaceting:
         nc = _make_3d_nc(n_times=4)
         with pytest.raises(ValueError, match=r"positive int"):
             nc.plot(
-                variable="t2m", facet=FacetSpec(col="time", col_wrap=0),
+                variable="t2m",
+                facet=FacetSpec(col="time", col_wrap=0),
             )
 
 
@@ -1642,15 +1647,18 @@ class TestCurvilinearCoordsEdges:
             regardless of the order in the attribute string.
         """
         nc, _, _, _ = _make_curvilinear_nc(
-            rows=5, cols=6, cf_attr="XLONG XLAT",
+            rows=5,
+            cols=6,
+            cf_attr="XLONG XLAT",
         )
         cleo = nc.plot(variable="CANWAT")
-        assert cleo.coords is not None, (
-            "lon-first CF attribute must still resolve curvilinear coords"
-        )
-        assert cleo.coords[0].shape == (5, 6), (
-            f"x array should be (5, 6), got {cleo.coords[0].shape}"
-        )
+        assert (
+            cleo.coords is not None
+        ), "lon-first CF attribute must still resolve curvilinear coords"
+        assert cleo.coords[0].shape == (
+            5,
+            6,
+        ), f"x array should be (5, 6), got {cleo.coords[0].shape}"
 
     def test_cf_coordinates_lat_then_lon(self):
         """CF `coordinates="XLAT XLONG"` (lat-first) is also accepted.
@@ -1661,15 +1669,18 @@ class TestCurvilinearCoordsEdges:
             position. Both axes still match the data slice shape.
         """
         nc, _, _, _ = _make_curvilinear_nc(
-            rows=5, cols=6, cf_attr="XLAT XLONG",
+            rows=5,
+            cols=6,
+            cf_attr="XLAT XLONG",
         )
         cleo = nc.plot(variable="CANWAT")
-        assert cleo.coords is not None, (
-            "lat-first CF attribute must still resolve curvilinear coords"
-        )
-        assert cleo.coords[0].shape == (5, 6), (
-            f"x array should still be (5, 6), got {cleo.coords[0].shape}"
-        )
+        assert (
+            cleo.coords is not None
+        ), "lat-first CF attribute must still resolve curvilinear coords"
+        assert cleo.coords[0].shape == (
+            5,
+            6,
+        ), f"x array should still be (5, 6), got {cleo.coords[0].shape}"
 
     def test_cf_attribute_wins_over_well_known_naming(self):
         """CF `coordinates` takes priority over the WRF naming convention.
@@ -1784,12 +1795,12 @@ class TestCurvilinearCoordsEdges:
         nc.__class__ = subcls
 
         cleo = nc.plot(variable="CANWAT")
-        assert cleo.coords is None, (
-            "Wrong-shape CF coords must be skipped (no crash); got coords"
-        )
-        assert cleo.extent is not None, (
-            "Renderer must fall back to extent when CF coords don't fit"
-        )
+        assert (
+            cleo.coords is None
+        ), "Wrong-shape CF coords must be skipped (no crash); got coords"
+        assert (
+            cleo.extent is not None
+        ), "Renderer must fall back to extent when CF coords don't fit"
 
     def test_explicit_coords_missing_variable_name_raises(self):
         """`coords=("missing", "XLAT")` references a non-variable name.
@@ -1804,9 +1815,9 @@ class TestCurvilinearCoordsEdges:
         nc, _, _, _ = _make_curvilinear_nc(rows=5, cols=6)
         with pytest.raises(ValueError, match=r"missing") as exc_info:
             nc.plot(variable="CANWAT", coords=("missing", "XLAT"))
-        assert "Available" in str(exc_info.value), (
-            f"Error must list available variables, got: {exc_info.value}"
-        )
+        assert "Available" in str(
+            exc_info.value
+        ), f"Error must list available variables, got: {exc_info.value}"
 
     def test_explicit_coords_mixed_string_array_forms(self):
         """`coords=(name, array)` mixed-form is accepted.
@@ -1853,9 +1864,9 @@ class TestCurvilinearCoordsEdges:
         """
         nc = _make_3d_nc()
         cleo = nc.plot(variable="t2m", kind="auto")
-        assert cleo.coords is None, (
-            "Regular grid + kind='auto' should keep coords None (imshow path)"
-        )
+        assert (
+            cleo.coords is None
+        ), "Regular grid + kind='auto' should keep coords None (imshow path)"
         assert cleo.extent is not None, "Imshow path must carry an extent"
 
     def test_kind_pcolormesh_without_explicit_coords_renders(self):
@@ -1869,9 +1880,9 @@ class TestCurvilinearCoordsEdges:
         """
         nc = _make_3d_nc()
         cleo = nc.plot(variable="t2m", kind="pcolormesh")
-        assert isinstance(cleo, ArrayGlyph), (
-            "kind='pcolormesh' without coords must still produce an ArrayGlyph"
-        )
+        assert isinstance(
+            cleo, ArrayGlyph
+        ), "kind='pcolormesh' without coords must still produce an ArrayGlyph"
 
     def test_coords_1d_x_1d_y_correct_lengths(self):
         """`coords=(1D x of len cols, 1D y of len rows)` is accepted.
@@ -1887,12 +1898,12 @@ class TestCurvilinearCoordsEdges:
         y_1d = np.linspace(0.0, 1.0, 5, dtype=np.float32)
         cleo = nc.plot(variable="CANWAT", coords=(x_1d, y_1d))
         assert cleo.coords is not None
-        assert cleo.coords[0].shape == (6,), (
-            f"x should be 1-D of length 6, got {cleo.coords[0].shape}"
-        )
-        assert cleo.coords[1].shape == (5,), (
-            f"y should be 1-D of length 5, got {cleo.coords[1].shape}"
-        )
+        assert cleo.coords[0].shape == (
+            6,
+        ), f"x should be 1-D of length 6, got {cleo.coords[0].shape}"
+        assert cleo.coords[1].shape == (
+            5,
+        ), f"y should be 1-D of length 5, got {cleo.coords[1].shape}"
 
     def test_coords_1d_swapped_lengths_falls_back_to_extent(self):
         """`coords=(1D x of len rows, 1D y of len cols)` shapes mismatch.
@@ -1909,9 +1920,9 @@ class TestCurvilinearCoordsEdges:
         x_wrong = np.linspace(-1.0, 1.0, 5, dtype=np.float32)
         y_wrong = np.linspace(0.0, 1.0, 6, dtype=np.float32)
         cleo = nc.plot(variable="t2m", coords=(x_wrong, y_wrong))
-        assert cleo.coords is None, (
-            "Swapped-length 1-D coords must skip and fall back to extent"
-        )
+        assert (
+            cleo.coords is None
+        ), "Swapped-length 1-D coords must skip and fall back to extent"
         assert cleo.extent is not None
 
     def test_coords_2d_x_1d_y_mixed_dims_accepted(self):
@@ -1945,12 +1956,14 @@ class TestNetCDFPlotFacetingEdges:
         """`col_wrap=1` arranges N panels into N rows × 1 col."""
         nc = _make_3d_nc(n_times=4)
         grid = nc.plot(
-            variable="t2m", facet=FacetSpec(col="time", col_wrap=1),
+            variable="t2m",
+            facet=FacetSpec(col="time", col_wrap=1),
         )
         assert isinstance(grid, _FacetGrid)
-        assert grid.axes.shape == (4, 1), (
-            f"col_wrap=1 should yield 4 rows × 1 col, got {grid.axes.shape}"
-        )
+        assert grid.axes.shape == (
+            4,
+            1,
+        ), f"col_wrap=1 should yield 4 rows × 1 col, got {grid.axes.shape}"
         assert len(grid.name_dicts) == 4
 
     def test_col_wrap_larger_than_panel_count(self):
@@ -1965,16 +1978,18 @@ class TestNetCDFPlotFacetingEdges:
         """
         nc = _make_3d_nc(n_times=4)
         grid = nc.plot(
-            variable="t2m", facet=FacetSpec(col="time", col_wrap=8),
+            variable="t2m",
+            facet=FacetSpec(col="time", col_wrap=8),
         )
         assert isinstance(grid, _FacetGrid)
-        assert grid.axes.shape == (1, 8), (
-            f"col_wrap=8 with N=4 should yield a 1×8 grid, got {grid.axes.shape}"
-        )
+        assert grid.axes.shape == (
+            1,
+            8,
+        ), f"col_wrap=8 with N=4 should yield a 1×8 grid, got {grid.axes.shape}"
         visible = [ax for ax in grid.axes.ravel() if ax.get_visible()]
-        assert len(visible) == 4, (
-            f"Exactly 4 panels should be visible, got {len(visible)}"
-        )
+        assert (
+            len(visible) == 4
+        ), f"Exactly 4 panels should be visible, got {len(visible)}"
 
     def test_col_with_single_step_degenerate_grid(self):
         """`col="time"` with N=1 yields a 1×1 grid (degenerate but valid).
@@ -1987,9 +2002,10 @@ class TestNetCDFPlotFacetingEdges:
         nc = _make_3d_nc(n_times=1)
         grid = nc.plot(variable="t2m", facet=FacetSpec(col="time"))
         assert isinstance(grid, _FacetGrid)
-        assert grid.axes.shape == (1, 1), (
-            f"Single-step facet should yield (1, 1), got {grid.axes.shape}"
-        )
+        assert grid.axes.shape == (
+            1,
+            1,
+        ), f"Single-step facet should yield (1, 1), got {grid.axes.shape}"
         assert len(grid.name_dicts) == 1
 
     def test_facet_dim_unknown_lists_available_dims(self):
@@ -2013,9 +2029,9 @@ class TestNetCDFPlotFacetingEdges:
         nc = _make_3d_nc()
         with pytest.raises(ValueError, match=r"requires `col=`") as exc_info:
             nc.plot(variable="t2m", facet=FacetSpec(row="time"))
-        assert "col=" in str(exc_info.value), (
-            f"Error must mention col= requirement, got: {exc_info.value}"
-        )
+        assert "col=" in str(
+            exc_info.value
+        ), f"Error must mention col= requirement, got: {exc_info.value}"
 
     def test_facet_with_sel_pinning_other_dim(self):
         """Faceting `col="time"` plus `sel={"pressure_level": 500}` succeeds.
@@ -2035,9 +2051,10 @@ class TestNetCDFPlotFacetingEdges:
         )
         assert isinstance(grid, _FacetGrid)
         # _make_4d_nc has nt=3
-        assert grid.axes.shape == (1, 3), (
-            f"sel-pinned level + col=time should be (1, 3), got {grid.axes.shape}"
-        )
+        assert grid.axes.shape == (
+            1,
+            3,
+        ), f"sel-pinned level + col=time should be (1, 3), got {grid.axes.shape}"
 
     def test_facet_with_kind_pcolormesh_forwarded(self):
         """Faceting + `kind="pcolormesh"` forwards the kind to cleo.facet.
@@ -2054,12 +2071,12 @@ class TestNetCDFPlotFacetingEdges:
             mock_plot.return_value = "stub"
             nc.plot(variable="t2m", facet=FacetSpec(col="time"), kind="pcolormesh")
         call_kwargs = mock_plot.call_args.kwargs
-        assert call_kwargs.get("kind") == "pcolormesh", (
-            f"kind should reach Analysis.plot, got: {call_kwargs}"
-        )
-        assert "facet_kwargs" in call_kwargs, (
-            f"facet_kwargs must be present, got: {list(call_kwargs)}"
-        )
+        assert (
+            call_kwargs.get("kind") == "pcolormesh"
+        ), f"kind should reach Analysis.plot, got: {call_kwargs}"
+        assert (
+            "facet_kwargs" in call_kwargs
+        ), f"facet_kwargs must be present, got: {list(call_kwargs)}"
 
     def test_facet_with_curvilinear_coords_forwarded(self):
         """Faceting + curvilinear `coords=` forwards both to the engine.
@@ -2083,9 +2100,10 @@ class TestNetCDFPlotFacetingEdges:
         call_kwargs = mock_plot.call_args.kwargs
         assert "facet_kwargs" in call_kwargs, "facet_kwargs missing"
         assert "coords" in call_kwargs, "coords missing alongside facet_kwargs"
-        assert call_kwargs["coords"][0].shape == (4, 5), (
-            f"coords[0] should be 2D (4, 5), got {call_kwargs['coords'][0].shape}"
-        )
+        assert call_kwargs["coords"][0].shape == (
+            4,
+            5,
+        ), f"coords[0] should be 2D (4, 5), got {call_kwargs['coords'][0].shape}"
 
     def test_facet_with_robust_forwarded(self):
         """Faceting + `robust=True` forwards the percentile-stretch flag.
@@ -2107,9 +2125,9 @@ class TestNetCDFPlotFacetingEdges:
                 colour=ColourOpts(robust=True),
             )
         call_kwargs = mock_plot.call_args.kwargs
-        assert call_kwargs.get("robust") is True, (
-            f"robust=True must reach Analysis.plot, got: {call_kwargs}"
-        )
+        assert (
+            call_kwargs.get("robust") is True
+        ), f"robust=True must reach Analysis.plot, got: {call_kwargs}"
         assert "facet_kwargs" in call_kwargs
 
     def test_facet_grid_exposes_fig_axes_cbar_name_dicts(self):
@@ -2129,9 +2147,9 @@ class TestNetCDFPlotFacetingEdges:
         nc = _make_3d_nc(n_times=4)
         with pytest.raises(ValueError, match=r"positive int") as exc_info:
             nc.plot(variable="t2m", facet=FacetSpec(col="time", col_wrap="three"))
-        assert "col_wrap" in str(exc_info.value), (
-            f"Error must reference col_wrap, got: {exc_info.value}"
-        )
+        assert "col_wrap" in str(
+            exc_info.value
+        ), f"Error must reference col_wrap, got: {exc_info.value}"
 
     def test_facet_4d_col_row_grid_shape(self):
         """4-D facet with `col="time", row="pressure_level"` matches dim sizes.
@@ -2148,12 +2166,13 @@ class TestNetCDFPlotFacetingEdges:
             variable="temperature",
             facet=FacetSpec(col="time", row="pressure_level"),
         )
-        assert grid.axes.shape == (2, 3), (
-            f"4-D col+row grid should be (nrows=2, ncols=3), got {grid.axes.shape}"
-        )
-        assert len(grid.name_dicts) == 6, (
-            f"name_dicts should have nt*nl=6 entries, got {len(grid.name_dicts)}"
-        )
+        assert grid.axes.shape == (
+            2,
+            3,
+        ), f"4-D col+row grid should be (nrows=2, ncols=3), got {grid.axes.shape}"
+        assert (
+            len(grid.name_dicts) == 6
+        ), f"name_dicts should have nt*nl=6 entries, got {len(grid.name_dicts)}"
         for entry in grid.name_dicts:
             assert "time" in entry, f"Missing 'time' in {entry}"
             assert "pressure_level" in entry, f"Missing 'pressure_level' in {entry}"
@@ -2175,13 +2194,13 @@ class TestNetCDFPlotFacetingEdges:
                 facet=FacetSpec(col="time"),
                 basemap=True,
             )
-        assert mock_add.call_count == 3, (
-            f"expected one add_basemap per facet panel (3), got {mock_add.call_count}"
-        )
+        assert (
+            mock_add.call_count == 3
+        ), f"expected one add_basemap per facet panel (3), got {mock_add.call_count}"
         for call in mock_add.call_args_list:
-            assert call.kwargs.get("crs") == nc.get_variable("t2m").epsg, (
-                f"each panel basemap must use the variable's CRS, got: {call.kwargs}"
-            )
+            assert (
+                call.kwargs.get("crs") == nc.get_variable("t2m").epsg
+            ), f"each panel basemap must use the variable's CRS, got: {call.kwargs}"
 
     def test_facet_with_basemap_skips_hidden_panels(self):
         """`col_wrap` hidden trailing slots get no basemap (M4).
@@ -2198,9 +2217,9 @@ class TestNetCDFPlotFacetingEdges:
                 facet=FacetSpec(col="time", col_wrap=3),
                 basemap=True,
             )
-        assert mock_add.call_count == 4, (
-            f"expected one add_basemap per visible panel (4), got {mock_add.call_count}"
-        )
+        assert (
+            mock_add.call_count == 4
+        ), f"expected one add_basemap per visible panel (4), got {mock_add.call_count}"
 
     def test_facet_with_basemap_string_source_propagates(self):
         """`basemap="CartoDB.Positron"` forwards the provider name to every panel."""
@@ -2213,9 +2232,9 @@ class TestNetCDFPlotFacetingEdges:
             )
         assert mock_add.call_count == 2
         for call in mock_add.call_args_list:
-            assert call.kwargs.get("source") == "CartoDB.Positron", (
-                f"string basemap must pass through as `source`, got: {call.kwargs}"
-            )
+            assert (
+                call.kwargs.get("source") == "CartoDB.Positron"
+            ), f"string basemap must pass through as `source`, got: {call.kwargs}"
 
     def test_facet_passes_pinned_extent_to_render(self):
         """The facet path supplies the pinned subset's bbox as the render extent (M6).
@@ -2231,9 +2250,7 @@ class TestNetCDFPlotFacetingEdges:
         """
         nc = _make_3d_nc(n_times=3)
         var = nc.get_variable("t2m")
-        with patch(
-            "pyramids.dataset.engines.analysis.render_array"
-        ) as mock_render:
+        with patch("pyramids.dataset.engines.analysis.render_array") as mock_render:
             mock_render.return_value = "ok"
             nc.plot(variable="t2m", facet=FacetSpec(col="time"))
         extent = mock_render.call_args.kwargs.get("extent")
@@ -2241,9 +2258,9 @@ class TestNetCDFPlotFacetingEdges:
             f"facet render extent must be the pinned subset's bbox "
             f"{var.bbox}, got {extent}"
         )
-        assert mock_render.call_args.kwargs.get("mode") == "facet", (
-            "this should have gone through the facet render path"
-        )
+        assert (
+            mock_render.call_args.kwargs.get("mode") == "facet"
+        ), "this should have gone through the facet render path"
 
     def test_static_plot_still_uses_self_ds_bbox(self):
         """No `_extent` injected on the non-facet path → engine uses `self._ds.bbox` (M6).
@@ -2256,15 +2273,13 @@ class TestNetCDFPlotFacetingEdges:
         """
         nc = _make_3d_nc(n_times=3)
         var = nc.get_variable("t2m")
-        with patch(
-            "pyramids.dataset.engines.analysis.render_array"
-        ) as mock_render:
+        with patch("pyramids.dataset.engines.analysis.render_array") as mock_render:
             mock_render.return_value = "ok"
             nc.plot(variable="t2m")
         extent = mock_render.call_args.kwargs.get("extent")
-        assert extent == var.bbox, (
-            f"static render extent should be self._ds.bbox {var.bbox}, got {extent}"
-        )
+        assert (
+            extent == var.bbox
+        ), f"static render extent should be self._ds.bbox {var.bbox}, got {extent}"
         assert mock_render.call_args.kwargs.get("mode") == "plot"
 
 
@@ -2283,9 +2298,9 @@ class TestNetCDFPlotAnimate:
         """
         nc = _make_3d_nc(n_times=3)
         result = nc.plot(variable="t2m", animate=True)
-        assert isinstance(result, ArrayGlyph), (
-            f"Expected ArrayGlyph, got {type(result).__name__}"
-        )
+        assert isinstance(
+            result, ArrayGlyph
+        ), f"Expected ArrayGlyph, got {type(result).__name__}"
         assert result.fig is not None, "Animation must own a Figure"
 
     def test_animate_string_resolves_named_dim(self):
@@ -2308,9 +2323,9 @@ class TestNetCDFPlotAnimate:
         nc = _make_3d_nc()
         with pytest.raises(KeyError, match=r"animate='bogus'") as exc_info:
             nc.plot(variable="t2m", animate="bogus")
-        assert "time" in str(exc_info.value), (
-            f"error should list the available band dims, got: {exc_info.value}"
-        )
+        assert "time" in str(
+            exc_info.value
+        ), f"error should list the available band dims, got: {exc_info.value}"
 
     def test_animate_with_col_raises_mutually_exclusive(self):
         """``animate=True`` together with ``col=`` is rejected up-front."""
@@ -2413,9 +2428,7 @@ class TestNetCDFPlotAnimate:
         full = var.read_array()
         for i in range(4):
             frame = getter(i)
-            assert frame.shape == (5, 5), (
-                f"Frame {i} expected (5,5), got {frame.shape}"
-            )
+            assert frame.shape == (5, 5), f"Frame {i} expected (5,5), got {frame.shape}"
             assert_array_equal(
                 frame,
                 full[i],
@@ -2445,9 +2458,9 @@ class TestNetCDFPlotAnimate:
         ):
             nc.plot(variable="t2m", animate=True)
         template = captured["kw"]["arr"]
-        assert template.ndim == 2, (
-            f"Template handed to render_array must be 2-D, got {template.shape}"
-        )
+        assert (
+            template.ndim == 2
+        ), f"Template handed to render_array must be 2-D, got {template.shape}"
 
     def test_animate_invalid_type_raises(self):
         """``animate=1.0`` (non-bool, non-str) is rejected with a clear error."""
@@ -2497,9 +2510,7 @@ class TestNetCDFPlotLazy:
             mock_plot.return_value = "ok"
             nc.plot(variable="t2m", selectors=Selectors(time=0))
         kw = mock_plot.call_args.kwargs
-        assert "_chunks" not in kw, (
-            f"chunks=None must not inject _chunks; got {kw}"
-        )
+        assert "_chunks" not in kw, f"chunks=None must not inject _chunks; got {kw}"
 
     def test_chunks_value_forwarded_via_underscore_kwarg(self):
         """A user-supplied ``chunks=`` is forwarded to ``Analysis.plot``.
@@ -2533,16 +2544,14 @@ class TestNetCDFPlotLazy:
         with patch.object(
             type(var), "shape", new_callable=lambda: property(lambda s: large_shape)
         ):
-            with patch.object(
-                type(var.analysis), "plot", autospec=True
-            ) as mock_plot:
+            with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
                 mock_plot.return_value = "ok"
                 with caplog.at_level("INFO", logger="pyramids.netcdf._plot"):
                     nc.plot(variable="t2m", selectors=Selectors(time=0))
         msgs = [r.getMessage() for r in caplog.records]
-        assert any("chunks=" in m for m in msgs), (
-            f"Expected chunks= hint in logs, got: {msgs}"
-        )
+        assert any(
+            "chunks=" in m for m in msgs
+        ), f"Expected chunks= hint in logs, got: {msgs}"
 
     def test_lazy_hint_not_logged_when_chunks_supplied(self, caplog):
         """No hint is logged when the caller already passed ``chunks=``.
@@ -2559,9 +2568,7 @@ class TestNetCDFPlotLazy:
         with patch.object(
             type(var), "shape", new_callable=lambda: property(lambda s: large_shape)
         ):
-            with patch.object(
-                type(var.analysis), "plot", autospec=True
-            ) as mock_plot:
+            with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
                 mock_plot.return_value = "ok"
                 with caplog.at_level("INFO", logger="pyramids.netcdf._plot"):
                     nc.plot(
@@ -2570,9 +2577,9 @@ class TestNetCDFPlotLazy:
                         chunks={"cols": 1},
                     )
         msgs = [r.getMessage() for r in caplog.records]
-        assert not any("chunks=" in m for m in msgs), (
-            f"Hint must not fire when chunks= is supplied; got: {msgs}"
-        )
+        assert not any(
+            "chunks=" in m for m in msgs
+        ), f"Hint must not fire when chunks= is supplied; got: {msgs}"
 
     def test_chunks_with_unpinned_band_dims_renders_2d_slice(self, tmp_path):
         """`chunks=` on a multi-band-dim variable renders a 2-D slice, not the whole cube (L3).
@@ -2601,9 +2608,9 @@ class TestNetCDFPlotLazy:
             f"lazy 4-D read must flatten + index a 2-D slice, got "
             f"{rendered.ndim}-D shape {rendered.shape}"
         )
-        assert rendered.shape == eager.shape, (
-            f"lazy slice shape {rendered.shape} != eager band-0 shape {eager.shape}"
-        )
+        assert (
+            rendered.shape == eager.shape
+        ), f"lazy slice shape {rendered.shape} != eager band-0 shape {eager.shape}"
 
 
 class TestNetCDFPlotAnimateEdges:
@@ -2639,8 +2646,7 @@ class TestNetCDFPlotAnimateEdges:
         )
         labels = captured["kw"]["animation_axis_values"]
         assert list(labels) == [0, 6, 12], (
-            f"animation labels must come from the time coord values, "
-            f"got {labels}"
+            f"animation labels must come from the time coord values, got {labels}"
         )
 
     def test_animate_with_isel_pin_animated_dim_raises(self):
@@ -2685,9 +2691,10 @@ class TestNetCDFPlotAnimateEdges:
                 animate="pressure_level",
             )
         labels = captured["kw"]["animation_axis_values"]
-        assert list(labels) == [1000, 500], (
-            f"Non-time dim labels must be raw coord values, got {labels}"
-        )
+        assert list(labels) == [
+            1000,
+            500,
+        ], f"Non-time dim labels must be raw coord values, got {labels}"
 
     def test_animate_false_takes_static_path(self):
         """``animate=False`` is treated like the default; no animate dispatch.
@@ -2700,15 +2707,13 @@ class TestNetCDFPlotAnimateEdges:
         """
         nc = _make_3d_nc()
         var = nc.get_variable("t2m")
-        with patch.object(
-            type(var.analysis), "plot", autospec=True
-        ) as mock_plot:
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
             nc.plot(variable="t2m", selectors=Selectors(time=0), animate=False)
         kw = mock_plot.call_args.kwargs
-        assert "animation_axis_values" not in kw, (
-            f"animate=False must not engage the animate path; got {kw}"
-        )
+        assert (
+            "animation_axis_values" not in kw
+        ), f"animate=False must not engage the animate path; got {kw}"
 
     def test_animate_data_getter_propagates_inner_exception(self):
         """A ``data_getter`` failure on frame N bubbles out of the call.
@@ -2801,9 +2806,9 @@ class TestNetCDFPlotAnimateEdges:
         with pytest.raises(ValueError, match=r"exactly one free band dim") as exc:
             nc.plot(variable="temperature", animate=True)
         msg = str(exc.value)
-        assert "time" in msg and "pressure_level" in msg, (
-            f"Error must list both free dims, got {msg!r}"
-        )
+        assert (
+            "time" in msg and "pressure_level" in msg
+        ), f"Error must list both free dims, got {msg!r}"
 
     def test_animate_2d_variable_with_no_band_dims_raises(self):
         """``animate=True`` on a pure 2-D variable raises a clear error.
@@ -2840,15 +2845,13 @@ class TestNetCDFPlotLazyEdges:
         """
         nc = _make_3d_nc()
         var = nc.get_variable("t2m")
-        with patch.object(
-            type(var.analysis), "plot", autospec=True
-        ) as mock_plot:
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
             nc.plot(variable="t2m", selectors=Selectors(time=0), chunks="auto")
         kw = mock_plot.call_args.kwargs
-        assert kw.get("_chunks") == "auto", (
-            f"String chunks value must be forwarded verbatim; got {kw}"
-        )
+        assert (
+            kw.get("_chunks") == "auto"
+        ), f"String chunks value must be forwarded verbatim; got {kw}"
 
     def test_lazy_hint_does_not_fire_for_small_variable(self, caplog):
         """Variables under 100 MB never trigger the hint.
@@ -2866,9 +2869,9 @@ class TestNetCDFPlotLazyEdges:
             with caplog.at_level("INFO", logger="pyramids.netcdf._plot"):
                 nc.plot(variable="t2m", selectors=Selectors(time=0))
         msgs = [r.getMessage() for r in caplog.records]
-        assert not any("chunks=" in m for m in msgs), (
-            f"Small variable must not log lazy hint; got {msgs}"
-        )
+        assert not any(
+            "chunks=" in m for m in msgs
+        ), f"Small variable must not log lazy hint; got {msgs}"
 
     def test_lazy_hint_message_contains_chunks_keyword(self, caplog):
         """Hint message names the ``chunks=`` kwarg explicitly.
@@ -2884,18 +2887,18 @@ class TestNetCDFPlotLazyEdges:
         with patch.object(
             type(var), "shape", new_callable=lambda: property(lambda s: large_shape)
         ):
-            with patch.object(
-                type(var.analysis), "plot", autospec=True
-            ) as mock_plot:
+            with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
                 mock_plot.return_value = "ok"
                 with caplog.at_level("INFO", logger="pyramids.netcdf._plot"):
                     nc.plot(variable="t2m", selectors=Selectors(time=0))
-        hint_msgs = [r.getMessage() for r in caplog.records if "chunks=" in r.getMessage()]
+        hint_msgs = [
+            r.getMessage() for r in caplog.records if "chunks=" in r.getMessage()
+        ]
         assert hint_msgs, "Expected at least one hint log record"
         joined = " ".join(hint_msgs)
-        assert "chunks=" in joined, (
-            f"Hint must contain literal `chunks=` token; got {joined!r}"
-        )
+        assert (
+            "chunks=" in joined
+        ), f"Hint must contain literal `chunks=` token; got {joined!r}"
 
     def test_lazy_hint_threshold_boundary_one_byte_below(self, caplog):
         """One byte below the 100 MB threshold: hint stays silent.
@@ -2916,13 +2919,11 @@ class TestNetCDFPlotLazyEdges:
         with patch.object(
             type(var), "shape", new_callable=lambda: property(lambda s: shape_below)
         ):
-            with patch.object(
-                type(var.analysis), "plot", autospec=True
-            ) as mock_plot:
+            with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
                 mock_plot.return_value = "ok"
                 with caplog.at_level("INFO", logger="pyramids.netcdf._plot"):
                     nc.plot(variable="t2m", selectors=Selectors(time=0))
         msgs = [r.getMessage() for r in caplog.records if "chunks=" in r.getMessage()]
-        assert not msgs, (
-            f"Boundary at threshold (size == 100 MB) must not fire hint; got {msgs}"
-        )
+        assert (
+            not msgs
+        ), f"Boundary at threshold (size == 100 MB) must not fire hint; got {msgs}"

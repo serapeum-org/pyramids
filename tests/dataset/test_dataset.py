@@ -520,10 +520,24 @@ class TestNoDataValue:
         src_no_data_value: float,
     ):
         src = Dataset(src_set_no_data_value)
-        try:
+        # The fill-based path writes pixels; on a read-only handle it must raise
+        # deterministically via the access flag, not depend on GDAL's error text (N3).
+        with pytest.raises(ReadOnlyError):
             src.bands._set_no_data_value(-99999.0)
-        except ReadOnlyError:
-            pass
+
+    def test_no_data_value_setter_allowed_read_only(
+        self,
+        src_set_no_data_value: gdal.Dataset,
+    ):
+        """Setting the no_data_value marker (metadata only) stays valid read-only (N3).
+
+        The setter changes only the attribute, not pixels, so GDAL permits it on a
+        read-only handle; the read-only guard applies only to the fill-based path.
+        """
+        src = Dataset(src_set_no_data_value)
+        assert src.access == "read_only", "fixture must be read-only for this test"
+        src.no_data_value = -123.0
+        assert src.no_data_value[0] == -123.0, "metadata-only setter must still work"
 
     def test_set_no_data_value(
         self,
@@ -638,9 +652,9 @@ class TestNoDataValue:
             dataset = Dataset.create_from_array(
                 arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
             )
-        assert dataset.no_data_value[0] == -9999, (
-            f"{dtype}: expected default no-data -9999, got {dataset.no_data_value[0]}"
-        )
+        assert (
+            dataset.no_data_value[0] == -9999
+        ), f"{dtype}: expected default no-data -9999, got {dataset.no_data_value[0]}"
 
 
 class TestSetCRS:
@@ -975,9 +989,9 @@ class TestReproject:
         dst = src_ds.to_crs(to_epsg="ESRI:54030")
         dst_sr = osr.SpatialReference(wkt=dst.crs)
         assert dst_sr.IsProjected() == 1
-        assert "Robinson" in dst_sr.GetName(), (
-            f"expected Robinson in dst CRS name, got {dst_sr.GetName()!r}"
-        )
+        assert (
+            "Robinson" in dst_sr.GetName()
+        ), f"expected Robinson in dst CRS name, got {dst_sr.GetName()!r}"
 
     def test_mollweide_esri_authority_string_maintain_alignment(
         self,
@@ -995,9 +1009,9 @@ class TestReproject:
         dst = src_ds.to_crs(to_epsg="ESRI:54009", maintain_alignment=True)
         dst_sr = osr.SpatialReference(wkt=dst.crs)
         assert dst_sr.IsProjected() == 1
-        assert "Mollweide" in dst_sr.GetName(), (
-            f"expected Mollweide in dst CRS name, got {dst_sr.GetName()!r}"
-        )
+        assert (
+            "Mollweide" in dst_sr.GetName()
+        ), f"expected Mollweide in dst CRS name, got {dst_sr.GetName()!r}"
         dst_shape = dst.raster.ReadAsArray().shape
         # Mollweide projects so differently from the source CRS that the
         # corner-sampled cell-step calculation can drift by a single
@@ -1068,9 +1082,9 @@ class TestReproject:
         out = dst.read_array()
         nodata = dst.no_data_value[0]
         corners = np.array([out[0, 0], out[0, -1], out[-1, 0], out[-1, -1]])
-        assert np.allclose(corners, nodata), (
-            f"off-disc corner pixels should equal nodata={nodata}, got {corners}"
-        )
+        assert np.allclose(
+            corners, nodata
+        ), f"off-disc corner pixels should equal nodata={nodata}, got {corners}"
 
     def test_to_crs_non_epsg_with_bilinear_resampling(self):
         """to_crs runs the bilinear resampling path against a non-EPSG target (#418).
@@ -1092,9 +1106,9 @@ class TestReproject:
         )
         dst = ds.to_crs(to_epsg="ESRI:54009", method="bilinear")
         dst_sr = osr.SpatialReference(wkt=dst.crs)
-        assert "Mollweide" in dst_sr.GetName(), (
-            f"expected Mollweide in dst CRS name, got {dst_sr.GetName()!r}"
-        )
+        assert (
+            "Mollweide" in dst_sr.GetName()
+        ), f"expected Mollweide in dst CRS name, got {dst_sr.GetName()!r}"
         out = dst.read_array()
         finite = out[out != dst.no_data_value[0]]
         assert finite.size > 0, "bilinear warp should produce at least one finite cell"
@@ -1148,9 +1162,9 @@ class TestReproject:
             no_data_value=-9999.0,
         )
         dst = ds.to_crs(to_epsg="ESRI:54030")
-        assert dst.band_count == ds.band_count, (
-            f"band count drift: src={ds.band_count}, dst={dst.band_count}"
-        )
+        assert (
+            dst.band_count == ds.band_count
+        ), f"band count drift: src={ds.band_count}, dst={dst.band_count}"
 
     def test_to_crs_same_epsg_maintain_alignment_is_identity(self):
         """to_crs(source_epsg, maintain_alignment=True) returns a bit-identical raster (M1).
@@ -1873,6 +1887,46 @@ class TestExtract:
         values = src.extract(exclude_value=0, mask=coello_gauges)
         assert len(values) == len(coello_gauges)
         assert np.array_equal(values, [4, 6, 1, 5, 49, 88])
+
+    def test_extract_with_polygon_mask_raises(self, src: gdal.Dataset):
+        """extract(mask=) reads one value per point; a polygon mask must raise.
+
+        Regression: a polygon mask previously failed with a cryptic broadcast
+        error from map_to_array_coordinates instead of a clear message.
+        """
+        import geopandas as gpd
+        from shapely.geometry import Polygon
+
+        ds = Dataset(src)
+        polys = gpd.GeoDataFrame(
+            geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])], crs=ds.epsg
+        )
+        with pytest.raises(ValueError, match="Point geometries"):
+            ds.extract(mask=polys)
+
+    def test_extract_with_multipoint_mask_raises(self, src: gdal.Dataset):
+        """MultiPoint masks are rejected — downstream coordinate mapping reads
+        one row per point geometry, so multi-part points fail past the guard."""
+        import geopandas as gpd
+        from shapely.geometry import MultiPoint
+
+        ds = Dataset(src)
+        mask = gpd.GeoDataFrame(
+            geometry=[MultiPoint([(0.0, 0.0), (1.0, 1.0)])], crs=ds.epsg
+        )
+        with pytest.raises(ValueError, match="Point geometries"):
+            ds.extract(mask=mask)
+
+    def test_extract_with_missing_geometry_raises_cleanly(self, src: gdal.Dataset):
+        """A mask holding missing geometries (geom_type nan) must raise the
+        clear ValueError, not a TypeError from sorting str against nan."""
+        import geopandas as gpd
+        from shapely.geometry import Point
+
+        ds = Dataset(src)
+        mask = gpd.GeoDataFrame(geometry=[Point(0.0, 0.0), None], crs=ds.epsg)
+        with pytest.raises(ValueError, match="Point geometries"):
+            ds.extract(mask=mask)
 
 
 class TestOverlay:

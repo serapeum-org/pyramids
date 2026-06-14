@@ -6,6 +6,7 @@ import warnings
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset._stac import to_stac_item
@@ -51,7 +52,9 @@ class TestToStacItem:
         assert props["proj:code"] == "EPSG:4326", f"proj:code: {props['proj:code']}"
         assert props["proj:shape"] == [4, 4], f"proj:shape: {props['proj:shape']}"
         # proj:transform is the rasterio affine [a,b,c,d,e,f]: xres=1, x0=0, yres=-1, y0=4
-        assert props["proj:transform"] == [1.0, 0.0, 0.0, 0.0, -1.0, 4.0], props["proj:transform"]
+        assert props["proj:transform"] == [1.0, 0.0, 0.0, 0.0, -1.0, 4.0], props[
+            "proj:transform"
+        ]
 
     def test_raster_bands_on_asset(self, wgs84_dataset):
         """raster:bands carries per-band data_type + nodata on the asset.
@@ -63,7 +66,9 @@ class TestToStacItem:
         bands = asset["raster:bands"]
         assert len(bands) == 1, f"expected 1 band, got {len(bands)}"
         assert bands[0]["nodata"] == -9999.0, f"nodata: {bands[0]}"
-        assert "float" in bands[0]["data_type"].lower(), f"data_type: {bands[0]['data_type']}"
+        assert (
+            "float" in bands[0]["data_type"].lower()
+        ), f"data_type: {bands[0]['data_type']}"
 
     def test_bbox_4326_matches_grid(self, wgs84_dataset):
         """The 4326 bbox equals the native grid extent (already lon/lat).
@@ -88,9 +93,13 @@ class TestToStacItem:
         )
         item = ds.to_stac_item("x", asset_href="s.tif")
         w, s, e, n = item["bbox"]
-        assert -180 <= w <= 180 and -180 <= e <= 180, f"lon out of range: {item['bbox']}"
+        assert (
+            -180 <= w <= 180 and -180 <= e <= 180
+        ), f"lon out of range: {item['bbox']}"
         assert -90 <= s <= 90 and -90 <= n <= 90, f"lat out of range: {item['bbox']}"
-        assert item["properties"]["proj:epsg"] == 32633, "native proj:epsg should be UTM"
+        assert (
+            item["properties"]["proj:epsg"] == 32633
+        ), "native proj:epsg should be UTM"
 
     def test_media_type_and_roles(self, wgs84_dataset):
         """asset media type and roles are recorded when given.
@@ -102,7 +111,9 @@ class TestToStacItem:
             "x", asset_href="s.tif", asset_media_type="image/tiff; application=geotiff"
         )
         asset = item["assets"]["data"]
-        assert asset["type"] == "image/tiff; application=geotiff", f"type: {asset.get('type')}"
+        assert (
+            asset["type"] == "image/tiff; application=geotiff"
+        ), f"type: {asset.get('type')}"
         assert asset["roles"] == ["data"], f"roles: {asset['roles']}"
 
     def test_datetime_isoformat(self, wgs84_dataset):
@@ -115,7 +126,9 @@ class TestToStacItem:
 
         when = dt.datetime(2023, 6, 1, 12, 0, 0)
         item = wgs84_dataset.to_stac_item("x", asset_href="s.tif", datetime=when)
-        assert item["properties"]["datetime"] == when.isoformat(), item["properties"]["datetime"]
+        assert item["properties"]["datetime"] == when.isoformat(), item["properties"][
+            "datetime"
+        ]
 
     def test_with_proj_false_omits_proj(self, wgs84_dataset):
         """with_proj=False omits the proj extension fields and schema.
@@ -124,26 +137,41 @@ class TestToStacItem:
             No proj:* keys and the projection schema is absent.
         """
         item = wgs84_dataset.to_stac_item("x", asset_href="s.tif", with_proj=False)
-        assert not any(k.startswith("proj:") for k in item["properties"]), item["properties"]
-        assert not any("projection" in e for e in item["stac_extensions"]), item["stac_extensions"]
+        assert not any(k.startswith("proj:") for k in item["properties"]), item[
+            "properties"
+        ]
+        assert not any("projection" in e for e in item["stac_extensions"]), item[
+            "stac_extensions"
+        ]
 
-    def test_crs_less_dataset_world_bbox(self):
+    def test_crs_less_dataset_world_bbox(self, tmp_path):
         """A dataset without a CRS gets the world bbox + a warning.
 
         Test scenario:
-            epsg falsy -> bbox [-180,-90,180,90] and a UserWarning.
+            A raster with a geotransform but no projection -> bbox
+            [-180,-90,180,90] and a no-CRS UserWarning. ``dataset.epsg`` softly
+            defaults to 4326 even with no CRS, so the only way to build a genuinely
+            CRS-less raster is raw GDAL with no ``SetProjection`` call.
         """
-        ds = Dataset.create_from_array(
-            np.ones((3, 3), dtype="float32"), top_left_corner=(0.0, 3.0), cell_size=1.0
-        )
-        # create_from_array without epsg may still tag a default; force no CRS.
-        if ds.epsg:
-            pytest.skip("dataset got a default CRS; cannot exercise the CRS-less path here")
+        path = str(tmp_path / "no_crs.tif")
+        out = gdal.GetDriverByName("GTiff").Create(path, 3, 3, 1, gdal.GDT_Float32)
+        out.SetGeoTransform((0.0, 1.0, 0.0, 3.0, 0.0, -1.0))
+        out.GetRasterBand(1).WriteArray(np.ones((3, 3), dtype="float32"))
+        out.FlushCache()
+        out = None
+
+        ds = Dataset.read_file(path)
+        assert not ds.crs, "test precondition: the raster must have no CRS"
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             item = to_stac_item(ds, "x", asset_href="s.tif")
         assert item["bbox"] == [-180.0, -90.0, 180.0, 90.0], f"bbox: {item['bbox']}"
-        assert any("no CRS" in str(w.message) for w in caught), "expected a no-CRS warning"
+        assert any(
+            "no CRS" in str(w.message) for w in caught
+        ), "expected a no-CRS warning"
+        assert not any(
+            k.startswith("proj:") for k in item["properties"]
+        ), f"a CRS-less item must not advertise proj:* fields: {item['properties']}"
 
     def test_round_trip_through_from_stac(self, wgs84_dataset, tmp_path):
         """to_stac_item -> from_stac rebuilds a collection over the asset.
@@ -154,10 +182,15 @@ class TestToStacItem:
         """
         p = str(tmp_path / "scene.tif")
         wgs84_dataset.to_file(p)
-        item = wgs84_dataset.to_stac_item("scene-1", asset_href=p, datetime="2023-06-01T00:00:00Z")
+        item = wgs84_dataset.to_stac_item(
+            "scene-1", asset_href=p, datetime="2023-06-01T00:00:00Z"
+        )
         coll = DatasetCollection.from_stac([item], asset="data")
         assert coll.time_length == 1, f"expected 1 timestep, got {coll.time_length}"
-        assert coll.datasets[0].shape[-2:] == (4, 4), f"grid not preserved: {coll.datasets[0].shape}"
+        assert coll.datasets[0].shape[-2:] == (
+            4,
+            4,
+        ), f"grid not preserved: {coll.datasets[0].shape}"
 
 
 class TestToStacItemDatetime:
@@ -189,7 +222,9 @@ class TestToStacItemDatetime:
             end_datetime="2023-06-30T00:00:00Z",
         )
         props = item["properties"]
-        assert props["datetime"] is None, f"datetime should be null with a range, got {props['datetime']}"
+        assert (
+            props["datetime"] is None
+        ), f"datetime should be null with a range, got {props['datetime']}"
         assert props["start_datetime"] == "2023-06-01T00:00:00Z", props
         assert props["end_datetime"] == "2023-06-30T00:00:00Z", props
 
@@ -208,4 +243,6 @@ class TestToStacItemDatetime:
             start_datetime=dt.datetime(2023, 1, 1),
             end_datetime=dt.datetime(2023, 12, 31),
         )
-        assert item["properties"]["start_datetime"] == "2023-01-01T00:00:00", item["properties"]
+        assert item["properties"]["start_datetime"] == "2023-01-01T00:00:00", item[
+            "properties"
+        ]

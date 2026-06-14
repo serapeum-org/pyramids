@@ -257,7 +257,9 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
     )
 
 
-def _finalize_append_metadata(resolved_store, new_time_length: int, added_files: list) -> None:
+def _finalize_append_metadata(
+    resolved_store, new_time_length: int, added_files: list
+) -> None:
     """Update root attrs after appending timesteps to an existing cube store.
 
     Bumps ``time_length`` to the new total and extends ``pyramids_file_list``;
@@ -280,7 +282,9 @@ def _finalize_append_metadata(resolved_store, new_time_length: int, added_files:
         zarr.consolidate_metadata(resolved_store)
 
 
-def _finalize_append_after_write(data_result, resolved_store, new_time_length, added_files) -> None:
+def _finalize_append_after_write(
+    data_result, resolved_store, new_time_length, added_files
+) -> None:
     """Run :func:`_finalize_append_metadata` after the appended data write."""
     del data_result
     _finalize_append_metadata(resolved_store, new_time_length, added_files)
@@ -831,9 +835,7 @@ class DatasetCollection:
             RuntimeError: If the collection was constructed without a
                 `files` list (legacy `create_cube` path).
         """
-        if self._zarr_store is None and (
-            self._files is None or len(self._files) == 0
-        ):
+        if self._zarr_store is None and (self._files is None or len(self._files) == 0):
             raise RuntimeError(
                 "DatasetCollection.data requires a file-backed collection. "
                 "Use DatasetCollection.from_files(...) or "
@@ -1077,7 +1079,7 @@ class DatasetCollection:
         path: str | Path,
         *,
         time_dim: str = "time",
-        time_coords: "Sequence[Any] | None" = None,
+        time_coords: Sequence[Any] | None = None,
         var_per_band: bool = True,
     ) -> None:
         """Write the collection's ``(T, B, Y, X)`` cube to a single NetCDF.
@@ -1117,8 +1119,8 @@ class DatasetCollection:
         Raises:
             OptionalPackageDoesNotExist: When ``xarray`` is not
                 installed. Install with one of: PyPI
-                ``pip install 'pyramids-gis[xarray]'`` or conda-forge
-                ``conda install -c conda-forge pyramids-xarray``.
+                ``pip install xarray`` or conda-forge
+                ``conda install -c conda-forge xarray``.
             ValueError: When ``len(time_coords) != self.time_length``.
             RuntimeError: When :meth:`NetCDF.from_xarray` fails to write
                 the file.
@@ -1165,8 +1167,8 @@ class DatasetCollection:
             raise OptionalPackageDoesNotExist(
                 "DatasetCollection.to_netcdf requires the optional 'xarray' "
                 "dependency. Install with one of:\n"
-                "  - PyPI:        pip install 'pyramids-gis[xarray]'\n"
-                "  - conda-forge: conda install -c conda-forge pyramids-xarray"
+                "  - PyPI:        pip install xarray\n"
+                "  - conda-forge: conda install -c conda-forge xarray"
             ) from exc
 
         if time_coords is not None:
@@ -1513,7 +1515,9 @@ class DatasetCollection:
             template = Dataset.read_file(resolved[0])
             if meta is None:
                 meta = RasterMeta.from_dataset(template)
-        return cls(template, len(resolved), files=resolved, meta=meta, gdal_env=gdal_env)
+        return cls(
+            template, len(resolved), files=resolved, meta=meta, gdal_env=gdal_env
+        )
 
     @classmethod
     def from_zarr(
@@ -2298,9 +2302,12 @@ class DatasetCollection:
                 Robinson, Mollweide) are warped directly against the spatial
                 reference. Default ``3857`` (WGS84 web mercator).
             method (str):
-                Resampling technique. Default is "nearest neighbor". See
-                https://gisgeography.com/raster-resampling/. Accepted
-                values are "nearest neighbor", "cubic", "bilinear".
+                Resampling method, case-insensitive. Default is "nearest neighbor".
+                Allowed values: "nearest" (alias "nearest neighbor"),
+                "bilinear", "cubic", "cubic_spline", "lanczos", "average",
+                "mode", "max", "min", "med", "q1", "q3", "sum", and "rms"
+                (the GDAL warp algorithms; "sum"/"rms" need GDAL >= 3.1/3.3).
+                See https://gisgeography.com/raster-resampling/.
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the
                 raster the same after reprojection. Default is False.

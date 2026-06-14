@@ -22,8 +22,8 @@ import zipfile
 from pathlib import Path
 
 import pytest
-import pyramids._io as pyramids_io
 
+import pyramids._io as pyramids_io
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -64,9 +64,9 @@ class TestNetCDFReadFileArchiveForwarding:
         spy.assert_called_once()
         kwargs = spy.call_args.kwargs
         assert kwargs.get("vsi") is None, f"vsi forwarded as {kwargs.get('vsi')!r}"
-        assert kwargs.get("file_i") == 0, (
-            f"file_i forwarded as {kwargs.get('file_i')!r}"
-        )
+        assert (
+            kwargs.get("file_i") == 0
+        ), f"file_i forwarded as {kwargs.get('file_i')!r}"
 
     def test_vsi_value_propagates(self, mocker):
         """Test a non-None ``vsi=`` reaches ``_io.read_file`` verbatim.
@@ -83,12 +83,12 @@ class TestNetCDFReadFileArchiveForwarding:
         with pytest.raises(RuntimeError, match="intercepted"):
             NetCDF.read_file("anything.zip", vsi="zip", file_i=3)
         forwarded = spy.call_args.kwargs
-        assert forwarded.get("vsi") == "zip", (
-            f"Expected vsi='zip', got {forwarded.get('vsi')!r}"
-        )
-        assert forwarded.get("file_i") == 3, (
-            f"Expected file_i=3, got {forwarded.get('file_i')!r}"
-        )
+        assert (
+            forwarded.get("vsi") == "zip"
+        ), f"Expected vsi='zip', got {forwarded.get('vsi')!r}"
+        assert (
+            forwarded.get("file_i") == 3
+        ), f"Expected file_i=3, got {forwarded.get('file_i')!r}"
 
 
 @pytest.mark.skipif(

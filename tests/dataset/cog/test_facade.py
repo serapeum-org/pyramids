@@ -512,9 +512,7 @@ class TestWriteCog:
         assert path == out, f"unexpected output path: {path}"
         assert report is None, "validate=False must yield report=None"
 
-    def test_error_from_to_cog_propagates(
-        self, float_array, tmp_path, monkeypatch
-    ):
+    def test_error_from_to_cog_propagates(self, float_array, tmp_path, monkeypatch):
         """An error raised by to_cog propagates out of write_cog unchanged.
 
         Args:

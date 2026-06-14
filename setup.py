@@ -13,6 +13,7 @@ conda-forge sdist build) emits a `py3-none-any` wheel as expected.
 
 All other config lives in pyproject.toml.
 """
+
 from __future__ import annotations
 
 import os

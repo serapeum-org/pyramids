@@ -120,11 +120,16 @@ class TestMetadataAttrs:
         root = zarr.open_group(out, mode="r")
         keys = set(root.array_keys())
         assert {"data", "spatial_ref", "x", "y"} <= keys, f"missing arrays: {keys}"
-        assert root["data"].attrs["_ARRAY_DIMENSIONS"] == ["time", "band", "y", "x"], (
-            f"cube dims wrong: {root['data'].attrs.get('_ARRAY_DIMENSIONS')}"
-        )
+        assert root["data"].attrs["_ARRAY_DIMENSIONS"] == [
+            "time",
+            "band",
+            "y",
+            "x",
+        ], f"cube dims wrong: {root['data'].attrs.get('_ARRAY_DIMENSIONS')}"
         assert root["data"].attrs["grid_mapping"] == "spatial_ref", "grid_mapping unset"
-        assert "crs_wkt" in dict(root["spatial_ref"].attrs), "spatial_ref missing crs_wkt"
+        assert "crs_wkt" in dict(
+            root["spatial_ref"].attrs
+        ), "spatial_ref missing crs_wkt"
 
 
 class TestComputeFalse:
@@ -149,7 +154,7 @@ class TestComputeFalse:
 
 
 class TestErrors:
-    def test_no_files_raises(self):
+    def test_no_files_raises(self, tmp_path):
         arr = np.zeros((3, 4), dtype=np.float32)
         src = Dataset.create_from_array(
             arr,
@@ -159,7 +164,7 @@ class TestErrors:
         )
         collection = DatasetCollection(src, time_length=1)
         with pytest.raises(RuntimeError, match="file-backed"):
-            collection.to_zarr("/tmp/nope.zarr")
+            collection.to_zarr(str(tmp_path / "nope.zarr"))
 
     def test_import_error_without_zarr(self, three_files, tmp_path, monkeypatch):
         import builtins
@@ -176,12 +181,12 @@ class TestErrors:
         with pytest.raises(OptionalPackageDoesNotExist) as exc_info:
             collection.to_zarr(str(tmp_path / "nope.zarr"))
         message = str(exc_info.value)
-        assert "pip install 'pyramids-gis[lazy]'" in message, (
-            f"PyPI install hint missing from message: {message!r}"
-        )
-        assert "conda install -c conda-forge pyramids-lazy" in message, (
-            f"conda-forge install hint missing from message: {message!r}"
-        )
+        assert (
+            "pip install 'pyramids-gis[lazy]'" in message
+        ), f"PyPI install hint missing from message: {message!r}"
+        assert (
+            "conda install -c conda-forge pyramids-lazy" in message
+        ), f"conda-forge install hint missing from message: {message!r}"
 
 
 class TestFromZarrRoundtrip:
@@ -228,7 +233,9 @@ class TestAppendAndRegion:
         for i, v in enumerate(vals):
             ds = Dataset.create_from_array(
                 np.full((3, 4), float(v), dtype=np.float32),
-                top_left_corner=(0.0, 3.0), cell_size=1.0, epsg=4326,
+                top_left_corner=(0.0, 3.0),
+                cell_size=1.0,
+                epsg=4326,
             )
             p = str(tmp_path / f"{tag}_{v}_{i}.tif")
             ds.to_file(p)
@@ -246,9 +253,7 @@ class TestAppendAndRegion:
         """
         store = str(tmp_path / "append.zarr")
         self._col(tmp_path, [1, 2], "a").to_zarr(store)
-        self._col(tmp_path, [3, 4, 5], "b").to_zarr(
-            store, mode="a", append_dim="time"
-        )
+        self._col(tmp_path, [3, 4, 5], "b").to_zarr(store, mode="a", append_dim="time")
         rt = DatasetCollection.from_zarr(store)
         assert rt.time_length == 5, f"time_length {rt.time_length}"
         cube = rt.data.compute()

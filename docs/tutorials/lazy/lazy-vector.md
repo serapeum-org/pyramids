@@ -199,7 +199,7 @@ against `SpatialObject | LazySpatialObject` from
 
 ## Minimal-install guard
 
-On installs without the `[parquet-lazy]` extra (i.e. no `dask-geopandas`),
+On installs without the `[parquet]` extra (i.e. no `dask-geopandas`),
 `from pyramids.feature import LazyFeatureCollection` raises an
 `ImportError` with an actionable install hint — good UX for users who
 just want to know why their code failed. Library authors writing
@@ -243,10 +243,10 @@ follow-up against DASK-25.
 
 ## Install
 
-`LazyFeatureCollection` requires the `[parquet-lazy]` extra:
+`LazyFeatureCollection` requires the `[parquet]` extra:
 
 ```bash
-pip install 'pyramids-gis[parquet-lazy]'
+pip install 'pyramids-gis[parquet]'
 ```
 
 That pulls `pyarrow`, `dask`, `dask-geopandas`, `zarr`, and `fsspec`.

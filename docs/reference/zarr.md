@@ -7,8 +7,8 @@ any standards-aware reader (rioxarray, odc-geo, `xarray.open_zarr`, GDAL's
 Zarr driver) without needing pyramids in the loop. Conversely, the reader is
 tolerant: it opens GeoZarr stores written by other tools too.
 
-> **Requires the `[lazy]` extra** (`zarr>=3`, `dask`, `fsspec`).
-> `[netcdf-lazy]` adds `kerchunk>=0.2.10` for NetCDF→Zarr reference manifests.
+> **Requires the `[lazy]` extra** (`zarr>=3`, `dask`, `fsspec`, plus
+> `kerchunk>=0.2.10` + `h5py` for NetCDF→Zarr reference manifests).
 
 ## Quick start
 

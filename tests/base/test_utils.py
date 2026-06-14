@@ -36,12 +36,12 @@ class TestLazyExtraHint:
             actionable command.
         """
         message = lazy_extra_hint("X requires the optional 'zarr' dependency.")
-        assert "pip install 'pyramids-gis[lazy]'" in message, (
-            f"PyPI command missing: {message!r}"
-        )
-        assert "conda install -c conda-forge pyramids-lazy" in message, (
-            f"conda-forge command missing: {message!r}"
-        )
+        assert (
+            "pip install 'pyramids-gis[lazy]'" in message
+        ), f"PyPI command missing: {message!r}"
+        assert (
+            "conda install -c conda-forge pyramids-lazy" in message
+        ), f"conda-forge command missing: {message!r}"
 
     def test_exact_format(self):
         """The composed hint matches the documented stacked-list layout exactly.
@@ -57,9 +57,9 @@ class TestLazyExtraHint:
             "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
             "  - conda-forge: conda install -c conda-forge pyramids-lazy"
         )
-        assert lazy_extra_hint(prefix) == expected, (
-            f"format drift: {lazy_extra_hint(prefix)!r}"
-        )
+        assert (
+            lazy_extra_hint(prefix) == expected
+        ), f"format drift: {lazy_extra_hint(prefix)!r}"
 
     def test_no_double_space_after_prefix(self):
         """A prefix ending in a period yields a single space before the body.
@@ -69,7 +69,7 @@ class TestLazyExtraHint:
             trailing period and "Install", never a double space.
         """
         message = lazy_extra_hint("Needs the optional 'flox' dependency.")
-        assert ". Install with one of:" in message, (
-            f"unexpected spacing before body: {message!r}"
-        )
+        assert (
+            ". Install with one of:" in message
+        ), f"unexpected spacing before body: {message!r}"
         assert ".  Install" not in message, f"double space after prefix: {message!r}"

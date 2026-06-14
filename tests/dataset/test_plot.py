@@ -217,7 +217,10 @@ class TestPlotDataSet:
         """
         arr = np.full((4, 4), -9999.0, dtype="float32")
         dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+            arr,
+            top_left_corner=(0, 0),
+            cell_size=1.0,
+            epsg=4326,
             no_data_value=-9999.0,
         )
         with pytest.raises(ValueError, match="no valid"):
@@ -235,7 +238,10 @@ class TestPlotDataSet:
         """
         arr = np.full((4, 4), -9999.0, dtype="float32")
         dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+            arr,
+            top_left_corner=(0, 0),
+            cell_size=1.0,
+            epsg=4326,
             no_data_value=-9999.0,
         )
         with pytest.raises(ValueError, match="no valid samples"):
@@ -253,7 +259,10 @@ class TestPlotDataSet:
         """
         arr = np.array([[1, 2, 0], [3, 4, 0]], dtype="int32")
         dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+            arr,
+            top_left_corner=(0, 0),
+            cell_size=1.0,
+            epsg=4326,
             no_data_value=0,
         )
         fig, ax, hist = dataset.plot_histogram(band=0, bins=4)
@@ -293,7 +302,10 @@ class TestPlotDataSet:
 
         arr = np.array([[1.0, 2.0, 7.0], [3.0, 4.0, 7.0]], dtype="float32")
         dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326,
+            arr,
+            top_left_corner=(0, 0),
+            cell_size=1.0,
+            epsg=4326,
             no_data_value=-9999.0,
         )
         with warnings.catch_warnings():
@@ -1962,9 +1974,9 @@ class TestMeshRenderHelper:
         mock_add.assert_called_once()
         kwargs = mock_add.call_args.kwargs
         assert kwargs.get("crs") == 3857, f"`crs` must equal basemap_epsg; got {kwargs}"
-        assert kwargs.get("source") is None, (
-            f"`source` should be None when basemap=True (no provider); got {kwargs}"
-        )
+        assert (
+            kwargs.get("source") is None
+        ), f"`source` should be None when basemap=True (no provider); got {kwargs}"
 
     def test_mesh_render_basemap_string_passes_source(self):
         """``basemap='CartoDB.Positron'`` forwards the string as ``source=``.

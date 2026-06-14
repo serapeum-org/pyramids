@@ -18,6 +18,11 @@ concurrency:
 jobs:
   main-package:
     runs-on: ${{ matrix.os }}
+    # Bound a hung test (e.g. a flaky kerchunk/fsspec read in the xarray step) so the
+    # job fails in minutes instead of running to GitHub's 6-hour default. The full
+    # matrix completes in well under this; faulthandler_timeout (pyproject) dumps the
+    # offending thread stacks into the log before the cap hits.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -25,12 +30,12 @@ jobs:
         environment: [py311, py312, py313, py314]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: serapeum-org/github-actions/actions/python-setup/pixi@pixi/v1
+        uses: serapeum-org/github-actions/actions/python-setup/pixi@65da263cc0f804cba87da3cbe6024d528831be1d  # pixi/v1
         with:
           environments: ${{ matrix.environment }}
           activate-environment: ${{ matrix.environment }}
@@ -46,7 +51,7 @@ jobs:
         run: pixi run -e ${{ matrix.environment }} xarray-tests --cov-fail-under=84
 
       - name: Upload coverage reports to Codecov with GitHub Action
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
 
       - name: test Jupyter notebooks
         run: pixi run -e ${{ matrix.environment }} notebooks
@@ -59,6 +64,7 @@ jobs:
     # ``pytest_collection_modifyitems`` hook in tests/conftest.py, so
     # this job is the only place the extra-gated suite actually runs.
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -68,16 +74,16 @@ jobs:
           # paths. Keeping CI subdir-scoped avoids re-running the full
           # suite in every extras env while still covering the code
           # that each extra activates.
-          - { name: netcdf_lazy,  env: netcdf-lazy,  dir: tests/netcdf/lazy }
-          - { name: parquet_lazy, env: parquet-lazy, dir: tests/feature/lazy }
+          - { name: netcdf_lazy,  env: lazy,         dir: tests/netcdf/lazy }
+          - { name: parquet_lazy, env: parquet,      dir: tests/feature/lazy }
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           fetch-depth: 0
 
       - name: Set up Python
-        uses: serapeum-org/github-actions/actions/python-setup/pixi@pixi/v1
+        uses: serapeum-org/github-actions/actions/python-setup/pixi@65da263cc0f804cba87da3cbe6024d528831be1d  # pixi/v1
         with:
           environments: ${{ matrix.target.env }}
           activate-environment: ${{ matrix.target.env }}
@@ -95,4 +101,4 @@ jobs:
           --cov-fail-under=0
 
       - name: Upload coverage reports to Codecov with GitHub Action
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0

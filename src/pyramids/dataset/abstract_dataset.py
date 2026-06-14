@@ -19,7 +19,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from numbers import Number
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
@@ -30,11 +30,16 @@ from pyramids.base._utils import (
 )
 from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
 from pyramids.base.protocols import ArrayLike
+from pyramids.dataset.transform import GeoTransform
+from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
 
 DEFAULT_NO_DATA_VALUE = -9999
 CATALOG = Catalog()
 OVERVIEW_LEVELS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
+# Overview-build resampling names (gdal.Dataset.BuildOverviews family). This is a
+# different GDAL name-space from the warp algorithms in
+# pyramids.base._utils.INTERPOLATION_METHODS (gdal.GRA_*) used by to_crs/resample.
 RESAMPLING_METHODS = [
     "NEAREST",
     "CUBIC",
@@ -86,6 +91,9 @@ class RasterBase(ABC):
             )
         self._access = access
         self._raster = src
+        # Per-thread file manager for read_array(threadsafe=True); created
+        # lazily by the IO engine and released by close().
+        self._thread_manager = None
         self._geotransform = src.GetGeoTransform()
         self._cell_size = self._geotransform[1]
         self._file_name = src.GetDescription()
@@ -187,6 +195,184 @@ class RasterBase(ABC):
     def geotransform(self):
         """WKT projection.(x, cell_size, 0, y, 0, -cell_size)."""
         return self._geotransform
+
+    @property
+    def transform(self) -> GeoTransform:
+        """The geotransform as an affine-style :class:`GeoTransform` object.
+
+        Unlike the bare :attr:`geotransform` tuple, the returned object has
+        named fields and algebra: ``transform * (col, row)`` maps pixel to map
+        space, ``transform.inverse * (x, y)`` maps back.
+
+        Examples:
+            - Map the top-left pixel corner and invert back:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ... )
+                >>> ds.transform * (0, 0)
+                (0.0, 4.0)
+                >>> ds.transform.inverse * (2.0, 3.0)
+                (2.0, 1.0)
+
+                ```
+        """
+        return GeoTransform(*self._geotransform)
+
+    def xy(
+        self,
+        rows: Number | list[Number] | np.ndarray,
+        cols: Number | list[Number] | np.ndarray,
+        *,
+        center: bool = True,
+    ) -> tuple[Any, Any]:
+        """Return the map coordinates ``(x, y)`` of array cells.
+
+        The rasterio-style companion of :meth:`rowcol`. Computed from the
+        exact affine :attr:`transform`, so non-square pixels and rotated
+        grids are handled; scalar input returns scalars, sequence input
+        returns lists. (For point-table workflows use the cell engine's
+        :meth:`array_to_map_coordinates`, which assumes square pixels.)
+
+        Args:
+            rows: Row index (or indices) of the cell(s).
+            cols: Column index (or indices) of the cell(s).
+            center: ``True`` (default) returns the cell centre, ``False`` the
+                top-left cell corner.
+
+        Returns:
+            tuple: ``(x, y)`` scalars for scalar input, ``(xs, ys)`` lists for
+                sequence input.
+
+        Examples:
+            - The centre of the top-left cell of a unit grid at (0, 4):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ... )
+                >>> ds.xy(0, 0)
+                (0.5, 3.5)
+                >>> ds.xy(0, 0, center=False)
+                (0.0, 4.0)
+
+                ```
+            - Vectorised input returns coordinate lists:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ... )
+                >>> xs, ys = ds.xy([0, 1], [0, 1])
+                >>> xs
+                [0.5, 1.5]
+                >>> ys
+                [3.5, 2.5]
+
+                ```
+
+        See Also:
+            rowcol: The inverse, mapping map coordinates to cell indices.
+            transform: The affine-style geotransform object.
+        """
+        # np.ndim == 0 treats Python scalars, NumPy scalars, and 0-d arrays
+        # alike; np.isscalar misses 0-d arrays (np.isscalar(np.array(5)) is False).
+        scalar = np.ndim(rows) == 0 and np.ndim(cols) == 0
+        rows_arr = np.atleast_1d(np.asarray(rows, dtype=float))
+        cols_arr = np.atleast_1d(np.asarray(cols, dtype=float))
+        shift = 0.5 if center else 0.0
+        gt = self.transform
+        xs_arr = (
+            gt.x_origin
+            + (cols_arr + shift) * gt.pixel_width
+            + (rows_arr + shift) * gt.row_rotation
+        )
+        ys_arr = (
+            gt.y_origin
+            + (cols_arr + shift) * gt.column_rotation
+            + (rows_arr + shift) * gt.pixel_height
+        )
+        xs = [float(value) for value in xs_arr]
+        ys = [float(value) for value in ys_arr]
+        result = (xs[0], ys[0]) if scalar else (xs, ys)
+        return result
+
+    def rowcol(
+        self,
+        x: Number | list[Number] | np.ndarray,
+        y: Number | list[Number] | np.ndarray,
+    ) -> tuple[Any, Any]:
+        """Return the array indices ``(row, col)`` of map coordinates.
+
+        The rasterio-style companion of :meth:`xy`. Computed from the exact
+        inverse affine :attr:`transform`, so non-square pixels and rotated
+        grids are handled; scalar input returns scalar ints, sequence input
+        returns index arrays. (For point-table workflows use the cell
+        engine's :meth:`map_to_array_coordinates`, which assumes square
+        pixels.)
+
+        Args:
+            x: X (longitude/easting) coordinate(s).
+            y: Y (latitude/northing) coordinate(s).
+
+        Returns:
+            tuple: ``(row, col)`` ints for scalar input, ``(rows, cols)``
+                lists of ints for sequence input (symmetric with :meth:`xy`).
+
+        Examples:
+            - The cell containing a point on a unit grid at (0, 4):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ... )
+                >>> ds.rowcol(0.5, 3.5)
+                (0, 0)
+                >>> ds.rowcol(2.5, 1.5)
+                (2, 2)
+
+                ```
+            - xy/rowcol round-trip through cell centres:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((4, 4)), top_left_corner=(0, 4), cell_size=1.0, epsg=4326,
+                ... )
+                >>> ds.rowcol(*ds.xy(3, 1))
+                (3, 1)
+
+                ```
+
+        See Also:
+            xy: The inverse, mapping cell indices to map coordinates.
+            transform: The affine-style geotransform object.
+        """
+        # np.ndim == 0 treats Python scalars, NumPy scalars, and 0-d arrays
+        # alike; np.isscalar misses 0-d arrays (np.isscalar(np.array(5)) is False).
+        scalar = np.ndim(x) == 0 and np.ndim(y) == 0
+        x_arr = np.atleast_1d(np.asarray(x, dtype=float))
+        y_arr = np.atleast_1d(np.asarray(y, dtype=float))
+        inv = self.transform.inverse
+        cols_f = inv.x_origin + x_arr * inv.pixel_width + y_arr * inv.row_rotation
+        rows_f = inv.y_origin + x_arr * inv.column_rotation + y_arr * inv.pixel_height
+        rows_idx = np.floor(rows_f).astype(int)
+        cols_idx = np.floor(cols_f).astype(int)
+        if scalar:
+            result = (int(rows_idx[0]), int(cols_idx[0]))
+        else:
+            # Return Python lists for sequence input, matching xy() (and rasterio)
+            # so the two companions have a symmetric container contract.
+            result = (
+                [int(value) for value in rows_idx],
+                [int(value) for value in cols_idx],
+            )
+        return result
 
     @property
     def top_left_corner(self):
@@ -352,6 +538,131 @@ class RasterBase(ABC):
             raise ValueError("block size should be a tuple of 2 integers")
 
         self._block_size = value
+
+    def block_windows(
+        self, band: int = 0, *, window: Window | None = None
+    ) -> Generator[Window, None, None]:
+        """Yield a :class:`Window` for every native block of ``band``.
+
+        Walks the raster in its on-disk block layout (tiles for tiled
+        formats, full-width strips otherwise), clipping edge blocks to the
+        raster extent. With ``window`` given, only blocks intersecting it
+        are yielded, clipped to the window — useful for streaming a region.
+
+        Yields windows only (no pixel reads), so it suits write pipelines
+        and planners; use :meth:`iter_blocks` to also read each block.
+
+        Args:
+            band: Band index whose block layout drives the walk. Default 0.
+            window: Optional region of interest; only intersecting blocks
+                are yielded, clipped to it.
+
+        Yields:
+            Window: The next block window, row-major.
+
+        Examples:
+            - The block windows of a 5x5 in-memory raster tile it exactly
+              once (MEM rasters expose full-width strip blocks):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((5, 5)), top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
+                ... )
+                >>> windows = list(ds.block_windows())
+                >>> sum(w.cols * w.rows for w in windows) == ds.rows * ds.columns
+                True
+
+                ```
+            - Restrict the walk to a region of interest:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> from pyramids.dataset.window import Window
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((6, 6)), top_left_corner=(0, 6), cell_size=1.0, epsg=4326,
+                ... )
+                >>> roi = Window(col_off=1, row_off=1, cols=3, rows=3)
+                >>> all(w.intersection(roi) == w for w in ds.block_windows(window=roi))
+                True
+
+                ```
+
+        See Also:
+            iter_blocks: The reading variant, yielding ``(Window, ndarray)``.
+        """
+        block_x, block_y = self.block_size[band]
+        if window is None:
+            row_start, row_stop = 0, self.rows
+            col_start, col_stop = 0, self.columns
+        else:
+            # Walk only the blocks that can intersect the ROI: start at the
+            # block-aligned floor of the window and stop at its far edge, instead
+            # of building and discarding every block of the whole raster.
+            row_start = max(0, (window.row_off // block_y) * block_y)
+            col_start = max(0, (window.col_off // block_x) * block_x)
+            row_stop = min(self.rows, window.row_off + window.rows)
+            col_stop = min(self.columns, window.col_off + window.cols)
+        for row in range(row_start, row_stop, block_y):
+            for col in range(col_start, col_stop, block_x):
+                block = Window(
+                    col_off=col,
+                    row_off=row,
+                    cols=min(block_x, self.columns - col),
+                    rows=min(block_y, self.rows - row),
+                )
+                if window is not None:
+                    block = block.intersection(window)
+                    if block is None:
+                        continue
+                yield block
+
+    def iter_blocks(
+        self, band: int = 0, *, window: Window | None = None
+    ) -> Generator[tuple[Window, np.ndarray], None, None]:
+        """Yield ``(Window, ndarray)`` for every native block of ``band``.
+
+        The streaming read companion of :meth:`block_windows`: each yielded
+        array is the block's pixels, so arbitrarily large rasters can be
+        processed block-by-block in constant memory.
+
+        This iterator is **serial**: it reads each block through the shared
+        handle and does not accept ``threadsafe`` / ``chunks``. To read blocks
+        in parallel, iterate :meth:`block_windows` and call
+        ``read_array(window=..., threadsafe=True)`` per window from worker
+        threads instead.
+
+        Args:
+            band: Band index to read. Default 0.
+            window: Optional region of interest; only intersecting blocks
+                are yielded, clipped to it.
+
+        Yields:
+            tuple[Window, np.ndarray]: The block window and its pixel values
+                (shape ``window.shape``), row-major.
+
+        Examples:
+            - Stream a raster and rebuild it block-by-block:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> src_arr = np.arange(25, dtype="float32").reshape(5, 5)
+                >>> ds = Dataset.create_from_array(
+                ...     src_arr, top_left_corner=(0, 5), cell_size=1.0, epsg=4326,
+                ... )
+                >>> rebuilt = np.zeros_like(src_arr)
+                >>> for w, block in ds.iter_blocks():
+                ...     rebuilt[w.row_off : w.row_off + w.rows, w.col_off : w.col_off + w.cols] = block
+                >>> bool((rebuilt == src_arr).all())
+                True
+
+                ```
+
+        See Also:
+            block_windows: The windows-only variant (no pixel reads).
+        """
+        for block in self.block_windows(band, window=window):
+            yield block, self.read_array(band=band, window=block)
 
     @property
     def file_name(self):
@@ -635,7 +946,10 @@ class RasterBase(ABC):
             to_epsg (int):
                 Reference number to the new projection (https://epsg.io/) (default 3857 the reference no of WGS84 web mercator).
             method (str):
-                Resampling technique. See https://gisgeography.com/raster-resampling/. Options include "nearest neighbor", "cubic", and "bilinear". Default is "nearest neighbor".
+                Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
+                (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
+                "mode", "max", "min", "med", "q1", "q3", "sum", and "rms" (the GDAL warp algorithms;
+                "sum"/"rms" need GDAL >= 3.1/3.3). See https://gisgeography.com/raster-resampling/.
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the raster the same after reprojection. Default is False.
             inplace (bool):

@@ -24,24 +24,23 @@ libtiff, and all other native dependencies. No `gdal-config`, no
 
 - `viz`: `cleopatra[tiles]` (plotting + basemap tiles via mercantile /
   xyzservices / Pillow)
-- `lazy`: dask / distributed / zarr / fsspec / flox (powers
-  `Dataset.read_array(chunks=…)`, `DatasetCollection.data`,
-  `DatasetCollection.to_zarr`)
-- `xarray`: xarray (required for `DatasetCollection.to_netcdf` and
-  `NetCDF.from_xarray`)
-- `netcdf-lazy`: `[lazy]` + kerchunk + h5py (HDF5/NetCDF chunked reads
-  via kerchunk references)
-- `parquet`: pyarrow (vector parquet I/O)
-- `parquet-lazy`: `[lazy]` + `[parquet]` + dask-geopandas (lazy vector
-  reads)
+- `lazy`: dask / distributed / zarr / fsspec / flox / kerchunk / h5py
+  (powers `Dataset.read_array(chunks=…)`, `DatasetCollection.data`,
+  `DatasetCollection.to_zarr`, and `NetCDF.to_kerchunk` /
+  `combine_kerchunk` HDF5/NetCDF reference manifests)
+- xarray interop (`DatasetCollection.to_netcdf`, `NetCDF.from_xarray` /
+  `to_xarray`) is **not** a pyramids extra — pyramids is GDAL-backed, so
+  xarray is a peer. `pip install xarray` directly when you want those helpers.
+- `parquet`: pyarrow + dask-geopandas + `[lazy]` (eager GeoParquet I/O
+  and the lazy `LazyFeatureCollection`)
 - `dev`: nbval, pre-commit, pytest, coverage, build, twine, etc.
 - `docs`: mkdocs, mkdocs-material, mkdocstrings, mike, etc.
 
 ```console
 pip install "pyramids-gis[viz]"                  # plotting
-pip install "pyramids-gis[xarray]"               # xarray / NetCDF4 interop
 pip install "pyramids-gis[lazy]"                 # dask-backed chunked I/O
-pip install "pyramids-gis[viz,lazy,xarray]"      # combine extras with commas
+pip install "pyramids-gis[viz,lazy]"             # combine extras with commas
+pip install xarray                               # xarray / NetCDF4 interop (peer dep, not an extra)
 ```
 
 ### With conda-forge

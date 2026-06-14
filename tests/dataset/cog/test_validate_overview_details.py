@@ -45,7 +45,9 @@ class TestValidateOverviewDetails:
         assert report.is_valid, f"expected valid, errors {report.errors}"
         assert report.details.get("overviews"), "overviews missing from details"
         assert report.details["overviews"][0]["decimation"] >= 2, "bad decimation"
-        assert report.details.get("blocksize") == [512, 512], report.details.get("blocksize")
+        assert report.details.get("blocksize") == [512, 512], report.details.get(
+            "blocksize"
+        )
 
     def test_overview_count_matches(self, big_cog):
         """details['overview_count'] equals the number of listed overviews.
@@ -57,6 +59,6 @@ class TestValidateOverviewDetails:
             The count and the list length agree.
         """
         report = validate(big_cog)
-        assert report.details["overview_count"] == len(report.details["overviews"]), (
-            "overview_count must match the overviews list length"
-        )
+        assert report.details["overview_count"] == len(
+            report.details["overviews"]
+        ), "overview_count must match the overviews list length"

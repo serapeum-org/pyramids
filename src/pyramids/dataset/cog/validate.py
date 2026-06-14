@@ -56,6 +56,7 @@ def config_context(config: dict[str, str] | None) -> Iterator[None]:
         for key, old in previous.items():
             gdal.SetConfigOption(key, old)
 
+
 _REMOTE_PREFIXES: tuple[str, ...] = (
     "/vsicurl",
     "/vsis3",

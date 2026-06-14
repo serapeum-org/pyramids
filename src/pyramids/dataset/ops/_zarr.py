@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import import_dask, import_zarr, lazy_extra_hint
 from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset.ops._geobox_zarr import (
@@ -184,7 +183,10 @@ def write_dataset_to_zarr(
         _finalize_metadata(resolved_store, metadata)
         if overview_factors:
             _write_overview_levels(
-                ds, resolved_store, sorted(overview_factors), overview_resampling,
+                ds,
+                resolved_store,
+                sorted(overview_factors),
+                overview_resampling,
                 metadata,
             )
         result: Any = None
@@ -229,7 +231,9 @@ def _write_overview_levels(
     ]
     for ov_index, factor in enumerate(factors):
         levels = [
-            np.asarray(ds.raster.GetRasterBand(b + 1).GetOverview(ov_index).ReadAsArray())
+            np.asarray(
+                ds.raster.GetRasterBand(b + 1).GetOverview(ov_index).ReadAsArray()
+            )
             for b in range(band_count)
         ]
         level_arr = np.stack(levels, axis=0)
@@ -382,7 +386,7 @@ def _normalize_no_data(attrs: dict[str, Any]) -> Any:
     return None
 
 
-def _apply_band_names(dataset: "Dataset", attrs: dict[str, Any]) -> None:
+def _apply_band_names(dataset: Dataset, attrs: dict[str, Any]) -> None:
     """Restore band names from the store, warning (and skipping) on a length mismatch (Z-5)."""
     band_names = attrs.get("band_names") or []
     if not band_names:

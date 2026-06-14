@@ -5,15 +5,19 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, TypeAlias, cast
 
+import cftime
 from osgeo import gdal, osr
 
-from pyramids.base._utils import gdal_to_numpy_dtype, import_cftime
+from pyramids.base._utils import gdal_to_numpy_dtype
 
 # Keep simple, JSON-serializable attribute values only
 AttributeScalar: TypeAlias = bool | int | float | str
 AttributeVector: TypeAlias = list[AttributeScalar]
 AttributeValue: TypeAlias = AttributeScalar | AttributeVector
-_ORIGIN_RE = re.compile(r'^\s*([A-Za-z]+)\s+since\s+(.+?)\s*$', re.IGNORECASE)
+# Matched against the stripped string. Written to be linear-time: `\s+` borders
+# only `\S`-led groups (no overlap, so no backtracking ambiguity — S5852), and
+# the class is single-cased because IGNORECASE already covers A-Z (S5869).
+_ORIGIN_RE = re.compile(r"^([a-z]+)\s+since\s+(\S.*)$", re.IGNORECASE)
 
 
 def _full_name_with_fallback(group: gdal.Group, default_name: str | None = None) -> str:
@@ -425,7 +429,7 @@ def _parse_units_origin(units: str) -> tuple[str, datetime]:
         _normalize_origin_string: Normalizes the origin
             portion of the string.
     """
-    m = _ORIGIN_RE.match(units)
+    m = _ORIGIN_RE.match(units.strip())
     if not m:
         raise ValueError(f"Unrecognized time units: {units!r}")
 
@@ -465,7 +469,8 @@ def create_time_conversion_func(
         out_format: strftime format for the output strings.
             Defaults to `"%Y-%m-%d %H:%M:%S"`.
         calendar: CF calendar type. Defaults to `"standard"`.
-            Non-standard calendars require the `cftime` package.
+            Non-standard calendars are decoded with `cftime` (a core
+            dependency).
 
     Returns:
         Callable: A function that takes a numeric value and
@@ -474,8 +479,6 @@ def create_time_conversion_func(
     Raises:
         ValueError: If the unit string cannot be parsed or
             uses an unsupported time unit.
-        ImportError: If a non-standard calendar is requested
-            and `cftime` is not installed.
 
     Examples:
         - Convert day offsets from a 1979 origin:
@@ -512,13 +515,6 @@ def create_time_conversion_func(
     converter = None
 
     if calendar.lower() not in ("standard", "proleptic_gregorian", "gregorian"):
-        import_cftime(
-            f"Calendar '{calendar}' requires the cftime package. "
-            "Install with one of:\n"
-            "  - PyPI:        pip install cftime\n"
-            "  - conda-forge: conda install -c conda-forge cftime"
-        )
-        import cftime
 
         def convert_cftime(value):
             dt = cftime.num2date(value, units, calendar)

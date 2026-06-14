@@ -19,6 +19,7 @@ Python reference, the original file stays locked within the same
 process and can't be unlinked. Spawning fresh interpreters is the
 robust way to free the handle.
 """
+
 from __future__ import annotations
 
 import json
@@ -36,10 +37,10 @@ gdal.UseExceptions()
 
 PATH = Path(__file__).with_name("era5_cds_beta_t_pressure_levels_jan2022.nc")
 
-NT_OUT = 4    # first 4 timesteps (Jan 1, 2022 from 00:00 to 03:00)
-NL_OUT = 1    # the single 500 hPa level the original carries
-NY_OUT = 8    # 8-row spatial slice
-NX_OUT = 10   # 10-col spatial slice
+NT_OUT = 4  # first 4 timesteps (Jan 1, 2022 from 00:00 to 03:00)
+NL_OUT = 1  # the single 500 hPa level the original carries
+NY_OUT = 8  # 8-row spatial slice
+NX_OUT = 10  # 10-col spatial slice
 
 
 def _string_attr(target, name: str, value: str) -> None:
@@ -129,9 +130,7 @@ def _write_pass(out_path: str, sidecar_path: str) -> None:
     f64 = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
 
     dt_time = rg.CreateDimension("valid_time", "TEMPORAL", "FORWARD", NT_OUT)
-    dt_level = rg.CreateDimension(
-        "pressure_level", "VERTICAL", "DOWN", NL_OUT
-    )
+    dt_level = rg.CreateDimension("pressure_level", "VERTICAL", "DOWN", NL_OUT)
     dt_lat = rg.CreateDimension("latitude", "HORIZONTAL_Y", "NORTH", NY_OUT)
     dt_lon = rg.CreateDimension("longitude", "HORIZONTAL_X", "EAST", NX_OUT)
 

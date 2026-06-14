@@ -82,7 +82,7 @@ class TestGeoTiffGuard:
 
 
 class TestErrors:
-    def test_no_files_raises(self):
+    def test_no_files_raises(self, tmp_path):
         arr = np.zeros((3, 4), dtype=np.float32)
         src = Dataset.create_from_array(
             arr,
@@ -92,7 +92,7 @@ class TestErrors:
         )
         collection = DatasetCollection(src, time_length=1)
         with pytest.raises(RuntimeError, match="file-backed"):
-            collection.to_kerchunk("/tmp/nope.json")
+            collection.to_kerchunk(str(tmp_path / "nope.json"))
 
     def test_import_error_without_kerchunk(self, tmp_path, monkeypatch):
         import builtins
@@ -106,5 +106,5 @@ class TestErrors:
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
         collection = DatasetCollection.from_files([NC_FIXTURE])
-        with pytest.raises(ImportError, match="pyramids-gis\\[netcdf-lazy\\]"):
+        with pytest.raises(ImportError, match="pyramids-gis\\[lazy\\]"):
             collection.to_kerchunk(tmp_path / "nope.json")

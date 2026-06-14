@@ -7,6 +7,7 @@ The encoding ``value = t*1000 + l*100 + y*10 + x`` makes storage order
 verifiable: reading any single band reveals the (t, l) combination it
 came from, so chained ``sel()`` results can be asserted exactly.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,10 +16,10 @@ import numpy as np
 from osgeo import gdal
 
 OUT = Path(__file__).with_name("pyramids-netcdf-4d.nc")
-TIME_VALUES = [0, 6, 12, 18]                  # hours
-LEVEL_VALUES = [1000, 850, 500]               # hPa
-LAT_VALUES = np.linspace(40.0, 44.0, 5)       # degrees north
-LON_VALUES = np.linspace(-10.0, -5.0, 6)      # degrees east
+TIME_VALUES = [0, 6, 12, 18]  # hours
+LEVEL_VALUES = [1000, 850, 500]  # hPa
+LAT_VALUES = np.linspace(40.0, 44.0, 5)  # degrees north
+LON_VALUES = np.linspace(-10.0, -5.0, 6)  # degrees east
 
 
 def encode(t_idx: int, l_idx: int, y_idx: int, x_idx: int) -> float:

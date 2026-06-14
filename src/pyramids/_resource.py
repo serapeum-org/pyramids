@@ -23,6 +23,7 @@ Note on ``.json``: a ``.json`` suffix is assumed to be GeoJSON and routed to the
 vector reader. For a non-spatial JSON table, pass ``kind="tabular"`` (or a
 tabular ``fmt``) explicitly.
 """
+
 from __future__ import annotations
 
 import warnings
@@ -122,7 +123,9 @@ def _strip_compression(name: str) -> str:
         inner = name[: -len(".tar.gz")]
     else:
         p = Path(name)
-        inner = p.stem if p.suffix.lower() in _GZIP_SUFFIXES | _ARCHIVE_SUFFIXES else name
+        inner = (
+            p.stem if p.suffix.lower() in _GZIP_SUFFIXES | _ARCHIVE_SUFFIXES else name
+        )
     return inner
 
 

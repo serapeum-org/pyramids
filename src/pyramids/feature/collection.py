@@ -1008,8 +1008,8 @@ class FeatureCollection(GeoDataFrame):
                 raise ImportError(
                     "backend='dask' requires the optional "
                     "'dask-geopandas' dependency. Install with one of:\n"
-                    "  - PyPI:        pip install 'pyramids-gis[parquet-lazy]'\n"
-                    "  - conda-forge: conda install -c conda-forge pyramids-parquet-lazy"
+                    "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
+                    "  - conda-forge: conda install -c conda-forge pyramids-parquet"
                 ) from exc
             # default npartitions from file size when neither
             # kwarg was supplied; one-partition fallback defeats the
@@ -1622,15 +1622,15 @@ class FeatureCollection(GeoDataFrame):
             # request is the more specific signal, so the
             # dask-geopandas hint beats the generic pyarrow one.
             # When both are missing, the dask-geopandas error names
-            # the extra that installs both ([parquet-lazy]).
+            # the extra that installs both ([parquet]).
             try:
                 import dask_geopandas
             except ImportError as exc:
                 raise ImportError(
                     "backend='dask' requires the optional "
                     "'dask-geopandas' dependency. Install with one of:\n"
-                    "  - PyPI:        pip install 'pyramids-gis[parquet-lazy]'\n"
-                    "  - conda-forge: conda install -c conda-forge pyramids-parquet-lazy"
+                    "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
+                    "  - conda-forge: conda install -c conda-forge pyramids-parquet"
                 ) from exc
             dask_kwargs: dict[str, Any] = {}
             if columns is not None:
@@ -1647,7 +1647,7 @@ class FeatureCollection(GeoDataFrame):
             # dask_geopandas is installed → assert pyarrow too, so
             # the user gets the pyramids-branded hint (not the
             # upstream message dask_geopandas would emit when it tries
-            # to read). `[parquet-lazy]` pulls both.
+            # to read). `[parquet]` pulls both.
             _require_pyarrow()
             # wrap the lazy return as a LazyFeatureCollection so the
             # dask branch stays inside the pyramids type system.

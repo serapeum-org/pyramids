@@ -16,7 +16,7 @@ Do not import this module from user code; its signatures are unstable.
 from __future__ import annotations
 
 import io
-import random
+import itertools
 import time
 from contextlib import contextmanager
 from typing import Iterator
@@ -27,17 +27,22 @@ from osgeo import gdal, ogr
 
 from pyramids.base._errors import VectorDriverError
 
+# Process-wide monotonic counter guaranteeing `/vsimem/` path uniqueness;
+# see the note in `pyramids._io`. `next()` on an itertools.count is atomic
+# under the GIL.
+_VSIMEM_COUNTER = itertools.count()
+
 
 def _new_vsimem_path() -> str:
     """Return a fresh unique `/vsimem/` path for a GeoJSON serialization.
 
-    The suffix is `<time_ns>_<rand>` — shorter than a UUID4 and
-    still collision-proof within a single process run: `time.time_ns`
-    has nanosecond resolution and the random integer adds 20 bits of
-    tie-breaking for the same-nanosecond case.
+    The suffix is `<time_ns>_<counter>` — shorter than a UUID4 and
+    collision-proof within a single process run: the strictly increasing
+    counter guarantees uniqueness even when `time.time_ns` repeats within
+    a clock tick.
 
     Returns:
-        str: A `/vsimem/<time>_<rand>.geojson` path.
+        str: A `/vsimem/<time>_<counter>.geojson` path.
 
     Examples:
         - Check the shape of a freshly generated path:
@@ -61,7 +66,7 @@ def _new_vsimem_path() -> str:
 
             ```
     """
-    return f"/vsimem/{time.time_ns()}_{random.randint(0, 999_999)}.geojson"
+    return f"/vsimem/{time.time_ns()}_{next(_VSIMEM_COUNTER)}.geojson"
 
 
 @contextmanager

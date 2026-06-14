@@ -17,6 +17,7 @@ import numpy as np
 from osgeo import gdal
 from pyproj import Transformer
 
+from pyramids._io import read_vsi_bytes, silent_unlink
 from pyramids.base._errors import FailedToSaveError, OutOfBoundsError
 from pyramids.base._utils import (
     default_cog_overview_resampling,
@@ -45,14 +46,54 @@ _AVERAGING_RESAMPLERS: frozenset[str] = frozenset(
 
 _RESAMPLING_ALG: dict[str, int] = {
     "nearest": gdal.GRIORA_NearestNeighbour,
+    "nearest neighbor": gdal.GRIORA_NearestNeighbour,
     "bilinear": gdal.GRIORA_Bilinear,
     "cubic": gdal.GRIORA_Cubic,
     "cubicspline": gdal.GRIORA_CubicSpline,
+    "cubic_spline": gdal.GRIORA_CubicSpline,
     "lanczos": gdal.GRIORA_Lanczos,
     "average": gdal.GRIORA_Average,
     "mode": gdal.GRIORA_Mode,
+    **({"gauss": gdal.GRIORA_Gauss} if hasattr(gdal, "GRIORA_Gauss") else {}),
+    **({"rms": gdal.GRIORA_RMS} if hasattr(gdal, "GRIORA_RMS") else {}),
 }
-"""Map a resampling name to its GDAL ``GRIORA_*`` decimated-read algorithm."""
+"""Map a resampling name to its GDAL ``GRIORA_*`` decimated-read algorithm.
+
+The names mirror :data:`pyramids.base._utils.INTERPOLATION_METHODS` where the
+two algorithm families overlap (``cubic_spline`` is accepted alongside the
+historical ``cubicspline``); ``gauss`` / ``rms`` are guarded for older GDAL.
+"""
+
+
+def _resolve_read_resampling(resampling: str) -> int:
+    """Resolve a decimated-read resampling name to its ``GRIORA_*`` constant.
+
+    Normalises case and surrounding whitespace before the lookup, mirroring
+    :func:`pyramids.base._utils.resolve_resampling` for the warp family.
+
+    Args:
+        resampling: Method name, case-insensitive (a key of
+            :data:`_RESAMPLING_ALG`).
+
+    Returns:
+        int: The matching ``gdal.GRIORA_*`` constant.
+
+    Raises:
+        TypeError: ``resampling`` is not a string.
+        ValueError: ``resampling`` does not name a registered algorithm; the
+            message lists the valid names.
+    """
+    if not isinstance(resampling, str):
+        raise TypeError(
+            f"resampling method must be a string, got {type(resampling).__name__}."
+        )
+    key = resampling.lower().strip()
+    if key not in _RESAMPLING_ALG:
+        raise ValueError(
+            f"unknown resampling {resampling!r}; "
+            f"choose from {sorted(_RESAMPLING_ALG)}"
+        )
+    return _RESAMPLING_ALG[key]
 
 
 _PALETTE_GDAL_DTYPES: frozenset[int] = frozenset({gdal.GDT_Byte, gdal.GDT_UInt16})
@@ -445,9 +486,7 @@ class COG(_Engine):
                 translate_kwargs["outputType"] = numpy_to_gdal_dtype(out_dtype)
             if nodata is not None:
                 translate_kwargs["noData"] = nodata
-            mem = gdal.Translate(
-                "", self._ds._raster, format="MEM", **translate_kwargs
-            )
+            mem = gdal.Translate("", self._ds._raster, format="MEM", **translate_kwargs)
         else:
             # Stamp-only: copy so the user's dataset is not mutated.
             mem = gdal.GetDriverByName("MEM").CreateCopy("", self._ds._raster)
@@ -539,21 +578,19 @@ class COG(_Engine):
         vsi_path = f"/vsimem/{uuid.uuid4().hex}.tif"
         try:
             self.to_cog(vsi_path, **kwargs)
-            handle = gdal.VSIFOpenL(vsi_path, "rb")
-            if handle is None:
+            try:
+                data = read_vsi_bytes(vsi_path)
+            except FileNotFoundError as exc:
                 raise FailedToSaveError(
                     f"could not reopen in-memory COG at {vsi_path}"
-                )
-            try:
-                gdal.VSIFSeekL(handle, 0, 2)  # SEEK_END
-                size = gdal.VSIFTellL(handle)
-                gdal.VSIFSeekL(handle, 0, 0)  # SEEK_SET
-                data = gdal.VSIFReadL(1, size, handle)
-            finally:
-                gdal.VSIFCloseL(handle)
+                ) from exc
         finally:
-            gdal.Unlink(vsi_path)
-        return bytes(data)
+            # silent_unlink: when to_cog fails before creating the file, a
+            # plain gdal.Unlink raises under gdal.UseExceptions() and masks
+            # the original exception. Sweep the PAM sidecar too.
+            silent_unlink(vsi_path)
+            silent_unlink(f"{vsi_path}.aux.xml")
+        return data
 
     def _translate_with_statistics_retry(
         self,
@@ -593,7 +630,10 @@ class COG(_Engine):
             # translate_to_cog wraps CreateCopy RuntimeErrors into
             # FailedToSaveError; a deferred STATISTICS failure at FlushCache
             # time surfaces as a raw RuntimeError — catch both.
-            statistics_on = str(options.get("STATISTICS", "")).upper() in ("YES", "TRUE")
+            statistics_on = str(options.get("STATISTICS", "")).upper() in (
+                "YES",
+                "TRUE",
+            )
             if statistics_on and "valid pixels" in str(exc).lower():
                 retry = {k: v for k, v in options.items() if k != "STATISTICS"}
                 _run(retry)
@@ -823,8 +863,10 @@ class COG(_Engine):
                 height.
             bbox_crs: EPSG code of `bbox`. Reprojected to the dataset CRS
                 when different. Defaults to 4326 (WGS84 lon/lat).
-            resampling: One of `nearest`, `bilinear`, `cubic`,
-                `cubicspline`, `lanczos`, `average`, `mode`.
+            resampling: Resampling method, case-insensitive. One of `nearest`,
+                `bilinear`, `cubic`, `cubicspline` (alias `cubic_spline`),
+                `lanczos`, `average`, `mode`, plus `gauss` and `rms` when the
+                GDAL build provides them.
             band: 0-based band index. `None` reads all bands.
 
         Returns:
@@ -834,6 +876,7 @@ class COG(_Engine):
             only — no transform, bounds, or CRS is attached.
 
         Raises:
+            TypeError: `resampling` is not a string.
             ValueError: Unknown `resampling`.
             OutOfBoundsError: The window does not intersect the raster at all.
 
@@ -860,11 +903,7 @@ class COG(_Engine):
 
                 ```
         """
-        if resampling not in _RESAMPLING_ALG:
-            raise ValueError(
-                f"unknown resampling {resampling!r}; "
-                f"choose from {sorted(_RESAMPLING_ALG)}"
-            )
+        alg = _resolve_read_resampling(resampling)
         ds = self._ds._raster
         min_x, min_y, max_x, max_y = self._reproject_bbox(bbox, bbox_crs)
         inv = gdal.InvGeoTransform(ds.GetGeoTransform())
@@ -894,7 +933,6 @@ class COG(_Engine):
 
         out_w = dst_width if dst_width is not None else req_xsize
         out_h = dst_height if dst_height is not None else req_ysize
-        alg = _RESAMPLING_ALG[resampling]
         source = ds if band is None else ds.GetRasterBand(band + 1)
 
         fully_inside = (
@@ -984,6 +1022,7 @@ class COG(_Engine):
             or CRS is attached to the returned array.
 
         Raises:
+            TypeError: `resampling` is not a string.
             ValueError: Unknown `resampling`.
 
         Examples:
@@ -997,18 +1036,13 @@ class COG(_Engine):
 
                 ```
         """
-        if resampling not in _RESAMPLING_ALG:
-            raise ValueError(
-                f"unknown resampling {resampling!r}; "
-                f"choose from {sorted(_RESAMPLING_ALG)}"
-            )
+        alg = _resolve_read_resampling(resampling)
         width, height = self._ds.columns, self._ds.rows
         scale = max(width, height) / max_size
         if scale <= 1:
             out_w, out_h = width, height
         else:
             out_w, out_h = max(1, round(width / scale)), max(1, round(height / scale))
-        alg = _RESAMPLING_ALG[resampling]
         ds = self._ds._raster
         source = ds if band is None else ds.GetRasterBand(band + 1)
         return np.asarray(

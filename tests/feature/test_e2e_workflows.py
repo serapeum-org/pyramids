@@ -32,9 +32,9 @@ import pandas as pd
 import pytest
 from shapely.geometry import Point, Polygon, box
 
+from pyramids.base.crs import reproject_coordinates
 from pyramids.base.protocols import SpatialObject
 from pyramids.dataset import Dataset
-from pyramids.base.crs import reproject_coordinates
 from pyramids.feature import FeatureCollection, create_polygon, get_coords
 
 pytestmark = pytest.mark.core
@@ -332,9 +332,7 @@ class TestGeometryHardeningChain:
 
         # C21: valid triangle ring; the 2-vertex guard keeps callers from
         # ever reaching this with a degenerate polygon.
-        triangle = create_polygon(
-            [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)]
-        )
+        triangle = create_polygon([(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)])
         mpoly = _Mp([box(2.0, 2.0, 3.0, 3.0), box(4.0, 4.0, 5.0, 5.0)])
         fc = FeatureCollection(
             gpd.GeoDataFrame(geometry=[triangle, mpoly], crs="EPSG:4326")
@@ -360,9 +358,7 @@ class TestGeometryHardeningChain:
         # C23: a bad target CRS in a downstream reproject surfaces as
         # pyramids CRSError, not pyproj's.
         with pytest.raises(CRSError):
-            reproject_coordinates(
-                [1.0], [1.0], from_crs=4326, to_crs="gibberish-wkt"
-            )
+            reproject_coordinates([1.0], [1.0], from_crs=4326, to_crs="gibberish-wkt")
 
 
 class TestBatch4Chain:

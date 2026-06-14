@@ -261,25 +261,8 @@ class TestCalendarSupport:
         result = func(1)
         assert "2000-01-02" in result, f"Expected 2000-01-02, got {result}"
 
-    def test_non_standard_without_cftime_raises(self):
-        """Non-standard calendar without cftime raises ImportError.
-
-        Test scenario:
-            If cftime is not installed, requesting 360_day should fail
-            with a helpful message. We skip this test if cftime IS
-            installed (since the import would succeed).
-        """
-        try:
-            import cftime  # noqa: F401
-
-            pytest.skip("cftime is installed, cannot test ImportError")
-        except ImportError:
-            with pytest.raises(ImportError, match="cftime"):
-                create_time_conversion_func("days since 2000-01-01", calendar="360_day")
-
     def test_360_day_calendar(self):
         """360_day calendar: 30 days per month."""
-        cftime = pytest.importorskip("cftime")
         func = create_time_conversion_func(
             "days since 2000-01-01", out_format="%Y-%m-%d", calendar="360_day"
         )
@@ -288,7 +271,6 @@ class TestCalendarSupport:
 
     def test_noleap_calendar(self):
         """noleap calendar: no Feb 29."""
-        cftime = pytest.importorskip("cftime")
         func = create_time_conversion_func(
             "days since 2000-01-01", out_format="%Y-%m-%d", calendar="noleap"
         )

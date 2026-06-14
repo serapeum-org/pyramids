@@ -67,9 +67,9 @@ class TestWebOptimizedCog:
         info = Dataset.read_file(str(out)).cog_info()
         assert info.overviews, "web-optimized COG should carry overviews"
         for ovr in info.overviews:
-            assert ovr.decimation in _POWERS_OF_TWO, (
-                f"overview decimation {ovr.decimation} is not a power of two"
-            )
+            assert (
+                ovr.decimation in _POWERS_OF_TWO
+            ), f"overview decimation {ovr.decimation} is not a power of two"
 
     def test_result_is_valid_cog(self, big_dataset, tmp_path):
         """A web-optimized write still validates as a COG.

@@ -59,7 +59,7 @@ class TestGetattrHookMinimalInstall:
         Test scenario:
             With ``_HAS_DASK_GEOPANDAS`` flipped to False, evaluating
             ``pyramids.feature.LazyFeatureCollection`` must raise
-            :class:`ImportError` naming the ``[parquet-lazy]`` extra
+            :class:`ImportError` naming the ``[parquet]`` extra
             so users see an actionable install hint rather than a
             ``TypeError: isinstance() arg 2 must be a type`` the
             old ``None`` sentinel produced downstream.
@@ -67,7 +67,7 @@ class TestGetattrHookMinimalInstall:
         import pyramids.feature as pf
 
         monkeypatch.setattr(pf, "_HAS_DASK_GEOPANDAS", False)
-        with pytest.raises(ImportError, match=r"pyramids-gis\[parquet-lazy\]"):
+        with pytest.raises(ImportError, match=r"pyramids-gis\[parquet\]"):
             pf.LazyFeatureCollection  # noqa: B018 - attribute access IS the action
 
     def test_try_except_is_the_correct_guard(self, monkeypatch):

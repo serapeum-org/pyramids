@@ -80,14 +80,22 @@ class TestDownloadItemWiring:
             returned.
         """
         out = download_item(
-            "ITEM", tmp_path, include=["B04"], exclude=["thumbnail"], s3_requester_pays=True
+            "ITEM",
+            tmp_path,
+            include=["B04"],
+            exclude=["thumbnail"],
+            s3_requester_pays=True,
         )
         assert out == "LOCAL_ITEM", f"should return the downloader result, got {out}"
-        assert fake_stac_asset["config"] == (["B04"], ["thumbnail"], True), (
-            f"Config args mismatch: {fake_stac_asset['config']}"
-        )
+        assert fake_stac_asset["config"] == (
+            ["B04"],
+            ["thumbnail"],
+            True,
+        ), f"Config args mismatch: {fake_stac_asset['config']}"
         assert fake_stac_asset["item"] == "ITEM", "item should be forwarded"
-        assert fake_stac_asset["directory"] == str(tmp_path), "directory should be stringified"
+        assert fake_stac_asset["directory"] == str(
+            tmp_path
+        ), "directory should be stringified"
 
     def test_defaults_empty_filters(self, fake_stac_asset, tmp_path):
         """Omitted include/exclude become empty lists in the Config.
@@ -96,6 +104,8 @@ class TestDownloadItemWiring:
             No include/exclude -> ([], [], False).
         """
         download_item("ITEM", tmp_path)
-        assert fake_stac_asset["config"] == ([], [], False), (
-            f"default Config mismatch: {fake_stac_asset['config']}"
-        )
+        assert fake_stac_asset["config"] == (
+            [],
+            [],
+            False,
+        ), f"default Config mismatch: {fake_stac_asset['config']}"

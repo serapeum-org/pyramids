@@ -1,6 +1,9 @@
 """pyramids - GIS utility package"""
+
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _get_version
 from pathlib import Path
 
 # The vendor bootstrap MUST run before any `from osgeo import …`
@@ -12,11 +15,10 @@ from pyramids.base._bootstrap import activate_vendored_osgeo
 
 activate_vendored_osgeo(Path(__path__[0]))
 
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as _get_version
-
-from pyramids.base._configure import configure, configure_lazy_vector
-from pyramids.base.config import Config
+# These import `from osgeo import …` transitively, so they must run *after*
+# activate_vendored_osgeo() puts `_vendor/` on sys.path — hence E402 is expected.
+from pyramids.base._configure import configure, configure_lazy_vector  # noqa: E402
+from pyramids.base.config import Config  # noqa: E402
 
 try:
     __version__ = _get_version("pyramids-gis")

@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 from osgeo import gdal, osr
 
-from pyramids.base._utils import INTERPOLATION_METHODS
+from pyramids.base._utils import resolve_resampling
 from pyramids.base.remote import signer_cloud_config
 from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
 
@@ -87,9 +87,12 @@ def merge_rasters(
             reprojection capability and assumes a single shared grid.
         resampling (str):
             Resampling method used when a source is reprojected to ``dst_crs``
-            (or to the common CRS on auto-detect). One of
-            :data:`pyramids.base._utils.INTERPOLATION_METHODS`:
-            ``"nearest neighbor"`` (default), ``"bilinear"``, or ``"cubic"``.
+            (or to the common CRS on auto-detect). Case-insensitive; any key
+            of :data:`pyramids.base._utils.INTERPOLATION_METHODS`: ``"nearest"``
+            (alias ``"nearest neighbor"``, the default), ``"bilinear"``,
+            ``"cubic"``, ``"cubic_spline"``, ``"lanczos"``, ``"average"``,
+            ``"mode"``, ``"max"``, ``"min"``, ``"med"``, ``"q1"``, ``"q3"``,
+            ``"sum"``, and ``"rms"``.
             Prefer ``"bilinear"``/``"cubic"`` for continuous data (reflectance,
             DEM) to avoid the blockiness nearest introduces across reprojection.
             Ignored when no source is reprojected.
@@ -121,6 +124,7 @@ def merge_rasters(
         same integer inputs.
 
     Raises:
+        TypeError: ``resampling`` is not a string.
         ValueError: ``method``/``resampling`` is not a supported value,
             ``dst_crs`` cannot be parsed as a CRS, or a source carries no CRS.
         RuntimeError: GDAL failed to open a source, reproject it, or build the
@@ -280,9 +284,11 @@ def _prepare_sources(
             share a CRS, and only reprojected (onto the first source's CRS) when
             they are found to disagree.
         resampling: Resampling method used when reprojecting a mismatched-CRS
-            source — one of :data:`pyramids.base._utils.INTERPOLATION_METHODS`
-            (``"nearest neighbor"`` (default), ``"bilinear"``, ``"cubic"``).
-            Unused when no source is reprojected.
+            source — any key of
+            :data:`pyramids.base._utils.INTERPOLATION_METHODS`,
+            case-insensitive (e.g. ``"nearest neighbor"`` (default),
+            ``"bilinear"``, ``"average"``). Unused when no source is
+            reprojected.
 
     Returns:
         tuple[list, list]: ``(sources, keepalive)``. ``sources`` is the
@@ -293,16 +299,13 @@ def _prepare_sources(
             until the mosaic is built.
 
     Raises:
+        TypeError: ``resampling`` is not a string.
         ValueError: ``dst_crs`` (or ``resampling``) could not be parsed, or a
             source carries no CRS.
         RuntimeError: A source could not be opened, or a reprojecting
             :func:`gdal.Warp` failed.
     """
-    if resampling not in INTERPOLATION_METHODS:
-        raise ValueError(
-            f"resampling must be one of {sorted(INTERPOLATION_METHODS)}, "
-            f"got {resampling!r}."
-        )
+    resample_alg = resolve_resampling(resampling)
 
     # Open each source once; read its CRS from that same handle.
     opened: list = []
@@ -334,7 +337,6 @@ def _prepare_sources(
     # the compositor open datasets uniformly — gdal.BuildVRT rejects a mix of
     # path strings and dataset objects.
     target_wkt = target_srs.ExportToWkt()
-    resample_alg = INTERPOLATION_METHODS[resampling]
     sources: list = []
     for dataset, srs in zip(opened, source_srs):
         if srs.IsSame(target_srs):
@@ -349,7 +351,7 @@ def _prepare_sources(
         )
         if warped is None:
             raise RuntimeError(
-                f"gdal.Warp returned None reprojecting a source to the target CRS."
+                "gdal.Warp returned None reprojecting a source to the target CRS."
             )
         sources.append(warped)
     return sources, sources

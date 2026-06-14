@@ -15,9 +15,7 @@ _SUPPORTED_OPS = ("mean", "sum", "min", "max", "std", "var")
 _NAN_TABLE = {op: f"nan{op}" for op in _SUPPORTED_OPS}
 
 
-def resolve_dask_op(
-    op_name: str, *, skipna: bool
-) -> tuple[Callable[..., Any], str]:
+def resolve_dask_op(op_name: str, *, skipna: bool) -> tuple[Callable[..., Any], str]:
     """Return `(callable, name-string)` for a dask-array reduction.
 
     Centralises both the `nan{op} if skipna else op` name mangling
@@ -44,8 +42,7 @@ def resolve_dask_op(
     """
     if op_name not in _SUPPORTED_OPS:
         raise ValueError(
-            f"Unsupported reduction {op_name!r}; supported: "
-            f"{_SUPPORTED_OPS}"
+            f"Unsupported reduction {op_name!r}; supported: {_SUPPORTED_OPS}"
         )
     try:
         import dask.array as da

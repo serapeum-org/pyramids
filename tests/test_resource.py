@@ -1,4 +1,5 @@
 """Tests for the decompress-aware resource reader (:mod:`pyramids._resource`)."""
+
 from __future__ import annotations
 
 import gzip
@@ -486,7 +487,9 @@ class TestReadTabularBranches:
         with pytest.raises(ImportError, match="Excel engine"):
             _read_tabular(f)
 
-    def test_parquet_engine_missing_reraises_with_hint(self, tmp_path: Path, monkeypatch):
+    def test_parquet_engine_missing_reraises_with_hint(
+        self, tmp_path: Path, monkeypatch
+    ):
         def _raise(*args, **kwargs):
             raise ImportError("Missing optional dependency 'pyarrow'")
 

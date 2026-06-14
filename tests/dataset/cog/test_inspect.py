@@ -83,8 +83,12 @@ class TestCogInfo:
         info = cog_info(big_float_cog)
         assert info.is_cog is True, f"expected a valid COG, errors via validate"
         assert info.driver == "GTiff", f"unexpected driver {info.driver}"
-        assert info.compression == "DEFLATE", f"unexpected compression {info.compression}"
-        assert info.predictor == "3", f"float COG should have predictor 3, got {info.predictor}"
+        assert (
+            info.compression == "DEFLATE"
+        ), f"unexpected compression {info.compression}"
+        assert (
+            info.predictor == "3"
+        ), f"float COG should have predictor 3, got {info.predictor}"
         assert info.blocksize == (512, 512), f"unexpected blocksize {info.blocksize}"
         assert info.dtype == "Float32", f"unexpected dtype {info.dtype}"
         assert info.crs_epsg == 4326, f"unexpected epsg {info.crs_epsg}"
@@ -122,7 +126,9 @@ class TestCogInfo:
         assert info.overview_count >= 1, "a 600px COG should carry overviews"
         first = info.overviews[0]
         assert isinstance(first, OverviewLevel), f"unexpected type {type(first)}"
-        assert first.decimation >= 2, f"first overview should decimate >=2, got {first.decimation}"
+        assert (
+            first.decimation >= 2
+        ), f"first overview should decimate >=2, got {first.decimation}"
         assert first.width < info.width, "overview must be smaller than full-res"
 
     def test_plain_geotiff_is_not_cog(self, plain_geotiff):

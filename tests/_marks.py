@@ -60,8 +60,8 @@ HAS_PYSTAC_CLIENT = _has("pystac_client")
 
 # Per-extra installed? flag. Values are True when EVERY underlying
 # module of that extra is importable — so `netcdf_lazy` requires
-# kerchunk AND h5py AND the xarray stack AND the lazy stack, matching
-# what `pip install pyramids-gis[netcdf-lazy]` pulls in.
+# kerchunk AND h5py AND the lazy stack, all of which now ship in
+# `pip install pyramids-gis[lazy]`.
 _HAS_VIZ = HAS_CLEOPATRA
 _HAS_LAZY = HAS_DASK_ARRAY and HAS_ZARR
 _HAS_XARRAY = HAS_XARRAY
@@ -78,16 +78,16 @@ requires_lazy = pytest.mark.skipif(
     not _HAS_LAZY, reason="pyramids-gis[lazy] not installed"
 )
 requires_xarray = pytest.mark.skipif(
-    not _HAS_XARRAY, reason="pyramids-gis[xarray] not installed"
+    not _HAS_XARRAY, reason="xarray not installed (pip install xarray)"
 )
 requires_netcdf_lazy = pytest.mark.skipif(
-    not _HAS_NETCDF_LAZY, reason="pyramids-gis[netcdf-lazy] not installed"
+    not _HAS_NETCDF_LAZY, reason="kerchunk + h5py (pyramids-gis[lazy]) not installed"
 )
 requires_parquet = pytest.mark.skipif(
     not _HAS_PARQUET, reason="pyramids-gis[parquet] not installed"
 )
 requires_parquet_lazy = pytest.mark.skipif(
-    not _HAS_PARQUET_LAZY, reason="pyramids-gis[parquet-lazy] not installed"
+    not _HAS_PARQUET_LAZY, reason="dask-geopandas (pyramids-gis[parquet]) not installed"
 )
 requires_stac = pytest.mark.skipif(
     not _HAS_STAC, reason="pyramids-gis[stac] not installed"

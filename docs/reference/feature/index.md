@@ -124,7 +124,7 @@ guide: `spatial_shuffle` → `sjoin` pruning workflow, `compute` vs
 `persist`, `to_parquet`, `compute_total_bounds`, and how to wire a
 distributed scheduler with `pyramids.configure_lazy_vector`.
 
-Install: `pip install 'pyramids-gis[parquet-lazy]'`.
+Install: `pip install 'pyramids-gis[parquet]'`.
 
 ## Build a one-row FC from a bbox — `from_bbox`
 

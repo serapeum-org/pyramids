@@ -130,8 +130,8 @@ class TestManagerCaching:
         first_snapshot = _path_entries()
         collection.data.compute()
         second_snapshot = _path_entries()
-        assert (
-            set(first_snapshot) == set(second_snapshot)
+        assert set(first_snapshot) == set(
+            second_snapshot
         ), "Repeated compute should not register new FILE_CACHE entries"
         assert len(first_snapshot) == len(three_files)
         for key, handle in first_snapshot.items():
@@ -160,9 +160,7 @@ class TestManagerCaching:
 
         _read_time_step(first_path)
         _read_time_step(Path(first_path))
-        path_keys = [
-            k for k in list(FILE_CACHE._cache) if first_path in tuple(k)
-        ]
+        path_keys = [k for k in FILE_CACHE._cache if first_path in tuple(k)]
         assert len(path_keys) == 1, (
             f"Path and str inputs should share a FILE_CACHE slot; got "
             f"{len(path_keys)} entries: {path_keys}"

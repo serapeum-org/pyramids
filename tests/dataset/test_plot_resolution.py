@@ -94,9 +94,7 @@ class TestResolvePlotBandPolicy:
             arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
         )
 
-        resolved_band, resolved_rgb = dataset._resolve_plot_band(
-            band=5, rgb=[0, 1, 2]
-        )
+        resolved_band, resolved_rgb = dataset._resolve_plot_band(band=5, rgb=[0, 1, 2])
         assert resolved_band == 5
         assert resolved_rgb == [0, 1, 2]
 
@@ -119,9 +117,9 @@ class TestResolvePlotBandPolicy:
         )
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
-        assert resolved_band == 0, (
-            f"{n_bands}-band dataset should default to band 0, got {resolved_band}"
-        )
+        assert (
+            resolved_band == 0
+        ), f"{n_bands}-band dataset should default to band 0, got {resolved_band}"
         assert resolved_rgb is None
 
     @pytest.mark.parametrize("n_bands", [3, 4, 12])
@@ -168,9 +166,11 @@ class TestResolvePlotBandPolicy:
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
         assert resolved_band == 0, f"Red is band 0, got {resolved_band}"
-        assert resolved_rgb == [0, 1, 2], (
-            f"Resolved rgb must mirror the colour tags, got {resolved_rgb}"
-        )
+        assert resolved_rgb == [
+            0,
+            1,
+            2,
+        ], f"Resolved rgb must mirror the colour tags, got {resolved_rgb}"
 
     def test_red_tagged_on_non_zero_band_resolves_correctly(self):
         """Red on band 1 (not 0) → resolved band index follows the tag.
@@ -189,9 +189,11 @@ class TestResolvePlotBandPolicy:
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
         assert resolved_band == 1, f"Red is on band 1, got {resolved_band}"
-        assert resolved_rgb == [1, 2, 0], (
-            f"Expected [red, green, blue] = [1, 2, 0], got {resolved_rgb}"
-        )
+        assert resolved_rgb == [
+            1,
+            2,
+            0,
+        ], f"Expected [red, green, blue] = [1, 2, 0], got {resolved_rgb}"
 
     def test_explicit_rgb_skips_color_lookup(self):
         """``rgb=[2, 1, 0]`` user-supplied → no colour lookup, just pick rgb[0].
@@ -231,10 +233,14 @@ class TestResolvePlotBandPolicy:
         dataset.band_color = {0: "red", 1: "green"}
 
         resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
-        assert resolved_rgb == [2, 1, 0], (
-            f"Partial tags should fall back to [2, 1, 0], got {resolved_rgb}"
-        )
-        assert resolved_band == 2, f"Resolved band must be rgb[0] = 2, got {resolved_band}"
+        assert resolved_rgb == [
+            2,
+            1,
+            0,
+        ], f"Partial tags should fall back to [2, 1, 0], got {resolved_rgb}"
+        assert (
+            resolved_band == 2
+        ), f"Resolved band must be rgb[0] = 2, got {resolved_band}"
 
     def test_explicit_band_zero_on_tagged_dataset(self):
         """Even on a fully-tagged RGB dataset, explicit ``band=0`` wins.
@@ -275,9 +281,9 @@ class TestResolvePlotBandPolicy:
             result = dataset.plot()
 
         assert result == "stub"
-        assert mock_plot.call_args.kwargs["band"] == 0, (
-            f"Resolver should send band=0, got {mock_plot.call_args.kwargs.get('band')}"
-        )
+        assert (
+            mock_plot.call_args.kwargs["band"] == 0
+        ), f"Resolver should send band=0, got {mock_plot.call_args.kwargs.get('band')}"
         assert mock_plot.call_args.kwargs["rgb"] is None
 
 
@@ -295,9 +301,7 @@ class TestRasterBasePlotSignatureContract:
         """
         sig = inspect.signature(RasterBase.plot)
         param = sig.parameters["surface_reflectance"]
-        assert param.default is None, (
-            f"Expected None default, got {param.default!r}"
-        )
+        assert param.default is None, f"Expected None default, got {param.default!r}"
 
     def test_band_default_is_none(self):
         """``RasterBase.plot.band`` defaults to ``None``.
@@ -308,9 +312,7 @@ class TestRasterBasePlotSignatureContract:
         """
         sig = inspect.signature(RasterBase.plot)
         param = sig.parameters["band"]
-        assert param.default is None, (
-            f"Expected None default, got {param.default!r}"
-        )
+        assert param.default is None, f"Expected None default, got {param.default!r}"
 
     def test_rgb_default_is_none(self):
         """``RasterBase.plot.rgb`` defaults to ``None``.
@@ -322,9 +324,7 @@ class TestRasterBasePlotSignatureContract:
         """
         sig = inspect.signature(RasterBase.plot)
         param = sig.parameters["rgb"]
-        assert param.default is None, (
-            f"Expected None default, got {param.default!r}"
-        )
+        assert param.default is None, f"Expected None default, got {param.default!r}"
 
 
 class TestNetCDFPlotPolicy:
@@ -395,9 +395,9 @@ class TestNetCDFPlotPolicy:
         nc_subset = _make_nc_subset(n_bands=2)
         with pytest.raises(TypeError) as exc_info:
             nc_subset.plot(**{kwarg: value})
-        assert expected_substr in str(exc_info.value), (
-            f"Expected {expected_substr!r} in TypeError, got: {exc_info.value!r}"
-        )
+        assert expected_substr in str(
+            exc_info.value
+        ), f"Expected {expected_substr!r} in TypeError, got: {exc_info.value!r}"
 
     def test_first_forbidden_kwarg_in_dict_order_wins(self):
         """Multiple forbidden kwargs → only the first (``rgb``) raises.
@@ -431,9 +431,9 @@ class TestNetCDFPlotPolicy:
             mock_plot.return_value = "ok"
             nc_subset.plot()
 
-        assert mock_plot.call_args.kwargs["band"] == 0, (
-            f"NetCDF default must be band=0, got {mock_plot.call_args.kwargs.get('band')}"
-        )
+        assert (
+            mock_plot.call_args.kwargs["band"] == 0
+        ), f"NetCDF default must be band=0, got {mock_plot.call_args.kwargs.get('band')}"
 
     def test_band_kwarg_rejected_with_migration_hint(self):
         """``NetCDF.plot(band=2)`` raises ``TypeError`` — ``band=`` is not NetCDF vocabulary.

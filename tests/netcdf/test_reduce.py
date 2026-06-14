@@ -133,8 +133,13 @@ class TestReduceSkipna:
             [[[10.0, 10.0]], [[-9999.0, 30.0]]], dtype="float32"
         )  # (time=2, y=1, x=2)
         nc = NetCDF.create_from_array(
-            arr, geo=_GEO, epsg=4326, no_data_value=-9999.0,
-            variable_name="v", extra_dim_name="time", extra_dim_values=[0, 1],
+            arr,
+            geo=_GEO,
+            epsg=4326,
+            no_data_value=-9999.0,
+            variable_name="v",
+            extra_dim_name="time",
+            extra_dim_values=[0, 1],
         )
         skip = nc.reduce("time", "mean", skipna=True).get_variable("v").read_array()
         assert skip[0, 0] == 10.0, "all-but-nodata cell should keep the valid value"
@@ -148,8 +153,13 @@ class TestReduceSkipna:
         """
         arr = np.array([[[10.0]], [[-9999.0]]], dtype="float32")
         nc = NetCDF.create_from_array(
-            arr, geo=_GEO, epsg=4326, no_data_value=-9999.0,
-            variable_name="v", extra_dim_name="time", extra_dim_values=[0, 1],
+            arr,
+            geo=_GEO,
+            epsg=4326,
+            no_data_value=-9999.0,
+            variable_name="v",
+            extra_dim_name="time",
+            extra_dim_values=[0, 1],
         )
         out = nc.reduce("time", "sum", skipna=False).get_variable("v").read_array()
         assert out[0, 0] == pytest.approx(-9989.0), "raw sum should include sentinel"
@@ -170,11 +180,18 @@ class TestReduceSkipna:
             [[[1.0, -9999.0]], [[2.0, -9999.0]]], dtype="float32"
         )  # (time=2, y=1, x=2); column 1 is all-NoData
         nc = NetCDF.create_from_array(
-            arr, geo=_GEO, epsg=4326, no_data_value=-9999.0,
-            variable_name="v", extra_dim_name="time", extra_dim_values=[0, 1],
+            arr,
+            geo=_GEO,
+            epsg=4326,
+            no_data_value=-9999.0,
+            variable_name="v",
+            extra_dim_name="time",
+            extra_dim_values=[0, 1],
         )
         out = nc.reduce("time", how, skipna=True).get_variable("v").read_array()
-        assert out[0, 1] == -9999.0, f"{how}: all-nodata cell should stay nodata, got {out[0, 1]}"
+        assert (
+            out[0, 1] == -9999.0
+        ), f"{how}: all-nodata cell should stay nodata, got {out[0, 1]}"
         assert out[0, 0] != -9999.0, f"{how}: valid cell should compute a real value"
 
 
@@ -306,7 +323,9 @@ class TestReduceRealFixtures:
         per_step = nc.reduce("valid_time", "mean", groupby="6h")
         raw = nc.get_variable("t2m").read_array()
         reduced = per_step.get_variable("t2m").read_array()
-        assert np.allclose(reduced[0], raw[0], equal_nan=True), "first 6h window != first step"
+        assert np.allclose(
+            reduced[0], raw[0], equal_nan=True
+        ), "first 6h window != first step"
 
 
 class TestReduceMultiBandDim:
@@ -324,11 +343,19 @@ class TestReduceMultiBandDim:
         a2 = a1 + 1000.0
         extra = [("d0", [0, 1]), ("d1", [0, 1]), ("d2", [0, 1])]
         nc = NetCDF.create_from_array(
-            a1, geo=_GEO, epsg=4326, no_data_value=-9999.0, variable_name="v1",
+            a1,
+            geo=_GEO,
+            epsg=4326,
+            no_data_value=-9999.0,
+            variable_name="v1",
             extra_dims=extra,
         )
         v2 = NetCDF.create_from_array(
-            a2, geo=_GEO, epsg=4326, no_data_value=-9999.0, variable_name="v2",
+            a2,
+            geo=_GEO,
+            epsg=4326,
+            no_data_value=-9999.0,
+            variable_name="v2",
             extra_dims=extra,
         )
         nc.set_variable("v2", v2.get_variable("v2"))
@@ -353,7 +380,9 @@ class TestReduceMultiBandDim:
         assert got_v1.shape == (2, 2, 3, 4), f"v1 wrong shape: {got_v1.shape}"
         assert got_v2.shape == (2, 2, 3, 4), f"v2 wrong shape: {got_v2.shape}"
         assert np.allclose(got_v1, a1.mean(axis=0)), "v1 values do not match numpy mean"
-        assert np.allclose(got_v2, a2.mean(axis=0)), "v2 (non-first) corrupted by reduce"
+        assert np.allclose(
+            got_v2, a2.mean(axis=0)
+        ), "v2 (non-first) corrupted by reduce"
 
     def test_second_variable_band_dim_names_preserved(self):
         """Both surviving band dimensions are recorded on the reduced variable.
@@ -364,5 +393,8 @@ class TestReduceMultiBandDim:
         """
         nc, _, _ = self._make_5d_two_var_nc()
         var = nc.reduce("d0", "sum").get_variable("v2")
-        assert var._band_dim_names == ("d1", "d2"), f"unexpected band dims: {var._band_dim_names}"
+        assert var._band_dim_names == (
+            "d1",
+            "d2",
+        ), f"unexpected band dims: {var._band_dim_names}"
         assert "d0" not in var._band_dim_names, "reduced dim should be gone"

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import gzip
-import random
+import itertools
 import tarfile
 import time
 import warnings
@@ -30,14 +30,23 @@ _VSI_ARCHIVE_KINDS: dict[str, str] = {
     "gzip": "/vsigzip/",
 }
 
+# Process-wide monotonic counter guaranteeing `/vsimem/` path uniqueness.
+# `time.time_ns()` repeats within a clock tick (coarse on Windows), so a
+# strictly increasing counter — not entropy — is what makes successive
+# paths collision-proof within a process run. `next()` on an
+# itertools.count is atomic under the GIL.
+_VSIMEM_COUNTER = itertools.count()
+
 
 def new_vsimem_path(suffix: str = ".tif") -> str:
     """Return a fresh, unique GDAL ``/vsimem/`` path.
 
     Mirrors :func:`pyramids.feature._ogr._new_vsimem_path` but takes an
     arbitrary extension so the same scheme can back rasters, NetCDFs, or
-    anything else. The ``<time_ns>_<rand>`` body is collision-proof
-    within a single process run.
+    anything else. The ``<time_ns>_<counter>`` body is collision-proof
+    within a single process run: the strictly increasing counter
+    guarantees uniqueness even when ``time.time_ns()`` repeats within a
+    clock tick.
 
     Args:
         suffix: Extension to append (including the leading dot). Used by
@@ -45,7 +54,7 @@ def new_vsimem_path(suffix: str = ".tif") -> str:
             header. Defaults to ``".tif"``.
 
     Returns:
-        str: A ``/vsimem/<time>_<rand><suffix>`` path.
+        str: A ``/vsimem/<time>_<counter><suffix>`` path.
 
     Examples:
         - A path with no explicit suffix lives under ``/vsimem/`` and ends in ``.tif``:
@@ -77,7 +86,7 @@ def new_vsimem_path(suffix: str = ".tif") -> str:
         bytes_to_gdal: Uses this to back an in-memory dataset.
         silent_unlink: Removes the path once the dataset is gone.
     """
-    return f"/vsimem/{time.time_ns()}_{random.randint(0, 999_999)}{suffix}"
+    return f"/vsimem/{time.time_ns()}_{next(_VSIMEM_COUNTER)}{suffix}"
 
 
 def silent_unlink(path: str) -> None:
@@ -121,6 +130,79 @@ def silent_unlink(path: str) -> None:
         gdal.Unlink(path)
     except Exception:  # pragma: no cover - cleanup must never raise
         pass
+
+
+def read_vsi_bytes(path: str) -> bytes:
+    """Read the full contents of a GDAL VSI file as bytes.
+
+    The standard ``VSIFOpenL`` / seek-to-end / ``VSIFReadL`` dance used to pull
+    an in-memory (``/vsimem/``) or other VSI file back into Python — shared by
+    every ``to_*_bytes`` serializer so the read-back logic lives in one place.
+
+    Args:
+        path: The VSI path to read (e.g. a ``/vsimem/...`` path produced by
+            :func:`new_vsimem_path`).
+
+    Returns:
+        bytes: The complete file contents.
+
+    Raises:
+        FileNotFoundError: The path cannot be opened (it does not exist or was
+            already unlinked).
+        OSError: A short read returned fewer than the file's byte count.
+
+    Examples:
+        - Write a buffer to ``/vsimem/`` and read it back:
+            ```python
+            >>> from osgeo import gdal
+            >>> from pyramids._io import new_vsimem_path, read_vsi_bytes, silent_unlink
+            >>> path = new_vsimem_path(".bin")
+            >>> _ = gdal.FileFromMemBuffer(path, b"payload")
+            >>> read_vsi_bytes(path)
+            b'payload'
+            >>> silent_unlink(path)
+
+            ```
+        - A missing path raises ``FileNotFoundError``:
+            ```python
+            >>> from pyramids._io import read_vsi_bytes
+            >>> try:
+            ...     read_vsi_bytes("/vsimem/never-written.bin")
+            ... except FileNotFoundError as exc:
+            ...     print("could not open" in str(exc))
+            True
+
+            ```
+
+    See Also:
+        new_vsimem_path: Mints unique ``/vsimem/`` paths to write into.
+        silent_unlink: Removes the path once the bytes are extracted.
+    """
+    try:
+        handle = gdal.VSIFOpenL(path, "rb")
+    except RuntimeError:
+        # Under gdal.UseExceptions() a missing path raises instead of
+        # returning None; normalise both shapes to FileNotFoundError.
+        handle = None
+    if handle is None:
+        raise FileNotFoundError(f"could not open VSI path {path!r} for reading.")
+    try:
+        gdal.VSIFSeekL(handle, 0, 2)
+        size = gdal.VSIFTellL(handle)
+        gdal.VSIFSeekL(handle, 0, 0)
+        # VSIFReadL returns None (not b"") for a zero-byte read.
+        data = gdal.VSIFReadL(1, size, handle) if size else b""
+    finally:
+        gdal.VSIFCloseL(handle)
+    payload = bytes(data)
+    if len(payload) != size:
+        # VSIFReadL can return fewer than `size` bytes without raising; fail
+        # loudly so a truncated serialization never returns a corrupt buffer.
+        raise OSError(
+            f"short read on VSI path {path!r}: expected {size} bytes, "
+            f"got {len(payload)}."
+        )
+    return payload
 
 
 def _is_zip(path: str):

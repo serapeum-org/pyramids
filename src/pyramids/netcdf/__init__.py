@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pyramids.netcdf.plot_options import ColourOpts, FacetSpec, Selectors
+from pyramids.netcdf.labeled import LabeledDataset
 from pyramids.netcdf.metadata import from_json, get_metadata, to_dict, to_json
 from pyramids.netcdf.models import (
     CFInfo,
@@ -13,8 +13,8 @@ from pyramids.netcdf.models import (
     VariableInfo,
 )
 from pyramids.netcdf.netcdf import NetCDF
+from pyramids.netcdf.plot_options import ColourOpts, FacetSpec, Selectors
 from pyramids.netcdf.ugrid import UgridDataset
-from pyramids.netcdf.labeled import LabeledDataset
 
 __all__ = [
     "NetCDF",

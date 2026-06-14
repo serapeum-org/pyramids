@@ -116,9 +116,9 @@ class TestStringRepresentation:
         md = DatasetCollection(base_dataset, time_length=2)
         assert md.files is None
         text = str(md)
-        assert "in-memory" in text, (
-            f"in-memory cube should label itself as such; got: {text}"
-        )
+        assert (
+            "in-memory" in text
+        ), f"in-memory cube should label itself as such; got: {text}"
         assert "Time length: 2" in text
 
     def test_repr_works_without_files(self, base_dataset: Dataset):
