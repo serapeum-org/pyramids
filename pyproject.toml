@@ -216,6 +216,11 @@ style = [
 env = ["MPLBACKEND=Agg"]
 pythonpath = ["src"]
 testpaths = ["tests"]
+# Dump every thread's traceback (stdlib faulthandler) if a single test runs longer
+# than this, so a hung test (e.g. a flaky kerchunk/fsspec read in the xarray suite)
+# is diagnosable from the CI log instead of silently stalling the job. No legitimate
+# test in this suite runs this long.
+faulthandler_timeout = 120
 markers = [
     "vfs: mark a test as a virtual file system (deselect with '-m \"not vfs\"')",
     "slow: mark test as slow (deselect with '-m \"not slow\"')",

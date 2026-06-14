@@ -18,6 +18,11 @@ concurrency:
 jobs:
   main-package:
     runs-on: ${{ matrix.os }}
+    # Bound a hung test (e.g. a flaky kerchunk/fsspec read in the xarray step) so the
+    # job fails in minutes instead of running to GitHub's 6-hour default. The full
+    # matrix completes in well under this; faulthandler_timeout (pyproject) dumps the
+    # offending thread stacks into the log before the cap hits.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -59,6 +64,7 @@ jobs:
     # ``pytest_collection_modifyitems`` hook in tests/conftest.py, so
     # this job is the only place the extra-gated suite actually runs.
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
