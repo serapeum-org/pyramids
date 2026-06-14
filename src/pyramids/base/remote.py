@@ -215,7 +215,8 @@ def resolve_s3_region(bucket: str, *, timeout: float = 10.0) -> str | None:
                 region = response.headers.get("x-amz-bucket-region")
         except urllib.error.HTTPError as exc:
             region = exc.headers.get("x-amz-bucket-region") if exc.headers else None
-        except (urllib.error.URLError, OSError):
+        except OSError:
+            # urllib.error.URLError and ssl.SSLError both derive from OSError.
             region = None
         _S3_REGION_CACHE[bucket] = region
     return _S3_REGION_CACHE[bucket]
