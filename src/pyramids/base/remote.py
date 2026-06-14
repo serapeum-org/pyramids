@@ -18,6 +18,7 @@ Two concerns live in this module:
 
 from __future__ import annotations
 
+import http.client
 import logging
 import os
 import re
@@ -241,8 +242,11 @@ def resolve_s3_region(bucket: str, *, timeout: float = 5.0) -> str | None:
                     region = response.headers.get("x-amz-bucket-region")
             except urllib.error.HTTPError as exc:
                 region = exc.headers.get("x-amz-bucket-region") if exc.headers else None
-            except OSError:
-                # urllib.error.URLError and ssl.SSLError both derive from OSError.
+            except (OSError, http.client.HTTPException):
+                # urllib.error.URLError and ssl.SSLError derive from OSError;
+                # http.client raises HTTPException (e.g. BadStatusLine) for a
+                # malformed response, which is not an OSError. Catch both so the
+                # probe honours its never-raises contract for the caller.
                 region = None
         _S3_REGION_CACHE[bucket] = region
     return _S3_REGION_CACHE[bucket]

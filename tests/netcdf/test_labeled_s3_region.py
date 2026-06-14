@@ -11,6 +11,7 @@ These tests are fully offline — the HTTP probe and the GDAL open are mocked.
 from __future__ import annotations
 
 import email.message
+import http.client
 import io
 import urllib.error
 import urllib.request
@@ -105,6 +106,21 @@ class TestResolveS3Region:
             The opener raises ``URLError`` (offline / blocked).
         """
         opener = _FakeOpener(error=urllib.error.URLError("offline"))
+        monkeypatch.setattr(
+            remote_mod.urllib.request, "build_opener", lambda *a, **k: opener
+        )
+        assert resolve_s3_region("b") is None
+
+    def test_http_exception_returns_none(self, monkeypatch):
+        """A malformed-response ``HTTPException`` resolves to ``None`` (never raises).
+
+        Test scenario:
+            ``opener.open`` raises ``http.client.BadStatusLine`` (not an
+            ``OSError``); the helper must still honour its never-raises contract
+            so the caller falls back to GDAL's behaviour instead of leaking the
+            error past ``read_file``'s clean error path.
+        """
+        opener = _FakeOpener(error=http.client.BadStatusLine("garbage"))
         monkeypatch.setattr(
             remote_mod.urllib.request, "build_opener", lambda *a, **k: opener
         )
