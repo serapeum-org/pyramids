@@ -153,11 +153,13 @@ class LabeledDataset:
             anon: Open the remote store anonymously (unsigned;
                 `AWS_NO_SIGN_REQUEST` for S3 and the equivalent elsewhere).
             region: Pin the S3 bucket region (sets `AWS_REGION` for the open).
-                Leave `None` and, for an anonymous S3 store, the region is
+                Leave `None` and, for an anonymous `s3://` store, the region is
                 auto-resolved from the bucket — GDAL skips region resolution
                 under `AWS_NO_SIGN_REQUEST`, so a bucket outside `us-east-1`
                 would otherwise fail with an unfollowed `PermanentRedirect`
-                (see issue #535). An explicit value always wins.
+                (see issue #535). An explicit value always wins. Auto-resolution
+                applies only to `s3://`-scheme URLs; pass `region` explicitly for
+                an already-rewritten `/vsis3/...` path.
 
         Returns:
             LabeledDataset: The opened store.
