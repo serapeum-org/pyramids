@@ -180,7 +180,7 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def resolve_s3_region(bucket: str, *, timeout: float = 10.0) -> str | None:
+def resolve_s3_region(bucket: str, *, timeout: float = 5.0) -> str | None:
     """Resolve an S3 bucket's home region via a single anonymous HEAD probe.
 
     GDAL's ``/vsis3`` skips region auto-resolution under ``AWS_NO_SIGN_REQUEST``
@@ -195,7 +195,10 @@ def resolve_s3_region(bucket: str, *, timeout: float = 10.0) -> str | None:
 
     Args:
         bucket: The S3 bucket name (no scheme, no key).
-        timeout: Per-request timeout in seconds.
+        timeout: Per-request timeout in seconds. Bounds the worst-case latency
+            this adds to the *first* anonymous open of a bucket (the result is
+            cached thereafter); keep it small so a slow/unreachable endpoint
+            does not stall the open.
 
     Returns:
         The region string (e.g. ``"eu-central-1"``), or ``None`` when the probe
