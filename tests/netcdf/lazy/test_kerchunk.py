@@ -60,21 +60,39 @@ class TestToKerchunkSingleFile:
         assert returned == written
 
     @requires_kerchunk
-    def test_native_falls_back_when_source_unopenable(self, tmp_path):
-        """An unopenable source (h5py OSError) falls back to the kerchunk backend.
+    def test_native_falls_back_when_source_nonlocal(self, tmp_path):
+        """A non-local / missing source falls back to the kerchunk backend.
 
         Guards #530 follow-up M1: the native builder is local-only, so a source it
-        cannot open must route to the kerchunk translator rather than crash.
+        cannot open (and that is not a local file) must route to the kerchunk
+        translator rather than crash. A non-existent path stands in for a remote
+        URL without needing the network.
         """
+        from pyramids.netcdf._kerchunk import to_kerchunk
+
+        missing = tmp_path / "does_not_exist.nc"  # os.path.exists -> False
+        # native build raises OSError -> fallback warning; the kerchunk translator
+        # then also fails (file not found), so the call raises -- the warning proves
+        # the fallback path was taken.
+        with pytest.warns(UserWarning, match="falling back to the kerchunk"):
+            with pytest.raises(Exception):
+                to_kerchunk(str(missing), tmp_path / "refs.json", backend="native")
+
+    def test_native_reraises_corrupt_local_file(self, tmp_path):
+        """A local file that exists but is not HDF5 surfaces OSError, no fallback.
+
+        Guards #530 follow-up N1: a corrupt/unreadable *local* file should not be
+        masked behind a misleading kerchunk fallback.
+        """
+        import warnings
+
         from pyramids.netcdf._kerchunk import to_kerchunk
 
         not_hdf5 = tmp_path / "plain.txt"
         not_hdf5.write_text("this is not an HDF5 file")
-        # native build raises OSError -> we expect the fallback warning; the
-        # kerchunk translator then also fails on the non-HDF5 file, so the call
-        # ultimately raises -- but the warning proves the fallback path was taken.
-        with pytest.warns(UserWarning, match="falling back to the kerchunk"):
-            with pytest.raises(Exception):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # a fallback warning would become an error
+            with pytest.raises(OSError):
                 to_kerchunk(str(not_hdf5), tmp_path / "refs.json", backend="native")
 
 

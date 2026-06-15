@@ -22,6 +22,7 @@ Kerchunk is not a hard dependency — it lives in the
 from __future__ import annotations
 
 import json
+import os
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
@@ -207,6 +208,11 @@ def to_kerchunk(
             # ValueError: unsupported HDF5 feature. OSError: h5py could not open the
             # source — typically a remote URL (s3://, /vsicurl/...) the local-only
             # native builder cannot read, but kerchunk's translator can via fsspec.
+            # A local file that exists but fails to open is corrupt/unreadable at the
+            # HDF5 level; surface that directly rather than masking it behind a
+            # kerchunk fallback that would also fail.
+            if isinstance(exc, OSError) and os.path.exists(src_str):
+                raise
             warnings.warn(
                 f"native kerchunk builder could not handle {src_str!r} "
                 f"({exc}); falling back to the kerchunk translator.",
@@ -331,7 +337,13 @@ def combine_kerchunk(
         except (ValueError, OSError) as exc:
             # ValueError: >1 concat dim or unsupported feature. OSError: h5py could
             # not open a source (e.g. a remote URL the local-only native builder
-            # cannot read) — kerchunk's translator handles those via fsspec.
+            # cannot read) — kerchunk's translator handles those via fsspec. If every
+            # input is a local file that exists, an OSError means a corrupt/unreadable
+            # file; surface it directly instead of a misleading fallback.
+            if isinstance(exc, OSError) and all(
+                os.path.exists(str(path)) for path in src_paths
+            ):
+                raise
             warnings.warn(
                 f"native kerchunk combine could not handle these inputs ({exc}); "
                 "falling back to the kerchunk translator.",
