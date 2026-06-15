@@ -203,14 +203,6 @@ def _compressor_and_filters(dataset: Any) -> tuple[dict | None, list[dict] | Non
     return compressor, (filters or None)
 
 
-def _read_raw_bytes(src_path: str, offset: int, size: int) -> bytes:
-    """Read ``size`` stored bytes at ``offset`` from a local source file."""
-    with open(src_path, "rb") as handle:
-        handle.seek(offset)
-        data = handle.read(size)
-    return data
-
-
 def _chunk_grid_key(chunk_offset: tuple[int, ...], chunks: list[int]) -> str:
     """Zarr chunk key (``"0.1.0"``) from element-space chunk offsets."""
     if not chunks:
@@ -228,18 +220,22 @@ def _emit_chunk_refs(
     dataset: Any,
     name: str,
     src_url: str,
-    src_local: str | None,
+    src_handle: Any,
     chunks: list[int],
     inline_threshold: int,
 ) -> None:
-    """Add this dataset's chunk references (byte-range or inlined) to ``refs``."""
-    h5py = _require_h5py()
+    """Add this dataset's chunk references (byte-range or inlined) to ``refs``.
+
+    ``src_handle`` is an open binary handle to the local source (or ``None`` for a
+    remote source, which is always referenced by byte range, never inlined).
+    """
 
     def add(key: str, offset: int, size: int) -> None:
         if size <= 0:
             return
-        if src_local is not None and size < inline_threshold:
-            blob = _read_raw_bytes(src_local, offset, size)
+        if src_handle is not None and size < inline_threshold:
+            src_handle.seek(offset)
+            blob = src_handle.read(size)
             refs[f"{name}/{key}"] = "base64:" + base64.b64encode(blob).decode("ascii")
         else:
             refs[f"{name}/{key}"] = [src_url, int(offset), int(size)]
@@ -266,7 +262,7 @@ def _emit_dataset(
     name: str,
     dataset: Any,
     src_url: str,
-    src_local: str | None,
+    src_handle: Any,
     inline_threshold: int,
     vlen_encode: str,
 ) -> None:
@@ -303,7 +299,7 @@ def _emit_dataset(
         dataset=dataset,
         name=name,
         src_url=src_url,
-        src_local=src_local,
+        src_handle=src_handle,
         chunks=chunks,
         inline_threshold=inline_threshold,
     )
@@ -349,29 +345,36 @@ def build_single_manifest(
         url = src_str
 
     refs: dict[str, Any] = {}
-    with h5py.File(src_str, "r") as h5file:
-        refs[".zgroup"] = json.dumps({"zarr_format": 2})
-        refs[".zattrs"] = json.dumps(_clean_attrs(h5file.attrs), allow_nan=False)
+    # One binary handle for the whole walk so inlined chunks don't reopen the file
+    # per chunk; None for a remote source (those are always referenced, not inlined).
+    src_handle = open(src_local, "rb") if src_local is not None else None
+    try:
+        with h5py.File(src_str, "r") as h5file:
+            refs[".zgroup"] = json.dumps({"zarr_format": 2})
+            refs[".zattrs"] = json.dumps(_clean_attrs(h5file.attrs), allow_nan=False)
 
-        def visit(name: str, obj: Any) -> None:
-            if isinstance(obj, h5py.Dataset):
-                _emit_dataset(
-                    refs,
-                    h5file=h5file,
-                    name=name,
-                    dataset=obj,
-                    src_url=url,
-                    src_local=src_local,
-                    inline_threshold=inline_threshold,
-                    vlen_encode=vlen_encode,
-                )
-            else:
-                refs[f"{name}/.zgroup"] = json.dumps({"zarr_format": 2})
-                refs[f"{name}/.zattrs"] = json.dumps(
-                    _clean_attrs(obj.attrs), allow_nan=False
-                )
+            def visit(name: str, obj: Any) -> None:
+                if isinstance(obj, h5py.Dataset):
+                    _emit_dataset(
+                        refs,
+                        h5file=h5file,
+                        name=name,
+                        dataset=obj,
+                        src_url=url,
+                        src_handle=src_handle,
+                        inline_threshold=inline_threshold,
+                        vlen_encode=vlen_encode,
+                    )
+                else:
+                    refs[f"{name}/.zgroup"] = json.dumps({"zarr_format": 2})
+                    refs[f"{name}/.zattrs"] = json.dumps(
+                        _clean_attrs(obj.attrs), allow_nan=False
+                    )
 
-        h5file.visititems(visit)
+            h5file.visititems(visit)
+    finally:
+        if src_handle is not None:
+            src_handle.close()
 
     return {"version": 1, "refs": refs}
 
