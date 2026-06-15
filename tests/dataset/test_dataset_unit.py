@@ -2858,6 +2858,22 @@ class TestArrayToMapCoordinates:
         with pytest.raises(ValueError, match="same length"):
             self._nonsquare().array_to_map_coordinates([0, 1], [0])
 
+    def test_array_to_map_ndarray_input_returns_python_floats(self):
+        """NumPy-array indices yield plain Python floats, same values as lists.
+
+        Guards the N1 contract: the output element type is independent of whether
+        the inputs were lists or ndarrays.
+        """
+        ds = self._nonsquare()
+        x, y = ds.array_to_map_coordinates(
+            np.array([0, 1, 3]), np.array([0, 1, 2]), center=True
+        )
+        assert all(type(v) is float for v in x + y), (
+            f"elements must be plain Python floats, got {[type(v) for v in x + y]}"
+        )
+        x_list, y_list = ds.array_to_map_coordinates([0, 1, 3], [0, 1, 2], center=True)
+        assert x == x_list and y == y_list, "ndarray and list inputs must agree"
+
     def test_array_to_map_square_unchanged(self):
         """Square north-up grids match the historical width-based formula."""
         sq = Dataset.create_from_array(

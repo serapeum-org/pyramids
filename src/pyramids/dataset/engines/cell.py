@@ -422,7 +422,7 @@ class Cell(_Engine):
 
               ```python
               >>> import numpy as np
-              >>> import pandas as pd
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1, 3, size=(10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
@@ -445,6 +445,12 @@ class Cell(_Engine):
             The conversion is affine-exact: it applies the full geotransform
             (per-axis pixel sizes and the rotation terms), so it is correct on
             non-square and rotated grids rather than assuming square pixels.
+
+        See Also:
+            - :meth:`map_to_array_coordinates`: The inverse direction
+              (map coordinates to the nearest array indices).
+            - :meth:`pyramids.dataset.abstract_dataset.RasterBase.xy`: The
+              scalar/array affine companion used by the rasterio-style API.
         """
         if len(rows_index) != len(column_index):
             raise ValueError(
