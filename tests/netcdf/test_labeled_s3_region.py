@@ -21,7 +21,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base import remote as remote_mod
-from pyramids.base.remote import resolve_s3_region
+from pyramids.base.remote import CloudConfig, resolve_s3_region
 from pyramids.netcdf import LabeledDataset
 from pyramids.netcdf import labeled as labeled_mod
 
@@ -349,3 +349,148 @@ class TestReadFileRegionWiring:
         with pytest.raises(ValueError):
             LabeledDataset.read_file(str(missing), anon=True)
         assert captured["region"] in (None, "")
+
+
+class TestS3PathStyleAddressing:
+    """`read_file` uses path-style S3 addressing for anon reads, live at read time (#560)."""
+
+    @staticmethod
+    def _capture_open_vhost(monkeypatch) -> dict:
+        """Patch ``gdal.OpenEx`` to record AWS_VIRTUAL_HOSTING during the open."""
+        captured: dict = {}
+
+        def fake_openex(path, flags):
+            captured["vhost"] = gdal.GetConfigOption("AWS_VIRTUAL_HOSTING")
+            raise RuntimeError("stop after capturing config")
+
+        monkeypatch.setattr(labeled_mod.gdal, "OpenEx", fake_openex)
+        return captured
+
+    def test_anonymous_s3_uses_path_style(self, monkeypatch):
+        """An anonymous S3 read pins AWS_VIRTUAL_HOSTING=FALSE for the open.
+
+        Test scenario:
+            Path-style addressing avoids the unfollowed 301 on the data-chunk GET
+            that otherwise reads zeros (#560).
+        """
+        monkeypatch.setattr(labeled_mod, "resolve_s3_region", lambda bucket: "us-east-1")
+        captured = self._capture_open_vhost(monkeypatch)
+        with pytest.raises(ValueError):
+            LabeledDataset.read_file(
+                "s3://noaa-nwm-retrospective-3-0-pds/CONUS/zarr/chrtout.zarr", anon=True
+            )
+        assert captured["vhost"] == "FALSE", "anon S3 must use path-style addressing"
+
+    def test_signed_s3_keeps_default_virtual_hosting(self, monkeypatch):
+        """A signed S3 read does not force path-style (leaves GDAL's default).
+
+        Test scenario:
+            Only the anonymous public-bucket path needs path-style; signed reads
+            keep virtual-hosted addressing.
+        """
+        captured = self._capture_open_vhost(monkeypatch)
+        with pytest.raises(ValueError):
+            LabeledDataset.read_file("s3://bucket/store.zarr", anon=False)
+        assert captured["vhost"] in (None, ""), "signed S3 must keep GDAL's default"
+
+    def test_local_path_no_virtual_hosting(self, monkeypatch, tmp_path):
+        """A local path never forces S3 addressing options.
+
+        Test scenario:
+            A filesystem store leaves AWS_VIRTUAL_HOSTING unset.
+        """
+        captured = self._capture_open_vhost(monkeypatch)
+        with pytest.raises(ValueError):
+            LabeledDataset.read_file(str(tmp_path / "store.zarr"), anon=True)
+        assert captured["vhost"] in (None, "")
+
+    def test_reads_reapply_cloud_config(self):
+        """Chunk reads re-enter the stored cloud config, not just the open (#560).
+
+        The data-chunk GETs happen after the open returns, so the S3 addressing
+        config must be live then too. A spy config records each read entry.
+        """
+        import numpy as np
+
+        class _SpyConfig:
+            def __init__(self):
+                self.entered = 0
+
+            def __enter__(self):
+                self.entered += 1
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        mem = gdal.GetDriverByName("MEM").CreateMultiDimensional("m")
+        rg = mem.GetRootGroup()
+        dim = rg.CreateDimension("x", "", "", 3)
+        arr = rg.CreateMDArray("x", [dim], gdal.ExtendedDataType.Create(gdal.GDT_Int32))
+        arr.Write(np.array([10, 20, 30], dtype="i4"))
+
+        spy = _SpyConfig()
+        store = LabeledDataset(
+            mem,
+            rg,
+            coord_names=["x"],
+            var_names=[],
+            dim_order=["x"],
+            full_sizes={"x": 3},
+            cloud_config=spy,
+        )
+        values = store._coord_full("x")
+        assert spy.entered >= 1, "a coordinate read must re-enter the cloud config"
+        np.testing.assert_array_equal(values, [10, 20, 30])
+
+    @staticmethod
+    def _mem_store_with_variable(cloud_config):
+        """Build a LabeledDataset over a MEM store: coord ``x`` + variable ``v(x)``."""
+        import numpy as np
+
+        mem = gdal.GetDriverByName("MEM").CreateMultiDimensional("m")
+        rg = mem.GetRootGroup()
+        dim = rg.CreateDimension("x", "", "", 3)
+        dt = gdal.ExtendedDataType.Create(gdal.GDT_Int32)
+        rg.CreateMDArray("x", [dim], dt).Write(np.array([10, 20, 30], dtype="i4"))
+        rg.CreateMDArray("v", [dim], dt).Write(np.array([1, 2, 3], dtype="i4"))
+        return LabeledDataset(
+            mem,
+            rg,
+            coord_names=["x"],
+            var_names=["v"],
+            dim_order=["x"],
+            full_sizes={"x": 3},
+            cloud_config=cloud_config,
+        )
+
+    def test_variable_read_reapplies_cloud_config(self):
+        """A variable read via ``_read`` also re-enters the stored cloud config."""
+        import numpy as np
+
+        class _SpyConfig:
+            def __init__(self):
+                self.entered = 0
+
+            def __enter__(self):
+                self.entered += 1
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        spy = _SpyConfig()
+        store = self._mem_store_with_variable(spy)
+        values, dims = store._read("v")
+        assert spy.entered >= 1, "a variable read must re-enter the cloud config"
+        np.testing.assert_array_equal(values, [1, 2, 3])
+        assert dims == ("x",), f"unexpected dims for v: {dims!r}"
+
+    def test_select_propagates_cloud_config_to_child_view(self):
+        """``select`` (via ``_replace``) carries the parent's cloud config (#560)."""
+        sentinel = CloudConfig(aws_virtual_hosting=False)
+        store = self._mem_store_with_variable(sentinel)
+        child = store.select(x=[10, 30])
+        assert (
+            child._cloud_config is sentinel
+        ), "child view must reuse the parent's cloud config, not a fresh empty one"

@@ -101,6 +101,7 @@ class LabeledDataset:
         full_sizes: dict[str, int],
         index: dict[str, np.ndarray] | None = None,
         scalar_dims: frozenset[str] = frozenset(),
+        cloud_config: CloudConfig | None = None,
     ) -> None:
         """Low-level constructor. Most callers use :meth:`read_file`.
 
@@ -115,6 +116,9 @@ class LabeledDataset:
                 a missing dimension means "keep all".
             scalar_dims: Dimensions reduced to a single label (dropped from the
                 reported dims/sizes).
+            cloud_config: GDAL cloud config (S3 addressing / region / anon)
+                re-applied around every chunk read so remote data GETs use the
+                same settings as the open. Defaults to an empty (no-op) config.
         """
         self._ds = ds
         self._group = group
@@ -124,6 +128,10 @@ class LabeledDataset:
         self._full_sizes = full_sizes
         self._index = dict(index or {})
         self._scalar_dims = scalar_dims
+        # Re-applied around every chunk read so remote S3 addressing (path-style,
+        # region, anon) stays live for data GETs, not just the open (#560). An
+        # empty CloudConfig is a no-op for local stores.
+        self._cloud_config = cloud_config or CloudConfig()
 
     @classmethod
     def read_file(
@@ -151,7 +159,11 @@ class LabeledDataset:
             engine: Force the store kind — `"zarr"` for Zarr, any other value
                 for NetCDF/HDF5. `None` infers from the path suffix.
             anon: Open the remote store anonymously (unsigned;
-                `AWS_NO_SIGN_REQUEST` for S3 and the equivalent elsewhere).
+                `AWS_NO_SIGN_REQUEST` for S3 and the equivalent elsewhere). For
+                an anonymous `s3://` store this also forces **path-style**
+                addressing (`AWS_VIRTUAL_HOSTING=FALSE`) — kept live for the
+                data-chunk reads, not just the open — so GDAL does not hit an
+                unfollowed `301` on the chunk GET and silently read zeros (#560).
             region: Pin the S3 bucket region (sets `AWS_REGION` for the open).
                 Leave `None` and, for an anonymous `s3://` store, the region is
                 auto-resolved from the bucket — GDAL skips region resolution
@@ -191,15 +203,24 @@ class LabeledDataset:
         # PermanentRedirect. Resolve and pin it before the open (issue #535); an
         # explicit `region` always wins.
         effective_region = region
-        if (
-            effective_region is None
-            and anon
-            and source.split("://", 1)[0].lower() == "s3"
-        ):
+        is_anon_s3 = anon and source.split("://", 1)[0].lower() == "s3"
+        if effective_region is None and is_anon_s3:
             bucket = source.split("://", 1)[1].split("/", 1)[0]
             effective_region = resolve_s3_region(bucket)
+        # Anonymous S3 needs path-style addressing: GDAL's default virtual-hosted
+        # host 301-redirects the data-chunk GET on some buckets (e.g. the
+        # us-east-1 NWM retrospective store) and does not follow the redirect,
+        # reading 0 bytes — which surfaces as silent zeros (#560). Region
+        # resolution (#535/#537) fixes the open/metadata path; path-style fixes
+        # the data-read path. The config must be live for the chunk reads too, not
+        # just the open, so it is stored on the view and re-applied per read.
+        cloud = CloudConfig(
+            aws_no_sign_request=anon,
+            aws_region=effective_region,
+            aws_virtual_hosting=False if is_anon_s3 else None,
+        )
         try:
-            with CloudConfig(aws_no_sign_request=anon, aws_region=effective_region):
+            with cloud:
                 ds = gdal.OpenEx(gdal_path, gdal.OF_MULTIDIM_RASTER)
         except RuntimeError as exc:
             # gdal.UseExceptions() raises (rather than returning None) for a
@@ -238,7 +259,7 @@ class LabeledDataset:
         # Close the handle on any error while classifying the group (e.g. an
         # unknown name in `variables`) so it isn't left locked on Windows.
         try:
-            return cls._from_group(ds, grp, variables)
+            return cls._from_group(ds, grp, variables, cloud_config=cloud)
         except Exception:
             ds = None
             raise
@@ -273,6 +294,7 @@ class LabeledDataset:
         ds: gdal.Dataset,
         grp: gdal.Group,
         variables: Iterable[str] | None,
+        cloud_config: CloudConfig | None = None,
     ) -> LabeledDataset:
         """Classify a group's arrays into coordinates and data variables."""
         array_names, skipped = cls._readable_arrays(grp)
@@ -296,6 +318,7 @@ class LabeledDataset:
             var_names=var_names,
             dim_order=dim_order,
             full_sizes=full_sizes,
+            cloud_config=cloud_config,
         )
 
     @staticmethod
@@ -376,6 +399,7 @@ class LabeledDataset:
             full_sizes=self._full_sizes,
             index=index,
             scalar_dims=scalar_dims,
+            cloud_config=self._cloud_config,
         )
 
     def _selected_size(self, dim: str) -> int:
@@ -419,12 +443,13 @@ class LabeledDataset:
             dtype for string arrays) and its remaining dimension names (after
             scalar dims are squeezed out).
         """
-        arr = self._group.OpenMDArray(name)
-        dim_names = self._array_dims(name)
-        if arr.GetDataType().GetClass() == gdal.GEDTC_STRING:
-            values = self._read_string_selection(arr, dim_names)
-        else:
-            values = self._read_numeric_selection(arr, dim_names)
+        with self._cloud_config:
+            arr = self._group.OpenMDArray(name)
+            dim_names = self._array_dims(name)
+            if arr.GetDataType().GetClass() == gdal.GEDTC_STRING:
+                values = self._read_string_selection(arr, dim_names)
+            else:
+                values = self._read_numeric_selection(arr, dim_names)
         values = self._maybe_decode_time(arr, values)
         return self._squeeze_scalar_dims(values, dim_names)
 
@@ -515,10 +540,13 @@ class LabeledDataset:
 
     def _coord_full(self, name: str) -> np.ndarray:
         """Read a coordinate's full (unselected) values."""
-        arr = self._group.OpenMDArray(name)
-        if arr.GetDataType().GetClass() == gdal.GEDTC_STRING:
-            return np.asarray(arr.Read(), dtype=object)
-        return np.asarray(arr.ReadAsArray())
+        with self._cloud_config:
+            arr = self._group.OpenMDArray(name)
+            if arr.GetDataType().GetClass() == gdal.GEDTC_STRING:
+                values = np.asarray(arr.Read(), dtype=object)
+            else:
+                values = np.asarray(arr.ReadAsArray())
+        return values
 
     def _coord_current(self, name: str, dim: str) -> np.ndarray:
         """Read coordinate `name` over `dim` at the current selection."""
