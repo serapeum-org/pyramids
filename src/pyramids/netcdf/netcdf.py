@@ -4312,18 +4312,27 @@ class NetCDF(Dataset):
     def _add_md_array_to_group(dst_group, var_name, src_mdarray):
         """Copy an MDArray from one group to another, preserving data and metadata."""
         src_dims = src_mdarray.GetDimensions()
-        arr = src_mdarray.ReadAsArray()
-        dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
-        new_md_array = dst_group.CreateMDArray(var_name, src_dims, dtype)
-        new_md_array.Write(arr)
-        ndv = src_mdarray.GetNoDataValue()
-        if ndv is not None:
-            try:
-                new_md_array.SetNoDataValueDouble(ndv)
-            except Exception:
-                pass
-
-        new_md_array.SetSpatialRef(src_mdarray.GetSpatialRef())
+        if src_mdarray.GetDataType().GetClass() == gdal.GEDTC_STRING:
+            # String MDArrays can't go through ReadAsArray (numpy) in the GDAL
+            # SWIG bindings, but the Python list Read()/Write() path works. Use it
+            # so non-spatial string aux vars (e.g. ERA5's 'expver') are carried
+            # through container spatial ops instead of being dropped (#565).
+            new_md_array = dst_group.CreateMDArray(
+                var_name, src_dims, gdal.ExtendedDataType.CreateString()
+            )
+            new_md_array.Write(src_mdarray.Read())
+        else:
+            arr = src_mdarray.ReadAsArray()
+            dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
+            new_md_array = dst_group.CreateMDArray(var_name, src_dims, dtype)
+            new_md_array.Write(arr)
+            ndv = src_mdarray.GetNoDataValue()
+            if ndv is not None:
+                try:
+                    new_md_array.SetNoDataValueDouble(ndv)
+                except Exception:
+                    pass
+            new_md_array.SetSpatialRef(src_mdarray.GetSpatialRef())
 
     @staticmethod
     def _get_or_create_dimension(
