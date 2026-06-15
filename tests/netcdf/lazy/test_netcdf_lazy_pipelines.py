@@ -18,7 +18,6 @@ likely under future refactors:
 from __future__ import annotations
 
 import multiprocessing
-import os
 import pickle
 
 import numpy as np
@@ -53,14 +52,10 @@ requires_xarray = pytest.mark.skipif(not HAS_XARRAY, reason="xarray not installe
 requires_kerchunk = pytest.mark.skipif(
     not HAS_KERCHUNK, reason="kerchunk not installed"
 )
-# xarray's engine="kerchunk" (kerchunk -> fsspec async ReferenceFileSystem -> zarr v3)
-# flakily deadlocks on the CI runners while passing reliably locally; skip it on CI only
-# so the matrix stays green, and keep running it locally. Tracked in #530 (tied to the
-# zarr v2 -> v3 lazy-stack migration); the global pytest-timeout is the backstop.
-skip_kerchunk_xarray_on_ci = pytest.mark.skipif(
-    os.environ.get("CI") == "true",
-    reason="kerchunk-via-xarray roundtrip flakily deadlocks on CI under zarr v3 (see #530)",
-)
+# #530: the deadlock was in manifest *generation* (kerchunk.hdf -> zarr-v3 sync()),
+# not the xarray read. NetCDF.to_kerchunk now builds the manifest natively with h5py
+# (no live zarr group), so generation can no longer deadlock and this runs on CI again.
+# The global pytest-timeout remains as a backstop.
 
 
 FIXTURE = "tests/data/netcdf/pyramids-netcdf-3d.nc"
@@ -100,7 +95,6 @@ class TestNetCDFLazyPipelines:
     @pytest.mark.xarray
     @requires_kerchunk
     @requires_xarray
-    @skip_kerchunk_xarray_on_ci
     def test_kerchunk_roundtrip_via_xarray(self, tmp_path):
         """to_kerchunk manifest opens with xarray engine="kerchunk".
 

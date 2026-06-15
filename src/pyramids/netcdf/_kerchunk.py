@@ -22,11 +22,15 @@ Kerchunk is not a hard dependency — it lives in the
 from __future__ import annotations
 
 import json
+import os
+import warnings
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Sequence
 
 import numpy as np
+
+from pyramids.netcdf._kerchunk_native import build_single_manifest, combine_manifests
 
 _KERCHUNK_IMPORT_ERROR = (
     "kerchunk is required for NetCDF → Zarr reference manifests. "
@@ -113,12 +117,34 @@ def _require_kerchunk_combine() -> Any:
     return MultiZarrToZarr
 
 
+def _kerchunk_translate_single(
+    src_str: str, *, inline_threshold: int, vlen_encode: str
+) -> dict[str, Any]:
+    """Generate a single-file manifest via kerchunk's HDF5 translator.
+
+    Fallback path for files the native builder cannot handle. Under zarr v3 this
+    can flakily deadlock (#530), so it is only used when the native builder
+    raises on an unsupported HDF5 feature.
+    """
+    SingleHdf5ToZarr = _require_kerchunk_single()
+    with _scalar_fill_value_shim():
+        refs = SingleHdf5ToZarr(
+            src_str,
+            src_str,
+            inline_threshold=inline_threshold,
+            error="warn",
+            vlen_encode=vlen_encode,
+        ).translate()
+    return refs
+
+
 def to_kerchunk(
     src_path: str | Path,
     output_path: str | Path,
     *,
     inline_threshold: int = 500,
     vlen_encode: str = "embed",
+    backend: str = "native",
 ) -> dict[str, Any]:
     """Emit a single-file kerchunk reference manifest.
 
@@ -127,19 +153,26 @@ def to_kerchunk(
         output_path: Path where the JSON manifest is written.
         inline_threshold: Chunks smaller than this many bytes are
             embedded directly in the manifest rather than referenced
-            by offset. Forwarded to
-            :class:`kerchunk.hdf.SingleHdf5ToZarr`.
+            by offset.
         vlen_encode: One of `"embed" | "null" | "leave" | "encode"`.
             Controls how VLEN (variable-length) strings are handled.
             Default `"embed"` inlines string values; other modes
             trade compatibility vs fidelity — see the kerchunk docs.
+        backend: `"native"` (default) builds the manifest directly with
+            h5py — no live zarr group, so it cannot hit the zarr-v3
+            `sync()` deadlock (#530). `"kerchunk"` forces the legacy
+            `kerchunk.hdf.SingleHdf5ToZarr` translator. The native
+            backend falls back to kerchunk for files using HDF5 features
+            it does not support (e.g. vlen/compound dtypes).
 
     Returns:
         The manifest dict that was written — useful for inspection
         or further programmatic use.
 
     Raises:
-        ImportError: When kerchunk is not installed.
+        ImportError: When the chosen backend's dependency is missing
+            (h5py for `"native"`, kerchunk for `"kerchunk"`).
+        ValueError: When `backend` is not `"native"` or `"kerchunk"`.
 
     Examples:
         - Emit a manifest for one NetCDF file (requires the
@@ -155,18 +188,71 @@ def to_kerchunk(
 
             ```
     """
-    SingleHdf5ToZarr = _require_kerchunk_single()
+    if backend not in ("native", "kerchunk"):
+        raise ValueError(
+            f"backend must be 'native' or 'kerchunk'; got {backend!r}"
+        )
     src_str = str(src_path)
-    with _scalar_fill_value_shim():
-        refs = SingleHdf5ToZarr(
-            src_str,
-            src_str,
-            inline_threshold=inline_threshold,
-            error="warn",
-            vlen_encode=vlen_encode,
-        ).translate()
+    if backend == "kerchunk":
+        refs = _kerchunk_translate_single(
+            src_str, inline_threshold=inline_threshold, vlen_encode=vlen_encode
+        )
+    else:
+        try:
+            refs = build_single_manifest(
+                src_str,
+                inline_threshold=inline_threshold,
+                vlen_encode=vlen_encode,
+            )
+        except (ValueError, OSError) as exc:
+            # ValueError: unsupported HDF5 feature. OSError: h5py could not open the
+            # source — typically a remote URL (s3://, /vsicurl/...) the local-only
+            # native builder cannot read, but kerchunk's translator can via fsspec.
+            # A local file that exists but fails to open is corrupt/unreadable at the
+            # HDF5 level; surface that directly rather than masking it behind a
+            # kerchunk fallback that would also fail.
+            if isinstance(exc, OSError) and os.path.exists(src_str):
+                raise
+            warnings.warn(
+                f"native kerchunk builder could not handle {src_str!r} "
+                f"({exc}); falling back to the kerchunk translator.",
+                stacklevel=2,
+            )
+            refs = _kerchunk_translate_single(
+                src_str, inline_threshold=inline_threshold, vlen_encode=vlen_encode
+            )
     Path(output_path).write_text(json.dumps(refs))
     return refs
+
+
+def _kerchunk_combine(
+    src_paths: Sequence[str | Path],
+    *,
+    concat_dims: Sequence[str],
+    identical_dims: Sequence[str],
+    inline_threshold: int,
+) -> dict[str, Any]:
+    """Combine via kerchunk's translator + ``MultiZarrToZarr`` (legacy path)."""
+    SingleHdf5ToZarr = _require_kerchunk_single()
+    MultiZarrToZarr = _require_kerchunk_combine()
+
+    per_file = []
+    with _scalar_fill_value_shim():
+        for path in src_paths:
+            src_str = str(path)
+            refs = SingleHdf5ToZarr(
+                src_str,
+                src_str,
+                inline_threshold=inline_threshold,
+                error="warn",
+            ).translate()
+            per_file.append(refs)
+
+    return MultiZarrToZarr(
+        per_file,
+        concat_dims=list(concat_dims),
+        identical_dims=list(identical_dims),
+    ).translate()
 
 
 def combine_kerchunk(
@@ -176,29 +262,39 @@ def combine_kerchunk(
     concat_dims: Sequence[str] = ("time",),
     identical_dims: Sequence[str] = ("lat", "lon"),
     inline_threshold: int = 500,
+    backend: str = "native",
 ) -> dict[str, Any]:
     """Emit a combined kerchunk manifest spanning many source files.
 
-    Each source is first scanned via
-    :class:`kerchunk.hdf.SingleHdf5ToZarr` (in memory, no per-file
-    sidecar JSON is written), then merged via
-    :class:`kerchunk.combine.MultiZarrToZarr`.
+    The default `"native"` backend scans each file with :func:`build_single_manifest`
+    (h5py, no live zarr group) and concatenates the per-file manifests along the
+    single `concat_dims` entry — every variable carrying that dimension is stacked,
+    the rest are carried from the first file. This avoids the zarr-v3 `sync()`
+    deadlock (#530). `"kerchunk"` forces the legacy
+    `SingleHdf5ToZarr` + `MultiZarrToZarr` path; the native backend also falls back
+    to it for inputs it cannot handle (e.g. multiple concat dims, unsupported HDF5
+    features).
 
     Args:
-        src_paths: Sequence of source NetCDF / HDF5 paths or URLs.
+        src_paths: Sequence of source NetCDF / HDF5 paths or URLs, in
+            concatenation order.
         output_path: Path where the combined JSON manifest is written.
-        concat_dims: Dimension name(s) along which to concatenate
-            per-file coordinates. Default `("time",)`.
-        identical_dims: Dimension name(s) expected to be identical
-            across every file (for example shared `lat`/`lon`
-            coordinates). Default `("lat", "lon")`.
+        concat_dims: Dimension name(s) along which to concatenate. The native
+            backend supports exactly one; more than one falls back to kerchunk.
+            Default `("time",)`.
+        identical_dims: Dimension name(s) expected to be identical across files
+            (e.g. shared `lat`/`lon`). Used by the kerchunk backend; the native
+            backend treats every non-concat variable as identical implicitly.
+            Default `("lat", "lon")`.
         inline_threshold: Same semantics as :func:`to_kerchunk`.
+        backend: `"native"` (default) or `"kerchunk"`.
 
     Returns:
         The combined manifest dict that was written.
 
     Raises:
-        ImportError: When kerchunk is not installed.
+        ImportError: When the chosen backend's dependency is missing.
+        ValueError: When `backend` is not `"native"` or `"kerchunk"`.
 
     Examples:
         - Combine a year's worth of daily NetCDFs into one manifest:
@@ -215,26 +311,50 @@ def combine_kerchunk(
 
             ```
     """
-    SingleHdf5ToZarr = _require_kerchunk_single()
-    MultiZarrToZarr = _require_kerchunk_combine()
-
-    per_file = []
-    with _scalar_fill_value_shim():
-        for path in src_paths:
-            src_str = str(path)
-            refs = SingleHdf5ToZarr(
-                src_str,
-                src_str,
+    if backend not in ("native", "kerchunk"):
+        raise ValueError(
+            f"backend must be 'native' or 'kerchunk'; got {backend!r}"
+        )
+    if backend == "kerchunk":
+        combined = _kerchunk_combine(
+            src_paths,
+            concat_dims=concat_dims,
+            identical_dims=identical_dims,
+            inline_threshold=inline_threshold,
+        )
+    else:
+        try:
+            if len(concat_dims) != 1:
+                raise ValueError(
+                    "native combine supports exactly one concat dimension; got "
+                    f"{tuple(concat_dims)}"
+                )
+            per_file = [
+                build_single_manifest(str(path), inline_threshold=inline_threshold)
+                for path in src_paths
+            ]
+            combined = combine_manifests(per_file, concat_dim=concat_dims[0])
+        except (ValueError, OSError) as exc:
+            # ValueError: >1 concat dim or unsupported feature. OSError: h5py could
+            # not open a source (e.g. a remote URL the local-only native builder
+            # cannot read) — kerchunk's translator handles those via fsspec. If every
+            # input is a local file that exists, an OSError means a corrupt/unreadable
+            # file; surface it directly instead of a misleading fallback.
+            if isinstance(exc, OSError) and all(
+                os.path.exists(str(path)) for path in src_paths
+            ):
+                raise
+            warnings.warn(
+                f"native kerchunk combine could not handle these inputs ({exc}); "
+                "falling back to the kerchunk translator.",
+                stacklevel=2,
+            )
+            combined = _kerchunk_combine(
+                src_paths,
+                concat_dims=concat_dims,
+                identical_dims=identical_dims,
                 inline_threshold=inline_threshold,
-                error="warn",
-            ).translate()
-            per_file.append(refs)
-
-    combined = MultiZarrToZarr(
-        per_file,
-        concat_dims=list(concat_dims),
-        identical_dims=list(identical_dims),
-    ).translate()
+            )
     Path(output_path).write_text(json.dumps(combined))
     return combined
 

@@ -94,7 +94,8 @@ class TestErrors:
         with pytest.raises(RuntimeError, match="file-backed"):
             collection.to_kerchunk(str(tmp_path / "nope.json"))
 
-    def test_import_error_without_kerchunk(self, tmp_path, monkeypatch):
+    def test_works_without_kerchunk(self, tmp_path, monkeypatch):
+        """The native combine path needs h5py, not kerchunk (#530)."""
         import builtins
 
         real_import = builtins.__import__
@@ -106,5 +107,7 @@ class TestErrors:
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
         collection = DatasetCollection.from_files([NC_FIXTURE])
-        with pytest.raises(ImportError, match="pyramids-gis\\[lazy\\]"):
-            collection.to_kerchunk(tmp_path / "nope.json")
+        out = tmp_path / "refs.json"
+        result = collection.to_kerchunk(out)
+        assert out.exists()
+        assert "refs" in result or "version" in result

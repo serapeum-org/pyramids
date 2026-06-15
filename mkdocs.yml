@@ -122,6 +122,8 @@ nav:
           - Lazy NetCDF: tutorials/lazy/lazy-netcdf.md
           - Lazy collections (DatasetCollection): tutorials/lazy/lazy-collection.md
           - Lazy vector reads (FeatureCollection): tutorials/lazy/lazy-vector.md
+          - What is Zarr?: tutorials/lazy/zarr.md
+          - Kerchunk reference manifests: tutorials/lazy/kerchunk.md
           - Using pyramids with Dask (notebook): examples/dask/overview.ipynb
           - Dask quickstart — Dataset: examples/dask/dataset.ipynb
           - Dask quickstart — DatasetCollection: examples/dask/collection.ipynb
