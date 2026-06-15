@@ -2847,7 +2847,9 @@ class TestArrayToMapCoordinates:
             epsg=4326,
         )
         x, y = rot.array_to_map_coordinates([1], [2], center=False)
-        # x = 0 + 2*1 + 1*0.5 = 2.5 ; y = 0 + 2*0.5 + 1*(-1) = 0.0
+        # Column 2 and row 1 through the affine give x of 2.5 (two pixel
+        # widths plus one row-rotation half) and y of 0.0 (one column
+        # rotation minus one pixel height).
         assert abs(x[0] - 2.5) < 1e-9, f"rotated x should be 2.5, got {x[0]}"
         assert abs(y[0] - 0.0) < 1e-9, f"rotated y should be 0.0, got {y[0]}"
 
