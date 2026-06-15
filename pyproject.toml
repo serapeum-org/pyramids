@@ -50,9 +50,7 @@ lazy = [
     "fsspec>=2024.1.0",
     "s3fs>=2024.1.0",
     "flox>=0.9.0",
-    # h5py powers pyramids' native kerchunk manifest builder (it walks HDF5 chunk
-    # metadata directly); kerchunk is the fallback for HDF5 features the native
-    # builder does not cover. Both serve the lazy NetCDF/HDF5 Zarr-reference path.
+    # kerchunk + h5py for the NetCDF/HDF5 lazy (Zarr-reference) path.
     "kerchunk>=0.2.10",
     "h5py>=3.8.0",
 ]
@@ -312,13 +310,12 @@ zarr = ">=3"
 fsspec = ">=2024.1.0"
 s3fs = ">=2024.1.0"
 flox = ">=0.9.0"
-# h5py + kerchunk for the NetCDF/HDF5 lazy Zarr-reference path. HDF5-linking
+# kerchunk (+ h5py) for the NetCDF/HDF5 lazy Zarr-reference path. HDF5-linking
 # libs must come from conda-forge to share the one HDF5 binary libgdal-netcdf
 # links against; PyPI h5py wheels bundle their own copy, which DLL-shadows on
 # Windows ("DLL load failed while importing defs") once two HDF5 backends load
-# in-process. pyramids' native kerchunk builder walks HDF5 chunk metadata with
-# h5py directly (kerchunk is now only the fallback for unsupported features); the
-# lazy NetCDF read path itself is pure GDAL MDArray, no netCDF4/h5netcdf.
+# in-process. Only kerchunk needs h5py here (to walk HDF5 chunk metadata) — the
+# lazy NetCDF path itself is pure GDAL MDArray, no netCDF4/h5netcdf.
 kerchunk = ">=0.2.10"
 # h5py 3.16 moved to hdf5 2.x, but libgdal-netcdf still links hdf5 1.14.x.
 # Pin h5py to the last 1.14-compatible release so the whole env shares
