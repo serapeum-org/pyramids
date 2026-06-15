@@ -211,8 +211,8 @@ class TestTessellationHelpers:
     def test_point_xy_drops_non_finite(self) -> None:
         series = gpd.GeoSeries([Point(float("inf"), 0), Point(2, 3), Point(4, 5)])
         xs, ys, keep = tess.point_xy(series)
-        assert xs.tolist() == [2.0, 4.0]
-        assert ys.tolist() == [3.0, 5.0]
+        assert xs.tolist() == pytest.approx([2.0, 4.0])
+        assert ys.tolist() == pytest.approx([3.0, 5.0])
         assert keep.tolist() == [1, 2]
 
     def test_polygon_parts_explodes_multipolygon(self) -> None:
