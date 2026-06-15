@@ -214,8 +214,8 @@ class TestMetadataSemantics:
         crs = json.loads(refs["transverse_mercator/.zattrs"])
         assert crs["longitude_of_central_meridian"] == pytest.approx(-75.0)
 
-    def test_byte_range_url_is_absolute(self):
-        """Byte-range refs absolutise a local source so manifests are CWD-independent."""
+    def test_byte_range_url_is_absolute_and_posix(self):
+        """Byte-range refs use an absolute, forward-slash (portable) local path."""
         import os
 
         from pyramids.netcdf._kerchunk_native import build_single_manifest
@@ -223,6 +223,7 @@ class TestMetadataSemantics:
         refs = build_single_manifest(FIXTURE)["refs"]
         url = refs["values/0.0.0"][0]   # values is a byte-range ref on this fixture
         assert os.path.isabs(url), f"expected an absolute source path, got {url!r}"
+        assert "\\" not in url, f"path must use forward slashes, got {url!r}"
 
     def test_src_url_override_is_used_verbatim(self):
         """An explicit src_url is written into refs unchanged (e.g. a cloud URL)."""

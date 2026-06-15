@@ -428,9 +428,10 @@ def build_single_manifest(
         url = src_url
     elif src_local is not None:
         # Absolutise local paths so the manifest resolves regardless of the
-        # consumer's working directory (a relative path only resolves from the CWD
-        # the manifest was written in).
-        url = os.path.abspath(src_str)
+        # consumer's working directory, and use forward slashes (as_posix) so a
+        # Windows-written manifest carries a portable path rather than back-slashes
+        # that some fsspec/zarr consumers mishandle.
+        url = Path(src_str).resolve().as_posix()
     else:
         url = src_str
 
