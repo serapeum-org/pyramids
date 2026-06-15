@@ -2863,18 +2863,19 @@ class TestArrayToMapCoordinates:
         x, y = self._nonsquare().array_to_map_coordinates([], [])
         assert x == [] and y == [], f"empty input must give ([], []), got ({x}, {y})"
 
-    def test_array_to_map_accepts_generator(self):
-        """Generator (non-Sized) index inputs are accepted, same as lists.
+    def test_array_to_map_accepts_iterator(self):
+        """Non-Sized iterator index inputs are accepted, same as lists.
 
         Guards N1: the equal-length check materialises the inputs, so any finite
-        iterable works, not only ``len()``-able sequences.
+        iterable works (here single-pass ``list_iterator`` objects that have no
+        ``__len__``), not only ``len()``-able sequences.
         """
         ds = self._nonsquare()
-        x_gen, y_gen = ds.array_to_map_coordinates(
-            (r for r in [0, 1, 3]), (c for c in [0, 1, 2]), center=True
+        x_iter, y_iter = ds.array_to_map_coordinates(
+            iter([0, 1, 3]), iter([0, 1, 2]), center=True
         )
         x_list, y_list = ds.array_to_map_coordinates([0, 1, 3], [0, 1, 2], center=True)
-        assert x_gen == x_list and y_gen == y_list, "generator input must match list"
+        assert x_iter == x_list and y_iter == y_list, "iterator input must match list"
 
     def test_array_to_map_ndarray_input_returns_python_floats(self):
         """NumPy-array indices yield plain Python floats, same values as lists.
