@@ -2590,6 +2590,8 @@ class FeatureCollection(GeoDataFrame):
         """
         self._require_point_geometry("quadtree")
         self._require_column("quadtree", column)
+        if nmax < 1:
+            raise ValueError(f"quadtree: nmax must be >= 1, got {nmax}")
         xs, ys, keep = _tess.point_xy(self.geometry)
         if xs.size < 1:
             raise InvalidGeometryError("quadtree: need at least 1 point with finite coordinates, got 0")

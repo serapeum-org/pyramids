@@ -206,6 +206,11 @@ class TestQuadtree:
         with pytest.raises(ValueError, match="not found"):
             point_fc.quadtree(column="nope")
 
+    @pytest.mark.parametrize("nmax", [0, -1])
+    def test_nmax_below_one_raises(self, point_fc: FeatureCollection, nmax: int) -> None:
+        with pytest.raises(ValueError, match="nmax must be >= 1"):
+            point_fc.quadtree(nmax=nmax)
+
 
 class TestTessellationHelpers:
     def test_point_xy_drops_non_finite(self) -> None:
