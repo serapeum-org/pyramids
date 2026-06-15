@@ -7,6 +7,7 @@ returns :class:`dask.delayed.Delayed`.
 
 from __future__ import annotations
 
+import sys
 import warnings
 
 import numpy as np
@@ -170,6 +171,51 @@ class TestRoundtripEager:
             "alpha",
             "beta",
         ], f"band names not restored: {reloaded.band_names}"
+
+    @requires_zarr
+    @pytest.mark.xfail(
+        sys.platform.startswith("linux"),
+        reason=(
+            "Linux-only bug: a band-indexed read of a from_zarr-reconstructed "
+            "multi-band dataset returns an all-non-finite array (zarr 3.2.1 / "
+            "GDAL 3.12.4). read_array() of every band round-trips fine, but "
+            "read_array(band=0) — the array Dataset.plot feeds to cleopatra — is "
+            "all-NaN, so plotting raises 'array has no finite values'. Surfaced by "
+            "the docs zarr-basics / zarr-pyramid-preview notebooks on the CI "
+            "runner; passes on win-64 with the same package versions."
+        ),
+        strict=False,
+    )
+    def test_multiband_band_read_finite_after_from_zarr(self, tmp_path):
+        """A band-indexed read of a from_zarr multi-band store stays finite (plot input).
+
+        Test scenario:
+            Write a 2-band float32 raster (no-data ``-9999``) to Zarr, reopen it
+            with :meth:`Dataset.from_zarr`, then read band 0 — the exact array
+            :meth:`Dataset.plot` hands to cleopatra. The full-array read already
+            round-trips on every platform; this guards the per-band read, which
+            comes back all-non-finite on Linux and makes plotting fail.
+        """
+        arr = np.arange(2 * 32 * 48, dtype=np.float32).reshape(2, 32, 48)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 32.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        src = str(tmp_path / "mb_src.tif")
+        ds.to_file(src)
+        Dataset.read_file(src).to_zarr(str(tmp_path / "mb.zarr"))
+        rt = Dataset.from_zarr(str(tmp_path / "mb.zarr"))
+        # The full (all-band) read round-trips on every platform — establish that
+        # the data itself is intact before isolating the per-band read.
+        np.testing.assert_array_equal(np.asarray(rt.read_array()), arr)
+        band0 = np.asarray(rt.read_array(band=0))
+        assert np.isfinite(
+            band0
+        ).all(), "band-0 read from a from_zarr multi-band store is non-finite"
+        np.testing.assert_array_equal(band0, arr[0])
 
 
 class TestComputeFalseDefers:
