@@ -30,7 +30,7 @@ import os
 import warnings
 from numbers import Number
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 if TYPE_CHECKING:
     from pyramids.feature._lazy_collection import LazyFeatureCollection
@@ -43,11 +43,17 @@ from osgeo import gdal, ogr
 from shapely.geometry import Point, box
 
 from pyramids import _io as _pyramids_io
-from pyramids.base._errors import CRSError, FeatureError, GeometryWarning
+from pyramids.base._errors import (
+    CRSError,
+    FeatureError,
+    GeometryWarning,
+    InvalidGeometryError,
+)
 from pyramids.base._utils import Catalog, import_pyarrow, require_cleopatra
 from pyramids.base.remote import is_remote
 from pyramids.basemap.basemap import add_basemap
 from pyramids.feature import geometry as _geom
+from pyramids.feature import tessellation as _tess
 
 CATALOG = Catalog(raster_driver=False)
 
@@ -2429,3 +2435,184 @@ class FeatureCollection(GeoDataFrame):
         ]
         fc["center_point"] = cleaned
         return fc
+
+    def _require_point_geometry(self, op: str) -> None:
+        """Raise :class:`InvalidGeometryError` unless every geometry is a single ``Point``.
+
+        Args:
+            op: Name of the calling operation, used in the error message.
+
+        Raises:
+            InvalidGeometryError: If the collection holds any non-``Point`` geometry (or is empty).
+        """
+        geom_types = sorted(set(self.geom_type.dropna().unique()))
+        if geom_types != ["Point"]:
+            raise InvalidGeometryError(
+                f"{op}: requires all-Point geometries, got {geom_types or 'an empty collection'}"
+            )
+
+    def _require_column(self, op: str, column: str | None) -> None:
+        """Raise :class:`ValueError` if ``column`` is given but absent from the collection.
+
+        Args:
+            op: Name of the calling operation, used in the error message.
+            column: Column name to check, or ``None`` to skip the check.
+
+        Raises:
+            ValueError: If ``column`` is not ``None`` and not one of this collection's columns.
+        """
+        if column is not None and column not in self.columns:
+            raise ValueError(f"{op}: column {column!r} not found; available columns are {list(self.columns)}")
+
+    def voronoi(
+        self,
+        *,
+        values: str | None = None,
+        clip: FeatureCollection | None = None,
+    ) -> FeatureCollection:
+        """Voronoi (Thiessen) tessellation of a point ``FeatureCollection``.
+
+        Returns one polygon per distinct input point, ordered so cell *i* corresponds to the *i*-th distinct
+        point (``shapely.voronoi_polygons(ordered=True)``). Coincident (duplicate) points, and points that
+        produce an empty cell after clipping, are skipped. With ``clip`` each cell is intersected with the
+        boundary; with ``values`` the named column is copied onto each cell so the result can be rendered as a
+        choropleth.
+
+        Args:
+            values: Name of a column copied onto each cell (cell *i* ← point *i*), or ``None`` to carry no
+                attribute.
+            clip: A boundary ``FeatureCollection`` each cell is intersected with (reprojected to this
+                collection's CRS), or ``None`` to keep shapely's default bounded cells.
+
+        Returns:
+            FeatureCollection: One polygon per surviving cell, in this collection's CRS, carrying ``values``
+            when given.
+
+        Raises:
+            InvalidGeometryError: If the geometries are not all ``Point``, or there are fewer than two distinct
+                points with finite coordinates.
+            ValueError: If ``values`` names a column that is not in the collection.
+
+        Examples:
+            - Tessellate four points and count the cells:
+                ```python
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> fc = FeatureCollection(
+                ...     gpd.GeoDataFrame(
+                ...         {"v": [10, 20, 30, 40]},
+                ...         geometry=[Point(0, 0), Point(2, 0), Point(0, 2), Point(2, 2)],
+                ...         crs="EPSG:32618",
+                ...     )
+                ... )
+                >>> cells = fc.voronoi(values="v")
+                >>> len(cells)
+                4
+                >>> sorted(cells["v"].tolist())
+                [10, 20, 30, 40]
+
+                ```
+        """
+        self._require_point_geometry("voronoi")
+        self._require_column("voronoi", values)
+        xs, ys, keep = _tess.point_xy(self.geometry)
+        ux, uy, unique = _tess.dedupe_xy(xs, ys)
+        if ux.size < 2:
+            raise InvalidGeometryError(
+                f"voronoi: need at least 2 distinct points with finite coordinates to tessellate, got {ux.size}"
+            )
+        carried = self[values].to_numpy()[keep][unique] if values is not None else None
+        boundary = _tess.resolve_clip(clip, self.crs)
+        geometries: list = []
+        attributes: list = []
+        for i, cell in enumerate(_tess.voronoi_cells(ux, uy)):
+            bounded = cell if boundary is None else cell.intersection(boundary)
+            for part in _tess.polygon_parts(bounded):
+                geometries.append(part)
+                if carried is not None:
+                    attributes.append(carried[i])
+        data = {values: attributes} if values is not None else {}
+        result = FeatureCollection(gpd.GeoDataFrame(data, geometry=geometries, crs=self.crs))
+        return result
+
+    def quadtree(
+        self,
+        *,
+        column: str | None = None,
+        agg: str | Callable = "mean",
+        nmax: int = 100,
+        nmin: int = 0,
+        clip: FeatureCollection | None = None,
+    ) -> FeatureCollection:
+        """Adaptive quad-tree binning of a point ``FeatureCollection`` into rectangular cells.
+
+        Recursively splits the points' bounding box into quadrants until each cell holds ``<= nmax`` points,
+        then attaches a per-cell aggregate of ``column`` (or the point count when ``column`` is ``None``) to
+        each cell polygon.
+
+        Args:
+            column: Numeric column aggregated per cell, or ``None`` to attach the point count (density).
+            agg: Per-cell reducer — one of ``"mean"`` / ``"sum"`` / ``"median"`` / ``"min"`` / ``"max"`` /
+                ``"std"`` / ``"count"`` or a callable taking a 1-D array. Ignored when ``column`` is ``None``.
+                NaN values in ``column`` propagate to a NaN cell value when every point in a cell is NaN.
+            nmax: Maximum points in a cell before it is split (smaller → finer grid).
+            nmin: Cells with fewer than this many points are dropped.
+            clip: A boundary ``FeatureCollection`` each cell is intersected with (reprojected to this
+                collection's CRS), or ``None`` to keep the full rectangular cells.
+
+        Returns:
+            FeatureCollection: One polygon per kept cell, in this collection's CRS, with the aggregate in a
+            column named ``column`` (or ``"count"`` when ``column`` is ``None``).
+
+        Raises:
+            InvalidGeometryError: If the geometries are not all ``Point``, or there is no point with finite
+                coordinates.
+            ValueError: If ``column`` names a column that is not in the collection, if ``nmax`` is less than 1,
+                or if ``agg`` is neither a known reducer name nor a callable.
+
+        Examples:
+            - Bin four points to one point per cell and read the counts:
+                ```python
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> fc = FeatureCollection(
+                ...     gpd.GeoDataFrame(
+                ...         {"v": [10, 20, 30, 40]},
+                ...         geometry=[Point(0, 0), Point(2, 0), Point(0, 2), Point(2, 2)],
+                ...         crs="EPSG:32618",
+                ...     )
+                ... )
+                >>> cells = fc.quadtree(nmax=1)
+                >>> int(cells["count"].sum())
+                4
+
+                ```
+        """
+        self._require_point_geometry("quadtree")
+        self._require_column("quadtree", column)
+        if nmax < 1:
+            raise ValueError(f"quadtree: nmax must be >= 1, got {nmax}")
+        xs, ys, keep = _tess.point_xy(self.geometry)
+        if xs.size < 1:
+            raise InvalidGeometryError("quadtree: need at least 1 point with finite coordinates, got 0")
+        reducer = len if column is None else _tess.resolve_reducer(agg)
+        column_values = None if column is None else self[column].to_numpy(dtype=float)[keep]
+
+        def agg_fn(idx: np.ndarray) -> float:
+            return float(len(idx)) if column_values is None else float(reducer(column_values[idx]))
+
+        boundary = _tess.resolve_clip(clip, self.crs)
+        cells = _tess.quadtree_cells(xs, ys, agg_fn, nmax, nmin)
+        geometries: list = []
+        values_out: list = []
+        for xmin, ymin, xmax, ymax, value in cells:
+            rectangle = box(xmin, ymin, xmax, ymax)
+            bounded = rectangle if boundary is None else rectangle.intersection(boundary)
+            for part in _tess.polygon_parts(bounded):
+                geometries.append(part)
+                values_out.append(value)
+        name = column if column is not None else "count"
+        result = FeatureCollection(gpd.GeoDataFrame({name: values_out}, geometry=geometries, crs=self.crs))
+        return result

@@ -29,6 +29,8 @@ classDiagram
         +column
         +with_coordinates()
         +with_centroid()
+        +voronoi(values, clip)
+        +quadtree(column, agg, nmax, nmin, clip)
         +concat(other)
         +plot(column, basemap, **kwargs)
         +create_polygon(coords)
@@ -93,6 +95,8 @@ classDiagram
 | Wrap an existing `GeoDataFrame` | `FeatureCollection(gdf)` or `FeatureCollection.from_features(gdf)` |
 | Inspect layers / schema without reading | `FeatureCollection.list_layers`, `.schema` |
 | Attach per-vertex or centroid columns | `.with_coordinates()`, `.with_centroid()` |
+| Tessellate points into Voronoi/Thiessen cells | `.voronoi(values=…, clip=…)` |
+| Bin points into adaptive quad-tree cells with a per-cell aggregate | `.quadtree(column=…, agg=…, nmax=…)` |
 | Concatenate two FCs safely (CRS-checked) | `.concat(other)` |
 | Build raw geometries | `pyramids.feature.geometry.create_polygon` / `create_points` |
 | Reproject coordinate arrays | `pyramids.base.crs.reproject_coordinates` |
