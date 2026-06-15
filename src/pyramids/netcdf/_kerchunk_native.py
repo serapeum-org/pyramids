@@ -57,7 +57,14 @@ _H5_FLETCHER32 = 3
 
 
 def _require_h5py() -> Any:
-    """Lazy-import :mod:`h5py`, raising a clear error when it is missing."""
+    """Lazy-import :mod:`h5py`, raising a clear error when it is missing.
+
+    Returns:
+        The imported ``h5py`` module.
+
+    Raises:
+        ImportError: When h5py is not installed (points at the ``[lazy]`` extra).
+    """
     try:
         import h5py
     except ImportError as exc:
@@ -66,7 +73,40 @@ def _require_h5py() -> Any:
 
 
 def _to_jsonable(value: Any) -> Any:
-    """Convert an HDF5 attribute value into a JSON-serialisable Python value."""
+    """Convert an HDF5 attribute value into a JSON-serialisable Python value.
+
+    Bytes / numpy bytes decode to ``str``; 1-element arrays squeeze to a scalar
+    (GDAL writes scalar CF attributes as size-1 arrays); larger arrays become
+    lists; numpy scalar types coerce to their Python equivalents.
+
+    Args:
+        value: An attribute value as returned by ``h5py`` (bytes, numpy array,
+            numpy scalar, or a plain Python value).
+
+    Returns:
+        A JSON-serialisable value (``str`` / ``int`` / ``float`` / ``bool`` /
+        ``list`` / the input unchanged).
+
+    Examples:
+        - Decode bytes and squeeze a size-1 array to a scalar:
+            ```python
+            >>> from pyramids.netcdf._kerchunk_native import _to_jsonable
+            >>> import numpy as np
+            >>> _to_jsonable(b"metres")
+            'metres'
+            >>> _to_jsonable(np.array([1.5], dtype="f8"))
+            1.5
+
+            ```
+        - Keep a real vector as a list:
+            ```python
+            >>> from pyramids.netcdf._kerchunk_native import _to_jsonable
+            >>> import numpy as np
+            >>> _to_jsonable(np.array([1, 2, 3], dtype="i4"))
+            [1, 2, 3]
+
+            ```
+    """
     if isinstance(value, bytes):
         result = value.decode("utf-8", "replace")
     elif isinstance(value, np.ndarray):
@@ -90,7 +130,15 @@ def _to_jsonable(value: Any) -> Any:
 
 
 def _clean_attrs(attrs: Any) -> dict[str, Any]:
-    """Return user-facing attributes, dropping HDF5/NetCDF bookkeeping keys."""
+    """Return user-facing attributes, dropping HDF5/NetCDF bookkeeping keys.
+
+    Args:
+        attrs: An ``h5py`` attribute mapping (group or dataset ``.attrs``).
+
+    Returns:
+        A JSON-serialisable dict with the keys in :data:`_DROP_ATTRS` removed and
+        every value passed through :func:`_to_jsonable`.
+    """
     cleaned: dict[str, Any] = {}
     for key, value in attrs.items():
         if key in _DROP_ATTRS:
@@ -100,7 +148,25 @@ def _clean_attrs(attrs: Any) -> dict[str, Any]:
 
 
 def _basename(path: str) -> str:
-    """Last path component of an HDF5 object path (``/g/x`` -> ``x``)."""
+    """Return the last path component of an HDF5 object path.
+
+    Args:
+        path: An HDF5 object path such as ``/group/x``.
+
+    Returns:
+        The final component (``x`` for ``/group/x``).
+
+    Examples:
+        - A nested path keeps only its leaf:
+            ```python
+            >>> from pyramids.netcdf._kerchunk_native import _basename
+            >>> _basename("/group/x")
+            'x'
+            >>> _basename("y")
+            'y'
+
+            ```
+    """
     return path.rstrip("/").rsplit("/", 1)[-1]
 
 
@@ -204,7 +270,31 @@ def _compressor_and_filters(dataset: Any) -> tuple[dict | None, list[dict] | Non
 
 
 def _chunk_grid_key(chunk_offset: tuple[int, ...], chunks: list[int]) -> str:
-    """Zarr chunk key (``"0.1.0"``) from element-space chunk offsets."""
+    """Build a zarr chunk key from element-space chunk offsets.
+
+    Args:
+        chunk_offset: The chunk's start coordinate per axis, in elements.
+        chunks: The chunk shape per axis (empty for a scalar array).
+
+    Returns:
+        The dot-joined grid index (``"0.1.0"``), or ``"0"`` for a scalar.
+
+    Examples:
+        - A 3-D chunk offset divided by the chunk shape gives the grid key:
+            ```python
+            >>> from pyramids.netcdf._kerchunk_native import _chunk_grid_key
+            >>> _chunk_grid_key((0, 5, 0), [1, 5, 6])
+            '0.1.0'
+
+            ```
+        - A scalar (no chunks) is always key ``"0"``:
+            ```python
+            >>> from pyramids.netcdf._kerchunk_native import _chunk_grid_key
+            >>> _chunk_grid_key((), [])
+            '0'
+
+            ```
+    """
     if not chunks:
         key = "0"
     else:
@@ -380,17 +470,75 @@ def build_single_manifest(
 
 
 def _manifest_refs(manifest: dict[str, Any]) -> dict[str, Any]:
-    """Return the flat refs mapping from a v0 (flat) or v1 (nested) manifest."""
+    """Return the flat refs mapping from a v0 (flat) or v1 (nested) manifest.
+
+    Args:
+        manifest: A kerchunk manifest — either v1 (``{"version", "refs"}``) or the
+            older flat v0 form (the refs mapping itself).
+
+    Returns:
+        The refs mapping (``manifest["refs"]`` for v1, else ``manifest``).
+
+    Examples:
+        - A v1 manifest yields its ``refs`` mapping:
+            ```python
+            >>> from pyramids.netcdf._kerchunk_native import _manifest_refs
+            >>> _manifest_refs({"version": 1, "refs": {".zgroup": "{}"}})
+            {'.zgroup': '{}'}
+
+            ```
+        - A flat v0 mapping is returned unchanged:
+            ```python
+            >>> from pyramids.netcdf._kerchunk_native import _manifest_refs
+            >>> _manifest_refs({".zgroup": "{}"})
+            {'.zgroup': '{}'}
+
+            ```
+    """
     return manifest["refs"] if "refs" in manifest else manifest
 
 
 def _variable_names(refs: dict[str, Any]) -> list[str]:
-    """Names of the array variables in a refs mapping (those with a ``.zarray``)."""
+    """List the array-variable names in a refs mapping.
+
+    Args:
+        refs: A kerchunk refs mapping (zarr store keys to metadata / chunk refs).
+
+    Returns:
+        The names of variables that carry a ``.zarray`` (the array variables).
+
+    Examples:
+        - Only keys with a ``.zarray`` count as variables:
+            ```python
+            >>> from pyramids.netcdf._kerchunk_native import _variable_names
+            >>> _variable_names({"t/.zarray": "{}", "t/.zattrs": "{}", ".zgroup": "{}"})
+            ['t']
+
+            ```
+    """
     return [key[: -len("/.zarray")] for key in refs if key.endswith("/.zarray")]
 
 
 def _shift_chunk_key(key: str, axis: int, offset: int) -> str:
-    """Shift a zarr chunk key's grid index on ``axis`` by ``offset`` chunks."""
+    """Shift a zarr chunk key's grid index on one axis by a number of chunks.
+
+    Args:
+        key: A dot-separated zarr chunk key (e.g. ``"0.1.0"``).
+        axis: The axis whose grid index is shifted.
+        offset: The number of chunks to add to that axis's index.
+
+    Returns:
+        The chunk key with ``offset`` added to the ``axis`` component.
+
+    Examples:
+        - Shift the first axis of a 3-D chunk key by two chunks:
+            ```python
+            >>> from pyramids.netcdf._kerchunk_native import _shift_chunk_key
+            >>> _shift_chunk_key("0.1.0", 0, 2)
+            '2.1.0'
+
+            ```
+    """
     parts = key.split(".")
     parts[axis] = str(int(parts[axis]) + offset)
     return ".".join(parts)
@@ -401,7 +549,25 @@ def _concat_variable(
     per_file_refs: list[dict[str, Any]],
     axis: int,
 ) -> dict[str, Any]:
-    """Stack one variable across files along ``axis``; return its merged refs."""
+    """Stack one variable across files along ``axis``; return its merged refs.
+
+    Each file's chunk keys are renumbered on ``axis`` by the cumulative chunk
+    count of the prior files, and the ``shape`` on ``axis`` is summed. Metadata
+    and ``.zattrs`` are taken from the first file.
+
+    Args:
+        name: The variable name (ref-key prefix, e.g. ``"time"``).
+        per_file_refs: Per-file refs mappings, in concatenation order.
+        axis: The concat axis index within the variable's dimensions.
+
+    Returns:
+        The merged refs for this variable (``.zarray`` / ``.zattrs`` + shifted
+        chunk keys).
+
+    Raises:
+        ValueError: When the concat-axis chunk size differs across files, or a
+            non-final file's length is not a multiple of that chunk size.
+    """
     base = json.loads(per_file_refs[0][f"{name}/.zarray"])
     chunk_size = base["chunks"][axis]
     total = 0
