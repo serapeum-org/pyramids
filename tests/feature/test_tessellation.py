@@ -248,6 +248,22 @@ class TestTessellationHelpers:
         parts = tess.polygon_parts(collection)
         assert [p.geom_type for p in parts] == ["Polygon"]
 
+    def test_polygon_parts_flattens_nested_multipolygon(self) -> None:
+        nested = GeometryCollection(
+            [Point(5, 5), MultiPolygon([box(0, 0, 1, 1), box(2, 2, 3, 3)])]
+        )
+        parts = tess.polygon_parts(nested)
+        assert [p.geom_type for p in parts] == ["Polygon", "Polygon"]
+        assert sorted(p.area for p in parts) == pytest.approx([1.0, 1.0])
+
+    def test_dedupe_xy_keeps_first_occurrence(self) -> None:
+        xs = np.array([0.0, 2.0, 0.0, 2.0, 4.0])
+        ys = np.array([0.0, 0.0, 0.0, 0.0, 1.0])
+        ux, uy, keep = tess.dedupe_xy(xs, ys)
+        assert keep.tolist() == [0, 1, 4]
+        assert ux.tolist() == pytest.approx([0.0, 2.0, 4.0])
+        assert uy.tolist() == pytest.approx([0.0, 0.0, 1.0])
+
     def test_polygon_parts_none_and_empty(self) -> None:
         assert tess.polygon_parts(None) == []
         assert tess.polygon_parts(Polygon()) == []
