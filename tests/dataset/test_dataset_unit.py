@@ -2858,6 +2858,11 @@ class TestArrayToMapCoordinates:
         with pytest.raises(ValueError, match="same length"):
             self._nonsquare().array_to_map_coordinates([0, 1], [0])
 
+    def test_array_to_map_empty_input(self):
+        """Empty index inputs return a pair of empty lists, not an error."""
+        x, y = self._nonsquare().array_to_map_coordinates([], [])
+        assert x == [] and y == [], f"empty input must give ([], []), got ({x}, {y})"
+
     def test_array_to_map_accepts_generator(self):
         """Generator (non-Sized) index inputs are accepted, same as lists.
 
