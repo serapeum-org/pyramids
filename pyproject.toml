@@ -37,7 +37,7 @@ dependencies = [
     "pandas >=2.0.0",
     "pyproj >=3.7.0",
     "PyYAML >=6.0.0",
-    "Shapely >=2.0.0",
+    "Shapely >=2.1.0",
     "scipy >=1.10.0",
 ]
 
