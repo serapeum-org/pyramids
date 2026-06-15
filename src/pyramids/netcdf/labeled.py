@@ -136,6 +136,47 @@ class LabeledDataset:
         # empty CloudConfig is a no-op for local stores.
         self._cloud_config = cloud_config or CloudConfig()
 
+    @staticmethod
+    def _open_multidim_store(gdal_path: str, cloud: CloudConfig, source: str) -> gdal.Dataset:
+        """Open `gdal_path` as a multidim store under `cloud`, normalising errors.
+
+        Args:
+            gdal_path: The GDAL-ready path/URL (already `/vsi*`- and `ZARR:`-wrapped).
+            cloud: Cloud config applied for the open (S3 addressing / region / anon).
+            source: The original user-facing path, for error messages.
+
+        Returns:
+            gdal.Dataset: The open multidimensional dataset.
+
+        Raises:
+            ValueError: If GDAL cannot open the store (a Zarr v3 string-array
+                failure adds a hint pointing at the GDAL issue).
+        """
+        try:
+            with cloud:
+                ds = gdal.OpenEx(gdal_path, gdal.OF_MULTIDIM_RASTER)
+        except RuntimeError as exc:
+            # gdal.UseExceptions() raises (rather than returning None) for a
+            # missing / unrecognised store; normalise to a clear ValueError.
+            hint = ""
+            if "data_type" in str(exc):
+                # GDAL >= 3.13 fails the whole open when a Zarr v3 string array is
+                # present, so per-array degradation is not possible there.
+                hint = (
+                    " — this store has a Zarr v3 string array, which GDAL's Zarr "
+                    "driver cannot read (see "
+                    "https://github.com/OSGeo/gdal/issues/13782)."
+                )
+            raise ValueError(
+                f"GDAL could not open {source!r} as a multidimensional store: "
+                f"{exc}{hint}"
+            ) from exc
+        if ds is None:
+            raise ValueError(
+                f"GDAL could not open {source!r} as a multidimensional store."
+            )
+        return ds
+
     @classmethod
     def read_file(
         cls,
@@ -222,29 +263,7 @@ class LabeledDataset:
             aws_region=effective_region,
             aws_virtual_hosting=False if is_anon_s3 else None,
         )
-        try:
-            with cloud:
-                ds = gdal.OpenEx(gdal_path, gdal.OF_MULTIDIM_RASTER)
-        except RuntimeError as exc:
-            # gdal.UseExceptions() raises (rather than returning None) for a
-            # missing / unrecognised store; normalise to a clear ValueError.
-            hint = ""
-            if "data_type" in str(exc):
-                # GDAL >= 3.13 fails the whole open when a Zarr v3 string array is
-                # present, so per-array degradation is not possible there.
-                hint = (
-                    " — this store has a Zarr v3 string array, which GDAL's Zarr "
-                    "driver cannot read (see "
-                    "https://github.com/OSGeo/gdal/issues/13782)."
-                )
-            raise ValueError(
-                f"GDAL could not open {source!r} as a multidimensional store: "
-                f"{exc}{hint}"
-            ) from exc
-        if ds is None:
-            raise ValueError(
-                f"GDAL could not open {source!r} as a multidimensional store."
-            )
+        ds = cls._open_multidim_store(gdal_path, cloud, source)
         # Keep the S3 config live for the post-open group navigation + array
         # classification too. Those issue per-array `.zarray` metadata reads for a
         # remote store, which must use the same path-style/region addressing as
