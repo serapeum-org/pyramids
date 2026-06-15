@@ -306,3 +306,17 @@ class TestUnsupportedFeatures:
                              dtype=h5py.string_dtype())
         with pytest.raises(ValueError, match="vlen|object"):
             build_single_manifest(src)
+
+    def test_unopenable_source_raises_oserror(self, tmp_path):
+        """A non-HDF5 / unreadable source raises OSError (not ValueError).
+
+        `to_kerchunk` relies on catching this to fall back to the kerchunk
+        translator for sources the local-only native builder cannot open
+        (e.g. remote URLs).
+        """
+        from pyramids.netcdf._kerchunk_native import build_single_manifest
+
+        not_hdf5 = tmp_path / "plain.txt"
+        not_hdf5.write_text("this is not an HDF5 file")
+        with pytest.raises(OSError):
+            build_single_manifest(str(not_hdf5))

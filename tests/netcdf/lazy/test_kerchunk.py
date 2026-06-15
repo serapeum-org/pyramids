@@ -59,6 +59,24 @@ class TestToKerchunkSingleFile:
         written = json.loads(out.read_text())
         assert returned == written
 
+    @requires_kerchunk
+    def test_native_falls_back_when_source_unopenable(self, tmp_path):
+        """An unopenable source (h5py OSError) falls back to the kerchunk backend.
+
+        Guards #530 follow-up M1: the native builder is local-only, so a source it
+        cannot open must route to the kerchunk translator rather than crash.
+        """
+        from pyramids.netcdf._kerchunk import to_kerchunk
+
+        not_hdf5 = tmp_path / "plain.txt"
+        not_hdf5.write_text("this is not an HDF5 file")
+        # native build raises OSError -> we expect the fallback warning; the
+        # kerchunk translator then also fails on the non-HDF5 file, so the call
+        # ultimately raises -- but the warning proves the fallback path was taken.
+        with pytest.warns(UserWarning, match="falling back to the kerchunk"):
+            with pytest.raises(Exception):
+                to_kerchunk(str(not_hdf5), tmp_path / "refs.json", backend="native")
+
 
 class TestCombineKerchunk:
     """Combine multiple file manifests into one."""

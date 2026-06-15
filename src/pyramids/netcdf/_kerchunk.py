@@ -203,7 +203,10 @@ def to_kerchunk(
                 inline_threshold=inline_threshold,
                 vlen_encode=vlen_encode,
             )
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
+            # ValueError: unsupported HDF5 feature. OSError: h5py could not open the
+            # source — typically a remote URL (s3://, /vsicurl/...) the local-only
+            # native builder cannot read, but kerchunk's translator can via fsspec.
             warnings.warn(
                 f"native kerchunk builder could not handle {src_str!r} "
                 f"({exc}); falling back to the kerchunk translator.",
@@ -325,7 +328,10 @@ def combine_kerchunk(
                 for path in src_paths
             ]
             combined = combine_manifests(per_file, concat_dim=concat_dims[0])
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
+            # ValueError: >1 concat dim or unsupported feature. OSError: h5py could
+            # not open a source (e.g. a remote URL the local-only native builder
+            # cannot read) — kerchunk's translator handles those via fsspec.
             warnings.warn(
                 f"native kerchunk combine could not handle these inputs ({exc}); "
                 "falling back to the kerchunk translator.",
