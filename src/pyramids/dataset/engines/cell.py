@@ -17,6 +17,7 @@ from hpc.indexing import get_indices2, locate_values
 from pandas import DataFrame
 
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.transform import GeoTransform
 from pyramids.feature import FeatureCollection, create_points, create_polygon
 
 
@@ -434,17 +435,24 @@ class Cell(_Engine):
               ([0.1, 0.2, 0.3], [-0.05, -0.15, -0.25])
 
               ```
+
+        Notes:
+            The conversion is affine-exact: it applies the full geotransform
+            (per-axis pixel sizes and the rotation terms), so it is correct on
+            non-square and rotated grids rather than assuming square pixels.
         """
-        top_left_x, top_left_y = self._ds.top_left_corner
-        cell_size = self._ds.cell_size
-        if center:
-            top_left_x += cell_size / 2
-            top_left_y -= cell_size / 2
-
-        x_coord_fn = lambda x: top_left_x + x * cell_size
-        y_coord_fn = lambda y: top_left_y - y * cell_size
-
-        x_coords = list(map(x_coord_fn, column_index))
-        y_coords = list(map(y_coord_fn, rows_index))
+        # Apply the full affine geotransform per point so the y axis uses the
+        # pixel height (geotransform[5]) and the rotation terms are honoured,
+        # instead of reusing the pixel width for both axes (issue #505). The
+        # ``center`` half-pixel shift becomes a +0.5 offset on (col, row),
+        # which the transform maps through the same affine.
+        transform = GeoTransform(*self._ds.geotransform)
+        offset = 0.5 if center else 0.0
+        x_coords: list[Number] = []
+        y_coords: list[Number] = []
+        for row, col in zip(rows_index, column_index):
+            x, y = transform * (col + offset, row + offset)
+            x_coords.append(x)
+            y_coords.append(y)
 
         return x_coords, y_coords

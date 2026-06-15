@@ -234,7 +234,7 @@ class RasterBase(ABC):
         exact affine :attr:`transform`, so non-square pixels and rotated
         grids are handled; scalar input returns scalars, sequence input
         returns lists. (For point-table workflows use the cell engine's
-        :meth:`array_to_map_coordinates`, which assumes square pixels.)
+        :meth:`array_to_map_coordinates`, which is also affine-exact.)
 
         Args:
             rows: Row index (or indices) of the cell(s).
@@ -312,8 +312,10 @@ class RasterBase(ABC):
         inverse affine :attr:`transform`, so non-square pixels and rotated
         grids are handled; scalar input returns scalar ints, sequence input
         returns index arrays. (For point-table workflows use the cell
-        engine's :meth:`map_to_array_coordinates`, which assumes square
-        pixels.)
+        engine's :meth:`map_to_array_coordinates`, which handles non-square
+        pixels via the per-axis coordinate arrays but matches the nearest
+        cell rather than inverting the affine, so it does not resolve
+        rotated grids.)
 
         Args:
             x: X (longitude/easting) coordinate(s).

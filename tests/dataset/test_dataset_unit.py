@@ -2761,6 +2761,27 @@ class TestMapToArrayCoordinates:
         with pytest.raises(ValueError, match="x, and y"):
             single_band_dataset.map_to_array_coordinates(df)
 
+    def test_map_to_array_nonsquare_roundtrip(self):
+        """On a non-square grid the cell centres round-trip back to their indices.
+
+        ``map_to_array_coordinates`` matches against the per-axis coordinate
+        arrays (not the pixel width), so it already resolves the correct cell
+        on a non-square grid. This guards that it stays the inverse of the
+        fixed ``array_to_map_coordinates`` (issue #505).
+        """
+        ds = Dataset.create_from_array(
+            np.ones((4, 3), dtype="float32"),
+            geo=(10.0, 2.0, 0.0, 8.0, 0.0, -0.5),
+            epsg=4326,
+        )
+        rows, cols = [0, 1, 3], [0, 1, 2]
+        x, y = ds.array_to_map_coordinates(rows, cols, center=True)
+        df = pd.DataFrame({"x": x, "y": y})
+        indices = ds.map_to_array_coordinates(df)
+        assert indices.tolist() == [[0, 0], [1, 1], [3, 2]], (
+            f"cell centres must map back to their (row, col), got {indices.tolist()}"
+        )
+
 
 class TestArrayToMapCoordinates:
     """Tests for the array_to_map_coordinates method."""
@@ -2785,6 +2806,62 @@ class TestArrayToMapCoordinates:
             center=False,
         )
         assert abs(x[0] - 0.0) < 1e-6, "Corner x should be 0.0"
+
+    @staticmethod
+    def _nonsquare():
+        """Grid with 2.0-wide, 0.5-tall pixels anchored at (10, 8)."""
+        return Dataset.create_from_array(
+            np.ones((4, 3), dtype="float32"),
+            geo=(10.0, 2.0, 0.0, 8.0, 0.0, -0.5),
+            epsg=4326,
+        )
+
+    def test_array_to_map_nonsquare_center(self):
+        """The y axis uses the pixel height, not the width, on non-square grids.
+
+        Regression for #505: cell (row=1, col=2) centre is x=15.0, y=7.25
+        (8 - 1*0.5 - 0.25); the old code returned y=5.0 by reusing the 2.0
+        pixel width for the y axis.
+        """
+        x, y = self._nonsquare().array_to_map_coordinates([1], [2], center=True)
+        assert abs(x[0] - 15.0) < 1e-9, f"x should be 15.0, got {x[0]}"
+        assert abs(y[0] - 7.25) < 1e-9, f"y should be 7.25 (height-based), got {y[0]}"
+
+    def test_array_to_map_nonsquare_corner(self):
+        """Corner coordinates also use the per-axis pixel sizes."""
+        x, y = self._nonsquare().array_to_map_coordinates([1], [2], center=False)
+        assert abs(x[0] - 14.0) < 1e-9, f"corner x should be 14.0, got {x[0]}"
+        assert abs(y[0] - 7.5) < 1e-9, f"corner y should be 7.5, got {y[0]}"
+
+    def test_array_to_map_nonsquare_vector(self):
+        """Vector inputs are converted element-wise with the per-axis sizes."""
+        x, y = self._nonsquare().array_to_map_coordinates([0, 1, 3], [0, 1, 2])
+        assert x == [10.0, 12.0, 14.0], f"x corners wrong: {x}"
+        assert y == [8.0, 7.5, 6.5], f"y corners must step by 0.5, got {y}"
+
+    def test_array_to_map_rotated(self):
+        """The rotation terms are honoured (not dropped as before)."""
+        rot = Dataset.create_from_array(
+            np.ones((4, 4), dtype="float32"),
+            geo=(0.0, 1.0, 0.5, 0.0, 0.5, -1.0),
+            epsg=4326,
+        )
+        x, y = rot.array_to_map_coordinates([1], [2], center=False)
+        # x = 0 + 2*1 + 1*0.5 = 2.5 ; y = 0 + 2*0.5 + 1*(-1) = 0.0
+        assert abs(x[0] - 2.5) < 1e-9, f"rotated x should be 2.5, got {x[0]}"
+        assert abs(y[0] - 0.0) < 1e-9, f"rotated y should be 0.0, got {y[0]}"
+
+    def test_array_to_map_square_unchanged(self):
+        """Square north-up grids match the historical width-based formula."""
+        sq = Dataset.create_from_array(
+            np.ones((10, 10), dtype="float32"),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+        )
+        x, y = sq.array_to_map_coordinates([1, 3, 5], [2, 4, 6])
+        assert x == pytest.approx([0.1, 0.2, 0.3]), f"square x changed: {x}"
+        assert y == pytest.approx([-0.05, -0.15, -0.25]), f"square y changed: {y}"
 
 
 class TestOverlay:
