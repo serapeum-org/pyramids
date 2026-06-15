@@ -1,0 +1,102 @@
+{
+    "type": "FeatureCollection",
+    "name": "coello-gauges",
+    "crs": {
+        "type": "name",
+        "properties": {
+            "name": "urn:ogc:def:crs:EPSG::32618"
+        }
+    },
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {
+                "id": 1,
+                "x": 454795.6728,
+                "y": 503143.3264
+            },
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    454795.6728,
+                    503143.3264
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "id": 2,
+                "x": 443847.5736,
+                "y": 481850.7151
+            },
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    443847.5736,
+                    481850.7151
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "id": 3,
+                "x": 454044.6935,
+                "y": 481189.4256
+            },
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    454044.6935,
+                    481189.4256
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "id": 4,
+                "x": 464533.7067,
+                "y": 502683.6482
+            },
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    464533.7067,
+                    502683.6482
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "id": 5,
+                "x": 463231.1242,
+                "y": 486656.3455
+            },
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    463231.1242,
+                    486656.3455
+                ]
+            }
+        },
+        {
+            "type": "Feature",
+            "properties": {
+                "id": 6,
+                "x": 487292.5152,
+                "y": 478045.572
+            },
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    487292.5152,
+                    478045.572
+                ]
+            }
+        }
+    ]
+}
