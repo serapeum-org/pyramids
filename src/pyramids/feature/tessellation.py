@@ -263,6 +263,54 @@ def resolve_reducer(agg: Any) -> Callable[..., Any]:
     return reducer
 
 
+def _emit_cell(
+    out: list,
+    bounds: tuple[float, float, float, float],
+    idx: np.ndarray,
+    agg_fn: Callable[[np.ndarray], float],
+    nmin: int,
+) -> None:
+    """Append a ``(xmin, ymin, xmax, ymax, value)`` leaf cell to ``out`` when it holds ``>= nmin`` points.
+
+    Args:
+        out: The accumulator list the cell is appended to.
+        bounds: The cell's ``(xmin, ymin, xmax, ymax)`` extent.
+        idx: Index array of the points in the cell.
+        agg_fn: Callable mapping ``idx`` to the cell's scalar value.
+        nmin: Minimum points required to keep the cell.
+    """
+    if len(idx) >= nmin:
+        out.append((*bounds, float(agg_fn(idx))))
+
+
+def _split_quads(
+    bounds: tuple[float, float, float, float],
+    xs: np.ndarray,
+    ys: np.ndarray,
+    idx: np.ndarray,
+) -> list[tuple[float, float, float, float, np.ndarray]]:
+    """Split a cell into its four quadrants, partitioning ``idx`` by the cell midpoint.
+
+    Args:
+        bounds: The parent cell's ``(xmin, ymin, xmax, ymax)`` extent.
+        xs: All point x-coordinates.
+        ys: All point y-coordinates, aligned with ``xs``.
+        idx: Index array of the points in the parent cell.
+
+    Returns:
+        list[tuple]: Four ``(xmin, ymin, xmax, ymax, idx)`` quadrants (some may hold an empty ``idx``).
+    """
+    xmin, ymin, xmax, ymax = bounds
+    xmid, ymid = 0.5 * (xmin + xmax), 0.5 * (ymin + ymax)
+    cx, cy = xs[idx], ys[idx]
+    return [
+        (xmin, ymin, xmid, ymid, idx[(cx <= xmid) & (cy <= ymid)]),
+        (xmid, ymin, xmax, ymid, idx[(cx > xmid) & (cy <= ymid)]),
+        (xmin, ymid, xmid, ymax, idx[(cx <= xmid) & (cy > ymid)]),
+        (xmid, ymid, xmax, ymax, idx[(cx > xmid) & (cy > ymid)]),
+    ]
+
+
 def quadtree_cells(
     xs: np.ndarray,
     ys: np.ndarray,
@@ -328,22 +376,14 @@ def quadtree_cells(
         n = len(idx)
         if n == 0:
             continue
+        bounds = (xmin, ymin, xmax, ymax)
         if n <= nmax or depth >= max_depth:
-            if n >= nmin:
-                out.append((xmin, ymin, xmax, ymax, float(agg_fn(idx))))
+            _emit_cell(out, bounds, idx, agg_fn, nmin)
             continue
-        xmid, ymid = 0.5 * (xmin + xmax), 0.5 * (ymin + ymax)
-        cx, cy = xs[idx], ys[idx]
-        quads = [
-            (xmin, ymin, xmid, ymid, idx[(cx <= xmid) & (cy <= ymid)]),
-            (xmid, ymin, xmax, ymid, idx[(cx > xmid) & (cy <= ymid)]),
-            (xmin, ymid, xmid, ymax, idx[(cx <= xmid) & (cy > ymid)]),
-            (xmid, ymid, xmax, ymax, idx[(cx > xmid) & (cy > ymid)]),
-        ]
+        quads = _split_quads(bounds, xs, ys, idx)
         nonempty = [q for q in quads if len(q[4]) > 0]
         if len(nonempty) == 1 and len(nonempty[0][4]) == n:  # no progress (coincident points)
-            if n >= nmin:
-                out.append((xmin, ymin, xmax, ymax, float(agg_fn(idx))))
+            _emit_cell(out, bounds, idx, agg_fn, nmin)
             continue
         for qx0, qy0, qx1, qy1, qidx in quads:
             stack.append((qx0, qy0, qx1, qy1, qidx, depth + 1))
