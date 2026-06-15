@@ -401,22 +401,30 @@ class Cell(_Engine):
 
         Args:
             rows_index (List[Number] | np.ndarray):
-                The row indices of the cells in the raster array.
+                The row indices of the cells in the raster array. Any finite
+                iterable of indices is accepted (list, tuple, ndarray, generator).
             column_index (List[Number] | np.ndarray):
-                The column indices of the cells in the raster array.
+                The column indices of the cells in the raster array. Any finite
+                iterable of indices is accepted (list, tuple, ndarray, generator).
             center (bool):
                 If True, the coordinates will be the center of the cell. Default is False.
 
         Returns:
             Tuple[List[Number], List[Number]]:
-                A tuple of two lists: the x coordinates and the y coordinates of the cells.
+                A tuple of two equal-length lists, the x coordinates and the y
+                coordinates of the cells. The elements are plain Python floats
+                regardless of whether the inputs were lists or NumPy arrays.
+
+        Raises:
+            ValueError: ``rows_index`` and ``column_index`` have different
+                lengths (the indices are paired element-wise).
 
         Examples:
             - Create `Dataset` consisting of 1 band, 10 rows, 10 columns, at the point lon/lat (0, 0):
 
               ```python
               >>> import numpy as np
-              >>> import pandas as pd
+              >>> from pyramids.dataset import Dataset
               >>> arr = np.random.randint(1, 3, size=(10, 10))
               >>> top_left_corner = (0, 0)
               >>> cell_size = 0.05
@@ -434,17 +442,44 @@ class Cell(_Engine):
               ([0.1, 0.2, 0.3], [-0.05, -0.15, -0.25])
 
               ```
+
+        Notes:
+            The conversion is affine-exact: it applies the full geotransform
+            (per-axis pixel sizes and the rotation terms), so it is correct on
+            non-square and rotated grids rather than assuming square pixels.
+
+        See Also:
+            - :meth:`map_to_array_coordinates`: The inverse direction
+              (map coordinates to the nearest array indices).
+            - :meth:`pyramids.dataset.abstract_dataset.RasterBase.xy`: The
+              scalar/array affine companion used by the rasterio-style API.
         """
-        top_left_x, top_left_y = self._ds.top_left_corner
-        cell_size = self._ds.cell_size
-        if center:
-            top_left_x += cell_size / 2
-            top_left_y -= cell_size / 2
-
-        x_coord_fn = lambda x: top_left_x + x * cell_size
-        y_coord_fn = lambda y: top_left_y - y * cell_size
-
-        x_coords = list(map(x_coord_fn, column_index))
-        y_coords = list(map(y_coord_fn, rows_index))
+        # Materialise to 1-D float arrays first. Going through ``list`` accepts
+        # any finite iterable of indices (lists, tuples, ndarrays, generators)
+        # and gives one source of truth for the equal-length check.
+        cols = np.asarray(list(column_index), dtype=float)
+        rows = np.asarray(list(rows_index), dtype=float)
+        if cols.shape != rows.shape:
+            raise ValueError(
+                "rows_index and column_index must have the same length, got "
+                f"{rows.size} and {cols.size}."
+            )
+        # Apply the full affine geotransform (vectorised over the points) so the
+        # y axis uses the pixel height (geotransform[5]) and the rotation terms
+        # are honoured, instead of reusing the pixel width for both axes (issue
+        # #505). The ``center`` half-pixel shift is a +0.5 offset on (col, row).
+        (
+            x_origin,
+            pixel_width,
+            row_rotation,
+            y_origin,
+            column_rotation,
+            pixel_height,
+        ) = self._ds.geotransform
+        offset = 0.5 if center else 0.0
+        cols = cols + offset
+        rows = rows + offset
+        x_coords = (x_origin + cols * pixel_width + rows * row_rotation).tolist()
+        y_coords = (y_origin + cols * column_rotation + rows * pixel_height).tolist()
 
         return x_coords, y_coords
