@@ -17,6 +17,7 @@ round-trip tests need xarray. Each is gated independently.
 from __future__ import annotations
 
 import json
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -291,6 +292,31 @@ class TestCombine:
         per_file = [build_single_manifest(good), build_single_manifest(extra)]
         with pytest.raises(ValueError, match="variable sets"):
             combine_manifests(per_file, concat_dim="time")
+
+
+class TestFilterMapping:
+    """HDF5 filter pipeline → zarr (compressor, filters) mapping."""
+
+    def test_shuffle_after_deflate_rejected(self):
+        """An unsupported shuffle-after-deflate order raises (not silent wrong data).
+
+        h5py's high-level API only writes shuffle-before-deflate, so the reversed
+        order is exercised with a faked filter pipeline.
+        """
+        from pyramids.netcdf._kerchunk_native import _compressor_and_filters
+
+        dataset = Mock()
+        dataset.name = "/v"
+        dataset.dtype = np.dtype("f4")
+        dcpl = dataset.id.get_create_plist.return_value
+        dcpl.get_nfilters.return_value = 2
+        # index 0 = deflate (id 1), index 1 = shuffle (id 2) — the reversed order
+        dcpl.get_filter.side_effect = [
+            (1, 0, (4,), b"deflate"),
+            (2, 0, (), b"shuffle"),
+        ]
+        with pytest.raises(ValueError, match="shuffle after deflate"):
+            _compressor_and_filters(dataset)
 
 
 class TestUnsupportedFeatures:

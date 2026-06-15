@@ -167,6 +167,12 @@ def _compressor_and_filters(dataset: Any) -> tuple[dict | None, list[dict] | Non
     Supports deflate (-> zlib compressor) and shuffle (-> shuffle filter), and
     silently drops the fletcher32 checksum (zarr has no equivalent; the data
     remains readable). Any other filter id is unsupported.
+
+    zarr decodes the byte-compressor first, then reverses ``filters`` — so the
+    mapping is only correct when shuffle is applied *before* deflate in the HDF5
+    pipeline (which GDAL's netCDF driver always does). A shuffle that appears
+    after deflate would decode wrong, so that ordering is rejected rather than
+    silently mis-decoded.
     """
     dcpl = dataset.id.get_create_plist()
     compressor: dict | None = None
@@ -177,6 +183,12 @@ def _compressor_and_filters(dataset: Any) -> tuple[dict | None, list[dict] | Non
             level = cd_values[0] if cd_values else 4
             compressor = {"id": "zlib", "level": int(level)}
         elif filter_id == _H5_SHUFFLE:
+            if compressor is not None:
+                raise ValueError(
+                    f"Dataset {dataset.name!r} applies shuffle after deflate; the "
+                    "native builder only supports shuffle-before-deflate. Use the "
+                    "kerchunk backend for this file."
+                )
             elementsize = dataset.dtype.itemsize
             filters.append({"id": "shuffle", "elementsize": int(elementsize)})
         elif filter_id == _H5_FLETCHER32:
