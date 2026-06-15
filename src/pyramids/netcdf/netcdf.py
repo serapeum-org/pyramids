@@ -6,6 +6,7 @@ netcdf contains python functions to handle netcdf data. gdal class: https://gdal
 
 from __future__ import annotations
 
+import gc
 import itertools
 import math
 import os
@@ -495,6 +496,50 @@ class NetCDF(Dataset):
         self._variable_attrs: dict[str, Any] = {}
         self._scale: float | None = None
         self._offset: float | None = None
+
+    def close(self) -> None:
+        """Release every GDAL handle this container holds, then close the base.
+
+        A NetCDF container keeps more open GDAL references than the single
+        ``self._raster`` that :meth:`Dataset.close` drops:
+
+        * cached per-variable child objects (:attr:`_cached_variables`), each
+          with its own ``_raster`` and SWIG MDArray / root-group references;
+        * the ``_gdal_md_arr_ref`` / ``_gdal_rg_ref`` views that keep an
+          extracted variable's C++ backing alive;
+        * ``_gdal_classic_src_ref`` (the source kept alive behind a
+          geostationary VRT);
+        * the ``_parent_nc`` back-reference forming a refcount cycle with the
+          parent's variable cache.
+
+        This override closes the cached children and drops every extra reference
+        before deferring to :meth:`Dataset.close`. It then runs a single
+        :func:`gc.collect`: a spatial op (``crop`` / ``to_crs`` / ``reduce``)
+        extracts variables whose ``AsClassicDataset`` view, MDArray and root
+        group form a **reference cycle among the GDAL SWIG wrappers** that plain
+        refcounting cannot reclaim. Without the collect those wrappers keep the
+        source file open, so on Windows a later ``os.replace`` / ``os.remove``
+        fails with ``PermissionError`` until the caller forces a GC themselves
+        (#564). Doing it here makes ``close()`` honour its contract — the file is
+        unlocked immediately. Safe to call more than once.
+        """
+        cached = self._cached_variables
+        if cached is not None:
+            # Only the materialised children (bypass the lazy dict's loading
+            # ``values()`` so closing does not force every variable open).
+            for child in dict.values(cached):
+                if isinstance(child, Dataset):
+                    child.close()
+            self._cached_variables = None
+        self._gdal_md_arr_ref = None
+        self._gdal_rg_ref = None
+        self._gdal_classic_src_ref = None
+        self._parent_nc = None
+        self._cached_meta_data = None
+        super().close()
+        # Break the GDAL SWIG view/MDArray/root-group cycle left by variable
+        # extraction so the source file is released now, not on the next GC.
+        gc.collect()
 
     def _update_inplace(  # type: ignore[override]
         self, src: gdal.Dataset, access: str | None = None
