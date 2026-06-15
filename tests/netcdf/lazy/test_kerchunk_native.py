@@ -406,3 +406,163 @@ class TestUnsupportedFeatures:
         not_hdf5.write_text("this is not an HDF5 file")
         with pytest.raises(OSError):
             build_single_manifest(str(not_hdf5))
+
+
+def _mini_time_manifest(time_len: int, chunk: int) -> dict:
+    """A minimal v1 manifest with a single 1-D ``time`` variable."""
+    zarray = {
+        "shape": [time_len],
+        "chunks": [chunk],
+        "dtype": "<f8",
+        "fill_value": None,
+        "order": "C",
+        "filters": None,
+        "dimension_separator": ".",
+        "compressor": None,
+        "zarr_format": 2,
+    }
+    refs = {
+        ".zgroup": json.dumps({"zarr_format": 2}),
+        "time/.zarray": json.dumps(zarray),
+        "time/.zattrs": json.dumps({"_ARRAY_DIMENSIONS": ["time"]}),
+    }
+    for index in range(-(-time_len // chunk)):  # one inlined chunk per grid cell
+        refs[f"time/{index}"] = "base64:AAAAAAAAAAA="
+    return {"version": 1, "refs": refs}
+
+
+class TestToJsonable:
+    """`_to_jsonable` attribute coercion via emitted `.zattrs`."""
+
+    def test_vector_and_bool_and_bytes_attrs(self, tmp_path):
+        """Multi-element vectors stay lists; bytes decode; bools/ints coerce."""
+        from pyramids.netcdf._kerchunk_native import build_single_manifest
+
+        src = str(tmp_path / "attrs.h5")
+        with h5py.File(src, "w") as f:
+            d = f.create_dataset("v", data=np.zeros(3, dtype="f4"))
+            d.attrs["bounds"] = np.array([1.0, 2.0, 3.0], dtype="f8")  # vector -> list
+            d.attrs["flag"] = np.bool_(True)
+            d.attrs["count"] = np.int32(7)
+            d.attrs["label"] = b"hello"
+        attrs = json.loads(build_single_manifest(src)["refs"]["v/.zattrs"])
+        assert attrs["bounds"] == pytest.approx([1.0, 2.0, 3.0]), "vector kept as list"
+        assert attrs["flag"] is True, f"bool not coerced: {attrs['flag']!r}"
+        assert attrs["count"] == 7, f"int not coerced: {attrs['count']!r}"
+        assert attrs["label"] == "hello", f"bytes not decoded: {attrs['label']!r}"
+
+
+class TestEncodeFillValue:
+    """`_encode_fill_value` across dtypes and special values."""
+
+    def test_float_int_nan_inf_bytes_and_absent(self, tmp_path):
+        """_FillValue encodes per dtype; NaN/Inf become strings; absent -> None."""
+        from pyramids.netcdf._kerchunk_native import build_single_manifest
+
+        src = str(tmp_path / "fills.h5")
+        with h5py.File(src, "w") as f:
+            nan_v = f.create_dataset("nan_v", data=np.zeros(2, dtype="f4"))
+            nan_v.attrs["_FillValue"] = np.array([np.nan], dtype="f4")
+            inf_v = f.create_dataset("inf_v", data=np.zeros(2, dtype="f8"))
+            inf_v.attrs["_FillValue"] = np.array([-np.inf], dtype="f8")
+            int_v = f.create_dataset("int_v", data=np.zeros(2, dtype="i4"))
+            int_v.attrs["_FillValue"] = np.array([-1], dtype="i4")
+            str_v = f.create_dataset("str_v", data=np.zeros(2, dtype="S2"))
+            str_v.attrs["_FillValue"] = np.bytes_(b"ab")
+            f.create_dataset("plain_v", data=np.zeros(2, dtype="f4"))
+        refs = build_single_manifest(src)["refs"]
+        import base64 as _b64
+
+        assert json.loads(refs["nan_v/.zarray"])["fill_value"] == "NaN"
+        assert json.loads(refs["inf_v/.zarray"])["fill_value"] == "-Infinity"
+        assert json.loads(refs["int_v/.zarray"])["fill_value"] == -1
+        encoded = json.loads(refs["str_v/.zarray"])["fill_value"]
+        assert _b64.b64decode(encoded) == b"ab", f"S-fill base64 wrong: {encoded!r}"
+        assert json.loads(refs["plain_v/.zarray"])["fill_value"] is None
+
+
+class TestFilterMappingExtra:
+    """Filter-pipeline edge cases not reachable from the parity fixtures."""
+
+    def test_fletcher32_is_dropped(self, tmp_path):
+        """A fletcher32 checksum filter is silently dropped (data still readable)."""
+        from pyramids.netcdf._kerchunk_native import build_single_manifest
+
+        src = str(tmp_path / "fletcher.h5")
+        with h5py.File(src, "w") as f:
+            f.create_dataset("v", data=np.ones((2, 4), dtype="f4"),
+                             chunks=(1, 4), fletcher32=True)
+        zarray = json.loads(build_single_manifest(src)["refs"]["v/.zarray"])
+        assert zarray["filters"] is None, f"fletcher32 should be dropped: {zarray}"
+        assert zarray["compressor"] is None, "no compressor expected"
+
+    def test_unknown_filter_id_raises(self):
+        """An unrecognised HDF5 filter id raises a clear ValueError."""
+        from pyramids.netcdf._kerchunk_native import _compressor_and_filters
+
+        dataset = Mock()
+        dataset.name = "/v"
+        dataset.dtype = np.dtype("f4")
+        dcpl = dataset.id.get_create_plist.return_value
+        dcpl.get_nfilters.return_value = 1
+        dcpl.get_filter.side_effect = [(99999, 0, (), b"weird")]
+        with pytest.raises(ValueError, match="unsupported HDF5 filter id"):
+            _compressor_and_filters(dataset)
+
+
+class TestEmitChunkRefs:
+    """Direct `_emit_chunk_refs` behaviour for the non-inlining branch."""
+
+    def test_remote_handle_none_never_inlines(self):
+        """With src_handle=None (remote), small chunks are byte-range, not inlined."""
+        from pyramids.netcdf._kerchunk_native import _emit_chunk_refs
+
+        refs: dict = {}
+        with h5py.File(FIXTURE, "r") as f:
+            bands = f["bands"]  # tiny: would inline if a local handle were given
+            _emit_chunk_refs(
+                refs,
+                dataset=bands,
+                name="bands",
+                src_url="s3://bucket/cube.nc",
+                src_handle=None,
+                chunks=[3],
+                inline_threshold=500,
+            )
+        assert isinstance(refs["bands/0"], list), "remote chunk must be byte-range"
+        assert refs["bands/0"][0] == "s3://bucket/cube.nc"
+
+
+class TestCombineEdgeCases:
+    """`combine_manifests` validation and flat-manifest handling."""
+
+    def test_empty_input_raises(self):
+        """An empty manifest list raises ValueError."""
+        from pyramids.netcdf._kerchunk_native import combine_manifests
+
+        with pytest.raises(ValueError, match="at least one manifest"):
+            combine_manifests([], concat_dim="time")
+
+    def test_flat_v0_manifest_passthrough(self):
+        """A single flat (v0) manifest with no 'refs' key passes through."""
+        from pyramids.netcdf._kerchunk_native import combine_manifests
+
+        flat = {".zgroup": json.dumps({"zarr_format": 2})}
+        out = combine_manifests([flat], concat_dim="time")
+        assert out["refs"][".zgroup"] == flat[".zgroup"]
+
+    def test_inconsistent_concat_chunk_size_raises(self):
+        """Differing chunk size on the concat axis cannot form a uniform array."""
+        from pyramids.netcdf._kerchunk_native import combine_manifests
+
+        per_file = [_mini_time_manifest(2, 2), _mini_time_manifest(2, 1)]
+        with pytest.raises(ValueError, match="inconsistent chunk size"):
+            combine_manifests(per_file, concat_dim="time")
+
+    def test_non_final_partial_chunk_raises(self):
+        """A non-final file whose length is not a chunk multiple is rejected."""
+        from pyramids.netcdf._kerchunk_native import combine_manifests
+
+        per_file = [_mini_time_manifest(3, 2), _mini_time_manifest(2, 2)]
+        with pytest.raises(ValueError, match="multiple of its chunk size"):
+            combine_manifests(per_file, concat_dim="time")
