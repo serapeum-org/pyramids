@@ -337,8 +337,16 @@ def build_single_manifest(
     """
     h5py = _require_h5py()
     src_str = str(src_path)
-    url = src_url if src_url is not None else src_str
     src_local = src_str if os.path.exists(src_str) else None
+    if src_url is not None:
+        url = src_url
+    elif src_local is not None:
+        # Absolutise local paths so the manifest resolves regardless of the
+        # consumer's working directory (a relative path only resolves from the CWD
+        # the manifest was written in).
+        url = os.path.abspath(src_str)
+    else:
+        url = src_str
 
     refs: dict[str, Any] = {}
     with h5py.File(src_str, "r") as h5file:

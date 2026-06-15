@@ -115,7 +115,13 @@ class TestParityWithKerchunk:
         for key in kref:
             if key.endswith((".zarray", ".zattrs", ".zgroup")):
                 continue
-            assert nref[key] == kref[key], f"chunk ref {key} must match kerchunk"
+            native, kerch = nref[key], kref[key]
+            if isinstance(kerch, list):
+                # byte-range ref [url, offset, size]: native absolutises the url, so
+                # compare offset + size (the bytes that matter), not the path string
+                assert native[1:] == kerch[1:], f"chunk {key} offset/size must match"
+            else:
+                assert native == kerch, f"inlined chunk {key} must match kerchunk"
 
     @requires_kerchunk
     def test_zarray_codec_chain_matches(self, tmp_path):
@@ -207,6 +213,23 @@ class TestMetadataSemantics:
         refs = build_single_manifest(FIXTURE)["refs"]
         crs = json.loads(refs["transverse_mercator/.zattrs"])
         assert crs["longitude_of_central_meridian"] == pytest.approx(-75.0)
+
+    def test_byte_range_url_is_absolute(self):
+        """Byte-range refs absolutise a local source so manifests are CWD-independent."""
+        import os
+
+        from pyramids.netcdf._kerchunk_native import build_single_manifest
+
+        refs = build_single_manifest(FIXTURE)["refs"]
+        url = refs["values/0.0.0"][0]   # values is a byte-range ref on this fixture
+        assert os.path.isabs(url), f"expected an absolute source path, got {url!r}"
+
+    def test_src_url_override_is_used_verbatim(self):
+        """An explicit src_url is written into refs unchanged (e.g. a cloud URL)."""
+        from pyramids.netcdf._kerchunk_native import build_single_manifest
+
+        refs = build_single_manifest(FIXTURE, src_url="s3://bucket/cube.nc")["refs"]
+        assert refs["values/0.0.0"][0] == "s3://bucket/cube.nc"
 
     def test_bookkeeping_attrs_stripped(self):
         """HDF5/NetCDF bookkeeping keys never leak into `.zattrs`."""
