@@ -92,6 +92,12 @@ docs = [
     "jupyter-contrib-nbextensions  >=0.7.0",
     "mkdocs-panzoom-plugin",
     "notebook<7.0",
+    # Required by the mkdocs-deploy action's notebook-execution preflight
+    # (`import jupyter, nbconvert, ipykernel`) and to register the python3 kernel
+    # that `jupyter nbconvert --execute` uses in CI.
+    "jupyter",
+    "nbconvert",
+    "ipykernel",
 ]
 
 
@@ -263,7 +269,10 @@ default = {features = ["gdal", "viz"], solve-group = "default" }
 dev = { features = ["gdal", "viz", "dev", "xarray", "lazy", "stac", "parquet"], solve-group = "default" }
 lazy = { features = ["gdal", "viz", "dev", "lazy"], solve-group = "default" }
 parquet = { features = ["gdal", "viz", "dev", "xarray", "lazy", "parquet"], solve-group = "default" }
-docs = { features = ["gdal", "docs"], solve-group = "docs" }
+# `docs` also carries the notebook runtime features (viz/cleopatra, xarray, lazy, stac,
+# parquet) so the mkdocs-deploy action can execute the example notebooks in CI and render
+# real outputs. See .github/workflows/github-pages-mkdocs.yml (notebooks-path).
+docs = { features = ["gdal", "docs", "viz", "xarray", "lazy", "stac", "parquet"], solve-group = "docs" }
 # py3XX envs include `lazy` so the `xarray-tests` step has the xarray data stack
 # (zarr / dask / s3fs / fsspec) its interop tests need, run with real deps. `parquet`
 # (pyarrow) is left out on purpose: it would un-skip the core OGR-Parquet tests, which
