@@ -77,14 +77,16 @@ def point_xy(geometry: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 def polygon_parts(geometry: Any) -> list:
     """Return the non-empty ``Polygon`` parts of a shapely geometry.
 
-    Explodes ``Multi*`` / ``GeometryCollection`` inputs and skips empty or non-polygonal parts, so the result
-    only ever contains usable ``Polygon`` geometries.
+    Recursively explodes ``Multi*`` / ``GeometryCollection`` inputs (including a ``MultiPolygon`` nested inside a
+    ``GeometryCollection``, which a clip intersection can produce) and skips empty or non-polygonal parts, so
+    the result only ever contains usable ``Polygon`` geometries.
 
     Args:
         geometry: Any shapely geometry, or ``None``.
 
     Returns:
-        list: The ``Polygon`` parts; ``[]`` for ``None``, an empty geometry, or non-polygonal input.
+        list: The ``Polygon`` parts in input order; ``[]`` for ``None``, an empty geometry, or non-polygonal
+        input.
 
     Examples:
         - A single polygon is returned as a one-element list:
@@ -107,8 +109,15 @@ def polygon_parts(geometry: Any) -> list:
     """
     parts: list = []
     if geometry is not None and not geometry.is_empty:
-        candidates = list(geometry.geoms) if hasattr(geometry, "geoms") else [geometry]
-        parts = [g for g in candidates if g.geom_type == "Polygon" and not g.is_empty]
+        stack = [geometry]
+        while stack:
+            geom = stack.pop()
+            if geom.is_empty:
+                continue
+            if geom.geom_type == "Polygon":
+                parts.append(geom)
+            elif hasattr(geom, "geoms"):
+                stack.extend(reversed(list(geom.geoms)))
     return parts
 
 
