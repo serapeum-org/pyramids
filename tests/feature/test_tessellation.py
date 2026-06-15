@@ -9,6 +9,7 @@ from shapely.geometry import (
     MultiPolygon,
     Point,
     Polygon,
+    box,
 )
 
 from pyramids.base._errors import InvalidGeometryError
@@ -123,6 +124,20 @@ class TestVoronoi:
     def test_missing_values_column_raises(self, point_fc: FeatureCollection) -> None:
         with pytest.raises(ValueError, match="not found"):
             point_fc.voronoi(values="nope")
+
+    def test_clip_splitting_cell_duplicates_value(self) -> None:
+        corners = FeatureCollection(
+            gpd.GeoDataFrame(
+                {"v": [100, 200, 300, 400]},
+                geometry=[Point(0, 0), Point(10, 0), Point(0, 10), Point(10, 10)],
+                crs="EPSG:32618",
+            )
+        )
+        two_boxes = MultiPolygon([box(1, 1, 2, 2), box(3, 3, 4, 4)])
+        clip = FeatureCollection(gpd.GeoDataFrame(geometry=[two_boxes], crs="EPSG:32618"))
+        cells = corners.voronoi(values="v", clip=clip)
+        assert len(cells) == 2, "the two clip boxes both fall in one Voronoi cell, splitting it in two"
+        assert cells["v"].tolist() == [100, 100], "both split parts carry the source point's value"
 
 
 class TestQuadtree:
