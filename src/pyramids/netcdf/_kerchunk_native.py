@@ -55,6 +55,12 @@ _H5_DEFLATE = 1
 _H5_SHUFFLE = 2
 _H5_FLETCHER32 = 3
 
+# zarr-v2 store metadata key suffixes.
+_ZARR_ARRAY = ".zarray"
+_ZARR_ATTRS = ".zattrs"
+_ZARR_GROUP = ".zgroup"
+_META_SUFFIXES = (_ZARR_ARRAY, _ZARR_ATTRS, _ZARR_GROUP)
+
 
 def _require_h5py() -> Any:
     """Lazy-import :mod:`h5py`, raising a clear error when it is missing.
@@ -195,6 +201,26 @@ def _array_dimensions(h5file: Any, dataset: Any) -> list[str]:
     return dims
 
 
+def _encode_float_fill(value: Any) -> Any:
+    """Encode a float/complex fill value, mapping NaN/Inf to zarr's JSON strings.
+
+    Args:
+        value: A scalar float (or complex) fill value.
+
+    Returns:
+        The float itself, or ``"NaN"`` / ``"Infinity"`` / ``"-Infinity"`` for the
+        non-finite cases (zarr v2's JSON representation of those).
+    """
+    as_float = float(value)
+    if math.isnan(as_float):
+        encoded: Any = "NaN"
+    elif math.isinf(as_float):
+        encoded = "Infinity" if as_float > 0 else "-Infinity"
+    else:
+        encoded = as_float
+    return encoded
+
+
 def _encode_fill_value(dataset: Any) -> Any:
     """Encode ``_FillValue`` for zarr v2 metadata, or ``None`` when absent.
 
@@ -211,13 +237,7 @@ def _encode_fill_value(dataset: Any) -> Any:
         value = value.reshape(()).item() if value.ndim else value.item()
     kind = dataset.dtype.kind
     if kind in ("f", "c"):
-        as_float = float(value)
-        if math.isnan(as_float):
-            encoded: Any = "NaN"
-        elif math.isinf(as_float):
-            encoded = "Infinity" if as_float > 0 else "-Infinity"
-        else:
-            encoded = as_float
+        encoded = _encode_float_fill(value)
     elif kind in ("i", "u"):
         encoded = int(value)
     elif kind in ("S", "V", "U"):
@@ -382,8 +402,8 @@ def _emit_dataset(
     zattrs = _clean_attrs(dataset.attrs)
     zattrs["_ARRAY_DIMENSIONS"] = _array_dimensions(h5file, dataset)
 
-    refs[f"{name}/.zarray"] = json.dumps(zarray, allow_nan=False)
-    refs[f"{name}/.zattrs"] = json.dumps(zattrs, allow_nan=False)
+    refs[f"{name}/{_ZARR_ARRAY}"] = json.dumps(zarray, allow_nan=False)
+    refs[f"{name}/{_ZARR_ATTRS}"] = json.dumps(zattrs, allow_nan=False)
     _emit_chunk_refs(
         refs,
         dataset=dataset,
@@ -441,8 +461,8 @@ def build_single_manifest(
     src_handle = open(src_local, "rb") if src_local is not None else None
     try:
         with h5py.File(src_str, "r") as h5file:
-            refs[".zgroup"] = json.dumps({"zarr_format": 2})
-            refs[".zattrs"] = json.dumps(_clean_attrs(h5file.attrs), allow_nan=False)
+            refs[_ZARR_GROUP] = json.dumps({"zarr_format": 2})
+            refs[_ZARR_ATTRS] = json.dumps(_clean_attrs(h5file.attrs), allow_nan=False)
 
             def visit(name: str, obj: Any) -> None:
                 if isinstance(obj, h5py.Dataset):
@@ -457,8 +477,8 @@ def build_single_manifest(
                         vlen_encode=vlen_encode,
                     )
                 else:
-                    refs[f"{name}/.zgroup"] = json.dumps({"zarr_format": 2})
-                    refs[f"{name}/.zattrs"] = json.dumps(
+                    refs[f"{name}/{_ZARR_GROUP}"] = json.dumps({"zarr_format": 2})
+                    refs[f"{name}/{_ZARR_ATTRS}"] = json.dumps(
                         _clean_attrs(obj.attrs), allow_nan=False
                     )
 
@@ -517,7 +537,7 @@ def _variable_names(refs: dict[str, Any]) -> list[str]:
 
             ```
     """
-    return [key[: -len("/.zarray")] for key in refs if key.endswith("/.zarray")]
+    return [key[: -len("/" + _ZARR_ARRAY)] for key in refs if key.endswith("/" + _ZARR_ARRAY)]
 
 
 def _shift_chunk_key(key: str, axis: int, offset: int) -> str:
@@ -569,13 +589,13 @@ def _concat_variable(
         ValueError: When the concat-axis chunk size differs across files, or a
             non-final file's length is not a multiple of that chunk size.
     """
-    base = json.loads(per_file_refs[0][f"{name}/.zarray"])
+    base = json.loads(per_file_refs[0][f"{name}/{_ZARR_ARRAY}"])
     chunk_size = base["chunks"][axis]
     total = 0
     prior_chunks = 0
     merged: dict[str, Any] = {}
     for index, refs in enumerate(per_file_refs):
-        zarray = json.loads(refs[f"{name}/.zarray"])
+        zarray = json.loads(refs[f"{name}/{_ZARR_ARRAY}"])
         length = zarray["shape"][axis]
         if zarray["chunks"][axis] != chunk_size:
             raise ValueError(
@@ -593,7 +613,7 @@ def _concat_variable(
         prefix = f"{name}/"
         for key, value in refs.items():
             if not key.startswith(prefix) or key.endswith(
-                (".zarray", ".zattrs", ".zgroup")
+                _META_SUFFIXES
             ):
                 continue
             chunk_key = key[len(prefix) :]
@@ -601,8 +621,8 @@ def _concat_variable(
         total += length
         prior_chunks += -(-length // chunk_size)  # ceil division
     base["shape"][axis] = total
-    merged[f"{name}/.zarray"] = json.dumps(base)
-    merged[f"{name}/.zattrs"] = per_file_refs[0][f"{name}/.zattrs"]
+    merged[f"{name}/{_ZARR_ARRAY}"] = json.dumps(base)
+    merged[f"{name}/{_ZARR_ATTRS}"] = per_file_refs[0][f"{name}/{_ZARR_ATTRS}"]
     return merged
 
 
@@ -617,14 +637,14 @@ def _identical_variable(
     be merged silently.
     """
     prefix = f"{name}/"
-    base = json.loads(per_file_refs[0][f"{name}/.zarray"])
+    base = json.loads(per_file_refs[0][f"{name}/{_ZARR_ARRAY}"])
     base_chunks = {
         key: value
         for key, value in per_file_refs[0].items()
-        if key.startswith(prefix) and not key.endswith((".zarray", ".zattrs", ".zgroup"))
+        if key.startswith(prefix) and not key.endswith(_META_SUFFIXES)
     }
     for refs in per_file_refs[1:]:
-        other = json.loads(refs[f"{name}/.zarray"])
+        other = json.loads(refs[f"{name}/{_ZARR_ARRAY}"])
         if (other["shape"], other["dtype"], other["chunks"]) != (
             base["shape"],
             base["dtype"],
@@ -690,13 +710,17 @@ def combine_manifests(
     combined: dict[str, Any] = {}
     variables = set(_variable_names(refs_list[0]))
     for key, value in refs_list[0].items():
-        if "/" not in key:  # root .zgroup / .zattrs
+        is_root_meta = "/" not in key
+        is_subgroup_meta = (
+            key.endswith((_ZARR_GROUP, _ZARR_ATTRS))
+            and key.rsplit("/", 1)[0] not in variables
+        )
+        # carry root metadata and sub-group metadata (not owned by a variable)
+        if is_root_meta or is_subgroup_meta:
             combined[key] = value
-        elif key.endswith((".zgroup", ".zattrs")) and key.rsplit("/", 1)[0] not in variables:
-            combined[key] = value  # sub-group metadata (not owned by a variable)
 
     for name in _variable_names(refs_list[0]):
-        dims = json.loads(refs_list[0][f"{name}/.zattrs"]).get("_ARRAY_DIMENSIONS", [])
+        dims = json.loads(refs_list[0][f"{name}/{_ZARR_ATTRS}"]).get("_ARRAY_DIMENSIONS", [])
         if concat_dim in dims:
             combined.update(_concat_variable(name, refs_list, dims.index(concat_dim)))
         else:
