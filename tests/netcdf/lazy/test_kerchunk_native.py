@@ -299,6 +299,25 @@ class TestCombine:
         finally:
             ds.close()
 
+    def test_subgroup_metadata_preserved(self, tmp_path):
+        """Combine keeps sub-group `.zgroup`/`.zattrs`, not just root + variables."""
+        from pyramids.netcdf._kerchunk_native import (
+            build_single_manifest,
+            combine_manifests,
+        )
+
+        paths = [str(tmp_path / f"f{i}.h5") for i in range(2)]
+        for index, path in enumerate(paths):
+            _make_time_file(path, index)
+            with h5py.File(path, "r+") as f:
+                grp = f.create_group("meta")
+                grp.attrs["source"] = "unit-test"
+        per_file = [build_single_manifest(p) for p in paths]
+        combined = combine_manifests(per_file, concat_dim="time")["refs"]
+
+        assert "meta/.zattrs" in combined, "sub-group attrs must survive combine"
+        assert json.loads(combined["meta/.zattrs"])["source"] == "unit-test"
+
     def test_misaligned_identical_dim_warns(self, tmp_path):
         """A non-concat coord that differs across files warns (not silently merged)."""
         from pyramids.netcdf._kerchunk_native import (

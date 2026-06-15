@@ -521,9 +521,12 @@ def combine_manifests(
         )
 
     combined: dict[str, Any] = {}
+    variables = set(_variable_names(refs_list[0]))
     for key, value in refs_list[0].items():
-        if "/" not in key:  # group-level .zgroup / .zattrs
+        if "/" not in key:  # root .zgroup / .zattrs
             combined[key] = value
+        elif key.endswith((".zgroup", ".zattrs")) and key.rsplit("/", 1)[0] not in variables:
+            combined[key] = value  # sub-group metadata (not owned by a variable)
 
     for name in _variable_names(refs_list[0]):
         dims = json.loads(refs_list[0][f"{name}/.zattrs"]).get("_ARRAY_DIMENSIONS", [])
