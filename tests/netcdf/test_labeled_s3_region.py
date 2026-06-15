@@ -494,3 +494,34 @@ class TestS3PathStyleAddressing:
         assert (
             child._cloud_config is sentinel
         ), "child view must reuse the parent's cloud config, not a fresh empty one"
+
+    def test_classification_runs_under_path_style_config(self, monkeypatch):
+        """Post-open array classification reads run under the path-style config (#560).
+
+        Test scenario:
+            The open is mocked to succeed; ``_readable_arrays`` (the first
+            classification probe) captures the active ``AWS_VIRTUAL_HOSTING`` —
+            it must be ``FALSE``, proving the metadata-probe path is wrapped, not
+            only the open.
+        """
+        from unittest.mock import Mock
+
+        captured: dict = {}
+
+        def fake_readable_arrays(grp):
+            captured["vhost"] = gdal.GetConfigOption("AWS_VIRTUAL_HOSTING")
+            raise RuntimeError("stop after capturing config during classification")
+
+        monkeypatch.setattr(labeled_mod, "resolve_s3_region", lambda bucket: "us-east-1")
+        monkeypatch.setattr(
+            labeled_mod.LabeledDataset,
+            "_readable_arrays",
+            staticmethod(fake_readable_arrays),
+        )
+        fake_ds = Mock()
+        fake_ds.GetRootGroup.return_value = Mock()
+        monkeypatch.setattr(labeled_mod.gdal, "OpenEx", lambda path, flags: fake_ds)
+
+        with pytest.raises(Exception):
+            LabeledDataset.read_file("s3://bucket/store.zarr", anon=True)
+        assert captured.get("vhost") == "FALSE", "classification must use path-style"

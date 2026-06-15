@@ -119,6 +119,9 @@ class LabeledDataset:
             cloud_config: GDAL cloud config (S3 addressing / region / anon)
                 re-applied around every chunk read so remote data GETs use the
                 same settings as the open. Defaults to an empty (no-op) config.
+                Shared by child views (from ``select``/etc.) and re-entered per
+                read; reads are sequential — concurrent reads from sibling views
+                are not supported (they would race on this one context manager).
         """
         self._ds = ds
         self._group = group
@@ -242,27 +245,35 @@ class LabeledDataset:
             raise ValueError(
                 f"GDAL could not open {source!r} as a multidimensional store."
             )
-        root = ds.GetRootGroup()
-        try:
-            grp = root.OpenGroup(group) if group else root
-        except RuntimeError as exc:
-            # Under gdal.UseExceptions() a missing group raises rather than
-            # returning None. Release the handle (Windows keeps the file open
-            # until the gdal.Dataset is dropped) and re-raise as a clear
-            # ValueError, chaining the GDAL cause so a non-missing-group failure
-            # (e.g. a corrupt store) stays legible.
-            ds = None
-            raise ValueError(f"group {group!r} not found in {source!r}: {exc}") from exc
-        if grp is None:
-            ds = None
-            raise ValueError(f"group {group!r} not found in {source!r}.")
-        # Close the handle on any error while classifying the group (e.g. an
-        # unknown name in `variables`) so it isn't left locked on Windows.
-        try:
-            return cls._from_group(ds, grp, variables, cloud_config=cloud)
-        except Exception:
-            ds = None
-            raise
+        # Keep the S3 config live for the post-open group navigation + array
+        # classification too. Those issue per-array `.zarray` metadata reads for a
+        # remote store, which must use the same path-style/region addressing as
+        # the open — otherwise a non-consolidated anonymous bucket could 301 on a
+        # metadata probe and silently drop the array as "unreadable" (#560).
+        with cloud:
+            root = ds.GetRootGroup()
+            try:
+                grp = root.OpenGroup(group) if group else root
+            except RuntimeError as exc:
+                # Under gdal.UseExceptions() a missing group raises rather than
+                # returning None. Release the handle (Windows keeps the file open
+                # until the gdal.Dataset is dropped) and re-raise as a clear
+                # ValueError, chaining the GDAL cause so a non-missing-group
+                # failure (e.g. a corrupt store) stays legible.
+                ds = None
+                raise ValueError(
+                    f"group {group!r} not found in {source!r}: {exc}"
+                ) from exc
+            if grp is None:
+                ds = None
+                raise ValueError(f"group {group!r} not found in {source!r}.")
+            # Close the handle on any error while classifying the group (e.g. an
+            # unknown name in `variables`) so it isn't left locked on Windows.
+            try:
+                return cls._from_group(ds, grp, variables, cloud_config=cloud)
+            except Exception:
+                ds = None
+                raise
 
     @staticmethod
     def _readable_arrays(grp: gdal.Group) -> tuple[list[str], list[str]]:
@@ -708,10 +719,11 @@ class LabeledDataset:
                 >>> sub = store.select_time("2010-06-01", "2010-08-31")  # doctest: +SKIP
         """
         self._require_coord(time_dim)
-        arr = self._group.OpenMDArray(time_dim)
-        unit = arr.GetUnit()
-        cal_attr = _get_attr(arr, "calendar")
-        calendar = cal_attr.ReadAsString() if cal_attr is not None else "standard"
+        with self._cloud_config:
+            arr = self._group.OpenMDArray(time_dim)
+            unit = arr.GetUnit()
+            cal_attr = _get_attr(arr, "calendar")
+            calendar = cal_attr.ReadAsString() if cal_attr is not None else "standard"
         current = self._coord_current(time_dim, time_dim).astype("float64")
         mask = np.ones(current.shape, dtype=bool)
         if start is not None:
@@ -803,13 +815,14 @@ class LabeledDataset:
     def _estimated_nbytes(self) -> int:
         """Estimate the bytes a full materialisation would read (no read done)."""
         total = 0
-        for name in self._var_names:
-            arr = self._group.OpenMDArray(name)
-            itemsize = arr.GetDataType().GetSize() or 4
-            cells = 1
-            for dim in self._array_dims(name):
-                cells *= self._selected_size(dim)
-            total += cells * itemsize
+        with self._cloud_config:
+            for name in self._var_names:
+                arr = self._group.OpenMDArray(name)
+                itemsize = arr.GetDataType().GetSize() or 4
+                cells = 1
+                for dim in self._array_dims(name):
+                    cells *= self._selected_size(dim)
+                total += cells * itemsize
         return total
 
     def to_dataframe(self) -> pd.DataFrame:
