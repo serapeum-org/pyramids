@@ -2853,6 +2853,11 @@ class TestArrayToMapCoordinates:
         assert abs(x[0] - 2.5) < 1e-9, f"rotated x should be 2.5, got {x[0]}"
         assert abs(y[0] - 0.0) < 1e-9, f"rotated y should be 0.0, got {y[0]}"
 
+    def test_array_to_map_length_mismatch_raises(self):
+        """Mismatched-length index inputs raise instead of pairing silently."""
+        with pytest.raises(ValueError, match="same length"):
+            self._nonsquare().array_to_map_coordinates([0, 1], [0])
+
     def test_array_to_map_square_unchanged(self):
         """Square north-up grids match the historical width-based formula."""
         sq = Dataset.create_from_array(

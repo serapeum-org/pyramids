@@ -17,7 +17,6 @@ from hpc.indexing import get_indices2, locate_values
 from pandas import DataFrame
 
 from pyramids.dataset.engines._base import _Engine
-from pyramids.dataset.transform import GeoTransform
 from pyramids.feature import FeatureCollection, create_points, create_polygon
 
 
@@ -410,7 +409,13 @@ class Cell(_Engine):
 
         Returns:
             Tuple[List[Number], List[Number]]:
-                A tuple of two lists: the x coordinates and the y coordinates of the cells.
+                A tuple of two equal-length lists, the x coordinates and the y
+                coordinates of the cells. The elements are plain Python floats
+                regardless of whether the inputs were lists or NumPy arrays.
+
+        Raises:
+            ValueError: ``rows_index`` and ``column_index`` have different
+                lengths (the indices are paired element-wise).
 
         Examples:
             - Create `Dataset` consisting of 1 band, 10 rows, 10 columns, at the point lon/lat (0, 0):
@@ -441,18 +446,27 @@ class Cell(_Engine):
             (per-axis pixel sizes and the rotation terms), so it is correct on
             non-square and rotated grids rather than assuming square pixels.
         """
-        # Apply the full affine geotransform per point so the y axis uses the
-        # pixel height (geotransform[5]) and the rotation terms are honoured,
-        # instead of reusing the pixel width for both axes (issue #505). The
-        # ``center`` half-pixel shift becomes a +0.5 offset on (col, row),
-        # which the transform maps through the same affine.
-        transform = GeoTransform(*self._ds.geotransform)
+        if len(rows_index) != len(column_index):
+            raise ValueError(
+                "rows_index and column_index must have the same length, got "
+                f"{len(rows_index)} and {len(column_index)}."
+            )
+        # Apply the full affine geotransform (vectorised over the points) so the
+        # y axis uses the pixel height (geotransform[5]) and the rotation terms
+        # are honoured, instead of reusing the pixel width for both axes (issue
+        # #505). The ``center`` half-pixel shift is a +0.5 offset on (col, row).
+        (
+            x_origin,
+            pixel_width,
+            row_rotation,
+            y_origin,
+            column_rotation,
+            pixel_height,
+        ) = self._ds.geotransform
         offset = 0.5 if center else 0.0
-        x_coords: list[Number] = []
-        y_coords: list[Number] = []
-        for row, col in zip(rows_index, column_index):
-            x, y = transform * (col + offset, row + offset)
-            x_coords.append(x)
-            y_coords.append(y)
+        cols = np.asarray(column_index, dtype=float) + offset
+        rows = np.asarray(rows_index, dtype=float) + offset
+        x_coords = (x_origin + cols * pixel_width + rows * row_rotation).tolist()
+        y_coords = (y_origin + cols * column_rotation + rows * pixel_height).tolist()
 
         return x_coords, y_coords
