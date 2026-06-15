@@ -401,9 +401,11 @@ class Cell(_Engine):
 
         Args:
             rows_index (List[Number] | np.ndarray):
-                The row indices of the cells in the raster array.
+                The row indices of the cells in the raster array. Any finite
+                iterable of indices is accepted (list, tuple, ndarray, generator).
             column_index (List[Number] | np.ndarray):
-                The column indices of the cells in the raster array.
+                The column indices of the cells in the raster array. Any finite
+                iterable of indices is accepted (list, tuple, ndarray, generator).
             center (bool):
                 If True, the coordinates will be the center of the cell. Default is False.
 
@@ -452,10 +454,15 @@ class Cell(_Engine):
             - :meth:`pyramids.dataset.abstract_dataset.RasterBase.xy`: The
               scalar/array affine companion used by the rasterio-style API.
         """
-        if len(rows_index) != len(column_index):
+        # Materialise to 1-D float arrays first. Going through ``list`` accepts
+        # any finite iterable of indices (lists, tuples, ndarrays, generators)
+        # and gives one source of truth for the equal-length check.
+        cols = np.asarray(list(column_index), dtype=float)
+        rows = np.asarray(list(rows_index), dtype=float)
+        if cols.shape != rows.shape:
             raise ValueError(
                 "rows_index and column_index must have the same length, got "
-                f"{len(rows_index)} and {len(column_index)}."
+                f"{rows.size} and {cols.size}."
             )
         # Apply the full affine geotransform (vectorised over the points) so the
         # y axis uses the pixel height (geotransform[5]) and the rotation terms
@@ -470,8 +477,8 @@ class Cell(_Engine):
             pixel_height,
         ) = self._ds.geotransform
         offset = 0.5 if center else 0.0
-        cols = np.asarray(column_index, dtype=float) + offset
-        rows = np.asarray(rows_index, dtype=float) + offset
+        cols = cols + offset
+        rows = rows + offset
         x_coords = (x_origin + cols * pixel_width + rows * row_rotation).tolist()
         y_coords = (y_origin + cols * column_rotation + rows * pixel_height).tolist()
 

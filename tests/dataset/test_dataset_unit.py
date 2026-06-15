@@ -2858,6 +2858,19 @@ class TestArrayToMapCoordinates:
         with pytest.raises(ValueError, match="same length"):
             self._nonsquare().array_to_map_coordinates([0, 1], [0])
 
+    def test_array_to_map_accepts_generator(self):
+        """Generator (non-Sized) index inputs are accepted, same as lists.
+
+        Guards N1: the equal-length check materialises the inputs, so any finite
+        iterable works, not only ``len()``-able sequences.
+        """
+        ds = self._nonsquare()
+        x_gen, y_gen = ds.array_to_map_coordinates(
+            (r for r in [0, 1, 3]), (c for c in [0, 1, 2]), center=True
+        )
+        x_list, y_list = ds.array_to_map_coordinates([0, 1, 3], [0, 1, 2], center=True)
+        assert x_gen == x_list and y_gen == y_list, "generator input must match list"
+
     def test_array_to_map_ndarray_input_returns_python_floats(self):
         """NumPy-array indices yield plain Python floats, same values as lists.
 
