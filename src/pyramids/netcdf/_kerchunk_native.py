@@ -20,6 +20,7 @@ import base64
 import json
 import math
 import os
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -430,8 +431,20 @@ def _concat_variable(
 def _identical_variable(
     name: str, per_file_refs: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    """Carry a variable that is identical across files; assert metadata parity."""
+    """Carry a variable that is identical across files; assert metadata parity.
+
+    Metadata (shape/dtype/chunks) must match exactly. For inlined chunks (small
+    coordinate arrays) the values are also compared, and a mismatch warns: the
+    first file's values are used, so genuinely misaligned inputs would otherwise
+    be merged silently.
+    """
+    prefix = f"{name}/"
     base = json.loads(per_file_refs[0][f"{name}/.zarray"])
+    base_chunks = {
+        key: value
+        for key, value in per_file_refs[0].items()
+        if key.startswith(prefix) and not key.endswith((".zarray", ".zattrs", ".zgroup"))
+    }
     for refs in per_file_refs[1:]:
         other = json.loads(refs[f"{name}/.zarray"])
         if (other["shape"], other["dtype"], other["chunks"]) != (
@@ -444,7 +457,16 @@ def _identical_variable(
                 "chunks differ) but does not carry the concat dimension; it cannot "
                 "be merged. Pass it as a concat dimension or align the inputs."
             )
-    prefix = f"{name}/"
+        for key, value in base_chunks.items():
+            inlined = isinstance(value, str) and value.startswith("base64:")
+            if inlined and refs.get(key) != value:
+                warnings.warn(
+                    f"non-concat variable {name!r} differs across files (chunk "
+                    f"{key[len(prefix):]}); using the first file's values — the "
+                    "inputs may not be co-registered.",
+                    stacklevel=3,
+                )
+                break
     return {key: value for key, value in per_file_refs[0].items() if key.startswith(prefix)}
 
 

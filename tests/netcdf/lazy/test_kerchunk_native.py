@@ -276,6 +276,24 @@ class TestCombine:
         finally:
             ds.close()
 
+    def test_misaligned_identical_dim_warns(self, tmp_path):
+        """A non-concat coord that differs across files warns (not silently merged)."""
+        from pyramids.netcdf._kerchunk_native import (
+            build_single_manifest,
+            combine_manifests,
+        )
+
+        a = str(tmp_path / "a.h5")
+        b = str(tmp_path / "b.h5")
+        _make_time_file(a, 0)
+        _make_time_file(b, 1)
+        # shift file b's lat so the inlined coordinate values diverge
+        with h5py.File(b, "r+") as f:
+            f["lat"][...] = np.arange(5, dtype="f4") + 0.5
+        per_file = [build_single_manifest(a), build_single_manifest(b)]
+        with pytest.warns(UserWarning, match="may not be co-registered"):
+            combine_manifests(per_file, concat_dim="time")
+
     def test_differing_variable_sets_rejected(self, tmp_path):
         """Files with different variables cannot be combined."""
         from pyramids.netcdf._kerchunk_native import (
