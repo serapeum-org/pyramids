@@ -106,6 +106,15 @@ def polygon_parts(geometry: Any) -> list:
             []
 
             ```
+        - A ``MultiPolygon`` nested inside a ``GeometryCollection`` is flattened to its polygons:
+            ```python
+            >>> from shapely.geometry import GeometryCollection, MultiPolygon, Point, box
+            >>> from pyramids.feature.tessellation import polygon_parts
+            >>> nested = GeometryCollection([Point(5, 5), MultiPolygon([box(0, 0, 1, 1), box(2, 2, 3, 3)])])
+            >>> [p.geom_type for p in polygon_parts(nested)]
+            ['Polygon', 'Polygon']
+
+            ```
     """
     parts: list = []
     if geometry is not None and not geometry.is_empty:

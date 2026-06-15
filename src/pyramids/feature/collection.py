@@ -2491,6 +2491,7 @@ class FeatureCollection(GeoDataFrame):
         Raises:
             InvalidGeometryError: If the geometries are not all ``Point``, or there are fewer than two distinct
                 points with finite coordinates.
+            ValueError: If ``values`` names a column that is not in the collection.
 
         Examples:
             - Tessellate four points and count the cells:
@@ -2567,7 +2568,8 @@ class FeatureCollection(GeoDataFrame):
         Raises:
             InvalidGeometryError: If the geometries are not all ``Point``, or there is no point with finite
                 coordinates.
-            ValueError: If ``agg`` is neither a known reducer name nor a callable.
+            ValueError: If ``column`` names a column that is not in the collection, if ``nmax`` is less than 1,
+                or if ``agg`` is neither a known reducer name nor a callable.
 
         Examples:
             - Bin four points to one point per cell and read the counts:
