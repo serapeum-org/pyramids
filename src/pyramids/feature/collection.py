@@ -2451,6 +2451,19 @@ class FeatureCollection(GeoDataFrame):
                 f"{op}: requires all-Point geometries, got {geom_types or 'an empty collection'}"
             )
 
+    def _require_column(self, op: str, column: str | None) -> None:
+        """Raise :class:`ValueError` if ``column`` is given but absent from the collection.
+
+        Args:
+            op: Name of the calling operation, used in the error message.
+            column: Column name to check, or ``None`` to skip the check.
+
+        Raises:
+            ValueError: If ``column`` is not ``None`` and not one of this collection's columns.
+        """
+        if column is not None and column not in self.columns:
+            raise ValueError(f"{op}: column {column!r} not found; available columns are {list(self.columns)}")
+
     def voronoi(
         self,
         *,
@@ -2501,6 +2514,7 @@ class FeatureCollection(GeoDataFrame):
                 ```
         """
         self._require_point_geometry("voronoi")
+        self._require_column("voronoi", values)
         xs, ys, keep = _tess.point_xy(self.geometry)
         ux, uy, unique = _tess.dedupe_xy(xs, ys)
         if ux.size < 2:
@@ -2540,6 +2554,7 @@ class FeatureCollection(GeoDataFrame):
             column: Numeric column aggregated per cell, or ``None`` to attach the point count (density).
             agg: Per-cell reducer — one of ``"mean"`` / ``"sum"`` / ``"median"`` / ``"min"`` / ``"max"`` /
                 ``"std"`` / ``"count"`` or a callable taking a 1-D array. Ignored when ``column`` is ``None``.
+                NaN values in ``column`` propagate to a NaN cell value when every point in a cell is NaN.
             nmax: Maximum points in a cell before it is split (smaller → finer grid).
             nmin: Cells with fewer than this many points are dropped.
             clip: A boundary ``FeatureCollection`` each cell is intersected with (reprojected to this
@@ -2574,20 +2589,15 @@ class FeatureCollection(GeoDataFrame):
                 ```
         """
         self._require_point_geometry("quadtree")
+        self._require_column("quadtree", column)
         xs, ys, keep = _tess.point_xy(self.geometry)
         if xs.size < 1:
             raise InvalidGeometryError("quadtree: need at least 1 point with finite coordinates, got 0")
-        if column is None:
+        reducer = len if column is None else _tess.resolve_reducer(agg)
+        column_values = None if column is None else self[column].to_numpy(dtype=float)[keep]
 
-            def agg_fn(idx: np.ndarray) -> float:
-                return float(len(idx))
-
-        else:
-            reducer = _tess.resolve_reducer(agg)
-            column_values = self[column].to_numpy(dtype=float)[keep]
-
-            def agg_fn(idx: np.ndarray) -> float:
-                return float(reducer(column_values[idx]))
+        def agg_fn(idx: np.ndarray) -> float:
+            return float(len(idx)) if column_values is None else float(reducer(column_values[idx]))
 
         boundary = _tess.resolve_clip(clip, self.crs)
         cells = _tess.quadtree_cells(xs, ys, agg_fn, nmax, nmin)

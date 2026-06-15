@@ -120,6 +120,10 @@ class TestVoronoi:
         assert len(cells) == 0, f"a disjoint clip should exclude every cell, got {len(cells)}"
         assert cells.crs.to_epsg() == 32618
 
+    def test_missing_values_column_raises(self, point_fc: FeatureCollection) -> None:
+        with pytest.raises(ValueError, match="not found"):
+            point_fc.voronoi(values="nope")
+
 
 class TestQuadtree:
     def test_count_density(self, point_fc: FeatureCollection) -> None:
@@ -197,6 +201,10 @@ class TestQuadtree:
         empty = FeatureCollection(gpd.GeoDataFrame({"geometry": []}, crs="EPSG:32618"))
         with pytest.raises(InvalidGeometryError):
             empty.quadtree()
+
+    def test_missing_column_raises(self, point_fc: FeatureCollection) -> None:
+        with pytest.raises(ValueError, match="not found"):
+            point_fc.quadtree(column="nope")
 
 
 class TestTessellationHelpers:
