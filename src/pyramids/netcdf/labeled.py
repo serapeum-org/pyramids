@@ -137,7 +137,9 @@ class LabeledDataset:
         self._cloud_config = cloud_config or CloudConfig()
 
     @staticmethod
-    def _open_multidim_store(gdal_path: str, cloud: CloudConfig, source: str) -> gdal.Dataset:
+    def _open_multidim_store(
+        gdal_path: str, cloud: CloudConfig, source: str
+    ) -> gdal.Dataset:
         """Open `gdal_path` as a multidim store under `cloud`, normalising errors.
 
         Args:
