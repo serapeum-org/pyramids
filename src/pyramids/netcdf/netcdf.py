@@ -44,6 +44,20 @@ from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.plot_options import ColourOpts, FacetSpec, Selectors
 from pyramids.netcdf.utils import create_time_conversion_func
 
+# GDAL integer dtype codes, used to pick the right typed Attribute.Write* call
+# when copying variable attributes (numeric tuples can't go through Write/WriteRaw).
+_GDAL_INTEGER_DTYPES = {
+    gdal.GDT_Byte,
+    gdal.GDT_Int16,
+    gdal.GDT_UInt16,
+    gdal.GDT_Int32,
+    gdal.GDT_UInt32,
+    gdal.GDT_Int64,
+    gdal.GDT_UInt64,
+}
+if hasattr(gdal, "GDT_Int8"):
+    _GDAL_INTEGER_DTYPES.add(gdal.GDT_Int8)
+
 
 class _LazyVariableDict(dict):
     """Dict that loads NetCDF variables on first access per key.
@@ -4354,9 +4368,87 @@ class NetCDF(Dataset):
         return src
 
     @staticmethod
+    def _resolve_dst_dimensions(dst_group, src_dims):
+        """Map source dimensions onto `dst_group`, creating any that are missing.
+
+        Reuses a destination dimension when one already exists with the same
+        name and size (so same-group copies like `rename_variable` keep sharing
+        their dimensions); otherwise recreates it from the source dimension's
+        name, type, direction, and size. This lets `_add_md_array_to_group`
+        copy a variable into a *different* container's group.
+        """
+        existing = {dim.GetName(): dim for dim in (dst_group.GetDimensions() or [])}
+        resolved = []
+        for dim in src_dims:
+            size = dim.GetSize()
+            match = existing.get(dim.GetName())
+            if match is not None and match.GetSize() == size:
+                resolved.append(match)
+                continue
+            # Name taken by a different-sized dimension: fall back to a
+            # size-suffixed name (matching _get_or_create_dimension), reusing it
+            # if one already exists at this size.
+            name = dim.GetName() if match is None else f"{dim.GetName()}_{size}"
+            reuse = existing.get(name)
+            if reuse is not None and reuse.GetSize() == size:
+                resolved.append(reuse)
+                continue
+            new_dim = dst_group.CreateDimension(
+                name, dim.GetType(), dim.GetDirection(), size
+            )
+            existing[name] = new_dim
+            resolved.append(new_dim)
+        return resolved
+
+    @staticmethod
+    def _copy_md_array_attributes(src_mdarray, dst_mdarray):
+        """Copy every attribute from one MDArray to another, preserving dtype.
+
+        GDAL's `Attribute.Write` routes through `WriteRaw`, which rejects numeric
+        tuples, so each attribute is written with the type-specific call that
+        matches its class (string vs integer vs floating point) and arity.
+        """
+        for attr in src_mdarray.GetAttributes():
+            name = attr.GetName()
+            data_type = attr.GetDataType()
+            count = attr.GetTotalElementsCount()
+            dims = [] if count <= 1 else [count]
+            if data_type.GetClass() == gdal.GEDTC_STRING:
+                new_attr = dst_mdarray.CreateAttribute(
+                    name, dims, gdal.ExtendedDataType.CreateString()
+                )
+                if count <= 1:
+                    new_attr.WriteString(attr.ReadAsString())
+                else:
+                    new_attr.WriteStringArray(attr.ReadAsStringArray())
+                continue
+            numeric_type = data_type.GetNumericDataType()
+            new_attr = dst_mdarray.CreateAttribute(
+                name, dims, gdal.ExtendedDataType.Create(numeric_type)
+            )
+            is_integer = numeric_type in _GDAL_INTEGER_DTYPES
+            if count <= 1 and is_integer:
+                new_attr.WriteInt(attr.ReadAsInt())
+            elif count <= 1:
+                new_attr.WriteDouble(attr.ReadAsDouble())
+            elif is_integer:
+                new_attr.WriteIntArray(attr.ReadAsIntArray())
+            else:
+                new_attr.WriteDoubleArray(attr.ReadAsDoubleArray())
+
+    @staticmethod
     def _add_md_array_to_group(dst_group, var_name, src_mdarray):
-        """Copy an MDArray from one group to another, preserving data and metadata."""
-        src_dims = src_mdarray.GetDimensions()
+        """Copy an MDArray into `dst_group`, preserving data, packing, and metadata.
+
+        Dimensions are resolved against the destination group, so the source may
+        live in a different container. The on-disk packing (`scale`/`offset`),
+        `unit`, no-data value, spatial reference, and all variable attributes are
+        carried across. Scale/offset/unit/no-data are set before the data is
+        written so the netCDF driver accepts the fill value.
+        """
+        src_dims = NetCDF._resolve_dst_dimensions(
+            dst_group, src_mdarray.GetDimensions()
+        )
         if src_mdarray.GetDataType().GetClass() == gdal.GEDTC_STRING:
             # String MDArrays can't go through ReadAsArray (numpy) in the GDAL
             # SWIG bindings, but the Python list Read()/Write() path works. Use it
@@ -4365,12 +4457,21 @@ class NetCDF(Dataset):
             new_md_array = dst_group.CreateMDArray(
                 var_name, src_dims, gdal.ExtendedDataType.CreateString()
             )
+            NetCDF._copy_md_array_attributes(src_mdarray, new_md_array)
             new_md_array.Write(src_mdarray.Read())
         else:
             arr = src_mdarray.ReadAsArray()
             dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
             new_md_array = dst_group.CreateMDArray(var_name, src_dims, dtype)
-            new_md_array.Write(arr)
+            scale = src_mdarray.GetScale()
+            if scale is not None:
+                new_md_array.SetScale(scale)
+            offset = src_mdarray.GetOffset()
+            if offset is not None:
+                new_md_array.SetOffset(offset)
+            unit = src_mdarray.GetUnit()
+            if unit:
+                new_md_array.SetUnit(unit)
             ndv = src_mdarray.GetNoDataValue()
             if ndv is not None:
                 try:
@@ -4378,6 +4479,8 @@ class NetCDF(Dataset):
                 except Exception:
                     pass
             new_md_array.SetSpatialRef(src_mdarray.GetSpatialRef())
+            NetCDF._copy_md_array_attributes(src_mdarray, new_md_array)
+            new_md_array.Write(arr)
 
     @staticmethod
     def _get_or_create_dimension(
@@ -4751,7 +4854,6 @@ class NetCDF(Dataset):
                 the same name already exists, it is renamed with a
                 `"-new"` suffix.
         """
-        src_rg = self._raster.GetRootGroup()
         var_rg = dataset._raster.GetRootGroup()
         names_to_copy: list[str]
         if variable_name is not None:
@@ -4761,12 +4863,24 @@ class NetCDF(Dataset):
         else:
             names_to_copy = []
 
+        # A file-backed root group is opened in netCDF "data mode", which forbids
+        # CreateMDArray; operate on a writable MEM copy and swap it in, mirroring
+        # remove_variable.
+        if self.driver_type == "memory":
+            dst = self._raster
+        else:
+            dst = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
+        dst_rg = dst.GetRootGroup()
+
         for var in names_to_copy:
             md_arr = var_rg.OpenMDArray(var)
             # If the variable name already exists in the destination dataset,
             # use a suffixed name to avoid overwriting the original.
-            target_name = f"{var}-new" if var in self.variable_names else var
-            self._add_md_array_to_group(src_rg, target_name, md_arr)
+            existing = dst_rg.GetMDArrayNames() or []
+            target_name = f"{var}-new" if var in existing else var
+            self._add_md_array_to_group(dst_rg, target_name, md_arr)
+
+        self._replace_raster(dst)
         self._invalidate_caches()
 
     def remove_variable(self, variable_name: str):
@@ -4810,13 +4924,21 @@ class NetCDF(Dataset):
         if new_name in self.variable_names:
             raise ValueError(f"Variable '{new_name}' already exists.")
 
-        rg = self._raster.GetRootGroup()
-        if rg is None:
+        if self._raster.GetRootGroup() is None:
             raise ValueError("rename_variable requires a multidimensional container.")
 
+        # CreateMDArray is rejected on a file-backed group (netCDF data mode);
+        # work on a writable MEM copy and swap it in, like remove_variable.
+        if self.driver_type == "memory":
+            dst = self._raster
+        else:
+            dst = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
+
+        rg = dst.GetRootGroup()
         md_arr = rg.OpenMDArray(old_name)
         self._add_md_array_to_group(rg, new_name, md_arr)
         rg.DeleteMDArray(old_name)
+        self._replace_raster(dst)
         self._invalidate_caches()
 
     def to_xarray(self) -> Any:
