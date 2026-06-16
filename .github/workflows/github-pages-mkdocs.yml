@@ -27,12 +27,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: serapeum-org/github-actions/actions/mkdocs-deploy@f861b115f7ac3c68629f9adbd40d9edd406d2a74  # mkdocs/v1
+      - uses: serapeum-org/github-actions/actions/mkdocs-deploy@cb1baebe72f571981605ab895a45dae7bfb566ba  # mkdocs/v1.2.0
         with:
           trigger: 'pull_request'
           package-manager: 'pixi'
           install-groups: 'docs'
           deploy-token: ${{ secrets.ACTIONS_DEPLOY_TOKEN }}
+          # Execute the example notebooks in CI so the rendered docs show real
+          # outputs (plots/tables). Only the network-only notebooks are excluded.
+          notebooks-path: 'docs/examples'
+          notebooks-exclude: |
+            dataset/dask-lazy-datasets.ipynb
+            netcdf/dask-lazy-netcdf.ipynb
+            feature/dask-lazy-features.ipynb
+            stac/stac-cloud-earth-search.ipynb
+          notebooks-continue-on-error: 'true'
 
   deploy-main:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -41,12 +50,19 @@ jobs:
     - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       with:
         fetch-depth: 0
-    - uses: serapeum-org/github-actions/actions/mkdocs-deploy@f861b115f7ac3c68629f9adbd40d9edd406d2a74  # mkdocs/v1
+    - uses: serapeum-org/github-actions/actions/mkdocs-deploy@cb1baebe72f571981605ab895a45dae7bfb566ba  # mkdocs/v1.2.0
       with:
         trigger: 'main'
         package-manager: 'pixi'
         install-groups: 'docs'
         deploy-token: ${{ secrets.ACTIONS_DEPLOY_TOKEN }}
+        notebooks-path: 'docs/examples'
+        notebooks-exclude: |
+          dataset/dask-lazy-datasets.ipynb
+          netcdf/dask-lazy-netcdf.ipynb
+          feature/dask-lazy-features.ipynb
+          stac/stac-cloud-earth-search.ipynb
+        notebooks-continue-on-error: 'true'
 
   deploy-release:
     if: >-
@@ -66,7 +82,7 @@ jobs:
         VERSION=$(grep -m1 '^version' pyproject.toml | sed 's/.*"\(.*\)"/\1/')
         echo "tag=$VERSION" >> $GITHUB_OUTPUT
 
-    - uses: serapeum-org/github-actions/actions/mkdocs-deploy@f861b115f7ac3c68629f9adbd40d9edd406d2a74  # mkdocs/v1
+    - uses: serapeum-org/github-actions/actions/mkdocs-deploy@cb1baebe72f571981605ab895a45dae7bfb566ba  # mkdocs/v1.2.0
       with:
         trigger: 'release'
         package-manager: 'pixi'
@@ -74,3 +90,10 @@ jobs:
         deploy-token: ${{ secrets.ACTIONS_DEPLOY_TOKEN }}
         release-tag: ${{ github.event.release.tag_name || steps.version.outputs.tag }}
         mike-alias: 'latest'
+        notebooks-path: 'docs/examples'
+        notebooks-exclude: |
+          dataset/dask-lazy-datasets.ipynb
+          netcdf/dask-lazy-netcdf.ipynb
+          feature/dask-lazy-features.ipynb
+          stac/stac-cloud-earth-search.ipynb
+        notebooks-continue-on-error: 'true'

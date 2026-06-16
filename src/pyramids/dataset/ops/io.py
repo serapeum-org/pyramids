@@ -195,15 +195,33 @@ def _write_to_file_sync(
         if creation_options is not None:
             options += creation_options
 
+        save_error = f"Failed to save the {driver_name} raster to the path: {path}"
         try:
             ds.raster.FlushCache()
             dst = gdal.GetDriverByName(driver_name).CreateCopy(
                 str(path), ds.raster, 0, options=options
             )
-            ds._update_inplace(dst, "write")
-            dst.FlushCache()
+            if dst is None:
+                raise FailedToSaveError(save_error)
+            # Finalize the file on disk before any reader opens it. For a
+            # compressed GeoTIFF (the default COMPRESS=DEFLATE) ``FlushCache``
+            # leaves the compressed strips and the TIFF directory buffered in the
+            # write handle, so a *second* handle that opens the same path reads
+            # back all-nodata on Linux/macOS (#570). Closing the CreateCopy
+            # handle writes everything; reopen the completed file for the
+            # in-place handle swap so the Dataset keeps pointing at it.
+            dst = None
+            reopened = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_UPDATE)
+            access = "write"
+            if reopened is None:
+                # Some write-once drivers (e.g. AAIGrid) cannot be reopened for
+                # update; fall back to a read-only handle and label it as such so
+                # the Dataset's access mode matches the handle it actually holds.
+                reopened = gdal.OpenEx(str(path), gdal.OF_RASTER)
+                access = "read_only"
+            if reopened is None:
+                raise FailedToSaveError(save_error)
+            ds._update_inplace(reopened, access)
         except RuntimeError:
             if not path.exists():
-                raise FailedToSaveError(
-                    f"Failed to save the {driver_name} raster to the path: {path}"
-                )
+                raise FailedToSaveError(save_error)

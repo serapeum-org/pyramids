@@ -1,0 +1,17 @@
+<PAMDataset>
+  <PAMRasterBand band="1">
+    <ColorInterp>Palette</ColorInterp>
+    <ColorTable>
+      <Entry c1="0" c2="0" c3="0" c4="0" />
+      <Entry c1="112" c2="153" c3="89" c4="255" />
+      <Entry c1="0" c2="0" c3="0" c4="0" />
+      <Entry c1="242" c2="238" c3="162" c4="255" />
+      <Entry c1="0" c2="0" c3="0" c4="0" />
+      <Entry c1="242" c2="206" c3="133" c4="255" />
+      <Entry c1="0" c2="0" c3="0" c4="0" />
+      <Entry c1="194" c2="140" c3="124" c4="255" />
+      <Entry c1="0" c2="0" c3="0" c4="0" />
+      <Entry c1="214" c2="193" c3="156" c4="255" />
+    </ColorTable>
+  </PAMRasterBand>
+</PAMDataset>

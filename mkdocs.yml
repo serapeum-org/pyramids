@@ -140,6 +140,7 @@ nav:
           - Zonal statistics: examples/operations/zonal-statistics.ipynb
           - Extract at points: examples/operations/extract-at-points.ipynb
           - Rasterize ↔ vectorize: examples/operations/rasterize-vectorize.ipynb
+          - Vector tessellation (Voronoi & quad-tree): examples/operations/vector-tessellation.ipynb
           - Terrain analysis: examples/operations/terrain-analysis.ipynb
           - No-data & gap filling: examples/operations/nodata-gap-filling.ipynb
           - Overviews (image pyramids): examples/operations/overviews.ipynb

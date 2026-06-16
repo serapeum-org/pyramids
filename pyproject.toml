@@ -92,13 +92,12 @@ docs = [
     "jupyter-contrib-nbextensions  >=0.7.0",
     "mkdocs-panzoom-plugin",
     "notebook<7.0",
-]
-notebook = [
-    "pip",
-    "jupyterlab",
-    "notebook",
+    # Required by the mkdocs-deploy action's notebook-execution preflight
+    # (`import jupyter, nbconvert, ipykernel`) and to register the python3 kernel
+    # that `jupyter nbconvert --execute` uses in CI.
     "jupyter",
-    "ipykernel"
+    "nbconvert",
+    "ipykernel",
 ]
 
 
@@ -255,7 +254,7 @@ plot = { cmd = "pytest -vvv --cov=src/pyramids --cov-append -sv -m 'plot' --cov-
 xarray-tests = { cmd = "pytest -vvv --cov=src/pyramids --cov-append -sv -m 'xarray' --cov-report=xml", description = "Run xarray interop tests" }
 test-all = { cmd = "pytest -vvv --cov=src/pyramids -sv --cov-report=xml --cov-report=term-missing", description = "Run all testsuite" }
 notebooks = { cmd = "pytest --nbval --nbval-lax --verbose docs/examples --ignore-glob='docs/examples/**/dask-lazy-*.ipynb' --ignore-glob='docs/examples/dask/*.ipynb' --ignore-glob='docs/examples/**/lazy-*-complete.ipynb' --ignore-glob='docs/examples/**/stac-cloud-*.ipynb' --ignore-glob='docs/examples/zarr/*.ipynb'", description = "check notebooks (skips dask cookbooks/quickstarts, stac-cloud-* and zarr/* — all need extras envs or real endpoints)" }
-jupyter = { cmd = "jupyter lab --no-browser --IdentityProvider.token='' --ServerApp.password='' --port=8889", description = "check notebooks" }
+jupyter = { cmd = "jupyter lab --no-browser --IdentityProvider.token='' --ServerApp.password='' --port=8889", description = "launch JupyterLab to run the example notebooks — run with `-e dev` (only env with JupyterLab + all notebook deps)" }
 build-dist = { cmd = "python -m build", description = "Build sdist and wheel for PyPI" }
 publish-pypi = { cmd = "twine upload --non-interactive --repository pypi dist/*", depends-on = ["build-dist"], description = "Build and upload package to PyPI" }
 cz-changelog = { cmd = "cz changelog", description = "Generate changelog using Commitizen" }
@@ -270,8 +269,10 @@ default = {features = ["gdal", "viz"], solve-group = "default" }
 dev = { features = ["gdal", "viz", "dev", "xarray", "lazy", "stac", "parquet"], solve-group = "default" }
 lazy = { features = ["gdal", "viz", "dev", "lazy"], solve-group = "default" }
 parquet = { features = ["gdal", "viz", "dev", "xarray", "lazy", "parquet"], solve-group = "default" }
-notebook = { features = ["gdal", "viz", "notebook", "lazy"], solve-group = "default" }
-docs = { features = ["gdal", "docs"], solve-group = "docs" }
+# `docs` also carries the notebook runtime features (viz/cleopatra, xarray, lazy, stac,
+# parquet) so the mkdocs-deploy action can execute the example notebooks in CI and render
+# real outputs. See .github/workflows/github-pages-mkdocs.yml (notebooks-path).
+docs = { features = ["gdal", "docs", "viz", "xarray", "lazy", "stac", "parquet"], solve-group = "docs" }
 # py3XX envs include `lazy` so the `xarray-tests` step has the xarray data stack
 # (zarr / dask / s3fs / fsspec) its interop tests need, run with real deps. `parquet`
 # (pyarrow) is left out on purpose: it would un-skip the core OGR-Parquet tests, which

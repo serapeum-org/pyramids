@@ -171,6 +171,46 @@ class TestRoundtripEager:
             "beta",
         ], f"band names not restored: {reloaded.band_names}"
 
+    @requires_zarr
+    def test_multiband_band_read_finite_after_from_zarr(self, tmp_path):
+        """A multi-band from_zarr store round-trips its pixels (end-to-end #570 guard).
+
+        Regression for #570: ``to_file`` did not finalize the compressed GeoTIFF
+        (the default ``COMPRESS=DEFLATE``) before returning — the strips stayed
+        buffered in the write handle — so on Linux/macOS the temp GeoTIFF that
+        ``to_zarr`` round-trips through read back as all-nodata. ``from_zarr`` then
+        yielded ``-9999`` for every band, and ``Dataset.plot(band=0)`` (which feeds
+        ``read_array(band=0)`` to cleopatra) raised "array has no finite values",
+        breaking the zarr-basics / zarr-pyramid-preview docs notebooks. The fix
+        finalizes the GeoTIFF in ``to_file``; this test guards the whole chain.
+
+        Test scenario:
+            Write a 2-band float32 raster (no-data ``-9999``) to Zarr, reopen it
+            with :meth:`Dataset.from_zarr`, then read the full array and band 0 (the
+            array :meth:`Dataset.plot` hands to cleopatra). Both must equal the
+            source and stay finite — with the bug the store was entirely ``-9999``.
+        """
+        arr = np.arange(2 * 32 * 48, dtype=np.float32).reshape(2, 32, 48)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 32.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        src = str(tmp_path / "mb_src.tif")
+        ds.to_file(src)
+        Dataset.read_file(src).to_zarr(str(tmp_path / "mb.zarr"))
+        rt = Dataset.from_zarr(str(tmp_path / "mb.zarr"))
+        # The full (all-band) read must recover the source (with the bug the whole
+        # store was all-nodata); then isolate the per-band read Dataset.plot uses.
+        np.testing.assert_array_equal(np.asarray(rt.read_array()), arr)
+        band0 = np.asarray(rt.read_array(band=0))
+        assert np.isfinite(
+            band0
+        ).all(), "band-0 read from a from_zarr multi-band store is non-finite"
+        np.testing.assert_array_equal(band0, arr[0])
+
 
 class TestComputeFalseDefers:
     """``compute=False`` returns :class:`dask.delayed.Delayed`."""
