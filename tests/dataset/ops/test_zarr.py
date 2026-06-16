@@ -172,48 +172,6 @@ class TestRoundtripEager:
         ], f"band names not restored: {reloaded.band_names}"
 
     @requires_zarr
-    def test_zarr_multiband_layer_diagnostic(self, tmp_path):
-        """TEMP #570 diagnostic: report which layer mangles a multi-band round-trip.
-
-        Passes on platforms where the round-trip works (win-64); on Linux/macOS it
-        fails with a dict pinpointing the broken layer (in-memory read, lazy source
-        read fed to the writer, eager zarr read, or dask zarr read).
-        """
-        import dask.array as da
-
-        a = np.arange(2 * 32 * 48, dtype=np.float32).reshape(2, 32, 48)
-        ds0 = Dataset.create_from_array(
-            a, top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326, no_data_value=-9999.0
-        )
-        mem_full = np.asarray(ds0.read_array())
-        mem_b0 = np.asarray(ds0.read_array(band=0))
-        from osgeo import gdal
-
-        del mem_full, mem_b0  # the MEM is already proven fine; focus on the codec sweep
-        sweep = {}
-        for label, opts in [
-            ("none", []),
-            ("lzw", ["COMPRESS=LZW"]),
-            ("deflate", ["COMPRESS=DEFLATE"]),
-            ("deflate_p1", ["COMPRESS=DEFLATE", "PREDICTOR=1"]),
-            ("deflate_p2", ["COMPRESS=DEFLATE", "PREDICTOR=2"]),
-            ("deflate_p3", ["COMPRESS=DEFLATE", "PREDICTOR=3"]),
-            ("lzw_p3", ["COMPRESS=LZW", "PREDICTOR=3"]),
-            ("zstd", ["COMPRESS=ZSTD"]),
-        ]:
-            p = str(tmp_path / f"{label}.tif")
-            ds0.raster.FlushCache()
-            try:
-                d = gdal.GetDriverByName("GTiff").CreateCopy(p, ds0.raster, 0, options=opts)
-                d.FlushCache()
-                d = None
-                r = np.asarray(gdal.Open(p).ReadAsArray())
-                sweep[label] = bool(np.array_equal(r, a))
-            except Exception as exc:  # noqa: BLE001
-                sweep[label] = f"ERR:{type(exc).__name__}"
-        assert all(v is True for v in sweep.values()), f"#570 SWEEP: {sweep}"
-
-    @requires_zarr
     def test_multiband_band_read_finite_after_from_zarr(self, tmp_path):
         """A band-indexed read of a from_zarr multi-band store stays finite (plot input).
 

@@ -2312,11 +2312,6 @@ class Dataset(RasterBase):
         if no_data_value is not None:
             dst_obj._set_no_data_value(no_data_value=no_data_value)
         if array is not None:
-            # Normalise to a C-contiguous buffer before handing bands to GDAL.
-            # A from_zarr / dask-assembled array can be non-contiguous, and
-            # ``WriteArray`` of a non-contiguous per-band slice is stride-
-            # sensitive in GDAL's numpy bridge (issue #570).
-            array = np.ascontiguousarray(array)
             if array.ndim == 2:
                 dst_obj.raster.GetRasterBand(1).WriteArray(array)
             else:
