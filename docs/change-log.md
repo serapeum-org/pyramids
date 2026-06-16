@@ -1,6 +1,22 @@
 ﻿# Change log
 
 
+## 0.35.0 (2026-06-16)
+
+### Feat
+
+- **feature**: add voronoi and quadtree tessellation ops to FeatureCollection (#562)
+
+### Fix
+
+- clear SonarCloud main quality gate (reliability, security, hotspots) (#577)
+- **netcdf**: path-style S3 addressing for anonymous LabeledDataset reads (#569)
+- **dataset**: array_to_map_coordinates honours non-square and rotated grids (#568)
+- **netcdf**: carry string aux variables through container spatial ops (#567)
+- **netcdf**: release the GDAL handle on close() so the file unlocks immediately (#566)
+- **netcdf**: release the GDAL handle on close() so the file unlocks immediately
+- **netcdf**: build kerchunk manifests natively to kill the zarr-v3 deadlock (#561)
+
 ## 0.34.0 (2026-06-14)
 
 ### Feat
