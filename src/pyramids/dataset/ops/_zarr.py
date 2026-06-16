@@ -327,17 +327,20 @@ def _finalize_after_write(
 def _read_data_array(
     resolved_store: Any, zarr_array: Any, chunks: Any, *, component: str = "data"
 ) -> np.ndarray:
-    """Read the ``data`` array — eagerly, or via a parallel chunked dask read.
+    """Read the ``data`` array via :func:`dask.array.from_zarr`, materialised to NumPy.
 
-    With ``chunks=None`` (default) the array is read in one synchronous
-    ``zarr_array[:]``. With ``chunks`` given, the read goes through
-    :func:`dask.array.from_zarr` so a (possibly remote) store is fetched in
-    parallel chunks; the result is still materialised to NumPy because pyramids
-    Datasets are GDAL-backed. For lazy, larger-than-RAM block processing call
+    Always reads through the dask Zarr reader rather than an eager
+    ``zarr_array[:]`` group read. The eager group read returned the array's
+    fill value (an all-nodata array) for a **multi-band** store on Linux/macOS
+    while reading correctly on Windows and for single-band stores (issue #570);
+    the dask reader — already used by the ``DatasetCollection`` path — opens the
+    component array directly and reads its chunks correctly on every platform.
+    ``dask`` is always importable here because Zarr IO requires the ``[lazy]``
+    extra. ``zarr_array`` is kept in the signature for the caller but no longer
+    drives the read. For lazy, larger-than-RAM block processing call
     :meth:`Dataset.read_array(chunks=...)` on the returned dataset.
     """
-    if chunks is None:
-        return np.asarray(zarr_array[:])
+    del zarr_array  # superseded by the dask reader; kept for call compatibility
     import_dask(_LAZY_IMPORT_ERROR)
     import dask.array as da
 
