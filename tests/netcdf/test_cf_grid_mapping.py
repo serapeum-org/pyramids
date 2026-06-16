@@ -54,7 +54,7 @@ class TestSrsToGridMapping:
             abs(params["scale_factor_at_central_meridian"] - 0.9996) < 1e-6
         ), f"Expected scale ~0.9996, got {params.get('scale_factor_at_central_meridian')}"
         assert (
-            params.get("false_easting") == 500000.0
+            params.get("false_easting") == pytest.approx(500000.0)
         ), f"Expected FE=500000, got {params.get('false_easting')}"
 
     def test_crs_wkt_always_present(self):

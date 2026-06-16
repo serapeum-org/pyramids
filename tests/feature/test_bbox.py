@@ -216,7 +216,7 @@ class TestToShapely:
             A 4x3 bbox has area 12.
         """
         assert (
-            to_shapely((0.0, 0.0, 4.0, 3.0)).area == 12.0
+            to_shapely((0.0, 0.0, 4.0, 3.0)).area == pytest.approx(12.0)
         ), "Area should be width*height"
 
 
@@ -334,7 +334,7 @@ class TestSplitPolygonAntimeridian:
             The Fiji box spans 10 deg lon by 10 deg lat.
         """
         result = split_polygon_antimeridian(_crossing_ring())
-        assert round(result.area, 6) == 100.0, f"Area not preserved: {result.area}"
+        assert result.area == pytest.approx(100.0), f"Area not preserved: {result.area}"
 
     def test_non_crossing_unchanged(self):
         """A non-crossing polygon is returned unchanged.
@@ -372,7 +372,7 @@ class TestSplitPolygonAntimeridian:
         multi = MultiPolygon([_crossing_ring()])
         result = split_polygon_antimeridian(multi)
         assert result.is_valid, "Result should be valid"
-        assert round(result.area, 6) == 100.0, f"Area not preserved: {result.area}"
+        assert result.area == pytest.approx(100.0), f"Area not preserved: {result.area}"
 
     def test_invalid_type_raises(self):
         """A non-polygon geometry raises TypeError.

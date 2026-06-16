@@ -221,9 +221,11 @@ class TestPreserveNetcdfMetadata:
             epsg=4326,
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
-        assert wrapped._scale == 0.01, f"Expected scale=0.01, got {wrapped._scale}"
-        assert (
-            wrapped._offset == 273.15
+        assert wrapped._scale == pytest.approx(
+            0.01
+        ), f"Expected scale=0.01, got {wrapped._scale}"
+        assert wrapped._offset == pytest.approx(
+            273.15
         ), f"Expected offset=273.15, got {wrapped._offset}"
 
     def test_copies_is_subset_flag(self, var_3d):
@@ -446,8 +448,12 @@ class TestToCrsReturnType:
         var_3d._scale = 0.1
         var_3d._offset = -50.0
         result = var_3d.to_crs(to_epsg=32637)
-        assert result._scale == 0.1, f"Expected scale=0.1, got {result._scale}"
-        assert result._offset == -50.0, f"Expected offset=-50.0, got {result._offset}"
+        assert result._scale == pytest.approx(
+            0.1
+        ), f"Expected scale=0.1, got {result._scale}"
+        assert result._offset == pytest.approx(
+            -50.0
+        ), f"Expected offset=-50.0, got {result._offset}"
 
     def test_variable_to_crs_changes_epsg(self, var_3d):
         """to_crs() actually changes the CRS of the result.
@@ -620,8 +626,12 @@ class TestSelReturnType:
         var_3d._scale = 0.5
         var_3d._offset = 100.0
         result = var_3d.sel(time=6)
-        assert result._scale == 0.5, f"Expected scale=0.5, got {result._scale}"
-        assert result._offset == 100.0, f"Expected offset=100.0, got {result._offset}"
+        assert result._scale == pytest.approx(
+            0.5
+        ), f"Expected scale=0.5, got {result._scale}"
+        assert result._offset == pytest.approx(
+            100.0
+        ), f"Expected offset=100.0, got {result._offset}"
 
     def test_sel_preserves_is_subset(self, var_3d):
         """sel() preserves _is_subset=True.
@@ -771,9 +781,11 @@ class TestChaining:
         var._scale = 0.5
         var._offset = 100.0
         reprojected = var.to_crs(to_epsg=32637, method="bilinear")
-        assert reprojected._scale == 0.5, f"Scale not preserved: {reprojected._scale}"
-        assert (
-            reprojected._offset == 100.0
+        assert reprojected._scale == pytest.approx(
+            0.5
+        ), f"Scale not preserved: {reprojected._scale}"
+        assert reprojected._offset == pytest.approx(
+            100.0
         ), f"Offset not preserved: {reprojected._offset}"
         raw = reprojected.read_array()
         unpacked = reprojected.read_array(unpack=True)
@@ -797,8 +809,12 @@ class TestChaining:
         var._scale = 0.01
         var._offset = 273.15
         resampled = var.resample(cell_size=2.0, method="cubic")
-        assert resampled._scale == 0.01, f"Scale not preserved: {resampled._scale}"
-        assert resampled._offset == 273.15, f"Offset not preserved: {resampled._offset}"
+        assert resampled._scale == pytest.approx(
+            0.01
+        ), f"Scale not preserved: {resampled._scale}"
+        assert resampled._offset == pytest.approx(
+            273.15
+        ), f"Offset not preserved: {resampled._offset}"
         raw = resampled.read_array()
         unpacked = resampled.read_array(unpack=True)
         expected = raw.astype(np.float64) * 0.01 + 273.15

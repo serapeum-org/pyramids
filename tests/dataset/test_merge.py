@@ -131,8 +131,8 @@ class TestMergeMethod:
         assert (
             arr[0, 2] == expected_overlap and arr[0, 3] == expected_overlap
         ), f"{method} overlap should be {expected_overlap}, got {arr[0, 2]} / {arr[0, 3]}"
-        assert arr[0, 0] == 10.0, f"A-only column changed: {arr[0, 0]}"
-        assert arr[0, 5] == 20.0, f"B-only column changed: {arr[0, 5]}"
+        assert arr[0, 0] == pytest.approx(10.0), f"A-only column changed: {arr[0, 0]}"
+        assert arr[0, 5] == pytest.approx(20.0), f"B-only column changed: {arr[0, 5]}"
 
     def test_default_method_is_last(self, overlapping_pair, tmp_path):
         """Omitting method defaults to last-wins (backward compatible).
@@ -144,7 +144,9 @@ class TestMergeMethod:
         out = tmp_path / "default.tif"
         merge_rasters([pa, pb], out, no_data_value=-9999.0)
         arr = Dataset.read_file(str(out)).read_array()
-        assert arr[0, 2] == 20.0, f"Default should be last-wins (20), got {arr[0, 2]}"
+        assert arr[0, 2] == pytest.approx(
+            20.0
+        ), f"Default should be last-wins (20), got {arr[0, 2]}"
 
     def test_reduce_fills_uncovered_with_nodata(self, tmp_path):
         """Reduction methods write nodata where no source covers a pixel.
@@ -161,8 +163,10 @@ class TestMergeMethod:
         out = tmp_path / "gappy.tif"
         merge_rasters([pa, pb], out, no_data_value=-1.0, method="sum")
         arr = Dataset.read_file(str(out)).read_array()
-        assert arr[0, 0] == 5.0, f"Top-left should be A=5, got {arr[0, 0]}"
-        assert arr[3, 3] == 7.0, f"Bottom-right should be B=7, got {arr[3, 3]}"
+        assert arr[0, 0] == pytest.approx(5.0), f"Top-left should be A=5, got {arr[0, 0]}"
+        assert arr[3, 3] == pytest.approx(
+            7.0
+        ), f"Bottom-right should be B=7, got {arr[3, 3]}"
         assert (
             arr[0, 3] == -1.0
         ), f"Uncovered top-right should be nodata -1, got {arr[0, 3]}"
@@ -184,8 +188,12 @@ class TestMergeMethod:
         out = tmp_path / "mmax.tif"
         merge_rasters([pa, pb], out, no_data_value=-9999.0, method="max")
         arr = Dataset.read_file(str(out)).read_array()
-        assert arr[0, 1, 1] == 4.0, f"Band 0 max should be 4, got {arr[0, 1, 1]}"
-        assert arr[1, 1, 1] == 8.0, f"Band 1 max should be 8, got {arr[1, 1, 1]}"
+        assert arr[0, 1, 1] == pytest.approx(
+            4.0
+        ), f"Band 0 max should be 4, got {arr[0, 1, 1]}"
+        assert arr[1, 1, 1] == pytest.approx(
+            8.0
+        ), f"Band 1 max should be 8, got {arr[1, 1, 1]}"
 
     def test_n_ignores_source_value_in_reduction(self, tmp_path):
         """The n knob makes a source pixel value count as no-data in reduction.
@@ -451,7 +459,9 @@ class TestMergeRastersDstCrs:
         result = Dataset.read_file(str(out))
         arr = result.read_array()
         assert result.epsg == 4326, f"Expected output EPSG 4326, got {result.epsg}"
-        assert arr[0, 2] == 20.0, f"Last-wins overlap should be 20, got {arr[0, 2]}"
+        assert arr[0, 2] == pytest.approx(
+            20.0
+        ), f"Last-wins overlap should be 20, got {arr[0, 2]}"
 
     def test_disagree_reprojects_onto_first_source_crs(self, disagree_pair, tmp_path):
         """Mismatched CRSs with ``dst_crs=None`` reproject onto the first source.
@@ -729,7 +739,9 @@ class TestMergeRastersSigner:
         out = tmp_path / "no_signer.tif"
         merge_rasters([pa, pb], out, no_data_value=-9999.0, signer=None)
         arr = Dataset.read_file(str(out)).read_array()
-        assert arr[0, 2] == 20.0, f"signer=None overlap should be 20, got {arr[0, 2]}"
+        assert arr[0, 2] == pytest.approx(
+            20.0
+        ), f"signer=None overlap should be 20, got {arr[0, 2]}"
 
     def test_signer_produces_correct_output(self, shared_crs_pair, tmp_path):
         """A signer does not change the merge result for local inputs.
@@ -747,7 +759,9 @@ class TestMergeRastersSigner:
             signer=_FakeSigner({"GDAL_HTTP_TIMEOUT": "30"}),
         )
         arr = Dataset.read_file(str(out)).read_array()
-        assert arr[0, 2] == 20.0, f"Signed merge overlap should be 20, got {arr[0, 2]}"
+        assert arr[0, 2] == pytest.approx(
+            20.0
+        ), f"Signed merge overlap should be 20, got {arr[0, 2]}"
 
     def test_signer_config_active_during_merge(
         self, shared_crs_pair, tmp_path, monkeypatch

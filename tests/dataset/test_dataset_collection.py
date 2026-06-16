@@ -25,7 +25,7 @@ class TestCreateDatasetCollection:
             rasters_folder_path, with_order=False
         )
         assert isinstance(dataset.base, Dataset)
-        assert dataset.base.no_data_value[0] == 2147483648.0
+        assert dataset.base.no_data_value[0] == pytest.approx(2147483648.0)
         assert isinstance(dataset.files, list)
         assert dataset.time_length == rasters_folder_rasters_number
         assert dataset.base.rows == rasters_folder_dim[0]
@@ -43,7 +43,7 @@ class TestCreateDatasetCollection:
             file_name_data_fmt="%Y.%m.%d",
         )
         assert isinstance(dataset.base, Dataset)
-        assert dataset.base.no_data_value[0] == 2147483648.0
+        assert dataset.base.no_data_value[0] == pytest.approx(2147483648.0)
         assert isinstance(dataset.files, list)
         assert dataset.time_length == rasters_folder_rasters_number
         assert dataset.base.rows == rasters_folder_dim[0]
@@ -67,7 +67,7 @@ class TestCreateDatasetCollection:
             fmt=rasters_folder_date_fmt,
         )
         assert isinstance(dataset.base, Dataset)
-        assert dataset.base.no_data_value[0] == 2147483648.0
+        assert dataset.base.no_data_value[0] == pytest.approx(2147483648.0)
         assert isinstance(dataset.files, list)
         assert dataset.time_length == rasters_folder_between_dates_raster_number
         assert dataset.base.rows == rasters_folder_dim[0]
@@ -86,7 +86,7 @@ class TestCreateDatasetCollection:
             date=False,
         )
         assert isinstance(dataset.base, Dataset)
-        assert dataset.base.no_data_value[0] == 2147483648.0
+        assert dataset.base.no_data_value[0] == pytest.approx(2147483648.0)
         assert isinstance(dataset.files, list)
         assert dataset.time_length == 3
         assert dataset.base.rows == rasters_folder_dim[0]
@@ -124,7 +124,7 @@ class TestAscii:
             ascii_folder_path, with_order=False, extension=".asc"
         )
         assert isinstance(dataset.base, Dataset)
-        assert dataset.base.no_data_value[0] == 2147483648.0
+        assert dataset.base.no_data_value[0] == pytest.approx(2147483648.0)
         assert isinstance(dataset.files, list)
         assert dataset.time_length == rasters_folder_rasters_number
         assert dataset.base.rows == rasters_folder_dim[0]

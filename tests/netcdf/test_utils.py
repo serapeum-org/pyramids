@@ -307,7 +307,7 @@ class TestGetArrayNodata:
         mdarr = MagicMock(spec=[])
         attrs = {"_FillValue": [1e20, 1e20]}
         result = _get_array_nodata(mdarr, attrs)
-        assert result == 1e20, "Should return first element of list _FillValue"
+        assert result == pytest.approx(1e20), "Should return first element of list _FillValue"
 
     def test_fill_value_empty_list_returns_none(self):
         """Empty list _FillValue returns None."""

@@ -44,7 +44,7 @@ Convert.polygonToRaster(gdf, src_raster_path, output_raster)
 
 ## case 3 there is no given path to save the output raster to disk to it will be returned as an output.
 src = Convert.polygonToRaster(gdf, src_raster_path)
-type(src)
+print(type(src))
 # %%
 """
 Dataset To DataFrame

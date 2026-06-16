@@ -1506,8 +1506,8 @@ class TestFromJson:
         md = _make_metadata(variables={"/full": full_arr})
         restored = from_json(to_json(md))
         r = restored.variables["/full"]
-        assert r.scale == 0.01, f"Expected scale=0.01, got {r.scale}"
-        assert r.offset == 0.5, f"Expected offset=0.5, got {r.offset}"
+        assert r.scale == pytest.approx(0.01), f"Expected scale=0.01, got {r.scale}"
+        assert r.offset == pytest.approx(0.5), f"Expected offset=0.5, got {r.offset}"
         assert r.nodata == -9999, f"Expected nodata=-9999, got {r.nodata}"
         assert (
             r.srs_wkt == 'GEOGCS["WGS 84"]'

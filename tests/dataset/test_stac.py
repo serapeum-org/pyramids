@@ -624,11 +624,11 @@ class TestFromStacMultiAsset:
         )
         arr = coll.datasets[0].read_array()
         assert arr.shape[0] == 3, f"expected 3 bands, got {arr.shape}"
-        assert float(arr[0, 0, 0]) == 1.0, f"band1 should be red=1, got {arr[0, 0, 0]}"
+        assert float(arr[0, 0, 0]) == pytest.approx(1.0), f"band1 should be red=1, got {arr[0, 0, 0]}"
         assert (
             float(arr[1, 0, 0]) == pytest.approx(2.0)
         ), f"band2 should be green=2, got {arr[1, 0, 0]}"
-        assert float(arr[2, 0, 0]) == 3.0, f"band3 should be blue=3, got {arr[2, 0, 0]}"
+        assert float(arr[2, 0, 0]) == pytest.approx(3.0), f"band3 should be blue=3, got {arr[2, 0, 0]}"
 
     def test_band_order_follows_asset_sequence(self, multi_asset_items):
         """Reordering the asset list reorders the output bands.
@@ -840,7 +840,7 @@ class TestFromStacSolarDay:
         assert (
             float(first[0, 0]) == pytest.approx(10.0)
         ), f"first day should be first-valid 10, got {first[0, 0]}"
-        assert float(last[0, 0]) == 12.0, f"second day should be 12, got {last[0, 0]}"
+        assert float(last[0, 0]) == pytest.approx(12.0), f"second day should be 12, got {last[0, 0]}"
 
     def test_invalid_groupby_raises(self, solar_day_items):
         """An unsupported groupby value raises ValueError.
@@ -914,7 +914,7 @@ class TestAntimeridian:
         Test scenario:
             [170, -170] -> centroid ~180 (not the wrong ~0 from a naive mean).
         """
-        assert _item_centroid_lon({"bbox": [170.0, 0.0, -170.0, 5.0]}) == 180.0
+        assert _item_centroid_lon({"bbox": [170.0, 0.0, -170.0, 5.0]}) == pytest.approx(180.0)
 
     def test_centroid_lon_normalised_past_dateline(self):
         """An asymmetric wrapping box normalises its centroid into [-180, 180].

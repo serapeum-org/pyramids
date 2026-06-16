@@ -142,8 +142,8 @@ class TestReduceSkipna:
             extra_dim_values=[0, 1],
         )
         skip = nc.reduce("time", "mean", skipna=True).get_variable("v").read_array()
-        assert skip[0, 0] == 10.0, "all-but-nodata cell should keep the valid value"
-        assert skip[0, 1] == 20.0, "mean of 10 and 30 should be 20"
+        assert skip[0, 0] == pytest.approx(10.0), "all-but-nodata cell should keep the valid value"
+        assert skip[0, 1] == pytest.approx(20.0), "mean of 10 and 30 should be 20"
 
     def test_no_skipna_uses_raw_values(self):
         """Without skipna the raw values (including sentinels) are reduced.

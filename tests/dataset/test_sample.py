@@ -135,7 +135,7 @@ class TestSample:
             False,
             True,
         ], f"Wrong mask: {result.mask.tolist()}"
-        assert result[0] == 12.0, f"Inside value lost: {result[0]}"
+        assert result[0] == pytest.approx(12.0), f"Inside value lost: {result[0]}"
 
     def test_masked_output_multiband(self, two_band, mixed_points):
         """masked=True broadcasts the mask across all bands.
@@ -163,7 +163,7 @@ class TestSample:
         )
         result = ds.sample(mixed_points, bands=0)
         assert result.dtype == np.float64, f"Expected float64, got {result.dtype}"
-        assert result[0] == 12.0, f"Inside value wrong: {result[0]}"
+        assert result[0] == pytest.approx(12.0), f"Inside value wrong: {result[0]}"
         assert np.isnan(result[1]), f"Outside point should be NaN, got {result[1]}"
 
     def test_dataframe_input(self, two_band):

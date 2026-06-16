@@ -430,8 +430,8 @@ class TestE2EFixtureTiff:
         ds = Dataset.read_file(str(tiled_tif_path))
         arr = ds.read_array()
         assert arr.dtype == np.float32
-        assert arr[0, 0, 0] == 0.0
-        assert arr[1, 0, 0] == 1000.0
+        assert arr[0, 0, 0] == pytest.approx(0.0)
+        assert arr[1, 0, 0] == pytest.approx(1000.0)
 
     @requires_dask
     def test_lazy_path_e2e(self, tiled_tif_path: Path):
@@ -439,5 +439,5 @@ class TestE2EFixtureTiff:
         arr = ds.read_array(chunks="auto")
         computed = arr.compute(scheduler="synchronous")
         assert computed.dtype == np.float32
-        assert computed[0, 0, 0] == 0.0
-        assert computed[1, 0, 0] == 1000.0
+        assert computed[0, 0, 0] == pytest.approx(0.0)
+        assert computed[1, 0, 0] == pytest.approx(1000.0)

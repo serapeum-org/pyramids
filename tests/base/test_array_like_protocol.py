@@ -123,14 +123,14 @@ class TestArrayLikeAlias:
         def sum_array(x: ArrayLike) -> float:
             return float(as_numpy(x).sum())
 
-        assert sum_array(np.arange(5)) == 10.0
+        assert sum_array(np.arange(5)) == pytest.approx(10.0)
 
     @requires_dask
     def test_function_accepts_dask(self):
         def sum_array(x: ArrayLike) -> float:
             return float(as_numpy(x).sum())
 
-        assert sum_array(dask_array.arange(5, chunks=2)) == 10.0
+        assert sum_array(dask_array.arange(5, chunks=2)) == pytest.approx(10.0)
 
 
 class TestAliasExport:

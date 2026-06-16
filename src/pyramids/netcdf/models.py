@@ -436,17 +436,17 @@ class VariableInfo:
                 for dimension metadata.
         """
         try:
-            md_arr_name = md_arr.GetName()
+            resolved_name = md_arr.GetName()
         except Exception:
-            md_arr_name = md_arr_name
+            resolved_name = md_arr_name
 
         try:
             md_arr_full_name = md_arr.GetFullName()
         except Exception:
             md_arr_full_name = (
-                f"{group_full_name}/{md_arr_name}"
+                f"{group_full_name}/{resolved_name}"
                 if group_full_name != "/"
-                else f"/{md_arr_name}"
+                else f"/{resolved_name}"
             )
 
         # dtype
@@ -500,7 +500,7 @@ class VariableInfo:
         coord_vars = _get_coord_variable_names(md_arr)
 
         return cls(
-            name=md_arr_name,
+            name=resolved_name,
             full_name=md_arr_full_name,
             dtype=dt,
             shape=[int(x) for x in (shape or [])],

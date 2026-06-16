@@ -2,7 +2,6 @@ name: Tests - Suite
 
 permissions:
   contents: read
-  id-token: write
 
 on:
   push:
@@ -18,6 +17,10 @@ concurrency:
 jobs:
   main-package:
     runs-on: ${{ matrix.os }}
+    # id-token: write is scoped here (not workflow-level) for the Codecov OIDC upload.
+    permissions:
+      contents: read
+      id-token: write
     # Bound a hung test (e.g. a flaky kerchunk/fsspec read in the xarray step) so the
     # job fails in minutes instead of running to GitHub's 6-hour default. The full
     # matrix completes in well under this; faulthandler_timeout (pyproject) dumps the
@@ -57,6 +60,10 @@ jobs:
         run: pixi run -e ${{ matrix.environment }} notebooks
 
   extras-package:
+    # id-token: write is scoped here (not workflow-level) for the Codecov OIDC upload.
+    permissions:
+      contents: read
+      id-token: write
     # One job per [project.optional-dependencies] group that ships native
     # deps (conda-forge backed). Each job installs the matching
     # ``dev-<extra>`` pixi env and runs only the tests tagged with the

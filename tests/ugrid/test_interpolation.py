@@ -83,10 +83,10 @@ class TestMeshToGridNearest:
         """
         mesh, data = grid_mesh
         _, geo = mesh_to_grid(mesh, data, "face", cell_size=0.5)
-        assert geo[0] == 0.0, f"Expected x_origin=0, got {geo[0]}"
-        assert geo[1] == 0.5, f"Expected cell_size=0.5, got {geo[1]}"
-        assert geo[3] == 2.0, f"Expected y_origin=2, got {geo[3]}"
-        assert geo[5] == -0.5, f"Expected -cell_size=-0.5, got {geo[5]}"
+        assert geo[0] == pytest.approx(0.0), f"Expected x_origin=0, got {geo[0]}"
+        assert geo[1] == pytest.approx(0.5), f"Expected cell_size=0.5, got {geo[1]}"
+        assert geo[3] == pytest.approx(2.0), f"Expected y_origin=2, got {geo[3]}"
+        assert geo[5] == pytest.approx(-0.5), f"Expected -cell_size=-0.5, got {geo[5]}"
 
     def test_values_mapped_correctly(self, grid_mesh):
         """Test that grid values correspond to nearest face values.
@@ -96,8 +96,8 @@ class TestMeshToGridNearest:
         """
         mesh, data = grid_mesh
         grid, _ = mesh_to_grid(mesh, data, "face", cell_size=1.0)
-        assert grid[1, 0] == 10.0, f"Expected 10.0 at face 0 region, got {grid[1, 0]}"
-        assert grid[1, 1] == 20.0, f"Expected 20.0 at face 1 region, got {grid[1, 1]}"
+        assert grid[1, 0] == pytest.approx(10.0), f"Expected 10.0 at face 0 region, got {grid[1, 0]}"
+        assert grid[1, 1] == pytest.approx(20.0), f"Expected 20.0 at face 1 region, got {grid[1, 1]}"
 
     def test_nodata_outside_mesh(self, grid_mesh):
         """Test nodata for cells far from mesh.

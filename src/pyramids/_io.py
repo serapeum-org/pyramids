@@ -312,10 +312,7 @@ def _get_tar_path(path: str):
         str: Path for GDAL to read the tar file.
     """
     # get list of files inside the compressed file
-    if path.__contains__(".tar") and not path.endswith(".tar"):
-        vsi_path = f"/vsitar/{path}"
-    else:
-        vsi_path = f"/vsitar/{path}"
+    vsi_path = f"/vsitar/{path}"
     return vsi_path
 
 

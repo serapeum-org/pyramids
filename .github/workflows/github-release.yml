@@ -76,10 +76,12 @@ jobs:
         run: pixi lock
 
       - name: Commit and push updated lockfile
+        env:
+          RELEASE_BRANCH: ${{ inputs.release-branch }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add pixi.lock
           git diff --cached --quiet && echo "No lockfile changes" && exit 0
           git commit -m "build: sync pixi.lock after version bump"
-          git push origin ${{ inputs.release-branch }}
+          git push origin "$RELEASE_BRANCH"

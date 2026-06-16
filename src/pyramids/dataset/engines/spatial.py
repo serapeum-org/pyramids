@@ -1031,9 +1031,7 @@ class Spatial(_Engine):
         # get information from the mask raster
         if isinstance(mask, (str, Path)):
             mask = self._ds.__class__.read_file(mask)
-        elif isinstance(mask, RasterBase):
-            mask = mask
-        else:
+        elif not isinstance(mask, RasterBase):
             raise TypeError(
                 "The second parameter has to be either path to the mask raster or a gdal.Dataset object"
             )
