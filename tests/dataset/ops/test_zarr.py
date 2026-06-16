@@ -176,15 +176,16 @@ class TestRoundtripEager:
     @pytest.mark.xfail(
         sys.platform.startswith("linux"),
         reason=(
-            "Linux-only bug: a band-indexed read of a from_zarr-reconstructed "
-            "multi-band dataset returns an all-non-finite array (zarr 3.2.1 / "
-            "GDAL 3.12.4). read_array() of every band round-trips fine, but "
-            "read_array(band=0) — the array Dataset.plot feeds to cleopatra — is "
-            "all-NaN, so plotting raises 'array has no finite values'. Surfaced by "
-            "the docs zarr-basics / zarr-pyramid-preview notebooks on the CI "
-            "runner; passes on win-64 with the same package versions."
+            "Linux-only bug (#570): a band-indexed read of a from_zarr-"
+            "reconstructed multi-band dataset returns an all-non-finite array "
+            "(zarr 3.2.1 / GDAL 3.12.4). read_array() of every band round-trips "
+            "fine, but read_array(band=0) — the array Dataset.plot feeds to "
+            "cleopatra — is all-NaN, so plotting raises 'array has no finite "
+            "values'. Surfaced by the docs zarr-basics / zarr-pyramid-preview "
+            "notebooks on the CI runner; passes on win-64 with the same package "
+            "versions. strict=True so the fix forces removal of this marker."
         ),
-        strict=False,
+        strict=True,
     )
     def test_multiband_band_read_finite_after_from_zarr(self, tmp_path):
         """A band-indexed read of a from_zarr multi-band store stays finite (plot input).
