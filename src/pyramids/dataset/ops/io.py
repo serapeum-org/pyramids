@@ -195,15 +195,14 @@ def _write_to_file_sync(
         if creation_options is not None:
             options += creation_options
 
+        save_error = f"Failed to save the {driver_name} raster to the path: {path}"
         try:
             ds.raster.FlushCache()
             dst = gdal.GetDriverByName(driver_name).CreateCopy(
                 str(path), ds.raster, 0, options=options
             )
             if dst is None:
-                raise FailedToSaveError(
-                    f"Failed to save the {driver_name} raster to the path: {path}"
-                )
+                raise FailedToSaveError(save_error)
             # Finalize the file on disk before any reader opens it. For a
             # compressed GeoTIFF (the default COMPRESS=DEFLATE) ``FlushCache``
             # leaves the compressed strips and the TIFF directory buffered in the
@@ -221,12 +220,8 @@ def _write_to_file_sync(
                 reopened = gdal.OpenEx(str(path), gdal.OF_RASTER)
                 access = "read_only"
             if reopened is None:
-                raise FailedToSaveError(
-                    f"Failed to save the {driver_name} raster to the path: {path}"
-                )
+                raise FailedToSaveError(save_error)
             ds._update_inplace(reopened, access)
         except RuntimeError:
             if not path.exists():
-                raise FailedToSaveError(
-                    f"Failed to save the {driver_name} raster to the path: {path}"
-                )
+                raise FailedToSaveError(save_error)
