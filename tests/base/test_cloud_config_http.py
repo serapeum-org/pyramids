@@ -121,6 +121,37 @@ class TestCloudConfigHttpFields:
         cfg = CloudConfig(vsi_cache=None).as_gdal_config()
         assert cfg == {}, f"vsi_cache=None should drop out, got {cfg!r}"
 
+    @pytest.mark.parametrize(
+        "value, expected",
+        [(True, "TRUE"), (False, "FALSE")],
+        ids=["aws_virtual_hosting=True", "aws_virtual_hosting=False"],
+    )
+    def test_aws_virtual_hosting_bool_maps_to_truefalse(self, value, expected):
+        """``aws_virtual_hosting`` maps to ``AWS_VIRTUAL_HOSTING=TRUE``/``FALSE`` (#560).
+
+        Args:
+            value: The bool passed to ``aws_virtual_hosting``.
+            expected: The expected string value under ``AWS_VIRTUAL_HOSTING``.
+
+        Test scenario:
+            Path-style (``False``) is what the anonymous-S3 read path uses to
+            avoid GDAL's unfollowed 301 on the data-chunk GET.
+        """
+        cfg = CloudConfig(aws_virtual_hosting=value).as_gdal_config()
+        assert cfg == {
+            "AWS_VIRTUAL_HOSTING": expected
+        }, f"unexpected aws_virtual_hosting mapping: {cfg!r}"
+
+    def test_aws_virtual_hosting_none_drops_out(self):
+        """``aws_virtual_hosting=None`` (the default) emits no key.
+
+        Test scenario:
+            ``CloudConfig(aws_virtual_hosting=None).as_gdal_config()`` — expected:
+            empty mapping, so GDAL's default addressing is left untouched.
+        """
+        cfg = CloudConfig(aws_virtual_hosting=None).as_gdal_config()
+        assert cfg == {}, f"aws_virtual_hosting=None should drop out, got {cfg!r}"
+
     def test_all_four_fields_combine(self):
         """The four fields combine into one mapping in a single ``CloudConfig``.
 

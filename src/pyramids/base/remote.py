@@ -453,6 +453,7 @@ class CloudConfig:
     `aws_region`                     `AWS_REGION` + `AWS_DEFAULT_REGION`
     `aws_no_sign_request=True`       `AWS_NO_SIGN_REQUEST=YES`
     `aws_request_payer=True`         `AWS_REQUEST_PAYER=requester`
+    `aws_virtual_hosting=False`      `AWS_VIRTUAL_HOSTING=FALSE` (True -> `TRUE`)
     `gs_oauth2_refresh_token`        `GS_OAUTH2_REFRESH_TOKEN`
     `gs_access_key_id`               `GS_ACCESS_KEY_ID`
     `gs_secret_access_key`           `GS_SECRET_ACCESS_KEY`
@@ -472,6 +473,12 @@ class CloudConfig:
     — useful when re-reading the same remote chunks (e.g. iterating over
     blocks of a single COG). Set `vsi_cache=None` (default) to leave
     whatever the process-wide setting is in place.
+
+    `aws_virtual_hosting=False` requests path-style S3 addressing (the bucket in
+    the request path rather than the host); the anonymous-S3 reader uses it to
+    dodge an unfollowed `301 PermanentRedirect` GDAL hits on the data-chunk GET
+    for some buckets (e.g. us-east-1 NWM — #560). `None` (default) leaves GDAL's
+    default virtual-hosted addressing.
 
     Examples:
         - Override the AWS region for a single operation:
@@ -527,6 +534,7 @@ class CloudConfig:
     aws_region: str | None = None
     aws_no_sign_request: bool = False
     aws_request_payer: bool = False
+    aws_virtual_hosting: bool | None = None
     gs_oauth2_refresh_token: str | None = None
     gs_access_key_id: str | None = None
     gs_secret_access_key: str | None = None
@@ -606,6 +614,12 @@ class CloudConfig:
                 {'VSI_CACHE': 'FALSE'}
 
                 ```
+            - ``aws_virtual_hosting=False`` requests path-style S3 addressing (#560):
+                ```python
+                >>> CloudConfig(aws_virtual_hosting=False).as_gdal_config()
+                {'AWS_VIRTUAL_HOSTING': 'FALSE'}
+
+                ```
             - ``extra`` overrides any explicit field on key conflict (the
                 escape hatch wins):
                 ```python
@@ -643,6 +657,12 @@ class CloudConfig:
             out["AWS_NO_SIGN_REQUEST"] = "YES"
         if self.aws_request_payer:
             out["AWS_REQUEST_PAYER"] = "requester"
+        if self.aws_virtual_hosting is not None:
+            # Path-style ("FALSE") vs virtual-hosted ("TRUE") S3 addressing.
+            # Path-style avoids the unfollowed 301 PermanentRedirect GDAL hits on
+            # the data-chunk GET for some buckets (e.g. us-east-1 NWM), which
+            # otherwise reads 0 bytes and surfaces as silent zeros (#560).
+            out["AWS_VIRTUAL_HOSTING"] = "TRUE" if self.aws_virtual_hosting else "FALSE"
         if self.vsi_cache is not None:
             out["VSI_CACHE"] = "TRUE" if self.vsi_cache else "FALSE"
         out.update({k: str(v) for k, v in self.extra.items()})
