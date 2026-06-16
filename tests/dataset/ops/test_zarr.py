@@ -189,34 +189,38 @@ class TestRoundtripEager:
         mem_b0 = np.asarray(ds0.read_array(band=0))
         from osgeo import gdal
 
+        # Windowed read of the in-memory MEM dataset (what CreateCopy does block by block).
+        mem_win = np.asarray(ds0.read_array(band=0, window=[0, 0, 20, 18]))
+        # Raw CreateCopy MEM->GTiff WITHOUT compression, then a raw GDAL read.
+        ds0.raster.FlushCache()
+        raw_tif = str(tmp_path / "raw_nocomp.tif")
+        d = gdal.GetDriverByName("GTiff").CreateCopy(raw_tif, ds0.raster, 0)
+        d.FlushCache()
+        d = None
+        raw_nocomp = np.asarray(gdal.Open(raw_tif).ReadAsArray())
+        # The pyramids to_file path (CreateCopy with COMPRESS=DEFLATE).
         src = str(tmp_path / "s.tif")
         ds0.to_file(src)
         raw_gdal = np.asarray(gdal.Open(src).ReadAsArray())
-        ds = Dataset.read_file(src)
-        tif_eager = np.asarray(ds.read_array())
-        tif_eager_b0 = np.asarray(ds.read_array(band=0))
-        lazy_src = np.asarray(ds.read_array(chunks="auto"))
         info = {
             "mem_full_ok": bool(np.array_equal(mem_full, a)),
             "mem_b0_ok": bool(np.array_equal(mem_b0, a[0])),
-            "raw_gdal_ok": bool(np.array_equal(raw_gdal, a)),
-            "raw_gdal_uniq": np.unique(raw_gdal).tolist()[:6],
-            "tif_eager_ok": bool(np.array_equal(tif_eager, a)),
-            "tif_eager_uniq": np.unique(tif_eager).tolist()[:6],
-            "tif_eager_b0_ok": bool(np.array_equal(tif_eager_b0, a[0])),
-            "lazy_src_ok": bool(np.array_equal(np.squeeze(lazy_src), a)),
-            "lazy_src_uniq": np.unique(lazy_src).tolist()[:6],
-            "block_size0": list(ds._block_size[0]),
+            "mem_win_ok": bool(np.array_equal(mem_win, a[0, :18, :20])),
+            "mem_win_uniq": np.unique(mem_win).tolist()[:6],
+            "raw_nocomp_ok": bool(np.array_equal(raw_nocomp, a)),
+            "raw_nocomp_uniq": np.unique(raw_nocomp).tolist()[:6],
+            "raw_deflate_ok": bool(np.array_equal(raw_gdal, a)),
+            "raw_deflate_uniq": np.unique(raw_gdal).tolist()[:6],
+            "block_size0": list(Dataset.read_file(src)._block_size[0]),
         }
         all_ok = all(
             info[k]
             for k in (
                 "mem_full_ok",
                 "mem_b0_ok",
-                "raw_gdal_ok",
-                "tif_eager_ok",
-                "tif_eager_b0_ok",
-                "lazy_src_ok",
+                "mem_win_ok",
+                "raw_nocomp_ok",
+                "raw_deflate_ok",
             )
         )
         assert all_ok, f"#570 LAYERS: {info}"
