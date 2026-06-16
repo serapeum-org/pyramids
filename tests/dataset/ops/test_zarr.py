@@ -172,6 +172,54 @@ class TestRoundtripEager:
         ], f"band names not restored: {reloaded.band_names}"
 
     @requires_zarr
+    def test_zarr_multiband_layer_diagnostic(self, tmp_path):
+        """TEMP #570 diagnostic: report which layer mangles a multi-band round-trip.
+
+        Passes on platforms where the round-trip works (win-64); on Linux/macOS it
+        fails with a dict pinpointing the broken layer (in-memory read, lazy source
+        read fed to the writer, eager zarr read, or dask zarr read).
+        """
+        import dask.array as da
+
+        a = np.arange(2 * 8 * 8, dtype=np.float32).reshape(2, 8, 8)
+        ds0 = Dataset.create_from_array(
+            a, top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+        )
+        mem_full = np.asarray(ds0.read_array())
+        mem_b0 = np.asarray(ds0.read_array(band=0))
+        src = str(tmp_path / "s.tif")
+        ds0.to_file(src)
+        ds = Dataset.read_file(src)
+        lazy_src = np.asarray(ds.read_array(chunks="auto"))
+        store = str(tmp_path / "z.zarr")
+        ds.to_zarr(store)
+        g = zarr.open_group(store, mode="r")
+        zdata = g["data"]
+        eager = np.asarray(zdata[:])
+        dask_read = np.asarray(da.from_zarr(store, component="data").compute())
+        info = {
+            "mem_full_ok": bool(np.array_equal(mem_full, a)),
+            "mem_b0_ok": bool(np.array_equal(mem_b0, a[0])),
+            "lazy_src_ok": bool(np.array_equal(np.squeeze(lazy_src), a)),
+            "lazy_src_uniq": np.unique(lazy_src).tolist()[:6],
+            "eager_ok": bool(np.array_equal(eager, a)),
+            "eager_uniq": np.unique(eager).tolist()[:6],
+            "dask_ok": bool(np.array_equal(dask_read, a)),
+            "dask_uniq": np.unique(dask_read).tolist()[:6],
+            "zchunks": list(zdata.chunks),
+            "zshape": list(zdata.shape),
+            "zfill": float(zdata.fill_value) if zdata.fill_value is not None else None,
+        }
+        all_ok = (
+            info["mem_full_ok"]
+            and info["mem_b0_ok"]
+            and info["lazy_src_ok"]
+            and info["eager_ok"]
+            and info["dask_ok"]
+        )
+        assert all_ok, f"#570 LAYERS: {info}"
+
+    @requires_zarr
     def test_multiband_band_read_finite_after_from_zarr(self, tmp_path):
         """A band-indexed read of a from_zarr multi-band store stays finite (plot input).
 
