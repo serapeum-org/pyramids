@@ -181,9 +181,9 @@ class TestRoundtripEager:
         """
         import dask.array as da
 
-        a = np.arange(2 * 8 * 8, dtype=np.float32).reshape(2, 8, 8)
+        a = np.arange(2 * 32 * 48, dtype=np.float32).reshape(2, 32, 48)
         ds0 = Dataset.create_from_array(
-            a, top_left_corner=(0.0, 8.0), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+            a, top_left_corner=(0.0, 32.0), cell_size=1.0, epsg=4326, no_data_value=-9999.0
         )
         mem_full = np.asarray(ds0.read_array())
         mem_b0 = np.asarray(ds0.read_array(band=0))
