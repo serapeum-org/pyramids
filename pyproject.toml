@@ -1,6 +1,6 @@
 [project]
 name = "pyramids-gis"
-version = "0.34.0"
+version = "0.35.0"
 description = "GIS utility package"
 readme = {file = "README.md", content-type = "text/markdown"}
 authors = [{ name = "Mostafa Farrag", email = "moah.farag@gmail.com" }]
