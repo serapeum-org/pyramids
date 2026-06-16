@@ -187,35 +187,37 @@ class TestRoundtripEager:
         )
         mem_full = np.asarray(ds0.read_array())
         mem_b0 = np.asarray(ds0.read_array(band=0))
+        from osgeo import gdal
+
         src = str(tmp_path / "s.tif")
         ds0.to_file(src)
+        raw_gdal = np.asarray(gdal.Open(src).ReadAsArray())
         ds = Dataset.read_file(src)
+        tif_eager = np.asarray(ds.read_array())
+        tif_eager_b0 = np.asarray(ds.read_array(band=0))
         lazy_src = np.asarray(ds.read_array(chunks="auto"))
-        store = str(tmp_path / "z.zarr")
-        ds.to_zarr(store)
-        g = zarr.open_group(store, mode="r")
-        zdata = g["data"]
-        eager = np.asarray(zdata[:])
-        dask_read = np.asarray(da.from_zarr(store, component="data").compute())
         info = {
             "mem_full_ok": bool(np.array_equal(mem_full, a)),
             "mem_b0_ok": bool(np.array_equal(mem_b0, a[0])),
+            "raw_gdal_ok": bool(np.array_equal(raw_gdal, a)),
+            "raw_gdal_uniq": np.unique(raw_gdal).tolist()[:6],
+            "tif_eager_ok": bool(np.array_equal(tif_eager, a)),
+            "tif_eager_uniq": np.unique(tif_eager).tolist()[:6],
+            "tif_eager_b0_ok": bool(np.array_equal(tif_eager_b0, a[0])),
             "lazy_src_ok": bool(np.array_equal(np.squeeze(lazy_src), a)),
             "lazy_src_uniq": np.unique(lazy_src).tolist()[:6],
-            "eager_ok": bool(np.array_equal(eager, a)),
-            "eager_uniq": np.unique(eager).tolist()[:6],
-            "dask_ok": bool(np.array_equal(dask_read, a)),
-            "dask_uniq": np.unique(dask_read).tolist()[:6],
-            "zchunks": list(zdata.chunks),
-            "zshape": list(zdata.shape),
-            "zfill": float(zdata.fill_value) if zdata.fill_value is not None else None,
+            "block_size0": list(ds._block_size[0]),
         }
-        all_ok = (
-            info["mem_full_ok"]
-            and info["mem_b0_ok"]
-            and info["lazy_src_ok"]
-            and info["eager_ok"]
-            and info["dask_ok"]
+        all_ok = all(
+            info[k]
+            for k in (
+                "mem_full_ok",
+                "mem_b0_ok",
+                "raw_gdal_ok",
+                "tif_eager_ok",
+                "tif_eager_b0_ok",
+                "lazy_src_ok",
+            )
         )
         assert all_ok, f"#570 LAYERS: {info}"
 
