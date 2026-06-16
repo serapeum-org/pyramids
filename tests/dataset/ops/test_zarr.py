@@ -189,41 +189,29 @@ class TestRoundtripEager:
         mem_b0 = np.asarray(ds0.read_array(band=0))
         from osgeo import gdal
 
-        # Windowed read of the in-memory MEM dataset (what CreateCopy does block by block).
-        mem_win = np.asarray(ds0.read_array(band=0, window=[0, 0, 20, 18]))
-        # Raw CreateCopy MEM->GTiff WITHOUT compression, then a raw GDAL read.
-        ds0.raster.FlushCache()
-        raw_tif = str(tmp_path / "raw_nocomp.tif")
-        d = gdal.GetDriverByName("GTiff").CreateCopy(raw_tif, ds0.raster, 0)
-        d.FlushCache()
-        d = None
-        raw_nocomp = np.asarray(gdal.Open(raw_tif).ReadAsArray())
-        # The pyramids to_file path (CreateCopy with COMPRESS=DEFLATE).
-        src = str(tmp_path / "s.tif")
-        ds0.to_file(src)
-        raw_gdal = np.asarray(gdal.Open(src).ReadAsArray())
-        info = {
-            "mem_full_ok": bool(np.array_equal(mem_full, a)),
-            "mem_b0_ok": bool(np.array_equal(mem_b0, a[0])),
-            "mem_win_ok": bool(np.array_equal(mem_win, a[0, :18, :20])),
-            "mem_win_uniq": np.unique(mem_win).tolist()[:6],
-            "raw_nocomp_ok": bool(np.array_equal(raw_nocomp, a)),
-            "raw_nocomp_uniq": np.unique(raw_nocomp).tolist()[:6],
-            "raw_deflate_ok": bool(np.array_equal(raw_gdal, a)),
-            "raw_deflate_uniq": np.unique(raw_gdal).tolist()[:6],
-            "block_size0": list(Dataset.read_file(src)._block_size[0]),
-        }
-        all_ok = all(
-            info[k]
-            for k in (
-                "mem_full_ok",
-                "mem_b0_ok",
-                "mem_win_ok",
-                "raw_nocomp_ok",
-                "raw_deflate_ok",
-            )
-        )
-        assert all_ok, f"#570 LAYERS: {info}"
+        del mem_full, mem_b0  # the MEM is already proven fine; focus on the codec sweep
+        sweep = {}
+        for label, opts in [
+            ("none", []),
+            ("lzw", ["COMPRESS=LZW"]),
+            ("deflate", ["COMPRESS=DEFLATE"]),
+            ("deflate_p1", ["COMPRESS=DEFLATE", "PREDICTOR=1"]),
+            ("deflate_p2", ["COMPRESS=DEFLATE", "PREDICTOR=2"]),
+            ("deflate_p3", ["COMPRESS=DEFLATE", "PREDICTOR=3"]),
+            ("lzw_p3", ["COMPRESS=LZW", "PREDICTOR=3"]),
+            ("zstd", ["COMPRESS=ZSTD"]),
+        ]:
+            p = str(tmp_path / f"{label}.tif")
+            ds0.raster.FlushCache()
+            try:
+                d = gdal.GetDriverByName("GTiff").CreateCopy(p, ds0.raster, 0, options=opts)
+                d.FlushCache()
+                d = None
+                r = np.asarray(gdal.Open(p).ReadAsArray())
+                sweep[label] = bool(np.array_equal(r, a))
+            except Exception as exc:  # noqa: BLE001
+                sweep[label] = f"ERR:{type(exc).__name__}"
+        assert all(v is True for v in sweep.values()), f"#570 SWEEP: {sweep}"
 
     @requires_zarr
     def test_multiband_band_read_finite_after_from_zarr(self, tmp_path):
