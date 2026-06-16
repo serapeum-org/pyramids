@@ -213,13 +213,18 @@ def _write_to_file_sync(
             # in-place handle swap so the Dataset keeps pointing at it.
             dst = None
             reopened = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_UPDATE)
+            access = "write"
             if reopened is None:
+                # Some write-once drivers (e.g. AAIGrid) cannot be reopened for
+                # update; fall back to a read-only handle and label it as such so
+                # the Dataset's access mode matches the handle it actually holds.
                 reopened = gdal.OpenEx(str(path), gdal.OF_RASTER)
+                access = "read_only"
             if reopened is None:
                 raise FailedToSaveError(
                     f"Failed to save the {driver_name} raster to the path: {path}"
                 )
-            ds._update_inplace(reopened, "write")
+            ds._update_inplace(reopened, access)
         except RuntimeError:
             if not path.exists():
                 raise FailedToSaveError(

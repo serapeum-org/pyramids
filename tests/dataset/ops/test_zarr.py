@@ -173,21 +173,22 @@ class TestRoundtripEager:
 
     @requires_zarr
     def test_multiband_band_read_finite_after_from_zarr(self, tmp_path):
-        """A band-indexed read of a from_zarr multi-band store stays finite (plot input).
+        """A multi-band from_zarr store round-trips its pixels (end-to-end #570 guard).
 
-        Regression for #570: a band-indexed read of a from_zarr-reconstructed
-        multi-band dataset returned an all-non-finite array on Linux (the full
-        multi-band read round-tripped fine), so ``Dataset.plot(band=0)`` — which
-        feeds ``read_array(band=0)`` to cleopatra — raised "array has no finite
-        values" and broke the zarr-basics / zarr-pyramid-preview docs notebooks.
-        The single-band read now launders the band through an owned buffer like
-        the multi-band path.
+        Regression for #570: ``to_file`` did not finalize the compressed GeoTIFF
+        (the default ``COMPRESS=DEFLATE``) before returning — the strips stayed
+        buffered in the write handle — so on Linux/macOS the temp GeoTIFF that
+        ``to_zarr`` round-trips through read back as all-nodata. ``from_zarr`` then
+        yielded ``-9999`` for every band, and ``Dataset.plot(band=0)`` (which feeds
+        ``read_array(band=0)`` to cleopatra) raised "array has no finite values",
+        breaking the zarr-basics / zarr-pyramid-preview docs notebooks. The fix
+        finalizes the GeoTIFF in ``to_file``; this test guards the whole chain.
 
         Test scenario:
             Write a 2-band float32 raster (no-data ``-9999``) to Zarr, reopen it
-            with :meth:`Dataset.from_zarr`, then read band 0 — the exact array
-            :meth:`Dataset.plot` hands to cleopatra. Both the full read and the
-            per-band read must stay finite and equal the source.
+            with :meth:`Dataset.from_zarr`, then read the full array and band 0 (the
+            array :meth:`Dataset.plot` hands to cleopatra). Both must equal the
+            source and stay finite — with the bug the store was entirely ``-9999``.
         """
         arr = np.arange(2 * 32 * 48, dtype=np.float32).reshape(2, 32, 48)
         ds = Dataset.create_from_array(
@@ -201,8 +202,8 @@ class TestRoundtripEager:
         ds.to_file(src)
         Dataset.read_file(src).to_zarr(str(tmp_path / "mb.zarr"))
         rt = Dataset.from_zarr(str(tmp_path / "mb.zarr"))
-        # The full (all-band) read round-trips on every platform — establish that
-        # the data itself is intact before isolating the per-band read.
+        # The full (all-band) read must recover the source (with the bug the whole
+        # store was all-nodata); then isolate the per-band read Dataset.plot uses.
         np.testing.assert_array_equal(np.asarray(rt.read_array()), arr)
         band0 = np.asarray(rt.read_array(band=0))
         assert np.isfinite(
