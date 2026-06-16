@@ -615,7 +615,18 @@ class IO(_Engine):
                 if band is None:
                     band = 0
                 if window is None:
-                    arr = self._ds._iloc(band).ReadAsArray()
+                    # Copy the band into a fresh, C-contiguous buffer we own —
+                    # mirroring the multi-band branch above, which fills a
+                    # pre-allocated array per band. Returning the bare
+                    # ``GetRasterBand(b).ReadAsArray()`` result was observed to
+                    # come back all-non-finite for a from_zarr-reconstructed MEM
+                    # band on Linux (issue #570), even though the full multi-band
+                    # read of the same dataset is correct; laundering through an
+                    # owned buffer (same dtype/shape) makes the single-band read
+                    # match it without changing the returned dtype.
+                    raw = self._ds._iloc(band).ReadAsArray()
+                    arr = np.empty(raw.shape, dtype=raw.dtype)
+                    arr[...] = raw
                 else:
                     arr = self._read_block(band, window)
             self._ds._backend = "numpy"

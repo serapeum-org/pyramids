@@ -34,17 +34,13 @@ jobs:
           install-groups: 'docs'
           deploy-token: ${{ secrets.ACTIONS_DEPLOY_TOKEN }}
           # Execute the example notebooks in CI so the rendered docs show real
-          # outputs (plots/tables). Network-only notebooks are excluded below; the
-          # two zarr notebooks are excluded because Dataset.from_zarr round-trips to
-          # an all-NaN array on the Linux runner (passes on win-64, same zarr 3.2.1).
+          # outputs (plots/tables). Only the network-only notebooks are excluded.
           notebooks-path: 'docs/examples'
           notebooks-exclude: |
             dataset/dask-lazy-datasets.ipynb
             netcdf/dask-lazy-netcdf.ipynb
             feature/dask-lazy-features.ipynb
             stac/stac-cloud-earth-search.ipynb
-            zarr/zarr-basics.ipynb
-            zarr/zarr-pyramid-preview.ipynb
           notebooks-continue-on-error: 'true'
 
   deploy-main:
@@ -66,8 +62,6 @@ jobs:
           netcdf/dask-lazy-netcdf.ipynb
           feature/dask-lazy-features.ipynb
           stac/stac-cloud-earth-search.ipynb
-          zarr/zarr-basics.ipynb
-          zarr/zarr-pyramid-preview.ipynb
         notebooks-continue-on-error: 'true'
 
   deploy-release:
@@ -102,6 +96,4 @@ jobs:
           netcdf/dask-lazy-netcdf.ipynb
           feature/dask-lazy-features.ipynb
           stac/stac-cloud-earth-search.ipynb
-          zarr/zarr-basics.ipynb
-          zarr/zarr-pyramid-preview.ipynb
         notebooks-continue-on-error: 'true'

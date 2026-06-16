@@ -7,7 +7,6 @@ returns :class:`dask.delayed.Delayed`.
 
 from __future__ import annotations
 
-import sys
 import warnings
 
 import numpy as np
@@ -173,29 +172,22 @@ class TestRoundtripEager:
         ], f"band names not restored: {reloaded.band_names}"
 
     @requires_zarr
-    @pytest.mark.xfail(
-        sys.platform.startswith("linux"),
-        reason=(
-            "Linux-only bug (#570): a band-indexed read of a from_zarr-"
-            "reconstructed multi-band dataset returns an all-non-finite array "
-            "(zarr 3.2.1 / GDAL 3.12.4). read_array() of every band round-trips "
-            "fine, but read_array(band=0) — the array Dataset.plot feeds to "
-            "cleopatra — is all-NaN, so plotting raises 'array has no finite "
-            "values'. Surfaced by the docs zarr-basics / zarr-pyramid-preview "
-            "notebooks on the CI runner; passes on win-64 with the same package "
-            "versions. strict=True so the fix forces removal of this marker."
-        ),
-        strict=True,
-    )
     def test_multiband_band_read_finite_after_from_zarr(self, tmp_path):
         """A band-indexed read of a from_zarr multi-band store stays finite (plot input).
+
+        Regression for #570: a band-indexed read of a from_zarr-reconstructed
+        multi-band dataset returned an all-non-finite array on Linux (the full
+        multi-band read round-tripped fine), so ``Dataset.plot(band=0)`` — which
+        feeds ``read_array(band=0)`` to cleopatra — raised "array has no finite
+        values" and broke the zarr-basics / zarr-pyramid-preview docs notebooks.
+        The single-band read now launders the band through an owned buffer like
+        the multi-band path.
 
         Test scenario:
             Write a 2-band float32 raster (no-data ``-9999``) to Zarr, reopen it
             with :meth:`Dataset.from_zarr`, then read band 0 — the exact array
-            :meth:`Dataset.plot` hands to cleopatra. The full-array read already
-            round-trips on every platform; this guards the per-band read, which
-            comes back all-non-finite on Linux and makes plotting fail.
+            :meth:`Dataset.plot` hands to cleopatra. Both the full read and the
+            per-band read must stay finite and equal the source.
         """
         arr = np.arange(2 * 32 * 48, dtype=np.float32).reshape(2, 32, 48)
         ds = Dataset.create_from_array(
