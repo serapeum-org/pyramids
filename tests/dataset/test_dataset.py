@@ -896,8 +896,8 @@ class TestResample:
         assert dst.rows == resampled_multi_band_dims[0]
         assert dst.columns == resampled_multi_band_dims[1]
         assert (
-            dst.raster.GetGeoTransform()[1] == cell_size
-            and dst.raster.GetGeoTransform()[-1] == -1 * cell_size
+            dst.raster.GetGeoTransform()[1] == pytest.approx(cell_size)
+            and dst.raster.GetGeoTransform()[-1] == pytest.approx(-1 * cell_size)
         )
 
         # GDAL bilinear output drifts across minor versions (e.g. 3.12 -> 3.13
