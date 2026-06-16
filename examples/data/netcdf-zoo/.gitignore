@@ -1,0 +1,3 @@
+# The NetCDF reference binaries are large (~150 MB) and are not committed.
+# Regenerate them locally with download.sh (see README.md).
+*.nc
