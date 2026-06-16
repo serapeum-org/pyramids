@@ -2100,8 +2100,8 @@ class TestMeshRenderHelper:
             )
         assert captured.get("location") == "node"
         assert captured.get("cmap") == "plasma"
-        assert captured.get("vmin") == 0.0
-        assert captured.get("vmax") == 10.0
+        assert captured.get("vmin") == pytest.approx(0.0)
+        assert captured.get("vmax") == pytest.approx(10.0)
         assert captured.get("title") == "t"
 
     def test_mesh_render_basemap_triggers_add_basemap_with_crs(self):

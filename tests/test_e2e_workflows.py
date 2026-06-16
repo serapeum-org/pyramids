@@ -150,7 +150,7 @@ class TestRasterizeRoundTrip:
         arr = raster.read_array()
 
         # Verify burned value
-        burned = arr[arr == 7.0]
+        burned = arr[np.isclose(arr, 7.0)]
         assert burned.size > 0, "At least some cells should contain the burned value 7"
         assert (
             raster.epsg == epsg
@@ -183,7 +183,7 @@ class TestRasterizeRoundTrip:
             cols,
         ), f"Rasterized shape should match reference ({rows},{cols}), got {arr.shape}"
         # Burned value should appear
-        burned = arr[arr == 42.0]
+        burned = arr[np.isclose(arr, 42.0)]
         assert burned.size > 0, "Burned value 42 should appear in the raster"
 
     def test_from_features_rejects_non_positive_cell_size(self):

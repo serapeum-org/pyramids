@@ -296,8 +296,8 @@ class TestProperties:
     def test_top_left_corner(self, src: gdal.Dataset):
         dataset = Dataset(src)
         xy = dataset.top_left_corner
-        assert xy[0] == 432968.1206170588
-        assert xy[1] == 520007.787999178
+        assert xy[0] == pytest.approx(432968.1206170588)
+        assert xy[1] == pytest.approx(520007.787999178)
 
     def test_lon_lat(self, src: gdal.Dataset, lon_coords: list, lat_coords: list):
         dataset = Dataset(src)
@@ -407,14 +407,14 @@ class TestProperties:
         src = src.copy()
         assert src.scale == [1.0]
         src.scale = [2.0]
-        assert src._iloc(0).GetScale() == 2.0
+        assert src._iloc(0).GetScale() == pytest.approx(2.0)
 
     def test_offset(self, src: gdal.Dataset):
         src = Dataset(src)
         src = src.copy()
         assert src.offset == [0]
         src.offset = [2.0]
-        assert src._iloc(0).GetOffset() == 2.0
+        assert src._iloc(0).GetOffset() == pytest.approx(2.0)
 
     def test_band_color(self, src: gdal.Dataset):
         src = Dataset(src)
@@ -885,10 +885,10 @@ class TestResample:
         resampled_multi_band_dims: tuple,
         sentinel_resample_arr: np.ndarray,
     ):
-        resample_raster_cell_size = 0.00015
+        cell_size = 0.00015
         src = Dataset(sentinel_raster)
         dst = src.resample(
-            resample_raster_cell_size,
+            cell_size,
             method=resample_raster_resample_technique,
         )
 
@@ -896,8 +896,8 @@ class TestResample:
         assert dst.rows == resampled_multi_band_dims[0]
         assert dst.columns == resampled_multi_band_dims[1]
         assert (
-            dst.raster.GetGeoTransform()[1] == resample_raster_cell_size
-            and dst.raster.GetGeoTransform()[-1] == -1 * resample_raster_cell_size
+            dst.raster.GetGeoTransform()[1] == pytest.approx(cell_size)
+            and dst.raster.GetGeoTransform()[-1] == pytest.approx(-1 * cell_size)
         )
 
         # GDAL bilinear output drifts across minor versions (e.g. 3.12 -> 3.13

@@ -524,8 +524,8 @@ class TestAnalysisNormalize:
             with min=0.0 and max=1.0 (linear scaling preserves rank).
         """
         out = Analysis.normalize(np.array([[2.0, 4.0], [6.0, 8.0]]))
-        assert float(out.min()) == 0.0, f"Expected min 0.0, got {out.min()}"
-        assert float(out.max()) == 1.0, f"Expected max 1.0, got {out.max()}"
+        assert float(out.min()) == pytest.approx(0.0), f"Expected min 0.0, got {out.min()}"
+        assert float(out.max()) == pytest.approx(1.0), f"Expected max 1.0, got {out.max()}"
         assert out.shape == (2, 2), f"Shape mismatch: {out.shape}"
 
     def test_normalize_signed_values(self):

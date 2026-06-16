@@ -248,7 +248,7 @@ class TestToDataset:
             src = Dataset.from_features(vector, cell_size=200)
             assert src.cell_size == 200
             arr = src.read_array()
-            values = arr[arr[:, :] == 1.0]
+            values = arr[np.isclose(arr[:, :], 1.0)]
             assert values.shape[0] == 6400
 
         def test_multi_polygon(self, polygons_coello_gdf: GeoDataFrame):
@@ -340,7 +340,7 @@ class TestWithCoordinates:
     ):
         feature = FeatureCollection(geometry_collection_gdf)
         result = feature.with_coordinates()
-        assert result.loc[0, "x"] == 100.0
+        assert result.loc[0, "x"] == pytest.approx(100.0)
         assert result.loc[1, "x"] == [101.0, 102.0]
         assert result.loc[2, "x"] == [
             460717.3717217822,

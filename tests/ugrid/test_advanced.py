@@ -72,7 +72,7 @@ class TestCrsHandling:
         )
         reprojected = ds.to_crs(4326)
         assert (
-            reprojected["temp"].data[0] == 25.0
+            reprojected["temp"].data[0] == pytest.approx(25.0)
         ), f"Data should be preserved, got {reprojected['temp'].data[0]}"
 
     def test_to_crs_preserves_topology(self):

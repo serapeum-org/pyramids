@@ -548,7 +548,6 @@ class TestToXarrayErrors:
         """
         nc = _make_3d_nc()
         var = nc.get_variable("temperature")
-        var._raster = var._raster
         nc_fake = NetCDF.__new__(NetCDF)
         nc_fake.__dict__.update(var.__dict__)
         nc_fake._file_name = ""
@@ -589,8 +588,8 @@ class TestGlobalAttributes:
         nc = _make_3d_nc()
         nc.set_global_attribute("version", 2.0)
         ds = nc.to_xarray()
-        assert (
-            ds.attrs.get("version") == 2.0
+        assert ds.attrs.get("version") == pytest.approx(
+            2.0
         ), f"Expected 2.0, got {ds.attrs.get('version')}"
 
 

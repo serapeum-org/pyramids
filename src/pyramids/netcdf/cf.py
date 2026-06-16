@@ -9,6 +9,7 @@ UgridDataset class.
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any
 
@@ -244,9 +245,9 @@ def _extract_proj_params(srs: osr.SpatialReference, proj_name: str) -> dict[str,
     p: dict[str, Any] = {}
     fe = srs.GetProjParm(osr.SRS_PP_FALSE_EASTING, 0.0)
     fn = srs.GetProjParm(osr.SRS_PP_FALSE_NORTHING, 0.0)
-    if fe != 0.0:
+    if not math.isclose(fe, 0.0):
         p["false_easting"] = fe
-    if fn != 0.0:
+    if not math.isclose(fn, 0.0):
         p["false_northing"] = fn
 
     if "Transverse_Mercator" in proj_name:
@@ -278,9 +279,9 @@ def _extract_proj_params(srs: osr.SpatialReference, proj_name: str) -> dict[str,
         )
         sf = srs.GetProjParm(osr.SRS_PP_SCALE_FACTOR, 0.0)
         sp = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
-        if sf != 0.0:
+        if not math.isclose(sf, 0.0):
             p["scale_factor_at_projection_origin"] = sf
-        if sp != 0.0:
+        if not math.isclose(sp, 0.0):
             p["standard_parallel"] = sp
     elif "Polar_Stereographic" in proj_name:
         p["straight_vertical_longitude_from_pole"] = srs.GetProjParm(
@@ -291,9 +292,9 @@ def _extract_proj_params(srs: osr.SpatialReference, proj_name: str) -> dict[str,
         )
         sf = srs.GetProjParm(osr.SRS_PP_SCALE_FACTOR, 0.0)
         sp = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
-        if sf != 0.0:
+        if not math.isclose(sf, 0.0):
             p["scale_factor_at_projection_origin"] = sf
-        if sp != 0.0:
+        if not math.isclose(sp, 0.0):
             p["standard_parallel"] = sp
     elif "Albers" in proj_name:
         p["latitude_of_projection_origin"] = srs.GetProjParm(

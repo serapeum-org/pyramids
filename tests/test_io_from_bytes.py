@@ -93,8 +93,7 @@ class TestSilentUnlink:
             ``None`` without raising (this is what makes it safe inside
             ``weakref.finalize``).
         """
-        result = silent_unlink("/vsimem/this-path-never-existed-xyz.tif")
-        assert result is None, "silent_unlink should swallow the error and return None"
+        silent_unlink("/vsimem/this-path-never-existed-xyz.tif")
 
 
 class TestBytesToGdal:

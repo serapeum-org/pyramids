@@ -212,13 +212,13 @@ class TestApplyValidRangeMask:
         result = apply_valid_range_mask(arr, valid_min=2.5)
         assert np.isnan(result[0]), "1.0 should be masked"
         assert np.isnan(result[1]), "2.0 should be masked"
-        assert result[2] == 3.0, "3.0 should be preserved"
+        assert result[2] == pytest.approx(3.0), "3.0 should be preserved"
 
     def test_valid_max(self):
         """Values above valid_max are replaced with NaN."""
         arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         result = apply_valid_range_mask(arr, valid_max=3.5)
-        assert result[2] == 3.0, "3.0 should be preserved"
+        assert result[2] == pytest.approx(3.0), "3.0 should be preserved"
         assert np.isnan(result[3]), "4.0 should be masked"
         assert np.isnan(result[4]), "5.0 should be masked"
 
@@ -227,8 +227,8 @@ class TestApplyValidRangeMask:
         arr = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
         result = apply_valid_range_mask(arr, valid_range=[1.0, 3.0])
         assert np.isnan(result[0]), "0.0 should be masked"
-        assert result[1] == 1.0, "1.0 should be preserved"
-        assert result[3] == 3.0, "3.0 should be preserved"
+        assert result[1] == pytest.approx(1.0), "1.0 should be preserved"
+        assert result[3] == pytest.approx(3.0), "3.0 should be preserved"
         assert np.isnan(result[4]), "4.0 should be masked"
 
     def test_custom_fill_value(self):

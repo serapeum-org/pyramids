@@ -632,8 +632,8 @@ class TestSelReturnTypeAndMetadata:
         var._scale = 0.01
         var._offset = 273.15
         result = var.sel(time=12)
-        assert result._scale == 0.01, f"Expected scale=0.01, got {result._scale}"
-        assert result._offset == 273.15, f"Expected offset=273.15, got {result._offset}"
+        assert result._scale == pytest.approx(0.01), f"Expected scale=0.01, got {result._scale}"
+        assert result._offset == pytest.approx(273.15), f"Expected offset=273.15, got {result._offset}"
 
     def test_sel_result_supports_unpack(self):
         """read_array(unpack=True) works on a sel() result.

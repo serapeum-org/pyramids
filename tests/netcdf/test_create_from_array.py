@@ -282,7 +282,7 @@ class TestCreateFromArrayGeoParams:
         var = nc.get_variable("v")
         gt = var.geotransform
         assert gt is not None, "Geotransform should not be None"
-        assert gt[1] == 0.5, f"Expected pixel size 0.5, got {gt[1]}"
+        assert gt[1] == pytest.approx(0.5), f"Expected pixel size 0.5, got {gt[1]}"
 
     def test_top_left_corner_and_cell_size(self):
         """``top_left_corner`` + ``cell_size`` should build ``geo`` internally.
@@ -302,7 +302,7 @@ class TestCreateFromArrayGeoParams:
         var = nc.get_variable("v")
         gt = var.geotransform
         assert gt is not None, "Geotransform should not be None"
-        assert gt[1] == 0.5, f"Expected pixel size 0.5, got {gt[1]}"
+        assert gt[1] == pytest.approx(0.5), f"Expected pixel size 0.5, got {gt[1]}"
 
     def test_no_geo_raises(self):
         """Omitting both ``geo`` and ``top_left_corner`` should raise.

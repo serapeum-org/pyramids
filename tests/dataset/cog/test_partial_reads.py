@@ -427,4 +427,4 @@ class TestReadTile:
         tile = straddle_3857.read_tile(1, 0, 0, tilesize=256, band=0)
         assert tile.shape == (256, 256), f"edge tile must keep tilesize: {tile.shape}"
         assert (tile == -1.0).any(), "edge tile should have NoData-padded margin"
-        assert (tile == 1.0).any(), "edge tile should also contain real data"
+        assert np.isclose(tile, 1.0).any(), "edge tile should also contain real data"

@@ -73,7 +73,7 @@ class TestParseNumber:
         Test scenario:
             A missing field falls back to the default sentinel.
         """
-        assert parse_number(None, default=42.0) == 42.0
+        assert parse_number(None, default=42.0) == pytest.approx(42.0)
 
     def test_unparseable_returns_default(self):
         """An unparseable string yields the default.
@@ -81,7 +81,7 @@ class TestParseNumber:
         Test scenario:
             'n/a' cannot be parsed, so the default is returned.
         """
-        assert parse_number("n/a", default=0.0) == 0.0
+        assert parse_number("n/a", default=0.0) == pytest.approx(0.0)
 
     def test_bool_returns_default(self):
         """Booleans are not treated as numbers.

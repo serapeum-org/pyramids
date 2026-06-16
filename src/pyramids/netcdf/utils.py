@@ -370,12 +370,8 @@ def _normalize_origin_string(origin: str) -> str:
         hms.append("0")
     H, M, S = (hms[0].zfill(2), hms[1].zfill(2), hms[2].zfill(2))
 
-    # Support fractional seconds
-    if "." in S:
-        # Keep fractional seconds as-is; datetime.fromisoformat can handle it
-        return f"{y}-{m}-{d} {H}:{M}:{S}"
-    else:
-        return f"{y}-{m}-{d} {H}:{M}:{S}"
+    # Keep fractional seconds as-is; datetime.fromisoformat can handle them.
+    return f"{y}-{m}-{d} {H}:{M}:{S}"
 
 
 def _parse_units_origin(units: str) -> tuple[str, datetime]:

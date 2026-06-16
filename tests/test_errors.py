@@ -67,7 +67,7 @@ class TestPyramidsErrorBase:
             traceability.
         """
         with caplog.at_level(logging.DEBUG):
-            _PyramidsError("base debug test")
+            _ = _PyramidsError("base debug test")
         assert (
             "_PyramidsError: base debug test" in caplog.text
         ), f"Expected '_PyramidsError: base debug test' in log, got: {caplog.text}"

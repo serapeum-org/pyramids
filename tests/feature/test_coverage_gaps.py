@@ -63,7 +63,8 @@ class TestLowLevelCoordHelpers:
         poly = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
         xs = get_poly_coords(poly, "x")
         # First + last are the same (closed ring).
-        assert xs[0] == xs[-1] == 0.0
+        assert xs[0] == pytest.approx(0.0)
+        assert xs[-1] == pytest.approx(0.0)
         assert set(xs) == {0.0, 1.0}
 
 

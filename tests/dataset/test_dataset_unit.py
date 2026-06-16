@@ -290,7 +290,7 @@ class TestScaleOffset:
         """Setting scale should update GDAL band scale."""
         single_band_dataset.scale = [0.5]
         assert (
-            single_band_dataset._iloc(0).GetScale() == 0.5
+            single_band_dataset._iloc(0).GetScale() == pytest.approx(0.5)
         ), "GDAL band scale not updated by setter"
 
     def test_offset_default(self, single_band_dataset):
@@ -301,7 +301,7 @@ class TestScaleOffset:
         """Setting offset should update GDAL band offset."""
         single_band_dataset.offset = [100.0]
         assert (
-            single_band_dataset._iloc(0).GetOffset() == 100.0
+            single_band_dataset._iloc(0).GetOffset() == pytest.approx(100.0)
         ), "GDAL band offset not updated by setter"
 
     def test_multi_band_scale_offset(self, multi_band_dataset):
@@ -714,8 +714,8 @@ class TestWriteArray:
         patch = np.array([[99.0, 99.0], [99.0, 99.0]], dtype=np.float32)
         ds.write_array(patch, top_left_corner=[0, 0])
         result = ds.read_array()
-        assert result[0, 0] == 99.0, "Top-left cell should be 99 after write"
-        assert result[0, 1] == 99.0, "Cell (0,1) should be 99 after write"
+        assert result[0, 0] == pytest.approx(99.0), "Top-left cell should be 99 after write"
+        assert result[0, 1] == pytest.approx(99.0), "Cell (0,1) should be 99 after write"
 
     def test_write_array_with_offset(self):
         """write_array with offset should write at the given position."""
@@ -730,9 +730,9 @@ class TestWriteArray:
         patch = np.array([[7.0, 8.0], [9.0, 10.0]], dtype=np.float32)
         ds.write_array(patch, top_left_corner=[1, 1])
         result = ds.read_array()
-        assert result[1, 1] == 7.0, "Offset write failed at (1,1)"
-        assert result[2, 2] == 10.0, "Offset write failed at (2,2)"
-        assert result[0, 0] == 0.0, "Cell outside patch should be unchanged"
+        assert result[1, 1] == pytest.approx(7.0), "Offset write failed at (1,1)"
+        assert result[2, 2] == pytest.approx(10.0), "Offset write failed at (2,2)"
+        assert result[0, 0] == pytest.approx(0.0), "Cell outside patch should be unchanged"
 
 
 class TestSetNoDataValueErrors:
@@ -1283,7 +1283,7 @@ class TestDatasetProperties:
     def test_cell_size_property(self, single_band_dataset):
         """cell_size should match the value passed during creation."""
         assert (
-            single_band_dataset.cell_size == 0.05
+            single_band_dataset.cell_size == pytest.approx(0.05)
         ), "cell_size property does not match"
 
     def test_driver_type_property(self, single_band_dataset):
@@ -1326,7 +1326,7 @@ class TestDatasetProperties:
         """geotransform should return a 6-element tuple."""
         gt = single_band_dataset.geotransform
         assert len(gt) == 6, f"Geotransform should have 6 elements, got {len(gt)}"
-        assert gt[1] == 0.05, "Cell size in geotransform is wrong"
+        assert gt[1] == pytest.approx(0.05), "Cell size in geotransform is wrong"
 
     def test_str_repr(self, single_band_dataset):
         """__str__ and __repr__ should return strings."""
@@ -1897,7 +1897,7 @@ class TestResample:
         """Resampling to a larger cell size should reduce rows/columns."""
         resampled = single_band_dataset.resample(cell_size=0.1)
         assert (
-            resampled.cell_size == 0.1
+            resampled.cell_size == pytest.approx(0.1)
         ), f"Cell size should be 0.1, got {resampled.cell_size}"
         # Original is 3x3 with 0.05 cell size -> 0.15 extent
         # With 0.1 cell size -> floor(0.15/0.1) = 2 (or 1, depending on rounding)
@@ -2140,7 +2140,7 @@ class TestWriteArrayErrors:
         ds.write_array(new_data, top_left_corner=[0, 0])
         result = ds.read_array()
         assert np.all(
-            result == 77.0
+            result == pytest.approx(77.0)
         ), "All cells should be 77 after writing with None top_left"
 
 
@@ -2709,7 +2709,7 @@ class TestNearestNeighbour:
         # Cell (1,2) is last col, so right check skipped.
         # Left (1,1) = 5.0 != nd -> filled
         result = Vectorize._nearest_neighbour(arr.copy(), nd, [1], [2])
-        assert result[1, 2] == 5.0, "Cell at last col should fill from left"
+        assert result[1, 2] == pytest.approx(5.0), "Cell at last col should fill from left"
 
     def test_nearest_neighbour_above_neighbor(self):
         """_nearest_neighbour fills from above at last col, col-1=0."""
@@ -2744,7 +2744,7 @@ class TestNearestNeighbour:
         )
         # Cell (1,2) at last col. Left (1,1)=5.0, cols[i]-1=1 > 0
         result = Vectorize._nearest_neighbour(arr2.copy(), nd, [1], [2])
-        assert result[1, 2] == 5.0, "Cell should be filled from left neighbor"
+        assert result[1, 2] == pytest.approx(5.0), "Cell should be filled from left neighbor"
 
 
 class TestMapToArrayCoordinates:
@@ -3970,7 +3970,7 @@ class TestToFeatureCollection:
         )
         df = ds.to_feature_collection()
         assert len(df) == 1, f"Expected 1 row, got {len(df)}"
-        assert df.iloc[0, 0] == 42.0, f"Expected value 42.0, got {df.iloc[0, 0]}"
+        assert df.iloc[0, 0] == pytest.approx(42.0), f"Expected value 42.0, got {df.iloc[0, 0]}"
 
     def test_to_feature_collection_column_names_match_band_names(
         self, multi_band_dataset
@@ -4765,7 +4765,7 @@ class TestInplaceConsistency:
         assert result is not None, "resample should return a Dataset"
         assert isinstance(result, Dataset), f"Expected Dataset, got {type(result)}"
         assert (
-            result.cell_size == 0.1
+            result.cell_size == pytest.approx(0.1)
         ), f"Cell size should be 0.1 after resample, got {result.cell_size}"
         assert (
             single_band_dataset.cell_size == original_cell_size
@@ -4794,7 +4794,7 @@ class TestInplaceConsistency:
         result = single_band_dataset.apply(lambda x: x * 2, inplace=True)
         assert result is single_band_dataset, "inplace apply should return self"
         arr = single_band_dataset.read_array()
-        assert arr[0, 0] == 2.0, f"Expected 2.0 after doubling, got {arr[0, 0]}"
+        assert arr[0, 0] == pytest.approx(2.0), f"Expected 2.0 after doubling, got {arr[0, 0]}"
 
     def test_apply_not_inplace_returns_new_dataset(self, single_band_dataset):
         """apply(inplace=False) should return a new Dataset without modifying the original."""

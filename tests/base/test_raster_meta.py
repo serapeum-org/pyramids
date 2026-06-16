@@ -68,7 +68,7 @@ class TestEpsg:
 
 class TestCellSize:
     def test_absolute_x_resolution(self, basic_meta):
-        assert basic_meta.cell_size == 1.0
+        assert basic_meta.cell_size == pytest.approx(1.0)
 
     def test_negative_x_sign_ignored(self):
         meta = RasterMeta(
@@ -79,7 +79,7 @@ class TestCellSize:
             transform=(0.0, -2.0, 0.0, 0.0, 0.0, -2.0),
             crs=CRS.from_epsg(4326),
         )
-        assert meta.cell_size == 2.0
+        assert meta.cell_size == pytest.approx(2.0)
 
 
 class TestGeotransform:
@@ -102,7 +102,7 @@ class TestFromDataset:
         assert meta.columns == 5
         assert meta.epsg == 4326
         assert meta.shape == (1, 4, 5)
-        assert meta.cell_size == 1.0
+        assert meta.cell_size == pytest.approx(1.0)
 
     def test_dtype_derived_from_gdal_band_when_numpy_dtype_empty(
         self,

@@ -97,7 +97,7 @@ class TestSetGlobalAttribute:
         """
         nc = _make_nc()
         nc.set_global_attribute("version", 2.5)
-        assert nc.global_attributes["version"] == 2.5, f"Float not stored correctly"
+        assert nc.global_attributes["version"] == pytest.approx(2.5), f"Float not stored correctly"
 
     def test_int_value(self):
         """Setting an int attribute should store it correctly.

@@ -76,10 +76,10 @@ class TestMesh2dProperties:
             Nodes span x=[0,2], y=[0,1].
         """
         xmin, ymin, xmax, ymax = triangle_mesh.bounds
-        assert xmin == 0.0, f"Expected xmin=0.0, got {xmin}"
-        assert ymin == 0.0, f"Expected ymin=0.0, got {ymin}"
-        assert xmax == 2.0, f"Expected xmax=2.0, got {xmax}"
-        assert ymax == 1.0, f"Expected ymax=1.0, got {ymax}"
+        assert xmin == pytest.approx(0.0), f"Expected xmin=0.0, got {xmin}"
+        assert ymin == pytest.approx(0.0), f"Expected ymin=0.0, got {ymin}"
+        assert xmax == pytest.approx(2.0), f"Expected xmax=2.0, got {xmax}"
+        assert ymax == pytest.approx(1.0), f"Expected ymax=1.0, got {ymax}"
 
     def test_bounds_mixed(self, mixed_mesh):
         """Test bounds for mixed mesh.
@@ -88,10 +88,10 @@ class TestMesh2dProperties:
             Nodes span x=[0,2], y=[0,1].
         """
         xmin, ymin, xmax, ymax = mixed_mesh.bounds
-        assert xmin == 0.0, f"Expected xmin=0.0, got {xmin}"
-        assert ymin == 0.0, f"Expected ymin=0.0, got {ymin}"
-        assert xmax == 2.0, f"Expected xmax=2.0, got {xmax}"
-        assert ymax == 1.0, f"Expected ymax=1.0, got {ymax}"
+        assert xmin == pytest.approx(0.0), f"Expected xmin=0.0, got {xmin}"
+        assert ymin == pytest.approx(0.0), f"Expected ymin=0.0, got {ymin}"
+        assert xmax == pytest.approx(2.0), f"Expected xmax=2.0, got {xmax}"
+        assert ymax == pytest.approx(1.0), f"Expected ymax=1.0, got {ymax}"
 
 
 class TestMesh2dFaceCentroids:
@@ -134,8 +134,8 @@ class TestMesh2dFaceCentroids:
             face_y=face_y,
         )
         cx, cy = mesh.face_centroids
-        assert cx[0] == 99.0, f"Expected provided face_x=99.0, got {cx[0]}"
-        assert cy[0] == 99.0, f"Expected provided face_y=99.0, got {cy[0]}"
+        assert cx[0] == pytest.approx(99.0), f"Expected provided face_x=99.0, got {cx[0]}"
+        assert cy[0] == pytest.approx(99.0), f"Expected provided face_y=99.0, got {cy[0]}"
 
     def test_centroids_cached(self, triangle_mesh):
         """Test that centroids are cached after first computation.

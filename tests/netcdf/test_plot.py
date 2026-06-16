@@ -357,7 +357,7 @@ class TestNetCDFPlotColourForwarding:
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
             nc.plot(variable="t2m", colour=ColourOpts(center=0.0))
-        assert mock_plot.call_args.kwargs.get("center") == 0.0
+        assert mock_plot.call_args.kwargs.get("center") == pytest.approx(0.0)
 
     def test_robust_default_not_forwarded(self):
         """`robust=False` (the default) is NOT forwarded to keep kwargs lean."""
@@ -877,8 +877,8 @@ class TestNetCDFPlotForwardingExtra:
             mock_plot.return_value = "ok"
             nc.plot(variable="t2m", colour=ColourOpts(vmin=0.0, vmax=1.0))
         kw = mock_plot.call_args.kwargs
-        assert kw.get("vmin") == 0.0, f"vmin not forwarded: {kw}"
-        assert kw.get("vmax") == 1.0, f"vmax not forwarded: {kw}"
+        assert kw.get("vmin") == pytest.approx(0.0), f"vmin not forwarded: {kw}"
+        assert kw.get("vmax") == pytest.approx(1.0), f"vmax not forwarded: {kw}"
 
     def test_basemap_without_epsg_raises(self):
         """``basemap=True`` on a CRS-less subset must surface the underlying ValueError.
