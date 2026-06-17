@@ -31,6 +31,7 @@ import warnings
 from numbers import Number
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable
+from urllib.parse import urlencode
 
 if TYPE_CHECKING:
     from pyramids.dataset import Dataset
@@ -1548,6 +1549,92 @@ class FeatureCollection(GeoDataFrame):
             if len(fc) > 0:
                 result[name] = fc
         return result
+
+    @classmethod
+    def _read_featureserver_page(cls, page_url: str) -> FeatureCollection:
+        """Read one ESRIJSON page from an ArcGIS FeatureServer query URL.
+
+        Isolated so :meth:`from_featureserver`'s pagination can be unit-tested without a live endpoint.
+
+        Args:
+            page_url: A fully-formed ``.../query?...&f=json&resultOffset=...`` URL.
+
+        Returns:
+            FeatureCollection: The features in this page (possibly empty).
+        """
+        return cls.read_file(page_url)
+
+    @classmethod
+    def from_featureserver(
+        cls,
+        url: str,
+        *,
+        where: str = "1=1",
+        out_fields: str = "*",
+        max_records: int | None = None,
+        page_size: int = 1000,
+    ) -> FeatureCollection:
+        """Read an ArcGIS **FeatureServer** layer into a FeatureCollection, following pagination.
+
+        FeatureServer endpoints cap the number of records returned per request (``maxRecordCount``), so reading
+        a large layer requires paging through it. This issues ``.../query`` requests with increasing
+        ``resultOffset`` until the server stops returning new features (or ``max_records`` is reached) and
+        concatenates the pages. Generic ArcGIS REST access over GDAL's ESRIJSON driver — no provider-specific
+        auth.
+
+        Args:
+            url: A FeatureServer layer URL (with or without a trailing ``/query``).
+            where: SQL ``where`` filter. Defaults to ``"1=1"`` (all features).
+            out_fields: Comma-separated attribute fields to fetch, or ``"*"`` for all.
+            max_records: Cap on the total number of features read, or ``None`` for all.
+            page_size: Records requested per page (``resultRecordCount``). The server may return fewer.
+
+        Returns:
+            FeatureCollection: All features across the paged responses (empty if the layer has none).
+
+        Examples:
+            - Read a public FeatureServer layer (network call — skipped in doctests):
+                ```python
+                >>> from pyramids.feature import FeatureCollection
+                >>> fc = FeatureCollection.from_featureserver(  # doctest: +SKIP
+                ...     "https://services.arcgis.com/.../FeatureServer/0", where="STATE='CA'"
+                ... )
+
+                ```
+        """
+        base = url.split("?", 1)[0].rstrip("/")
+        if not base.lower().endswith("/query"):
+            base = f"{base}/query"
+        pages: list[FeatureCollection] = []
+        offset = 0
+        fetched = 0
+        while max_records is None or fetched < max_records:
+            this_page = page_size if max_records is None else min(page_size, max_records - fetched)
+            query = urlencode(
+                {
+                    "where": where,
+                    "outFields": out_fields,
+                    "f": "json",
+                    "resultOffset": offset,
+                    "resultRecordCount": this_page,
+                }
+            )
+            page = cls._read_featureserver_page(f"{base}?{query}")
+            count = len(page)
+            if count == 0:
+                break
+            pages.append(page)
+            fetched += count
+            offset += count
+            if count < this_page:  # last (short) page
+                break
+        if pages:
+            combined = pages[0]
+            for extra in pages[1:]:
+                combined = combined.concat(extra)
+        else:
+            combined = cls(gpd.GeoDataFrame(geometry=[]))
+        return combined
 
     @classmethod
     def open_arrow(
