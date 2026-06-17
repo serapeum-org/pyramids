@@ -110,56 +110,45 @@ def _ijk_to_hex2d(h):
     return [i - 0.5 * j, j * M_SQRT3_2]
 
 
+def _hex2d_round(r1, r2, m1, m2):
+    """Quantize sub-cell offsets ``(r1, r2)`` to integer ``(i, j)`` (DGGRID rounding)."""
+    if r1 < 0.5:
+        if r1 < 1.0 / 3.0:
+            return (m1, m2) if r2 < (1.0 + r1) / 2.0 else (m1, m2 + 1)
+        j = m2 if r2 < (1.0 - r1) else m2 + 1
+        i = m1 + 1 if (1.0 - r1) <= r2 < (2.0 * r1) else m1
+        return i, j
+    if r1 < 2.0 / 3.0:
+        j = m2 if r2 < (1.0 - r1) else m2 + 1
+        i = m1 if (2.0 * r1 - 1.0) < r2 < (1.0 - r1) else m1 + 1
+        return i, j
+    return (m1 + 1, m2) if r2 < (r1 / 2.0) else (m1 + 1, m2 + 1)
+
+
+def _hex2d_fold(h, x, y):
+    """Fold ijk across the i/j axes for negative-quadrant hex2d coordinates (in place)."""
+    if x < 0.0:
+        if (h[1] % 2) == 0:
+            diff = h[0] - h[1] // 2
+            h[0] = int(h[0] - 2.0 * diff)
+        else:
+            diff = h[0] - (h[1] + 1) // 2
+            h[0] = int(h[0] - (2.0 * diff + 1))
+    if y < 0.0:
+        h[0] = h[0] - (2 * h[1] + 1) // 2
+        h[1] = -h[1]
+
+
 def _hex2d_to_coord_ijk(x, y):
-    h = [0, 0, 0]
     a1 = abs(x)
     a2 = abs(y)
     x2 = a2 * M_RSIN60
     x1 = a1 + x2 / 2.0
     m1 = int(x1)
     m2 = int(x2)
-    r1 = x1 - m1
-    r2 = x2 - m2
-    if r1 < 0.5:
-        if r1 < 1.0 / 3.0:
-            if r2 < (1.0 + r1) / 2.0:
-                h[0] = m1
-                h[1] = m2
-            else:
-                h[0] = m1
-                h[1] = m2 + 1
-        else:
-            h[1] = m2 if r2 < (1.0 - r1) else m2 + 1
-            if (1.0 - r1) <= r2 < (2.0 * r1):
-                h[0] = m1 + 1
-            else:
-                h[0] = m1
-    else:
-        if r1 < 2.0 / 3.0:
-            h[1] = m2 if r2 < (1.0 - r1) else m2 + 1
-            if (2.0 * r1 - 1.0) < r2 < (1.0 - r1):
-                h[0] = m1
-            else:
-                h[0] = m1 + 1
-        else:
-            if r2 < (r1 / 2.0):
-                h[0] = m1 + 1
-                h[1] = m2
-            else:
-                h[0] = m1 + 1
-                h[1] = m2 + 1
-    if x < 0.0:
-        if (h[1] % 2) == 0:
-            axisi = h[1] // 2
-            diff = h[0] - axisi
-            h[0] = int(h[0] - 2.0 * diff)
-        else:
-            axisi = (h[1] + 1) // 2
-            diff = h[0] - axisi
-            h[0] = int(h[0] - (2.0 * diff + 1))
-    if y < 0.0:
-        h[0] = h[0] - (2 * h[1] + 1) // 2
-        h[1] = -h[1]
+    i, j = _hex2d_round(x1 - m1, x2 - m2, m1, m2)
+    h = [i, j, 0]
+    _hex2d_fold(h, x, y)
     _ijk_normalize(h)
     return h
 
@@ -470,6 +459,21 @@ def _hex2d_to_vec3(x, y, face, res, substrate):
     return _v3_normalize(_v3_lincomb(math.cos(r), FACE_CENTER_POINT[face], math.sin(r), direction))
 
 
+def _overage_orient(face, ijk, max_dim, pent_leading4):
+    """Pick the adjacent-face orientation for an overage point and apply pentagon-gap rotation (in place)."""
+    if ijk[2] > 0:
+        if ijk[1] > 0:
+            return FACE_NEIGHBORS[face][JK]
+        orient = FACE_NEIGHBORS[face][KI]
+        if pent_leading4:
+            origin = [max_dim, 0, 0]
+            tmp = _ijk_sub(ijk, origin)
+            _ijk_rotate60cw(tmp)
+            ijk[:] = _ijk_add(tmp, origin)
+        return orient
+    return FACE_NEIGHBORS[face][IJ]
+
+
 def _adjust_overage_class_ii(face, ijk, res, pent_leading4, substrate):
     overage = NO_OVERAGE
     max_dim = MAX_DIM_BY_CII_RES[res]
@@ -477,32 +481,18 @@ def _adjust_overage_class_ii(face, ijk, res, pent_leading4, substrate):
         max_dim *= 3
     total = ijk[0] + ijk[1] + ijk[2]
     if substrate and total == max_dim:
+        return face, FACE_EDGE
+    if total <= max_dim:
+        return face, overage
+    overage = NEW_FACE
+    orient = _overage_orient(face, ijk, max_dim, pent_leading4)
+    face = orient[0]
+    for _ in range(orient[4]):
+        _ijk_rotate60ccw(ijk)
+    unit_scale = UNIT_SCALE_BY_CII_RES[res] * (3 if substrate else 1)
+    ijk[:] = _ijk_normalize(_ijk_add(ijk, _ijk_scale([orient[1], orient[2], orient[3]], unit_scale)))
+    if substrate and ijk[0] + ijk[1] + ijk[2] == max_dim:
         overage = FACE_EDGE
-    elif total > max_dim:
-        overage = NEW_FACE
-        if ijk[2] > 0:
-            if ijk[1] > 0:
-                orient = FACE_NEIGHBORS[face][JK]
-            else:
-                orient = FACE_NEIGHBORS[face][KI]
-                if pent_leading4:
-                    origin = [max_dim, 0, 0]
-                    tmp = _ijk_sub(ijk, origin)
-                    _ijk_rotate60cw(tmp)
-                    ijk[:] = _ijk_add(tmp, origin)
-        else:
-            orient = FACE_NEIGHBORS[face][IJ]
-        face = orient[0]
-        for _ in range(orient[4]):
-            _ijk_rotate60ccw(ijk)
-        trans = [orient[1], orient[2], orient[3]]
-        unit_scale = UNIT_SCALE_BY_CII_RES[res]
-        if substrate:
-            unit_scale *= 3
-        trans = _ijk_scale(trans, unit_scale)
-        ijk[:] = _ijk_normalize(_ijk_add(ijk, trans))
-        if substrate and ijk[0] + ijk[1] + ijk[2] == max_dim:
-            overage = FACE_EDGE
     return face, overage
 
 
@@ -532,89 +522,92 @@ def _faceijk_to_verts(face, coord, res, n_verts):
     return adj_res, out
 
 
-def _faceijk_to_cell_boundary(face, coord, res, is_pentagon):
-    n_verts = NUM_PENT_VERTS if is_pentagon else NUM_HEX_VERTS
-    adj_res, fijk_verts = _faceijk_to_verts(face, list(coord), res, n_verts)
+def _icosa_edge_endpoints(max_dim, d):
+    """Return the two icosa-face-edge endpoints (hex2d) for adjacent-face direction ``d``."""
+    v0 = (3.0 * max_dim, 0.0)
+    v1 = (-1.5 * max_dim, 3.0 * M_SQRT3_2 * max_dim)
+    v2 = (-1.5 * max_dim, -3.0 * M_SQRT3_2 * max_dim)
+    if d == IJ:
+        return v0, v1
+    if d == JK:
+        return v1, v2
+    return v2, v0
+
+
+def _project_coord(coord, face, adj_res):
+    """Project a substrate hex2d cell coordinate to a ``(lat, lng)`` radian pair."""
+    vec = _ijk_to_hex2d(coord)
+    return _vec3_to_latlng(_hex2d_to_vec3(vec[0], vec[1], face, adj_res, 1))
+
+
+def _faceijk_hex_boundary(face, coord, res):
+    adj_res, fijk_verts = _faceijk_to_verts(face, list(coord), res, NUM_HEX_VERTS)
     center_face = face
-    additional = 1
     out = []
     last_face = -1
     last_overage = NO_OVERAGE
-    last_fijk = [0, [0, 0, 0]]
-    start = 0
-    length = n_verts
-    for vert in range(start, start + length + additional):
-        v = vert % n_verts
-        vface = fijk_verts[v][0]
-        vcoord = list(fijk_verts[v][1])
-        if is_pentagon:
-            vface, _ = _adjust_pent_vert_overage(vface, vcoord, adj_res)
-        else:
-            vface, overage = _adjust_overage_class_ii(vface, vcoord, adj_res, 0, 1)
-
-        if is_pentagon:
-            if is_class_iii(res) and vert > start:
-                orig2d0 = _ijk_to_hex2d(last_fijk[1])
-                tmp_face = vface
-                tmp_coord = list(vcoord)
-                cur_to_last = ADJACENT_FACE_DIR[tmp_face][last_fijk[0]]
-                orient = FACE_NEIGHBORS[tmp_face][cur_to_last]
-                tmp_face = orient[0]
-                for _ in range(orient[4]):
-                    _ijk_rotate60ccw(tmp_coord)
-                trans = _ijk_scale([orient[1], orient[2], orient[3]], UNIT_SCALE_BY_CII_RES[adj_res] * 3)
-                tmp_coord = _ijk_normalize(_ijk_add(tmp_coord, trans))
-                orig2d1 = _ijk_to_hex2d(tmp_coord)
-                max_dim = MAX_DIM_BY_CII_RES[adj_res]
-                v0 = (3.0 * max_dim, 0.0)
-                v1 = (-1.5 * max_dim, 3.0 * M_SQRT3_2 * max_dim)
-                v2 = (-1.5 * max_dim, -3.0 * M_SQRT3_2 * max_dim)
-                d = ADJACENT_FACE_DIR[tmp_face][vface]
-                edge0, edge1 = (v0, v1) if d == IJ else (v1, v2) if d == JK else (v2, v0)
-                inter = _v2d_intersect(orig2d0, orig2d1, edge0, edge1)
-                v3 = _hex2d_to_vec3(inter[0], inter[1], tmp_face, adj_res, 1)
-                out.append(_vec3_to_latlng(v3))
-            if vert < start + NUM_PENT_VERTS:
-                vec = _ijk_to_hex2d(vcoord)
-                v3 = _hex2d_to_vec3(vec[0], vec[1], vface, adj_res, 1)
-                out.append(_vec3_to_latlng(v3))
-            last_fijk = [vface, vcoord]
-        else:
-            if is_class_iii(res) and vert > start and vface != last_face and last_overage != FACE_EDGE:
-                last_v = (v + 5) % NUM_HEX_VERTS
-                orig2d0 = _ijk_to_hex2d(fijk_verts[last_v][1])
-                orig2d1 = _ijk_to_hex2d(fijk_verts[v][1])
-                max_dim = MAX_DIM_BY_CII_RES[adj_res]
-                v0 = (3.0 * max_dim, 0.0)
-                v1 = (-1.5 * max_dim, 3.0 * M_SQRT3_2 * max_dim)
-                v2 = (-1.5 * max_dim, -3.0 * M_SQRT3_2 * max_dim)
-                face2 = vface if last_face == center_face else last_face
-                d = ADJACENT_FACE_DIR[center_face][face2]
-                edge0, edge1 = (v0, v1) if d == IJ else (v1, v2) if d == JK else (v2, v0)
-                inter = _v2d_intersect(orig2d0, orig2d1, edge0, edge1)
-                if not (_v2d_almost_equals(orig2d0, inter) or _v2d_almost_equals(orig2d1, inter)):
-                    v3 = _hex2d_to_vec3(inter[0], inter[1], center_face, adj_res, 1)
-                    out.append(_vec3_to_latlng(v3))
-            if vert < start + NUM_HEX_VERTS:
-                vec = _ijk_to_hex2d(vcoord)
-                v3 = _hex2d_to_vec3(vec[0], vec[1], vface, adj_res, 1)
-                out.append(_vec3_to_latlng(v3))
-            last_face = vface
-            last_overage = overage
+    for vert in range(NUM_HEX_VERTS + 1):
+        v = vert % NUM_HEX_VERTS
+        vface, vcoord = fijk_verts[v][0], list(fijk_verts[v][1])
+        vface, overage = _adjust_overage_class_ii(vface, vcoord, adj_res, 0, 1)
+        if is_class_iii(res) and vert > 0 and vface != last_face and last_overage != FACE_EDGE:
+            orig2d0 = _ijk_to_hex2d(fijk_verts[(v + 5) % NUM_HEX_VERTS][1])
+            orig2d1 = _ijk_to_hex2d(fijk_verts[v][1])
+            face2 = vface if last_face == center_face else last_face
+            edge0, edge1 = _icosa_edge_endpoints(MAX_DIM_BY_CII_RES[adj_res], ADJACENT_FACE_DIR[center_face][face2])
+            inter = _v2d_intersect(orig2d0, orig2d1, edge0, edge1)
+            if not (_v2d_almost_equals(orig2d0, inter) or _v2d_almost_equals(orig2d1, inter)):
+                out.append(_vec3_to_latlng(_hex2d_to_vec3(inter[0], inter[1], center_face, adj_res, 1)))
+        if vert < NUM_HEX_VERTS:
+            out.append(_project_coord(vcoord, vface, adj_res))
+        last_face = vface
+        last_overage = overage
     return out
+
+
+def _pent_edge_point(last_fijk, vface, vcoord, adj_res):
+    """Compute the icosa-edge-crossing vertex between two pentagon boundary vertices."""
+    orig2d0 = _ijk_to_hex2d(last_fijk[1])
+    tmp_coord = list(vcoord)
+    orient = FACE_NEIGHBORS[vface][ADJACENT_FACE_DIR[vface][last_fijk[0]]]
+    tmp_face = orient[0]
+    for _ in range(orient[4]):
+        _ijk_rotate60ccw(tmp_coord)
+    trans = _ijk_scale([orient[1], orient[2], orient[3]], UNIT_SCALE_BY_CII_RES[adj_res] * 3)
+    tmp_coord = _ijk_normalize(_ijk_add(tmp_coord, trans))
+    orig2d1 = _ijk_to_hex2d(tmp_coord)
+    edge0, edge1 = _icosa_edge_endpoints(MAX_DIM_BY_CII_RES[adj_res], ADJACENT_FACE_DIR[tmp_face][vface])
+    inter = _v2d_intersect(orig2d0, orig2d1, edge0, edge1)
+    return _vec3_to_latlng(_hex2d_to_vec3(inter[0], inter[1], tmp_face, adj_res, 1))
+
+
+def _faceijk_pent_boundary(face, coord, res):
+    adj_res, fijk_verts = _faceijk_to_verts(face, list(coord), res, NUM_PENT_VERTS)
+    out = []
+    last_fijk = [0, [0, 0, 0]]
+    for vert in range(NUM_PENT_VERTS + 1):
+        v = vert % NUM_PENT_VERTS
+        vface, vcoord = fijk_verts[v][0], list(fijk_verts[v][1])
+        vface, _ = _adjust_pent_vert_overage(vface, vcoord, adj_res)
+        if is_class_iii(res) and vert > 0:
+            out.append(_pent_edge_point(last_fijk, vface, vcoord, adj_res))
+        if vert < NUM_PENT_VERTS:
+            out.append(_project_coord(vcoord, vface, adj_res))
+        last_fijk = [vface, vcoord]
+    return out
+
+
+def _faceijk_to_cell_boundary(face, coord, res, is_pentagon):
+    if is_pentagon:
+        return _faceijk_pent_boundary(face, coord, res)
+    return _faceijk_hex_boundary(face, coord, res)
 
 
 # --- faceijk <-> H3 index ---
 
 
-def _faceijk_to_h3(face, coord, res):
-    h = H3_INIT
-    h = _set_field(h, H3_CELL_MODE, 59, 4)
-    h = _set_field(h, res, 52, 4)
-    if res == 0:
-        h = _set_field(h, _face_ijk_to_base_cell(face, coord), 45, 7)
-        return h
-    ijk = list(coord)
+def _faceijk_set_digits(h, ijk, res):
+    """Walk the cell up the aperture-7 hierarchy, setting each resolution's index digit (ijk left at res 0)."""
     for r in range(res - 1, -1, -1):
         last = list(ijk)
         if is_class_iii(r + 1):
@@ -627,9 +620,11 @@ def _faceijk_to_h3(face, coord, res):
             _down_ap7r(center)
         diff = _ijk_normalize(_ijk_sub(last, center))
         h = _set_index_digit(h, r + 1, _unit_ijk_to_digit(diff))
-    base_cell = _face_ijk_to_base_cell(face, ijk)
-    h = _set_field(h, base_cell, 45, 7)
-    num_rots = _face_ijk_to_base_cell_ccw_rot60(face, ijk)
+    return h
+
+
+def _apply_base_cell_rotation(h, base_cell, face, num_rots):
+    """Apply the base-cell ccw rotations, with the pentagon leading-K and pent-rotation adjustments."""
     if _is_base_cell_pentagon(base_cell):
         if _h3_leading_nonzero_digit(h) == K_AXES_DIGIT:
             if _base_cell_is_cw_offset(base_cell, face):
@@ -644,6 +639,39 @@ def _faceijk_to_h3(face, coord, res):
     return h
 
 
+def _faceijk_to_h3(face, coord, res):
+    h = H3_INIT
+    h = _set_field(h, H3_CELL_MODE, 59, 4)
+    h = _set_field(h, res, 52, 4)
+    if res == 0:
+        return _set_field(h, _face_ijk_to_base_cell(face, coord), 45, 7)
+    ijk = list(coord)
+    h = _faceijk_set_digits(h, ijk, res)
+    base_cell = _face_ijk_to_base_cell(face, ijk)
+    h = _set_field(h, base_cell, 45, 7)
+    num_rots = _face_ijk_to_base_cell_ccw_rot60(face, ijk)
+    return _apply_base_cell_rotation(h, base_cell, face, num_rots)
+
+
+def _h3_faceijk_overage(face, coord, h, base_cell, res, orig):
+    """Apply the class-II overage adjustment that relocates a cell onto its correct icosa face."""
+    adj_res = res
+    if is_class_iii(res):
+        _down_ap7r(coord)
+        adj_res += 1
+    pent_leading4 = _is_base_cell_pentagon(base_cell) and _h3_leading_nonzero_digit(h) == 4
+    face, overage = _adjust_overage_class_ii(face, coord, adj_res, 1 if pent_leading4 else 0, 0)
+    if overage == NO_OVERAGE:
+        return face, (list(orig) if adj_res != res else coord)
+    if _is_base_cell_pentagon(base_cell):
+        ov = overage
+        while ov != NO_OVERAGE:
+            face, ov = _adjust_overage_class_ii(face, coord, adj_res, 0, 0)
+    if adj_res != res:
+        _up_ap7r(coord)
+    return face, coord
+
+
 def _h3_to_faceijk(h):
     base_cell = _get_base_cell(h)
     if _is_base_cell_pentagon(base_cell) and _h3_leading_nonzero_digit(h) == 5:
@@ -651,39 +679,18 @@ def _h3_to_faceijk(h):
     face, coord = _base_cell_home_fijk(base_cell)
     coord = list(coord)
     res = _get_resolution(h)
-
-    possible_overage = 1
-    if not _is_base_cell_pentagon(base_cell) and (res == 0 or coord == [0, 0, 0]):
-        possible_overage = 0
+    possible_overage = not (
+        not _is_base_cell_pentagon(base_cell) and (res == 0 or coord == [0, 0, 0])
+    )
     for r in range(1, res + 1):
         if is_class_iii(r):
             _down_ap7(coord)
         else:
             _down_ap7r(coord)
         _neighbor(coord, _get_index_digit(h, r))
-
     if not possible_overage:
         return face, coord
-
-    orig = list(coord)
-    adj_res = res
-    if is_class_iii(res):
-        _down_ap7r(coord)
-        adj_res += 1
-    pent_leading4 = _is_base_cell_pentagon(base_cell) and _h3_leading_nonzero_digit(h) == 4
-    face2, overage = _adjust_overage_class_ii(face, coord, adj_res, 1 if pent_leading4 else 0, 0)
-    face = face2
-    if overage != NO_OVERAGE:
-        if _is_base_cell_pentagon(base_cell):
-            while True:
-                face, ov = _adjust_overage_class_ii(face, coord, adj_res, 0, 0)
-                if ov == NO_OVERAGE:
-                    break
-        if adj_res != res:
-            _up_ap7r(coord)
-    elif adj_res != res:
-        coord = orig
-    return face, coord
+    return _h3_faceijk_overage(face, coord, h, base_cell, res, list(coord))
 
 
 # --- public API ---
