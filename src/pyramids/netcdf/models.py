@@ -408,6 +408,19 @@ class VariableInfo:
     structural_info: dict[str, str] | None = None
     block_size: list[int] | None = None
 
+    def __str__(self) -> str:
+        """One-line summary: name, dimensions, shape, dtype, and packing/unit when present."""
+        dtype = self.dtype if len(self.dtype) < 20 else "unknown"
+        summary = (
+            f"{self.name} dims={tuple(self.dimensions)} "
+            f"shape={tuple(self.shape)} dtype={dtype}"
+        )
+        if self.unit:
+            summary += f" unit={self.unit!r}"
+        if self.scale not in (None, 1):
+            summary += f" scale={self.scale} offset={self.offset}"
+        return summary
+
     @classmethod
     def from_md_array(
         cls, md_arr: gdal.MDArray, md_arr_name: str, group_full_name: str
@@ -752,8 +765,7 @@ class NetCDFMetadata:
         max_display = MAX_DISPLAY_VARIABLES
         arr_list = list(self.variables.values())
         for arr in arr_list[:max_display]:
-            dtype_str = arr.dtype if len(arr.dtype) < 20 else "unknown"
-            var_lines.append(f"    {arr.name:20s} {dtype_str:10s} {list(arr.shape)}")
+            var_lines.append(f"    {arr}")
         if len(arr_list) > max_display:
             var_lines.append(f"    ... and {len(arr_list) - max_display} more")
         vars_str = "\n".join(var_lines) if var_lines else "    (none)"
