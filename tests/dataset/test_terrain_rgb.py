@@ -18,13 +18,16 @@ from pyramids.dataset.engines.io import (
 
 pytestmark = pytest.mark.core
 
+# A north-up EPSG:3857 geotransform (30 m pixels) reused across the DEM fixtures.
+_GEO_3857 = (0.0, 30.0, 0.0, 6000000.0, 0.0, -30.0)
+
 
 def _dem_3857(no_data_value=None):
     """A small DEM already in EPSG:3857 (so no reprojection on encode)."""
     arr = np.array([[0.0, 100.0], [2000.0, 8848.0]], dtype="float32")
     return Dataset.create_from_array(
         arr=arr,
-        geo=(0.0, 30.0, 0.0, 6000000.0, 0.0, -30.0),
+        geo=_GEO_3857,
         epsg=3857,
         no_data_value=no_data_value,
     )
@@ -84,7 +87,7 @@ class TestToTerrainRgbNoData:
         arr = np.array([[0.0, -9999.0], [2000.0, 8848.0]], dtype="float32")
         dem = Dataset.create_from_array(
             arr=arr,
-            geo=(0.0, 30.0, 0.0, 6000000.0, 0.0, -30.0),
+            geo=_GEO_3857,
             epsg=3857,
             no_data_value=-9999.0,
         )
@@ -320,7 +323,7 @@ class TestToTerrainRgbClamping:
         """An elevation above the encodable range writes the max RGB, not garbage."""
         arr = np.array([[1e9, 0.0]], dtype="float64").astype("float32")
         dem = Dataset.create_from_array(
-            arr=arr, geo=(0.0, 30.0, 0.0, 6000000.0, 0.0, -30.0), epsg=3857,
+            arr=arr, geo=_GEO_3857, epsg=3857,
             no_data_value=None,
         )
         out = dem.to_terrain_rgb(tmp_path / "c.png", tiles=False)
