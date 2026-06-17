@@ -4716,6 +4716,12 @@ class NetCDF(Dataset):
                 "set_variable requires a multidimensional container. "
                 "Open the file with open_as_multi_dimensional=True."
             )
+        # CreateMDArray / DeleteMDArray / CreateDimension are rejected on a file-backed group (netCDF
+        # data mode); operate on a writable MEM copy and swap it in, like remove_variable (#587).
+        if self.driver_type != "memory":
+            work = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
+            self._replace_raster(work)
+            rg = self._raster.GetRootGroup()
 
         # Auto-detect from tracked origin metadata (RT-4)
         if band_dim_name is None and hasattr(dataset, "_band_dim_name"):
