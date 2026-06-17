@@ -3897,6 +3897,18 @@ class NetCDF(Dataset):
         gc.collect()
 
     @staticmethod
+    def _md_array_to_numpy(md_arr):
+        """Read an MDArray to numpy, using the list-based ``Read()`` for string arrays.
+
+        GDAL's SWIG ``ReadAsArray`` raises ("String buffer data type not supported") on string MDArrays,
+        so character coordinate/data variables are read via ``Read()`` and wrapped as a numpy array (#586,
+        same limitation handled in ``_add_md_array_to_group`` for #565).
+        """
+        if md_arr.GetDataType().GetClass() == gdal.GEDTC_STRING:
+            return np.array(md_arr.Read())
+        return md_arr.ReadAsArray()
+
+    @staticmethod
     def _strip_injected_conventions(path: str | Path) -> None:
         """Delete a writer-injected ``Conventions`` global attribute from a just-written netCDF file.
 
@@ -5076,7 +5088,7 @@ class NetCDF(Dataset):
             unit = iv.GetUnit()
             if unit and "units" not in coord_attrs:
                 coord_attrs["units"] = unit
-            coords[dim_name] = ([dim_name], iv.ReadAsArray(), coord_attrs)
+            coords[dim_name] = ([dim_name], self._md_array_to_numpy(iv), coord_attrs)
 
         data_vars: dict[str, Any] = {}
         for var_name in self.variable_names:
@@ -5085,7 +5097,7 @@ class NetCDF(Dataset):
                 continue
             arr_dims = md_arr.GetDimensions() or []
             arr_dim_names = [ad.GetName() for ad in arr_dims]
-            arr_data = md_arr.ReadAsArray()
+            arr_data = self._md_array_to_numpy(md_arr)
             var_attrs: dict[str, Any] = {}
             try:
                 for attr in md_arr.GetAttributes():
