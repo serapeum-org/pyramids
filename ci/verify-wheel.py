@@ -258,14 +258,16 @@ def _check_jp2_driver() -> None:
     if drv is None:
         _fail("JP2OpenJPEG driver not registered in the bundled GDAL (#600)")
 
-    path = os.path.join(tempfile.mkdtemp(prefix="jp2-"), "t.jp2")
-    mem = gdal.GetDriverByName("MEM").Create("", 32, 32, 1, gdal.GDT_Byte)
-    mem.GetRasterBand(1).Fill(128)
-    if drv.CreateCopy(path, mem) is None:
-        _fail("JP2OpenJPEG CreateCopy returned None — bundled driver cannot write (#600)")
-    ds = gdal.Open(path)
-    if ds is None or ds.GetRasterBand(1).ReadAsArray() is None:
-        _fail(f"gdal.Open({path}) failed — JP2OpenJPEG read produced no band (#600)")
+    with tempfile.TemporaryDirectory(prefix="jp2-") as tmp:
+        path = os.path.join(tmp, "t.jp2")
+        mem = gdal.GetDriverByName("MEM").Create("", 32, 32, 1, gdal.GDT_Byte)
+        mem.GetRasterBand(1).Fill(128)
+        if drv.CreateCopy(path, mem) is None:
+            _fail("JP2OpenJPEG CreateCopy returned None — bundled driver cannot write (#600)")
+        ds = gdal.Open(path)
+        if ds is None or ds.GetRasterBand(1).ReadAsArray() is None:
+            _fail(f"gdal.Open({path}) failed — JP2OpenJPEG read produced no band (#600)")
+        ds = None  # release the GDAL handle so Windows can delete the temp file
     print("JP2OpenJPEG round-trip OK — bundled driver reads/writes JPEG2000 (#600).")
 
 
