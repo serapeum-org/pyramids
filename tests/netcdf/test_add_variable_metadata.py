@@ -49,7 +49,7 @@ def _write_packed_nc(path):
 
 def _write_simple_nc(path):
     """Write a file-backed netCDF with one plain float variable, as an add_variable destination."""
-    arr = np.random.RandomState(0).rand(2, 3, 4).astype(np.float64)
+    arr = np.random.default_rng(0).random((2, 3, 4)).astype(np.float64)
     nc = NetCDF.create_from_array(
         arr=arr,
         geo=(0.0, 1.0, 0, 3.0, 0, -1.0),

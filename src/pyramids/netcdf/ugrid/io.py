@@ -47,36 +47,7 @@ def parse_ugrid_topology(rg: gdal.Group) -> list[MeshTopologyInfo]:
     topologies: list[MeshTopologyInfo] = []
     all_array_names = rg.GetMDArrayNames() or []
 
-    mesh_var_names: list[str] = []
-    for name in all_array_names:
-        md_arr = rg.OpenMDArray(name)
-        if md_arr is None:
-            continue
-        attrs = _read_attributes(md_arr)
-        cf_role = attrs.get("cf_role", "")
-        has_topo = "topology_dimension" in attrs and "node_coordinates" in attrs
-        if cf_role == "mesh_topology" or has_topo:
-            mesh_var_names.append(name)
-
-    referenced_meshes: set[str] = set()
-    for name in all_array_names:
-        md_arr = rg.OpenMDArray(name)
-        if md_arr is None:
-            continue
-        attrs = _read_attributes(md_arr)
-        mesh_ref = attrs.get("mesh")
-        if isinstance(mesh_ref, str) and mesh_ref not in all_array_names:
-            referenced_meshes.add(mesh_ref)
-
-    for mesh_name in referenced_meshes:
-        if mesh_name not in mesh_var_names:
-            md_arr = rg.OpenMDArray(mesh_name)
-            if md_arr is not None:
-                attrs = _read_attributes(md_arr)
-                if "node_coordinates" in attrs:
-                    mesh_var_names.append(mesh_name)
-
-    for name in mesh_var_names:
+    for name in _find_mesh_variable_names(rg, all_array_names):
         md_arr = rg.OpenMDArray(name)
         if md_arr is None:
             continue
@@ -92,6 +63,32 @@ def parse_ugrid_topology(rg: gdal.Group) -> list[MeshTopologyInfo]:
             topologies.append(inferred)
 
     return topologies
+
+
+def _find_mesh_variable_names(rg: gdal.Group, all_array_names: list[str]) -> list[str]:
+    """Names of mesh-topology variables: those tagged ``cf_role=mesh_topology`` or carrying the
+    ``topology_dimension`` + ``node_coordinates`` pair, plus externally-referenced meshes."""
+    mesh_var_names: list[str] = []
+    referenced_meshes: set[str] = set()
+    for name in all_array_names:
+        md_arr = rg.OpenMDArray(name)
+        if md_arr is None:
+            continue
+        attrs = _read_attributes(md_arr)
+        has_topo = "topology_dimension" in attrs and "node_coordinates" in attrs
+        if attrs.get("cf_role", "") == "mesh_topology" or has_topo:
+            mesh_var_names.append(name)
+        mesh_ref = attrs.get("mesh")
+        if isinstance(mesh_ref, str) and mesh_ref not in all_array_names:
+            referenced_meshes.add(mesh_ref)
+
+    for mesh_name in referenced_meshes:
+        if mesh_name in mesh_var_names:
+            continue
+        md_arr = rg.OpenMDArray(mesh_name)
+        if md_arr is not None and "node_coordinates" in _read_attributes(md_arr):
+            mesh_var_names.append(mesh_name)
+    return mesh_var_names
 
 
 def _infer_topology_from_connectivity(

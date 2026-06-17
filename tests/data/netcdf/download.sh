@@ -17,7 +17,7 @@ X=https://github.com/pydata/xarray-data/raw/master
 G=https://raw.githubusercontent.com/UXARRAY/uxarray/main/test/meshfiles/ugrid
 
 # dl <url> <structural-name>  (the URL basename is the original published filename)
-dl() { curl -fsSL --max-time 180 "$1" -o "$2" && echo "OK $2 ($(du -h "$2" | cut -f1))"; }
+dl() { local url=$1 out=$2; curl -fsSL --max-time 180 "$url" -o "$out" && echo "OK $out ($(du -h "$out" | cut -f1))"; }
 
 # Unidata examples (CF / COARDS / AWIPS / netCDF-4 groups / staggered)
 dl "$A/testrh.nc"                              none__1v__1d1.nc

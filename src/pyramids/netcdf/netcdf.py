@@ -3530,7 +3530,6 @@ class NetCDF(Dataset):
         """
         rg = self._raster.GetRootGroup()
         md_arr = rg.OpenMDArray(variable_name)
-        dtype = md_arr.GetDataType()
         dims = md_arr.GetDimensions()
 
         if len(dims) == 1:
@@ -3840,36 +3839,49 @@ class NetCDF(Dataset):
         path = Path(path)
         extension = path.suffix[1:].lower()
         if extension in ("nc", "nc4"):
-            source_conventions = self.global_attributes.get("Conventions")
-            try:
-                dst = gdal.GetDriverByName("netCDF").CreateCopy(str(path), self._raster, 0)
-            except RuntimeError:
-                # GDAL's netCDF CreateCopy raises on some dimension layouts (re-declaring a dimension
-                # name, #584). Fall back to a manual multidim copy that creates each dimension once.
-                if path.exists():
-                    try:
-                        path.unlink()
-                    except OSError:
-                        gc.collect()
-                        path.unlink()
-                self._manual_netcdf_copy(path)
-            else:
-                if dst is None:
-                    raise RuntimeError(f"Failed to save NetCDF to {path}")
-                dst.FlushCache()
-                dst = None
-            # The netCDF writer injects a default Conventions="CF-1.x" when the source declares none;
-            # strip it so a non-CF file is not silently relabelled as CF on write (#583).
-            if source_conventions is None:
-                self._strip_injected_conventions(path)
+            self._write_netcdf(path)
+        elif self._is_md_array and not self._is_subset:
+            raise ValueError(
+                "Cannot save a multidimensional NetCDF container as "
+                f"'{extension}'. Use .nc extension or extract a "
+                "variable first with .get_variable()."
+            )
         else:
-            if self._is_md_array and not self._is_subset:
-                raise ValueError(
-                    "Cannot save a multidimensional NetCDF container as "
-                    f"'{extension}'. Use .nc extension or extract a "
-                    "variable first with .get_variable()."
-                )
             super().to_file(path, **kwargs)
+
+    def _write_netcdf(self, path: Path) -> None:
+        """Write this dataset to a netCDF file, preserving the declared (or absent) convention.
+
+        Uses GDAL's ``CreateCopy`` and falls back to a manual multidim copy when that raises on some
+        dimension layouts (#584), then strips any writer-injected ``Conventions`` if the source declared
+        none (#583).
+        """
+        source_conventions = self.global_attributes.get("Conventions")
+        try:
+            dst = gdal.GetDriverByName("netCDF").CreateCopy(str(path), self._raster, 0)
+        except RuntimeError:
+            # GDAL's netCDF CreateCopy raises on some dimension layouts (re-declaring a dimension
+            # name, #584). Fall back to a manual multidim copy that creates each dimension once.
+            self._remove_path(path)
+            self._manual_netcdf_copy(path)
+        else:
+            if dst is None:
+                raise RuntimeError(f"Failed to save NetCDF to {path}")
+            dst.FlushCache()
+            dst = None
+        if source_conventions is None:
+            self._strip_injected_conventions(path)
+
+    @staticmethod
+    def _remove_path(path: Path) -> None:
+        """Delete a (possibly GDAL-locked) file, retrying once after a GC pass."""
+        if not path.exists():
+            return
+        try:
+            path.unlink()
+        except OSError:
+            gc.collect()
+            path.unlink()
 
     def _manual_netcdf_copy(self, path: str | Path) -> None:
         """Write this container to netCDF by copying each variable explicitly.
