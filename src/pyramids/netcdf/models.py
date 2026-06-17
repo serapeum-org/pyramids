@@ -884,11 +884,15 @@ class NetCDFMetadata:
             NetCDFMetadata.dimensions: The full dimensions
                 dictionary keyed by full name.
         """
-        # Try full name first (exact key lookup)
+        # Exact key match (keys are full names with the leading "/" stripped).
         if name in self.dimensions:
             return self.dimensions[name]
-        # Try matching by short name
+        # Normalize a "/"-prefixed full name ("/time", "/group/time") to the stripped key form.
+        stripped = name.lstrip("/")
+        if stripped in self.dimensions:
+            return self.dimensions[stripped]
+        # Fall back to matching the short name or the full name of any dimension.
         for dim in self.dimensions.values():
-            if dim.name == name:
+            if dim.name == name or dim.full_name == name:
                 return dim
         return None
