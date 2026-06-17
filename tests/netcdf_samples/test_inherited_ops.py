@@ -25,7 +25,7 @@ INHERITED_PROPERTIES = [
 # Inherited zero-argument methods that should run on a variable view without raising.
 # (plot_histogram / plot_vector_field are exercised in the plot module; footprint is xfailed below.)
 INHERITED_NOARG_METHODS = [
-    "aspect", "block_windows", "cluster2", "convert_longitude", "count_domain_cells",
+    "aspect", "block_windows", "cluster2", "wrap_longitude", "count_domain_cells",
     "create_overviews", "extract", "focal_mean", "focal_std", "get_attribute_table",
     "get_block_arrangement", "get_cell_coords", "get_cell_points", "get_cell_polygons",
     "get_histogram", "get_mask", "get_overview", "get_tile", "hillshade", "iter_blocks",

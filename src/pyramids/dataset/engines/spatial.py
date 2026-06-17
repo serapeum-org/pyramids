@@ -405,10 +405,10 @@ class Spatial(_Engine):
 
         return epsg
 
-    def convert_longitude(self) -> Dataset:
-        """Shift a global raster's longitude from the 0/360 frame to the -180/180 frame.
+    def wrap_longitude(self) -> Dataset:
+        """Wrap a global raster's longitude from the 0/360 frame to the -180/180 frame.
 
-        The shift is a pure column roll (no resampling): the columns whose longitude is greater than
+        The wrap is a pure column roll (no resampling): the columns whose longitude is greater than
         180 (the western hemisphere in the -180/180 frame) move to the front, the remaining columns
         follow, and the geotransform's top-left x is moved to -180. The raster must span the whole
         globe (its last longitude must exceed 180).
@@ -442,7 +442,7 @@ class Spatial(_Engine):
                 ...     arr, top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326,
                 ...     no_data_value=-9999.0,
                 ... )
-                >>> shifted = ds.convert_longitude()
+                >>> shifted = ds.wrap_longitude()
                 >>> shifted.top_left_corner[0]
                 -180.0
                 >>> bool(shifted.lon.max() < 180)
@@ -459,7 +459,7 @@ class Spatial(_Engine):
                 ...     np.ones((3, 3), dtype=np.float32), top_left_corner=(0.0, 0.0),
                 ...     cell_size=0.05, epsg=4326, no_data_value=-9999.0,
                 ... )
-                >>> ds.convert_longitude()
+                >>> ds.wrap_longitude()
                 Traceback (most recent call last):
                     ...
                 ValueError: The raster should cover the whole globe
@@ -490,7 +490,7 @@ class Spatial(_Engine):
 
         if is_file_backed:
             # A — lazy: file-backed source, roll columns via a two-source VRT (no data read).
-            dst = self._convert_longitude_vrt(src, first_to_translated, gt)
+            dst = self._wrap_longitude_vrt(src, first_to_translated, gt)
         else:
             # B — eager: in-memory source has no filename for a VRT, so materialise once via
             # CreateCopy (which preserves all metadata) and roll the columns in place, reading the
@@ -506,7 +506,7 @@ class Spatial(_Engine):
         return self._ds.__class__(dst)
 
     @staticmethod
-    def _convert_longitude_vrt(src, first_to_translated: int, gt: list) -> gdal.Dataset:
+    def _wrap_longitude_vrt(src, first_to_translated: int, gt: list) -> gdal.Dataset:
         """Build a lazy two-source VRT that rolls 0-360 columns to -180-180 without reading data.
 
         Each band gets two ``SimpleSource`` entries that reference the source file by an absolute path:

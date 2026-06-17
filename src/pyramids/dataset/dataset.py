@@ -1007,9 +1007,23 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Spatial.set_crs <pyramids.dataset.engines.Spatial.set_crs>`."""
         return self.spatial.set_crs(*args, **kwargs)
 
+    def wrap_longitude(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Spatial.wrap_longitude <pyramids.dataset.engines.Spatial.wrap_longitude>`."""
+        return self.spatial.wrap_longitude(*args, **kwargs)
+
     def convert_longitude(self, *args, **kwargs):
-        """Facade — delegates to :meth:`Spatial.convert_longitude <pyramids.dataset.engines.Spatial.convert_longitude>`."""
-        return self.spatial.convert_longitude(*args, **kwargs)
+        """Deprecated alias for :meth:`wrap_longitude`.
+
+        .. deprecated::
+            Use :meth:`wrap_longitude` instead; the verb-only name leaves room for a future target
+            parameter (0/360 vs -180/180). This alias will be removed in a future release.
+        """
+        warnings.warn(
+            "Dataset.convert_longitude is deprecated; use wrap_longitude instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.wrap_longitude(*args, **kwargs)
 
     def resample(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.resample <pyramids.dataset.engines.Spatial.resample>`."""

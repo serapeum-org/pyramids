@@ -2058,14 +2058,14 @@ class TestClustering:
 class TestNCtoGeoTIFF:
     def test_convert_0_360_to_180_180_longitude_new_dataset(self, noah: gdal.Dataset):
         dataset = Dataset(noah)
-        new_dataset = dataset.convert_longitude()
+        new_dataset = dataset.wrap_longitude()
         lon = new_dataset.lon
         assert lon.max() < 1805
         assert new_dataset.top_left_corner == (-180, 90)
 
     def test_convert_0_360_to_180_180_longitude_inplace(self, noah: gdal.Dataset):
         dataset = Dataset(noah)
-        dataset = dataset.convert_longitude()
+        dataset = dataset.wrap_longitude()
         lon = dataset.lon
         assert lon.max() < 180
         assert dataset.top_left_corner == (-180, 90)

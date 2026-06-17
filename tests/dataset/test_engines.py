@@ -264,7 +264,7 @@ FACADE_METHODS = [
     ("spatial", "crop"),
     ("spatial", "to_crs"),
     ("spatial", "set_crs"),
-    ("spatial", "convert_longitude"),
+    ("spatial", "wrap_longitude"),
     ("spatial", "resample"),
     ("spatial", "align"),
     ("spatial", "fill_gaps"),
