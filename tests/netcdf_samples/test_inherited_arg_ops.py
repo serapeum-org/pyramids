@@ -14,6 +14,8 @@ import numpy as np
 import pytest
 from shapely.geometry import Point, box
 
+from pyramids.base._errors import ReadOnlyError
+from pyramids.dataset import Dataset
 from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -128,3 +130,44 @@ def test_change_no_data_value_guarded_on_variable_view(tos):
     """change_no_data_value is guarded on a variable-pinned view (clear error, not a crash)."""
     with pytest.raises(ValueError, match="pinned"):
         tos.change_no_data_value(-999.0, (tos.no_data_value or [None])[0])
+
+
+def _classes(v):
+    """A single-band integer classification raster aligned to the variable view."""
+    import numpy as _np
+    return Dataset.create_from_array(_np.ones((v.rows, v.columns), "int32"),
+                                     geo=v.geotransform, epsg=v.epsg or 4326)
+
+
+def test_overlay_with_classes(tos):
+    assert tos.overlay(_classes(tos)) is not None
+
+
+def test_read_tile(tos):
+    assert tos.read_tile(0, 0, 0, tilesize=64, band=0) is not None
+
+
+def test_fill_gaps(tos):
+    assert tos.fill_gaps(_classes(tos), tos.read_array(band=0)) is not None
+
+
+def test_set_attribute_table(tos):
+    import pandas as pd
+    tos.set_attribute_table(pd.DataFrame({"values": [0, 1], "label": ["a", "b"]}), band=0)
+
+
+def test_apply_guarded_on_variable_view(tos):
+    with pytest.raises(ValueError, match="pinned"):
+        tos.apply(lambda a: a + 1)
+
+
+def test_set_rpcs_guarded_read_only(tos):
+    with pytest.raises(ReadOnlyError):
+        tos.set_rpcs({"HEIGHT_OFF": "0", "HEIGHT_SCALE": "1"})
+
+
+def test_set_gcps_guarded_read_only(tos):
+    from osgeo import gdal
+    gcps = [gdal.GCP(0.0, 0.0, 0, 0, 0), gdal.GCP(10.0, 10.0, 0, tos.columns, tos.rows)]
+    with pytest.raises(ReadOnlyError):
+        tos.set_gcps(gcps, "EPSG:4326")
