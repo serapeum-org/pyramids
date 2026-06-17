@@ -52,9 +52,8 @@ def test_warped_view_changes_crs(sample):
         nc.close()
 
 
-@pytest.mark.xfail(reason="resample warp errors on NetCDF variable views (issue #588)", strict=False)
 def test_resample_changes_cell_size(sample):
-    """``resample`` should change the cell size of a variable (currently raises, issue #588)."""
+    """``resample`` changes the cell size of a variable view (regression for issue #588)."""
     nc = NetCDF.read_file(sample(TOS))
     try:
         original = nc.cell_size

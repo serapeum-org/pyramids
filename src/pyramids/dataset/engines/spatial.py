@@ -505,6 +505,11 @@ class Spatial(_Engine):
         resampling_method: int = resolve_resampling(method)
 
         sr_src = sr_from_wkt(self._ds.crs)
+        # NetCDF variable views expose their CRS as an EPSG code (derived from CF coordinates) rather
+        # than WKT on the raster, so `crs` can be empty even when `epsg` is known. Fall back to epsg to
+        # avoid building a corrupt SpatialReference (which fails on ExportToWkt) (#588).
+        if not self._ds.crs and self._ds.epsg:
+            sr_src = sr_from_epsg(self._ds.epsg)
 
         ulx = self._ds.geotransform[0]
         uly = self._ds.geotransform[3]
