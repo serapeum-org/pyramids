@@ -199,6 +199,42 @@ def _encode_terrain_rgb(
 
     Returns:
         np.ndarray: ``(3, rows, cols)`` ``uint8`` array of the R, G, B channels.
+
+    Examples:
+        - Mapbox-pack a single elevation and read back the byte triple:
+            ```python
+            >>> import numpy as np
+            >>> rgb = _encode_terrain_rgb(
+            ...     np.array([[0.0]]), encoding="mapbox",
+            ...     base_val=-10000.0, interval=0.1,
+            ... )
+            >>> rgb.shape
+            (3, 1, 1)
+            >>> tuple(int(v) for v in rgb[:, 0, 0])
+            (1, 134, 160)
+
+            ```
+        - Elevations above the encodable range clamp to white, not wrap:
+            ```python
+            >>> import numpy as np
+            >>> rgb = _encode_terrain_rgb(
+            ...     np.array([[1e12]]), encoding="mapbox",
+            ...     base_val=-10000.0, interval=0.1,
+            ... )
+            >>> tuple(int(v) for v in rgb[:, 0, 0])
+            (255, 255, 255)
+
+            ```
+        - Terrarium packs sea level as ``(128, 0, 0)``:
+            ```python
+            >>> import numpy as np
+            >>> rgb = _encode_terrain_rgb(
+            ...     np.array([[0.0]]), encoding="terrarium", base_val=0.0, interval=1.0
+            ... )
+            >>> tuple(int(v) for v in rgb[:, 0, 0])
+            (128, 0, 0)
+
+            ```
     """
     if encoding == "mapbox":
         packed = np.round((np.asarray(elevation, dtype=float) - base_val) / interval)
@@ -242,6 +278,32 @@ def _terrain_rgba_stack(
     Returns:
         np.ndarray: ``(3, rows, cols)`` RGB, or ``(4, rows, cols)`` RGBA when a
         no-data value is present.
+
+    Examples:
+        - Without a no-data value the stack is plain 3-band RGB:
+            ```python
+            >>> import numpy as np
+            >>> stack = _terrain_rgba_stack(
+            ...     np.array([[100.0]]), None,
+            ...     encoding="mapbox", base_val=-10000.0, interval=0.1,
+            ... )
+            >>> stack.shape[0]
+            3
+
+            ```
+        - A no-data cell adds a 4th alpha band that is 0 there, 255 elsewhere:
+            ```python
+            >>> import numpy as np
+            >>> stack = _terrain_rgba_stack(
+            ...     np.array([[100.0, -9999.0]]), -9999.0,
+            ...     encoding="mapbox", base_val=-10000.0, interval=0.1,
+            ... )
+            >>> stack.shape[0]
+            4
+            >>> int(stack[3, 0, 0]), int(stack[3, 0, 1])
+            (255, 0)
+
+            ```
     """
     rgb = _encode_terrain_rgb(
         elevation, encoding=encoding, base_val=base_val, interval=interval

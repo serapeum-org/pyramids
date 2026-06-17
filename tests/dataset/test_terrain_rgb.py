@@ -10,6 +10,11 @@ import pytest
 from osgeo import gdal
 
 from pyramids.dataset import Dataset
+from pyramids.dataset.engines.io import (
+    IO,
+    _encode_terrain_rgb,
+    _terrain_rgba_stack,
+)
 
 pytestmark = pytest.mark.core
 
@@ -205,4 +210,121 @@ class TestToTerrainRgbExposure:
         """``to_terrain_rgb`` is a callable method on the Dataset facade."""
         assert callable(getattr(Dataset, "to_terrain_rgb", None)), (
             "Dataset must expose to_terrain_rgb"
+        )
+
+
+class TestEncodeTerrainRgb:
+    """Unit tests for the pure ``_encode_terrain_rgb`` packer."""
+
+    def test_mapbox_known_value(self):
+        """0 m with the default base/interval packs to the spec's R, G, B bytes."""
+        rgb = _encode_terrain_rgb(
+            np.array([[0.0]]), encoding="mapbox", base_val=-10000.0, interval=0.1
+        )
+        # v = (0 - -10000)/0.1 = 100000 -> R=1, G=134, B=160
+        assert rgb.shape == (3, 1, 1), f"expected (3,1,1), got {rgb.shape}"
+        assert rgb.dtype == np.uint8, f"expected uint8, got {rgb.dtype}"
+        assert tuple(rgb[:, 0, 0]) == (1, 134, 160), f"wrong bytes: {rgb[:, 0, 0]}"
+
+    @pytest.mark.parametrize(
+        "elevation, expected",
+        [(1e12, (255, 255, 255)), (-1e9, (0, 0, 0))],
+    )
+    def test_mapbox_clamps_out_of_range(self, elevation, expected):
+        """Out-of-range elevations clamp to the encodable extremes, not wrap.
+
+        Args:
+            elevation: An elevation far outside the encodable window.
+            expected: The clamped ``(R, G, B)`` byte triple.
+        """
+        rgb = _encode_terrain_rgb(
+            np.array([[elevation]]), encoding="mapbox", base_val=-10000.0, interval=0.1
+        )
+        assert tuple(rgb[:, 0, 0]) == expected, f"clamp failed: {rgb[:, 0, 0]}"
+
+    def test_terrarium_known_value(self):
+        """0 m terrarium-encodes to (128, 0, 0) and decodes back to 0."""
+        rgb = _encode_terrain_rgb(
+            np.array([[0.0]]), encoding="terrarium", base_val=0.0, interval=1.0
+        )
+        r, g, b = (int(v) for v in rgb[:, 0, 0])
+        assert (r, g, b) == (128, 0, 0), f"terrarium 0 m wrong: {(r, g, b)}"
+        decoded = (r * 256 + g + b / 256.0) - 32768
+        assert decoded == 0.0, f"terrarium decode of 0 m must be 0, got {decoded}"
+
+    def test_terrarium_fractional_metre(self):
+        """The terrarium blue byte carries the sub-metre fraction (1/256 m)."""
+        rgb = _encode_terrain_rgb(
+            np.array([[0.5]]), encoding="terrarium", base_val=0.0, interval=1.0
+        )
+        b = int(rgb[2, 0, 0])
+        assert b == 128, f"0.5 m must encode B=128 (0.5*256), got {b}"
+
+
+class TestTerrainRgbaStack:
+    """Unit tests for the ``_terrain_rgba_stack`` band-count / alpha logic."""
+
+    def test_no_nodata_returns_three_bands(self):
+        """Without a nodata value the stack is plain 3-band RGB."""
+        stack = _terrain_rgba_stack(
+            np.array([[100.0]]), None, encoding="mapbox",
+            base_val=-10000.0, interval=0.1,
+        )
+        assert stack.shape[0] == 3, f"expected 3 bands, got {stack.shape[0]}"
+
+    def test_nodata_adds_transparent_alpha(self):
+        """A nodata cell yields a 4th alpha band that is 0 there and 255 elsewhere."""
+        elev = np.array([[100.0, -9999.0]])
+        stack = _terrain_rgba_stack(
+            elev, -9999.0, encoding="mapbox", base_val=-10000.0, interval=0.1
+        )
+        assert stack.shape[0] == 4, f"expected RGBA, got {stack.shape[0]} bands"
+        assert stack[3, 0, 0] == 255 and stack[3, 0, 1] == 0, (
+            f"alpha must be 255 valid / 0 nodata, got {stack[3, 0]}"
+        )
+
+
+class TestTerrainTileMath:
+    """Unit tests for the slippy-tile index and native-zoom helpers."""
+
+    def test_zoom_zero_is_single_tile(self):
+        """At zoom 0 the whole world is a single tile (0, 0)."""
+        r = 20037508.34
+        tiles = list(IO._terrain_tile_indices(0, -r, -r, r, r))
+        assert tiles == [(0, 0)], f"zoom 0 must be one tile (0,0), got {tiles}"
+
+    def test_indices_stay_in_range(self):
+        """Every emitted tile index is within ``[0, 2**zoom)``."""
+        tiles = list(IO._terrain_tile_indices(5, 0.0, 0.0, 1_000_000.0, 1_000_000.0))
+        assert tiles, "a covered region must yield at least one tile"
+        assert all(0 <= x < 32 and 0 <= y < 32 for x, y in tiles), (
+            f"indices out of [0, 32) at zoom 5: {tiles}"
+        )
+
+    def test_native_zoom_floored_at_min_zoom(self):
+        """A coarse pixel size would give a low zoom; ``min_zoom`` is the floor."""
+        # huge pixel size -> computed zoom is small/negative -> min_zoom wins
+        assert IO._native_terrain_zoom(1e7, 256, min_zoom=3) == 3, "min_zoom must floor"
+
+    def test_native_zoom_matches_resolution(self):
+        """A finer pixel size yields a higher zoom than a coarser one."""
+        fine = IO._native_terrain_zoom(30.0, 256, 0)
+        coarse = IO._native_terrain_zoom(1000.0, 256, 0)
+        assert fine > coarse, f"finer pixels need a higher zoom: {fine} <= {coarse}"
+
+
+class TestToTerrainRgbClamping:
+    """End-to-end clamping through the public method."""
+
+    def test_extreme_elevation_clamps_to_max(self, tmp_path):
+        """An elevation above the encodable range writes the max RGB, not garbage."""
+        arr = np.array([[1e9, 0.0]], dtype="float64").astype("float32")
+        dem = Dataset.create_from_array(
+            arr=arr, geo=(0.0, 30.0, 0.0, 6000000.0, 0.0, -30.0), epsg=3857,
+            no_data_value=None,
+        )
+        out = dem.to_terrain_rgb(tmp_path / "c.png", tiles=False)
+        _, (r, g, b) = _read_bands(out)
+        assert (r[0, 0], g[0, 0], b[0, 0]) == (255, 255, 255), (
+            f"clamped cell must be (255,255,255), got {(r[0,0], g[0,0], b[0,0])}"
         )
