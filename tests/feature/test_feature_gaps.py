@@ -283,3 +283,12 @@ class TestFromFeatureserver:
         assert query["where"] == "A=1"
         assert query["f"] == "json"
         assert query["resultOffset"] == "0"
+
+    @pytest.mark.parametrize(
+        "kwargs, match",
+        [({"page_size": 0}, "page_size must be >= 1"), ({"max_records": -1}, "max_records must be >= 0")],
+    )
+    def test_invalid_paging_args_raise(self, kwargs, match) -> None:
+        """Non-positive page_size or negative max_records is rejected up front."""
+        with pytest.raises(ValueError, match=match):
+            FeatureCollection.from_featureserver("https://x/FeatureServer/0", **kwargs)

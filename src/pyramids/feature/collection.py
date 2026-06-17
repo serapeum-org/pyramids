@@ -1612,6 +1612,10 @@ class FeatureCollection(GeoDataFrame):
 
                 ```
         """
+        if page_size < 1:
+            raise ValueError(f"from_featureserver: page_size must be >= 1, got {page_size}")
+        if max_records is not None and max_records < 0:
+            raise ValueError(f"from_featureserver: max_records must be >= 0 or None, got {max_records}")
         base = url.split("?", 1)[0].rstrip("/")
         if not base.lower().endswith("/query"):
             base = f"{base}/query"
