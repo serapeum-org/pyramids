@@ -1950,6 +1950,140 @@ class FeatureCollection(GeoDataFrame):
         passthrough.update(creation_options)
         super().to_file(path, **passthrough)
 
+    def _to_vector_tiles(
+        self,
+        path: str | Path,
+        driver: str,
+        *,
+        min_zoom: int,
+        max_zoom: int | None,
+        layer_name: str | None,
+        **creation_options: Any,
+    ) -> Path:
+        """Write this collection as a tiled-vector pyramid via ``to_file``, returning the output path.
+
+        Shared backend for :meth:`to_pmtiles` and :meth:`to_mvt` — the two differ only by GDAL driver.
+
+        Args:
+            path: Destination (a ``.pmtiles`` file for PMTiles, a tile-root directory for MVT).
+            driver: GDAL driver name (``"PMTiles"`` or ``"MVT"``).
+            min_zoom: Minimum tile zoom level (``MINZOOM``).
+            max_zoom: Maximum tile zoom level (``MAXZOOM``); ``None`` lets the driver choose.
+            layer_name: Tile layer name, or ``None`` for the driver default.
+            **creation_options: Extra driver creation options forwarded verbatim.
+
+        Returns:
+            Path: The written ``path``.
+        """
+        options = dict(creation_options)
+        options["MINZOOM"] = min_zoom
+        if max_zoom is not None:
+            options["MAXZOOM"] = max_zoom
+        self.to_file(path, driver=driver, layer=layer_name, **options)
+        return Path(path)
+
+    def to_pmtiles(
+        self,
+        path: str | Path,
+        *,
+        min_zoom: int = 0,
+        max_zoom: int | None = None,
+        layer_name: str | None = None,
+        **creation_options: Any,
+    ) -> Path:
+        """Write this FeatureCollection to a single-file **PMTiles** vector-tile pyramid.
+
+        Thin wrapper over GDAL's PMTiles driver (via :meth:`to_file`) for serving large vector layers to web
+        map engines. The output is a single ``.pmtiles`` archive that reopens with :meth:`read_file`.
+
+        Args:
+            path: Destination ``.pmtiles`` file path.
+            min_zoom: Minimum tile zoom level. Defaults to 0.
+            max_zoom: Maximum tile zoom level; ``None`` lets the driver choose from the data.
+            layer_name: Name of the tile layer, or ``None`` for the driver default.
+            **creation_options: Extra PMTiles creation options forwarded to the driver.
+
+        Returns:
+            Path: The written ``.pmtiles`` path.
+
+        Examples:
+            - Write a small layer and confirm the archive exists:
+                ```python
+                >>> import tempfile
+                >>> from pathlib import Path
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> d = Path(tempfile.mkdtemp())
+                >>> fc = FeatureCollection(
+                ...     gpd.GeoDataFrame(
+                ...         {"id": [1, 2, 3]},
+                ...         geometry=[Point(0, 0), Point(1, 1), Point(2, 2)],
+                ...         crs="EPSG:4326",
+                ...     )
+                ... )
+                >>> out = fc.to_pmtiles(d / "layer.pmtiles", max_zoom=5)
+                >>> out.exists()
+                True
+                >>> out.suffix
+                '.pmtiles'
+
+                ```
+        """
+        return self._to_vector_tiles(
+            path, "PMTiles", min_zoom=min_zoom, max_zoom=max_zoom, layer_name=layer_name, **creation_options
+        )
+
+    def to_mvt(
+        self,
+        path: str | Path,
+        *,
+        min_zoom: int = 0,
+        max_zoom: int | None = None,
+        layer_name: str | None = None,
+        **creation_options: Any,
+    ) -> Path:
+        """Write this FeatureCollection to a **Mapbox Vector Tiles** (MVT) tile pyramid.
+
+        Thin wrapper over GDAL's MVT driver (via :meth:`to_file`). The output is a tile-root directory of
+        ``{z}/{x}/{y}.pbf`` tiles. See :meth:`to_pmtiles` for the single-file PMTiles equivalent.
+
+        Args:
+            path: Destination tile-root directory.
+            min_zoom: Minimum tile zoom level. Defaults to 0.
+            max_zoom: Maximum tile zoom level; ``None`` lets the driver choose from the data.
+            layer_name: Name of the tile layer, or ``None`` for the driver default.
+            **creation_options: Extra MVT creation options forwarded to the driver.
+
+        Returns:
+            Path: The written tile-root directory.
+
+        Examples:
+            - Write a small layer and confirm the tile root exists:
+                ```python
+                >>> import tempfile
+                >>> from pathlib import Path
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> d = Path(tempfile.mkdtemp())
+                >>> fc = FeatureCollection(
+                ...     gpd.GeoDataFrame(
+                ...         {"id": [1, 2, 3]},
+                ...         geometry=[Point(0, 0), Point(1, 1), Point(2, 2)],
+                ...         crs="EPSG:4326",
+                ...     )
+                ... )
+                >>> out = fc.to_mvt(d / "tiles", max_zoom=5)
+                >>> out.exists()
+                True
+
+                ```
+        """
+        return self._to_vector_tiles(
+            path, "MVT", min_zoom=min_zoom, max_zoom=max_zoom, layer_name=layer_name, **creation_options
+        )
+
     # FeatureCollection.to_dataset was moved to
     # Dataset.from_features(features,...) to break the circular import
     # that used to force a CLAUDE.md-violating inline
