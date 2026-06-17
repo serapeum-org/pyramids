@@ -2353,6 +2353,154 @@ class TestConvertLongitude:
         assert isinstance(result, Dataset), "convert_longitude should return a Dataset"
 
 
+class TestConvertLongitudePaths:
+    """convert_longitude: lazy VRT for file-backed sources, eager roll for in-memory sources."""
+
+    def test_file_backed_uses_lazy_vrt(self, noah):
+        """A file-backed global raster is shifted lazily through a VRT (no eager copy)."""
+        result = Dataset(noah).convert_longitude()
+        assert result.raster.GetDriver().ShortName == "VRT"
+        assert result.top_left_corner == (-180.0, 90.0)
+        # the VRT still reads back real data
+        assert result.read_array(band=0).shape == (noah.RasterYSize, noah.RasterXSize)
+
+    def test_in_memory_rolls_columns_exactly(self):
+        """An in-memory source is rolled exactly (eager path), preserving the no-data value."""
+        arr = np.arange(360, dtype=np.float32).reshape(1, 360)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+        )
+        result = ds.convert_longitude()
+        assert result.raster.GetDriver().ShortName == "MEM"
+        expected = arr[:, list(range(180, 360)) + list(range(0, 180))]
+        np.testing.assert_array_equal(result.read_array(band=0), expected)
+        assert result.raster.GetRasterBand(1).GetNoDataValue() == -9999.0
+
+    def test_vrt_matches_eager_reference(self, noah):
+        """The lazy VRT roll returns data identical to an independent eager column roll (all bands).
+
+        Test scenario:
+            For a file-backed global raster, every band read back through the VRT must equal the
+            source band with its columns rolled by the half-globe offset.
+        """
+        dataset = Dataset(noah)
+        lon = dataset.lon
+        first = int(np.where(lon > 180)[0][0])
+        order = list(range(first, noah.RasterXSize)) + list(range(0, first))
+        result = dataset.convert_longitude()
+        for band in range(noah.RasterCount):
+            reference = noah.GetRasterBand(band + 1).ReadAsArray()[:, order]
+            np.testing.assert_array_equal(
+                result.read_array(band=band),
+                reference,
+                err_msg=f"band {band}: VRT roll differs from eager reference",
+            )
+
+    def test_vrt_preserves_projection_and_nodata(self, noah):
+        """The VRT result keeps the source projection and per-band no-data values.
+
+        Test scenario:
+            Projection WKT and every band's no-data value must match the source after conversion.
+        """
+        result = Dataset(noah).convert_longitude()
+        assert result.raster.GetProjection() == noah.GetProjection(), "projection not preserved"
+        for band in range(1, noah.RasterCount + 1):
+            assert (
+                result.raster.GetRasterBand(band).GetNoDataValue()
+                == noah.GetRasterBand(band).GetNoDataValue()
+            ), f"band {band} no-data not preserved"
+
+    def test_vrt_resolves_from_other_cwd(self, noah, tmp_path, monkeypatch):
+        """The VRT uses an absolute source path, so reads succeed from any working directory.
+
+        Test scenario:
+            After changing CWD to an unrelated directory, reading the VRT-backed result still
+            returns the full array (the SourceFilename resolves).
+        """
+        result = Dataset(noah).convert_longitude()
+        monkeypatch.chdir(tmp_path)
+        array = result.read_array(band=0)
+        assert array.shape == (
+            noah.RasterYSize,
+            noah.RasterXSize,
+        ), "VRT failed to resolve the source from another CWD"
+
+    def test_in_memory_multiband_roll(self):
+        """A multi-band in-memory raster rolls every band's columns identically.
+
+        Test scenario:
+            Each of two distinct-valued bands is rolled by the half-globe offset independently.
+        """
+        arr = np.stack(
+            [np.arange(360, dtype=np.float32), np.arange(360, 720, dtype=np.float32)]
+        ).reshape(2, 1, 360)
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+        )
+        result = dataset.convert_longitude()
+        order = list(range(180, 360)) + list(range(0, 180))
+        for band in range(2):
+            np.testing.assert_array_equal(
+                result.read_array(band=band),
+                arr[band][:, order],
+                err_msg=f"band {band} not rolled correctly",
+            )
+
+    def test_in_memory_preserves_crs(self):
+        """The eager in-memory path keeps the CRS.
+
+        Test scenario:
+            A 0-360 raster created at EPSG:4326 still reports EPSG:4326 after conversion.
+        """
+        arr = np.ones((1, 360), dtype=np.float32)
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+        )
+        result = dataset.convert_longitude()
+        assert result.epsg == 4326, f"expected EPSG 4326, got {result.epsg}"
+
+    def test_vrt_source_without_nodata_or_projection(self, tmp_path):
+        """A file-backed global raster with neither no-data nor projection still converts via VRT.
+
+        Test scenario:
+            Exercises the `no_data is None` and falsy-`projection` branches of the VRT builder; the
+            rolled data must still be correct and the result VRT-backed.
+        """
+        path = str(tmp_path / "global_minimal.tif")
+        n_columns = 360
+        out = gdal.GetDriverByName("GTiff").Create(path, n_columns, 1, 1, gdal.GDT_Float32)
+        out.SetGeoTransform((0.0, 1.0, 0.0, 0.5, 0.0, -1.0))
+        out.GetRasterBand(1).WriteArray(np.arange(n_columns, dtype=np.float32).reshape(1, n_columns))
+        out.FlushCache()
+        out = None
+
+        result = Dataset.read_file(path).convert_longitude()
+        assert result.raster.GetDriver().ShortName == "VRT", "file-backed source should use VRT"
+        assert result.raster.GetRasterBand(1).GetNoDataValue() is None, "should have no no-data"
+        order = list(range(180, 360)) + list(range(0, 180))
+        expected = np.arange(n_columns, dtype=np.float32).reshape(1, n_columns)[:, order]
+        np.testing.assert_array_equal(
+            result.read_array(band=0), expected, err_msg="roll incorrect for minimal-metadata source"
+        )
+
+    def test_nonpath_description_uses_eager(self):
+        """A source whose description is not a resolvable path uses the eager roll.
+
+        Test scenario:
+            A non-empty but non-resolvable description (here, an embedded null byte) makes
+            `Path(...).exists()` return False, so the discriminator routes to the in-memory eager path.
+        """
+        arr = np.arange(360, dtype=np.float32).reshape(1, 360)
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+        )
+        dataset.raster.SetDescription("invalid\x00path")
+        result = dataset.convert_longitude()
+        assert result.raster.GetDriver().ShortName == "MEM", "should fall back to the eager path"
+        order = list(range(180, 360)) + list(range(0, 180))
+        np.testing.assert_array_equal(result.read_array(band=0), arr[:, order])
+
+
 class TestFillNanNodata:
     """Tests for fill method with NaN no_data_value."""
 

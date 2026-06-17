@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from xml.sax.saxutils import escape
 
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
@@ -405,50 +406,173 @@ class Spatial(_Engine):
         return epsg
 
     def convert_longitude(self) -> Dataset:
-        """Convert Longitude.
+        """Shift a global raster's longitude from the 0/360 frame to the -180/180 frame.
 
-        - convert the longitude from 0-360 to -180 - 180.
-        - currently the function works correctly if the raster covers the whole world, it means that the columns
-            in the rasters covers from longitude 0 to 360.
+        The shift is a pure column roll (no resampling): the columns whose longitude is greater than
+        180 (the western hemisphere in the -180/180 frame) move to the front, the remaining columns
+        follow, and the geotransform's top-left x is moved to -180. The raster must span the whole
+        globe (its last longitude must exceed 180).
+
+        Two execution paths, selected automatically by the source:
+
+        - **File-backed source** (a real on-disk raster): the roll is built as a lazy two-source VRT,
+          so no pixel data is read until the result is used (read, plotted, cropped, or written).
+        - **In-memory source** (e.g. a NetCDF variable view from ``get_variable``, which has no
+          filename for a VRT to reference): an eager fallback copies the dataset once via
+          ``MEM.CreateCopy`` (preserving all metadata) and rolls the columns in place, so the source
+          is read only once.
 
         Returns:
             Dataset:
-                A new Dataset with longitude converted to -180/180.
+                A new dataset of the same class on the -180/180 grid. Same shape, dtype, band count,
+                no-data value, and CRS as the source; only the columns and the top-left x change.
+                File-backed inputs yield a VRT-backed (lazy) dataset; in-memory inputs an MEM-backed
+                one.
+
+        Raises:
+            ValueError: If the raster does not cover the whole globe (its last longitude is <= 180).
+
+        Examples:
+            - Shift an in-memory 0-360 global raster and inspect the new extent:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.arange(360, dtype=np.float32).reshape(1, 360)
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326,
+                ...     no_data_value=-9999.0,
+                ... )
+                >>> shifted = ds.convert_longitude()
+                >>> shifted.top_left_corner[0]
+                -180.0
+                >>> bool(shifted.lon.max() < 180)
+                True
+                >>> shifted.read_array(band=0).shape
+                (1, 360)
+
+                ```
+            - A raster that does not span the globe raises ``ValueError``:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((3, 3), dtype=np.float32), top_left_corner=(0.0, 0.0),
+                ...     cell_size=0.05, epsg=4326, no_data_value=-9999.0,
+                ... )
+                >>> ds.convert_longitude()
+                Traceback (most recent call last):
+                    ...
+                ValueError: The raster should cover the whole globe
+
+                ```
+
+        See Also:
+            to_crs: Reproject to a different CRS (a full warp, not a column roll).
         """
-        # dst = gdal.Warp(
-        #     "",
-        #     self._ds.raster,
-        #     dstSRS="+proj=longlat +ellps=WGS84 +datum=WGS84 +lon_0=0 +over",
-        #     format="VRT",
-        # )
         lon = self._ds.lon
-        src = self._ds.raster
-        # create a copy
-        drv = gdal.GetDriverByName("MEM")
-        dst = drv.CreateCopy("", src, 0)
-        # convert the 0 to 360 to -180 to 180
         if lon[-1] <= 180:
             raise ValueError("The raster should cover the whole globe")
 
-        first_to_translated = np.where(lon > 180)[0][0]
+        src = self._ds.raster
+        n_columns = src.RasterXSize
+        first_to_translated = int(np.where(lon > 180)[0][0])
+        gt = list(src.GetGeoTransform())
+        gt[0] = self._ds.top_left_corner[0] - 180
 
-        ind = list(range(first_to_translated, len(lon)))
-        ind_2 = list(range(0, first_to_translated))
+        # Route to the lazy VRT only when the source is referenceable by a real on-disk path
+        # (a plain file). In-memory views — e.g. a NetCDF variable via AsClassicDataset — report the
+        # backing file in GetFileList() but expose no usable description for a VRT SourceFilename, so
+        # they take the eager path.
+        description = src.GetDescription()
+        # Path.exists() returns False (it never raises) for a non-path description — an empty
+        # in-memory view or a `NETCDF:"file":var` subdataset string — so those take the eager path.
+        is_file_backed = bool(description) and Path(description).exists()
 
-        for band in range(self._ds.band_count):
-            arr = self._ds.read_array(band=band)
-            arr_rearranged = arr[:, ind + ind_2]
-            dst.GetRasterBand(band + 1).WriteArray(arr_rearranged)
-
-        # correct the geotransform
-        top_left_corner = self._ds.top_left_corner
-        gt = list(self._ds.geotransform)
-        if lon[-1] > 180:
-            new_gt = top_left_corner[0] - 180
-            gt[0] = new_gt
-
-        dst.SetGeoTransform(gt)
+        if is_file_backed:
+            # A — lazy: file-backed source, roll columns via a two-source VRT (no data read).
+            dst = self._convert_longitude_vrt(src, first_to_translated, gt)
+        else:
+            # B — eager: in-memory source has no filename for a VRT, so materialise once via
+            # CreateCopy (which preserves all metadata) and roll the columns in place, reading the
+            # cheap in-memory copy instead of re-reading the source a second time.
+            dst = gdal.GetDriverByName("MEM").CreateCopy("", src, 0)
+            order = list(range(first_to_translated, n_columns)) + list(
+                range(0, first_to_translated)
+            )
+            for band in range(src.RasterCount):
+                gdal_band = dst.GetRasterBand(band + 1)
+                gdal_band.WriteArray(gdal_band.ReadAsArray()[:, order])
+            dst.SetGeoTransform(gt)
         return self._ds.__class__(dst)
+
+    @staticmethod
+    def _convert_longitude_vrt(src, first_to_translated: int, gt: list) -> gdal.Dataset:
+        """Build a lazy two-source VRT that rolls 0-360 columns to -180-180 without reading data.
+
+        Each band gets two ``SimpleSource`` entries that reference the source file by an absolute path:
+        the columns ``>= first_to_translated`` (longitudes > 180, i.e. the western hemisphere in the
+        -180/180 frame) are mapped to the front, and the remaining columns follow. The source
+        projection, dataset metadata, and per-band no-data values are carried across. Reads against the
+        returned VRT are deferred to the backing file, so no pixel data is read here.
+
+        Args:
+            src (gdal.Dataset):
+                The file-backed source dataset (its ``GetDescription()`` must be a resolvable path).
+            first_to_translated (int):
+                Index of the first column whose longitude exceeds 180; the split point of the roll.
+            gt (list):
+                The destination geotransform (the source geotransform with its top-left x set to -180).
+
+        Returns:
+            gdal.Dataset:
+                An in-memory VRT dataset that lazily rolls the columns when read.
+        """
+        n_columns, n_rows, n_bands = src.RasterXSize, src.RasterYSize, src.RasterCount
+        right_width = n_columns - first_to_translated
+        # Use an absolute path so the in-memory VRT resolves the source regardless of CWD; leave
+        # non-path descriptions (e.g. `NETCDF:"file":var` subdatasets) untouched.
+        description = src.GetDescription()
+        source_name = str(Path(description).resolve()) if Path(description).exists() else description
+        source_name = escape(source_name)
+
+        vrt = gdal.GetDriverByName("VRT").Create("", n_columns, n_rows, 0)
+        vrt.SetGeoTransform(gt)
+        projection = src.GetProjection()
+        if projection:
+            vrt.SetProjection(projection)
+        vrt.SetMetadata(src.GetMetadata())
+
+        def simple_source(band_index: int, src_x_off: int, dst_x_off: int, width: int) -> str:
+            dtype = gdal.GetDataTypeName(src.GetRasterBand(band_index).DataType)
+            return (
+                f"<SimpleSource>"
+                f'<SourceFilename relativeToVRT="0">{source_name}</SourceFilename>'
+                f"<SourceBand>{band_index}</SourceBand>"
+                f'<SourceProperties RasterXSize="{n_columns}" RasterYSize="{n_rows}" '
+                f'DataType="{dtype}"/>'
+                f'<SrcRect xOff="{src_x_off}" yOff="0" xSize="{width}" ySize="{n_rows}"/>'
+                f'<DstRect xOff="{dst_x_off}" yOff="0" xSize="{width}" ySize="{n_rows}"/>'
+                f"</SimpleSource>"
+            )
+
+        for band_index in range(1, n_bands + 1):
+            source_band = src.GetRasterBand(band_index)
+            vrt.AddBand(source_band.DataType)
+            vrt_band = vrt.GetRasterBand(band_index)
+            no_data = source_band.GetNoDataValue()
+            if no_data is not None:
+                vrt_band.SetNoDataValue(no_data)
+            vrt_band.SetMetadataItem(
+                "source_0",
+                simple_source(band_index, first_to_translated, 0, right_width),
+                "new_vrt_sources",
+            )
+            vrt_band.SetMetadataItem(
+                "source_1",
+                simple_source(band_index, 0, right_width, first_to_translated),
+                "new_vrt_sources",
+            )
+        return vrt
 
     def resample(
         self, cell_size: int | float, method: str = "nearest neighbor"
