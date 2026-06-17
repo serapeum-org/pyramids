@@ -3922,8 +3922,8 @@ class NetCDF(Dataset):
         if rg is not None and any(a.GetName() == "Conventions" for a in rg.GetAttributes()):
             try:
                 rg.DeleteAttribute("Conventions")
-            except Exception:
-                pass
+            except RuntimeError:
+                pass  # driver may not support attribute deletion — leave it
         rg = None
         ds.FlushCache()
         ds = None
@@ -4460,14 +4460,17 @@ class NetCDF(Dataset):
             if match is not None and match.GetSize() == size:
                 resolved.append(match)
                 continue
-            # Name taken by a different-sized dimension: fall back to a
-            # size-suffixed name (matching _get_or_create_dimension), reusing it
-            # if one already exists at this size.
+            # Name taken by a different-sized dimension: fall back to a size-suffixed name (matching
+            # _get_or_create_dimension), reusing a same-size match and uniquifying on any collision.
             name = dim.GetName() if match is None else f"{dim.GetName()}_{size}"
-            reuse = existing.get(name)
-            if reuse is not None and reuse.GetSize() == size:
-                resolved.append(reuse)
+            existing_match = existing.get(name)
+            if existing_match is not None and existing_match.GetSize() == size:
+                resolved.append(existing_match)
                 continue
+            suffix = 1
+            while name in existing and existing[name].GetSize() != size:
+                name = f"{dim.GetName()}_{size}_{suffix}"
+                suffix += 1
             new_dim = dst_group.CreateDimension(
                 name, dim.GetType(), dim.GetDirection(), size
             )
