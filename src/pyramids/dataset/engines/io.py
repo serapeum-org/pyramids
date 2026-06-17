@@ -2287,7 +2287,8 @@ class IO(_Engine):
 
         Raises:
             ValueError: ``encoding`` is not ``"mapbox"``/``"terrarium"``,
-                ``resampling`` is unknown, or ``max_zoom < min_zoom``.
+                ``resampling`` is unknown, ``interval <= 0`` (mapbox),
+                ``min_zoom < 0``, or ``max_zoom < min_zoom``.
 
         Examples:
             - Encode a small DEM to a single terrain-RGB PNG (the write is
@@ -2315,6 +2316,12 @@ class IO(_Engine):
             raise ValueError(
                 f"encoding must be one of {_TERRAIN_RGB_ENCODINGS}, got {encoding!r}."
             )
+        if encoding == "mapbox" and interval <= 0:
+            raise ValueError(
+                f"interval must be positive for mapbox encoding, got {interval}."
+            )
+        if min_zoom < 0:
+            raise ValueError(f"min_zoom must be >= 0, got {min_zoom}.")
         # Validate the resampling name once (also reused by the per-tile warp).
         resample_alg = resolve_resampling(resampling)
         source = (
@@ -2492,6 +2499,10 @@ class IO(_Engine):
         if nodata is not None:
             warp_kwargs["dstNodata"] = nodata
         warped = gdal.Warp("", source.raster, **warp_kwargs)
+        if warped is None:
+            raise FailedToSaveError(
+                f"GDAL could not warp the terrain-RGB tile {zoom}/{x}/{y}."
+            )
         elevation = np.asarray(
             warped.GetRasterBand(band + 1).ReadAsArray(), dtype=float
         )

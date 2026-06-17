@@ -46,7 +46,9 @@ class TestToTerrainRgbRoundtrip:
         out = dem.to_terrain_rgb(tmp_path / "dem.png", tiles=False, encoding="mapbox")
         count, (r, g, b) = _read_bands(out)
         assert count == 3, f"no-nodata source must yield 3-band RGB, got {count}"
-        decoded = _decode_mapbox(r.astype("int64"), g.astype("int64"), b.astype("int64"))
+        decoded = _decode_mapbox(
+            r.astype("int64"), g.astype("int64"), b.astype("int64")
+        )
         source = np.array([[0.0, 100.0], [2000.0, 8848.0]])
         assert np.max(np.abs(decoded - source)) <= 0.1, (
             f"decode must be within 0.1 m, got {np.abs(decoded - source)}"
@@ -63,7 +65,9 @@ class TestToTerrainRgbRoundtrip:
 
     def test_encoding_is_case_insensitive(self, tmp_path):
         """``encoding`` is normalised, so upper-case names are accepted."""
-        out = _dem_3857().to_terrain_rgb(tmp_path / "u.png", tiles=False, encoding="MapBox")
+        out = _dem_3857().to_terrain_rgb(
+            tmp_path / "u.png", tiles=False, encoding="MapBox"
+        )
         assert out.exists(), "upper-case encoding name must be accepted"
 
 
@@ -88,9 +92,23 @@ class TestToTerrainRgbNoData:
 
     def test_no_nodata_yields_rgb(self, tmp_path):
         """A source without a nodata value yields a 3-band RGB raster."""
-        out = _dem_3857(no_data_value=None).to_terrain_rgb(tmp_path / "r.png", tiles=False)
+        out = _dem_3857(no_data_value=None).to_terrain_rgb(
+            tmp_path / "r.png", tiles=False
+        )
         count, _ = _read_bands(out)
         assert count == 3, f"expected 3-band RGB without nodata, got {count}"
+
+    def test_reproject_preserves_nodata_transparency(self, tmp_path):
+        """A 4326 source with nodata stays transparent after the warp to 3857."""
+        arr = np.array([[100.0, -9999.0], [2000.0, 3000.0]], dtype="float32")
+        dem = Dataset.create_from_array(
+            arr=arr, geo=(10.0, 0.01, 0.0, 47.0, 0.0, -0.01), epsg=4326,
+            no_data_value=-9999.0,
+        )
+        out = dem.to_terrain_rgb(tmp_path / "rn.png", tiles=False)
+        count, bands = _read_bands(out)
+        assert count == 4, f"reprojected nodata source must be RGBA, got {count}"
+        assert (bands[3] == 0).any(), "nodata cell must survive reprojection as alpha 0"
 
 
 class TestToTerrainRgbOutputs:
@@ -160,6 +178,18 @@ class TestToTerrainRgbErrors:
         with pytest.raises(ValueError, match="max_zoom"):
             _dem_3857(no_data_value=None).to_terrain_rgb(
                 tmp_path / "t", tiles=True, min_zoom=8, max_zoom=4
+            )
+
+    def test_non_positive_interval_raises(self, tmp_path):
+        """A non-positive mapbox ``interval`` raises instead of dividing by zero."""
+        with pytest.raises(ValueError, match="interval must be positive"):
+            _dem_3857().to_terrain_rgb(tmp_path / "x.png", tiles=False, interval=0.0)
+
+    def test_negative_min_zoom_raises(self, tmp_path):
+        """A negative ``min_zoom`` raises ValueError."""
+        with pytest.raises(ValueError, match="min_zoom must be >= 0"):
+            _dem_3857(no_data_value=None).to_terrain_rgb(
+                tmp_path / "t", tiles=True, min_zoom=-1
             )
 
 
