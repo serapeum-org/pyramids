@@ -5,10 +5,6 @@ need inputs — coordinate transforms, sampling/windowed reads, analysis, band o
 real `get_variable()` view, to catch view-specific breakage.
 """
 
-import os
-
-os.environ.setdefault("MPLBACKEND", "Agg")
-
 import geopandas as gpd
 import numpy as np
 import pytest

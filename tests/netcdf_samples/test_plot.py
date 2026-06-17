@@ -3,14 +3,6 @@
 Marked ``plot`` and run under the Agg backend; requires the optional viz dependency (cleopatra).
 """
 
-import os
-
-os.environ.setdefault("MPLBACKEND", "Agg")
-
-import matplotlib
-
-matplotlib.use("Agg")
-
 import matplotlib.pyplot as plt
 import pytest
 

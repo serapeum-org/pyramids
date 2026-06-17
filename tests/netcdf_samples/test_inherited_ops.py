@@ -6,10 +6,6 @@ property and every zero-argument inherited method against a real variable view t
 breakage (e.g. #588 resample, #592 color_table/footprint), plus a few argument-taking methods.
 """
 
-import os
-
-os.environ.setdefault("MPLBACKEND", "Agg")
-
 import pytest
 
 from pyramids.base._errors import ReadOnlyError

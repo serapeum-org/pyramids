@@ -1,9 +1,5 @@
 """Exercise the UGRID class API (UgridDataset, Mesh2d, Connectivity, MeshSpatialIndex) on a mesh file."""
 
-import os
-
-os.environ.setdefault("MPLBACKEND", "Agg")
-
 import numpy as np
 import pytest
 
