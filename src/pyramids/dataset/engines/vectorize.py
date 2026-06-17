@@ -1004,14 +1004,18 @@ class Vectorize(_Engine):
         if band is None:
             band = 0
 
+        names = self._ds.band_names
+
+        def _band_name(index: int) -> str:
+            # band_names can be empty (e.g. a mask dataset built internally by footprint); fall back.
+            return names[index] if index < len(names) else f"Band_{index + 1}"
+
         if isinstance(band, int):
-            name = self._ds.band_names[band]
-            gdf = self._band_to_polygon(band, name)
+            gdf = self._band_to_polygon(band, _band_name(band))
         else:
             gdfs = []
             for b in band:
-                name = self._ds.band_names[b]
-                gdfs.append(self._band_to_polygon(b, name))
+                gdfs.append(self._band_to_polygon(b, _band_name(b)))
             gdf = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True))
 
         return gdf

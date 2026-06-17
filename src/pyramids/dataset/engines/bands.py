@@ -834,6 +834,8 @@ class Bands(_Engine):
         row = 0
         for band in band_iter:
             color_table = self._ds.raster.GetRasterBand(band + 1).GetRasterColorTable()
+            if color_table is None:
+                continue  # band has no colour palette (the common case) — skip it
             for i in range(color_table.GetCount()):
                 df.loc[row, ["red", "green", "blue", "alpha"]] = (
                     color_table.GetColorEntry(i)
