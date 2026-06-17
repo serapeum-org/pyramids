@@ -42,7 +42,7 @@ import numpy as np
 import pandas as pd
 from geopandas import GeoDataFrame
 from osgeo import gdal, ogr
-from shapely.geometry import Point, box
+from shapely.geometry import Point, Polygon, box
 
 from pyramids import _io as _pyramids_io
 from pyramids.base._errors import (
@@ -54,6 +54,7 @@ from pyramids.base._errors import (
 from pyramids.base._utils import Catalog, import_pyarrow, require_cleopatra
 from pyramids.base.remote import is_remote
 from pyramids.basemap.basemap import add_basemap
+from pyramids.feature import _h3
 from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
 
@@ -3076,3 +3077,145 @@ class FeatureCollection(GeoDataFrame):
         from pyramids.dataset import Dataset
 
         return Dataset.from_points(self, column, algorithm=algorithm, cell_size=cell_size, bbox=bounds)
+
+    def _h3_cells(self, resolution: int, op: str) -> list[str]:
+        """Return the H3 cell index of each point at ``resolution`` (helper for to_h3 / h3_bin).
+
+        Args:
+            resolution: H3 resolution, 0-15.
+            op: Calling operation name, used in error messages.
+
+        Returns:
+            list[str]: One H3 cell index (hex string) per point, in row order.
+
+        Raises:
+            InvalidGeometryError: If the geometries are not all ``Point``.
+            ValueError: If ``resolution`` is outside 0-15, or the collection has no CRS.
+        """
+        self._require_point_geometry(op)
+        if not 0 <= resolution <= 15:
+            raise ValueError(f"{op}: resolution must be 0-15, got {resolution}")
+        if self.crs is None:
+            raise ValueError(f"{op}: a CRS is required to convert points to lat/lng for H3 indexing")
+        pts = self if self.epsg == 4326 else self.to_crs(4326)
+        return [_h3.latlng_to_cell(geom.y, geom.x, resolution) for geom in pts.geometry]
+
+    def to_h3(self, resolution: int) -> FeatureCollection:
+        """Attach the H3 cell index of each point as an ``h3`` column.
+
+        Indexes every point geometry into Uber's H3 hexagonal grid at the given resolution (computed in
+        EPSG:4326 — points are reprojected for the lookup, but the returned collection keeps its own geometry
+        and CRS). Uses pyramids' built-in H3 engine, so no ``h3`` dependency is required.
+
+        Args:
+            resolution: H3 resolution, 0 (coarsest) to 15 (finest).
+
+        Returns:
+            FeatureCollection: A copy of this collection with an ``h3`` column of cell-index strings.
+
+        Raises:
+            InvalidGeometryError: If the geometries are not all ``Point``.
+            ValueError: If ``resolution`` is outside 0-15, or the collection has no CRS.
+
+        Examples:
+            - Index three points at resolution 9:
+                ```python
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> fc = FeatureCollection(
+                ...     gpd.GeoDataFrame(
+                ...         {"id": [1, 2, 3]},
+                ...         geometry=[Point(-122.418, 37.775), Point(-122.42, 37.776), Point(0, 0)],
+                ...         crs="EPSG:4326",
+                ...     )
+                ... )
+                >>> out = fc.to_h3(9)
+                >>> out["h3"].tolist()
+                ['89283082803ffff', '8928308280fffff', '89754e64993ffff']
+
+                ```
+        """
+        cells = self._h3_cells(resolution, "to_h3")
+        result = FeatureCollection(self.copy())
+        result["h3"] = cells
+        return result
+
+    def h3_bin(
+        self,
+        resolution: int,
+        *,
+        agg: str | Callable = "count",
+        column: str | None = None,
+    ) -> FeatureCollection:
+        """Aggregate points into H3 hexagon cells, one polygon per occupied cell.
+
+        Groups the points by their H3 cell at ``resolution`` and returns one hexagon (or pentagon) polygon per
+        occupied cell carrying an aggregate: the point **count** when ``column`` is ``None``, otherwise ``agg``
+        applied to ``column``. The output is in EPSG:4326 (H3 is lat/lng). No ``h3`` dependency is required.
+
+        Args:
+            resolution: H3 resolution, 0-15.
+            agg: Per-cell reducer applied to ``column`` — one of ``"count"`` / ``"mean"`` / ``"sum"`` /
+                ``"median"`` / ``"min"`` / ``"max"`` / ``"std"`` or a callable taking a 1-D array. Ignored when
+                ``column`` is ``None`` (point count).
+            column: Numeric column aggregated per cell, or ``None`` to count points (density).
+
+        Returns:
+            FeatureCollection: One hexagon polygon per occupied cell, in EPSG:4326, with an ``h3`` index column
+            and an aggregate column (``"count"`` when ``column`` is ``None``, else named ``column``).
+
+        Raises:
+            InvalidGeometryError: If the geometries are not all ``Point``.
+            ValueError: If ``resolution`` is outside 0-15, the collection has no CRS, ``column`` is missing /
+                non-numeric, or ``agg`` is not a known reducer name or callable.
+
+        Examples:
+            - Bin four nearby points into H3 cells at resolution 9 and read the counts:
+                ```python
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> fc = FeatureCollection(
+                ...     gpd.GeoDataFrame(
+                ...         {"v": [1.0, 2.0, 3.0, 4.0]},
+                ...         geometry=[
+                ...             Point(-122.418, 37.775), Point(-122.4181, 37.7751),
+                ...             Point(-122.40, 37.78), Point(-122.40, 37.78),
+                ...         ],
+                ...         crs="EPSG:4326",
+                ...     )
+                ... )
+                >>> cells = fc.h3_bin(9)
+                >>> int(cells["count"].sum())
+                4
+                >>> cells.crs.to_epsg()
+                4326
+
+                ```
+        """
+        self._require_column("h3_bin", column)
+        cells = self._h3_cells(resolution, "h3_bin")
+        if column is None:
+            counts = pd.Series(cells, dtype="object").value_counts()
+            items = [(cell, int(n)) for cell, n in counts.items()]
+            name = "count"
+        else:
+            reducer = _tess.resolve_reducer(agg)
+            try:
+                values = self[column].to_numpy(dtype=float)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"h3_bin: column {column!r} must be numeric") from exc
+            grouped = pd.DataFrame({"_cell": cells, "_v": values}).groupby("_cell")["_v"]
+            items = [(cell, float(reducer(grp.to_numpy()))) for cell, grp in grouped]
+            name = column
+        geometries: list = []
+        idx: list = []
+        agg_values: list = []
+        for cell, value in items:
+            boundary = _h3.cell_to_boundary(cell)
+            geometries.append(Polygon([(lng, lat) for (lat, lng) in boundary]))
+            idx.append(cell)
+            agg_values.append(value)
+        frame = gpd.GeoDataFrame({"h3": idx, name: agg_values}, geometry=geometries, crs="EPSG:4326")
+        return FeatureCollection(frame)
