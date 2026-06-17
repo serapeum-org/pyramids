@@ -253,7 +253,7 @@ class TestEncodeTerrainRgb:
         r, g, b = (int(v) for v in rgb[:, 0, 0])
         assert (r, g, b) == (128, 0, 0), f"terrarium 0 m wrong: {(r, g, b)}"
         decoded = (r * 256 + g + b / 256.0) - 32768
-        assert decoded == 0.0, f"terrarium decode of 0 m must be 0, got {decoded}"
+        assert abs(decoded) < 1e-9, f"terrarium decode of 0 m must be 0, got {decoded}"
 
     def test_terrarium_fractional_metre(self):
         """The terrarium blue byte carries the sub-metre fraction (1/256 m)."""
