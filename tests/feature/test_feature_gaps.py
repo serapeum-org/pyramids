@@ -4,6 +4,7 @@ Covers ``fishnet``, ``interpolate_to_raster`` (IDW), ``to_pmtiles`` / ``to_mvt``
 paginated ``from_featureserver`` reader, plus the ``tessellation.fishnet_cells`` helper.
 """
 
+import json
 import math
 import tempfile
 import urllib.parse as urlparse
@@ -17,7 +18,14 @@ from shapely.geometry import Point
 from pyramids.base._errors import InvalidGeometryError
 from pyramids.dataset import Dataset
 from pyramids.feature import FeatureCollection
+from pyramids.feature import _h3
 from pyramids.feature import tessellation as tess
+
+
+def _h3_vectors():
+    """Load the committed H3 ground-truth fixtures (generated from the h3 library)."""
+    path = Path(__file__).resolve().parents[2] / "tests" / "data" / "h3" / "h3_vectors.json"
+    return json.loads(path.read_text())
 
 
 @pytest.fixture()
@@ -292,3 +300,121 @@ class TestFromFeatureserver:
         """Non-positive page_size or negative max_records is rejected up front."""
         with pytest.raises(ValueError, match=match):
             FeatureCollection.from_featureserver("https://x/FeatureServer/0", **kwargs)
+
+
+class TestH3Engine:
+    def test_latlng_to_cell_matches_h3_library(self) -> None:
+        """Every committed latlng->cell vector (res 0-15, global, pentagons) matches the h3 library."""
+        bad = []
+        for lat, lng, res, expected in _h3_vectors()["latlng_to_cell"]:
+            got = _h3.latlng_to_cell(lat, lng, res)
+            if got != expected:
+                bad.append((lat, lng, res, expected, got))
+        assert not bad, f"{len(bad)} latlng_to_cell mismatches vs h3, e.g. {bad[:3]}"
+
+    def test_cell_to_boundary_matches_h3_library(self) -> None:
+        """Every committed cell->boundary vector matches the h3 library within 1e-6 degrees."""
+        bad = []
+        for cell, expected in _h3_vectors()["cell_to_boundary"]:
+            got = _h3.cell_to_boundary(cell)
+            ok = len(got) == len(expected) and all(
+                abs(g[0] - e[0]) < 1e-6 and abs(((g[1] - e[1] + 180) % 360) - 180) < 1e-6
+                for g, e in zip(got, expected)
+            )
+            if not ok:
+                bad.append(cell)
+        assert not bad, f"{len(bad)} cell_to_boundary mismatches vs h3, e.g. {bad[:3]}"
+
+    def test_resolution_out_of_range_raises(self) -> None:
+        """latlng_to_cell rejects resolutions outside 0-15."""
+        with pytest.raises(ValueError, match="0-15"):
+            _h3.latlng_to_cell(0.0, 0.0, 16)
+
+
+@pytest.fixture()
+def sf_points() -> FeatureCollection:
+    """Four points around San Francisco (two coincident) with a numeric ``v`` column, EPSG:4326."""
+    return FeatureCollection(
+        gpd.GeoDataFrame(
+            {"v": [1.0, 2.0, 3.0, 4.0]},
+            geometry=[
+                Point(-122.418, 37.775),
+                Point(-122.4181, 37.7751),
+                Point(-122.40, 37.78),
+                Point(-122.40, 37.78),
+            ],
+            crs="EPSG:4326",
+        )
+    )
+
+
+class TestToH3:
+    def test_adds_h3_column(self, sf_points: FeatureCollection) -> None:
+        """to_h3 returns a copy with an h3 cell-index column, geometry/CRS unchanged."""
+        out = sf_points.to_h3(9)
+        assert "h3" in out.columns
+        assert len(out) == len(sf_points)
+        assert out.crs.to_epsg() == 4326
+        assert all(isinstance(c, str) and len(c) > 0 for c in out["h3"])
+
+    def test_known_index(self) -> None:
+        """A known SF point maps to the documented H3 cell at resolution 9."""
+        fc = FeatureCollection(
+            gpd.GeoDataFrame(geometry=[Point(-122.418, 37.775)], crs="EPSG:4326")
+        )
+        assert fc.to_h3(9)["h3"].iloc[0] == "89283082803ffff"
+
+    def test_reprojected_input_matches(self, sf_points: FeatureCollection) -> None:
+        """Indexing is CRS-independent: a Web-Mercator copy yields the same cells."""
+        merc = FeatureCollection(sf_points.to_crs(3857))
+        assert merc.to_h3(9)["h3"].tolist() == sf_points.to_h3(9)["h3"].tolist()
+
+    def test_non_point_raises(self) -> None:
+        polys = FeatureCollection(gpd.GeoDataFrame(geometry=[Point(0, 0).buffer(1.0)], crs="EPSG:4326"))
+        with pytest.raises(InvalidGeometryError):
+            polys.to_h3(9)
+
+    @pytest.mark.parametrize("res", [-1, 16])
+    def test_bad_resolution_raises(self, sf_points: FeatureCollection, res: int) -> None:
+        with pytest.raises(ValueError, match="0-15"):
+            sf_points.to_h3(res)
+
+    def test_missing_crs_raises(self) -> None:
+        fc = FeatureCollection(gpd.GeoDataFrame(geometry=[Point(0, 0)]))
+        with pytest.raises(ValueError, match="CRS is required"):
+            fc.to_h3(9)
+
+
+class TestH3Bin:
+    def test_count_density(self, sf_points: FeatureCollection) -> None:
+        """h3_bin with no column returns one hexagon per cell with point counts summing to the total."""
+        cells = sf_points.h3_bin(9)
+        assert "count" in cells.columns
+        assert int(cells["count"].sum()) == len(sf_points)
+        assert cells.crs.to_epsg() == 4326
+        assert set(cells.geom_type) == {"Polygon"}
+        assert cells.geometry.is_valid.all()
+
+    def test_column_aggregate(self, sf_points: FeatureCollection) -> None:
+        """h3_bin aggregates a column per cell (mean of the two coincident points is 3.5)."""
+        cells = sf_points.h3_bin(9, column="v", agg="mean")
+        assert "v" in cells.columns
+        assert 3.5 in [round(x, 6) for x in cells["v"]]
+
+    def test_hexagons_have_six_vertices(self, sf_points: FeatureCollection) -> None:
+        """A non-pentagon H3 cell polygon has six vertices."""
+        cell = sf_points.h3_bin(9).geometry.iloc[0]
+        assert len(cell.exterior.coords) - 1 == 6
+
+    def test_non_point_raises(self) -> None:
+        polys = FeatureCollection(gpd.GeoDataFrame(geometry=[Point(0, 0).buffer(1.0)], crs="EPSG:4326"))
+        with pytest.raises(InvalidGeometryError):
+            polys.h3_bin(9)
+
+    def test_missing_column_raises(self, sf_points: FeatureCollection) -> None:
+        with pytest.raises(ValueError, match="not found"):
+            sf_points.h3_bin(9, column="nope")
+
+    def test_unknown_agg_raises(self, sf_points: FeatureCollection) -> None:
+        with pytest.raises(ValueError, match="unknown agg"):
+            sf_points.h3_bin(9, column="v", agg="bogus")
