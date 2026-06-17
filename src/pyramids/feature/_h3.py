@@ -110,19 +110,29 @@ def _ijk_to_hex2d(h):
     return [i - 0.5 * j, j * M_SQRT3_2]
 
 
-def _hex2d_round(r1, r2, m1, m2):
-    """Quantize sub-cell offsets ``(r1, r2)`` to integer ``(i, j)`` (DGGRID rounding)."""
-    if r1 < 0.5:
-        if r1 < 1.0 / 3.0:
-            return (m1, m2) if r2 < (1.0 + r1) / 2.0 else (m1, m2 + 1)
-        j = m2 if r2 < (1.0 - r1) else m2 + 1
-        i = m1 + 1 if (1.0 - r1) <= r2 < (2.0 * r1) else m1
-        return i, j
+def _hex2d_round_low(r1, r2, m1, m2):
+    """Quantize for the inner third of the cell (``r1 < 0.5``)."""
+    if r1 < 1.0 / 3.0:
+        return (m1, m2) if r2 < (1.0 + r1) / 2.0 else (m1, m2 + 1)
+    j = m2 if r2 < (1.0 - r1) else m2 + 1
+    i = m1 + 1 if (1.0 - r1) <= r2 < (2.0 * r1) else m1
+    return i, j
+
+
+def _hex2d_round_high(r1, r2, m1, m2):
+    """Quantize for the outer third of the cell (``r1 >= 0.5``)."""
     if r1 < 2.0 / 3.0:
         j = m2 if r2 < (1.0 - r1) else m2 + 1
         i = m1 if (2.0 * r1 - 1.0) < r2 < (1.0 - r1) else m1 + 1
         return i, j
     return (m1 + 1, m2) if r2 < (r1 / 2.0) else (m1 + 1, m2 + 1)
+
+
+def _hex2d_round(r1, r2, m1, m2):
+    """Quantize sub-cell offsets ``(r1, r2)`` to integer ``(i, j)`` (DGGRID rounding)."""
+    if r1 < 0.5:
+        return _hex2d_round_low(r1, r2, m1, m2)
+    return _hex2d_round_high(r1, r2, m1, m2)
 
 
 def _hex2d_fold(h, x, y):
