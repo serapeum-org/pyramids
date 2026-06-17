@@ -192,6 +192,11 @@ class TestToTerrainRgbErrors:
                 tmp_path / "t", tiles=True, min_zoom=-1
             )
 
+    def test_out_of_range_band_raises(self, tmp_path):
+        """A band index past the source band count raises a clear ValueError."""
+        with pytest.raises(ValueError, match="band index"):
+            _dem_3857().to_terrain_rgb(tmp_path / "x.png", tiles=False, band=5)
+
 
 class TestToTerrainRgbExposure:
     """Facade wiring."""

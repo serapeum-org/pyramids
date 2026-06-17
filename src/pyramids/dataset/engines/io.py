@@ -2322,6 +2322,7 @@ class IO(_Engine):
             )
         if min_zoom < 0:
             raise ValueError(f"min_zoom must be >= 0, got {min_zoom}.")
+        _validate_band_index(band, self._ds.band_count)
         # Validate the resampling name once (also reused by the per-tile warp).
         resample_alg = resolve_resampling(resampling)
         source = (
