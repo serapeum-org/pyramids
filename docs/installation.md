@@ -17,8 +17,9 @@ pip install pyramids-gis
 ```
 
 That's it. The wheel includes GDAL 3.12, PROJ, GEOS, HDF4/5, NetCDF,
-libtiff, and all other native dependencies. No `gdal-config`, no
-`apt install libgdal-dev`, no OSGeo4W installer needed.
+JPEG2000 (OpenJPEG, for JP2-packed GRIB2), libtiff, and all other native
+dependencies. No `gdal-config`, no `apt install libgdal-dev`, no OSGeo4W
+installer needed.
 
 ### Optional extras
 

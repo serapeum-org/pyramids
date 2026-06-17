@@ -347,12 +347,15 @@ xarray = ">=2023.1.0"
 
 # Single source of truth for the conda GDAL pin (SWIG osgeo bindings are ABI-locked to
 # libgdal). Listed by every environment; ci/gdal-pin.py and ci/setup-gdal-micromamba.sh
-# read it so CI installs the same range. Bump all four together on a new gdal minor.
+# read it so CI installs the same range. Bump all five together on a new gdal minor.
+# libgdal-jp2openjpeg ships the JP2OpenJPEG driver (pulls openjpeg) so the bundled GDAL
+# can read JPEG2000-packed GRIB2 (WMO template 5.40 — NCEP/ECCC/ECMWF); see issue #600.
 [tool.pixi.feature.gdal.dependencies]
 gdal = ">=3.12,<3.13"
 libgdal-netcdf = ">=3.12,<3.13"
 libgdal-hdf4 = ">=3.12,<3.13"
 libgdal-grib = ">=3.12,<3.13"
+libgdal-jp2openjpeg = ">=3.12,<3.13"
 
 # swig builds the osgeo bindings against libgdal; build-only, so it stays in the
 # wheel-build feature (not the shared gdal feature). setup-gdal-micromamba.sh reads it.

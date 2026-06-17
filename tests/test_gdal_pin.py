@@ -25,7 +25,13 @@ GDAL_PIN_SCRIPT = REPO_ROOT / "ci" / "gdal-pin.py"
 
 # The conda packages the shared gdal feature must pin. swig is build-only and lives in
 # the wheel-build feature, so it is intentionally excluded here.
-GDAL_PACKAGES = ["gdal", "libgdal-netcdf", "libgdal-hdf4", "libgdal-grib"]
+GDAL_PACKAGES = [
+    "gdal",
+    "libgdal-netcdf",
+    "libgdal-hdf4",
+    "libgdal-grib",
+    "libgdal-jp2openjpeg",
+]
 
 
 def _load_pixi() -> dict:
@@ -41,7 +47,13 @@ def _env_features(env_spec) -> list:
 
 # The packages ci/setup-gdal-micromamba.sh asks ci/gdal-pin.py to resolve — the shared
 # gdal libs plus build-only swig. gdal-pin.py must serve every one of them.
-MICROMAMBA_PACKAGES = ["gdal", "libgdal-netcdf", "libgdal-hdf4", "swig"]
+MICROMAMBA_PACKAGES = [
+    "gdal",
+    "libgdal-netcdf",
+    "libgdal-hdf4",
+    "libgdal-jp2openjpeg",
+    "swig",
+]
 
 
 def _load_gdal_pin():

@@ -244,7 +244,33 @@ def _check_netcdf_driver() -> None:
     )
 
 
+def _check_jp2_driver() -> None:
+    """Confirm the bundled JP2OpenJPEG driver loads and round-trips (issue #600).
+
+    JPEG2000 packing (WMO GRIB2 template 5.40) is common in NCEP / ECCC / ECMWF
+    GRIB2. Without the JP2OpenJPEG plugin those messages fail with
+    "plugin gdal_JP2OpenJPEG ... is not available in your installation". A
+    register + write/read round-trip is a self-contained proxy for the GRIB JP2
+    decode path (no network fixture needed).
+    """
+    gdal.UseExceptions()
+    drv = gdal.GetDriverByName("JP2OpenJPEG")
+    if drv is None:
+        _fail("JP2OpenJPEG driver not registered in the bundled GDAL (#600)")
+
+    path = os.path.join(tempfile.mkdtemp(prefix="jp2-"), "t.jp2")
+    mem = gdal.GetDriverByName("MEM").Create("", 32, 32, 1, gdal.GDT_Byte)
+    mem.GetRasterBand(1).Fill(128)
+    if drv.CreateCopy(path, mem) is None:
+        _fail("JP2OpenJPEG CreateCopy returned None — bundled driver cannot write (#600)")
+    ds = gdal.Open(path)
+    if ds is None or ds.GetRasterBand(1).ReadAsArray() is None:
+        _fail(f"gdal.Open({path}) failed — JP2OpenJPEG read produced no band (#600)")
+    print("JP2OpenJPEG round-trip OK — bundled driver reads/writes JPEG2000 (#600).")
+
+
 _check_netcdf_driver()
+_check_jp2_driver()
 _check_tls_read()
 
 print("All runtime checks passed.")

@@ -97,13 +97,14 @@ if [[ ! -f "${GDAL_PIN}" ]]; then
 fi
 
 { read -r GDAL_SPEC; read -r LIBGDAL_NETCDF_SPEC; \
-  read -r LIBGDAL_HDF4_SPEC; read -r SWIG_SPEC; } \
-  < <(python3 "${GDAL_PIN}" gdal libgdal-netcdf libgdal-hdf4 swig)
+  read -r LIBGDAL_HDF4_SPEC; read -r LIBGDAL_JP2_SPEC; read -r SWIG_SPEC; } \
+  < <(python3 "${GDAL_PIN}" gdal libgdal-netcdf libgdal-hdf4 libgdal-jp2openjpeg swig)
 
 echo "--- Wheel-build pins (from pyproject.toml) ---"
 echo "  gdal${GDAL_SPEC}"
 echo "  libgdal-netcdf${LIBGDAL_NETCDF_SPEC}"
 echo "  libgdal-hdf4${LIBGDAL_HDF4_SPEC}"
+echo "  libgdal-jp2openjpeg${LIBGDAL_JP2_SPEC}"
 echo "  swig${SWIG_SPEC}"
 
 echo "--- Creating ${TARGET_PLATFORM} env at ${PIXI_ENV} ---"
@@ -114,6 +115,7 @@ echo "--- Creating ${TARGET_PLATFORM} env at ${PIXI_ENV} ---"
     "gdal${GDAL_SPEC}" \
     "libgdal-netcdf${LIBGDAL_NETCDF_SPEC}" \
     "libgdal-hdf4${LIBGDAL_HDF4_SPEC}" \
+    "libgdal-jp2openjpeg${LIBGDAL_JP2_SPEC}" \
     "swig${SWIG_SPEC}"
 
 echo "=== setup-gdal-micromamba.sh complete ==="
