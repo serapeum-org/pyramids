@@ -2385,7 +2385,7 @@ class TestConvertLongitudePaths:
         """
         dataset = Dataset(noah)
         lon = dataset.lon
-        first = int(np.where(lon > 180)[0][0])
+        first = int(np.nonzero(lon > 180)[0][0])
         order = list(range(first, noah.RasterXSize)) + list(range(0, first))
         result = dataset.convert_longitude()
         for band in range(noah.RasterCount):

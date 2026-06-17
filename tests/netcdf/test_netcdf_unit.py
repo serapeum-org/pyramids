@@ -1354,7 +1354,7 @@ class TestGetVariableYFlipAndErrors:
 
         def patched_read(variable_name, x_dim=None, y_dim=None):
             """Return None for md_arr to trigger default dim info."""
-            src, md_arr, rg_ref, ix, iy = original_read(
+            src, _, rg_ref, ix, iy = original_read(
                 variable_name, x_dim=x_dim, y_dim=y_dim
             )
             return src, None, rg_ref, ix, iy

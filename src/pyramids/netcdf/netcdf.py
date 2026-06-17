@@ -3567,10 +3567,26 @@ class NetCDF(Dataset):
             return "Y"
         return None
 
+    @staticmethod
+    def _detect_axis_indices(dims) -> tuple[int | None, int | None]:
+        """Indices of the X (longitude) and Y (latitude) dimensions via CF coordinate attributes.
+
+        Returns the first dimension classified as ``"X"`` and the first as ``"Y"`` by
+        ``_axis_role_of_dimension`` (each ``None`` when undetected).
+        """
+        detected_x = detected_y = None
+        for i, dim in enumerate(dims):
+            role = NetCDF._axis_role_of_dimension(dim)
+            if role == "X" and detected_x is None:
+                detected_x = i
+            elif role == "Y" and detected_y is None:
+                detected_y = i
+        return detected_x, detected_y
+
     def _resolve_spatial_dims(
         self, md_arr, x_dim: str | None = None, y_dim: str | None = None
     ) -> tuple[int, int]:
-        """Resolve the ``(iXDim, iYDim)`` raster-plane dimension indices.
+        """Resolve the ``(x_index, y_index)`` raster-plane dimension indices.
 
         Precedence: explicit ``x_dim``/``y_dim`` names → CF auto-detection from the
         coordinate variables' ``axis``/``standard_name``/``units`` attributes → the
@@ -3578,9 +3594,8 @@ class NetCDF(Dataset):
         not the trailing dimensions (e.g. CAM ``T(time, lat, lev, lon)``) be read as a
         proper lat/lon plane instead of a lev/lon cross-section.
         """
-        dims = md_arr.GetDimensions()
-        names = [d.GetName() for d in dims]
-        n = len(dims)
+        names = [d.GetName() for d in md_arr.GetDimensions()]
+        n = len(names)
 
         explicit_x = self._dimension_index(names, x_dim) if x_dim is not None else None
         explicit_y = self._dimension_index(names, y_dim) if y_dim is not None else None
@@ -3592,15 +3607,7 @@ class NetCDF(Dataset):
                 )
             return explicit_x, explicit_y
 
-        # CF auto-detection from the coordinate variables' axis/standard_name/units.
-        detected_x = detected_y = None
-        for i, dim in enumerate(dims):
-            role = self._axis_role_of_dimension(dim)
-            if role == "X" and detected_x is None:
-                detected_x = i
-            elif role == "Y" and detected_y is None:
-                detected_y = i
-
+        detected_x, detected_y = self._detect_axis_indices(md_arr.GetDimensions())
         # Adopt detection only when it (combined with any single explicit side) yields a
         # complete, distinct (X, Y) pair — otherwise a partially-detected axis must not
         # collide with the last-two fallback (e.g. a 2-D `lon_bnds(lon, bnds)` variable).
@@ -3610,11 +3617,11 @@ class NetCDF(Dataset):
             return candidate_x, candidate_y
 
         # Fallback: the last two dimensions, keeping a non-colliding explicit side.
-        iXDim = explicit_x if explicit_x is not None else n - 1
-        iYDim = explicit_y if explicit_y is not None else n - 2
-        if iXDim == iYDim:
-            iXDim, iYDim = n - 1, n - 2
-        return iXDim, iYDim
+        x_index = explicit_x if explicit_x is not None else n - 1
+        y_index = explicit_y if explicit_y is not None else n - 2
+        if x_index == y_index:
+            x_index, y_index = n - 1, n - 2
+        return x_index, y_index
 
     def _read_md_array(
         self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None
@@ -3631,9 +3638,9 @@ class NetCDF(Dataset):
         conversion. This is a lazy, zero-copy operation — GDAL handles
         the reversed indexing internally without reading the whole array.
 
-        Returns a tuple `(classic_dataset, md_array, root_group, iXDim,
-        iYDim)` so callers can keep the GDAL objects alive and reuse the
-        resolved plane indices (`iXDim`/`iYDim` are `None` for a 1-D
+        Returns a tuple `(classic_dataset, md_array, root_group, x_index,
+        y_index)` so callers can keep the GDAL objects alive and reuse the
+        resolved plane indices (`x_index`/`y_index` are `None` for a 1-D
         variable). `AsClassicDataset`
         returns a **view** whose C++ backing depends on the MDArray and
         root group; if the Python SWIG wrappers for those are garbage-
@@ -3652,20 +3659,20 @@ class NetCDF(Dataset):
 
         # Resolve on the original array — the Y-flip below renames the Y dimension and drops its
         # indexing variable, so the indices must be computed before flipping and returned to the caller.
-        iXDim, iYDim = self._resolve_spatial_dims(md_arr, x_dim, y_dim)
+        x_index, y_index = self._resolve_spatial_dims(md_arr, x_dim, y_dim)
 
         # First pass: check if Y orientation needs flipping.
-        src = md_arr.AsClassicDataset(iXDim, iYDim, rg)
+        src = md_arr.AsClassicDataset(x_index, y_index, rg)
 
         if src.GetGeoTransform()[5] > 0:
             # Positive Y pixel size = south-to-north (NetCDF convention).
             # Use GetView to reverse the Y dimension — this is lazy and
             # zero-copy; GDAL handles reversed indexing internally.
-            slices = ",".join("::-1" if i == iYDim else ":" for i in range(len(dims)))
+            slices = ",".join("::-1" if i == y_index else ":" for i in range(len(dims)))
             md_arr = md_arr.GetView(f"[{slices}]")
-            src = md_arr.AsClassicDataset(iXDim, iYDim, rg)
+            src = md_arr.AsClassicDataset(x_index, y_index, rg)
 
-        return src, md_arr, rg, iXDim, iYDim
+        return src, md_arr, rg, x_index, y_index
 
     def get_variable(
         self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None
@@ -3740,30 +3747,18 @@ class NetCDF(Dataset):
 
         spatial_dim_indices: tuple[int, int] | None = None
         if prefix == "MEMORY" or rg is not None:
-            src, md_arr_ref, rg_ref, iXDim, iYDim = self._read_md_array(
+            src, md_arr_ref, rg_ref, x_index, y_index = self._read_md_array(
                 variable_name, x_dim=x_dim, y_dim=y_dim
             )
-            if iXDim is not None:
-                spatial_dim_indices = (iXDim, iYDim)
+            if x_index is not None:
+                spatial_dim_indices = (x_index, y_index)
             if isinstance(src, gdal.Dataset):
                 cube = NetCDF(src)
                 cube._is_md_array = True
-                # _read_md_array uses GetView to flip the data lazily,
-                # and GDAL usually corrects the geotransform. But when
-                # the Y dimension has no indexing variable (e.g. WRF
-                # "south_north"), the geotransform may still be wrong.
-                # Fix it on the wrapper object (no data copy).
-                gt = cube._geotransform
-                if gt[5] > 0:
-                    cube._geotransform = (
-                        gt[0],
-                        gt[1],
-                        gt[2],
-                        gt[3] + gt[5] * cube._rows,
-                        gt[4],
-                        -gt[5],
-                    )
-                    cube._cell_size = abs(gt[1])
+                # _read_md_array flips the data lazily and GDAL usually corrects the geotransform,
+                # but a Y dim with no indexing variable (e.g. WRF "south_north") can leave it wrong;
+                # fix it on the wrapper (no data copy).
+                self._correct_flipped_geotransform(cube)
             else:
                 cube = src
             # Keep GDAL SWIG references alive — AsClassicDataset returns a
@@ -3794,95 +3789,125 @@ class NetCDF(Dataset):
         if isinstance(cube, NetCDF):
             cube._normalize_geostationary_geotransform()
 
-        md_arr = md_arr_ref if rg is not None else None
-        if rg is not None:
-            if md_arr is not None:
-                dims = md_arr.GetDimensions()
-                cube._md_array_dims = [d.GetName() for d in dims]
+        self._attach_variable_metadata(
+            cube, md_arr_ref if rg is not None else None, spatial_dim_indices
+        )
+        return cube
 
-                # Identify which dimensions became bands (all except X/Y).
-                # Track every non-spatial dim so 4-D+ files (e.g. CDS-Beta
-                # ERA5 pressure-levels: time, pressure_level, lat, lon)
-                # remain addressable via sel(). Legacy fields point at the
-                # primary (first) non-spatial dim so 3-D consumers see no
-                # change.
-                if len(dims) > 2:
-                    # Reuse the indices resolved by _read_md_array (computed on the
-                    # unflipped array); fall back to the last two dimensions.
-                    if spatial_dim_indices is not None:
-                        spatial_indices = set(spatial_dim_indices)
-                    else:
-                        spatial_indices = {len(dims) - 1, len(dims) - 2}
-                    band_dims = [
-                        d for i, d in enumerate(dims) if i not in spatial_indices
-                    ]
-                else:
-                    band_dims = []
+    @staticmethod
+    def _correct_flipped_geotransform(cube: NetCDF) -> None:
+        """Flip a south-to-north geotransform (positive Y pixel size) to north-up on the wrapper.
 
-                if band_dims:
-                    cube._band_dim_names = tuple(d.GetName() for d in band_dims)
-                    cube._band_dim_sizes = tuple(d.GetSize() for d in band_dims)
-                    cube._band_dim_values_map = {}
-                    for d in band_dims:
-                        iv = d.GetIndexingVariable()
-                        try:
-                            values = (
-                                iv.ReadAsArray().tolist() if iv is not None else None
-                            )
-                        except RuntimeError:
-                            # String-typed indexing variables (e.g. WRF
-                            # "Times") can't be read via ReadAsArray in
-                            # GDAL SWIG bindings — fall back to indices.
-                            values = list(range(d.GetSize()))
-                        cube._band_dim_values_map[d.GetName()] = values
-                    cube._band_dim_name = cube._band_dim_names[0]
-                    cube._band_dim_values = cube._band_dim_values_map[
-                        cube._band_dim_name
-                    ]
-                else:
-                    cube._band_dim_name = None
-                    cube._band_dim_values = None
-                    cube._band_dim_names = ()
-                    cube._band_dim_values_map = {}
-                    cube._band_dim_sizes = ()
+        A no-op unless `cube._geotransform[5] > 0`. Used after a lazy `GetView` Y-flip when the Y
+        dimension has no indexing variable, so GDAL could not correct the geotransform itself.
+        """
+        gt = cube._geotransform
+        if gt[5] > 0:
+            cube._geotransform = (
+                gt[0],
+                gt[1],
+                gt[2],
+                gt[3] + gt[5] * cube._rows,
+                gt[4],
+                -gt[5],
+            )
+            cube._cell_size = abs(gt[1])
 
-                # Copy variable attributes
-                cube._variable_attrs = {}
-                try:
-                    for attr in md_arr.GetAttributes():
-                        cube._variable_attrs[attr.GetName()] = attr.Read()
-                except Exception:
-                    pass  # nosec B110
+    def _attach_variable_metadata(
+        self, cube: NetCDF, md_arr, spatial_dim_indices: tuple[int, int] | None
+    ) -> None:
+        """Populate band-dim tracking, variable attributes, and packing on a variable subset.
 
-                # Scale/offset for CF packed data
-                try:
-                    cube._scale = md_arr.GetScale()
-                    cube._offset = md_arr.GetOffset()
-                except Exception:
-                    cube._scale = None
-                    cube._offset = None
-            else:
-                cube._md_array_dims = []
-                cube._band_dim_name = None
-                cube._band_dim_values = None
-                cube._band_dim_names = ()
-                cube._band_dim_values_map = {}
-                cube._band_dim_sizes = ()
-                cube._variable_attrs = {}
-                cube._scale = None
-                cube._offset = None
+        When `md_arr` is `None` (e.g. the file-backed gdal.Open path or a 1-D string variable) the
+        band/attr metadata is cleared to empty defaults.
+        """
+        if md_arr is None:
+            self._clear_variable_metadata(cube)
+            return
+        dims = md_arr.GetDimensions()
+        cube._md_array_dims = [d.GetName() for d in dims]
+        self._track_band_dimensions(cube, dims, spatial_dim_indices)
+        self._copy_variable_attrs(cube, md_arr)
+
+    @staticmethod
+    def _clear_variable_metadata(cube: NetCDF) -> None:
+        """Reset a subset's band-dimension, attribute, and packing metadata to empty defaults."""
+        cube._md_array_dims = []
+        cube._band_dim_name = None
+        cube._band_dim_values = None
+        cube._band_dim_names = ()
+        cube._band_dim_values_map = {}
+        cube._band_dim_sizes = ()
+        cube._variable_attrs = {}
+        cube._scale = None
+        cube._offset = None
+
+    @staticmethod
+    def _track_band_dimensions(
+        cube: NetCDF, dims, spatial_dim_indices: tuple[int, int] | None
+    ) -> None:
+        """Map every non-spatial dimension onto bands so `sel()` can address 4-D+ variables.
+
+        The spatial (X/Y) dimensions are taken from `spatial_dim_indices` (resolved on the unflipped
+        array) when available, else the last two. The legacy `_band_dim_name`/`_band_dim_values`
+        fields point at the first non-spatial dim so existing 3-D consumers are unaffected.
+        """
+        if len(dims) > 2:
+            spatial = (
+                set(spatial_dim_indices)
+                if spatial_dim_indices is not None
+                else {len(dims) - 1, len(dims) - 2}
+            )
+            band_dims = [d for i, d in enumerate(dims) if i not in spatial]
         else:
-            cube._md_array_dims = []
+            band_dims = []
+
+        if not band_dims:
             cube._band_dim_name = None
             cube._band_dim_values = None
             cube._band_dim_names = ()
             cube._band_dim_values_map = {}
             cube._band_dim_sizes = ()
-            cube._variable_attrs = {}
+            return
+
+        cube._band_dim_names = tuple(d.GetName() for d in band_dims)
+        cube._band_dim_sizes = tuple(d.GetSize() for d in band_dims)
+        cube._band_dim_values_map = {
+            d.GetName(): NetCDF._read_band_dim_values(d) for d in band_dims
+        }
+        cube._band_dim_name = cube._band_dim_names[0]
+        cube._band_dim_values = cube._band_dim_values_map[cube._band_dim_name]
+
+    @staticmethod
+    def _read_band_dim_values(dim):
+        """Indexing-variable values for a band dimension, or integer indices when unreadable.
+
+        String-typed indexing variables (e.g. WRF `Times`) cannot be read via `ReadAsArray` in the
+        GDAL SWIG bindings, so they fall back to `[0, 1, ..., size - 1]`.
+        """
+        indexing_var = dim.GetIndexingVariable()
+        if indexing_var is None:
+            return None
+        try:
+            return indexing_var.ReadAsArray().tolist()
+        except RuntimeError:
+            return list(range(dim.GetSize()))
+
+    @staticmethod
+    def _copy_variable_attrs(cube: NetCDF, md_arr) -> None:
+        """Copy the variable's attributes and CF `scale`/`offset` packing onto the subset."""
+        cube._variable_attrs = {}
+        try:
+            for attr in md_arr.GetAttributes():
+                cube._variable_attrs[attr.GetName()] = attr.Read()
+        except Exception:  # nosec B110
+            pass
+        try:
+            cube._scale = md_arr.GetScale()
+            cube._offset = md_arr.GetOffset()
+        except Exception:
             cube._scale = None
             cube._offset = None
-
-        return cube
 
     def _replace_raster(self, new_raster: gdal.Dataset):
         """Replace the internal GDAL dataset, closing the old one if different.

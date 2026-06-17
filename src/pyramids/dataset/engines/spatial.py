@@ -475,7 +475,7 @@ class Spatial(_Engine):
 
         src = self._ds.raster
         n_columns = src.RasterXSize
-        first_to_translated = int(np.where(lon > 180)[0][0])
+        first_to_translated = int(np.nonzero(lon > 180)[0][0])
         gt = list(src.GetGeoTransform())
         gt[0] = self._ds.top_left_corner[0] - 180
 
