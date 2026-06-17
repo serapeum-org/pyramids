@@ -153,6 +153,12 @@ def structural():
 
 
 @pytest.fixture
+def caps(sample_name):
+    """The capability-registry entry (flags dict) for the current parametrized sample file."""
+    return SAMPLES[sample_name]
+
+
+@pytest.fixture
 def rank_histogram():
     """Return a helper computing ``{rank: count}`` from a ``NetCDFMetadata.variables`` mapping."""
 
