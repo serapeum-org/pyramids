@@ -1012,17 +1012,7 @@ class Dataset(RasterBase):
         return self.spatial.wrap_longitude(*args, **kwargs)
 
     def convert_longitude(self, *args, **kwargs):
-        """Deprecated alias for :meth:`wrap_longitude`.
-
-        .. deprecated::
-            Use :meth:`wrap_longitude` instead; the verb-only name leaves room for a future target
-            parameter (0/360 vs -180/180). This alias will be removed in a future release.
-        """
-        warnings.warn(
-            "Dataset.convert_longitude is deprecated; use wrap_longitude instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+        """Alias for :meth:`wrap_longitude` (kept for backward compatibility)."""
         return self.wrap_longitude(*args, **kwargs)
 
     def resample(self, *args, **kwargs):
