@@ -1,4 +1,4 @@
-# NetCDF "zoo" — a catalog of real-world NetCDF shapes
+# NetCDF sample files — a catalog of real-world NetCDF shapes
 
 A curated set of **real** NetCDF files downloaded from public sources, chosen to cover every common
 shape/convention a reader has to handle: single vs many variables; pure-1D / 2D / 3D / 4D and mixed
@@ -8,8 +8,8 @@ groups; and unstructured **UGRID** meshes.
 Nothing here is synthetic — each file is a published example used by the wider community (Unidata's netCDF
 example suite, the `pydata/xarray-data` tutorial set, and `UXARRAY`'s UGRID mesh fixtures).
 
-> These are **not committed** to git (large binaries); they live under `examples/data/netcdf-zoo/` as a local
-> reference set. Total ~150 MB.
+> These live under `tests/data/netcdf/` as **committed** test fixtures (small, deflate-compressed;
+> ~22 MB total). They are the canonical sample set for the netcdf-subpackage test suite.
 
 ## Naming convention
 
@@ -47,26 +47,26 @@ their own dimension (the classic CF coordinate variables).
 
 ## Catalog
 
-| File                                            | Size    | Convention | #vars | ndim histogram            | Notable structure                                                                                  |
-|-------------------------------------------------|---------|------------|-------|---------------------------|----------------------------------------------------------------------------------------------------|
-| `none__1v__1d1.nc`                              | 0.04 MB | (none)     | 1     | 1×1D                      | **Single variable**, trivial (`var1(dim1)`)                                                        |
-| `cf__7v__1d3-2d3-3d1.nc`                        | 2.9 MB  | CF-1.0     | 7     | 3×1D, 3×2D, 1×3D          | **Single data variable** `tos(time,lat,lon)` + coords/bounds                                       |
-| `coards__4v__1d3-3d1.nc`                        | 7.8 MB  | COARDS     | 4     | 3×1D, 1×3D                | Single data variable `air(time,lat,lon)`; COARDS                                                   |
-| `cf__12v__1d4-2d5-3d2-4d1.nc`                   | 2.8 MB  | CF-1.0     | 12    | 4×1D, 5×2D, 2×3D, 1×4D    | **Mix of all dims**, CF; `pr`/`tas`(3D), `ua`(4D), `area`/`msk_rgn`(2D)                            |
-| `cf__20v__1d3-3d17.nc`                          | 22 MB   | CF-1.0     | 20    | 3×1D, 17×3D               | **Many 3-D variables** (17 surface fields `(time,lat,lon)`), CF                                    |
-| `cf__48v__1d17-3d21-4d10.nc`                    | 18 MB   | CF-1.0     | 48    | 17×1D, 21×3D, 10×4D       | **Mix of all** — CAM init; 10 `(time,lev,lat,lon)` 4-D + 21 3-D + coords                           |
-| `coards__5v__1d4-4d1.nc`                        | 17 MB   | COARDS     | 5     | 4×1D, 1×4D                | **Single 4-D variable** `rhum(time,level,lat,lon)`, int16-packed; COARDS multi-level (100 steps)‡  |
-| `cf__40v__1d28-2d9-3d3__nc4.nc`                 | 0.24 MB | CF-1.6     | 40    | 28×1D, 9×2D, 3×3D         | netCDF-4; satellite L2 with averaging kernels; mixed 1D/2D/3D                                      |
-| `cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc`         | 9.4 MB  | CF-1.4     | 8     | 3×1D, 3×2D, 1×3D, 1×4D    | **Staggered curvilinear** ocean grid (rho/u/v points); mix incl. 4-D                               |
-| `none__4v__1d1-2d2-3d1__curv.nc`                | 17 MB   | (none)     | 4     | 1×1D, 2×2D, 1×3D          | **Curvilinear / 2-D coordinates** (`xc(y,x)`, `yc(y,x)`), `Tair(time,y,x)`                         |
-| `none__17v__1d1-2d5-3d6-4d5__stag-str.nc`       | 27 MB   | (none)     | 17    | 1×1D, 5×2D, 6×3D, 5×4D    | **Reduced WRF subset** — one var per distinct shape; `U/V/W`/`MAPFAC_*` on `*_stag` dims; char `Times`†|
-| `none__5v__1d2-2d2-3d1__curv.nc`                | 8.6 MB  | (none)     | 5     | 2×1D, 2×2D, 1×3D          | **Multiple 2-D** image bands (McIDAS satellite); 2-D `lat`/`lon`                                   |
-| `none__111v__1d96-2d13-3d2__str.nc`             | 0.27 MB | (AWIPS)    | 111   | 96×1D, 13×2D, 2×3D        | **Many 1-D variables** — station obs over `recNum`; char 2-D fields                                |
-| `none__11v__1d11.nc`                            | 0.01 MB | (none)     | 11    | 11×1D                     | **Multiple 1-D variables** — aircraft track time series                                            |
-| `none__35v__1d35__groups-nc4.nc`                | 0.09 MB | (none)     | 35    | 35×1D                     | **Hierarchical groups** (netCDF-4); 1-D arrays nested under flight groups                          |
-| `ugrid__6v__1d5-2d1.nc`                         | 0.02 MB | UGRID*     | 6     | 5×1D, 1×2D                | **UGRID mesh topology** — `node_lon`/`face_lon`, `face_node_connectivity(n_face,n_max_face_nodes)` |
-| `ugrid__1v__3d1.nc`                             | 0.01 MB | UGRID*     | 1     | 1×3D                      | **UGRID data**, 3-D on an unstructured mesh: `multi_dim_data(time,lev,n_face)`                     |
-| `ugrid__1v__1d1.nc`                             | 0.04 MB | UGRID*     | 1     | 1×1D                      | **UGRID/unstructured data** on a cubed-sphere SE grid: `psi(ncol)`                                 |
+| File                                      | Size    | Convention | #vars | ndim histogram         | Notable structure                                                                                       |
+|-------------------------------------------|---------|------------|-------|------------------------|---------------------------------------------------------------------------------------------------------|
+| `none__1v__1d1.nc`                        | 0.04 MB | (none)     | 1     | 1×1D                   | **Single variable**, trivial (`var1(dim1)`)                                                             |
+| `cf__7v__1d3-2d3-3d1.nc`                  | 2.9 MB  | CF-1.0     | 7     | 3×1D, 3×2D, 1×3D       | **Single data variable** `tos(time,lat,lon)` + coords/bounds                                            |
+| `coards__4v__1d3-3d1.nc`                  | 0.2 MB  | COARDS     | 4     | 3×1D, 1×3D             | Single data variable `air(time,lat,lon)`, int16-packed; COARDS (100 steps, deflate)                     |
+| `cf__12v__1d4-2d5-3d2-4d1.nc`             | 2.8 MB  | CF-1.0     | 12    | 4×1D, 5×2D, 2×3D, 1×4D | **Mix of all dims**, CF; `pr`/`tas`(3D), `ua`(4D), `area`/`msk_rgn`(2D)                                 |
+| `cf__20v__1d3-3d17.nc`                    | 1.7 MB  | CF-1.0     | 20    | 3×1D, 17×3D            | **Many 3-D variables** (17 int16-packed surface fields `(time,lat,lon)`), CF (12 steps)§                |
+| `cf__48v__1d17-3d21-4d10.nc`              | 3.1 MB  | CF-1.0     | 48    | 17×1D, 21×3D, 10×4D    | **Mix of all** — CAM init; 10 `(time,lev,lat,lon)` 4-D + 21 3-D + coords (6 levels)¶                    |
+| `coards__5v__1d4-4d1.nc`                  | 0.2 MB  | COARDS     | 5     | 4×1D, 1×4D             | **Single 4-D variable** `rhum(time,level,lat,lon)`, int16-packed; COARDS multi-level (12×4×37×72)‡      |
+| `cf__40v__1d28-2d9-3d3__nc4.nc`           | 0.24 MB | CF-1.6     | 40    | 28×1D, 9×2D, 3×3D      | netCDF-4; satellite L2 with averaging kernels; mixed 1D/2D/3D                                           |
+| `cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc`   | 2.8 MB  | CF-1.4     | 8     | 3×1D, 3×2D, 1×3D, 1×4D | **Curvilinear** ROMS ocean grid (rho-point only in this subset); mix incl. 4-D (6 levels)※              |
+| `none__4v__1d1-2d2-3d1__curv.nc`          | 1.7 MB  | (none)     | 4     | 1×1D, 2×2D, 1×3D       | **Curvilinear / 2-D coordinates** (`xc(y,x)`, `yc(y,x)`), `Tair(time,y,x)` (6 steps)‖                   |
+| `none__17v__1d1-2d5-3d6-4d5__stag-str.nc` | 3.8 MB  | (none)     | 17    | 1×1D, 5×2D, 6×3D, 5×4D | **Reduced WRF subset** — one var per distinct shape; `U/V/W`/`MAPFAC_*` on `*_stag` dims; char `Times`† |
+| `none__5v__1d2-2d2-3d1__curv.nc`          | 1.6 MB  | (none)     | 5     | 2×1D, 2×2D, 1×3D       | **Multiple 2-D** image bands (McIDAS satellite); 2-D `lat`/`lon` (deflate, full res)                    |
+| `none__111v__1d96-2d13-3d2__str.nc`       | 0.27 MB | (AWIPS)    | 111   | 96×1D, 13×2D, 2×3D     | **Many 1-D variables** — station obs over `recNum`; char 2-D fields                                     |
+| `none__11v__1d11.nc`                      | 0.01 MB | (none)     | 11    | 11×1D                  | **Multiple 1-D variables** — aircraft track time series                                                 |
+| `none__35v__1d35__groups-nc4.nc`          | 0.09 MB | (none)     | 35    | 35×1D                  | **Hierarchical groups** (netCDF-4); 1-D arrays nested under flight groups                               |
+| `ugrid__6v__1d5-2d1.nc`                   | 0.02 MB | UGRID*     | 6     | 5×1D, 1×2D             | **UGRID mesh topology** — `node_lon`/`face_lon`, `face_node_connectivity(n_face,n_max_face_nodes)`      |
+| `ugrid__1v__3d1.nc`                       | 0.01 MB | UGRID*     | 1     | 1×3D                   | **UGRID data**, 3-D on an unstructured mesh: `multi_dim_data(time,lev,n_face)`                          |
+| `ugrid__1v__1d1.nc`                       | 0.04 MB | UGRID*     | 1     | 1×1D                   | **UGRID/unstructured data** on a cubed-sphere SE grid: `psi(ncol)`                                      |
 
 \* The UGRID files come from UXARRAY's `meshfiles/ugrid/` set. GDAL's multidim view flattens the scalar
 `mesh_topology` dummy variable, so the `Conventions` attribute may read empty/`MPAS`; the unstructured nature
@@ -75,13 +75,34 @@ is unmistakable from the `n_node`/`n_face`/`ncol` dimensions and the `*_connecti
 † `none__17v__…` is a **reduced subset** of the 80-variable `wrfout_v2_Lambert.nc`: the original had 63
 redundant variables that all share a shape already covered by another. One representative per distinct
 `(rank × dimension-set × dtype × role)` signature was kept (all four ranks, all three dtypes
-`float32`/`int32`/`char`, every mass/u/v/w/soil stagger, and the `XLAT`/`XLONG` geolocation pair), shrinking
-the file from 82 MB to 27 MB with no loss of reader-code-path coverage. Reproduce with `reduce_wrf.py`.
+`float32`/`int32`/`char`, every mass/u/v/w/soil stagger, and the `XLAT`/`XLONG` geolocation pair). The `Time`
+dimension is then cropped to 3 steps and the 3-D/4-D arrays deflate-compressed, shrinking the file from 82 MB
+to ~3.8 MB with no loss of reader-code-path coverage.
 
-‡ `coards__5v__…` was trimmed from the published 365 daily steps (~61 MB) to its first 100 (~17 MB). Nothing
-structural changed — the four 1-D coordinate axes and the single `int16`-packed 4-D `rhum` variable (with its
-`scale_factor`/`add_offset`/`_FillValue`) are intact; only the `time` dimension is shorter. Reproduce with
-`trim_rhum.py`.
+‡ `coards__5v__…` is shrunk from the published `rhum.2003.nc` (365 daily steps × 8 levels × 73×144, ~61 MB)
+to a tiny fixture (~0.2 MB): the first 12 time steps and 4 levels, the grid decimated by 2 to 37×72, and
+`rhum` stored chunked + deflate-compressed. Nothing structural changed — the four 1-D coordinate axes and the
+single `int16`-packed 4-D `rhum` variable (with its `scale_factor`/`add_offset`/`_FillValue`) are intact, only
+smaller.
+
+§ `cf__20v__…` is shrunk from the published `ECMWF_ERA-40_subset.nc` (62 × 73×144, ~22 MB) by cropping `time`
+to 12 steps and deflate-compressing, to ~1.7 MB. All 17 `int16`-packed 3-D fields, the three coordinate axes,
+their packing, and CF-1.0 are intact; only the `time` dimension is shorter.
+
+¶ `cf__48v__…` is shrunk from the published CAM init file (`time=1`, 26 levels, 64×128, ~18 MB) by cropping
+the vertical to 6 levels (interface levels `ilev` to 7) and deflate-compressing, to ~3.1 MB. All 48 variables,
+the full 1-D/3-D/4-D + `float64`/`int32`/`char` mix, the `lev`/`ilev` pairing, and CF-1.0 are intact; `time`
+is length 1 and cannot be cropped.
+
+‖ `none__4v__…` is shrunk from the published `rasm.nc` (`time=36`, 205×275, ~17 MB) by cropping `time` to 6
+steps and deflate-compressing, to ~1.7 MB. The curvilinear layout is intact — `Tair` plus the 2-D `xc(y,x)` /
+`yc(y,x)` coordinate arrays at full 205×275 resolution; only `time` is shorter.
+
+※ `cf__8v__…` (ROMS) is shrunk from the published `ROMS_example.nc` (already deflate-compressed, ~9.4 MB) by
+cropping the vertical `s_rho` to 6 levels, to ~2.8 MB; both time steps and the full 191×371 grid (with its 2-D
+`lat_rho`/`lon_rho` curvilinear coords) are kept. Note: despite the `stag` tag, this published subset contains
+only rho-point dimensions — there are no `u`/`v` staggered dims (the tag reflects ROMS being an Arakawa-C model
+in general).
 
 ## Name ↔ source mapping (traceability)
 
@@ -145,7 +166,11 @@ file's provenance is never lost.
 
 ## Regenerating
 
-The download list is in `download.sh` (Unidata files use the `archive.unidata.ucar.edu` host; the old
-`www.unidata.ucar.edu/software/netcdf/examples/` path now 404s). It downloads each file under its original
-published name and then renames it to the structural name (see the mapping table above). The per-file
-characterization was produced with GDAL's multidimensional API (`gdal.OpenEx(path, OF_MULTIDIM_RASTER)`).
+`download.sh` fetches the **full published source files** under their structural names (Unidata files use the
+`archive.unidata.ucar.edu` host; the old `www.unidata.ucar.edu/software/netcdf/examples/` path now 404s). It
+does **not** reproduce the reduced fixtures: most catalog files were shrunk once (deflate compression plus the
+dimension crops noted in the footnotes above) to keep the set small, and that step is intentionally not
+scripted — so a fresh `download.sh` run restores the full-size originals. The only name that differs is the
+WRF file: the full download is `none__80v__…`, while the catalog's `none__17v__…` is a manually-extracted
+17-variable subset. The per-file characterization was produced with GDAL's multidimensional API
+(`gdal.OpenEx(path, OF_MULTIDIM_RASTER)`).
