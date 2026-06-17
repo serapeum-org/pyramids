@@ -3841,11 +3841,23 @@ class NetCDF(Dataset):
         extension = path.suffix[1:].lower()
         if extension in ("nc", "nc4"):
             source_conventions = self.global_attributes.get("Conventions")
-            dst = gdal.GetDriverByName("netCDF").CreateCopy(str(path), self._raster, 0)
-            if dst is None:
-                raise RuntimeError(f"Failed to save NetCDF to {path}")
-            dst.FlushCache()
-            dst = None
+            try:
+                dst = gdal.GetDriverByName("netCDF").CreateCopy(str(path), self._raster, 0)
+            except RuntimeError:
+                # GDAL's netCDF CreateCopy raises on some dimension layouts (re-declaring a dimension
+                # name, #584). Fall back to a manual multidim copy that creates each dimension once.
+                if path.exists():
+                    try:
+                        path.unlink()
+                    except OSError:
+                        gc.collect()
+                        path.unlink()
+                self._manual_netcdf_copy(path)
+            else:
+                if dst is None:
+                    raise RuntimeError(f"Failed to save NetCDF to {path}")
+                dst.FlushCache()
+                dst = None
             # The netCDF writer injects a default Conventions="CF-1.x" when the source declares none;
             # strip it so a non-CF file is not silently relabelled as CF on write (#583).
             if source_conventions is None:
@@ -3858,6 +3870,31 @@ class NetCDF(Dataset):
                     "variable first with .get_variable()."
                 )
             super().to_file(path, **kwargs)
+
+    def _manual_netcdf_copy(self, path: str | Path) -> None:
+        """Write this container to netCDF by copying each variable explicitly.
+
+        Fallback for files where GDAL's ``CreateCopy`` raises while re-declaring dimensions (#584).
+        Each dimension is created once via ``_add_md_array_to_group`` -> ``_resolve_dst_dimensions``.
+        Root-level variables and global attributes only; hierarchical groups are not handled here
+        (those files copy fine through ``CreateCopy``), so this raises if the source has subgroups.
+        """
+        src_rg = self._raster.GetRootGroup()
+        if src_rg is None:
+            raise RuntimeError("manual netCDF copy requires a multidimensional container")
+        if src_rg.GetGroupNames():
+            raise RuntimeError(
+                f"manual netCDF copy of {path} does not support hierarchical groups"
+            )
+        dst = gdal.GetDriverByName("netCDF").CreateMultiDimensional(str(path), ["FORMAT=NC4"])
+        dst_rg = dst.GetRootGroup()
+        self._copy_md_array_attributes(src_rg, dst_rg)
+        for var_name in src_rg.GetMDArrayNames():
+            self._add_md_array_to_group(dst_rg, var_name, src_rg.OpenMDArray(var_name))
+        dst_rg = None
+        dst.FlushCache()
+        dst = None
+        gc.collect()
 
     @staticmethod
     def _strip_injected_conventions(path: str | Path) -> None:

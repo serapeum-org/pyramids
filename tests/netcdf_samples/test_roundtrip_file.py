@@ -10,16 +10,9 @@ from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
-# Files whose `to_file` (GDAL netCDF CreateCopy) currently fails on a dimension-name collision (issue #584).
-_TO_FILE_XFAIL = {
-    "none__111v__1d96-2d13-3d2__str.nc": "to_file CreateCopy: NetCDF dim-name collision (issue #584)",
-}
-
 
 def test_roundtrip_preserves_variable_set(sample_name, sample, tmp_path):
     """Writing then re-reading preserves the variable count and the rank histogram."""
-    if sample_name in _TO_FILE_XFAIL:
-        pytest.xfail(_TO_FILE_XFAIL[sample_name])
     nc = NetCDF.read_file(sample(sample_name))
     try:
         before = nc.get_all_metadata()
@@ -45,8 +38,6 @@ def test_roundtrip_preserves_variable_set(sample_name, sample, tmp_path):
 
 def test_roundtrip_preserves_convention(sample_name, sample, tmp_path):
     """``to_file`` keeps the source's ``Conventions`` verbatim — including *no* convention (issue #583)."""
-    if sample_name in _TO_FILE_XFAIL:
-        pytest.xfail(_TO_FILE_XFAIL[sample_name])
     nc = NetCDF.read_file(sample(sample_name))
     source_conventions = nc.global_attributes.get("Conventions")
     out = str(tmp_path / "roundtrip.nc")
