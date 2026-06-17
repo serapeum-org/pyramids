@@ -1063,6 +1063,11 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`IO.to_xyz <pyramids.dataset.engines.IO.to_xyz>`."""
         return self.io.to_xyz(*args, **kwargs)
 
+    def to_terrain_rgb(self, *args, **kwargs):
+        """Facade — delegates to
+        :meth:`IO.to_terrain_rgb <pyramids.dataset.engines.IO.to_terrain_rgb>`."""
+        return self.io.to_terrain_rgb(*args, **kwargs)
+
     @property
     def overview_count(self):
         """Facade — delegates to :attr:`IO.overview_count <pyramids.dataset.engines.IO.overview_count>`."""

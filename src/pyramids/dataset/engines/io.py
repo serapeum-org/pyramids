@@ -34,8 +34,13 @@ from pyramids.base._file_manager import (
 )
 from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base.protocols import ArrayLike
+from pyramids.base._utils import resolve_resampling
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS, RESAMPLING_METHODS
-from pyramids.dataset.engines.cog import _RESAMPLING_ALG
+from pyramids.dataset.engines.cog import (
+    _RESAMPLING_ALG,
+    _WEB_MERCATOR_HALF_EXTENT,
+    _xyz_bounds_3857,
+)
 from pyramids.dataset.ops import io as _io_module
 from pyramids.dataset.ops.io import _LAZY_IMPORT_ERROR
 from pyramids.dataset.window import Window
@@ -168,6 +173,146 @@ def _validate_fill_value(fill_value: float, dtype: np.dtype) -> None:
             f"dtype {dtype.name} (whole numbers in [{info.min}, "
             f"{info.max}])."
         )
+
+
+_TERRAIN_RGB_ENCODINGS = ("mapbox", "terrarium")
+"""Supported terrain-RGB elevation encodings (Mapbox Terrain-RGB / Mapzen Terrarium)."""
+
+
+def _encode_terrain_rgb(
+    elevation: np.ndarray,
+    *,
+    encoding: str,
+    base_val: float,
+    interval: float,
+) -> np.ndarray:
+    """Pack a float elevation grid (metres) into a ``(3, rows, cols)`` uint8 RGB stack.
+
+    Mirrors the Mapbox Terrain-RGB and Mapzen Terrarium specs. Out-of-range
+    elevations are clamped to the encodable range rather than wrapping.
+
+    Args:
+        elevation: 2-D float array of heights in metres.
+        encoding: ``"mapbox"`` or ``"terrarium"``.
+        base_val: Mapbox base elevation that maps to RGB ``(0, 0, 0)``.
+        interval: Mapbox metres-per-encoded-unit (ignored for terrarium).
+
+    Returns:
+        np.ndarray: ``(3, rows, cols)`` ``uint8`` array of the R, G, B channels.
+
+    Examples:
+        - Mapbox-pack a single elevation and read back the byte triple:
+            ```python
+            >>> import numpy as np
+            >>> rgb = _encode_terrain_rgb(
+            ...     np.array([[0.0]]), encoding="mapbox",
+            ...     base_val=-10000.0, interval=0.1,
+            ... )
+            >>> rgb.shape
+            (3, 1, 1)
+            >>> tuple(int(v) for v in rgb[:, 0, 0])
+            (1, 134, 160)
+
+            ```
+        - Elevations above the encodable range clamp to white, not wrap:
+            ```python
+            >>> import numpy as np
+            >>> rgb = _encode_terrain_rgb(
+            ...     np.array([[1e12]]), encoding="mapbox",
+            ...     base_val=-10000.0, interval=0.1,
+            ... )
+            >>> tuple(int(v) for v in rgb[:, 0, 0])
+            (255, 255, 255)
+
+            ```
+        - Terrarium packs sea level as ``(128, 0, 0)``:
+            ```python
+            >>> import numpy as np
+            >>> rgb = _encode_terrain_rgb(
+            ...     np.array([[0.0]]), encoding="terrarium", base_val=0.0, interval=1.0
+            ... )
+            >>> tuple(int(v) for v in rgb[:, 0, 0])
+            (128, 0, 0)
+
+            ```
+    """
+    if encoding == "mapbox":
+        packed = np.round((np.asarray(elevation, dtype=float) - base_val) / interval)
+        packed = np.clip(packed, 0, 2**24 - 1).astype(np.uint32)
+        red = ((packed >> 16) & 0xFF).astype(np.uint8)
+        green = ((packed >> 8) & 0xFF).astype(np.uint8)
+        blue = (packed & 0xFF).astype(np.uint8)
+    else:
+        # Terrarium: v = height + 32768, split into integer hi/lo bytes plus a
+        # 1/256-metre fractional byte. Clamp to the representable [-32768, 32768).
+        shifted = np.clip(
+            np.asarray(elevation, dtype=float) + 32768.0, 0.0, 65536.0 - 1.0 / 256.0
+        )
+        floor_shifted = np.floor(shifted)
+        red = np.floor(shifted / 256.0).astype(np.uint8)
+        green = (floor_shifted % 256.0).astype(np.uint8)
+        blue = np.floor((shifted - floor_shifted) * 256.0).astype(np.uint8)
+    return np.stack([red, green, blue], axis=0)
+
+
+def _terrain_rgba_stack(
+    elevation: np.ndarray,
+    nodata: float | None,
+    *,
+    encoding: str,
+    base_val: float,
+    interval: float,
+) -> np.ndarray:
+    """Build the terrain-RGB(A) byte stack, adding an alpha band only when needed.
+
+    No-data pixels become fully transparent (alpha 0); when the source declares
+    no no-data value a plain 3-band RGB stack is returned.
+
+    Args:
+        elevation: 2-D float array of heights in metres.
+        nodata: The source no-data marker, or ``None`` when unset.
+        encoding: ``"mapbox"`` or ``"terrarium"``.
+        base_val: Mapbox base elevation (see :func:`_encode_terrain_rgb`).
+        interval: Mapbox metres-per-encoded-unit.
+
+    Returns:
+        np.ndarray: ``(3, rows, cols)`` RGB, or ``(4, rows, cols)`` RGBA when a
+        no-data value is present.
+
+    Examples:
+        - Without a no-data value the stack is plain 3-band RGB:
+            ```python
+            >>> import numpy as np
+            >>> stack = _terrain_rgba_stack(
+            ...     np.array([[100.0]]), None,
+            ...     encoding="mapbox", base_val=-10000.0, interval=0.1,
+            ... )
+            >>> stack.shape[0]
+            3
+
+            ```
+        - A no-data cell adds a 4th alpha band that is 0 there, 255 elsewhere:
+            ```python
+            >>> import numpy as np
+            >>> stack = _terrain_rgba_stack(
+            ...     np.array([[100.0, -9999.0]]), -9999.0,
+            ...     encoding="mapbox", base_val=-10000.0, interval=0.1,
+            ... )
+            >>> stack.shape[0]
+            4
+            >>> int(stack[3, 0, 0]), int(stack[3, 0, 1])
+            (255, 0)
+
+            ```
+    """
+    rgb = _encode_terrain_rgb(
+        elevation, encoding=encoding, base_val=base_val, interval=interval
+    )
+    if nodata is None:
+        return rgb
+    invalid = is_no_data(np.asarray(elevation, dtype=float), nodata)
+    alpha = np.where(invalid, 0, 255).astype(np.uint8)
+    return np.concatenate([rgb, alpha[np.newaxis, :, :]], axis=0)
 
 
 class IO(_Engine):
@@ -2141,6 +2286,307 @@ class IO(_Engine):
         else:
             result = None
         return result
+
+    def to_terrain_rgb(
+        self: Dataset,
+        path: str | Path,
+        *,
+        encoding: str = "mapbox",
+        tiles: bool = True,
+        min_zoom: int = 0,
+        max_zoom: int | None = None,
+        tile_size: int = 256,
+        base_val: float = -10000.0,
+        interval: float = 0.1,
+        resampling: str = "bilinear",
+        band: int = 0,
+    ) -> Path:
+        """Encode an elevation band into terrain-RGB raster or XYZ tiles.
+
+        Packs a single-band DEM (heights in metres) into the R/G/B channels of
+        8-bit imagery so browser/GPU engines (MapLibre ``raster-dem``, deck.gl,
+        Cesium) can decode elevation and render 3-D terrain. The source is
+        reprojected to Web Mercator (EPSG:3857) when it is not already.
+
+        Two encodings are supported (the decoder formulae are exact inverses):
+
+        - ``"mapbox"`` (Mapbox Terrain-RGB) — with
+          ``v = round((height - base_val) / interval)``: ``R = (v >> 16) & 255``,
+          ``G = (v >> 8) & 255``, ``B = v & 255``. Decode:
+          ``height = base_val + (R*65536 + G*256 + B) * interval``.
+        - ``"terrarium"`` (Mapzen) — with ``v = height + 32768``:
+          ``R = floor(v / 256)``, ``G = floor(v) % 256``,
+          ``B = floor((v - floor(v)) * 256)``. Decode:
+          ``height = (R*256 + G + B/256) - 32768``.
+
+        No-data pixels are written fully transparent (RGBA alpha 0); a source
+        without a no-data value yields plain RGB. Elevations outside the
+        encodable range are clamped, not wrapped.
+
+        Args:
+            path: Destination. With ``tiles=False`` a single file (``.png`` ->
+                PNG, otherwise GeoTIFF); with ``tiles=True`` the root directory
+                of the ``{z}/{x}/{y}.png`` pyramid (created if missing).
+            encoding: ``"mapbox"`` (default) or ``"terrarium"``,
+                case-insensitive.
+            tiles: ``True`` (default) writes an XYZ PNG pyramid;
+                ``False`` writes one RGB(A) raster.
+            min_zoom: Lowest XYZ zoom to write. Default ``0``.
+            max_zoom: Highest XYZ zoom. ``None`` (default) derives it from the
+                source pixel size.
+            tile_size: Tile edge in pixels. Default ``256``.
+            base_val: Mapbox base elevation mapping to RGB ``(0, 0, 0)``.
+                Default ``-10000.0``. Ignored for terrarium.
+            interval: Mapbox metres-per-encoded-unit. Default ``0.1``. Ignored
+                for terrarium.
+            resampling: Resampling for reprojection / tile warping. Default
+                ``"bilinear"``.
+            band: Zero-based elevation band index. Default ``0``.
+
+        Returns:
+            Path: The written file (``tiles=False``) or the tile-root directory
+            (``tiles=True``).
+
+        Raises:
+            ValueError: ``encoding`` is not ``"mapbox"``/``"terrarium"``,
+                ``resampling`` is unknown, ``interval <= 0`` (mapbox),
+                ``min_zoom < 0``, or ``max_zoom < min_zoom``.
+
+        Examples:
+            - Encode a small DEM to a single terrain-RGB PNG (the write is
+              tagged ``+SKIP`` — it touches GDAL/disk):
+
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> dem = Dataset.create_from_array(
+                ...     np.array([[0.0, 100.0], [2000.0, 8848.0]], dtype="float32"),
+                ...     top_left_corner=(0, 0), cell_size=0.01, epsg=4326,
+                ... )
+                >>> out = dem.to_terrain_rgb("dem.png", tiles=False)  # doctest: +SKIP
+                >>> out.name  # doctest: +SKIP
+                'dem.png'
+
+                ```
+
+        See Also:
+            - :meth:`to_xyz`: Export band values as a lon/lat point table.
+            - :meth:`to_cog`: Write a Cloud-Optimized GeoTIFF.
+        """
+        encoding = encoding.lower().strip()
+        if encoding not in _TERRAIN_RGB_ENCODINGS:
+            raise ValueError(
+                f"encoding must be one of {_TERRAIN_RGB_ENCODINGS}, got {encoding!r}."
+            )
+        if encoding == "mapbox" and interval <= 0:
+            raise ValueError(
+                f"interval must be positive for mapbox encoding, got {interval}."
+            )
+        if min_zoom < 0:
+            raise ValueError(f"min_zoom must be >= 0, got {min_zoom}.")
+        _validate_band_index(band, self._ds.band_count)
+        # Validate the resampling name once (also reused by the per-tile warp).
+        resample_alg = resolve_resampling(resampling)
+        source = (
+            self._ds
+            if self._ds.epsg == 3857
+            else self._ds.to_crs(3857, method=resampling)
+        )
+        if tiles:
+            result = self._terrain_rgb_tiles(
+                source,
+                Path(path),
+                band=band,
+                encoding=encoding,
+                base_val=base_val,
+                interval=interval,
+                min_zoom=min_zoom,
+                max_zoom=max_zoom,
+                tile_size=tile_size,
+                resample_alg=resample_alg,
+            )
+        else:
+            result = self._terrain_rgb_single(
+                source,
+                Path(path),
+                band=band,
+                encoding=encoding,
+                base_val=base_val,
+                interval=interval,
+            )
+        return result
+
+    @staticmethod
+    def _terrain_byte_dataset(
+        stack: np.ndarray, geotransform: tuple, projection: str
+    ) -> "gdal.Dataset":
+        """Build an in-memory Byte GDAL dataset from a ``(bands, rows, cols)`` stack."""
+        n_bands, rows, cols = stack.shape
+        mem = gdal.GetDriverByName("MEM").Create("", cols, rows, n_bands, gdal.GDT_Byte)
+        mem.SetGeoTransform(geotransform)
+        if projection:
+            mem.SetProjection(projection)
+        for index in range(n_bands):
+            mem.GetRasterBand(index + 1).WriteArray(stack[index])
+        if n_bands == 4:
+            mem.GetRasterBand(4).SetColorInterpretation(gdal.GCI_AlphaBand)
+        return mem
+
+    def _terrain_rgb_single(
+        self: Dataset,
+        source: Dataset,
+        path: Path,
+        *,
+        band: int,
+        encoding: str,
+        base_val: float,
+        interval: float,
+    ) -> Path:
+        """Write one RGB(A) terrain raster (PNG by ``.png`` suffix, else GeoTIFF)."""
+        elevation = np.asarray(source.read_array(band=band), dtype=float)
+        stack = _terrain_rgba_stack(
+            elevation,
+            source.no_data_value[band],
+            encoding=encoding,
+            base_val=base_val,
+            interval=interval,
+        )
+        mem = self._terrain_byte_dataset(
+            stack, source.geotransform, source.raster.GetProjection()
+        )
+        driver = "PNG" if path.suffix.lower() == ".png" else "GTiff"
+        out = gdal.GetDriverByName(driver).CreateCopy(str(path), mem)
+        if out is None:
+            raise FailedToSaveError(
+                f"GDAL could not write the terrain-RGB raster to {path}."
+            )
+        out.FlushCache()
+        return path
+
+    def _terrain_rgb_tiles(
+        self: Dataset,
+        source: Dataset,
+        path: Path,
+        *,
+        band: int,
+        encoding: str,
+        base_val: float,
+        interval: float,
+        min_zoom: int,
+        max_zoom: int | None,
+        tile_size: int,
+        resample_alg: int,
+    ) -> Path:
+        """Write an XYZ ``{z}/{x}/{y}.png`` terrain-RGB pyramid; return the root."""
+        gt = source.geotransform
+        west, north = gt[0], gt[3]
+        east = west + source.columns * gt[1]
+        south = north + source.rows * gt[5]
+        if max_zoom is None:
+            max_zoom = self._native_terrain_zoom(abs(gt[1]), tile_size, min_zoom)
+        if max_zoom < min_zoom:
+            raise ValueError(
+                f"max_zoom ({max_zoom}) must be >= min_zoom ({min_zoom})."
+            )
+        nodata = source.no_data_value[band]
+        path.mkdir(parents=True, exist_ok=True)
+        for zoom in range(min_zoom, max_zoom + 1):
+            for x, y in self._terrain_tile_indices(zoom, west, south, east, north):
+                self._write_terrain_tile(
+                    source,
+                    path,
+                    zoom,
+                    x,
+                    y,
+                    band=band,
+                    tile_size=tile_size,
+                    encoding=encoding,
+                    base_val=base_val,
+                    interval=interval,
+                    resample_alg=resample_alg,
+                    nodata=nodata,
+                )
+        return path
+
+    @staticmethod
+    def _native_terrain_zoom(pixel_size: float, tile_size: int, min_zoom: int) -> int:
+        """XYZ zoom whose tile resolution matches the pixel size (>= ``min_zoom``)."""
+        world = 2 * _WEB_MERCATOR_HALF_EXTENT
+        zoom = round(math.log2(world / (tile_size * pixel_size)))
+        return max(min_zoom, int(zoom))
+
+    @staticmethod
+    def _terrain_tile_indices(
+        zoom: int, west: float, south: float, east: float, north: float
+    ) -> Generator[tuple[int, int], None, None]:
+        """Yield the ``(x, y)`` XYZ tile indices covering the 3857 bounds at `zoom`."""
+        n_tiles = 2**zoom
+        radius = _WEB_MERCATOR_HALF_EXTENT
+        span = (2 * radius) / n_tiles
+        # Pull the east/south edges in by a sliver so bounds that fall exactly on
+        # a tile boundary do not spill into an extra empty tile.
+        eps = span * 1e-9
+        x_min = max(0, int(math.floor((west + radius) / span)))
+        x_max = min(n_tiles - 1, int(math.floor((east - eps + radius) / span)))
+        y_min = max(0, int(math.floor((radius - north) / span)))
+        y_max = min(n_tiles - 1, int(math.floor((radius - south - eps) / span)))
+        for x in range(x_min, x_max + 1):
+            for y in range(y_min, y_max + 1):
+                yield x, y
+
+    def _write_terrain_tile(
+        self: Dataset,
+        source: Dataset,
+        root: Path,
+        zoom: int,
+        x: int,
+        y: int,
+        *,
+        band: int,
+        tile_size: int,
+        encoding: str,
+        base_val: float,
+        interval: float,
+        resample_alg: int,
+        nodata: float | None,
+    ) -> None:
+        """Warp one XYZ tile from `source`, encode it, write ``root/z/x/y.png``."""
+        west, south, east, north = _xyz_bounds_3857(zoom, x, y)
+        warp_kwargs: dict[str, Any] = {
+            "format": "MEM",
+            "outputBounds": (west, south, east, north),
+            "width": tile_size,
+            "height": tile_size,
+            "resampleAlg": resample_alg,
+        }
+        if nodata is not None:
+            warp_kwargs["dstNodata"] = nodata
+        warped = gdal.Warp("", source.raster, **warp_kwargs)
+        if warped is None:
+            raise FailedToSaveError(
+                f"GDAL could not warp the terrain-RGB tile {zoom}/{x}/{y}."
+            )
+        elevation = np.asarray(
+            warped.GetRasterBand(band + 1).ReadAsArray(), dtype=float
+        )
+        stack = _terrain_rgba_stack(
+            elevation,
+            nodata,
+            encoding=encoding,
+            base_val=base_val,
+            interval=interval,
+        )
+        mem = self._terrain_byte_dataset(
+            stack, warped.GetGeoTransform(), warped.GetProjection()
+        )
+        tile_dir = root / str(zoom) / str(x)
+        tile_dir.mkdir(parents=True, exist_ok=True)
+        out = gdal.GetDriverByName("PNG").CreateCopy(str(tile_dir / f"{y}.png"), mem)
+        if out is None:
+            raise FailedToSaveError(
+                f"GDAL could not write terrain-RGB tile {zoom}/{x}/{y}.png."
+            )
+        out.FlushCache()
 
     @property
     def overview_count(self: Dataset) -> list[int]:
