@@ -546,6 +546,50 @@ class FeatureCollection(GeoDataFrame):
         return cls(geometry=[box(w, s, e, n)], crs=epsg)
 
     @classmethod
+    def fishnet(
+        cls,
+        bounds: tuple[float, float, float, float] | list[float],
+        cell_size: float,
+        *,
+        crs: Any | None = None,
+    ) -> FeatureCollection:
+        """Build a vector grid of square cell polygons over an arbitrary extent.
+
+        The vector / arbitrary-bbox analogue of :meth:`pyramids.dataset.Dataset.get_cell_polygons` (which is
+        raster-aligned). Cells are full ``cell_size`` squares laid row-major from the lower-left corner of
+        ``bounds``; the grid has ``ceil(width / cell_size)`` columns and ``ceil(height / cell_size)`` rows, and
+        carries integer ``row`` / ``col`` index columns.
+
+        Args:
+            bounds: ``(minx, miny, maxx, maxy)`` extent the grid covers, in the units of ``crs``.
+            cell_size: Side length of each square cell, in the same units. Must be positive.
+            crs: CRS for the grid — anything ``geopandas`` accepts for ``crs=`` — or ``None`` for a CRS-less grid.
+
+        Returns:
+            FeatureCollection: One square polygon per cell, with ``row`` and ``col`` columns, in ``crs``.
+
+        Raises:
+            ValueError: If ``cell_size`` is not positive, or ``bounds`` is degenerate (``minx >= maxx`` or
+                ``miny >= maxy``).
+
+        Examples:
+            - A 2x2 grid over a one-degree square:
+                ```python
+                >>> from pyramids.feature import FeatureCollection
+                >>> grid = FeatureCollection.fishnet((0.0, 0.0, 1.0, 1.0), 0.5, crs="EPSG:4326")
+                >>> len(grid)
+                4
+                >>> sorted(grid.columns)
+                ['col', 'geometry', 'row']
+                >>> grid.crs.to_epsg()
+                4326
+
+                ```
+        """
+        polygons, rows, cols = _tess.fishnet_cells(bounds, cell_size)
+        return cls(gpd.GeoDataFrame({"row": rows, "col": cols}, geometry=polygons, crs=crs))
+
+    @classmethod
     def from_records(
         cls,
         records: Any,
