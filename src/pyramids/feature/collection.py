@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 if TYPE_CHECKING:
+    from pyramids.dataset import Dataset
     from pyramids.feature._lazy_collection import LazyFeatureCollection
 
 import geopandas as gpd
@@ -2660,3 +2661,85 @@ class FeatureCollection(GeoDataFrame):
         name = column if column is not None else "count"
         result = FeatureCollection(gpd.GeoDataFrame({name: values_out}, geometry=geometries, crs=self.crs))
         return result
+
+    def interpolate_to_raster(
+        self,
+        column: str,
+        *,
+        method: str = "idw",
+        cell_size: float | None = None,
+        bounds: tuple[float, float, float, float] | None = None,
+        power: float = 2.0,
+        n_neighbors: int | None = None,
+        nodata: float = -9999.0,
+    ) -> "Dataset":
+        """Interpolate a point column onto a continuous raster surface (point → grid).
+
+        Reads ``column`` as the z-value at each point geometry and grids it with ``gdal.Grid`` via
+        :meth:`pyramids.dataset.Dataset.from_points`. This is distinct from the inherited geopandas
+        ``GeoSeries.interpolate`` (which is 1-D interpolation *along* a line). Only inverse-distance weighting
+        (``method="idw"``) is available here; kriging needs the optional ``pykrige`` dependency.
+
+        Args:
+            column: Numeric attribute column interpolated as the z-value at each point.
+            method: Interpolation method. Only ``"idw"`` (inverse-distance weighting) is supported.
+            cell_size: Output pixel size in the layer's CRS units. Defaults to a grid spanning the layer extent
+                (see :meth:`Dataset.from_points`).
+            bounds: ``(minx, miny, maxx, maxy)`` output extent; defaults to the points' total bounds.
+            power: IDW distance exponent (higher → more local).
+            n_neighbors: If given, limit each estimate to the nearest ``n_neighbors`` points (``invdistnn``);
+                otherwise use all points (``invdist``).
+            nodata: Value written to cells GDAL cannot interpolate.
+
+        Returns:
+            Dataset: A single-band raster of the interpolated surface, in the layer's CRS.
+
+        Raises:
+            InvalidGeometryError: If the geometries are not all ``Point``.
+            ValueError: If ``method`` is not ``"idw"``, ``column`` is missing / non-numeric / all-NaN, or there
+                are fewer than 3 points.
+
+        Examples:
+            - Inverse-distance interpolate four corner readings onto a 1-degree grid:
+                ```python
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> fc = FeatureCollection(
+                ...     gpd.GeoDataFrame(
+                ...         {"rain": [1.0, 2.0, 3.0, 4.0]},
+                ...         geometry=[Point(0, 0), Point(3, 0), Point(0, 3), Point(3, 3)],
+                ...         crs="EPSG:4326",
+                ...     )
+                ... )
+                >>> surface = fc.interpolate_to_raster("rain", cell_size=1.0)
+                >>> surface.band_count
+                1
+                >>> surface.epsg
+                4326
+
+                ```
+        """
+        self._require_point_geometry("interpolate_to_raster")
+        self._require_column("interpolate_to_raster", column)
+        if method != "idw":
+            raise ValueError(
+                f"interpolate_to_raster: method {method!r} is not supported; only 'idw' is available "
+                "(kriging needs the optional 'pykrige' dependency)"
+            )
+        if len(self) < 3:
+            raise ValueError(f"interpolate_to_raster: need at least 3 points, got {len(self)}")
+        try:
+            values = self[column].to_numpy(dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"interpolate_to_raster: column {column!r} must be numeric") from exc
+        if np.isnan(values).all():
+            raise ValueError(f"interpolate_to_raster: column {column!r} is all-NaN")
+        if n_neighbors is not None:
+            algorithm = f"invdistnn:power={power}:max_points={n_neighbors}:nodata={nodata}"
+        else:
+            algorithm = f"invdist:power={power}:smoothing=0.0:nodata={nodata}"
+        # local import: pyramids.dataset imports pyramids.feature, so import here to break the cycle.
+        from pyramids.dataset import Dataset
+
+        return Dataset.from_points(self, column, algorithm=algorithm, cell_size=cell_size, bbox=bounds)
