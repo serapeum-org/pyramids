@@ -1505,6 +1505,51 @@ class FeatureCollection(GeoDataFrame):
         _list_layers_cached.cache_clear()
 
     @classmethod
+    def read_gpx_layers(cls, path: str | Path) -> dict[str, FeatureCollection]:
+        """Read every non-empty sub-layer of a GPX file into a dict of FeatureCollections.
+
+        A GPX file exposes up to five sub-layers — ``waypoints``, ``routes``, ``tracks``, ``route_points``,
+        ``track_points``. GDAL always advertises all five even when a file has none of a given kind; this reads
+        each and returns only the ones that actually contain features, keyed by layer name.
+
+        Args:
+            path: Path to a ``.gpx`` file.
+
+        Returns:
+            dict[str, FeatureCollection]: One entry per **non-empty** sub-layer, keyed by its GPX layer name.
+
+        Examples:
+            - A GPX with a waypoint and a track yields those sub-layers (empty ``routes`` is omitted):
+                ```python
+                >>> import tempfile
+                >>> from pathlib import Path
+                >>> from pyramids.feature import FeatureCollection
+                >>> gpx = (
+                ...     '<?xml version="1.0"?>\\n'
+                ...     '<gpx version="1.1" creator="t" xmlns="http://www.topografix.com/GPX/1/1">'
+                ...     '<wpt lat="1.0" lon="2.0"><name>wp1</name></wpt>'
+                ...     '<trk><name>t1</name><trkseg>'
+                ...     '<trkpt lat="1.0" lon="2.0"/><trkpt lat="1.1" lon="2.1"/>'
+                ...     '</trkseg></trk></gpx>'
+                ... )
+                >>> p = Path(tempfile.mkdtemp()) / "t.gpx"
+                >>> _ = p.write_text(gpx)
+                >>> layers = FeatureCollection.read_gpx_layers(p)
+                >>> sorted(layers)
+                ['track_points', 'tracks', 'waypoints']
+                >>> len(layers["waypoints"])
+                1
+
+                ```
+        """
+        result: dict[str, FeatureCollection] = {}
+        for name in cls.list_layers(path):
+            fc = cls.read_file(path, layer=name)
+            if len(fc) > 0:
+                result[name] = fc
+        return result
+
+    @classmethod
     def open_arrow(
         cls,
         path: str | Path,
