@@ -1576,14 +1576,19 @@ class FeatureCollection(GeoDataFrame):
         out_fields: str = "*",
         max_records: int | None = None,
         page_size: int = 1000,
+        max_pages: int = 1000,
     ) -> FeatureCollection:
         """Read an ArcGIS **FeatureServer** layer into a FeatureCollection, following pagination.
 
         FeatureServer endpoints cap the number of records returned per request (``maxRecordCount``), so reading
         a large layer requires paging through it. This issues ``.../query`` requests with increasing
         ``resultOffset`` until the server stops returning new features (or ``max_records`` is reached) and
-        concatenates the pages. Generic ArcGIS REST access over GDAL's ESRIJSON driver — no provider-specific
-        auth.
+        concatenates the pages. Each page is read with GDAL's ESRIJSON driver (generic ArcGIS REST — no
+        provider-specific auth).
+
+        ``max_pages`` is a safety cap: a server that does not honour ``resultOffset`` (no pagination support)
+        would otherwise return the same first page forever; on hitting the cap a ``UserWarning`` is emitted and
+        paging stops.
 
         Args:
             url: A FeatureServer layer URL (with or without a trailing ``/query``).
@@ -1591,6 +1596,8 @@ class FeatureCollection(GeoDataFrame):
             out_fields: Comma-separated attribute fields to fetch, or ``"*"`` for all.
             max_records: Cap on the total number of features read, or ``None`` for all.
             page_size: Records requested per page (``resultRecordCount``). The server may return fewer.
+            max_pages: Hard cap on the number of page requests, guarding against a server that ignores
+                ``resultOffset``. Defaults to 1000.
 
         Returns:
             FeatureCollection: All features across the paged responses (empty if the layer has none).
@@ -1609,9 +1616,19 @@ class FeatureCollection(GeoDataFrame):
         if not base.lower().endswith("/query"):
             base = f"{base}/query"
         pages: list[FeatureCollection] = []
+        first_crs = None
         offset = 0
         fetched = 0
+        page_index = 0
         while max_records is None or fetched < max_records:
+            if page_index >= max_pages:
+                warnings.warn(
+                    f"from_featureserver: stopped after {max_pages} pages (max_pages). The server may not "
+                    "honour resultOffset paging; raise max_pages or set max_records if more features are "
+                    "expected.",
+                    stacklevel=2,
+                )
+                break
             this_page = page_size if max_records is None else min(page_size, max_records - fetched)
             query = urlencode(
                 {
@@ -1623,20 +1640,23 @@ class FeatureCollection(GeoDataFrame):
                 }
             )
             page = cls._read_featureserver_page(f"{base}?{query}")
+            if first_crs is None:
+                first_crs = page.crs
             count = len(page)
             if count == 0:
                 break
             pages.append(page)
             fetched += count
             offset += count
+            page_index += 1
             if count < this_page:  # last (short) page
                 break
+        # Concatenate in one pass (pd.concat preserves the shared CRS) — repeatedly calling .concat()
+        # re-sets the CRS and trips a geopandas DeprecationWarning.
         if pages:
-            combined = pages[0]
-            for extra in pages[1:]:
-                combined = combined.concat(extra)
+            combined = FeatureCollection(pd.concat(pages, ignore_index=True))
         else:
-            combined = cls(gpd.GeoDataFrame(geometry=[]))
+            combined = cls(gpd.GeoDataFrame(geometry=[], crs=first_crs))
         return combined
 
     @classmethod
@@ -2948,6 +2968,10 @@ class FeatureCollection(GeoDataFrame):
         :meth:`pyramids.dataset.Dataset.from_points`. This is distinct from the inherited geopandas
         ``GeoSeries.interpolate`` (which is 1-D interpolation *along* a line). Only inverse-distance weighting
         (``method="idw"``) is available here; kriging needs the optional ``pykrige`` dependency.
+
+        IDW extrapolates across the whole output extent (no convex-hull mask), so ``nodata`` only appears in
+        cells ``gdal.Grid`` cannot estimate. Coincident (duplicate) points are not pre-averaged — they are
+        handled by the inverse-distance weighting itself.
 
         Args:
             column: Numeric attribute column interpolated as the z-value at each point.

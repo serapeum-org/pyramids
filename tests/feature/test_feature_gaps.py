@@ -249,13 +249,29 @@ class TestFromFeatureserver:
         assert len(fc) == 2, f"expected 2 rows, got {len(fc)}"
         assert len(calls) == 1, f"expected 1 page request, got {len(calls)}"
 
-    def test_empty_server_returns_empty_collection(self, monkeypatch) -> None:
-        """An empty layer yields an empty FeatureCollection, not an error."""
+    def test_empty_server_returns_empty_collection_with_crs(self, monkeypatch) -> None:
+        """An empty layer yields an empty FeatureCollection carrying the first page's CRS, not an error."""
         fake, _ = _page_factory(total=0, page_size=2)
         monkeypatch.setattr(FeatureCollection, "_read_featureserver_page", fake)
         fc = FeatureCollection.from_featureserver("https://x/FeatureServer/0")
         assert isinstance(fc, FeatureCollection)
         assert len(fc) == 0
+        assert fc.crs is not None and fc.crs.to_epsg() == 4326
+
+    def test_max_pages_guard_breaks_non_paginating_server(self, monkeypatch) -> None:
+        """A server that ignores resultOffset (always returns a full page) is bounded by max_pages."""
+
+        def always_full(cls, page_url: str) -> FeatureCollection:
+            return FeatureCollection(
+                gpd.GeoDataFrame(
+                    {"id": [0, 1]}, geometry=[Point(0, 0), Point(1, 1)], crs="EPSG:4326"
+                )
+            )
+
+        monkeypatch.setattr(FeatureCollection, "_read_featureserver_page", classmethod(always_full))
+        with pytest.warns(UserWarning, match="max_pages"):
+            fc = FeatureCollection.from_featureserver("https://x/FeatureServer/0", page_size=2, max_pages=3)
+        assert len(fc) == 6, f"expected 3 pages x 2 rows = 6, got {len(fc)}"
 
     def test_query_url_construction(self, monkeypatch) -> None:
         """The reader appends /query and the expected query params to a bare layer URL."""
