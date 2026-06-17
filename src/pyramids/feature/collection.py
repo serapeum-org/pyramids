@@ -1619,6 +1619,44 @@ class FeatureCollection(GeoDataFrame):
         base = url.split("?", 1)[0].rstrip("/")
         if not base.lower().endswith("/query"):
             base = f"{base}/query"
+        pages, first_crs = cls._collect_featureserver_pages(
+            base, where, out_fields, max_records, page_size, max_pages
+        )
+        # Concatenate in one pass (pd.concat preserves the shared CRS) — repeatedly calling .concat()
+        # re-sets the CRS and trips a geopandas DeprecationWarning.
+        if pages:
+            combined = FeatureCollection(pd.concat(pages, ignore_index=True))
+        else:
+            combined = cls(gpd.GeoDataFrame(geometry=[], crs=first_crs))
+        return combined
+
+    @classmethod
+    def _collect_featureserver_pages(
+        cls,
+        base: str,
+        where: str,
+        out_fields: str,
+        max_records: int | None,
+        page_size: int,
+        max_pages: int,
+    ) -> tuple[list[FeatureCollection], Any]:
+        """Page through a FeatureServer ``/query`` endpoint, returning the pages and the first page's CRS.
+
+        Extracted from :meth:`from_featureserver` so each stays within the cognitive-complexity budget. Stops on
+        a short / empty page, when ``max_records`` is reached, or when ``max_pages`` is hit (a server that
+        ignores ``resultOffset`` would otherwise loop forever).
+
+        Args:
+            base: The ``.../query`` endpoint URL.
+            where: SQL ``where`` filter.
+            out_fields: Comma-separated fields, or ``"*"``.
+            max_records: Total-feature cap, or ``None``.
+            page_size: Records requested per page.
+            max_pages: Hard cap on page requests.
+
+        Returns:
+            tuple: ``(pages, first_crs)`` — the non-empty page collections and the CRS of the first page read.
+        """
         pages: list[FeatureCollection] = []
         first_crs = None
         offset = 0
@@ -1655,13 +1693,7 @@ class FeatureCollection(GeoDataFrame):
             page_index += 1
             if count < this_page:  # last (short) page
                 break
-        # Concatenate in one pass (pd.concat preserves the shared CRS) — repeatedly calling .concat()
-        # re-sets the CRS and trips a geopandas DeprecationWarning.
-        if pages:
-            combined = FeatureCollection(pd.concat(pages, ignore_index=True))
-        else:
-            combined = cls(gpd.GeoDataFrame(geometry=[], crs=first_crs))
-        return combined
+        return pages, first_crs
 
     @classmethod
     def open_arrow(
