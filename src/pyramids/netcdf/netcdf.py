@@ -3534,10 +3534,10 @@ class NetCDF(Dataset):
         dims = md_arr.GetDimensions()
 
         if len(dims) == 1:
-            if dtype.GetClass() == gdal.GEDTC_STRING:
-                return md_arr, md_arr, rg
-            src = md_arr.AsClassicDataset(0, 1, rg)
-            return src, md_arr, rg
+            # A classic 2-D raster view needs >=2 dimensions, so AsClassicDataset cannot represent a
+            # 1-D variable (a coordinate axis or a 1-D data series). Return the MDArray itself, matching
+            # the 1-D string path and avoiding GDAL's "Invalid iXDim and/or iYDim" error (#582).
+            return md_arr, md_arr, rg
 
         iXDim = len(dims) - 1
         iYDim = len(dims) - 2
@@ -3840,11 +3840,16 @@ class NetCDF(Dataset):
         path = Path(path)
         extension = path.suffix[1:].lower()
         if extension in ("nc", "nc4"):
+            source_conventions = self.global_attributes.get("Conventions")
             dst = gdal.GetDriverByName("netCDF").CreateCopy(str(path), self._raster, 0)
             if dst is None:
                 raise RuntimeError(f"Failed to save NetCDF to {path}")
             dst.FlushCache()
             dst = None
+            # The netCDF writer injects a default Conventions="CF-1.x" when the source declares none;
+            # strip it so a non-CF file is not silently relabelled as CF on write (#583).
+            if source_conventions is None:
+                self._strip_injected_conventions(path)
         else:
             if self._is_md_array and not self._is_subset:
                 raise ValueError(
@@ -3853,6 +3858,27 @@ class NetCDF(Dataset):
                     "variable first with .get_variable()."
                 )
             super().to_file(path, **kwargs)
+
+    @staticmethod
+    def _strip_injected_conventions(path: str | Path) -> None:
+        """Delete a writer-injected ``Conventions`` global attribute from a just-written netCDF file.
+
+        GDAL's netCDF driver adds a default ``Conventions`` (e.g. ``CF-1.6``) on write when the source
+        declares none. Callers use this to keep a no-convention file from being relabelled as CF (#583).
+        """
+        ds = gdal.OpenEx(str(path), gdal.OF_MULTIDIM_RASTER | gdal.OF_UPDATE)
+        if ds is None:
+            return
+        rg = ds.GetRootGroup()
+        if rg is not None and any(a.GetName() == "Conventions" for a in rg.GetAttributes()):
+            try:
+                rg.DeleteAttribute("Conventions")
+            except Exception:
+                pass
+        rg = None
+        ds.FlushCache()
+        ds = None
+        gc.collect()
 
     def copy(self, path: str | Path | None = None) -> NetCDF:
         """Create a deep copy of this NetCDF dataset.
