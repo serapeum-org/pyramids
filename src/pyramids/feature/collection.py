@@ -587,6 +587,9 @@ class FeatureCollection(GeoDataFrame):
                 4326
 
                 ```
+
+        See Also:
+            - :meth:`pyramids.dataset.Dataset.get_cell_polygons`: the raster-aligned grid-cell equivalent.
         """
         polygons, rows, cols = _tess.fishnet_cells(bounds, cell_size)
         return cls(gpd.GeoDataFrame({"row": rows, "col": cols}, geometry=polygons, crs=crs))
@@ -2985,6 +2988,10 @@ class FeatureCollection(GeoDataFrame):
                 4326
 
                 ```
+
+        See Also:
+            - :meth:`pyramids.dataset.Dataset.from_points`: the underlying ``gdal.Grid`` interpolation this
+              method delegates to (accepts any ``gdal.Grid`` algorithm string).
         """
         self._require_point_geometry("interpolate_to_raster")
         self._require_column("interpolate_to_raster", column)
