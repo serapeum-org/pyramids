@@ -84,7 +84,91 @@ def parse_ugrid_topology(rg: gdal.Group) -> list[MeshTopologyInfo]:
         if topo is not None:
             topologies.append(topo)
 
+    # Fallback: UXARRAY-style files declare topology purely via cf_role on the connectivity variable
+    # (no central mesh_topology variable). Infer a face/node mesh from it (#589).
+    if not topologies:
+        inferred = _infer_topology_from_connectivity(rg, all_array_names)
+        if inferred is not None:
+            topologies.append(inferred)
+
     return topologies
+
+
+def _infer_topology_from_connectivity(
+    rg: gdal.Group, all_array_names: list[str]
+) -> MeshTopologyInfo | None:
+    """Infer a 2-D face/node mesh when no central ``mesh_topology`` variable exists.
+
+    Used for UGRID files (e.g. UXARRAY meshes) that mark roles with ``cf_role`` on the connectivity
+    variable rather than on a dummy topology variable. The face dimension is taken from the
+    ``face_node_connectivity`` array's first dimension; node and face coordinate variables are matched
+    by ``standard_name`` (``longitude``/``latitude``) on the node vs. face dimension.
+    """
+    conn_name = None
+    for name in all_array_names:
+        arr = rg.OpenMDArray(name)
+        if arr is not None and _read_attributes(arr).get("cf_role") == "face_node_connectivity":
+            conn_name = name
+            break
+    if conn_name is None:
+        return None
+
+    conn_dims = [d.GetName() for d in rg.OpenMDArray(conn_name).GetDimensions()]
+    if len(conn_dims) != 2:
+        return None
+    face_dim = conn_dims[0]
+
+    def _coord_vars(on_face: bool) -> tuple[str | None, str | None]:
+        x_var = y_var = None
+        for name in all_array_names:
+            arr = rg.OpenMDArray(name)
+            if arr is None:
+                continue
+            dims = [d.GetName() for d in arr.GetDimensions()]
+            if len(dims) != 1:
+                continue
+            is_face = dims[0] == face_dim
+            if is_face != on_face:
+                continue
+            standard_name = _read_attributes(arr).get("standard_name")
+            if standard_name == "longitude":
+                x_var = name
+            elif standard_name == "latitude":
+                y_var = name
+        return x_var, y_var
+
+    node_x_var, node_y_var = _coord_vars(on_face=False)
+    if node_x_var is None or node_y_var is None:
+        return None
+    face_x_var, face_y_var = _coord_vars(on_face=True)
+
+    data_variables: dict[str, str] = {}
+    for name in all_array_names:
+        arr = rg.OpenMDArray(name)
+        if arr is None:
+            continue
+        attrs = _read_attributes(arr)
+        if isinstance(attrs.get("location"), str):
+            data_variables[name] = attrs["location"]
+
+    return MeshTopologyInfo(
+        mesh_name="mesh2d",
+        topology_dimension=2,
+        node_x_var=node_x_var,
+        node_y_var=node_y_var,
+        face_node_var=conn_name,
+        edge_node_var=None,
+        face_edge_var=None,
+        face_face_var=None,
+        edge_face_var=None,
+        boundary_node_var=None,
+        face_x_var=face_x_var,
+        face_y_var=face_y_var,
+        edge_x_var=None,
+        edge_y_var=None,
+        data_variables=data_variables,
+        crs_wkt=_detect_crs(rg, node_x_var),
+    )
 
 
 def _parse_single_topology(
