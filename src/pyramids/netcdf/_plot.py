@@ -149,6 +149,8 @@ class NetCDFPlot:
         colour: ColourOpts | None = None,
         facet: FacetSpec | None = None,
         coords: tuple | list | None = None,
+        x_dim: str | None = None,
+        y_dim: str | None = None,
         kind: str = "auto",
         animate: bool | str | None = None,
         chunks: Any | None = None,
@@ -282,7 +284,13 @@ class NetCDFPlot:
         return result
 
     def _delegate_to_variable(
-        self, nc: NetCDF, variable: str | None, **plot_kwargs: Any
+        self,
+        nc: NetCDF,
+        variable: str | None,
+        *,
+        x_dim: str | None = None,
+        y_dim: str | None = None,
+        **plot_kwargs: Any,
     ) -> Any:
         """Drill into ``variable`` on a root MDIM container, then re-dispatch :meth:`run`.
 
@@ -307,7 +315,7 @@ class NetCDFPlot:
                 f"container. Available: {nc.variable_names}. Or call "
                 "`nc.get_variable('name').plot(...)`."
             )
-        return nc.get_variable(variable).plot(**plot_kwargs)
+        return nc.get_variable(variable, x_dim=x_dim, y_dim=y_dim).plot(**plot_kwargs)
 
     def _resolve_selectors(self, nc: NetCDF, selectors: Selectors) -> dict[str, Any]:
         """Flatten a :class:`Selectors` into a ``{dim_name: label}`` dict.

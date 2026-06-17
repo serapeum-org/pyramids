@@ -893,8 +893,8 @@ class TestNetCDFPlotForwardingExtra:
         nc = _make_3d_nc()
         real_get_variable = type(nc).get_variable
 
-        def _spy(self_, name):
-            sub = real_get_variable(self_, name)
+        def _spy(self_, name, x_dim=None, y_dim=None):
+            sub = real_get_variable(self_, name, x_dim=x_dim, y_dim=y_dim)
             sub._epsg = None
             return sub
 
@@ -1230,8 +1230,8 @@ def _attach_curvilinear_coords(
             return extra_vars[var]
         return original_read(self_, var, window)
 
-    def _get_variable(self_, name):
-        subset = original_get_variable(self_, name)
+    def _get_variable(self_, name, x_dim=None, y_dim=None):
+        subset = original_get_variable(self_, name, x_dim=x_dim, y_dim=y_dim)
         if cf_attr is not None and name in base_names:
             attrs = dict(getattr(subset, "_variable_attrs", {}) or {})
             attrs["coordinates"] = cf_attr
@@ -1720,8 +1720,8 @@ class TestCurvilinearCoordsEdges:
                 return extra_vars[var]
             return original_read(self_, var, window)
 
-        def _get_variable(self_, name):
-            subset = original_get_variable(self_, name)
+        def _get_variable(self_, name, x_dim=None, y_dim=None):
+            subset = original_get_variable(self_, name, x_dim=x_dim, y_dim=y_dim)
             attrs = dict(getattr(subset, "_variable_attrs", {}) or {})
             attrs["coordinates"] = "my_lon my_lat"
             subset._variable_attrs = attrs
@@ -1777,8 +1777,8 @@ class TestCurvilinearCoordsEdges:
                 return extra_vars[var]
             return original_read(self_, var, window)
 
-        def _get_variable(self_, name):
-            subset = original_get_variable(self_, name)
+        def _get_variable(self_, name, x_dim=None, y_dim=None):
+            subset = original_get_variable(self_, name, x_dim=x_dim, y_dim=y_dim)
             attrs = dict(getattr(subset, "_variable_attrs", {}) or {})
             attrs["coordinates"] = "my_lon my_lat"
             subset._variable_attrs = attrs

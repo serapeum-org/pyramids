@@ -942,6 +942,8 @@ class NetCDF(Dataset):
         colour: ColourOpts | None = None,
         facet: FacetSpec | None = None,
         coords: tuple | list | None = None,
+        x_dim: str | None = None,
+        y_dim: str | None = None,
         kind: str = "auto",
         animate: bool | str | None = None,
         chunks: Any | None = None,
@@ -1010,6 +1012,16 @@ class NetCDF(Dataset):
                 NEMO ``nav_lat`` / ``nav_lon``). When nothing matches, the
                 renderer falls back to ``extent=self.bbox`` (imshow).
                 Defaults to None.
+            x_dim (str, optional):
+                Name of the dimension to plot on the X axis. Forwarded to
+                :meth:`get_variable`. By default the longitude dimension is
+                auto-detected from CF coordinate attributes (else the last
+                dimension is used). Set this for variables whose lon/lat are
+                not the trailing dimensions and carry no CF axis metadata
+                (e.g. CAM ``T(time, lat, lev, lon)``). Defaults to None.
+            y_dim (str, optional):
+                Name of the dimension to plot on the Y axis (the latitude
+                dimension by default). Defaults to None.
             kind (str, optional):
                 Render kind forwarded to cleopatra's ``ArrayGlyph.plot``.
                 One of ``"auto"``, ``"imshow"``, ``"pcolormesh"``,
@@ -1392,6 +1404,8 @@ class NetCDF(Dataset):
             colour=colour,
             facet=facet,
             coords=coords,
+            x_dim=x_dim,
+            y_dim=y_dim,
             kind=kind,
             animate=animate,
             chunks=chunks,
@@ -3510,19 +3524,117 @@ class NetCDF(Dataset):
 
         return variable_names
 
-    def _read_md_array(self, variable_name: str):
+    @staticmethod
+    def _dimension_index(dim_names: list[str], target: str) -> int:
+        """Index of a dimension matched by full name or short (leaf) name."""
+        if target in dim_names:
+            return dim_names.index(target)
+        short = target.lstrip("/").split("/")[-1]
+        for i, name in enumerate(dim_names):
+            if name.lstrip("/").split("/")[-1] == short:
+                return i
+        raise ValueError(
+            f"dimension {target!r} not found; available dimensions: {dim_names}"
+        )
+
+    @staticmethod
+    def _axis_role_of_dimension(dim) -> str | None:
+        """Classify a dimension as ``"X"`` (longitude) or ``"Y"`` (latitude).
+
+        Reads the CF attributes of the dimension's coordinate (indexing) variable —
+        ``axis`` (``X``/``Y``), ``standard_name`` (``longitude``/``latitude``), or
+        ``units`` (``degrees_east``/``degrees_north``). Returns ``None`` when the
+        role cannot be determined.
+        """
+        indexing_var = dim.GetIndexingVariable()
+        if indexing_var is None:
+            return None
+        attrs: dict[str, Any] = {}
+        try:
+            for attr in indexing_var.GetAttributes():
+                attrs[attr.GetName()] = attr.Read()
+        except RuntimeError:
+            return None
+
+        def text(key: str) -> str:
+            value = attrs.get(key)
+            return value.strip().lower() if isinstance(value, str) else ""
+
+        axis, standard_name, units = text("axis"), text("standard_name"), text("units")
+        if axis == "x" or standard_name == "longitude" or units.startswith("degrees_e"):
+            return "X"
+        if axis == "y" or standard_name == "latitude" or units.startswith("degrees_n"):
+            return "Y"
+        return None
+
+    def _resolve_spatial_dims(
+        self, md_arr, x_dim: str | None = None, y_dim: str | None = None
+    ) -> tuple[int, int]:
+        """Resolve the ``(iXDim, iYDim)`` raster-plane dimension indices.
+
+        Precedence: explicit ``x_dim``/``y_dim`` names → CF auto-detection from the
+        coordinate variables' ``axis``/``standard_name``/``units`` attributes → the
+        last-two-dimensions default. This lets variables whose latitude/longitude are
+        not the trailing dimensions (e.g. CAM ``T(time, lat, lev, lon)``) be read as a
+        proper lat/lon plane instead of a lev/lon cross-section.
+        """
+        dims = md_arr.GetDimensions()
+        names = [d.GetName() for d in dims]
+        n = len(dims)
+
+        explicit_x = self._dimension_index(names, x_dim) if x_dim is not None else None
+        explicit_y = self._dimension_index(names, y_dim) if y_dim is not None else None
+        if explicit_x is not None and explicit_y is not None:
+            if explicit_x == explicit_y:
+                raise ValueError(
+                    f"x_dim and y_dim must be different dimensions; both resolved to "
+                    f"index {explicit_x}. Dimensions: {names}"
+                )
+            return explicit_x, explicit_y
+
+        # CF auto-detection from the coordinate variables' axis/standard_name/units.
+        detected_x = detected_y = None
+        for i, dim in enumerate(dims):
+            role = self._axis_role_of_dimension(dim)
+            if role == "X" and detected_x is None:
+                detected_x = i
+            elif role == "Y" and detected_y is None:
+                detected_y = i
+
+        # Adopt detection only when it (combined with any single explicit side) yields a
+        # complete, distinct (X, Y) pair — otherwise a partially-detected axis must not
+        # collide with the last-two fallback (e.g. a 2-D `lon_bnds(lon, bnds)` variable).
+        candidate_x = explicit_x if explicit_x is not None else detected_x
+        candidate_y = explicit_y if explicit_y is not None else detected_y
+        if candidate_x is not None and candidate_y is not None and candidate_x != candidate_y:
+            return candidate_x, candidate_y
+
+        # Fallback: the last two dimensions, keeping a non-colliding explicit side.
+        iXDim = explicit_x if explicit_x is not None else n - 1
+        iYDim = explicit_y if explicit_y is not None else n - 2
+        if iXDim == iYDim:
+            iXDim, iYDim = n - 1, n - 2
+        return iXDim, iYDim
+
+    def _read_md_array(
+        self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None
+    ):
         """Convert an MDArray to a classic GDAL dataset via AsClassicDataset.
 
-        The last two dimensions become X (columns) and Y (rows); all
-        remaining dimensions are flattened into bands.
+        The X (columns) and Y (rows) dimensions are resolved by
+        `_resolve_spatial_dims` (explicit `x_dim`/`y_dim`, else CF
+        auto-detection, else the last two dimensions); all remaining
+        dimensions are flattened into bands.
 
         If the Y dimension is stored south-to-north (positive Y pixel
         size), it is reversed via `MDArray.GetView()` **before** the
         conversion. This is a lazy, zero-copy operation — GDAL handles
         the reversed indexing internally without reading the whole array.
 
-        Returns a tuple `(classic_dataset, md_array, root_group)` so
-        callers can keep the GDAL objects alive. `AsClassicDataset`
+        Returns a tuple `(classic_dataset, md_array, root_group, iXDim,
+        iYDim)` so callers can keep the GDAL objects alive and reuse the
+        resolved plane indices (`iXDim`/`iYDim` are `None` for a 1-D
+        variable). `AsClassicDataset`
         returns a **view** whose C++ backing depends on the MDArray and
         root group; if the Python SWIG wrappers for those are garbage-
         collected the view becomes a dangling pointer (segfault on
@@ -3536,10 +3648,11 @@ class NetCDF(Dataset):
             # A classic 2-D raster view needs >=2 dimensions, so AsClassicDataset cannot represent a
             # 1-D variable (a coordinate axis or a 1-D data series). Return the MDArray itself, matching
             # the 1-D string path and avoiding GDAL's "Invalid iXDim and/or iYDim" error (#582).
-            return md_arr, md_arr, rg
+            return md_arr, md_arr, rg, None, None
 
-        iXDim = len(dims) - 1
-        iYDim = len(dims) - 2
+        # Resolve on the original array — the Y-flip below renames the Y dimension and drops its
+        # indexing variable, so the indices must be computed before flipping and returned to the caller.
+        iXDim, iYDim = self._resolve_spatial_dims(md_arr, x_dim, y_dim)
 
         # First pass: check if Y orientation needs flipping.
         src = md_arr.AsClassicDataset(iXDim, iYDim, rg)
@@ -3552,9 +3665,11 @@ class NetCDF(Dataset):
             md_arr = md_arr.GetView(f"[{slices}]")
             src = md_arr.AsClassicDataset(iXDim, iYDim, rg)
 
-        return src, md_arr, rg
+        return src, md_arr, rg, iXDim, iYDim
 
-    def get_variable(self, variable_name: str) -> NetCDF:
+    def get_variable(
+        self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None
+    ) -> NetCDF:
         """Extract a single variable as a classic-raster NetCDF object.
 
         The returned object carries origin metadata so modified data
@@ -3576,6 +3691,15 @@ class NetCDF(Dataset):
         Args:
             variable_name: Name of the variable to extract. Use `/`
                 to separate group path from variable name.
+            x_dim: Dimension to map to the raster X axis (columns).
+                When omitted, the longitude dimension is auto-detected
+                from the coordinate variables' CF attributes (`axis`,
+                `standard_name`, `units`), falling back to the last
+                dimension. Use this for files whose lon/lat are not the
+                trailing dims and lack CF axis metadata.
+            y_dim: Dimension to map to the raster Y axis (rows). When
+                omitted, the latitude dimension is auto-detected, else
+                the second-to-last dimension is used.
 
         Returns:
             NetCDF: A subset backed by a classic dataset where every
@@ -3601,7 +3725,7 @@ class NetCDF(Dataset):
         if "/" in variable_name:
             parts = variable_name.rsplit("/", 1)
             group_nc = self.get_group(parts[0])
-            cube = group_nc.get_variable(parts[1])
+            cube = group_nc.get_variable(parts[1], x_dim=x_dim, y_dim=y_dim)
             return cube  # single return below handles non-group path
 
         if variable_name not in self.variable_names:
@@ -3614,8 +3738,13 @@ class NetCDF(Dataset):
         md_arr_ref = None
         rg_ref = None
 
+        spatial_dim_indices: tuple[int, int] | None = None
         if prefix == "MEMORY" or rg is not None:
-            src, md_arr_ref, rg_ref = self._read_md_array(variable_name)
+            src, md_arr_ref, rg_ref, iXDim, iYDim = self._read_md_array(
+                variable_name, x_dim=x_dim, y_dim=y_dim
+            )
+            if iXDim is not None:
+                spatial_dim_indices = (iXDim, iYDim)
             if isinstance(src, gdal.Dataset):
                 cube = NetCDF(src)
                 cube._is_md_array = True
@@ -3678,7 +3807,12 @@ class NetCDF(Dataset):
                 # primary (first) non-spatial dim so 3-D consumers see no
                 # change.
                 if len(dims) > 2:
-                    spatial_indices = {len(dims) - 1, len(dims) - 2}
+                    # Reuse the indices resolved by _read_md_array (computed on the
+                    # unflipped array); fall back to the last two dimensions.
+                    if spatial_dim_indices is not None:
+                        spatial_indices = set(spatial_dim_indices)
+                    else:
+                        spatial_indices = {len(dims) - 1, len(dims) - 2}
                     band_dims = [
                         d for i, d in enumerate(dims) if i not in spatial_indices
                     ]
