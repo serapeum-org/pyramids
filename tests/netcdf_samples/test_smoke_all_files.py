@@ -33,21 +33,18 @@ def test_opens_and_metadata_matches_name(sample_name, sample, structural):
         nc.close()
 
 
-def test_two_d_plus_variables_load(sample_name, sample):
-    """Every >=2-D root variable materializes as a sub-dataset without raising.
+def test_every_root_variable_loads(sample_name, sample):
+    """Every root variable (any rank, including 1-D coordinate axes and series) materializes.
 
-    ``get_variable`` builds a classic 2-D raster view, so it only applies to variables with at least two
-    dimensions; purely 1-D variables (coordinate axes, station/track series) are accessed via
-    ``read_array`` / ``lat`` / ``get_time_values`` instead and are exercised in the dedicated modules.
+    ``get_variable`` returns a sub-dataset for >=2-D variables and the underlying MDArray for 1-D ones; in
+    both cases it must succeed without raising (regression guard for the 1-D path, issue #582).
     """
     nc = NetCDF.read_file(sample(sample_name))
     try:
-        ndim_by_name = {info.name: len(info.shape) for info in nc.get_all_metadata().variables.values()}
         for name in nc.variable_names:
-            if ndim_by_name.get(name, 0) >= 2:
-                assert nc.get_variable(name) is not None, (
-                    f"{sample_name}: get_variable({name!r}) returned None"
-                )
+            assert nc.get_variable(name) is not None, (
+                f"{sample_name}: get_variable({name!r}) returned None"
+            )
     finally:
         nc.close()
 

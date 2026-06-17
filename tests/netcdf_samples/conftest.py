@@ -25,11 +25,7 @@ DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "netcdf"
 # Flags: convention(cf|coards|none) · gridded · packed · time · level · fourd · curvilinear · staggered ·
 #        groups · nc4 · string_vars · multivar · bounds · ugrid · labeled.
 #
-# ``convention`` is the *intended* (structural) convention from the filename. KNOWN ISSUE: three rewritten
-# files currently carry an on-disk ``Conventions="CF-1.6"`` that GDAL's netCDF writer added during the
-# size-reduction step and that does NOT match their ``none`` name — ``none__4v`` (rasm), ``none__5v``
-# (IMAGE), ``none__17v`` (WRF). CF-detection tests must resolve this before asserting on those files
-# (see the test plan §G).
+# ``convention`` matches the file's on-disk ``Conventions`` attribute (``none`` = no attribute declared).
 SAMPLES = {
     "none__1v__1d1.nc": {"convention": "none"},
     "cf__7v__1d3-2d3-3d1.nc": {
