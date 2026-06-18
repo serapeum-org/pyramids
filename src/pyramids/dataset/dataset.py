@@ -1147,9 +1147,12 @@ class Dataset(RasterBase):
         `bbox` / `bounds` properties are reachable before the
         collaborator is wired during `Dataset.__init__`.
         """
-        x_min, y_max = self.top_left_corner
-        y_min = y_max - self.rows * self.cell_size
-        x_max = x_min + self.columns * self.cell_size
+        # Derive the extent from the geotransform's separate X/Y pixel sizes (gt[1], gt[5]) rather
+        # than a single cell_size, so non-square grids (e.g. 2° lon, 1° lat) are not stretched.
+        gt = self.geotransform
+        x_min, y_max = gt[0], gt[3]
+        x_max = x_min + self.columns * gt[1]
+        y_min = y_max + self.rows * gt[5]
         return [x_min, y_min, x_max, y_max]
 
     def _calculate_bounds(self):

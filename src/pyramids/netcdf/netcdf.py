@@ -708,13 +708,24 @@ class NetCDF(Dataset):
         if self._geostationary_scaled:
             return self._geotransform
         if self.lon is not None and self.lat is not None:
+            # Derive the X and Y pixel sizes independently from the lon/lat coordinate spacing —
+            # they differ on non-square grids (e.g. 2° lon, 1° lat), so a single `cell_size` for
+            # both axes would stretch the latitude axis. Y is reported north-up: the top edge is the
+            # northernmost latitude plus half a cell, and pixel height is negative.
+            x_cell = self.cell_size
+            if len(self.lat) >= 2:
+                y_cell = abs(float(self.lat[1] - self.lat[0]))
+                y_top = max(float(self.lat[0]), float(self.lat[-1])) + y_cell / 2
+            else:
+                y_cell = self.cell_size
+                y_top = float(self.lat[0]) + y_cell / 2
             return (
-                self.lon[0] - self.cell_size / 2,
-                self.cell_size,
+                self.lon[0] - x_cell / 2,
+                x_cell,
                 0,
-                self.lat[0] + self.cell_size / 2,
+                y_top,
                 0,
-                -self.cell_size,
+                -y_cell,
             )
         return self._geotransform
 
