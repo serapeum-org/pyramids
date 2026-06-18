@@ -2305,7 +2305,7 @@ class TestToFileOptions:
             single_band_dataset.to_file("/nonexistent/path/to/file.tif")
 
 
-class TestConvertLongitude:
+class TestWrapLongitude:
     """Tests for wrap_longitude method."""
 
     def test_wrap_longitude_360_to_180(self):
@@ -2353,7 +2353,7 @@ class TestConvertLongitude:
         assert isinstance(result, Dataset), "wrap_longitude should return a Dataset"
 
 
-class TestConvertLongitudePaths:
+class TestWrapLongitudePaths:
     """wrap_longitude: lazy VRT for file-backed sources, eager roll for in-memory sources."""
 
     def test_file_backed_uses_lazy_vrt(self, noah):
@@ -2499,23 +2499,6 @@ class TestConvertLongitudePaths:
         assert result.raster.GetDriver().ShortName == "MEM", "should fall back to the eager path"
         order = list(range(180, 360)) + list(range(0, 180))
         np.testing.assert_array_equal(result.read_array(band=0), arr[:, order])
-
-    def test_convert_longitude_alias_works_silently(self, recwarn):
-        """`convert_longitude` is a silent alias for `wrap_longitude`.
-
-        Test scenario:
-            The alias delegates to `wrap_longitude`, producing the same -180/180 result and emitting
-            no DeprecationWarning.
-        """
-        arr = np.arange(360, dtype=np.float32).reshape(1, 360)
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326, no_data_value=-9999.0
-        )
-        result = dataset.convert_longitude()
-        assert result.top_left_corner[0] == -180.0, "alias should produce the -180/180 grid"
-        assert not [
-            w for w in recwarn.list if issubclass(w.category, DeprecationWarning)
-        ], "alias must not emit a DeprecationWarning"
 
 
 class TestFillNanNodata:
@@ -4451,7 +4434,7 @@ class TestWriteArrayException:
             ds.write_array(bad_arr, top_left_corner=[0, 0])
 
 
-class TestConvertLongitudeInplace:
+class TestWrapLongitudeInplace:
     """Tests for wrap_longitude inplace path."""
 
     def test_wrap_longitude_returns_dataset(self):

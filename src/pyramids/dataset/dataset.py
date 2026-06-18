@@ -1011,10 +1011,6 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Spatial.wrap_longitude <pyramids.dataset.engines.Spatial.wrap_longitude>`."""
         return self.spatial.wrap_longitude(*args, **kwargs)
 
-    def convert_longitude(self, *args, **kwargs):
-        """Alias for :meth:`wrap_longitude` (kept for backward compatibility)."""
-        return self.wrap_longitude(*args, **kwargs)
-
     def resample(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.resample <pyramids.dataset.engines.Spatial.resample>`."""
         return self.spatial.resample(*args, **kwargs)
