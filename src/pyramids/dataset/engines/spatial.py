@@ -1307,9 +1307,14 @@ class Spatial(_Engine):
 
         x_ind = np.where(~rows_to_remove)[0][0]
         y_ind = np.where(~cols_to_remove)[0][0]
-        new_x = src.x[y_ind] - src.cell_size / 2
-        new_y = src.y[x_ind] + src.cell_size / 2
-        new_gt = (new_x, src.cell_size, 0, new_y, 0, -src.cell_size)
+        # Use the source's separate X/Y pixel sizes (gt[1], gt[5]) rather than a single cell_size, so
+        # a non-square grid (e.g. 2° lon, 1° lat) keeps its true latitude spacing. Identical to the
+        # old cell_size form on square grids (gt[1] == -gt[5] == cell_size).
+        warp_gt = src._raster.GetGeoTransform()
+        x_cell, y_cell = warp_gt[1], warp_gt[5]
+        new_x = src.x[y_ind] - x_cell / 2
+        new_y = src.y[x_ind] - y_cell / 2
+        new_gt = (new_x, x_cell, 0, new_y, 0, y_cell)
         new_src = src.create_from_array(
             small_array, geo=new_gt, no_data_value=src.no_data_value
         )

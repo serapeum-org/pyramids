@@ -4502,7 +4502,9 @@ class NetCDF(Dataset):
             extra_dims = []
         dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
         x_dim_values = NetCDF.get_x_lon_dimension_array(geo[0], geo[1], cols)
-        y_dim_values = NetCDF.get_y_lat_dimension_array(geo[3], geo[1], rows)
+        # Y/lat pixel height comes from geo[5] (negative), not geo[1] — using the X cell here would
+        # square a non-square grid (e.g. 2° lon, 1° lat). Pass the positive height abs(geo[5]).
+        y_dim_values = NetCDF.get_y_lat_dimension_array(geo[3], abs(geo[5]), rows)
 
         if path is not None:
             driver_type = "netCDF"
