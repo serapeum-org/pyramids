@@ -3803,6 +3803,7 @@ class NetCDF(Dataset):
         self._attach_variable_metadata(
             cube, md_arr_ref if rg is not None else None, spatial_dim_indices
         )
+        cube = self._georeference_index_subset(cube)
         return cube
 
     @staticmethod
@@ -3823,6 +3824,60 @@ class NetCDF(Dataset):
                 -gt[5],
             )
             cube._cell_size = abs(gt[1])
+
+    def _georeference_index_subset(self, cube: "NetCDF") -> "NetCDF":
+        """Re-georeference a variable subset whose MDArray view came back in index space.
+
+        A subset built from a bare MDArray view can carry an index-space geotransform (cell
+        size 1, origin 0) even though the file has real 1-D lon/lat coordinate variables. Those
+        coordinates aren't reachable from the subset itself (it has no root group and an empty
+        ``file_name``), but they are on this parent container. When they match the subset's grid
+        shape and disagree with the view's geotransform, wrap the view in a VRT carrying the
+        coordinate-derived geotransform, so warp-based operations (``to_crs`` / ``crop`` /
+        ``wrap_longitude``) and basemaps use real degrees instead of pixel indices. The view's
+        geotransform is immutable (``SetGeoTransform`` is a no-op on it), hence the VRT wrapper.
+
+        A no-op when: the cube isn't a variable subset; the view is already georeferenced (the
+        common case — the derived geotransform matches); or the file has no 1-D lon/lat matching
+        the grid shape (curvilinear 2-D coordinates, named coordinate variables, etc.). The
+        coordinates are read from the parent rather than via ``cube.lon`` / ``cube.lat`` so those
+        accessors keep their existing geotransform-derived (north-up) orientation.
+        """
+        if not isinstance(cube, NetCDF):
+            return cube
+        lon = self._read_variable("lon")
+        if lon is None:
+            lon = self._read_variable("x")
+        lat = self._read_variable("lat")
+        if lat is None:
+            lat = self._read_variable("y")
+        if lon is None or lat is None:
+            return cube
+        lon = np.asarray(lon)
+        lat = np.asarray(lat)
+        if lon.ndim != 1 or lat.ndim != 1:
+            return cube
+        if len(lon) != cube.columns or len(lat) != cube.rows or len(lon) < 2 or len(lat) < 2:
+            return cube
+        x_cell = abs(float(lon[1] - lon[0]))
+        y_cell = abs(float(lat[1] - lat[0]))
+        y_top = max(float(lat[0]), float(lat[-1])) + y_cell / 2
+        real_gt = (float(lon[0]) - x_cell / 2, x_cell, 0.0, y_top, 0.0, -y_cell)
+        current = cube._raster.GetGeoTransform()
+        if all(abs(float(a) - float(b)) < 1e-6 for a, b in zip(real_gt, current)):
+            return cube
+        vrt = gdal.Translate("", cube._raster, format="VRT")
+        if vrt is None:
+            return cube
+        vrt.SetGeoTransform(list(real_gt))
+        if cube.epsg:
+            vrt.SetProjection(sr_from_epsg(int(cube.epsg)).ExportToWkt())
+        # The VRT reads through the MDArray view, so keep that view alive.
+        cube._view_source = cube._raster
+        cube._raster = vrt
+        cube._geotransform = real_gt
+        cube._cell_size = x_cell
+        return cube
 
     def _attach_variable_metadata(
         self, cube: NetCDF, md_arr, spatial_dim_indices: tuple[int, int] | None
