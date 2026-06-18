@@ -2325,7 +2325,7 @@ class TestWrapLongitude:
         assert gt[0] < 0, "After conversion, top-left x should be negative"
 
     def test_wrap_longitude_raises_for_non_global(self):
-        """wrap_longitude should raise for a non-global raster."""
+        """wrap_longitude should raise for a small, clearly non-global raster."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.create_from_array(
             arr,
@@ -2334,7 +2334,21 @@ class TestWrapLongitude:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        with pytest.raises(ValueError, match="whole globe"):
+        with pytest.raises(ValueError, match="global grid"):
+            ds.wrap_longitude()
+
+    def test_wrap_longitude_rejects_regional_window_past_180(self):
+        """A regional window whose longitudes exceed 180 but does not span the globe is rejected.
+
+        Test scenario:
+            A 53-column 2.5° grid over 200-330 has `lon[-1] > 180` but spans only ~132°, so the
+            tightened global-coverage guard raises instead of silently mis-wrapping it.
+        """
+        arr = np.ones((1, 53), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(200.0, 10.0), cell_size=2.5, epsg=4326, no_data_value=-9999.0
+        )
+        with pytest.raises(ValueError, match="global grid"):
             ds.wrap_longitude()
 
     def test_wrap_longitude_returns_new_dataset(self):

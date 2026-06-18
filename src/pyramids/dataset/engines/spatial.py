@@ -430,7 +430,9 @@ class Spatial(_Engine):
                 one.
 
         Raises:
-            ValueError: If the raster does not cover the whole globe (its last longitude is <= 180).
+            ValueError: If the grid is not a global 0-360 grid — it must span ~360° of longitude
+                (within one cell) and lie in the 0-360 frame (its last longitude exceeds 180).
+                Regional windows and grids already in the -180/180 frame are rejected.
 
         Examples:
             - Shift an in-memory 0-360 global raster and inspect the new extent:
@@ -459,10 +461,10 @@ class Spatial(_Engine):
                 ...     np.ones((3, 3), dtype=np.float32), top_left_corner=(0.0, 0.0),
                 ...     cell_size=0.05, epsg=4326, no_data_value=-9999.0,
                 ... )
-                >>> ds.wrap_longitude()
+                >>> ds.wrap_longitude()  # doctest: +ELLIPSIS
                 Traceback (most recent call last):
                     ...
-                ValueError: The raster should cover the whole globe
+                ValueError: wrap_longitude requires a global grid ...
 
                 ```
 
@@ -470,8 +472,18 @@ class Spatial(_Engine):
             to_crs: Reproject to a different CRS (a full warp, not a column roll).
         """
         lon = self._ds.lon
-        if lon[-1] <= 180:
-            raise ValueError("The raster should cover the whole globe")
+        # Require a grid that actually spans the globe in the 0-360 frame: the longitudinal extent
+        # (n_columns * cell) must be ~360° (within one cell), and the last longitude must exceed 180.
+        # This rejects regional windows (e.g. 200-330) and grids already in the -180/180 frame, which
+        # the bare `lon[-1] > 180` check would have silently mis-wrapped.
+        cell = abs(float(lon[1] - lon[0])) if len(lon) > 1 else 0.0
+        spans_globe = cell > 0 and abs(len(lon) * cell - 360.0) <= cell
+        if not (spans_globe and lon[-1] > 180):
+            raise ValueError(
+                "wrap_longitude requires a global grid spanning ~360° in the 0-360 longitude "
+                f"frame; got {len(lon)} columns covering "
+                f"{float(lon[0]):g}..{float(lon[-1]):g}°."
+            )
 
         src = self._ds.raster
         n_columns = src.RasterXSize
