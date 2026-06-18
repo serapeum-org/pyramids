@@ -2515,6 +2515,47 @@ class TestWrapLongitudePaths:
         np.testing.assert_array_equal(result.read_array(band=0), arr[:, order])
 
 
+class TestNonSquareResolution:
+    """resample / to_crs accept an (x_res, y_res) pair for non-square output; scalar stays square."""
+
+    @staticmethod
+    def _square_source():
+        """A 10×10 1° geographic raster to resample/reproject."""
+        return Dataset.create_from_array(
+            np.ones((1, 10, 10), dtype="float32"),
+            top_left_corner=(0.0, 10.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+
+    def test_resample_nonsquare_output(self):
+        """resample((2, 1)) halves the columns, keeps the rows, and yields a 2°×1° grid."""
+        result = self._square_source().resample(cell_size=(2.0, 1.0))
+        gt = result.geotransform
+        assert abs(gt[1]) == pytest.approx(2.0) and abs(gt[5]) == pytest.approx(1.0), gt
+        assert result.shape[-2:] == (10, 5), f"expected (10, 5), got {result.shape[-2:]}"
+
+    def test_resample_scalar_stays_square(self):
+        """A scalar cell_size still produces square cells (no behaviour change)."""
+        result = self._square_source().resample(cell_size=2.0)
+        gt = result.geotransform
+        assert abs(gt[1]) == pytest.approx(2.0) and abs(gt[5]) == pytest.approx(2.0), gt
+        assert result.shape[-2:] == (5, 5), f"expected (5, 5), got {result.shape[-2:]}"
+
+    def test_to_crs_nonsquare_output(self):
+        """to_crs(..., cell_size=(2, 1)) produces a non-square output grid."""
+        result = self._square_source().to_crs(4326, cell_size=(2.0, 1.0))
+        gt = result.geotransform
+        assert abs(gt[1]) == pytest.approx(2.0) and abs(gt[5]) == pytest.approx(1.0), gt
+
+    def test_resample_rejects_bad_resolution(self):
+        """A non-positive or malformed cell_size raises a clear ValueError."""
+        with pytest.raises(ValueError, match="cell_size must be positive"):
+            self._square_source().resample(cell_size=(2.0, 0.0))
+        with pytest.raises(ValueError, match="x_res, y_res"):
+            self._square_source().resample(cell_size=(1.0, 2.0, 3.0))
+
+
 class TestFillNanNodata:
     """Tests for fill method with NaN no_data_value."""
 

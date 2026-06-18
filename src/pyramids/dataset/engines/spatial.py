@@ -60,6 +60,38 @@ def _dst_srs_arg(dst_sr: osr.SpatialReference) -> str:
     return srs_arg
 
 
+def _resolve_resolution(
+    cell_size: float | tuple[float, float] | list[float] | None,
+) -> tuple[float | None, float | None]:
+    """Resolve a ``cell_size`` argument to a positive ``(x_res, y_res)`` pair.
+
+    Accepts a scalar (square cells), an ``(x_res, y_res)`` pair (non-square cells), or ``None``
+    (returned as ``(None, None)`` so callers can let GDAL infer the output resolution).
+
+    Args:
+        cell_size: Output pixel size — a scalar, an ``(x_res, y_res)`` sequence, or ``None``.
+
+    Returns:
+        tuple: ``(x_res, y_res)``; both ``None`` when ``cell_size`` is ``None``.
+
+    Raises:
+        ValueError: If the pair is not length 2, or any resolution is not positive.
+    """
+    if cell_size is None:
+        return None, None
+    if isinstance(cell_size, (tuple, list)):
+        if len(cell_size) != 2:
+            raise ValueError(
+                f"cell_size must be a scalar or an (x_res, y_res) pair, got {cell_size!r}."
+            )
+        x_res, y_res = float(cell_size[0]), float(cell_size[1])
+    else:
+        x_res = y_res = float(cell_size)
+    if x_res <= 0 or y_res <= 0:
+        raise ValueError(f"cell_size must be positive, got {cell_size!r}.")
+    return x_res, y_res
+
+
 class Spatial(_Engine):
 
     def _get_crs(self) -> str:
@@ -117,6 +149,8 @@ class Spatial(_Engine):
         to_epsg: int | str | Any,
         method: str = "nearest neighbor",
         maintain_alignment: bool = False,
+        *,
+        cell_size: float | tuple[float, float] | None = None,
     ) -> Dataset:
         """Reproject the dataset to any projection.
 
@@ -145,6 +179,10 @@ class Spatial(_Engine):
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the raster the same after reprojection.
                 Default is False.
+            cell_size (float | tuple, keyword-only):
+                Optional output pixel size in target-CRS units. A scalar gives square cells; an
+                ``(x_res, y_res)`` pair gives non-square cells. ``None`` (default) lets GDAL pick the
+                output resolution. Not supported together with ``maintain_alignment=True``.
 
         Returns:
             Dataset:
@@ -253,8 +291,15 @@ class Spatial(_Engine):
         """
         dst_sr = sr_from_user_input(to_epsg)
         resampling_method: int = resolve_resampling(method)
+        # cell_size may be a scalar (square) or an (x_res, y_res) pair (non-square output).
+        x_res, y_res = _resolve_resolution(cell_size)
 
         if maintain_alignment:
+            if cell_size is not None:
+                raise ValueError(
+                    "cell_size is not supported with maintain_alignment=True (that path keeps the "
+                    "source row/column count). Use maintain_alignment=False to set the output cell size."
+                )
             dst_obj = self._reproject_with_ReprojectImage(dst_sr, resampling_method)
         else:
             dst = gdal.Warp(
@@ -263,6 +308,8 @@ class Spatial(_Engine):
                 dstSRS=_dst_srs_arg(dst_sr),
                 format="VRT",
                 resampleAlg=resampling_method,
+                xRes=x_res,
+                yRes=y_res,
             )
             dst_obj = self._ds.__class__(dst)
 
@@ -273,7 +320,7 @@ class Spatial(_Engine):
         crs: int | str | Any,
         method: str = "nearest neighbor",
         *,
-        cell_size: float | None = None,
+        cell_size: float | tuple[float, float] | None = None,
         bbox: tuple[float, float, float, float] | None = None,
     ) -> Dataset:
         """Return a lazy, reprojected **view** of the dataset (no pixels warped yet).
@@ -303,9 +350,10 @@ class Spatial(_Engine):
                 accepted by :func:`pyramids.base._utils.resolve_resampling`
                 (case- and whitespace-insensitive). Default is
                 ``"nearest neighbor"``.
-            cell_size: Optional output pixel size in target-CRS units (applied
-                to both axes). ``None`` lets GDAL pick the size that preserves
-                the source resolution.
+            cell_size: Optional output pixel size in target-CRS units. A scalar
+                applies to both axes (square cells); an ``(x_res, y_res)`` pair
+                gives non-square cells. ``None`` lets GDAL pick the size that
+                preserves the source resolution.
             bbox: Optional ``(min_x, min_y, max_x, max_y)`` output extent in
                 the **target** CRS; ``None`` covers the warped source extent.
 
@@ -357,8 +405,7 @@ class Spatial(_Engine):
         dst_sr = sr_from_user_input(crs)
         resample_alg: int = resolve_resampling(method)
         dst_srs_arg = _dst_srs_arg(dst_sr)
-        if cell_size is not None and cell_size <= 0:
-            raise ValueError(f"cell_size must be positive, got {cell_size}.")
+        x_res, y_res = _resolve_resolution(cell_size)
         if bbox is not None:
             if len(bbox) != 4:
                 raise ValueError(
@@ -373,8 +420,8 @@ class Spatial(_Engine):
             format="VRT",
             dstSRS=dst_srs_arg,
             resampleAlg=resample_alg,
-            xRes=cell_size,
-            yRes=cell_size,
+            xRes=x_res,
+            yRes=y_res,
             outputBounds=bbox,
             multithread=True,
         )
@@ -587,7 +634,9 @@ class Spatial(_Engine):
         return vrt
 
     def resample(
-        self, cell_size: int | float, method: str = "nearest neighbor"
+        self,
+        cell_size: int | float | tuple[float, float],
+        method: str = "nearest neighbor",
     ) -> Dataset:
         """Resample a raster to a new cell size.
 
@@ -595,8 +644,10 @@ class Spatial(_Engine):
         existing CRS and extent. Returns a new in-memory Dataset; the source is left unchanged.
 
         Args:
-            cell_size (int | float):
-                New cell size to resample the raster to, in the units of the raster CRS.
+            cell_size (int | float | tuple):
+                New cell size to resample the raster to, in the units of the raster CRS. A scalar
+                applies to both axes (square cells); an ``(x_res, y_res)`` pair gives non-square
+                cells (e.g. ``(2.0, 1.0)`` for 2° longitude by 1° latitude).
             method (str):
                 Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
                 (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
@@ -639,6 +690,8 @@ class Spatial(_Engine):
               ![resample-new](./../../_images/dataset/resample-new.png)
         """
         resampling_method: int = resolve_resampling(method)
+        # cell_size may be a scalar (square) or an (x_res, y_res) pair (non-square output).
+        x_res, y_res = _resolve_resolution(cell_size)
 
         sr_src = sr_from_wkt(self._ds.crs)
         # NetCDF variable views expose their CRS as an EPSG code (derived from CF coordinates) rather
@@ -653,18 +706,18 @@ class Spatial(_Engine):
         lrx = self._ds.geotransform[0] + self._ds.geotransform[1] * self._ds.columns
         lry = self._ds.geotransform[3] + self._ds.geotransform[5] * self._ds.rows
 
-        # new geotransform
+        # new geotransform — separate X/Y cell sizes so non-square output is supported
         new_geo = (
             self._ds.geotransform[0],
-            cell_size,
+            x_res,
             self._ds.geotransform[2],
             self._ds.geotransform[3],
             self._ds.geotransform[4],
-            -1 * cell_size,
+            -1 * y_res,
         )
         # create a new raster
-        cols = int(np.round(abs(lrx - ulx) / cell_size))
-        rows = int(np.round(abs(uly - lry) / cell_size))
+        cols = int(np.round(abs(lrx - ulx) / x_res))
+        rows = int(np.round(abs(uly - lry) / y_res))
         dtype = self._ds.gdal_dtype[0]
         bands = self._ds.band_count
 
