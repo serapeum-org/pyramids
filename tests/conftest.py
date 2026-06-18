@@ -1,3 +1,4 @@
+import gc
 import os
 import random
 from pathlib import Path
@@ -323,12 +324,19 @@ def era5_image_internal_overviews_read_only_true() -> Dataset:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def clean_overview_before_test(era5_raster_path: str) -> None:
+def clean_overview_around_session(era5_raster_path: str) -> None:
+    """Remove the era5 external overview sidecar before and after the session so it never lingers.
+
+    Tests build a ``.ovr`` next to the committed era5 fixture. The per-test cleanup is best-effort
+    because on Windows the ``gdal.Dataset`` may still hold the sidecar open during teardown; this
+    session-scoped sweep runs once every handle is released, guaranteeing the tracked test-data
+    tree is clean even after an interrupted or partial run.
+    """
     ovr_path = Path(f"{era5_raster_path}.ovr")
-    try:
-        ovr_path.unlink()
-    except OSError as e:
-        print(f"Error: {e.strerror}")
+    ovr_path.unlink(missing_ok=True)
+    yield
+    gc.collect()  # release any lingering gdal.Dataset handles so Windows lets us unlink the sidecar
+    ovr_path.unlink(missing_ok=True)
 
 
 @pytest.fixture
@@ -336,9 +344,11 @@ def clean_overview_after_test(era5_raster_path: str) -> None:
     ovr_path = Path(f"{era5_raster_path}.ovr")
     yield
     try:
-        ovr_path.unlink()
-    except OSError as e:
-        print(f"Error: {e.strerror}")
+        ovr_path.unlink(missing_ok=True)
+    except PermissionError:
+        # On Windows the gdal.Dataset can still hold the sidecar open at teardown; the
+        # session-scoped sweep removes it once all handles are released.
+        pass
 
 
 @pytest.fixture(scope="module")

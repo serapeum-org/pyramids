@@ -226,8 +226,9 @@ def mapalgebra_function():
 
 
 @pytest.fixture(scope="module")
-def fill_raster_path() -> Path:
-    return Path("examples/data/fill_raster_saved.tif")
+def fill_raster_path(tmp_path_factory) -> Path:
+    """Disk output path for the fill-raster test, in a temp dir pytest removes after the run."""
+    return tmp_path_factory.mktemp("fill_raster") / "fill_raster_saved.tif"
 
 
 @pytest.fixture(scope="module")
