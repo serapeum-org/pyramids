@@ -89,7 +89,7 @@ rm -rf "${PIXI_ENV}"
 # those tables; calling it here keeps this cross-compile branch from re-encoding (or
 # drifting from) the pins. One subprocess emits all four specs, newline-separated,
 # mapped onto the bash vars via `read`. micromamba accepts a conda match-spec
-# concatenated as ``<name><spec>`` (e.g. ``gdal>=3.12,<3.13``).
+# concatenated as ``<name><spec>`` (e.g. ``gdal>=3.13,<3.14``).
 GDAL_PIN="$(cd "$(dirname "$0")" && pwd)/gdal-pin.py"
 if [[ ! -f "${GDAL_PIN}" ]]; then
     echo "ERROR: gdal-pin.py not found at ${GDAL_PIN}" >&2

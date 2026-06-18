@@ -14,7 +14,7 @@ wheels vendor instead of re-encoding them:
 
 Usage::
 
-    spec=$(python ci/gdal-pin.py)                    # default: gdal ->  >=3.12,<3.13
+    spec=$(python ci/gdal-pin.py)                    # default: gdal ->  >=3.13,<3.14
     python ci/gdal-pin.py gdal libgdal-netcdf swig   # one spec per line
 """
 

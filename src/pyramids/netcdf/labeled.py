@@ -300,10 +300,12 @@ class LabeledDataset:
     def _readable_arrays(grp: gdal.Group) -> tuple[list[str], list[str]]:
         """Split a group's arrays into those GDAL can read and those it cannot.
 
-        GDAL's Zarr driver rejects Zarr v3 string-typed arrays — they list in
-        ``GetMDArrayNames()`` but raise ``RuntimeError`` on access
-        (https://github.com/OSGeo/gdal/issues/13782). Probe each array so an
-        otherwise-numeric store still opens; the unreadable ones are reported.
+        Historically GDAL's Zarr driver rejected Zarr v3 string-typed arrays —
+        they listed in ``GetMDArrayNames()`` but raised ``RuntimeError`` on
+        access (https://github.com/OSGeo/gdal/issues/13782, fixed in GDAL 3.13).
+        The probe stays as defence-in-depth: any array that still raises on
+        access (older GDAL, an unsupported dtype, a corrupt array) is skipped so
+        an otherwise-readable store still opens, and the skipped names reported.
 
         Returns:
             tuple[list[str], list[str]]: ``(readable, skipped)`` array names.

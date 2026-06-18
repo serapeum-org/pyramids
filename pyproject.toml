@@ -351,11 +351,11 @@ xarray = ">=2023.1.0"
 # libgdal-jp2openjpeg ships the JP2OpenJPEG driver (pulls openjpeg) so the bundled GDAL
 # can read JPEG2000-packed GRIB2 (WMO template 5.40 — NCEP/ECCC/ECMWF); see issue #600.
 [tool.pixi.feature.gdal.dependencies]
-gdal = ">=3.12,<3.13"
-libgdal-netcdf = ">=3.12,<3.13"
-libgdal-hdf4 = ">=3.12,<3.13"
-libgdal-grib = ">=3.12,<3.13"
-libgdal-jp2openjpeg = ">=3.12,<3.13"
+gdal = ">=3.13,<3.14"
+libgdal-netcdf = ">=3.13,<3.14"
+libgdal-hdf4 = ">=3.13,<3.14"
+libgdal-grib = ">=3.13,<3.14"
+libgdal-jp2openjpeg = ">=3.13,<3.14"
 
 # swig builds the osgeo bindings against libgdal; build-only, so it stays in the
 # wheel-build feature (not the shared gdal feature). setup-gdal-micromamba.sh reads it.
@@ -413,7 +413,7 @@ manylinux-aarch64-image = "manylinux_2_28"
 environment-pass = ["PIXI_VERSION", "MICROMAMBA_VERSION"]
 before-all = ["bash ./ci/setup-gdal-from-pixi.sh"]
 # install-and-vendor-osgeo.py runs pip WITH build isolation so it picks
-# up setuptools>=77 (GDAL 3.12.3's build-system.requires) and a matching
+# up setuptools>=77 (GDAL's build-system.requires) and a matching
 # numpy. Without isolation, the manylinux container's pre-installed
 # setuptools 75.5.0 rejects GDAL's PEP 639 license string.
 before-build = ["python ./ci/install-and-vendor-osgeo.py"]
