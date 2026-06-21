@@ -1074,7 +1074,19 @@ class NetCDF(Dataset):
                 compatibility but emits a :class:`DeprecationWarning`.
 
         Returns:
-            ArrayGlyph: A cleopatra ``ArrayGlyph`` wrapping the rendered figure.
+            ArrayGlyph: A cleopatra ``ArrayGlyph`` wrapping the rendered figure. Use the glyph's
+                matplotlib handles (``glyph.ax`` / ``glyph.fig`` / ``glyph.im``) to decorate the
+                plot further. In particular, to overlay a **coastline** (or borders / land / ocean /
+                rivers / lakes) on top of the data, call cleopatra's reference helper on the axes —
+                passing the CRS the data was plotted in so the layer lines up::
+
+                    from cleopatra.reference import add_features
+                    glyph = nc.get_variable("t2m").to_crs(3857).plot()
+                    add_features(glyph.ax, "coastline", crs=3857, zorder=5)
+
+                ``add_features`` fetches Natural Earth data (cached under ``~/.cleopatra``), so it
+                needs the ``[viz]`` extra and network access on first use. A relief backdrop is
+                available the same way via :func:`cleopatra.reference.add_relief`.
 
         Raises:
             TypeError: If any of the Sentinel-only kwargs (``rgb``,
