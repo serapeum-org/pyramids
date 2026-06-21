@@ -1078,11 +1078,13 @@ class NetCDF(Dataset):
                 matplotlib handles (``glyph.ax`` / ``glyph.fig`` / ``glyph.im``) to decorate the
                 plot further. In particular, to overlay a **coastline** (or borders / land / ocean /
                 rivers / lakes) on top of the data, call cleopatra's reference helper on the axes —
-                passing the CRS the data was plotted in so the layer lines up::
+                passing the CRS the data was plotted in (its own CRS — no reprojection needed) so the
+                layer lines up::
 
                     from cleopatra.reference import add_features
-                    glyph = nc.get_variable("t2m").to_crs(3857).plot()
-                    add_features(glyph.ax, "coastline", crs=3857, zorder=5)
+                    var = nc.get_variable("t2m")
+                    glyph = var.plot()
+                    add_features(glyph.ax, "coastline", crs=var.epsg, zorder=5)
 
                 ``add_features`` fetches Natural Earth data (cached under ``~/.cleopatra``), so it
                 needs the ``[viz]`` extra and network access on first use. A relief backdrop is
