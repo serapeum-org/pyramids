@@ -462,3 +462,74 @@ class TestSpatialEdgeCases:
         assert (
             var.n_elements == clipped.n_node
         ), f"Node data length {var.n_elements} should match n_node {clipped.n_node}"
+
+
+class TestCrop:
+    """Tests for ``UgridDataset.crop`` — the API-parity facade over clip / subset_by_bounds (#606)."""
+
+    def test_crop_polygon_matches_clip(self, unit_square_dataset):
+        """crop(mask) selects the same faces as clip(mask).
+
+        Test scenario:
+            A box over the left column yields the same sub-mesh whether called via crop or clip.
+        """
+        mask = box(-0.1, -0.1, 1.1, 2.1)
+        cropped = unit_square_dataset.crop(mask, touch=False)
+        clipped = unit_square_dataset.clip(mask, touch=False)
+        assert (
+            cropped.n_face == clipped.n_face == 2
+        ), f"crop/clip disagree: {cropped.n_face} vs {clipped.n_face}"
+
+    def test_crop_touch_false_subset_of_touch_true(self, unit_square_dataset):
+        """touch=False keeps no more faces than touch=True.
+
+        Test scenario:
+            Contained-only selection is a subset of the boundary-touching selection.
+        """
+        mask = box(0.0, 0.0, 1.0, 2.0)
+        n_false = unit_square_dataset.crop(mask, touch=False).n_face
+        n_true = unit_square_dataset.crop(mask, touch=True).n_face
+        assert n_false <= n_true, f"touch=False ({n_false}) should be <= touch=True ({n_true})"
+
+    def test_crop_bbox_matches_subset_by_bounds(self, unit_square_dataset):
+        """crop(bbox=...) selects the same faces as subset_by_bounds(...).
+
+        Test scenario:
+            The bbox path is equivalent to calling subset_by_bounds directly.
+        """
+        bounds = (-0.1, -0.1, 1.1, 2.1)
+        cropped = unit_square_dataset.crop(bbox=bounds)
+        subset = unit_square_dataset.subset_by_bounds(*bounds)
+        assert (
+            cropped.n_face == subset.n_face
+        ), f"crop(bbox)/subset_by_bounds disagree: {cropped.n_face} vs {subset.n_face}"
+
+    def test_crop_preserves_data(self, unit_square_dataset):
+        """A cropped sub-mesh keeps its data variable, subset to the surviving faces.
+
+        Test scenario:
+            The 'temperature' face variable survives and its length matches the new face count.
+        """
+        cropped = unit_square_dataset.crop(box(-0.1, -0.1, 1.1, 1.1), touch=False)
+        assert "temperature" in cropped.data_variable_names, "data variable dropped by crop"
+        assert (
+            len(cropped["temperature"].data) == cropped.n_face
+        ), "data length must match the cropped face count"
+
+    def test_crop_mask_and_bbox_together_raises(self, unit_square_dataset):
+        """Supplying both mask and bbox raises ValueError.
+
+        Test scenario:
+            mask and bbox are mutually exclusive.
+        """
+        with pytest.raises(ValueError, match="not both"):
+            unit_square_dataset.crop(box(0, 0, 1, 1), bbox=(0, 0, 1, 1))
+
+    def test_crop_neither_raises(self, unit_square_dataset):
+        """Supplying neither mask nor bbox raises TypeError.
+
+        Test scenario:
+            crop needs one of mask / bbox.
+        """
+        with pytest.raises(TypeError, match="requires"):
+            unit_square_dataset.crop()

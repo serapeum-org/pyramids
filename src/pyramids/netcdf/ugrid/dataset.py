@@ -15,7 +15,7 @@ import geopandas as gpd
 import numpy as np
 from osgeo import gdal
 from pyproj import CRS, Transformer
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, Point, box
 
 from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset import Dataset
@@ -274,6 +274,79 @@ class UgridDataset:
             no_data_value=nodata,
         )
         return result
+
+    def crop(
+        self,
+        mask: Any = None,
+        touch: bool = True,
+        *,
+        bbox: tuple[float, float, float, float] | list[float] | None = None,
+        epsg: int | None = None,
+    ) -> UgridDataset:
+        """Crop the mesh to a polygon mask or a bbox — the unstructured-mesh analogue of crop.
+
+        The mesh equivalent of :meth:`pyramids.dataset.Dataset.crop` / :meth:`NetCDF.crop`. Rather
+        than warping a raster, it selects the **faces** that fall inside the region (renumbering the
+        node connectivity for the resulting sub-mesh) and keeps the data on the surviving elements.
+        Delegates to :meth:`clip` for a polygon and :meth:`subset_by_bounds` for a bbox; this method
+        exists so the spatial-subset call is named ``crop`` across the raster and mesh classes alike.
+
+        Args:
+            mask (Any):
+                Polygon mask — a shapely geometry, ``GeoDataFrame``, or ``FeatureCollection``.
+                Mutually exclusive with ``bbox``.
+            touch (bool):
+                If ``True`` (default), keep faces that touch the polygon boundary; if ``False``, keep
+                only faces fully inside it. Defaults to True.
+            bbox (tuple[float, float, float, float], keyword-only):
+                ``(west, south, east, north)`` in the mesh CRS, or in ``epsg`` when supplied.
+                Mutually exclusive with ``mask``.
+            epsg (int, keyword-only):
+                CRS of ``bbox``. When it differs from the mesh CRS the box is reprojected to the mesh
+                CRS before subsetting. Defaults to the mesh CRS.
+
+        Returns:
+            UgridDataset: A new sub-mesh — faces inside the region, connectivity renumbered, and data
+                variables subset to the surviving elements.
+
+        Raises:
+            ValueError: If both ``mask`` and ``bbox`` are supplied.
+            TypeError: If neither ``mask`` nor ``bbox`` is supplied.
+
+        Examples:
+            - Crop a mesh to a polygon (faces intersecting it survive):
+                ```python
+                >>> from shapely.geometry import Polygon
+                >>> from pyramids.netcdf import UgridDataset
+                >>> ug = UgridDataset.read_file("mesh.nc")                        # doctest: +SKIP
+                >>> sub = ug.crop(Polygon([(-1, -1), (0, -1), (0, 1), (-1, 1)]))  # doctest: +SKIP
+                >>> sub.n_face <= ug.n_face                                       # doctest: +SKIP
+                True
+
+                ```
+            - Crop to a bounding box in the mesh's own CRS:
+                ```python
+                >>> sub = ug.crop(bbox=(-1.0, -1.0, 0.0, 1.0))                    # doctest: +SKIP
+
+                ```
+        """
+        if bbox is not None:
+            if mask is not None:
+                raise ValueError("crop accepts either `mask` or `bbox`, not both")
+            west, south, east, north = bbox
+            if epsg is not None and self.epsg is not None and int(epsg) != int(self.epsg):
+                geom = (
+                    gpd.GeoSeries([box(west, south, east, north)], crs=epsg)
+                    .to_crs(self.epsg)
+                    .iloc[0]
+                )
+                return self.clip(geom, touch=touch)
+            return self.subset_by_bounds(west, south, east, north)
+        if mask is None:
+            raise TypeError(
+                "crop requires a `mask` (polygon) or a `bbox` (west, south, east, north) tuple"
+            )
+        return self.clip(mask, touch=touch)
 
     def clip(self, mask: Any, touch: bool = True) -> UgridDataset:
         """Clip the mesh to a polygon mask.
