@@ -92,6 +92,31 @@ def test_rasm_curvilinear_crop(sample):
         nc.close()
 
 
+def test_roms_curvilinear_crop_lazy_matches_eager(sample):
+    """``chunks=`` reads the cropped window through the lazy/dask path and matches the eager crop."""
+    nc = NetCDF.read_file(sample(ROMS))
+    try:
+        aoi = [(-91, 28), (-88, 28), (-88, 30.5), (-91, 30.5)]
+        eager = np.asarray(nc.get_variable("salt").crop(_fc(aoi)).read_array())
+        lazy = np.asarray(nc.get_variable("salt").crop(_fc(aoi), chunks="auto").read_array())
+        assert lazy.shape == eager.shape
+        assert np.allclose(lazy, eager, equal_nan=True)
+    finally:
+        nc.close()
+
+
+def test_rectilinear_crop_rejects_chunks(sample):
+    """``chunks=`` is curvilinear-only; the affine (rectilinear) crop path rejects it."""
+    nc = NetCDF.read_file(sample(RECTILINEAR))
+    try:
+        with pytest.raises(ValueError, match="only supported for curvilinear"):
+            nc.get_variable("tos").crop(
+                _fc([(120, -40), (240, -40), (240, 70), (120, 70)]), chunks="auto"
+            )
+    finally:
+        nc.close()
+
+
 def test_rectilinear_crop_unaffected(sample):
     """A rectilinear grid still routes to the affine cutline warp (no curvilinear coords attached)."""
     nc = NetCDF.read_file(sample(RECTILINEAR))

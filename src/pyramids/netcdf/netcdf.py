@@ -1757,6 +1757,7 @@ class NetCDF(Dataset):
         *,
         bbox: tuple[float, float, float, float] | list[float] | None = None,
         epsg: Any = None,
+        chunks: Any = None,
     ) -> NetCDF:
         """Crop the dataset using a polygon mask, a raster mask, or a bbox tuple.
 
@@ -1787,6 +1788,14 @@ class NetCDF(Dataset):
                 extra argument; pass it explicitly for a bbox in a
                 different CRS (the standard reprojection path handles
                 it).
+            chunks (keyword-only): Lazy-read chunking for the
+                **curvilinear** crop path only — forwarded to
+                :meth:`read_array` so the cropped window is read through
+                the dask-backed lazy path (``"auto"`` or a ``{"rows":
+                ..., "cols": ...}`` dict). The curvilinear crop reads only
+                the polygon's bounding window regardless; ``chunks`` makes
+                that windowed read lazy/chunked. Raises ``ValueError`` if
+                given for a rectilinear (affine-warp) crop, which is eager.
 
         Returns:
             NetCDF: Cropped container or variable subset.
@@ -1866,8 +1875,13 @@ class NetCDF(Dataset):
                 and np.asarray(curv[0]).ndim == 2
                 and np.asarray(curv[1]).ndim == 2
             ):
-                result = self._crop_curvilinear(mask, curv, touch=touch)
+                result = self._crop_curvilinear(mask, curv, touch=touch, chunks=chunks)
             else:
+                if chunks is not None:
+                    raise ValueError(
+                        "chunks= is only supported for curvilinear crop; the affine "
+                        "(rectilinear) crop path is eager."
+                    )
                 result = super().crop(mask=mask, touch=touch)
                 result = self._preserve_netcdf_metadata(result)
         return result
@@ -1877,6 +1891,7 @@ class NetCDF(Dataset):
         mask: FeatureCollection,
         coords2d: tuple[np.ndarray, np.ndarray],
         touch: bool = True,
+        chunks: Any = None,
     ) -> "NetCDF":
         """Crop a curvilinear (2-D coordinate) variable by masking on its lon/lat arrays.
 
@@ -1931,9 +1946,23 @@ class NetCDF(Dataset):
         if nd is None:
             nd = DEFAULT_NO_DATA_VALUE
 
-        data = np.array(self.read_array(), copy=True)
-        data[..., ~inside] = nd
-        data_win = data[..., r0:r1, c0:c1]
+        # Read only the bounding window, not the whole variable. The polygon mask and window were
+        # derived from the (spatial-footprint) coordinate arrays alone — no data was materialised yet.
+        inside_win = inside[r0:r1, c0:c1]
+        if chunks is not None:
+            # Lazy/chunked read: only the chunks overlapping the window are materialised.
+            lazy = self.read_array(chunks=chunks)
+            if lazy.ndim > 2:
+                # read_array(chunks=) keeps the native (d0, ..., rows, cols) shape; flatten the
+                # non-spatial dims to the (bands, rows, cols) layout the eager path uses.
+                lazy = lazy.reshape(-1, *lazy.shape[-2:])
+            data_win = np.array(lazy[..., r0:r1, c0:c1].compute(), copy=True)
+        else:
+            # Eager windowed read: GDAL reads just the (c0, r0)-(c1, r1) block.
+            data_win = np.array(
+                self.read_array(window=[c0, r0, c1 - c0, r1 - r0]), copy=True
+            )
+        data_win[..., ~inside_win] = nd
         lon_win = lon2d[r0:r1, c0:c1]
         lat_win = lat2d[r0:r1, c0:c1]
 
