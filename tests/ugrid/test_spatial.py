@@ -526,18 +526,55 @@ class TestCrop:
         n_true = unit_square_dataset.crop(mask, touch=True).n_face
         assert n_false <= n_true, f"touch=False ({n_false}) should be <= touch=True ({n_true})"
 
-    def test_crop_bbox_matches_subset_by_bounds(self, unit_square_dataset):
-        """crop(bbox=...) selects the same faces as subset_by_bounds(...).
+    @pytest.mark.parametrize("as_type", [tuple, list])
+    def test_crop_bbox_matches_subset_by_bounds(self, unit_square_dataset, as_type):
+        """crop(bbox=...) selects the same faces as subset_by_bounds(...), for a tuple or a list.
+
+        Args:
+            as_type: Sequence type used to pass the bbox (``tuple`` or ``list``), per the type hint.
 
         Test scenario:
-            The bbox path is equivalent to calling subset_by_bounds directly.
+            The bbox path is equivalent to calling subset_by_bounds directly and accepts both a tuple
+            and a list bbox.
         """
-        bounds = (-0.1, -0.1, 1.1, 2.1)
+        bounds = as_type([-0.1, -0.1, 1.1, 2.1])
         cropped = unit_square_dataset.crop(bbox=bounds)
         subset = unit_square_dataset.subset_by_bounds(*bounds)
         assert (
             cropped.n_face == subset.n_face
         ), f"crop(bbox)/subset_by_bounds disagree: {cropped.n_face} vs {subset.n_face}"
+
+    @pytest.mark.parametrize("touch", [True, False])
+    def test_crop_mask_forwards_touch_to_clip(self, unit_square_dataset, touch):
+        """crop(mask, touch) forwards touch to clip for both values.
+
+        Args:
+            touch: Whether faces touching the mask boundary are kept.
+
+        Test scenario:
+            For touch True and False, crop(mask, touch) selects exactly the faces clip(mask, touch)
+            does — proving touch is forwarded (not dropped) on the mask path.
+        """
+        mask = box(-0.1, -0.1, 1.1, 2.1)
+        cropped = unit_square_dataset.crop(mask, touch=touch)
+        clipped = unit_square_dataset.clip(mask, touch=touch)
+        assert (
+            cropped.n_face == clipped.n_face
+        ), f"crop(touch={touch}) kept {cropped.n_face} faces, clip kept {clipped.n_face}"
+
+    def test_crop_bbox_ignores_touch(self, unit_square_dataset):
+        """touch does not change the bbox result — the bbox path selects by its envelope (M1).
+
+        Test scenario:
+            crop(bbox=b, touch=True) and crop(bbox=b, touch=False) select the same faces, because the
+            bbox path always routes through subset_by_bounds regardless of touch.
+        """
+        bounds = (-0.1, -0.1, 1.1, 2.1)
+        n_true = unit_square_dataset.crop(bbox=bounds, touch=True).n_face
+        n_false = unit_square_dataset.crop(bbox=bounds, touch=False).n_face
+        assert (
+            n_true == n_false
+        ), f"touch changed the bbox result: touch=True kept {n_true}, touch=False kept {n_false}"
 
     def test_crop_preserves_data(self, unit_square_dataset):
         """A cropped sub-mesh keeps its data variable, subset to the surviving faces.
@@ -598,15 +635,35 @@ class TestCrop:
         with pytest.raises(ValueError, match="not both"):
             unit_square_dataset.crop(box(0, 0, 1, 1), bbox=(0, 0, 1, 1))
 
-    def test_crop_bad_bbox_length_raises(self, unit_square_dataset):
-        """A bbox that is not a 4-tuple raises a descriptive ValueError.
+    @pytest.mark.parametrize("bad_bbox", [(0.0, 0.0, 1.0), (0.0, 0.0, 1.0, 1.0, 2.0)])
+    def test_crop_bad_bbox_length_raises(self, unit_square_dataset, bad_bbox):
+        """A bbox that is not a 4-tuple raises a descriptive ValueError reporting the bad length.
+
+        Args:
+            bad_bbox: A too-short (3) or too-long (5) sequence.
 
         Test scenario:
-            A 3-element bbox names the (west, south, east, north) contract instead of a cryptic
-            unpack error.
+            Both sides of the 4-element boundary name the (west, south, east, north) contract and
+            report the offending count, instead of a cryptic unpack error.
         """
-        with pytest.raises(ValueError, match="4-tuple"):
-            unit_square_dataset.crop(bbox=(0.0, 0.0, 1.0))
+        with pytest.raises(ValueError, match="4-tuple") as exc:
+            unit_square_dataset.crop(bbox=bad_bbox)
+        assert str(len(bad_bbox)) in str(
+            exc.value
+        ), f"message should report the bad length {len(bad_bbox)}: {exc.value}"
+
+    def test_crop_does_not_mutate_source(self, unit_square_dataset):
+        """crop returns a new sub-mesh and leaves the source dataset unchanged.
+
+        Test scenario:
+            Cropping does not alter the original face count and returns a distinct object.
+        """
+        before = unit_square_dataset.n_face
+        cropped = unit_square_dataset.crop(box(-0.1, -0.1, 1.1, 1.1), touch=False)
+        assert (
+            unit_square_dataset.n_face == before
+        ), f"source face count changed from {before} to {unit_square_dataset.n_face}"
+        assert cropped is not unit_square_dataset, "crop must return a new object, not self"
 
     def test_crop_neither_raises(self, unit_square_dataset):
         """Supplying neither mask nor bbox raises TypeError.
