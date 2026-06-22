@@ -10,7 +10,7 @@ curvilinear.
 import geopandas as gpd
 import numpy as np
 import pytest
-from shapely.geometry import Polygon
+from shapely.geometry import MultiPolygon, Polygon
 
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
@@ -128,3 +128,114 @@ def test_rectilinear_crop_unaffected(sample):
         assert round(xmin) == 120 and round(xmax) == 240
     finally:
         nc.close()
+
+
+def test_crop_mask_in_different_crs_is_reprojected(sample):
+    """A mask in a different CRS (EPSG:3857) is reprojected to the data CRS before masking."""
+    nc = NetCDF.read_file(sample(ROMS))
+    try:
+        box = Polygon([(-91, 28), (-88, 28), (-88, 30.5), (-91, 30.5)])
+        merc = gpd.GeoSeries([box], crs=4326).to_crs(3857).iloc[0]
+        salt = nc.get_variable("salt")
+        in_4326 = np.asarray(salt.crop(_fc(box)).read_array())
+        in_3857 = np.asarray(
+            salt.crop(FeatureCollection(gpd.GeoDataFrame(geometry=[merc], crs=3857))).read_array()
+        )
+        assert in_3857.shape == in_4326.shape, f"{in_3857.shape} vs {in_4326.shape}"
+        assert np.allclose(in_3857, in_4326, equal_nan=True), "reprojected-CRS mask must match the 4326 mask"
+    finally:
+        nc.close()
+
+
+def test_crop_preserves_existing_nodata(sample):
+    """Cells already no-data in the source (land / fill) stay no-data after the crop."""
+    nc = NetCDF.read_file(sample(ROMS))
+    try:
+        salt = nc.get_variable("salt")
+        nd = salt.no_data_value[0]
+        cropped = salt.crop(_fc([(-91, 28), (-88, 28), (-88, 30.5), (-91, 30.5)]))
+        assert cropped.no_data_value[0] == nd, "result must keep the source no-data value"
+        arr = np.asarray(cropped.read_array())
+        assert bool(np.any(np.isclose(arr, nd))), "land / outside-polygon cells must remain no-data"
+    finally:
+        nc.close()
+
+
+def test_crop_multipolygon_mask(sample):
+    """A MultiPolygon mask crops the union of its parts and stays curvilinear."""
+    nc = NetCDF.read_file(sample(ROMS))
+    try:
+        mp = MultiPolygon([
+            Polygon([(-91, 28), (-89.5, 28), (-89.5, 30), (-91, 30)]),
+            Polygon([(-89, 28.5), (-88, 28.5), (-88, 30), (-89, 30)]),
+        ])
+        mask = FeatureCollection(gpd.GeoDataFrame(geometry=[mp], crs=4326))
+        cropped = nc.get_variable("salt").crop(mask)
+        arr = np.asarray(cropped.read_array())
+        assert arr.ndim == 3 and arr.shape[-1] > 0, f"multipolygon crop produced no data: {arr.shape}"
+        assert hasattr(cropped, "_curvilinear_coords")
+    finally:
+        nc.close()
+
+
+def test_crop_touch_parameter_accepted(sample):
+    """``touch=`` is accepted on the curvilinear path (currently a no-op — cell-centre test)."""
+    nc = NetCDF.read_file(sample(ROMS))
+    try:
+        aoi = [(-91, 28), (-88, 28), (-88, 30.5), (-91, 30.5)]
+        a = np.asarray(nc.get_variable("salt").crop(_fc(aoi), touch=True).read_array())
+        b = np.asarray(nc.get_variable("salt").crop(_fc(aoi), touch=False).read_array())
+        assert a.shape == b.shape and np.allclose(a, b, equal_nan=True), "touch should not change the result yet"
+    finally:
+        nc.close()
+
+
+def test_rasm_crop_lazy_matches_eager(sample):
+    """rasm curvilinear crop: the ``chunks=`` (lazy) path matches the eager crop."""
+    nc = NetCDF.read_file(sample(RASM))
+    try:
+        aoi = [(200, 40), (300, 40), (300, 70), (200, 70)]
+        eager = np.asarray(nc.get_variable("Tair").crop(_fc(aoi)).read_array())
+        lazy = np.asarray(nc.get_variable("Tair").crop(_fc(aoi), chunks="auto").read_array())
+        assert lazy.shape == eager.shape, f"{lazy.shape} vs {eager.shape}"
+        assert np.allclose(lazy, eager, equal_nan=True)
+    finally:
+        nc.close()
+
+
+@pytest.mark.parametrize(
+    "values, expected",
+    [
+        ([-89.0, 0.0, 89.0], True),
+        ([-90.0, 90.0], True),
+        ([0.0, 180.0, 360.0], False),
+        ([-120.0, -60.0], False),
+        ([np.nan, np.nan], False),
+    ],
+)
+def test_values_within_latitude(values, expected):
+    """`_values_within_latitude` flags arrays bounded to [-90, 90] (latitudes) and rejects longitudes."""
+    result = NetCDFPlot._values_within_latitude(np.array(values, dtype=float))
+    assert result == expected, f"_values_within_latitude({values}) -> {result}, expected {expected}"
+
+
+def test_cropped_result_exposes_stored_curvilinear_coords(sample):
+    """The resolver returns the cropped result's stored 2-D coords, so it plots as curvilinear."""
+    nc = NetCDF.read_file(sample(ROMS))
+    try:
+        cropped = nc.get_variable("salt").crop(_fc([(-91, 28), (-88, 28), (-88, 30.5), (-91, 30.5)]))
+        resolved = NetCDFPlot(cropped)._resolve_curvilinear_coords(cropped, coords=None)
+        assert resolved is not None, "resolver must surface the stored curvilinear coords"
+        x, y = (np.asarray(a) for a in resolved)
+        stored_lon, stored_lat = (np.asarray(a) for a in cropped._curvilinear_coords)
+        assert np.array_equal(x, stored_lon) and np.array_equal(y, stored_lat)
+    finally:
+        nc.close()
+
+
+def test_bbox_geotransform_spans_coord_envelope():
+    """`_bbox_geotransform` builds a north-up affine spanning the 2-D coords' bounding box."""
+    lon = np.array([[10.0, 20.0], [10.0, 20.0]])
+    lat = np.array([[40.0, 40.0], [30.0, 30.0]])
+    gt = NetCDF._bbox_geotransform(lon, lat)
+    assert gt == (10.0, 5.0, 0.0, 40.0, 0.0, -5.0), f"unexpected geotransform: {gt}"
