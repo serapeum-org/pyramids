@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from osgeo import gdal, osr
+from shapely import contains_xy
 
 from pyramids import _io
 from pyramids.base._errors import OptionalPackageDoesNotExist
@@ -1857,9 +1858,113 @@ class NetCDF(Dataset):
                 {"mask": mask, "touch": touch},
             )
         else:
-            result = super().crop(mask=mask, touch=touch)
-            result = self._preserve_netcdf_metadata(result)
+            # Curvilinear grids (2-D lon/lat coords, no single affine geotransform) can't be clipped
+            # by the affine cutline warp; mask on their 2-D coordinates instead.
+            curv = NetCDFPlot(self)._resolve_curvilinear_coords(self, coords=None)
+            if (
+                curv is not None
+                and np.asarray(curv[0]).ndim == 2
+                and np.asarray(curv[1]).ndim == 2
+            ):
+                result = self._crop_curvilinear(mask, curv, touch=touch)
+            else:
+                result = super().crop(mask=mask, touch=touch)
+                result = self._preserve_netcdf_metadata(result)
         return result
+
+    def _crop_curvilinear(
+        self,
+        mask: FeatureCollection,
+        coords2d: tuple[np.ndarray, np.ndarray],
+        touch: bool = True,
+    ) -> "NetCDF":
+        """Crop a curvilinear (2-D coordinate) variable by masking on its lon/lat arrays.
+
+        Curvilinear grids have 2-D ``lon(y, x)`` / ``lat(y, x)`` coordinates and no single affine
+        geotransform, so the cutline warp used by :meth:`pyramids.dataset.Dataset.crop` cannot clip
+        them. Instead, test each cell's ``(lon, lat)`` against the polygon, set the cells whose
+        centre falls outside it to no-data, and trim to the bounding ``(row, col)`` index window of
+        the inside cells. The result keeps its windowed 2-D coordinate arrays (stored as
+        ``_curvilinear_coords``) so it stays curvilinear and plots on its real geometry.
+
+        Args:
+            mask (FeatureCollection):
+                Polygon mask (a ``FeatureCollection`` / ``GeoDataFrame``). Its CRS is reconciled
+                with the variable's CRS before the point-in-polygon test.
+            coords2d (tuple[np.ndarray, np.ndarray]):
+                The variable's 2-D ``(lon, lat)`` coordinate arrays, shaped like its spatial dims.
+            touch (bool):
+                Accepted for signature parity with the affine crop. The curvilinear path tests cell
+                centres, so this currently has no effect. Defaults to True.
+
+        Returns:
+            NetCDF: The masked + windowed variable subset, carrying its windowed 2-D coordinates.
+
+        Raises:
+            ValueError: If the polygon does not overlap the grid (no cell centre inside it).
+        """
+        lon2d = np.asarray(coords2d[0], dtype=float)
+        lat2d = np.asarray(coords2d[1], dtype=float)
+
+        gdf = mask
+        gdf_crs = getattr(gdf, "crs", None)
+        if gdf_crs is not None and self.epsg:
+            src_epsg = gdf_crs.to_epsg()
+            if src_epsg is not None and src_epsg != self.epsg:
+                gdf = gdf.to_crs(epsg=self.epsg)
+        geometry = gdf.geometry.union_all()
+
+        inside = contains_xy(geometry, lon2d, lat2d)
+        if not bool(np.any(inside)):
+            raise ValueError(
+                "crop polygon does not overlap the curvilinear grid "
+                "(no cell centre falls inside it)."
+            )
+
+        rows = np.where(np.any(inside, axis=1))[0]
+        cols = np.where(np.any(inside, axis=0))[0]
+        r0, r1 = int(rows[0]), int(rows[-1]) + 1
+        c0, c1 = int(cols[0]), int(cols[-1]) + 1
+
+        nd = self.no_data_value
+        nd = nd[0] if isinstance(nd, (list, tuple)) else nd
+        if nd is None:
+            nd = DEFAULT_NO_DATA_VALUE
+
+        data = np.array(self.read_array(), copy=True)
+        data[..., ~inside] = nd
+        data_win = data[..., r0:r1, c0:c1]
+        lon_win = lon2d[r0:r1, c0:c1]
+        lat_win = lat2d[r0:r1, c0:c1]
+
+        var_name = getattr(self, "_source_var_name", None) or "data"
+        container = NetCDF.create_from_array(
+            data_win,
+            geo=self._bbox_geotransform(lon_win, lat_win),
+            epsg=self.epsg or 4326,
+            no_data_value=nd,
+            variable_name=var_name,
+        )
+        # create_from_array returns a root container; hand back the variable subset, carrying the
+        # windowed 2-D coordinates so the result stays curvilinear (plots on its real geometry).
+        result = container.get_variable(var_name)
+        result._curvilinear_coords = (lon_win, lat_win)
+        return result
+
+    @staticmethod
+    def _bbox_geotransform(lon: np.ndarray, lat: np.ndarray) -> tuple:
+        """Approximate north-up affine geotransform spanning the 2-D coords' bounding box.
+
+        A curvilinear grid has no true affine transform; this gives a cropped curvilinear result a
+        sensible ``total_bounds`` (its lon/lat envelope). The authoritative per-cell mapping is the
+        2-D ``_curvilinear_coords`` carried alongside.
+        """
+        rows, cols = lat.shape
+        lon_min, lon_max = float(np.nanmin(lon)), float(np.nanmax(lon))
+        lat_min, lat_max = float(np.nanmin(lat)), float(np.nanmax(lat))
+        x_cell = (lon_max - lon_min) / cols if cols else 0.0
+        y_cell = (lat_max - lat_min) / rows if rows else 0.0
+        return (lon_min, x_cell, 0.0, lat_max, 0.0, -y_cell)
 
     def _variable_is_spatial(self, rg: Any, var_name: str) -> bool:
         """True when ``var_name`` is a gridded variable (can be cropped / reprojected).
