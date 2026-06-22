@@ -1102,9 +1102,12 @@ class NetCDFPlot:
 
         1. Explicit user ``coords=``. Accepts a length-2 sequence of
            variable-name strings *or* numpy arrays.
-        2. The variable's CF ``coordinates`` attribute, which lists
+        2. A ``_curvilinear_coords`` attribute stored on the dataset —
+           set by :meth:`NetCDF._crop_curvilinear` so a cropped
+           curvilinear subset replots on its windowed 2-D coordinates.
+        3. The variable's CF ``coordinates`` attribute, which lists
            the auxiliary coord variables for the data variable.
-        3. Well-known curvilinear naming conventions for files that
+        4. Well-known curvilinear naming conventions for files that
            omit the CF attribute: WRF (``XLAT`` / ``XLONG``), ROMS
            (``lat_rho`` / ``lon_rho``), NEMO (``nav_lat`` / ``nav_lon``).
 
@@ -1409,9 +1412,15 @@ class NetCDFPlot:
         For each pair (n choose 2 from the listed coord vars) the helper
         picks the first one where one name reads as the x axis (1-D
         ``cols`` or 2-D matching) and the other as the y axis (1-D
-        ``rows`` or 2-D matching). When the attribute is missing or no
-        valid pair is found returns ``None`` so the caller can fall
-        back to the well-known-naming pass.
+        ``rows`` or 2-D matching), preferring a pair whose names match
+        the lon/lat heuristic. If none matches the name heuristic, it
+        falls back to the first pair of **distinct** candidates — and
+        because a 2-D coord matches both axes, it disambiguates the x/y
+        roles by range (latitude is bounded to ±90, via
+        :meth:`_values_within_latitude`), so e.g. rasm's ``xc`` / ``yc``
+        are not collapsed onto a single axis. When the attribute is
+        missing or no valid pair is found returns ``None`` so the caller
+        can fall back to the well-known-naming pass.
 
         Args:
             nc: The variable subset being plotted — the CF attribute is
@@ -1498,11 +1507,46 @@ class NetCDFPlot:
 
     @staticmethod
     def _values_within_latitude(arr: np.ndarray) -> bool:
-        """True when all finite values lie in [-90, 90] — i.e. the array reads as a latitude.
+        """Return whether every finite value lies in ``[-90, 90]`` — i.e. the array reads as latitude.
 
-        Used to disambiguate the x/y roles of two 2-D coordinate arrays (e.g. rasm's ``xc``/``yc``)
-        when neither name matches the lon/lat heuristic: longitudes routinely exceed ±90 (0–360 or
-        beyond), latitudes never do.
+        Used to disambiguate the x/y roles of two 2-D coordinate arrays (e.g. rasm's ``xc`` / ``yc``)
+        when neither name matches the lon/lat heuristic: longitudes routinely exceed ±90 (``0..360``
+        or beyond), latitudes never do. The ±0.5 slack tolerates cell-edge coordinates that graze the
+        pole. An array with no finite values returns ``False`` (it cannot be confirmed as a latitude).
+
+        Args:
+            arr (np.ndarray): Coordinate array to classify. Non-finite entries (``NaN`` / ``inf``)
+                are ignored.
+
+        Returns:
+            bool: ``True`` when at least one value is finite and all finite values fall within
+                ``[-90.5, 90.5]``; ``False`` otherwise.
+
+        Examples:
+            - A latitude array (bounded to ±90) is recognised:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf._plot import NetCDFPlot
+                >>> NetCDFPlot._values_within_latitude(np.array([-89.0, 0.0, 89.0]))
+                True
+
+                ```
+            - A ``0..360`` longitude array is rejected (it exceeds ±90):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf._plot import NetCDFPlot
+                >>> NetCDFPlot._values_within_latitude(np.array([0.0, 180.0, 360.0]))
+                False
+
+                ```
+            - An all-``NaN`` array is rejected (nothing finite to confirm):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf._plot import NetCDFPlot
+                >>> NetCDFPlot._values_within_latitude(np.array([np.nan, np.nan]))
+                False
+
+                ```
         """
         finite = arr[np.isfinite(arr)]
         return bool(finite.size) and float(finite.min()) >= -90.5 and float(finite.max()) <= 90.5

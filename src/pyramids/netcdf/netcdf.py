@@ -1986,7 +1986,30 @@ class NetCDF(Dataset):
 
         A curvilinear grid has no true affine transform; this gives a cropped curvilinear result a
         sensible ``total_bounds`` (its lon/lat envelope). The authoritative per-cell mapping is the
-        2-D ``_curvilinear_coords`` carried alongside.
+        2-D ``_curvilinear_coords`` carried alongside. The pixel sizes are the envelope width/height
+        divided by the column/row counts, and the origin is the north-west corner (so pixel height
+        is negative).
+
+        Args:
+            lon (np.ndarray): 2-D longitude array of the (windowed) grid; finite values define the
+                west/east extent.
+            lat (np.ndarray): 2-D latitude array of the same shape; finite values define the
+                south/north extent. Its shape sets the row/column counts.
+
+        Returns:
+            tuple: A GDAL geotransform ``(x_min, x_cell, 0.0, y_max, 0.0, -y_cell)``.
+
+        Examples:
+            - A 2x2 grid spanning lon 10..20 and lat 30..40 yields 10deg/5deg-ish cells, north-up:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> lon = np.array([[10.0, 20.0], [10.0, 20.0]])
+                >>> lat = np.array([[40.0, 40.0], [30.0, 30.0]])
+                >>> NetCDF._bbox_geotransform(lon, lat)
+                (10.0, 5.0, 0.0, 40.0, 0.0, -5.0)
+
+                ```
         """
         rows, cols = lat.shape
         lon_min, lon_max = float(np.nanmin(lon)), float(np.nanmax(lon))
