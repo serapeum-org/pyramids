@@ -296,11 +296,14 @@ class UgridDataset:
                 Polygon mask — a shapely geometry, ``GeoDataFrame``, or ``FeatureCollection``.
                 Mutually exclusive with ``bbox``.
             touch (bool):
-                If ``True`` (default), keep faces that touch the polygon boundary; if ``False``, keep
-                only faces fully inside it. Defaults to True.
+                Applies only to a polygon ``mask``: if ``True`` (default), keep faces that touch the
+                mask boundary; if ``False``, keep only faces fully inside it. Ignored for ``bbox``,
+                which always selects faces by its axis-aligned envelope (``subset_by_bounds``).
+                Defaults to True.
             bbox (tuple[float, float, float, float], keyword-only):
-                ``(west, south, east, north)`` in the mesh CRS, or in ``epsg`` when supplied.
-                Mutually exclusive with ``mask``.
+                ``(west, south, east, north)`` in the mesh CRS, or in ``epsg`` when supplied. Selects
+                faces by the axis-aligned envelope; not affected by ``touch``. Mutually exclusive with
+                ``mask``.
             epsg (int, keyword-only):
                 CRS of ``bbox``. When it differs from the mesh CRS the box is reprojected to the mesh
                 CRS before subsetting. Defaults to the mesh CRS.
