@@ -579,6 +579,16 @@ class TestCrop:
             with_epsg.n_face == without.n_face
         ), f"epsg=4326 changed the result: {with_epsg.n_face} vs {without.n_face}"
 
+    def test_crop_bbox_epsg_without_mesh_crs_raises(self, unit_square_dataset):
+        """Supplying epsg for a bbox when the mesh has no CRS raises ValueError.
+
+        Test scenario:
+            The mesh cannot be reprojected into, so a bbox declared in another CRS is rejected rather
+            than silently treated as native coordinates.
+        """
+        with pytest.raises(ValueError, match="no .*CRS"):
+            unit_square_dataset.crop(bbox=(0.0, 0.0, 1.0, 1.0), epsg=3857)
+
     def test_crop_mask_and_bbox_together_raises(self, unit_square_dataset):
         """Supplying both mask and bbox raises ValueError.
 

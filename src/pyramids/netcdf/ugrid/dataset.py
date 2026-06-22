@@ -313,7 +313,8 @@ class UgridDataset:
                 variables subset to the surviving elements.
 
         Raises:
-            ValueError: If both ``mask`` and ``bbox`` are supplied.
+            ValueError: If both ``mask`` and ``bbox`` are supplied, or if ``epsg`` is given for a
+                ``bbox`` but the mesh has no CRS to reproject into.
             TypeError: If neither ``mask`` nor ``bbox`` is supplied.
 
         Examples:
@@ -337,7 +338,12 @@ class UgridDataset:
             if mask is not None:
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
             west, south, east, north = bbox
-            if epsg is not None and self.epsg is not None and int(epsg) != int(self.epsg):
+            if epsg is not None and (self.epsg is None or int(epsg) != int(self.epsg)):
+                if self.epsg is None:
+                    raise ValueError(
+                        f"cannot reproject a bbox given in EPSG:{int(epsg)} into a mesh that has no "
+                        "CRS; drop epsg to treat the bbox as native coordinates"
+                    )
                 # Reproject the bbox to the mesh CRS and subset by its envelope, so the bbox path
                 # selects faces with the same rule (subset_by_bounds) regardless of the source CRS.
                 west, south, east, north = (
