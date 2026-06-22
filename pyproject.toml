@@ -42,7 +42,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-viz = ["cleopatra[tiles]>=0.18.0"]
+viz = ["cleopatra[tiles]>=0.19.0"]
 lazy = [
     "dask>=2024.1.0",
     "distributed>=2024.1.0",
