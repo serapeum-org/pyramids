@@ -335,12 +335,13 @@ class UgridDataset:
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
             west, south, east, north = bbox
             if epsg is not None and self.epsg is not None and int(epsg) != int(self.epsg):
-                geom = (
+                # Reproject the bbox to the mesh CRS and subset by its envelope, so the bbox path
+                # selects faces with the same rule (subset_by_bounds) regardless of the source CRS.
+                west, south, east, north = (
                     gpd.GeoSeries([box(west, south, east, north)], crs=epsg)
                     .to_crs(self.epsg)
-                    .iloc[0]
+                    .total_bounds
                 )
-                return self.clip(geom, touch=touch)
             return self.subset_by_bounds(west, south, east, north)
         if mask is None:
             raise TypeError(

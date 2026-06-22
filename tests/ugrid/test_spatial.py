@@ -6,8 +6,10 @@ mesh clipping by polygon, and bounding box subsetting.
 
 from __future__ import annotations
 
+import geopandas as gpd
 import numpy as np
 import pytest
+from pyproj import CRS
 from shapely.geometry import box
 
 from pyramids.netcdf.ugrid.connectivity import Connectivity
@@ -90,6 +92,39 @@ def unit_square_dataset(unit_square_mesh):
         data_variables=data_vars,
         global_attributes={"Conventions": "CF-1.8 UGRID-1.0"},
         topology_info=topo,
+    )
+
+
+@pytest.fixture
+def unit_square_dataset_4326(unit_square_mesh):
+    """Unit-square UgridDataset tagged with a real CRS (EPSG:4326).
+
+    Returns:
+        UgridDataset identical to ``unit_square_dataset`` but carrying an EPSG:4326 ``crs_wkt`` so the
+        CRS-aware crop paths (bbox reprojection, epsg validation) can be exercised.
+    """
+    topo = MeshTopologyInfo(
+        mesh_name="mesh2d",
+        topology_dimension=2,
+        node_x_var="node_x",
+        node_y_var="node_y",
+        face_node_var="face_nodes",
+        data_variables={"temperature": "face"},
+    )
+    return UgridDataset(
+        mesh=unit_square_mesh,
+        data_variables={
+            "temperature": MeshVariable(
+                name="temperature",
+                location="face",
+                mesh_name="mesh2d",
+                shape=(4,),
+                _data=np.array([10.0, 20.0, 30.0, 40.0]),
+            ),
+        },
+        global_attributes={"Conventions": "CF-1.8 UGRID-1.0"},
+        topology_info=topo,
+        crs_wkt=CRS.from_epsg(4326).to_wkt(),
     )
 
 
@@ -515,6 +550,34 @@ class TestCrop:
         assert (
             len(cropped["temperature"].data) == cropped.n_face
         ), "data length must match the cropped face count"
+
+    def test_crop_bbox_reprojected_matches_native_envelope(self, unit_square_dataset_4326):
+        """A bbox in another CRS is reprojected to the mesh CRS, then subset by its envelope.
+
+        Test scenario:
+            The EPSG:3857 envelope of the whole mesh, reprojected back to EPSG:4326, selects the same
+            faces as passing the mesh's native EPSG:4326 envelope directly.
+        """
+        native = (0.0, 0.0, 2.0, 2.0)
+        merc = tuple(gpd.GeoSeries([box(*native)], crs=4326).to_crs(3857).total_bounds)
+        reprojected = unit_square_dataset_4326.crop(bbox=merc, epsg=3857)
+        direct = unit_square_dataset_4326.crop(bbox=native)
+        assert (
+            reprojected.n_face == direct.n_face
+        ), f"reprojected bbox selected {reprojected.n_face} faces, native selected {direct.n_face}"
+
+    def test_crop_bbox_epsg_equal_is_noop(self, unit_square_dataset_4326):
+        """Passing epsg equal to the mesh CRS skips reprojection and matches the no-epsg call.
+
+        Test scenario:
+            crop(bbox=b, epsg=4326) on a 4326 mesh equals crop(bbox=b).
+        """
+        bounds = (-0.1, -0.1, 1.1, 2.1)
+        with_epsg = unit_square_dataset_4326.crop(bbox=bounds, epsg=4326)
+        without = unit_square_dataset_4326.crop(bbox=bounds)
+        assert (
+            with_epsg.n_face == without.n_face
+        ), f"epsg=4326 changed the result: {with_epsg.n_face} vs {without.n_face}"
 
     def test_crop_mask_and_bbox_together_raises(self, unit_square_dataset):
         """Supplying both mask and bbox raises ValueError.
