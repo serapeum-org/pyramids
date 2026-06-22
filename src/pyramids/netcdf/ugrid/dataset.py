@@ -300,13 +300,14 @@ class UgridDataset:
                 mask boundary; if ``False``, keep only faces fully inside it. Ignored for ``bbox``,
                 which always selects faces by its axis-aligned envelope (``subset_by_bounds``).
                 Defaults to True.
-            bbox (tuple[float, float, float, float], keyword-only):
-                ``(west, south, east, north)`` in the mesh CRS, or in ``epsg`` when supplied. Selects
-                faces by the axis-aligned envelope; not affected by ``touch``. Mutually exclusive with
-                ``mask``.
+            bbox (tuple or list of 4 floats, keyword-only):
+                ``(west, south, east, north)`` in the mesh CRS, or in ``epsg`` when supplied. Accepts
+                a tuple or a list. Selects faces by the axis-aligned envelope; not affected by
+                ``touch``. Mutually exclusive with ``mask``.
             epsg (int, keyword-only):
                 CRS of ``bbox``. When it differs from the mesh CRS the box is reprojected to the mesh
-                CRS before subsetting. Defaults to the mesh CRS.
+                CRS and subset by its envelope; when it equals the mesh CRS it is a no-op. Defaults to
+                the mesh CRS.
 
         Returns:
             UgridDataset: A new sub-mesh — faces inside the region, connectivity renumbered, and data
@@ -333,6 +334,12 @@ class UgridDataset:
                 >>> sub = ug.crop(bbox=(-1.0, -1.0, 0.0, 1.0))                    # doctest: +SKIP
 
                 ```
+
+        See Also:
+            clip: Polygon-mask subsetting that ``crop`` delegates to when ``mask`` is given.
+            subset_by_bounds: Bounding-box subsetting that ``crop`` delegates to when ``bbox`` is
+                given.
+            pyramids.dataset.Dataset.crop: The raster equivalent on a gridded dataset.
         """
         if bbox is not None:
             if mask is not None:
