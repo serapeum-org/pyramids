@@ -356,12 +356,14 @@ class UgridDataset:
                     .to_crs(self.epsg)
                     .total_bounds
                 )
-            return self.subset_by_bounds(west, south, east, north)
-        if mask is None:
+            result = self.subset_by_bounds(west, south, east, north)
+        elif mask is not None:
+            result = self.clip(mask, touch=touch)
+        else:
             raise TypeError(
                 "crop requires a `mask` (polygon) or a `bbox` (west, south, east, north) tuple"
             )
-        return self.clip(mask, touch=touch)
+        return result
 
     def clip(self, mask: Any, touch: bool = True) -> UgridDataset:
         """Clip the mesh to a polygon mask.
