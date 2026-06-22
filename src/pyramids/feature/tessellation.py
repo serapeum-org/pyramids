@@ -9,11 +9,12 @@ create an import cycle).
 
 from __future__ import annotations
 
+import math
 from typing import Any, Callable
 
 import numpy as np
 from shapely import voronoi_polygons
-from shapely.geometry import MultiPoint
+from shapely.geometry import MultiPoint, box
 
 NAN_REDUCERS: dict[str, Callable[..., Any]] = {
     "mean": np.nanmean,
@@ -162,6 +163,55 @@ def dedupe_xy(xs: np.ndarray, ys: np.ndarray) -> tuple[np.ndarray, np.ndarray, n
     _, first = np.unique(coords, axis=0, return_index=True)
     keep = np.sort(first)
     return xs[keep], ys[keep], keep
+
+
+def fishnet_cells(
+    bounds: tuple[float, float, float, float],
+    cell_size: float,
+) -> tuple[list, list[int], list[int]]:
+    """Build a row-major grid of square cell polygons covering ``bounds``.
+
+    Cells are full ``cell_size`` squares laid from the lower-left corner; the right/top edge cells may extend
+    slightly past ``bounds`` so every cell is a true square. The grid has ``ceil(width / cell_size)`` columns and
+    ``ceil(height / cell_size)`` rows.
+
+    Args:
+        bounds: ``(minx, miny, maxx, maxy)`` extent the grid covers.
+        cell_size: Side length of each square cell, in the bounds' units.
+
+    Returns:
+        tuple: ``(polygons, rows, cols)`` — the cell polygons in row-major order (bottom row first) and their
+        integer row / column indices.
+
+    Raises:
+        ValueError: If ``cell_size`` is not positive, or ``bounds`` is degenerate (``minx >= maxx`` or
+            ``miny >= maxy``).
+
+    Examples:
+        - A 2x2 grid over the unit square:
+            ```python
+            >>> from pyramids.feature.tessellation import fishnet_cells
+            >>> polygons, rows, cols = fishnet_cells((0.0, 0.0, 1.0, 1.0), 0.5)
+            >>> len(polygons)
+            4
+            >>> rows, cols
+            ([0, 0, 1, 1], [0, 1, 0, 1])
+
+            ```
+    """
+    minx, miny, maxx, maxy = (float(v) for v in bounds)
+    if cell_size <= 0:
+        raise ValueError(f"fishnet: cell_size must be > 0, got {cell_size}")
+    if not (minx < maxx and miny < maxy):
+        raise ValueError(f"fishnet: bounds must satisfy minx < maxx and miny < maxy, got {bounds}")
+    nx = math.ceil((maxx - minx) / cell_size)
+    ny = math.ceil((maxy - miny) / cell_size)
+    xs0 = minx + np.arange(nx) * cell_size
+    ys0 = miny + np.arange(ny) * cell_size
+    polygons = [box(x, y, x + cell_size, y + cell_size) for y in ys0 for x in xs0]
+    rows = [r for r in range(ny) for _ in range(nx)]
+    cols = [c for _ in range(ny) for c in range(nx)]
+    return polygons, rows, cols
 
 
 def voronoi_cells(xs: np.ndarray, ys: np.ndarray) -> list:

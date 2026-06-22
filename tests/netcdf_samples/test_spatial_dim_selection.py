@@ -54,7 +54,7 @@ def test_x_dim_y_dim_same_dimension_raises(sample):
 def test_plot_with_x_dim_y_dim(sample):
     """`plot` forwards x_dim/y_dim so a non-standard-ordered variable renders as a map."""
     pytest.importorskip("cleopatra")
-    import matplotlib.pyplot as plt
+    plt = pytest.importorskip("matplotlib.pyplot")
 
     nc = NetCDF.read_file(sample(NONSTD))
     try:

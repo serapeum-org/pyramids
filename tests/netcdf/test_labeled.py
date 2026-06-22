@@ -94,20 +94,63 @@ class TestLabeledDatasetRead:
         store = LabeledDataset.read_file(zarr_store, engine="zarr")
         assert store.variables == ["streamflow"]
 
-    def test_zarr_v3_string_coord_degrades_gracefully(self, tmp_path: Path):
-        """A Zarr v3 string coord GDAL can't read is skipped with a warning.
+    def test_zarr_v3_string_coord_is_read(self, tmp_path: Path):
+        """A Zarr v3 string coord is read as a normal coordinate (GDAL >= 3.13).
 
         Test scenario:
-            GDAL's Zarr driver rejects Zarr v3 string arrays
-            (https://github.com/OSGeo/gdal/issues/13782). On GDAL versions where
-            the store still opens, the unreadable string coord (``gage_id``) is
-            dropped with a warning and the numeric data stays available.
+            GDAL's Zarr driver gained Zarr v3 string-array support in 3.13
+            (https://github.com/OSGeo/gdal/issues/13782, milestone 3.13.0). The
+            string coordinate (``gage_id``) now reads back as its string values
+            with no warning, alongside the numeric coordinates and data. (On
+            GDAL < 3.13 the array was unreadable and dropped with a warning —
+            that degradation path is covered version-independently by
+            ``test_unreadable_array_skipped_with_warning``.)
         """
         path = tmp_path / "v3.zarr"
         _streamflow_dataset().to_zarr(path, mode="w", zarr_format=3)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)
+            store = LabeledDataset.read_file(path)
+        assert "gage_id" in store.coordinates, "v3 string coord must be read"
+        assert "feature_id" in store.coordinates
+        assert store.variables == ["streamflow"]
+        np.testing.assert_array_equal(
+            store["gage_id"].values, np.array(["01010000", "01010500", "01011000"])
+        )
+        np.testing.assert_array_equal(
+            store["streamflow"].values,
+            np.arange(N_TIME * N_FEAT, dtype="f4").reshape(N_TIME, N_FEAT),
+        )
+
+    def test_unreadable_array_skipped_with_warning(self, tmp_path: Path, monkeypatch):
+        """An array GDAL cannot read is dropped with a warning; numeric data stays.
+
+        Test scenario:
+            Exercises the degradation path (``_readable_arrays`` skips an array
+            that raises on probe; ``_from_group`` warns and keeps the rest) in a
+            GDAL-version-independent way: force ``gage_id`` to be reported
+            unreadable, then confirm it is dropped, the ``13782`` warning fires,
+            and the remaining coords + numeric data are intact. This keeps the
+            ``GDAL < 3.13`` fallback covered now that 3.13 reads such arrays
+            natively (see ``test_zarr_v3_string_coord_is_read``).
+        """
+        path = tmp_path / "v3.zarr"
+        _streamflow_dataset().to_zarr(path, mode="w", zarr_format=3)
+        real_readable_arrays = LabeledDataset._readable_arrays  # @staticmethod -> plain fn
+
+        def _force_skip_gage_id(grp):
+            readable, skipped = real_readable_arrays(grp)
+            if "gage_id" in readable:
+                readable.remove("gage_id")
+                skipped.append("gage_id")
+            return readable, skipped
+
+        monkeypatch.setattr(
+            LabeledDataset, "_readable_arrays", staticmethod(_force_skip_gage_id)
+        )
         with pytest.warns(UserWarning, match="13782"):
             store = LabeledDataset.read_file(path)
-        assert "gage_id" not in store.coordinates, "v3 string coord must be dropped"
+        assert "gage_id" not in store.coordinates, "unreadable coord must be dropped"
         assert "feature_id" in store.coordinates
         assert store.variables == ["streamflow"]
         np.testing.assert_array_equal(

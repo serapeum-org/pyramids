@@ -396,8 +396,8 @@ def _patch_vendored_osgeo_init(init_path: Path) -> None:
     and `from __future__` imports so the patch stays valid if
     upstream osgeo ever adds a future-import (PEP 236 requires
     __future__ imports to precede any other statement). The current
-    conda-forge osgeo doesn't use __future__, but `gdal=3.12.*` is
-    intentionally loose and a 3.12.x bump could add one without our
+    conda-forge osgeo doesn't use __future__, but `gdal=3.13.*` is
+    intentionally loose and a 3.13.x bump could add one without our
     pin moving.
     """
     original = init_path.read_text(encoding="utf-8")

@@ -7,7 +7,9 @@ real `get_variable()` view, to catch view-specific breakage.
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pytest
+from osgeo import gdal
 from shapely.geometry import Point, box
 
 from pyramids.base._errors import ReadOnlyError
@@ -130,8 +132,7 @@ def test_change_no_data_value_guarded_on_variable_view(tos):
 
 def _classes(v):
     """A single-band integer classification raster aligned to the variable view."""
-    import numpy as _np
-    return Dataset.create_from_array(_np.ones((v.rows, v.columns), "int32"),
+    return Dataset.create_from_array(np.ones((v.rows, v.columns), "int32"),
                                      geo=v.geotransform, epsg=v.epsg or 4326)
 
 
@@ -148,7 +149,6 @@ def test_fill_gaps(tos):
 
 
 def test_set_attribute_table(tos):
-    import pandas as pd
     tos.set_attribute_table(pd.DataFrame({"values": [0, 1], "label": ["a", "b"]}), band=0)
 
 
@@ -163,7 +163,6 @@ def test_set_rpcs_guarded_read_only(tos):
 
 
 def test_set_gcps_guarded_read_only(tos):
-    from osgeo import gdal
     gcps = [gdal.GCP(0.0, 0.0, 0, 0, 0), gdal.GCP(10.0, 10.0, 0, tos.columns, tos.rows)]
     with pytest.raises(ReadOnlyError):
         tos.set_gcps(gcps, "EPSG:4326")

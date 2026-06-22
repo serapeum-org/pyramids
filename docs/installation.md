@@ -16,9 +16,10 @@ installation required.
 pip install pyramids-gis
 ```
 
-That's it. The wheel includes GDAL 3.12, PROJ, GEOS, HDF4/5, NetCDF,
-libtiff, and all other native dependencies. No `gdal-config`, no
-`apt install libgdal-dev`, no OSGeo4W installer needed.
+That's it. The wheel includes GDAL 3.13, PROJ, GEOS, HDF4/5, NetCDF,
+JPEG2000 (OpenJPEG, for JP2-packed GRIB2), libtiff, and all other native
+dependencies. No `gdal-config`, no `apt install libgdal-dev`, no OSGeo4W
+installer needed.
 
 ### Optional extras
 
@@ -101,7 +102,7 @@ Open Python and run:
 import pyramids
 from osgeo import gdal
 print(pyramids.__version__)
-print(gdal.__version__)          # should print 3.12.x
+print(gdal.__version__)          # should print 3.13.x
 ```
 
 ## Platform support matrix

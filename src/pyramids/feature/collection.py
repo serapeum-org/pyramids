@@ -31,8 +31,10 @@ import warnings
 from numbers import Number
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable
+from urllib.parse import urlencode
 
 if TYPE_CHECKING:
+    from pyramids.dataset import Dataset
     from pyramids.feature._lazy_collection import LazyFeatureCollection
 
 import geopandas as gpd
@@ -40,7 +42,7 @@ import numpy as np
 import pandas as pd
 from geopandas import GeoDataFrame
 from osgeo import gdal, ogr
-from shapely.geometry import Point, box
+from shapely.geometry import Point, Polygon, box
 
 from pyramids import _io as _pyramids_io
 from pyramids.base._errors import (
@@ -52,6 +54,7 @@ from pyramids.base._errors import (
 from pyramids.base._utils import Catalog, import_pyarrow, require_cleopatra
 from pyramids.base.remote import is_remote
 from pyramids.basemap.basemap import add_basemap
+from pyramids.feature import _h3
 from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
 
@@ -544,6 +547,53 @@ class FeatureCollection(GeoDataFrame):
                 f"bbox must satisfy south < north; got south={s}, north={n}"
             )
         return cls(geometry=[box(w, s, e, n)], crs=epsg)
+
+    @classmethod
+    def fishnet(
+        cls,
+        bounds: tuple[float, float, float, float] | list[float],
+        cell_size: float,
+        *,
+        crs: Any | None = None,
+    ) -> FeatureCollection:
+        """Build a vector grid of square cell polygons over an arbitrary extent.
+
+        The vector / arbitrary-bbox analogue of :meth:`pyramids.dataset.Dataset.get_cell_polygons` (which is
+        raster-aligned). Cells are full ``cell_size`` squares laid row-major from the lower-left corner of
+        ``bounds``; the grid has ``ceil(width / cell_size)`` columns and ``ceil(height / cell_size)`` rows, and
+        carries integer ``row`` / ``col`` index columns.
+
+        Args:
+            bounds: ``(minx, miny, maxx, maxy)`` extent the grid covers, in the units of ``crs``.
+            cell_size: Side length of each square cell, in the same units. Must be positive.
+            crs: CRS for the grid — anything ``geopandas`` accepts for ``crs=`` — or ``None`` for a CRS-less grid.
+
+        Returns:
+            FeatureCollection: One square polygon per cell, with ``row`` and ``col`` columns, in ``crs``.
+
+        Raises:
+            ValueError: If ``cell_size`` is not positive, or ``bounds`` is degenerate (``minx >= maxx`` or
+                ``miny >= maxy``).
+
+        Examples:
+            - A 2x2 grid over a one-degree square:
+                ```python
+                >>> from pyramids.feature import FeatureCollection
+                >>> grid = FeatureCollection.fishnet((0.0, 0.0, 1.0, 1.0), 0.5, crs="EPSG:4326")
+                >>> len(grid)
+                4
+                >>> sorted(grid.columns)
+                ['col', 'geometry', 'row']
+                >>> grid.crs.to_epsg()
+                4326
+
+                ```
+
+        See Also:
+            - :meth:`pyramids.dataset.Dataset.get_cell_polygons`: the raster-aligned grid-cell equivalent.
+        """
+        polygons, rows, cols = _tess.fishnet_cells(bounds, cell_size)
+        return cls(gpd.GeoDataFrame({"row": rows, "col": cols}, geometry=polygons, crs=crs))
 
     @classmethod
     def from_records(
@@ -1460,6 +1510,193 @@ class FeatureCollection(GeoDataFrame):
         _list_layers_cached.cache_clear()
 
     @classmethod
+    def read_gpx_layers(cls, path: str | Path) -> dict[str, FeatureCollection]:
+        """Read every non-empty sub-layer of a GPX file into a dict of FeatureCollections.
+
+        A GPX file exposes up to five sub-layers — ``waypoints``, ``routes``, ``tracks``, ``route_points``,
+        ``track_points``. GDAL always advertises all five even when a file has none of a given kind; this reads
+        each and returns only the ones that actually contain features, keyed by layer name.
+
+        Args:
+            path: Path to a ``.gpx`` file.
+
+        Returns:
+            dict[str, FeatureCollection]: One entry per **non-empty** sub-layer, keyed by its GPX layer name.
+
+        Examples:
+            - A GPX with a waypoint and a track yields those sub-layers (empty ``routes`` is omitted):
+                ```python
+                >>> import tempfile
+                >>> from pathlib import Path
+                >>> from pyramids.feature import FeatureCollection
+                >>> gpx = (
+                ...     '<?xml version="1.0"?>\\n'
+                ...     '<gpx version="1.1" creator="t" xmlns="http://www.topografix.com/GPX/1/1">'
+                ...     '<wpt lat="1.0" lon="2.0"><name>wp1</name></wpt>'
+                ...     '<trk><name>t1</name><trkseg>'
+                ...     '<trkpt lat="1.0" lon="2.0"/><trkpt lat="1.1" lon="2.1"/>'
+                ...     '</trkseg></trk></gpx>'
+                ... )
+                >>> p = Path(tempfile.mkdtemp()) / "t.gpx"
+                >>> _ = p.write_text(gpx)
+                >>> layers = FeatureCollection.read_gpx_layers(p)
+                >>> sorted(layers)
+                ['track_points', 'tracks', 'waypoints']
+                >>> len(layers["waypoints"])
+                1
+
+                ```
+        """
+        result: dict[str, FeatureCollection] = {}
+        for name in cls.list_layers(path):
+            fc = cls.read_file(path, layer=name)
+            if len(fc) > 0:
+                result[name] = fc
+        return result
+
+    @classmethod
+    def _read_featureserver_page(cls, page_url: str) -> FeatureCollection:
+        """Read one ESRIJSON page from an ArcGIS FeatureServer query URL.
+
+        Isolated so :meth:`from_featureserver`'s pagination can be unit-tested without a live endpoint.
+
+        Args:
+            page_url: A fully-formed ``.../query?...&f=json&resultOffset=...`` URL.
+
+        Returns:
+            FeatureCollection: The features in this page (possibly empty).
+        """
+        return cls.read_file(page_url)
+
+    @classmethod
+    def from_featureserver(
+        cls,
+        url: str,
+        *,
+        where: str = "1=1",
+        out_fields: str = "*",
+        max_records: int | None = None,
+        page_size: int = 1000,
+        max_pages: int = 1000,
+    ) -> FeatureCollection:
+        """Read an ArcGIS **FeatureServer** layer into a FeatureCollection, following pagination.
+
+        FeatureServer endpoints cap the number of records returned per request (``maxRecordCount``), so reading
+        a large layer requires paging through it. This issues ``.../query`` requests with increasing
+        ``resultOffset`` until the server stops returning new features (or ``max_records`` is reached) and
+        concatenates the pages. Each page is read with GDAL's ESRIJSON driver (generic ArcGIS REST — no
+        provider-specific auth).
+
+        ``max_pages`` is a safety cap: a server that does not honour ``resultOffset`` (no pagination support)
+        would otherwise return the same first page forever; on hitting the cap a ``UserWarning`` is emitted and
+        paging stops.
+
+        Args:
+            url: A FeatureServer layer URL (with or without a trailing ``/query``).
+            where: SQL ``where`` filter. Defaults to ``"1=1"`` (all features).
+            out_fields: Comma-separated attribute fields to fetch, or ``"*"`` for all.
+            max_records: Cap on the total number of features read, or ``None`` for all.
+            page_size: Records requested per page (``resultRecordCount``). The server may return fewer.
+            max_pages: Hard cap on the number of page requests, guarding against a server that ignores
+                ``resultOffset``. Defaults to 1000.
+
+        Returns:
+            FeatureCollection: All features across the paged responses (empty if the layer has none).
+
+        Examples:
+            - Read a public FeatureServer layer (network call — skipped in doctests):
+                ```python
+                >>> from pyramids.feature import FeatureCollection
+                >>> fc = FeatureCollection.from_featureserver(  # doctest: +SKIP
+                ...     "https://services.arcgis.com/.../FeatureServer/0", where="STATE='CA'"
+                ... )
+
+                ```
+        """
+        if page_size < 1:
+            raise ValueError(f"from_featureserver: page_size must be >= 1, got {page_size}")
+        if max_records is not None and max_records < 0:
+            raise ValueError(f"from_featureserver: max_records must be >= 0 or None, got {max_records}")
+        base = url.split("?", 1)[0].rstrip("/")
+        if not base.lower().endswith("/query"):
+            base = f"{base}/query"
+        pages, first_crs = cls._collect_featureserver_pages(
+            base, where, out_fields, max_records, page_size, max_pages
+        )
+        # Concatenate in one pass (pd.concat preserves the shared CRS) — repeatedly calling .concat()
+        # re-sets the CRS and trips a geopandas DeprecationWarning.
+        if pages:
+            combined = FeatureCollection(pd.concat(pages, ignore_index=True))
+        else:
+            combined = cls(gpd.GeoDataFrame(geometry=[], crs=first_crs))
+        return combined
+
+    @classmethod
+    def _collect_featureserver_pages(
+        cls,
+        base: str,
+        where: str,
+        out_fields: str,
+        max_records: int | None,
+        page_size: int,
+        max_pages: int,
+    ) -> tuple[list[FeatureCollection], Any]:
+        """Page through a FeatureServer ``/query`` endpoint, returning the pages and the first page's CRS.
+
+        Extracted from :meth:`from_featureserver` so each stays within the cognitive-complexity budget. Stops on
+        a short / empty page, when ``max_records`` is reached, or when ``max_pages`` is hit (a server that
+        ignores ``resultOffset`` would otherwise loop forever).
+
+        Args:
+            base: The ``.../query`` endpoint URL.
+            where: SQL ``where`` filter.
+            out_fields: Comma-separated fields, or ``"*"``.
+            max_records: Total-feature cap, or ``None``.
+            page_size: Records requested per page.
+            max_pages: Hard cap on page requests.
+
+        Returns:
+            tuple: ``(pages, first_crs)`` — the non-empty page collections and the CRS of the first page read.
+        """
+        pages: list[FeatureCollection] = []
+        first_crs = None
+        offset = 0
+        fetched = 0
+        page_index = 0
+        while max_records is None or fetched < max_records:
+            if page_index >= max_pages:
+                warnings.warn(
+                    f"from_featureserver: stopped after {max_pages} pages (max_pages). The server may not "
+                    "honour resultOffset paging; raise max_pages or set max_records if more features are "
+                    "expected.",
+                    stacklevel=2,
+                )
+                break
+            this_page = page_size if max_records is None else min(page_size, max_records - fetched)
+            query = urlencode(
+                {
+                    "where": where,
+                    "outFields": out_fields,
+                    "f": "json",
+                    "resultOffset": offset,
+                    "resultRecordCount": this_page,
+                }
+            )
+            page = cls._read_featureserver_page(f"{base}?{query}")
+            if first_crs is None:
+                first_crs = page.crs
+            count = len(page)
+            if count == 0:
+                break
+            pages.append(page)
+            fetched += count
+            offset += count
+            page_index += 1
+            if count < this_page:  # last (short) page
+                break
+        return pages, first_crs
+
+    @classmethod
     def open_arrow(
         cls,
         path: str | Path,
@@ -1904,6 +2141,140 @@ class FeatureCollection(GeoDataFrame):
             passthrough["layer"] = layer
         passthrough.update(creation_options)
         super().to_file(path, **passthrough)
+
+    def _to_vector_tiles(
+        self,
+        path: str | Path,
+        driver: str,
+        *,
+        min_zoom: int,
+        max_zoom: int | None,
+        layer_name: str | None,
+        **creation_options: Any,
+    ) -> Path:
+        """Write this collection as a tiled-vector pyramid via ``to_file``, returning the output path.
+
+        Shared backend for :meth:`to_pmtiles` and :meth:`to_mvt` — the two differ only by GDAL driver.
+
+        Args:
+            path: Destination (a ``.pmtiles`` file for PMTiles, a tile-root directory for MVT).
+            driver: GDAL driver name (``"PMTiles"`` or ``"MVT"``).
+            min_zoom: Minimum tile zoom level (``MINZOOM``).
+            max_zoom: Maximum tile zoom level (``MAXZOOM``); ``None`` lets the driver choose.
+            layer_name: Tile layer name, or ``None`` for the driver default.
+            **creation_options: Extra driver creation options forwarded verbatim.
+
+        Returns:
+            Path: The written ``path``.
+        """
+        options = dict(creation_options)
+        options["MINZOOM"] = min_zoom
+        if max_zoom is not None:
+            options["MAXZOOM"] = max_zoom
+        self.to_file(path, driver=driver, layer=layer_name, **options)
+        return Path(path)
+
+    def to_pmtiles(
+        self,
+        path: str | Path,
+        *,
+        min_zoom: int = 0,
+        max_zoom: int | None = None,
+        layer_name: str | None = None,
+        **creation_options: Any,
+    ) -> Path:
+        """Write this FeatureCollection to a single-file **PMTiles** vector-tile pyramid.
+
+        Thin wrapper over GDAL's PMTiles driver (via :meth:`to_file`) for serving large vector layers to web
+        map engines. The output is a single ``.pmtiles`` archive that reopens with :meth:`read_file`.
+
+        Args:
+            path: Destination ``.pmtiles`` file path.
+            min_zoom: Minimum tile zoom level. Defaults to 0.
+            max_zoom: Maximum tile zoom level; ``None`` lets the driver choose from the data.
+            layer_name: Name of the tile layer, or ``None`` for the driver default.
+            **creation_options: Extra PMTiles creation options forwarded to the driver.
+
+        Returns:
+            Path: The written ``.pmtiles`` path.
+
+        Examples:
+            - Write a small layer and confirm the archive exists:
+                ```python
+                >>> import tempfile
+                >>> from pathlib import Path
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> d = Path(tempfile.mkdtemp())
+                >>> fc = FeatureCollection(
+                ...     gpd.GeoDataFrame(
+                ...         {"id": [1, 2, 3]},
+                ...         geometry=[Point(0, 0), Point(1, 1), Point(2, 2)],
+                ...         crs="EPSG:4326",
+                ...     )
+                ... )
+                >>> out = fc.to_pmtiles(d / "layer.pmtiles", max_zoom=5)
+                >>> out.exists()
+                True
+                >>> out.suffix
+                '.pmtiles'
+
+                ```
+        """
+        return self._to_vector_tiles(
+            path, "PMTiles", min_zoom=min_zoom, max_zoom=max_zoom, layer_name=layer_name, **creation_options
+        )
+
+    def to_mvt(
+        self,
+        path: str | Path,
+        *,
+        min_zoom: int = 0,
+        max_zoom: int | None = None,
+        layer_name: str | None = None,
+        **creation_options: Any,
+    ) -> Path:
+        """Write this FeatureCollection to a **Mapbox Vector Tiles** (MVT) tile pyramid.
+
+        Thin wrapper over GDAL's MVT driver (via :meth:`to_file`). The output is a tile-root directory of
+        ``{z}/{x}/{y}.pbf`` tiles. See :meth:`to_pmtiles` for the single-file PMTiles equivalent.
+
+        Args:
+            path: Destination tile-root directory.
+            min_zoom: Minimum tile zoom level. Defaults to 0.
+            max_zoom: Maximum tile zoom level; ``None`` lets the driver choose from the data.
+            layer_name: Name of the tile layer, or ``None`` for the driver default.
+            **creation_options: Extra MVT creation options forwarded to the driver.
+
+        Returns:
+            Path: The written tile-root directory.
+
+        Examples:
+            - Write a small layer and confirm the tile root exists:
+                ```python
+                >>> import tempfile
+                >>> from pathlib import Path
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> d = Path(tempfile.mkdtemp())
+                >>> fc = FeatureCollection(
+                ...     gpd.GeoDataFrame(
+                ...         {"id": [1, 2, 3]},
+                ...         geometry=[Point(0, 0), Point(1, 1), Point(2, 2)],
+                ...         crs="EPSG:4326",
+                ...     )
+                ... )
+                >>> out = fc.to_mvt(d / "tiles", max_zoom=5)
+                >>> out.exists()
+                True
+
+                ```
+        """
+        return self._to_vector_tiles(
+            path, "MVT", min_zoom=min_zoom, max_zoom=max_zoom, layer_name=layer_name, **creation_options
+        )
 
     # FeatureCollection.to_dataset was moved to
     # Dataset.from_features(features,...) to break the circular import
@@ -2616,3 +2987,235 @@ class FeatureCollection(GeoDataFrame):
         name = column if column is not None else "count"
         result = FeatureCollection(gpd.GeoDataFrame({name: values_out}, geometry=geometries, crs=self.crs))
         return result
+
+    def interpolate_to_raster(
+        self,
+        column: str,
+        *,
+        method: str = "idw",
+        cell_size: float | None = None,
+        bounds: tuple[float, float, float, float] | None = None,
+        power: float = 2.0,
+        n_neighbors: int | None = None,
+        nodata: float = -9999.0,
+    ) -> "Dataset":
+        """Interpolate a point column onto a continuous raster surface (point → grid).
+
+        Reads ``column`` as the z-value at each point geometry and grids it with ``gdal.Grid`` via
+        :meth:`pyramids.dataset.Dataset.from_points`. This is distinct from the inherited geopandas
+        ``GeoSeries.interpolate`` (which is 1-D interpolation *along* a line). Only inverse-distance weighting
+        (``method="idw"``) is available here; kriging needs the optional ``pykrige`` dependency.
+
+        IDW extrapolates across the whole output extent (no convex-hull mask), so ``nodata`` only appears in
+        cells ``gdal.Grid`` cannot estimate. Coincident (duplicate) points are not pre-averaged — they are
+        handled by the inverse-distance weighting itself.
+
+        Args:
+            column: Numeric attribute column interpolated as the z-value at each point.
+            method: Interpolation method. Only ``"idw"`` (inverse-distance weighting) is supported.
+            cell_size: Output pixel size in the layer's CRS units. Defaults to a grid spanning the layer extent
+                (see :meth:`Dataset.from_points`).
+            bounds: ``(minx, miny, maxx, maxy)`` output extent; defaults to the points' total bounds.
+            power: IDW distance exponent (higher → more local).
+            n_neighbors: If given, limit each estimate to the nearest ``n_neighbors`` points (``invdistnn``);
+                otherwise use all points (``invdist``).
+            nodata: Value written to cells GDAL cannot interpolate.
+
+        Returns:
+            Dataset: A single-band raster of the interpolated surface, in the layer's CRS.
+
+        Raises:
+            InvalidGeometryError: If the geometries are not all ``Point``.
+            ValueError: If ``method`` is not ``"idw"``, ``column`` is missing / non-numeric / all-NaN, or there
+                are fewer than 3 points.
+
+        Examples:
+            - Inverse-distance interpolate four corner readings onto a 1-degree grid:
+                ```python
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> fc = FeatureCollection(
+                ...     gpd.GeoDataFrame(
+                ...         {"rain": [1.0, 2.0, 3.0, 4.0]},
+                ...         geometry=[Point(0, 0), Point(3, 0), Point(0, 3), Point(3, 3)],
+                ...         crs="EPSG:4326",
+                ...     )
+                ... )
+                >>> surface = fc.interpolate_to_raster("rain", cell_size=1.0)
+                >>> surface.band_count
+                1
+                >>> surface.epsg
+                4326
+
+                ```
+
+        See Also:
+            - :meth:`pyramids.dataset.Dataset.from_points`: the underlying ``gdal.Grid`` interpolation this
+              method delegates to (accepts any ``gdal.Grid`` algorithm string).
+        """
+        self._require_point_geometry("interpolate_to_raster")
+        self._require_column("interpolate_to_raster", column)
+        if method != "idw":
+            raise ValueError(
+                f"interpolate_to_raster: method {method!r} is not supported; only 'idw' is available "
+                "(kriging needs the optional 'pykrige' dependency)"
+            )
+        if len(self) < 3:
+            raise ValueError(f"interpolate_to_raster: need at least 3 points, got {len(self)}")
+        try:
+            values = self[column].to_numpy(dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"interpolate_to_raster: column {column!r} must be numeric") from exc
+        if np.isnan(values).all():
+            raise ValueError(f"interpolate_to_raster: column {column!r} is all-NaN")
+        if n_neighbors is not None:
+            algorithm = f"invdistnn:power={power}:max_points={n_neighbors}:nodata={nodata}"
+        else:
+            algorithm = f"invdist:power={power}:smoothing=0.0:nodata={nodata}"
+        # local import: pyramids.dataset imports pyramids.feature, so import here to break the cycle.
+        from pyramids.dataset import Dataset
+
+        return Dataset.from_points(self, column, algorithm=algorithm, cell_size=cell_size, bbox=bounds)
+
+    def _h3_cells(self, resolution: int, op: str) -> list[str]:
+        """Return the H3 cell index of each point at ``resolution`` (helper for to_h3 / h3_bin).
+
+        Args:
+            resolution: H3 resolution, 0-15.
+            op: Calling operation name, used in error messages.
+
+        Returns:
+            list[str]: One H3 cell index (hex string) per point, in row order.
+
+        Raises:
+            InvalidGeometryError: If the geometries are not all ``Point``.
+            ValueError: If ``resolution`` is outside 0-15, or the collection has no CRS.
+        """
+        self._require_point_geometry(op)
+        if not 0 <= resolution <= 15:
+            raise ValueError(f"{op}: resolution must be 0-15, got {resolution}")
+        if self.crs is None:
+            raise ValueError(f"{op}: a CRS is required to convert points to lat/lng for H3 indexing")
+        pts = self if self.epsg == 4326 else self.to_crs(4326)
+        return [_h3.latlng_to_cell(geom.y, geom.x, resolution) for geom in pts.geometry]
+
+    def to_h3(self, resolution: int) -> FeatureCollection:
+        """Attach the H3 cell index of each point as an ``h3`` column.
+
+        Indexes every point geometry into Uber's H3 hexagonal grid at the given resolution (computed in
+        EPSG:4326 — points are reprojected for the lookup, but the returned collection keeps its own geometry
+        and CRS). Uses pyramids' built-in H3 engine, so no ``h3`` dependency is required.
+
+        Args:
+            resolution: H3 resolution, 0 (coarsest) to 15 (finest).
+
+        Returns:
+            FeatureCollection: A copy of this collection with an ``h3`` column of cell-index strings.
+
+        Raises:
+            InvalidGeometryError: If the geometries are not all ``Point``.
+            ValueError: If ``resolution`` is outside 0-15, or the collection has no CRS.
+
+        Examples:
+            - Index three points at resolution 9:
+                ```python
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> fc = FeatureCollection(
+                ...     gpd.GeoDataFrame(
+                ...         {"id": [1, 2, 3]},
+                ...         geometry=[Point(-122.418, 37.775), Point(-122.42, 37.776), Point(0, 0)],
+                ...         crs="EPSG:4326",
+                ...     )
+                ... )
+                >>> out = fc.to_h3(9)
+                >>> out["h3"].tolist()
+                ['89283082803ffff', '8928308280fffff', '89754e64993ffff']
+
+                ```
+        """
+        cells = self._h3_cells(resolution, "to_h3")
+        result = FeatureCollection(self.copy())
+        result["h3"] = cells
+        return result
+
+    def h3_bin(
+        self,
+        resolution: int,
+        *,
+        agg: str | Callable = "count",
+        column: str | None = None,
+    ) -> FeatureCollection:
+        """Aggregate points into H3 hexagon cells, one polygon per occupied cell.
+
+        Groups the points by their H3 cell at ``resolution`` and returns one hexagon (or pentagon) polygon per
+        occupied cell carrying an aggregate: the point **count** when ``column`` is ``None``, otherwise ``agg``
+        applied to ``column``. The output is in EPSG:4326 (H3 is lat/lng). No ``h3`` dependency is required.
+
+        Args:
+            resolution: H3 resolution, 0-15.
+            agg: Per-cell reducer applied to ``column`` — one of ``"count"`` / ``"mean"`` / ``"sum"`` /
+                ``"median"`` / ``"min"`` / ``"max"`` / ``"std"`` or a callable taking a 1-D array. Ignored when
+                ``column`` is ``None`` (point count).
+            column: Numeric column aggregated per cell, or ``None`` to count points (density).
+
+        Returns:
+            FeatureCollection: One hexagon polygon per occupied cell, in EPSG:4326, with an ``h3`` index column
+            and an aggregate column (``"count"`` when ``column`` is ``None``, else named ``column``).
+
+        Raises:
+            InvalidGeometryError: If the geometries are not all ``Point``.
+            ValueError: If ``resolution`` is outside 0-15, the collection has no CRS, ``column`` is missing /
+                non-numeric, or ``agg`` is not a known reducer name or callable.
+
+        Examples:
+            - Bin four nearby points into H3 cells at resolution 9 and read the counts:
+                ```python
+                >>> import geopandas as gpd
+                >>> from shapely.geometry import Point
+                >>> from pyramids.feature import FeatureCollection
+                >>> fc = FeatureCollection(
+                ...     gpd.GeoDataFrame(
+                ...         {"v": [1.0, 2.0, 3.0, 4.0]},
+                ...         geometry=[
+                ...             Point(-122.418, 37.775), Point(-122.4181, 37.7751),
+                ...             Point(-122.40, 37.78), Point(-122.40, 37.78),
+                ...         ],
+                ...         crs="EPSG:4326",
+                ...     )
+                ... )
+                >>> cells = fc.h3_bin(9)
+                >>> int(cells["count"].sum())
+                4
+                >>> cells.crs.to_epsg()
+                4326
+
+                ```
+        """
+        self._require_column("h3_bin", column)
+        cells = self._h3_cells(resolution, "h3_bin")
+        if column is None:
+            counts = pd.Series(cells, dtype="object").value_counts()
+            items = [(cell, int(n)) for cell, n in counts.items()]
+            name = "count"
+        else:
+            reducer = _tess.resolve_reducer(agg)
+            try:
+                values = self[column].to_numpy(dtype=float)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"h3_bin: column {column!r} must be numeric") from exc
+            grouped = pd.DataFrame({"_cell": cells, "_v": values}).groupby("_cell")["_v"]
+            items = [(cell, float(reducer(grp.to_numpy()))) for cell, grp in grouped]
+            name = column
+        geometries: list = []
+        idx: list = []
+        agg_values: list = []
+        for cell, value in items:
+            boundary = _h3.cell_to_boundary(cell)
+            geometries.append(Polygon([(lng, lat) for (lat, lng) in boundary]))
+            idx.append(cell)
+            agg_values.append(value)
+        frame = gpd.GeoDataFrame({"h3": idx, name: agg_values}, geometry=geometries, crs="EPSG:4326")
+        return FeatureCollection(frame)
