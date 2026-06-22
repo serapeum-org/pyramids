@@ -598,6 +598,16 @@ class TestCrop:
         with pytest.raises(ValueError, match="not both"):
             unit_square_dataset.crop(box(0, 0, 1, 1), bbox=(0, 0, 1, 1))
 
+    def test_crop_bad_bbox_length_raises(self, unit_square_dataset):
+        """A bbox that is not a 4-tuple raises a descriptive ValueError.
+
+        Test scenario:
+            A 3-element bbox names the (west, south, east, north) contract instead of a cryptic
+            unpack error.
+        """
+        with pytest.raises(ValueError, match="4-tuple"):
+            unit_square_dataset.crop(bbox=(0.0, 0.0, 1.0))
+
     def test_crop_neither_raises(self, unit_square_dataset):
         """Supplying neither mask nor bbox raises TypeError.
 

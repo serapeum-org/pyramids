@@ -313,8 +313,8 @@ class UgridDataset:
                 variables subset to the surviving elements.
 
         Raises:
-            ValueError: If both ``mask`` and ``bbox`` are supplied, or if ``epsg`` is given for a
-                ``bbox`` but the mesh has no CRS to reproject into.
+            ValueError: If both ``mask`` and ``bbox`` are supplied, if ``bbox`` is not a 4-tuple, or
+                if ``epsg`` is given for a ``bbox`` but the mesh has no CRS to reproject into.
             TypeError: If neither ``mask`` nor ``bbox`` is supplied.
 
         Examples:
@@ -337,6 +337,11 @@ class UgridDataset:
         if bbox is not None:
             if mask is not None:
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
+            if len(bbox) != 4:
+                raise ValueError(
+                    "bbox must be a 4-tuple of (west, south, east, north), "
+                    f"got {len(bbox)} value(s)"
+                )
             west, south, east, north = bbox
             if epsg is not None and (self.epsg is None or int(epsg) != int(self.epsg)):
                 if self.epsg is None:
