@@ -4155,10 +4155,15 @@ class NetCDF(Dataset):
             if arr is not None:
                 lat, lat_name = np.asarray(arr), cand
                 break
+        # Adopt the parent's lon/lat only when the variable actually has the longitude coordinate
+        # dimension (by the CF coordinate-variable convention a 1-D coord var shares its dimension's
+        # name). Test membership, not position, so it holds when x_dim/y_dim select a non-trailing
+        # plane (e.g. T(time, lat, lev, lon)). Only the X (longitude) dim is checked: the Y-flip in
+        # _read_md_array renames the latitude dimension (e.g. ``subset_lat_…``), so the lat name is
+        # not reliably present. This still guards a same-shaped but unrelated axis (one with no
+        # longitude dimension) from adopting the wrong coordinates.
         dim_names = getattr(cube, "_md_array_dims", None) or []
-        names_ok = not (
-            len(dim_names) >= 2 and (dim_names[-1] != lon_name or dim_names[-2] != lat_name)
-        )
+        names_ok = (not dim_names) or (lon_name in dim_names)
         if (
             lon is not None
             and lat is not None
