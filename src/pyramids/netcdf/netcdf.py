@@ -1845,6 +1845,37 @@ class NetCDF(Dataset):
             - :meth:`pyramids.feature.FeatureCollection.from_bbox`: the
               shared primitive that builds the one-row FC.
         """
+        mask = self._resolve_crop_mask(mask, bbox, epsg)
+        if self._is_md_array and not self._is_subset and self.band_count == 0:
+            result = self._apply_to_all_variables("crop", {"mask": mask, "touch": touch})
+        else:
+            result = self._crop_one(mask, touch=touch, chunks=chunks)
+        return result
+
+    def _resolve_crop_mask(
+        self,
+        mask: Any,
+        bbox: tuple[float, float, float, float] | list[float] | None,
+        epsg: Any,
+    ) -> Any:
+        """Resolve the crop selector to a single polygon mask.
+
+        Converts a ``bbox`` (in ``epsg``, defaulting to the dataset CRS) into a one-row
+        :class:`FeatureCollection`, enforces that exactly one of ``mask`` / ``bbox`` is supplied,
+        and returns the mask to crop with.
+
+        Args:
+            mask: A polygon mask or ``Dataset`` mask, or ``None`` when ``bbox`` is used.
+            bbox: ``(west, south, east, north)`` quadruple, or ``None`` when ``mask`` is used.
+            epsg: CRS for ``bbox``; defaults to ``self.epsg`` when ``None``.
+
+        Returns:
+            The resolved mask (a ``FeatureCollection`` when built from ``bbox``).
+
+        Raises:
+            ValueError: Both ``mask`` and ``bbox`` were supplied, or a ``bbox`` was given with no CRS.
+            TypeError: Neither ``mask`` nor ``bbox`` was supplied.
+        """
         if bbox is not None:
             if mask is not None:
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
@@ -1861,29 +1892,41 @@ class NetCDF(Dataset):
                 "crop requires a `mask` (GeoDataFrame / FeatureCollection / "
                 "Dataset) or a `bbox` (west, south, east, north) tuple"
             )
-        if self._is_md_array and not self._is_subset and self.band_count == 0:
-            result = self._apply_to_all_variables(
-                "crop",
-                {"mask": mask, "touch": touch},
-            )
+        return mask
+
+    def _crop_one(self, mask: Any, touch: bool = True, chunks: Any = None) -> "NetCDF":
+        """Crop a single variable/subset, routing curvilinear grids to the 2-D coordinate masker.
+
+        Curvilinear grids (2-D lon/lat coords, no single affine geotransform) can't be clipped by the
+        affine cutline warp, so they mask on their 2-D coordinates; rectilinear grids use the affine
+        crop and re-wrap to preserve NetCDF metadata. ``chunks`` is valid only on the curvilinear path.
+
+        Args:
+            mask: The resolved polygon/raster mask to crop with.
+            touch: If True, include cells touching the mask boundary. Defaults to True.
+            chunks: Lazy-read chunking, valid only on the curvilinear path; see :meth:`crop`.
+
+        Returns:
+            NetCDF: The cropped variable subset.
+
+        Raises:
+            ValueError: ``chunks`` was given for a rectilinear (affine) crop, which is eager.
+        """
+        curv = NetCDFPlot(self)._resolve_curvilinear_coords(self, coords=None)
+        is_curvilinear = (
+            curv is not None
+            and np.asarray(curv[0]).ndim == 2
+            and np.asarray(curv[1]).ndim == 2
+        )
+        if is_curvilinear:
+            result = self._crop_curvilinear(mask, curv, touch=touch, chunks=chunks)
         else:
-            # Curvilinear grids (2-D lon/lat coords, no single affine geotransform) can't be clipped
-            # by the affine cutline warp; mask on their 2-D coordinates instead.
-            curv = NetCDFPlot(self)._resolve_curvilinear_coords(self, coords=None)
-            if (
-                curv is not None
-                and np.asarray(curv[0]).ndim == 2
-                and np.asarray(curv[1]).ndim == 2
-            ):
-                result = self._crop_curvilinear(mask, curv, touch=touch, chunks=chunks)
-            else:
-                if chunks is not None:
-                    raise ValueError(
-                        "chunks= is only supported for curvilinear crop; the affine "
-                        "(rectilinear) crop path is eager."
-                    )
-                result = super().crop(mask=mask, touch=touch)
-                result = self._preserve_netcdf_metadata(result)
+            if chunks is not None:
+                raise ValueError(
+                    "chunks= is only supported for curvilinear crop; the affine "
+                    "(rectilinear) crop path is eager."
+                )
+            result = self._preserve_netcdf_metadata(super().crop(mask=mask, touch=touch))
         return result
 
     def _crop_curvilinear(
@@ -1936,8 +1979,8 @@ class NetCDF(Dataset):
                 "(no cell centre falls inside it)."
             )
 
-        rows = np.where(np.any(inside, axis=1))[0]
-        cols = np.where(np.any(inside, axis=0))[0]
+        rows = np.nonzero(np.any(inside, axis=1))[0]
+        cols = np.nonzero(np.any(inside, axis=0))[0]
         r0, r1 = int(rows[0]), int(rows[-1]) + 1
         c0, c1 = int(cols[0]), int(cols[-1]) + 1
 
@@ -2723,6 +2766,36 @@ class NetCDF(Dataset):
         result._warp_source = getattr(pinned, "_warp_source", self)
         return result
 
+    def _materialize_md_view(self) -> None:
+        """Replace a multidimensional ``AsClassicDataset`` view with a window-readable MEM raster.
+
+        A variable subset's backing raster is a GDAL multidimensional ``AsClassicDataset`` view (see
+        :meth:`_read_md_array`). GDAL >= 3.13 rejects any partial-window read of that view, raising
+        ``RuntimeError: arrayStartIdx[...] >= <dim>``; only a full read succeeds. That breaks every
+        eager partial read of the variable — the windowed curvilinear crop, ``resample``, and the COG
+        ``CreateCopy``. Copying the view into an in-memory ``MEM`` raster does a single full read (which
+        works) and yields a normal raster that GDAL can read with any window, both from pyramids and
+        from GDAL-internal ``Warp`` / ``CreateCopy``.
+
+        Idempotent; a no-op on a classic (non-multidim) subset. The lazy ``read_array(chunks=)`` path
+        reads from the file directly and never touches this view, so it stays fully lazy.
+        """
+        if getattr(self, "_md_view_materialized", False):
+            return
+        # Only a variable subset carries an AsClassicDataset view. A root container's raster is the
+        # multidim file dataset (0 bands) and must never be copied here.
+        if not (self._is_md_array and self._is_subset) or self._raster is None:
+            return
+        mem = gdal.GetDriverByName("MEM").CreateCopy("", self._raster)
+        # CreateCopy carries the view's geotransform; re-apply the wrapper's (it may hold a Y-flip or
+        # coordinate-derived correction the raw view lacks).
+        mem.SetGeoTransform(self._geotransform)
+        self._raster = mem
+        # The MEM copy owns its data; drop the SWIG views that backed the AsClassicDataset.
+        self._gdal_md_arr_ref = None
+        self._gdal_rg_ref = None
+        self._md_view_materialized = True
+
     def resample(
         self,
         cell_size: float,
@@ -2748,6 +2821,8 @@ class NetCDF(Dataset):
                 {"cell_size": cell_size, "method": method},
             )
         else:
+            # resample warps the backing raster; a multidim view can't be window-read by GDAL >= 3.13.
+            self._materialize_md_view()
             result = super().resample(
                 cell_size=cell_size,
                 method=method,

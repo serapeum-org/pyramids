@@ -2,7 +2,7 @@ import gc
 import os
 import random
 from pathlib import Path
-from typing import List, Tuple
+from typing import Iterator, List, Tuple
 
 import geopandas as gpd
 import numpy as np
@@ -324,7 +324,7 @@ def era5_image_internal_overviews_read_only_true() -> Dataset:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def clean_overview_around_session(era5_raster_path: str) -> None:
+def clean_overview_around_session(era5_raster_path: str) -> Iterator[None]:
     """Remove the era5 external overview sidecar before and after the session so it never lingers.
 
     Tests build a ``.ovr`` next to the committed era5 fixture. The per-test cleanup is best-effort
@@ -340,7 +340,7 @@ def clean_overview_around_session(era5_raster_path: str) -> None:
 
 
 @pytest.fixture
-def clean_overview_after_test(era5_raster_path: str) -> None:
+def clean_overview_after_test(era5_raster_path: str) -> Iterator[None]:
     ovr_path = Path(f"{era5_raster_path}.ovr")
     yield
     try:
