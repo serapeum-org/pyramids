@@ -260,8 +260,8 @@ def test_bbox_geotransform_single_column_no_zero_division():
     lon = np.array([[10.0], [10.0]])
     lat = np.array([[40.0], [30.0]])
     gt = NetCDF._bbox_geotransform(lon, lat)
-    assert gt[1] == 0.0, f"single-column x cell size should be 0.0, got {gt[1]}"
-    assert gt[5] == -10.0, f"row spacing should resolve to -10.0, got {gt[5]}"
+    assert gt[1] == pytest.approx(0.0), f"single-column x cell size should be 0.0, got {gt[1]}"
+    assert gt[5] == pytest.approx(-10.0), f"row spacing should resolve to -10.0, got {gt[5]}"
 
 
 def test_copy_md_array_attributes_preserves_int64():

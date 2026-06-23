@@ -3827,27 +3827,29 @@ class NetCDF(Dataset):
         ``units`` (``degrees_east``/``degrees_north``). Returns ``None`` when the
         role cannot be determined.
         """
-        role = None
+        # Guard-clause/early-return style is intentional here: it keeps cognitive complexity
+        # below SonarCloud's S3776 threshold (a single-return rewrite nests the attribute scan and
+        # the role tests, pushing it over the limit).
         indexing_var = dim.GetIndexingVariable()
-        if indexing_var is not None:
-            attrs: dict[str, Any] | None = {}
-            try:
-                for attr in indexing_var.GetAttributes():
-                    attrs[attr.GetName()] = attr.Read()
-            except RuntimeError:
-                attrs = None
-            if attrs is not None:
+        if indexing_var is None:
+            return None
+        attrs: dict[str, Any] = {}
+        try:
+            for attr in indexing_var.GetAttributes():
+                attrs[attr.GetName()] = attr.Read()
+        except RuntimeError:
+            return None
 
-                def text(key: str) -> str:
-                    value = attrs.get(key)
-                    return value.strip().lower() if isinstance(value, str) else ""
+        def text(key: str) -> str:
+            value = attrs.get(key)
+            return value.strip().lower() if isinstance(value, str) else ""
 
-                axis, standard_name, units = text("axis"), text("standard_name"), text("units")
-                if axis == "x" or standard_name == "longitude" or units.startswith("degrees_e"):
-                    role = "X"
-                elif axis == "y" or standard_name == "latitude" or units.startswith("degrees_n"):
-                    role = "Y"
-        return role
+        axis, standard_name, units = text("axis"), text("standard_name"), text("units")
+        if axis == "x" or standard_name == "longitude" or units.startswith("degrees_e"):
+            return "X"
+        if axis == "y" or standard_name == "latitude" or units.startswith("degrees_n"):
+            return "Y"
+        return None
 
     @staticmethod
     def _detect_axis_indices(dims) -> tuple[int | None, int | None]:
@@ -3876,16 +3878,20 @@ class NetCDF(Dataset):
         not the trailing dimensions (e.g. CAM ``T(time, lat, lev, lon)``) be read as a
         proper lat/lon plane instead of a lev/lon cross-section.
         """
+        # Guard-clause/early-return style is intentional: a single-return rewrite nests the
+        # detection and fallback branches and exceeds SonarCloud's S3776 complexity threshold.
         names = [d.GetName() for d in md_arr.GetDimensions()]
         n = len(names)
 
         explicit_x = self._dimension_index(names, x_dim) if x_dim is not None else None
         explicit_y = self._dimension_index(names, y_dim) if y_dim is not None else None
-        if explicit_x is not None and explicit_y is not None and explicit_x == explicit_y:
-            raise ValueError(
-                f"x_dim and y_dim must be different dimensions; both resolved to "
-                f"index {explicit_x}. Dimensions: {names}"
-            )
+        if explicit_x is not None and explicit_y is not None:
+            if explicit_x == explicit_y:
+                raise ValueError(
+                    f"x_dim and y_dim must be different dimensions; both resolved to "
+                    f"index {explicit_x}. Dimensions: {names}"
+                )
+            return explicit_x, explicit_y
 
         detected_x, detected_y = self._detect_axis_indices(md_arr.GetDimensions())
         # Adopt detection only when it (combined with any single explicit side) yields a
@@ -3893,18 +3899,15 @@ class NetCDF(Dataset):
         # collide with the last-two fallback (e.g. a 2-D `lon_bnds(lon, bnds)` variable).
         candidate_x = explicit_x if explicit_x is not None else detected_x
         candidate_y = explicit_y if explicit_y is not None else detected_y
-        if explicit_x is not None and explicit_y is not None:
-            result = (explicit_x, explicit_y)
-        elif candidate_x is not None and candidate_y is not None and candidate_x != candidate_y:
-            result = (candidate_x, candidate_y)
-        else:
-            # Fallback: the last two dimensions, keeping a non-colliding explicit side.
-            x_index = explicit_x if explicit_x is not None else n - 1
-            y_index = explicit_y if explicit_y is not None else n - 2
-            if x_index == y_index:
-                x_index, y_index = n - 1, n - 2
-            result = (x_index, y_index)
-        return result
+        if candidate_x is not None and candidate_y is not None and candidate_x != candidate_y:
+            return candidate_x, candidate_y
+
+        # Fallback: the last two dimensions, keeping a non-colliding explicit side.
+        x_index = explicit_x if explicit_x is not None else n - 1
+        y_index = explicit_y if explicit_y is not None else n - 2
+        if x_index == y_index:
+            x_index, y_index = n - 1, n - 2
+        return x_index, y_index
 
     def _read_md_array(
         self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None
@@ -5040,22 +5043,38 @@ class NetCDF(Dataset):
             new_attr = dst_mdarray.CreateAttribute(
                 name, dims, gdal.ExtendedDataType.Create(numeric_type)
             )
-            is_integer = numeric_type in _GDAL_INTEGER_DTYPES
-            # 64-bit integer codes must use the 64-bit read/write calls; the 32-bit
-            # WriteInt/ReadAsInt would truncate large values (e.g. an Int64 _FillValue).
-            is_int64 = numeric_type in (gdal.GDT_Int64, gdal.GDT_UInt64)
-            if count <= 1 and is_int64:
-                new_attr.WriteInt64(attr.ReadAsInt64())
-            elif count <= 1 and is_integer:
-                new_attr.WriteInt(attr.ReadAsInt())
-            elif count <= 1:
-                new_attr.WriteDouble(attr.ReadAsDouble())
-            elif is_int64:
-                new_attr.WriteInt64Array(attr.ReadAsInt64Array())
+            NetCDF._write_numeric_attribute(new_attr, attr, numeric_type, count)
+
+    @staticmethod
+    def _write_numeric_attribute(new_attr, src_attr, numeric_type, count):
+        """Write a numeric attribute with the GDAL call matching its dtype class and arity.
+
+        64-bit integer codes (``GDT_Int64`` / ``GDT_UInt64``) use the 64-bit ``WriteInt64`` /
+        ``ReadAsInt64`` calls; the 32-bit ``WriteInt`` / ``ReadAsInt`` would truncate large values
+        (e.g. an Int64 ``_FillValue``). Other integer codes use the 32-bit integer calls and
+        everything else uses the floating-point calls.
+
+        Args:
+            new_attr: The destination ``gdal.Attribute`` to write into.
+            src_attr: The source ``gdal.Attribute`` to read from.
+            numeric_type: The GDAL numeric data type code of the attribute.
+            count: Total element count (``<= 1`` is written as a scalar, otherwise as an array).
+        """
+        is_int64 = numeric_type in (gdal.GDT_Int64, gdal.GDT_UInt64)
+        is_integer = numeric_type in _GDAL_INTEGER_DTYPES
+        if count <= 1:
+            if is_int64:
+                new_attr.WriteInt64(src_attr.ReadAsInt64())
             elif is_integer:
-                new_attr.WriteIntArray(attr.ReadAsIntArray())
+                new_attr.WriteInt(src_attr.ReadAsInt())
             else:
-                new_attr.WriteDoubleArray(attr.ReadAsDoubleArray())
+                new_attr.WriteDouble(src_attr.ReadAsDouble())
+        elif is_int64:
+            new_attr.WriteInt64Array(src_attr.ReadAsInt64Array())
+        elif is_integer:
+            new_attr.WriteIntArray(src_attr.ReadAsIntArray())
+        else:
+            new_attr.WriteDoubleArray(src_attr.ReadAsDoubleArray())
 
     @staticmethod
     def _add_md_array_to_group(dst_group, var_name, src_mdarray):
