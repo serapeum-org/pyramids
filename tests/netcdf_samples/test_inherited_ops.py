@@ -31,7 +31,8 @@ INHERITED_NOARG_METHODS = [
     "get_histogram", "get_mask", "get_overview", "get_tile", "hillshade", "iter_blocks",
     "mask_flags", "preview", "proximity", "read_masks", "read_overview_array",
     "slope", "stats", "to_bytes", "to_cog_bytes", "to_feature_collection",
-    "to_image", "to_xyz", "translate",
+    # to_image renders via cleopatra (viz extra); skip it on a no-viz install.
+    pytest.param("to_image", marks=pytest.mark.plot), "to_xyz", "translate",
 ]
 
 

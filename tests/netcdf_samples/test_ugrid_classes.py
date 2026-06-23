@@ -35,6 +35,7 @@ class TestUgridDataset:
         reloaded = UgridDataset.read_file(out)
         assert reloaded.n_node == 16 and reloaded.n_face == 4
 
+    @pytest.mark.plot
     def test_plot_outline(self, ug):
         assert ug.plot_outline() is not None
 
