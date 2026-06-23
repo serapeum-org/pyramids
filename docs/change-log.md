@@ -1,6 +1,19 @@
 ﻿# Change log
 
 
+## 0.36.0 (2026-06-23)
+
+### Feat
+
+- **netcdf**: add exploration example notebooks and supporting grid work (#581)
+- **feature**: FeatureCollection GIS gaps — fishnet, IDW interpolation, PMTiles/MVT, GPX, FeatureServer and a native H3 engine(#591)
+- **dataset**: add Dataset.to_terrain_rgb (terrain-RGB encoding + XYZ tiles) (#590)
+
+### Fix
+
+- **test**: skip optional-dependency tests on the bare-wheel core CI run (#610)
+- **packaging**: bundle the JP2OpenJPEG driver so JP2-packed GRIB2 reads (#601)
+
 ## 0.35.0 (2026-06-16)
 
 ### Feat
