@@ -1007,9 +1007,9 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Spatial.set_crs <pyramids.dataset.engines.Spatial.set_crs>`."""
         return self.spatial.set_crs(*args, **kwargs)
 
-    def convert_longitude(self, *args, **kwargs):
-        """Facade — delegates to :meth:`Spatial.convert_longitude <pyramids.dataset.engines.Spatial.convert_longitude>`."""
-        return self.spatial.convert_longitude(*args, **kwargs)
+    def wrap_longitude(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Spatial.wrap_longitude <pyramids.dataset.engines.Spatial.wrap_longitude>`."""
+        return self.spatial.wrap_longitude(*args, **kwargs)
 
     def resample(self, *args, **kwargs):
         """Facade — delegates to :meth:`Spatial.resample <pyramids.dataset.engines.Spatial.resample>`."""
@@ -1026,6 +1026,17 @@ class Dataset(RasterBase):
     def read_array(self, *args, **kwargs):
         """Facade — delegates to :meth:`IO.read_array <pyramids.dataset.engines.IO.read_array>`."""
         return self.io.read_array(*args, **kwargs)
+
+    def _materialize_md_view(self) -> None:
+        """Make the backing raster window-readable. No-op for an ordinary raster.
+
+        Hook overridden by :class:`pyramids.netcdf.NetCDF`, whose variable subsets are backed by a
+        GDAL multidimensional ``AsClassicDataset`` view that GDAL >= 3.13 cannot read with a partial
+        window (it raises ``arrayStartIdx[...] >= <dim>``). The override replaces that view with a
+        materialised in-memory raster. A plain :class:`Dataset` is already window-readable, so this
+        does nothing.
+        """
+        return None
 
     def read_windows(self, *args, **kwargs):
         """Facade — delegates to :meth:`IO.read_windows <pyramids.dataset.engines.IO.read_windows>`."""
@@ -1152,9 +1163,12 @@ class Dataset(RasterBase):
         `bbox` / `bounds` properties are reachable before the
         collaborator is wired during `Dataset.__init__`.
         """
-        x_min, y_max = self.top_left_corner
-        y_min = y_max - self.rows * self.cell_size
-        x_max = x_min + self.columns * self.cell_size
+        # Derive the extent from the geotransform's separate X/Y pixel sizes (gt[1], gt[5]) rather
+        # than a single cell_size, so non-square grids (e.g. 2° lon, 1° lat) are not stretched.
+        gt = self.geotransform
+        x_min, y_max = gt[0], gt[3]
+        x_max = x_min + self.columns * gt[1]
+        y_min = y_max + self.rows * gt[5]
         return [x_min, y_min, x_max, y_max]
 
     def _calculate_bounds(self):

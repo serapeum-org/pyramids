@@ -149,6 +149,8 @@ class NetCDFPlot:
         colour: ColourOpts | None = None,
         facet: FacetSpec | None = None,
         coords: tuple | list | None = None,
+        x_dim: str | None = None,
+        y_dim: str | None = None,
         kind: str = "auto",
         animate: bool | str | None = None,
         chunks: Any | None = None,
@@ -282,7 +284,13 @@ class NetCDFPlot:
         return result
 
     def _delegate_to_variable(
-        self, nc: NetCDF, variable: str | None, **plot_kwargs: Any
+        self,
+        nc: NetCDF,
+        variable: str | None,
+        *,
+        x_dim: str | None = None,
+        y_dim: str | None = None,
+        **plot_kwargs: Any,
     ) -> Any:
         """Drill into ``variable`` on a root MDIM container, then re-dispatch :meth:`run`.
 
@@ -307,7 +315,7 @@ class NetCDFPlot:
                 f"container. Available: {nc.variable_names}. Or call "
                 "`nc.get_variable('name').plot(...)`."
             )
-        return nc.get_variable(variable).plot(**plot_kwargs)
+        return nc.get_variable(variable, x_dim=x_dim, y_dim=y_dim).plot(**plot_kwargs)
 
     def _resolve_selectors(self, nc: NetCDF, selectors: Selectors) -> dict[str, Any]:
         """Flatten a :class:`Selectors` into a ``{dim_name: label}`` dict.
@@ -1094,9 +1102,12 @@ class NetCDFPlot:
 
         1. Explicit user ``coords=``. Accepts a length-2 sequence of
            variable-name strings *or* numpy arrays.
-        2. The variable's CF ``coordinates`` attribute, which lists
+        2. A ``_curvilinear_coords`` attribute stored on the dataset —
+           set by :meth:`NetCDF._crop_curvilinear` so a cropped
+           curvilinear subset replots on its windowed 2-D coordinates.
+        3. The variable's CF ``coordinates`` attribute, which lists
            the auxiliary coord variables for the data variable.
-        3. Well-known curvilinear naming conventions for files that
+        4. Well-known curvilinear naming conventions for files that
            omit the CF attribute: WRF (``XLAT`` / ``XLONG``), ROMS
            (``lat_rho`` / ``lon_rho``), NEMO (``nav_lat`` / ``nav_lon``).
 
@@ -1229,6 +1240,16 @@ class NetCDFPlot:
                     y_arr.shape,
                     data_shape,
                 )
+
+        if result is None and data_shape is not None:
+            # A curvilinear crop result (NetCDF.crop on a 2-D-coordinate grid) carries its windowed
+            # lon/lat arrays here so the cropped subset still plots on its real curvilinear geometry.
+            stored = getattr(nc, "_curvilinear_coords", None)
+            if stored is not None:
+                x_arr = np.asarray(stored[0])
+                y_arr = np.asarray(stored[1])
+                if self._coord_shapes_match(x_arr, y_arr, data_shape):
+                    result = (x_arr, y_arr)
 
         if result is None and data_shape is not None:
             cf_pair = self._cf_coordinates_pair(nc, parent)
@@ -1391,9 +1412,20 @@ class NetCDFPlot:
         For each pair (n choose 2 from the listed coord vars) the helper
         picks the first one where one name reads as the x axis (1-D
         ``cols`` or 2-D matching) and the other as the y axis (1-D
-        ``rows`` or 2-D matching). When the attribute is missing or no
-        valid pair is found returns ``None`` so the caller can fall
-        back to the well-known-naming pass.
+        ``rows`` or 2-D matching), preferring a pair whose names match
+        the lon/lat heuristic. If none matches the name heuristic, it
+        falls back to the first pair of **distinct** candidates — and
+        because a 2-D coord matches both axes, it disambiguates the x/y
+        roles by range: latitude is bounded to ±90 (via
+        :meth:`_values_within_latitude`). The assignment is **symmetric**
+        — whichever of the two 2-D candidates is within-latitude becomes
+        the y axis regardless of candidate order, so e.g. rasm's ``xc`` /
+        ``yc`` are neither collapsed onto one axis nor swapped. When both
+        or neither candidate looks like a latitude the roles are genuinely
+        ambiguous, so it keeps candidate order and logs a debug message
+        (pass ``coords=`` / ``x_dim`` / ``y_dim`` to override). When the
+        attribute is missing or no valid pair is found returns ``None`` so
+        the caller can fall back to the well-known-naming pass.
 
         Args:
             nc: The variable subset being plotted — the CF attribute is
@@ -1443,11 +1475,44 @@ class NetCDFPlot:
                 if result is not None:
                     break
             if result is None and x_candidates and y_candidates:
-                # Fallback: first viable pair regardless of name heuristic.
-                x_arr = x_candidates[0][1]
-                y_arr = y_candidates[0][1]
-                if self._coord_shapes_match(x_arr, y_arr, data_shape):
-                    result = (x_arr, y_arr)
+                # Fallback: first viable pair of **distinct** candidates. A 2-D coord matches both
+                # axes, so it lands in both lists — guard against picking the same array for x and y
+                # (which would collapse a curvilinear grid like rasm's ``xc``/``yc`` onto one axis).
+                # When both are 2-D the x/y roles are ambiguous, so disambiguate by range: latitude
+                # is bounded to [-90, 90]. 1-D candidates are already separated by length.
+                for x_name, x_arr in x_candidates:
+                    for y_name, y_arr in y_candidates:
+                        if x_name == y_name:
+                            continue
+                        if not self._coord_shapes_match(x_arr, y_arr, data_shape):
+                            continue
+                        if x_arr.ndim == 2 and y_arr.ndim == 2:
+                            # Both 2-D: the x/y roles are ambiguous by shape, so assign by range —
+                            # latitude is bounded to [-90, 90]. Symmetric: whichever of the two is
+                            # within-latitude is the y axis, regardless of candidate order. Only when
+                            # both or neither look like latitude do we fall back to candidate order.
+                            x_is_lat = self._values_within_latitude(x_arr)
+                            y_is_lat = self._values_within_latitude(y_arr)
+                            if x_is_lat and not y_is_lat:
+                                result = (y_arr, x_arr)
+                            elif y_is_lat and not x_is_lat:
+                                result = (x_arr, y_arr)
+                            else:
+                                logger.debug(
+                                    "curvilinear x/y roles ambiguous for %r/%r "
+                                    "(within-latitude: %s/%s); keeping candidate order — pass "
+                                    "x_dim/y_dim or coords= to override.",
+                                    x_name,
+                                    y_name,
+                                    x_is_lat,
+                                    y_is_lat,
+                                )
+                                result = (x_arr, y_arr)
+                        else:
+                            result = (x_arr, y_arr)
+                        break
+                    if result is not None:
+                        break
             if result is None and names:
                 logger.debug(
                     "CF `coordinates` attr %r on variable %r did not yield a "
@@ -1459,6 +1524,52 @@ class NetCDFPlot:
                     {n: a.shape for n, a in candidate_arrays.items()},
                 )
         return result
+
+    @staticmethod
+    def _values_within_latitude(arr: np.ndarray) -> bool:
+        """Return whether every finite value lies in ``[-90, 90]`` — i.e. the array reads as latitude.
+
+        Used to disambiguate the x/y roles of two 2-D coordinate arrays (e.g. rasm's ``xc`` / ``yc``)
+        when neither name matches the lon/lat heuristic: longitudes routinely exceed ±90 (``0..360``
+        or beyond), latitudes never do. The ±0.5 slack tolerates cell-edge coordinates that graze the
+        pole. An array with no finite values returns ``False`` (it cannot be confirmed as a latitude).
+
+        Args:
+            arr (np.ndarray): Coordinate array to classify. Non-finite entries (``NaN`` / ``inf``)
+                are ignored.
+
+        Returns:
+            bool: ``True`` when at least one value is finite and all finite values fall within
+                ``[-90.5, 90.5]``; ``False`` otherwise.
+
+        Examples:
+            - A latitude array (bounded to ±90) is recognised:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf._plot import NetCDFPlot
+                >>> NetCDFPlot._values_within_latitude(np.array([-89.0, 0.0, 89.0]))
+                True
+
+                ```
+            - A ``0..360`` longitude array is rejected (it exceeds ±90):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf._plot import NetCDFPlot
+                >>> NetCDFPlot._values_within_latitude(np.array([0.0, 180.0, 360.0]))
+                False
+
+                ```
+            - An all-``NaN`` array is rejected (nothing finite to confirm):
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf._plot import NetCDFPlot
+                >>> NetCDFPlot._values_within_latitude(np.array([np.nan, np.nan]))
+                False
+
+                ```
+        """
+        finite = arr[np.isfinite(arr)]
+        return bool(finite.size) and float(finite.min()) >= -90.5 and float(finite.max()) <= 90.5
 
     @staticmethod
     def _looks_like_x_then_y(x_name: str, y_name: str) -> bool:

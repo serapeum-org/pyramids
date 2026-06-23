@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from osgeo import gdal, osr
+from shapely import contains_xy
 
 from pyramids import _io
 from pyramids.base._errors import OptionalPackageDoesNotExist
@@ -43,6 +44,20 @@ from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.plot_options import ColourOpts, FacetSpec, Selectors
 from pyramids.netcdf.utils import create_time_conversion_func
+
+# GDAL integer dtype codes, used to pick the right typed Attribute.Write* call
+# when copying variable attributes (numeric tuples can't go through Write/WriteRaw).
+_GDAL_INTEGER_DTYPES = {
+    gdal.GDT_Byte,
+    gdal.GDT_Int16,
+    gdal.GDT_UInt16,
+    gdal.GDT_Int32,
+    gdal.GDT_UInt32,
+    gdal.GDT_Int64,
+    gdal.GDT_UInt64,
+}
+if hasattr(gdal, "GDT_Int8"):
+    _GDAL_INTEGER_DTYPES.add(gdal.GDT_Int8)
 
 
 class _LazyVariableDict(dict):
@@ -694,13 +709,24 @@ class NetCDF(Dataset):
         if self._geostationary_scaled:
             return self._geotransform
         if self.lon is not None and self.lat is not None:
+            # Derive the X and Y pixel sizes independently from the lon/lat coordinate spacing —
+            # they differ on non-square grids (e.g. 2° lon, 1° lat), so a single `cell_size` for
+            # both axes would stretch the latitude axis. Y is reported north-up: the top edge is the
+            # northernmost latitude plus half a cell, and pixel height is negative.
+            x_cell = self.cell_size
+            if len(self.lat) >= 2:
+                y_cell = abs(float(self.lat[1] - self.lat[0]))
+                y_top = max(float(self.lat[0]), float(self.lat[-1])) + y_cell / 2
+            else:
+                y_cell = self.cell_size
+                y_top = float(self.lat[0]) + y_cell / 2
             return (
-                self.lon[0] - self.cell_size / 2,
-                self.cell_size,
+                self.lon[0] - x_cell / 2,
+                x_cell,
                 0,
-                self.lat[0] + self.cell_size / 2,
+                y_top,
                 0,
-                -self.cell_size,
+                -y_cell,
             )
         return self._geotransform
 
@@ -928,6 +954,8 @@ class NetCDF(Dataset):
         colour: ColourOpts | None = None,
         facet: FacetSpec | None = None,
         coords: tuple | list | None = None,
+        x_dim: str | None = None,
+        y_dim: str | None = None,
         kind: str = "auto",
         animate: bool | str | None = None,
         chunks: Any | None = None,
@@ -996,6 +1024,16 @@ class NetCDF(Dataset):
                 NEMO ``nav_lat`` / ``nav_lon``). When nothing matches, the
                 renderer falls back to ``extent=self.bbox`` (imshow).
                 Defaults to None.
+            x_dim (str, optional):
+                Name of the dimension to plot on the X axis. Forwarded to
+                :meth:`get_variable`. By default the longitude dimension is
+                auto-detected from CF coordinate attributes (else the last
+                dimension is used). Set this for variables whose lon/lat are
+                not the trailing dimensions and carry no CF axis metadata
+                (e.g. CAM ``T(time, lat, lev, lon)``). Defaults to None.
+            y_dim (str, optional):
+                Name of the dimension to plot on the Y axis (the latitude
+                dimension by default). Defaults to None.
             kind (str, optional):
                 Render kind forwarded to cleopatra's ``ArrayGlyph.plot``.
                 One of ``"auto"``, ``"imshow"``, ``"pcolormesh"``,
@@ -1037,7 +1075,21 @@ class NetCDF(Dataset):
                 compatibility but emits a :class:`DeprecationWarning`.
 
         Returns:
-            ArrayGlyph: A cleopatra ``ArrayGlyph`` wrapping the rendered figure.
+            ArrayGlyph: A cleopatra ``ArrayGlyph`` wrapping the rendered figure. Use the glyph's
+                matplotlib handles (``glyph.ax`` / ``glyph.fig`` / ``glyph.im``) to decorate the
+                plot further. In particular, to overlay a **coastline** (or borders / land / ocean /
+                rivers / lakes) on top of the data, call cleopatra's reference helper on the axes —
+                passing the CRS the data was plotted in (its own CRS — no reprojection needed) so the
+                layer lines up::
+
+                    from cleopatra.reference import add_features
+                    var = nc.get_variable("t2m")
+                    glyph = var.plot()
+                    add_features(glyph.ax, "coastline", crs=var.epsg, zorder=5)
+
+                ``add_features`` fetches Natural Earth data (cached under ``~/.cleopatra``), so it
+                needs the ``[viz]`` extra and network access on first use. A relief backdrop is
+                available the same way via :func:`cleopatra.reference.add_relief`.
 
         Raises:
             TypeError: If any of the Sentinel-only kwargs (``rgb``,
@@ -1378,6 +1430,8 @@ class NetCDF(Dataset):
             colour=colour,
             facet=facet,
             coords=coords,
+            x_dim=x_dim,
+            y_dim=y_dim,
             kind=kind,
             animate=animate,
             chunks=chunks,
@@ -1703,6 +1757,7 @@ class NetCDF(Dataset):
         *,
         bbox: tuple[float, float, float, float] | list[float] | None = None,
         epsg: Any = None,
+        chunks: Any = None,
     ) -> NetCDF:
         """Crop the dataset using a polygon mask, a raster mask, or a bbox tuple.
 
@@ -1733,12 +1788,25 @@ class NetCDF(Dataset):
                 extra argument; pass it explicitly for a bbox in a
                 different CRS (the standard reprojection path handles
                 it).
+            chunks (keyword-only): Lazy-read chunking for the
+                **curvilinear** crop path only — forwarded to
+                :meth:`read_array` so the cropped window is read through
+                the dask-backed lazy path (``"auto"`` or a ``{"rows":
+                ..., "cols": ...}`` dict). The curvilinear crop reads only
+                the polygon's bounding window regardless; ``chunks`` makes
+                that windowed read lazy/chunked. It is a per-variable,
+                curvilinear-only option: it raises ``ValueError`` if given
+                for a rectilinear (affine-warp) crop (which is eager), or
+                on a **root container** (call crop on a single variable via
+                :meth:`get_variable` instead).
 
         Returns:
             NetCDF: Cropped container or variable subset.
 
         Raises:
-            ValueError: Both ``mask`` and ``bbox`` were supplied.
+            ValueError: Both ``mask`` and ``bbox`` were supplied, or
+                ``chunks`` was given on a root container or a rectilinear
+                crop.
             TypeError: Neither ``mask`` nor ``bbox`` was supplied.
 
         Examples:
@@ -1782,6 +1850,46 @@ class NetCDF(Dataset):
             - :meth:`pyramids.feature.FeatureCollection.from_bbox`: the
               shared primitive that builds the one-row FC.
         """
+        mask = self._resolve_crop_mask(mask, bbox, epsg)
+        if self._is_md_array and not self._is_subset and self.band_count == 0:
+            # A container crops every variable; `chunks` is a curvilinear-only, per-variable knob
+            # (a container may mix curvilinear and rectilinear variables), so the per-variable fan-out
+            # cannot honour it. Reject it explicitly rather than silently reading eagerly.
+            if chunks is not None:
+                raise ValueError(
+                    "crop(chunks=…) is not supported on a root container; it is a "
+                    "curvilinear-only, per-variable option — call crop on a single variable "
+                    "via get_variable(name) instead."
+                )
+            result = self._apply_to_all_variables("crop", {"mask": mask, "touch": touch})
+        else:
+            result = self._crop_one(mask, touch=touch, chunks=chunks)
+        return result
+
+    def _resolve_crop_mask(
+        self,
+        mask: Any,
+        bbox: tuple[float, float, float, float] | list[float] | None,
+        epsg: Any,
+    ) -> Any:
+        """Resolve the crop selector to a single polygon mask.
+
+        Converts a ``bbox`` (in ``epsg``, defaulting to the dataset CRS) into a one-row
+        :class:`FeatureCollection`, enforces that exactly one of ``mask`` / ``bbox`` is supplied,
+        and returns the mask to crop with.
+
+        Args:
+            mask: A polygon mask or ``Dataset`` mask, or ``None`` when ``bbox`` is used.
+            bbox: ``(west, south, east, north)`` quadruple, or ``None`` when ``mask`` is used.
+            epsg: CRS for ``bbox``; defaults to ``self.epsg`` when ``None``.
+
+        Returns:
+            The resolved mask (a ``FeatureCollection`` when built from ``bbox``).
+
+        Raises:
+            ValueError: Both ``mask`` and ``bbox`` were supplied, or a ``bbox`` was given with no CRS.
+            TypeError: Neither ``mask`` nor ``bbox`` was supplied.
+        """
         if bbox is not None:
             if mask is not None:
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
@@ -1798,15 +1906,179 @@ class NetCDF(Dataset):
                 "crop requires a `mask` (GeoDataFrame / FeatureCollection / "
                 "Dataset) or a `bbox` (west, south, east, north) tuple"
             )
-        if self._is_md_array and not self._is_subset and self.band_count == 0:
-            result = self._apply_to_all_variables(
-                "crop",
-                {"mask": mask, "touch": touch},
-            )
+        return mask
+
+    def _crop_one(self, mask: Any, touch: bool = True, chunks: Any = None) -> "NetCDF":
+        """Crop a single variable/subset, routing curvilinear grids to the 2-D coordinate masker.
+
+        Curvilinear grids (2-D lon/lat coords, no single affine geotransform) can't be clipped by the
+        affine cutline warp, so they mask on their 2-D coordinates; rectilinear grids use the affine
+        crop and re-wrap to preserve NetCDF metadata. ``chunks`` is valid only on the curvilinear path.
+
+        Args:
+            mask: The resolved polygon/raster mask to crop with.
+            touch: If True, include cells touching the mask boundary. Defaults to True.
+            chunks: Lazy-read chunking, valid only on the curvilinear path; see :meth:`crop`.
+
+        Returns:
+            NetCDF: The cropped variable subset.
+
+        Raises:
+            ValueError: ``chunks`` was given for a rectilinear (affine) crop, which is eager.
+        """
+        curv = NetCDFPlot(self)._resolve_curvilinear_coords(self, coords=None)
+        is_curvilinear = (
+            curv is not None
+            and np.asarray(curv[0]).ndim == 2
+            and np.asarray(curv[1]).ndim == 2
+        )
+        if is_curvilinear:
+            result = self._crop_curvilinear(mask, curv, touch=touch, chunks=chunks)
         else:
-            result = super().crop(mask=mask, touch=touch)
-            result = self._preserve_netcdf_metadata(result)
+            if chunks is not None:
+                raise ValueError(
+                    "chunks= is only supported for curvilinear crop; the affine "
+                    "(rectilinear) crop path is eager."
+                )
+            result = self._preserve_netcdf_metadata(super().crop(mask=mask, touch=touch))
         return result
+
+    def _crop_curvilinear(
+        self,
+        mask: FeatureCollection,
+        coords2d: tuple[np.ndarray, np.ndarray],
+        touch: bool = True,
+        chunks: Any = None,
+    ) -> "NetCDF":
+        """Crop a curvilinear (2-D coordinate) variable by masking on its lon/lat arrays.
+
+        Curvilinear grids have 2-D ``lon(y, x)`` / ``lat(y, x)`` coordinates and no single affine
+        geotransform, so the cutline warp used by :meth:`pyramids.dataset.Dataset.crop` cannot clip
+        them. Instead, test each cell's ``(lon, lat)`` against the polygon, set the cells whose
+        centre falls outside it to no-data, and trim to the bounding ``(row, col)`` index window of
+        the inside cells. The result keeps its windowed 2-D coordinate arrays (stored as
+        ``_curvilinear_coords``) so it stays curvilinear and plots on its real geometry.
+
+        Args:
+            mask (FeatureCollection):
+                Polygon mask (a ``FeatureCollection`` / ``GeoDataFrame``). Its CRS is reconciled
+                with the variable's CRS before the point-in-polygon test.
+            coords2d (tuple[np.ndarray, np.ndarray]):
+                The variable's 2-D ``(lon, lat)`` coordinate arrays, shaped like its spatial dims.
+            touch (bool):
+                Accepted for signature parity with the affine crop. The curvilinear path tests cell
+                centres, so this currently has no effect. Defaults to True.
+
+        Returns:
+            NetCDF: The masked + windowed variable subset, carrying its windowed 2-D coordinates.
+
+        Raises:
+            ValueError: If the polygon does not overlap the grid (no cell centre inside it).
+        """
+        lon2d = np.asarray(coords2d[0], dtype=float)
+        lat2d = np.asarray(coords2d[1], dtype=float)
+
+        gdf = mask
+        gdf_crs = getattr(gdf, "crs", None)
+        if gdf_crs is not None and self.epsg:
+            src_epsg = gdf_crs.to_epsg()
+            if src_epsg is not None and src_epsg != self.epsg:
+                gdf = gdf.to_crs(epsg=self.epsg)
+        geometry = gdf.geometry.union_all()
+
+        inside = contains_xy(geometry, lon2d, lat2d)
+        if not bool(np.any(inside)):
+            raise ValueError(
+                "crop polygon does not overlap the curvilinear grid "
+                "(no cell centre falls inside it)."
+            )
+
+        rows = np.nonzero(np.any(inside, axis=1))[0]
+        cols = np.nonzero(np.any(inside, axis=0))[0]
+        r0, r1 = int(rows[0]), int(rows[-1]) + 1
+        c0, c1 = int(cols[0]), int(cols[-1]) + 1
+
+        nd = self.no_data_value
+        nd = nd[0] if isinstance(nd, (list, tuple)) else nd
+        if nd is None:
+            nd = DEFAULT_NO_DATA_VALUE
+
+        # Read only the bounding window, not the whole variable. The polygon mask and window were
+        # derived from the (spatial-footprint) coordinate arrays alone — no data was materialised yet.
+        inside_win = inside[r0:r1, c0:c1]
+        if chunks is not None:
+            # Lazy/chunked read: only the chunks overlapping the window are materialised.
+            lazy = self.read_array(chunks=chunks)
+            if lazy.ndim > 2:
+                # read_array(chunks=) keeps the native (d0, ..., rows, cols) shape; flatten the
+                # non-spatial dims to the (bands, rows, cols) layout the eager path uses.
+                lazy = lazy.reshape(-1, *lazy.shape[-2:])
+            data_win = np.array(lazy[..., r0:r1, c0:c1].compute(), copy=True)
+        else:
+            # Eager windowed read: GDAL reads just the (c0, r0)-(c1, r1) block.
+            data_win = np.array(
+                self.read_array(window=[c0, r0, c1 - c0, r1 - r0]), copy=True
+            )
+        data_win[..., ~inside_win] = nd
+        lon_win = lon2d[r0:r1, c0:c1]
+        lat_win = lat2d[r0:r1, c0:c1]
+
+        var_name = getattr(self, "_source_var_name", None) or "data"
+        container = NetCDF.create_from_array(
+            data_win,
+            geo=self._bbox_geotransform(lon_win, lat_win),
+            epsg=self.epsg or 4326,
+            no_data_value=nd,
+            variable_name=var_name,
+        )
+        # create_from_array returns a root container; hand back the variable subset, carrying the
+        # windowed 2-D coordinates so the result stays curvilinear (plots on its real geometry).
+        result = container.get_variable(var_name)
+        result._curvilinear_coords = (lon_win, lat_win)
+        return result
+
+    @staticmethod
+    def _bbox_geotransform(lon: np.ndarray, lat: np.ndarray) -> tuple:
+        """Approximate north-up affine geotransform spanning the 2-D coords' bounding box.
+
+        A curvilinear grid has no true affine transform; this gives a cropped curvilinear result a
+        sensible ``total_bounds`` (its lon/lat envelope). The authoritative per-cell mapping is the
+        2-D ``_curvilinear_coords`` carried alongside. The 2-D coordinates are cell *centres*, so the
+        cell size is the spacing between adjacent centres (``cols - 1`` gaps across ``cols`` centres),
+        and the north-west origin sits half a cell beyond the outermost centre — so the envelope spans
+        the full ``cols x rows`` cells, not just centre-to-centre. Pixel height is negative (north-up).
+
+        Args:
+            lon (np.ndarray): 2-D longitude array of the (windowed) grid; finite values define the
+                west/east extent.
+            lat (np.ndarray): 2-D latitude array of the same shape; finite values define the
+                south/north extent. Its shape sets the row/column counts.
+
+        Returns:
+            tuple: A GDAL geotransform ``(x_origin, x_cell, 0.0, y_origin, 0.0, -y_cell)`` where the
+                origin is the north-west envelope corner (half a cell outside the corner centre).
+
+        Examples:
+            - A 2x2 grid of centres at lon 10/20 and lat 30/40 has 10deg cells; the envelope origin
+              sits half a cell (5deg) outside the corner centre:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.netcdf import NetCDF
+                >>> lon = np.array([[10.0, 20.0], [10.0, 20.0]])
+                >>> lat = np.array([[40.0, 40.0], [30.0, 30.0]])
+                >>> NetCDF._bbox_geotransform(lon, lat)
+                (5.0, 10.0, 0.0, 45.0, 0.0, -10.0)
+
+                ```
+        """
+        rows, cols = lat.shape
+        lon_min, lon_max = float(np.nanmin(lon)), float(np.nanmax(lon))
+        lat_min, lat_max = float(np.nanmin(lat)), float(np.nanmax(lat))
+        # cell size = spacing between adjacent cell centres (cols-1 gaps); a single row/column has no
+        # spacing to measure, so fall back to 0 (a degenerate 1-cell envelope, as before).
+        x_cell = (lon_max - lon_min) / (cols - 1) if cols > 1 else 0.0
+        y_cell = (lat_max - lat_min) / (rows - 1) if rows > 1 else 0.0
+        return (lon_min - x_cell / 2, x_cell, 0.0, lat_max + y_cell / 2, 0.0, -y_cell)
 
     def _variable_is_spatial(self, rg: Any, var_name: str) -> bool:
         """True when ``var_name`` is a gridded variable (can be cropped / reprojected).
@@ -2513,6 +2785,36 @@ class NetCDF(Dataset):
         result._warp_source = getattr(pinned, "_warp_source", self)
         return result
 
+    def _materialize_md_view(self) -> None:
+        """Replace a multidimensional ``AsClassicDataset`` view with a window-readable MEM raster.
+
+        A variable subset's backing raster is a GDAL multidimensional ``AsClassicDataset`` view (see
+        :meth:`_read_md_array`). GDAL >= 3.13 rejects any partial-window read of that view, raising
+        ``RuntimeError: arrayStartIdx[...] >= <dim>``; only a full read succeeds. That breaks every
+        eager partial read of the variable — the windowed curvilinear crop, ``resample``, and the COG
+        ``CreateCopy``. Copying the view into an in-memory ``MEM`` raster does a single full read (which
+        works) and yields a normal raster that GDAL can read with any window, both from pyramids and
+        from GDAL-internal ``Warp`` / ``CreateCopy``.
+
+        Idempotent; a no-op on a classic (non-multidim) subset. The lazy ``read_array(chunks=)`` path
+        reads from the file directly and never touches this view, so it stays fully lazy.
+        """
+        if getattr(self, "_md_view_materialized", False):
+            return
+        # Only a variable subset carries an AsClassicDataset view. A root container's raster is the
+        # multidim file dataset (0 bands) and must never be copied here.
+        if not (self._is_md_array and self._is_subset) or self._raster is None:
+            return
+        mem = gdal.GetDriverByName("MEM").CreateCopy("", self._raster)
+        # CreateCopy carries the view's geotransform; re-apply the wrapper's (it may hold a Y-flip or
+        # coordinate-derived correction the raw view lacks).
+        mem.SetGeoTransform(self._geotransform)
+        self._raster = mem
+        # The MEM copy owns its data; drop the SWIG views that backed the AsClassicDataset.
+        self._gdal_md_arr_ref = None
+        self._gdal_rg_ref = None
+        self._md_view_materialized = True
+
     def resample(
         self,
         cell_size: float,
@@ -2538,6 +2840,8 @@ class NetCDF(Dataset):
                 {"cell_size": cell_size, "method": method},
             )
         else:
+            # resample warps the backing raster; a multidim view can't be window-read by GDAL >= 3.13.
+            self._materialize_md_view()
             result = super().resample(
                 cell_size=cell_size,
                 method=method,
@@ -3496,19 +3800,134 @@ class NetCDF(Dataset):
 
         return variable_names
 
-    def _read_md_array(self, variable_name: str):
+    @staticmethod
+    def _dimension_index(dim_names: list[str], target: str) -> int:
+        """Index of a dimension matched by full name or short (leaf) name."""
+        if target in dim_names:
+            result = dim_names.index(target)
+        else:
+            short = target.lstrip("/").split("/")[-1]
+            result = next(
+                (i for i, name in enumerate(dim_names)
+                 if name.lstrip("/").split("/")[-1] == short),
+                None,
+            )
+            if result is None:
+                raise ValueError(
+                    f"dimension {target!r} not found; available dimensions: {dim_names}"
+                )
+        return result
+
+    @staticmethod
+    def _axis_role_of_dimension(dim) -> str | None:
+        """Classify a dimension as ``"X"`` (longitude) or ``"Y"`` (latitude).
+
+        Reads the CF attributes of the dimension's coordinate (indexing) variable —
+        ``axis`` (``X``/``Y``), ``standard_name`` (``longitude``/``latitude``), or
+        ``units`` (``degrees_east``/``degrees_north``). Returns ``None`` when the
+        role cannot be determined.
+        """
+        # Guard-clause/early-return style is intentional here: it keeps cognitive complexity
+        # below SonarCloud's S3776 threshold (a single-return rewrite nests the attribute scan and
+        # the role tests, pushing it over the limit).
+        indexing_var = dim.GetIndexingVariable()
+        if indexing_var is None:
+            return None
+        attrs: dict[str, Any] = {}
+        try:
+            for attr in indexing_var.GetAttributes():
+                attrs[attr.GetName()] = attr.Read()
+        except RuntimeError:
+            return None
+
+        def text(key: str) -> str:
+            value = attrs.get(key)
+            return value.strip().lower() if isinstance(value, str) else ""
+
+        axis, standard_name, units = text("axis"), text("standard_name"), text("units")
+        if axis == "x" or standard_name == "longitude" or units.startswith("degrees_e"):
+            return "X"
+        if axis == "y" or standard_name == "latitude" or units.startswith("degrees_n"):
+            return "Y"
+        return None
+
+    @staticmethod
+    def _detect_axis_indices(dims) -> tuple[int | None, int | None]:
+        """Indices of the X (longitude) and Y (latitude) dimensions via CF coordinate attributes.
+
+        Returns the first dimension classified as ``"X"`` and the first as ``"Y"`` by
+        ``_axis_role_of_dimension`` (each ``None`` when undetected).
+        """
+        detected_x = detected_y = None
+        for i, dim in enumerate(dims):
+            role = NetCDF._axis_role_of_dimension(dim)
+            if role == "X" and detected_x is None:
+                detected_x = i
+            elif role == "Y" and detected_y is None:
+                detected_y = i
+        return detected_x, detected_y
+
+    def _resolve_spatial_dims(
+        self, md_arr, x_dim: str | None = None, y_dim: str | None = None
+    ) -> tuple[int, int]:
+        """Resolve the ``(x_index, y_index)`` raster-plane dimension indices.
+
+        Precedence: explicit ``x_dim``/``y_dim`` names → CF auto-detection from the
+        coordinate variables' ``axis``/``standard_name``/``units`` attributes → the
+        last-two-dimensions default. This lets variables whose latitude/longitude are
+        not the trailing dimensions (e.g. CAM ``T(time, lat, lev, lon)``) be read as a
+        proper lat/lon plane instead of a lev/lon cross-section.
+        """
+        # Guard-clause/early-return style is intentional: a single-return rewrite nests the
+        # detection and fallback branches and exceeds SonarCloud's S3776 complexity threshold.
+        names = [d.GetName() for d in md_arr.GetDimensions()]
+        n = len(names)
+
+        explicit_x = self._dimension_index(names, x_dim) if x_dim is not None else None
+        explicit_y = self._dimension_index(names, y_dim) if y_dim is not None else None
+        if explicit_x is not None and explicit_y is not None:
+            if explicit_x == explicit_y:
+                raise ValueError(
+                    f"x_dim and y_dim must be different dimensions; both resolved to "
+                    f"index {explicit_x}. Dimensions: {names}"
+                )
+            return explicit_x, explicit_y
+
+        detected_x, detected_y = self._detect_axis_indices(md_arr.GetDimensions())
+        # Adopt detection only when it (combined with any single explicit side) yields a
+        # complete, distinct (X, Y) pair — otherwise a partially-detected axis must not
+        # collide with the last-two fallback (e.g. a 2-D `lon_bnds(lon, bnds)` variable).
+        candidate_x = explicit_x if explicit_x is not None else detected_x
+        candidate_y = explicit_y if explicit_y is not None else detected_y
+        if candidate_x is not None and candidate_y is not None and candidate_x != candidate_y:
+            return candidate_x, candidate_y
+
+        # Fallback: the last two dimensions, keeping a non-colliding explicit side.
+        x_index = explicit_x if explicit_x is not None else n - 1
+        y_index = explicit_y if explicit_y is not None else n - 2
+        if x_index == y_index:
+            x_index, y_index = n - 1, n - 2
+        return x_index, y_index
+
+    def _read_md_array(
+        self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None
+    ):
         """Convert an MDArray to a classic GDAL dataset via AsClassicDataset.
 
-        The last two dimensions become X (columns) and Y (rows); all
-        remaining dimensions are flattened into bands.
+        The X (columns) and Y (rows) dimensions are resolved by
+        `_resolve_spatial_dims` (explicit `x_dim`/`y_dim`, else CF
+        auto-detection, else the last two dimensions); all remaining
+        dimensions are flattened into bands.
 
         If the Y dimension is stored south-to-north (positive Y pixel
         size), it is reversed via `MDArray.GetView()` **before** the
         conversion. This is a lazy, zero-copy operation — GDAL handles
         the reversed indexing internally without reading the whole array.
 
-        Returns a tuple `(classic_dataset, md_array, root_group)` so
-        callers can keep the GDAL objects alive. `AsClassicDataset`
+        Returns a tuple `(classic_dataset, md_array, root_group, x_index,
+        y_index)` so callers can keep the GDAL objects alive and reuse the
+        resolved plane indices (`x_index`/`y_index` are `None` for a 1-D
+        variable). `AsClassicDataset`
         returns a **view** whose C++ backing depends on the MDArray and
         root group; if the Python SWIG wrappers for those are garbage-
         collected the view becomes a dangling pointer (segfault on
@@ -3516,32 +3935,34 @@ class NetCDF(Dataset):
         """
         rg = self._raster.GetRootGroup()
         md_arr = rg.OpenMDArray(variable_name)
-        dtype = md_arr.GetDataType()
         dims = md_arr.GetDimensions()
 
         if len(dims) == 1:
-            if dtype.GetClass() == gdal.GEDTC_STRING:
-                return md_arr, md_arr, rg
-            src = md_arr.AsClassicDataset(0, 1, rg)
-            return src, md_arr, rg
+            # A classic 2-D raster view needs >=2 dimensions, so AsClassicDataset cannot represent a
+            # 1-D variable (a coordinate axis or a 1-D data series). Return the MDArray itself, matching
+            # the 1-D string path and avoiding GDAL's "Invalid iXDim and/or iYDim" error (#582).
+            return md_arr, md_arr, rg, None, None
 
-        iXDim = len(dims) - 1
-        iYDim = len(dims) - 2
+        # Resolve on the original array — the Y-flip below renames the Y dimension and drops its
+        # indexing variable, so the indices must be computed before flipping and returned to the caller.
+        x_index, y_index = self._resolve_spatial_dims(md_arr, x_dim, y_dim)
 
         # First pass: check if Y orientation needs flipping.
-        src = md_arr.AsClassicDataset(iXDim, iYDim, rg)
+        src = md_arr.AsClassicDataset(x_index, y_index, rg)
 
         if src.GetGeoTransform()[5] > 0:
             # Positive Y pixel size = south-to-north (NetCDF convention).
             # Use GetView to reverse the Y dimension — this is lazy and
             # zero-copy; GDAL handles reversed indexing internally.
-            slices = ",".join("::-1" if i == iYDim else ":" for i in range(len(dims)))
+            slices = ",".join("::-1" if i == y_index else ":" for i in range(len(dims)))
             md_arr = md_arr.GetView(f"[{slices}]")
-            src = md_arr.AsClassicDataset(iXDim, iYDim, rg)
+            src = md_arr.AsClassicDataset(x_index, y_index, rg)
 
-        return src, md_arr, rg
+        return src, md_arr, rg, x_index, y_index
 
-    def get_variable(self, variable_name: str) -> NetCDF:
+    def get_variable(
+        self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None
+    ) -> NetCDF:
         """Extract a single variable as a classic-raster NetCDF object.
 
         The returned object carries origin metadata so modified data
@@ -3563,6 +3984,15 @@ class NetCDF(Dataset):
         Args:
             variable_name: Name of the variable to extract. Use `/`
                 to separate group path from variable name.
+            x_dim: Dimension to map to the raster X axis (columns).
+                When omitted, the longitude dimension is auto-detected
+                from the coordinate variables' CF attributes (`axis`,
+                `standard_name`, `units`), falling back to the last
+                dimension. Use this for files whose lon/lat are not the
+                trailing dims and lack CF axis metadata.
+            y_dim: Dimension to map to the raster Y axis (rows). When
+                omitted, the latitude dimension is auto-detected, else
+                the second-to-last dimension is used.
 
         Returns:
             NetCDF: A subset backed by a classic dataset where every
@@ -3588,7 +4018,7 @@ class NetCDF(Dataset):
         if "/" in variable_name:
             parts = variable_name.rsplit("/", 1)
             group_nc = self.get_group(parts[0])
-            cube = group_nc.get_variable(parts[1])
+            cube = group_nc.get_variable(parts[1], x_dim=x_dim, y_dim=y_dim)
             return cube  # single return below handles non-group path
 
         if variable_name not in self.variable_names:
@@ -3601,27 +4031,20 @@ class NetCDF(Dataset):
         md_arr_ref = None
         rg_ref = None
 
+        spatial_dim_indices: tuple[int, int] | None = None
         if prefix == "MEMORY" or rg is not None:
-            src, md_arr_ref, rg_ref = self._read_md_array(variable_name)
+            src, md_arr_ref, rg_ref, x_index, y_index = self._read_md_array(
+                variable_name, x_dim=x_dim, y_dim=y_dim
+            )
+            if x_index is not None:
+                spatial_dim_indices = (x_index, y_index)
             if isinstance(src, gdal.Dataset):
                 cube = NetCDF(src)
                 cube._is_md_array = True
-                # _read_md_array uses GetView to flip the data lazily,
-                # and GDAL usually corrects the geotransform. But when
-                # the Y dimension has no indexing variable (e.g. WRF
-                # "south_north"), the geotransform may still be wrong.
-                # Fix it on the wrapper object (no data copy).
-                gt = cube._geotransform
-                if gt[5] > 0:
-                    cube._geotransform = (
-                        gt[0],
-                        gt[1],
-                        gt[2],
-                        gt[3] + gt[5] * cube._rows,
-                        gt[4],
-                        -gt[5],
-                    )
-                    cube._cell_size = abs(gt[1])
+                # _read_md_array flips the data lazily and GDAL usually corrects the geotransform,
+                # but a Y dim with no indexing variable (e.g. WRF "south_north") can leave it wrong;
+                # fix it on the wrapper (no data copy).
+                self._correct_flipped_geotransform(cube)
             else:
                 cube = src
             # Keep GDAL SWIG references alive — AsClassicDataset returns a
@@ -3652,90 +4075,210 @@ class NetCDF(Dataset):
         if isinstance(cube, NetCDF):
             cube._normalize_geostationary_geotransform()
 
-        md_arr = md_arr_ref if rg is not None else None
-        if rg is not None:
-            if md_arr is not None:
-                dims = md_arr.GetDimensions()
-                cube._md_array_dims = [d.GetName() for d in dims]
+        self._attach_variable_metadata(
+            cube, md_arr_ref if rg is not None else None, spatial_dim_indices
+        )
+        cube = self._georeference_index_subset(cube)
+        return cube
 
-                # Identify which dimensions became bands (all except X/Y).
-                # Track every non-spatial dim so 4-D+ files (e.g. CDS-Beta
-                # ERA5 pressure-levels: time, pressure_level, lat, lon)
-                # remain addressable via sel(). Legacy fields point at the
-                # primary (first) non-spatial dim so 3-D consumers see no
-                # change.
-                if len(dims) > 2:
-                    spatial_indices = {len(dims) - 1, len(dims) - 2}
-                    band_dims = [
-                        d for i, d in enumerate(dims) if i not in spatial_indices
-                    ]
-                else:
-                    band_dims = []
+    @staticmethod
+    def _correct_flipped_geotransform(cube: NetCDF) -> None:
+        """Flip a south-to-north geotransform (positive Y pixel size) to north-up on the wrapper.
 
-                if band_dims:
-                    cube._band_dim_names = tuple(d.GetName() for d in band_dims)
-                    cube._band_dim_sizes = tuple(d.GetSize() for d in band_dims)
-                    cube._band_dim_values_map = {}
-                    for d in band_dims:
-                        iv = d.GetIndexingVariable()
-                        try:
-                            values = (
-                                iv.ReadAsArray().tolist() if iv is not None else None
-                            )
-                        except RuntimeError:
-                            # String-typed indexing variables (e.g. WRF
-                            # "Times") can't be read via ReadAsArray in
-                            # GDAL SWIG bindings — fall back to indices.
-                            values = list(range(d.GetSize()))
-                        cube._band_dim_values_map[d.GetName()] = values
-                    cube._band_dim_name = cube._band_dim_names[0]
-                    cube._band_dim_values = cube._band_dim_values_map[
-                        cube._band_dim_name
-                    ]
-                else:
-                    cube._band_dim_name = None
-                    cube._band_dim_values = None
-                    cube._band_dim_names = ()
-                    cube._band_dim_values_map = {}
-                    cube._band_dim_sizes = ()
+        A no-op unless `cube._geotransform[5] > 0`. Used after a lazy `GetView` Y-flip when the Y
+        dimension has no indexing variable, so GDAL could not correct the geotransform itself.
+        """
+        gt = cube._geotransform
+        if gt[5] > 0:
+            cube._geotransform = (
+                gt[0],
+                gt[1],
+                gt[2],
+                gt[3] + gt[5] * cube._rows,
+                gt[4],
+                -gt[5],
+            )
+            cube._cell_size = abs(gt[1])
 
-                # Copy variable attributes
-                cube._variable_attrs = {}
-                try:
-                    for attr in md_arr.GetAttributes():
-                        cube._variable_attrs[attr.GetName()] = attr.Read()
-                except Exception:
-                    pass  # nosec B110
+    def _georeference_index_subset(self, cube: "NetCDF") -> "NetCDF":
+        """Re-georeference a variable subset whose MDArray view came back in index space.
 
-                # Scale/offset for CF packed data
-                try:
-                    cube._scale = md_arr.GetScale()
-                    cube._offset = md_arr.GetOffset()
-                except Exception:
-                    cube._scale = None
-                    cube._offset = None
-            else:
-                cube._md_array_dims = []
-                cube._band_dim_name = None
-                cube._band_dim_values = None
-                cube._band_dim_names = ()
-                cube._band_dim_values_map = {}
-                cube._band_dim_sizes = ()
-                cube._variable_attrs = {}
-                cube._scale = None
-                cube._offset = None
+        A subset built from a bare MDArray view can carry an index-space geotransform (cell
+        size 1, origin 0) even though the file has real 1-D lon/lat coordinate variables. Those
+        coordinates aren't reachable from the subset itself (it has no root group and an empty
+        ``file_name``), but they are on this parent container. When they match the subset's grid
+        shape and disagree with the view's geotransform, wrap the view in a VRT carrying the
+        coordinate-derived geotransform, so warp-based operations (``to_crs`` / ``crop`` /
+        ``wrap_longitude``) and basemaps use real degrees instead of pixel indices. The view's
+        geotransform is immutable (``SetGeoTransform`` is a no-op on it), hence the VRT wrapper.
+
+        A no-op when: the cube isn't a variable subset; the view is already georeferenced (the
+        common case — the derived geotransform matches); or the file has no 1-D lon/lat matching
+        the grid shape (curvilinear 2-D coordinates, named coordinate variables, etc.). The
+        coordinates are read from the parent rather than via ``cube.lon`` / ``cube.lat`` so those
+        accessors keep their existing geotransform-derived (north-up) orientation.
+        """
+        if isinstance(cube, NetCDF):
+            real_gt = self._coordinate_derived_geotransform(cube)
+            if real_gt is not None:
+                vrt = gdal.Translate("", cube._raster, format="VRT")
+                if vrt is not None:
+                    vrt.SetGeoTransform(list(real_gt))
+                    if cube.epsg:
+                        vrt.SetProjection(sr_from_epsg(int(cube.epsg)).ExportToWkt())
+                    # The VRT reads through the MDArray view, so keep that view alive.
+                    cube._view_source = cube._raster
+                    cube._raster = vrt
+                    cube._geotransform = real_gt
+                    cube._cell_size = real_gt[1]
+        return cube
+
+    def _coordinate_derived_geotransform(self, cube: "NetCDF") -> tuple | None:
+        """Real-world geotransform from the parent's 1-D lon/lat, or ``None`` if not applicable.
+
+        Returns the north-up affine implied by the parent container's 1-D ``lon``/``lat`` (or
+        ``x``/``y``) coordinate variables when they (a) match the subset's grid shape, (b) index the
+        subset's spatial dimensions by name (CF coordinate-variable convention — guards a same-shaped
+        but different staggered/rotated axis from adopting the wrong coordinates), and (c) actually
+        differ from the subset's current (index-space) geotransform. Otherwise ``None``.
+        """
+        result = None
+        lon, lon_name = None, None
+        for cand in ("lon", "x"):
+            arr = self._read_variable(cand)
+            if arr is not None:
+                lon, lon_name = np.asarray(arr), cand
+                break
+        lat = None
+        for cand in ("lat", "y"):
+            arr = self._read_variable(cand)
+            if arr is not None:
+                lat = np.asarray(arr)
+                break
+        # Adopt the parent's lon/lat only when the variable actually has the longitude coordinate
+        # dimension (by the CF coordinate-variable convention a 1-D coord var shares its dimension's
+        # name). Test membership, not position, so it holds when x_dim/y_dim select a non-trailing
+        # plane (e.g. T(time, lat, lev, lon)). Only the X (longitude) dim is checked: the Y-flip in
+        # _read_md_array renames the latitude dimension (e.g. ``subset_lat_…``), so the lat name is
+        # not reliably present. This still guards a same-shaped but unrelated axis (one with no
+        # longitude dimension) from adopting the wrong coordinates.
+        dim_names = getattr(cube, "_md_array_dims", None) or []
+        names_ok = (not dim_names) or (lon_name in dim_names)
+        if (
+            lon is not None
+            and lat is not None
+            and lon.ndim == 1
+            and lat.ndim == 1
+            and len(lon) == cube.columns
+            and len(lat) == cube.rows
+            and len(lon) >= 2
+            and len(lat) >= 2
+            and names_ok
+        ):
+            x_cell = abs(float(lon[1] - lon[0]))
+            y_cell = abs(float(lat[1] - lat[0]))
+            y_top = max(float(lat[0]), float(lat[-1])) + y_cell / 2
+            real_gt = (float(lon[0]) - x_cell / 2, x_cell, 0.0, y_top, 0.0, -y_cell)
+            current = cube._raster.GetGeoTransform()
+            if not all(abs(float(a) - float(b)) < 1e-6 for a, b in zip(real_gt, current)):
+                result = real_gt
+        return result
+
+    def _attach_variable_metadata(
+        self, cube: NetCDF, md_arr, spatial_dim_indices: tuple[int, int] | None
+    ) -> None:
+        """Populate band-dim tracking, variable attributes, and packing on a variable subset.
+
+        When `md_arr` is `None` (e.g. the file-backed gdal.Open path or a 1-D string variable) the
+        band/attr metadata is cleared to empty defaults.
+        """
+        if md_arr is None:
+            self._clear_variable_metadata(cube)
+            return
+        dims = md_arr.GetDimensions()
+        cube._md_array_dims = [d.GetName() for d in dims]
+        self._track_band_dimensions(cube, dims, spatial_dim_indices)
+        self._copy_variable_attrs(cube, md_arr)
+
+    @staticmethod
+    def _clear_variable_metadata(cube: NetCDF) -> None:
+        """Reset a subset's band-dimension, attribute, and packing metadata to empty defaults."""
+        cube._md_array_dims = []
+        cube._band_dim_name = None
+        cube._band_dim_values = None
+        cube._band_dim_names = ()
+        cube._band_dim_values_map = {}
+        cube._band_dim_sizes = ()
+        cube._variable_attrs = {}
+        cube._scale = None
+        cube._offset = None
+
+    @staticmethod
+    def _track_band_dimensions(
+        cube: NetCDF, dims, spatial_dim_indices: tuple[int, int] | None
+    ) -> None:
+        """Map every non-spatial dimension onto bands so `sel()` can address 4-D+ variables.
+
+        The spatial (X/Y) dimensions are taken from `spatial_dim_indices` (resolved on the unflipped
+        array) when available, else the last two. The legacy `_band_dim_name`/`_band_dim_values`
+        fields point at the first non-spatial dim so existing 3-D consumers are unaffected.
+        """
+        if len(dims) > 2:
+            spatial = (
+                set(spatial_dim_indices)
+                if spatial_dim_indices is not None
+                else {len(dims) - 1, len(dims) - 2}
+            )
+            band_dims = [d for i, d in enumerate(dims) if i not in spatial]
         else:
-            cube._md_array_dims = []
+            band_dims = []
+
+        if not band_dims:
             cube._band_dim_name = None
             cube._band_dim_values = None
             cube._band_dim_names = ()
             cube._band_dim_values_map = {}
             cube._band_dim_sizes = ()
-            cube._variable_attrs = {}
+            return
+
+        cube._band_dim_names = tuple(d.GetName() for d in band_dims)
+        cube._band_dim_sizes = tuple(d.GetSize() for d in band_dims)
+        cube._band_dim_values_map = {
+            d.GetName(): NetCDF._read_band_dim_values(d) for d in band_dims
+        }
+        cube._band_dim_name = cube._band_dim_names[0]
+        cube._band_dim_values = cube._band_dim_values_map[cube._band_dim_name]
+
+    @staticmethod
+    def _read_band_dim_values(dim):
+        """Indexing-variable values for a band dimension, or integer indices when unreadable.
+
+        String-typed indexing variables (e.g. WRF `Times`) cannot be read via `ReadAsArray` in the
+        GDAL SWIG bindings, so they fall back to `[0, 1, ..., size - 1]`.
+        """
+        indexing_var = dim.GetIndexingVariable()
+        if indexing_var is None:
+            return None
+        try:
+            return indexing_var.ReadAsArray().tolist()
+        except RuntimeError:
+            return list(range(dim.GetSize()))
+
+    @staticmethod
+    def _copy_variable_attrs(cube: NetCDF, md_arr) -> None:
+        """Copy the variable's attributes and CF `scale`/`offset` packing onto the subset."""
+        cube._variable_attrs = {}
+        try:
+            for attr in md_arr.GetAttributes():
+                cube._variable_attrs[attr.GetName()] = attr.Read()
+        except Exception:  # nosec B110
+            pass
+        try:
+            cube._scale = md_arr.GetScale()
+            cube._offset = md_arr.GetOffset()
+        except Exception:
             cube._scale = None
             cube._offset = None
-
-        return cube
 
     def _replace_raster(self, new_raster: gdal.Dataset):
         """Replace the internal GDAL dataset, closing the old one if different.
@@ -3826,19 +4369,107 @@ class NetCDF(Dataset):
         path = Path(path)
         extension = path.suffix[1:].lower()
         if extension in ("nc", "nc4"):
+            self._write_netcdf(path)
+        elif self._is_md_array and not self._is_subset:
+            raise ValueError(
+                "Cannot save a multidimensional NetCDF container as "
+                f"'{extension}'. Use .nc extension or extract a "
+                "variable first with .get_variable()."
+            )
+        else:
+            super().to_file(path, **kwargs)
+
+    def _write_netcdf(self, path: Path) -> None:
+        """Write this dataset to a netCDF file, preserving the declared (or absent) convention.
+
+        Uses GDAL's ``CreateCopy`` and falls back to a manual multidim copy when that raises on some
+        dimension layouts (#584), then strips any writer-injected ``Conventions`` if the source declared
+        none (#583).
+        """
+        source_conventions = self.global_attributes.get("Conventions")
+        try:
             dst = gdal.GetDriverByName("netCDF").CreateCopy(str(path), self._raster, 0)
+        except RuntimeError:
+            # GDAL's netCDF CreateCopy raises on some dimension layouts (re-declaring a dimension
+            # name, #584). Fall back to a manual multidim copy that creates each dimension once.
+            self._remove_path(path)
+            self._manual_netcdf_copy(path)
+        else:
             if dst is None:
                 raise RuntimeError(f"Failed to save NetCDF to {path}")
             dst.FlushCache()
             dst = None
-        else:
-            if self._is_md_array and not self._is_subset:
-                raise ValueError(
-                    "Cannot save a multidimensional NetCDF container as "
-                    f"'{extension}'. Use .nc extension or extract a "
-                    "variable first with .get_variable()."
-                )
-            super().to_file(path, **kwargs)
+        if source_conventions is None:
+            self._strip_injected_conventions(path)
+
+    @staticmethod
+    def _remove_path(path: Path) -> None:
+        """Delete a (possibly GDAL-locked) file, retrying once after a GC pass."""
+        if not path.exists():
+            return
+        try:
+            path.unlink()
+        except OSError:
+            gc.collect()
+            path.unlink()
+
+    def _manual_netcdf_copy(self, path: str | Path) -> None:
+        """Write this container to netCDF by copying each variable explicitly.
+
+        Fallback for files where GDAL's ``CreateCopy`` raises while re-declaring dimensions (#584).
+        Each dimension is created once via ``_add_md_array_to_group`` -> ``_resolve_dst_dimensions``.
+        Root-level variables and global attributes only; hierarchical groups are not handled here
+        (those files copy fine through ``CreateCopy``), so this raises if the source has subgroups.
+        """
+        src_rg = self._raster.GetRootGroup()
+        if src_rg is None:
+            raise RuntimeError("manual netCDF copy requires a multidimensional container")
+        if src_rg.GetGroupNames():
+            raise RuntimeError(
+                f"manual netCDF copy of {path} does not support hierarchical groups"
+            )
+        dst = gdal.GetDriverByName("netCDF").CreateMultiDimensional(str(path), ["FORMAT=NC4"])
+        dst_rg = dst.GetRootGroup()
+        self._copy_md_array_attributes(src_rg, dst_rg)
+        for var_name in src_rg.GetMDArrayNames():
+            self._add_md_array_to_group(dst_rg, var_name, src_rg.OpenMDArray(var_name))
+        dst_rg = None
+        dst.FlushCache()
+        dst = None
+        gc.collect()
+
+    @staticmethod
+    def _md_array_to_numpy(md_arr):
+        """Read an MDArray to numpy, using the list-based ``Read()`` for string arrays.
+
+        GDAL's SWIG ``ReadAsArray`` raises ("String buffer data type not supported") on string MDArrays,
+        so character coordinate/data variables are read via ``Read()`` and wrapped as a numpy array (#586,
+        same limitation handled in ``_add_md_array_to_group`` for #565).
+        """
+        if md_arr.GetDataType().GetClass() == gdal.GEDTC_STRING:
+            return np.array(md_arr.Read())
+        return md_arr.ReadAsArray()
+
+    @staticmethod
+    def _strip_injected_conventions(path: str | Path) -> None:
+        """Delete a writer-injected ``Conventions`` global attribute from a just-written netCDF file.
+
+        GDAL's netCDF driver adds a default ``Conventions`` (e.g. ``CF-1.6``) on write when the source
+        declares none. Callers use this to keep a no-convention file from being relabelled as CF (#583).
+        """
+        ds = gdal.OpenEx(str(path), gdal.OF_MULTIDIM_RASTER | gdal.OF_UPDATE)
+        if ds is None:
+            return
+        rg = ds.GetRootGroup()
+        if rg is not None and any(a.GetName() == "Conventions" for a in rg.GetAttributes()):
+            try:
+                rg.DeleteAttribute("Conventions")
+            except RuntimeError:
+                pass  # driver may not support attribute deletion — leave it
+        rg = None
+        ds.FlushCache()
+        ds = None
+        gc.collect()
 
     def copy(self, path: str | Path | None = None) -> NetCDF:
         """Create a deep copy of this NetCDF dataset.
@@ -4231,7 +4862,9 @@ class NetCDF(Dataset):
             extra_dims = []
         dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
         x_dim_values = NetCDF.get_x_lon_dimension_array(geo[0], geo[1], cols)
-        y_dim_values = NetCDF.get_y_lat_dimension_array(geo[3], geo[1], rows)
+        # Y/lat pixel height comes from geo[5] (negative), not geo[1] — using the X cell here would
+        # square a non-square grid (e.g. 2° lon, 1° lat). Pass the positive height abs(geo[5]).
+        y_dim_values = NetCDF.get_y_lat_dimension_array(geo[3], abs(geo[5]), rows)
 
         if path is not None:
             driver_type = "netCDF"
@@ -4354,9 +4987,113 @@ class NetCDF(Dataset):
         return src
 
     @staticmethod
+    def _resolve_dst_dimensions(dst_group, src_dims):
+        """Map source dimensions onto `dst_group`, creating any that are missing.
+
+        Reuses a destination dimension when one already exists with the same
+        name and size (so same-group copies like `rename_variable` keep sharing
+        their dimensions); otherwise recreates it from the source dimension's
+        name, type, direction, and size. This lets `_add_md_array_to_group`
+        copy a variable into a *different* container's group.
+        """
+        existing = {dim.GetName(): dim for dim in (dst_group.GetDimensions() or [])}
+        resolved = []
+        for dim in src_dims:
+            size = dim.GetSize()
+            match = existing.get(dim.GetName())
+            if match is not None and match.GetSize() == size:
+                resolved.append(match)
+                continue
+            # Name taken by a different-sized dimension: fall back to a size-suffixed name (matching
+            # _get_or_create_dimension), reusing a same-size match and uniquifying on any collision.
+            name = dim.GetName() if match is None else f"{dim.GetName()}_{size}"
+            existing_match = existing.get(name)
+            if existing_match is not None and existing_match.GetSize() == size:
+                resolved.append(existing_match)
+                continue
+            suffix = 1
+            while name in existing and existing[name].GetSize() != size:
+                name = f"{dim.GetName()}_{size}_{suffix}"
+                suffix += 1
+            new_dim = dst_group.CreateDimension(
+                name, dim.GetType(), dim.GetDirection(), size
+            )
+            existing[name] = new_dim
+            resolved.append(new_dim)
+        return resolved
+
+    @staticmethod
+    def _copy_md_array_attributes(src_mdarray, dst_mdarray):
+        """Copy every attribute from one MDArray to another, preserving dtype.
+
+        GDAL's `Attribute.Write` routes through `WriteRaw`, which rejects numeric
+        tuples, so each attribute is written with the type-specific call that
+        matches its class (string vs integer vs floating point) and arity.
+        """
+        for attr in src_mdarray.GetAttributes():
+            name = attr.GetName()
+            data_type = attr.GetDataType()
+            count = attr.GetTotalElementsCount()
+            dims = [] if count <= 1 else [count]
+            if data_type.GetClass() == gdal.GEDTC_STRING:
+                new_attr = dst_mdarray.CreateAttribute(
+                    name, dims, gdal.ExtendedDataType.CreateString()
+                )
+                if count <= 1:
+                    new_attr.WriteString(attr.ReadAsString())
+                else:
+                    new_attr.WriteStringArray(attr.ReadAsStringArray())
+                continue
+            numeric_type = data_type.GetNumericDataType()
+            new_attr = dst_mdarray.CreateAttribute(
+                name, dims, gdal.ExtendedDataType.Create(numeric_type)
+            )
+            NetCDF._write_numeric_attribute(new_attr, attr, numeric_type, count)
+
+    @staticmethod
+    def _write_numeric_attribute(new_attr, src_attr, numeric_type, count):
+        """Write a numeric attribute with the GDAL call matching its dtype class and arity.
+
+        64-bit integer codes (``GDT_Int64`` / ``GDT_UInt64``) use the 64-bit ``WriteInt64`` /
+        ``ReadAsInt64`` calls; the 32-bit ``WriteInt`` / ``ReadAsInt`` would truncate large values
+        (e.g. an Int64 ``_FillValue``). Other integer codes use the 32-bit integer calls and
+        everything else uses the floating-point calls.
+
+        Args:
+            new_attr: The destination ``gdal.Attribute`` to write into.
+            src_attr: The source ``gdal.Attribute`` to read from.
+            numeric_type: The GDAL numeric data type code of the attribute.
+            count: Total element count (``<= 1`` is written as a scalar, otherwise as an array).
+        """
+        is_int64 = numeric_type in (gdal.GDT_Int64, gdal.GDT_UInt64)
+        is_integer = numeric_type in _GDAL_INTEGER_DTYPES
+        if count <= 1:
+            if is_int64:
+                new_attr.WriteInt64(src_attr.ReadAsInt64())
+            elif is_integer:
+                new_attr.WriteInt(src_attr.ReadAsInt())
+            else:
+                new_attr.WriteDouble(src_attr.ReadAsDouble())
+        elif is_int64:
+            new_attr.WriteInt64Array(src_attr.ReadAsInt64Array())
+        elif is_integer:
+            new_attr.WriteIntArray(src_attr.ReadAsIntArray())
+        else:
+            new_attr.WriteDoubleArray(src_attr.ReadAsDoubleArray())
+
+    @staticmethod
     def _add_md_array_to_group(dst_group, var_name, src_mdarray):
-        """Copy an MDArray from one group to another, preserving data and metadata."""
-        src_dims = src_mdarray.GetDimensions()
+        """Copy an MDArray into `dst_group`, preserving data, packing, and metadata.
+
+        Dimensions are resolved against the destination group, so the source may
+        live in a different container. The on-disk packing (`scale`/`offset`),
+        `unit`, no-data value, spatial reference, and all variable attributes are
+        carried across. Scale/offset/unit/no-data are set before the data is
+        written so the netCDF driver accepts the fill value.
+        """
+        src_dims = NetCDF._resolve_dst_dimensions(
+            dst_group, src_mdarray.GetDimensions()
+        )
         if src_mdarray.GetDataType().GetClass() == gdal.GEDTC_STRING:
             # String MDArrays can't go through ReadAsArray (numpy) in the GDAL
             # SWIG bindings, but the Python list Read()/Write() path works. Use it
@@ -4365,12 +5102,21 @@ class NetCDF(Dataset):
             new_md_array = dst_group.CreateMDArray(
                 var_name, src_dims, gdal.ExtendedDataType.CreateString()
             )
+            NetCDF._copy_md_array_attributes(src_mdarray, new_md_array)
             new_md_array.Write(src_mdarray.Read())
         else:
             arr = src_mdarray.ReadAsArray()
             dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
             new_md_array = dst_group.CreateMDArray(var_name, src_dims, dtype)
-            new_md_array.Write(arr)
+            scale = src_mdarray.GetScale()
+            if scale is not None:
+                new_md_array.SetScale(scale)
+            offset = src_mdarray.GetOffset()
+            if offset is not None:
+                new_md_array.SetOffset(offset)
+            unit = src_mdarray.GetUnit()
+            if unit:
+                new_md_array.SetUnit(unit)
             ndv = src_mdarray.GetNoDataValue()
             if ndv is not None:
                 try:
@@ -4378,6 +5124,8 @@ class NetCDF(Dataset):
                 except Exception:
                     pass
             new_md_array.SetSpatialRef(src_mdarray.GetSpatialRef())
+            NetCDF._copy_md_array_attributes(src_mdarray, new_md_array)
+            new_md_array.Write(arr)
 
     @staticmethod
     def _get_or_create_dimension(
@@ -4538,6 +5286,12 @@ class NetCDF(Dataset):
                 "set_variable requires a multidimensional container. "
                 "Open the file with open_as_multi_dimensional=True."
             )
+        # CreateMDArray / DeleteMDArray / CreateDimension are rejected on a file-backed group (netCDF
+        # data mode); operate on a writable MEM copy and swap it in, like remove_variable (#587).
+        if self.driver_type != "memory":
+            work = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
+            self._replace_raster(work)
+            rg = self._raster.GetRootGroup()
 
         # Auto-detect from tracked origin metadata (RT-4)
         if band_dim_name is None and hasattr(dataset, "_band_dim_name"):
@@ -4751,7 +5505,6 @@ class NetCDF(Dataset):
                 the same name already exists, it is renamed with a
                 `"-new"` suffix.
         """
-        src_rg = self._raster.GetRootGroup()
         var_rg = dataset._raster.GetRootGroup()
         names_to_copy: list[str]
         if variable_name is not None:
@@ -4761,12 +5514,24 @@ class NetCDF(Dataset):
         else:
             names_to_copy = []
 
+        # A file-backed root group is opened in netCDF "data mode", which forbids
+        # CreateMDArray; operate on a writable MEM copy and swap it in, mirroring
+        # remove_variable.
+        if self.driver_type == "memory":
+            dst = self._raster
+        else:
+            dst = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
+        dst_rg = dst.GetRootGroup()
+
         for var in names_to_copy:
             md_arr = var_rg.OpenMDArray(var)
             # If the variable name already exists in the destination dataset,
             # use a suffixed name to avoid overwriting the original.
-            target_name = f"{var}-new" if var in self.variable_names else var
-            self._add_md_array_to_group(src_rg, target_name, md_arr)
+            existing = dst_rg.GetMDArrayNames() or []
+            target_name = f"{var}-new" if var in existing else var
+            self._add_md_array_to_group(dst_rg, target_name, md_arr)
+
+        self._replace_raster(dst)
         self._invalidate_caches()
 
     def remove_variable(self, variable_name: str):
@@ -4810,13 +5575,21 @@ class NetCDF(Dataset):
         if new_name in self.variable_names:
             raise ValueError(f"Variable '{new_name}' already exists.")
 
-        rg = self._raster.GetRootGroup()
-        if rg is None:
+        if self._raster.GetRootGroup() is None:
             raise ValueError("rename_variable requires a multidimensional container.")
 
+        # CreateMDArray is rejected on a file-backed group (netCDF data mode);
+        # work on a writable MEM copy and swap it in, like remove_variable.
+        if self.driver_type == "memory":
+            dst = self._raster
+        else:
+            dst = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
+
+        rg = dst.GetRootGroup()
         md_arr = rg.OpenMDArray(old_name)
         self._add_md_array_to_group(rg, new_name, md_arr)
         rg.DeleteMDArray(old_name)
+        self._replace_raster(dst)
         self._invalidate_caches()
 
     def to_xarray(self) -> Any:
@@ -4891,7 +5664,7 @@ class NetCDF(Dataset):
             unit = iv.GetUnit()
             if unit and "units" not in coord_attrs:
                 coord_attrs["units"] = unit
-            coords[dim_name] = ([dim_name], iv.ReadAsArray(), coord_attrs)
+            coords[dim_name] = ([dim_name], self._md_array_to_numpy(iv), coord_attrs)
 
         data_vars: dict[str, Any] = {}
         for var_name in self.variable_names:
@@ -4900,7 +5673,7 @@ class NetCDF(Dataset):
                 continue
             arr_dims = md_arr.GetDimensions() or []
             arr_dim_names = [ad.GetName() for ad in arr_dims]
-            arr_data = md_arr.ReadAsArray()
+            arr_data = self._md_array_to_numpy(md_arr)
             var_attrs: dict[str, Any] = {}
             try:
                 for attr in md_arr.GetAttributes():

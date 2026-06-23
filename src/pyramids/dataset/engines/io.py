@@ -1365,6 +1365,9 @@ class IO(_Engine):
             window = list(window.to_read_args())
         if not isinstance(window, (list, tuple)):
             raise ValueError(f"window must be a list of 4 integers, got {type(window)}")
+        # A NetCDF variable's multidim view can't be read with a partial window by GDAL >= 3.13;
+        # materialise it to an in-memory raster first (no-op for an ordinary raster).
+        self._ds._materialize_md_view()
         try:
             block = self._ds._iloc(band).ReadAsArray(
                 window[0], window[1], window[2], window[3]
@@ -1895,6 +1898,9 @@ class IO(_Engine):
                 f"driver {driver!r} does not support CreateCopy; choose a "
                 "copy-capable single-file raster driver (e.g. GTiff, PNG)."
             )
+        # CreateCopy does tiled reads of the source; a NetCDF multidim view can't be window-read by
+        # GDAL >= 3.13, so materialise it first (no-op for an ordinary raster).
+        self._ds._materialize_md_view()
         extension = (
             drv.GetMetadataItem(gdal.DMD_EXTENSION)
             or (drv.GetMetadataItem(gdal.DMD_EXTENSIONS) or "").split(" ")[0]
@@ -2163,6 +2169,9 @@ class IO(_Engine):
                 kwargs["new_axis"] = new_axis
             result: Any = da.map_blocks(func, lazy_src, **kwargs)
         else:
+            # The eager tile loop below reads windows from the source; a NetCDF multidim view can't
+            # be window-read by GDAL >= 3.13, so materialise it first (no-op for an ordinary raster).
+            self._ds._materialize_md_view()
             if band is not None:
                 bands = 1
                 gdal_dtype = self._ds.gdal_dtype[band]

@@ -408,6 +408,21 @@ class VariableInfo:
     structural_info: dict[str, str] | None = None
     block_size: list[int] | None = None
 
+    def __str__(self) -> str:
+        """One-line summary: name, dimensions, shape, dtype, and packing/unit when present."""
+        dtype = self.dtype if len(self.dtype) < 20 else "unknown"
+        summary = (
+            f"{self.name} dims={tuple(self.dimensions)} "
+            f"shape={tuple(self.shape)} dtype={dtype}"
+        )
+        if self.unit:
+            summary += f" unit={self.unit!r}"
+        # Show packing when either a non-trivial scale or a non-trivial offset is set, so an
+        # offset-only variable (scale == 1) is not hidden from the summary.
+        if self.scale not in (None, 1) or self.offset not in (None, 0):
+            summary += f" scale={self.scale} offset={self.offset}"
+        return summary
+
     @classmethod
     def from_md_array(
         cls, md_arr: gdal.MDArray, md_arr_name: str, group_full_name: str
@@ -752,8 +767,7 @@ class NetCDFMetadata:
         max_display = MAX_DISPLAY_VARIABLES
         arr_list = list(self.variables.values())
         for arr in arr_list[:max_display]:
-            dtype_str = arr.dtype if len(arr.dtype) < 20 else "unknown"
-            var_lines.append(f"    {arr.name:20s} {dtype_str:10s} {list(arr.shape)}")
+            var_lines.append(f"    {arr}")
         if len(arr_list) > max_display:
             var_lines.append(f"    ... and {len(arr_list) - max_display} more")
         vars_str = "\n".join(var_lines) if var_lines else "    (none)"
@@ -884,11 +898,15 @@ class NetCDFMetadata:
             NetCDFMetadata.dimensions: The full dimensions
                 dictionary keyed by full name.
         """
-        # Try full name first (exact key lookup)
+        # Exact key match (keys are full names with the leading "/" stripped).
         if name in self.dimensions:
             return self.dimensions[name]
-        # Try matching by short name
+        # Normalize a "/"-prefixed full name ("/time", "/group/time") to the stripped key form.
+        stripped = name.lstrip("/")
+        if stripped in self.dimensions:
+            return self.dimensions[stripped]
+        # Fall back to matching the short name or the full name of any dimension.
         for dim in self.dimensions.values():
-            if dim.name == name:
+            if dim.name == name or dim.full_name == name:
                 return dim
         return None

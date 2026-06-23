@@ -834,6 +834,8 @@ class Bands(_Engine):
         row = 0
         for band in band_iter:
             color_table = self._ds.raster.GetRasterBand(band + 1).GetRasterColorTable()
+            if color_table is None:
+                continue  # band has no colour palette (the common case) — skip it
             for i in range(color_table.GetCount()):
                 df.loc[row, ["red", "green", "blue", "alpha"]] = (
                     color_table.GetColorEntry(i)
@@ -963,10 +965,15 @@ class Bands(_Engine):
                     )
 
     def _calculate_bbox(self) -> list:
-        """Calculate bounding box."""
-        x_min, y_max = self._ds.top_left_corner
-        y_min = y_max - self._ds.rows * self._ds.cell_size
-        x_max = x_min + self._ds.columns * self._ds.cell_size
+        """Calculate bounding box from the geotransform's separate X/Y pixel sizes.
+
+        Uses ``geotransform[1]``/``geotransform[5]`` rather than a single ``cell_size`` so non-square
+        grids (e.g. 2° longitude, 1° latitude) are not stretched.
+        """
+        gt = self._ds.geotransform
+        x_min, y_max = gt[0], gt[3]
+        x_max = x_min + self._ds.columns * gt[1]
+        y_min = y_max + self._ds.rows * gt[5]
         return [x_min, y_min, x_max, y_max]
 
     def _calculate_bounds(self) -> GeoDataFrame:

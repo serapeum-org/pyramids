@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from xml.sax.saxutils import escape
 
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
@@ -57,6 +58,40 @@ def _dst_srs_arg(dst_sr: osr.SpatialReference) -> str:
     else:
         srs_arg = dst_sr.ExportToWkt()
     return srs_arg
+
+
+def _resolve_resolution(
+    cell_size: float | tuple[float, float] | list[float] | None,
+) -> tuple[float | None, float | None]:
+    """Resolve a ``cell_size`` argument to a positive ``(x_res, y_res)`` pair.
+
+    Accepts a scalar (square cells), an ``(x_res, y_res)`` pair (non-square cells), or ``None``
+    (returned as ``(None, None)`` so callers can let GDAL infer the output resolution).
+
+    Args:
+        cell_size: Output pixel size — a scalar, an ``(x_res, y_res)`` sequence, or ``None``.
+
+    Returns:
+        tuple: ``(x_res, y_res)``; both ``None`` when ``cell_size`` is ``None``.
+
+    Raises:
+        ValueError: If the pair is not length 2, or any resolution is not positive.
+    """
+    if cell_size is None:
+        result = (None, None)
+    else:
+        if isinstance(cell_size, (tuple, list)):
+            if len(cell_size) != 2:
+                raise ValueError(
+                    f"cell_size must be a scalar or an (x_res, y_res) pair, got {cell_size!r}."
+                )
+            x_res, y_res = float(cell_size[0]), float(cell_size[1])
+        else:
+            x_res = y_res = float(cell_size)
+        if x_res <= 0 or y_res <= 0:
+            raise ValueError(f"cell_size must be positive, got {cell_size!r}.")
+        result = (x_res, y_res)
+    return result
 
 
 class Spatial(_Engine):
@@ -116,6 +151,8 @@ class Spatial(_Engine):
         to_epsg: int | str | Any,
         method: str = "nearest neighbor",
         maintain_alignment: bool = False,
+        *,
+        cell_size: float | tuple[float, float] | None = None,
     ) -> Dataset:
         """Reproject the dataset to any projection.
 
@@ -144,6 +181,10 @@ class Spatial(_Engine):
             maintain_alignment (bool):
                 True to maintain the number of rows and columns of the raster the same after reprojection.
                 Default is False.
+            cell_size (float | tuple, keyword-only):
+                Optional output pixel size in target-CRS units. A scalar gives square cells; an
+                ``(x_res, y_res)`` pair gives non-square cells. ``None`` (default) lets GDAL pick the
+                output resolution. Not supported together with ``maintain_alignment=True``.
 
         Returns:
             Dataset:
@@ -254,14 +295,25 @@ class Spatial(_Engine):
         resampling_method: int = resolve_resampling(method)
 
         if maintain_alignment:
+            # Reject cell_size before validating it, so the more specific "not supported with
+            # maintain_alignment" error wins over the generic shape/positivity check.
+            if cell_size is not None:
+                raise ValueError(
+                    "cell_size is not supported with maintain_alignment=True (that path keeps the "
+                    "source row/column count). Use maintain_alignment=False to set the output cell size."
+                )
             dst_obj = self._reproject_with_ReprojectImage(dst_sr, resampling_method)
         else:
+            # cell_size may be a scalar (square) or an (x_res, y_res) pair (non-square output).
+            x_res, y_res = _resolve_resolution(cell_size)
             dst = gdal.Warp(
                 "",
                 self._ds.raster,
                 dstSRS=_dst_srs_arg(dst_sr),
                 format="VRT",
                 resampleAlg=resampling_method,
+                xRes=x_res,
+                yRes=y_res,
             )
             dst_obj = self._ds.__class__(dst)
 
@@ -272,7 +324,7 @@ class Spatial(_Engine):
         crs: int | str | Any,
         method: str = "nearest neighbor",
         *,
-        cell_size: float | None = None,
+        cell_size: float | tuple[float, float] | None = None,
         bbox: tuple[float, float, float, float] | None = None,
     ) -> Dataset:
         """Return a lazy, reprojected **view** of the dataset (no pixels warped yet).
@@ -302,9 +354,10 @@ class Spatial(_Engine):
                 accepted by :func:`pyramids.base._utils.resolve_resampling`
                 (case- and whitespace-insensitive). Default is
                 ``"nearest neighbor"``.
-            cell_size: Optional output pixel size in target-CRS units (applied
-                to both axes). ``None`` lets GDAL pick the size that preserves
-                the source resolution.
+            cell_size: Optional output pixel size in target-CRS units. A scalar
+                applies to both axes (square cells); an ``(x_res, y_res)`` pair
+                gives non-square cells. ``None`` lets GDAL pick the size that
+                preserves the source resolution.
             bbox: Optional ``(min_x, min_y, max_x, max_y)`` output extent in
                 the **target** CRS; ``None`` covers the warped source extent.
 
@@ -356,8 +409,7 @@ class Spatial(_Engine):
         dst_sr = sr_from_user_input(crs)
         resample_alg: int = resolve_resampling(method)
         dst_srs_arg = _dst_srs_arg(dst_sr)
-        if cell_size is not None and cell_size <= 0:
-            raise ValueError(f"cell_size must be positive, got {cell_size}.")
+        x_res, y_res = _resolve_resolution(cell_size)
         if bbox is not None:
             if len(bbox) != 4:
                 raise ValueError(
@@ -372,8 +424,8 @@ class Spatial(_Engine):
             format="VRT",
             dstSRS=dst_srs_arg,
             resampleAlg=resample_alg,
-            xRes=cell_size,
-            yRes=cell_size,
+            xRes=x_res,
+            yRes=y_res,
             outputBounds=bbox,
             multithread=True,
         )
@@ -404,54 +456,191 @@ class Spatial(_Engine):
 
         return epsg
 
-    def convert_longitude(self) -> Dataset:
-        """Convert Longitude.
+    def wrap_longitude(self) -> Dataset:
+        """Wrap a global raster's longitude from the 0/360 frame to the -180/180 frame.
 
-        - convert the longitude from 0-360 to -180 - 180.
-        - currently the function works correctly if the raster covers the whole world, it means that the columns
-            in the rasters covers from longitude 0 to 360.
+        The wrap is a pure column roll (no resampling): the columns whose longitude is greater than
+        180 (the western hemisphere in the -180/180 frame) move to the front, the remaining columns
+        follow, and the geotransform's top-left x is moved to -180. The raster must span the whole
+        globe (its last longitude must exceed 180).
+
+        Two execution paths, selected automatically by the source:
+
+        - **File-backed source** (a real on-disk raster): the roll is built as a lazy two-source VRT,
+          so no pixel data is read until the result is used (read, plotted, cropped, or written).
+        - **In-memory source** (e.g. a NetCDF variable view from ``get_variable``, which has no
+          filename for a VRT to reference): an eager fallback copies the dataset once via
+          ``MEM.CreateCopy`` (preserving all metadata) and rolls the columns in place, so the source
+          is read only once.
 
         Returns:
             Dataset:
-                A new Dataset with longitude converted to -180/180.
+                A new dataset of the same class on the -180/180 grid. Same shape, dtype, band count,
+                no-data value, and CRS as the source; only the columns and the top-left x change.
+                File-backed inputs yield a VRT-backed (lazy) dataset; in-memory inputs an MEM-backed
+                one.
+
+        Raises:
+            ValueError: If the grid is not a global 0-360 grid — it must span ~360° of longitude
+                (within one cell) and lie in the 0-360 frame (its last longitude exceeds 180).
+                Regional windows and grids already in the -180/180 frame are rejected.
+
+        Examples:
+            - Shift an in-memory 0-360 global raster and inspect the new extent:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> arr = np.arange(360, dtype=np.float32).reshape(1, 360)
+                >>> ds = Dataset.create_from_array(
+                ...     arr, top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326,
+                ...     no_data_value=-9999.0,
+                ... )
+                >>> shifted = ds.wrap_longitude()
+                >>> shifted.top_left_corner[0]
+                -180.0
+                >>> bool(shifted.lon.max() < 180)
+                True
+                >>> shifted.read_array(band=0).shape
+                (1, 360)
+
+                ```
+            - A raster that does not span the globe raises ``ValueError``:
+                ```python
+                >>> import numpy as np
+                >>> from pyramids.dataset import Dataset
+                >>> ds = Dataset.create_from_array(
+                ...     np.ones((3, 3), dtype=np.float32), top_left_corner=(0.0, 0.0),
+                ...     cell_size=0.05, epsg=4326, no_data_value=-9999.0,
+                ... )
+                >>> ds.wrap_longitude()  # doctest: +ELLIPSIS
+                Traceback (most recent call last):
+                    ...
+                ValueError: wrap_longitude requires a global grid ...
+
+                ```
+
+        See Also:
+            to_crs: Reproject to a different CRS (a full warp, not a column roll).
         """
-        # dst = gdal.Warp(
-        #     "",
-        #     self._ds.raster,
-        #     dstSRS="+proj=longlat +ellps=WGS84 +datum=WGS84 +lon_0=0 +over",
-        #     format="VRT",
-        # )
         lon = self._ds.lon
+        # Require a grid that actually spans the globe in the 0-360 frame: the longitudinal extent
+        # (n_columns * cell) must be ~360° (within one cell), and the last longitude must exceed 180.
+        # This rejects regional windows (e.g. 200-330) and grids already in the -180/180 frame, which
+        # the bare `lon[-1] > 180` check would have silently mis-wrapped.
+        cell = abs(float(lon[1] - lon[0])) if len(lon) > 1 else 0.0
+        spans_globe = cell > 0 and abs(len(lon) * cell - 360.0) <= cell
+        if not (spans_globe and lon[-1] > 180):
+            raise ValueError(
+                "wrap_longitude requires a global grid spanning ~360° in the 0-360 longitude "
+                f"frame; got {len(lon)} columns covering "
+                f"{float(lon[0]):g}..{float(lon[-1]):g}°."
+            )
+
         src = self._ds.raster
-        # create a copy
-        drv = gdal.GetDriverByName("MEM")
-        dst = drv.CreateCopy("", src, 0)
-        # convert the 0 to 360 to -180 to 180
-        if lon[-1] <= 180:
-            raise ValueError("The raster should cover the whole globe")
+        n_columns = src.RasterXSize
+        first_to_translated = int(np.nonzero(lon > 180)[0][0])
+        gt = list(src.GetGeoTransform())
+        gt[0] = self._ds.top_left_corner[0] - 180
 
-        first_to_translated = np.where(lon > 180)[0][0]
+        # Route to the lazy VRT only when the source is referenceable by a real on-disk path
+        # (a plain file). In-memory views — e.g. a NetCDF variable via AsClassicDataset — report the
+        # backing file in GetFileList() but expose no usable description for a VRT SourceFilename, so
+        # they take the eager path.
+        description = src.GetDescription()
+        # Path.exists() returns False (it never raises) for a non-path description — an empty
+        # in-memory view or a `NETCDF:"file":var` subdataset string — so those take the eager path.
+        is_file_backed = bool(description) and Path(description).exists()
 
-        ind = list(range(first_to_translated, len(lon)))
-        ind_2 = list(range(0, first_to_translated))
-
-        for band in range(self._ds.band_count):
-            arr = self._ds.read_array(band=band)
-            arr_rearranged = arr[:, ind + ind_2]
-            dst.GetRasterBand(band + 1).WriteArray(arr_rearranged)
-
-        # correct the geotransform
-        top_left_corner = self._ds.top_left_corner
-        gt = list(self._ds.geotransform)
-        if lon[-1] > 180:
-            new_gt = top_left_corner[0] - 180
-            gt[0] = new_gt
-
-        dst.SetGeoTransform(gt)
+        if is_file_backed:
+            # A — lazy: file-backed source, roll columns via a two-source VRT (no data read).
+            dst = self._wrap_longitude_vrt(src, first_to_translated, gt)
+        else:
+            # B — eager: in-memory source has no filename for a VRT, so materialise once via
+            # CreateCopy (which preserves all metadata) and roll the columns in place, reading the
+            # cheap in-memory copy instead of re-reading the source a second time.
+            dst = gdal.GetDriverByName("MEM").CreateCopy("", src, 0)
+            order = list(range(first_to_translated, n_columns)) + list(
+                range(0, first_to_translated)
+            )
+            for band in range(src.RasterCount):
+                gdal_band = dst.GetRasterBand(band + 1)
+                gdal_band.WriteArray(gdal_band.ReadAsArray()[:, order])
+            dst.SetGeoTransform(gt)
         return self._ds.__class__(dst)
 
+    @staticmethod
+    def _wrap_longitude_vrt(src, first_to_translated: int, gt: list) -> gdal.Dataset:
+        """Build a lazy two-source VRT that rolls 0-360 columns to -180-180 without reading data.
+
+        Each band gets two ``SimpleSource`` entries that reference the source file by an absolute path:
+        the columns ``>= first_to_translated`` (longitudes > 180, i.e. the western hemisphere in the
+        -180/180 frame) are mapped to the front, and the remaining columns follow. The source
+        projection, dataset metadata, and per-band no-data values are carried across. Reads against the
+        returned VRT are deferred to the backing file, so no pixel data is read here.
+
+        Args:
+            src (gdal.Dataset):
+                The file-backed source dataset (its ``GetDescription()`` must be a resolvable path).
+            first_to_translated (int):
+                Index of the first column whose longitude exceeds 180; the split point of the roll.
+            gt (list):
+                The destination geotransform (the source geotransform with its top-left x set to -180).
+
+        Returns:
+            gdal.Dataset:
+                An in-memory VRT dataset that lazily rolls the columns when read.
+        """
+        n_columns, n_rows, n_bands = src.RasterXSize, src.RasterYSize, src.RasterCount
+        right_width = n_columns - first_to_translated
+        # Use an absolute path so the in-memory VRT resolves the source regardless of CWD; leave
+        # non-path descriptions (e.g. `NETCDF:"file":var` subdatasets) untouched.
+        description = src.GetDescription()
+        source_name = str(Path(description).resolve()) if Path(description).exists() else description
+        source_name = escape(source_name)
+
+        vrt = gdal.GetDriverByName("VRT").Create("", n_columns, n_rows, 0)
+        vrt.SetGeoTransform(gt)
+        projection = src.GetProjection()
+        if projection:
+            vrt.SetProjection(projection)
+        vrt.SetMetadata(src.GetMetadata())
+
+        def simple_source(band_index: int, src_x_off: int, dst_x_off: int, width: int) -> str:
+            dtype = gdal.GetDataTypeName(src.GetRasterBand(band_index).DataType)
+            return (
+                f"<SimpleSource>"
+                f'<SourceFilename relativeToVRT="0">{source_name}</SourceFilename>'
+                f"<SourceBand>{band_index}</SourceBand>"
+                f'<SourceProperties RasterXSize="{n_columns}" RasterYSize="{n_rows}" '
+                f'DataType="{dtype}"/>'
+                f'<SrcRect xOff="{src_x_off}" yOff="0" xSize="{width}" ySize="{n_rows}"/>'
+                f'<DstRect xOff="{dst_x_off}" yOff="0" xSize="{width}" ySize="{n_rows}"/>'
+                f"</SimpleSource>"
+            )
+
+        for band_index in range(1, n_bands + 1):
+            source_band = src.GetRasterBand(band_index)
+            vrt.AddBand(source_band.DataType)
+            vrt_band = vrt.GetRasterBand(band_index)
+            no_data = source_band.GetNoDataValue()
+            if no_data is not None:
+                vrt_band.SetNoDataValue(no_data)
+            vrt_band.SetMetadataItem(
+                "source_0",
+                simple_source(band_index, first_to_translated, 0, right_width),
+                "new_vrt_sources",
+            )
+            vrt_band.SetMetadataItem(
+                "source_1",
+                simple_source(band_index, 0, right_width, first_to_translated),
+                "new_vrt_sources",
+            )
+        return vrt
+
     def resample(
-        self, cell_size: int | float, method: str = "nearest neighbor"
+        self,
+        cell_size: int | float | tuple[float, float],
+        method: str = "nearest neighbor",
     ) -> Dataset:
         """Resample a raster to a new cell size.
 
@@ -459,8 +648,10 @@ class Spatial(_Engine):
         existing CRS and extent. Returns a new in-memory Dataset; the source is left unchanged.
 
         Args:
-            cell_size (int | float):
-                New cell size to resample the raster to, in the units of the raster CRS.
+            cell_size (int | float | tuple):
+                New cell size to resample the raster to, in the units of the raster CRS. A scalar
+                applies to both axes (square cells); an ``(x_res, y_res)`` pair gives non-square
+                cells (e.g. ``(2.0, 1.0)`` for 2° longitude by 1° latitude).
             method (str):
                 Resampling method, case-insensitive. Default is "nearest neighbor". Allowed values: "nearest"
                 (alias "nearest neighbor"), "bilinear", "cubic", "cubic_spline", "lanczos", "average",
@@ -503,8 +694,15 @@ class Spatial(_Engine):
               ![resample-new](./../../_images/dataset/resample-new.png)
         """
         resampling_method: int = resolve_resampling(method)
+        # cell_size may be a scalar (square) or an (x_res, y_res) pair (non-square output).
+        x_res, y_res = _resolve_resolution(cell_size)
 
         sr_src = sr_from_wkt(self._ds.crs)
+        # NetCDF variable views expose their CRS as an EPSG code (derived from CF coordinates) rather
+        # than WKT on the raster, so `crs` can be empty even when `epsg` is known. Fall back to epsg to
+        # avoid building a corrupt SpatialReference (which fails on ExportToWkt) (#588).
+        if not self._ds.crs and self._ds.epsg:
+            sr_src = sr_from_epsg(self._ds.epsg)
 
         ulx = self._ds.geotransform[0]
         uly = self._ds.geotransform[3]
@@ -512,18 +710,18 @@ class Spatial(_Engine):
         lrx = self._ds.geotransform[0] + self._ds.geotransform[1] * self._ds.columns
         lry = self._ds.geotransform[3] + self._ds.geotransform[5] * self._ds.rows
 
-        # new geotransform
+        # new geotransform — separate X/Y cell sizes so non-square output is supported
         new_geo = (
             self._ds.geotransform[0],
-            cell_size,
+            x_res,
             self._ds.geotransform[2],
             self._ds.geotransform[3],
             self._ds.geotransform[4],
-            -1 * cell_size,
+            -1 * y_res,
         )
         # create a new raster
-        cols = int(np.round(abs(lrx - ulx) / cell_size))
-        rows = int(np.round(abs(uly - lry) / cell_size))
+        cols = int(np.round(abs(lrx - ulx) / x_res))
+        rows = int(np.round(abs(uly - lry) / y_res))
         dtype = self._ds.gdal_dtype[0]
         bands = self._ds.band_count
 
@@ -1166,9 +1364,14 @@ class Spatial(_Engine):
 
         x_ind = np.where(~rows_to_remove)[0][0]
         y_ind = np.where(~cols_to_remove)[0][0]
-        new_x = src.x[y_ind] - src.cell_size / 2
-        new_y = src.y[x_ind] + src.cell_size / 2
-        new_gt = (new_x, src.cell_size, 0, new_y, 0, -src.cell_size)
+        # Use the source's separate X/Y pixel sizes (gt[1], gt[5]) rather than a single cell_size, so
+        # a non-square grid (e.g. 2° lon, 1° lat) keeps its true latitude spacing. Identical to the
+        # old cell_size form on square grids (gt[1] == -gt[5] == cell_size).
+        warp_gt = src._raster.GetGeoTransform()
+        x_cell, y_cell = warp_gt[1], warp_gt[5]
+        new_x = src.x[y_ind] - x_cell / 2
+        new_y = src.y[x_ind] - y_cell / 2
+        new_gt = (new_x, x_cell, 0, new_y, 0, y_cell)
         new_src = src.create_from_array(
             small_array, geo=new_gt, no_data_value=src.no_data_value
         )

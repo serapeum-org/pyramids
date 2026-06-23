@@ -2305,11 +2305,11 @@ class TestToFileOptions:
             single_band_dataset.to_file("/nonexistent/path/to/file.tif")
 
 
-class TestConvertLongitude:
-    """Tests for convert_longitude method."""
+class TestWrapLongitude:
+    """Tests for wrap_longitude method."""
 
-    def test_convert_longitude_360_to_180(self):
-        """convert_longitude should convert 0-360 to -180-180 range."""
+    def test_wrap_longitude_360_to_180(self):
+        """wrap_longitude should convert 0-360 to -180-180 range."""
         cols = 360
         arr = np.ones((1, cols), dtype=np.float32)
         ds = Dataset.create_from_array(
@@ -2319,13 +2319,13 @@ class TestConvertLongitude:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        result = ds.convert_longitude()
-        assert result is not None, "convert_longitude should return a Dataset"
+        result = ds.wrap_longitude()
+        assert result is not None, "wrap_longitude should return a Dataset"
         gt = result.geotransform
         assert gt[0] < 0, "After conversion, top-left x should be negative"
 
-    def test_convert_longitude_raises_for_non_global(self):
-        """convert_longitude should raise for a non-global raster."""
+    def test_wrap_longitude_raises_for_non_global(self):
+        """wrap_longitude should raise for a small, clearly non-global raster."""
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.create_from_array(
             arr,
@@ -2334,11 +2334,25 @@ class TestConvertLongitude:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        with pytest.raises(ValueError, match="whole globe"):
-            ds.convert_longitude()
+        with pytest.raises(ValueError, match="global grid"):
+            ds.wrap_longitude()
 
-    def test_convert_longitude_returns_new_dataset(self):
-        """convert_longitude() should always return a new Dataset."""
+    def test_wrap_longitude_rejects_regional_window_past_180(self):
+        """A regional window whose longitudes exceed 180 but does not span the globe is rejected.
+
+        Test scenario:
+            A 53-column 2.5° grid over 200-330 has `lon[-1] > 180` but spans only ~132°, so the
+            tightened global-coverage guard raises instead of silently mis-wrapping it.
+        """
+        arr = np.ones((1, 53), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(200.0, 10.0), cell_size=2.5, epsg=4326, no_data_value=-9999.0
+        )
+        with pytest.raises(ValueError, match="global grid"):
+            ds.wrap_longitude()
+
+    def test_wrap_longitude_returns_new_dataset(self):
+        """wrap_longitude() should always return a new Dataset."""
         cols = 360
         arr = np.ones((1, cols), dtype=np.float32)
         ds = Dataset.create_from_array(
@@ -2348,9 +2362,198 @@ class TestConvertLongitude:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        result = ds.convert_longitude()
-        assert result is not None, "convert_longitude should return a Dataset"
-        assert isinstance(result, Dataset), "convert_longitude should return a Dataset"
+        result = ds.wrap_longitude()
+        assert result is not None, "wrap_longitude should return a Dataset"
+        assert isinstance(result, Dataset), "wrap_longitude should return a Dataset"
+
+
+class TestWrapLongitudePaths:
+    """wrap_longitude: lazy VRT for file-backed sources, eager roll for in-memory sources."""
+
+    def test_file_backed_uses_lazy_vrt(self, noah):
+        """A file-backed global raster is shifted lazily through a VRT (no eager copy)."""
+        result = Dataset(noah).wrap_longitude()
+        assert result.raster.GetDriver().ShortName == "VRT"
+        assert result.top_left_corner == (-180.0, 90.0)
+        # the VRT still reads back real data
+        assert result.read_array(band=0).shape == (noah.RasterYSize, noah.RasterXSize)
+
+    def test_in_memory_rolls_columns_exactly(self):
+        """An in-memory source is rolled exactly (eager path), preserving the no-data value."""
+        arr = np.arange(360, dtype=np.float32).reshape(1, 360)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+        )
+        result = ds.wrap_longitude()
+        assert result.raster.GetDriver().ShortName == "MEM"
+        expected = arr[:, list(range(180, 360)) + list(range(0, 180))]
+        np.testing.assert_array_equal(result.read_array(band=0), expected)
+        assert result.raster.GetRasterBand(1).GetNoDataValue() == -9999.0
+
+    def test_vrt_matches_eager_reference(self, noah):
+        """The lazy VRT roll returns data identical to an independent eager column roll (all bands).
+
+        Test scenario:
+            For a file-backed global raster, every band read back through the VRT must equal the
+            source band with its columns rolled by the half-globe offset.
+        """
+        dataset = Dataset(noah)
+        lon = dataset.lon
+        first = int(np.nonzero(lon > 180)[0][0])
+        order = list(range(first, noah.RasterXSize)) + list(range(0, first))
+        result = dataset.wrap_longitude()
+        for band in range(noah.RasterCount):
+            reference = noah.GetRasterBand(band + 1).ReadAsArray()[:, order]
+            np.testing.assert_array_equal(
+                result.read_array(band=band),
+                reference,
+                err_msg=f"band {band}: VRT roll differs from eager reference",
+            )
+
+    def test_vrt_preserves_projection_and_nodata(self, noah):
+        """The VRT result keeps the source projection and per-band no-data values.
+
+        Test scenario:
+            Projection WKT and every band's no-data value must match the source after conversion.
+        """
+        result = Dataset(noah).wrap_longitude()
+        assert result.raster.GetProjection() == noah.GetProjection(), "projection not preserved"
+        for band in range(1, noah.RasterCount + 1):
+            assert (
+                result.raster.GetRasterBand(band).GetNoDataValue()
+                == noah.GetRasterBand(band).GetNoDataValue()
+            ), f"band {band} no-data not preserved"
+
+    def test_vrt_resolves_from_other_cwd(self, noah, tmp_path, monkeypatch):
+        """The VRT uses an absolute source path, so reads succeed from any working directory.
+
+        Test scenario:
+            After changing CWD to an unrelated directory, reading the VRT-backed result still
+            returns the full array (the SourceFilename resolves).
+        """
+        result = Dataset(noah).wrap_longitude()
+        monkeypatch.chdir(tmp_path)
+        array = result.read_array(band=0)
+        assert array.shape == (
+            noah.RasterYSize,
+            noah.RasterXSize,
+        ), "VRT failed to resolve the source from another CWD"
+
+    def test_in_memory_multiband_roll(self):
+        """A multi-band in-memory raster rolls every band's columns identically.
+
+        Test scenario:
+            Each of two distinct-valued bands is rolled by the half-globe offset independently.
+        """
+        arr = np.stack(
+            [np.arange(360, dtype=np.float32), np.arange(360, 720, dtype=np.float32)]
+        ).reshape(2, 1, 360)
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+        )
+        result = dataset.wrap_longitude()
+        order = list(range(180, 360)) + list(range(0, 180))
+        for band in range(2):
+            np.testing.assert_array_equal(
+                result.read_array(band=band),
+                arr[band][:, order],
+                err_msg=f"band {band} not rolled correctly",
+            )
+
+    def test_in_memory_preserves_crs(self):
+        """The eager in-memory path keeps the CRS.
+
+        Test scenario:
+            A 0-360 raster created at EPSG:4326 still reports EPSG:4326 after conversion.
+        """
+        arr = np.ones((1, 360), dtype=np.float32)
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+        )
+        result = dataset.wrap_longitude()
+        assert result.epsg == 4326, f"expected EPSG 4326, got {result.epsg}"
+
+    def test_vrt_source_without_nodata_or_projection(self, tmp_path):
+        """A file-backed global raster with neither no-data nor projection still converts via VRT.
+
+        Test scenario:
+            Exercises the `no_data is None` and falsy-`projection` branches of the VRT builder; the
+            rolled data must still be correct and the result VRT-backed.
+        """
+        path = str(tmp_path / "global_minimal.tif")
+        n_columns = 360
+        out = gdal.GetDriverByName("GTiff").Create(path, n_columns, 1, 1, gdal.GDT_Float32)
+        out.SetGeoTransform((0.0, 1.0, 0.0, 0.5, 0.0, -1.0))
+        out.GetRasterBand(1).WriteArray(np.arange(n_columns, dtype=np.float32).reshape(1, n_columns))
+        out.FlushCache()
+        out = None
+
+        result = Dataset.read_file(path).wrap_longitude()
+        assert result.raster.GetDriver().ShortName == "VRT", "file-backed source should use VRT"
+        assert result.raster.GetRasterBand(1).GetNoDataValue() is None, "should have no no-data"
+        order = list(range(180, 360)) + list(range(0, 180))
+        expected = np.arange(n_columns, dtype=np.float32).reshape(1, n_columns)[:, order]
+        np.testing.assert_array_equal(
+            result.read_array(band=0), expected, err_msg="roll incorrect for minimal-metadata source"
+        )
+
+    def test_nonpath_description_uses_eager(self):
+        """A source whose description is not a resolvable path uses the eager roll.
+
+        Test scenario:
+            A non-empty but non-resolvable description (here, an embedded null byte) makes
+            `Path(...).exists()` return False, so the discriminator routes to the in-memory eager path.
+        """
+        arr = np.arange(360, dtype=np.float32).reshape(1, 360)
+        dataset = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 0.5), cell_size=1.0, epsg=4326, no_data_value=-9999.0
+        )
+        dataset.raster.SetDescription("invalid\x00path")
+        result = dataset.wrap_longitude()
+        assert result.raster.GetDriver().ShortName == "MEM", "should fall back to the eager path"
+        order = list(range(180, 360)) + list(range(0, 180))
+        np.testing.assert_array_equal(result.read_array(band=0), arr[:, order])
+
+
+class TestNonSquareResolution:
+    """resample / to_crs accept an (x_res, y_res) pair for non-square output; scalar stays square."""
+
+    @staticmethod
+    def _square_source():
+        """A 10×10 1° geographic raster to resample/reproject."""
+        return Dataset.create_from_array(
+            np.ones((1, 10, 10), dtype="float32"),
+            top_left_corner=(0.0, 10.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+
+    def test_resample_nonsquare_output(self):
+        """resample((2, 1)) halves the columns, keeps the rows, and yields a 2°×1° grid."""
+        result = self._square_source().resample(cell_size=(2.0, 1.0))
+        gt = result.geotransform
+        assert abs(gt[1]) == pytest.approx(2.0) and abs(gt[5]) == pytest.approx(1.0), gt
+        assert result.shape[-2:] == (10, 5), f"expected (10, 5), got {result.shape[-2:]}"
+
+    def test_resample_scalar_stays_square(self):
+        """A scalar cell_size still produces square cells (no behaviour change)."""
+        result = self._square_source().resample(cell_size=2.0)
+        gt = result.geotransform
+        assert abs(gt[1]) == pytest.approx(2.0) and abs(gt[5]) == pytest.approx(2.0), gt
+        assert result.shape[-2:] == (5, 5), f"expected (5, 5), got {result.shape[-2:]}"
+
+    def test_to_crs_nonsquare_output(self):
+        """to_crs(..., cell_size=(2, 1)) produces a non-square output grid."""
+        result = self._square_source().to_crs(4326, cell_size=(2.0, 1.0))
+        gt = result.geotransform
+        assert abs(gt[1]) == pytest.approx(2.0) and abs(gt[5]) == pytest.approx(1.0), gt
+
+    def test_resample_rejects_bad_resolution(self):
+        """A non-positive or malformed cell_size raises a clear ValueError."""
+        with pytest.raises(ValueError, match="cell_size must be positive"):
+            self._square_source().resample(cell_size=(2.0, 0.0))
+        with pytest.raises(ValueError, match="x_res, y_res"):
+            self._square_source().resample(cell_size=(1.0, 2.0, 3.0))
 
 
 class TestFillNanNodata:
@@ -4286,11 +4489,11 @@ class TestWriteArrayException:
             ds.write_array(bad_arr, top_left_corner=[0, 0])
 
 
-class TestConvertLongitudeInplace:
-    """Tests for convert_longitude inplace path."""
+class TestWrapLongitudeInplace:
+    """Tests for wrap_longitude inplace path."""
 
-    def test_convert_longitude_returns_dataset(self):
-        """convert_longitude() returns new Dataset."""
+    def test_wrap_longitude_returns_dataset(self):
+        """wrap_longitude() returns new Dataset."""
         cols = 360
         arr = np.ones((1, cols), dtype=np.float32)
         ds = Dataset.create_from_array(
@@ -4300,7 +4503,7 @@ class TestConvertLongitudeInplace:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        result = ds.convert_longitude()
+        result = ds.wrap_longitude()
         assert isinstance(result, Dataset), "Should return a new Dataset"
         assert result.geotransform[0] < 0, "New top-left x should be negative"
 
@@ -4845,7 +5048,7 @@ class TestInplaceConsistency:
 class TestPDEP8InplacePattern:
     """Tests for PDEP-8 aligned inplace pattern.
 
-    Structural operations (crop, resample, align, to_crs, convert_longitude)
+    Structural operations (crop, resample, align, to_crs, wrap_longitude)
     no longer accept an `inplace` parameter — they always return a new Dataset.
     Value operations (fill, apply, change_no_data_value) still accept `inplace`
     but return `self` instead of `None` when inplace=True, enabling chaining.
@@ -4883,11 +5086,11 @@ class TestPDEP8InplacePattern:
         with pytest.raises(TypeError):
             getattr(single_band_dataset, method_name)(**kwargs)
 
-    def test_convert_longitude_rejects_inplace_kwarg(self):
-        """convert_longitude should raise TypeError if inplace is passed.
+    def test_wrap_longitude_rejects_inplace_kwarg(self):
+        """wrap_longitude should raise TypeError if inplace is passed.
 
         Test scenario:
-            convert_longitude no longer accepts inplace — passing it
+            wrap_longitude no longer accepts inplace — passing it
             should raise TypeError.
         """
         arr = np.ones((2, 720), dtype=np.float32)
@@ -4895,7 +5098,7 @@ class TestPDEP8InplacePattern:
             arr, top_left_corner=(0.0, 90.0), cell_size=0.5, epsg=4326
         )
         with pytest.raises(TypeError):
-            ds.convert_longitude(inplace=True)
+            ds.wrap_longitude(inplace=True)
 
     def test_crop_always_returns_new_dataset(self, single_band_dataset):
         """crop should always return a new Dataset, never None.

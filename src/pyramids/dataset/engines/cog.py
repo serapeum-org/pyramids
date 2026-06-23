@@ -469,6 +469,10 @@ class COG(_Engine):
             A ``(dataset, band1)`` tuple where ``band1`` is GDAL band 1 of the
             returned dataset (used for predictor/resampling resolution).
         """
+        # The COG write (and the gdal.Translate pre-process below) do tiled reads of the source; a
+        # NetCDF multidim view can't be window-read by GDAL >= 3.13, so materialise it first (no-op
+        # for an ordinary raster).
+        self._ds._materialize_md_view()
         needs_translate = (
             indexes is not None or out_dtype is not None or nodata is not None
         )
@@ -614,6 +618,10 @@ class COG(_Engine):
                 backing raster; a pre-processed in-memory dataset is passed
                 when band-subsetting / casting / setting NoData (PB-4).
         """
+        if src is None:
+            # COG CreateCopy does tiled reads of the source; a NetCDF multidim view can't be
+            # window-read by GDAL >= 3.13, so materialise it first (no-op for an ordinary raster).
+            self._ds._materialize_md_view()
         source = self._ds._raster if src is None else src
 
         def _run(opts: dict[str, Any]) -> None:
@@ -904,6 +912,9 @@ class COG(_Engine):
                 ```
         """
         alg = _resolve_read_resampling(resampling)
+        # This serves a decimated window from the source; a NetCDF multidim view can't be window-read
+        # by GDAL >= 3.13, so materialise it first (no-op for an ordinary raster).
+        self._ds._materialize_md_view()
         ds = self._ds._raster
         min_x, min_y, max_x, max_y = self._reproject_bbox(bbox, bbox_crs)
         inv = gdal.InvGeoTransform(ds.GetGeoTransform())
