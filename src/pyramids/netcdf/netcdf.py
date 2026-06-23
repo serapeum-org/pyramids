@@ -4149,11 +4149,11 @@ class NetCDF(Dataset):
             if arr is not None:
                 lon, lon_name = np.asarray(arr), cand
                 break
-        lat, lat_name = None, None
+        lat = None
         for cand in ("lat", "y"):
             arr = self._read_variable(cand)
             if arr is not None:
-                lat, lat_name = np.asarray(arr), cand
+                lat = np.asarray(arr)
                 break
         # Adopt the parent's lon/lat only when the variable actually has the longitude coordinate
         # dimension (by the CF coordinate-variable convention a 1-D coord var shares its dimension's
