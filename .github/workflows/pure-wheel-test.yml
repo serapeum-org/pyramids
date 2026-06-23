@@ -32,13 +32,13 @@ jobs:
   build-wheel:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           ref: ${{ inputs.branch || github.ref }}
 
       - name: Set up Pixi
-        uses: serapeum-org/github-actions/actions/python-setup/pixi@cd02ddbe749b77cbafd08bc48c788974fc989db7 # pixi/v1
+        uses: serapeum-org/github-actions/actions/python-setup/pixi@cb1baebe72f571981605ab895a45dae7bfb566ba # pixi/v1
         with:
           environments: dev
           activate-environment: dev
@@ -71,7 +71,7 @@ jobs:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           ref: ${{ inputs.branch || github.ref }}
@@ -160,7 +160,7 @@ jobs:
           - { name: parquet_lazy, pip_extra: "parquet",      marker: "parquet_lazy", dir: "tests/feature/lazy" }
 
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           ref: ${{ inputs.branch || github.ref }}
