@@ -10,6 +10,7 @@ curvilinear.
 import geopandas as gpd
 import numpy as np
 import pytest
+from osgeo import gdal
 from shapely.geometry import MultiPolygon, Polygon
 
 from pyramids.feature import FeatureCollection
@@ -233,9 +234,62 @@ def test_cropped_result_exposes_stored_curvilinear_coords(sample):
         nc.close()
 
 
+def test_container_crop_rejects_chunks(sample):
+    """A container-level crop rejects ``chunks=`` (it is a curvilinear-only, per-variable option).
+
+    Test scenario:
+        Calling crop with chunks= on the ROOT container (read_file, not get_variable) raises
+        ValueError pointing the caller at the per-variable get_variable entry point, instead of
+        silently reading every variable eagerly.
+    """
+    nc = NetCDF.read_file(sample(ROMS))
+    try:
+        with pytest.raises(ValueError, match="chunks|per-variable|get_variable"):
+            nc.crop(_fc([(-91, 28), (-88, 28), (-88, 30.5), (-91, 30.5)]), chunks="auto")
+    finally:
+        nc.close()
+
+
+def test_bbox_geotransform_single_column_no_zero_division():
+    """A single-column (cols==1) grid yields a 0.0 x cell size instead of dividing by zero.
+
+    Test scenario:
+        cols-1 == 0 has no centre-to-centre spacing to measure, so x_cell falls back to 0.0; the
+        row spacing still resolves from the two rows.
+    """
+    lon = np.array([[10.0], [10.0]])
+    lat = np.array([[40.0], [30.0]])
+    gt = NetCDF._bbox_geotransform(lon, lat)
+    assert gt[1] == 0.0, f"single-column x cell size should be 0.0, got {gt[1]}"
+    assert gt[5] == -10.0, f"row spacing should resolve to -10.0, got {gt[5]}"
+
+
+def test_copy_md_array_attributes_preserves_int64():
+    """A 64-bit integer attribute round-trips through _copy_md_array_attributes without truncation.
+
+    Test scenario:
+        An Int64 attribute holding 2**40+123 (beyond 32-bit range) is copied to another MDArray and
+        must read back identically — the 32-bit WriteInt path would truncate it.
+    """
+    big = 2**40 + 123
+    ds = gdal.GetDriverByName("MEM").CreateMultiDimensional("m")
+    rg = ds.GetRootGroup()
+    src = rg.CreateMDArray("src", [], gdal.ExtendedDataType.Create(gdal.GDT_Float64))
+    dst = rg.CreateMDArray("dst", [], gdal.ExtendedDataType.Create(gdal.GDT_Float64))
+    attr = src.CreateAttribute("valid_max", [], gdal.ExtendedDataType.Create(gdal.GDT_Int64))
+    attr.WriteInt64(big)
+    NetCDF._copy_md_array_attributes(src, dst)
+    copied = dst.GetAttribute("valid_max").ReadAsInt64()
+    assert copied == big, f"Int64 attribute truncated: got {copied}, expected {big}"
+
+
 def test_bbox_geotransform_spans_coord_envelope():
-    """`_bbox_geotransform` builds a north-up affine spanning the 2-D coords' bounding box."""
+    """`_bbox_geotransform` builds a north-up affine spanning the 2-D coords' cell envelope.
+
+    The 2-D coordinates are cell centres, so the cell size is the centre-to-centre spacing (10deg
+    here) and the north-west origin sits half a cell (5deg) outside the corner centre.
+    """
     lon = np.array([[10.0, 20.0], [10.0, 20.0]])
     lat = np.array([[40.0, 40.0], [30.0, 30.0]])
     gt = NetCDF._bbox_geotransform(lon, lat)
-    assert gt == (10.0, 5.0, 0.0, 40.0, 0.0, -5.0), f"unexpected geotransform: {gt}"
+    assert gt == (5.0, 10.0, 0.0, 45.0, 0.0, -10.0), f"unexpected geotransform: {gt}"

@@ -12,6 +12,7 @@ from osgeo import gdal
 
 from pyramids.netcdf.ugrid.connectivity import Connectivity
 from pyramids.netcdf.ugrid.io import (
+    _detect_face_dim,
     _parse_single_topology,
     parse_ugrid_topology,
     write_ugrid_topology,
@@ -347,3 +348,71 @@ class TestWriteUgridTopology:
         assert crs_arr is not None, "CRS variable should exist"
         crs_attrs = _read_attributes(crs_arr)
         assert "crs_wkt" in crs_attrs, "CRS variable should have crs_wkt attribute"
+
+
+def _face_node_group(*, reversed_order: bool, with_face_coord: bool):
+    """Build an in-memory multidim group with a ``face_node_connectivity`` for face-dim detection.
+
+    Args:
+        reversed_order: When True the connectivity is stored ``(max_nodes, n_face)`` (the reverse of
+            the conventional ``(n_face, max_nodes)``), so the face dim is the *second* connectivity
+            dimension.
+        with_face_coord: When True a 1-D ``face_x`` variable with ``standard_name=longitude`` is added
+            on the face dimension (the face-located signal :func:`_detect_face_dim` keys off).
+
+    Returns:
+        tuple: ``(dataset, root_group, conn_dims, all_array_names)``. The dataset is returned so the
+            caller keeps it alive (the root group dangles otherwise).
+    """
+    ds = gdal.GetDriverByName("MEM").CreateMultiDimensional("mesh")
+    rg = ds.GetRootGroup()
+    dim_face = rg.CreateDimension("n_face", "", "", 5)
+    dim_nodes = rg.CreateDimension("max_face_nodes", "", "", 4)
+    conn_order = [dim_nodes, dim_face] if reversed_order else [dim_face, dim_nodes]
+    conn = rg.CreateMDArray(
+        "face_nodes", conn_order, gdal.ExtendedDataType.Create(gdal.GDT_Int32)
+    )
+    role = conn.CreateAttribute("cf_role", [], gdal.ExtendedDataType.CreateString())
+    role.WriteString("face_node_connectivity")
+    if with_face_coord:
+        face_x = rg.CreateMDArray(
+            "face_x", [dim_face], gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+        )
+        std = face_x.CreateAttribute(
+            "standard_name", [], gdal.ExtendedDataType.CreateString()
+        )
+        std.WriteString("longitude")
+    conn_dims = [d.GetName() for d in conn.GetDimensions()]
+    return ds, rg, conn_dims, (rg.GetMDArrayNames() or [])
+
+
+class TestDetectFaceDim:
+    """Tests for _detect_face_dim() connectivity face-dimension detection."""
+
+    def test_detects_face_dim_when_connectivity_reversed(self):
+        """A face-located variable identifies the face dim even when connectivity is reversed.
+
+        Test scenario:
+            Connectivity stored as (max_face_nodes, n_face) with a 1-D face_x (standard_name
+            longitude) on n_face. Detection must return 'n_face', NOT conn_dims[0]
+            ('max_face_nodes').
+        """
+        ds, rg, conn_dims, names = _face_node_group(reversed_order=True, with_face_coord=True)
+        assert conn_dims[0] == "max_face_nodes", f"fixture not reversed: {conn_dims}"
+        face_dim = _detect_face_dim(rg, names, conn_dims)
+        assert (
+            face_dim == "n_face"
+        ), f"expected 'n_face' from the face coordinate variable, got {face_dim!r}"
+
+    def test_falls_back_to_first_conn_dim_without_face_signal(self):
+        """With no face-located variable, detection falls back to the first connectivity dim.
+
+        Test scenario:
+            Connectivity stored (n_face, max_face_nodes) and no face coordinate / location=face
+            variable — detection returns conn_dims[0] (the conventional (face, node) order).
+        """
+        ds, rg, conn_dims, names = _face_node_group(reversed_order=False, with_face_coord=False)
+        face_dim = _detect_face_dim(rg, names, conn_dims)
+        assert (
+            face_dim == conn_dims[0]
+        ), f"expected fallback to conn_dims[0]={conn_dims[0]!r}, got {face_dim!r}"

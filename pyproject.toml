@@ -42,6 +42,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# cleopatra 0.19 adds the glyph `add_features` API (coastline/border reference overlays) used by the
+# NetCDF example notebooks; the [tiles] extra pulls in the basemap tile providers.
 viz = ["cleopatra[tiles]>=0.19.0"]
 lazy = [
     "dask>=2024.1.0",

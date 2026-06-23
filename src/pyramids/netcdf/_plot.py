@@ -1416,11 +1416,16 @@ class NetCDFPlot:
         the lon/lat heuristic. If none matches the name heuristic, it
         falls back to the first pair of **distinct** candidates — and
         because a 2-D coord matches both axes, it disambiguates the x/y
-        roles by range (latitude is bounded to ±90, via
-        :meth:`_values_within_latitude`), so e.g. rasm's ``xc`` / ``yc``
-        are not collapsed onto a single axis. When the attribute is
-        missing or no valid pair is found returns ``None`` so the caller
-        can fall back to the well-known-naming pass.
+        roles by range: latitude is bounded to ±90 (via
+        :meth:`_values_within_latitude`). The assignment is **symmetric**
+        — whichever of the two 2-D candidates is within-latitude becomes
+        the y axis regardless of candidate order, so e.g. rasm's ``xc`` /
+        ``yc`` are neither collapsed onto one axis nor swapped. When both
+        or neither candidate looks like a latitude the roles are genuinely
+        ambiguous, so it keeps candidate order and logs a debug message
+        (pass ``coords=`` / ``x_dim`` / ``y_dim`` to override). When the
+        attribute is missing or no valid pair is found returns ``None`` so
+        the caller can fall back to the well-known-naming pass.
 
         Args:
             nc: The variable subset being plotted — the CF attribute is
@@ -1481,13 +1486,28 @@ class NetCDFPlot:
                             continue
                         if not self._coord_shapes_match(x_arr, y_arr, data_shape):
                             continue
-                        if (
-                            x_arr.ndim == 2
-                            and y_arr.ndim == 2
-                            and self._values_within_latitude(x_arr)
-                            and not self._values_within_latitude(y_arr)
-                        ):
-                            result = (y_arr, x_arr)
+                        if x_arr.ndim == 2 and y_arr.ndim == 2:
+                            # Both 2-D: the x/y roles are ambiguous by shape, so assign by range —
+                            # latitude is bounded to [-90, 90]. Symmetric: whichever of the two is
+                            # within-latitude is the y axis, regardless of candidate order. Only when
+                            # both or neither look like latitude do we fall back to candidate order.
+                            x_is_lat = self._values_within_latitude(x_arr)
+                            y_is_lat = self._values_within_latitude(y_arr)
+                            if x_is_lat and not y_is_lat:
+                                result = (y_arr, x_arr)
+                            elif y_is_lat and not x_is_lat:
+                                result = (x_arr, y_arr)
+                            else:
+                                logger.debug(
+                                    "curvilinear x/y roles ambiguous for %r/%r "
+                                    "(within-latitude: %s/%s); keeping candidate order — pass "
+                                    "x_dim/y_dim or coords= to override.",
+                                    x_name,
+                                    y_name,
+                                    x_is_lat,
+                                    y_is_lat,
+                                )
+                                result = (x_arr, y_arr)
                         else:
                             result = (x_arr, y_arr)
                         break

@@ -78,18 +78,20 @@ def _resolve_resolution(
         ValueError: If the pair is not length 2, or any resolution is not positive.
     """
     if cell_size is None:
-        return None, None
-    if isinstance(cell_size, (tuple, list)):
-        if len(cell_size) != 2:
-            raise ValueError(
-                f"cell_size must be a scalar or an (x_res, y_res) pair, got {cell_size!r}."
-            )
-        x_res, y_res = float(cell_size[0]), float(cell_size[1])
+        result = (None, None)
     else:
-        x_res = y_res = float(cell_size)
-    if x_res <= 0 or y_res <= 0:
-        raise ValueError(f"cell_size must be positive, got {cell_size!r}.")
-    return x_res, y_res
+        if isinstance(cell_size, (tuple, list)):
+            if len(cell_size) != 2:
+                raise ValueError(
+                    f"cell_size must be a scalar or an (x_res, y_res) pair, got {cell_size!r}."
+                )
+            x_res, y_res = float(cell_size[0]), float(cell_size[1])
+        else:
+            x_res = y_res = float(cell_size)
+        if x_res <= 0 or y_res <= 0:
+            raise ValueError(f"cell_size must be positive, got {cell_size!r}.")
+        result = (x_res, y_res)
+    return result
 
 
 class Spatial(_Engine):
@@ -291,10 +293,10 @@ class Spatial(_Engine):
         """
         dst_sr = sr_from_user_input(to_epsg)
         resampling_method: int = resolve_resampling(method)
-        # cell_size may be a scalar (square) or an (x_res, y_res) pair (non-square output).
-        x_res, y_res = _resolve_resolution(cell_size)
 
         if maintain_alignment:
+            # Reject cell_size before validating it, so the more specific "not supported with
+            # maintain_alignment" error wins over the generic shape/positivity check.
             if cell_size is not None:
                 raise ValueError(
                     "cell_size is not supported with maintain_alignment=True (that path keeps the "
@@ -302,6 +304,8 @@ class Spatial(_Engine):
                 )
             dst_obj = self._reproject_with_ReprojectImage(dst_sr, resampling_method)
         else:
+            # cell_size may be a scalar (square) or an (x_res, y_res) pair (non-square output).
+            x_res, y_res = _resolve_resolution(cell_size)
             dst = gdal.Warp(
                 "",
                 self._ds.raster,

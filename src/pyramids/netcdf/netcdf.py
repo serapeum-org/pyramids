@@ -1794,14 +1794,19 @@ class NetCDF(Dataset):
                 the dask-backed lazy path (``"auto"`` or a ``{"rows":
                 ..., "cols": ...}`` dict). The curvilinear crop reads only
                 the polygon's bounding window regardless; ``chunks`` makes
-                that windowed read lazy/chunked. Raises ``ValueError`` if
-                given for a rectilinear (affine-warp) crop, which is eager.
+                that windowed read lazy/chunked. It is a per-variable,
+                curvilinear-only option: it raises ``ValueError`` if given
+                for a rectilinear (affine-warp) crop (which is eager), or
+                on a **root container** (call crop on a single variable via
+                :meth:`get_variable` instead).
 
         Returns:
             NetCDF: Cropped container or variable subset.
 
         Raises:
-            ValueError: Both ``mask`` and ``bbox`` were supplied.
+            ValueError: Both ``mask`` and ``bbox`` were supplied, or
+                ``chunks`` was given on a root container or a rectilinear
+                crop.
             TypeError: Neither ``mask`` nor ``bbox`` was supplied.
 
         Examples:
@@ -1847,6 +1852,15 @@ class NetCDF(Dataset):
         """
         mask = self._resolve_crop_mask(mask, bbox, epsg)
         if self._is_md_array and not self._is_subset and self.band_count == 0:
+            # A container crops every variable; `chunks` is a curvilinear-only, per-variable knob
+            # (a container may mix curvilinear and rectilinear variables), so the per-variable fan-out
+            # cannot honour it. Reject it explicitly rather than silently reading eagerly.
+            if chunks is not None:
+                raise ValueError(
+                    "crop(chunks=…) is not supported on a root container; it is a "
+                    "curvilinear-only, per-variable option — call crop on a single variable "
+                    "via get_variable(name) instead."
+                )
             result = self._apply_to_all_variables("crop", {"mask": mask, "touch": touch})
         else:
             result = self._crop_one(mask, touch=touch, chunks=chunks)
@@ -2029,9 +2043,10 @@ class NetCDF(Dataset):
 
         A curvilinear grid has no true affine transform; this gives a cropped curvilinear result a
         sensible ``total_bounds`` (its lon/lat envelope). The authoritative per-cell mapping is the
-        2-D ``_curvilinear_coords`` carried alongside. The pixel sizes are the envelope width/height
-        divided by the column/row counts, and the origin is the north-west corner (so pixel height
-        is negative).
+        2-D ``_curvilinear_coords`` carried alongside. The 2-D coordinates are cell *centres*, so the
+        cell size is the spacing between adjacent centres (``cols - 1`` gaps across ``cols`` centres),
+        and the north-west origin sits half a cell beyond the outermost centre — so the envelope spans
+        the full ``cols x rows`` cells, not just centre-to-centre. Pixel height is negative (north-up).
 
         Args:
             lon (np.ndarray): 2-D longitude array of the (windowed) grid; finite values define the
@@ -2040,26 +2055,30 @@ class NetCDF(Dataset):
                 south/north extent. Its shape sets the row/column counts.
 
         Returns:
-            tuple: A GDAL geotransform ``(x_min, x_cell, 0.0, y_max, 0.0, -y_cell)``.
+            tuple: A GDAL geotransform ``(x_origin, x_cell, 0.0, y_origin, 0.0, -y_cell)`` where the
+                origin is the north-west envelope corner (half a cell outside the corner centre).
 
         Examples:
-            - A 2x2 grid spanning lon 10..20 and lat 30..40 yields 10deg/5deg-ish cells, north-up:
+            - A 2x2 grid of centres at lon 10/20 and lat 30/40 has 10deg cells; the envelope origin
+              sits half a cell (5deg) outside the corner centre:
                 ```python
                 >>> import numpy as np
                 >>> from pyramids.netcdf import NetCDF
                 >>> lon = np.array([[10.0, 20.0], [10.0, 20.0]])
                 >>> lat = np.array([[40.0, 40.0], [30.0, 30.0]])
                 >>> NetCDF._bbox_geotransform(lon, lat)
-                (10.0, 5.0, 0.0, 40.0, 0.0, -5.0)
+                (5.0, 10.0, 0.0, 45.0, 0.0, -10.0)
 
                 ```
         """
         rows, cols = lat.shape
         lon_min, lon_max = float(np.nanmin(lon)), float(np.nanmax(lon))
         lat_min, lat_max = float(np.nanmin(lat)), float(np.nanmax(lat))
-        x_cell = (lon_max - lon_min) / cols if cols else 0.0
-        y_cell = (lat_max - lat_min) / rows if rows else 0.0
-        return (lon_min, x_cell, 0.0, lat_max, 0.0, -y_cell)
+        # cell size = spacing between adjacent cell centres (cols-1 gaps); a single row/column has no
+        # spacing to measure, so fall back to 0 (a degenerate 1-cell envelope, as before).
+        x_cell = (lon_max - lon_min) / (cols - 1) if cols > 1 else 0.0
+        y_cell = (lat_max - lat_min) / (rows - 1) if rows > 1 else 0.0
+        return (lon_min - x_cell / 2, x_cell, 0.0, lat_max + y_cell / 2, 0.0, -y_cell)
 
     def _variable_is_spatial(self, rg: Any, var_name: str) -> bool:
         """True when ``var_name`` is a gridded variable (can be cropped / reprojected).
@@ -3785,14 +3804,19 @@ class NetCDF(Dataset):
     def _dimension_index(dim_names: list[str], target: str) -> int:
         """Index of a dimension matched by full name or short (leaf) name."""
         if target in dim_names:
-            return dim_names.index(target)
-        short = target.lstrip("/").split("/")[-1]
-        for i, name in enumerate(dim_names):
-            if name.lstrip("/").split("/")[-1] == short:
-                return i
-        raise ValueError(
-            f"dimension {target!r} not found; available dimensions: {dim_names}"
-        )
+            result = dim_names.index(target)
+        else:
+            short = target.lstrip("/").split("/")[-1]
+            result = next(
+                (i for i, name in enumerate(dim_names)
+                 if name.lstrip("/").split("/")[-1] == short),
+                None,
+            )
+            if result is None:
+                raise ValueError(
+                    f"dimension {target!r} not found; available dimensions: {dim_names}"
+                )
+        return result
 
     @staticmethod
     def _axis_role_of_dimension(dim) -> str | None:
@@ -3803,26 +3827,27 @@ class NetCDF(Dataset):
         ``units`` (``degrees_east``/``degrees_north``). Returns ``None`` when the
         role cannot be determined.
         """
+        role = None
         indexing_var = dim.GetIndexingVariable()
-        if indexing_var is None:
-            return None
-        attrs: dict[str, Any] = {}
-        try:
-            for attr in indexing_var.GetAttributes():
-                attrs[attr.GetName()] = attr.Read()
-        except RuntimeError:
-            return None
+        if indexing_var is not None:
+            attrs: dict[str, Any] | None = {}
+            try:
+                for attr in indexing_var.GetAttributes():
+                    attrs[attr.GetName()] = attr.Read()
+            except RuntimeError:
+                attrs = None
+            if attrs is not None:
 
-        def text(key: str) -> str:
-            value = attrs.get(key)
-            return value.strip().lower() if isinstance(value, str) else ""
+                def text(key: str) -> str:
+                    value = attrs.get(key)
+                    return value.strip().lower() if isinstance(value, str) else ""
 
-        axis, standard_name, units = text("axis"), text("standard_name"), text("units")
-        if axis == "x" or standard_name == "longitude" or units.startswith("degrees_e"):
-            return "X"
-        if axis == "y" or standard_name == "latitude" or units.startswith("degrees_n"):
-            return "Y"
-        return None
+                axis, standard_name, units = text("axis"), text("standard_name"), text("units")
+                if axis == "x" or standard_name == "longitude" or units.startswith("degrees_e"):
+                    role = "X"
+                elif axis == "y" or standard_name == "latitude" or units.startswith("degrees_n"):
+                    role = "Y"
+        return role
 
     @staticmethod
     def _detect_axis_indices(dims) -> tuple[int | None, int | None]:
@@ -3856,13 +3881,11 @@ class NetCDF(Dataset):
 
         explicit_x = self._dimension_index(names, x_dim) if x_dim is not None else None
         explicit_y = self._dimension_index(names, y_dim) if y_dim is not None else None
-        if explicit_x is not None and explicit_y is not None:
-            if explicit_x == explicit_y:
-                raise ValueError(
-                    f"x_dim and y_dim must be different dimensions; both resolved to "
-                    f"index {explicit_x}. Dimensions: {names}"
-                )
-            return explicit_x, explicit_y
+        if explicit_x is not None and explicit_y is not None and explicit_x == explicit_y:
+            raise ValueError(
+                f"x_dim and y_dim must be different dimensions; both resolved to "
+                f"index {explicit_x}. Dimensions: {names}"
+            )
 
         detected_x, detected_y = self._detect_axis_indices(md_arr.GetDimensions())
         # Adopt detection only when it (combined with any single explicit side) yields a
@@ -3870,15 +3893,18 @@ class NetCDF(Dataset):
         # collide with the last-two fallback (e.g. a 2-D `lon_bnds(lon, bnds)` variable).
         candidate_x = explicit_x if explicit_x is not None else detected_x
         candidate_y = explicit_y if explicit_y is not None else detected_y
-        if candidate_x is not None and candidate_y is not None and candidate_x != candidate_y:
-            return candidate_x, candidate_y
-
-        # Fallback: the last two dimensions, keeping a non-colliding explicit side.
-        x_index = explicit_x if explicit_x is not None else n - 1
-        y_index = explicit_y if explicit_y is not None else n - 2
-        if x_index == y_index:
-            x_index, y_index = n - 1, n - 2
-        return x_index, y_index
+        if explicit_x is not None and explicit_y is not None:
+            result = (explicit_x, explicit_y)
+        elif candidate_x is not None and candidate_y is not None and candidate_x != candidate_y:
+            result = (candidate_x, candidate_y)
+        else:
+            # Fallback: the last two dimensions, keeping a non-colliding explicit side.
+            x_index = explicit_x if explicit_x is not None else n - 1
+            y_index = explicit_y if explicit_y is not None else n - 2
+            if x_index == y_index:
+                x_index, y_index = n - 1, n - 2
+            result = (x_index, y_index)
+        return result
 
     def _read_md_array(
         self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None
@@ -4089,41 +4115,66 @@ class NetCDF(Dataset):
         coordinates are read from the parent rather than via ``cube.lon`` / ``cube.lat`` so those
         accessors keep their existing geotransform-derived (north-up) orientation.
         """
-        if not isinstance(cube, NetCDF):
-            return cube
-        lon = self._read_variable("lon")
-        if lon is None:
-            lon = self._read_variable("x")
-        lat = self._read_variable("lat")
-        if lat is None:
-            lat = self._read_variable("y")
-        if lon is None or lat is None:
-            return cube
-        lon = np.asarray(lon)
-        lat = np.asarray(lat)
-        if lon.ndim != 1 or lat.ndim != 1:
-            return cube
-        if len(lon) != cube.columns or len(lat) != cube.rows or len(lon) < 2 or len(lat) < 2:
-            return cube
-        x_cell = abs(float(lon[1] - lon[0]))
-        y_cell = abs(float(lat[1] - lat[0]))
-        y_top = max(float(lat[0]), float(lat[-1])) + y_cell / 2
-        real_gt = (float(lon[0]) - x_cell / 2, x_cell, 0.0, y_top, 0.0, -y_cell)
-        current = cube._raster.GetGeoTransform()
-        if all(abs(float(a) - float(b)) < 1e-6 for a, b in zip(real_gt, current)):
-            return cube
-        vrt = gdal.Translate("", cube._raster, format="VRT")
-        if vrt is None:
-            return cube
-        vrt.SetGeoTransform(list(real_gt))
-        if cube.epsg:
-            vrt.SetProjection(sr_from_epsg(int(cube.epsg)).ExportToWkt())
-        # The VRT reads through the MDArray view, so keep that view alive.
-        cube._view_source = cube._raster
-        cube._raster = vrt
-        cube._geotransform = real_gt
-        cube._cell_size = x_cell
+        if isinstance(cube, NetCDF):
+            real_gt = self._coordinate_derived_geotransform(cube)
+            if real_gt is not None:
+                vrt = gdal.Translate("", cube._raster, format="VRT")
+                if vrt is not None:
+                    vrt.SetGeoTransform(list(real_gt))
+                    if cube.epsg:
+                        vrt.SetProjection(sr_from_epsg(int(cube.epsg)).ExportToWkt())
+                    # The VRT reads through the MDArray view, so keep that view alive.
+                    cube._view_source = cube._raster
+                    cube._raster = vrt
+                    cube._geotransform = real_gt
+                    cube._cell_size = real_gt[1]
         return cube
+
+    def _coordinate_derived_geotransform(self, cube: "NetCDF") -> tuple | None:
+        """Real-world geotransform from the parent's 1-D lon/lat, or ``None`` if not applicable.
+
+        Returns the north-up affine implied by the parent container's 1-D ``lon``/``lat`` (or
+        ``x``/``y``) coordinate variables when they (a) match the subset's grid shape, (b) index the
+        subset's spatial dimensions by name (CF coordinate-variable convention — guards a same-shaped
+        but different staggered/rotated axis from adopting the wrong coordinates), and (c) actually
+        differ from the subset's current (index-space) geotransform. Otherwise ``None``.
+        """
+        result = None
+        lon, lon_name = None, None
+        for cand in ("lon", "x"):
+            arr = self._read_variable(cand)
+            if arr is not None:
+                lon, lon_name = np.asarray(arr), cand
+                break
+        lat, lat_name = None, None
+        for cand in ("lat", "y"):
+            arr = self._read_variable(cand)
+            if arr is not None:
+                lat, lat_name = np.asarray(arr), cand
+                break
+        dim_names = getattr(cube, "_md_array_dims", None) or []
+        names_ok = not (
+            len(dim_names) >= 2 and (dim_names[-1] != lon_name or dim_names[-2] != lat_name)
+        )
+        if (
+            lon is not None
+            and lat is not None
+            and lon.ndim == 1
+            and lat.ndim == 1
+            and len(lon) == cube.columns
+            and len(lat) == cube.rows
+            and len(lon) >= 2
+            and len(lat) >= 2
+            and names_ok
+        ):
+            x_cell = abs(float(lon[1] - lon[0]))
+            y_cell = abs(float(lat[1] - lat[0]))
+            y_top = max(float(lat[0]), float(lat[-1])) + y_cell / 2
+            real_gt = (float(lon[0]) - x_cell / 2, x_cell, 0.0, y_top, 0.0, -y_cell)
+            current = cube._raster.GetGeoTransform()
+            if not all(abs(float(a) - float(b)) < 1e-6 for a, b in zip(real_gt, current)):
+                result = real_gt
+        return result
 
     def _attach_variable_metadata(
         self, cube: NetCDF, md_arr, spatial_dim_indices: tuple[int, int] | None
@@ -4990,10 +5041,17 @@ class NetCDF(Dataset):
                 name, dims, gdal.ExtendedDataType.Create(numeric_type)
             )
             is_integer = numeric_type in _GDAL_INTEGER_DTYPES
-            if count <= 1 and is_integer:
+            # 64-bit integer codes must use the 64-bit read/write calls; the 32-bit
+            # WriteInt/ReadAsInt would truncate large values (e.g. an Int64 _FillValue).
+            is_int64 = numeric_type in (gdal.GDT_Int64, gdal.GDT_UInt64)
+            if count <= 1 and is_int64:
+                new_attr.WriteInt64(attr.ReadAsInt64())
+            elif count <= 1 and is_integer:
                 new_attr.WriteInt(attr.ReadAsInt())
             elif count <= 1:
                 new_attr.WriteDouble(attr.ReadAsDouble())
+            elif is_int64:
+                new_attr.WriteInt64Array(attr.ReadAsInt64Array())
             elif is_integer:
                 new_attr.WriteIntArray(attr.ReadAsIntArray())
             else:

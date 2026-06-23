@@ -16,7 +16,7 @@ fig, ax = dataset.plot(
 )
 dataset.lon
 # %%
-new_dataset = dataset.convert_longitude()
+new_dataset = dataset.wrap_longitude()
 new_dataset.plot(
     band=0,
     figsize=(10, 5),

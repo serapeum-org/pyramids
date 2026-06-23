@@ -417,7 +417,9 @@ class VariableInfo:
         )
         if self.unit:
             summary += f" unit={self.unit!r}"
-        if self.scale not in (None, 1):
+        # Show packing when either a non-trivial scale or a non-trivial offset is set, so an
+        # offset-only variable (scale == 1) is not hidden from the summary.
+        if self.scale not in (None, 1) or self.offset not in (None, 0):
             summary += f" scale={self.scale} offset={self.offset}"
         return summary
 
