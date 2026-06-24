@@ -1691,17 +1691,14 @@ class NetCDF(Dataset):
         like `sel()`, `read_array(unpack=True)`, and further spatial
         operations continue to work with consistent return types.
 
-        Both the legacy single-band-dim fields (`_band_dim_name`,
-        `_band_dim_values`) and the multi-band-dim fields
-        (`_band_dim_names`, `_band_dim_values_map`, `_band_dim_sizes`)
-        are propagated. The legacy length-guard nullifies
-        `_band_dim_values` only when its primary-dim view is provably
-        stale: for single-band-dim variables it compares
-        `len(values) != _band_count`; for multi-band-dim variables it
-        compares `prod(_band_dim_sizes) != _band_count` instead, so a
-        4-D variable whose total band count diverged from the cached
-        sizes (e.g. after a band-shrinking operation outside `sel()`)
-        drops the now-stale primary view.
+        The canonical multi-band-dim fields (`_band_dim_names`,
+        `_band_dim_values_map`, `_band_dim_sizes`) are propagated, and the
+        legacy single-band-dim view (`_band_dim_name`, `_band_dim_values`) is
+        re-derived from them via :meth:`_derive_primary_band_view` against the
+        wrapped result's live band count. That helper is the single place the
+        staleness guard lives: it nullifies the primary coordinate values when
+        they are provably stale for the new band count (e.g. after a
+        band-shrinking operation outside `sel()`).
 
         Args:
             result: The `Dataset` (or `NetCDF`) returned by a parent
@@ -1726,49 +1723,19 @@ class NetCDF(Dataset):
             )
         wrapped._is_md_array = self._is_md_array
         wrapped._is_subset = self._is_subset
-        wrapped._band_dim_name = self._band_dim_name
         wrapped._band_dim_names = self._band_dim_names
         wrapped._band_dim_sizes = self._band_dim_sizes
         wrapped._band_dim_values_map = dict(self._band_dim_values_map)
-        # Length-guard: nullify legacy values only when the primary-dim
-        # view is provably stale. For multi-band-dim variables the
-        # `_band_count` is the product of every band-dim size, so compare
-        # against `prod(_band_dim_sizes)` rather than `len(values)`.
-        expected_count = math.prod(self._band_dim_sizes)
-        if (
-            self._band_dim_values is not None
-            and wrapped._band_count > 0
-            and len(self._band_dim_names) <= 1
-            and len(self._band_dim_values) != wrapped._band_count
-        ):
-            wrapped._band_dim_values = None
-        elif (
-            self._band_dim_values is not None
-            and wrapped._band_count > 0
-            and len(self._band_dim_names) > 1
-            and expected_count != wrapped._band_count
-        ):
-            # Multi-band-dim variable whose total band count diverged from
-            # the cached sizes (e.g. after a band-shrinking operation
-            # outside sel()). Drop the now-stale primary view.
-            wrapped._band_dim_values = None
-        else:
-            wrapped._band_dim_values = self._band_dim_values
-        # Self-heal: if the guard above nulled the legacy values but
-        # the per-dim map still carries an entry of the right length
-        # for the new band count, refill from there. Makes the helper
-        # idempotent under repeat calls and removes the post-call
-        # refill requirement on callers like `sel()` for the
-        # pin-secondary-dim case (where the primary-dim entry in the
-        # map is still valid).
-        if (
-            wrapped._band_dim_values is None
-            and wrapped._band_dim_name is not None
-            and wrapped._band_count > 0
-        ):
-            candidate = wrapped._band_dim_values_map.get(wrapped._band_dim_name)
-            if candidate is not None and len(candidate) == wrapped._band_count:
-                wrapped._band_dim_values = list(candidate)
+        # Re-derive the legacy primary-dim view from the canonical fields against the
+        # wrapped result's live band count: a band-shrinking spatial op may have
+        # diverged the band count from the cached coords, so the staleness guard lives
+        # once in `_derive_primary_band_view` rather than being repeated here.
+        wrapped._band_dim_name, wrapped._band_dim_values = self._derive_primary_band_view(
+            wrapped._band_dim_names,
+            wrapped._band_dim_values_map,
+            wrapped._band_dim_sizes,
+            wrapped._band_count,
+        )
         wrapped._variable_attrs = self._variable_attrs
         wrapped._scale = self._scale
         wrapped._offset = self._offset
@@ -2708,13 +2675,17 @@ class NetCDF(Dataset):
                 else arr
             )
             ds = Dataset.create_from_array(flat, geo=geo, epsg=epsg, no_data_value=ndv)
-            ds._band_dim_name = band_names[0] if band_names else None
-            ds._band_dim_values = values_map.get(band_names[0]) if band_names else None
             ds._band_dim_names = tuple(band_names)
             ds._band_dim_values_map = {
                 name: values_map.get(name) for name in band_names
             }
             ds._band_dim_sizes = tuple(arr.shape[i] for i in range(len(band_names)))
+            ds._band_dim_name, ds._band_dim_values = NetCDF._derive_primary_band_view(
+                ds._band_dim_names,
+                ds._band_dim_values_map,
+                ds._band_dim_sizes,
+                ds._band_count,
+            )
             result.set_variable(var_name, ds)
         return result
 
@@ -3086,12 +3057,15 @@ class NetCDF(Dataset):
         result._band_dim_sizes = new_sizes
         result._band_dim_values_map = dict(self._band_dim_values_map)
         result._band_dim_values_map[dim_name] = selected_coords
-        # Refresh legacy primary-dim values to match the (possibly
-        # updated) primary entry in the map. `_band_dim_name` is
-        # guaranteed non-None here: entry to `sel()` requires
-        # `_band_dim_names` to be non-empty, and the build path always
-        # sets `_band_dim_name = _band_dim_names[0]`.
-        result._band_dim_values = result._band_dim_values_map.get(result._band_dim_name)
+        # Re-derive the legacy primary-dim view from the (now updated) canonical
+        # fields so it tracks the pinned selection — single source of truth in
+        # `_derive_primary_band_view`.
+        result._band_dim_name, result._band_dim_values = self._derive_primary_band_view(
+            result._band_dim_names,
+            result._band_dim_values_map,
+            result._band_dim_sizes,
+            result._band_count,
+        )
 
         return result
 
@@ -4270,8 +4244,12 @@ class NetCDF(Dataset):
         cube._band_dim_values_map = {
             d.GetName(): NetCDF._read_band_dim_values(d) for d in band_dims
         }
-        cube._band_dim_name = cube._band_dim_names[0]
-        cube._band_dim_values = cube._band_dim_values_map[cube._band_dim_name]
+        cube._band_dim_name, cube._band_dim_values = NetCDF._derive_primary_band_view(
+            cube._band_dim_names,
+            cube._band_dim_values_map,
+            cube._band_dim_sizes,
+            cube._band_count,
+        )
 
     @staticmethod
     def _read_band_dim_values(dim):
@@ -4318,20 +4296,70 @@ class NetCDF(Dataset):
         return dst, dst.GetRootGroup()
 
     @staticmethod
+    def _derive_primary_band_view(
+        names: tuple[str, ...],
+        values_map: dict[str, list[Any] | None],
+        sizes: tuple[int, ...],
+        band_count: int,
+    ) -> tuple[str | None, list[Any] | None]:
+        """Derive the legacy ``(_band_dim_name, _band_dim_values)`` view from the canonical fields.
+
+        The legacy single-band-dim pair is a *view* of the canonical multi-band-dim
+        state: the name is the first (primary) band dimension and the values are that
+        dim's entry in ``values_map``. This staticmethod is the single source of truth
+        for that derivation — it replaces the per-call-site reconciliation that the
+        wrap/build/``sel`` paths used to repeat. The primary coordinate values are
+        exposed only when they are provably current for ``band_count``; otherwise they
+        come back ``None`` because a band-shrinking operation left the cached primary
+        view stale.
+
+        Args:
+            names: Canonical band-dimension names (``_band_dim_names``); the first is
+                the primary dim the legacy view points at.
+            values_map: Per-dim coordinate values (``_band_dim_values_map``).
+            sizes: Per-dim sizes (``_band_dim_sizes``); their product is the expected
+                band count for a multi-band-dim variable.
+            band_count: The live band count of the backing raster.
+
+        Returns:
+            tuple: ``(name, values)`` for the primary band dim. ``name`` is ``None``
+            when there is no band dimension; ``values`` is ``None`` when there are no
+            coordinates or the cached primary view is stale for ``band_count``.
+        """
+        name = names[0] if names else None
+        if name is None:
+            return None, None
+        values = values_map.get(name)
+        if values is None or band_count <= 0:
+            return name, values
+        if len(names) > 1:
+            # Multi-band-dim: the primary view is valid iff the product of the cached
+            # sizes still equals the live band count (e.g. a band-shrinking op outside
+            # ``sel()`` would diverge them, making the cached primary view stale).
+            return name, (values if math.prod(sizes) == band_count else None)
+        # Single-band-dim: valid iff the values' own length matches the band count.
+        return name, (values if len(values) == band_count else None)
+
+    @staticmethod
     def _copy_band_dim_metadata(dst: Any, src: Any) -> None:
         """Copy the band-dimension bookkeeping from ``src`` onto ``dst``.
 
-        Carries the legacy single-band-dim fields (``_band_dim_name`` /
-        ``_band_dim_values``) and the multi-band-dim fields (``_band_dim_names`` /
-        ``_band_dim_values_map`` / ``_band_dim_sizes``) so a derived view keeps the
-        same non-spatial axis layout. The values map is shallow-copied so the two
-        objects don't share a mutable dict.
+        Carries the multi-band-dim fields (``_band_dim_names`` / ``_band_dim_values_map``
+        / ``_band_dim_sizes``) and re-derives the legacy single-band-dim view
+        (``_band_dim_name`` / ``_band_dim_values``) from them via
+        :meth:`_derive_primary_band_view`, so a derived view keeps the same non-spatial
+        axis layout. The values map is shallow-copied so the two objects don't share a
+        mutable dict.
         """
-        dst._band_dim_name = src._band_dim_name
-        dst._band_dim_values = src._band_dim_values
         dst._band_dim_names = src._band_dim_names
         dst._band_dim_values_map = dict(src._band_dim_values_map)
         dst._band_dim_sizes = src._band_dim_sizes
+        dst._band_dim_name, dst._band_dim_values = NetCDF._derive_primary_band_view(
+            dst._band_dim_names,
+            dst._band_dim_values_map,
+            dst._band_dim_sizes,
+            dst._band_count,
+        )
 
     def _replace_raster(self, new_raster: gdal.Dataset):
         """Replace the internal GDAL dataset, closing the old one if different.
