@@ -508,10 +508,6 @@ def _build_srs_from_cf_params(
     return srs
 
 
-# ------------------------------------------------------------------ #
-#  Axis detection                                                    #
-# ------------------------------------------------------------------ #
-
 _STDNAME_TO_AXIS: dict[str, str] = {
     "latitude": "Y",
     "longitude": "X",
@@ -600,11 +596,6 @@ def detect_axis(
     return result
 
 
-# ------------------------------------------------------------------ #
-#  Variable classification                                             #
-# ------------------------------------------------------------------ #
-
-
 def classify_variables(
     variables: dict[str, Any],
     dimensions: dict[str, Any],
@@ -689,10 +680,6 @@ def _is_connectivity(attrs: dict[str, Any]) -> bool:
     return isinstance(cf_role, str) and "connectivity" in cf_role
 
 
-# ------------------------------------------------------------------ #
-#  Conventions parsing                                               #
-# ------------------------------------------------------------------ #
-
 _MAX_TESTED_CF_VERSION = "1.11"
 
 
@@ -734,11 +721,6 @@ def parse_conventions(conventions_str: str | None) -> dict[str, str]:
     return result
 
 
-# ------------------------------------------------------------------ #
-#  Cell methods parsing                                              #
-# ------------------------------------------------------------------ #
-
-
 def parse_cell_methods(cell_methods_str: str) -> list[dict[str, str]]:
     """Parse a CF `cell_methods` attribute string.
 
@@ -763,11 +745,6 @@ def parse_cell_methods(cell_methods_str: str) -> list[dict[str, str]]:
             entry["over"] = match.group(4)
         results.append(entry)
     return results
-
-
-# ------------------------------------------------------------------ #
-#  Valid range masking                                               #
-# ------------------------------------------------------------------ #
 
 
 def apply_valid_range_mask(
@@ -801,11 +778,6 @@ def apply_valid_range_mask(
     if valid_max is not None:
         result[result > valid_max] = fill_value
     return result
-
-
-# ------------------------------------------------------------------ #
-#  Flag decoding                                                     #
-# ------------------------------------------------------------------ #
 
 
 def decode_flags(
@@ -864,11 +836,6 @@ def decode_flags(
                 break
 
     return result
-
-
-# ------------------------------------------------------------------ #
-#  CF compliance validation                                          #
-# ------------------------------------------------------------------ #
 
 
 def validate_cf(

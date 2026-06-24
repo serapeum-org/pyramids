@@ -62,7 +62,16 @@ from pyramids.feature import FeatureCollection, create_polygon
 # `Dataset.__init__` to wire the seven collaborators and by
 # `_update_inplace` to re-bind their `_ds` back-references after
 # `__dict__.update` (see audit §3.3).
-_COLLABORATOR_ATTRS = ("io", "spatial", "bands", "analysis", "cell", "vectorize", "cog")
+_COLLABORATOR_ATTRS = (
+    "io",
+    "spatial",
+    "bands",
+    "analysis",
+    "cell",
+    "vectorize",
+    "cog",
+    "georef",
+)
 
 # Sentinel for `Dataset.from_band_files(no_data_value=...)` so the helper can
 # tell "caller didn't pass one — inherit from the source rasters" apart from

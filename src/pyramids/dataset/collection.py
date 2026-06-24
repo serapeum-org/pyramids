@@ -890,7 +890,7 @@ class DatasetCollection:
         lazy Zarr-backed xarray with zero data rewrite.
 
         Currently routes through
-        :func:`pyramids.netcdf._kerchunk.combine_kerchunk`, which
+        :func:`pyramids.netcdf._kerchunk_facade.combine_kerchunk`, which
         handles NetCDF/HDF5 sources. GeoTIFF backing is a follow-on
         (kerchunk's tiff support requires `tifffile`).
 
@@ -929,7 +929,7 @@ class DatasetCollection:
                 f"files: {geotiff_files[:3]}"
                 f"{' ...' if len(geotiff_files) > 3 else ''}"
             )
-        from pyramids.netcdf._kerchunk import combine_kerchunk
+        from pyramids.netcdf._kerchunk_facade import combine_kerchunk
 
         return combine_kerchunk(
             self._files,

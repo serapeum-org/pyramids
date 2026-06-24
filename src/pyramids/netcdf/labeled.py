@@ -19,16 +19,17 @@ index bookkeeping applied at read time, so `select` / `select_time` /
 from __future__ import annotations
 
 import warnings
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable
 
-import cftime
 import numpy as np
 import pandas as pd
 from osgeo import gdal
 
 from pyramids.base._utils import import_pyarrow
 from pyramids.base.remote import CloudConfig, _to_vsi, resolve_s3_region
+from pyramids.netcdf.utils import decode_cf_time, encode_cf_time
 
 # Soft guard: realising a store this large into a DataFrame loads it all into
 # memory. Above this many bytes the write methods warn the caller to slice first
@@ -441,6 +442,17 @@ class LabeledDataset:
         idx = self._index.get(dim)
         return self._full_sizes[dim] if idx is None else int(idx.size)
 
+    @contextmanager
+    def _with_store(self):
+        """Enter the store's cloud-credentials context, yielding the open MDIM group.
+
+        Centralises the ``with self._cloud_config: ... self._group.OpenMDArray(...)``
+        boilerplate so credential scoping (and any future handle management) lives in
+        one place. Use as ``with self._with_store() as grp: arr = grp.OpenMDArray(name)``.
+        """
+        with self._cloud_config:
+            yield self._group
+
     def _array_dims(self, name: str) -> list[str]:
         """Dimension names of array `name`, in storage order."""
         return [d.GetName() for d in self._group.OpenMDArray(name).GetDimensions()]
@@ -477,8 +489,8 @@ class LabeledDataset:
             dtype for string arrays) and its remaining dimension names (after
             scalar dims are squeezed out).
         """
-        with self._cloud_config:
-            arr = self._group.OpenMDArray(name)
+        with self._with_store() as grp:
+            arr = grp.OpenMDArray(name)
             dim_names = self._array_dims(name)
             if arr.GetDataType().GetClass() == gdal.GEDTC_STRING:
                 values = self._read_string_selection(arr, dim_names)
@@ -559,23 +571,12 @@ class LabeledDataset:
             return values
         cal_attr = _get_attr(arr, "calendar")
         calendar = cal_attr.ReadAsString() if cal_attr is not None else "standard"
-        standard = calendar in ("standard", "gregorian", "proleptic_gregorian")
-        decoded = np.asarray(
-            cftime.num2date(
-                values, unit, calendar, only_use_cftime_datetimes=not standard
-            )
-        )
-        if standard:
-            try:
-                return decoded.astype("datetime64[ns]")
-            except (ValueError, TypeError):
-                return decoded
-        return decoded
+        return decode_cf_time(values, unit, calendar)
 
     def _coord_full(self, name: str) -> np.ndarray:
         """Read a coordinate's full (unselected) values."""
-        with self._cloud_config:
-            arr = self._group.OpenMDArray(name)
+        with self._with_store() as grp:
+            arr = grp.OpenMDArray(name)
             if arr.GetDataType().GetClass() == gdal.GEDTC_STRING:
                 values = np.asarray(arr.Read(), dtype=object)
             else:
@@ -697,18 +698,7 @@ class LabeledDataset:
 
     def _time_to_num(self, value: Any, unit: str, calendar: str) -> float:
         """Convert a date string / datetime to the time axis's numeric scale."""
-        ts = pd.Timestamp(value)
-        dt = cftime.datetime(
-            ts.year,
-            ts.month,
-            ts.day,
-            ts.hour,
-            ts.minute,
-            ts.second,
-            ts.microsecond,
-            calendar=calendar,
-        )
-        return float(cftime.date2num(dt, unit, calendar))
+        return encode_cf_time(value, unit, calendar)
 
     def select_time(
         self,
@@ -742,8 +732,8 @@ class LabeledDataset:
                 >>> sub = store.select_time("2010-06-01", "2010-08-31")  # doctest: +SKIP
         """
         self._require_coord(time_dim)
-        with self._cloud_config:
-            arr = self._group.OpenMDArray(time_dim)
+        with self._with_store() as grp:
+            arr = grp.OpenMDArray(time_dim)
             unit = arr.GetUnit()
             cal_attr = _get_attr(arr, "calendar")
             calendar = cal_attr.ReadAsString() if cal_attr is not None else "standard"
@@ -838,9 +828,9 @@ class LabeledDataset:
     def _estimated_nbytes(self) -> int:
         """Estimate the bytes a full materialisation would read (no read done)."""
         total = 0
-        with self._cloud_config:
+        with self._with_store() as grp:
             for name in self._var_names:
-                arr = self._group.OpenMDArray(name)
+                arr = grp.OpenMDArray(name)
                 itemsize = arr.GetDataType().GetSize() or 4
                 cells = 1
                 for dim in self._array_dims(name):

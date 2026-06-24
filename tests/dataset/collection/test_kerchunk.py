@@ -2,7 +2,7 @@
 
 emit a combined kerchunk JSON manifest spanning every
 timestep file. Thin forwarder to
-:func:`pyramids.netcdf._kerchunk.combine_kerchunk`; tests skip when
+:func:`pyramids.netcdf._kerchunk_facade.combine_kerchunk`; tests skip when
 kerchunk is absent.
 """
 

@@ -397,15 +397,15 @@ def _subset_mesh_by_face_indices(
 
     new_node_x = mesh.node_x[kept_node_indices]
     new_node_y = mesh.node_y[kept_node_indices]
-    new_face_x = mesh._face_x[selected_faces_arr] if mesh._face_x is not None else None
-    new_face_y = mesh._face_y[selected_faces_arr] if mesh._face_y is not None else None
+    new_face_x = mesh.face_x[selected_faces_arr] if mesh.face_x is not None else None
+    new_face_y = mesh.face_y[selected_faces_arr] if mesh.face_y is not None else None
     new_edge_x = None
     new_edge_y = None
     if kept_edge_indices is not None:
-        if mesh._edge_x is not None:
-            new_edge_x = mesh._edge_x[kept_edge_indices]
-        if mesh._edge_y is not None:
-            new_edge_y = mesh._edge_y[kept_edge_indices]
+        if mesh.edge_x is not None:
+            new_edge_x = mesh.edge_x[kept_edge_indices]
+        if mesh.edge_y is not None:
+            new_edge_y = mesh.edge_y[kept_edge_indices]
 
     new_mesh = Mesh2d(
         node_x=new_node_x,
@@ -430,18 +430,7 @@ def _subset_mesh_by_face_indices(
         else:
             new_data = data
 
-        new_shape = new_data.shape if new_data is not None else var.shape
-        new_data_vars[name] = MeshVariable(
-            name=var.name,
-            location=var.location,
-            mesh_name=var.mesh_name,
-            shape=new_shape,
-            attributes=var.attributes,
-            nodata=var.nodata,
-            units=var.units,
-            standard_name=var.standard_name,
-            _data=new_data,
-        )
+        new_data_vars[name] = var.with_data(new_data)
 
     from pyramids.netcdf.ugrid.dataset import UgridDataset
 

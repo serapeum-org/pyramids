@@ -30,7 +30,12 @@ from pyramids.netcdf.ugrid.io import (
     write_ugrid_topology,
 )
 from pyramids.netcdf.ugrid.mesh import Mesh2d
-from pyramids.netcdf.ugrid.models import MeshTopologyInfo, MeshVariable, UgridMetadata
+from pyramids.netcdf.ugrid.models import (
+    DEFAULT_MESH_NAME,
+    MeshTopologyInfo,
+    MeshVariable,
+    UgridMetadata,
+)
 from pyramids.netcdf.utils import _read_attributes
 
 
@@ -109,7 +114,7 @@ class UgridDataset:
 
         data_variables = _read_data_variables(rg, topo_info)
 
-        global_attrs = _read_global_attributes(rg)
+        global_attrs = _read_attributes(rg)
 
         ds = None
 
@@ -131,7 +136,9 @@ class UgridDataset:
     @property
     def mesh_name(self) -> str:
         """Name of the mesh topology variable."""
-        result = self._topology_info.mesh_name if self._topology_info else "mesh2d"
+        result = (
+            self._topology_info.mesh_name if self._topology_info else DEFAULT_MESH_NAME
+        )
         return result
 
     @property
@@ -446,18 +453,18 @@ class UgridDataset:
 
         new_face_x = None
         new_face_y = None
-        if self._mesh._face_x is not None and self._mesh._face_y is not None:
+        if self._mesh.has_face_coords:
             new_face_x, new_face_y = transformer.transform(
-                self._mesh._face_x,
-                self._mesh._face_y,
+                self._mesh.face_x,
+                self._mesh.face_y,
             )
 
         new_edge_x = None
         new_edge_y = None
-        if self._mesh._edge_x is not None and self._mesh._edge_y is not None:
+        if self._mesh.has_edge_coords:
             new_edge_x, new_edge_y = transformer.transform(
-                self._mesh._edge_x,
-                self._mesh._edge_y,
+                self._mesh.edge_x,
+                self._mesh.edge_y,
             )
 
         new_mesh = Mesh2d(
@@ -521,18 +528,7 @@ class UgridDataset:
         new_data_vars: dict[str, MeshVariable] = {}
         for name, var in self._data_variables.items():
             if var.has_time:
-                sliced_data = var.sel_time(index)
-                new_data_vars[name] = MeshVariable(
-                    name=var.name,
-                    location=var.location,
-                    mesh_name=var.mesh_name,
-                    shape=sliced_data.shape,
-                    attributes=var.attributes,
-                    nodata=var.nodata,
-                    units=var.units,
-                    standard_name=var.standard_name,
-                    _data=sliced_data,
-                )
+                new_data_vars[name] = var.with_data(var.sel_time(index))
             else:
                 new_data_vars[name] = var
 
@@ -683,7 +679,7 @@ class UgridDataset:
         data: dict[str, np.ndarray] | None = None,
         data_locations: dict[str, str] | None = None,
         epsg: int = 4326,
-        mesh_name: str = "mesh2d",
+        mesh_name: str = DEFAULT_MESH_NAME,
     ) -> UgridDataset:
         """Create a UgridDataset programmatically from arrays.
 
@@ -908,16 +904,3 @@ def _read_data_variables(
         )
 
     return variables
-
-
-def _read_global_attributes(rg: gdal.Group) -> dict[str, Any]:
-    """Read global attributes from a GDAL root group.
-
-    Args:
-        rg: GDAL root group.
-
-    Returns:
-        Dictionary of global attribute name-value pairs.
-    """
-    result = _read_attributes(rg)
-    return result

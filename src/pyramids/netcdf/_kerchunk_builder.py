@@ -26,11 +26,10 @@ from typing import Any
 
 import numpy as np
 
-_H5PY_IMPORT_ERROR = (
-    "h5py is required for native kerchunk reference manifests. "
-    "Install with the [lazy] extra:\n"
-    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+from pyramids.base._utils import import_h5py, lazy_extra_hint
+
+_H5PY_IMPORT_ERROR = lazy_extra_hint(
+    "h5py is required for native kerchunk reference manifests."
 )
 
 # HDF5 attribute keys that are container bookkeeping, not user metadata; they are
@@ -71,11 +70,7 @@ def _require_h5py() -> Any:
     Raises:
         ImportError: When h5py is not installed (points at the ``[lazy]`` extra).
     """
-    try:
-        import h5py
-    except ImportError as exc:
-        raise ImportError(_H5PY_IMPORT_ERROR) from exc
-    return h5py
+    return import_h5py(_H5PY_IMPORT_ERROR)
 
 
 def _to_jsonable(value: Any) -> Any:
@@ -96,7 +91,7 @@ def _to_jsonable(value: Any) -> Any:
     Examples:
         - Decode bytes and squeeze a size-1 array to a scalar:
             ```python
-            >>> from pyramids.netcdf._kerchunk_native import _to_jsonable
+            >>> from pyramids.netcdf._kerchunk_builder import _to_jsonable
             >>> import numpy as np
             >>> _to_jsonable(b"metres")
             'metres'
@@ -106,7 +101,7 @@ def _to_jsonable(value: Any) -> Any:
             ```
         - Keep a real vector as a list:
             ```python
-            >>> from pyramids.netcdf._kerchunk_native import _to_jsonable
+            >>> from pyramids.netcdf._kerchunk_builder import _to_jsonable
             >>> import numpy as np
             >>> _to_jsonable(np.array([1, 2, 3], dtype="i4"))
             [1, 2, 3]
@@ -165,7 +160,7 @@ def _basename(path: str) -> str:
     Examples:
         - A nested path keeps only its leaf:
             ```python
-            >>> from pyramids.netcdf._kerchunk_native import _basename
+            >>> from pyramids.netcdf._kerchunk_builder import _basename
             >>> _basename("/group/x")
             'x'
             >>> _basename("y")
@@ -302,14 +297,14 @@ def _chunk_grid_key(chunk_offset: tuple[int, ...], chunks: list[int]) -> str:
     Examples:
         - A 3-D chunk offset divided by the chunk shape gives the grid key:
             ```python
-            >>> from pyramids.netcdf._kerchunk_native import _chunk_grid_key
+            >>> from pyramids.netcdf._kerchunk_builder import _chunk_grid_key
             >>> _chunk_grid_key((0, 5, 0), [1, 5, 6])
             '0.1.0'
 
             ```
         - A scalar (no chunks) is always key ``"0"``:
             ```python
-            >>> from pyramids.netcdf._kerchunk_native import _chunk_grid_key
+            >>> from pyramids.netcdf._kerchunk_builder import _chunk_grid_key
             >>> _chunk_grid_key((), [])
             '0'
 
@@ -503,14 +498,14 @@ def _manifest_refs(manifest: dict[str, Any]) -> dict[str, Any]:
     Examples:
         - A v1 manifest yields its ``refs`` mapping:
             ```python
-            >>> from pyramids.netcdf._kerchunk_native import _manifest_refs
+            >>> from pyramids.netcdf._kerchunk_builder import _manifest_refs
             >>> _manifest_refs({"version": 1, "refs": {".zgroup": "{}"}})
             {'.zgroup': '{}'}
 
             ```
         - A flat v0 mapping is returned unchanged:
             ```python
-            >>> from pyramids.netcdf._kerchunk_native import _manifest_refs
+            >>> from pyramids.netcdf._kerchunk_builder import _manifest_refs
             >>> _manifest_refs({".zgroup": "{}"})
             {'.zgroup': '{}'}
 
@@ -531,7 +526,7 @@ def _variable_names(refs: dict[str, Any]) -> list[str]:
     Examples:
         - Only keys with a ``.zarray`` count as variables:
             ```python
-            >>> from pyramids.netcdf._kerchunk_native import _variable_names
+            >>> from pyramids.netcdf._kerchunk_builder import _variable_names
             >>> _variable_names({"t/.zarray": "{}", "t/.zattrs": "{}", ".zgroup": "{}"})
             ['t']
 
@@ -554,7 +549,7 @@ def _shift_chunk_key(key: str, axis: int, offset: int) -> str:
     Examples:
         - Shift the first axis of a 3-D chunk key by two chunks:
             ```python
-            >>> from pyramids.netcdf._kerchunk_native import _shift_chunk_key
+            >>> from pyramids.netcdf._kerchunk_builder import _shift_chunk_key
             >>> _shift_chunk_key("0.1.0", 0, 2)
             '2.1.0'
 

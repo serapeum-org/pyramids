@@ -26,17 +26,15 @@ import os
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 import numpy as np
 
-from pyramids.netcdf._kerchunk_native import build_single_manifest, combine_manifests
+from pyramids.base._utils import lazy_extra_hint
+from pyramids.netcdf._kerchunk_builder import build_single_manifest, combine_manifests
 
-_KERCHUNK_IMPORT_ERROR = (
-    "kerchunk is required for NetCDF → Zarr reference manifests. "
-    "Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+_KERCHUNK_IMPORT_ERROR = lazy_extra_hint(
+    "kerchunk is required for NetCDF → Zarr reference manifests."
 )
 
 
@@ -138,6 +136,43 @@ def _kerchunk_translate_single(
     return refs
 
 
+def _native_or_fallback(
+    native_fn: Callable[[], dict[str, Any]],
+    legacy_fn: Callable[[], dict[str, Any]],
+    *,
+    local_inputs_exist: bool,
+    subject: str,
+) -> dict[str, Any]:
+    """Run the native manifest builder, falling back to the kerchunk translator on failure.
+
+    Shared by :func:`to_kerchunk` and :func:`combine_kerchunk`. An ``OSError`` is re-raised
+    when every input is a local file that exists — that signals a genuinely corrupt /
+    unreadable HDF5 file, not a remote URL the local-only native builder cannot open (which
+    kerchunk's fsspec-backed translator can). Any ``ValueError`` (unsupported HDF5 feature, or
+    a combine layout the native path doesn't support) always falls back.
+
+    Args:
+        native_fn: Zero-arg callable producing the manifest via the native builder.
+        legacy_fn: Zero-arg callable producing the manifest via the kerchunk translator.
+        local_inputs_exist: ``True`` when every source path is an existing local file.
+        subject: Lead clause of the fallback warning (the ``({exc}); falling back …`` tail
+            is appended here).
+
+    Returns:
+        The manifest dict from whichever path succeeded.
+    """
+    try:
+        return native_fn()
+    except (ValueError, OSError) as exc:
+        if isinstance(exc, OSError) and local_inputs_exist:
+            raise
+        warnings.warn(
+            f"{subject} ({exc}); falling back to the kerchunk translator.",
+            stacklevel=3,
+        )
+        return legacy_fn()
+
+
 def to_kerchunk(
     src_path: str | Path,
     output_path: str | Path,
@@ -179,7 +214,7 @@ def to_kerchunk(
           `[lazy]` extra):
             ```python
             >>> from pathlib import Path  # doctest: +SKIP
-            >>> from pyramids.netcdf._kerchunk import to_kerchunk  # doctest: +SKIP
+            >>> from pyramids.netcdf._kerchunk_facade import to_kerchunk  # doctest: +SKIP
             >>> manifest = to_kerchunk(
             ...     "noah_20240101.nc", "noah_20240101.kerchunk.json",
             ... )  # doctest: +SKIP
@@ -193,34 +228,23 @@ def to_kerchunk(
             f"backend must be 'native' or 'kerchunk'; got {backend!r}"
         )
     src_str = str(src_path)
-    if backend == "kerchunk":
-        refs = _kerchunk_translate_single(
+
+    def _legacy() -> dict[str, Any]:
+        return _kerchunk_translate_single(
             src_str, inline_threshold=inline_threshold, vlen_encode=vlen_encode
         )
+
+    if backend == "kerchunk":
+        refs = _legacy()
     else:
-        try:
-            refs = build_single_manifest(
-                src_str,
-                inline_threshold=inline_threshold,
-                vlen_encode=vlen_encode,
-            )
-        except (ValueError, OSError) as exc:
-            # ValueError: unsupported HDF5 feature. OSError: h5py could not open the
-            # source — typically a remote URL (s3://, /vsicurl/...) the local-only
-            # native builder cannot read, but kerchunk's translator can via fsspec.
-            # A local file that exists but fails to open is corrupt/unreadable at the
-            # HDF5 level; surface that directly rather than masking it behind a
-            # kerchunk fallback that would also fail.
-            if isinstance(exc, OSError) and os.path.exists(src_str):
-                raise
-            warnings.warn(
-                f"native kerchunk builder could not handle {src_str!r} "
-                f"({exc}); falling back to the kerchunk translator.",
-                stacklevel=2,
-            )
-            refs = _kerchunk_translate_single(
+        refs = _native_or_fallback(
+            lambda: build_single_manifest(
                 src_str, inline_threshold=inline_threshold, vlen_encode=vlen_encode
-            )
+            ),
+            _legacy,
+            local_inputs_exist=os.path.exists(src_str),
+            subject=f"native kerchunk builder could not handle {src_str!r}",
+        )
     Path(output_path).write_text(json.dumps(refs))
     return refs
 
@@ -300,7 +324,7 @@ def combine_kerchunk(
         - Combine a year's worth of daily NetCDFs into one manifest:
             ```python
             >>> from pathlib import Path  # doctest: +SKIP
-            >>> from pyramids.netcdf._kerchunk import combine_kerchunk  # doctest: +SKIP
+            >>> from pyramids.netcdf._kerchunk_facade import combine_kerchunk  # doctest: +SKIP
             >>> srcs = sorted(Path("/data/noah").glob("noah_*.nc"))  # doctest: +SKIP
             >>> manifest = combine_kerchunk(
             ...     srcs, "noah_combined.json",
@@ -315,46 +339,35 @@ def combine_kerchunk(
         raise ValueError(
             f"backend must be 'native' or 'kerchunk'; got {backend!r}"
         )
-    if backend == "kerchunk":
-        combined = _kerchunk_combine(
+    def _legacy() -> dict[str, Any]:
+        return _kerchunk_combine(
             src_paths,
             concat_dims=concat_dims,
             identical_dims=identical_dims,
             inline_threshold=inline_threshold,
         )
+
+    def _native() -> dict[str, Any]:
+        if len(concat_dims) != 1:
+            raise ValueError(
+                "native combine supports exactly one concat dimension; got "
+                f"{tuple(concat_dims)}"
+            )
+        per_file = [
+            build_single_manifest(str(path), inline_threshold=inline_threshold)
+            for path in src_paths
+        ]
+        return combine_manifests(per_file, concat_dim=concat_dims[0])
+
+    if backend == "kerchunk":
+        combined = _legacy()
     else:
-        try:
-            if len(concat_dims) != 1:
-                raise ValueError(
-                    "native combine supports exactly one concat dimension; got "
-                    f"{tuple(concat_dims)}"
-                )
-            per_file = [
-                build_single_manifest(str(path), inline_threshold=inline_threshold)
-                for path in src_paths
-            ]
-            combined = combine_manifests(per_file, concat_dim=concat_dims[0])
-        except (ValueError, OSError) as exc:
-            # ValueError: >1 concat dim or unsupported feature. OSError: h5py could
-            # not open a source (e.g. a remote URL the local-only native builder
-            # cannot read) — kerchunk's translator handles those via fsspec. If every
-            # input is a local file that exists, an OSError means a corrupt/unreadable
-            # file; surface it directly instead of a misleading fallback.
-            if isinstance(exc, OSError) and all(
-                os.path.exists(str(path)) for path in src_paths
-            ):
-                raise
-            warnings.warn(
-                f"native kerchunk combine could not handle these inputs ({exc}); "
-                "falling back to the kerchunk translator.",
-                stacklevel=2,
-            )
-            combined = _kerchunk_combine(
-                src_paths,
-                concat_dims=concat_dims,
-                identical_dims=identical_dims,
-                inline_threshold=inline_threshold,
-            )
+        combined = _native_or_fallback(
+            _native,
+            _legacy,
+            local_inputs_exist=all(os.path.exists(str(path)) for path in src_paths),
+            subject="native kerchunk combine could not handle these inputs",
+        )
     Path(output_path).write_text(json.dumps(combined))
     return combined
 

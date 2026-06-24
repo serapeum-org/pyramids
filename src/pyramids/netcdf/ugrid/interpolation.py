@@ -112,8 +112,8 @@ def _get_source_data(
     elif location == "node":
         cx, cy = mesh.node_x, mesh.node_y
     elif location == "edge":
-        if mesh._edge_x is not None and mesh._edge_y is not None:
-            cx, cy = mesh._edge_x, mesh._edge_y
+        if mesh.has_edge_coords:
+            cx, cy = mesh.edge_x, mesh.edge_y
         else:
             raise ValueError("Edge coordinates not available for interpolation.")
     else:

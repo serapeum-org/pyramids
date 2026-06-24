@@ -27,14 +27,14 @@ from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 import numpy as np
 
+from pyramids.base._utils import lazy_extra_hint
+
 if TYPE_CHECKING:
     from pyramids.netcdf import NetCDF
 
 
-_LAZY_IMPORT_ERROR = (
-    "open_mfdataset requires the optional 'dask' dependency. Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+_LAZY_IMPORT_ERROR = lazy_extra_hint(
+    "open_mfdataset requires the optional 'dask' dependency."
 )
 
 

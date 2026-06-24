@@ -16,6 +16,7 @@ from pyramids.netcdf.utils import (
     _get_coord_variable_names,
     _get_group_name,
     _read_attributes,
+    resolve_full_name,
 )
 
 
@@ -246,14 +247,7 @@ class DimensionInfo:
         except Exception:
             dim_name = ""
 
-        try:
-            dim_full_name = d.GetFullName()
-        except Exception:
-            dim_full_name = (
-                f"{group_full_name}/{dim_name}"
-                if group_full_name != "/"
-                else f"/{dim_name}"
-            )
+        dim_full_name = resolve_full_name(d, group_full_name, dim_name)
 
         try:
             dim_size = int(d.GetSize())
@@ -455,14 +449,7 @@ class VariableInfo:
         except Exception:
             resolved_name = md_arr_name
 
-        try:
-            md_arr_full_name = md_arr.GetFullName()
-        except Exception:
-            md_arr_full_name = (
-                f"{group_full_name}/{resolved_name}"
-                if group_full_name != "/"
-                else f"/{resolved_name}"
-            )
+        md_arr_full_name = resolve_full_name(md_arr, group_full_name, resolved_name)
 
         # dtype
         try:

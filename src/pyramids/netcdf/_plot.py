@@ -1362,6 +1362,22 @@ class NetCDFPlot:
         return result
 
     @staticmethod
+    def _matches_x_axis(arr: np.ndarray, data_shape: tuple[int, int]) -> bool:
+        """True when ``arr`` can serve as the x axis for ``data_shape`` (1-D cols or 2-D slice)."""
+        rows, cols = data_shape
+        return (arr.ndim == 1 and arr.shape[0] == cols) or (
+            arr.ndim == 2 and arr.shape == data_shape
+        )
+
+    @staticmethod
+    def _matches_y_axis(arr: np.ndarray, data_shape: tuple[int, int]) -> bool:
+        """True when ``arr`` can serve as the y axis for ``data_shape`` (1-D rows or 2-D slice)."""
+        rows, cols = data_shape
+        return (arr.ndim == 1 and arr.shape[0] == rows) or (
+            arr.ndim == 2 and arr.shape == data_shape
+        )
+
+    @staticmethod
     def _coord_shapes_match(
         x_arr: np.ndarray,
         y_arr: np.ndarray,
@@ -1383,17 +1399,11 @@ class NetCDFPlot:
         Returns:
             bool: ``True`` when both arrays line up with ``data_shape``.
         """
-        result = False
-        if data_shape is not None:
-            rows, cols = data_shape
-            x_ok = (x_arr.ndim == 1 and x_arr.shape[0] == cols) or (
-                x_arr.ndim == 2 and x_arr.shape == data_shape
-            )
-            y_ok = (y_arr.ndim == 1 and y_arr.shape[0] == rows) or (
-                y_arr.ndim == 2 and y_arr.shape == data_shape
-            )
-            result = x_ok and y_ok
-        return result
+        if data_shape is None:
+            return False
+        return NetCDFPlot._matches_x_axis(x_arr, data_shape) and NetCDFPlot._matches_y_axis(
+            y_arr, data_shape
+        )
 
     def _cf_coordinates_pair(
         self,
@@ -1452,17 +1462,12 @@ class NetCDFPlot:
                             arr,
                             data_shape,
                         )
-            rows, cols = data_shape
             x_candidates: list[tuple[str, np.ndarray]] = []
             y_candidates: list[tuple[str, np.ndarray]] = []
             for name, arr in candidate_arrays.items():
-                if (arr.ndim == 1 and arr.shape[0] == cols) or (
-                    arr.ndim == 2 and arr.shape == data_shape
-                ):
+                if self._matches_x_axis(arr, data_shape):
                     x_candidates.append((name, arr))
-                if (arr.ndim == 1 and arr.shape[0] == rows) or (
-                    arr.ndim == 2 and arr.shape == data_shape
-                ):
+                if self._matches_y_axis(arr, data_shape):
                     y_candidates.append((name, arr))
             for x_name, x_arr in x_candidates:
                 for y_name, y_arr in y_candidates:
@@ -1594,6 +1599,53 @@ class NetCDFPlot:
         y_is_lat = "lat" in yl
         return x_is_lon and y_is_lat
 
+    def _resolve_band_dim_name(
+        self,
+        nc: NetCDF,
+        *,
+        selector: str,
+        candidates: tuple[str, ...],
+        noun: str,
+        fallback_to_primary: bool,
+    ) -> str:
+        """Resolve the band-dim name a convenience selector maps onto.
+
+        Shared engine for :meth:`_resolve_time_dim_name` /
+        :meth:`_resolve_level_dim_name` / :meth:`_resolve_member_dim_name`: scans
+        ``nc._band_dim_names`` (case-insensitive) for one of ``candidates``.
+
+        Args:
+            nc: The variable subset being plotted.
+            selector: The convenience-selector keyword (``"time"`` / ``"level"`` /
+                ``"member"``) used in error messages.
+            candidates: The accepted lowercase dim names for this axis.
+            noun: Human label for the axis in the "could not be auto-resolved"
+                message (e.g. ``"vertical"`` / ``"ensemble"``).
+            fallback_to_primary: When no candidate matches, return the first band dim
+                (``True``) or raise (``False``).
+
+        Returns:
+            str: The resolved band-dim name.
+
+        Raises:
+            ValueError: If the variable has no band dim, or no candidate matches and
+                ``fallback_to_primary`` is ``False``.
+        """
+        if not nc._band_dim_names:
+            raise ValueError(
+                f"`{selector}=` was passed but this variable has no band dimension."
+            )
+        for name in nc._band_dim_names:
+            if name.lower() in candidates:
+                return name
+        if fallback_to_primary:
+            return nc._band_dim_names[0]
+        raise ValueError(
+            f"`{selector}=` could not be auto-resolved. Use `sel={{dim: value}}` to "
+            f"name the {noun} dim explicitly. Band dims: "
+            f"{list(nc._band_dim_names)}."
+        )
+
     def _resolve_time_dim_name(self, nc: NetCDF) -> str:
         """Return the band-dim name that represents the time axis.
 
@@ -1651,15 +1703,13 @@ class NetCDFPlot:
 
               ```
         """
-        if not nc._band_dim_names:
-            raise ValueError(
-                "`time=` was passed but this variable has no band dimension."
-            )
-        candidates = ("time", "valid_time", "t")
-        for name in nc._band_dim_names:
-            if name.lower() in candidates:
-                return name
-        return nc._band_dim_names[0]
+        return self._resolve_band_dim_name(
+            nc,
+            selector="time",
+            candidates=("time", "valid_time", "t"),
+            noun="time",
+            fallback_to_primary=True,
+        )
 
     def _resolve_level_dim_name(self, nc: NetCDF) -> str:
         """Return the band-dim name that represents the vertical axis.
@@ -1724,18 +1774,12 @@ class NetCDFPlot:
 
               ```
         """
-        if not nc._band_dim_names:
-            raise ValueError(
-                "`level=` was passed but this variable has no band dimension."
-            )
-        candidates = ("pressure_level", "depth", "height", "z", "level")
-        for name in nc._band_dim_names:
-            if name.lower() in candidates:
-                return name
-        raise ValueError(
-            "`level=` could not be auto-resolved. Use `sel={dim: value}` to "
-            f"name the vertical dim explicitly. Band dims: "
-            f"{list(nc._band_dim_names)}."
+        return self._resolve_band_dim_name(
+            nc,
+            selector="level",
+            candidates=("pressure_level", "depth", "height", "z", "level"),
+            noun="vertical",
+            fallback_to_primary=False,
         )
 
     def _resolve_member_dim_name(self, nc: NetCDF) -> str:
@@ -1799,16 +1843,10 @@ class NetCDFPlot:
 
               ```
         """
-        if not nc._band_dim_names:
-            raise ValueError(
-                "`member=` was passed but this variable has no band dimension."
-            )
-        candidates = ("member", "realization", "ensemble")
-        for name in nc._band_dim_names:
-            if name.lower() in candidates:
-                return name
-        raise ValueError(
-            "`member=` could not be auto-resolved. Use `sel={dim: value}` to "
-            f"name the ensemble dim explicitly. Band dims: "
-            f"{list(nc._band_dim_names)}."
+        return self._resolve_band_dim_name(
+            nc,
+            selector="member",
+            candidates=("member", "realization", "ensemble"),
+            noun="ensemble",
+            fallback_to_primary=False,
         )

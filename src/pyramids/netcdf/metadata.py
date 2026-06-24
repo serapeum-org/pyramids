@@ -11,6 +11,7 @@ from osgeo import gdal
 
 from pyramids.netcdf.cf import classify_variables, parse_conventions
 from pyramids.netcdf.dimensions import MetaData as SharedMetaData
+from pyramids.netcdf.dimensions import parse_dimension_attributes
 from pyramids.netcdf.models import (
     CFInfo,
     DimensionInfo,
@@ -260,13 +261,17 @@ class MetadataBuilder:
         classic_md = self._read_classic_metadata_for_topup()
         if not classic_md:
             return
+        # Reuse the shared `<name>#<attr>` parser instead of re-deriving the keys here;
+        # case is preserved so the exact-match lookup behaviour is unchanged.
+        parsed = parse_dimension_attributes(classic_md, normalize_attr_keys=False)
         for key, dim in list(dimensions.items()):
+            classic_attrs = parsed.get(dim.name, {})
             new_attrs = dict(dim.attrs)
             updated = False
             for attr_name in self._CLASSIC_DIM_FALLBACK_ATTRS:
                 if attr_name in new_attrs:
                     continue
-                value = classic_md.get(f"{dim.name}#{attr_name}")
+                value = classic_attrs.get(attr_name)
                 if value:
                     new_attrs[attr_name] = value
                     updated = True

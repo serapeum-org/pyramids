@@ -312,6 +312,9 @@ def _fake_group_with_attrs(coords):
         for attr_name, value in coords[name].items():
             attr = Mock()
             attr.GetName.return_value = attr_name
+            # GDAL attributes are read via ``Attribute.Read()``; stub ``ReadAsString`` too
+            # so the mock stays faithful regardless of which reader the code uses.
+            attr.Read.return_value = value
             attr.ReadAsString.return_value = value
             attr_objs.append(attr)
         coord = Mock()
@@ -366,18 +369,18 @@ class TestAxisRole:
         assert NetCDF._axis_role(rg, "c") is None, "missing coord should be None"
 
     def test_unreadable_attribute_is_skipped(self):
-        """An attribute whose ``ReadAsString`` raises is skipped; others still read.
+        """An attribute whose value can't be read is tolerated; others still read.
 
         Test scenario:
-            A numeric ``valid_min`` (ReadAsString raises) alongside ``axis=Y`` ->
+            An unreadable ``valid_min`` (``Read`` raises) alongside ``axis=Y`` ->
             still detected as ``"Y"``.
         """
         bad = Mock()
         bad.GetName.return_value = "valid_min"
-        bad.ReadAsString.side_effect = RuntimeError("not a string")
+        bad.Read.side_effect = RuntimeError("not readable")
         good = Mock()
         good.GetName.return_value = "axis"
-        good.ReadAsString.return_value = "Y"
+        good.Read.return_value = "Y"
         coord = Mock()
         coord.GetAttributes.return_value = [bad, good]
         rg = Mock()
