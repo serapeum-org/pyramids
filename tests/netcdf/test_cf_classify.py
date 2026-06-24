@@ -131,6 +131,63 @@ class TestDetectAxis:
         result = detect_axis("lon", {})
         assert result == "X", f"Expected X, got {result}"
 
+    @pytest.mark.parametrize(
+        "attrs, expected",
+        [
+            ({"axis": ["X"]}, "X"),
+            ({"axis": ("Y",)}, "Y"),
+            ({"standard_name": ["latitude"]}, "Y"),
+            ({"units": ["degrees_east"]}, "X"),
+        ],
+        ids=["axis-list", "axis-tuple", "standard_name-list", "units-list"],
+    )
+    def test_length_one_sequence_attribute_is_unwrapped(self, attrs, expected):
+        """A length-1 array-valued attribute classifies like its scalar form (review L1).
+
+        Args:
+            attrs: Attribute dict whose value is a one-element list/tuple.
+            expected: The axis role detection should still return.
+
+        Test scenario:
+            GDAL can store an attribute as a 1-element array (e.g. ``axis = ["X"]``), which
+            ``_read_attributes`` surfaces as a length-1 list. ``detect_axis`` must unwrap it
+            so attribute-based detection is not silently skipped for array-stored values.
+        """
+        result = detect_axis("foo", attrs)
+        assert result == expected, f"Expected {expected} for {attrs}, got {result}"
+
+    @pytest.mark.parametrize(
+        "axis_value, expected",
+        [("X ", "X"), (" y ", "Y"), ("\tZ", "Z")],
+        ids=["trailing-space", "padded-lower", "leading-tab"],
+    )
+    def test_axis_value_is_whitespace_stripped(self, axis_value, expected):
+        """A whitespace-padded ``axis`` value still classifies (review L2).
+
+        Args:
+            axis_value: The raw, whitespace-padded ``axis`` attribute value.
+            expected: The normalized axis role.
+
+        Test scenario:
+            ``detect_axis`` strips surrounding whitespace before matching, so ``axis="X "``
+            is treated as ``"X"`` rather than falling through to the weaker heuristics.
+        """
+        result = detect_axis("foo", {"axis": axis_value})
+        assert result == expected, f"Expected {expected} for axis={axis_value!r}, got {result}"
+
+    def test_explicit_axis_is_authoritative_over_standard_name(self):
+        """An explicit ``axis`` wins over a conflicting ``standard_name`` (review M1 contract).
+
+        Test scenario:
+            CF treats the explicit ``axis`` attribute as authoritative. When a coordinate
+            carries a self-contradictory ``axis="T"`` together with
+            ``standard_name="longitude"``, ``detect_axis`` returns the declared ``"T"`` rather
+            than silently overriding it with the longitude heuristic. Pins the deliberate
+            precedence (the spatial callers then treat a non-X/Y role as non-spatial).
+        """
+        result = detect_axis("foo", {"axis": "T", "standard_name": "longitude"})
+        assert result == "T", f"explicit axis should win; expected T, got {result}"
+
 
 class TestClassifyVariables:
     """Tests for cf.classify_variables."""

@@ -538,6 +538,27 @@ _NAME_PATTERNS: dict[str, str] = {
 }
 
 
+def _coerce_cf_attr(value: Any) -> Any:
+    """Normalize a CF attribute value for axis matching.
+
+    GDAL stores attributes faithfully, so a value can arrive as a length-1 list (an
+    array-valued ``axis = ["X"]``) or a whitespace-padded string (``"X "``). Unwrap a
+    length-1 ``list``/``tuple`` and strip surrounding whitespace so such values classify
+    the same as their scalar / clean form; other values pass through unchanged.
+
+    Args:
+        value: The raw attribute value (string, length-1 sequence, or anything else).
+
+    Returns:
+        The unwrapped/stripped value, or the original value when no normalization applies.
+    """
+    if isinstance(value, (list, tuple)) and len(value) == 1:
+        value = value[0]
+    if isinstance(value, str):
+        value = value.strip()
+    return value
+
+
 def detect_axis(
     name: str,
     attrs: dict[str, Any],
@@ -610,12 +631,13 @@ def detect_axis(
     # below are already case-folded where it matters.
     if attrs:
         attrs = {
-            (k.lower() if isinstance(k, str) else k): v for k, v in attrs.items()
+            (k.lower() if isinstance(k, str) else k): _coerce_cf_attr(v)
+            for k, v in attrs.items()
         }
 
     axis = attrs.get("axis")
-    if isinstance(axis, str) and axis.upper() in ("X", "Y", "Z", "T"):
-        result = axis.upper()
+    if isinstance(axis, str) and axis.strip().upper() in ("X", "Y", "Z", "T"):
+        result = axis.strip().upper()
     else:
         stdname = attrs.get("standard_name")
         if isinstance(stdname, str):
