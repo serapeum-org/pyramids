@@ -49,7 +49,7 @@ from pyramids.netcdf._mdim import (
 from pyramids.netcdf.dimensions import ClassicDimensionInfo
 from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import NetCDFMetadata
-from pyramids.netcdf.plot_options import ColourOpts, FacetSpec, Selectors
+from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
 from pyramids.netcdf.utils import _read_attributes, create_time_conversion_func
 
 # GDAL integer dtype codes, used to pick the right typed Attribute.Write* call
@@ -979,7 +979,7 @@ class NetCDF(Dataset):
         variable: str | None = None,
         *,
         selectors: Selectors | None = None,
-        colour: ColourOpts | None = None,
+        colour: ColorOpts | None = None,
         facet: FacetSpec | None = None,
         coords: tuple | list | None = None,
         x_dim: str | None = None,
@@ -1000,7 +1000,7 @@ class NetCDF(Dataset):
         is not a NetCDF concept and has been removed from the signature. Variable
         selection is by name; the slice to render is pinned via a :class:`Selectors`
         option bag (``time`` / ``level`` / ``member`` / ``sel`` / ``isel``); colour
-        controls live on a :class:`ColourOpts` bag (``cmap`` / ``vmin`` / ``vmax`` /
+        controls live on a :class:`ColorOpts` bag (``cmap`` / ``vmin`` / ``vmax`` /
         ``robust`` / ``levels`` / ``norm`` / ``center`` / ``extend`` / ``add_colorbar``
         / ``cbar_kwargs``); multi-panel layout is described by a :class:`FacetSpec`
         bag (``col`` / ``row`` / ``col_wrap``). Each bag is a frozen dataclass —
@@ -1026,9 +1026,9 @@ class NetCDF(Dataset):
                 Dim-selector bag. See :class:`Selectors` for the field list. A
                 missing bag is treated as :class:`Selectors`\\ () (all fields
                 ``None``). Defaults to None.
-            colour (ColourOpts, optional):
-                Colour-control bag. See :class:`ColourOpts` for the field list. A
-                missing bag is treated as :class:`ColourOpts`\\ () (cleopatra
+            colour (ColorOpts, optional):
+                Colour-control bag. See :class:`ColorOpts` for the field list. A
+                missing bag is treated as :class:`ColorOpts`\\ () (cleopatra
                 defaults). Defaults to None.
             facet (FacetSpec, optional):
                 Faceting bag. See :class:`FacetSpec` for the field list. A missing
@@ -1285,14 +1285,14 @@ class NetCDF(Dataset):
               filled contours from the same data; ``"auto"`` (the
               default) picks ``pcolormesh`` when curvilinear coords are
               present, else falls back to ``imshow``. Discrete contour
-              levels live on :class:`ColourOpts`:
+              levels live on :class:`ColorOpts`:
 
               ```python
-              >>> from pyramids.netcdf import ColourOpts
+              >>> from pyramids.netcdf import ColorOpts
               >>> cleo = nc.plot(  # doctest: +SKIP
               ...     variable="t2m",
               ...     kind="contourf",
-              ...     colour=ColourOpts(levels=10),
+              ...     colour=ColorOpts(levels=10),
               ... )
 
               ```
@@ -1320,13 +1320,13 @@ class NetCDF(Dataset):
 
             - Robust (percentile-based) colour limits — clip to the 2nd / 98th
               percentile of the rendered slice. Colour controls live
-              on :class:`ColourOpts`:
+              on :class:`ColorOpts`:
 
               ```python
-              >>> from pyramids.netcdf import ColourOpts
+              >>> from pyramids.netcdf import ColorOpts
               >>> cleo = nc.plot(  # doctest: +SKIP
               ...     variable="t2m",
-              ...     colour=ColourOpts(cmap="viridis", robust=True),
+              ...     colour=ColorOpts(cmap="viridis", robust=True),
               ... )
 
               ```
@@ -1335,9 +1335,9 @@ class NetCDF(Dataset):
               because cleopatra always attaches one:
 
               ```python
-              >>> from pyramids.netcdf import ColourOpts
+              >>> from pyramids.netcdf import ColorOpts
               >>> cleo = nc.plot(  # doctest: +SKIP
-              ...     variable="t2m", colour=ColourOpts(add_colorbar=False),
+              ...     variable="t2m", colour=ColorOpts(add_colorbar=False),
               ... )
 
               ```
