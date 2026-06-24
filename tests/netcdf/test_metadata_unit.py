@@ -383,6 +383,35 @@ class TestDimAttrsTopupFromClassic:
             md.dimensions["valid_time"].attrs.get("calendar") == "proleptic_gregorian"
         ), "multidim calendar must not be overwritten by the classic value"
 
+    def test_units_topped_up_for_dimension_name_with_whitespace(self):
+        """A dimension whose name contains a space is still topped up (review M2).
+
+        Test scenario:
+            The classic ``<name>#<attr>`` top-up must match a dimension named with a space
+            (e.g. a CDS-Beta ``"valid time"`` axis — the exact case this helper exists for).
+            An earlier refactor routed the lookup through a regex parser whose name group
+            rejected whitespace, silently dropping the top-up. Pin that the exact-key lookup
+            merges ``units`` for such a dimension.
+        """
+        iv = MagicMock()
+        iv.GetFullName.return_value = "/valid time"
+        iv.GetName.return_value = "valid time"
+        iv.GetAttributes.return_value = [_mock_attribute("long_name", "time")]
+        dim = _mock_dimension(name="valid time", full_name="/valid time", size=12)
+        dim.GetIndexingVariable.return_value = iv
+
+        root = _mock_group(dimensions=[dim])
+        ds = _mock_dataset(
+            root_group=root,
+            metadata={"valid time#units": "seconds since 1970-01-01"},
+        )
+
+        md = MetadataBuilder(ds).build()
+
+        assert (
+            md.dimensions["valid time"].attrs.get("units") == "seconds since 1970-01-01"
+        ), "classic units must be merged even when the dimension name contains whitespace"
+
     def test_existing_units_not_overwritten(self):
         """Multidim already has units; classic must not overwrite it."""
         iv = MagicMock()
