@@ -337,6 +337,33 @@ def _parse_single_topology(
     return result
 
 
+def _crs_wkt_from_grid_mapping_attrs(crs_attrs: dict) -> tuple[bool, str | None]:
+    """Resolve a CRS WKT from a candidate CRS / grid-mapping variable's attributes.
+
+    Returns ``(matched, wkt)``. ``matched`` is ``True`` when the variable carries a CRS
+    signal (a ``crs_wkt`` / ``spatial_ref`` WKT string, or a ``grid_mapping_name``) — in
+    which case the search stops even if the grid-mapping conversion fails and ``wkt`` is
+    ``None``. ``matched`` is ``False`` when the variable has no CRS signal, so the caller
+    should keep scanning further candidates.
+
+    Args:
+        crs_attrs: Attributes of a candidate CRS / grid-mapping variable.
+
+    Returns:
+        tuple: ``(matched, wkt)`` as described above.
+    """
+    wkt = crs_attrs.get("crs_wkt") or crs_attrs.get("spatial_ref")
+    if isinstance(wkt, str):
+        return True, wkt
+    gmn = crs_attrs.get("grid_mapping_name")
+    if isinstance(gmn, str):
+        try:
+            return True, grid_mapping_to_srs(gmn, crs_attrs).ExportToWkt()
+        except (ValueError, RuntimeError):
+            return True, None
+    return False, None
+
+
 def _detect_crs(scan: _MeshArrayScan, node_x_var: str) -> str | None:
     """Detect CRS from node coordinate spatial reference or grid_mapping variable.
 
@@ -352,33 +379,21 @@ def _detect_crs(scan: _MeshArrayScan, node_x_var: str) -> str | None:
     Returns:
         CRS WKT string, or None if no CRS can be determined.
     """
-    crs_wkt = None
     node_x_arr = scan.open(node_x_var)
     if node_x_arr is not None:
         srs = node_x_arr.GetSpatialRef()
         if srs is not None:
-            crs_wkt = srs.ExportToWkt()
+            return srs.ExportToWkt()
 
-    if crs_wkt is None:
-        for candidate in ("projected_coordinate_system", "crs", "spatial_ref"):
-            crs_arr = scan.open(candidate)
-            if crs_arr is None:
-                continue
-            crs_attrs = _read_attributes(crs_arr)
-            wkt = crs_attrs.get("crs_wkt") or crs_attrs.get("spatial_ref")
-            if isinstance(wkt, str):
-                crs_wkt = wkt
-                break
-            gmn = crs_attrs.get("grid_mapping_name")
-            if isinstance(gmn, str):
-                try:
-                    srs = grid_mapping_to_srs(gmn, crs_attrs)
-                    crs_wkt = srs.ExportToWkt()
-                except (ValueError, RuntimeError):
-                    pass
-                break
+    for candidate in ("projected_coordinate_system", "crs", "spatial_ref"):
+        crs_arr = scan.open(candidate)
+        if crs_arr is None:
+            continue
+        matched, wkt = _crs_wkt_from_grid_mapping_attrs(_read_attributes(crs_arr))
+        if matched:
+            return wkt
 
-    return crs_wkt
+    return None
 
 
 def write_ugrid_topology(

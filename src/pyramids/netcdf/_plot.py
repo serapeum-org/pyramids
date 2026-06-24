@@ -1383,7 +1383,7 @@ class NetCDFPlot:
     @staticmethod
     def _matches_x_axis(arr: np.ndarray, data_shape: tuple[int, int]) -> bool:
         """True when ``arr`` can serve as the x axis for ``data_shape`` (1-D cols or 2-D slice)."""
-        rows, cols = data_shape
+        _, cols = data_shape
         return (arr.ndim == 1 and arr.shape[0] == cols) or (
             arr.ndim == 2 and arr.shape == data_shape
         )
@@ -1391,7 +1391,7 @@ class NetCDFPlot:
     @staticmethod
     def _matches_y_axis(arr: np.ndarray, data_shape: tuple[int, int]) -> bool:
         """True when ``arr`` can serve as the y axis for ``data_shape`` (1-D rows or 2-D slice)."""
-        rows, cols = data_shape
+        rows, _ = data_shape
         return (arr.ndim == 1 and arr.shape[0] == rows) or (
             arr.ndim == 2 and arr.shape == data_shape
         )

@@ -124,9 +124,9 @@ def _kerchunk_translate_single(
     can flakily deadlock (#530), so it is only used when the native builder
     raises on an unsupported HDF5 feature.
     """
-    SingleHdf5ToZarr = _require_kerchunk_single()
+    single_hdf5_to_zarr = _require_kerchunk_single()
     with _scalar_fill_value_shim():
-        refs = SingleHdf5ToZarr(
+        refs = single_hdf5_to_zarr(
             src_str,
             src_str,
             inline_threshold=inline_threshold,
@@ -257,14 +257,14 @@ def _kerchunk_combine(
     inline_threshold: int,
 ) -> dict[str, Any]:
     """Combine via kerchunk's translator + ``MultiZarrToZarr`` (legacy path)."""
-    SingleHdf5ToZarr = _require_kerchunk_single()
-    MultiZarrToZarr = _require_kerchunk_combine()
+    single_hdf5_to_zarr = _require_kerchunk_single()
+    multi_zarr_to_zarr = _require_kerchunk_combine()
 
     per_file = []
     with _scalar_fill_value_shim():
         for path in src_paths:
             src_str = str(path)
-            refs = SingleHdf5ToZarr(
+            refs = single_hdf5_to_zarr(
                 src_str,
                 src_str,
                 inline_threshold=inline_threshold,
@@ -272,7 +272,7 @@ def _kerchunk_combine(
             ).translate()
             per_file.append(refs)
 
-    return MultiZarrToZarr(
+    return multi_zarr_to_zarr(
         per_file,
         concat_dims=list(concat_dims),
         identical_dims=list(identical_dims),
