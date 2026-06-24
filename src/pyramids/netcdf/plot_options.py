@@ -34,7 +34,7 @@ Examples:
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass
+from dataclasses import astuple, dataclass
 from typing import Any
 
 
@@ -221,6 +221,17 @@ class ColourOpts(ColorOpts):
             True
 
             ```
+        - It compares equal, by value, to the same ``ColorOpts`` (back-compat):
+
+            ```python
+            >>> import warnings
+            >>> from pyramids.netcdf.plot_options import ColourOpts, ColorOpts
+            >>> with warnings.catch_warnings():
+            ...     warnings.simplefilter("ignore")
+            ...     ColourOpts(cmap="viridis") == ColorOpts(cmap="viridis")
+            True
+
+            ```
     """
 
     def __post_init__(self) -> None:
@@ -231,6 +242,23 @@ class ColourOpts(ColorOpts):
             DeprecationWarning,
             stacklevel=2,
         )
+
+    def __eq__(self, other: object) -> bool:
+        """Compare by field value against any ``ColorOpts`` (back-compat with the pre-split class).
+
+        Before ``ColourOpts`` became a subclass it *was* ``ColorOpts``, so equal field values
+        compared equal. The dataclass-generated ``__eq__`` enforces an exact class match, which
+        would silently make ``ColourOpts(cmap="x") == ColorOpts(cmap="x")`` False. Compare on the
+        field tuple instead so value-equality is preserved in both directions (``ColorOpts.__eq__``
+        returns ``NotImplemented`` for the cross-class case, so Python defers to this method).
+        """
+        if isinstance(other, ColorOpts):
+            return astuple(self) == astuple(other)
+        return NotImplemented
+
+    # A dataclass that defines __eq__ loses the auto-generated __hash__; restore the
+    # frozen field-based hash (class-independent, so it matches an equal ColorOpts).
+    __hash__ = ColorOpts.__hash__
 
 
 @dataclass(frozen=True)

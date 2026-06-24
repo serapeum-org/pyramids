@@ -58,6 +58,30 @@ class TestColorOptsAlias:
         assert isinstance(opts, ColorOpts), "ColourOpts must subclass ColorOpts"
         assert opts.cmap == "magma", f"cmap not stored on alias: {opts.cmap}"
 
+    def test_colour_opts_compares_equal_to_colour_opts_by_value(self):
+        """``ColourOpts`` keeps value-equality (both directions) with an equal ``ColorOpts`` (M3).
+
+        Test scenario:
+            Before the alias became a subclass it *was* ``ColorOpts``, so equal fields
+            compared equal. The dataclass ``__eq__`` enforces an exact class match, which would
+            silently break ``ColourOpts(cmap="x") == ColorOpts(cmap="x")``. The alias overrides
+            ``__eq__``/``__hash__`` to compare by field value, so equality holds in both
+            directions, hashes match, and they dedupe in a set.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            colour = ColourOpts(cmap="viridis", robust=True)
+        color = ColorOpts(cmap="viridis", robust=True)
+        assert colour == color, "ColourOpts should equal an identical ColorOpts"
+        assert color == colour, "equality must be symmetric"
+        assert hash(colour) == hash(color), "equal options must hash equally"
+        assert len({colour, color}) == 1, "equal options must dedupe in a set"
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            other = ColourOpts(cmap="magma")
+        assert colour != other, "different fields must not compare equal"
+
 
 class TestVariableNamesDeprecation:
     """API-3: variable_names property canonical, get_variable_names() deprecated."""
