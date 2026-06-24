@@ -65,6 +65,78 @@ class TestSpatialReturnContract:
         assert isinstance(data_vars, dict), "second element should be a dict"
 
 
+class TestEdgeRemapWithTopology:
+    """Edge filtering + node/edge renumbering on a mesh WITH edge topology (test gap G2)."""
+
+    def _two_triangle_dataset_with_edges(self):
+        """Two triangles sharing an edge, with edge_node_connectivity and an edge variable.
+
+        Returns:
+            UgridDataset: nodes 0-3, faces ``[[0,1,2],[1,3,2]]``, edges
+            ``[[0,1],[1,2],[2,0],[1,3],[3,2]]`` and an ``edge_flux`` edge variable
+            ``[10,11,12,13,14]``.
+        """
+        from pyramids.netcdf.ugrid.connectivity import Connectivity
+        from pyramids.netcdf.ugrid.dataset import UgridDataset
+        from pyramids.netcdf.ugrid.mesh import Mesh2d
+        from pyramids.netcdf.ugrid.models import MeshVariable
+
+        edges = np.array([[0, 1], [1, 2], [2, 0], [1, 3], [3, 2]], dtype=np.intp)
+        mesh = Mesh2d(
+            node_x=np.array([0.0, 1.0, 0.0, 1.0]),
+            node_y=np.array([0.0, 0.0, 1.0, 1.0]),
+            face_node_connectivity=Connectivity(
+                data=np.array([[0, 1, 2], [1, 3, 2]], dtype=np.intp),
+                fill_value=-1,
+                cf_role="face_node_connectivity",
+                original_start_index=0,
+            ),
+            edge_node_connectivity=Connectivity(
+                data=edges,
+                fill_value=-1,
+                cf_role="edge_node_connectivity",
+                original_start_index=0,
+            ),
+        )
+        edge_var = MeshVariable(
+            name="edge_flux",
+            location="edge",
+            mesh_name="mesh",
+            shape=(5,),
+            _data=np.array([10.0, 11.0, 12.0, 13.0, 14.0]),
+        )
+        return UgridDataset(mesh=mesh, data_variables={"edge_flux": edge_var}, global_attributes={})
+
+    def test_edge_filter_renumber_and_slice(self):
+        """Keeping one triangle drops non-incident edges, renumbers nodes, slices the edge var.
+
+        Test scenario:
+            Subset to face 0 (nodes 0,1,2). Only edges whose nodes all survive are kept —
+            ``[0,1],[1,2],[2,0]`` (indices 0,1,2); ``[1,3]`` and ``[3,2]`` are dropped. The
+            rebuilt edge_node_connectivity must reference only renumbered surviving nodes
+            (all ``< n_node == 3``), and the ``edge_flux`` edge variable must slice to the
+            kept edges ``[10, 11, 12]``. Pins the vectorized edge-remap rewrite (G2).
+        """
+        from pyramids.netcdf.ugrid.spatial import _subset_mesh_by_face_indices
+
+        ds = self._two_triangle_dataset_with_edges()
+        mesh, data_vars = _subset_mesh_by_face_indices(ds, [0])
+
+        assert mesh.n_node == 3, f"expected 3 kept nodes, got {mesh.n_node}"
+        assert mesh.edge_node_connectivity is not None, "edge topology must survive"
+        enc = mesh.edge_node_connectivity.data
+        assert enc.shape[0] == 3, f"expected 3 kept edges, got {enc.shape[0]}"
+        assert (enc < mesh.n_node).all(), f"edge nodes must be renumbered < n_node: {enc}"
+        np.testing.assert_array_equal(
+            enc, np.array([[0, 1], [1, 2], [2, 0]]), err_msg="edge connectivity misremapped"
+        )
+        np.testing.assert_array_equal(
+            np.asarray(data_vars["edge_flux"].data),
+            np.array([10.0, 11.0, 12.0]),
+            err_msg="edge variable not sliced to the kept edges",
+        )
+
+
 class TestEdgeVariableClip:
     """Edge-located variables on a mesh without edge topology (review H1)."""
 
