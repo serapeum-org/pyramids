@@ -599,7 +599,7 @@ def decode_cf_time(
     return decoded
 
 
-def encode_cf_time(value: Any, unit: str, calendar: str) -> float:
+def encode_cf_time(value: Any, unit: str, calendar: str = "standard") -> float:
     """Convert a date string / datetime to a coordinate's numeric CF scale.
 
     The inverse of :func:`decode_cf_time` for a single value: used to translate a
