@@ -3644,7 +3644,7 @@ class NetCDF(Dataset):
                         if window is None and self._needs_y_flip(rg, md_arr):
                             y_axis = result.ndim - 2
                             result = np.flip(result, axis=y_axis)
-            except Exception:
+            except (RuntimeError, ValueError):
                 pass  # nosec B110
             # Fall back to dimension indexing variable
             if result is None:
@@ -3688,7 +3688,7 @@ class NetCDF(Dataset):
                 names = rg.GetGroupNames()
                 if names:
                     result = list(names)
-            except Exception:
+            except RuntimeError:
                 pass
         return result
 
@@ -3720,7 +3720,7 @@ class NetCDF(Dataset):
         for part in parts:
             try:
                 group = group.OpenGroup(part)
-            except Exception:
+            except RuntimeError:
                 group = None
             if group is None:
                 raise ValueError(
@@ -4289,7 +4289,7 @@ class NetCDF(Dataset):
         try:
             cube._scale = md_arr.GetScale()
             cube._offset = md_arr.GetOffset()
-        except Exception:
+        except (RuntimeError, AttributeError):
             cube._scale = None
             cube._offset = None
 
@@ -5168,7 +5168,7 @@ class NetCDF(Dataset):
             if ndv is not None:
                 try:
                     new_md_array.SetNoDataValueDouble(ndv)
-                except Exception:
+                except (RuntimeError, TypeError, ValueError):
                     pass
             new_md_array.SetSpatialRef(src_mdarray.GetSpatialRef())
             NetCDF._copy_md_array_attributes(src_mdarray, new_md_array)
@@ -5248,7 +5248,7 @@ class NetCDF(Dataset):
         # Delete existing attribute if present (GDAL raises on duplicate)
         try:
             rg.DeleteAttribute(name)
-        except Exception:
+        except RuntimeError:
             pass
         if isinstance(value, str):
             attr = rg.CreateAttribute(name, [], gdal.ExtendedDataType.CreateString())
@@ -5284,7 +5284,7 @@ class NetCDF(Dataset):
             )
         try:
             rg.DeleteAttribute(name)
-        except Exception:
+        except RuntimeError:
             pass  # attribute may not exist — silently ignored
         self._invalidate_caches()
 
@@ -5434,7 +5434,7 @@ class NetCDF(Dataset):
         if dataset.no_data_value and dataset.no_data_value[0] is not None:
             try:
                 md_arr.SetNoDataValueDouble(float(dataset.no_data_value[0]))
-            except Exception:
+            except (RuntimeError, TypeError, ValueError):
                 pass  # nosec B110
 
         # Set variable attributes (RT-7)
