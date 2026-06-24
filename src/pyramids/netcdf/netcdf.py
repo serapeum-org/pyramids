@@ -3847,7 +3847,10 @@ class NetCDF(Dataset):
             return None
         # Attribute-only detection (empty ``name`` disables the name-pattern fallback) so the
         # CF-attribute vs. dimension-name stages stay separated, matching the historical pipeline.
-        return detect_axis("", _read_attributes(indexing_var))
+        # Filter to the spatial roles this classifier promises (``detect_axis`` can also return
+        # ``"T"``/``"Z"``), mirroring the MDIM ``_axis_role`` sibling so callers see only X/Y/None.
+        role = detect_axis("", _read_attributes(indexing_var))
+        return role if role in ("X", "Y") else None
 
     @staticmethod
     def _detect_axis_indices(dims) -> tuple[int | None, int | None]:
