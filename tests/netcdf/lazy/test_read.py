@@ -131,6 +131,25 @@ class TestChunksLazy:
         computed = lazy.compute()
         assert_allclose(computed, eager)
 
+    def test_lazy_declared_dtype_matches_materialized(self, three_d_var):
+        """The lazy array's declared dtype equals its materialized + eager dtype (L2).
+
+        Test scenario:
+            ``_mdarray_shape_and_dtype`` now derives the dask array's dtype from
+            ``GetDataType()`` instead of a 1-element probe read. Assert the declared
+            ``dtype`` matches both the materialized (``.compute()``) dtype and the eager
+            ``read_array()`` dtype, so the declared dtype cannot silently diverge from the
+            data the chunks actually produce for the supported types.
+        """
+        eager = three_d_var.read_array()
+        lazy = three_d_var.read_array(chunks="auto")
+        assert (
+            lazy.dtype == eager.dtype
+        ), f"declared lazy dtype {lazy.dtype} != eager dtype {eager.dtype}"
+        assert (
+            lazy.compute().dtype == lazy.dtype
+        ), f"materialized dtype {lazy.compute().dtype} diverged from declared {lazy.dtype}"
+
 
 @requires_dask
 class TestDefaultChunks:
