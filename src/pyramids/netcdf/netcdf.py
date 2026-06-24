@@ -5720,14 +5720,15 @@ class NetCDF(Dataset):
         y_dim: str | None = None,
         x_dim: str | None = None,
         **dims: int | tuple[int, int] | slice,
-    ) -> Dataset:
+    ) -> NetCDF:
         """Read a windowed ``(variable, time, bbox)`` slice of a gridded cube.
 
         Reads only the requested window from a CF/GeoZarr ``(time, y, x[, …])``
         multidimensional store — local or remote — without materialising the
-        whole variable, and returns a georeferenced
-        :class:`~pyramids.dataset.Dataset` ready for ``to_file`` / ``to_cog`` /
-        ``to_crs`` / ``crop``.
+        whole variable, and returns a georeferenced single-variable
+        :class:`~pyramids.netcdf.NetCDF` ready for ``to_file`` / ``to_cog`` /
+        ``to_crs`` / ``crop`` (a ``Dataset`` subclass, so existing
+        ``isinstance(result, Dataset)`` checks keep working).
 
         Designed for huge cloud cubes (e.g. the NWM retrospective
         ``ldasout.zarr``, an 18 TiB ``(128568, 3840, 4608)`` store) opened
@@ -5770,8 +5771,8 @@ class NetCDF(Dataset):
                 A key that is not a selectable non-spatial dimension is an error.
 
         Returns:
-            Dataset: A georeferenced raster on the store's native CRS — one band
-            per selected timestep, with the native no-data value applied.
+            NetCDF: A georeferenced single-variable raster on the store's native CRS —
+            one band per selected timestep, with the native no-data value applied.
 
         Raises:
             ValueError: When the store is not multidimensional; when ``variable``
@@ -5886,13 +5887,19 @@ class NetCDF(Dataset):
             epsg=4326,
             no_data_value=no_data if no_data is not None else DEFAULT_NO_DATA_VALUE,
         )
+        # API-2: return a NetCDF (consistent with crop / to_crs / resample / sel) rather
+        # than a bare Dataset. Wrap the just-built classic raster as a classic-backed
+        # NetCDF and transfer ownership (clear ds._raster so the discarded Dataset does
+        # not close the handle the NetCDF now holds); band/CRS semantics are identical.
+        result = NetCDF(ds._raster, access="write", open_as_multi_dimensional=False)
+        ds._raster = None
         # The grid mapping carries the true CRS (e.g. a sphere-datum Lambert
         # Conformal Conic with no EPSG code); prefer it over the 4326 placeholder.
         if srs is not None:
-            ds.crs = srs.ExportToWkt()
-        if band_labels and len(band_labels) == ds.band_count:
-            ds.band_names = band_labels
-        return ds
+            result.crs = srs.ExportToWkt()
+        if band_labels and len(band_labels) == result.band_count:
+            result.band_names = band_labels
+        return result
 
     @staticmethod
     def _plan_band_slices(
