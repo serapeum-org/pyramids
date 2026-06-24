@@ -112,6 +112,29 @@ class TestCombineKerchunk:
         combined = json.loads(out.read_text())
         assert "refs" in combined or "version" in combined
 
+    @requires_kerchunk
+    def test_combine_multi_concat_dim_falls_back_to_kerchunk(self, tmp_path):
+        """Multi-dim concat falls back from the native combine to the kerchunk translator (gap G8).
+
+        Test scenario:
+            The native combine supports exactly one concat dimension; passing two raises a
+            ``ValueError`` inside ``_native``, which ``_native_or_fallback`` turns into a
+            ``UserWarning`` and a retry through the kerchunk translator. Assert the warning
+            fires and a manifest is still written (the fallback arm — previously only the
+            single-file ``to_kerchunk`` OSError arm was tested).
+        """
+        out = tmp_path / "combined_multi.json"
+        with pytest.warns(UserWarning, match="falling back to the kerchunk"):
+            NetCDF.combine_kerchunk(
+                [FIXTURE, FIXTURE],
+                out,
+                concat_dims=("bands", "x"),
+                identical_dims=(),
+            )
+        assert out.exists(), "fallback combine must still write a manifest"
+        combined = json.loads(out.read_text())
+        assert "refs" in combined or "version" in combined
+
 
 class TestImportError:
     """Missing kerchunk raises actionable ImportError on the paths that need it."""
