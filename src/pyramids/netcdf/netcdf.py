@@ -4404,6 +4404,10 @@ class NetCDF(Dataset):
         """Invalidate cached variables and metadata."""
         self._cached_variables = None
         self._cached_meta_data = None
+        # Clear the per-variable geostationary geotransform cache too: it is keyed by
+        # variable name and derived from the backing geometry, so it must not survive a
+        # raster swap / in-place update that could change that geometry (latent staleness).
+        self._geostationary_gt_cache = {}
 
     @property
     def is_subset(self) -> bool:

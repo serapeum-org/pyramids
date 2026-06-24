@@ -126,6 +126,29 @@ class TestGeotransformFallback:
             ), f"Expected _geotransform fallback {var._geotransform}, got {gt}"
 
 
+class TestInvalidateCaches:
+    """`_invalidate_caches` clears every per-instance cache (review L7)."""
+
+    def test_invalidate_clears_geostationary_gt_cache(self):
+        """`_invalidate_caches` empties the geostationary geotransform cache.
+
+        Test scenario:
+            The per-variable `_geostationary_gt_cache` is derived from the backing
+            geometry, so it must not survive a raster swap / in-place update.
+            Seed it, invalidate, and assert it (and the metadata cache) are cleared.
+        """
+        nc = _make_2d_nc()
+        nc._geostationary_gt_cache["elevation"] = (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)
+        nc._cached_meta_data = object()
+
+        nc._invalidate_caches()
+
+        assert nc._geostationary_gt_cache == {}, (
+            f"geostationary GT cache must be cleared, got {nc._geostationary_gt_cache}"
+        )
+        assert nc._cached_meta_data is None, "metadata cache must be cleared"
+
+
 class TestNoDataValueSetter:
     """Tests for NetCDF.no_data_value setter."""
 
