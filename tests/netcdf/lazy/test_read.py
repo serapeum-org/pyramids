@@ -131,6 +131,22 @@ class TestChunksLazy:
         computed = lazy.compute()
         assert_allclose(computed, eager)
 
+    def test_unmappable_dtype_raises_clear_error(self, three_d_path, monkeypatch):
+        """An unmappable MDArray dtype raises a clear ValueError, not a bare TypeError (L4).
+
+        Test scenario:
+            ``_mdarray_shape_and_dtype`` derives the dtype from ``GetDataType()``. For a
+            string-typed MDArray that resolves to ``"unknown"``, and ``np.dtype("unknown")``
+            would raise an opaque ``TypeError``. Simulate the unmappable case by patching
+            ``_dtype_to_str`` to ``"unknown"`` and assert a clear, actionable ``ValueError``
+            is raised instead.
+        """
+        import pyramids.netcdf._lazy as lazy_mod
+
+        monkeypatch.setattr(lazy_mod, "_dtype_to_str", lambda *_a, **_k: "unknown")
+        with pytest.raises(ValueError, match="lazy.*reads cannot represent"):
+            lazy_mod._mdarray_shape_and_dtype(three_d_path, "values")
+
     def test_lazy_declared_dtype_matches_materialized(self, three_d_var):
         """The lazy array's declared dtype equals its materialized + eager dtype (L2).
 

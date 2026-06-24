@@ -124,8 +124,19 @@ def _mdarray_shape_and_dtype(
             )
         shape = tuple(int(d.GetSize()) for d in md_arr.GetDimensions())
         # Resolve the dtype from the array's declared type rather than a 1-element
-        # ReadAsArray — same result without the extra GDAL I/O round-trip.
-        dtype = np.dtype(_dtype_to_str(md_arr.GetDataType()))
+        # ReadAsArray — same result without the extra GDAL I/O round-trip. Guard the
+        # unmappable case (e.g. a string-typed MDArray, where `_dtype_to_str` yields
+        # "unknown"): raise a clear error rather than letting `np.dtype("unknown")`
+        # blow up with a bare TypeError. The old probe-read degraded silently; lazy
+        # chunked reads only make sense for numeric arrays.
+        dtype_str = _dtype_to_str(md_arr.GetDataType())
+        if dtype_str == "unknown":
+            raise ValueError(
+                f"Variable {variable_name!r} in {path!r} has a data type that lazy "
+                "(chunked) reads cannot represent (e.g. a string MDArray); read it "
+                "eagerly with read_array() instead."
+            )
+        dtype = np.dtype(dtype_str)
         try:
             bs = md_arr.GetBlockSize()
             block_size = [int(b) for b in bs] if bs else None
