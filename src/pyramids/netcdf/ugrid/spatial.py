@@ -14,6 +14,7 @@ Depends on:
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import numpy as np
@@ -421,9 +422,22 @@ def _subset_mesh_by_face_indices(
             new_data = data[..., selected_faces_arr] if data is not None else None
         elif var.location == "node":
             new_data = data[..., kept_node_indices] if data is not None else None
-        elif var.location == "edge" and kept_edge_indices is not None:
+        elif var.location == "edge":
+            if kept_edge_indices is None:
+                # An edge-located variable cannot be subset without edge topology
+                # (no edge_node_connectivity to tell which edges survive). Drop it
+                # rather than silently carrying a full-length edge array onto the
+                # clipped mesh, which would leave the dataset internally inconsistent.
+                warnings.warn(
+                    f"dropping edge-located variable {name!r} from the subset: the "
+                    f"mesh has no edge_node_connectivity, so its edges cannot be "
+                    f"subset to match the clipped mesh.",
+                    stacklevel=2,
+                )
+                continue
             new_data = data[..., kept_edge_indices] if data is not None else None
         else:
+            # Non-located variables (e.g. scalars or time-only) carry through whole.
             new_data = data
 
         new_data_vars[name] = var.with_data(new_data)

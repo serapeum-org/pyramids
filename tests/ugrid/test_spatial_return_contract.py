@@ -65,6 +65,50 @@ class TestSpatialReturnContract:
         assert isinstance(data_vars, dict), "second element should be a dict"
 
 
+class TestEdgeVariableClip:
+    """Edge-located variables on a mesh without edge topology (review H1)."""
+
+    @pytest.fixture(scope="function")
+    def square_with_edge_var(self):
+        """A 2x2-cell unit-square dataset with an *edge*-located variable but no edge topology.
+
+        Returns:
+            UgridDataset: ``create_from_arrays`` builds only face_node_connectivity, so the
+            mesh has no ``edge_node_connectivity`` — the H1 trigger condition.
+        """
+        from pyramids.netcdf.ugrid.dataset import UgridDataset
+
+        return UgridDataset.create_from_arrays(
+            node_x=np.array([0.0, 1.0, 2.0, 0.0, 1.0, 2.0, 0.0, 1.0, 2.0]),
+            node_y=np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0]),
+            face_node_connectivity=np.array(
+                [[0, 1, 4, 3], [1, 2, 5, 4], [3, 4, 7, 6], [4, 5, 8, 7]]
+            ),
+            data={"edge_flux": np.arange(12, dtype=np.float64)},
+            data_locations={"edge_flux": "edge"},
+        )
+
+    def test_clip_drops_edge_variable_without_edge_topology(self, square_with_edge_var):
+        """Clipping drops an edge variable when the mesh has no edge_node_connectivity (H1).
+
+        Test scenario:
+            The mesh built by ``create_from_arrays`` has no ``edge_node_connectivity``, so the
+            edges that survive a clip are undeterminable. The edge-located ``edge_flux`` must be
+            dropped (with a warning) rather than carried at full length onto the clipped mesh,
+            which would leave the dataset internally inconsistent (edge var length != edge count).
+        """
+        assert square_with_edge_var.mesh.edge_node_connectivity is None, "precondition: no edges"
+        with pytest.warns(UserWarning, match="no edge_node_connectivity"):
+            mesh, data_vars = clip_mesh(
+                square_with_edge_var, box(-0.1, -0.1, 1.1, 2.1), touch=False
+            )
+        assert mesh.n_face == 2, f"expected 2 clipped faces, got {mesh.n_face}"
+        assert "edge_flux" not in data_vars, (
+            "edge variable must be dropped (not carried unsliced) when the mesh has no "
+            f"edge topology; got data_vars keys {list(data_vars)}"
+        )
+
+
 class TestNoImportCycle:
     """``ugrid.spatial`` must not depend on ``ugrid.dataset`` (STR-3)."""
 
