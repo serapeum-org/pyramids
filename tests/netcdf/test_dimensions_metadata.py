@@ -2,8 +2,8 @@ import pytest
 
 from pyramids.netcdf.dimensions import (
     DimensionsIndex,
-    DimMetaData,
-    MetaData,
+    ClassicDimensionInfo,
+    ClassicDimMetadata,
     parse_dimension_attributes,
 )
 
@@ -129,7 +129,7 @@ class TestParseDimensionAttributes:
         assert parse_dimension_attributes({}) == {}
 
 
-class TestMetaDataFromMetadata:
+class TestClassicDimMetadataFromMetadata:
     def test_builds_from_combined_mapping_default(self):
         """Combine dimension structure and attributes from a single mapping.
 
@@ -137,7 +137,7 @@ class TestMetaDataFromMetadata:
             NETCDF_DIM_* keys for two dimensions and attribute keys for one.
 
         Expected:
-            MetaData carries both DimensionsIndex and per-name attrs; get_dimension merges them.
+            ClassicDimMetadata carries both DimensionsIndex and per-name attrs; get_dimension merges them.
 
         Checks:
             Parsed sizes/values and attribute lookup via get_attrs and get_dimension.
@@ -151,11 +151,11 @@ class TestMetaDataFromMetadata:
             "level0#axis": "Z",
             "level0#units": "hPa",
         }
-        meta = MetaData.from_metadata(md)
+        meta = ClassicDimMetadata.from_metadata(md)
         assert sorted(meta.names) == ["level0", "time"]
         assert meta.get_attrs("level0") == {"axis": "Z", "units": "hPa"}
         dim_time = meta.get_dimension("time")
-        assert isinstance(dim_time, DimMetaData)
+        assert isinstance(dim_time, ClassicDimensionInfo)
         assert dim_time.size == 2 and dim_time.values == [0, 31]
         assert dim_time.attrs == {"axis": "T"}
 
@@ -177,7 +177,7 @@ class TestMetaDataFromMetadata:
             "time#axis": "T",
             "lat#units": "degrees_north",
         }
-        meta = MetaData.from_metadata(md, prefix="CUSTOM_DIM_", names=["time"])
+        meta = ClassicDimMetadata.from_metadata(md, prefix="CUSTOM_DIM_", names=["time"])
         assert meta.names == ["time"]
         assert meta.get_attrs("time") == {"axis": "T"}
         assert meta.get_attrs("lat") == {}
@@ -192,18 +192,18 @@ class TestMetaDataFromMetadata:
             Attributes are stored with original case.
 
         Checks:
-            The normalize_attr_keys flag is respected through MetaData.from_metadata.
+            The normalize_attr_keys flag is respected through ClassicDimMetadata.from_metadata.
         """
         md = {
             "NETCDF_DIM_time_DEF": "{2,6}",
             "time#Axis": "T",
             "time#LongName": "Time",
         }
-        meta = MetaData.from_metadata(md, normalize_attr_keys=False)
+        meta = ClassicDimMetadata.from_metadata(md, normalize_attr_keys=False)
         assert meta.get_attrs("time") == {"Axis": "T", "LongName": "Time"}
 
 
-class TestMetaDataNamesProperty:
+class TestClassicDimMetadataNamesProperty:
     def test_exposes_names(self):
         """Expose underlying DimensionsIndex names via property.
 
@@ -217,11 +217,11 @@ class TestMetaDataNamesProperty:
             Property passthrough to dims.names.
         """
         md = {"NETCDF_DIM_time_DEF": "{2,6}"}
-        meta = MetaData.from_metadata(md)
+        meta = ClassicDimMetadata.from_metadata(md)
         assert meta.names == ["time"]
 
 
-class TestMetaDataGetAttrs:
+class TestClassicDimMetadataGetAttrs:
     def test_existing_and_unknown_names(self):
         """Return attribute mapping for known name and empty dict for unknown.
 
@@ -235,20 +235,20 @@ class TestMetaDataGetAttrs:
             Missing names handled gracefully.
         """
         md = {"NETCDF_DIM_time_DEF": "{2,6}", "time#units": "days"}
-        meta = MetaData.from_metadata(md)
+        meta = ClassicDimMetadata.from_metadata(md)
         assert meta.get_attrs("time") == {"units": "days"}
         assert meta.get_attrs("lat") == {}
 
 
-class TestMetaDataGetDimension:
+class TestClassicDimMetadataGetDimension:
     def test_merge_and_unknown(self):
-        """Return a DimMetaData merged with attributes; None for unknown names.
+        """Return a ClassicDimensionInfo merged with attributes; None for unknown names.
 
         Input:
             time dimension with DEF/VALUES and one attribute; request "time" and "lat".
 
         Expected:
-            A DimMetaData with fields copied from DimensionsIndex and attrs merged for "time";
+            A ClassicDimensionInfo with fields copied from DimensionsIndex and attrs merged for "time";
             None for "lat".
 
         Checks:
@@ -259,15 +259,15 @@ class TestMetaDataGetDimension:
             "NETCDF_DIM_time_VALUES": "{0,31}",
             "time#axis": "T",
         }
-        meta = MetaData.from_metadata(md)
+        meta = ClassicDimMetadata.from_metadata(md)
         d = meta.get_dimension("time")
-        assert isinstance(d, DimMetaData)
+        assert isinstance(d, ClassicDimensionInfo)
         assert (d.name, d.size, d.values, d.def_fields) == ("time", 2, [0, 31], (2, 6))
         assert d.attrs == {"axis": "T"}
         assert meta.get_dimension("lat") is None
 
 
-class TestMetaDataIterDimensions:
+class TestClassicDimMetadataIterDimensions:
     def test_sorted_iteration(self):
         """Iterate merged dimensions in name-sorted order.
 
@@ -284,17 +284,17 @@ class TestMetaDataIterDimensions:
             "NETCDF_DIM_b_DEF": "{1,0}",
             "NETCDF_DIM_a_DEF": "{2,0}",
         }
-        meta = MetaData.from_metadata(md)
+        meta = ClassicDimMetadata.from_metadata(md)
         names = [d.name for d in meta.iter_dimensions()]
         assert names == ["a", "b"]
 
 
-class TestMetaDataToMetadata:
+class TestClassicDimMetadataToMetadata:
     def test_merge_structure_and_attrs(self):
         """Serialize combined structure and attributes into a flat mapping.
 
         Input:
-            MetaData with DEF/VALUES and attributes for two names.
+            ClassicDimMetadata with DEF/VALUES and attributes for two names.
 
         Expected:
             Keys include NETCDF_DIM_* for structure and "<name>#<attr>" for attributes.
@@ -310,7 +310,7 @@ class TestMetaDataToMetadata:
             "level0#units": "hPa",
             "level0#axis": "Z",
         }
-        meta = MetaData.from_metadata(md)
+        meta = ClassicDimMetadata.from_metadata(md)
         out = meta.to_metadata()
         # Name ordering is deterministic: level0 before time
         assert out["NETCDF_DIM_EXTRA"] == "{level0,time}"
@@ -333,10 +333,10 @@ class TestMetaDataToMetadata:
             Only structural NETCDF_DIM_* keys are present; no EXTRA and no # keys.
 
         Checks:
-            flags include_attrs and include_extra in MetaData.to_metadata().
+            flags include_attrs and include_extra in ClassicDimMetadata.to_metadata().
         """
         md = {"NETCDF_DIM_time_VALUES": "{0,31}", "time#axis": "T"}
-        meta = MetaData.from_metadata(md)
+        meta = ClassicDimMetadata.from_metadata(md)
         out = meta.to_metadata(include_attrs=False, include_extra=False)
         assert "NETCDF_DIM_EXTRA" not in out
         assert "time#axis" not in out
@@ -346,7 +346,7 @@ class TestMetaDataToMetadata:
         """When sort_names=False, preserve the provided insertion order for attribute emission.
 
         Input:
-            A MetaData constructed manually with specific dims and attrs order.
+            A ClassicDimMetadata constructed manually with specific dims and attrs order.
 
         Expected:
             EXTRA reflects insertion order and attribute keys are emitted per that order.
@@ -354,11 +354,11 @@ class TestMetaDataToMetadata:
         Checks:
             sort_names flag affects both names and attribute emission ordering.
         """
-        meta = MetaData(
+        meta = ClassicDimMetadata(
             dims=DimensionsIndex(
                 {
-                    "b": DimMetaData(name="b", size=1, values=[2]),
-                    "a": DimMetaData(name="a", size=1, values=[1]),
+                    "b": ClassicDimensionInfo(name="b", size=1, values=[2]),
+                    "a": ClassicDimensionInfo(name="a", size=1, values=[1]),
                 }
             ),
             attrs={
@@ -385,10 +385,10 @@ class TestMetaDataToMetadata:
         Checks:
             Prefix passthrough and stable attribute key ordering.
         """
-        meta = MetaData(
+        meta = ClassicDimMetadata(
             dims=DimensionsIndex(
                 {
-                    "x": DimMetaData(name="x", def_fields=(2, 6), size=2),
+                    "x": ClassicDimensionInfo(name="x", def_fields=(2, 6), size=2),
                 }
             ),
             attrs={
@@ -402,7 +402,7 @@ class TestMetaDataToMetadata:
         assert keys == ["x#axis", "x#units"]
 
 
-class TestMetaDataStr:
+class TestClassicDimMetadataStr:
     def test_str_contains_summary_and_details(self):
         """Render a readable summary including counts and per-dimension details.
 
@@ -410,19 +410,19 @@ class TestMetaDataStr:
             Two dimensions, one with values+attrs, another with only DEF.
 
         Expected:
-            First line shows MetaData(<n> dims, attrs for <m> names).
+            First line shows ClassicDimMetadata(<n> dims, attrs for <m> names).
             Subsequent lines contain name, size, number of values, and attr counts.
 
         Checks:
             Presence of expected substrings and proper counts.
         """
-        meta = MetaData(
+        meta = ClassicDimMetadata(
             dims=DimensionsIndex(
                 {
-                    "time": DimMetaData(
+                    "time": ClassicDimensionInfo(
                         name="time", size=2, values=[0, 31], def_fields=(2, 6)
                     ),
-                    "level": DimMetaData(name="level", size=3, def_fields=(3, 6)),
+                    "level": ClassicDimensionInfo(name="level", size=3, def_fields=(3, 6)),
                 }
             ),
             attrs={
@@ -431,7 +431,7 @@ class TestMetaDataStr:
         )
         s = str(meta)
         # Header
-        assert s.splitlines()[0].startswith("MetaData(2 dims, attrs for 1 names)")
+        assert s.splitlines()[0].startswith("ClassicDimMetadata(2 dims, attrs for 1 names)")
         # time details
         assert any(
             line.startswith("- time:")
