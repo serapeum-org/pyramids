@@ -64,6 +64,33 @@ class TestDetectAxis:
         result = detect_axis("ensemble", {})
         assert result is None, f"Expected None, got {result}"
 
+    @pytest.mark.parametrize(
+        "attrs, expected",
+        [
+            ({"Axis": "Y"}, "Y"),
+            ({"AXIS": "x"}, "X"),
+            ({"Standard_Name": "latitude"}, "Y"),
+            ({"Units": "degrees_east"}, "X"),
+            ({"UNITS": "days since 1970-01-01"}, "T"),
+        ],
+        ids=["Axis", "AXIS", "Standard_Name", "Units", "UNITS"],
+    )
+    def test_attribute_key_matching_is_case_insensitive(self, attrs, expected):
+        """Capitalized CF attribute *names* are still matched (M1 regression guard).
+
+        Args:
+            attrs: Attribute dict whose key uses non-lowercase casing.
+            expected: The axis role that detection should still return.
+
+        Test scenario:
+            GDAL preserves the on-disk attribute-name casing, so a coordinate written
+            with ``Axis``/``Standard_Name``/``Units`` (capitalized) must still be
+            classified — ``detect_axis`` lower-cases keys before matching. Pins that the
+            attribute-based detection is not silently skipped for such keys.
+        """
+        result = detect_axis("foo", attrs)
+        assert result == expected, f"Expected {expected} for {attrs}, got {result}"
+
 
 class TestClassifyVariables:
     """Tests for cf.classify_variables."""

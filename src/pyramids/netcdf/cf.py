@@ -553,13 +553,25 @@ def detect_axis(
 
     Args:
         name: Variable or dimension short name.
-        attrs: Variable attribute dictionary.
+        attrs: Variable attribute dictionary. Attribute *names* are matched
+            case-insensitively (``Axis``/``AXIS`` are treated as ``axis``), since
+            GDAL preserves the on-disk key casing and some writers capitalize them.
         units: Unit string (separate from attrs for flexibility).
 
     Returns:
         One of `"X"`, `"Y"`, `"Z"`, `"T"`, or None.
     """
     result: str | None = None
+
+    # CF attribute names are conventionally lowercase, but some writers emit
+    # capitalized keys (e.g. ``Axis``, ``Standard_Name``, ``Units``). Match the
+    # attribute *names* case-insensitively so attribute-based detection is not
+    # silently skipped — GDAL preserves the on-disk key casing, and the values
+    # below are already case-folded where it matters.
+    if attrs:
+        attrs = {
+            (k.lower() if isinstance(k, str) else k): v for k, v in attrs.items()
+        }
 
     axis = attrs.get("axis")
     if isinstance(axis, str) and axis.upper() in ("X", "Y", "Z", "T"):
