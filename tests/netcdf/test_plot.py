@@ -2177,6 +2177,39 @@ class TestNetCDFPlotFacetingEdges:
             assert "time" in entry, f"Missing 'time' in {entry}"
             assert "pressure_level" in entry, f"Missing 'pressure_level' in {entry}"
 
+    def test_facet_4d_stack_values_match_sel_read(self):
+        """The 4-D facet stride read produces the same panels as the old sel() path (gap G6).
+
+        Test scenario:
+            ``_build_facet_stack`` reads each panel by a flat band index
+            (``ci*col_stride + ri*row_stride``) instead of allocating a ``sel()`` subset per
+            panel. Assert that, for a ``(time, pressure_level, lat, lon)`` variable, every
+            ``stack[ci][ri]`` panel equals the array the old
+            ``sel(time=...).sel(pressure_level=...).read_array(band=0)`` path produces —
+            pinning value-equivalence, not just the grid shape.
+        """
+        from pyramids.netcdf._plot import NetCDFPlot
+
+        nc = _make_4d_nc()
+        sub = nc.get_variable("temperature")
+        stack, _fkw = NetCDFPlot(sub)._build_facet_stack(
+            sub, col="time", row="pressure_level", col_wrap=None
+        )
+        assert stack.shape[:2] == (3, 2), f"expected (ncol=3, nrow=2) panels, got {stack.shape[:2]}"
+
+        times = [0, 6, 12]
+        levels = [1000, 500]
+        for ci, t in enumerate(times):
+            for ri, lvl in enumerate(levels):
+                expected = np.asarray(
+                    sub.sel(time=t).sel(pressure_level=lvl).read_array(band=0)
+                )
+                np.testing.assert_array_equal(
+                    stack[ci][ri],
+                    expected,
+                    err_msg=f"facet panel (time={t}, level={lvl}) != sel().read_array(band=0)",
+                )
+
     def test_facet_with_basemap_adds_one_per_panel(self):
         """`facet=...` + `basemap=True` overlays a tile layer on every panel (M4).
 
