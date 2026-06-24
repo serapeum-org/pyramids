@@ -1252,7 +1252,7 @@ class TestGetVariableYFlipAndErrors:
         with (
             patch.object(
                 nc,
-                "get_variable_names",
+                "_get_variable_names",
                 return_value=original_names + ["fake_var"],
             ),
             patch("pyramids.netcdf.netcdf.gdal.Open", return_value=None),

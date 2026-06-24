@@ -96,7 +96,7 @@ class TestNetCDFSubsetPickle:
 
     def test_mdim_subset_roundtrip(self, three_d_path):
         nc = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
-        var_name = nc.get_variable_names()[0]
+        var_name = nc.variable_names[0]
         subset = nc.get_variable(var_name)
         subset2 = pickle.loads(pickle.dumps(subset))
         assert isinstance(subset2, NetCDF)
@@ -105,7 +105,7 @@ class TestNetCDFSubsetPickle:
 
     def test_subset_read_array_after_roundtrip(self, three_d_path):
         nc = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
-        var_name = nc.get_variable_names()[0]
+        var_name = nc.variable_names[0]
         subset = nc.get_variable(var_name)
         original = subset.read_array()
         subset2 = pickle.loads(pickle.dumps(subset))
@@ -115,7 +115,7 @@ class TestNetCDFSubsetPickle:
 
     def test_cross_process_subset_roundtrip(self, three_d_path):
         nc = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
-        var_name = nc.get_variable_names()[0]
+        var_name = nc.variable_names[0]
         subset = nc.get_variable(var_name)
         payload = pickle.dumps(subset)
         ctx = multiprocessing.get_context("spawn")
@@ -142,7 +142,7 @@ class TestReconstructNetCDF:
 
     def test_rebuilds_subset_when_var_name_given(self, three_d_path):
         nc_container = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
-        var_name = nc_container.get_variable_names()[0]
+        var_name = nc_container.variable_names[0]
         nc = _reconstruct_netcdf(
             three_d_path,
             "read_only",

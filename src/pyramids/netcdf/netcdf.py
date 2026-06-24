@@ -84,7 +84,7 @@ class _LazyVariableDict(dict):
     def __init__(self, nc: NetCDF) -> None:
         super().__init__()
         self._nc = nc
-        self._names: list[str] = nc.get_variable_names()
+        self._names: list[str] = nc.variable_names
 
     def __getitem__(self, key: str) -> NetCDF:
         if not dict.__contains__(self, key) and key in self._names:
@@ -868,7 +868,7 @@ class NetCDF(Dataset):
             `GetMDArrayNames()` minus dimension names; for classic mode
             from `GetSubDatasets()`.
         """
-        return self.get_variable_names()
+        return self._get_variable_names()
 
     @property
     def variables(self) -> dict[str, NetCDF]:
@@ -3787,6 +3787,20 @@ class NetCDF(Dataset):
         return result
 
     def get_variable_names(self) -> list[str]:
+        """Deprecated alias for the :attr:`variable_names` property (API-3).
+
+        Returns:
+            list[str]: Same value as :attr:`variable_names`.
+        """
+        warnings.warn(
+            "get_variable_names() is deprecated; use the `variable_names` property "
+            "instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.variable_names
+
+    def _get_variable_names(self) -> list[str]:
         """Return names of data variables, excluding dimension coordinates.
 
         Uses CF classification when metadata is cached (fast path).
