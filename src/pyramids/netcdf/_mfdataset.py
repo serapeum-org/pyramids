@@ -132,14 +132,26 @@ def open_mfdataset(
     resolved = _resolve_paths(paths)
 
     if parallel:
-        delayed = [
-            dask.delayed(_open_and_extract)(p, variable, preprocess, chunks)
-            for p in resolved
-        ]
+        # Probe the first file once for the shared shape/dtype and reuse that array as
+        # element 0, instead of also scheduling a delayed open of the same path (which
+        # opened ``resolved[0]`` a second time).
         first_probe = _open_and_extract(resolved[0], variable, preprocess, chunks)
         shape = first_probe.shape
         dtype = first_probe.dtype
-        arrays = [da.from_delayed(d, shape=shape, dtype=dtype) for d in delayed]
+        first_arr = (
+            first_probe
+            if hasattr(first_probe, "dask")
+            else da.from_array(np.asarray(first_probe), chunks="auto")
+        )
+        rest = [
+            da.from_delayed(
+                dask.delayed(_open_and_extract)(p, variable, preprocess, chunks),
+                shape=shape,
+                dtype=dtype,
+            )
+            for p in resolved[1:]
+        ]
+        arrays = [first_arr, *rest]
     else:
         arrays = [_open_and_extract(p, variable, preprocess, chunks) for p in resolved]
         arrays = [

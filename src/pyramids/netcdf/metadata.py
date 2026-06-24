@@ -198,18 +198,21 @@ class MetadataBuilder:
         conventions = parse_conventions(global_attrs.get("Conventions"))
         classifications = classify_variables(variables, dimensions)
 
+        # Single pass over the variables instead of three separate sweeps (grid mappings,
+        # bounds references, data variables). ``classify_variables`` preserves the
+        # variables' insertion order, so the per-list ordering is unchanged.
         grid_mappings: dict[str, dict[str, Any]] = {}
-        for name, role in classifications.items():
-            if role == "grid_mapping" and name in variables:
-                grid_mappings[name] = dict(variables[name].attributes)
-
         bounds_map: dict[str, str] = {}
-        for var in variables.values():
+        data_vars: list[str] = []
+        for name, var in variables.items():
+            role = classifications.get(name)
+            if role == "grid_mapping":
+                grid_mappings[name] = dict(var.attributes)
+            elif role == "data":
+                data_vars.append(name)
             bounds_ref = var.attributes.get("bounds")
             if isinstance(bounds_ref, str):
                 bounds_map[bounds_ref] = var.name
-
-        data_vars = [name for name, role in classifications.items() if role == "data"]
 
         return CFInfo(
             cf_version=conventions.get("CF"),

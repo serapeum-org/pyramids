@@ -509,6 +509,10 @@ class NetCDF(Dataset):
         # metres on this cube; tells the `geotransform` property to trust the
         # stored geotransform instead of re-deriving radian spacing from x/y.
         self._geostationary_scaled: bool = False
+        # Per-variable cache of the classic-driver geostationary geotransform, populated
+        # on the parent container so each variable's metre geotransform is resolved with
+        # at most one `NETCDF:<file>:<var>` open instead of re-opening on every access.
+        self._geostationary_gt_cache: dict[str, tuple[float, ...] | None] = {}
         self._md_array_dims: list[str] = []
         self._band_dim_name: str | None = None
         self._band_dim_values: list[Any] | None = None
@@ -773,26 +777,35 @@ class NetCDF(Dataset):
         var = self._source_var_name
         if parent is None or var is None:
             return None
+        # Resolve once per variable and memoise on the parent: every spatial variable
+        # would otherwise re-open `NETCDF:<file>:<var>` to recompute the same metre
+        # geotransform. The cached value (a geotransform tuple or ``None``) is reused on
+        # subsequent accesses of the same variable.
+        cache = parent._geostationary_gt_cache
+        if var in cache:
+            return cache[var]
+
+        result: tuple[float, ...] | None = None
         path = parent.file_name
         # The classic netCDF driver needs an on-disk / VSI source; an in-memory
         # MEM dataset has no such path.
-        if not path or str(path).startswith("/vsimem"):
-            return None
-        try:
-            src = gdal.Open(f"NETCDF:{path}:{var}")
-        except RuntimeError:
-            src = None
-        if src is None:
-            return None
-        gt = src.GetGeoTransform()
-        srs = src.GetSpatialRef()
-        if (
-            srs is None
-            or srs.GetAttrValue("PROJECTION") != GEOSTATIONARY_PROJECTION
-            or abs(gt[1]) <= 1.0
-        ):
-            return None
-        return gt
+        if path and not str(path).startswith("/vsimem"):
+            try:
+                src = gdal.Open(f"NETCDF:{path}:{var}")
+            except RuntimeError:
+                src = None
+            if src is not None:
+                gt = src.GetGeoTransform()
+                srs = src.GetSpatialRef()
+                if (
+                    srs is not None
+                    and srs.GetAttrValue("PROJECTION") == GEOSTATIONARY_PROJECTION
+                    and abs(gt[1]) > 1.0
+                ):
+                    result = gt
+
+        cache[var] = result
+        return result
 
     def _normalize_geostationary_geotransform(self) -> None:
         """Georeference a geostationary variable read via the MDIM path.
@@ -2141,13 +2154,19 @@ class NetCDF(Dataset):
             or self._named_spatial_axes(var_dims) is not None
         )
 
-    def _spatial_variable_names(self) -> list[str]:
+    def _spatial_variable_names(self, rg: Any = None) -> list[str]:
         """Names of the container's gridded variables (have a recognised (y, x) pair).
 
         Used by every spatial fan-out (``crop`` / ``to_crs`` / ``resample`` /
         ``reduce``) so they act only on griddable variables; the remaining
         non-spatial auxiliary variables are carried through by
         :meth:`_carry_aux_variables`.
+
+        Args:
+            rg: An already-resolved root :class:`osgeo.gdal.Group`. When ``None``
+                (the default) the root group is fetched from the wrapped dataset;
+                callers that already hold it pass it in to avoid a redundant
+                ``GetRootGroup()``.
 
         Returns:
             list[str]: Names of the gridded variables, in declaration order.
@@ -2170,7 +2189,8 @@ class NetCDF(Dataset):
 
                 ```
         """
-        rg = self._raster.GetRootGroup() if self._raster is not None else None
+        if rg is None:
+            rg = self._raster.GetRootGroup() if self._raster is not None else None
         if rg is None:
             return []
         return [n for n in self.variable_names if self._variable_is_spatial(rg, n)]
@@ -2261,17 +2281,21 @@ class NetCDF(Dataset):
             ValueError: If the container has no data variables, or none of them
                 are spatial (have both ``y`` / ``x`` axes).
         """
-        if not self.variable_names:
+        names = self.variable_names
+        if not names:
             raise ValueError(
                 "Cannot apply operation to an empty container (no data variables)."
             )
 
-        spatial_vars = self._spatial_variable_names()
-        aux_vars = [n for n in self.variable_names if n not in spatial_vars]
+        # Resolve the root group once and thread it through the spatial-variable scan
+        # and the aux-variable dimension probe below, instead of re-resolving per call.
+        rg = self._raster.GetRootGroup() if self._raster is not None else None
+        spatial_vars = self._spatial_variable_names(rg)
+        aux_vars = [n for n in names if n not in spatial_vars]
         if not spatial_vars:
             raise ValueError(
                 f"{operation}() needs at least one spatial (y, x) variable; none of "
-                f"{self.variable_names} have both spatial axes."
+                f"{names} have both spatial axes."
             )
 
         # A variable with >= 2 *unrecognised* axes is likely a grid whose axes
@@ -2279,7 +2303,6 @@ class NetCDF(Dataset):
         # carried through untransformed — warn. Axes that are clearly non-spatial
         # (time / vertical / ensemble / bounds) don't count, so a legitimately
         # non-spatial N-D aux variable (e.g. (time, level)) does not trip the warning.
-        rg = self._raster.GetRootGroup()
         demoted = []
         for n in aux_vars:
             unknown_axes = [
@@ -2445,16 +2468,19 @@ class NetCDF(Dataset):
         """
         if how not in _REDUCERS:
             raise ValueError(f"how must be one of {sorted(_REDUCERS)}; got {how!r}")
-        if not self.variable_names:
+        names = self.variable_names
+        if not names:
             raise ValueError("Cannot reduce an empty container (no data variables).")
 
         group_positions = self._resolve_group_positions(dim, groupby)
 
         # Reduce only the gridded variables; non-spatial auxiliaries (no y/x axes)
         # can't go through the raster reduce path, so they are carried through
-        # unchanged below — the same split crop / to_crs use (#513).
-        spatial_vars = self._spatial_variable_names()
-        aux_vars = [n for n in self.variable_names if n not in spatial_vars]
+        # unchanged below — the same split crop / to_crs use (#513). Resolve the root
+        # group once and reuse it for the spanning-aux probe further down.
+        rg = self._raster.GetRootGroup() if self._raster is not None else None
+        spatial_vars = self._spatial_variable_names(rg)
+        aux_vars = [n for n in names if n not in spatial_vars]
 
         result = None
         found = False
@@ -2501,7 +2527,6 @@ class NetCDF(Dataset):
         # verbatim — they would keep the full-length axis while the gridded
         # variables collapse it, leaving an inconsistent dimension length. Drop
         # those with a warning; carry the rest unchanged.
-        rg = self._raster.GetRootGroup()
         carry_aux: list[str] = []
         spanning_aux: list[str] = []
         for name in aux_vars:
@@ -3023,15 +3048,22 @@ class NetCDF(Dataset):
 
         selected_coords = [coords[i] for i in dim_indices]
 
-        # Read only the selected bands instead of loading the full array.
-        # Each band index maps to a 1-based GDAL band in the classic
-        # dataset view created by get_variable(). Band-by-band reads
-        # avoid loading the entire variable into memory.
-        band_arrays = [self.read_array(band=i) for i in band_indices]
-        if len(band_arrays) == 1:
-            selected = band_arrays[0]
+        # Read only the selected classic bands, straight into one pre-allocated buffer
+        # (mirroring the all-bands read path in ``IO.read_array``) instead of N
+        # ``read_array()`` calls collected into a list and then ``np.stack``-ed — that
+        # allocated N throwaway arrays and copied them all a second time. Each 0-based
+        # band index maps to a 1-based GDAL band in the classic dataset view built by
+        # ``get_variable()``; reading only the selected bands still avoids materialising
+        # the whole variable.
+        if len(band_indices) == 1:
+            selected = self._iloc(band_indices[0]).ReadAsArray()
         else:
-            selected = np.stack(band_arrays, axis=0)
+            selected = np.empty(
+                (len(band_indices), self.rows, self.columns),
+                dtype=self.numpy_dtype[0],
+            )
+            for out_i, band_index in enumerate(band_indices):
+                selected[out_i, :, :] = self._iloc(band_index).ReadAsArray()
 
         ndv = self.no_data_value
         ndv_scalar = ndv[0] if isinstance(ndv, list) and ndv else ndv

@@ -670,14 +670,26 @@ class NetCDFPlot:
 
                 ```
         """
+        # Read each facet cell by its flat classic-band index instead of allocating a
+        # fresh ``sel()`` subset per cell (each ``sel()`` re-resolves the variable,
+        # rebuilds a NetCDF, and re-runs the metadata reconciliation). GDAL flattens the
+        # band dims row-major (last varies fastest), so pinning the col dim to index
+        # ``ci`` (and the row dim to ``ri``) with every other band dim at 0 is
+        # ``ci * col_stride + ri * row_stride`` — the same stride trick the animate path
+        # uses. Facet requires col / row to be the variable's only band dims, so no other
+        # axis needs pinning.
+        names = nc._band_dim_names
+        sizes = nc._band_dim_sizes
+        col_axis = names.index(col)
+        col_stride = math.prod(sizes[col_axis + 1 :])
+
         col_values = list(nc._band_dim_values_map.get(col, []))
         if not col_values:
-            col_values = list(range(nc._band_dim_sizes[nc._band_dim_names.index(col)]))
+            col_values = list(range(sizes[col_axis]))
         slices: list[Any] = []
         if row is None:
-            for value in col_values:
-                pinned = nc.sel(**{col: value})
-                slices.append(pinned.read_array(band=0))
+            for ci in range(len(col_values)):
+                slices.append(nc.read_array(band=ci * col_stride))
             stack = np.stack(slices, axis=0)
             facet_kwargs: dict[str, Any] = {
                 "col": col,
@@ -686,16 +698,16 @@ class NetCDFPlot:
             if col_wrap is not None:
                 facet_kwargs["col_wrap"] = col_wrap
         else:
+            row_axis = names.index(row)
+            row_stride = math.prod(sizes[row_axis + 1 :])
             row_values = list(nc._band_dim_values_map.get(row, []))
             if not row_values:
-                row_values = list(
-                    range(nc._band_dim_sizes[nc._band_dim_names.index(row)])
-                )
-            for col_value in col_values:
-                row_slices: list[Any] = []
-                for row_value in row_values:
-                    pinned = nc.sel(**{col: col_value}).sel(**{row: row_value})
-                    row_slices.append(pinned.read_array(band=0))
+                row_values = list(range(sizes[row_axis]))
+            for ci in range(len(col_values)):
+                row_slices: list[Any] = [
+                    nc.read_array(band=ci * col_stride + ri * row_stride)
+                    for ri in range(len(row_values))
+                ]
                 slices.append(np.stack(row_slices, axis=0))
             stack = np.stack(slices, axis=0)
             facet_kwargs = {
@@ -961,10 +973,17 @@ class NetCDFPlot:
         # stable handle, one disk read per frame.
         frame_stride = math.prod(nc._band_dim_sizes[animate_axis + 1 :])
 
+        # Read frame 0 once and reuse it as the glyph template below; otherwise the first
+        # frame is read from disk twice (once for the template, once as animation frame
+        # 0). Serve a copy for the streamed frame so the template stays independent.
+        _frame_zero = np.asarray(nc.read_array(band=0))
+
         def _data_getter(i: int) -> np.ndarray:
+            if i == 0:
+                return _frame_zero.copy()
             return nc.read_array(band=i * frame_stride)
 
-        template = np.asarray(_data_getter(0))
+        template = _frame_zero
 
         # Drop the static-plot-only render kwargs cleopatra's `animate()`
         # rejects, plus the pyramids-internal injection keys. See

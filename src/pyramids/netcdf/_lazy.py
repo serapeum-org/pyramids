@@ -40,6 +40,7 @@ import numpy as np
 from pyramids.base._file_manager import CachingFileManager, gdal_mdarray_open
 from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base._utils import import_dask
+from pyramids.netcdf.utils import _dtype_to_str
 
 _DASK_MISSING_MESSAGE = (
     "dask is required for lazy NetCDF reads. Install with one of:\n"
@@ -122,11 +123,9 @@ def _mdarray_shape_and_dtype(
                 f"Variable {variable_name!r} not found in root group " f"of {path!r}."
             )
         shape = tuple(int(d.GetSize()) for d in md_arr.GetDimensions())
-        probe = md_arr.ReadAsArray(
-            array_start_idx=[0] * len(shape),
-            count=[1] * len(shape),
-        )
-        dtype = np.asarray(probe).dtype
+        # Resolve the dtype from the array's declared type rather than a 1-element
+        # ReadAsArray — same result without the extra GDAL I/O round-trip.
+        dtype = np.dtype(_dtype_to_str(md_arr.GetDataType()))
         try:
             bs = md_arr.GetBlockSize()
             block_size = [int(b) for b in bs] if bs else None

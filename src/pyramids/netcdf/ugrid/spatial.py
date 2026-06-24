@@ -88,15 +88,25 @@ class MeshSpatialIndex:
     def _build_face_polygons(self) -> list[Any]:
         """Build Shapely Polygon objects for all mesh faces.
 
+        Vectorised: every face's vertices are gathered into one flat coordinate array
+        and handed to ``shapely.linearrings`` / ``shapely.polygons`` with a per-vertex
+        ring index, instead of constructing one ``Polygon`` per face in a Python loop.
+        ``shapely.linearrings`` closes each ring automatically, so no explicit
+        first-point append is needed.
+
         Returns:
-            List of Shapely Polygon objects, one per face.
+            List of Shapely Polygon objects, one per face (in face-index order).
         """
-        polygons = []
-        for i in range(self._mesh.n_face):
-            coords = self._mesh.get_face_polygon(i)
-            closed = np.vstack([coords, coords[0:1]])
-            polygons.append(Polygon(closed))
-        return polygons
+        fnc = self._mesh.face_node_connectivity
+        masked = fnc.as_masked()
+        valid = ~np.ma.getmaskarray(masked)
+        flat_nodes = np.asarray(masked.data[valid], dtype=np.intp)
+        coords = np.column_stack(
+            [self._mesh.node_x[flat_nodes], self._mesh.node_y[flat_nodes]]
+        )
+        ring_index = np.repeat(np.arange(fnc.n_elements), fnc.nodes_per_element())
+        rings = shapely.linearrings(coords, indices=ring_index)
+        return list(shapely.polygons(rings))
 
     def locate_nearest_node(
         self,
@@ -254,8 +264,9 @@ def clip_mesh(
         mask_geom = mask
 
     spatial_idx = MeshSpatialIndex(mesh)
-    face_polys = spatial_idx.face_polygons
-    tree = STRtree(face_polys)
+    # Reuse the index's lazily-built face STRtree instead of constructing a second one
+    # over the same polygons.
+    tree = spatial_idx.face_strtree
 
     predicate = "intersects" if touch else "contains"
     candidates = tree.query(mask_geom, predicate=predicate)
@@ -340,25 +351,18 @@ def _subset_mesh_by_face_indices(
 
     selected_faces_arr = np.array(selected_faces, dtype=np.intp)
 
-    old_nodes: set[int] = set()
-    for fi in selected_faces:
-        nodes = mesh.face_node_connectivity.get_element(fi)
-        old_nodes.update(nodes.tolist())
-
-    sorted_old_nodes = sorted(old_nodes)
-    old_to_new = {old: new for new, old in enumerate(sorted_old_nodes)}
-    kept_node_indices = np.array(sorted_old_nodes, dtype=np.intp)
-
+    # Renumber nodes with vectorised numpy instead of a Python set + dict + per-cell
+    # loop. The kept (old) node ids are the sorted unique non-fill entries of the
+    # selected faces; remapping old -> compact-new is a single ``searchsorted`` against
+    # that sorted array (fill cells stay -1). UGRID stores fills trailing each row, so
+    # preserving column positions matches the old left-packing behaviour.
     old_fnc = mesh.face_node_connectivity
-    new_fnc_data = np.full(
-        (len(selected_faces), old_fnc.max_nodes_per_element),
-        -1,
-        dtype=np.intp,
-    )
-    for row_idx, fi in enumerate(selected_faces):
-        nodes = old_fnc.get_element(fi)
-        for col_idx, n in enumerate(nodes):
-            new_fnc_data[row_idx, col_idx] = old_to_new[int(n)]
+    sel_rows = old_fnc.data[selected_faces_arr]
+    sel_fill = sel_rows == old_fnc.fill_value
+    kept_node_indices = np.unique(sel_rows[~sel_fill]).astype(np.intp)
+
+    new_fnc_data = np.full(sel_rows.shape, -1, dtype=np.intp)
+    new_fnc_data[~sel_fill] = np.searchsorted(kept_node_indices, sel_rows[~sel_fill])
 
     new_fnc = Connectivity(
         data=new_fnc_data,
@@ -371,22 +375,17 @@ def _subset_mesh_by_face_indices(
     kept_edge_indices = None
     if mesh.edge_node_connectivity is not None:
         enc = mesh.edge_node_connectivity
-        kept_edges = []
-        for i in range(enc.n_elements):
-            edge_nodes = enc.get_element(i)
-            if all(int(n) in old_nodes for n in edge_nodes):
-                kept_edges.append(i)
-        kept_edge_indices = np.array(kept_edges, dtype=np.intp)
+        enc_fill = enc.data == enc.fill_value
+        # Keep an edge iff every valid (non-fill) node it references survived the clip.
+        keep_edge = np.all(np.isin(enc.data, kept_node_indices) | enc_fill, axis=1)
+        kept_edge_indices = np.flatnonzero(keep_edge).astype(np.intp)
 
-        new_enc_data = np.full(
-            (len(kept_edges), enc.max_nodes_per_element),
-            -1,
-            dtype=np.intp,
+        kept_rows = enc.data[kept_edge_indices]
+        kept_fill = kept_rows == enc.fill_value
+        new_enc_data = np.full(kept_rows.shape, -1, dtype=np.intp)
+        new_enc_data[~kept_fill] = np.searchsorted(
+            kept_node_indices, kept_rows[~kept_fill]
         )
-        for row_idx, ei in enumerate(kept_edges):
-            nodes = enc.get_element(ei)
-            for col_idx, n in enumerate(nodes):
-                new_enc_data[row_idx, col_idx] = old_to_new[int(n)]
 
         new_enc = Connectivity(
             data=new_enc_data,
