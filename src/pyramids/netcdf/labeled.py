@@ -66,13 +66,27 @@ def _is_remote_url(source: str) -> bool:
     return scheme in _REMOTE_SCHEMES
 
 
+# Recognised store engines. ``"zarr"`` selects the Zarr path; the NetCDF / HDF5 family
+# names all open via GDAL's multidim NetCDF/HDF5 driver. Anything else (e.g. a typo) is
+# rejected rather than silently treated as NetCDF (API-11).
+_VALID_ENGINES = ("zarr", "netcdf", "netcdf4", "hdf5", "h5netcdf")
+
+
 def _is_zarr_store(path: str | Path, engine: str | None) -> bool:
     """Decide whether `path` should be opened as Zarr.
 
-    Honours an explicit `engine` first (`"zarr"` -> Zarr, any other engine
-    -> not Zarr), then falls back to a `.zarr` suffix check.
+    Honours an explicit `engine` first (`"zarr"` -> Zarr; the NetCDF / HDF5 family names
+    -> not Zarr), then falls back to a `.zarr` suffix check. An unrecognised `engine`
+    raises rather than silently falling through to the NetCDF path (API-11).
+
+    Raises:
+        ValueError: When `engine` is not one of :data:`_VALID_ENGINES` (or None).
     """
     if engine is not None:
+        if engine not in _VALID_ENGINES:
+            raise ValueError(
+                f"engine must be one of {_VALID_ENGINES} or None; got {engine!r}"
+            )
         return engine == "zarr"
     return str(path).rstrip("/\\").endswith(".zarr")
 
@@ -203,8 +217,10 @@ class LabeledDataset:
             path: Local path or a remote URL (`s3://`, `gs://`, ...).
             variables: Restrict to these data variables. `None` keeps all.
             group: Sub-group to open. `None` opens the root group.
-            engine: Force the store kind — `"zarr"` for Zarr, any other value
-                for NetCDF/HDF5. `None` infers from the path suffix.
+            engine: Force the store kind — `"zarr"`, or one of the NetCDF/HDF5 family
+                names `"netcdf"` / `"netcdf4"` / `"hdf5"` / `"h5netcdf"` (all open via the
+                same GDAL multidim path). `None` infers from the path suffix. An
+                unrecognised value raises `ValueError`.
             anon: Open the remote store anonymously (unsigned;
                 `AWS_NO_SIGN_REQUEST` for S3 and the equivalent elsewhere). For
                 an anonymous `s3://` store this also forces **path-style**
