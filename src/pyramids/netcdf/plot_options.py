@@ -6,7 +6,7 @@ three concern-aligned containers:
 - :class:`Selectors` — label / positional selectors that pin a multi-dim
   variable down to a single 2-D slice (or to the residual stack the
   facet / animate paths walk).
-- :class:`ColourOpts` — xarray-aligned colour controls forwarded
+- :class:`ColorOpts` — xarray-aligned colour controls forwarded
   verbatim to cleopatra's :class:`~cleopatra.array_glyph.ArrayGlyph`
   constructor.
 - :class:`FacetSpec` — multi-panel facet layout description forwarded
@@ -33,6 +33,7 @@ Examples:
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Any
 
@@ -115,7 +116,7 @@ class Selectors:
 
 
 @dataclass(frozen=True)
-class ColourOpts:
+class ColorOpts:
     """Xarray-aligned colour controls for :meth:`NetCDF.plot`.
 
     Mirrors the kwargs xarray's plotting accessor accepts. All fields
@@ -148,8 +149,8 @@ class ColourOpts:
           control is left at its cleopatra default:
 
             ```python
-            >>> from pyramids.netcdf.plot_options import ColourOpts
-            >>> opts = ColourOpts()
+            >>> from pyramids.netcdf.plot_options import ColorOpts
+            >>> opts = ColorOpts()
             >>> opts.cmap is None
             True
             >>> opts.add_colorbar
@@ -161,8 +162,8 @@ class ColourOpts:
           centre at zero:
 
             ```python
-            >>> from pyramids.netcdf.plot_options import ColourOpts
-            >>> opts = ColourOpts(cmap="RdBu_r", robust=True, center=0.0)
+            >>> from pyramids.netcdf.plot_options import ColorOpts
+            >>> opts = ColorOpts(cmap="RdBu_r", robust=True, center=0.0)
             >>> opts.cmap
             'RdBu_r'
             >>> opts.robust
@@ -175,8 +176,8 @@ class ColourOpts:
         - Disable the colorbar — the facade removes it post-render:
 
             ```python
-            >>> from pyramids.netcdf.plot_options import ColourOpts
-            >>> opts = ColourOpts(add_colorbar=False)
+            >>> from pyramids.netcdf.plot_options import ColorOpts
+            >>> opts = ColorOpts(add_colorbar=False)
             >>> opts.add_colorbar
             False
 
@@ -193,6 +194,43 @@ class ColourOpts:
     extend: str | None = None
     add_colorbar: bool = True
     cbar_kwargs: dict | None = None
+
+
+@dataclass(frozen=True)
+class ColourOpts(ColorOpts):
+    """Deprecated British-spelling alias for :class:`ColorOpts`.
+
+    Retained for backward compatibility; instantiating it emits a
+    :class:`DeprecationWarning`. Use :class:`ColorOpts` instead — it matches the
+    ``color_scale`` / ``cmap`` spelling used elsewhere in the API. The alias is a
+    subclass, so existing ``isinstance(x, ColourOpts)`` checks and any code passing a
+    ``ColourOpts`` to ``NetCDF.plot`` keep working.
+
+    Examples:
+        - Constructing it warns but otherwise behaves exactly like ``ColorOpts``:
+
+            ```python
+            >>> import warnings
+            >>> from pyramids.netcdf.plot_options import ColourOpts, ColorOpts
+            >>> with warnings.catch_warnings():
+            ...     warnings.simplefilter("ignore")
+            ...     opts = ColourOpts(cmap="viridis")
+            >>> opts.cmap
+            'viridis'
+            >>> isinstance(opts, ColorOpts)
+            True
+
+            ```
+    """
+
+    def __post_init__(self) -> None:
+        """Emit a deprecation warning; the dataclass fields are already set."""
+        warnings.warn(
+            "ColourOpts is deprecated; use ColorOpts instead "
+            "(same fields, US spelling).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
 
 @dataclass(frozen=True)

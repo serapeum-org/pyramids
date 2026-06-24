@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from pyramids.dataset._plot_helpers import render_array as _render_array
-from pyramids.netcdf.plot_options import ColourOpts, FacetSpec, Selectors
+from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
@@ -53,11 +53,11 @@ _FORBIDDEN_PLOT_KWARGS: dict[str, str] = {
     ),
     "cutoff": (
         "NetCDF.plot() does not accept `cutoff=`: `cutoff` is Sentinel-only; "
-        "use `ColourOpts(vmin=, vmax=, robust=True)` instead."
+        "use `ColorOpts(vmin=, vmax=, robust=True)` instead."
     ),
     "percentile": (
         "NetCDF.plot() does not accept `percentile=`: `percentile` is "
-        "Sentinel-only; use `ColourOpts(robust=True)` (2nd/98th percentile)."
+        "Sentinel-only; use `ColorOpts(robust=True)` (2nd/98th percentile)."
     ),
     "overview": (
         "NetCDF.plot() does not accept `overview=`: Overviews are a "
@@ -146,7 +146,7 @@ class NetCDFPlot:
         variable: str | None = None,
         *,
         selectors: Selectors | None = None,
-        colour: ColourOpts | None = None,
+        colour: ColorOpts | None = None,
         facet: FacetSpec | None = None,
         coords: tuple | list | None = None,
         x_dim: str | None = None,
@@ -165,7 +165,7 @@ class NetCDFPlot:
         nc = self.nc
         _reject_forbidden_kwargs(kwargs)
         selectors = selectors or Selectors()
-        colour = colour or ColourOpts()
+        colour = colour or ColorOpts()
         facet = facet or FacetSpec()
 
         if nc._is_md_array and not nc._is_subset and nc.band_count == 0:
@@ -364,7 +364,7 @@ class NetCDFPlot:
         self,
         pinned: NetCDF,
         *,
-        colour: ColourOpts,
+        colour: ColorOpts,
         coords: tuple | list | None,
         kind: str,
         ax: Any | None,
@@ -375,7 +375,7 @@ class NetCDFPlot:
         """Assemble the kwargs dict handed to :meth:`Analysis.plot`.
 
         Starts from ``base_kwargs`` (the caller's ``**kwargs`` pass-through
-        to cleopatra), then layers on: the non-default :class:`ColourOpts`
+        to cleopatra), then layers on: the non-default :class:`ColorOpts`
         fields (``cmap`` / ``vmin`` / ``vmax`` / ``levels`` / ``norm`` /
         ``center`` / ``extend`` / ``cbar_kwargs``, plus ``robust`` only
         when explicitly enabled — ``add_colorbar`` is intentionally *not*
@@ -387,7 +387,7 @@ class NetCDFPlot:
         Args:
             pinned: The 2-D variable subset being rendered (needed for
                 curvilinear coord resolution).
-            colour: The caller's :class:`ColourOpts` (or ``ColourOpts()``).
+            colour: The caller's :class:`ColorOpts` (or ``ColorOpts()``).
             coords: Explicit ``(x, y)`` coord spec from the caller, or
                 ``None`` (auto-detect from CF attrs / conventions).
             kind: The render-kind hint (``"auto"`` / ``"imshow"`` / ...).

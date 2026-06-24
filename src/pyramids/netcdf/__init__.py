@@ -13,7 +13,12 @@ from pyramids.netcdf.models import (
     VariableInfo,
 )
 from pyramids.netcdf.netcdf import NetCDF
-from pyramids.netcdf.plot_options import ColourOpts, FacetSpec, Selectors
+from pyramids.netcdf.plot_options import (
+    ColorOpts,
+    ColourOpts,
+    FacetSpec,
+    Selectors,
+)
 from pyramids.netcdf.ugrid import UgridDataset
 
 __all__ = [
@@ -27,6 +32,7 @@ __all__ = [
     "GroupInfo",
     "StructuralInfo",
     "Selectors",
+    "ColorOpts",
     "ColourOpts",
     "FacetSpec",
     "get_metadata",
