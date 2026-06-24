@@ -121,6 +121,24 @@ class TestPreprocessHook:
         assert calls["n"] == 2
 
 
+class TestMissingPath:
+    """A non-existent explicit path surfaces a FileNotFoundError (documented contract)."""
+
+    @requires_dask
+    def test_missing_explicit_path_raises(self, tmp_path):
+        """An explicit path that does not exist raises FileNotFoundError.
+
+        Test scenario:
+            ``_resolve_paths`` falls back to treating a non-matching input as a single
+            explicit path; opening it then fails. ``open_mfdataset`` (default
+            ``parallel=False`` extracts eagerly) must surface ``FileNotFoundError`` at
+            call time, matching the documented ``Raises`` contract.
+        """
+        missing = str(tmp_path / "does_not_exist.nc")
+        with pytest.raises(FileNotFoundError):
+            NetCDF.open_mfdataset([missing], variable="values")
+
+
 class TestImportError:
     """``parallel=True`` without dask surfaces a clear ImportError."""
 
