@@ -194,6 +194,36 @@ class NetCDFPlot:
                 f"re-plot as {variable!r}. Call `plot` on the parent container."
             )
 
+        # API-5: honour x_dim / y_dim on the static path. A subset's spatial axes are
+        # already fixed, so the only way to apply an explicit override is to re-resolve
+        # the variable from its parent container with those axes, then plot that. When
+        # the subset has no parent to re-resolve from, raise instead of silently ignoring
+        # the kwargs (which is what happened before).
+        if x_dim is not None or y_dim is not None:
+            if nc._parent_nc is None or nc._source_var_name is None:
+                raise ValueError(
+                    "x_dim / y_dim require a parent container to re-resolve the "
+                    "variable's spatial axes; plot via the container instead, e.g. "
+                    "`container.plot(variable=..., x_dim=..., y_dim=...)`."
+                )
+            return nc._parent_nc.get_variable(
+                nc._source_var_name, x_dim=x_dim, y_dim=y_dim
+            ).plot(
+                selectors=selectors,
+                colour=colour,
+                facet=facet,
+                coords=coords,
+                kind=kind,
+                animate=animate,
+                chunks=chunks,
+                basemap=basemap,
+                exclude_value=exclude_value,
+                title=title,
+                ax=ax,
+                figsize=figsize,
+                **kwargs,
+            )
+
         resolved_sel = self._resolve_selectors(nc, selectors)
         faceting_active = facet.col is not None or facet.row is not None
         if faceting_active:
