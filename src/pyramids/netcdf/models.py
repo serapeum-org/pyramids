@@ -601,7 +601,7 @@ class StructuralInfo:
 MAX_DISPLAY_VARIABLES = 10
 
 
-@dataclass
+@dataclass(frozen=True)
 class CFInfo:
     """CF convention metadata derived by cross-referencing variables.
 
