@@ -329,10 +329,13 @@ class DimensionInfo:
                 ```
         """
         name = classic.name
+        # The classic parser leaves `size` as None when no `DEF` size is present, but
+        # `DimensionInfo.size` is typed `int`; coerce a missing size to 0 so the canonical
+        # model never violates its own annotation (it has no __post_init__ validation).
         return cls(
             name=name,
             full_name=f"/{name}",
-            size=getattr(classic, "size", None),
+            size=getattr(classic, "size", None) or 0,
             type=None,
             direction=None,
             indexing_variable=None,

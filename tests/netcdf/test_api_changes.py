@@ -268,6 +268,23 @@ class TestDimensionModelConsolidation:
         assert dim.type is None and dim.indexing_variable is None, "MDIM fields should be None"
         assert dim.attrs["axis"] == "T", "classic attrs must carry over"
 
+    def test_from_classic_metadata_coerces_missing_size_to_int_zero(self):
+        """A classic dimension with no size yields ``size == 0`` (int), not None (review L5).
+
+        Test scenario:
+            ``ClassicDimensionInfo.size`` is legitimately ``None`` when the classic parser
+            finds no ``DEF`` size, but ``DimensionInfo.size`` is typed ``int``. The bridge
+            must coerce the missing size to ``0`` so the canonical model never violates its
+            own annotation.
+        """
+        from pyramids.netcdf.dimensions import ClassicDimensionInfo
+        from pyramids.netcdf.models import DimensionInfo
+
+        classic = ClassicDimensionInfo(name="time", size=None, values=[], attrs={})
+        dim = DimensionInfo.from_classic_metadata(classic)
+        assert dim.size == 0, f"missing size should coerce to 0, got {dim.size!r}"
+        assert isinstance(dim.size, int), f"size must be int, got {type(dim.size).__name__}"
+
     def test_to_dimension_info_round_trips_through_bridge(self):
         """``ClassicDimensionInfo.to_dimension_info`` yields the canonical model.
 
