@@ -91,6 +91,46 @@ class TestDetectAxis:
         result = detect_axis("foo", attrs)
         assert result == expected, f"Expected {expected} for {attrs}, got {result}"
 
+    def test_units_degrees_east(self):
+        """``units=degrees_east`` returns X (longitude)."""
+        result = detect_axis("foo", {"units": "degrees_east"})
+        assert result == "X", f"Expected X, got {result}"
+
+    @pytest.mark.parametrize(
+        "axis_value, expected",
+        [("Z", "Z"), ("T", "T"), ("z", "Z"), ("t", "T")],
+        ids=["Z", "T", "z-lower", "t-lower"],
+    )
+    def test_explicit_axis_z_and_t(self, axis_value, expected):
+        """An explicit vertical/time ``axis`` value is returned and upper-cased.
+
+        Args:
+            axis_value: The raw ``axis`` attribute value.
+            expected: The normalized (upper-cased) axis role.
+
+        Test scenario:
+            ``detect_axis`` accepts the full CF axis set (X/Y/Z/T) and normalizes the
+            case of the value, so ``axis="z"`` and ``axis="Z"`` both yield ``"Z"``.
+        """
+        result = detect_axis("foo", {"axis": axis_value})
+        assert result == expected, f"Expected {expected} for axis={axis_value!r}, got {result}"
+
+    def test_units_passed_as_separate_parameter(self):
+        """The standalone ``units=`` parameter is honored when attrs omit units.
+
+        Test scenario:
+            ``detect_axis`` accepts ``units`` separately from ``attrs`` (for callers that
+            hold the unit string outside the attribute dict); a ``since`` epoch there
+            still classifies the coordinate as a time axis.
+        """
+        result = detect_axis("foo", {}, units="hours since 2000-01-01")
+        assert result == "T", f"Expected T from units= param, got {result}"
+
+    def test_name_pattern_lon(self):
+        """Name 'lon' returns X via the name-pattern fallback (no attrs)."""
+        result = detect_axis("lon", {})
+        assert result == "X", f"Expected X, got {result}"
+
 
 class TestClassifyVariables:
     """Tests for cf.classify_variables."""

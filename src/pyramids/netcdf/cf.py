@@ -560,6 +560,46 @@ def detect_axis(
 
     Returns:
         One of `"X"`, `"Y"`, `"Z"`, `"T"`, or None.
+
+    Examples:
+        - An explicit ``axis`` attribute wins over everything else:
+            ```python
+            >>> from pyramids.netcdf.cf import detect_axis
+            >>> detect_axis("foo", {"axis": "X"})
+            'X'
+
+            ```
+        - A ``standard_name`` is matched against the CF table:
+            ```python
+            >>> detect_axis("foo", {"standard_name": "latitude"})
+            'Y'
+
+            ```
+        - A ``units`` string of the form ``<period> since <epoch>`` marks a time axis:
+            ```python
+            >>> detect_axis("foo", {"units": "days since 1970-01-01"})
+            'T'
+
+            ```
+        - With no attributes, the variable *name* is matched by pattern:
+            ```python
+            >>> detect_axis("lon", {})
+            'X'
+
+            ```
+        - Attribute *names* are matched case-insensitively, so capitalized keys
+            (e.g. ``Axis``) still classify the coordinate:
+            ```python
+            >>> detect_axis("foo", {"Axis": "Y"})
+            'Y'
+
+            ```
+        - An unrecognized name with no usable attributes returns ``None``:
+            ```python
+            >>> detect_axis("ensemble", {}) is None
+            True
+
+            ```
     """
     result: str | None = None
 
