@@ -322,6 +322,23 @@ class ClassicDimensionInfo:
                     f"({self.size})."
                 )
 
+    def to_dimension_info(self) -> Any:
+        """Convert to the canonical :class:`pyramids.netcdf.models.DimensionInfo` (API-7).
+
+        The single canonical dimension model lives in ``models``; this is the convenience
+        inverse of :meth:`DimensionInfo.from_classic_metadata` for callers holding the
+        classic representation. ``name`` / ``size`` / ``attrs`` carry over; the classic-only
+        ``values`` / ``def_fields`` / ``raw`` are not represented on the structural model.
+
+        Returns:
+            DimensionInfo: The canonical metadata for this dimension.
+        """
+        # Local import: ``dimensions`` is a leaf module and ``models`` already depends on
+        # this layer's parser, so importing it at module scope would risk a cycle.
+        from pyramids.netcdf.models import DimensionInfo
+
+        return DimensionInfo.from_classic_metadata(self)
+
 
 @dataclass
 class DimensionsIndex:

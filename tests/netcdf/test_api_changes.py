@@ -220,6 +220,47 @@ class TestCFInfoFrozen:
             info.cf_version = "1.9"
 
 
+class TestDimensionModelConsolidation:
+    """API-7: DimensionInfo is canonical, with a from_classic_metadata bridge."""
+
+    def test_from_classic_metadata_maps_fields(self):
+        """``DimensionInfo.from_classic_metadata`` carries name / size / attrs over.
+
+        Test scenario:
+            A ``ClassicDimensionInfo`` converts to the canonical ``DimensionInfo`` with a
+            ``/<name>`` full name, ``None`` MDIM type/direction/indexing-variable, and the
+            parsed attrs preserved.
+        """
+        from pyramids.netcdf.dimensions import ClassicDimensionInfo
+        from pyramids.netcdf.models import DimensionInfo
+
+        classic = ClassicDimensionInfo(
+            name="time", size=2, values=[0, 31], attrs={"axis": "T"}
+        )
+        dim = DimensionInfo.from_classic_metadata(classic)
+        assert (dim.name, dim.size, dim.full_name) == ("time", 2, "/time"), (
+            f"unexpected canonical fields: {dim}"
+        )
+        assert dim.type is None and dim.indexing_variable is None, "MDIM fields should be None"
+        assert dim.attrs["axis"] == "T", "classic attrs must carry over"
+
+    def test_to_dimension_info_round_trips_through_bridge(self):
+        """``ClassicDimensionInfo.to_dimension_info`` yields the canonical model.
+
+        Test scenario:
+            The inverse convenience produces a ``DimensionInfo`` equal to calling the
+            factory directly.
+        """
+        from pyramids.netcdf.dimensions import ClassicDimensionInfo
+        from pyramids.netcdf.models import DimensionInfo
+
+        classic = ClassicDimensionInfo(name="lat", size=4, attrs={"units": "degrees_north"})
+        dim = classic.to_dimension_info()
+        assert isinstance(dim, DimensionInfo), "bridge must return the canonical model"
+        assert dim.name == "lat" and dim.size == 4, f"fields not carried: {dim}"
+        assert dim.attrs["units"] == "degrees_north", "attrs must carry over"
+
+
 class TestLabeledArrayPublic:
     """API-9: LabeledArray is public; _LabeledArray is a back-compat alias."""
 

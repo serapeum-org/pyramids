@@ -292,6 +292,53 @@ class DimensionInfo:
             attrs=iv_attrs,
         )
 
+    @classmethod
+    def from_classic_metadata(cls, classic: Any) -> DimensionInfo:
+        """Build the canonical `DimensionInfo` from a classic-driver dimension model.
+
+        `DimensionInfo` is the single canonical dimension model (API-7). This factory
+        bridges :class:`pyramids.netcdf.dimensions.ClassicDimensionInfo` — parsed from the
+        classic netCDF driver's flattened ``NETCDF_DIM_*`` / ``<name>#<attr>`` metadata —
+        onto it, so code holding the classic representation can move to the one model. The
+        classic metadata exposes no GDAL dimension ``type`` / ``direction`` or
+        indexing-variable, so those are ``None``; ``name``, ``size`` and the parsed
+        per-dimension ``attrs`` carry over. The classic-only ``values`` / ``def_fields``
+        have no place on the structural model and are dropped.
+
+        Args:
+            classic: A classic dimension model exposing ``name``, ``size`` and ``attrs``
+                (e.g. :class:`ClassicDimensionInfo`).
+
+        Returns:
+            DimensionInfo: The canonical metadata for the dimension.
+
+        Examples:
+            - Convert a classic dimension model into the canonical one:
+                ```python
+                >>> from pyramids.netcdf.dimensions import ClassicDimensionInfo
+                >>> from pyramids.netcdf.models import DimensionInfo
+                >>> classic = ClassicDimensionInfo(
+                ...     name="time", size=2, values=[0, 31], attrs={"axis": "T"}
+                ... )
+                >>> dim = DimensionInfo.from_classic_metadata(classic)
+                >>> dim.name, dim.size, dim.full_name
+                ('time', 2, '/time')
+                >>> dim.attrs["axis"]
+                'T'
+
+                ```
+        """
+        name = classic.name
+        return cls(
+            name=name,
+            full_name=f"/{name}",
+            size=getattr(classic, "size", None),
+            type=None,
+            direction=None,
+            indexing_variable=None,
+            attrs=dict(getattr(classic, "attrs", {}) or {}),
+        )
+
 
 @dataclass(frozen=True)
 class VariableInfo:
