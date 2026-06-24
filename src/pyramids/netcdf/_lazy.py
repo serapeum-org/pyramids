@@ -40,6 +40,7 @@ import numpy as np
 from pyramids.base._file_manager import CachingFileManager, gdal_mdarray_open
 from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base._utils import import_dask
+from pyramids.netcdf._mdim import needs_y_flip
 from pyramids.netcdf.utils import _dtype_to_str
 
 _DASK_MISSING_MESSAGE = (
@@ -142,16 +143,10 @@ def _mdarray_shape_and_dtype(
             block_size = [int(b) for b in bs] if bs else None
         except Exception:  # pragma: no cover - driver-specific
             block_size = None
-        if len(shape) >= 2:
-            try:
-                classic = md_arr.AsClassicDataset(
-                    len(shape) - 1,
-                    len(shape) - 2,
-                    rg,
-                )
-                needs_flip = classic.GetGeoTransform()[5] > 0
-            except Exception:  # pragma: no cover - driver-specific
-                needs_flip = False
+        # Use the shared `_mdim.needs_y_flip` probe (CON-3) rather than an inline
+        # AsClassicDataset/geotransform copy, so the lazy path can't drift from the
+        # eager path's Y-flip detection.
+        needs_flip = needs_y_flip(rg, md_arr)
     finally:
         ds = None
     return shape, dtype, block_size, needs_flip
