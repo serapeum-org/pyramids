@@ -46,7 +46,7 @@ from pyramids.netcdf._mdim import (
     open_mdarray,
     scalar_no_data,
 )
-from pyramids.netcdf.dimensions import DimMetaData
+from pyramids.netcdf.dimensions import ClassicDimensionInfo
 from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.plot_options import ColourOpts, FacetSpec, Selectors
@@ -4742,7 +4742,7 @@ class NetCDF(Dataset):
         )
 
         if arr.ndim == 3:
-            DimMetaData(
+            ClassicDimensionInfo(
                 name=resolved_extra_dims[0][0],
                 size=arr.shape[0],
                 values=resolved_extra_dims[0][1],

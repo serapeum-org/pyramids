@@ -10,7 +10,7 @@ from typing import Any, cast
 from osgeo import gdal
 
 from pyramids.netcdf.cf import classify_variables, parse_conventions
-from pyramids.netcdf.dimensions import MetaData as SharedMetaData
+from pyramids.netcdf.dimensions import ClassicDimMetadata as SharedMetaData
 from pyramids.netcdf.dimensions import parse_dimension_attributes
 from pyramids.netcdf.models import (
     CFInfo,

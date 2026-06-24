@@ -320,7 +320,7 @@ class TestCreateFromArrayGeoParams:
 
 
 class TestCreateFromArrayValidation:
-    """Input validation via ``DimMetaData``."""
+    """Input validation via ``ClassicDimensionInfo``."""
 
     def test_mismatched_extra_dim_values_raises(self):
         """``extra_dim_values`` length must match ``arr.shape[0]``.

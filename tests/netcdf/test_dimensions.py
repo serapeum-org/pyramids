@@ -2,7 +2,7 @@ import pytest
 
 from pyramids.netcdf.dimensions import (
     DimensionsIndex,
-    DimMetaData,
+    ClassicDimensionInfo,
     _coerce_scalar,
     _format_braced_list,
     _parse_values_list,
@@ -297,9 +297,9 @@ class TestFormatBracedList:
             _format_braced_list(None)  # type: ignore[arg-type]
 
 
-class TestDimMetaData:
+class TestClassicDimensionInfo:
     def test_basic_construction(self):
-        """Construct DimMetaData with explicit fields.
+        """Construct ClassicDimensionInfo with explicit fields.
 
         Input:
             name="time", size=2, values=[0, 31], def_fields=(2, 6).
@@ -310,7 +310,7 @@ class TestDimMetaData:
         Checks:
             Dataclass field assignment and defaults.
         """
-        d = DimMetaData(name="time", size=2, values=[0, 31], def_fields=(2, 6))
+        d = ClassicDimensionInfo(name="time", size=2, values=[0, 31], def_fields=(2, 6))
         assert d.name == "time"
         assert d.size == 2
         assert d.values == [0, 31]
@@ -520,7 +520,7 @@ class TestIndexApi:
             One dimension defined by VALUES.
 
         Expected:
-            "level0" in idx and idx["level0"] returns a DimMetaData.
+            "level0" in idx and idx["level0"] returns a ClassicDimensionInfo.
 
         Checks:
             __contains__ and __getitem__.
@@ -529,7 +529,7 @@ class TestIndexApi:
         idx = DimensionsIndex.from_metadata(md)
         assert "level0" in idx
         dim = idx["level0"]
-        assert isinstance(dim, DimMetaData)
+        assert isinstance(dim, ClassicDimensionInfo)
         assert dim.values == [1, 2, 3]
 
     def test_len_and_iter(self):
@@ -539,7 +539,7 @@ class TestIndexApi:
             Two dimensions.
 
         Expected:
-            len(idx) == 2 and iter yields DimMetaData objects.
+            len(idx) == 2 and iter yields ClassicDimensionInfo objects.
 
         Checks:
             __len__ and __iter__.
@@ -550,7 +550,7 @@ class TestIndexApi:
         }
         idx = DimensionsIndex.from_metadata(md)
         assert len(idx) == 2
-        assert all(isinstance(d, DimMetaData) for d in iter(idx))
+        assert all(isinstance(d, ClassicDimensionInfo) for d in iter(idx))
 
     def test_to_dict_serialization(self):
         """Serialize to a plain dictionary.
@@ -693,8 +693,8 @@ class TestToMetadataMethod:
         # sort_names=False we create an index manually.
         idx2 = DimensionsIndex(
             {
-                "b": DimMetaData(name="b", values=[2], size=1),
-                "a": DimMetaData(name="a", values=[1], size=1),
+                "b": ClassicDimensionInfo(name="b", values=[2], size=1),
+                "a": ClassicDimensionInfo(name="a", values=[1], size=1),
             }
         )
         out_manual = idx2.to_metadata(sort_names=False)
@@ -714,8 +714,8 @@ class TestToMetadataMethod:
         """
         idx = DimensionsIndex(
             {
-                "onlydef": DimMetaData(name="onlydef", def_fields=(5, 1), size=5),
-                "onlyvals": DimMetaData(name="onlyvals", values=[10, 20]),
+                "onlydef": ClassicDimensionInfo(name="onlydef", def_fields=(5, 1), size=5),
+                "onlyvals": ClassicDimensionInfo(name="onlyvals", values=[10, 20]),
             }
         )
         out = idx.to_metadata()
