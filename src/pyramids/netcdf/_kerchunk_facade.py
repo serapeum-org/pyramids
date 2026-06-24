@@ -173,6 +173,37 @@ def _native_or_fallback(
         return legacy_fn()
 
 
+def _normalize_backend(backend: str) -> str:
+    """Validate and normalise the ``backend`` argument to ``"native"`` or ``"legacy"``.
+
+    ``"kerchunk"`` is accepted as a soft-deprecated alias for ``"legacy"`` (both names
+    refer to the ``SingleHdf5ToZarr`` / ``MultiZarrToZarr`` translator path; every backend
+    ultimately emits a kerchunk manifest, so ``"kerchunk"`` was a misleading name).
+    Passing ``"kerchunk"`` emits a :class:`DeprecationWarning`.
+
+    Args:
+        backend: The user-supplied backend string.
+
+    Returns:
+        ``"native"`` or ``"legacy"``.
+
+    Raises:
+        ValueError: When ``backend`` is none of ``"native"`` / ``"legacy"`` / ``"kerchunk"``.
+    """
+    if backend == "kerchunk":
+        warnings.warn(
+            "backend='kerchunk' is deprecated; use backend='legacy' instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return "legacy"
+    if backend not in ("native", "legacy"):
+        raise ValueError(
+            f"backend must be 'native' or 'legacy'; got {backend!r}"
+        )
+    return backend
+
+
 def to_kerchunk(
     src_path: str | Path,
     output_path: str | Path,
@@ -195,10 +226,11 @@ def to_kerchunk(
             trade compatibility vs fidelity — see the kerchunk docs.
         backend: `"native"` (default) builds the manifest directly with
             h5py — no live zarr group, so it cannot hit the zarr-v3
-            `sync()` deadlock (#530). `"kerchunk"` forces the legacy
+            `sync()` deadlock (#530). `"legacy"` forces the
             `kerchunk.hdf.SingleHdf5ToZarr` translator. The native
-            backend falls back to kerchunk for files using HDF5 features
-            it does not support (e.g. vlen/compound dtypes).
+            backend falls back to the legacy translator for files using
+            HDF5 features it does not support (e.g. vlen/compound dtypes).
+            `"kerchunk"` is a deprecated alias for `"legacy"`.
 
     Returns:
         The manifest dict that was written — useful for inspection
@@ -206,8 +238,8 @@ def to_kerchunk(
 
     Raises:
         ImportError: When the chosen backend's dependency is missing
-            (h5py for `"native"`, kerchunk for `"kerchunk"`).
-        ValueError: When `backend` is not `"native"` or `"kerchunk"`.
+            (h5py for `"native"`, kerchunk for `"legacy"`).
+        ValueError: When `backend` is not `"native"` or `"legacy"`.
 
     Examples:
         - Emit a manifest for one NetCDF file (requires the
@@ -223,10 +255,7 @@ def to_kerchunk(
 
             ```
     """
-    if backend not in ("native", "kerchunk"):
-        raise ValueError(
-            f"backend must be 'native' or 'kerchunk'; got {backend!r}"
-        )
+    backend = _normalize_backend(backend)
     src_str = str(src_path)
 
     def _legacy() -> dict[str, Any]:
@@ -234,7 +263,7 @@ def to_kerchunk(
             src_str, inline_threshold=inline_threshold, vlen_encode=vlen_encode
         )
 
-    if backend == "kerchunk":
+    if backend == "legacy":
         refs = _legacy()
     else:
         refs = _native_or_fallback(
@@ -294,10 +323,10 @@ def combine_kerchunk(
     (h5py, no live zarr group) and concatenates the per-file manifests along the
     single `concat_dims` entry — every variable carrying that dimension is stacked,
     the rest are carried from the first file. This avoids the zarr-v3 `sync()`
-    deadlock (#530). `"kerchunk"` forces the legacy
+    deadlock (#530). `"legacy"` forces the
     `SingleHdf5ToZarr` + `MultiZarrToZarr` path; the native backend also falls back
     to it for inputs it cannot handle (e.g. multiple concat dims, unsupported HDF5
-    features).
+    features). `"kerchunk"` is a deprecated alias for `"legacy"`.
 
     Args:
         src_paths: Sequence of source NetCDF / HDF5 paths or URLs, in
@@ -311,14 +340,14 @@ def combine_kerchunk(
             backend treats every non-concat variable as identical implicitly.
             Default `("lat", "lon")`.
         inline_threshold: Same semantics as :func:`to_kerchunk`.
-        backend: `"native"` (default) or `"kerchunk"`.
+        backend: `"native"` (default) or `"legacy"` (`"kerchunk"` is a deprecated alias).
 
     Returns:
         The combined manifest dict that was written.
 
     Raises:
         ImportError: When the chosen backend's dependency is missing.
-        ValueError: When `backend` is not `"native"` or `"kerchunk"`.
+        ValueError: When `backend` is not `"native"` or `"legacy"`.
 
     Examples:
         - Combine a year's worth of daily NetCDFs into one manifest:
@@ -335,10 +364,8 @@ def combine_kerchunk(
 
             ```
     """
-    if backend not in ("native", "kerchunk"):
-        raise ValueError(
-            f"backend must be 'native' or 'kerchunk'; got {backend!r}"
-        )
+    backend = _normalize_backend(backend)
+
     def _legacy() -> dict[str, Any]:
         return _kerchunk_combine(
             src_paths,
@@ -359,7 +386,7 @@ def combine_kerchunk(
         ]
         return combine_manifests(per_file, concat_dim=concat_dims[0])
 
-    if backend == "kerchunk":
+    if backend == "legacy":
         combined = _legacy()
     else:
         combined = _native_or_fallback(
