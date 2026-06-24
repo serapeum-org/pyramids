@@ -10,7 +10,6 @@ import gc
 import itertools
 import math
 import os
-import shutil
 import tempfile
 import warnings
 import weakref
@@ -4433,19 +4432,15 @@ class NetCDF(Dataset):
 
         For `.nc` / `.nc4` files the full multidimensional structure
         (groups, dimensions, variables, attributes) is preserved via
-        `CreateCopy` with the netCDF driver. For `.zarr` stores the
-        multidimensional structure is written through GDAL's Zarr driver
-        (see :meth:`to_zarr`). For other extensions (e.g. `.tif`), the
-        parent `Dataset.to_file` is used — but only on variable subsets,
-        not on root MDIM containers.
+        `CreateCopy` with the netCDF driver. For other extensions
+        (e.g. `.tif`), the parent `Dataset.to_file` is used — but only
+        on variable subsets, not on root MDIM containers.
 
         Args:
             path: Destination file path. The extension determines the
-                output driver (`.nc` -> netCDF, `.zarr` -> Zarr,
-                `.tif` -> GeoTIFF, etc.).
+                output driver (`.nc` -> netCDF, `.tif` -> GeoTIFF, etc.).
             **kwargs: Forwarded to `Dataset.to_file` for non-NetCDF
-                extensions (e.g. `tile_length`, `creation_options`); for
-                `.zarr`, an `overwrite` bool is forwarded to :meth:`to_zarr`.
+                extensions (e.g. `tile_length`, `creation_options`).
 
         Raises:
             RuntimeError: If the netCDF `CreateCopy` call fails.
@@ -4456,8 +4451,6 @@ class NetCDF(Dataset):
         extension = path.suffix[1:].lower()
         if extension in ("nc", "nc4"):
             self._write_netcdf(path)
-        elif extension == "zarr":
-            self.to_zarr(path, overwrite=bool(kwargs.get("overwrite", False)))
         elif self._is_md_array and not self._is_subset:
             raise ValueError(
                 "Cannot save a multidimensional NetCDF container as "
@@ -4466,79 +4459,6 @@ class NetCDF(Dataset):
             )
         else:
             super().to_file(path, **kwargs)
-
-    def to_zarr(self, path: str | Path, *, overwrite: bool = False) -> Path:
-        """Write this dataset to a Zarr store via GDAL's multidimensional Zarr driver.
-
-        The whole multidimensional structure backing this instance (every array,
-        dimension, and attribute on the root group) is translated into a Zarr group
-        with :func:`osgeo.gdal.MultiDimTranslate`. This is GDAL-native — it needs **no**
-        ``zarr`` / ``xarray`` Python dependency — and is the write counterpart to the
-        ``ZARR:`` reads exposed by :class:`pyramids.netcdf.LabeledDataset`.
-
-        Works on both a root MDIM container (writes every variable) and a single
-        variable subset from :meth:`get_variable` (writes that one array). A Zarr store
-        is a directory, so an existing store at ``path`` is only replaced when
-        ``overwrite=True``.
-
-        Args:
-            path: Destination Zarr store (a directory, conventionally ending ``.zarr``).
-            overwrite: When ``True``, an existing file or directory at ``path`` is
-                removed first. When ``False`` (default) an existing ``path`` raises.
-
-        Returns:
-            Path: The ``path`` written, as a :class:`pathlib.Path`.
-
-        Raises:
-            FileExistsError: If ``path`` already exists and ``overwrite`` is ``False``.
-            RuntimeError: If GDAL's Zarr translation fails.
-
-        Examples:
-            - Round-trip a NetCDF container through a Zarr store (needs files — skipped
-              in doctests):
-                ```python
-                >>> from pyramids.netcdf import NetCDF  # doctest: +SKIP
-                >>> nc = NetCDF.read_file("cube.nc")  # doctest: +SKIP
-                >>> nc.to_zarr("cube.zarr", overwrite=True)  # doctest: +SKIP
-                PosixPath('cube.zarr')
-
-                ```
-
-        See Also:
-            - :meth:`to_file`: routes a ``.zarr`` extension here automatically.
-            - :class:`pyramids.netcdf.LabeledDataset`: reads ``ZARR:`` stores back.
-        """
-        path = Path(path)
-        if path.exists():
-            if not overwrite:
-                raise FileExistsError(
-                    f"{path} already exists; pass overwrite=True to replace it."
-                )
-            self._remove_store(path)
-        self._write_zarr(path)
-        return path
-
-    @staticmethod
-    def _remove_store(path: Path) -> None:
-        """Delete a (possibly GDAL-locked) Zarr store directory or file, retrying after a GC."""
-        remove = shutil.rmtree if path.is_dir() else path.unlink
-        try:
-            remove(path)
-        except OSError:
-            gc.collect()
-            remove(path)
-
-    def _write_zarr(self, path: Path) -> None:
-        """Translate this instance's multidimensional source into a Zarr store.
-
-        Uses :func:`osgeo.gdal.MultiDimTranslate` with ``format="Zarr"``; accepts both a
-        multidimensional root container and a classic variable-subset view as the source.
-        """
-        out = gdal.MultiDimTranslate(str(path), self._raster, format="Zarr")
-        if out is None:
-            raise RuntimeError(f"Failed to write Zarr store to {path}")
-        out.FlushCache()
-        out = None
 
     def _write_netcdf(self, path: Path) -> None:
         """Write this dataset to a netCDF file, preserving the declared (or absent) convention.
