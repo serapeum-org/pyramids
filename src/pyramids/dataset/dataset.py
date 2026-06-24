@@ -59,7 +59,7 @@ from pyramids.dataset.ops.vectorize import rasterize_features
 from pyramids.feature import FeatureCollection, create_polygon
 
 # tuple of collaborator attribute names. Used by
-# `Dataset.__init__` to wire the seven collaborators and by
+# `Dataset.__init__` to wire the eight collaborators and by
 # `_update_inplace` to re-bind their `_ds` back-references after
 # `__dict__.update` (see audit §3.3).
 _COLLABORATOR_ATTRS = (
@@ -223,9 +223,9 @@ class Dataset(RasterBase):
     the :class:`~pyramids.netcdf.NetCDF` subclass; for temporal stacks of
     rasters use :class:`~pyramids.dataset.DatasetCollection`.
 
-    The seven public-API families are exposed as collaborator instances
+    The eight public-API families are exposed as collaborator instances
     (`ds.io`, `ds.spatial`, `ds.bands`, `ds.analysis`,
-    `ds.cell`, `ds.vectorize`, `ds.cog`) and via thin facade
+    `ds.cell`, `ds.vectorize`, `ds.cog`, `ds.georef`) and via thin facade
     methods on the Dataset itself, so `ds.crop(mask)` and
     `ds.spatial.crop(mask)` are equivalent. Each collaborator holds a
     weakref proxy back to the Dataset; the proxy keeps GDAL handle
