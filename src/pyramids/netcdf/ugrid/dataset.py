@@ -118,7 +118,11 @@ class UgridDataset:
         topo_info = topologies[0]
         mesh = Mesh2d.from_gdal_group(rg, topo_info)
 
-        data_variables = _read_data_variables(rg, topo_info, str(path))
+        # Resolve to an absolute path before threading it into the lazy variable loaders:
+        # data reads are deferred to first `.data` access (PERF-3), which re-opens the file.
+        # A relative path would break that deferred open if the process changed directory in
+        # the meantime; the old eager read was immune because it read while still in `read_file`.
+        data_variables = _read_data_variables(rg, topo_info, str(path.resolve()))
 
         global_attrs = _read_attributes(rg)
 

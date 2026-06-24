@@ -75,6 +75,26 @@ class TestLazyDataVariables:
         loaded = np.asarray(var.data).dtype
         assert declared == loaded, f"declared dtype {declared} != loaded {loaded}"
 
+    def test_lazy_read_survives_cwd_change(self, monkeypatch, tmp_path):
+        """A relative-path dataset still loads lazily after the CWD changes (review L3).
+
+        Test scenario:
+            PERF-3 defers variable reads to first ``.data`` access, which re-opens the file.
+            Open the dataset with a RELATIVE path, then ``chdir`` elsewhere, then touch
+            ``.data``. ``read_file`` resolves the path to absolute before threading it into
+            the loader, so the deferred read still succeeds — it would raise a
+            "No such file" ``RuntimeError`` if the relative path leaked into the loader.
+        """
+        ds = UgridDataset.read_file(_UGRID_PATH)
+        assert not _UGRID_PATH.is_absolute(), "precondition: opened via a relative path"
+        name = next(iter(ds._data_variables))
+
+        monkeypatch.chdir(tmp_path)
+
+        arr = ds._data_variables[name].data
+        assert arr is not None, "lazy read must still succeed after the CWD changed"
+        assert arr.shape == tuple(ds._data_variables[name].shape), "shape mismatch after chdir"
+
     def test_lazy_load_matches_independent_eager_read(self, ugrid_ds):
         """The lazily-loaded values equal an independent eager read of the same array.
 
