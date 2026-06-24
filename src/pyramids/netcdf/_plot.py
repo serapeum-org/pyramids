@@ -706,8 +706,10 @@ class NetCDFPlot:
         # band dims row-major (last varies fastest), so pinning the col dim to index
         # ``ci`` (and the row dim to ``ri``) with every other band dim at 0 is
         # ``ci * col_stride + ri * row_stride`` — the same stride trick the animate path
-        # uses. Facet requires col / row to be the variable's only band dims, so no other
-        # axis needs pinning.
+        # uses. Any non-faceted band dims are implicitly pinned to index 0, which this
+        # row-major flat index already selects (their contribution is 0 at index 0), so
+        # the result matches the old ``sel(...).read_array(band=0)`` even when col/row are
+        # not the variable's only band dims.
         names = nc._band_dim_names
         sizes = nc._band_dim_sizes
         col_axis = names.index(col)
