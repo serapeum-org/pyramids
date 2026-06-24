@@ -117,7 +117,7 @@ def open_mfdataset(
             ```python
             >>> from pyramids.netcdf._mfdataset import open_mfdataset
             >>> path = "tests/data/netcdf/pyramids-netcdf-3d.nc"
-            >>> stack = open_mfdataset([path], "temp")
+            >>> stack = open_mfdataset([path], "values")
             >>> stack.shape[0]
             1
 
@@ -138,10 +138,14 @@ def open_mfdataset(
         first_probe = _open_and_extract(resolved[0], variable, preprocess, chunks)
         shape = first_probe.shape
         dtype = first_probe.dtype
+        # Wrap the already-materialised probe as a single-block delayed array (rather than
+        # ``da.from_array(..., chunks="auto")``) so element 0's chunk structure matches the
+        # ``from_delayed`` frames below — one block per file along the stacked axis. Reuses
+        # the probe, so ``resolved[0]`` is still opened only once.
         first_arr = (
             first_probe
             if hasattr(first_probe, "dask")
-            else da.from_array(np.asarray(first_probe), chunks="auto")
+            else da.from_delayed(dask.delayed(first_probe), shape=shape, dtype=dtype)
         )
         rest = [
             da.from_delayed(

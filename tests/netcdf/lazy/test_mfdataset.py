@@ -80,6 +80,27 @@ class TestParallelMode:
         ).compute()
         assert seq.shape == par.shape
 
+    @requires_dask
+    def test_parallel_frames_have_uniform_chunks(self):
+        """Element 0 has the same chunk structure as the delayed frames (review L3).
+
+        Test scenario:
+            In ``parallel=True`` mode element 0 used to be wrapped with
+            ``da.from_array(..., chunks="auto")`` while the other frames came from
+            ``da.from_delayed`` (one block per file). Stack three copies and assert every
+            stacked frame is a single block along the stacked axis, so the chunking is
+            uniform across frames (no element-0 outlier).
+        """
+        stack = NetCDF.open_mfdataset(
+            [FIXTURE, FIXTURE, FIXTURE],
+            variable="values",
+            parallel=True,
+        )
+        # da.stack adds the leading axis; one block per file means chunks[0] == (1, 1, 1).
+        assert stack.chunks[0] == (1, 1, 1), (
+            f"expected one block per file on the stacked axis, got {stack.chunks[0]}"
+        )
+
 
 class TestPreprocessHook:
     """The preprocess callable is applied before extraction."""
