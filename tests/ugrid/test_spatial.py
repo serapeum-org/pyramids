@@ -16,11 +16,7 @@ from pyramids.netcdf.ugrid.connectivity import Connectivity
 from pyramids.netcdf.ugrid.dataset import UgridDataset
 from pyramids.netcdf.ugrid.mesh import Mesh2d
 from pyramids.netcdf.ugrid.models import MeshTopologyInfo, MeshVariable
-from pyramids.netcdf.ugrid.spatial import (
-    MeshSpatialIndex,
-    clip_mesh,
-    subset_by_bounds,
-)
+from pyramids.netcdf.ugrid.spatial import MeshSpatialIndex
 
 pytestmark = pytest.mark.core
 
@@ -301,7 +297,7 @@ class TestClipMesh:
         """
 
         mask = box(-0.1, -0.1, 1.1, 2.1)
-        clipped = clip_mesh(unit_square_dataset, mask, touch=False)
+        clipped = unit_square_dataset.clip(mask, touch=False)
         assert clipped.n_face == 2, f"Expected 2 faces, got {clipped.n_face}"
 
     def test_clip_touch_true(self, unit_square_dataset):
@@ -313,7 +309,7 @@ class TestClipMesh:
         """
 
         mask = box(0.0, 0.0, 1.0, 2.0)
-        clipped = clip_mesh(unit_square_dataset, mask, touch=True)
+        clipped = unit_square_dataset.clip(mask, touch=True)
         assert (
             clipped.n_face >= 2
         ), f"Expected >= 2 faces with touch=True, got {clipped.n_face}"
@@ -327,7 +323,7 @@ class TestClipMesh:
         """
 
         mask = box(-0.1, -0.1, 1.1, 1.1)
-        clipped = clip_mesh(unit_square_dataset, mask, touch=False)
+        clipped = unit_square_dataset.clip(mask, touch=False)
         assert (
             "temperature" in clipped.data_variable_names
         ), f"temperature should be in clipped data, got {clipped.data_variable_names}"
@@ -345,7 +341,7 @@ class TestClipMesh:
         """
 
         mask = box(0.0, 0.0, 1.1, 1.1)
-        clipped = clip_mesh(unit_square_dataset, mask, touch=False)
+        clipped = unit_square_dataset.clip(mask, touch=False)
         fnc = clipped.mesh.face_node_connectivity
         max_node = fnc.data[fnc.data != -1].max()
         assert (
@@ -362,7 +358,7 @@ class TestSubsetByBounds:
         Test scenario:
             Full bounds should keep all faces.
         """
-        result = subset_by_bounds(unit_square_dataset, -1.0, -1.0, 3.0, 3.0)
+        result = unit_square_dataset.subset_by_bounds(-1.0, -1.0, 3.0, 3.0)
         assert result.n_face == 4, f"Expected 4 faces, got {result.n_face}"
 
     def test_subset_partial(self, unit_square_dataset):
@@ -371,7 +367,7 @@ class TestSubsetByBounds:
         Test scenario:
             Bounds covering only bottom-left cell should keep 1 face.
         """
-        result = subset_by_bounds(unit_square_dataset, -0.1, -0.1, 0.9, 0.9)
+        result = unit_square_dataset.subset_by_bounds(-0.1, -0.1, 0.9, 0.9)
         assert result.n_face < 4, f"Expected fewer than 4 faces, got {result.n_face}"
         assert result.n_face >= 1, f"Expected at least 1 face, got {result.n_face}"
 
@@ -445,7 +441,7 @@ class TestSpatialEdgeCases:
         """
 
         mask = box(100.0, 100.0, 200.0, 200.0)
-        result = clip_mesh(unit_square_dataset, mask, touch=True)
+        result = unit_square_dataset.clip(mask, touch=True)
         assert result.n_face == 0, f"Expected 0 faces, got {result.n_face}"
 
     def test_subset_fully_outside_bounds(self, unit_square_dataset):
@@ -454,7 +450,7 @@ class TestSpatialEdgeCases:
         Test scenario:
             Bounds far from mesh should produce 0 faces.
         """
-        result = subset_by_bounds(unit_square_dataset, 100.0, 100.0, 200.0, 200.0)
+        result = unit_square_dataset.subset_by_bounds(100.0, 100.0, 200.0, 200.0)
         assert result.n_face == 0, f"Expected 0 faces, got {result.n_face}"
 
     def test_locate_faces_all_outside(self, unit_square_mesh):

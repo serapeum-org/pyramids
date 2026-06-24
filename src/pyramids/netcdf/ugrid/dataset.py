@@ -36,6 +36,11 @@ from pyramids.netcdf.ugrid.models import (
     MeshVariable,
     UgridMetadata,
 )
+from pyramids.netcdf.ugrid.spatial import (
+    MeshSpatialIndex,
+    clip_mesh,
+    subset_by_bounds,
+)
 from pyramids.netcdf._mdim import open_mdarray
 from pyramids.netcdf.utils import _dtype_to_str, _read_attributes
 
@@ -380,6 +385,32 @@ class UgridDataset:
             )
         return result
 
+    def _wrap_subset(
+        self, mesh: Mesh2d, data_variables: dict[str, MeshVariable]
+    ) -> UgridDataset:
+        """Wrap a ``(mesh, data_variables)`` pair from the spatial subsetters into a dataset.
+
+        The spatial subsetting helpers (:func:`clip_mesh` / :func:`subset_by_bounds`) return
+        the rebuilt mesh and data variables rather than a dataset (STR-3 — keeps
+        ``ugrid.spatial`` independent of this module). This carries the source dataset's
+        global attributes / topology info / CRS onto the subset.
+
+        Args:
+            mesh: The subset mesh.
+            data_variables: The sliced data variables.
+
+        Returns:
+            UgridDataset: The wrapped subset.
+        """
+        return UgridDataset(
+            mesh=mesh,
+            data_variables=data_variables,
+            global_attributes=self._global_attributes,
+            topology_info=self._topology_info,
+            crs_wkt=self._crs_wkt,
+            file_name=None,
+        )
+
     def clip(self, mask: Any, touch: bool = True) -> UgridDataset:
         """Clip the mesh to a polygon mask.
 
@@ -394,10 +425,8 @@ class UgridDataset:
         Returns:
             New UgridDataset with clipped mesh and data.
         """
-        from pyramids.netcdf.ugrid.spatial import clip_mesh
-
-        result = clip_mesh(self, mask, touch=touch)
-        return result
+        mesh, data_variables = clip_mesh(self, mask, touch=touch)
+        return self._wrap_subset(mesh, data_variables)
 
     def subset_by_bounds(
         self,
@@ -417,10 +446,8 @@ class UgridDataset:
         Returns:
             New UgridDataset with subset mesh and data.
         """
-        from pyramids.netcdf.ugrid.spatial import subset_by_bounds
-
-        result = subset_by_bounds(self, xmin, ymin, xmax, ymax)
-        return result
+        mesh, data_variables = subset_by_bounds(self, xmin, ymin, xmax, ymax)
+        return self._wrap_subset(mesh, data_variables)
 
     def to_crs(self, to_epsg: int) -> UgridDataset:
         """Reproject all node coordinates to a new CRS.
@@ -619,8 +646,6 @@ class UgridDataset:
         """
         geometries = []
         if location == "face":
-            from pyramids.netcdf.ugrid.spatial import MeshSpatialIndex
-
             spatial_idx = MeshSpatialIndex(self._mesh)
             geometries = spatial_idx.face_polygons
         elif location == "node":

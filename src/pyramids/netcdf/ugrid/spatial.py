@@ -238,7 +238,7 @@ def clip_mesh(
     dataset: Any,
     mask: Any,
     touch: bool = True,
-) -> Any:
+) -> tuple[Mesh2d, dict[str, MeshVariable]]:
     """Clip a UGRID dataset to a polygon mask.
 
     Selects faces that intersect (touch=True) or are fully contained
@@ -252,7 +252,8 @@ def clip_mesh(
             If False, only include faces fully inside.
 
     Returns:
-        New UgridDataset with clipped mesh and subset data.
+        tuple: ``(mesh, data_variables)`` for the clipped faces — wrap with
+        :meth:`UgridDataset.clip`, which is the public entry point.
     """
     mesh = dataset.mesh
 
@@ -283,7 +284,7 @@ def subset_by_bounds(
     ymin: float,
     xmax: float,
     ymax: float,
-) -> Any:
+) -> tuple[Mesh2d, dict[str, MeshVariable]]:
     """Subset mesh to faces whose centroids fall within a bounding box.
 
     Faster than clip_mesh because it only checks face centroids
@@ -298,7 +299,8 @@ def subset_by_bounds(
         ymax: Maximum y-coordinate.
 
     Returns:
-        New UgridDataset with faces whose centroids are within the box.
+        tuple: ``(mesh, data_variables)`` for the faces whose centroids fall in the box —
+        wrap with :meth:`UgridDataset.subset_by_bounds`, the public entry point.
     """
     mesh = dataset.mesh
     cx, cy = mesh.face_centroids
@@ -312,18 +314,21 @@ def subset_by_bounds(
 def _subset_mesh_by_face_indices(
     dataset: Any,
     selected_faces: list[int],
-) -> Any:
-    """Build a new UgridDataset from a subset of face indices.
+) -> tuple[Mesh2d, dict[str, MeshVariable]]:
+    """Subset a mesh to a list of face indices, returning the rebuilt parts.
 
-    Handles node renumbering, edge filtering, coordinate subsetting,
-    and data variable slicing. Shared by clip_mesh and subset_by_bounds.
+    Handles node renumbering, edge filtering, coordinate subsetting, and data variable
+    slicing. Shared by :func:`clip_mesh` and :func:`subset_by_bounds`. Returns the rebuilt
+    ``(mesh, data_variables)`` rather than a ``UgridDataset`` so this module stays
+    independent of ``ugrid.dataset`` (STR-3 — breaks the import cycle); the caller
+    (``UgridDataset.clip`` / ``.subset_by_bounds``) wraps the parts back into a dataset.
 
     Args:
-        dataset: Source UgridDataset.
+        dataset: Source UgridDataset (read-only; its mesh / data variables are sliced).
         selected_faces: List of face indices to keep.
 
     Returns:
-        New UgridDataset with the selected faces.
+        tuple: ``(mesh, data_variables)`` for the selected faces.
     """
     mesh = dataset.mesh
 
@@ -339,15 +344,7 @@ def _subset_mesh_by_face_indices(
             node_y=np.empty(0),
             face_node_connectivity=empty_fnc,
         )
-        from pyramids.netcdf.ugrid.dataset import UgridDataset
-
-        return UgridDataset(
-            mesh=empty_mesh,
-            data_variables={},
-            global_attributes=dataset._global_attributes,
-            topology_info=dataset._topology_info,
-            crs_wkt=dataset._crs_wkt,
-        )
+        return empty_mesh, {}
 
     selected_faces_arr = np.array(selected_faces, dtype=np.intp)
 
@@ -431,14 +428,4 @@ def _subset_mesh_by_face_indices(
 
         new_data_vars[name] = var.with_data(new_data)
 
-    from pyramids.netcdf.ugrid.dataset import UgridDataset
-
-    result = UgridDataset(
-        mesh=new_mesh,
-        data_variables=new_data_vars,
-        global_attributes=dataset._global_attributes,
-        topology_info=dataset._topology_info,
-        crs_wkt=dataset._crs_wkt,
-        file_name=None,
-    )
-    return result
+    return new_mesh, new_data_vars
