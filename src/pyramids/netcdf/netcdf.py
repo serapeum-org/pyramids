@@ -31,7 +31,7 @@ from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.dataset import _COLLABORATOR_ATTRS
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
-from pyramids.netcdf._lazy import _apply_unpack, build_lazy_array
+from pyramids.netcdf._lazy import apply_unpack, build_lazy_array
 from pyramids.netcdf._mfdataset import open_mfdataset
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.cf import (
@@ -1639,7 +1639,7 @@ class NetCDF(Dataset):
                 masked=masked,
             )
             if unpack:
-                result = _apply_unpack(
+                result = apply_unpack(
                     result,
                     getattr(self, "_scale", None),
                     getattr(self, "_offset", None),
@@ -1668,7 +1668,7 @@ class NetCDF(Dataset):
                 lock=lock,
             )
             if unpack:
-                result = _apply_unpack(
+                result = apply_unpack(
                     result,
                     getattr(self, "_scale", None),
                     getattr(self, "_offset", None),

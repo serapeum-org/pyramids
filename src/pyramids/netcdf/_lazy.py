@@ -313,7 +313,7 @@ def _read_mdarray_chunk(
     return arr
 
 
-def _apply_unpack(
+def apply_unpack(
     arr: Any,
     scale: float | None,
     offset: float | None,
@@ -343,6 +343,11 @@ def _apply_unpack(
         if offset is not None:
             result = result + offset
     return result
+
+
+# Backward-compatible private alias for the now-public ``apply_unpack`` (API-9). Kept so
+# any out-of-tree importer of the old underscore name keeps working.
+_apply_unpack = apply_unpack
 
 
 def _expand_chunks(

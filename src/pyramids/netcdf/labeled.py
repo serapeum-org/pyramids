@@ -951,13 +951,13 @@ class LabeledDataset:
         self.close()
         return False
 
-    def __getitem__(self, key: str) -> _LabeledArray:
+    def __getitem__(self, key: str) -> LabeledArray:
         """Return a variable or coordinate as a small `(values, dims, shape)` view."""
         if key not in self._coord_names and key not in self._var_names:
             raise KeyError(f"{key!r} is not in this store")
         values, dims = self._read(key)
         values = np.asarray(values)
-        return _LabeledArray(values=values, dims=dims, shape=values.shape)
+        return LabeledArray(values=values, dims=dims, shape=values.shape)
 
     def __contains__(self, key: str) -> bool:
         """True when `key` is a variable or coordinate in the store."""
@@ -971,8 +971,13 @@ class LabeledDataset:
         )
 
 
-class _LabeledArray:
-    """A materialised variable/coordinate slice: `values` plus `dims`/`shape`."""
+class LabeledArray:
+    """A materialised variable/coordinate slice: `values` plus `dims`/`shape`.
+
+    Returned by :meth:`LabeledDataset.__getitem__` (``store["var"]``), so instances are
+    user-facing; the public name (API-9) reflects that. ``_LabeledArray`` is kept as a
+    backward-compatible alias.
+    """
 
     __slots__ = ("values", "dims", "shape")
 
@@ -984,4 +989,8 @@ class _LabeledArray:
         self.shape = shape
 
     def __repr__(self) -> str:
-        return f"_LabeledArray(dims={self.dims}, shape={self.shape})"
+        return f"LabeledArray(dims={self.dims}, shape={self.shape})"
+
+
+# Backward-compatible private alias for the now-public ``LabeledArray`` (API-9).
+_LabeledArray = LabeledArray

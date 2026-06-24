@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pyramids.netcdf.labeled import LabeledDataset
+from pyramids.netcdf.labeled import LabeledArray, LabeledDataset
 from pyramids.netcdf.metadata import from_json, get_metadata, to_dict, to_json
 from pyramids.netcdf.models import (
     CFInfo,
@@ -25,6 +25,7 @@ __all__ = [
     "NetCDF",
     "UgridDataset",
     "LabeledDataset",
+    "LabeledArray",
     "NetCDFMetadata",
     "CFInfo",
     "DimensionInfo",
