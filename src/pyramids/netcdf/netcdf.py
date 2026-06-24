@@ -560,6 +560,12 @@ class NetCDF(Dataset):
         self._gdal_md_arr_ref = None
         self._gdal_rg_ref = None
         self._gdal_classic_src_ref = None
+        # The ad-hoc view/warp keep-alive pins are set only on some code paths (a
+        # GetView Y-flip or a to_crs warp), so they are not initialised in __init__;
+        # clear them here too — otherwise they hold their backing GDAL handle past
+        # close(), defeating the handle-release contract the gc.collect() below enforces.
+        self._view_source = None
+        self._warp_source = None
         self._parent_nc = None
         self._cached_meta_data = None
         super().close()
