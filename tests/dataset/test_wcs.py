@@ -28,6 +28,7 @@ from osgeo import gdal, osr
 from pyramids.dataset import Dataset
 from pyramids.dataset import _wcs
 from pyramids.errors import WCSError
+from tests.dataset.wcs_mock_server import EXCEPTION_REPORT, WcsMock
 
 CAPS_2_0_1 = """<?xml version="1.0" encoding="UTF-8"?>
 <wcs:Capabilities xmlns:wcs="http://www.opengis.net/wcs/2.0"
@@ -245,6 +246,68 @@ class TestFromWcsValidation:
         monkeypatch.setattr(_wcs.gdal, "Translate", boom)
         with pytest.raises(WCSError, match="GetCoverage failed"):
             _wcs._translate_window(object(), [0, 1, 1, 0], "cov")
+
+
+class TestDriverFullCycle:
+    """Offline end-to-end against a mock that drives GDAL's WCS driver fully."""
+
+    def test_1_0_0_returns_dataset_and_uses_bbox_shape(self):
+        with WcsMock(version="1.0.0") as server:
+            ds = Dataset.from_wcs(
+                server.url, coverage="test_cov", bbox=(2.0, 2.0, 4.0, 4.0), version="1.0.0"
+            )
+            assert ds.shape == (1, 20, 20)
+            assert ds.epsg == 4326
+            assert [round(v, 3) for v in ds.geotransform] == [2.0, 0.1, 0.0, 4.0, 0.0, -0.1]
+            getcov = server.getcoverage_requests()[-1].lower()
+            assert "bbox=" in getcov  # 1.0.0 call shape
+            assert "subset=" not in getcov
+
+    def test_2_0_1_returns_dataset_and_uses_subset_shape(self):
+        with WcsMock(version="2.0.1") as server:
+            ds = Dataset.from_wcs(
+                server.url, coverage="test_cov", bbox=(2.0, 2.0, 4.0, 4.0), version="2.0.1"
+            )
+            assert ds.shape == (1, 20, 20)
+            getcov = server.getcoverage_requests()[-1].lower()
+            assert "coverageid=test_cov" in getcov  # 2.0.x call shape
+            assert "subset=" in getcov
+            assert "bbox=" not in getcov
+
+    def test_returned_raster_is_readable(self):
+        with WcsMock(version="2.0.1") as server:
+            ds = Dataset.from_wcs(
+                server.url, coverage="test_cov", bbox=(2.0, 2.0, 4.0, 4.0), version="2.0.1"
+            )
+            arr = ds.read_array()
+            assert arr.shape == (20, 20)
+            assert arr[0, 0] == 0 and arr[1, 1] == 2  # synthetic (row+col) pattern
+
+    def test_output_writes_a_reopenable_file(self, tmp_path):
+        out = tmp_path / "wcs_out.tif"
+        with WcsMock(version="1.0.0") as server:
+            Dataset.from_wcs(
+                server.url,
+                coverage="test_cov",
+                bbox=(2.0, 2.0, 4.0, 4.0),
+                version="1.0.0",
+                output=out,
+            )
+        assert out.exists()
+        assert Dataset.read_file(str(out)).shape == (1, 20, 20)
+
+    def test_exception_report_on_getcoverage_raises_and_writes_nothing(self, tmp_path):
+        out = tmp_path / "should_not_exist.tif"
+        with WcsMock(version="2.0.1", getcoverage_body=EXCEPTION_REPORT) as server:
+            with pytest.raises(WCSError):
+                Dataset.from_wcs(
+                    server.url,
+                    coverage="test_cov",
+                    bbox=(2.0, 2.0, 4.0, 4.0),
+                    version="2.0.1",
+                    output=out,
+                )
+        assert not out.exists()
 
 
 @pytest.mark.slow
