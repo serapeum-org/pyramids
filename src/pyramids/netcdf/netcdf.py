@@ -4617,9 +4617,24 @@ class NetCDF(Dataset):
         src = gdal.GetDriverByName(driver).CreateCopy(str(path), self._raster)
         if src is None:
             raise RuntimeError(f"Failed to copy NetCDF dataset to '{path}'")
-        # Preserve the concrete type: a copy of a container is a container, a copy of a
-        # variable is a variable.
-        return type(self)(src, access="write")
+        # Preserve both the concrete type AND the variable-subset / origin identity: a copy
+        # of a container is a container; a copy of a variable is a usable variable subset.
+        # The fresh CreateCopy would otherwise reset these flags through __init__ (defaulting
+        # open_as_multi_dimensional=True, _is_subset=False), so re-open in the source's mode
+        # and carry the subset/origin + cached variable metadata over.
+        result = type(self)(
+            src, access="write", open_as_multi_dimensional=self._is_md_array
+        )
+        result._is_subset = self._is_subset
+        result._parent_nc = self._parent_nc
+        result._source_var_name = self._source_var_name
+        result._md_array_dims = self._md_array_dims
+        result._geostationary_scaled = self._geostationary_scaled
+        result._variable_attrs = self._variable_attrs
+        result._scale = self._scale
+        result._offset = self._offset
+        NetCDF._copy_band_dim_metadata(result, self)
+        return result
 
     @staticmethod
     def _create_dimension(

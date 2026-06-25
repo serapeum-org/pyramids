@@ -175,6 +175,23 @@ class TestTypePreservation:
         """
         assert type(variable.copy()) is NetCDFVariable, "copy downgraded the type"
 
+    def test_copy_preserves_variable_subset_state(self, variable):
+        """Copying a variable keeps its subset/origin identity, not just its type (review N1).
+
+        Test scenario:
+            A fresh ``CreateCopy`` reopened with the default ``open_as_multi_dimensional``
+            would reset ``_is_md_array``/``_is_subset``; ``copy()`` must instead re-open in
+            the source's mode and carry the subset flags + origin (``_source_var_name``) over,
+            so a copied variable is still a usable, identifiable subset.
+        """
+        assert variable.is_subset is True, "precondition: the extracted variable is a subset"
+        copied = variable.copy()
+        assert copied.is_subset is True, "copy lost the _is_subset flag"
+        assert copied.is_md_array == variable.is_md_array, "copy changed the MDIM mode"
+        assert (
+            copied._source_var_name == variable._source_var_name
+        ), "copy lost the source variable name"
+
     def test_epsg_setter_inplace_preserves_variable_type(self, variable):
         """An in-place op (the ``epsg`` setter) does not downgrade a NetCDFVariable.
 
