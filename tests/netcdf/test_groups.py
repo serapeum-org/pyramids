@@ -10,7 +10,7 @@ from numpy.testing import assert_allclose
 from osgeo import gdal
 
 from pyramids.base._utils import numpy_to_gdal_dtype
-from pyramids.netcdf.netcdf import NetCDF
+from pyramids.netcdf.netcdf import NetCDF, Container
 
 pytestmark = pytest.mark.core
 
@@ -50,7 +50,7 @@ def _make_grouped_nc():
     ag_var = analysis.CreateMDArray("wind_speed", [dim_y, dim_x], dtype)
     ag_var.Write(np.full((5, 8), 5.5))
 
-    return NetCDF(src)
+    return Container(src)
 
 
 def _make_flat_nc():

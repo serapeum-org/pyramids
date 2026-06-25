@@ -69,7 +69,7 @@ def _read_subset_on_cluster(nc: "NetCDF") -> tuple[str, int]:
     return (nc._source_var_name or "", int(arr.size))
 
 
-class TestNetCDFContainerPickle:
+class TestContainerPickle:
     """Pickle a root MDIM container; expect container on unpickle."""
 
     def test_mdim_container_roundtrip(self, three_d_path):
@@ -97,7 +97,7 @@ class TestNetCDFContainerPickle:
         ctx = multiprocessing.get_context("spawn")
         with ctx.Pool(1) as pool:
             name, md, subset = pool.apply(_read_container_on_subprocess, (payload,))
-        assert name == "NetCDF"
+        assert name == "Container"
         assert md is True
         assert subset is False
 

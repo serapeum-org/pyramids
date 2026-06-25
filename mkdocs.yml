@@ -253,6 +253,7 @@ nav:
     - Scope: SCOPE.md
     - Comparison: comparison-other-gis-packages.md
     - Change-log: change-log.md
+    - Migration guide: migration.md
     - Code of Conduct: CODE_OF_CONDUCT.md
     - Contributing: contributing.md
     - License: LICENSE.md
