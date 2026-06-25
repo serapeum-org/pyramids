@@ -485,6 +485,20 @@ class NetCDF(Dataset):
                 and dimensions. If False it was opened in classic raster
                 mode (subdatasets, bands). Defaults to True.
         """
+        if type(self) is NetCDF:
+            # API-1 (#614): NetCDF is now the base of NetCDFContainer / NetCDFVariable.
+            # Direct construction is deprecated; the typed entry points return the right
+            # concrete class. Subclass construction (type(self) is a subclass) is silent.
+            warnings.warn(
+                "Directly constructing NetCDF is deprecated and will stop returning a "
+                "usable instance in a future major release. Open a store with "
+                "NetCDF.read_file(...) / NetCDF.create_from_array(...) (returns a "
+                "NetCDFContainer) and extract variables with container.get_variable(...) "
+                "(returns a NetCDFVariable). NetCDF remains an isinstance-compatible base "
+                "for one major version.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         super().__init__(src, access=access)
         # set the is_subset to false before retrieving the variables
         if open_as_multi_dimensional:
