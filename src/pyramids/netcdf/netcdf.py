@@ -1421,7 +1421,7 @@ class NetCDF(Dataset):
               >>> nc.plot(variable="t2m", animate="bogus")  # doctest: +IGNORE_EXCEPTION_DETAIL
               Traceback (most recent call last):
                   ...
-              ValueError: `animate='bogus'` is not a band dim...
+              KeyError: "`animate='bogus'` is not a band dim..."
 
               ```
 
