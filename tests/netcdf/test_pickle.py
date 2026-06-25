@@ -58,6 +58,17 @@ def _read_subset_on_subprocess(payload: bytes) -> tuple[str, int]:
     return (nc._source_var_name or "", int(arr.size))
 
 
+def _read_subset_on_cluster(nc: "NetCDF") -> tuple[str, int]:
+    """Worker run on a dask-distributed worker: read the subset it was handed.
+
+    ``distributed`` pickles ``nc`` over the wire to the worker process, so this
+    exercises the full ``__reduce__``/``_reconstruct_netcdf`` round-trip on a real
+    out-of-process cluster (not just a multiprocessing spawn Pool).
+    """
+    arr = nc.read_array()
+    return (nc._source_var_name or "", int(arr.size))
+
+
 class TestNetCDFContainerPickle:
     """Pickle a root MDIM container; expect container on unpickle."""
 
@@ -96,7 +107,7 @@ class TestNetCDFSubsetPickle:
 
     def test_mdim_subset_roundtrip(self, three_d_path):
         nc = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
-        var_name = nc.get_variable_names()[0]
+        var_name = nc.variable_names[0]
         subset = nc.get_variable(var_name)
         subset2 = pickle.loads(pickle.dumps(subset))
         assert isinstance(subset2, NetCDF)
@@ -105,7 +116,7 @@ class TestNetCDFSubsetPickle:
 
     def test_subset_read_array_after_roundtrip(self, three_d_path):
         nc = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
-        var_name = nc.get_variable_names()[0]
+        var_name = nc.variable_names[0]
         subset = nc.get_variable(var_name)
         original = subset.read_array()
         subset2 = pickle.loads(pickle.dumps(subset))
@@ -115,7 +126,7 @@ class TestNetCDFSubsetPickle:
 
     def test_cross_process_subset_roundtrip(self, three_d_path):
         nc = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
-        var_name = nc.get_variable_names()[0]
+        var_name = nc.variable_names[0]
         subset = nc.get_variable(var_name)
         payload = pickle.dumps(subset)
         ctx = multiprocessing.get_context("spawn")
@@ -123,6 +134,31 @@ class TestNetCDFSubsetPickle:
             name, size = pool.apply(_read_subset_on_subprocess, (payload,))
         assert name == var_name
         assert size > 0
+
+    @pytest.mark.slow
+    def test_distributed_cluster_subset_roundtrip(self, three_d_path):
+        """A subset survives a real dask-distributed (process-pool) cluster round-trip.
+
+        Test scenario:
+            Hand a variable-subset ``NetCDF`` to a worker on a single-worker
+            ``LocalCluster`` (separate process); ``distributed`` pickles it over the
+            wire, the worker re-drills the variable and reads its array. Confirms the
+            ``__reduce__`` contract holds on the genuine distributed path, not only via
+            a multiprocessing spawn Pool. Skipped if ``distributed`` is unavailable.
+        """
+        distributed = pytest.importorskip("dask.distributed")
+        nc = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
+        var_name = nc.variable_names[0]
+        subset = nc.get_variable(var_name)
+        with distributed.Client(
+            n_workers=1,
+            threads_per_worker=1,
+            processes=True,
+            dashboard_address=None,
+        ) as client:
+            name, size = client.submit(_read_subset_on_cluster, subset).result()
+        assert name == var_name, f"worker saw var {name!r}, expected {var_name!r}"
+        assert size > 0, f"worker read an empty array (size={size})"
 
 
 class TestReconstructNetCDF:
@@ -142,7 +178,7 @@ class TestReconstructNetCDF:
 
     def test_rebuilds_subset_when_var_name_given(self, three_d_path):
         nc_container = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
-        var_name = nc_container.get_variable_names()[0]
+        var_name = nc_container.variable_names[0]
         nc = _reconstruct_netcdf(
             three_d_path,
             "read_only",

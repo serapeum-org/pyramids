@@ -222,6 +222,92 @@ class TestCloudConfigHttpFields:
         }, f"extra should override vsi_cache, got {cfg!r}"
 
 
+class TestCloudConfigVsicurlTuning:
+    """Mapping tests for the ARC-16 ``vsicurl_tuning`` preset + ``curl_cache_size``."""
+
+    _PRESET = {
+        "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+        "GDAL_HTTP_MULTIPLEX": "YES",
+        "GDAL_HTTP_VERSION": "2",
+        "GDAL_HTTP_MULTIRANGE": "YES",
+        "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES": "YES",
+    }
+
+    def test_tuning_false_by_default_emits_nothing(self):
+        """``vsicurl_tuning`` defaults to ``False`` and adds no preset keys.
+
+        Test scenario:
+            A bare ``CloudConfig()`` must not inject the readdir/multiplex preset
+            — directory-style stores (multi-file Zarr) would break under
+            ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR``.
+        """
+        cfg = CloudConfig().as_gdal_config()
+        assert cfg == {}, f"default config should be empty, got {cfg!r}"
+
+    def test_tuning_true_emits_full_preset(self):
+        """``vsicurl_tuning=True`` emits exactly the fast-read preset.
+
+        Test scenario:
+            Build ``CloudConfig(vsicurl_tuning=True)`` — expected: the five preset
+            knobs and nothing else.
+        """
+        cfg = CloudConfig(vsicurl_tuning=True).as_gdal_config()
+        assert cfg == self._PRESET, f"unexpected preset mapping: {cfg!r}"
+
+    def test_curl_cache_size_maps_and_coerces_to_str(self):
+        """``curl_cache_size`` maps to ``CPL_VSIL_CURL_CACHE_SIZE`` as a string.
+
+        Test scenario:
+            ``CloudConfig(curl_cache_size=200_000_000)`` — expected: a one-entry
+            mapping with the int rendered as a decimal string.
+        """
+        cfg = CloudConfig(curl_cache_size=200_000_000).as_gdal_config()
+        assert cfg == {
+            "CPL_VSIL_CURL_CACHE_SIZE": "200000000"
+        }, f"unexpected curl_cache_size mapping: {cfg!r}"
+
+    def test_explicit_scalar_field_not_clobbered_by_preset(self):
+        """An explicit ``http_timeout`` survives alongside the preset.
+
+        Test scenario:
+            ``CloudConfig(vsicurl_tuning=True, http_timeout=90)`` — expected: the
+            preset keys plus ``GDAL_HTTP_TIMEOUT=90`` (the preset uses
+            ``setdefault`` so it never overwrites a field the user set).
+        """
+        cfg = CloudConfig(vsicurl_tuning=True, http_timeout=90).as_gdal_config()
+        assert cfg["GDAL_HTTP_TIMEOUT"] == "90", f"explicit timeout lost: {cfg!r}"
+        assert (
+            cfg["GDAL_DISABLE_READDIR_ON_OPEN"] == "EMPTY_DIR"
+        ), f"preset missing: {cfg!r}"
+
+    def test_extra_overrides_preset_knob(self):
+        """``extra`` still wins over a preset knob on key conflict.
+
+        Test scenario:
+            ``CloudConfig(vsicurl_tuning=True, extra={"GDAL_HTTP_VERSION": "1.1"})``
+            — expected: ``GDAL_HTTP_VERSION=1.1`` (the escape hatch overrides the
+            preset's ``"2"``).
+        """
+        cfg = CloudConfig(
+            vsicurl_tuning=True, extra={"GDAL_HTTP_VERSION": "1.1"}
+        ).as_gdal_config()
+        assert (
+            cfg["GDAL_HTTP_VERSION"] == "1.1"
+        ), f"extra should override preset, got {cfg!r}"
+
+    def test_tuning_combines_with_credentials(self):
+        """The preset coexists with credential + region fields.
+
+        Test scenario:
+            ``CloudConfig(aws_region=..., vsicurl_tuning=True)`` — expected: AWS
+            region keys and the five preset knobs all present together.
+        """
+        cfg = CloudConfig(aws_region="eu-west-1", vsicurl_tuning=True).as_gdal_config()
+        assert cfg["AWS_REGION"] == "eu-west-1", f"region lost: {cfg!r}"
+        for key, value in self._PRESET.items():
+            assert cfg[key] == value, f"preset key {key} missing/wrong: {cfg!r}"
+
+
 class TestCloudConfigHttpContextManager:
     """End-to-end: the ``with`` block sets and restores GDAL options."""
 

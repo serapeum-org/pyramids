@@ -14,6 +14,7 @@ Depends on:
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import numpy as np
@@ -88,15 +89,25 @@ class MeshSpatialIndex:
     def _build_face_polygons(self) -> list[Any]:
         """Build Shapely Polygon objects for all mesh faces.
 
+        Vectorised: every face's vertices are gathered into one flat coordinate array
+        and handed to ``shapely.linearrings`` / ``shapely.polygons`` with a per-vertex
+        ring index, instead of constructing one ``Polygon`` per face in a Python loop.
+        ``shapely.linearrings`` closes each ring automatically, so no explicit
+        first-point append is needed.
+
         Returns:
-            List of Shapely Polygon objects, one per face.
+            List of Shapely Polygon objects, one per face (in face-index order).
         """
-        polygons = []
-        for i in range(self._mesh.n_face):
-            coords = self._mesh.get_face_polygon(i)
-            closed = np.vstack([coords, coords[0:1]])
-            polygons.append(Polygon(closed))
-        return polygons
+        fnc = self._mesh.face_node_connectivity
+        masked = fnc.as_masked()
+        valid = ~np.ma.getmaskarray(masked)
+        flat_nodes = np.asarray(masked.data[valid], dtype=np.intp)
+        coords = np.column_stack(
+            [self._mesh.node_x[flat_nodes], self._mesh.node_y[flat_nodes]]
+        )
+        ring_index = np.repeat(np.arange(fnc.n_elements), fnc.nodes_per_element())
+        rings = shapely.linearrings(coords, indices=ring_index)
+        return list(shapely.polygons(rings))
 
     def locate_nearest_node(
         self,
@@ -228,7 +239,7 @@ def clip_mesh(
     dataset: Any,
     mask: Any,
     touch: bool = True,
-) -> Any:
+) -> tuple[Mesh2d, dict[str, MeshVariable]]:
     """Clip a UGRID dataset to a polygon mask.
 
     Selects faces that intersect (touch=True) or are fully contained
@@ -242,7 +253,8 @@ def clip_mesh(
             If False, only include faces fully inside.
 
     Returns:
-        New UgridDataset with clipped mesh and subset data.
+        tuple: ``(mesh, data_variables)`` for the clipped faces — wrap with
+        :meth:`UgridDataset.clip`, which is the public entry point.
     """
     mesh = dataset.mesh
 
@@ -254,8 +266,9 @@ def clip_mesh(
         mask_geom = mask
 
     spatial_idx = MeshSpatialIndex(mesh)
-    face_polys = spatial_idx.face_polygons
-    tree = STRtree(face_polys)
+    # Reuse the index's lazily-built face STRtree instead of constructing a second one
+    # over the same polygons.
+    tree = spatial_idx.face_strtree
 
     predicate = "intersects" if touch else "contains"
     candidates = tree.query(mask_geom, predicate=predicate)
@@ -272,7 +285,7 @@ def subset_by_bounds(
     ymin: float,
     xmax: float,
     ymax: float,
-) -> Any:
+) -> tuple[Mesh2d, dict[str, MeshVariable]]:
     """Subset mesh to faces whose centroids fall within a bounding box.
 
     Faster than clip_mesh because it only checks face centroids
@@ -287,7 +300,8 @@ def subset_by_bounds(
         ymax: Maximum y-coordinate.
 
     Returns:
-        New UgridDataset with faces whose centroids are within the box.
+        tuple: ``(mesh, data_variables)`` for the faces whose centroids fall in the box —
+        wrap with :meth:`UgridDataset.subset_by_bounds`, the public entry point.
     """
     mesh = dataset.mesh
     cx, cy = mesh.face_centroids
@@ -301,18 +315,21 @@ def subset_by_bounds(
 def _subset_mesh_by_face_indices(
     dataset: Any,
     selected_faces: list[int],
-) -> Any:
-    """Build a new UgridDataset from a subset of face indices.
+) -> tuple[Mesh2d, dict[str, MeshVariable]]:
+    """Subset a mesh to a list of face indices, returning the rebuilt parts.
 
-    Handles node renumbering, edge filtering, coordinate subsetting,
-    and data variable slicing. Shared by clip_mesh and subset_by_bounds.
+    Handles node renumbering, edge filtering, coordinate subsetting, and data variable
+    slicing. Shared by :func:`clip_mesh` and :func:`subset_by_bounds`. Returns the rebuilt
+    ``(mesh, data_variables)`` rather than a ``UgridDataset`` so this module stays
+    independent of ``ugrid.dataset`` (STR-3 — breaks the import cycle); the caller
+    (``UgridDataset.clip`` / ``.subset_by_bounds``) wraps the parts back into a dataset.
 
     Args:
-        dataset: Source UgridDataset.
+        dataset: Source UgridDataset (read-only; its mesh / data variables are sliced).
         selected_faces: List of face indices to keep.
 
     Returns:
-        New UgridDataset with the selected faces.
+        tuple: ``(mesh, data_variables)`` for the selected faces.
     """
     mesh = dataset.mesh
 
@@ -328,37 +345,22 @@ def _subset_mesh_by_face_indices(
             node_y=np.empty(0),
             face_node_connectivity=empty_fnc,
         )
-        from pyramids.netcdf.ugrid.dataset import UgridDataset
-
-        return UgridDataset(
-            mesh=empty_mesh,
-            data_variables={},
-            global_attributes=dataset._global_attributes,
-            topology_info=dataset._topology_info,
-            crs_wkt=dataset._crs_wkt,
-        )
+        return empty_mesh, {}
 
     selected_faces_arr = np.array(selected_faces, dtype=np.intp)
 
-    old_nodes: set[int] = set()
-    for fi in selected_faces:
-        nodes = mesh.face_node_connectivity.get_element(fi)
-        old_nodes.update(nodes.tolist())
-
-    sorted_old_nodes = sorted(old_nodes)
-    old_to_new = {old: new for new, old in enumerate(sorted_old_nodes)}
-    kept_node_indices = np.array(sorted_old_nodes, dtype=np.intp)
-
+    # Renumber nodes with vectorised numpy instead of a Python set + dict + per-cell
+    # loop. The kept (old) node ids are the sorted unique non-fill entries of the
+    # selected faces; remapping old -> compact-new is a single ``searchsorted`` against
+    # that sorted array (fill cells stay -1). UGRID stores fills trailing each row, so
+    # preserving column positions matches the old left-packing behaviour.
     old_fnc = mesh.face_node_connectivity
-    new_fnc_data = np.full(
-        (len(selected_faces), old_fnc.max_nodes_per_element),
-        -1,
-        dtype=np.intp,
-    )
-    for row_idx, fi in enumerate(selected_faces):
-        nodes = old_fnc.get_element(fi)
-        for col_idx, n in enumerate(nodes):
-            new_fnc_data[row_idx, col_idx] = old_to_new[int(n)]
+    sel_rows = old_fnc.data[selected_faces_arr]
+    sel_fill = sel_rows == old_fnc.fill_value
+    kept_node_indices = np.unique(sel_rows[~sel_fill]).astype(np.intp)
+
+    new_fnc_data = np.full(sel_rows.shape, -1, dtype=np.intp)
+    new_fnc_data[~sel_fill] = np.searchsorted(kept_node_indices, sel_rows[~sel_fill])
 
     new_fnc = Connectivity(
         data=new_fnc_data,
@@ -371,22 +373,17 @@ def _subset_mesh_by_face_indices(
     kept_edge_indices = None
     if mesh.edge_node_connectivity is not None:
         enc = mesh.edge_node_connectivity
-        kept_edges = []
-        for i in range(enc.n_elements):
-            edge_nodes = enc.get_element(i)
-            if all(int(n) in old_nodes for n in edge_nodes):
-                kept_edges.append(i)
-        kept_edge_indices = np.array(kept_edges, dtype=np.intp)
+        enc_fill = enc.data == enc.fill_value
+        # Keep an edge iff every valid (non-fill) node it references survived the clip.
+        keep_edge = np.all(np.isin(enc.data, kept_node_indices) | enc_fill, axis=1)
+        kept_edge_indices = np.flatnonzero(keep_edge).astype(np.intp)
 
-        new_enc_data = np.full(
-            (len(kept_edges), enc.max_nodes_per_element),
-            -1,
-            dtype=np.intp,
+        kept_rows = enc.data[kept_edge_indices]
+        kept_fill = kept_rows == enc.fill_value
+        new_enc_data = np.full(kept_rows.shape, -1, dtype=np.intp)
+        new_enc_data[~kept_fill] = np.searchsorted(
+            kept_node_indices, kept_rows[~kept_fill]
         )
-        for row_idx, ei in enumerate(kept_edges):
-            nodes = enc.get_element(ei)
-            for col_idx, n in enumerate(nodes):
-                new_enc_data[row_idx, col_idx] = old_to_new[int(n)]
 
         new_enc = Connectivity(
             data=new_enc_data,
@@ -397,15 +394,15 @@ def _subset_mesh_by_face_indices(
 
     new_node_x = mesh.node_x[kept_node_indices]
     new_node_y = mesh.node_y[kept_node_indices]
-    new_face_x = mesh._face_x[selected_faces_arr] if mesh._face_x is not None else None
-    new_face_y = mesh._face_y[selected_faces_arr] if mesh._face_y is not None else None
+    new_face_x = mesh.face_x[selected_faces_arr] if mesh.face_x is not None else None
+    new_face_y = mesh.face_y[selected_faces_arr] if mesh.face_y is not None else None
     new_edge_x = None
     new_edge_y = None
     if kept_edge_indices is not None:
-        if mesh._edge_x is not None:
-            new_edge_x = mesh._edge_x[kept_edge_indices]
-        if mesh._edge_y is not None:
-            new_edge_y = mesh._edge_y[kept_edge_indices]
+        if mesh.edge_x is not None:
+            new_edge_x = mesh.edge_x[kept_edge_indices]
+        if mesh.edge_y is not None:
+            new_edge_y = mesh.edge_y[kept_edge_indices]
 
     new_mesh = Mesh2d(
         node_x=new_node_x,
@@ -425,32 +422,24 @@ def _subset_mesh_by_face_indices(
             new_data = data[..., selected_faces_arr] if data is not None else None
         elif var.location == "node":
             new_data = data[..., kept_node_indices] if data is not None else None
-        elif var.location == "edge" and kept_edge_indices is not None:
+        elif var.location == "edge":
+            if kept_edge_indices is None:
+                # An edge-located variable cannot be subset without edge topology
+                # (no edge_node_connectivity to tell which edges survive). Drop it
+                # rather than silently carrying a full-length edge array onto the
+                # clipped mesh, which would leave the dataset internally inconsistent.
+                warnings.warn(
+                    f"dropping edge-located variable {name!r} from the subset: the "
+                    f"mesh has no edge_node_connectivity, so its edges cannot be "
+                    f"subset to match the clipped mesh.",
+                    stacklevel=2,
+                )
+                continue
             new_data = data[..., kept_edge_indices] if data is not None else None
         else:
+            # Non-located variables (e.g. scalars or time-only) carry through whole.
             new_data = data
 
-        new_shape = new_data.shape if new_data is not None else var.shape
-        new_data_vars[name] = MeshVariable(
-            name=var.name,
-            location=var.location,
-            mesh_name=var.mesh_name,
-            shape=new_shape,
-            attributes=var.attributes,
-            nodata=var.nodata,
-            units=var.units,
-            standard_name=var.standard_name,
-            _data=new_data,
-        )
+        new_data_vars[name] = var.with_data(new_data)
 
-    from pyramids.netcdf.ugrid.dataset import UgridDataset
-
-    result = UgridDataset(
-        mesh=new_mesh,
-        data_variables=new_data_vars,
-        global_attributes=dataset._global_attributes,
-        topology_info=dataset._topology_info,
-        crs_wkt=dataset._crs_wkt,
-        file_name=None,
-    )
-    return result
+    return new_mesh, new_data_vars

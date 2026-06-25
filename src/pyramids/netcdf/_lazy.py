@@ -40,6 +40,8 @@ import numpy as np
 from pyramids.base._file_manager import CachingFileManager, gdal_mdarray_open
 from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base._utils import import_dask
+from pyramids.netcdf._mdim import needs_y_flip
+from pyramids.netcdf.utils import _dtype_to_str
 
 _DASK_MISSING_MESSAGE = (
     "dask is required for lazy NetCDF reads. Install with one of:\n"
@@ -122,26 +124,29 @@ def _mdarray_shape_and_dtype(
                 f"Variable {variable_name!r} not found in root group " f"of {path!r}."
             )
         shape = tuple(int(d.GetSize()) for d in md_arr.GetDimensions())
-        probe = md_arr.ReadAsArray(
-            array_start_idx=[0] * len(shape),
-            count=[1] * len(shape),
-        )
-        dtype = np.asarray(probe).dtype
+        # Resolve the dtype from the array's declared type rather than a 1-element
+        # ReadAsArray — same result without the extra GDAL I/O round-trip. Guard the
+        # unmappable case (e.g. a string-typed MDArray, where `_dtype_to_str` yields
+        # "unknown"): raise a clear error rather than letting `np.dtype("unknown")`
+        # blow up with a bare TypeError. The old probe-read degraded silently; lazy
+        # chunked reads only make sense for numeric arrays.
+        dtype_str = _dtype_to_str(md_arr.GetDataType())
+        if dtype_str == "unknown":
+            raise ValueError(
+                f"Variable {variable_name!r} in {path!r} has a data type that lazy "
+                "(chunked) reads cannot represent (e.g. a string MDArray); read it "
+                "eagerly with read_array() instead."
+            )
+        dtype = np.dtype(dtype_str)
         try:
             bs = md_arr.GetBlockSize()
             block_size = [int(b) for b in bs] if bs else None
         except Exception:  # pragma: no cover - driver-specific
             block_size = None
-        if len(shape) >= 2:
-            try:
-                classic = md_arr.AsClassicDataset(
-                    len(shape) - 1,
-                    len(shape) - 2,
-                    rg,
-                )
-                needs_flip = classic.GetGeoTransform()[5] > 0
-            except Exception:  # pragma: no cover - driver-specific
-                needs_flip = False
+        # Use the shared `_mdim.needs_y_flip` probe (CON-3) rather than an inline
+        # AsClassicDataset/geotransform copy, so the lazy path can't drift from the
+        # eager path's Y-flip detection.
+        needs_flip = needs_y_flip(rg, md_arr)
     finally:
         ds = None
     return shape, dtype, block_size, needs_flip
@@ -314,7 +319,7 @@ def _read_mdarray_chunk(
     return arr
 
 
-def _apply_unpack(
+def apply_unpack(
     arr: Any,
     scale: float | None,
     offset: float | None,
@@ -344,6 +349,11 @@ def _apply_unpack(
         if offset is not None:
             result = result + offset
     return result
+
+
+# Backward-compatible private alias for the now-public ``apply_unpack`` (API-9). Kept so
+# any out-of-tree importer of the old underscore name keeps working.
+_apply_unpack = apply_unpack
 
 
 def _expand_chunks(

@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from typing import Any, TypeAlias, cast
 
 import cftime
+import numpy as np
+import pandas as pd
 from osgeo import gdal, osr
 
 from pyramids.base._utils import gdal_to_numpy_dtype
@@ -46,6 +48,29 @@ def _full_name_with_fallback(group: gdal.Group, default_name: str | None = None)
             gname = default_name or ""
         result = "/" if not gname else f"/{gname}"
     return result
+
+
+def resolve_full_name(obj: Any, group_full_name: str, fallback_name: str) -> str:
+    """Full hierarchical name of a GDAL dimension / array, with a qualified fallback.
+
+    Tries ``obj.GetFullName()``; when that raises (some drivers don't expose it on every
+    object), composes the path from the parent group's full name and ``fallback_name`` —
+    ``"<group>/<name>"``, or ``"/<name>"`` when the parent is the root group.
+
+    Args:
+        obj: A GDAL dimension or MDArray.
+        group_full_name: Full name of the parent group (e.g. ``"/"`` or ``"/grp"``).
+        fallback_name: The object's short name, used to build the fallback path.
+
+    Returns:
+        The resolved full-name string.
+    """
+    try:
+        return obj.GetFullName()
+    except Exception:
+        if group_full_name != "/":
+            return f"{group_full_name}/{fallback_name}"
+        return f"/{fallback_name}"
 
 
 def _get_group_name(group: gdal.Group) -> str:
@@ -538,6 +563,69 @@ def create_time_conversion_func(
         converter = convert
 
     return converter
+
+
+def decode_cf_time(
+    values: np.ndarray,
+    unit: str | None,
+    calendar: str = "standard",
+) -> np.ndarray:
+    """Decode numeric CF time offsets to datetimes.
+
+    Standard / gregorian / proleptic_gregorian calendars yield ``datetime64[ns]`` when
+    representable; non-standard calendars (``360_day`` / ``noleap`` …) yield ``cftime``
+    objects. Arrays whose ``unit`` is not a ``"<interval> since <origin>"`` string are
+    returned unchanged.
+
+    Args:
+        values: The numeric values already read for the coordinate.
+        unit: The coordinate's CF unit string (e.g. ``"days since 1979-01-01"``).
+        calendar: The CF calendar name. Defaults to ``"standard"``.
+
+    Returns:
+        np.ndarray: Decoded datetimes for a time axis, else ``values`` unchanged.
+    """
+    if not unit or " since " not in unit:
+        return values
+    standard = calendar in ("standard", "gregorian", "proleptic_gregorian")
+    decoded = np.asarray(
+        cftime.num2date(values, unit, calendar, only_use_cftime_datetimes=not standard)
+    )
+    if standard:
+        try:
+            return decoded.astype("datetime64[ns]")
+        except (ValueError, TypeError):
+            return decoded
+    return decoded
+
+
+def encode_cf_time(value: Any, unit: str, calendar: str = "standard") -> float:
+    """Convert a date string / datetime to a coordinate's numeric CF scale.
+
+    The inverse of :func:`decode_cf_time` for a single value: used to translate a
+    user-supplied selection bound back to the time axis's stored numbers.
+
+    Args:
+        value: A date string, :class:`datetime`, or anything :class:`pandas.Timestamp`
+            accepts.
+        unit: The CF unit string the numeric scale is expressed in.
+        calendar: The CF calendar name.
+
+    Returns:
+        float: ``value`` expressed in ``unit`` on the given ``calendar``.
+    """
+    ts = pd.Timestamp(value)
+    dt = cftime.datetime(
+        ts.year,
+        ts.month,
+        ts.day,
+        ts.hour,
+        ts.minute,
+        ts.second,
+        ts.microsecond,
+        calendar=calendar,
+    )
+    return float(cftime.date2num(dt, unit, calendar))
 
 
 def _dtype_to_str(dt: Any) -> str:

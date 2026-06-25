@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from pyramids.dataset._plot_helpers import render_array as _render_array
-from pyramids.netcdf.plot_options import ColourOpts, FacetSpec, Selectors
+from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
 
 if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
@@ -53,11 +53,11 @@ _FORBIDDEN_PLOT_KWARGS: dict[str, str] = {
     ),
     "cutoff": (
         "NetCDF.plot() does not accept `cutoff=`: `cutoff` is Sentinel-only; "
-        "use `ColourOpts(vmin=, vmax=, robust=True)` instead."
+        "use `ColorOpts(vmin=, vmax=, robust=True)` instead."
     ),
     "percentile": (
         "NetCDF.plot() does not accept `percentile=`: `percentile` is "
-        "Sentinel-only; use `ColourOpts(robust=True)` (2nd/98th percentile)."
+        "Sentinel-only; use `ColorOpts(robust=True)` (2nd/98th percentile)."
     ),
     "overview": (
         "NetCDF.plot() does not accept `overview=`: Overviews are a "
@@ -146,7 +146,7 @@ class NetCDFPlot:
         variable: str | None = None,
         *,
         selectors: Selectors | None = None,
-        colour: ColourOpts | None = None,
+        colour: ColorOpts | None = None,
         facet: FacetSpec | None = None,
         coords: tuple | list | None = None,
         x_dim: str | None = None,
@@ -165,7 +165,7 @@ class NetCDFPlot:
         nc = self.nc
         _reject_forbidden_kwargs(kwargs)
         selectors = selectors or Selectors()
-        colour = colour or ColourOpts()
+        colour = colour or ColorOpts()
         facet = facet or FacetSpec()
 
         if nc._is_md_array and not nc._is_subset and nc.band_count == 0:
@@ -192,6 +192,36 @@ class NetCDFPlot:
             raise ValueError(
                 f"This subset is pinned to {nc._source_var_name!r}; cannot "
                 f"re-plot as {variable!r}. Call `plot` on the parent container."
+            )
+
+        # API-5: honour x_dim / y_dim on the static path. A subset's spatial axes are
+        # already fixed, so the only way to apply an explicit override is to re-resolve
+        # the variable from its parent container with those axes, then plot that. When
+        # the subset has no parent to re-resolve from, raise instead of silently ignoring
+        # the kwargs (which is what happened before).
+        if x_dim is not None or y_dim is not None:
+            if nc._parent_nc is None or nc._source_var_name is None:
+                raise ValueError(
+                    "x_dim / y_dim require a parent container to re-resolve the "
+                    "variable's spatial axes; plot via the container instead, e.g. "
+                    "`container.plot(variable=..., x_dim=..., y_dim=...)`."
+                )
+            return nc._parent_nc.get_variable(
+                nc._source_var_name, x_dim=x_dim, y_dim=y_dim
+            ).plot(
+                selectors=selectors,
+                colour=colour,
+                facet=facet,
+                coords=coords,
+                kind=kind,
+                animate=animate,
+                chunks=chunks,
+                basemap=basemap,
+                exclude_value=exclude_value,
+                title=title,
+                ax=ax,
+                figsize=figsize,
+                **kwargs,
             )
 
         resolved_sel = self._resolve_selectors(nc, selectors)
@@ -364,7 +394,7 @@ class NetCDFPlot:
         self,
         pinned: NetCDF,
         *,
-        colour: ColourOpts,
+        colour: ColorOpts,
         coords: tuple | list | None,
         kind: str,
         ax: Any | None,
@@ -375,7 +405,7 @@ class NetCDFPlot:
         """Assemble the kwargs dict handed to :meth:`Analysis.plot`.
 
         Starts from ``base_kwargs`` (the caller's ``**kwargs`` pass-through
-        to cleopatra), then layers on: the non-default :class:`ColourOpts`
+        to cleopatra), then layers on: the non-default :class:`ColorOpts`
         fields (``cmap`` / ``vmin`` / ``vmax`` / ``levels`` / ``norm`` /
         ``center`` / ``extend`` / ``cbar_kwargs``, plus ``robust`` only
         when explicitly enabled — ``add_colorbar`` is intentionally *not*
@@ -387,7 +417,7 @@ class NetCDFPlot:
         Args:
             pinned: The 2-D variable subset being rendered (needed for
                 curvilinear coord resolution).
-            colour: The caller's :class:`ColourOpts` (or ``ColourOpts()``).
+            colour: The caller's :class:`ColorOpts` (or ``ColorOpts()``).
             coords: Explicit ``(x, y)`` coord spec from the caller, or
                 ``None`` (auto-detect from CF attrs / conventions).
             kind: The render-kind hint (``"auto"`` / ``"imshow"`` / ...).
@@ -670,14 +700,28 @@ class NetCDFPlot:
 
                 ```
         """
+        # Read each facet cell by its flat classic-band index instead of allocating a
+        # fresh ``sel()`` subset per cell (each ``sel()`` re-resolves the variable,
+        # rebuilds a NetCDF, and re-runs the metadata reconciliation). GDAL flattens the
+        # band dims row-major (last varies fastest), so pinning the col dim to index
+        # ``ci`` (and the row dim to ``ri``) with every other band dim at 0 is
+        # ``ci * col_stride + ri * row_stride`` — the same stride trick the animate path
+        # uses. Any non-faceted band dims are implicitly pinned to index 0, which this
+        # row-major flat index already selects (their contribution is 0 at index 0), so
+        # the result matches the old ``sel(...).read_array(band=0)`` even when col/row are
+        # not the variable's only band dims.
+        names = nc._band_dim_names
+        sizes = nc._band_dim_sizes
+        col_axis = names.index(col)
+        col_stride = math.prod(sizes[col_axis + 1 :])
+
         col_values = list(nc._band_dim_values_map.get(col, []))
         if not col_values:
-            col_values = list(range(nc._band_dim_sizes[nc._band_dim_names.index(col)]))
+            col_values = list(range(sizes[col_axis]))
         slices: list[Any] = []
         if row is None:
-            for value in col_values:
-                pinned = nc.sel(**{col: value})
-                slices.append(pinned.read_array(band=0))
+            for ci in range(len(col_values)):
+                slices.append(nc.read_array(band=ci * col_stride))
             stack = np.stack(slices, axis=0)
             facet_kwargs: dict[str, Any] = {
                 "col": col,
@@ -686,16 +730,16 @@ class NetCDFPlot:
             if col_wrap is not None:
                 facet_kwargs["col_wrap"] = col_wrap
         else:
+            row_axis = names.index(row)
+            row_stride = math.prod(sizes[row_axis + 1 :])
             row_values = list(nc._band_dim_values_map.get(row, []))
             if not row_values:
-                row_values = list(
-                    range(nc._band_dim_sizes[nc._band_dim_names.index(row)])
-                )
-            for col_value in col_values:
-                row_slices: list[Any] = []
-                for row_value in row_values:
-                    pinned = nc.sel(**{col: col_value}).sel(**{row: row_value})
-                    row_slices.append(pinned.read_array(band=0))
+                row_values = list(range(sizes[row_axis]))
+            for ci in range(len(col_values)):
+                row_slices: list[Any] = [
+                    nc.read_array(band=ci * col_stride + ri * row_stride)
+                    for ri in range(len(row_values))
+                ]
                 slices.append(np.stack(row_slices, axis=0))
             stack = np.stack(slices, axis=0)
             facet_kwargs = {
@@ -961,10 +1005,17 @@ class NetCDFPlot:
         # stable handle, one disk read per frame.
         frame_stride = math.prod(nc._band_dim_sizes[animate_axis + 1 :])
 
+        # Read frame 0 once and reuse it as the glyph template below; otherwise the first
+        # frame is read from disk twice (once for the template, once as animation frame
+        # 0). Serve a copy for the streamed frame so the template stays independent.
+        _frame_zero = np.asarray(nc.read_array(band=0))
+
         def _data_getter(i: int) -> np.ndarray:
+            if i == 0:
+                return _frame_zero.copy()
             return nc.read_array(band=i * frame_stride)
 
-        template = np.asarray(_data_getter(0))
+        template = _frame_zero
 
         # Drop the static-plot-only render kwargs cleopatra's `animate()`
         # rejects, plus the pyramids-internal injection keys. See
@@ -1362,6 +1413,22 @@ class NetCDFPlot:
         return result
 
     @staticmethod
+    def _matches_x_axis(arr: np.ndarray, data_shape: tuple[int, int]) -> bool:
+        """True when ``arr`` can serve as the x axis for ``data_shape`` (1-D cols or 2-D slice)."""
+        _, cols = data_shape
+        return (arr.ndim == 1 and arr.shape[0] == cols) or (
+            arr.ndim == 2 and arr.shape == data_shape
+        )
+
+    @staticmethod
+    def _matches_y_axis(arr: np.ndarray, data_shape: tuple[int, int]) -> bool:
+        """True when ``arr`` can serve as the y axis for ``data_shape`` (1-D rows or 2-D slice)."""
+        rows, _ = data_shape
+        return (arr.ndim == 1 and arr.shape[0] == rows) or (
+            arr.ndim == 2 and arr.shape == data_shape
+        )
+
+    @staticmethod
     def _coord_shapes_match(
         x_arr: np.ndarray,
         y_arr: np.ndarray,
@@ -1383,17 +1450,11 @@ class NetCDFPlot:
         Returns:
             bool: ``True`` when both arrays line up with ``data_shape``.
         """
-        result = False
-        if data_shape is not None:
-            rows, cols = data_shape
-            x_ok = (x_arr.ndim == 1 and x_arr.shape[0] == cols) or (
-                x_arr.ndim == 2 and x_arr.shape == data_shape
-            )
-            y_ok = (y_arr.ndim == 1 and y_arr.shape[0] == rows) or (
-                y_arr.ndim == 2 and y_arr.shape == data_shape
-            )
-            result = x_ok and y_ok
-        return result
+        if data_shape is None:
+            return False
+        return NetCDFPlot._matches_x_axis(x_arr, data_shape) and NetCDFPlot._matches_y_axis(
+            y_arr, data_shape
+        )
 
     def _cf_coordinates_pair(
         self,
@@ -1452,17 +1513,12 @@ class NetCDFPlot:
                             arr,
                             data_shape,
                         )
-            rows, cols = data_shape
             x_candidates: list[tuple[str, np.ndarray]] = []
             y_candidates: list[tuple[str, np.ndarray]] = []
             for name, arr in candidate_arrays.items():
-                if (arr.ndim == 1 and arr.shape[0] == cols) or (
-                    arr.ndim == 2 and arr.shape == data_shape
-                ):
+                if self._matches_x_axis(arr, data_shape):
                     x_candidates.append((name, arr))
-                if (arr.ndim == 1 and arr.shape[0] == rows) or (
-                    arr.ndim == 2 and arr.shape == data_shape
-                ):
+                if self._matches_y_axis(arr, data_shape):
                     y_candidates.append((name, arr))
             for x_name, x_arr in x_candidates:
                 for y_name, y_arr in y_candidates:
@@ -1594,6 +1650,53 @@ class NetCDFPlot:
         y_is_lat = "lat" in yl
         return x_is_lon and y_is_lat
 
+    def _resolve_band_dim_name(
+        self,
+        nc: NetCDF,
+        *,
+        selector: str,
+        candidates: tuple[str, ...],
+        noun: str,
+        fallback_to_primary: bool,
+    ) -> str:
+        """Resolve the band-dim name a convenience selector maps onto.
+
+        Shared engine for :meth:`_resolve_time_dim_name` /
+        :meth:`_resolve_level_dim_name` / :meth:`_resolve_member_dim_name`: scans
+        ``nc._band_dim_names`` (case-insensitive) for one of ``candidates``.
+
+        Args:
+            nc: The variable subset being plotted.
+            selector: The convenience-selector keyword (``"time"`` / ``"level"`` /
+                ``"member"``) used in error messages.
+            candidates: The accepted lowercase dim names for this axis.
+            noun: Human label for the axis in the "could not be auto-resolved"
+                message (e.g. ``"vertical"`` / ``"ensemble"``).
+            fallback_to_primary: When no candidate matches, return the first band dim
+                (``True``) or raise (``False``).
+
+        Returns:
+            str: The resolved band-dim name.
+
+        Raises:
+            ValueError: If the variable has no band dim, or no candidate matches and
+                ``fallback_to_primary`` is ``False``.
+        """
+        if not nc._band_dim_names:
+            raise ValueError(
+                f"`{selector}=` was passed but this variable has no band dimension."
+            )
+        for name in nc._band_dim_names:
+            if name.lower() in candidates:
+                return name
+        if fallback_to_primary:
+            return nc._band_dim_names[0]
+        raise ValueError(
+            f"`{selector}=` could not be auto-resolved. Use `sel={{dim: value}}` to "
+            f"name the {noun} dim explicitly. Band dims: "
+            f"{list(nc._band_dim_names)}."
+        )
+
     def _resolve_time_dim_name(self, nc: NetCDF) -> str:
         """Return the band-dim name that represents the time axis.
 
@@ -1651,15 +1754,13 @@ class NetCDFPlot:
 
               ```
         """
-        if not nc._band_dim_names:
-            raise ValueError(
-                "`time=` was passed but this variable has no band dimension."
-            )
-        candidates = ("time", "valid_time", "t")
-        for name in nc._band_dim_names:
-            if name.lower() in candidates:
-                return name
-        return nc._band_dim_names[0]
+        return self._resolve_band_dim_name(
+            nc,
+            selector="time",
+            candidates=("time", "valid_time", "t"),
+            noun="time",
+            fallback_to_primary=True,
+        )
 
     def _resolve_level_dim_name(self, nc: NetCDF) -> str:
         """Return the band-dim name that represents the vertical axis.
@@ -1724,18 +1825,12 @@ class NetCDFPlot:
 
               ```
         """
-        if not nc._band_dim_names:
-            raise ValueError(
-                "`level=` was passed but this variable has no band dimension."
-            )
-        candidates = ("pressure_level", "depth", "height", "z", "level")
-        for name in nc._band_dim_names:
-            if name.lower() in candidates:
-                return name
-        raise ValueError(
-            "`level=` could not be auto-resolved. Use `sel={dim: value}` to "
-            f"name the vertical dim explicitly. Band dims: "
-            f"{list(nc._band_dim_names)}."
+        return self._resolve_band_dim_name(
+            nc,
+            selector="level",
+            candidates=("pressure_level", "depth", "height", "z", "level"),
+            noun="vertical",
+            fallback_to_primary=False,
         )
 
     def _resolve_member_dim_name(self, nc: NetCDF) -> str:
@@ -1799,16 +1894,10 @@ class NetCDFPlot:
 
               ```
         """
-        if not nc._band_dim_names:
-            raise ValueError(
-                "`member=` was passed but this variable has no band dimension."
-            )
-        candidates = ("member", "realization", "ensemble")
-        for name in nc._band_dim_names:
-            if name.lower() in candidates:
-                return name
-        raise ValueError(
-            "`member=` could not be auto-resolved. Use `sel={dim: value}` to "
-            f"name the ensemble dim explicitly. Band dims: "
-            f"{list(nc._band_dim_names)}."
+        return self._resolve_band_dim_name(
+            nc,
+            selector="member",
+            candidates=("member", "realization", "ensemble"),
+            noun="ensemble",
+            fallback_to_primary=False,
         )

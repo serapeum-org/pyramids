@@ -1,6 +1,6 @@
 """Tests for the zarr-v3-safe native kerchunk manifest builder (#530).
 
-The native builder (`pyramids.netcdf._kerchunk_native.build_single_manifest`)
+The native builder (`pyramids.netcdf._kerchunk_builder.build_single_manifest`)
 walks an HDF5/NetCDF4 file with h5py and emits a kerchunk v1 reference manifest
 without instantiating a live zarr group, avoiding the kerchunk->zarr-v3 `sync()`
 deadlock. These tests pin:
@@ -105,8 +105,8 @@ class TestParityWithKerchunk:
     @requires_kerchunk
     def test_same_keys_and_chunk_refs_on_fixture(self, tmp_path):
         """Native + kerchunk agree on every ref key and chunk byte-range/inline."""
-        from pyramids.netcdf._kerchunk import to_kerchunk
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_facade import to_kerchunk
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         kref = to_kerchunk(FIXTURE, tmp_path / "k.json", backend="kerchunk")["refs"]
         nref = build_single_manifest(FIXTURE)["refs"]
@@ -126,8 +126,8 @@ class TestParityWithKerchunk:
     @requires_kerchunk
     def test_zarray_codec_chain_matches(self, tmp_path):
         """Decoded codec chain matches kerchunk for the chunked compressed case."""
-        from pyramids.netcdf._kerchunk import to_kerchunk
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_facade import to_kerchunk
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         src = str(tmp_path / "chunked.nc")
         _make_chunked_file(src)
@@ -147,7 +147,7 @@ class TestRoundTrip:
     @requires_kerchunk
     def test_fixture_values_match_direct_read(self, tmp_path):
         """Non-fill data round-trips; fill cells decode to NaN."""
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         manifest = tmp_path / "native.json"
         manifest.write_text(json.dumps(build_single_manifest(FIXTURE)))
@@ -168,7 +168,7 @@ class TestRoundTrip:
     @requires_kerchunk
     def test_chunked_compressed_roundtrip(self, tmp_path):
         """A chunked + gzip + shuffle dataset round-trips bit-for-bit."""
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         src = str(tmp_path / "chunked.nc")
         data = _make_chunked_file(src)
@@ -186,7 +186,7 @@ class TestMetadataSemantics:
 
     def test_array_dimensions_resolved(self):
         """`_ARRAY_DIMENSIONS` come from the NetCDF dimension scales."""
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         refs = build_single_manifest(FIXTURE)["refs"]
         assert json.loads(refs["values/.zattrs"])["_ARRAY_DIMENSIONS"] == [
@@ -198,7 +198,7 @@ class TestMetadataSemantics:
 
     def test_fill_value_only_from_attribute(self):
         """`_FillValue` attr -> fill_value; HDF5 default fill -> null."""
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         refs = build_single_manifest(FIXTURE)["refs"]
         values = json.loads(refs["values/.zarray"])
@@ -208,7 +208,7 @@ class TestMetadataSemantics:
 
     def test_scalar_attrs_squeezed(self):
         """GDAL's 1-element CF attributes are emitted as scalars, not lists."""
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         refs = build_single_manifest(FIXTURE)["refs"]
         crs = json.loads(refs["transverse_mercator/.zattrs"])
@@ -218,7 +218,7 @@ class TestMetadataSemantics:
         """Byte-range refs use an absolute, forward-slash (portable) local path."""
         import os
 
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         refs = build_single_manifest(FIXTURE)["refs"]
         url = refs["values/0.0.0"][0]   # values is a byte-range ref on this fixture
@@ -227,14 +227,14 @@ class TestMetadataSemantics:
 
     def test_src_url_override_is_used_verbatim(self):
         """An explicit src_url is written into refs unchanged (e.g. a cloud URL)."""
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         refs = build_single_manifest(FIXTURE, src_url="s3://bucket/cube.nc")["refs"]
         assert refs["values/0.0.0"][0] == "s3://bucket/cube.nc"
 
     def test_bookkeeping_attrs_stripped(self):
         """HDF5/NetCDF bookkeeping keys never leak into `.zattrs`."""
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         refs = build_single_manifest(FIXTURE)["refs"]
         for key in ("values/.zattrs", "x/.zattrs", ".zattrs"):
@@ -250,7 +250,7 @@ class TestCombine:
 
     def test_single_manifest_passthrough(self):
         """Combining one manifest returns it unchanged (one file = no concat)."""
-        from pyramids.netcdf._kerchunk_native import (
+        from pyramids.netcdf._kerchunk_builder import (
             build_single_manifest,
             combine_manifests,
         )
@@ -261,7 +261,7 @@ class TestCombine:
 
     def test_stacks_concat_variable_shape(self, tmp_path):
         """Every var with the concat dim is stacked; its shape sums over files."""
-        from pyramids.netcdf._kerchunk_native import (
+        from pyramids.netcdf._kerchunk_builder import (
             build_single_manifest,
             combine_manifests,
         )
@@ -280,7 +280,7 @@ class TestCombine:
     @requires_kerchunk
     def test_combined_data_equals_real_stack(self, tmp_path):
         """Round-trip: the combined cube equals np.concatenate of the inputs."""
-        from pyramids.netcdf._kerchunk_native import (
+        from pyramids.netcdf._kerchunk_builder import (
             build_single_manifest,
             combine_manifests,
         )
@@ -302,7 +302,7 @@ class TestCombine:
 
     def test_subgroup_metadata_preserved(self, tmp_path):
         """Combine keeps sub-group `.zgroup`/`.zattrs`, not just root + variables."""
-        from pyramids.netcdf._kerchunk_native import (
+        from pyramids.netcdf._kerchunk_builder import (
             build_single_manifest,
             combine_manifests,
         )
@@ -321,7 +321,7 @@ class TestCombine:
 
     def test_misaligned_identical_dim_warns(self, tmp_path):
         """A non-concat coord that differs across files warns (not silently merged)."""
-        from pyramids.netcdf._kerchunk_native import (
+        from pyramids.netcdf._kerchunk_builder import (
             build_single_manifest,
             combine_manifests,
         )
@@ -339,7 +339,7 @@ class TestCombine:
 
     def test_differing_variable_sets_rejected(self, tmp_path):
         """Files with different variables cannot be combined."""
-        from pyramids.netcdf._kerchunk_native import (
+        from pyramids.netcdf._kerchunk_builder import (
             build_single_manifest,
             combine_manifests,
         )
@@ -364,7 +364,7 @@ class TestFilterMapping:
         h5py's high-level API only writes shuffle-before-deflate, so the reversed
         order is exercised with a faked filter pipeline.
         """
-        from pyramids.netcdf._kerchunk_native import _compressor_and_filters
+        from pyramids.netcdf._kerchunk_builder import _compressor_and_filters
 
         dataset = Mock()
         dataset.name = "/v"
@@ -385,7 +385,7 @@ class TestUnsupportedFeatures:
 
     def test_object_dtype_rejected(self, tmp_path):
         """A vlen/object dtype raises ValueError (caller can fall back)."""
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         src = str(tmp_path / "vlen.h5")
         with h5py.File(src, "w") as f:
@@ -401,7 +401,7 @@ class TestUnsupportedFeatures:
         translator for sources the local-only native builder cannot open
         (e.g. remote URLs).
         """
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         not_hdf5 = tmp_path / "plain.txt"
         not_hdf5.write_text("this is not an HDF5 file")
@@ -437,7 +437,7 @@ class TestToJsonable:
 
     def test_vector_and_bool_and_bytes_attrs(self, tmp_path):
         """Multi-element vectors stay lists; bytes decode; bools/ints coerce."""
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         src = str(tmp_path / "attrs.h5")
         with h5py.File(src, "w") as f:
@@ -458,7 +458,7 @@ class TestEncodeFillValue:
 
     def test_float_int_nan_inf_bytes_and_absent(self, tmp_path):
         """_FillValue encodes per dtype; NaN/Inf become strings; absent -> None."""
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         src = str(tmp_path / "fills.h5")
         with h5py.File(src, "w") as f:
@@ -487,7 +487,7 @@ class TestFilterMappingExtra:
 
     def test_fletcher32_is_dropped(self, tmp_path):
         """A fletcher32 checksum filter is silently dropped (data still readable)."""
-        from pyramids.netcdf._kerchunk_native import build_single_manifest
+        from pyramids.netcdf._kerchunk_builder import build_single_manifest
 
         src = str(tmp_path / "fletcher.h5")
         with h5py.File(src, "w") as f:
@@ -499,7 +499,7 @@ class TestFilterMappingExtra:
 
     def test_unknown_filter_id_raises(self):
         """An unrecognised HDF5 filter id raises a clear ValueError."""
-        from pyramids.netcdf._kerchunk_native import _compressor_and_filters
+        from pyramids.netcdf._kerchunk_builder import _compressor_and_filters
 
         dataset = Mock()
         dataset.name = "/v"
@@ -516,7 +516,7 @@ class TestEmitChunkRefs:
 
     def test_remote_handle_none_never_inlines(self):
         """With src_handle=None (remote), small chunks are byte-range, not inlined."""
-        from pyramids.netcdf._kerchunk_native import _emit_chunk_refs
+        from pyramids.netcdf._kerchunk_builder import _emit_chunk_refs
 
         refs: dict = {}
         with h5py.File(FIXTURE, "r") as f:
@@ -539,14 +539,14 @@ class TestCombineEdgeCases:
 
     def test_empty_input_raises(self):
         """An empty manifest list raises ValueError."""
-        from pyramids.netcdf._kerchunk_native import combine_manifests
+        from pyramids.netcdf._kerchunk_builder import combine_manifests
 
         with pytest.raises(ValueError, match="at least one manifest"):
             combine_manifests([], concat_dim="time")
 
     def test_flat_v0_manifest_passthrough(self):
         """A single flat (v0) manifest with no 'refs' key passes through."""
-        from pyramids.netcdf._kerchunk_native import combine_manifests
+        from pyramids.netcdf._kerchunk_builder import combine_manifests
 
         flat = {".zgroup": json.dumps({"zarr_format": 2})}
         out = combine_manifests([flat], concat_dim="time")
@@ -554,7 +554,7 @@ class TestCombineEdgeCases:
 
     def test_inconsistent_concat_chunk_size_raises(self):
         """Differing chunk size on the concat axis cannot form a uniform array."""
-        from pyramids.netcdf._kerchunk_native import combine_manifests
+        from pyramids.netcdf._kerchunk_builder import combine_manifests
 
         per_file = [_mini_time_manifest(2, 2), _mini_time_manifest(2, 1)]
         with pytest.raises(ValueError, match="inconsistent chunk size"):
@@ -562,7 +562,7 @@ class TestCombineEdgeCases:
 
     def test_non_final_partial_chunk_raises(self):
         """A non-final file whose length is not a chunk multiple is rejected."""
-        from pyramids.netcdf._kerchunk_native import combine_manifests
+        from pyramids.netcdf._kerchunk_builder import combine_manifests
 
         per_file = [_mini_time_manifest(3, 2), _mini_time_manifest(2, 2)]
         with pytest.raises(ValueError, match="multiple of its chunk size"):

@@ -433,6 +433,16 @@ def _chain_archive_vsi(path: str) -> str:
     return f"{_ARCHIVE_EXT_TO_VSI[ext]}{path}"
 
 
+_VSICURL_FAST_READ_KNOBS: dict[str, str] = {
+    "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+    "GDAL_HTTP_MULTIPLEX": "YES",
+    "GDAL_HTTP_VERSION": "2",
+    "GDAL_HTTP_MULTIRANGE": "YES",
+    "GDAL_HTTP_MERGE_CONSECUTIVE_RANGES": "YES",
+}
+"""Fast single-file `/vsicurl/` read preset enabled by `CloudConfig(vsicurl_tuning=True)`."""
+
+
 @dataclass
 class CloudConfig:
     """Context manager setting GDAL config options for cloud I/O.
@@ -464,6 +474,8 @@ class CloudConfig:
     `http_retry_delay`               `GDAL_HTTP_RETRY_DELAY` (seconds)
     `http_timeout`                   `GDAL_HTTP_TIMEOUT` (seconds)
     `vsi_cache=True`                 `VSI_CACHE=TRUE` (False -> `FALSE`)
+    `curl_cache_size`                `CPL_VSIL_CURL_CACHE_SIZE` (bytes)
+    `vsicurl_tuning=True`            fast-read preset (see below)
     `extra={"KEY": "VALUE",...}`      verbatim passthrough
     ================================ ==================================
 
@@ -472,7 +484,21 @@ class CloudConfig:
     toggles GDAL's in-memory range cache for `/vsicurl/`-style readers
     — useful when re-reading the same remote chunks (e.g. iterating over
     blocks of a single COG). Set `vsi_cache=None` (default) to leave
-    whatever the process-wide setting is in place.
+    whatever the process-wide setting is in place. `curl_cache_size`
+    sizes that per-handle range cache in bytes; pair it with `vsi_cache=True`
+    to widen the window GDAL keeps before re-fetching.
+
+    `vsicurl_tuning=True` enables a standard fast-cloud-read preset that
+    avoids the most common `/vsicurl/` slow paths — it skips the directory
+    listing GDAL otherwise issues on every open
+    (`GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR`) and turns on HTTP/2
+    multiplexing and batched/merged byte-range requests
+    (`GDAL_HTTP_MULTIPLEX`, `GDAL_HTTP_VERSION=2`, `GDAL_HTTP_MULTIRANGE`,
+    `GDAL_HTTP_MERGE_CONSECUTIVE_RANGES`). Any of these can be overridden via
+    `extra` (which always wins), and the preset never clobbers an explicit
+    scalar field. Leave it `False` (default) for directory-style stores
+    (e.g. opening a multi-file Zarr group) where the readdir skip would hide
+    sibling chunks.
 
     `aws_virtual_hosting=False` requests path-style S3 addressing (the bucket in
     the request path rather than the host); the anonymous-S3 reader uses it to
@@ -545,6 +571,8 @@ class CloudConfig:
     http_retry_delay: float | None = None
     http_timeout: int | None = None
     vsi_cache: bool | None = None
+    curl_cache_size: int | None = None
+    vsicurl_tuning: bool = False
     extra: Mapping[str, str] = field(default_factory=dict)
     _ctx: Any = field(default=None, init=False, repr=False, compare=False)
 
@@ -620,6 +648,31 @@ class CloudConfig:
                 {'AWS_VIRTUAL_HOSTING': 'FALSE'}
 
                 ```
+            - ``vsicurl_tuning=True`` adds the fast single-file cloud-read preset:
+                ```python
+                >>> cfg = CloudConfig(vsicurl_tuning=True).as_gdal_config()
+                >>> sorted(cfg.items())  # doctest: +NORMALIZE_WHITESPACE
+                [('GDAL_DISABLE_READDIR_ON_OPEN', 'EMPTY_DIR'),
+                 ('GDAL_HTTP_MERGE_CONSECUTIVE_RANGES', 'YES'),
+                 ('GDAL_HTTP_MULTIPLEX', 'YES'),
+                 ('GDAL_HTTP_MULTIRANGE', 'YES'),
+                 ('GDAL_HTTP_VERSION', '2')]
+
+                ```
+            - ``extra`` still overrides a preset knob, and ``curl_cache_size`` sizes
+                the range cache:
+                ```python
+                >>> cfg = CloudConfig(
+                ...     vsicurl_tuning=True,
+                ...     curl_cache_size=200_000_000,
+                ...     extra={"GDAL_HTTP_VERSION": "1.1"},
+                ... ).as_gdal_config()
+                >>> cfg["GDAL_HTTP_VERSION"]
+                '1.1'
+                >>> cfg["CPL_VSIL_CURL_CACHE_SIZE"]
+                '200000000'
+
+                ```
             - ``extra`` overrides any explicit field on key conflict (the
                 escape hatch wins):
                 ```python
@@ -651,8 +704,14 @@ class CloudConfig:
             "GDAL_HTTP_MAX_RETRY": self.http_max_retry,
             "GDAL_HTTP_RETRY_DELAY": self.http_retry_delay,
             "GDAL_HTTP_TIMEOUT": self.http_timeout,
+            "CPL_VSIL_CURL_CACHE_SIZE": self.curl_cache_size,
         }
         out: dict[str, str] = {k: str(v) for k, v in mapping.items() if v is not None}
+        if self.vsicurl_tuning:
+            # Fast-read preset: never clobber an explicit scalar field the user
+            # already set; `extra` (applied last below) still overrides everything.
+            for key, value in _VSICURL_FAST_READ_KNOBS.items():
+                out.setdefault(key, value)
         if self.aws_no_sign_request:
             out["AWS_NO_SIGN_REQUEST"] = "YES"
         if self.aws_request_payer:

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import re
+import warnings
 from dataclasses import dataclass, field
-from typing import Iterable, Mapping
+from typing import Any, Iterable, Mapping
 
 Number = int | float
 
@@ -240,7 +241,7 @@ def _format_braced_list(values: Iterable[str | Number]) -> str:
 
 
 @dataclass(frozen=True)
-class DimMetaData:
+class ClassicDimensionInfo:
     """Unified information for a single netCDF dimension.
 
     This immutable dataclass captures both the structural information the GDAL
@@ -277,8 +278,8 @@ class DimMetaData:
     Examples:
         - Construct manually for testing
             ```python
-            >>> from pyramids.netcdf.dimensions import DimMetaData
-            >>> d = DimMetaData(name='time', size=2, values=[0, 31], def_fields=(2, 6))
+            >>> from pyramids.netcdf.dimensions import ClassicDimensionInfo
+            >>> d = ClassicDimensionInfo(name='time', size=2, values=[0, 31], def_fields=(2, 6))
             >>> d.name, d.size, d.values, d.def_fields
             ('time', 2, [0, 31], (2, 6))
 
@@ -286,7 +287,7 @@ class DimMetaData:
         - With attributes merged
             ```python
 
-            >>> d = DimMetaData(name='time', size=2, values=[0, 31], def_fields=(2, 6), attrs={'axis': 'T'})
+            >>> d = ClassicDimensionInfo(name='time', size=2, values=[0, 31], def_fields=(2, 6), attrs={'axis': 'T'})
             >>> d.attrs['axis']
             'T'
 
@@ -294,7 +295,7 @@ class DimMetaData:
 
     See Also:
         - :class:`DimensionsIndex`: Factory that populates structural entries.
-        - :class:`MetaData`: Provides convenient construction with merged attrs.
+        - :class:`ClassicDimMetadata`: Provides convenient construction with merged attrs.
     """
 
     name: str
@@ -321,12 +322,29 @@ class DimMetaData:
                     f"({self.size})."
                 )
 
+    def to_dimension_info(self) -> Any:
+        """Convert to the canonical :class:`pyramids.netcdf.models.DimensionInfo` (API-7).
+
+        The single canonical dimension model lives in ``models``; this is the convenience
+        inverse of :meth:`DimensionInfo.from_classic_metadata` for callers holding the
+        classic representation. ``name`` / ``size`` / ``attrs`` carry over; the classic-only
+        ``values`` / ``def_fields`` / ``raw`` are not represented on the structural model.
+
+        Returns:
+            DimensionInfo: The canonical metadata for this dimension.
+        """
+        # Local import: ``dimensions`` is a leaf module and ``models`` already depends on
+        # this layer's parser, so importing it at module scope would risk a cycle.
+        from pyramids.netcdf.models import DimensionInfo
+
+        return DimensionInfo.from_classic_metadata(self)
+
 
 @dataclass
 class DimensionsIndex:
     """Index of netCDF dimensions parsed from GDAL metadata.
 
-    A thin mapping-like container that stores :class:`DimMetaData` objects
+    A thin mapping-like container that stores :class:`ClassicDimensionInfo` objects
     keyed by dimension name. Use :meth:`from_metadata` to construct an index
     from a GDAL metadata mapping (e.g., `gdal.Dataset.GetMetadata()`).
 
@@ -341,8 +359,8 @@ class DimensionsIndex:
         :meth:`from_metadata` and :meth:`to_metadata`.
 
     See Also:
-        - :class:`DimMetaData`
-        - :class:`MetaData` for a higher-level view that merges attributes
+        - :class:`ClassicDimensionInfo`
+        - :class:`ClassicDimMetadata` for a higher-level view that merges attributes
           like `time#units` with dimension structure.
 
     Examples:
@@ -379,7 +397,7 @@ class DimensionsIndex:
             ```
     """
 
-    _dims: dict[str, DimMetaData] = field(default_factory=dict)
+    _dims: dict[str, ClassicDimensionInfo] = field(default_factory=dict)
 
     @classmethod
     def from_metadata(
@@ -464,7 +482,7 @@ class DimensionsIndex:
             buckets.setdefault(name, {})[suffix or "_root"] = value
             dim_names.add(name)
 
-        dims: dict[str, DimMetaData] = {}
+        dims: dict[str, ClassicDimensionInfo] = {}
         for name in sorted(dim_names):
             raw_bucket = buckets.get(name, {})
             # DEF may contain integers, often first item is size
@@ -486,7 +504,7 @@ class DimensionsIndex:
                 if size is None and values is not None:
                     size = len(values)
 
-            dims[name] = DimMetaData(
+            dims[name] = ClassicDimensionInfo(
                 name=name,
                 size=size,
                 values=values,
@@ -534,11 +552,11 @@ class DimensionsIndex:
         """
         return len(self._dims)
 
-    def __iter__(self) -> Iterable[DimMetaData]:  # pragma: no cover - trivial
+    def __iter__(self) -> Iterable[ClassicDimensionInfo]:  # pragma: no cover - trivial
         """Iterate over stored dimensions.
 
         Yields:
-            DimMetaData: Each stored dimension in unspecified order.
+            ClassicDimensionInfo: Each stored dimension in unspecified order.
 
         Examples:
           - Iterate names
@@ -573,14 +591,14 @@ class DimensionsIndex:
         """
         return name in self._dims
 
-    def __getitem__(self, name: str) -> DimMetaData:
+    def __getitem__(self, name: str) -> ClassicDimensionInfo:
         """Get a dimension by name.
 
         Args:
             name (str): Dimension name.
 
         Returns:
-            DimMetaData: The matching dimension.
+            ClassicDimensionInfo: The matching dimension.
 
         Raises:
             KeyError: If the name is not present in the index.
@@ -799,7 +817,7 @@ def parse_dimension_attributes(
             ```
 
     See Also:
-        - :class:`MetaData`: Combines these attributes with dimension structure.
+        - :class:`ClassicDimMetadata`: Combines these attributes with dimension structure.
     """
     # Build a quick lookup for allowed names if provided
     allowed = set(names) if names is not None else None
@@ -825,7 +843,7 @@ def parse_dimension_attributes(
 
 
 @dataclass
-class MetaData:
+class ClassicDimMetadata:
     """Aggregate of dimension structure and per-dimension attributes.
 
     This class ties together two complementary pieces of information commonly
@@ -838,7 +856,7 @@ class MetaData:
     Examples:
         - Build from a combined metadata mapping and inspect
             ```python
-            >>> from pyramids.netcdf.dimensions import MetaData
+            >>> from pyramids.netcdf.dimensions import ClassicDimMetadata
             >>> md = {
             ...     'NETCDF_DIM_EXTRA': '{time,level0}',
             ...     'NETCDF_DIM_time_DEF': '{2,6}',
@@ -849,7 +867,7 @@ class MetaData:
             ...     'time#units': 'days since 1-1-1 0:0:0',
             ...     'level0#axis': 'Z',
             ... }
-            >>> meta = MetaData.from_metadata(md)
+            >>> meta = ClassicDimMetadata.from_metadata(md)
             >>> sorted(meta.names)
             ['level0', 'time']
             >>> meta.get_attrs('time')['axis']
@@ -873,8 +891,8 @@ class MetaData:
         prefix: str = "NETCDF_DIM_",
         normalize_attr_keys: bool = True,
         names: Iterable[str] | None = None,
-    ) -> MetaData:
-        """Build a MetaData object by parsing a GDAL metadata mapping.
+    ) -> ClassicDimMetadata:
+        """Build a ClassicDimMetadata object by parsing a GDAL metadata mapping.
 
         Args:
             metadata (Mapping[str, str]):
@@ -888,7 +906,7 @@ class MetaData:
                 uses the dimension names discovered under the prefix.
 
         Returns:
-            MetaData: Combined structure and attributes parsed from metadata.
+            ClassicDimMetadata: Combined structure and attributes parsed from metadata.
 
         Raises:
             TypeError: If the input mapping contains non-string keys/values.
@@ -896,13 +914,13 @@ class MetaData:
         Examples:
             - Typical usage
                 ```python
-                >>> from pyramids.netcdf.dimensions import MetaData
+                >>> from pyramids.netcdf.dimensions import ClassicDimMetadata
                 >>> md = {
                 ...     'NETCDF_DIM_time_DEF': '{2,6}',
                 ...     'NETCDF_DIM_time_VALUES': '{0,31}',
                 ...     'time#axis': 'T',
                 ... }
-                >>> meta = MetaData.from_metadata(md)
+                >>> meta = ClassicDimMetadata.from_metadata(md)
                 >>> meta.get_dimension('time').size
                 2
 
@@ -926,9 +944,9 @@ class MetaData:
         Examples:
           - Inspect names
             ```python
-            >>> from pyramids.netcdf.dimensions import MetaData
+            >>> from pyramids.netcdf.dimensions import ClassicDimMetadata
             >>> md = {'NETCDF_DIM_time_DEF': '{2,6}', 'time#axis': 'T'}
-            >>> MetaData.from_metadata(md).names
+            >>> ClassicDimMetadata.from_metadata(md).names
             ['time']
 
             ```
@@ -948,9 +966,9 @@ class MetaData:
         Examples:
             - Access attributes safely
                 ```python
-                >>> from pyramids.netcdf.dimensions import MetaData
+                >>> from pyramids.netcdf.dimensions import ClassicDimMetadata
                 >>> md = {'NETCDF_DIM_time_DEF': '{2,6}', 'time#units': 'days'}
-                >>> meta = MetaData.from_metadata(md)
+                >>> meta = ClassicDimMetadata.from_metadata(md)
                 >>> meta.get_attrs('time')
                 {'units': 'days'}
                 >>> meta.get_attrs('lat')
@@ -960,25 +978,25 @@ class MetaData:
         """
         return self.attrs.get(name, {})
 
-    def get_dimension(self, name: str) -> DimMetaData | None:
-        """Return a DimMetaData with merged attributes for a given name, if present.
+    def get_dimension(self, name: str) -> ClassicDimensionInfo | None:
+        """Return a ClassicDimensionInfo with merged attributes for a given name, if present.
 
         Combines structural info from :class:`DimensionsIndex` with the
         attribute dictionary captured for the same name and returns a new
-        :class:`DimMetaData` instance that includes both sets of information.
+        :class:`ClassicDimensionInfo` instance that includes both sets of information.
 
         Args:
             name (str): Dimension name.
 
         Returns:
-            DimMetaData | None: The merged view if available, else `None`.
+            ClassicDimensionInfo | None: The merged view if available, else `None`.
 
         Examples:
-            - Get a merged DimMetaData and inspect attributes
+            - Get a merged ClassicDimensionInfo and inspect attributes
                 ```python
-                >>> from pyramids.netcdf.dimensions import MetaData
+                >>> from pyramids.netcdf.dimensions import ClassicDimMetadata
                 >>> md = {'NETCDF_DIM_time_DEF': '{2,6}', 'time#axis': 'T'}
-                >>> meta = MetaData.from_metadata(md)
+                >>> meta = ClassicDimMetadata.from_metadata(md)
                 >>> dim = meta.get_dimension('time')
                 >>> (dim.name, dim.size, dim.attrs['axis'])
                 ('time', 2, 'T')
@@ -994,7 +1012,7 @@ class MetaData:
         if name not in self.dims:
             return None
         d = self.dims[name]
-        return DimMetaData(
+        return ClassicDimensionInfo(
             name=d.name,
             size=d.size,
             values=d.values,
@@ -1003,19 +1021,19 @@ class MetaData:
             attrs=self.get_attrs(name),
         )
 
-    def iter_dimensions(self) -> Iterable[DimMetaData]:
-        """Iterate over merged DimMetaData objects in name-sorted order.
+    def iter_dimensions(self) -> Iterable[ClassicDimensionInfo]:
+        """Iterate over merged ClassicDimensionInfo objects in name-sorted order.
 
         Yields:
-            DimMetaData: Each dimension with merged structure and attributes.
+            ClassicDimensionInfo: Each dimension with merged structure and attributes.
 
         Examples:
             - Iterate and collect names
                 ```python
 
-                >>> from pyramids.netcdf.dimensions import MetaData
+                >>> from pyramids.netcdf.dimensions import ClassicDimMetadata
                 >>> md = {'NETCDF_DIM_b_DEF': '{1,0}', 'NETCDF_DIM_a_DEF': '{2,0}'}
-                >>> meta = MetaData.from_metadata(md)
+                >>> meta = ClassicDimMetadata.from_metadata(md)
                 >>> [d.name for d in meta.iter_dimensions()]
                 ['a', 'b']
 
@@ -1055,9 +1073,9 @@ class MetaData:
         Examples:
             - Merge structure and attributes
                 ```python
-                >>> from pyramids.netcdf.dimensions import MetaData
+                >>> from pyramids.netcdf.dimensions import ClassicDimMetadata
                 >>> md = {'NETCDF_DIM_time_DEF': '{2,6}', 'time#axis': 'T'}
-                >>> meta = MetaData.from_metadata(md)
+                >>> meta = ClassicDimMetadata.from_metadata(md)
                 >>> out = meta.to_metadata()
                 >>> sorted(out.keys())
                 ['NETCDF_DIM_EXTRA', 'NETCDF_DIM_time_DEF', 'time#axis']
@@ -1086,19 +1104,19 @@ class MetaData:
             statistics (size, number of values, attribute count).
 
         Examples:
-            - Pretty-print a MetaData summary
+            - Pretty-print a ClassicDimMetadata summary
                 ```python
 
-                >>> from pyramids.netcdf.dimensions import MetaData
+                >>> from pyramids.netcdf.dimensions import ClassicDimMetadata
                 >>> md = {'NETCDF_DIM_time_DEF': '{2,6}', 'time#axis': 'T'}
-                >>> s = str(MetaData.from_metadata(md))
-                >>> s.splitlines()[0].startswith('MetaData(')
+                >>> s = str(ClassicDimMetadata.from_metadata(md))
+                >>> s.splitlines()[0].startswith('ClassicDimMetadata(')
                 True
 
                 ```
         """
         lines: list[str] = [
-            f"MetaData({len(self.dims)} dims, attrs for {len(self.attrs)} names)"
+            f"ClassicDimMetadata({len(self.dims)} dims, attrs for {len(self.attrs)} names)"
         ]
         # Show a compact, aligned summary for each dimension
         for name in sorted(self.dims.names):
@@ -1114,3 +1132,26 @@ class MetaData:
             detail = ", ".join(parts) if parts else "(no details)"
             lines.append(f"- {name}: {detail}")
         return "\n".join(lines)
+
+
+# Deprecated names (API-6): the classic-driver dimension models were renamed to disambiguate
+# them from `models.NetCDFMetadata` / `models.DimensionInfo`. The old names remain importable
+# (as a module-level lookup that emits a DeprecationWarning) for one minor release.
+_DEPRECATED_NAMES = {
+    "DimMetaData": ("ClassicDimensionInfo", ClassicDimensionInfo),
+    "MetaData": ("ClassicDimMetadata", ClassicDimMetadata),
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve deprecated class names to their renamed targets with a warning (PEP 562)."""
+    entry = _DEPRECATED_NAMES.get(name)
+    if entry is not None:
+        new_name, target = entry
+        warnings.warn(
+            f"pyramids.netcdf.dimensions.{name} is deprecated; use {new_name} instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return target
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

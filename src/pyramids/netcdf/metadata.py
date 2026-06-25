@@ -10,7 +10,7 @@ from typing import Any, cast
 from osgeo import gdal
 
 from pyramids.netcdf.cf import classify_variables, parse_conventions
-from pyramids.netcdf.dimensions import MetaData as SharedMetaData
+from pyramids.netcdf.dimensions import ClassicDimMetadata as SharedMetaData
 from pyramids.netcdf.models import (
     CFInfo,
     DimensionInfo,
@@ -197,18 +197,21 @@ class MetadataBuilder:
         conventions = parse_conventions(global_attrs.get("Conventions"))
         classifications = classify_variables(variables, dimensions)
 
+        # Single pass over the variables instead of three separate sweeps (grid mappings,
+        # bounds references, data variables). ``classify_variables`` preserves the
+        # variables' insertion order, so the per-list ordering is unchanged.
         grid_mappings: dict[str, dict[str, Any]] = {}
-        for name, role in classifications.items():
-            if role == "grid_mapping" and name in variables:
-                grid_mappings[name] = dict(variables[name].attributes)
-
         bounds_map: dict[str, str] = {}
-        for var in variables.values():
+        data_vars: list[str] = []
+        for name, var in variables.items():
+            role = classifications.get(name)
+            if role == "grid_mapping":
+                grid_mappings[name] = dict(var.attributes)
+            elif role == "data":
+                data_vars.append(name)
             bounds_ref = var.attributes.get("bounds")
             if isinstance(bounds_ref, str):
                 bounds_map[bounds_ref] = var.name
-
-        data_vars = [name for name, role in classifications.items() if role == "data"]
 
         return CFInfo(
             cf_version=conventions.get("CF"),
@@ -266,6 +269,12 @@ class MetadataBuilder:
             for attr_name in self._CLASSIC_DIM_FALLBACK_ATTRS:
                 if attr_name in new_attrs:
                     continue
+                # Exact-key lookup against the flattened `<name>#<attr>` classic
+                # metadata. Use the literal key rather than the shared
+                # `parse_dimension_attributes` regex (whose `[^#\s]+` name group rejects
+                # whitespace) so dimension names containing spaces — e.g. a CDS-Beta
+                # "valid time" time dim, the exact case this top-up exists for — are still
+                # matched and topped up.
                 value = classic_md.get(f"{dim.name}#{attr_name}")
                 if value:
                     new_attrs[attr_name] = value

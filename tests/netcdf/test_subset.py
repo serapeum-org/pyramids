@@ -11,6 +11,7 @@ retrospective store exercises the full remote path end to end.
 
 from __future__ import annotations
 
+import gc
 import os
 from unittest.mock import Mock
 
@@ -312,6 +313,9 @@ def _fake_group_with_attrs(coords):
         for attr_name, value in coords[name].items():
             attr = Mock()
             attr.GetName.return_value = attr_name
+            # GDAL attributes are read via ``Attribute.Read()``; stub ``ReadAsString`` too
+            # so the mock stays faithful regardless of which reader the code uses.
+            attr.Read.return_value = value
             attr.ReadAsString.return_value = value
             attr_objs.append(attr)
         coord = Mock()
@@ -366,18 +370,18 @@ class TestAxisRole:
         assert NetCDF._axis_role(rg, "c") is None, "missing coord should be None"
 
     def test_unreadable_attribute_is_skipped(self):
-        """An attribute whose ``ReadAsString`` raises is skipped; others still read.
+        """An attribute whose value can't be read is tolerated; others still read.
 
         Test scenario:
-            A numeric ``valid_min`` (ReadAsString raises) alongside ``axis=Y`` ->
+            An unreadable ``valid_min`` (``Read`` raises) alongside ``axis=Y`` ->
             still detected as ``"Y"``.
         """
         bad = Mock()
         bad.GetName.return_value = "valid_min"
-        bad.ReadAsString.side_effect = RuntimeError("not a string")
+        bad.Read.side_effect = RuntimeError("not readable")
         good = Mock()
         good.GetName.return_value = "axis"
-        good.ReadAsString.return_value = "Y"
+        good.Read.return_value = "Y"
         coord = Mock()
         coord.GetAttributes.return_value = [bad, good]
         rg = Mock()
@@ -608,6 +612,28 @@ class TestSubsetOffline:
         # Keep x in [1, 3] (3 cols) and y in [11, 12] (2 rows).
         ds = nc.subset("temp", time=0, bbox=(1.0, 11.0, 3.0, 12.0))
         assert (ds.rows, ds.columns) == (2, 3)
+
+    def test_subset_result_survives_source_dataset_gc(self, tmp_path):
+        """The NetCDF returned by subset() owns its GDAL handle and stays usable after GC (M2).
+
+        Test scenario:
+            subset() builds a temporary classic ``Dataset``, hands its GDAL raster to the
+            returned ``NetCDF``, and clears the ``Dataset._raster`` so the discarded
+            ``Dataset`` cannot close the handle the ``NetCDF`` now owns (API-2 ownership
+            transfer). Force a ``gc.collect()`` to reclaim that temporary ``Dataset``,
+            then read the array and write the result to a GeoTIFF — both must succeed,
+            proving the handle survived the transfer (no dangling pointer / double-close).
+        """
+        nc = _synthetic_cube(tmp_path)
+        result = nc.subset("temp", time=(0, 3))
+        gc.collect()
+
+        arr = np.asarray(result.read_array())
+        assert arr.shape[0] == 3, f"expected 3 bands after GC, got shape {arr.shape}"
+
+        out = tmp_path / "subset_after_gc.tif"
+        result.to_file(out)
+        assert out.exists() and out.stat().st_size > 0, "result not writable after source GC"
 
     def test_extra_dim_selection(self, tmp_path):
         nc = _synthetic_cube(tmp_path, with_extra=True)

@@ -508,10 +508,6 @@ def _build_srs_from_cf_params(
     return srs
 
 
-# ------------------------------------------------------------------ #
-#  Axis detection                                                    #
-# ------------------------------------------------------------------ #
-
 _STDNAME_TO_AXIS: dict[str, str] = {
     "latitude": "Y",
     "longitude": "X",
@@ -542,6 +538,27 @@ _NAME_PATTERNS: dict[str, str] = {
 }
 
 
+def _coerce_cf_attr(value: Any) -> Any:
+    """Normalize a CF attribute value for axis matching.
+
+    GDAL stores attributes faithfully, so a value can arrive as a length-1 list (an
+    array-valued ``axis = ["X"]``) or a whitespace-padded string (``"X "``). Unwrap a
+    length-1 ``list``/``tuple`` and strip surrounding whitespace so such values classify
+    the same as their scalar / clean form; other values pass through unchanged.
+
+    Args:
+        value: The raw attribute value (string, length-1 sequence, or anything else).
+
+    Returns:
+        The unwrapped/stripped value, or the original value when no normalization applies.
+    """
+    if isinstance(value, (list, tuple)) and len(value) == 1:
+        value = value[0]
+    if isinstance(value, str):
+        value = value.strip()
+    return value
+
+
 def detect_axis(
     name: str,
     attrs: dict[str, Any],
@@ -557,17 +574,70 @@ def detect_axis(
 
     Args:
         name: Variable or dimension short name.
-        attrs: Variable attribute dictionary.
+        attrs: Variable attribute dictionary. Attribute *names* are matched
+            case-insensitively (``Axis``/``AXIS`` are treated as ``axis``), since
+            GDAL preserves the on-disk key casing and some writers capitalize them.
         units: Unit string (separate from attrs for flexibility).
 
     Returns:
         One of `"X"`, `"Y"`, `"Z"`, `"T"`, or None.
+
+    Examples:
+        - An explicit ``axis`` attribute wins over everything else:
+            ```python
+            >>> from pyramids.netcdf.cf import detect_axis
+            >>> detect_axis("foo", {"axis": "X"})
+            'X'
+
+            ```
+        - A ``standard_name`` is matched against the CF table:
+            ```python
+            >>> detect_axis("foo", {"standard_name": "latitude"})
+            'Y'
+
+            ```
+        - A ``units`` string of the form ``<period> since <epoch>`` marks a time axis:
+            ```python
+            >>> detect_axis("foo", {"units": "days since 1970-01-01"})
+            'T'
+
+            ```
+        - With no attributes, the variable *name* is matched by pattern:
+            ```python
+            >>> detect_axis("lon", {})
+            'X'
+
+            ```
+        - Attribute *names* are matched case-insensitively, so capitalized keys
+            (e.g. ``Axis``) still classify the coordinate:
+            ```python
+            >>> detect_axis("foo", {"Axis": "Y"})
+            'Y'
+
+            ```
+        - An unrecognized name with no usable attributes returns ``None``:
+            ```python
+            >>> detect_axis("ensemble", {}) is None
+            True
+
+            ```
     """
     result: str | None = None
 
+    # CF attribute names are conventionally lowercase, but some writers emit
+    # capitalized keys (e.g. ``Axis``, ``Standard_Name``, ``Units``). Match the
+    # attribute *names* case-insensitively so attribute-based detection is not
+    # silently skipped — GDAL preserves the on-disk key casing, and the values
+    # below are already case-folded where it matters.
+    if attrs:
+        attrs = {
+            (k.lower() if isinstance(k, str) else k): _coerce_cf_attr(v)
+            for k, v in attrs.items()
+        }
+
     axis = attrs.get("axis")
-    if isinstance(axis, str) and axis.upper() in ("X", "Y", "Z", "T"):
-        result = axis.upper()
+    if isinstance(axis, str) and axis.strip().upper() in ("X", "Y", "Z", "T"):
+        result = axis.strip().upper()
     else:
         stdname = attrs.get("standard_name")
         if isinstance(stdname, str):
@@ -598,11 +668,6 @@ def detect_axis(
             result = _NAME_PATTERNS.get(name.lower().strip())
 
     return result
-
-
-# ------------------------------------------------------------------ #
-#  Variable classification                                             #
-# ------------------------------------------------------------------ #
 
 
 def classify_variables(
@@ -689,10 +754,6 @@ def _is_connectivity(attrs: dict[str, Any]) -> bool:
     return isinstance(cf_role, str) and "connectivity" in cf_role
 
 
-# ------------------------------------------------------------------ #
-#  Conventions parsing                                               #
-# ------------------------------------------------------------------ #
-
 _MAX_TESTED_CF_VERSION = "1.11"
 
 
@@ -734,11 +795,6 @@ def parse_conventions(conventions_str: str | None) -> dict[str, str]:
     return result
 
 
-# ------------------------------------------------------------------ #
-#  Cell methods parsing                                              #
-# ------------------------------------------------------------------ #
-
-
 def parse_cell_methods(cell_methods_str: str) -> list[dict[str, str]]:
     """Parse a CF `cell_methods` attribute string.
 
@@ -763,11 +819,6 @@ def parse_cell_methods(cell_methods_str: str) -> list[dict[str, str]]:
             entry["over"] = match.group(4)
         results.append(entry)
     return results
-
-
-# ------------------------------------------------------------------ #
-#  Valid range masking                                               #
-# ------------------------------------------------------------------ #
 
 
 def apply_valid_range_mask(
@@ -801,11 +852,6 @@ def apply_valid_range_mask(
     if valid_max is not None:
         result[result > valid_max] = fill_value
     return result
-
-
-# ------------------------------------------------------------------ #
-#  Flag decoding                                                     #
-# ------------------------------------------------------------------ #
 
 
 def decode_flags(
@@ -864,11 +910,6 @@ def decode_flags(
                 break
 
     return result
-
-
-# ------------------------------------------------------------------ #
-#  CF compliance validation                                          #
-# ------------------------------------------------------------------ #
 
 
 def validate_cf(

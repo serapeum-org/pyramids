@@ -28,22 +28,29 @@ from pyramids.base._utils import numpy_to_gdal_dtype
 from pyramids.base.crs import sr_from_epsg
 from pyramids.base.protocols import ArrayLike
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
+from pyramids.dataset.dataset import _COLLABORATOR_ATTRS
 from pyramids.feature import FeatureCollection
-from pyramids.netcdf._kerchunk import combine_kerchunk, to_kerchunk
-from pyramids.netcdf._lazy import _apply_unpack, build_lazy_array
+from pyramids.netcdf._kerchunk_facade import combine_kerchunk, to_kerchunk
+from pyramids.netcdf._lazy import apply_unpack, build_lazy_array
 from pyramids.netcdf._mfdataset import open_mfdataset
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
+    detect_axis,
     srs_to_grid_mapping,
     write_attributes_to_md_array,
     write_global_attributes,
 )
-from pyramids.netcdf.dimensions import DimMetaData
+from pyramids.netcdf._mdim import (
+    needs_y_flip,
+    open_mdarray,
+    scalar_no_data,
+)
+from pyramids.netcdf.dimensions import ClassicDimensionInfo
 from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import NetCDFMetadata
-from pyramids.netcdf.plot_options import ColourOpts, FacetSpec, Selectors
-from pyramids.netcdf.utils import create_time_conversion_func
+from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
+from pyramids.netcdf.utils import _read_attributes, create_time_conversion_func
 
 # GDAL integer dtype codes, used to pick the right typed Attribute.Write* call
 # when copying variable attributes (numeric tuples can't go through Write/WriteRaw).
@@ -77,7 +84,7 @@ class _LazyVariableDict(dict):
     def __init__(self, nc: NetCDF) -> None:
         super().__init__()
         self._nc = nc
-        self._names: list[str] = nc.get_variable_names()
+        self._names: list[str] = nc.variable_names
 
     def __getitem__(self, key: str) -> NetCDF:
         if not dict.__contains__(self, key) and key in self._names:
@@ -502,6 +509,10 @@ class NetCDF(Dataset):
         # metres on this cube; tells the `geotransform` property to trust the
         # stored geotransform instead of re-deriving radian spacing from x/y.
         self._geostationary_scaled: bool = False
+        # Per-variable cache of the classic-driver geostationary geotransform, populated
+        # on the parent container so each variable's metre geotransform is resolved with
+        # at most one `NETCDF:<file>:<var>` open instead of re-opening on every access.
+        self._geostationary_gt_cache: dict[str, tuple[float, ...] | None] = {}
         self._md_array_dims: list[str] = []
         self._band_dim_name: str | None = None
         self._band_dim_values: list[Any] | None = None
@@ -549,6 +560,12 @@ class NetCDF(Dataset):
         self._gdal_md_arr_ref = None
         self._gdal_rg_ref = None
         self._gdal_classic_src_ref = None
+        # The ad-hoc view/warp keep-alive pins are set only on some code paths (a
+        # GetView Y-flip or a to_crs warp), so they are not initialised in __init__;
+        # clear them here too — otherwise they hold their backing GDAL handle past
+        # close(), defeating the handle-release contract the gc.collect() below enforces.
+        self._view_source = None
+        self._warp_source = None
         self._parent_nc = None
         self._cached_meta_data = None
         super().close()
@@ -603,7 +620,9 @@ class NetCDF(Dataset):
         # so callers using `self.spatial.crop(...)` after this update
         # reach the surviving instance instead of the discarded `new`.
         self_proxy = weakref.proxy(self)
-        for attr in ("io", "spatial", "bands", "analysis", "cell", "vectorize", "cog"):
+        # Reuse the canonical collaborator list (single source of truth in dataset.py) so a new
+        # engine — e.g. `georef` — is rebound here too instead of silently keeping a dead back-ref.
+        for attr in _COLLABORATOR_ATTRS:
             collab = self.__dict__.get(attr)
             if collab is not None:
                 collab._ds = self_proxy
@@ -764,26 +783,35 @@ class NetCDF(Dataset):
         var = self._source_var_name
         if parent is None or var is None:
             return None
+        # Resolve once per variable and memoise on the parent: every spatial variable
+        # would otherwise re-open `NETCDF:<file>:<var>` to recompute the same metre
+        # geotransform. The cached value (a geotransform tuple or ``None``) is reused on
+        # subsequent accesses of the same variable.
+        cache = parent._geostationary_gt_cache
+        if var in cache:
+            return cache[var]
+
+        result: tuple[float, ...] | None = None
         path = parent.file_name
         # The classic netCDF driver needs an on-disk / VSI source; an in-memory
         # MEM dataset has no such path.
-        if not path or str(path).startswith("/vsimem"):
-            return None
-        try:
-            src = gdal.Open(f"NETCDF:{path}:{var}")
-        except RuntimeError:
-            src = None
-        if src is None:
-            return None
-        gt = src.GetGeoTransform()
-        srs = src.GetSpatialRef()
-        if (
-            srs is None
-            or srs.GetAttrValue("PROJECTION") != GEOSTATIONARY_PROJECTION
-            or abs(gt[1]) <= 1.0
-        ):
-            return None
-        return gt
+        if path and not str(path).startswith("/vsimem"):
+            try:
+                src = gdal.Open(f"NETCDF:{path}:{var}")
+            except RuntimeError:
+                src = None
+            if src is not None:
+                gt = src.GetGeoTransform()
+                srs = src.GetSpatialRef()
+                if (
+                    srs is not None
+                    and srs.GetAttrValue("PROJECTION") == GEOSTATIONARY_PROJECTION
+                    and abs(gt[1]) > 1.0
+                ):
+                    result = gt
+
+        cache[var] = result
+        return result
 
     def _normalize_geostationary_geotransform(self) -> None:
         """Georeference a geostationary variable read via the MDIM path.
@@ -846,7 +874,7 @@ class NetCDF(Dataset):
             `GetMDArrayNames()` minus dimension names; for classic mode
             from `GetSubDatasets()`.
         """
-        return self.get_variable_names()
+        return self._get_variable_names()
 
     @property
     def variables(self) -> dict[str, NetCDF]:
@@ -951,7 +979,7 @@ class NetCDF(Dataset):
         variable: str | None = None,
         *,
         selectors: Selectors | None = None,
-        colour: ColourOpts | None = None,
+        colour: ColorOpts | None = None,
         facet: FacetSpec | None = None,
         coords: tuple | list | None = None,
         x_dim: str | None = None,
@@ -972,7 +1000,7 @@ class NetCDF(Dataset):
         is not a NetCDF concept and has been removed from the signature. Variable
         selection is by name; the slice to render is pinned via a :class:`Selectors`
         option bag (``time`` / ``level`` / ``member`` / ``sel`` / ``isel``); colour
-        controls live on a :class:`ColourOpts` bag (``cmap`` / ``vmin`` / ``vmax`` /
+        controls live on a :class:`ColorOpts` bag (``cmap`` / ``vmin`` / ``vmax`` /
         ``robust`` / ``levels`` / ``norm`` / ``center`` / ``extend`` / ``add_colorbar``
         / ``cbar_kwargs``); multi-panel layout is described by a :class:`FacetSpec`
         bag (``col`` / ``row`` / ``col_wrap``). Each bag is a frozen dataclass —
@@ -998,9 +1026,9 @@ class NetCDF(Dataset):
                 Dim-selector bag. See :class:`Selectors` for the field list. A
                 missing bag is treated as :class:`Selectors`\\ () (all fields
                 ``None``). Defaults to None.
-            colour (ColourOpts, optional):
-                Colour-control bag. See :class:`ColourOpts` for the field list. A
-                missing bag is treated as :class:`ColourOpts`\\ () (cleopatra
+            colour (ColorOpts, optional):
+                Colour-control bag. See :class:`ColorOpts` for the field list. A
+                missing bag is treated as :class:`ColorOpts`\\ () (cleopatra
                 defaults). Defaults to None.
             facet (FacetSpec, optional):
                 Faceting bag. See :class:`FacetSpec` for the field list. A missing
@@ -1257,14 +1285,14 @@ class NetCDF(Dataset):
               filled contours from the same data; ``"auto"`` (the
               default) picks ``pcolormesh`` when curvilinear coords are
               present, else falls back to ``imshow``. Discrete contour
-              levels live on :class:`ColourOpts`:
+              levels live on :class:`ColorOpts`:
 
               ```python
-              >>> from pyramids.netcdf import ColourOpts
+              >>> from pyramids.netcdf import ColorOpts
               >>> cleo = nc.plot(  # doctest: +SKIP
               ...     variable="t2m",
               ...     kind="contourf",
-              ...     colour=ColourOpts(levels=10),
+              ...     colour=ColorOpts(levels=10),
               ... )
 
               ```
@@ -1292,13 +1320,13 @@ class NetCDF(Dataset):
 
             - Robust (percentile-based) colour limits — clip to the 2nd / 98th
               percentile of the rendered slice. Colour controls live
-              on :class:`ColourOpts`:
+              on :class:`ColorOpts`:
 
               ```python
-              >>> from pyramids.netcdf import ColourOpts
+              >>> from pyramids.netcdf import ColorOpts
               >>> cleo = nc.plot(  # doctest: +SKIP
               ...     variable="t2m",
-              ...     colour=ColourOpts(cmap="viridis", robust=True),
+              ...     colour=ColorOpts(cmap="viridis", robust=True),
               ... )
 
               ```
@@ -1307,9 +1335,9 @@ class NetCDF(Dataset):
               because cleopatra always attaches one:
 
               ```python
-              >>> from pyramids.netcdf import ColourOpts
+              >>> from pyramids.netcdf import ColorOpts
               >>> cleo = nc.plot(  # doctest: +SKIP
-              ...     variable="t2m", colour=ColourOpts(add_colorbar=False),
+              ...     variable="t2m", colour=ColorOpts(add_colorbar=False),
               ... )
 
               ```
@@ -1393,7 +1421,7 @@ class NetCDF(Dataset):
               >>> nc.plot(variable="t2m", animate="bogus")  # doctest: +IGNORE_EXCEPTION_DETAIL
               Traceback (most recent call last):
                   ...
-              ValueError: `animate='bogus'` is not a band dim...
+              KeyError: "`animate='bogus'` is not a band dim..."
 
               ```
 
@@ -1617,7 +1645,7 @@ class NetCDF(Dataset):
                 masked=masked,
             )
             if unpack:
-                result = _apply_unpack(
+                result = apply_unpack(
                     result,
                     getattr(self, "_scale", None),
                     getattr(self, "_offset", None),
@@ -1646,7 +1674,7 @@ class NetCDF(Dataset):
                 lock=lock,
             )
             if unpack:
-                result = _apply_unpack(
+                result = apply_unpack(
                     result,
                     getattr(self, "_scale", None),
                     getattr(self, "_offset", None),
@@ -1663,17 +1691,14 @@ class NetCDF(Dataset):
         like `sel()`, `read_array(unpack=True)`, and further spatial
         operations continue to work with consistent return types.
 
-        Both the legacy single-band-dim fields (`_band_dim_name`,
-        `_band_dim_values`) and the multi-band-dim fields
-        (`_band_dim_names`, `_band_dim_values_map`, `_band_dim_sizes`)
-        are propagated. The legacy length-guard nullifies
-        `_band_dim_values` only when its primary-dim view is provably
-        stale: for single-band-dim variables it compares
-        `len(values) != _band_count`; for multi-band-dim variables it
-        compares `prod(_band_dim_sizes) != _band_count` instead, so a
-        4-D variable whose total band count diverged from the cached
-        sizes (e.g. after a band-shrinking operation outside `sel()`)
-        drops the now-stale primary view.
+        The canonical multi-band-dim fields (`_band_dim_names`,
+        `_band_dim_values_map`, `_band_dim_sizes`) are propagated, and the
+        legacy single-band-dim view (`_band_dim_name`, `_band_dim_values`) is
+        re-derived from them via :meth:`_derive_primary_band_view` against the
+        wrapped result's live band count. That helper is the single place the
+        staleness guard lives: it nullifies the primary coordinate values when
+        they are provably stale for the new band count (e.g. after a
+        band-shrinking operation outside `sel()`).
 
         Args:
             result: The `Dataset` (or `NetCDF`) returned by a parent
@@ -1698,49 +1723,19 @@ class NetCDF(Dataset):
             )
         wrapped._is_md_array = self._is_md_array
         wrapped._is_subset = self._is_subset
-        wrapped._band_dim_name = self._band_dim_name
         wrapped._band_dim_names = self._band_dim_names
         wrapped._band_dim_sizes = self._band_dim_sizes
         wrapped._band_dim_values_map = dict(self._band_dim_values_map)
-        # Length-guard: nullify legacy values only when the primary-dim
-        # view is provably stale. For multi-band-dim variables the
-        # `_band_count` is the product of every band-dim size, so compare
-        # against `prod(_band_dim_sizes)` rather than `len(values)`.
-        expected_count = math.prod(self._band_dim_sizes)
-        if (
-            self._band_dim_values is not None
-            and wrapped._band_count > 0
-            and len(self._band_dim_names) <= 1
-            and len(self._band_dim_values) != wrapped._band_count
-        ):
-            wrapped._band_dim_values = None
-        elif (
-            self._band_dim_values is not None
-            and wrapped._band_count > 0
-            and len(self._band_dim_names) > 1
-            and expected_count != wrapped._band_count
-        ):
-            # Multi-band-dim variable whose total band count diverged from
-            # the cached sizes (e.g. after a band-shrinking operation
-            # outside sel()). Drop the now-stale primary view.
-            wrapped._band_dim_values = None
-        else:
-            wrapped._band_dim_values = self._band_dim_values
-        # Self-heal: if the guard above nulled the legacy values but
-        # the per-dim map still carries an entry of the right length
-        # for the new band count, refill from there. Makes the helper
-        # idempotent under repeat calls and removes the post-call
-        # refill requirement on callers like `sel()` for the
-        # pin-secondary-dim case (where the primary-dim entry in the
-        # map is still valid).
-        if (
-            wrapped._band_dim_values is None
-            and wrapped._band_dim_name is not None
-            and wrapped._band_count > 0
-        ):
-            candidate = wrapped._band_dim_values_map.get(wrapped._band_dim_name)
-            if candidate is not None and len(candidate) == wrapped._band_count:
-                wrapped._band_dim_values = list(candidate)
+        # Re-derive the legacy primary-dim view from the canonical fields against the
+        # wrapped result's live band count: a band-shrinking spatial op may have
+        # diverged the band count from the cached coords, so the staleness guard lives
+        # once in `_derive_primary_band_view` rather than being repeated here.
+        wrapped._band_dim_name, wrapped._band_dim_values = self._derive_primary_band_view(
+            wrapped._band_dim_names,
+            wrapped._band_dim_values_map,
+            wrapped._band_dim_sizes,
+            wrapped._band_count,
+        )
         wrapped._variable_attrs = self._variable_attrs
         wrapped._scale = self._scale
         wrapped._offset = self._offset
@@ -2121,10 +2116,7 @@ class NetCDF(Dataset):
 
                 ```
         """
-        try:
-            md = rg.OpenMDArray(var_name)
-        except RuntimeError:
-            return False
+        md = open_mdarray(rg, var_name)
         if md is None:
             return False
         var_dims = [d.GetName() for d in md.GetDimensions()]
@@ -2135,13 +2127,19 @@ class NetCDF(Dataset):
             or self._named_spatial_axes(var_dims) is not None
         )
 
-    def _spatial_variable_names(self) -> list[str]:
+    def _spatial_variable_names(self, rg: Any = None) -> list[str]:
         """Names of the container's gridded variables (have a recognised (y, x) pair).
 
         Used by every spatial fan-out (``crop`` / ``to_crs`` / ``resample`` /
         ``reduce``) so they act only on griddable variables; the remaining
         non-spatial auxiliary variables are carried through by
         :meth:`_carry_aux_variables`.
+
+        Args:
+            rg: An already-resolved root :class:`osgeo.gdal.Group`. When ``None``
+                (the default) the root group is fetched from the wrapped dataset;
+                callers that already hold it pass it in to avoid a redundant
+                ``GetRootGroup()``.
 
         Returns:
             list[str]: Names of the gridded variables, in declaration order.
@@ -2164,7 +2162,8 @@ class NetCDF(Dataset):
 
                 ```
         """
-        rg = self._raster.GetRootGroup() if self._raster is not None else None
+        if rg is None:
+            rg = self._raster.GetRootGroup() if self._raster is not None else None
         if rg is None:
             return []
         return [n for n in self.variable_names if self._variable_is_spatial(rg, n)]
@@ -2180,10 +2179,7 @@ class NetCDF(Dataset):
             list[str]: The variable's dimension names in storage order, or an
             empty list when the variable is missing or unreadable.
         """
-        try:
-            md = rg.OpenMDArray(var_name)
-        except RuntimeError:
-            return []
+        md = open_mdarray(rg, var_name)
         if md is None:
             return []
         return [d.GetName() for d in md.GetDimensions()]
@@ -2258,17 +2254,21 @@ class NetCDF(Dataset):
             ValueError: If the container has no data variables, or none of them
                 are spatial (have both ``y`` / ``x`` axes).
         """
-        if not self.variable_names:
+        names = self.variable_names
+        if not names:
             raise ValueError(
                 "Cannot apply operation to an empty container (no data variables)."
             )
 
-        spatial_vars = self._spatial_variable_names()
-        aux_vars = [n for n in self.variable_names if n not in spatial_vars]
+        # Resolve the root group once and thread it through the spatial-variable scan
+        # and the aux-variable dimension probe below, instead of re-resolving per call.
+        rg = self._raster.GetRootGroup() if self._raster is not None else None
+        spatial_vars = self._spatial_variable_names(rg)
+        aux_vars = [n for n in names if n not in spatial_vars]
         if not spatial_vars:
             raise ValueError(
                 f"{operation}() needs at least one spatial (y, x) variable; none of "
-                f"{self.variable_names} have both spatial axes."
+                f"{names} have both spatial axes."
             )
 
         # A variable with >= 2 *unrecognised* axes is likely a grid whose axes
@@ -2276,7 +2276,6 @@ class NetCDF(Dataset):
         # carried through untransformed — warn. Axes that are clearly non-spatial
         # (time / vertical / ensemble / bounds) don't count, so a legitimately
         # non-spatial N-D aux variable (e.g. (time, level)) does not trip the warning.
-        rg = self._raster.GetRootGroup()
         demoted = []
         for n in aux_vars:
             unknown_axes = [
@@ -2362,11 +2361,7 @@ class NetCDF(Dataset):
                     epsg=var_result.epsg,
                     no_data_value=var_ndv_scalar,
                 )
-                ds._band_dim_name = var._band_dim_name
-                ds._band_dim_values = var._band_dim_values
-                ds._band_dim_names = var._band_dim_names
-                ds._band_dim_values_map = dict(var._band_dim_values_map)
-                ds._band_dim_sizes = var._band_dim_sizes
+                NetCDF._copy_band_dim_metadata(ds, var)
                 result.set_variable(var_name, ds)
 
         self._carry_aux_variables(result, aux_vars, operation)
@@ -2446,16 +2441,19 @@ class NetCDF(Dataset):
         """
         if how not in _REDUCERS:
             raise ValueError(f"how must be one of {sorted(_REDUCERS)}; got {how!r}")
-        if not self.variable_names:
+        names = self.variable_names
+        if not names:
             raise ValueError("Cannot reduce an empty container (no data variables).")
 
         group_positions = self._resolve_group_positions(dim, groupby)
 
         # Reduce only the gridded variables; non-spatial auxiliaries (no y/x axes)
         # can't go through the raster reduce path, so they are carried through
-        # unchanged below — the same split crop / to_crs use (#513).
-        spatial_vars = self._spatial_variable_names()
-        aux_vars = [n for n in self.variable_names if n not in spatial_vars]
+        # unchanged below — the same split crop / to_crs use (#513). Resolve the root
+        # group once and reuse it for the spanning-aux probe further down.
+        rg = self._raster.GetRootGroup() if self._raster is not None else None
+        spatial_vars = self._spatial_variable_names(rg)
+        aux_vars = [n for n in names if n not in spatial_vars]
 
         result = None
         found = False
@@ -2502,7 +2500,6 @@ class NetCDF(Dataset):
         # verbatim — they would keep the full-length axis while the gridded
         # variables collapse it, leaving an inconsistent dimension length. Drop
         # those with a warning; carry the rest unchanged.
-        rg = self._raster.GetRootGroup()
         carry_aux: list[str] = []
         spanning_aux: list[str] = []
         for name in aux_vars:
@@ -2521,10 +2518,7 @@ class NetCDF(Dataset):
     @staticmethod
     def _scalar_no_data_value(no_data_value: Any) -> Any:
         """Return a single NoData value from a per-band list/tuple or scalar."""
-        result = no_data_value
-        if isinstance(no_data_value, (list, tuple)) and no_data_value:
-            result = no_data_value[0]
-        return result
+        return scalar_no_data(no_data_value)
 
     @staticmethod
     def _materialize_variable_array(var: NetCDF) -> np.ndarray:
@@ -2681,13 +2675,17 @@ class NetCDF(Dataset):
                 else arr
             )
             ds = Dataset.create_from_array(flat, geo=geo, epsg=epsg, no_data_value=ndv)
-            ds._band_dim_name = band_names[0] if band_names else None
-            ds._band_dim_values = values_map.get(band_names[0]) if band_names else None
             ds._band_dim_names = tuple(band_names)
             ds._band_dim_values_map = {
                 name: values_map.get(name) for name in band_names
             }
             ds._band_dim_sizes = tuple(arr.shape[i] for i in range(len(band_names)))
+            ds._band_dim_name, ds._band_dim_values = NetCDF._derive_primary_band_view(
+                ds._band_dim_names,
+                ds._band_dim_values_map,
+                ds._band_dim_sizes,
+                ds._band_count,
+            )
             result.set_variable(var_name, ds)
         return result
 
@@ -3027,15 +3025,22 @@ class NetCDF(Dataset):
 
         selected_coords = [coords[i] for i in dim_indices]
 
-        # Read only the selected bands instead of loading the full array.
-        # Each band index maps to a 1-based GDAL band in the classic
-        # dataset view created by get_variable(). Band-by-band reads
-        # avoid loading the entire variable into memory.
-        band_arrays = [self.read_array(band=i) for i in band_indices]
-        if len(band_arrays) == 1:
-            selected = band_arrays[0]
+        # Read only the selected classic bands, straight into one pre-allocated buffer
+        # (mirroring the all-bands read path in ``IO.read_array``) instead of N
+        # ``read_array()`` calls collected into a list and then ``np.stack``-ed — that
+        # allocated N throwaway arrays and copied them all a second time. Each 0-based
+        # band index maps to a 1-based GDAL band in the classic dataset view built by
+        # ``get_variable()``; reading only the selected bands still avoids materialising
+        # the whole variable.
+        if len(band_indices) == 1:
+            selected = self._iloc(band_indices[0]).ReadAsArray()
         else:
-            selected = np.stack(band_arrays, axis=0)
+            selected = np.empty(
+                (len(band_indices), self.rows, self.columns),
+                dtype=self.numpy_dtype[0],
+            )
+            for out_i, band_index in enumerate(band_indices):
+                selected[out_i, :, :] = self._iloc(band_index).ReadAsArray()
 
         ndv = self.no_data_value
         ndv_scalar = ndv[0] if isinstance(ndv, list) and ndv else ndv
@@ -3052,12 +3057,15 @@ class NetCDF(Dataset):
         result._band_dim_sizes = new_sizes
         result._band_dim_values_map = dict(self._band_dim_values_map)
         result._band_dim_values_map[dim_name] = selected_coords
-        # Refresh legacy primary-dim values to match the (possibly
-        # updated) primary entry in the map. `_band_dim_name` is
-        # guaranteed non-None here: entry to `sel()` requires
-        # `_band_dim_names` to be non-empty, and the build path always
-        # sets `_band_dim_name = _band_dim_names[0]`.
-        result._band_dim_values = result._band_dim_values_map.get(result._band_dim_name)
+        # Re-derive the legacy primary-dim view from the (now updated) canonical
+        # fields so it tracks the pinned selection — single source of truth in
+        # `_derive_primary_band_view`.
+        result._band_dim_name, result._band_dim_values = self._derive_primary_band_view(
+            result._band_dim_names,
+            result._band_dim_values_map,
+            result._band_dim_sizes,
+            result._band_count,
+        )
 
         return result
 
@@ -3276,7 +3284,7 @@ class NetCDF(Dataset):
     ) -> dict:
         """Emit a kerchunk JSON reference manifest for this file.
 
-        Thin forwarder to :func:`pyramids.netcdf._kerchunk.to_kerchunk`
+        Thin forwarder to :func:`pyramids.netcdf._kerchunk_facade.to_kerchunk`
         using `self._file_name` as the source path. Requires the
         `[lazy]` optional extra.
 
@@ -3309,7 +3317,7 @@ class NetCDF(Dataset):
         """Emit a combined kerchunk manifest spanning many NetCDFs.
 
         Thin forwarder to
-        :func:`pyramids.netcdf._kerchunk.combine_kerchunk`. Requires
+        :func:`pyramids.netcdf._kerchunk_facade.combine_kerchunk`. Requires
         the `[lazy]` optional extra.
 
         Args:
@@ -3568,15 +3576,7 @@ class NetCDF(Dataset):
             rg: The root group (kept alive to prevent SWIG GC).
             md_arr: The MDArray to check.
         """
-        result = False
-        dims = md_arr.GetDimensions()
-        if len(dims) >= 2:
-            try:
-                src = md_arr.AsClassicDataset(len(dims) - 1, len(dims) - 2, rg)
-                result = src.GetGeoTransform()[5] > 0
-            except Exception:
-                pass
-        return result
+        return needs_y_flip(rg, md_arr)
 
     def _read_variable(
         self,
@@ -3624,7 +3624,7 @@ class NetCDF(Dataset):
                         if window is None and self._needs_y_flip(rg, md_arr):
                             y_axis = result.ndim - 2
                             result = np.flip(result, axis=y_axis)
-            except Exception:
+            except (RuntimeError, ValueError):
                 pass  # nosec B110
             # Fall back to dimension indexing variable
             if result is None:
@@ -3668,7 +3668,7 @@ class NetCDF(Dataset):
                 names = rg.GetGroupNames()
                 if names:
                     result = list(names)
-            except Exception:
+            except RuntimeError:
                 pass
         return result
 
@@ -3700,7 +3700,7 @@ class NetCDF(Dataset):
         for part in parts:
             try:
                 group = group.OpenGroup(part)
-            except Exception:
+            except RuntimeError:
                 group = None
             if group is None:
                 raise ValueError(
@@ -3767,6 +3767,20 @@ class NetCDF(Dataset):
         return result
 
     def get_variable_names(self) -> list[str]:
+        """Deprecated alias for the :attr:`variable_names` property (API-3).
+
+        Returns:
+            list[str]: Same value as :attr:`variable_names`.
+        """
+        warnings.warn(
+            "get_variable_names() is deprecated; use the `variable_names` property "
+            "instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.variable_names
+
+    def _get_variable_names(self) -> list[str]:
         """Return names of data variables, excluding dimension coordinates.
 
         Uses CF classification when metadata is cached (fast path).
@@ -3782,23 +3796,43 @@ class NetCDF(Dataset):
         else:
             rg = self._raster.GetRootGroup()
             if rg is not None:
-                all_names = rg.GetMDArrayNames()
-                dim_names = {dim.GetName() for dim in rg.GetDimensions()}
-                filtered = []
-                for var in all_names:
-                    if var in dim_names:
-                        continue
-                    md_arr = rg.OpenMDArray(var)
-                    if md_arr is not None and len(md_arr.GetDimensions()) == 0:
-                        continue
-                    filtered.append(var)
-                variable_names = filtered
+                variable_names = self._mdim_data_variable_names(rg)
             else:
-                variable_names = [
-                    var[1].split(" ")[1] for var in self._raster.GetSubDatasets()
-                ]
-
+                variable_names = self._classic_subdataset_variable_names()
         return variable_names
+
+    @staticmethod
+    def _mdim_data_variable_names(rg) -> list[str]:
+        """Data-variable names from an MDIM root group.
+
+        Drops dimension coordinate arrays and 0-dimensional scalar variables
+        (e.g. `grid_mapping` holders) so only true data variables remain.
+
+        Args:
+            rg: The store's multidimensional root :class:`osgeo.gdal.Group`.
+
+        Returns:
+            list[str]: Names of the data variables in `rg`.
+        """
+        dim_names = {dim.GetName() for dim in rg.GetDimensions()}
+        filtered = []
+        for var in rg.GetMDArrayNames():
+            if var in dim_names:
+                continue
+            md_arr = rg.OpenMDArray(var)
+            if md_arr is not None and len(md_arr.GetDimensions()) == 0:
+                continue
+            filtered.append(var)
+        return filtered
+
+    def _classic_subdataset_variable_names(self) -> list[str]:
+        """Data-variable names parsed from classic-mode subdataset metadata.
+
+        Returns:
+            list[str]: The variable name from each `gdal.Dataset.GetSubDatasets()`
+            entry (the second whitespace-delimited token of its description).
+        """
+        return [var[1].split(" ")[1] for var in self._raster.GetSubDatasets()]
 
     @staticmethod
     def _dimension_index(dim_names: list[str], target: str) -> int:
@@ -3824,32 +3858,19 @@ class NetCDF(Dataset):
 
         Reads the CF attributes of the dimension's coordinate (indexing) variable —
         ``axis`` (``X``/``Y``), ``standard_name`` (``longitude``/``latitude``), or
-        ``units`` (``degrees_east``/``degrees_north``). Returns ``None`` when the
+        ``units`` (``degrees_east``/``degrees_north``) — and classifies them through the
+        shared :func:`pyramids.netcdf.cf.detect_axis` heuristic. Returns ``None`` when the
         role cannot be determined.
         """
-        # Guard-clause/early-return style is intentional here: it keeps cognitive complexity
-        # below SonarCloud's S3776 threshold (a single-return rewrite nests the attribute scan and
-        # the role tests, pushing it over the limit).
         indexing_var = dim.GetIndexingVariable()
         if indexing_var is None:
             return None
-        attrs: dict[str, Any] = {}
-        try:
-            for attr in indexing_var.GetAttributes():
-                attrs[attr.GetName()] = attr.Read()
-        except RuntimeError:
-            return None
-
-        def text(key: str) -> str:
-            value = attrs.get(key)
-            return value.strip().lower() if isinstance(value, str) else ""
-
-        axis, standard_name, units = text("axis"), text("standard_name"), text("units")
-        if axis == "x" or standard_name == "longitude" or units.startswith("degrees_e"):
-            return "X"
-        if axis == "y" or standard_name == "latitude" or units.startswith("degrees_n"):
-            return "Y"
-        return None
+        # Attribute-only detection (empty ``name`` disables the name-pattern fallback) so the
+        # CF-attribute vs. dimension-name stages stay separated, matching the historical pipeline.
+        # Filter to the spatial roles this classifier promises (``detect_axis`` can also return
+        # ``"T"``/``"Z"``), mirroring the MDIM ``_axis_role`` sibling so callers see only X/Y/None.
+        role = detect_axis("", _read_attributes(indexing_var))
+        return role if role in ("X", "Y") else None
 
     @staticmethod
     def _detect_axis_indices(dims) -> tuple[int | None, int | None]:
@@ -4246,8 +4267,12 @@ class NetCDF(Dataset):
         cube._band_dim_values_map = {
             d.GetName(): NetCDF._read_band_dim_values(d) for d in band_dims
         }
-        cube._band_dim_name = cube._band_dim_names[0]
-        cube._band_dim_values = cube._band_dim_values_map[cube._band_dim_name]
+        cube._band_dim_name, cube._band_dim_values = NetCDF._derive_primary_band_view(
+            cube._band_dim_names,
+            cube._band_dim_values_map,
+            cube._band_dim_sizes,
+            cube._band_count,
+        )
 
     @staticmethod
     def _read_band_dim_values(dim):
@@ -4267,18 +4292,97 @@ class NetCDF(Dataset):
     @staticmethod
     def _copy_variable_attrs(cube: NetCDF, md_arr) -> None:
         """Copy the variable's attributes and CF `scale`/`offset` packing onto the subset."""
-        cube._variable_attrs = {}
-        try:
-            for attr in md_arr.GetAttributes():
-                cube._variable_attrs[attr.GetName()] = attr.Read()
-        except Exception:  # nosec B110
-            pass
+        cube._variable_attrs = _read_attributes(md_arr)
         try:
             cube._scale = md_arr.GetScale()
             cube._offset = md_arr.GetOffset()
-        except Exception:
+        except (RuntimeError, AttributeError):
             cube._scale = None
             cube._offset = None
+
+    def _writable_root_group(self) -> tuple[gdal.Dataset, gdal.Group]:
+        """Return a ``(dataset, root_group)`` pair that is safe to mutate.
+
+        A file-backed netCDF root group is opened in "data mode", which rejects
+        ``CreateMDArray`` / ``DeleteMDArray`` / ``CreateDimension``. So for a file-backed
+        container this copies the store into an in-memory ``MEM`` raster and returns that;
+        an already in-memory container is returned as-is. The caller is responsible for
+        swapping the returned dataset in via :meth:`_replace_raster`.
+
+        Returns:
+            tuple: The writable :class:`osgeo.gdal.Dataset` and its root group.
+        """
+        if self.driver_type == "memory":
+            dst = self._raster
+        else:
+            dst = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
+        return dst, dst.GetRootGroup()
+
+    @staticmethod
+    def _derive_primary_band_view(
+        names: tuple[str, ...],
+        values_map: dict[str, list[Any] | None],
+        sizes: tuple[int, ...],
+        band_count: int,
+    ) -> tuple[str | None, list[Any] | None]:
+        """Derive the legacy ``(_band_dim_name, _band_dim_values)`` view from the canonical fields.
+
+        The legacy single-band-dim pair is a *view* of the canonical multi-band-dim
+        state: the name is the first (primary) band dimension and the values are that
+        dim's entry in ``values_map``. This staticmethod is the single source of truth
+        for that derivation — it replaces the per-call-site reconciliation that the
+        wrap/build/``sel`` paths used to repeat. The primary coordinate values are
+        exposed only when they are provably current for ``band_count``; otherwise they
+        come back ``None`` because a band-shrinking operation left the cached primary
+        view stale.
+
+        Args:
+            names: Canonical band-dimension names (``_band_dim_names``); the first is
+                the primary dim the legacy view points at.
+            values_map: Per-dim coordinate values (``_band_dim_values_map``).
+            sizes: Per-dim sizes (``_band_dim_sizes``); their product is the expected
+                band count for a multi-band-dim variable.
+            band_count: The live band count of the backing raster.
+
+        Returns:
+            tuple: ``(name, values)`` for the primary band dim. ``name`` is ``None``
+            when there is no band dimension; ``values`` is ``None`` when there are no
+            coordinates or the cached primary view is stale for ``band_count``.
+        """
+        name = names[0] if names else None
+        if name is None:
+            return None, None
+        values = values_map.get(name)
+        if values is None or band_count <= 0:
+            return name, values
+        if len(names) > 1:
+            # Multi-band-dim: the primary view is valid iff the product of the cached
+            # sizes still equals the live band count (e.g. a band-shrinking op outside
+            # ``sel()`` would diverge them, making the cached primary view stale).
+            return name, (values if math.prod(sizes) == band_count else None)
+        # Single-band-dim: valid iff the values' own length matches the band count.
+        return name, (values if len(values) == band_count else None)
+
+    @staticmethod
+    def _copy_band_dim_metadata(dst: Any, src: Any) -> None:
+        """Copy the band-dimension bookkeeping from ``src`` onto ``dst``.
+
+        Carries the multi-band-dim fields (``_band_dim_names`` / ``_band_dim_values_map``
+        / ``_band_dim_sizes``) and re-derives the legacy single-band-dim view
+        (``_band_dim_name`` / ``_band_dim_values``) from them via
+        :meth:`_derive_primary_band_view`, so a derived view keeps the same non-spatial
+        axis layout. The values map is shallow-copied so the two objects don't share a
+        mutable dict.
+        """
+        dst._band_dim_names = src._band_dim_names
+        dst._band_dim_values_map = dict(src._band_dim_values_map)
+        dst._band_dim_sizes = src._band_dim_sizes
+        dst._band_dim_name, dst._band_dim_values = NetCDF._derive_primary_band_view(
+            dst._band_dim_names,
+            dst._band_dim_values_map,
+            dst._band_dim_sizes,
+            dst._band_count,
+        )
 
     def _replace_raster(self, new_raster: gdal.Dataset):
         """Replace the internal GDAL dataset, closing the old one if different.
@@ -4320,6 +4424,10 @@ class NetCDF(Dataset):
         """Invalidate cached variables and metadata."""
         self._cached_variables = None
         self._cached_meta_data = None
+        # Clear the per-variable geostationary geotransform cache too: it is keyed by
+        # variable name and derived from the backing geometry, so it must not survive a
+        # raster swap / in-place update that could change that geometry (latent staleness).
+        self._geostationary_gt_cache = {}
 
     @property
     def is_subset(self) -> bool:
@@ -4695,7 +4803,7 @@ class NetCDF(Dataset):
         )
 
         if arr.ndim == 3:
-            DimMetaData(
+            ClassicDimensionInfo(
                 name=resolved_extra_dims[0][0],
                 size=arr.shape[0],
                 values=resolved_extra_dims[0][1],
@@ -5121,7 +5229,7 @@ class NetCDF(Dataset):
             if ndv is not None:
                 try:
                     new_md_array.SetNoDataValueDouble(ndv)
-                except Exception:
+                except (RuntimeError, TypeError, ValueError):
                     pass
             new_md_array.SetSpatialRef(src_mdarray.GetSpatialRef())
             NetCDF._copy_md_array_attributes(src_mdarray, new_md_array)
@@ -5171,13 +5279,8 @@ class NetCDF(Dataset):
             dict[str, Any]: Key-value mapping of global attributes.
         """
         rg = self._raster.GetRootGroup()
-        result = {}
         if rg is not None:
-            try:
-                for attr in rg.GetAttributes():
-                    result[attr.GetName()] = attr.Read()
-            except Exception:
-                pass
+            result = _read_attributes(rg)
         else:
             result = dict(self._raster.GetMetadata())
         return result
@@ -5206,7 +5309,7 @@ class NetCDF(Dataset):
         # Delete existing attribute if present (GDAL raises on duplicate)
         try:
             rg.DeleteAttribute(name)
-        except Exception:
+        except RuntimeError:
             pass
         if isinstance(value, str):
             attr = rg.CreateAttribute(name, [], gdal.ExtendedDataType.CreateString())
@@ -5242,7 +5345,7 @@ class NetCDF(Dataset):
             )
         try:
             rg.DeleteAttribute(name)
-        except Exception:
+        except RuntimeError:
             pass  # attribute may not exist — silently ignored
         self._invalidate_caches()
 
@@ -5289,9 +5392,8 @@ class NetCDF(Dataset):
         # CreateMDArray / DeleteMDArray / CreateDimension are rejected on a file-backed group (netCDF
         # data mode); operate on a writable MEM copy and swap it in, like remove_variable (#587).
         if self.driver_type != "memory":
-            work = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
+            work, rg = self._writable_root_group()
             self._replace_raster(work)
-            rg = self._raster.GetRootGroup()
 
         # Auto-detect from tracked origin metadata (RT-4)
         if band_dim_name is None and hasattr(dataset, "_band_dim_name"):
@@ -5393,7 +5495,7 @@ class NetCDF(Dataset):
         if dataset.no_data_value and dataset.no_data_value[0] is not None:
             try:
                 md_arr.SetNoDataValueDouble(float(dataset.no_data_value[0]))
-            except Exception:
+            except (RuntimeError, TypeError, ValueError):
                 pass  # nosec B110
 
         # Set variable attributes (RT-7)
@@ -5460,11 +5562,7 @@ class NetCDF(Dataset):
             epsg=reprojected.epsg,
             no_data_value=ndv_scalar,
         )
-        materialized._band_dim_name = var._band_dim_name
-        materialized._band_dim_values = var._band_dim_values
-        materialized._band_dim_names = var._band_dim_names
-        materialized._band_dim_values_map = dict(var._band_dim_values_map)
-        materialized._band_dim_sizes = var._band_dim_sizes
+        NetCDF._copy_band_dim_metadata(materialized, var)
         materialized._variable_attrs = var._variable_attrs
         self.set_variable(variable_name, materialized)
         return self
@@ -5517,11 +5615,7 @@ class NetCDF(Dataset):
         # A file-backed root group is opened in netCDF "data mode", which forbids
         # CreateMDArray; operate on a writable MEM copy and swap it in, mirroring
         # remove_variable.
-        if self.driver_type == "memory":
-            dst = self._raster
-        else:
-            dst = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
-        dst_rg = dst.GetRootGroup()
+        dst, dst_rg = self._writable_root_group()
 
         for var in names_to_copy:
             md_arr = var_rg.OpenMDArray(var)
@@ -5544,12 +5638,7 @@ class NetCDF(Dataset):
         Args:
             variable_name: Name of the variable to remove.
         """
-        if self.driver_type == "memory":
-            dst = self._raster
-        else:
-            dst = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
-
-        rg = dst.GetRootGroup()
+        dst, rg = self._writable_root_group()
         rg.DeleteMDArray(variable_name)
 
         self._replace_raster(dst)
@@ -5580,12 +5669,7 @@ class NetCDF(Dataset):
 
         # CreateMDArray is rejected on a file-backed group (netCDF data mode);
         # work on a writable MEM copy and swap it in, like remove_variable.
-        if self.driver_type == "memory":
-            dst = self._raster
-        else:
-            dst = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
-
-        rg = dst.GetRootGroup()
+        dst, rg = self._writable_root_group()
         md_arr = rg.OpenMDArray(old_name)
         self._add_md_array_to_group(rg, new_name, md_arr)
         rg.DeleteMDArray(old_name)
@@ -5655,12 +5739,7 @@ class NetCDF(Dataset):
             iv = d.GetIndexingVariable()
             if iv is None:
                 continue
-            coord_attrs: dict[str, Any] = {}
-            try:
-                for attr in iv.GetAttributes():
-                    coord_attrs[attr.GetName()] = attr.Read()
-            except Exception:
-                pass
+            coord_attrs = _read_attributes(iv)
             unit = iv.GetUnit()
             if unit and "units" not in coord_attrs:
                 coord_attrs["units"] = unit
@@ -5674,12 +5753,7 @@ class NetCDF(Dataset):
             arr_dims = md_arr.GetDimensions() or []
             arr_dim_names = [ad.GetName() for ad in arr_dims]
             arr_data = self._md_array_to_numpy(md_arr)
-            var_attrs: dict[str, Any] = {}
-            try:
-                for attr in md_arr.GetAttributes():
-                    var_attrs[attr.GetName()] = attr.Read()
-            except Exception:
-                pass
+            var_attrs = _read_attributes(md_arr)
             # GDAL's netCDF driver normalises the CF `units` attribute
             # to MDArray.GetUnit() / SetUnit() rather than a regular
             # attribute. Merge it back into var_attrs for a clean
@@ -5707,14 +5781,15 @@ class NetCDF(Dataset):
         y_dim: str | None = None,
         x_dim: str | None = None,
         **dims: int | tuple[int, int] | slice,
-    ) -> Dataset:
+    ) -> NetCDF:
         """Read a windowed ``(variable, time, bbox)`` slice of a gridded cube.
 
         Reads only the requested window from a CF/GeoZarr ``(time, y, x[, …])``
         multidimensional store — local or remote — without materialising the
-        whole variable, and returns a georeferenced
-        :class:`~pyramids.dataset.Dataset` ready for ``to_file`` / ``to_cog`` /
-        ``to_crs`` / ``crop``.
+        whole variable, and returns a georeferenced single-variable
+        :class:`~pyramids.netcdf.NetCDF` ready for ``to_file`` / ``to_cog`` /
+        ``to_crs`` / ``crop`` (a ``Dataset`` subclass, so existing
+        ``isinstance(result, Dataset)`` checks keep working).
 
         Designed for huge cloud cubes (e.g. the NWM retrospective
         ``ldasout.zarr``, an 18 TiB ``(128568, 3840, 4608)`` store) opened
@@ -5757,8 +5832,8 @@ class NetCDF(Dataset):
                 A key that is not a selectable non-spatial dimension is an error.
 
         Returns:
-            Dataset: A georeferenced raster on the store's native CRS — one band
-            per selected timestep, with the native no-data value applied.
+            NetCDF: A georeferenced single-variable raster on the store's native CRS —
+            one band per selected timestep, with the native no-data value applied.
 
         Raises:
             ValueError: When the store is not multidimensional; when ``variable``
@@ -5792,10 +5867,7 @@ class NetCDF(Dataset):
                 "subset() requires a multidimensional store; open with "
                 "open_as_multi_dimensional=True."
             )
-        try:
-            md_arr = rg.OpenMDArray(variable)
-        except RuntimeError:
-            md_arr = None
+        md_arr = open_mdarray(rg, variable)
         if md_arr is None:
             raise ValueError(
                 f"{variable!r} is not a variable in this store; available: "
@@ -5876,13 +5948,19 @@ class NetCDF(Dataset):
             epsg=4326,
             no_data_value=no_data if no_data is not None else DEFAULT_NO_DATA_VALUE,
         )
+        # API-2: return a NetCDF (consistent with crop / to_crs / resample / sel) rather
+        # than a bare Dataset. Wrap the just-built classic raster as a classic-backed
+        # NetCDF and transfer ownership (clear ds._raster so the discarded Dataset does
+        # not close the handle the NetCDF now holds); band/CRS semantics are identical.
+        result = NetCDF(ds._raster, access="write", open_as_multi_dimensional=False)
+        ds._raster = None
         # The grid mapping carries the true CRS (e.g. a sphere-datum Lambert
         # Conformal Conic with no EPSG code); prefer it over the 4326 placeholder.
         if srs is not None:
-            ds.crs = srs.ExportToWkt()
-        if band_labels and len(band_labels) == ds.band_count:
-            ds.band_names = band_labels
-        return ds
+            result.crs = srs.ExportToWkt()
+        if band_labels and len(band_labels) == result.band_count:
+            result.band_names = band_labels
+        return result
 
     @staticmethod
     def _plan_band_slices(
@@ -6027,32 +6105,14 @@ class NetCDF(Dataset):
                 >>> nc._axis_role(nc._raster.GetRootGroup(), "lat")  # doctest: +SKIP
                 'Y'
         """
-        try:
-            coord = rg.OpenMDArray(name)
-        except RuntimeError:
-            coord = None
+        coord = open_mdarray(rg, name)
         if coord is None:
             return None
-        attrs: dict[str, str] = {}
-        for attr in coord.GetAttributes():
-            try:
-                attrs[attr.GetName().lower()] = attr.ReadAsString().lower()
-            except (RuntimeError, AttributeError):
-                continue
-        axis = attrs.get("axis")
-        if axis in ("y", "x"):
-            return axis.upper()
-        standard = attrs.get("standard_name", "")
-        units = attrs.get("units", "")
-        if standard in ("latitude", "projection_y_coordinate", "grid_latitude") or (
-            units in ("degrees_north", "degree_north", "degrees_n", "degree_n")
-        ):
-            return "Y"
-        if standard in ("longitude", "projection_x_coordinate", "grid_longitude") or (
-            units in ("degrees_east", "degree_east", "degrees_e", "degree_e")
-        ):
-            return "X"
-        return None
+        # Attribute-only detection (empty ``name`` disables the name-pattern fallback): the
+        # name-based stage lives in ``_named_spatial_axes`` and must stay separate so the
+        # CF-attribute pass keeps precedence over it.
+        role = detect_axis("", _read_attributes(coord))
+        return role if role in ("X", "Y") else None
 
     @staticmethod
     def _detect_spatial_axes(
@@ -6241,10 +6301,7 @@ class NetCDF(Dataset):
         Raises:
             ValueError: When the dimension has no readable 1-D coordinate array.
         """
-        try:
-            coord = rg.OpenMDArray(name)
-        except RuntimeError:
-            coord = None
+        coord = open_mdarray(rg, name)
         values = None if coord is None else coord.ReadAsArray()
         if values is None:
             raise ValueError(

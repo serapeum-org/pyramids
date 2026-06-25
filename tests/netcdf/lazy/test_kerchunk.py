@@ -68,7 +68,7 @@ class TestToKerchunkSingleFile:
         translator rather than crash. A non-existent path stands in for a remote
         URL without needing the network.
         """
-        from pyramids.netcdf._kerchunk import to_kerchunk
+        from pyramids.netcdf._kerchunk_facade import to_kerchunk
 
         missing = tmp_path / "does_not_exist.nc"  # os.path.exists -> False
         # native build raises OSError -> fallback warning; the kerchunk translator
@@ -86,7 +86,7 @@ class TestToKerchunkSingleFile:
         """
         import warnings
 
-        from pyramids.netcdf._kerchunk import to_kerchunk
+        from pyramids.netcdf._kerchunk_facade import to_kerchunk
 
         not_hdf5 = tmp_path / "plain.txt"
         not_hdf5.write_text("this is not an HDF5 file")
@@ -109,6 +109,29 @@ class TestCombineKerchunk:
             identical_dims=(),
         )
         assert out.exists()
+        combined = json.loads(out.read_text())
+        assert "refs" in combined or "version" in combined
+
+    @requires_kerchunk
+    def test_combine_multi_concat_dim_falls_back_to_kerchunk(self, tmp_path):
+        """Multi-dim concat falls back from the native combine to the kerchunk translator (gap G8).
+
+        Test scenario:
+            The native combine supports exactly one concat dimension; passing two raises a
+            ``ValueError`` inside ``_native``, which ``_native_or_fallback`` turns into a
+            ``UserWarning`` and a retry through the kerchunk translator. Assert the warning
+            fires and a manifest is still written (the fallback arm — previously only the
+            single-file ``to_kerchunk`` OSError arm was tested).
+        """
+        out = tmp_path / "combined_multi.json"
+        with pytest.warns(UserWarning, match="falling back to the kerchunk"):
+            NetCDF.combine_kerchunk(
+                [FIXTURE, FIXTURE],
+                out,
+                concat_dims=("bands", "x"),
+                identical_dims=(),
+            )
+        assert out.exists(), "fallback combine must still write a manifest"
         combined = json.loads(out.read_text())
         assert "refs" in combined or "version" in combined
 
@@ -138,7 +161,7 @@ class TestImportError:
         """Explicitly forcing the kerchunk backend still requires kerchunk."""
         import builtins
 
-        from pyramids.netcdf._kerchunk import to_kerchunk
+        from pyramids.netcdf._kerchunk_facade import to_kerchunk
 
         real_import = builtins.__import__
 
@@ -157,7 +180,7 @@ class TestImportError:
         """Forcing the kerchunk backend on combine still requires kerchunk."""
         import builtins
 
-        from pyramids.netcdf._kerchunk import combine_kerchunk
+        from pyramids.netcdf._kerchunk_facade import combine_kerchunk
 
         real_import = builtins.__import__
 

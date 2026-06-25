@@ -16,6 +16,7 @@ from pyramids.netcdf.utils import (
     _get_coord_variable_names,
     _get_group_name,
     _read_attributes,
+    resolve_full_name,
 )
 
 
@@ -246,14 +247,7 @@ class DimensionInfo:
         except Exception:
             dim_name = ""
 
-        try:
-            dim_full_name = d.GetFullName()
-        except Exception:
-            dim_full_name = (
-                f"{group_full_name}/{dim_name}"
-                if group_full_name != "/"
-                else f"/{dim_name}"
-            )
+        dim_full_name = resolve_full_name(d, group_full_name, dim_name)
 
         try:
             dim_size = int(d.GetSize())
@@ -296,6 +290,56 @@ class DimensionInfo:
             direction=dim_dir,
             indexing_variable=ivname,
             attrs=iv_attrs,
+        )
+
+    @classmethod
+    def from_classic_metadata(cls, classic: Any) -> DimensionInfo:
+        """Build the canonical `DimensionInfo` from a classic-driver dimension model.
+
+        `DimensionInfo` is the single canonical dimension model (API-7). This factory
+        bridges :class:`pyramids.netcdf.dimensions.ClassicDimensionInfo` — parsed from the
+        classic netCDF driver's flattened ``NETCDF_DIM_*`` / ``<name>#<attr>`` metadata —
+        onto it, so code holding the classic representation can move to the one model. The
+        classic metadata exposes no GDAL dimension ``type`` / ``direction`` or
+        indexing-variable, so those are ``None``; ``name``, ``size`` and the parsed
+        per-dimension ``attrs`` carry over. The classic-only ``values`` / ``def_fields``
+        have no place on the structural model and are dropped.
+
+        Args:
+            classic: A classic dimension model exposing ``name``, ``size`` and ``attrs``
+                (e.g. :class:`ClassicDimensionInfo`).
+
+        Returns:
+            DimensionInfo: The canonical metadata for the dimension.
+
+        Examples:
+            - Convert a classic dimension model into the canonical one:
+                ```python
+                >>> from pyramids.netcdf.dimensions import ClassicDimensionInfo
+                >>> from pyramids.netcdf.models import DimensionInfo
+                >>> classic = ClassicDimensionInfo(
+                ...     name="time", size=2, values=[0, 31], attrs={"axis": "T"}
+                ... )
+                >>> dim = DimensionInfo.from_classic_metadata(classic)
+                >>> dim.name, dim.size, dim.full_name
+                ('time', 2, '/time')
+                >>> dim.attrs["axis"]
+                'T'
+
+                ```
+        """
+        name = classic.name
+        # The classic parser leaves `size` as None when no `DEF` size is present, but
+        # `DimensionInfo.size` is typed `int`; coerce a missing size to 0 so the canonical
+        # model never violates its own annotation (it has no __post_init__ validation).
+        return cls(
+            name=name,
+            full_name=f"/{name}",
+            size=getattr(classic, "size", None) or 0,
+            type=None,
+            direction=None,
+            indexing_variable=None,
+            attrs=dict(getattr(classic, "attrs", {}) or {}),
         )
 
 
@@ -455,14 +499,7 @@ class VariableInfo:
         except Exception:
             resolved_name = md_arr_name
 
-        try:
-            md_arr_full_name = md_arr.GetFullName()
-        except Exception:
-            md_arr_full_name = (
-                f"{group_full_name}/{resolved_name}"
-                if group_full_name != "/"
-                else f"/{resolved_name}"
-            )
+        md_arr_full_name = resolve_full_name(md_arr, group_full_name, resolved_name)
 
         # dtype
         try:
@@ -614,7 +651,7 @@ class StructuralInfo:
 MAX_DISPLAY_VARIABLES = 10
 
 
-@dataclass
+@dataclass(frozen=True)
 class CFInfo:
     """CF convention metadata derived by cross-referencing variables.
 

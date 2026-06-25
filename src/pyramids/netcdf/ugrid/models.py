@@ -13,6 +13,10 @@ from typing import Any
 
 import numpy as np
 
+#: Default UGRID mesh-topology variable name used when a file/in-memory mesh has no
+#: explicit name (the de-facto convention written by Deltares D-Flow FM and others).
+DEFAULT_MESH_NAME = "mesh2d"
+
 
 @dataclass(frozen=True)
 class MeshTopologyInfo:
@@ -166,19 +170,34 @@ class MeshVariable:
         """
         if not self.has_time:
             raise ValueError(f"Variable '{self.name}' has no time dimension.")
-        sliced_data = self.data[start:stop]
-        result = MeshVariable(
+        return self.with_data(self.data[start:stop])
+
+    def with_data(self, data: np.ndarray | None) -> MeshVariable:
+        """Return a copy of this variable carrying ``data``, keeping all other metadata.
+
+        The new variable is eager (``_data`` set, no loader); its ``shape`` is taken from
+        ``data`` when provided, else the original ``shape`` is retained. Used wherever a
+        derived dataset (time selection, spatial clip, …) replaces a variable's array while
+        preserving its name / location / mesh / attributes.
+
+        Args:
+            data: The replacement data array, or ``None`` to keep the original shape with
+                no eager data.
+
+        Returns:
+            MeshVariable: The copy carrying ``data``.
+        """
+        return MeshVariable(
             name=self.name,
             location=self.location,
             mesh_name=self.mesh_name,
-            shape=sliced_data.shape,
+            shape=data.shape if data is not None else self.shape,
             attributes=self.attributes,
             nodata=self.nodata,
             units=self.units,
             standard_name=self.standard_name,
-            _data=sliced_data,
+            _data=data,
         )
-        return result
 
 
 @dataclass(frozen=True)

@@ -30,8 +30,19 @@ from pyramids.netcdf.ugrid.io import (
     write_ugrid_topology,
 )
 from pyramids.netcdf.ugrid.mesh import Mesh2d
-from pyramids.netcdf.ugrid.models import MeshTopologyInfo, MeshVariable, UgridMetadata
-from pyramids.netcdf.utils import _read_attributes
+from pyramids.netcdf.ugrid.models import (
+    DEFAULT_MESH_NAME,
+    MeshTopologyInfo,
+    MeshVariable,
+    UgridMetadata,
+)
+from pyramids.netcdf.ugrid.spatial import (
+    MeshSpatialIndex,
+    clip_mesh,
+    subset_by_bounds,
+)
+from pyramids.netcdf._mdim import open_mdarray
+from pyramids.netcdf.utils import _dtype_to_str, _read_attributes
 
 
 class UgridDataset:
@@ -107,9 +118,13 @@ class UgridDataset:
         topo_info = topologies[0]
         mesh = Mesh2d.from_gdal_group(rg, topo_info)
 
-        data_variables = _read_data_variables(rg, topo_info)
+        # Resolve to an absolute path before threading it into the lazy variable loaders:
+        # data reads are deferred to first `.data` access (PERF-3), which re-opens the file.
+        # A relative path would break that deferred open if the process changed directory in
+        # the meantime; the old eager read was immune because it read while still in `read_file`.
+        data_variables = _read_data_variables(rg, topo_info, str(path.resolve()))
 
-        global_attrs = _read_global_attributes(rg)
+        global_attrs = _read_attributes(rg)
 
         ds = None
 
@@ -131,7 +146,9 @@ class UgridDataset:
     @property
     def mesh_name(self) -> str:
         """Name of the mesh topology variable."""
-        result = self._topology_info.mesh_name if self._topology_info else "mesh2d"
+        result = (
+            self._topology_info.mesh_name if self._topology_info else DEFAULT_MESH_NAME
+        )
         return result
 
     @property
@@ -372,6 +389,32 @@ class UgridDataset:
             )
         return result
 
+    def _wrap_subset(
+        self, mesh: Mesh2d, data_variables: dict[str, MeshVariable]
+    ) -> UgridDataset:
+        """Wrap a ``(mesh, data_variables)`` pair from the spatial subsetters into a dataset.
+
+        The spatial subsetting helpers (:func:`clip_mesh` / :func:`subset_by_bounds`) return
+        the rebuilt mesh and data variables rather than a dataset (STR-3 — keeps
+        ``ugrid.spatial`` independent of this module). This carries the source dataset's
+        global attributes / topology info / CRS onto the subset.
+
+        Args:
+            mesh: The subset mesh.
+            data_variables: The sliced data variables.
+
+        Returns:
+            UgridDataset: The wrapped subset.
+        """
+        return UgridDataset(
+            mesh=mesh,
+            data_variables=data_variables,
+            global_attributes=self._global_attributes,
+            topology_info=self._topology_info,
+            crs_wkt=self._crs_wkt,
+            file_name=None,
+        )
+
     def clip(self, mask: Any, touch: bool = True) -> UgridDataset:
         """Clip the mesh to a polygon mask.
 
@@ -386,10 +429,8 @@ class UgridDataset:
         Returns:
             New UgridDataset with clipped mesh and data.
         """
-        from pyramids.netcdf.ugrid.spatial import clip_mesh
-
-        result = clip_mesh(self, mask, touch=touch)
-        return result
+        mesh, data_variables = clip_mesh(self, mask, touch=touch)
+        return self._wrap_subset(mesh, data_variables)
 
     def subset_by_bounds(
         self,
@@ -409,10 +450,8 @@ class UgridDataset:
         Returns:
             New UgridDataset with subset mesh and data.
         """
-        from pyramids.netcdf.ugrid.spatial import subset_by_bounds
-
-        result = subset_by_bounds(self, xmin, ymin, xmax, ymax)
-        return result
+        mesh, data_variables = subset_by_bounds(self, xmin, ymin, xmax, ymax)
+        return self._wrap_subset(mesh, data_variables)
 
     def to_crs(self, to_epsg: int) -> UgridDataset:
         """Reproject all node coordinates to a new CRS.
@@ -446,18 +485,18 @@ class UgridDataset:
 
         new_face_x = None
         new_face_y = None
-        if self._mesh._face_x is not None and self._mesh._face_y is not None:
+        if self._mesh.has_face_coords:
             new_face_x, new_face_y = transformer.transform(
-                self._mesh._face_x,
-                self._mesh._face_y,
+                self._mesh.face_x,
+                self._mesh.face_y,
             )
 
         new_edge_x = None
         new_edge_y = None
-        if self._mesh._edge_x is not None and self._mesh._edge_y is not None:
+        if self._mesh.has_edge_coords:
             new_edge_x, new_edge_y = transformer.transform(
-                self._mesh._edge_x,
-                self._mesh._edge_y,
+                self._mesh.edge_x,
+                self._mesh.edge_y,
             )
 
         new_mesh = Mesh2d(
@@ -521,18 +560,7 @@ class UgridDataset:
         new_data_vars: dict[str, MeshVariable] = {}
         for name, var in self._data_variables.items():
             if var.has_time:
-                sliced_data = var.sel_time(index)
-                new_data_vars[name] = MeshVariable(
-                    name=var.name,
-                    location=var.location,
-                    mesh_name=var.mesh_name,
-                    shape=sliced_data.shape,
-                    attributes=var.attributes,
-                    nodata=var.nodata,
-                    units=var.units,
-                    standard_name=var.standard_name,
-                    _data=sliced_data,
-                )
+                new_data_vars[name] = var.with_data(var.sel_time(index))
             else:
                 new_data_vars[name] = var
 
@@ -622,8 +650,6 @@ class UgridDataset:
         """
         geometries = []
         if location == "face":
-            from pyramids.netcdf.ugrid.spatial import MeshSpatialIndex
-
             spatial_idx = MeshSpatialIndex(self._mesh)
             geometries = spatial_idx.face_polygons
         elif location == "node":
@@ -683,7 +709,7 @@ class UgridDataset:
         data: dict[str, np.ndarray] | None = None,
         data_locations: dict[str, str] | None = None,
         epsg: int = 4326,
-        mesh_name: str = "mesh2d",
+        mesh_name: str = DEFAULT_MESH_NAME,
     ) -> UgridDataset:
         """Create a UgridDataset programmatically from arrays.
 
@@ -859,18 +885,55 @@ class UgridDataset:
         return result
 
 
+def _make_variable_loader(path: str, var_name: str):
+    """Build a zero-arg loader that reads one variable's array on first access.
+
+    The store opened in :meth:`UgridDataset.read_file` is closed before any
+    :class:`MeshVariable` data is touched, so a lazy loader cannot capture the live
+    root group — it re-opens ``path`` and reads ``var_name`` on demand instead. This
+    keeps ``read_file`` metadata-only: variables the caller never touches are never read.
+
+    Args:
+        path: File path to re-open for the read.
+        var_name: Name of the MDArray to read.
+
+    Returns:
+        Callable[[], np.ndarray | None]: A loader returning the variable's array (or
+        ``None`` when it has no readable values).
+    """
+
+    def _load() -> np.ndarray | None:
+        ds = gdal.OpenEx(str(path), gdal.OF_MULTIDIM_RASTER | gdal.OF_VERBOSE_ERROR)
+        if ds is None:
+            raise ValueError(f"GDAL cannot re-open {path!r} for a lazy variable read.")
+        rg = ds.GetRootGroup()
+        md = open_mdarray(rg, var_name) if rg is not None else None
+        if md is None:
+            raise ValueError(
+                f"Variable {var_name!r} is no longer present in {path!r} on lazy read."
+            )
+        data = md.ReadAsArray()
+        return data.copy() if data is not None else None
+
+    return _load
+
+
 def _read_data_variables(
     rg: gdal.Group,
     topo_info: MeshTopologyInfo,
+    path: str,
 ) -> dict[str, MeshVariable]:
-    """Read all data variables from a GDAL root group.
+    """Read every mesh data variable's metadata, deferring the array read.
 
-    Creates MeshVariable instances with eagerly loaded data for each
-    variable that references the mesh topology.
+    Creates a :class:`MeshVariable` per variable that references the mesh topology.
+    Only metadata (attributes, shape, dtype, nodata, units, standard name) is read
+    eagerly; the array itself loads lazily on first ``.data`` access via a re-opening
+    loader, so ``read_file`` does not pull every variable into memory.
 
     Args:
-        rg: GDAL root group.
+        rg: GDAL root group (used for metadata only).
         topo_info: Parsed topology info with data variable names and locations.
+        path: File path threaded into each variable's lazy loader.
 
     Returns:
         Dictionary mapping variable name to MeshVariable.
@@ -878,7 +941,7 @@ def _read_data_variables(
     variables: dict[str, MeshVariable] = {}
 
     for var_name, location in topo_info.data_variables.items():
-        md_arr = rg.OpenMDArray(var_name)
+        md_arr = open_mdarray(rg, var_name)
         if md_arr is None:
             continue
         attrs = _read_attributes(md_arr)
@@ -890,10 +953,10 @@ def _read_data_variables(
             nodata = float(nodata)
         units = attrs.get("units")
         standard_name = attrs.get("standard_name")
-
-        data = md_arr.ReadAsArray()
-        if data is not None:
-            data = data.copy()
+        try:
+            dtype = np.dtype(_dtype_to_str(md_arr.GetDataType()))
+        except (RuntimeError, TypeError):
+            dtype = None
 
         variables[var_name] = MeshVariable(
             name=var_name,
@@ -904,20 +967,8 @@ def _read_data_variables(
             nodata=nodata,
             units=units,
             standard_name=standard_name,
-            _data=data,
+            _loader=_make_variable_loader(path, var_name),
+            _dtype=dtype,
         )
 
     return variables
-
-
-def _read_global_attributes(rg: gdal.Group) -> dict[str, Any]:
-    """Read global attributes from a GDAL root group.
-
-    Args:
-        rg: GDAL root group.
-
-    Returns:
-        Dictionary of global attribute name-value pairs.
-    """
-    result = _read_attributes(rg)
-    return result

@@ -96,6 +96,36 @@ class Mesh2d:
         return self._edge_face_connectivity
 
     @property
+    def face_x(self) -> np.ndarray | None:
+        """Face x-coordinates (n_face,) when provided at construction, else None."""
+        return self._face_x
+
+    @property
+    def face_y(self) -> np.ndarray | None:
+        """Face y-coordinates (n_face,) when provided at construction, else None."""
+        return self._face_y
+
+    @property
+    def edge_x(self) -> np.ndarray | None:
+        """Edge x-coordinates (n_edge,) when provided at construction, else None."""
+        return self._edge_x
+
+    @property
+    def edge_y(self) -> np.ndarray | None:
+        """Edge y-coordinates (n_edge,) when provided at construction, else None."""
+        return self._edge_y
+
+    @property
+    def has_face_coords(self) -> bool:
+        """True when both face x and y coordinate arrays are available."""
+        return self._face_x is not None and self._face_y is not None
+
+    @property
+    def has_edge_coords(self) -> bool:
+        """True when both edge x and y coordinate arrays are available."""
+        return self._edge_x is not None and self._edge_y is not None
+
+    @property
     def n_node(self) -> int:
         """Number of nodes in the mesh."""
         return len(self._node_x)

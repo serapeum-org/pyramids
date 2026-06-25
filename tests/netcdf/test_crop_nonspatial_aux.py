@@ -273,9 +273,12 @@ def _dim(name):
 
 
 def _attr(name, value):
-    """A Mock GDAL attribute exposing ``GetName()`` / ``ReadAsString()``."""
+    """A Mock GDAL attribute exposing ``GetName()`` / ``Read()`` / ``ReadAsString()``."""
     attr = Mock()
     attr.GetName.return_value = name
+    # CF axis detection reads via ``Attribute.Read()``; stub ``ReadAsString`` too so the
+    # mock stays faithful regardless of which reader the code uses.
+    attr.Read.return_value = value
     attr.ReadAsString.return_value = value
     return attr
 

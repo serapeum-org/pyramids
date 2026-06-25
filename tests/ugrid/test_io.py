@@ -12,6 +12,7 @@ from osgeo import gdal
 
 from pyramids.netcdf.ugrid.connectivity import Connectivity
 from pyramids.netcdf.ugrid.io import (
+    _MeshArrayScan,
     _detect_face_dim,
     _parse_single_topology,
     parse_ugrid_topology,
@@ -196,7 +197,7 @@ class TestTopologyParsingEdgeCases:
         ds = gdal.OpenEx(str(ugrid_convention_nc_path), gdal.OF_MULTIDIM_RASTER)
         rg = ds.GetRootGroup()
         md_arr = rg.OpenMDArray("mesh2d_node_x")
-        result = _parse_single_topology(rg, "mesh2d_node_x", md_arr)
+        result = _parse_single_topology(_MeshArrayScan(rg), "mesh2d_node_x", md_arr)
         assert result is None, f"Expected None for non-topology variable, got {result}"
 
 
@@ -397,9 +398,9 @@ class TestDetectFaceDim:
             longitude) on n_face. Detection must return 'n_face', NOT conn_dims[0]
             ('max_face_nodes').
         """
-        _, rg, conn_dims, names = _face_node_group(reversed_order=True, with_face_coord=True)
+        _, rg, conn_dims, _ = _face_node_group(reversed_order=True, with_face_coord=True)
         assert conn_dims[0] == "max_face_nodes", f"fixture not reversed: {conn_dims}"
-        face_dim = _detect_face_dim(rg, names, conn_dims)
+        face_dim = _detect_face_dim(_MeshArrayScan(rg), conn_dims)
         assert (
             face_dim == "n_face"
         ), f"expected 'n_face' from the face coordinate variable, got {face_dim!r}"
@@ -411,8 +412,8 @@ class TestDetectFaceDim:
             Connectivity stored (n_face, max_face_nodes) and no face coordinate / location=face
             variable — detection returns conn_dims[0] (the conventional (face, node) order).
         """
-        _, rg, conn_dims, names = _face_node_group(reversed_order=False, with_face_coord=False)
-        face_dim = _detect_face_dim(rg, names, conn_dims)
+        _, rg, conn_dims, _ = _face_node_group(reversed_order=False, with_face_coord=False)
+        face_dim = _detect_face_dim(_MeshArrayScan(rg), conn_dims)
         assert (
             face_dim == conn_dims[0]
         ), f"expected fallback to conn_dims[0]={conn_dims[0]!r}, got {face_dim!r}"

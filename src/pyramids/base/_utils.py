@@ -742,6 +742,29 @@ def import_kerchunk(message: str):
         raise OptionalPackageDoesNotExist(message)
 
 
+def import_h5py(message: str):
+    """Import and return :mod:`h5py`.
+
+    Unlike the guard-only helpers above, this returns the imported module because
+    callers need the live ``h5py`` handle to walk an HDF5 container.
+
+    Args:
+        message: The install hint raised when h5py is missing (compose it with
+            :func:`lazy_extra_hint`).
+
+    Returns:
+        The imported ``h5py`` module.
+
+    Raises:
+        OptionalPackageDoesNotExist: When h5py is not installed.
+    """
+    try:
+        import h5py
+    except ImportError:
+        raise OptionalPackageDoesNotExist(message)
+    return h5py
+
+
 def import_basemap(message: str):
     """Import the web-tile basemap backend (``cleopatra.tiles``, the ``[tiles]`` extra)."""
     try:

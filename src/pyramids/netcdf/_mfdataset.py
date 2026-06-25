@@ -27,14 +27,14 @@ from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 import numpy as np
 
+from pyramids.base._utils import lazy_extra_hint
+
 if TYPE_CHECKING:
     from pyramids.netcdf import NetCDF
 
 
-_LAZY_IMPORT_ERROR = (
-    "open_mfdataset requires the optional 'dask' dependency. Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+_LAZY_IMPORT_ERROR = lazy_extra_hint(
+    "open_mfdataset requires the optional 'dask' dependency."
 )
 
 
@@ -117,7 +117,7 @@ def open_mfdataset(
             ```python
             >>> from pyramids.netcdf._mfdataset import open_mfdataset
             >>> path = "tests/data/netcdf/pyramids-netcdf-3d.nc"
-            >>> stack = open_mfdataset([path], "temp")
+            >>> stack = open_mfdataset([path], "values")
             >>> stack.shape[0]
             1
 
@@ -132,14 +132,30 @@ def open_mfdataset(
     resolved = _resolve_paths(paths)
 
     if parallel:
-        delayed = [
-            dask.delayed(_open_and_extract)(p, variable, preprocess, chunks)
-            for p in resolved
-        ]
+        # Probe the first file once for the shared shape/dtype and reuse that array as
+        # element 0, instead of also scheduling a delayed open of the same path (which
+        # opened ``resolved[0]`` a second time).
         first_probe = _open_and_extract(resolved[0], variable, preprocess, chunks)
         shape = first_probe.shape
         dtype = first_probe.dtype
-        arrays = [da.from_delayed(d, shape=shape, dtype=dtype) for d in delayed]
+        # Wrap the already-materialised probe as a single-block delayed array (rather than
+        # ``da.from_array(..., chunks="auto")``) so element 0's chunk structure matches the
+        # ``from_delayed`` frames below — one block per file along the stacked axis. Reuses
+        # the probe, so ``resolved[0]`` is still opened only once.
+        first_arr = (
+            first_probe
+            if hasattr(first_probe, "dask")
+            else da.from_delayed(dask.delayed(first_probe), shape=shape, dtype=dtype)
+        )
+        rest = [
+            da.from_delayed(
+                dask.delayed(_open_and_extract)(p, variable, preprocess, chunks),
+                shape=shape,
+                dtype=dtype,
+            )
+            for p in resolved[1:]
+        ]
+        arrays = [first_arr, *rest]
     else:
         arrays = [_open_and_extract(p, variable, preprocess, chunks) for p in resolved]
         arrays = [

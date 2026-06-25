@@ -26,17 +26,15 @@ import os
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator, Sequence
+from typing import Any, Callable, Iterator, Sequence
 
 import numpy as np
 
-from pyramids.netcdf._kerchunk_native import build_single_manifest, combine_manifests
+from pyramids.base._utils import lazy_extra_hint
+from pyramids.netcdf._kerchunk_builder import build_single_manifest, combine_manifests
 
-_KERCHUNK_IMPORT_ERROR = (
-    "kerchunk is required for NetCDF → Zarr reference manifests. "
-    "Install with one of:\n"
-    "  - PyPI:        pip install 'pyramids-gis[lazy]'\n"
-    "  - conda-forge: conda install -c conda-forge pyramids-lazy"
+_KERCHUNK_IMPORT_ERROR = lazy_extra_hint(
+    "kerchunk is required for NetCDF → Zarr reference manifests."
 )
 
 
@@ -79,23 +77,30 @@ def _scalar_fill_value_shim() -> Iterator[None]:
         yield
         return
 
-    original = modules[0].encode_fill_value
+    # Capture each module's own ``encode_fill_value`` and have its wrapper delegate to
+    # *that* module's original — kerchunk.hdf and zarr.meta currently share one function
+    # object, but if they ever diverge a single shared ``original`` would call the wrong
+    # encoder and the restore would clobber one module with the other's function.
+    originals = {module: module.encode_fill_value for module in modules}
 
-    def _scalarized(value: Any, dtype: Any, object_codec: Any = None) -> Any:
-        if (
-            value is not None
-            and getattr(value, "ndim", 0)
-            and np.asarray(value).size == 1
-        ):
-            value = np.asarray(value).reshape(()).item()
-        return original(value, dtype, object_codec)
+    def _make_scalarized(original: Callable[..., Any]) -> Callable[..., Any]:
+        def _scalarized(value: Any, dtype: Any, object_codec: Any = None) -> Any:
+            if (
+                value is not None
+                and getattr(value, "ndim", 0)
+                and np.asarray(value).size == 1
+            ):
+                value = np.asarray(value).reshape(()).item()
+            return original(value, dtype, object_codec)
 
-    for module in modules:
-        module.encode_fill_value = _scalarized
+        return _scalarized
+
+    for module, original in originals.items():
+        module.encode_fill_value = _make_scalarized(original)
     try:
         yield
     finally:
-        for module in modules:
+        for module, original in originals.items():
             module.encode_fill_value = original
 
 
@@ -126,9 +131,9 @@ def _kerchunk_translate_single(
     can flakily deadlock (#530), so it is only used when the native builder
     raises on an unsupported HDF5 feature.
     """
-    SingleHdf5ToZarr = _require_kerchunk_single()
+    single_hdf5_to_zarr = _require_kerchunk_single()
     with _scalar_fill_value_shim():
-        refs = SingleHdf5ToZarr(
+        refs = single_hdf5_to_zarr(
             src_str,
             src_str,
             inline_threshold=inline_threshold,
@@ -136,6 +141,74 @@ def _kerchunk_translate_single(
             vlen_encode=vlen_encode,
         ).translate()
     return refs
+
+
+def _native_or_fallback(
+    native_fn: Callable[[], dict[str, Any]],
+    legacy_fn: Callable[[], dict[str, Any]],
+    *,
+    local_inputs_exist: bool,
+    subject: str,
+) -> dict[str, Any]:
+    """Run the native manifest builder, falling back to the kerchunk translator on failure.
+
+    Shared by :func:`to_kerchunk` and :func:`combine_kerchunk`. An ``OSError`` is re-raised
+    when every input is a local file that exists — that signals a genuinely corrupt /
+    unreadable HDF5 file, not a remote URL the local-only native builder cannot open (which
+    kerchunk's fsspec-backed translator can). Any ``ValueError`` (unsupported HDF5 feature, or
+    a combine layout the native path doesn't support) always falls back.
+
+    Args:
+        native_fn: Zero-arg callable producing the manifest via the native builder.
+        legacy_fn: Zero-arg callable producing the manifest via the kerchunk translator.
+        local_inputs_exist: ``True`` when every source path is an existing local file.
+        subject: Lead clause of the fallback warning (the ``({exc}); falling back …`` tail
+            is appended here).
+
+    Returns:
+        The manifest dict from whichever path succeeded.
+    """
+    try:
+        return native_fn()
+    except (ValueError, OSError) as exc:
+        if isinstance(exc, OSError) and local_inputs_exist:
+            raise
+        warnings.warn(
+            f"{subject} ({exc}); falling back to the kerchunk translator.",
+            stacklevel=3,
+        )
+        return legacy_fn()
+
+
+def _normalize_backend(backend: str) -> str:
+    """Validate and normalise the ``backend`` argument to ``"native"`` or ``"legacy"``.
+
+    ``"kerchunk"`` is accepted as a soft-deprecated alias for ``"legacy"`` (both names
+    refer to the ``SingleHdf5ToZarr`` / ``MultiZarrToZarr`` translator path; every backend
+    ultimately emits a kerchunk manifest, so ``"kerchunk"`` was a misleading name).
+    Passing ``"kerchunk"`` emits a :class:`DeprecationWarning`.
+
+    Args:
+        backend: The user-supplied backend string.
+
+    Returns:
+        ``"native"`` or ``"legacy"``.
+
+    Raises:
+        ValueError: When ``backend`` is none of ``"native"`` / ``"legacy"`` / ``"kerchunk"``.
+    """
+    if backend == "kerchunk":
+        warnings.warn(
+            "backend='kerchunk' is deprecated; use backend='legacy' instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        return "legacy"
+    if backend not in ("native", "legacy"):
+        raise ValueError(
+            f"backend must be 'native' or 'legacy'; got {backend!r}"
+        )
+    return backend
 
 
 def to_kerchunk(
@@ -160,10 +233,11 @@ def to_kerchunk(
             trade compatibility vs fidelity — see the kerchunk docs.
         backend: `"native"` (default) builds the manifest directly with
             h5py — no live zarr group, so it cannot hit the zarr-v3
-            `sync()` deadlock (#530). `"kerchunk"` forces the legacy
+            `sync()` deadlock (#530). `"legacy"` forces the
             `kerchunk.hdf.SingleHdf5ToZarr` translator. The native
-            backend falls back to kerchunk for files using HDF5 features
-            it does not support (e.g. vlen/compound dtypes).
+            backend falls back to the legacy translator for files using
+            HDF5 features it does not support (e.g. vlen/compound dtypes).
+            `"kerchunk"` is a deprecated alias for `"legacy"`.
 
     Returns:
         The manifest dict that was written — useful for inspection
@@ -171,15 +245,15 @@ def to_kerchunk(
 
     Raises:
         ImportError: When the chosen backend's dependency is missing
-            (h5py for `"native"`, kerchunk for `"kerchunk"`).
-        ValueError: When `backend` is not `"native"` or `"kerchunk"`.
+            (h5py for `"native"`, kerchunk for `"legacy"`).
+        ValueError: When `backend` is not `"native"` or `"legacy"`.
 
     Examples:
         - Emit a manifest for one NetCDF file (requires the
           `[lazy]` extra):
             ```python
             >>> from pathlib import Path  # doctest: +SKIP
-            >>> from pyramids.netcdf._kerchunk import to_kerchunk  # doctest: +SKIP
+            >>> from pyramids.netcdf._kerchunk_facade import to_kerchunk  # doctest: +SKIP
             >>> manifest = to_kerchunk(
             ...     "noah_20240101.nc", "noah_20240101.kerchunk.json",
             ... )  # doctest: +SKIP
@@ -188,39 +262,25 @@ def to_kerchunk(
 
             ```
     """
-    if backend not in ("native", "kerchunk"):
-        raise ValueError(
-            f"backend must be 'native' or 'kerchunk'; got {backend!r}"
-        )
+    backend = _normalize_backend(backend)
     src_str = str(src_path)
-    if backend == "kerchunk":
-        refs = _kerchunk_translate_single(
+
+    def _legacy() -> dict[str, Any]:
+        return _kerchunk_translate_single(
             src_str, inline_threshold=inline_threshold, vlen_encode=vlen_encode
         )
+
+    if backend == "legacy":
+        refs = _legacy()
     else:
-        try:
-            refs = build_single_manifest(
-                src_str,
-                inline_threshold=inline_threshold,
-                vlen_encode=vlen_encode,
-            )
-        except (ValueError, OSError) as exc:
-            # ValueError: unsupported HDF5 feature. OSError: h5py could not open the
-            # source — typically a remote URL (s3://, /vsicurl/...) the local-only
-            # native builder cannot read, but kerchunk's translator can via fsspec.
-            # A local file that exists but fails to open is corrupt/unreadable at the
-            # HDF5 level; surface that directly rather than masking it behind a
-            # kerchunk fallback that would also fail.
-            if isinstance(exc, OSError) and os.path.exists(src_str):
-                raise
-            warnings.warn(
-                f"native kerchunk builder could not handle {src_str!r} "
-                f"({exc}); falling back to the kerchunk translator.",
-                stacklevel=2,
-            )
-            refs = _kerchunk_translate_single(
+        refs = _native_or_fallback(
+            lambda: build_single_manifest(
                 src_str, inline_threshold=inline_threshold, vlen_encode=vlen_encode
-            )
+            ),
+            _legacy,
+            local_inputs_exist=os.path.exists(src_str),
+            subject=f"native kerchunk builder could not handle {src_str!r}",
+        )
     Path(output_path).write_text(json.dumps(refs))
     return refs
 
@@ -233,14 +293,14 @@ def _kerchunk_combine(
     inline_threshold: int,
 ) -> dict[str, Any]:
     """Combine via kerchunk's translator + ``MultiZarrToZarr`` (legacy path)."""
-    SingleHdf5ToZarr = _require_kerchunk_single()
-    MultiZarrToZarr = _require_kerchunk_combine()
+    single_hdf5_to_zarr = _require_kerchunk_single()
+    multi_zarr_to_zarr = _require_kerchunk_combine()
 
     per_file = []
     with _scalar_fill_value_shim():
         for path in src_paths:
             src_str = str(path)
-            refs = SingleHdf5ToZarr(
+            refs = single_hdf5_to_zarr(
                 src_str,
                 src_str,
                 inline_threshold=inline_threshold,
@@ -248,7 +308,7 @@ def _kerchunk_combine(
             ).translate()
             per_file.append(refs)
 
-    return MultiZarrToZarr(
+    return multi_zarr_to_zarr(
         per_file,
         concat_dims=list(concat_dims),
         identical_dims=list(identical_dims),
@@ -270,10 +330,10 @@ def combine_kerchunk(
     (h5py, no live zarr group) and concatenates the per-file manifests along the
     single `concat_dims` entry — every variable carrying that dimension is stacked,
     the rest are carried from the first file. This avoids the zarr-v3 `sync()`
-    deadlock (#530). `"kerchunk"` forces the legacy
+    deadlock (#530). `"legacy"` forces the
     `SingleHdf5ToZarr` + `MultiZarrToZarr` path; the native backend also falls back
     to it for inputs it cannot handle (e.g. multiple concat dims, unsupported HDF5
-    features).
+    features). `"kerchunk"` is a deprecated alias for `"legacy"`.
 
     Args:
         src_paths: Sequence of source NetCDF / HDF5 paths or URLs, in
@@ -287,20 +347,20 @@ def combine_kerchunk(
             backend treats every non-concat variable as identical implicitly.
             Default `("lat", "lon")`.
         inline_threshold: Same semantics as :func:`to_kerchunk`.
-        backend: `"native"` (default) or `"kerchunk"`.
+        backend: `"native"` (default) or `"legacy"` (`"kerchunk"` is a deprecated alias).
 
     Returns:
         The combined manifest dict that was written.
 
     Raises:
         ImportError: When the chosen backend's dependency is missing.
-        ValueError: When `backend` is not `"native"` or `"kerchunk"`.
+        ValueError: When `backend` is not `"native"` or `"legacy"`.
 
     Examples:
         - Combine a year's worth of daily NetCDFs into one manifest:
             ```python
             >>> from pathlib import Path  # doctest: +SKIP
-            >>> from pyramids.netcdf._kerchunk import combine_kerchunk  # doctest: +SKIP
+            >>> from pyramids.netcdf._kerchunk_facade import combine_kerchunk  # doctest: +SKIP
             >>> srcs = sorted(Path("/data/noah").glob("noah_*.nc"))  # doctest: +SKIP
             >>> manifest = combine_kerchunk(
             ...     srcs, "noah_combined.json",
@@ -311,50 +371,37 @@ def combine_kerchunk(
 
             ```
     """
-    if backend not in ("native", "kerchunk"):
-        raise ValueError(
-            f"backend must be 'native' or 'kerchunk'; got {backend!r}"
-        )
-    if backend == "kerchunk":
-        combined = _kerchunk_combine(
+    backend = _normalize_backend(backend)
+
+    def _legacy() -> dict[str, Any]:
+        return _kerchunk_combine(
             src_paths,
             concat_dims=concat_dims,
             identical_dims=identical_dims,
             inline_threshold=inline_threshold,
         )
+
+    def _native() -> dict[str, Any]:
+        if len(concat_dims) != 1:
+            raise ValueError(
+                "native combine supports exactly one concat dimension; got "
+                f"{tuple(concat_dims)}"
+            )
+        per_file = [
+            build_single_manifest(str(path), inline_threshold=inline_threshold)
+            for path in src_paths
+        ]
+        return combine_manifests(per_file, concat_dim=concat_dims[0])
+
+    if backend == "legacy":
+        combined = _legacy()
     else:
-        try:
-            if len(concat_dims) != 1:
-                raise ValueError(
-                    "native combine supports exactly one concat dimension; got "
-                    f"{tuple(concat_dims)}"
-                )
-            per_file = [
-                build_single_manifest(str(path), inline_threshold=inline_threshold)
-                for path in src_paths
-            ]
-            combined = combine_manifests(per_file, concat_dim=concat_dims[0])
-        except (ValueError, OSError) as exc:
-            # ValueError: >1 concat dim or unsupported feature. OSError: h5py could
-            # not open a source (e.g. a remote URL the local-only native builder
-            # cannot read) — kerchunk's translator handles those via fsspec. If every
-            # input is a local file that exists, an OSError means a corrupt/unreadable
-            # file; surface it directly instead of a misleading fallback.
-            if isinstance(exc, OSError) and all(
-                os.path.exists(str(path)) for path in src_paths
-            ):
-                raise
-            warnings.warn(
-                f"native kerchunk combine could not handle these inputs ({exc}); "
-                "falling back to the kerchunk translator.",
-                stacklevel=2,
-            )
-            combined = _kerchunk_combine(
-                src_paths,
-                concat_dims=concat_dims,
-                identical_dims=identical_dims,
-                inline_threshold=inline_threshold,
-            )
+        combined = _native_or_fallback(
+            _native,
+            _legacy,
+            local_inputs_exist=all(os.path.exists(str(path)) for path in src_paths),
+            subject="native kerchunk combine could not handle these inputs",
+        )
     Path(output_path).write_text(json.dumps(combined))
     return combined
 
