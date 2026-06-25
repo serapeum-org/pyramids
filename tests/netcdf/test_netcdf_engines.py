@@ -401,6 +401,18 @@ class TestSelectionEngine:
         with pytest.raises(ValueError, match="not a variable in this store"):
             mdim_container.subset("no_such_variable")
 
+    def test_subset_rejects_variable_below_two_dims(self, mdim_container):
+        """``subset`` of a 1-D variable raises ValueError naming the dim count.
+
+        Test scenario:
+            The ``x`` coordinate array has a single dimension; subset needs at
+            least ``(y, x)``, so it rejects it with a message stating how many
+            dimensions the variable actually has. (Coordinate arrays are openable
+            via the multidimensional API even though they are not data variables.)
+        """
+        with pytest.raises(ValueError, match=r"dimension\(s\); subset\(\) needs"):
+            mdim_container.subset("x")
+
     def test_subset_requires_multidimensional(self, classic_container):
         """``subset`` on a classic container raises ValueError.
 
