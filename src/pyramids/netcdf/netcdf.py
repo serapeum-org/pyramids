@@ -35,6 +35,7 @@ from pyramids.netcdf._mfdataset import open_mfdataset
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.engines import interop as _interop
 from pyramids.netcdf.engines.interop import Interop
+from pyramids.netcdf.engines.variables import Variables
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     detect_axis,
@@ -72,7 +73,7 @@ if hasattr(gdal, "GDT_Int8"):
 # `_COLLABORATOR_ATTRS` so wiring them in `NetCDF.__init__` never clobbers an
 # inherited engine. `_update_inplace` re-binds these alongside the Dataset ones
 # after the `__dict__` swap.
-_NETCDF_COLLABORATOR_ATTRS = ("interop",)
+_NETCDF_COLLABORATOR_ATTRS = ("interop", "varops")
 
 
 class _LazyVariableDict(dict):
@@ -550,6 +551,9 @@ class NetCDF(Dataset):
         # façade methods that delegate here (e.g. `nc.to_xarray()` ->
         # `self.interop.to_xarray()`).
         self.interop = Interop(self)
+        # `varops` (not `variables`) because `variables` is an existing read-side
+        # property returning the lazy variable dict — the engine must not shadow it.
+        self.varops = Variables(self)
 
     def close(self) -> None:
         """Release every GDAL handle this container holds, then close the base.
@@ -5412,160 +5416,9 @@ class NetCDF(Dataset):
             pass  # attribute may not exist — silently ignored
         self._invalidate_caches()
 
-    def set_variable(
-        self,
-        variable_name: str,
-        dataset: Dataset,
-        band_dim_name: str | None = None,
-        band_dim_values: list | None = None,
-        attrs: dict | None = None,
-    ):
-        """Write a classic Dataset back as an MDArray variable in this container.
-
-        This is the reverse of `get_variable()`. After performing GIS
-        operations (crop, reproject, etc.) on a variable subset, use this
-        method to store the result back into the NetCDF container.
-
-        Args:
-            variable_name: Name for the variable in this container. If a
-                variable with this name already exists it is replaced.
-            dataset: A classic raster dataset, typically the result of a
-                GIS operation on a variable obtained via `get_variable()`.
-            band_dim_name: Name of the dimension that maps to bands
-                (e.g. `"time"`, `"bands"`). Auto-detected from the
-                dataset's `_band_dim_name` attribute when available.
-                Defaults to None.
-            band_dim_values: Coordinate values for the band dimension.
-                Auto-detected from `_band_dim_values` when available.
-                Defaults to None.
-            attrs: Variable attributes to set (e.g. `{"units": "K"}`).
-                Auto-detected from `_variable_attrs` when available.
-                Defaults to None.
-
-        Raises:
-            ValueError: If called on a dataset without a root group
-                (not opened in multidimensional mode).
-        """
-        rg = self._raster.GetRootGroup()
-        if rg is None:
-            raise ValueError(
-                "set_variable requires a multidimensional container. "
-                "Open the file with open_as_multi_dimensional=True."
-            )
-        # CreateMDArray / DeleteMDArray / CreateDimension are rejected on a file-backed group (netCDF
-        # data mode); operate on a writable MEM copy and swap it in, like remove_variable (#587).
-        if self.driver_type != "memory":
-            work, rg = self._writable_root_group()
-            self._replace_raster(work)
-
-        # Auto-detect from tracked origin metadata (RT-4)
-        if band_dim_name is None and hasattr(dataset, "_band_dim_name"):
-            band_dim_name = dataset._band_dim_name
-        if band_dim_values is None and hasattr(dataset, "_band_dim_values"):
-            band_dim_values = dataset._band_dim_values
-        if attrs is None and hasattr(dataset, "_variable_attrs"):
-            attrs = dataset._variable_attrs
-        # Multi-band-dim metadata: every non-spatial dim and its
-        # coords / sizes. Populated by `get_variable` for 4-D+
-        # variables. When present, the rebuild materialises each dim
-        # separately instead of flattening to a single bands axis.
-        band_dim_names: tuple[str, ...] = tuple(
-            getattr(dataset, "_band_dim_names", ()) or ()
-        )
-        band_dim_sizes: tuple[int, ...] = tuple(
-            getattr(dataset, "_band_dim_sizes", ()) or ()
-        )
-        band_dim_values_map: dict = dict(
-            getattr(dataset, "_band_dim_values_map", {}) or {}
-        )
-
-        # Delete existing variable if present
-        if variable_name in self.variable_names:
-            rg.DeleteMDArray(variable_name)
-
-        # Read data from the classic dataset
-        arr = dataset.read_array()
-        gt: tuple[float, float, float, float, float, float] = dataset.geotransform
-        data_dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
-        # Coordinate dimensions must always be float64 to avoid truncation
-        # when the data array is integer (e.g., classified rasters).
-        coord_dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
-
-        # Build spatial dimensions from the geotransform
-        x_values = np.array(
-            NetCDF.get_x_lon_dimension_array(gt[0], gt[1], dataset.columns)
-        )
-        y_values = np.array(
-            NetCDF.get_y_lat_dimension_array(gt[3], abs(gt[5]), dataset.rows)
-        )
-        dim_x = self._get_or_create_dimension(
-            rg, "x", x_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_X
-        )
-        dim_y = self._get_or_create_dimension(
-            rg, "y", y_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_Y
-        )
-
-        # 4-D+ rebuild: reshape the flattened bands back into the
-        # cached storage order, then create one GDAL dimension per
-        # non-spatial axis. Falls through to the legacy single-dim
-        # path when only one (or zero) band dim is tracked.
-        if len(band_dim_names) > 1 and arr.ndim == 3 and band_dim_sizes:
-            arr = arr.reshape(*band_dim_sizes, arr.shape[-2], arr.shape[-1])
-            gdal_band_dims = []
-            for i, dim_name in enumerate(band_dim_names):
-                values = band_dim_values_map.get(dim_name)
-                if values is None:
-                    values = list(range(int(band_dim_sizes[i])))
-                gdal_band_dims.append(
-                    self._get_or_create_dimension(
-                        rg,
-                        dim_name,
-                        np.array(values, dtype=np.float64),
-                        coord_dtype,
-                        gdal.DIM_TYPE_TEMPORAL if i == 0 else None,
-                    )
-                )
-            md_arr = rg.CreateMDArray(
-                variable_name, [*gdal_band_dims, dim_y, dim_x], data_dtype
-            )
-        elif arr.ndim == 3:
-            if band_dim_name is None:
-                band_dim_name = "bands"
-            if band_dim_values is None:
-                band_dim_values = list(range(arr.shape[0]))
-            dim_band = self._get_or_create_dimension(
-                rg,
-                band_dim_name,
-                np.array(band_dim_values, dtype=np.float64),
-                coord_dtype,
-                gdal.DIM_TYPE_TEMPORAL,
-            )
-            md_arr = rg.CreateMDArray(
-                variable_name, [dim_band, dim_y, dim_x], data_dtype
-            )
-        else:
-            md_arr = rg.CreateMDArray(variable_name, [dim_y, dim_x], data_dtype)
-
-        # Write array data
-        md_arr.Write(arr)
-
-        # Set spatial reference (RT-7: attribute copying)
-        if dataset.epsg:
-            srs = sr_from_epsg(dataset.epsg)
-            md_arr.SetSpatialRef(srs)
-
-        # Set no-data value
-        if dataset.no_data_value and dataset.no_data_value[0] is not None:
-            try:
-                md_arr.SetNoDataValueDouble(float(dataset.no_data_value[0]))
-            except (RuntimeError, TypeError, ValueError):
-                pass  # nosec B110
-
-        # Set variable attributes (RT-7)
-        if attrs:
-            write_attributes_to_md_array(md_arr, attrs)
-
-        self._invalidate_caches()
+    def set_variable(self, *args, **kwargs):
+        """Facade — :meth:`Variables.set_variable <pyramids.netcdf.engines.variables.Variables.set_variable>`."""
+        return self.varops.set_variable(*args, **kwargs)
 
     def crop_variable(
         self, variable_name: str, mask: Any, touch: bool = True
@@ -5655,89 +5508,17 @@ class NetCDF(Dataset):
         self.set_variable(variable_name, resampled)
         return self
 
-    def add_variable(self, dataset: Dataset | NetCDF, variable_name: str | None = None):
-        """Copy MDArray variables from another NetCDF into this container.
+    def add_variable(self, *args, **kwargs):
+        """Facade — :meth:`Variables.add_variable <pyramids.netcdf.engines.variables.Variables.add_variable>`."""
+        return self.varops.add_variable(*args, **kwargs)
 
-        Args:
-            dataset: Source NetCDF dataset whose variables will be copied.
-                Must have a root group (opened in MDIM mode).
-            variable_name: Specific variable name(s) to copy. If None, all
-                variables from the source are copied. If a variable with
-                the same name already exists, it is renamed with a
-                `"-new"` suffix.
-        """
-        var_rg = dataset._raster.GetRootGroup()
-        names_to_copy: list[str]
-        if variable_name is not None:
-            names_to_copy = [variable_name]
-        elif isinstance(dataset, NetCDF):
-            names_to_copy = dataset.variable_names
-        else:
-            names_to_copy = []
+    def remove_variable(self, *args, **kwargs):
+        """Facade — :meth:`Variables.remove_variable <pyramids.netcdf.engines.variables.Variables.remove_variable>`."""
+        return self.varops.remove_variable(*args, **kwargs)
 
-        # A file-backed root group is opened in netCDF "data mode", which forbids
-        # CreateMDArray; operate on a writable MEM copy and swap it in, mirroring
-        # remove_variable.
-        dst, dst_rg = self._writable_root_group()
-
-        for var in names_to_copy:
-            md_arr = var_rg.OpenMDArray(var)
-            # If the variable name already exists in the destination dataset,
-            # use a suffixed name to avoid overwriting the original.
-            existing = dst_rg.GetMDArrayNames() or []
-            target_name = f"{var}-new" if var in existing else var
-            self._add_md_array_to_group(dst_rg, target_name, md_arr)
-
-        self._replace_raster(dst)
-        self._invalidate_caches()
-
-    def remove_variable(self, variable_name: str):
-        """Delete a variable from this container.
-
-        If the dataset is backed by a file on disk, a MEM copy is made first
-        so that the on-disk file is not modified. The internal raster
-        reference is replaced with the modified copy.
-
-        Args:
-            variable_name: Name of the variable to remove.
-        """
-        dst, rg = self._writable_root_group()
-        rg.DeleteMDArray(variable_name)
-
-        self._replace_raster(dst)
-
-    def rename_variable(self, old_name: str, new_name: str):
-        """Rename a variable in this container.
-
-        Internally extracts the variable data and metadata, creates
-        a new variable with the new name, and removes the old one.
-
-        Args:
-            old_name: Current name of the variable.
-            new_name: Desired new name.
-
-        Raises:
-            ValueError: If `old_name` doesn't exist or `new_name`
-                already exists.
-        """
-        if old_name not in self.variable_names:
-            raise ValueError(
-                f"Variable '{old_name}' not found. " f"Available: {self.variable_names}"
-            )
-        if new_name in self.variable_names:
-            raise ValueError(f"Variable '{new_name}' already exists.")
-
-        if self._raster.GetRootGroup() is None:
-            raise ValueError("rename_variable requires a multidimensional container.")
-
-        # CreateMDArray is rejected on a file-backed group (netCDF data mode);
-        # work on a writable MEM copy and swap it in, like remove_variable.
-        dst, rg = self._writable_root_group()
-        md_arr = rg.OpenMDArray(old_name)
-        self._add_md_array_to_group(rg, new_name, md_arr)
-        rg.DeleteMDArray(old_name)
-        self._replace_raster(dst)
-        self._invalidate_caches()
+    def rename_variable(self, *args, **kwargs):
+        """Facade — :meth:`Variables.rename_variable <pyramids.netcdf.engines.variables.Variables.rename_variable>`."""
+        return self.varops.rename_variable(*args, **kwargs)
 
     def to_xarray(self, *args, **kwargs) -> Any:
         """Facade — delegates to :meth:`Interop.to_xarray <pyramids.netcdf.engines.interop.Interop.to_xarray>`."""
