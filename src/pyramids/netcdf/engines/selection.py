@@ -18,6 +18,7 @@ methods still use them.
 from __future__ import annotations
 
 import math
+import warnings
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -749,4 +750,161 @@ class Selection(_Engine):
             result.crs = srs.ExportToWkt()
         if band_labels and len(band_labels) == result.band_count:
             result.band_names = band_labels
+        return result
+
+    def reduce(
+        self,
+        dim: str,
+        how: str = "mean",
+        *,
+        groupby: list | tuple | str | None = None,
+        skipna: bool = True,
+    ) -> NetCDF:
+        """Reduce every variable along a named dimension and return a new NetCDF.
+
+        Collapses or coarsens one non-spatial dimension (`time`,
+        `pressure_level`, `depth`, an ensemble member, …) of every variable
+        that has it, leaving variables without `dim` and all other dimensions,
+        coordinates, CRS, and the grid untouched. The result is a new
+        :class:`NetCDF` container — no xarray involved. Only gridded variables
+        are reduced; non-spatial auxiliary variables (no ``y`` / ``x`` axes,
+        e.g. ERA5's ``number``) are carried through unchanged rather than
+        crashing the fan-out (#513) — except an auxiliary variable that itself
+        spans `dim`, which is dropped with a warning (carrying it verbatim would
+        leave an inconsistent `dim` length against the collapsed variables).
+
+        Args:
+            dim: Name of the non-spatial dimension to reduce. Must be one of a
+                variable's band dimensions (as exposed by ``sel``); spatial
+                ``lat`` / ``lon`` dimensions are not reducible here.
+            how: Reduction operation — one of ``"mean"``, ``"sum"``, ``"min"``,
+                ``"max"``, ``"std"``, ``"var"``.
+            groupby: Controls collapse vs. windowed reduction:
+
+                - ``None`` (default): collapse `dim` entirely (it is removed
+                  from the output).
+                - a sequence of per-index labels (length = the size of `dim`):
+                  reduce each group of equal labels; `dim` is coarsened to one
+                  slice per distinct label, in first-appearance order.
+                - a pandas offset alias (e.g. ``"1MS"``, ``"1D"``, ``"YS"``):
+                  group `dim` by calendar window. Only valid when `dim` carries
+                  a decodable CF time coordinate.
+            skipna: When ``True`` (default), mask each variable's NoData value to
+                ``NaN`` and reduce with the ``nan``-aware operation, then refill
+                ``NaN`` results with NoData. The output is float64. When
+                ``False``, reduce the raw values with the plain operation.
+
+        Returns:
+            NetCDF: A new container with `dim` removed (``groupby=None``) or
+            coarsened (windowed). When the windowed dimension keeps a numeric
+            coordinate, each output slice is labelled with the first source
+            coordinate value of its window.
+
+        Raises:
+            ValueError: When `how` is unknown, the container has no data
+                variables, `dim` is not a non-spatial dimension of any variable,
+                a frequency `groupby` is given but `dim` has no decodable time
+                coordinate, or the grouping does not cover `dim` exactly.
+
+        Examples:
+            - Monthly mean of an ERA5-style ``(time, lat, lon)`` file:
+                ```python
+                >>> from pyramids.netcdf import NetCDF  # doctest: +SKIP
+                >>> nc = NetCDF.read_file("era5_t2m_hourly.nc")  # doctest: +SKIP
+                >>> monthly = nc.reduce("time", "mean", groupby="1MS")  # doctest: +SKIP
+                >>> monthly.get_variable("t2m").band_count  # doctest: +SKIP
+                12
+
+                ```
+            - Collapse a pressure-level axis to its column mean:
+                ```python
+                >>> column = nc.reduce("pressure_level", "mean")  # doctest: +SKIP
+                >>> "pressure_level" in column.get_variable("t").dimensions  # doctest: +SKIP
+                False
+
+                ```
+        """
+        # Local import breaks the netcdf.py <-> engines.selection import cycle
+        # (netcdf.py imports this module at top level for wiring); _REDUCERS is a
+        # module-level reducer registry there, shared with the reduce helpers.
+        from pyramids.netcdf.netcdf import _REDUCERS
+
+        nc = self._ds
+        if how not in _REDUCERS:
+            raise ValueError(f"how must be one of {sorted(_REDUCERS)}; got {how!r}")
+        names = nc.variable_names
+        if not names:
+            raise ValueError("Cannot reduce an empty container (no data variables).")
+
+        group_positions = nc._resolve_group_positions(dim, groupby)
+
+        # Reduce only the gridded variables; non-spatial auxiliaries (no y/x axes)
+        # can't go through the raster reduce path, so they are carried through
+        # unchanged below — the same split crop / to_crs use (#513). Resolve the root
+        # group once and reuse it for the spanning-aux probe further down.
+        rg = nc._raster.GetRootGroup() if nc._raster is not None else None
+        spatial_vars = nc._spatial_variable_names(rg)
+        aux_vars = [n for n in names if n not in spatial_vars]
+
+        result = None
+        found = False
+        for var_name in spatial_vars:
+            var = nc.get_variable(var_name)
+            arr = nc._materialize_variable_array(var)
+            band_names = list(var._band_dim_names)
+            values_map = dict(var._band_dim_values_map)
+            ndv = nc._scalar_no_data_value(var.no_data_value)
+
+            if dim in band_names:
+                found = True
+                axis = band_names.index(dim)
+                arr, band_names, values_map = nc._reduce_variable_array(
+                    arr,
+                    axis,
+                    dim,
+                    band_names,
+                    values_map,
+                    how,
+                    skipna,
+                    ndv,
+                    groupby,
+                    group_positions,
+                )
+
+            result = nc._stack_reduced_variable(
+                result,
+                var_name,
+                arr,
+                var.geotransform,
+                var.epsg,
+                ndv,
+                band_names,
+                values_map,
+            )
+
+        if not found:
+            raise ValueError(
+                f"Dimension {dim!r} is not a non-spatial dimension of any "
+                f"variable in this container."
+            )
+        # Auxiliary variables that span the reduced dimension cannot be carried
+        # verbatim — they would keep the full-length axis while the gridded
+        # variables collapse it, leaving an inconsistent dimension length. Drop
+        # those with a warning; carry the rest unchanged.
+        carry_aux: list[str] = []
+        spanning_aux: list[str] = []
+        for name in aux_vars:
+            var_dims = nc._variable_dim_names(rg, name)
+            (spanning_aux if dim in var_dims else carry_aux).append(name)
+        if spanning_aux:
+            warnings.warn(
+                f"reduce() dropped auxiliary variable(s) {spanning_aux} that span "
+                f"the reduced dimension {dim!r}; carrying them unchanged would "
+                f"leave an inconsistent {dim!r} length in the result.",
+                # stacklevel=3 (not 2): the user calls NetCDF.reduce, which forwards
+                # through the one-line façade to this engine method, so the user's
+                # call site is three frames up — keeping the original warning location.
+                stacklevel=3,
+            )
+        nc._carry_aux_variables(result, carry_aux, "reduce")
         return result
