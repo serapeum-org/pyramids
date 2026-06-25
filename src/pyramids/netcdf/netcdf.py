@@ -608,7 +608,9 @@ class NetCDF(Dataset):
             "_scale": self._scale,
             "_offset": self._offset,
         }
-        new = NetCDF(
+        # Rebuild via the concrete subclass (NetCDFContainer / NetCDFVariable) so an
+        # in-place update never downgrades the instance's type back to the base NetCDF.
+        new = type(self)(
             src,
             access=access or self._access,
             open_as_multi_dimensional=self._is_md_array,
@@ -4601,7 +4603,9 @@ class NetCDF(Dataset):
         src = gdal.GetDriverByName(driver).CreateCopy(str(path), self._raster)
         if src is None:
             raise RuntimeError(f"Failed to copy NetCDF dataset to '{path}'")
-        return NetCDF(src, access="write")
+        # Preserve the concrete type: a copy of a container is a container, a copy of a
+        # variable is a variable.
+        return type(self)(src, access="write")
 
     @staticmethod
     def _create_dimension(
@@ -6618,6 +6622,15 @@ class NetCDFVariable(NetCDF):
     remains the (deprecated) base alias for one major version, so existing
     ``isinstance(x, NetCDF)`` checks keep working.
     """
+
+    def _check_not_container(self, operation: str) -> None:
+        """No-op: a variable is always a valid raster, so spatial ops are always allowed.
+
+        The base guard only fires for a root MDIM container; a ``NetCDFVariable`` can never
+        be one, so the check is unnecessary here. Overriding it makes the type contract
+        explicit and keeps the guard out of the hot path for variable operations.
+        """
+        return None
 
 
 class NetCDFContainer(NetCDF):
