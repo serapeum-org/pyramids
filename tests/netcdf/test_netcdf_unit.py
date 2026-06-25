@@ -149,6 +149,51 @@ class TestInvalidateCaches:
         assert nc._cached_meta_data is None, "metadata cache must be cleared"
 
 
+class TestNarrowedExceptionPropagation:
+    """CON-9 narrowed `except RuntimeError` blocks let unexpected exceptions propagate (gap G9)."""
+
+    def _nc_with_fake_root_group(self, group_names_side_effect):
+        """A NetCDF whose root group's `GetGroupNames` raises the given exception.
+
+        Args:
+            group_names_side_effect: Exception instance to raise from `GetGroupNames`.
+
+        Returns:
+            NetCDF: An in-memory dataset with its `_raster` swapped for a mock whose
+            root group raises on `GetGroupNames`.
+        """
+        nc = _make_2d_nc()
+        fake_rg = MagicMock()
+        fake_rg.GetGroupNames.side_effect = group_names_side_effect
+        fake_raster = MagicMock()
+        fake_raster.GetRootGroup.return_value = fake_rg
+        nc._raster = fake_raster
+        return nc
+
+    def test_group_names_propagates_unexpected_exception(self):
+        """An exception type outside the narrowed `except` propagates out of `group_names` (G9).
+
+        Test scenario:
+            CON-9 narrowed `group_names` to `except RuntimeError`. A `KeyError` from
+            `GetGroupNames` is *unexpected* and must now propagate (the whole point of the
+            narrowing) rather than being silently swallowed as it was under the old broad
+            `except Exception`.
+        """
+        nc = self._nc_with_fake_root_group(KeyError("boom"))
+        with pytest.raises(KeyError, match="boom"):
+            _ = nc.group_names
+
+    def test_group_names_degrades_on_runtime_error(self):
+        """An expected `RuntimeError` still degrades to an empty list (G9).
+
+        Test scenario:
+            The narrowed `except RuntimeError` keeps the graceful-degrade contract: a GDAL
+            `RuntimeError` from `GetGroupNames` yields `[]`, not a propagated error.
+        """
+        nc = self._nc_with_fake_root_group(RuntimeError("gdal driver error"))
+        assert nc.group_names == [], "RuntimeError should degrade to an empty group list"
+
+
 class TestNoDataValueSetter:
     """Tests for NetCDF.no_data_value setter."""
 
