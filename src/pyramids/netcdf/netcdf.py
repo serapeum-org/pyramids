@@ -4596,14 +4596,22 @@ class NetCDF(Dataset):
         gc.collect()
 
     def copy(self, path: str | Path | None = None) -> NetCDF:
-        """Create a deep copy of this NetCDF dataset.
+        """Create a deep, standalone copy of this dataset.
+
+        The copy keeps this instance's concrete type (a :class:`NetCDFContainer` copies to a
+        ``NetCDFContainer`; a :class:`NetCDFVariable` to a ``NetCDFVariable``) and its CF
+        packing metadata (``scale`` / ``offset`` / variable attributes / band-dim layout). It
+        is **independent**, though: a copied variable is a self-contained classic raster, not
+        a live subset of the original's parent, so ``is_subset`` is ``False`` and it carries
+        no ``_parent_nc`` / ``_source_var_name``. That keeps pickling sound — a copy
+        reconstructs from its own data rather than reaching back into the parent store.
 
         Args:
             path: Destination file path. If None, the copy is created
                 in memory using the MEM driver. Defaults to None.
 
         Returns:
-            NetCDF: A new NetCDF object with copied data.
+            NetCDF: A new, standalone NetCDF object (same concrete subclass as ``self``).
 
         Raises:
             RuntimeError: If `CreateCopy` fails.
@@ -4622,12 +4630,19 @@ class NetCDF(Dataset):
         # The fresh CreateCopy would otherwise reset these flags through __init__ (defaulting
         # open_as_multi_dimensional=True, _is_subset=False), so re-open in the source's mode
         # and carry the subset/origin + cached variable metadata over.
-        result = type(self)(
-            src, access="write", open_as_multi_dimensional=self._is_md_array
-        )
-        result._is_subset = self._is_subset
-        result._parent_nc = self._parent_nc
-        result._source_var_name = self._source_var_name
+        # A copied variable subset is a standalone single-variable *classic* raster (its
+        # backing is the materialized AsClassicDataset view), not an MDIM store — so it must
+        # open classic. A container copy keeps the container's MDIM/classic mode.
+        copy_is_md = self._is_md_array and not self._is_subset
+        result = type(self)(src, access="write", open_as_multi_dimensional=copy_is_md)
+        # A copy is an INDEPENDENT, materialized dataset: its data no longer lives at
+        # parent_file::source_var_name, so it must NOT inherit the subset/origin identity
+        # that __reduce__ uses to reconstruct (that would pickle-reconstruct from the PARENT,
+        # silently reading the wrong data, or fail on a self-contained copy whose band names
+        # differ). It keeps its concrete type and CF packing metadata, but is standalone.
+        result._is_subset = False
+        result._parent_nc = None
+        result._source_var_name = None
         result._md_array_dims = self._md_array_dims
         result._geostationary_scaled = self._geostationary_scaled
         result._variable_attrs = self._variable_attrs

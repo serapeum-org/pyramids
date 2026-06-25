@@ -175,22 +175,45 @@ class TestTypePreservation:
         """
         assert type(variable.copy()) is NetCDFVariable, "copy downgraded the type"
 
-    def test_copy_preserves_variable_subset_state(self, variable):
-        """Copying a variable keeps its subset/origin identity, not just its type (review N1).
+    def test_copy_is_standalone_not_a_parent_subset(self, variable):
+        """A copied variable keeps its type + CF packing but is a STANDALONE raster (review C1).
 
         Test scenario:
-            A fresh ``CreateCopy`` reopened with the default ``open_as_multi_dimensional``
-            would reset ``_is_md_array``/``_is_subset``; ``copy()`` must instead re-open in
-            the source's mode and carry the subset flags + origin (``_source_var_name``) over,
-            so a copied variable is still a usable, identifiable subset.
+            A copy is an independent, materialized dataset — its data no longer lives at
+            ``parent_file::source_var_name``. So ``copy()`` must NOT carry the subset/origin
+            identity (doing so poisons the ``__reduce__`` pickle recipe, which would
+            reconstruct from the parent). The copy preserves its concrete type, stays in the
+            source's MDIM mode, keeps CF scale/offset, reads its own data — but is no longer a
+            parent subset (``is_subset`` is False, no ``_source_var_name``/``_parent_nc``).
         """
         assert variable.is_subset is True, "precondition: the extracted variable is a subset"
         copied = variable.copy()
-        assert copied.is_subset is True, "copy lost the _is_subset flag"
-        assert copied.is_md_array == variable.is_md_array, "copy changed the MDIM mode"
-        assert (
-            copied._source_var_name == variable._source_var_name
-        ), "copy lost the source variable name"
+        assert isinstance(copied, NetCDFVariable), "copy must keep the variable type"
+        assert copied.is_subset is False, "a copy is standalone, not a live parent subset"
+        assert copied.is_md_array is False, "a copied variable is a standalone classic raster"
+        assert copied._source_var_name is None, "a copy must not carry the parent's var name"
+        assert copied._parent_nc is None, "a copy must not reference the parent container"
+        assert copied.scale == variable.scale, "copy lost the CF scale"
+        assert copied.read_array() is not None, "copy must be a readable raster"
+
+    def test_on_disk_copy_pickle_recipe_is_standalone_not_parent(self, variable, tmp_path):
+        """A copied variable's pickle recipe targets its own file, never the parent (review C1).
+
+        Test scenario:
+            The C1 regression was that a copy inherited ``_is_subset``/``_source_var_name``/
+            ``_parent_nc``, so ``__reduce__`` reconstructed it by drilling the parent
+            (``read_file(parent).get_variable(name)``) — silently reading the parent's data
+            instead of the copy's. Assert the on-disk copy's reduce recipe is standalone: it
+            points at the copy's own path, is not flagged a subset, and carries no source
+            variable name — so a round-trip can never reach back into the parent.
+        """
+        out = tmp_path / "var_copy.nc"
+        copied = variable.copy(str(out))
+        _func, args = copied.__reduce__()
+        path, _access, _is_md, is_subset, source_var = args
+        assert Path(path).name == "var_copy.nc", f"recipe must target the copy, got {path!r}"
+        assert is_subset is False, "a copy must not be pickled as a parent subset"
+        assert source_var is None, "a copy must not carry a parent source-variable name"
 
     def test_epsg_setter_inplace_preserves_variable_type(self, variable):
         """An in-place op (the ``epsg`` setter) does not downgrade a NetCDFVariable.
