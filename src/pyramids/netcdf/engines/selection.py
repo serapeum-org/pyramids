@@ -35,7 +35,23 @@ if TYPE_CHECKING:
 
 
 class Selection(_Engine):
-    """Crop / sel / subset / reduce collaborator for ``NetCDF``."""
+    """Spatial / dimensional selection collaborator for :class:`NetCDF`.
+
+    Owns the bodies of :meth:`crop` (with the curvilinear and rectilinear
+    helpers folded in), :meth:`sel` (band selection by coordinate value),
+    :meth:`subset` (windowed ``(variable, time, bbox)`` read), and
+    :meth:`reduce` (collapse / coarsen a non-spatial dimension). ``NetCDF``
+    wires one instance per container as ``nc.selection`` and exposes thin
+    façades, so ``nc.crop(...)`` and ``nc.selection.crop(...)`` are equivalent.
+
+    Each method reaches the container through the weakref-proxied
+    back-reference :attr:`_ds` inherited from
+    :class:`~pyramids.dataset.engines._base._Engine`: the base affine crop via
+    ``nc.spatial.crop`` (what the override reached with ``super().crop``), and
+    the shared helpers (``_apply_to_all_variables`` /
+    ``_preserve_netcdf_metadata`` / the subset axis helpers / the reduce
+    helpers) which stay on ``NetCDF``.
+    """
 
     def crop(
         self,

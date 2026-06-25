@@ -42,7 +42,23 @@ if TYPE_CHECKING:
 
 
 class Variables(_Engine):
-    """Variable add/remove/rename/write collaborator for ``NetCDF``."""
+    """Variable add / remove / rename / write collaborator for :class:`NetCDF`.
+
+    Owns the bodies of the variable-mutation family. ``NetCDF`` wires one
+    instance per container as ``nc.varops`` (deliberately not ``variables`` —
+    that name is the read-side property returning the lazy variable dict) and
+    exposes thin façades, so ``nc.set_variable(...)`` and
+    ``nc.varops.set_variable(...)`` are equivalent. The companion constructor
+    :func:`create_from_array` is a module-level function (it builds a new
+    container rather than mutating an existing one), reached through the
+    ``NetCDF.create_from_array`` classmethod façade.
+
+    Each method reaches the container's GDAL plumbing
+    (``_writable_root_group`` / ``_replace_raster`` / ``_invalidate_caches`` /
+    ``_get_or_create_dimension`` / ``_add_md_array_to_group``) through the
+    weakref-proxied back-reference :attr:`_ds` inherited from
+    :class:`~pyramids.dataset.engines._base._Engine`.
+    """
 
     def set_variable(
         self,
