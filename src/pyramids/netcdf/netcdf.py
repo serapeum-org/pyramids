@@ -486,15 +486,15 @@ class NetCDF(Dataset):
                 mode (subdatasets, bands). Defaults to True.
         """
         if type(self) is NetCDF:
-            # API-1 (#614): NetCDF is now the base of NetCDFContainer / NetCDFVariable.
+            # API-1 (#614): NetCDF is now the base of Container / Variable.
             # Direct construction is deprecated; the typed entry points return the right
             # concrete class. Subclass construction (type(self) is a subclass) is silent.
             warnings.warn(
                 "Directly constructing NetCDF is deprecated and will stop returning a "
                 "usable instance in a future major release. Open a store with "
                 "NetCDF.read_file(...) / NetCDF.create_from_array(...) (returns a "
-                "NetCDFContainer) and extract variables with container.get_variable(...) "
-                "(returns a NetCDFVariable). NetCDF remains an isinstance-compatible base "
+                "Container) and extract variables with container.get_variable(...) "
+                "(returns a Variable). NetCDF remains an isinstance-compatible base "
                 "for one major version.",
                 DeprecationWarning,
                 stacklevel=2,
@@ -622,7 +622,7 @@ class NetCDF(Dataset):
             "_scale": self._scale,
             "_offset": self._offset,
         }
-        # Rebuild via the concrete subclass (NetCDFContainer / NetCDFVariable) so an
+        # Rebuild via the concrete subclass (Container / Variable) so an
         # in-place update never downgrades the instance's type back to the base NetCDF.
         new = type(self)(
             src,
@@ -1732,7 +1732,7 @@ class NetCDF(Dataset):
         if isinstance(result, NetCDF):
             wrapped = result
         else:
-            wrapped = NetCDFVariable(
+            wrapped = Variable(
                 result._raster,
                 access=result._access,
                 open_as_multi_dimensional=False,
@@ -3189,7 +3189,7 @@ class NetCDF(Dataset):
             vsi=vsi,
         )
         access = "read_only" if read_only else "write"
-        return NetCDFContainer(
+        return Container(
             src, access=access, open_as_multi_dimensional=open_as_multi_dimensional
         )
 
@@ -3273,7 +3273,7 @@ class NetCDF(Dataset):
             open_as_multi_dimensional=open_as_multi_dimensional,
         )
         try:
-            obj = NetCDFContainer(
+            obj = Container(
                 src,
                 access="read_only" if read_only else "write",
                 open_as_multi_dimensional=open_as_multi_dimensional,
@@ -3779,7 +3779,7 @@ class NetCDF(Dataset):
             if srs is not None:
                 new_arr.SetSpatialRef(srs)
 
-        result = NetCDFContainer(dst)
+        result = Container(dst)
         return result
 
     def get_variable_names(self) -> list[str]:
@@ -4076,7 +4076,7 @@ class NetCDF(Dataset):
             if x_index is not None:
                 spatial_dim_indices = (x_index, y_index)
             if isinstance(src, gdal.Dataset):
-                cube = NetCDFVariable(src)
+                cube = Variable(src)
                 cube._is_md_array = True
                 # _read_md_array flips the data lazily and GDAL usually corrects the geotransform,
                 # but a Y dim with no indexing variable (e.g. WRF "south_north") can leave it wrong;
@@ -4096,7 +4096,7 @@ class NetCDF(Dataset):
                     f"Could not open variable '{variable_name}' via "
                     f"'{prefix}:{self.file_name}:{variable_name}'"
                 )
-            cube = NetCDFVariable(src)
+            cube = Variable(src)
             cube._is_md_array = False
 
         cube._is_subset = True
@@ -4599,7 +4599,7 @@ class NetCDF(Dataset):
         """Create a deep, standalone copy of this dataset.
 
         The copy keeps this instance's concrete type (a container copies to a
-        ``NetCDFContainer``, a variable to a ``NetCDFVariable``) and its CF packing metadata
+        ``Container``, a variable to a ``Variable``) and its CF packing metadata
         (``scale`` / ``offset`` / variable attributes / band-dim layout). It
         is **independent**, though: a copied variable is a self-contained classic raster, not
         a live subset of the original's parent, so ``is_subset`` is ``False`` and it carries
@@ -4878,7 +4878,7 @@ class NetCDF(Dataset):
             source=source,
             history=history,
         )
-        result = NetCDFContainer(dst_ds)
+        result = Container(dst_ds)
 
         return result
 
@@ -6000,7 +6000,7 @@ class NetCDF(Dataset):
         # than a bare Dataset. Wrap the just-built classic raster as a classic-backed
         # NetCDF and transfer ownership (clear ds._raster so the discarded Dataset does
         # not close the handle the NetCDF now holds); band/CRS semantics are identical.
-        result = NetCDFVariable(ds._raster, access="write", open_as_multi_dimensional=False)
+        result = Variable(ds._raster, access="write", open_as_multi_dimensional=False)
         ds._raster = None
         # The grid mapping carries the true CRS (e.g. a sphere-datum Lambert
         # Conformal Conic with no EPSG code); prefer it over the 4326 placeholder.
@@ -6650,19 +6650,19 @@ class NetCDF(Dataset):
         return src
 
 
-class NetCDFVariable(NetCDF):
+class Variable(NetCDF):
     """A single variable extracted from a NetCDF container — always a valid raster.
 
     Returned by :meth:`NetCDF.get_variable`, :meth:`NetCDF.subset`, :meth:`NetCDF.sel`,
     and the spatial operations (``crop`` / ``to_crs`` / ``resample``) when called on a
-    variable subset. A ``NetCDFVariable`` *is* a raster (``band_count >= 1``), so every
+    variable subset. A ``Variable`` *is* a raster (``band_count >= 1``), so every
     operation inherited from :class:`~pyramids.dataset.Dataset` — ``read_array``,
     ``crop``, ``plot``, ``sel`` … — is meaningful on it, unlike a
-    :class:`NetCDFContainer`.
+    :class:`Container`.
 
     Part of the API-1 container/variable identity split (issue #614): ``get_variable``
     now returns this concrete type so callers can tell a variable from a container by
-    type (``isinstance(x, NetCDFVariable)``) rather than by runtime flags. ``NetCDF``
+    type (``isinstance(x, Variable)``) rather than by runtime flags. ``NetCDF``
     remains the (deprecated) base alias for one major version, so existing
     ``isinstance(x, NetCDF)`` checks keep working.
 
@@ -6676,7 +6676,7 @@ class NetCDFVariable(NetCDF):
             (12, 180, 360)
 
             ```
-        - Select along a band dimension — the result is another NetCDFVariable:
+        - Select along a band dimension — the result is another Variable:
             ```python
             >>> first = var.sel(time=0)  # doctest: +SKIP
             >>> first.band_count  # doctest: +SKIP
@@ -6688,14 +6688,14 @@ class NetCDFVariable(NetCDF):
     def _check_not_container(self, operation: str) -> None:
         """No-op: a variable is always a valid raster, so spatial ops are always allowed.
 
-        The base guard only fires for a root MDIM container; a ``NetCDFVariable`` can never
+        The base guard only fires for a root MDIM container; a ``Variable`` can never
         be one, so the check is unnecessary here. Overriding it makes the type contract
         explicit and keeps the guard out of the hot path for variable operations.
         """
         return None
 
 
-class NetCDFContainer(NetCDF):
+class Container(NetCDF):
     """A NetCDF container (the root MDIM group) holding variables, dimensions, attributes.
 
     Returned by :meth:`NetCDF.read_file`, :meth:`NetCDF.create_from_array`, and

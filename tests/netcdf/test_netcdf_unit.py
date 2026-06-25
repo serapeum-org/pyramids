@@ -19,7 +19,7 @@ from osgeo import gdal
 
 from pyramids.dataset import Dataset
 from pyramids.netcdf.models import NetCDFMetadata
-from pyramids.netcdf.netcdf import NetCDF, NetCDFContainer
+from pyramids.netcdf.netcdf import NetCDF, Container
 from tests.netcdf.conftest import make_3d_nc
 
 pytestmark = pytest.mark.core
@@ -485,7 +485,7 @@ class TestReadMdArray1D:
         dim = rg.CreateDimension("labels", None, None, 3)
         str_dtype = gdal.ExtendedDataType.CreateString()
         str_arr = rg.CreateMDArray("label_data", [dim], str_dtype)
-        nc = NetCDFContainer(src_ds)
+        nc = Container(src_ds)
         result_src, result_md, result_rg, _ix, _iy = nc._read_md_array("label_data")
         # For string type, src should be the md_arr itself (not a Dataset)
         assert (
@@ -1154,7 +1154,7 @@ def _make_nc_with_time_units(rows=4, cols=5, n_times=3):
     data_arr.Write(np.random.RandomState(55).rand(n_times, rows, cols))
     data_arr.SetNoDataValueDouble(-9999.0)
 
-    return NetCDFContainer(src)
+    return Container(src)
 
 
 class TestGetTimeVariableWithUnits:
@@ -1299,7 +1299,7 @@ class TestGetVariableYFlipAndErrors:
         data_arr.Write(np.random.RandomState(88).rand(4, 5).astype(np.float64))
         data_arr.SetNoDataValueDouble(-9999.0)
 
-        nc = NetCDFContainer(src)
+        nc = Container(src)
         var = nc.get_variable("temp")
         # The Y-flip correction should have been applied
         gt = var._geotransform
@@ -1475,7 +1475,7 @@ class TestGetVariableNonDataset:
         str_dtype = gdal.ExtendedDataType.CreateString()
         str_arr = rg.CreateMDArray("labels", [str_dim], str_dtype)
 
-        nc = NetCDFContainer(src)
+        nc = Container(src)
         assert (
             "labels" in nc.variable_names
         ), f"'labels' should be a variable, got {nc.variable_names}"
@@ -1533,7 +1533,7 @@ class TestGetVariableMultipleBandDims:
         data.Write(np.random.rand(2, 2, 3, 3).astype(np.float64))
         data.SetNoDataValueDouble(-9999.0)
 
-        nc = NetCDFContainer(src)
+        nc = Container(src)
         var = nc.get_variable("temp")
         assert var._band_dim_names == (
             "time",
@@ -1714,7 +1714,7 @@ class TestReadMdArray1DNumeric:
         profile = rg.CreateMDArray("profile", [dim], dtype)
         profile.Write(np.array([10.0, 20.0, 30.0, 40.0, 50.0]))
 
-        nc = NetCDFContainer(src)
+        nc = Container(src)
         try:
             result = nc._read_md_array("profile")
             # If it succeeds, verify we got data back

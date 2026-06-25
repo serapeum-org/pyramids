@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from osgeo import gdal
 
-from pyramids.netcdf import NetCDF, NetCDFContainer
+from pyramids.netcdf import NetCDF, Container
 
 pytestmark = pytest.mark.core
 
@@ -30,19 +30,19 @@ class TestNetCDFFromBytes:
     """Tests for :meth:`NetCDF.from_bytes`."""
 
     def test_returns_netcdf_instance(self, netcdf_bytes: bytes):
-        """The result is a :class:`NetCDFContainer` (a :class:`NetCDF`), not a plain Dataset.
+        """The result is a :class:`Container` (a :class:`NetCDF`), not a plain Dataset.
 
         Args:
             netcdf_bytes: Raw bytes of the NetCDF fixture.
 
         Test scenario:
             ``NetCDF.from_bytes(bytes)`` opens a file, so it returns the canonical
-            container type ``NetCDFContainer`` (API-1, #614), which is a ``NetCDF`` subclass
+            container type ``Container`` (API-1, #614), which is a ``NetCDF`` subclass
             — so ``isinstance(nc, NetCDF)`` still holds.
         """
         nc = NetCDF.from_bytes(netcdf_bytes)
         assert isinstance(nc, NetCDF), f"expected NetCDF, got {type(nc)}"
-        assert type(nc) is NetCDFContainer, f"expected NetCDFContainer, got {type(nc)}"
+        assert type(nc) is Container, f"expected Container, got {type(nc)}"
 
     def test_round_trip_matches_read_file(self, netcdf_bytes: bytes):
         """Opening from bytes matches opening the same file from disk.

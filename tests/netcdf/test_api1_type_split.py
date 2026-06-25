@@ -2,9 +2,9 @@
 
 ``NetCDF`` is now the (deprecated) base of two concrete public types:
 
-* :class:`pyramids.netcdf.NetCDFContainer` — returned by the file-open / build entry
+* :class:`pyramids.netcdf.Container` — returned by the file-open / build entry
   points (``read_file`` / ``from_bytes`` / ``create_from_array`` / ``get_group``).
-* :class:`pyramids.netcdf.NetCDFVariable` — returned by ``get_variable`` and the
+* :class:`pyramids.netcdf.Variable` — returned by ``get_variable`` and the
   variable-level operations (``subset`` / ``sel`` / ``crop`` / ``to_crs`` / ``resample``).
 
 Both subclass ``NetCDF`` so existing ``isinstance(x, NetCDF)`` checks keep working.
@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pyramids.netcdf import NetCDF, NetCDFContainer, NetCDFVariable
+from pyramids.netcdf import NetCDF, Container, Variable
 
 pytestmark = pytest.mark.core
 
@@ -29,18 +29,18 @@ CLASSIC = "tests/data/netcdf/noah-precipitation-1979.nc"
 
 
 @pytest.fixture(scope="function")
-def container() -> NetCDFContainer:
+def container() -> Container:
     """An MDIM container opened from the 3-D fixture."""
     return NetCDF.read_file(THREE_D, open_as_multi_dimensional=True)
 
 
 @pytest.fixture(scope="function")
-def variable(container) -> NetCDFVariable:
+def variable(container) -> Variable:
     """A single variable extracted from the container."""
     return container.get_variable(container.variable_names[0])
 
 
-def _make_container() -> NetCDFContainer:
+def _make_container() -> Container:
     """Build a small in-memory container via create_from_array."""
     arr = np.arange(2 * 4 * 5, dtype=np.float64).reshape(2, 4, 5)
     return NetCDF.create_from_array(
@@ -53,80 +53,80 @@ def _make_container() -> NetCDFContainer:
 
 
 class TestContainerRouting:
-    """The file-open / build entry points return NetCDFContainer."""
+    """The file-open / build entry points return Container."""
 
     def test_read_file_mdim_returns_container(self, container):
-        """``read_file(open_as_multi_dimensional=True)`` returns a NetCDFContainer.
+        """``read_file(open_as_multi_dimensional=True)`` returns a Container.
 
         Test scenario:
             The MDIM open yields the canonical container type, which is still an
             ``isinstance`` of ``NetCDF`` so legacy checks keep passing.
         """
-        assert type(container) is NetCDFContainer, f"got {type(container)}"
+        assert type(container) is Container, f"got {type(container)}"
         assert isinstance(container, NetCDF), "container must remain a NetCDF instance"
 
     def test_read_file_classic_returns_container(self):
-        """``read_file(open_as_multi_dimensional=False)`` also returns a NetCDFContainer.
+        """``read_file(open_as_multi_dimensional=False)`` also returns a Container.
 
         Test scenario:
             Opening a file is a container operation regardless of mode; the classic-mode
-            handle is still a NetCDFContainer (and a NetCDF).
+            handle is still a Container (and a NetCDF).
         """
         nc = NetCDF.read_file(CLASSIC, open_as_multi_dimensional=False)
-        assert type(nc) is NetCDFContainer, f"got {type(nc)}"
+        assert type(nc) is Container, f"got {type(nc)}"
         assert isinstance(nc, NetCDF)
 
     def test_from_bytes_returns_container(self):
-        """``from_bytes`` returns a NetCDFContainer.
+        """``from_bytes`` returns a Container.
 
         Test scenario:
-            Opening from in-memory bytes is a file-open, so it yields a NetCDFContainer.
+            Opening from in-memory bytes is a file-open, so it yields a Container.
         """
         nc = NetCDF.from_bytes(Path(CLASSIC).read_bytes())
-        assert type(nc) is NetCDFContainer, f"got {type(nc)}"
+        assert type(nc) is Container, f"got {type(nc)}"
 
     def test_create_from_array_returns_container(self):
-        """``create_from_array`` returns a NetCDFContainer.
+        """``create_from_array`` returns a Container.
 
         Test scenario:
             Building a store from arrays produces a container holding the variable(s).
         """
         nc = _make_container()
-        assert type(nc) is NetCDFContainer, f"got {type(nc)}"
+        assert type(nc) is Container, f"got {type(nc)}"
         assert "t" in nc.variable_names, "the built variable should be present"
 
 
 class TestVariableRouting:
-    """get_variable and variable-level ops return NetCDFVariable."""
+    """get_variable and variable-level ops return Variable."""
 
     def test_get_variable_returns_variable(self, variable):
-        """``get_variable`` returns a NetCDFVariable that is also a NetCDF.
+        """``get_variable`` returns a Variable that is also a NetCDF.
 
         Test scenario:
             A single extracted variable is the raster-bearing type; callers can dispatch
-            on ``isinstance(x, NetCDFVariable)``.
+            on ``isinstance(x, Variable)``.
         """
-        assert type(variable) is NetCDFVariable, f"got {type(variable)}"
+        assert type(variable) is Variable, f"got {type(variable)}"
         assert isinstance(variable, NetCDF)
 
     def test_crop_on_variable_returns_variable(self, variable):
-        """A spatial op on a variable returns a NetCDFVariable.
+        """A spatial op on a variable returns a Variable.
 
         Test scenario:
             Cropping the variable to its own bounding box keeps every cell and must
-            return a NetCDFVariable (consistent-return-type contract).
+            return a Variable (consistent-return-type contract).
         """
         cropped = variable.crop(bbox=variable.bbox)
-        assert isinstance(cropped, NetCDFVariable), f"crop returned {type(cropped)}"
+        assert isinstance(cropped, Variable), f"crop returned {type(cropped)}"
 
     def test_subset_returns_variable(self, container):
-        """``subset`` returns a NetCDFVariable.
+        """``subset`` returns a Variable.
 
         Test scenario:
-            A windowed variable subset is a raster, so it is a NetCDFVariable.
+            A windowed variable subset is a raster, so it is a Variable.
         """
         sub = container.subset("values", time=0)
-        assert isinstance(sub, NetCDFVariable), f"subset returned {type(sub)}"
+        assert isinstance(sub, Variable), f"subset returned {type(sub)}"
 
 
 class TestDirectConstructionDeprecation:
@@ -146,12 +146,12 @@ class TestDirectConstructionDeprecation:
         """Constructing a subclass directly does not warn.
 
         Test scenario:
-            ``NetCDFContainer(gdal_dataset)`` / ``NetCDFVariable(...)`` are the canonical
+            ``Container(gdal_dataset)`` / ``Variable(...)`` are the canonical
             types; their construction must be warning-free even under ``error`` filtering.
         """
         with warnings.catch_warnings():
             warnings.simplefilter("error", DeprecationWarning)
-            c = NetCDFContainer(container._raster)
+            c = Container(container._raster)
             assert isinstance(c, NetCDF)
 
 
@@ -162,18 +162,18 @@ class TestTypePreservation:
         """Copying a container yields a container.
 
         Test scenario:
-            ``container.copy()`` (in-memory MEM copy) must return a NetCDFContainer, not
+            ``container.copy()`` (in-memory MEM copy) must return a Container, not
             the base NetCDF.
         """
-        assert type(container.copy()) is NetCDFContainer, "copy downgraded the type"
+        assert type(container.copy()) is Container, "copy downgraded the type"
 
     def test_copy_preserves_variable_type(self, variable):
         """Copying a variable yields a variable.
 
         Test scenario:
-            ``variable.copy()`` must return a NetCDFVariable.
+            ``variable.copy()`` must return a Variable.
         """
-        assert type(variable.copy()) is NetCDFVariable, "copy downgraded the type"
+        assert type(variable.copy()) is Variable, "copy downgraded the type"
 
     def test_copy_is_standalone_not_a_parent_subset(self, variable):
         """A copied variable keeps its type + CF packing but is a STANDALONE raster (review C1).
@@ -188,7 +188,7 @@ class TestTypePreservation:
         """
         assert variable.is_subset is True, "precondition: the extracted variable is a subset"
         copied = variable.copy()
-        assert isinstance(copied, NetCDFVariable), "copy must keep the variable type"
+        assert isinstance(copied, Variable), "copy must keep the variable type"
         assert copied.is_subset is False, "a copy is standalone, not a live parent subset"
         assert copied.is_md_array is False, "a copied variable is a standalone classic raster"
         assert copied._source_var_name is None, "a copy must not carry the parent's var name"
@@ -216,16 +216,16 @@ class TestTypePreservation:
         assert source_var is None, "a copy must not carry a parent source-variable name"
 
     def test_epsg_setter_inplace_preserves_variable_type(self, variable):
-        """An in-place op (the ``epsg`` setter) does not downgrade a NetCDFVariable.
+        """An in-place op (the ``epsg`` setter) does not downgrade a Variable.
 
         Test scenario:
             The ``epsg`` setter rebuilds the instance via ``_update_inplace`` → ``type(self)``;
-            re-setting the EPSG on a variable must keep it a NetCDFVariable rather than
+            re-setting the EPSG on a variable must keep it a Variable rather than
             reverting to the base ``NetCDF``.
         """
         current_epsg = variable.epsg
         variable.epsg = current_epsg
-        assert type(variable) is NetCDFVariable, f"in-place op downgraded to {type(variable)}"
+        assert type(variable) is Variable, f"in-place op downgraded to {type(variable)}"
 
 
 class TestContainerGuard:
@@ -242,7 +242,7 @@ class TestContainerGuard:
             container.read_array()
 
     def test_variable_allows_read_array(self, variable):
-        """A NetCDFVariable's container guard is a no-op, so read_array works.
+        """A Variable's container guard is a no-op, so read_array works.
 
         Test scenario:
             ``read_array`` on the extracted variable returns a real array — the variable
@@ -252,7 +252,7 @@ class TestContainerGuard:
         assert arr is not None and arr.size > 0, "variable read_array should return data"
 
     def test_variable_check_not_container_is_noop(self, variable):
-        """``NetCDFVariable._check_not_container`` returns None and never raises.
+        """``Variable._check_not_container`` returns None and never raises.
 
         Test scenario:
             The override makes the type contract explicit — a variable is never a
@@ -271,9 +271,9 @@ class TestPublicExports:
             The re-export module must hand back the very same class objects (no shadow
             copies), and both must subclass ``NetCDF``.
         """
-        from pyramids.netcdf.variable import NetCDFContainer as VC
-        from pyramids.netcdf.variable import NetCDFVariable as VV
+        from pyramids.netcdf.variable import Container as VC
+        from pyramids.netcdf.variable import Variable as VV
 
-        assert VC is NetCDFContainer, "variable.NetCDFContainer must be the same object"
-        assert VV is NetCDFVariable, "variable.NetCDFVariable must be the same object"
-        assert issubclass(NetCDFContainer, NetCDF) and issubclass(NetCDFVariable, NetCDF)
+        assert VC is Container, "variable.Container must be the same object"
+        assert VV is Variable, "variable.Variable must be the same object"
+        assert issubclass(Container, NetCDF) and issubclass(Variable, NetCDF)
