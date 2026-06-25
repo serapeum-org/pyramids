@@ -20,7 +20,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from osgeo import gdal, osr
-from shapely import contains_xy
 
 from pyramids import _io
 from pyramids.base._utils import numpy_to_gdal_dtype
@@ -41,16 +40,13 @@ from pyramids.netcdf.engines.variables import Variables
 from pyramids.netcdf.cf import (
     build_coordinate_attrs,
     detect_axis,
-    srs_to_grid_mapping,
     write_attributes_to_md_array,
-    write_global_attributes,
 )
 from pyramids.netcdf._mdim import (
     needs_y_flip,
     open_mdarray,
     scalar_no_data,
 )
-from pyramids.netcdf.dimensions import ClassicDimensionInfo
 from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
