@@ -4461,11 +4461,11 @@ class NetCDF(Dataset):
         return self.varops.add_variable(*args, **kwargs)
 
     def remove_variable(self, *args, **kwargs):
-        """Facade — :meth:`Variables.remove_variable <pyramids.netcdf.engines.variables.Variables.remove_variable>`."""
+        """Facade — :meth:`remove_variable <pyramids.netcdf.engines.variables.Variables.remove_variable>`."""
         return self.varops.remove_variable(*args, **kwargs)
 
     def rename_variable(self, *args, **kwargs):
-        """Facade — :meth:`Variables.rename_variable <pyramids.netcdf.engines.variables.Variables.rename_variable>`."""
+        """Facade — :meth:`rename_variable <pyramids.netcdf.engines.variables.Variables.rename_variable>`."""
         return self.varops.rename_variable(*args, **kwargs)
 
     def to_xarray(self, *args, **kwargs) -> Any:
