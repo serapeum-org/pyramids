@@ -1716,7 +1716,7 @@ class NetCDF(Dataset):
         if isinstance(result, NetCDF):
             wrapped = result
         else:
-            wrapped = NetCDF(
+            wrapped = NetCDFVariable(
                 result._raster,
                 access=result._access,
                 open_as_multi_dimensional=False,
@@ -4060,7 +4060,7 @@ class NetCDF(Dataset):
             if x_index is not None:
                 spatial_dim_indices = (x_index, y_index)
             if isinstance(src, gdal.Dataset):
-                cube = NetCDF(src)
+                cube = NetCDFVariable(src)
                 cube._is_md_array = True
                 # _read_md_array flips the data lazily and GDAL usually corrects the geotransform,
                 # but a Y dim with no indexing variable (e.g. WRF "south_north") can leave it wrong;
@@ -4080,7 +4080,7 @@ class NetCDF(Dataset):
                     f"Could not open variable '{variable_name}' via "
                     f"'{prefix}:{self.file_name}:{variable_name}'"
                 )
-            cube = NetCDF(src)
+            cube = NetCDFVariable(src)
             cube._is_md_array = False
 
         cube._is_subset = True
@@ -5952,7 +5952,7 @@ class NetCDF(Dataset):
         # than a bare Dataset. Wrap the just-built classic raster as a classic-backed
         # NetCDF and transfer ownership (clear ds._raster so the discarded Dataset does
         # not close the handle the NetCDF now holds); band/CRS semantics are identical.
-        result = NetCDF(ds._raster, access="write", open_as_multi_dimensional=False)
+        result = NetCDFVariable(ds._raster, access="write", open_as_multi_dimensional=False)
         ds._raster = None
         # The grid mapping carries the true CRS (e.g. a sphere-datum Lambert
         # Conformal Conic with no EPSG code); prefer it over the 4326 placeholder.
