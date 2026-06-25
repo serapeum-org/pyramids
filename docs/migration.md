@@ -34,18 +34,20 @@ Introduces the `Container` / `Variable` type split plus a wave of API consolidat
 
 #### At a glance
 
+`breaking*` = only breaks *exact-type* checks; `isinstance(x, NetCDF)` still holds.
+
 | Change | Kind | What you do |
 |--------|------|-------------|
-| `read_file`/`get_variable`/… return `Container`/`Variable` | breaking (exact-type checks only) | use `isinstance(x, NetCDF)`, not `type(x) is NetCDF` |
-| `subset()` returns a `NetCDF`, not a `Dataset` | breaking (exact-type checks only) | nothing, unless you checked `type(x) is Dataset` |
-| `CFInfo` is frozen | breaking | build a new one with `dataclasses.replace(...)` |
+| `read_file` / `get_variable` return `Container` / `Variable` | breaking* | use `isinstance(x, NetCDF)` |
+| `subset()` returns a `NetCDF`, not a `Dataset` | breaking* | nothing unless you used `type(x) is Dataset` |
+| `CFInfo` is frozen | breaking | `dataclasses.replace(cf, ...)` |
 | `LabeledDataset.read_file(engine=...)` validates `engine` | breaking | pass a valid engine name |
-| `NetCDF(gdal_dataset)` direct construction | deprecated (warns) | use `read_file` / `get_variable` |
-| `get_variable_names()` | deprecated (warns) | `variable_names` property |
-| `ColourOpts` | deprecated (warns) | `ColorOpts` |
-| `MetaData` / `DimMetaData` | deprecated (warns) | `ClassicDimMetadata` / `ClassicDimensionInfo` |
-| kerchunk `backend="kerchunk"` | deprecated (warns) | `backend="legacy"` |
-| `_LabeledArray` / `_apply_unpack` | renamed (alias kept) | `LabeledArray` / `apply_unpack` |
+| `NetCDF(gdal_dataset)` direct construction | deprecated | use `read_file` / `get_variable` |
+| `get_variable_names()` | deprecated | `variable_names` property |
+| `ColourOpts` | deprecated | `ColorOpts` |
+| `MetaData` / `DimMetaData` | deprecated | `ClassicDimMetadata` / `ClassicDimensionInfo` |
+| kerchunk `backend="kerchunk"` | deprecated | `backend="legacy"` |
+| `_LabeledArray` / `_apply_unpack` | renamed | `LabeledArray` / `apply_unpack` |
 
 #### Breaking changes (update required)
 
