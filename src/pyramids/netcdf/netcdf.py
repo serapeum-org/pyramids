@@ -6635,6 +6635,24 @@ class NetCDFVariable(NetCDF):
     type (``isinstance(x, NetCDFVariable)``) rather than by runtime flags. ``NetCDF``
     remains the (deprecated) base alias for one major version, so existing
     ``isinstance(x, NetCDF)`` checks keep working.
+
+    Examples:
+        - Extract a variable and read its data (it behaves as a raster):
+            ```python
+            >>> from pyramids.netcdf import NetCDF  # doctest: +SKIP
+            >>> nc = NetCDF.read_file("cube.nc")  # doctest: +SKIP
+            >>> var = nc.get_variable("temperature")  # doctest: +SKIP
+            >>> var.read_array().shape  # doctest: +SKIP
+            (12, 180, 360)
+
+            ```
+        - Select along a band dimension — the result is another NetCDFVariable:
+            ```python
+            >>> first = var.sel(time=0)  # doctest: +SKIP
+            >>> first.band_count  # doctest: +SKIP
+            1
+
+            ```
     """
 
     def _check_not_container(self, operation: str) -> None:
@@ -6660,4 +6678,16 @@ class NetCDFContainer(NetCDF):
     Part of the API-1 container/variable identity split (issue #614). ``NetCDF`` remains
     the (deprecated) base alias for one major version, so existing ``isinstance(x, NetCDF)``
     checks keep working.
+
+    Examples:
+        - Open a store and list its variables, then drill into one:
+            ```python
+            >>> from pyramids.netcdf import NetCDF  # doctest: +SKIP
+            >>> nc = NetCDF.read_file("cube.nc")  # doctest: +SKIP
+            >>> nc.variable_names  # doctest: +SKIP
+            ['temperature', 'precipitation']
+            >>> nc.get_variable("temperature").band_count  # doctest: +SKIP
+            12
+
+            ```
     """
