@@ -6600,3 +6600,37 @@ class NetCDF(Dataset):
             write_global_attributes(root, dict(dataset.attrs))
 
         return src
+
+
+class NetCDFVariable(NetCDF):
+    """A single variable extracted from a NetCDF container — always a valid raster.
+
+    Returned by :meth:`NetCDF.get_variable`, :meth:`NetCDF.subset`, :meth:`NetCDF.sel`,
+    and the spatial operations (``crop`` / ``to_crs`` / ``resample``) when called on a
+    variable subset. A ``NetCDFVariable`` *is* a raster (``band_count >= 1``), so every
+    operation inherited from :class:`~pyramids.dataset.Dataset` — ``read_array``,
+    ``crop``, ``plot``, ``sel`` … — is meaningful on it, unlike a
+    :class:`NetCDFContainer`.
+
+    Part of the API-1 container/variable identity split (issue #614): ``get_variable``
+    now returns this concrete type so callers can tell a variable from a container by
+    type (``isinstance(x, NetCDFVariable)``) rather than by runtime flags. ``NetCDF``
+    remains the (deprecated) base alias for one major version, so existing
+    ``isinstance(x, NetCDF)`` checks keep working.
+    """
+
+
+class NetCDFContainer(NetCDF):
+    """A NetCDF container (the root MDIM group) holding variables, dimensions, attributes.
+
+    Returned by :meth:`NetCDF.read_file`, :meth:`NetCDF.create_from_array`, and
+    :meth:`NetCDF.get_group`. A container is **not** a single raster (``band_count == 0``);
+    the raster-level operations inherited from :class:`~pyramids.dataset.Dataset`
+    (``read_array``, a band-level ``crop`` on the container itself, …) are not meaningful
+    here — extract a variable first with ``nc.get_variable('name')``. Container-level
+    ``crop`` / ``to_crs`` / ``resample`` still work by fanning out over every variable.
+
+    Part of the API-1 container/variable identity split (issue #614). ``NetCDF`` remains
+    the (deprecated) base alias for one major version, so existing ``isinstance(x, NetCDF)``
+    checks keep working.
+    """

@@ -12,7 +12,7 @@ from pyramids.netcdf.models import (
     StructuralInfo,
     VariableInfo,
 )
-from pyramids.netcdf.netcdf import NetCDF
+from pyramids.netcdf.netcdf import NetCDF, NetCDFContainer, NetCDFVariable
 from pyramids.netcdf.plot_options import (
     ColorOpts,
     ColourOpts,
@@ -23,6 +23,8 @@ from pyramids.netcdf.ugrid import UgridDataset
 
 __all__ = [
     "NetCDF",
+    "NetCDFContainer",
+    "NetCDFVariable",
     "UgridDataset",
     "LabeledDataset",
     "LabeledArray",
