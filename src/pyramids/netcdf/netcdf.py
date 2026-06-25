@@ -3531,7 +3531,14 @@ class NetCDF(Dataset):
         if isinstance(cube, NetCDF):
             real_gt = self._coordinate_derived_geotransform(cube)
             if real_gt is not None:
-                vrt = gdal.Translate("", cube._raster, format="VRT")
+                # Building the VRT issues a partial-window read of the AsClassicDataset MDArray view,
+                # which GDAL >= 3.13 rejects with a spurious `arrayStartIdx[...] >= <dim>` CE_Failure
+                # (the same view limitation `_materialize_md_view` works around). The VRT is still
+                # produced and correctly georeferenced, so silence that one known-harmless error
+                # rather than forcing an eager full read here; a genuine failure still yields
+                # `vrt is None` and skips the correction. See issue #628.
+                with gdal.quiet_errors():
+                    vrt = gdal.Translate("", cube._raster, format="VRT")
                 if vrt is not None:
                     vrt.SetGeoTransform(list(real_gt))
                     if cube.epsg:
