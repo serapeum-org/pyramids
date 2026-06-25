@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from shapely import contains_xy
 
+from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
 from pyramids.feature import FeatureCollection
@@ -245,6 +246,19 @@ class Selection(_Engine):
                     "chunks= is only supported for curvilinear crop; the affine "
                     "(rectilinear) crop path is eager."
                 )
+            # Stamp the variable's known CRS onto its backing raster before the cutline warp.
+            # A NetCDF variable tracks its EPSG even when the raster (the AsClassicDataset MDArray
+            # view, or a wrap_longitude/materialized MEM raster) carries no projection string;
+            # without it GDAL's cutline warp warns ("the input vector layer has a SRS, but the
+            # source raster dataset does not") and — for a cutline in a different CRS — would clip
+            # the wrong region. The driver-less MDArray view does not persist SetProjection, so
+            # materialize it first (the affine crop reads it fully anyway). See issue #629.
+            if nc.epsg and nc._raster is not None and not nc._raster.GetProjection():
+                wkt = sr_from_epsg(int(nc.epsg)).ExportToWkt()
+                nc._raster.SetProjection(wkt)
+                if not nc._raster.GetProjection():
+                    nc._materialize_md_view()
+                    nc._raster.SetProjection(wkt)
             # `nc.spatial.crop` is the base Dataset affine crop — exactly what the
             # NetCDF.crop override reached via `super().crop(...)`, bypassing this engine.
             result = nc._preserve_netcdf_metadata(
