@@ -223,7 +223,8 @@ class TestTypePreservation:
             re-setting the EPSG on a variable must keep it a NetCDFVariable rather than
             reverting to the base ``NetCDF``.
         """
-        variable.epsg = variable.epsg
+        current_epsg = variable.epsg
+        variable.epsg = current_epsg
         assert type(variable) is NetCDFVariable, f"in-place op downgraded to {type(variable)}"
 
 
