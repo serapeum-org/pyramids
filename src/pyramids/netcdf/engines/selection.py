@@ -17,12 +17,13 @@ methods still use them.
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from shapely import contains_xy
 
-from pyramids.dataset import DEFAULT_NO_DATA_VALUE
+from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf._plot import NetCDFPlot
@@ -326,4 +327,227 @@ class Selection(_Engine):
         # windowed 2-D coordinates so the result stays curvilinear (plots on its real geometry).
         result = container.get_variable(var_name)
         result._curvilinear_coords = (lon_win, lat_win)
+        return result
+
+    def sel(self, **kwargs: Any) -> NetCDF:
+        """Select a subset of bands by coordinate values along a band dim.
+
+        Extracts bands whose coordinate values match the given criteria.
+        Works on any variable subset that has at least one non-spatial
+        dimension tracked in `_band_dim_names` (set by
+        `get_variable()`). For 4-D+ files with multiple non-spatial
+        dims (e.g. `(valid_time, pressure_level, lat, lon)` from CDS-Beta
+        ERA5), `sel()` may name any of those dims; chaining `sel()`
+        pins multiple band dims one at a time.
+
+        The result is always a `NetCDF` instance with the same variable
+        metadata preserved, so `sel()` can be chained and NetCDF-only
+        methods like `read_array(unpack=True)` remain available.
+
+        Internals: GDAL flattens an MDIM array `(d_0, ..., d_{n-1},
+        lat, lon)` row-major over the non-spatial dims, with the last
+        non-spatial dim varying fastest. For a band dim at axis `k`
+        with sizes `S`, the implementation uses
+        `stride = prod(S[k+1:])`, `block = stride * S[k]`, and
+        `total = prod(S)` to map each pinned index `p` to the band
+        ranges `[outer + p*stride .. outer + (p+1)*stride)` for every
+        `outer in range(0, total, block)`. For a single-band-dim
+        variable this reduces to the identity
+        `band_indices == dim_indices`.
+
+        Args:
+            **kwargs: Exactly one keyword argument. The key must name a
+                tracked band dim (one of `self._band_dim_names`); the
+                value is one of:
+
+                - A single number: select one band by exact value.
+                - A list of numbers: select multiple bands.
+                - A `slice(start, stop)`: select bands whose coord
+                  falls between `start` and `stop` inclusive. Bounds
+                  are normalised before matching, so the slice is
+                  direction-agnostic — works on both ascending and
+                  descending coord axes (e.g. `latitude` stored
+                  north-to-south).
+
+        Returns:
+            NetCDF: A new variable subset with only the selected bands
+                and full metadata preserved. `_band_dim_sizes` reflects
+                the pinned axis (e.g. `(4, 1)` after pinning a level on
+                a `(4, 3)` cube), and `_band_dim_values_map[dim_name]`
+                shrinks to the chosen values. Legacy `_band_dim_values`
+                is refreshed from the (possibly updated) primary entry
+                in the map.
+
+        Raises:
+            ValueError: If exactly one kwarg isn't passed, the variable
+                has no tracked band dims, the named dim isn't one of
+                `_band_dim_names`, the dim has no coord values
+                (`_band_dim_values_map[dim] is None`), or no bands match
+                the selector.
+
+        Examples:
+            - Pin a pressure level on a 4-D file:
+                ```python
+                >>> nc = NetCDF.read_file(  # doctest: +SKIP
+                ...     "tests/data/netcdf/pyramids-netcdf-4d.nc"
+                ... )
+                >>> var = nc.get_variable("temperature")  # doctest: +SKIP
+                >>> sub = var.sel(pressure_level=500)  # doctest: +SKIP
+                >>> sub._band_dim_sizes  # doctest: +SKIP
+                (4, 1)
+
+                ```
+            - Chain `sel()` to pin both time and level (collapses to 2-D):
+                ```python
+                >>> sub = var.sel(time=12).sel(pressure_level=500)  # doctest: +SKIP
+                >>> sub.read_array().shape  # doctest: +SKIP
+                (5, 6)
+
+                ```
+            - Use a list selector to keep only two of the levels:
+                ```python
+                >>> sub = var.sel(pressure_level=[1000, 500])  # doctest: +SKIP
+                >>> sub._band_dim_values_map["pressure_level"]  # doctest: +SKIP
+                [1000.0, 500.0]
+
+                ```
+            - Use a slice selector — direction-agnostic, so the same
+              call works on ascending coords (e.g. `[500, 850, 1000]`)
+              and on descending coords (e.g. `[1000, 850, 500]`):
+                ```python
+                >>> sub = var.sel(pressure_level=slice(500, 1000))  # doctest: +SKIP
+                >>> sub._band_dim_values_map["pressure_level"]  # doctest: +SKIP
+                [1000.0, 850.0, 500.0]
+
+                ```
+
+        Notes:
+            All four examples above are tagged `# doctest: +SKIP`
+            because they need a real on-disk NetCDF fixture. The
+            runnable equivalents live in:
+
+            - `tests/netcdf/test_sel.py::TestSelSingleValue` /
+              `TestSelList` / `TestSelSlice` (3-D scenarios — single
+              value, list selector, slice selector including the
+              direction-agnostic path).
+            - `tests/netcdf/test_sel_4d.py::TestSelByPressureLevel` /
+              `TestSelByTime` / `TestSelChained` (4-D scenarios —
+              pin secondary / primary dim, chained `sel().sel()`).
+            - `tests/netcdf/test_sel_4d.py::TestSelErrorMessages` (the
+              error contract).
+
+        See Also:
+            `get_variable`: builds a variable subset and populates the
+                band-dim metadata that `sel()` consumes.
+        """
+        nc = self._ds
+        if len(kwargs) != 1:
+            raise ValueError("sel() requires exactly one keyword argument.")
+
+        dim_name, selector = next(iter(kwargs.items()))
+
+        if not nc._band_dim_names:
+            raise ValueError(
+                "sel() requires a variable with at least one non-spatial "
+                "dimension. This variable has no band dimensions tracked."
+            )
+        if dim_name not in nc._band_dim_names:
+            raise ValueError(
+                f"Dimension {dim_name!r} does not match any band dimension "
+                f"of this variable {list(nc._band_dim_names)!r}."
+            )
+
+        coords = nc._band_dim_values_map.get(dim_name)
+        if coords is None:
+            raise ValueError(
+                f"No coordinate values available for dimension {dim_name!r}."
+            )
+
+        if isinstance(selector, slice):
+            start = selector.start if selector.start is not None else coords[0]
+            stop = selector.stop if selector.stop is not None else coords[-1]
+            # Normalise bounds so the match works on both ascending and
+            # descending coord axes (e.g. `latitude = [44, 43, 42, 41,
+            # 40]` from CDS-Beta retrievals). Without this, a
+            # `slice(None, None)` on a descending axis defaults to
+            # `start=44, stop=40`, the test `44 <= v <= 40` matches
+            # nothing, and the user gets a confusing "no bands match"
+            # error instead of "select everything".
+            lo, hi = (start, stop) if start <= stop else (stop, start)
+            dim_indices = [i for i, v in enumerate(coords) if lo <= v <= hi]
+        elif isinstance(selector, list):
+            coord_set = set(selector)
+            dim_indices = [i for i, v in enumerate(coords) if v in coord_set]
+        else:
+            dim_indices = [i for i, v in enumerate(coords) if v == selector]
+
+        if not dim_indices:
+            raise ValueError(
+                f"No bands match {dim_name}={selector}. " f"Available values: {coords}"
+            )
+
+        # Map (pinned dim index along dim_name) -> classic-band indices.
+        # GDAL flattens (d_0, ..., d_{n-1}, lat, lon) row-major over the
+        # non-spatial dims: the last non-spatial dim varies fastest. For
+        # a band-dim at axis `k` with sizes S, stride = prod(S[k+1:]) and
+        # block = stride * S[k]. For each pinned index p we emit
+        # `[outer + p*stride .. outer + (p+1)*stride)` for every outer in
+        # range(0, total, block). Reduces to identity (band_indices ==
+        # dim_indices) when there is exactly one band dim.
+        dim_axis = nc._band_dim_names.index(dim_name)
+        sizes = nc._band_dim_sizes
+        stride = math.prod(sizes[dim_axis + 1 :])
+        block = stride * sizes[dim_axis]
+        total = math.prod(sizes)
+
+        band_indices: list[int] = []
+        for pinned in dim_indices:
+            for outer_start in range(0, total, block):
+                base = outer_start + pinned * stride
+                band_indices.extend(range(base, base + stride))
+
+        selected_coords = [coords[i] for i in dim_indices]
+
+        # Read only the selected classic bands, straight into one pre-allocated buffer
+        # (mirroring the all-bands read path in ``IO.read_array``) instead of N
+        # ``read_array()`` calls collected into a list and then ``np.stack``-ed — that
+        # allocated N throwaway arrays and copied them all a second time. Each 0-based
+        # band index maps to a 1-based GDAL band in the classic dataset view built by
+        # ``get_variable()``; reading only the selected bands still avoids materialising
+        # the whole variable.
+        if len(band_indices) == 1:
+            selected = nc._iloc(band_indices[0]).ReadAsArray()
+        else:
+            selected = np.empty(
+                (len(band_indices), nc.rows, nc.columns),
+                dtype=nc.numpy_dtype[0],
+            )
+            for out_i, band_index in enumerate(band_indices):
+                selected[out_i, :, :] = nc._iloc(band_index).ReadAsArray()
+
+        ndv = nc.no_data_value
+        ndv_scalar = ndv[0] if isinstance(ndv, list) and ndv else ndv
+        ds_result = Dataset.create_from_array(
+            selected,
+            geo=nc.geotransform,
+            epsg=nc.epsg,
+            no_data_value=ndv_scalar,
+        )
+        result = nc._preserve_netcdf_metadata(ds_result)
+        new_sizes = tuple(
+            len(dim_indices) if i == dim_axis else s for i, s in enumerate(sizes)
+        )
+        result._band_dim_sizes = new_sizes
+        result._band_dim_values_map = dict(nc._band_dim_values_map)
+        result._band_dim_values_map[dim_name] = selected_coords
+        # Re-derive the legacy primary-dim view from the (now updated) canonical
+        # fields so it tracks the pinned selection — single source of truth in
+        # `_derive_primary_band_view`.
+        result._band_dim_name, result._band_dim_values = nc._derive_primary_band_view(
+            result._band_dim_names,
+            result._band_dim_values_map,
+            result._band_dim_sizes,
+            result._band_count,
+        )
+
         return result
