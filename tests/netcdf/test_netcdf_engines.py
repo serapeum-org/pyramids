@@ -196,6 +196,29 @@ class TestInteropEngine:
         assert "t" in nc.variable_names, "data variable lost on round-trip"
         assert "scalar_meta" not in nc.variable_names, "non-dim coord should be skipped"
 
+    def test_units_survive_from_xarray_to_xarray_roundtrip(self):
+        """A variable's ``units`` survive ``from_xarray`` → ``to_xarray``.
+
+        Test scenario:
+            GDAL's netCDF layer moves the CF ``units`` attribute onto the MDArray
+            unit slot, so the engines route it through ``SetUnit`` on write and
+            merge it back from ``GetUnit`` on read. Building a dataset whose data
+            variable carries ``units`` and round-tripping it preserves that unit,
+            exercising both the write-side and read-side unit handling.
+        """
+        xr = pytest.importorskip("xarray")
+        ds = xr.Dataset(
+            data_vars={
+                "t": (("y", "x"), np.arange(6.0).reshape(2, 3), {"units": "kelvin"})
+            },
+            coords={"y": ("y", [0.0, 1.0]), "x": ("x", [0.0, 1.0, 2.0])},
+        )
+        nc = NetCDF.from_xarray(ds)
+        out = nc.to_xarray()
+        assert out["t"].attrs.get("units") == "kelvin", (
+            f"units lost on round-trip: {out['t'].attrs}"
+        )
+
     def test_to_xarray_roundtrip_through_engine(self, mdim_container):
         """``nc.interop.to_xarray()`` and ``nc.to_xarray()`` agree.
 
@@ -262,6 +285,61 @@ class TestVariablesEngine:
         """
         with pytest.raises(ValueError, match="geo.*top_left_corner|top_left_corner"):
             NetCDF.create_from_array(np.zeros((2, 3)))
+
+    def test_add_variable_copies_all_from_netcdf_source(self):
+        """``add_variable`` with no name copies every variable from a NetCDF source.
+
+        Test scenario:
+            Passing another container and ``variable_name=None`` copies all of
+            its data variables into the destination, alongside the destination's
+            own variable.
+        """
+        geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
+        src = NetCDF.create_from_array(
+            np.ones((4, 5), dtype=np.float32), geo=geo, variable_name="a"
+        )
+        dst = NetCDF.create_from_array(
+            np.zeros((4, 5), dtype=np.float32), geo=geo, variable_name="b"
+        )
+        dst.add_variable(src)
+        assert sorted(dst.variable_names) == ["a", "b"], (
+            f"copy-all did not merge variables: {dst.variable_names}"
+        )
+
+    def test_create_from_array_4d_uses_anonymous_extra_dims(self):
+        """A 4-D array with no ``extra_dims`` materialises anonymous dimensions.
+
+        Test scenario:
+            With two non-spatial axes and neither ``extra_dims`` nor the legacy
+            single-dim params given, the two leading axes become ``dim_0`` /
+            ``dim_1`` and flatten onto the band axis (2 × 3 = 6 bands).
+        """
+        geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
+        nc = NetCDF.create_from_array(
+            np.zeros((2, 3, 4, 5), dtype=np.float32), geo=geo, variable_name="v"
+        )
+        var = nc.get_variable("v")
+        assert var._band_dim_names == ("dim_0", "dim_1"), (
+            f"anonymous dim names not assigned: {var._band_dim_names}"
+        )
+        assert var.band_count == 6, f"expected 6 flattened bands, got {var.band_count}"
+
+    def test_create_from_array_extra_dims_none_values_fill_indices(self):
+        """An ``extra_dims`` entry with ``None`` values is filled with integer indices.
+
+        Test scenario:
+            ``extra_dims=[("lev", None)]`` on a 3-D array leaves the dimension
+            name explicit but fills its coordinate values with ``range(size)``,
+            so the variable is created without an explicit coordinate list.
+        """
+        geo = (0.0, 1.0, 0, 4.0, 0, -1.0)
+        nc = NetCDF.create_from_array(
+            np.zeros((3, 4, 5), dtype=np.float32),
+            geo=geo,
+            variable_name="w",
+            extra_dims=[("lev", None)],
+        )
+        assert "w" in nc.variable_names, "variable not created with None-filled dim values"
 
     def test_create_from_array_corner_and_cell_size(self):
         """``create_from_array`` builds ``geo`` from ``top_left_corner`` + ``cell_size``.
