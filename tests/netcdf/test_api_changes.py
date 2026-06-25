@@ -126,7 +126,9 @@ class TestDimensionModelRename:
             )
         dim = ClassicDimensionInfo(name="time", size=2, values=[0, 1])
         assert dim.name == "time", f"name not stored: {dim.name}"
-        assert ClassicDimMetadata is not None, "ClassicDimMetadata should import"
+        assert isinstance(
+            ClassicDimMetadata, type
+        ), f"ClassicDimMetadata should resolve to a class, got {ClassicDimMetadata!r}"
 
     @pytest.mark.parametrize("old_name", ["DimMetaData", "MetaData"])
     def test_old_names_warn(self, old_name):

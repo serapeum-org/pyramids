@@ -32,7 +32,7 @@ class TestCfTimeRoundTrip:
             ``10.0`` and decoding that offset returns the same date as ``datetime64[ns]``.
         """
         num = encode_cf_time("1979-01-11", UNIT)
-        assert num == 10.0, f"expected day offset 10.0, got {num}"
+        assert num == pytest.approx(10.0), f"expected day offset 10.0, got {num}"
         back = decode_cf_time(np.array([num]), UNIT)
         assert back[0] == np.datetime64("1979-01-11"), f"round-trip lost the date: {back[0]}"
 
@@ -64,7 +64,7 @@ class TestCfTimeRoundTrip:
             proleptic-Gregorian ``datetime64`` (which would shift selection bounds).
         """
         num = encode_cf_time("1979-01-11", UNIT, calendar)
-        assert num == 10.0, f"{calendar}: expected offset 10.0, got {num}"
+        assert num == pytest.approx(10.0), f"{calendar}: expected offset 10.0, got {num}"
 
         back = decode_cf_time(np.array([num]), UNIT, calendar)[0]
         assert isinstance(back, cftime.datetime), f"{calendar} should decode to cftime, got {type(back)}"

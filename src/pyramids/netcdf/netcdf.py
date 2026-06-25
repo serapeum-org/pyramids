@@ -3796,23 +3796,43 @@ class NetCDF(Dataset):
         else:
             rg = self._raster.GetRootGroup()
             if rg is not None:
-                all_names = rg.GetMDArrayNames()
-                dim_names = {dim.GetName() for dim in rg.GetDimensions()}
-                filtered = []
-                for var in all_names:
-                    if var in dim_names:
-                        continue
-                    md_arr = rg.OpenMDArray(var)
-                    if md_arr is not None and len(md_arr.GetDimensions()) == 0:
-                        continue
-                    filtered.append(var)
-                variable_names = filtered
+                variable_names = self._mdim_data_variable_names(rg)
             else:
-                variable_names = [
-                    var[1].split(" ")[1] for var in self._raster.GetSubDatasets()
-                ]
-
+                variable_names = self._classic_subdataset_variable_names()
         return variable_names
+
+    @staticmethod
+    def _mdim_data_variable_names(rg) -> list[str]:
+        """Data-variable names from an MDIM root group.
+
+        Drops dimension coordinate arrays and 0-dimensional scalar variables
+        (e.g. `grid_mapping` holders) so only true data variables remain.
+
+        Args:
+            rg: The store's multidimensional root :class:`osgeo.gdal.Group`.
+
+        Returns:
+            list[str]: Names of the data variables in `rg`.
+        """
+        dim_names = {dim.GetName() for dim in rg.GetDimensions()}
+        filtered = []
+        for var in rg.GetMDArrayNames():
+            if var in dim_names:
+                continue
+            md_arr = rg.OpenMDArray(var)
+            if md_arr is not None and len(md_arr.GetDimensions()) == 0:
+                continue
+            filtered.append(var)
+        return filtered
+
+    def _classic_subdataset_variable_names(self) -> list[str]:
+        """Data-variable names parsed from classic-mode subdataset metadata.
+
+        Returns:
+            list[str]: The variable name from each `gdal.Dataset.GetSubDatasets()`
+            entry (the second whitespace-delimited token of its description).
+        """
+        return [var[1].split(" ")[1] for var in self._raster.GetSubDatasets()]
 
     @staticmethod
     def _dimension_index(dim_names: list[str], target: str) -> int:
