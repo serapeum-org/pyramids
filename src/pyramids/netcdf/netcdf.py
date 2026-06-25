@@ -4598,9 +4598,9 @@ class NetCDF(Dataset):
     def copy(self, path: str | Path | None = None) -> NetCDF:
         """Create a deep, standalone copy of this dataset.
 
-        The copy keeps this instance's concrete type (a :class:`NetCDFContainer` copies to a
-        ``NetCDFContainer`; a :class:`NetCDFVariable` to a ``NetCDFVariable``) and its CF
-        packing metadata (``scale`` / ``offset`` / variable attributes / band-dim layout). It
+        The copy keeps this instance's concrete type (a container copies to a
+        ``NetCDFContainer``, a variable to a ``NetCDFVariable``) and its CF packing metadata
+        (``scale`` / ``offset`` / variable attributes / band-dim layout). It
         is **independent**, though: a copied variable is a self-contained classic raster, not
         a live subset of the original's parent, so ``is_subset`` is ``False`` and it carries
         no ``_parent_nc`` / ``_source_var_name``. That keeps pickling sound — a copy
