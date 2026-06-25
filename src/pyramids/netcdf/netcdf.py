@@ -3173,7 +3173,7 @@ class NetCDF(Dataset):
             vsi=vsi,
         )
         access = "read_only" if read_only else "write"
-        return cls(
+        return NetCDFContainer(
             src, access=access, open_as_multi_dimensional=open_as_multi_dimensional
         )
 
@@ -3257,7 +3257,7 @@ class NetCDF(Dataset):
             open_as_multi_dimensional=open_as_multi_dimensional,
         )
         try:
-            obj = cls(
+            obj = NetCDFContainer(
                 src,
                 access="read_only" if read_only else "write",
                 open_as_multi_dimensional=open_as_multi_dimensional,
@@ -3763,7 +3763,7 @@ class NetCDF(Dataset):
             if srs is not None:
                 new_arr.SetSpatialRef(srs)
 
-        result = NetCDF(dst)
+        result = NetCDFContainer(dst)
         return result
 
     def get_variable_names(self) -> list[str]:
@@ -4830,7 +4830,7 @@ class NetCDF(Dataset):
             source=source,
             history=history,
         )
-        result = cls(dst_ds)
+        result = NetCDFContainer(dst_ds)
 
         return result
 

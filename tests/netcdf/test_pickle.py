@@ -97,7 +97,7 @@ class TestNetCDFContainerPickle:
         ctx = multiprocessing.get_context("spawn")
         with ctx.Pool(1) as pool:
             name, md, subset = pool.apply(_read_container_on_subprocess, (payload,))
-        assert name == "NetCDF"
+        assert name == "NetCDFContainer"
         assert md is True
         assert subset is False
 
