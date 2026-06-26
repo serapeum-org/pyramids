@@ -33,7 +33,7 @@ from __future__ import annotations
 import urllib.request
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET
 
 from osgeo import gdal, osr
