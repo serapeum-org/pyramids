@@ -471,67 +471,17 @@ class Selection(_Engine):
                 f"No coordinate values available for dimension {dim_name!r}."
             )
 
-        if isinstance(selector, slice):
-            start = selector.start if selector.start is not None else coords[0]
-            stop = selector.stop if selector.stop is not None else coords[-1]
-            # Normalise bounds so the match works on both ascending and
-            # descending coord axes (e.g. `latitude = [44, 43, 42, 41,
-            # 40]` from CDS-Beta retrievals). Without this, a
-            # `slice(None, None)` on a descending axis defaults to
-            # `start=44, stop=40`, the test `44 <= v <= 40` matches
-            # nothing, and the user gets a confusing "no bands match"
-            # error instead of "select everything".
-            lo, hi = (start, stop) if start <= stop else (stop, start)
-            dim_indices = [i for i, v in enumerate(coords) if lo <= v <= hi]
-        elif isinstance(selector, list):
-            coord_set = set(selector)
-            dim_indices = [i for i, v in enumerate(coords) if v in coord_set]
-        else:
-            dim_indices = [i for i, v in enumerate(coords) if v == selector]
-
+        dim_indices = _resolve_dim_indices(coords, selector)
         if not dim_indices:
             raise ValueError(
                 f"No bands match {dim_name}={selector}. Available values: {coords}"
             )
 
-        # Map (pinned dim index along dim_name) -> classic-band indices.
-        # GDAL flattens (d_0, ..., d_{n-1}, lat, lon) row-major over the
-        # non-spatial dims: the last non-spatial dim varies fastest. For
-        # a band-dim at axis `k` with sizes S, stride = prod(S[k+1:]) and
-        # block = stride * S[k]. For each pinned index p we emit
-        # `[outer + p*stride .. outer + (p+1)*stride)` for every outer in
-        # range(0, total, block). Reduces to identity (band_indices ==
-        # dim_indices) when there is exactly one band dim.
         dim_axis = nc._band_dim_names.index(dim_name)
         sizes = nc._band_dim_sizes
-        stride = math.prod(sizes[dim_axis + 1 :])
-        block = stride * sizes[dim_axis]
-        total = math.prod(sizes)
-
-        band_indices: list[int] = []
-        for pinned in dim_indices:
-            for outer_start in range(0, total, block):
-                base = outer_start + pinned * stride
-                band_indices.extend(range(base, base + stride))
-
+        band_indices = _map_dim_to_band_indices(dim_axis, sizes, dim_indices)
         selected_coords = [coords[i] for i in dim_indices]
-
-        # Read only the selected classic bands, straight into one pre-allocated buffer
-        # (mirroring the all-bands read path in ``IO.read_array``) instead of N
-        # ``read_array()`` calls collected into a list and then ``np.stack``-ed — that
-        # allocated N throwaway arrays and copied them all a second time. Each 0-based
-        # band index maps to a 1-based GDAL band in the classic dataset view built by
-        # ``get_variable()``; reading only the selected bands still avoids materialising
-        # the whole variable.
-        if len(band_indices) == 1:
-            selected = nc._iloc(band_indices[0]).ReadAsArray()
-        else:
-            selected = np.empty(
-                (len(band_indices), nc.rows, nc.columns),
-                dtype=nc.numpy_dtype[0],
-            )
-            for out_i, band_index in enumerate(band_indices):
-                selected[out_i, :, :] = nc._iloc(band_index).ReadAsArray()
+        selected = _read_selected_bands(nc, band_indices)
 
         ndv = nc.no_data_value
         ndv_scalar = ndv[0] if isinstance(ndv, list) and ndv else ndv
@@ -960,3 +910,67 @@ def _read_curvilinear_window(
             lazy = lazy.reshape(-1, *lazy.shape[-2:])
         return np.array(lazy[..., r0:r1, c0:c1].compute(), copy=True)
     return np.array(nc.read_array(window=[c0, r0, c1 - c0, r1 - r0]), copy=True)
+
+
+def _resolve_dim_indices(coords: list, selector: Any) -> list[int]:
+    """Resolve a `sel` selector to the matching indices along a band dimension.
+
+    Supports a ``slice`` (direction-agnostic inclusive bounds — works on both
+    ascending and descending coord axes), a ``list`` of exact values, or a
+    single exact value. Helper of :meth:`Selection.sel`.
+    """
+    if isinstance(selector, slice):
+        start = selector.start if selector.start is not None else coords[0]
+        stop = selector.stop if selector.stop is not None else coords[-1]
+        # Normalise bounds so the match works on both ascending and descending
+        # coord axes (e.g. `latitude = [44, 43, 42, 41, 40]` from CDS-Beta): a
+        # `slice(None, None)` on a descending axis would otherwise test
+        # `44 <= v <= 40` and match nothing instead of "select everything".
+        lo, hi = (start, stop) if start <= stop else (stop, start)
+        return [i for i, v in enumerate(coords) if lo <= v <= hi]
+    if isinstance(selector, list):
+        coord_set = set(selector)
+        return [i for i, v in enumerate(coords) if v in coord_set]
+    return [i for i, v in enumerate(coords) if v == selector]
+
+
+def _map_dim_to_band_indices(
+    dim_axis: int, sizes: tuple[int, ...], dim_indices: list[int]
+) -> list[int]:
+    """Map pinned indices along one band dim to flat classic-band indices.
+
+    GDAL flattens ``(d_0, …, d_{n-1}, lat, lon)`` row-major over the non-spatial
+    dims (last varies fastest). For a band dim at axis ``k`` with ``sizes`` S,
+    ``stride = prod(S[k+1:])`` and ``block = stride * S[k]``; each pinned index
+    ``p`` emits ``[outer + p*stride .. outer + (p+1)*stride)`` for every
+    ``outer`` in ``range(0, total, block)``. Reduces to the identity when there
+    is a single band dim. Helper of :meth:`Selection.sel`.
+    """
+    stride = math.prod(sizes[dim_axis + 1 :])
+    block = stride * sizes[dim_axis]
+    total = math.prod(sizes)
+    band_indices: list[int] = []
+    for pinned in dim_indices:
+        for outer_start in range(0, total, block):
+            base = outer_start + pinned * stride
+            band_indices.extend(range(base, base + stride))
+    return band_indices
+
+
+def _read_selected_bands(nc: NetCDF, band_indices: list[int]) -> np.ndarray:
+    """Read just the selected classic bands into one pre-allocated buffer.
+
+    Mirrors the all-bands read path in ``IO.read_array`` rather than stacking N
+    separate ``read_array`` results. Each 0-based band index maps to a 1-based
+    GDAL band in the classic view built by ``get_variable``; reading only the
+    selected bands avoids materialising the whole variable. Helper of
+    :meth:`Selection.sel`.
+    """
+    if len(band_indices) == 1:
+        return nc._iloc(band_indices[0]).ReadAsArray()
+    selected = np.empty(
+        (len(band_indices), nc.rows, nc.columns), dtype=nc.numpy_dtype[0]
+    )
+    for out_i, band_index in enumerate(band_indices):
+        selected[out_i, :, :] = nc._iloc(band_index).ReadAsArray()
+    return selected
