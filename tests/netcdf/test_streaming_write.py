@@ -32,7 +32,7 @@ GEO = (0.0, 0.01, 0, 1.0, 0, -0.01)
 
 def _source_array(shape: tuple[int, ...]) -> np.ndarray:
     """Return a deterministic float64 array of the given shape."""
-    return np.random.RandomState(SEED).rand(*shape).astype(np.float64)
+    return np.random.default_rng(SEED).random(shape).astype(np.float64)
 
 
 class _FakeMDArray:
