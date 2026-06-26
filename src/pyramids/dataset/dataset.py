@@ -56,6 +56,7 @@ from pyramids.dataset.ops._zonal import zonal_stats as _zonal_stats
 from pyramids.dataset.ops.interpolate import grid_points
 from pyramids.dataset.ops.units import convert_array
 from pyramids.dataset.ops.vectorize import rasterize_features
+from pyramids.dataset._wcs import from_wcs as _from_wcs
 from pyramids.feature import FeatureCollection, create_polygon
 
 # tuple of collaborator attribute names. Used by
@@ -2156,6 +2157,130 @@ class Dataset(RasterBase):
         if name is not None:
             obj._file_name = str(name)
         return obj
+
+    @classmethod
+    def from_wcs(
+        cls,
+        endpoint: str,
+        *,
+        coverage: str,
+        bbox: tuple[float, float, float, float],
+        crs: str = "EPSG:4326",
+        output_crs: str | None = None,
+        resolution: float | tuple[float, float] | None = None,
+        version: str | None = None,
+        coverage_crs: str | None = None,
+        wcs_format: str | None = None,
+        output: str | Path | None = None,
+        resample: str = "nearest",
+        auth: tuple[str, str] | None = None,
+        timeout: float = 60.0,
+        extra_params: dict[str, str] | None = None,
+    ) -> Dataset:
+        """Read a coverage subset from an OGC Web Coverage Service (WCS).
+
+        Fetches a windowed subset of a coverage from a WCS server and returns it
+        as a :class:`Dataset`. The transport is GDAL's native WCS driver, so the
+        WCS ``1.0.0`` vs ``2.0.x`` dialect fork — ``bbox`` + ``resx/resy`` versus
+        named-axis ``subsets`` + ``scaling`` — is handled inside GDAL; the caller
+        always supplies a single lon/lat ``bbox`` (plus optional ``resolution``
+        and ``output_crs``).
+
+        Two things GDAL does **not** do for every server, which this method adds:
+
+        * **CRS shim.** Some servers advertise a coverage CRS under an authority
+          code absent from the local PROJ database (notably ISRIC SoilGrids'
+          ``EPSG:152160``, a custom Interrupted Goode Homolosine). GDAL then opens
+          the coverage without a spatial reference and cannot place the request
+          window. Pass ``coverage_crs`` with the coverage's real CRS and it is
+          attached client-side.
+        * **bbox reprojection.** ``bbox`` is given in ``crs`` (lon/lat by
+          default) and transformed into the coverage's native CRS with ``pyproj``
+          before the request, so subsetting lands on the correct pixels even when
+          the server only honours its native CRS.
+
+        Args:
+            endpoint: The WCS service URL, including any server-specific query
+                prefix (e.g. ``"https://maps.isric.org/mapserv?map=/map/nitrogen.map"``).
+                Catalog / coverage-name routing belongs in the calling layer, not
+                here.
+            coverage: The coverage identifier as advertised by
+                ``GetCapabilities`` (e.g. ``"nitrogen_0-5cm_mean"``). A value the
+                server does not advertise raises :class:`ValueError`.
+            bbox: ``(minx, miny, maxx, maxy)`` in ``crs`` order (lon/lat for the
+                default ``"EPSG:4326"``).
+            crs: CRS of ``bbox``. Defaults to ``"EPSG:4326"``.
+            output_crs: Optional CRS to reproject the result into (any form
+                :meth:`to_crs` accepts). ``None`` (default) keeps the coverage's
+                native CRS.
+            resolution: Output pixel size in the units of ``output_crs`` (or the
+                native CRS when ``output_crs`` is ``None``). A scalar gives square
+                pixels; an ``(x_res, y_res)`` pair gives non-square pixels.
+                ``None`` (default) keeps the coverage's native resolution.
+            version: Force a WCS protocol version (``"1.0.0"``, ``"2.0.1"``, …).
+                ``None`` (default) lets GDAL negotiate from the server's
+                capabilities. Note that some MapServer builds silently downgrade a
+                requested ``2.0.x`` to ``1.0.0``.
+            coverage_crs: The coverage's CRS, used only when the server's
+                advertised CRS does not resolve in PROJ (see the CRS-shim note).
+                Any proj4 / WKT / authority string ``pyproj`` understands.
+            wcs_format: Optional GDAL ``PreferredFormat`` for the ``GetCoverage``
+                response (e.g. ``"GEOTIFF_INT16"``). ``None`` lets GDAL pick from
+                the coverage's advertised formats.
+            output: Optional path to also write the result to as a GeoTIFF. The
+                method still returns the :class:`Dataset`.
+            resample: Resampling method for the ``output_crs`` / ``resolution``
+                warp. Defaults to ``"nearest"``.
+            auth: Optional ``(username, password)`` for Basic-authed services.
+            timeout: HTTP timeout in seconds for the metadata / coverage
+                requests. Defaults to ``60.0``.
+            extra_params: Optional extra ``GetCoverage`` query parameters folded
+                into the request (a workaround hook for server quirks).
+
+        Returns:
+            Dataset: The fetched coverage subset.
+
+        Raises:
+            ValueError: ``bbox`` is malformed, ``coverage`` is not advertised, or
+                ``coverage_crs`` cannot be interpreted.
+            pyramids.errors.WCSError: The server could not be reached or returned
+                an error / a non-raster (``<ows:ExceptionReport>``) body.
+
+        Examples:
+            Read a Netherlands subset of SoilGrids nitrogen (its native CRS needs
+            the ``coverage_crs`` shim):
+
+            ```python
+            >>> ds = Dataset.from_wcs(  # doctest: +SKIP
+            ...     "https://maps.isric.org/mapserv?map=/map/nitrogen.map",
+            ...     coverage="nitrogen_0-5cm_mean",
+            ...     bbox=(5.0, 51.0, 6.0, 52.0),
+            ...     coverage_crs="+proj=igh +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs",
+            ... )
+
+            ```
+
+        See Also:
+            - :meth:`read_file`: open a raster from a path or URL.
+            - :meth:`from_bytes`: open a raster already held in memory.
+        """
+        return _from_wcs(
+            cls,
+            endpoint,
+            coverage=coverage,
+            bbox=bbox,
+            crs=crs,
+            output_crs=output_crs,
+            resolution=resolution,
+            version=version,
+            coverage_crs=coverage_crs,
+            wcs_format=wcs_format,
+            output=output,
+            resample=resample,
+            auth=auth,
+            timeout=timeout,
+            extra_params=extra_params,
+        )
 
     def copy(self, path: str | Path | None = None) -> Dataset:
         """Deep copy.
