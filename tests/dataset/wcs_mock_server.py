@@ -177,7 +177,8 @@ _DESCRIBE = {"1.0.0": DESCRIBE_100, "2.0.1": DESCRIBE_201}
 
 def _make_geotiff(width: int, height: int, minx: float, maxy: float) -> bytes:
     """Generate a native-resolution GeoTIFF tile for a window; return its bytes."""
-    ds = gdal.GetDriverByName("GTiff").Create("/vsimem/wcs_tile.tif", width, height, 1, gdal.GDT_Int16)
+    path = "/vsimem/wcs_tile.tif"
+    ds = gdal.GetDriverByName("GTiff").Create(path, width, height, 1, gdal.GDT_Int16)
     ds.SetGeoTransform((minx, _RES, 0, maxy, 0, -_RES))
     srs = osr.SpatialReference()
     srs.ImportFromEPSG(4326)
@@ -186,13 +187,13 @@ def _make_geotiff(width: int, height: int, minx: float, maxy: float) -> bytes:
     ds.GetRasterBand(1).SetNoDataValue(-32768)
     ds.FlushCache()
     ds = None
-    f = gdal.VSIFOpenL("/vsimem/wcs_tile.tif", "rb")
+    f = gdal.VSIFOpenL(path, "rb")
     gdal.VSIFSeekL(f, 0, 2)
     size = gdal.VSIFTellL(f)
     gdal.VSIFSeekL(f, 0, 0)
     data = gdal.VSIFReadL(1, size, f)
     gdal.VSIFCloseL(f)
-    gdal.Unlink("/vsimem/wcs_tile.tif")
+    gdal.Unlink(path)
     return data
 
 
@@ -236,12 +237,12 @@ def make_handler(version: str, getcoverage_body: str | None):
             qs = {k.lower(): v[0] for k, v in parse_qs(query).items()}
             request = qs.get("request", "").lower()
             if request == "getcapabilities":
-                self._send(_CAPS[version], "application/xml")
+                self._send(_CAPS[version])
             elif request == "describecoverage":
-                self._send(_DESCRIBE[version], "application/xml")
+                self._send(_DESCRIBE[version])
             elif request == "getcoverage":
                 if getcoverage_body is not None:
-                    self._send(getcoverage_body, "application/xml")
+                    self._send(getcoverage_body)
                     return
                 if version == "1.0.0":
                     w, h, minx, maxy = _window_from_bbox(qs)
@@ -251,7 +252,7 @@ def make_handler(version: str, getcoverage_body: str | None):
             else:
                 self.send_error(400, f"unknown request {request!r}")
 
-        def _send(self, body: str, content_type: str):
+        def _send(self, body: str, content_type: str = "application/xml"):
             self._send_bytes(body.encode("utf-8"), content_type)
 
         def _send_bytes(self, payload: bytes, content_type: str):
