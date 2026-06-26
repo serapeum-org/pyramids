@@ -220,10 +220,8 @@ def _resolve_native_srs(
         )
     shim = osr.SpatialReference()
     try:
-        # GDAL exceptions are enabled package-wide, so a bad CRS raises rather
-        # than returning a non-zero OGRErr; handle both for safety.
-        if shim.SetFromUserInput(coverage_crs) != 0:
-            raise ValueError(f"coverage_crs could not be interpreted: {coverage_crs!r}")
+        # GDAL exceptions are enabled package-wide, so a bad CRS raises here.
+        shim.SetFromUserInput(coverage_crs)
     except RuntimeError as exc:
         raise ValueError(
             f"coverage_crs could not be interpreted: {coverage_crs!r} ({exc})"
