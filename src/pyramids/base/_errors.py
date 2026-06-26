@@ -143,6 +143,22 @@ class UnsupportedAssetError(StacError, ValueError):
     """
 
 
+class WCSError(_PyramidsError):
+    """A failure talking to an OGC Web Coverage Service (WCS).
+
+    Raised by :meth:`pyramids.dataset.Dataset.from_wcs` (implementation in
+    :mod:`pyramids.dataset._wcs`) when the server cannot be opened, the
+    coverage cannot be fetched, or the server answers a ``GetCoverage`` with an
+    ``<ows:ExceptionReport>`` / ``<ServiceExceptionReport>`` body instead of
+    raster bytes. WCS servers commonly return such errors as **HTTP 200 +
+    ``application/xml``**, so this is raised even when the transport succeeded.
+
+    A *missing* coverage (one not advertised by ``GetCapabilities``) raises a
+    plain :class:`ValueError` instead, mirroring how the rest of pyramids
+    reports a bad argument as opposed to a service failure.
+    """
+
+
 class GeometryWarning(UserWarning):
     """Pyramids-emitted warning about geometry validity / degeneracy.
 
