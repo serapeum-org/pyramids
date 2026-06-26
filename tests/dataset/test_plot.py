@@ -2246,3 +2246,19 @@ class TestPR6CleanupGrepGuards:
         assert (
             not missing
         ), f"Modules missing `require_cleopatra` import/usage: {missing}"
+
+
+class TestPlotStampsGlyphCRS:
+    """`Dataset.plot` stamps the dataset EPSG onto the returned glyph (issue #630)."""
+
+    def test_dataset_plot_glyph_carries_epsg(self):
+        """A plotted dataset's glyph exposes its CRS so reference layers need no crs=.
+
+        Test scenario:
+            Plot an EPSG:4326 single-band raster; the returned glyph's `crs` is 4326.
+        """
+        ds = Dataset.create_from_array(
+            np.arange(12.0).reshape(3, 4), geo=(0.0, 1.0, 0, 3.0, 0, -1.0), epsg=4326
+        )
+        glyph = ds.plot()
+        assert glyph.crs == 4326, f"expected glyph.crs == 4326, got {glyph.crs!r}"

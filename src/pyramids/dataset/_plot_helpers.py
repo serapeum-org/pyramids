@@ -410,6 +410,15 @@ def render_array(
         **ctor_kwargs,
     )
 
+    # Stamp the data CRS onto the glyph so its reference-layer helpers
+    # (``glyph.add_features`` / ``glyph.add_tiles``) default to it without the
+    # caller restating ``crs=`` on every call — see issue #630. ``basemap_epsg``
+    # is the dataset's EPSG, which every plot caller passes regardless of
+    # ``basemap``; ``None`` (no dataset CRS) leaves cleopatra's own default.
+    # Relies on the ``GeoMixin.crs`` default added in cleopatra >= 0.20.0.
+    if basemap_epsg is not None:
+        cleo.crs = basemap_epsg
+
     # ``basemap and basemap_epsg is None`` was already rejected at the top
     # of this function, so when ``basemap`` is truthy ``basemap_epsg`` is set.
     basemap_source = basemap if isinstance(basemap, str) else None
