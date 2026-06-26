@@ -254,12 +254,13 @@ def _native_projwin(
     native = CRS.from_user_input(native_srs.ExportToWkt())
     transformer = Transformer.from_crs(CRS.from_user_input(crs), native, always_xy=True)
     minx, miny, maxx, maxy = bbox
-    xs, ys = [], []
-    for lon, lat in ((minx, miny), (minx, maxy), (maxx, miny), (maxx, maxy)):
-        x, y = transformer.transform(lon, lat)
-        xs.append(x)
-        ys.append(y)
-    return [min(xs), max(ys), max(xs), min(ys)]
+    # Densify the edges (not just the corners) so the native-CRS window still
+    # covers the requested area under projection curvature / interruptions (e.g.
+    # the Interrupted Goode Homolosine), where the corner hull can bow inward.
+    left, bottom, right, top = transformer.transform_bounds(
+        minx, miny, maxx, maxy, densify_pts=21
+    )
+    return [left, top, right, bottom]
 
 
 def _validate_bbox(bbox: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
