@@ -186,14 +186,20 @@ def from_wfs(
     forwards here. See that method for the full parameter documentation.
 
     Raises:
-        ValueError: ``typename`` is not advertised by the server, ``bbox`` is
-            malformed, or ``max_features`` is negative.
+        ValueError: ``typename`` or ``version`` is not advertised by the server,
+            ``bbox`` is malformed, or ``max_features`` is negative.
         WFSError: The server could not be reached or returned an error / a
             non-feature body.
     """
     read_kwargs = _read_kwargs(bbox, where, max_features)  # validate inputs before any network call
 
-    _, typenames = _get_capabilities(endpoint, version, auth, timeout)
+    # Fetch capabilities unpinned so the advertised version set is authoritative.
+    versions, typenames = _get_capabilities(endpoint, None, auth, timeout)
+    if version and versions and version not in versions:
+        raise ValueError(
+            f"WFS version {version!r} is not advertised by {endpoint!r}. "
+            f"Available versions: {list(versions)}"
+        )
     if typenames and typename not in typenames:
         raise ValueError(
             f"feature type {typename!r} is not advertised by {endpoint!r}. "

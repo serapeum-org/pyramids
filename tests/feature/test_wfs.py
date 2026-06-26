@@ -269,6 +269,25 @@ class TestFromWfs:
                 "https://h/ows", typename="topp:states", output_crs="EPSG:3857"
             )
 
+    def test_unsupported_version_raises_valueerror(self, monkeypatch):
+        """A version the server does not advertise raises a clear ValueError."""
+        monkeypatch.setattr(
+            _wfs, "_get_capabilities",
+            lambda *a, **k: (("1.1.0", "2.0.0"), frozenset({"topp:states"})),
+        )
+        with pytest.raises(ValueError, match="version '3.0.0' is not advertised"):
+            FeatureCollection.from_wfs("https://h/ows", typename="topp:states", version="3.0.0")
+
+    def test_advertised_version_passes(self, monkeypatch):
+        """A version the server advertises is accepted and the read proceeds."""
+        monkeypatch.setattr(
+            _wfs, "_get_capabilities",
+            lambda *a, **k: (("1.1.0", "2.0.0"), frozenset({"topp:states"})),
+        )
+        monkeypatch.setattr(_wfs.gpd, "read_file", lambda *a, **k: _sample_gdf())
+        fc = FeatureCollection.from_wfs("https://h/ows", typename="topp:states", version="2.0.0")
+        assert isinstance(fc, FeatureCollection)
+
     def test_unknown_typename_raises_valueerror(self, monkeypatch):
         self._patch_caps(monkeypatch, typenames=("topp:states",))
         with pytest.raises(ValueError, match="not advertised"):
