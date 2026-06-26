@@ -98,19 +98,19 @@ def _sample_gdf(crs="EPSG:4326") -> gpd.GeoDataFrame:
 
 class TestPureHelpers:
     def test_capabilities_url(self):
-        with_q = _wfs._capabilities_url("http://h/ows?map=x", None)
-        assert with_q == "http://h/ows?map=x&SERVICE=WFS&REQUEST=GetCapabilities"
-        no_q = _wfs._capabilities_url("http://h/ows", "2.0.0")
-        assert no_q == "http://h/ows?SERVICE=WFS&REQUEST=GetCapabilities&VERSION=2.0.0"
+        with_q = _wfs._capabilities_url("https://h/ows?map=x", None)
+        assert with_q == "https://h/ows?map=x&SERVICE=WFS&REQUEST=GetCapabilities"
+        no_q = _wfs._capabilities_url("https://h/ows", "2.0.0")
+        assert no_q == "https://h/ows?SERVICE=WFS&REQUEST=GetCapabilities&VERSION=2.0.0"
 
     def test_localname(self):
         assert _wfs._localname("{http://www.opengis.net/wfs/2.0}Name") == "Name"
         assert _wfs._localname("Name") == "Name"
 
     def test_wfs_connection(self):
-        assert _wfs._wfs_connection("http://h/ows", None) == "WFS:http://h/ows"
-        assert _wfs._wfs_connection("http://h/ows", "1.1.0") == "WFS:http://h/ows?VERSION=1.1.0"
-        assert _wfs._wfs_connection("http://h/ows?a=b", "2.0.0") == "WFS:http://h/ows?a=b&VERSION=2.0.0"
+        assert _wfs._wfs_connection("https://h/ows", None) == "WFS:https://h/ows"
+        assert _wfs._wfs_connection("https://h/ows", "1.1.0") == "WFS:https://h/ows?VERSION=1.1.0"
+        assert _wfs._wfs_connection("https://h/ows?a=b", "2.0.0") == "WFS:https://h/ows?a=b&VERSION=2.0.0"
 
     def test_gdal_http_config(self):
         assert _wfs._gdal_http_config(None, 60.0) == {"GDAL_HTTP_TIMEOUT": "60"}
@@ -198,7 +198,7 @@ class TestFromWfs:
         """A successful read is wrapped into a FeatureCollection."""
         self._patch_caps(monkeypatch)
         monkeypatch.setattr(_wfs.gpd, "read_file", lambda *a, **k: _sample_gdf())
-        fc = FeatureCollection.from_wfs("http://h/ows", typename="topp:states")
+        fc = FeatureCollection.from_wfs("https://h/ows", typename="topp:states")
         assert isinstance(fc, FeatureCollection)
         assert len(fc) == 2 and fc.crs.to_epsg() == 4326
 
@@ -214,10 +214,10 @@ class TestFromWfs:
 
         monkeypatch.setattr(_wfs.gpd, "read_file", fake_read)
         FeatureCollection.from_wfs(
-            "http://h/ows", typename="topp:states", bbox=(1.0, 2.0, 3.0, 4.0),
+            "https://h/ows", typename="topp:states", bbox=(1.0, 2.0, 3.0, 4.0),
             where="persons > 1000000", max_features=5, version="2.0.0",
         )
-        assert captured["connection"] == "WFS:http://h/ows?VERSION=2.0.0"
+        assert captured["connection"] == "WFS:https://h/ows?VERSION=2.0.0"
         assert captured["kwargs"]["layer"] == "topp:states"
         assert captured["kwargs"]["bbox"] == (1.0, 2.0, 3.0, 4.0)
         assert captured["kwargs"]["where"] == "persons > 1000000"
@@ -227,7 +227,7 @@ class TestFromWfs:
         self._patch_caps(monkeypatch)
         monkeypatch.setattr(_wfs.gpd, "read_file", lambda *a, **k: _sample_gdf())
         fc = FeatureCollection.from_wfs(
-            "http://h/ows", typename="topp:states", output_crs="EPSG:3857"
+            "https://h/ows", typename="topp:states", output_crs="EPSG:3857"
         )
         assert fc.crs.to_epsg() == 3857
 
@@ -238,13 +238,13 @@ class TestFromWfs:
         monkeypatch.setattr(_wfs.gpd, "read_file", lambda *a, **k: crsless)
         with pytest.raises(WFSError, match="without a CRS"):
             FeatureCollection.from_wfs(
-                "http://h/ows", typename="topp:states", output_crs="EPSG:3857"
+                "https://h/ows", typename="topp:states", output_crs="EPSG:3857"
             )
 
     def test_unknown_typename_raises_valueerror(self, monkeypatch):
         self._patch_caps(monkeypatch, typenames=("topp:states",))
         with pytest.raises(ValueError, match="not advertised"):
-            FeatureCollection.from_wfs("http://h/ows", typename="topp:missing")
+            FeatureCollection.from_wfs("https://h/ows", typename="topp:missing")
 
     def test_read_failure_raises_wfserror(self, monkeypatch):
         self._patch_caps(monkeypatch)
@@ -254,7 +254,7 @@ class TestFromWfs:
 
         monkeypatch.setattr(_wfs.gpd, "read_file", boom)
         with pytest.raises(WFSError, match="GetFeature failed"):
-            FeatureCollection.from_wfs("http://h/ows", typename="topp:states")
+            FeatureCollection.from_wfs("https://h/ows", typename="topp:states")
 
 
 @pytest.mark.slow
