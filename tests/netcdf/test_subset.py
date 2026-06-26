@@ -17,8 +17,9 @@ from unittest.mock import Mock
 
 import numpy as np
 import pytest
-from osgeo import osr
+from osgeo import gdal, osr
 
+from pyramids.base._utils import numpy_to_gdal_dtype
 from pyramids.base.remote import CloudConfig
 from pyramids.netcdf.netcdf import (
     NetCDF,
@@ -28,6 +29,54 @@ from pyramids.netcdf.netcdf import (
 )
 
 pytestmark = pytest.mark.core
+
+
+def _write_multidim(path, data_vars, coords):
+    """Write a multidimensional NetCDF from plain dicts — pyramids' own GDAL writer.
+
+    Mirrors ``NetCDF.from_xarray``'s internal builder (MEM multidim ->
+    ``CreateCopy`` to netCDF -> reopen) without any xarray. Dimensions are
+    inferred from the data variables' shapes; each coordinate becomes a 1-D
+    indexing MDArray named after its dimension, so ``subset``'s name-based axis
+    detection works exactly as it does for a real CF cube.
+
+    Args:
+        path: Output ``.nc`` path.
+        data_vars: ``{name: (dim_names_tuple, ndarray)}``.
+        coords: ``{dim_name: 1-D values}``; omit a dim to leave it
+            coordinate-less (the missing-coordinate case).
+
+    Returns:
+        NetCDF: The reopened on-disk container.
+    """
+    sizes: dict[str, int] = {}
+    for dim_names, arr in data_vars.values():
+        for dim_name, size in zip(dim_names, np.asarray(arr).shape):
+            sizes[dim_name] = int(size)
+    src = gdal.GetDriverByName("MEM").CreateMultiDimensional("synthetic")
+    root = src.GetRootGroup()
+    gdal_dims = {d: root.CreateDimension(d, "", "", n) for d, n in sizes.items()}
+    for name, values in coords.items():
+        if name not in gdal_dims:
+            continue
+        values = np.asarray(values)
+        ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(values))
+        md = root.CreateMDArray(name, [gdal_dims[name]], ext)
+        md.Write(np.ascontiguousarray(values))
+    for name, (dim_names, arr) in data_vars.items():
+        arr = np.asarray(arr)
+        ext = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
+        md = root.CreateMDArray(name, [gdal_dims[d] for d in dim_names], ext)
+        md.Write(np.ascontiguousarray(arr))
+    dst = gdal.GetDriverByName("netCDF").CreateCopy(str(path), src, 0)
+    if dst is None:
+        raise RuntimeError(f"Failed to write NetCDF to {path}")
+    dst.FlushCache()
+    # Release the write handles before reopening — an open netCDF handle leaves the
+    # on-disk file unrecognised by the reader (mirrors NetCDF.from_xarray).
+    dst = None
+    src = None
+    return NetCDF.read_file(str(path), read_only=True)
 
 NWM_LDASOUT = "s3://noaa-nwm-retrospective-3-0-pds/CONUS/zarr/ldasout.zarr"
 
@@ -516,7 +565,6 @@ def _synthetic_cube(
     drops the ``y`` / ``x`` coordinate variables (the missing-coordinate case).
     ``step`` scales the ``x`` / ``y`` cell spacing (to test cell-size handling).
     """
-    xr = pytest.importorskip("xarray")
     n_t, n_y, n_x, n_lev = 3, 4, 5, 2
     temp = np.arange(n_t * n_y * n_x, dtype="float64").reshape(n_t, n_y, n_x)
     data_vars = {"temp": (("time", "y", "x"), temp)}
@@ -549,8 +597,7 @@ def _synthetic_cube(
             coords["level"] = np.arange(n_lev)
         if with_no_time:
             coords["member"] = np.arange(2)
-    ds = xr.Dataset(data_vars, coords=coords)
-    return NetCDF.from_xarray(ds, path=str(tmp_path / "cube.nc"))
+    return _write_multidim(tmp_path / "cube.nc", data_vars, coords)
 
 
 class TestSubsetOffline:
