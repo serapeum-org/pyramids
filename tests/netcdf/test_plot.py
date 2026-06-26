@@ -2960,3 +2960,43 @@ class TestNetCDFPlotLazyEdges:
         assert (
             not msgs
         ), f"Boundary at threshold (size == 100 MB) must not fire hint; got {msgs}"
+
+
+class TestPlotStampsGlyphCRS:
+    """`NetCDF.plot` stamps the dataset EPSG onto the returned glyph (issue #630).
+
+    With cleopatra >= 0.20.0 the glyph's reference-layer helpers default their
+    `crs=` to `glyph.crs`, so a stamped glyph lets `glyph.add_features("coastline",
+    "50m")` line up with the data without the caller restating the CRS.
+    """
+
+    def test_variable_plot_glyph_carries_epsg(self):
+        """A plotted variable's glyph exposes the dataset's geographic CRS.
+
+        Test scenario:
+            Plot a 2-D EPSG:4326 variable; the returned glyph's `crs` equals 4326,
+            so a subsequent `add_features`/`add_tiles` needs no explicit `crs=`.
+        """
+        nc = NetCDF.create_from_array(
+            np.arange(12.0).reshape(3, 4),
+            geo=(0.0, 1.0, 0, 3.0, 0, -1.0),
+            epsg=4326,
+            variable_name="d",
+        )
+        glyph = nc.get_variable("d").plot()
+        assert glyph.crs == 4326, f"expected glyph.crs == 4326, got {glyph.crs!r}"
+
+    def test_projected_epsg_is_stamped(self):
+        """The stamp reflects the dataset's own EPSG, not a hard-coded 4326.
+
+        Test scenario:
+            A variable declared EPSG:3857 yields a glyph whose `crs` is 3857.
+        """
+        nc = NetCDF.create_from_array(
+            np.arange(12.0).reshape(3, 4),
+            geo=(0.0, 1.0, 0, 3.0, 0, -1.0),
+            epsg=3857,
+            variable_name="d",
+        )
+        glyph = nc.get_variable("d").plot()
+        assert glyph.crs == 3857, f"expected glyph.crs == 3857, got {glyph.crs!r}"

@@ -1,8 +1,8 @@
 """Tests for CF convention write support (CF-1).
 
 Tests the new ``cf.py`` module functions and the CF global attribute
-parameters added to ``NetCDF.create_from_array`` and
-``_create_netcdf_from_array``.
+parameters added to ``NetCDF.create_from_array`` and its engine helper
+``_create_netcdf_from_array`` (in ``pyramids.netcdf.engines.variables``).
 
 Covers:
     - ``write_attributes_to_md_array``: str/int/float/list attributes

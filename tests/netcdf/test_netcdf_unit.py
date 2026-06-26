@@ -18,6 +18,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.dataset import Dataset
+from pyramids.netcdf.engines.variables import _create_netcdf_from_array
 from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.netcdf import NetCDF, Container
 from tests.netcdf.conftest import make_3d_nc
@@ -761,7 +762,7 @@ class TestCreateNetcdfFromArrayValidation:
         """
         arr = np.random.rand(5, 10).astype(np.float64)
         with pytest.raises(ValueError, match="Variable_name cannot be None"):
-            NetCDF._create_netcdf_from_array(
+            _create_netcdf_from_array(
                 arr,
                 None,
                 10,
@@ -776,7 +777,7 @@ class TestCreateNetcdfFromArrayValidation:
         """
         arr = np.random.rand(5, 10).astype(np.float64)
         with pytest.raises(ValueError, match="geo cannot be None"):
-            NetCDF._create_netcdf_from_array(
+            _create_netcdf_from_array(
                 arr,
                 "var",
                 10,
