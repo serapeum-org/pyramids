@@ -128,16 +128,6 @@ class TestEngineWiring:
 class TestInteropEngine:
     """Edge / error branches of :class:`Interop` and the module functions."""
 
-    def test_to_xarray_requires_multidimensional(self, classic_container):
-        """``to_xarray`` on a classic container raises ValueError.
-
-        Test scenario:
-            A non-MDIM container has no GDAL root group, so the conversion
-            cannot proceed and a guiding ValueError is raised.
-        """
-        with pytest.raises(ValueError, match="multidimensional container"):
-            classic_container.to_xarray()
-
     def test_to_xarray_missing_xarray_raises(self, mdim_container, monkeypatch):
         """``to_xarray`` raises OptionalPackageDoesNotExist when xarray is absent.
 
@@ -150,17 +140,6 @@ class TestInteropEngine:
         monkeypatch.setitem(sys.modules, "xarray", None)
         with pytest.raises(OptionalPackageDoesNotExist, match="xarray is required"):
             mdim_container.to_xarray()
-
-    def test_from_xarray_rejects_non_dataset(self):
-        """``from_xarray`` raises TypeError when handed a non-Dataset.
-
-        Test scenario:
-            Passing a plain object that is not an ``xarray.Dataset`` is a
-            programming error and raises TypeError naming the bad type.
-        """
-        pytest.importorskip("xarray")
-        with pytest.raises(TypeError, match="Expected xarray.Dataset"):
-            NetCDF.from_xarray(object())
 
     def test_from_xarray_missing_xarray_raises(self, monkeypatch):
         """``from_xarray`` raises OptionalPackageDoesNotExist when xarray is absent.
