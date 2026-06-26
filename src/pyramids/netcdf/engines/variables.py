@@ -292,7 +292,7 @@ class Variables(_Engine):
         nc = self._ds
         if old_name not in nc.variable_names:
             raise ValueError(
-                f"Variable '{old_name}' not found. " f"Available: {nc.variable_names}"
+                f"Variable '{old_name}' not found. Available: {nc.variable_names}"
             )
         if new_name in nc.variable_names:
             raise ValueError(f"Variable '{new_name}' already exists.")

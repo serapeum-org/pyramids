@@ -515,7 +515,7 @@ class Selection(_Engine):
 
         if not dim_indices:
             raise ValueError(
-                f"No bands match {dim_name}={selector}. " f"Available values: {coords}"
+                f"No bands match {dim_name}={selector}. Available values: {coords}"
             )
 
         # Map (pinned dim index along dim_name) -> classic-band indices.
