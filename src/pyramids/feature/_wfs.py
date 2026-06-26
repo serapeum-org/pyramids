@@ -135,7 +135,9 @@ def _wfs_connection(endpoint: str, version: str | None) -> str:
 
 def _gdal_http_config(auth: tuple[str, str] | None, timeout: float) -> dict[str, str]:
     """GDAL config options for the WFS HTTP requests (auth + timeout)."""
-    config = {"GDAL_HTTP_TIMEOUT": str(int(timeout))}
+    # GDAL_HTTP_TIMEOUT is whole seconds; clamp to >= 1 so a sub-second timeout is
+    # not truncated to "0", which GDAL reads as "no timeout".
+    config = {"GDAL_HTTP_TIMEOUT": str(max(1, int(timeout)))}
     if auth is not None:
         config[_GDAL_HTTP_AUTH_VAR] = f"{auth[0]}:{auth[1]}"
     return config

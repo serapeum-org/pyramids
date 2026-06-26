@@ -117,6 +117,9 @@ class TestPureHelpers:
         cfg = _wfs._gdal_http_config(("u", "p"), 30.0)
         assert cfg["GDAL_HTTP_USERPWD"] == "u:p" and cfg["GDAL_HTTP_TIMEOUT"] == "30"
 
+    def test_gdal_http_config_clamps_subsecond_timeout(self):
+        assert _wfs._gdal_http_config(None, 0.5)["GDAL_HTTP_TIMEOUT"] == "1"
+
     def test_read_kwargs(self):
         assert _wfs._read_kwargs(None, None, None) == {}
         kw = _wfs._read_kwargs((1.0, 2.0, 3.0, 4.0), "x>1", 10)
