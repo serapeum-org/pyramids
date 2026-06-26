@@ -57,6 +57,7 @@ from pyramids.basemap.basemap import add_basemap
 from pyramids.feature import _h3
 from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
+from pyramids.feature._wfs import from_wfs as _from_wfs
 
 CATALOG = Catalog(raster_driver=False)
 
@@ -1630,6 +1631,101 @@ class FeatureCollection(GeoDataFrame):
         else:
             combined = cls(gpd.GeoDataFrame(geometry=[], crs=first_crs))
         return combined
+
+    @classmethod
+    def from_wfs(
+        cls,
+        endpoint: str,
+        *,
+        typename: str,
+        bbox: tuple[float, float, float, float] | None = None,
+        output_crs: str | None = None,
+        where: str | None = None,
+        max_features: int | None = None,
+        version: str | None = None,
+        auth: tuple[str, str] | None = None,
+        timeout: float = 60.0,
+    ) -> FeatureCollection:
+        """Read a feature type from an OGC **Web Feature Service** (WFS).
+
+        Fetches a subset of a feature type from a WFS server and returns it as a
+        :class:`FeatureCollection`. The transport is GDAL's native OGR ``WFS:``
+        driver, so the WFS ``1.x`` vs ``2.0.0`` dialect fork — ``typeName`` versus
+        ``typeNames`` — is handled inside GDAL; the caller always supplies a
+        single lon/lat ``bbox`` and an optional attribute filter. This is the
+        vector sibling of :meth:`pyramids.dataset.Dataset.from_wcs`.
+
+        The ``typename`` is validated against a (cached) ``GetCapabilities`` so an
+        unadvertised feature type fails fast with a clear :class:`ValueError`
+        rather than an opaque driver error.
+
+        Args:
+            endpoint: The WFS service URL (e.g. ``"https://geoserver.example/ows"``).
+                Catalog / type-name routing belongs in the calling layer, not here.
+            typename: The feature-type identifier as advertised by
+                ``GetCapabilities`` (e.g. ``"topp:states"``). A value the server
+                does not advertise raises :class:`ValueError`.
+            bbox: Optional ``(minx, miny, maxx, maxy)`` spatial filter, interpreted
+                in the feature type's **native CRS** (which WFS layers advertise;
+                usually ``EPSG:4326``, lon/lat). Only intersecting features are
+                returned. ``None`` (default) fetches all features.
+            output_crs: Optional CRS to reproject the result into (any form
+                :meth:`to_crs` accepts). ``None`` (default) keeps the server's CRS.
+            where: Optional OGR/SQL attribute filter (e.g. ``"PERSONS > 1000000"``)
+                pushed down to the server / driver.
+            max_features: Optional cap on the number of features returned. ``None``
+                (default) returns all.
+            version: Force a WFS protocol version (``"1.0.0"``, ``"1.1.0"``,
+                ``"2.0.0"``). ``None`` (default) lets GDAL negotiate from the
+                server's capabilities.
+            auth: Optional ``(username, password)`` for Basic-authed services.
+            timeout: HTTP timeout in seconds for the metadata / feature requests
+                (whole seconds; a value below 1 is clamped to 1). Defaults to
+                ``60.0``.
+
+        Returns:
+            FeatureCollection: The fetched features (empty if the filter matches
+            none).
+
+        Raises:
+            ValueError: ``typename`` or ``version`` is not advertised, ``bbox`` is
+                malformed, or ``max_features`` is negative.
+            pyramids.errors.WFSError: The server could not be reached or returned
+                an error / a non-feature (``<ows:ExceptionReport>``) body, or
+                ``output_crs`` was requested but the result carries no CRS.
+
+        Examples:
+            Read a bbox subset of a public feature type (network call — skipped in
+            doctests):
+
+            ```python
+            >>> from pyramids.feature import FeatureCollection
+            >>> fc = FeatureCollection.from_wfs(  # doctest: +SKIP
+            ...     "https://geoserver.example/ows",
+            ...     typename="topp:states",
+            ...     bbox=(-104, 35, -94, 41),
+            ...     where="PERSONS > 1000000",
+            ... )
+
+            ```
+
+        See Also:
+            - :meth:`read_file`: read a vector file or URL.
+            - :meth:`from_featureserver`: read an Esri ArcGIS FeatureServer layer.
+            - :meth:`pyramids.dataset.Dataset.from_wcs`: the raster (WCS) sibling.
+        """
+        return _from_wfs(
+            cls,
+            endpoint,
+            typename=typename,
+            bbox=bbox,
+            output_crs=output_crs,
+            where=where,
+            max_features=max_features,
+            version=version,
+            auth=auth,
+            timeout=timeout,
+        )
 
     @classmethod
     def _collect_featureserver_pages(

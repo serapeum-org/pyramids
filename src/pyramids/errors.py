@@ -37,6 +37,7 @@ from pyramids.base._errors import (
     ReadOnlyError,
     VectorDriverError,
     WCSError,
+    WFSError,
 )
 from pyramids.base._errors import _PyramidsError as PyramidsError
 
@@ -56,4 +57,5 @@ __all__ = [
     "ReadOnlyError",
     "VectorDriverError",
     "WCSError",
+    "WFSError",
 ]
