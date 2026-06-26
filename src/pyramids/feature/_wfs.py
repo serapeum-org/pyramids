@@ -165,7 +165,6 @@ def from_wfs(
     *,
     typename: str,
     bbox: tuple[float, float, float, float] | None = None,
-    crs: str = "EPSG:4326",
     output_crs: str | None = None,
     where: str | None = None,
     max_features: int | None = None,

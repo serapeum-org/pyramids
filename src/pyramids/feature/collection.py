@@ -1639,7 +1639,6 @@ class FeatureCollection(GeoDataFrame):
         *,
         typename: str,
         bbox: tuple[float, float, float, float] | None = None,
-        crs: str = "EPSG:4326",
         output_crs: str | None = None,
         where: str | None = None,
         max_features: int | None = None,
@@ -1666,11 +1665,10 @@ class FeatureCollection(GeoDataFrame):
             typename: The feature-type identifier as advertised by
                 ``GetCapabilities`` (e.g. ``"topp:states"``). A value the server
                 does not advertise raises :class:`ValueError`.
-            bbox: Optional ``(minx, miny, maxx, maxy)`` spatial filter in ``crs``
-                order (lon/lat for the default ``"EPSG:4326"``). Only intersecting
-                features are returned. ``None`` (default) fetches all features.
-            crs: CRS of ``bbox``; it should match the feature type's CRS (most WFS
-                layers default to ``"EPSG:4326"``). Defaults to ``"EPSG:4326"``.
+            bbox: Optional ``(minx, miny, maxx, maxy)`` spatial filter, interpreted
+                in the feature type's **native CRS** (which WFS layers advertise;
+                usually ``EPSG:4326``, lon/lat). Only intersecting features are
+                returned. ``None`` (default) fetches all features.
             output_crs: Optional CRS to reproject the result into (any form
                 :meth:`to_crs` accepts). ``None`` (default) keeps the server's CRS.
             where: Optional OGR/SQL attribute filter (e.g. ``"PERSONS > 1000000"``)
@@ -1719,7 +1717,6 @@ class FeatureCollection(GeoDataFrame):
             endpoint,
             typename=typename,
             bbox=bbox,
-            crs=crs,
             output_crs=output_crs,
             where=where,
             max_features=max_features,
