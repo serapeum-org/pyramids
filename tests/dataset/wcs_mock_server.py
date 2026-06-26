@@ -29,7 +29,6 @@ from osgeo import gdal, osr
 
 COVERAGE = "test_cov"
 _RES = 0.1
-_CRS84 = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
 
 CAPS_100 = """<?xml version="1.0" encoding="UTF-8"?>
 <WCS_Capabilities version="1.0.0" xmlns="http://www.opengis.net/wcs"
@@ -112,14 +111,14 @@ CAPS_201 = """<?xml version="1.0" encoding="UTF-8"?>
 </wcs:Capabilities>
 """
 
-DESCRIBE_201 = f"""<?xml version="1.0" encoding="UTF-8"?>
+DESCRIBE_201 = """<?xml version="1.0" encoding="UTF-8"?>
 <wcs:CoverageDescriptions xmlns:wcs="http://www.opengis.net/wcs/2.0"
     xmlns:gml="http://www.opengis.net/gml/3.2"
     xmlns:gmlcov="http://www.opengis.net/gmlcov/1.0"
     xmlns:swe="http://www.opengis.net/swe/2.0">
   <wcs:CoverageDescription gml:id="test_cov">
     <gml:boundedBy>
-      <gml:Envelope srsName="{_CRS84}"
+      <gml:Envelope srsName="http://www.opengis.net/def/crs/OGC/1.3/CRS84"
           axisLabels="Long Lat" uomLabels="deg deg" srsDimension="2">
         <gml:lowerCorner>0 0</gml:lowerCorner>
         <gml:upperCorner>10 10</gml:upperCorner>
@@ -136,12 +135,12 @@ DESCRIBE_201 = f"""<?xml version="1.0" encoding="UTF-8"?>
         </gml:limits>
         <gml:axisLabels>Long Lat</gml:axisLabels>
         <gml:origin>
-          <gml:Point gml:id="p_test_cov" srsName="{_CRS84}">
+          <gml:Point gml:id="p_test_cov" srsName="http://www.opengis.net/def/crs/OGC/1.3/CRS84">
             <gml:pos>0.05 9.95</gml:pos>
           </gml:Point>
         </gml:origin>
-        <gml:offsetVector srsName="{_CRS84}">0.1 0</gml:offsetVector>
-        <gml:offsetVector srsName="{_CRS84}">0 -0.1</gml:offsetVector>
+        <gml:offsetVector srsName="http://www.opengis.net/def/crs/OGC/1.3/CRS84">0.1 0</gml:offsetVector>
+        <gml:offsetVector srsName="http://www.opengis.net/def/crs/OGC/1.3/CRS84">0 -0.1</gml:offsetVector>
       </gml:RectifiedGrid>
     </gml:domainSet>
     <gmlcov:rangeType>

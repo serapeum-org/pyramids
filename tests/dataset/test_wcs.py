@@ -28,7 +28,7 @@ from osgeo import gdal, osr
 from pyramids.dataset import Dataset
 from pyramids.dataset import _wcs
 from pyramids.errors import WCSError
-from tests.dataset.wcs_mock_server import EXCEPTION_REPORT, WcsMock
+from tests.dataset.wcs_mock_server import WcsMock
 
 CAPS_2_0_1 = """<?xml version="1.0" encoding="UTF-8"?>
 <wcs:Capabilities xmlns:wcs="http://www.opengis.net/wcs/2.0"
@@ -117,10 +117,10 @@ class TestPureHelpers:
         assert _wcs._localname("name") == "name"
 
     def test_capabilities_url_appends_correctly(self):
-        with_q = _wcs._capabilities_url("http://h/mapserv?map=/m.map", None)
-        assert with_q == "http://h/mapserv?map=/m.map&SERVICE=WCS&REQUEST=GetCapabilities"
-        no_q = _wcs._capabilities_url("http://h/wcs", "2.0.1")
-        assert no_q == "http://h/wcs?SERVICE=WCS&REQUEST=GetCapabilities&VERSION=2.0.1"
+        with_q = _wcs._capabilities_url("https://h/mapserv?map=/m.map", None)
+        assert with_q == "https://h/mapserv?map=/m.map&SERVICE=WCS&REQUEST=GetCapabilities"
+        no_q = _wcs._capabilities_url("https://h/wcs", "2.0.1")
+        assert no_q == "https://h/wcs?SERVICE=WCS&REQUEST=GetCapabilities&VERSION=2.0.1"
 
     def test_looks_like_raster(self):
         assert _wcs._looks_like_raster(b"II*\x00rest")
@@ -130,7 +130,7 @@ class TestPureHelpers:
 
     def test_service_descriptor(self):
         xml = _wcs._service_descriptor(
-            "http://h/mapserv?map=/m.map", "cov", "2.0.1", "GEOTIFF_INT16", {"FOO": "bar"}
+            "https://h/mapserv?map=/m.map", "cov", "2.0.1", "GEOTIFF_INT16", {"FOO": "bar"}
         )
         assert "<CoverageName>cov</CoverageName>" in xml
         assert "<Version>2.0.1</Version>" in xml
@@ -141,7 +141,7 @@ class TestPureHelpers:
         assert "map=/m.map" in xml
 
     def test_service_descriptor_minimal(self):
-        xml = _wcs._service_descriptor("http://h", "cov", None, None, None)
+        xml = _wcs._service_descriptor("https://h", "cov", None, None, None)
         assert "<Version>" not in xml
         assert "<PreferredFormat>" not in xml
         assert "<GetCoverageExtra>" not in xml
