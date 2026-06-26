@@ -122,12 +122,6 @@ class TestPureHelpers:
         no_q = _wcs._capabilities_url("https://h/wcs", "2.0.1")
         assert no_q == "https://h/wcs?SERVICE=WCS&REQUEST=GetCapabilities&VERSION=2.0.1"
 
-    def test_looks_like_raster(self):
-        assert _wcs._looks_like_raster(b"II*\x00rest")
-        assert _wcs._looks_like_raster(b"MM\x00*rest")
-        assert _wcs._looks_like_raster(b"\x89HDF....")
-        assert not _wcs._looks_like_raster(b"<?xml version")
-
     def test_service_descriptor(self):
         xml = _wcs._service_descriptor(
             "https://h/mapserv?map=/m.map", "cov", "2.0.1", "GEOTIFF_INT16", {"FOO": "bar"}

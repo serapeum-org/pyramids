@@ -44,10 +44,6 @@ from pyramids.base._errors import WCSError
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
 
-# Magic bytes that mark a real raster payload (vs an XML ExceptionReport).
-_TIFF_MAGIC = (b"II*\x00", b"MM\x00*")
-_NETCDF_MAGIC = (b"CDF\x01", b"CDF\x02", b"\x89HDF")
-
 # GDAL's HTTP Basic-auth env var. Assembled in two pieces so static analysis does
 # not misread the literal key as a hard-coded credential: the value is always
 # supplied by the caller's ``auth``, never hard-coded here.
@@ -142,12 +138,6 @@ def _exception_text(root: ET.Element) -> str:
         if _localname(el.tag) in ("ExceptionText", "ServiceException") and el.text:
             return el.text.strip()
     return (root.text or "").strip() or "no message provided"
-
-
-def _looks_like_raster(payload: bytes) -> bool:
-    """True if `payload` starts with TIFF / NetCDF / HDF magic bytes."""
-    head = payload[:8]
-    return head.startswith(_TIFF_MAGIC) or head.startswith(_NETCDF_MAGIC)
 
 
 def _service_descriptor(
