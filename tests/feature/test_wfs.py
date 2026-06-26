@@ -46,6 +46,12 @@ EXCEPTION_REPORT = """<?xml version="1.0" encoding="UTF-8"?>
 </ows:ExceptionReport>
 """
 
+SERVICE_EXCEPTION_1X = """<?xml version="1.0" encoding="UTF-8"?>
+<ServiceExceptionReport version="1.1.0">
+  <ServiceException code="InvalidParameterValue">legacy WFS error.</ServiceException>
+</ServiceExceptionReport>
+"""
+
 
 @pytest.fixture(autouse=True)
 def _clear_caps_cache():
@@ -152,6 +158,8 @@ class TestPureHelpers:
     def test_exception_text(self):
         root = _wfs.ET.fromstring("<R><ExceptionText>boom</ExceptionText></R>")
         assert _wfs._exception_text(root) == "boom"
+        svc = _wfs.ET.fromstring("<R><ServiceException>legacy boom</ServiceException></R>")
+        assert _wfs._exception_text(svc) == "legacy boom"  # WFS 1.x form
         assert _wfs._exception_text(_wfs.ET.fromstring("<R></R>")) == "no message provided"
 
 
@@ -177,6 +185,16 @@ class TestCapabilities:
         url, _, httpd = _make_server(EXCEPTION_REPORT)
         try:
             with pytest.raises(WFSError, match="WFS server error"):
+                _wfs._get_capabilities(url, None, None, 30.0)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    def test_service_exception_report_1x_raises_wfserror(self):
+        """A WFS 1.x ServiceExceptionReport body surfaces as WFSError with its message."""
+        url, _, httpd = _make_server(SERVICE_EXCEPTION_1X)
+        try:
+            with pytest.raises(WFSError, match="legacy WFS error"):
                 _wfs._get_capabilities(url, None, None, 30.0)
         finally:
             httpd.shutdown()
