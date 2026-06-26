@@ -129,6 +129,9 @@ class TestPureHelpers:
         with pytest.raises(ValueError, match="max_features"):
             _wfs._read_kwargs(None, None, -1)
 
+    def test_read_kwargs_allows_zero_max_features(self):
+        assert _wfs._read_kwargs(None, None, 0) == {"rows": 0}
+
     def test_read_kwargs_rejects_bad_bbox_length(self):
         with pytest.raises(ValueError, match="minx, miny, maxx, maxy"):
             _wfs._read_kwargs((1.0, 2.0, 3.0), None, None)
