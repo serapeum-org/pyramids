@@ -149,6 +149,8 @@ def _read_kwargs(
     """Assemble the pyogrio / GDAL read filters (bbox, attribute filter, count)."""
     kwargs: dict = {}
     if bbox is not None:
+        if len(bbox) != 4:
+            raise ValueError(f"bbox must be (minx, miny, maxx, maxy), got {bbox!r}")
         kwargs["bbox"] = tuple(float(v) for v in bbox)
     if where is not None:
         kwargs["where"] = where
@@ -202,6 +204,11 @@ def from_wfs(
             raise WFSError(f"WFS GetFeature failed for {typename!r}: {exc}") from exc
 
     fc = featurecollection_cls(gdf)
-    if output_crs is not None and fc.crs is not None:
+    if output_crs is not None:
+        if fc.crs is None:
+            raise WFSError(
+                f"cannot reproject {typename!r} to {output_crs!r}: the server returned "
+                "features without a CRS"
+            )
         fc = featurecollection_cls(fc.to_crs(output_crs))
     return fc

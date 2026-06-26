@@ -126,6 +126,10 @@ class TestPureHelpers:
         with pytest.raises(ValueError, match="max_features"):
             _wfs._read_kwargs(None, None, -1)
 
+    def test_read_kwargs_rejects_bad_bbox_length(self):
+        with pytest.raises(ValueError, match="minx, miny, maxx, maxy"):
+            _wfs._read_kwargs((1.0, 2.0, 3.0), None, None)
+
     def test_extract_typenames_only_under_featuretype(self):
         root = _wfs.ET.fromstring(
             "<Caps><Service><Name>svc</Name></Service>"
@@ -226,6 +230,16 @@ class TestFromWfs:
             "http://h/ows", typename="topp:states", output_crs="EPSG:3857"
         )
         assert fc.crs.to_epsg() == 3857
+
+    def test_output_crs_without_result_crs_raises(self, monkeypatch):
+        """output_crs on a CRS-less result raises WFSError instead of silently dropping it."""
+        self._patch_caps(monkeypatch)
+        crsless = gpd.GeoDataFrame({"name": ["a"]}, geometry=[Point(5.0, 52.0)])
+        monkeypatch.setattr(_wfs.gpd, "read_file", lambda *a, **k: crsless)
+        with pytest.raises(WFSError, match="without a CRS"):
+            FeatureCollection.from_wfs(
+                "http://h/ows", typename="topp:states", output_crs="EPSG:3857"
+            )
 
     def test_unknown_typename_raises_valueerror(self, monkeypatch):
         self._patch_caps(monkeypatch, typenames=("topp:states",))
