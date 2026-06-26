@@ -607,7 +607,7 @@ class Selection(_Engine):
         from pyramids.netcdf.netcdf import Variable, _contiguous_range
 
         nc = self._ds
-        rg = nc._raster.GetRootGroup() if nc._raster is not None else None
+        rg = nc._working_group()
         if rg is None:
             raise ValueError(
                 "subset() requires a multidimensional store; open with "
@@ -798,7 +798,7 @@ class Selection(_Engine):
         # can't go through the raster reduce path, so they are carried through
         # unchanged below — the same split crop / to_crs use (#513). Resolve the root
         # group once and reuse it for the spanning-aux probe further down.
-        rg = nc._raster.GetRootGroup() if nc._raster is not None else None
+        rg = nc._working_group()
         spatial_vars = nc._spatial_variable_names(rg)
         aux_vars = [n for n in names if n not in spatial_vars]
 
