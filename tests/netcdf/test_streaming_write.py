@@ -10,6 +10,8 @@ Style: Google-style docstrings, <=120 char lines, no inline imports, single retu
 statement, descriptive assertion messages.
 """
 
+from unittest.mock import MagicMock
+
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
@@ -33,18 +35,6 @@ GEO = (0.0, 0.01, 0, 1.0, 0, -0.01)
 def _source_array(shape: tuple[int, ...]) -> np.ndarray:
     """Return a deterministic float64 array of the given shape."""
     return np.random.default_rng(SEED).random(shape).astype(np.float64)
-
-
-class _FakeMDArray:
-    """Minimal MDArray stand-in recording every windowed ``Write`` call."""
-
-    def __init__(self):
-        self.writes = []
-
-    def Write(self, block, array_start_idx, count):
-        """Record the block and its window; mimic GDAL's ``CE_None`` return."""
-        self.writes.append((np.asarray(block).copy(), list(array_start_idx), list(count)))
-        return 0
 
 
 class TestIsDaskArray:
@@ -103,16 +93,19 @@ class TestWriteBlocksStreaming:
         """Each block is written once and the windows reassemble the source array."""
         source = _source_array((4, 6, 8))
         dask_arr = da.from_array(source, chunks=(2, 6, 8))
-        fake = _FakeMDArray()
+        md_arr = MagicMock()
 
-        _write_blocks_streaming(fake, dask_arr)
+        _write_blocks_streaming(md_arr, dask_arr)
 
-        assert len(fake.writes) == 2, f"expected 2 windowed writes, got {len(fake.writes)}"
+        calls = md_arr.Write.call_args_list
+        assert len(calls) == 2, f"expected 2 windowed writes, got {len(calls)}"
         assert all(
-            counts[0] < source.shape[0] for _, _, counts in fake.writes
+            call.kwargs["count"][0] < source.shape[0] for call in calls
         ), "no single write may span the whole outer dimension (not memory-bounded)"
         reconstructed = np.empty_like(source)
-        for block, starts, counts in fake.writes:
+        for call in calls:
+            block = np.asarray(call.args[0])
+            starts, counts = call.kwargs["array_start_idx"], call.kwargs["count"]
             slices = tuple(slice(s, s + c) for s, c in zip(starts, counts))
             reconstructed[slices] = block
         assert_allclose(reconstructed, source, err_msg="windows must reassemble source")
