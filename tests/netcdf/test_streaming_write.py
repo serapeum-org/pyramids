@@ -59,6 +59,17 @@ class TestIsDaskArray:
         """NumPy arrays and other objects are not mistaken for dask arrays."""
         assert _is_dask_array(obj) is False
 
+    def test_false_for_dask_module_without_block_api(self):
+        """A dask.*-module object lacking the block-iteration API is not a dask array."""
+
+        class _FakeDaskThing:
+            pass
+
+        _FakeDaskThing.__module__ = "dask.array.core"
+        assert _is_dask_array(_FakeDaskThing()) is False, (
+            "dask module origin alone must not satisfy detection without the block API"
+        )
+
 
 class TestIterBlockWindows:
     """The window generator must tile the array exactly with no overlap/gap."""
