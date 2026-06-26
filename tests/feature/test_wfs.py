@@ -133,6 +133,10 @@ class TestPureHelpers:
         with pytest.raises(ValueError, match="minx, miny, maxx, maxy"):
             _wfs._read_kwargs((1.0, 2.0, 3.0), None, None)
 
+    def test_read_kwargs_rejects_inverted_bbox(self):
+        with pytest.raises(ValueError, match="minx < maxx"):
+            _wfs._read_kwargs((3.0, 2.0, 1.0, 4.0), None, None)
+
     def test_extract_typenames_only_under_featuretype(self):
         root = _wfs.ET.fromstring(
             "<Caps><Service><Name>svc</Name></Service>"

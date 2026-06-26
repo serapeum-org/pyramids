@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import urllib.request
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from xml.etree import ElementTree as ET
 
 import geopandas as gpd
@@ -147,13 +147,16 @@ def _read_kwargs(
     bbox: tuple[float, float, float, float] | None,
     where: str | None,
     max_features: int | None,
-) -> dict:
+) -> dict[str, Any]:
     """Assemble the pyogrio / GDAL read filters (bbox, attribute filter, count)."""
-    kwargs: dict = {}
+    kwargs: dict[str, Any] = {}
     if bbox is not None:
         if len(bbox) != 4:
             raise ValueError(f"bbox must be (minx, miny, maxx, maxy), got {bbox!r}")
-        kwargs["bbox"] = tuple(float(v) for v in bbox)
+        minx, miny, maxx, maxy = (float(v) for v in bbox)
+        if minx >= maxx or miny >= maxy:
+            raise ValueError(f"bbox must have minx < maxx and miny < maxy, got {bbox!r}")
+        kwargs["bbox"] = (minx, miny, maxx, maxy)
     if where is not None:
         kwargs["where"] = where
     if max_features is not None:
