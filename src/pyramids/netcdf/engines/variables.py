@@ -107,25 +107,8 @@ class Variables(_Engine):
             work, rg = nc._writable_root_group()
             nc._replace_raster(work)
 
-        # Auto-detect from tracked origin metadata (RT-4)
-        if band_dim_name is None and hasattr(dataset, "_band_dim_name"):
-            band_dim_name = dataset._band_dim_name
-        if band_dim_values is None and hasattr(dataset, "_band_dim_values"):
-            band_dim_values = dataset._band_dim_values
-        if attrs is None and hasattr(dataset, "_variable_attrs"):
-            attrs = dataset._variable_attrs
-        # Multi-band-dim metadata: every non-spatial dim and its
-        # coords / sizes. Populated by `get_variable` for 4-D+
-        # variables. When present, the rebuild materialises each dim
-        # separately instead of flattening to a single bands axis.
-        band_dim_names: tuple[str, ...] = tuple(
-            getattr(dataset, "_band_dim_names", ()) or ()
-        )
-        band_dim_sizes: tuple[int, ...] = tuple(
-            getattr(dataset, "_band_dim_sizes", ()) or ()
-        )
-        band_dim_values_map: dict = dict(
-            getattr(dataset, "_band_dim_values_map", {}) or {}
+        band_dim_name, band_dim_values, attrs, band = _resolve_band_metadata(
+            dataset, band_dim_name, band_dim_values, attrs
         )
 
         # Delete existing variable if present
@@ -154,54 +137,23 @@ class Variables(_Engine):
             rg, "y", y_values, coord_dtype, gdal.DIM_TYPE_HORIZONTAL_Y
         )
 
-        # 4-D+ rebuild: reshape the flattened bands back into the
-        # cached storage order, then create one GDAL dimension per
-        # non-spatial axis. Falls through to the legacy single-dim
-        # path when only one (or zero) band dim is tracked.
-        if len(band_dim_names) > 1 and arr.ndim == 3 and band_dim_sizes:
-            arr = arr.reshape(*band_dim_sizes, arr.shape[-2], arr.shape[-1])
-            gdal_band_dims = []
-            for i, dim_name in enumerate(band_dim_names):
-                values = band_dim_values_map.get(dim_name)
-                if values is None:
-                    values = list(range(int(band_dim_sizes[i])))
-                gdal_band_dims.append(
-                    nc._get_or_create_dimension(
-                        rg,
-                        dim_name,
-                        np.array(values, dtype=np.float64),
-                        coord_dtype,
-                        gdal.DIM_TYPE_TEMPORAL if i == 0 else None,
-                    )
-                )
-            md_arr = rg.CreateMDArray(
-                variable_name, [*gdal_band_dims, dim_y, dim_x], data_dtype
-            )
-        elif arr.ndim == 3:
-            if band_dim_name is None:
-                band_dim_name = "bands"
-            if band_dim_values is None:
-                band_dim_values = list(range(arr.shape[0]))
-            dim_band = nc._get_or_create_dimension(
-                rg,
-                band_dim_name,
-                np.array(band_dim_values, dtype=np.float64),
-                coord_dtype,
-                gdal.DIM_TYPE_TEMPORAL,
-            )
-            md_arr = rg.CreateMDArray(
-                variable_name, [dim_band, dim_y, dim_x], data_dtype
-            )
-        else:
-            md_arr = rg.CreateMDArray(variable_name, [dim_y, dim_x], data_dtype)
-
-        # Write array data
-        md_arr.Write(arr)
+        md_arr = _build_variable_mdarray(
+            nc,
+            rg,
+            variable_name,
+            arr,
+            dim_y,
+            dim_x,
+            data_dtype,
+            coord_dtype,
+            band_dim_name,
+            band_dim_values,
+            band,
+        )
 
         # Set spatial reference (RT-7: attribute copying)
         if dataset.epsg:
-            srs = sr_from_epsg(dataset.epsg)
-            md_arr.SetSpatialRef(srs)
+            md_arr.SetSpatialRef(sr_from_epsg(dataset.epsg))
 
         # Set no-data value
         if dataset.no_data_value and dataset.no_data_value[0] is not None:
@@ -308,6 +260,112 @@ class Variables(_Engine):
         rg.DeleteMDArray(old_name)
         nc._replace_raster(dst)
         nc._invalidate_caches()
+
+
+def _resolve_band_metadata(
+    dataset: Dataset,
+    band_dim_name: str | None,
+    band_dim_values: list | None,
+    attrs: dict | None,
+) -> tuple[str | None, list | None, dict | None, dict]:
+    """Resolve `set_variable` band metadata, auto-detecting from the source dataset.
+
+    Fills ``band_dim_name`` / ``band_dim_values`` / ``attrs`` from the source's
+    tracked origin attributes (``_band_dim_name`` etc., set by ``get_variable``)
+    when not given explicitly, and bundles the multi-band-dim metadata
+    (``_band_dim_names`` / ``_band_dim_sizes`` / ``_band_dim_values_map``) into a
+    ``band`` dict consumed by :func:`_build_variable_mdarray`.
+    """
+    if band_dim_name is None and hasattr(dataset, "_band_dim_name"):
+        band_dim_name = dataset._band_dim_name
+    if band_dim_values is None and hasattr(dataset, "_band_dim_values"):
+        band_dim_values = dataset._band_dim_values
+    if attrs is None and hasattr(dataset, "_variable_attrs"):
+        attrs = dataset._variable_attrs
+    band = {
+        "names": tuple(getattr(dataset, "_band_dim_names", ()) or ()),
+        "sizes": tuple(getattr(dataset, "_band_dim_sizes", ()) or ()),
+        "values_map": dict(getattr(dataset, "_band_dim_values_map", {}) or {}),
+    }
+    return band_dim_name, band_dim_values, attrs, band
+
+
+def _create_multi_band_dims(
+    nc: NetCDF,
+    rg: Any,
+    names: tuple[str, ...],
+    sizes: tuple[int, ...],
+    values_map: dict,
+    coord_dtype: Any,
+) -> list:
+    """Create one GDAL dimension per tracked non-spatial axis (the 4-D+ rebuild path).
+
+    Each axis takes its coordinate values from ``values_map`` (filling integer
+    indices when absent); the first axis is tagged ``DIM_TYPE_TEMPORAL``.
+    """
+    band_dims = []
+    for i, dim_name in enumerate(names):
+        values = values_map.get(dim_name)
+        if values is None:
+            values = list(range(int(sizes[i])))
+        band_dims.append(
+            nc._get_or_create_dimension(
+                rg,
+                dim_name,
+                np.array(values, dtype=np.float64),
+                coord_dtype,
+                gdal.DIM_TYPE_TEMPORAL if i == 0 else None,
+            )
+        )
+    return band_dims
+
+
+def _build_variable_mdarray(
+    nc: NetCDF,
+    rg: Any,
+    variable_name: str,
+    arr: np.ndarray,
+    dim_y: Any,
+    dim_x: Any,
+    data_dtype: Any,
+    coord_dtype: Any,
+    band_dim_name: str | None,
+    band_dim_values: list | None,
+    band: dict,
+) -> Any:
+    """Create the variable MDArray with the right band dimensions and write ``arr``.
+
+    Three layouts: a multi-band-dim 4-D+ rebuild (reshape the flattened bands
+    back into storage order, one GDAL dim per non-spatial axis via
+    :func:`_create_multi_band_dims`); the legacy single-band-dim 3-D path; and a
+    plain 2-D ``(y, x)`` variable. Returns the written MDArray.
+    """
+    names, sizes, values_map = band["names"], band["sizes"], band["values_map"]
+    if len(names) > 1 and arr.ndim == 3 and sizes:
+        arr = arr.reshape(*sizes, arr.shape[-2], arr.shape[-1])
+        band_dims = _create_multi_band_dims(nc, rg, names, sizes, values_map, coord_dtype)
+        md_arr = rg.CreateMDArray(
+            variable_name, [*band_dims, dim_y, dim_x], data_dtype
+        )
+    elif arr.ndim == 3:
+        if band_dim_name is None:
+            band_dim_name = "bands"
+        if band_dim_values is None:
+            band_dim_values = list(range(arr.shape[0]))
+        dim_band = nc._get_or_create_dimension(
+            rg,
+            band_dim_name,
+            np.array(band_dim_values, dtype=np.float64),
+            coord_dtype,
+            gdal.DIM_TYPE_TEMPORAL,
+        )
+        md_arr = rg.CreateMDArray(
+            variable_name, [dim_band, dim_y, dim_x], data_dtype
+        )
+    else:
+        md_arr = rg.CreateMDArray(variable_name, [dim_y, dim_x], data_dtype)
+    md_arr.Write(arr)
+    return md_arr
 
 
 def create_from_array(
@@ -448,6 +506,19 @@ def create_from_array(
     if variable_name is None:
         variable_name = "data"
 
+    # Collapse the four optional CF global attributes into one mapping so the
+    # builder stays within the parameter budget; only provided ones are kept.
+    cf_attrs = {
+        k: v
+        for k, v in (
+            ("title", title),
+            ("institution", institution),
+            ("source", source),
+            ("history", history),
+        )
+        if v is not None
+    }
+
     dst_ds = _create_netcdf_from_array(
         arr,
         variable_name,
@@ -461,10 +532,7 @@ def create_from_array(
         chunk_sizes=chunk_sizes,
         compression=compression,
         compression_level=compression_level,
-        title=title,
-        institution=institution,
-        source=source,
-        history=history,
+        cf_attrs=cf_attrs,
     )
     result = Container(dst_ds)
 
@@ -503,30 +571,7 @@ def _resolve_extra_dims(
     """
     expected = max(arr.ndim - 2, 0)
     if extra_dims is not None:
-        if extra_dim_values is not None:
-            raise ValueError(
-                "extra_dims and extra_dim_values are mutually "
-                "exclusive. Use one or the other."
-            )
-        if len(extra_dims) != expected:
-            raise ValueError(
-                f"extra_dims must have {expected} entries for a "
-                f"{arr.ndim}-D array, got {len(extra_dims)}."
-            )
-        resolved: list[tuple[str, list]] = []
-        for i, entry in enumerate(extra_dims):
-            name, values = entry
-            if values is None:
-                values = list(range(int(arr.shape[i])))
-            elif len(values) != int(arr.shape[i]):
-                raise ValueError(
-                    f"extra_dims[{i}] values length {len(values)} "
-                    f"does not match arr.shape[{i}]={arr.shape[i]}."
-                )
-            else:
-                values = list(values)
-            resolved.append((name, values))
-        return resolved
+        return _resolve_explicit_extra_dims(arr, extra_dims, extra_dim_values, expected)
     if expected == 0:
         return []
     if expected == 1:
@@ -542,6 +587,107 @@ def _resolve_extra_dims(
     return [(f"dim_{i}", list(range(int(arr.shape[i])))) for i in range(expected)]
 
 
+def _resolve_explicit_extra_dims(
+    arr: np.ndarray,
+    extra_dims: list[tuple[str, list | None]],
+    extra_dim_values: list | None,
+    expected: int,
+) -> list[tuple[str, list]]:
+    """Normalise the explicit ``extra_dims`` list-of-pairs path.
+
+    Validates it is not combined with the legacy ``extra_dim_values``, that its
+    length matches the non-spatial axis count, and that each per-dim ``values``
+    matches the corresponding ``arr.shape[i]`` (filling ``None`` with integer
+    indices). Helper of :func:`_resolve_extra_dims`.
+
+    Raises:
+        ValueError: On mutual-exclusion, length-mismatch, or per-dim
+            value-length-mismatch (see :func:`_resolve_extra_dims`).
+    """
+    if extra_dim_values is not None:
+        raise ValueError(
+            "extra_dims and extra_dim_values are mutually "
+            "exclusive. Use one or the other."
+        )
+    if len(extra_dims) != expected:
+        raise ValueError(
+            f"extra_dims must have {expected} entries for a "
+            f"{arr.ndim}-D array, got {len(extra_dims)}."
+        )
+    resolved: list[tuple[str, list]] = []
+    for i, (name, values) in enumerate(extra_dims):
+        if values is None:
+            values = list(range(int(arr.shape[i])))
+        elif len(values) != int(arr.shape[i]):
+            raise ValueError(
+                f"extra_dims[{i}] values length {len(values)} "
+                f"does not match arr.shape[{i}]={arr.shape[i]}."
+            )
+        else:
+            values = list(values)
+        resolved.append((name, values))
+    return resolved
+
+
+def _build_create_options(
+    chunk_sizes: tuple | list | None,
+    compression: str | None,
+    compression_level: int | None,
+) -> list[str]:
+    """Assemble GDAL MDArray creation options from the chunking/compression knobs."""
+    options: list[str] = []
+    if chunk_sizes is not None:
+        options.append(f"BLOCKSIZE={','.join(str(s) for s in chunk_sizes)}")
+    if compression is not None:
+        options.append(f"COMPRESS={compression}")
+    if compression_level is not None:
+        options.append(f"ZLEVEL={compression_level}")
+    return options
+
+
+def _create_extra_dimensions(
+    rg: Any,
+    extra_dims: list[tuple[str, list]],
+    dtype: Any,
+    use_set_indexing: bool,
+) -> list:
+    """Create one GDAL dimension per non-spatial axis, in storage order.
+
+    The first non-spatial dim is tagged ``DIM_TYPE_TEMPORAL`` (matching the
+    legacy 3-D path); the rest are left untagged so the netCDF driver does not
+    second-guess their semantics.
+    """
+    # Local import breaks the netcdf.py <-> engines.variables import cycle.
+    from pyramids.netcdf.netcdf import NetCDF
+
+    gdal_extra_dims = []
+    for i, (dim_name, dim_values) in enumerate(extra_dims):
+        dim_type = gdal.DIM_TYPE_TEMPORAL if i == 0 else None
+        gdal_extra_dims.append(
+            NetCDF._create_dimension(
+                rg, dim_name, dtype, np.array(dim_values), dim_type, use_set_indexing
+            )
+        )
+    return gdal_extra_dims
+
+
+def _write_grid_mapping(rg: Any, md_arr: Any, srse: Any) -> None:
+    """Write a CF ``grid_mapping`` variable and link it from the data variable.
+
+    Used on the MEM driver only — the netCDF driver creates its own grid mapping
+    via ``SetSpatialRef``. The variable is named ``spatial_ref`` to avoid colliding
+    with GDAL's automatic ``crs`` during a later ``CreateCopy`` to netCDF.
+    """
+    gm_name, gm_params = srs_to_grid_mapping(srse)
+    gm_dtype = gdal.ExtendedDataType.Create(gdal.GDT_Int32)
+    gm_var_name = "spatial_ref"
+    crs_arr = rg.CreateMDArray(gm_var_name, [], gm_dtype)
+    crs_arr.Write(np.array(0, dtype=np.int32))
+    gm_params["grid_mapping_name"] = gm_name
+    write_attributes_to_md_array(crs_arr, gm_params)
+    write_attributes_to_md_array(md_arr, {"grid_mapping": gm_var_name})
+
+
 def _create_netcdf_from_array(
     arr: np.ndarray,
     variable_name: str,
@@ -555,10 +701,7 @@ def _create_netcdf_from_array(
     chunk_sizes: tuple | list | None = None,
     compression: str | None = None,
     compression_level: int | None = None,
-    title: str | None = None,
-    institution: str | None = None,
-    source: str | None = None,
-    history: str | None = None,
+    cf_attrs: dict[str, str] | None = None,
 ) -> gdal.Dataset:
     """Build a multidimensional GDAL dataset from an array.
 
@@ -586,12 +729,9 @@ def _create_netcdf_from_array(
             None.
         compression: Compression algorithm. Defaults to None.
         compression_level: Compression level. Defaults to None.
-        title: CF global attribute `title`. Defaults to None.
-        institution: CF global attribute `institution`.
-            Defaults to None.
-        source: CF global attribute `source`.
-            Defaults to None.
-        history: CF global attribute `history`.
+        cf_attrs: Optional CF global attributes (e.g. ``title`` /
+            ``institution`` / ``source`` / ``history``) to merge onto the
+            root group, alongside the always-written ``Conventions``.
             Defaults to None.
 
     Returns:
@@ -606,6 +746,8 @@ def _create_netcdf_from_array(
         raise ValueError("Variable_name cannot be None")
     if geo is None:
         raise ValueError("geo cannot be None")
+    if epsg is None:
+        raise ValueError("epsg cannot be None")
 
     if extra_dims is None:
         extra_dims = []
@@ -623,37 +765,13 @@ def _create_netcdf_from_array(
 
     src = gdal.GetDriverByName(driver_type).CreateMultiDimensional(str(path))
     rg = src.GetRootGroup()
-
-    # Set CF global attributes on root group
-    cf_global = {"Conventions": "CF-1.8"}
-    if title is not None:
-        cf_global["title"] = title
-    if institution is not None:
-        cf_global["institution"] = institution
-    if source is not None:
-        cf_global["source"] = source
-    if history is not None:
-        cf_global["history"] = history
-    write_global_attributes(rg, cf_global)
-
-    # Build creation options for chunking and compression
-    create_options = []
-    if chunk_sizes is not None:
-        create_options.append(f"BLOCKSIZE={','.join(str(s) for s in chunk_sizes)}")
-    if compression is not None:
-        create_options.append(f"COMPRESS={compression}")
-    if compression_level is not None:
-        create_options.append(f"ZLEVEL={compression_level}")
+    write_global_attributes(rg, {"Conventions": "CF-1.8", **(cf_attrs or {})})
 
     # netCDF driver doesn't support SetIndexingVariable — create
     # dimension arrays manually without linking them.
     use_set_indexing = driver_type == "MEM"
-
-    # Determine if CRS is geographic (lon/lat) or projected (m)
-    is_geographic = True
-    if epsg is not None:
-        srs_check = sr_from_epsg(int(epsg))
-        is_geographic = srs_check.IsGeographic() == 1
+    srse = sr_from_epsg(int(epsg))
+    is_geographic = srse.IsGeographic() == 1
 
     dim_x = NetCDF._create_dimension(
         rg,
@@ -674,31 +792,12 @@ def _create_netcdf_from_array(
         is_geographic=is_geographic,
     )
 
-    # Build one GDAL dimension per non-spatial axis in storage
-    # order, then create the MDArray with `(*extra_dims, dim_y,
-    # dim_x)`. This generalises the previous 3-D-only branch: a
-    # 2-D array yields zero extra dims; a 3-D array yields one;
-    # 4-D+ yields the full set. The first non-spatial dim is
-    # tagged `DIM_TYPE_TEMPORAL` (matching the legacy 3-D path),
-    # and any additional dims are left untagged so the netCDF
-    # driver doesn't second-guess their semantics.
-    gdal_extra_dims = []
-    for i, (dim_name, dim_values) in enumerate(extra_dims):
-        dim_type = gdal.DIM_TYPE_TEMPORAL if i == 0 else None
-        gd_dim = NetCDF._create_dimension(
-            rg,
-            dim_name,
-            dtype,
-            np.array(dim_values),
-            dim_type,
-            use_set_indexing,
-        )
-        gdal_extra_dims.append(gd_dim)
+    gdal_extra_dims = _create_extra_dimensions(rg, extra_dims, dtype, use_set_indexing)
     md_arr = rg.CreateMDArray(
         variable_name,
         [*gdal_extra_dims, dim_y, dim_x],
         dtype,
-        create_options if create_options else [],
+        _build_create_options(chunk_sizes, compression, compression_level),
     )
 
     # Set metadata BEFORE writing data — netCDF driver requires
@@ -713,24 +812,10 @@ def _create_netcdf_from_array(
     )
     if ndv_scalar is not None:
         md_arr.SetNoDataValueDouble(float(ndv_scalar))
-    if epsg is None:
-        raise ValueError("epsg cannot be None")
-    srse = sr_from_epsg(int(epsg))
     md_arr.SetSpatialRef(srse)
     md_arr.Write(arr)
 
-    # Create CF grid_mapping variable (MEM driver only — the netCDF
-    # driver creates its own via SetSpatialRef above). Use
-    # "spatial_ref" as the variable name to avoid collision with
-    # GDAL's automatic "crs" during CreateCopy to netCDF.
     if driver_type == "MEM":
-        gm_name, gm_params = srs_to_grid_mapping(srse)
-        gm_dtype = gdal.ExtendedDataType.Create(gdal.GDT_Int32)
-        gm_var_name = "spatial_ref"
-        crs_arr = rg.CreateMDArray(gm_var_name, [], gm_dtype)
-        crs_arr.Write(np.array(0, dtype=np.int32))
-        gm_params["grid_mapping_name"] = gm_name
-        write_attributes_to_md_array(crs_arr, gm_params)
-        write_attributes_to_md_array(md_arr, {"grid_mapping": gm_var_name})
+        _write_grid_mapping(rg, md_arr, srse)
 
     return src

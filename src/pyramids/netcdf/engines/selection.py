@@ -302,14 +302,7 @@ class Selection(_Engine):
         lon2d = np.asarray(coords2d[0], dtype=float)
         lat2d = np.asarray(coords2d[1], dtype=float)
 
-        gdf = mask
-        gdf_crs = getattr(gdf, "crs", None)
-        if gdf_crs is not None and nc.epsg:
-            src_epsg = gdf_crs.to_epsg()
-            if src_epsg is not None and src_epsg != nc.epsg:
-                gdf = gdf.to_crs(epsg=nc.epsg)
-        geometry = gdf.geometry.union_all()
-
+        geometry = _reconcile_mask_to_crs(mask, nc.epsg)
         inside = contains_xy(geometry, lon2d, lat2d)
         if not bool(np.any(inside)):
             raise ValueError(
@@ -322,28 +315,11 @@ class Selection(_Engine):
         r0, r1 = int(rows[0]), int(rows[-1]) + 1
         c0, c1 = int(cols[0]), int(cols[-1]) + 1
 
-        nd = nc.no_data_value
-        nd = nd[0] if isinstance(nd, (list, tuple)) else nd
-        if nd is None:
-            nd = DEFAULT_NO_DATA_VALUE
-
+        nd = _window_no_data(nc)
         # Read only the bounding window, not the whole variable. The polygon mask and window were
         # derived from the (spatial-footprint) coordinate arrays alone — no data was materialised yet.
-        inside_win = inside[r0:r1, c0:c1]
-        if chunks is not None:
-            # Lazy/chunked read: only the chunks overlapping the window are materialised.
-            lazy = nc.read_array(chunks=chunks)
-            if lazy.ndim > 2:
-                # read_array(chunks=) keeps the native (d0, ..., rows, cols) shape; flatten the
-                # non-spatial dims to the (bands, rows, cols) layout the eager path uses.
-                lazy = lazy.reshape(-1, *lazy.shape[-2:])
-            data_win = np.array(lazy[..., r0:r1, c0:c1].compute(), copy=True)
-        else:
-            # Eager windowed read: GDAL reads just the (c0, r0)-(c1, r1) block.
-            data_win = np.array(
-                nc.read_array(window=[c0, r0, c1 - c0, r1 - r0]), copy=True
-            )
-        data_win[..., ~inside_win] = nd
+        data_win = _read_curvilinear_window(nc, r0, r1, c0, c1, chunks)
+        data_win[..., ~inside[r0:r1, c0:c1]] = nd
         lon_win = lon2d[r0:r1, c0:c1]
         lat_win = lat2d[r0:r1, c0:c1]
 
@@ -938,3 +914,49 @@ class Selection(_Engine):
             )
         nc._carry_aux_variables(result, carry_aux, "reduce")
         return result
+
+
+def _reconcile_mask_to_crs(mask: FeatureCollection, epsg: int | None) -> Any:
+    """Reproject a polygon mask to the variable's CRS and return its unioned geometry.
+
+    Reprojects only when the mask carries a CRS that differs from ``epsg``;
+    otherwise the mask is used as-is. Helper of
+    :meth:`Selection._crop_curvilinear`.
+    """
+    gdf = mask
+    gdf_crs = getattr(gdf, "crs", None)
+    if gdf_crs is not None and epsg:
+        src_epsg = gdf_crs.to_epsg()
+        if src_epsg is not None and src_epsg != epsg:
+            gdf = gdf.to_crs(epsg=epsg)
+    return gdf.geometry.union_all()
+
+
+def _window_no_data(nc: NetCDF) -> Any:
+    """Return the scalar no-data value to stamp on out-of-polygon cells.
+
+    Collapses a per-band ``no_data_value`` sequence to its first entry and
+    falls back to :data:`DEFAULT_NO_DATA_VALUE` when unset.
+    """
+    nd = nc.no_data_value
+    nd = nd[0] if isinstance(nd, (list, tuple)) else nd
+    return DEFAULT_NO_DATA_VALUE if nd is None else nd
+
+
+def _read_curvilinear_window(
+    nc: NetCDF, r0: int, r1: int, c0: int, c1: int, chunks: Any
+) -> np.ndarray:
+    """Read just the ``(r0:r1, c0:c1)`` bounding window of a curvilinear variable.
+
+    With ``chunks`` the read goes through the dask-backed lazy path (only the
+    overlapping chunks materialise) and the native ``(d0, …, rows, cols)`` shape
+    is flattened to ``(bands, rows, cols)``; otherwise GDAL reads just the
+    ``(c0, r0)``–``(c1, r1)`` block eagerly. Helper of
+    :meth:`Selection._crop_curvilinear`.
+    """
+    if chunks is not None:
+        lazy = nc.read_array(chunks=chunks)
+        if lazy.ndim > 2:
+            lazy = lazy.reshape(-1, *lazy.shape[-2:])
+        return np.array(lazy[..., r0:r1, c0:c1].compute(), copy=True)
+    return np.array(nc.read_array(window=[c0, r0, c1 - c0, r1 - r0]), copy=True)

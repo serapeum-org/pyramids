@@ -97,43 +97,56 @@ class Interop(_Engine):
                 "Open the file with open_as_multi_dimensional=True."
             )
 
-        coords: dict[str, Any] = {}
-        dims = rg.GetDimensions() or []
-        for d in dims:
-            dim_name = d.GetName()
-            iv = d.GetIndexingVariable()
-            if iv is None:
-                continue
-            coord_attrs = _read_attributes(iv)
-            unit = iv.GetUnit()
-            if unit and "units" not in coord_attrs:
-                coord_attrs["units"] = unit
-            coords[dim_name] = ([dim_name], ds._md_array_to_numpy(iv), coord_attrs)
-
-        data_vars: dict[str, Any] = {}
-        for var_name in ds.variable_names:
-            md_arr = rg.OpenMDArray(var_name)
-            if md_arr is None:
-                continue
-            arr_dims = md_arr.GetDimensions() or []
-            arr_dim_names = [ad.GetName() for ad in arr_dims]
-            arr_data = ds._md_array_to_numpy(md_arr)
-            var_attrs = _read_attributes(md_arr)
-            # GDAL's netCDF driver normalises the CF `units` attribute
-            # to MDArray.GetUnit() / SetUnit() rather than a regular
-            # attribute. Merge it back into var_attrs for a clean
-            # round-trip through xr.Dataset.
-            unit = md_arr.GetUnit()
-            if unit and "units" not in var_attrs:
-                var_attrs["units"] = unit
-            data_vars[var_name] = (arr_dim_names, arr_data, var_attrs)
-
-        result = xr.Dataset(
-            data_vars=data_vars,
-            coords=coords,
+        return xr.Dataset(
+            data_vars=_data_vars_from_arrays(rg, ds),
+            coords=_coords_from_dimensions(rg, ds),
             attrs=ds.global_attributes,
         )
-        return result
+
+
+def _merge_unit(attrs: dict[str, Any], gdal_obj: Any) -> dict[str, Any]:
+    """Fold GDAL's ``GetUnit()`` back into ``attrs`` as a CF ``units`` entry.
+
+    GDAL's netCDF driver normalises the CF ``units`` attribute onto the
+    MDArray/indexing-variable unit slot rather than a regular attribute. Merge
+    it back so the value round-trips through ``xr.Dataset``. Existing ``units``
+    in ``attrs`` win; the dict is mutated in place and returned for chaining.
+    """
+    unit = gdal_obj.GetUnit()
+    if unit and "units" not in attrs:
+        attrs["units"] = unit
+    return attrs
+
+
+def _coords_from_dimensions(rg: Any, ds: NetCDF) -> dict[str, Any]:
+    """Build the ``xr.Dataset`` ``coords`` mapping from the root group's dimensions.
+
+    Each dimension with an indexing variable becomes a 1-D coordinate; bare
+    dimensions (no indexing variable) are skipped.
+    """
+    coords: dict[str, Any] = {}
+    for d in rg.GetDimensions() or []:
+        iv = d.GetIndexingVariable()
+        if iv is None:
+            continue
+        dim_name = d.GetName()
+        coord_attrs = _merge_unit(_read_attributes(iv), iv)
+        coords[dim_name] = ([dim_name], ds._md_array_to_numpy(iv), coord_attrs)
+    return coords
+
+
+def _data_vars_from_arrays(rg: Any, ds: NetCDF) -> dict[str, Any]:
+    """Build the ``xr.Dataset`` ``data_vars`` mapping from the container's variables."""
+    data_vars: dict[str, Any] = {}
+    for var_name in ds.variable_names:
+        md_arr = rg.OpenMDArray(var_name)
+        if md_arr is None:
+            continue
+        arr_dim_names = [ad.GetName() for ad in md_arr.GetDimensions() or []]
+        arr_data = ds._md_array_to_numpy(md_arr)
+        var_attrs = _merge_unit(_read_attributes(md_arr), md_arr)
+        data_vars[var_name] = (arr_dim_names, arr_data, var_attrs)
+    return data_vars
 
 
 def from_xarray(
