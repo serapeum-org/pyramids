@@ -1679,8 +1679,9 @@ class FeatureCollection(GeoDataFrame):
                 ``"2.0.0"``). ``None`` (default) lets GDAL negotiate from the
                 server's capabilities.
             auth: Optional ``(username, password)`` for Basic-authed services.
-            timeout: HTTP timeout in seconds for the metadata / feature requests.
-                Defaults to ``60.0``.
+            timeout: HTTP timeout in seconds for the metadata / feature requests
+                (whole seconds; a value below 1 is clamped to 1). Defaults to
+                ``60.0``.
 
         Returns:
             FeatureCollection: The fetched features (empty if the filter matches
