@@ -229,7 +229,7 @@ class TestCapabilities:
 
         monkeypatch.setattr(_wcs.urllib.request.OpenerDirector, "open", boom)
         with pytest.raises(WCSError, match="request failed"):
-            _wcs._get_capabilities("http://wcs.invalid/x", None, None, 5.0)
+            _wcs._get_capabilities("https://wcs.invalid/x", None, None, 5.0)
 
     def test_exception_text_falls_back_without_exception_element(self):
         """_exception_text returns body text, or a default when nothing is present."""
