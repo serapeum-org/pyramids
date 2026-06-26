@@ -210,5 +210,5 @@ def from_wfs(
                 f"cannot reproject {typename!r} to {output_crs!r}: the server returned "
                 "features without a CRS"
             )
-        fc = featurecollection_cls(fc.to_crs(output_crs))
+        fc = fc.to_crs(output_crs)  # to_crs preserves the FeatureCollection subclass
     return fc
