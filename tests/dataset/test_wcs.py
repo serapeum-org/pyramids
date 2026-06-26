@@ -215,6 +215,47 @@ class TestCapabilities:
             httpd.shutdown()
             httpd.server_close()
 
+    def test_auth_wires_a_basic_auth_handler(self, caps_server):
+        """Passing auth installs an HTTP Basic-auth handler and still parses caps."""
+        url, _ = caps_server
+        _, coverages = _wcs._get_capabilities(url, None, ("user", "secret"), 30.0)
+        assert "nitrogen_0-5cm_mean" in coverages
+
+    def test_transport_failure_raises_wcserror(self, monkeypatch):
+        """A transport-level OSError from the opener surfaces as WCSError."""
+
+        def boom(self, *args, **kwargs):
+            raise OSError("connection refused")
+
+        monkeypatch.setattr(_wcs.urllib.request.OpenerDirector, "open", boom)
+        with pytest.raises(WCSError, match="request failed"):
+            _wcs._get_capabilities("http://wcs.invalid/x", None, None, 5.0)
+
+    def test_exception_text_falls_back_without_exception_element(self):
+        """_exception_text returns body text, or a default when nothing is present."""
+        body = _wcs.ET.fromstring("<ExceptionReport>broken upstream</ExceptionReport>")
+        assert _wcs._exception_text(body) == "broken upstream"
+        empty = _wcs.ET.fromstring("<ExceptionReport></ExceptionReport>")
+        assert _wcs._exception_text(empty) == "no message provided"
+
+
+class TestOpenService:
+    def test_gdal_runtimeerror_raises_wcserror(self, monkeypatch):
+        """A GDAL RuntimeError while opening the service becomes WCSError."""
+
+        def boom(_descriptor):
+            raise RuntimeError("gdal could not open")
+
+        monkeypatch.setattr(_wcs.gdal, "Open", boom)
+        with pytest.raises(WCSError, match="could not open WCS coverage"):
+            _wcs._open_service("<WCS_GDAL/>", "cov")
+
+    def test_gdal_none_raises_wcserror(self, monkeypatch):
+        """A None return from gdal.Open becomes WCSError."""
+        monkeypatch.setattr(_wcs.gdal, "Open", lambda _descriptor: None)
+        with pytest.raises(WCSError, match="no dataset"):
+            _wcs._open_service("<WCS_GDAL/>", "cov")
+
 
 class TestFromWcsValidation:
     def test_unknown_coverage_raises_valueerror(self, caps_server):
@@ -302,6 +343,31 @@ class TestDriverFullCycle:
                     output=out,
                 )
         assert not out.exists()
+
+    def test_resolution_without_output_crs_resamples_in_native(self):
+        """A resolution with no output_crs resamples within the native CRS to a coarser grid."""
+        with WcsMock(version="1.0.0") as server:
+            ds = Dataset.from_wcs(
+                server.url,
+                coverage="test_cov",
+                bbox=(2.0, 2.0, 4.0, 4.0),
+                version="1.0.0",
+                resolution=0.2,
+            )
+            assert ds.epsg == 4326
+            assert ds.shape[1] < 20 and ds.shape[2] < 20  # coarser than the 0.1deg native 20x20
+
+    def test_output_crs_reprojects_offline(self):
+        """output_crs reprojects the fetched window into the requested CRS."""
+        with WcsMock(version="1.0.0") as server:
+            ds = Dataset.from_wcs(
+                server.url,
+                coverage="test_cov",
+                bbox=(2.0, 2.0, 4.0, 4.0),
+                version="1.0.0",
+                output_crs="EPSG:3857",
+            )
+            assert ds.epsg == 3857
 
 
 @pytest.mark.slow
