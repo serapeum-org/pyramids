@@ -714,8 +714,9 @@ def _is_dask_array(obj: Any) -> bool:
     Returns:
         bool: True only for a dask array.
     """
+    module = getattr(type(obj), "__module__", "") or ""
     return (
-        type(obj).__module__.split(".", 1)[0] == "dask"
+        (module == "dask" or module.startswith("dask."))
         and hasattr(obj, "compute")
         and hasattr(obj, "blocks")
         and hasattr(obj, "chunks")
