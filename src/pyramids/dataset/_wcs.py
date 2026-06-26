@@ -329,8 +329,9 @@ def from_wcs(
     if output_crs is not None:
         target = output_crs
     elif res:
-        # resample within the native CRS when only a resolution was requested
-        target = native_srs.ExportToProj4()
+        # resample within the native CRS when only a resolution was requested;
+        # WKT round-trips more faithfully than proj4 for exotic / compound CRS
+        target = native_srs.ExportToWkt()
     else:
         target = None
     if target is not None:
