@@ -181,11 +181,13 @@ def from_wfs(
     forwards here. See that method for the full parameter documentation.
 
     Raises:
-        ValueError: ``typename`` is not advertised by the server, or
-            ``max_features`` is negative.
+        ValueError: ``typename`` is not advertised by the server, ``bbox`` is
+            malformed, or ``max_features`` is negative.
         WFSError: The server could not be reached or returned an error / a
             non-feature body.
     """
+    read_kwargs = _read_kwargs(bbox, where, max_features)  # validate inputs before any network call
+
     _, typenames = _get_capabilities(endpoint, version, auth, timeout)
     if typenames and typename not in typenames:
         raise ValueError(
@@ -195,7 +197,6 @@ def from_wfs(
         )
 
     connection = _wfs_connection(endpoint, version)
-    read_kwargs = _read_kwargs(bbox, where, max_features)
     config = _gdal_http_config(auth, timeout)
     with gdal.config_options(config):
         try:
