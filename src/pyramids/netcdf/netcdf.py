@@ -128,18 +128,22 @@ def _reconstruct_netcdf(
     is_md_array: bool,
     is_subset: bool,
     source_var_name: str | None,
+    group_path: str | None = None,
 ) -> NetCDF:
     """Re-open a :class:`NetCDF` from its pickle recipe tuple.
 
-    Called by :meth:`NetCDF.__reduce__` on unpickle. Carries four
-    bits of extra state beyond the base :class:`RasterBase`
-    recipe so the reconstructed instance retains identity:
+    Called by :meth:`NetCDF.__reduce__` on unpickle. Carries extra
+    state beyond the base :class:`RasterBase` recipe so the
+    reconstructed instance retains identity:
 
     * `is_md_array` — was the file opened via
       :data:`gdal.OF_MULTIDIM_RASTER` (MDIM mode) or classic mode?
     * `is_subset` — is this instance a container or a single variable?
     * `source_var_name` — when `is_subset` is True, the variable
       path to re-traverse via :meth:`NetCDF.get_variable`.
+    * `group_path` — when set, the `/`-joined sub-group path to
+      re-traverse via :meth:`NetCDF.get_group` so a group view (ARC-12)
+      round-trips back to the same sub-group.
 
     Args:
         path: On-disk path or VSI URL to re-open.
@@ -151,9 +155,12 @@ def _reconstruct_netcdf(
             rebuilt container is then drilled into via
             :meth:`NetCDF.get_variable` before return.
         source_var_name: Variable path for the subset drill-down.
+        group_path: Sub-group path for a group view; when set, the
+            rebuilt container is drilled into via
+            :meth:`NetCDF.get_group`. Defaults to None.
 
     Returns:
-        NetCDF: Container or variable-subset instance.
+        NetCDF: Container, group view, or variable-subset instance.
     """
     read_only = access == "read_only"
     container = NetCDF.read_file(
@@ -161,7 +168,9 @@ def _reconstruct_netcdf(
         read_only=read_only,
         open_as_multi_dimensional=is_md_array,
     )
-    if is_subset and source_var_name is not None:
+    if group_path:
+        result = container.get_group(group_path)
+    elif is_subset and source_var_name is not None:
         result = container.get_variable(source_var_name)
     else:
         result = container
@@ -454,7 +463,7 @@ class NetCDF(Dataset):
                 in-memory NetCDF is not supported.
         """
         path = self._file_name
-        if (not path) and self._is_subset:
+        if (not path) and (self._is_subset or self._group_path):
             parent = getattr(self, "_parent_nc", None)
             if parent is not None:
                 path = parent._file_name
@@ -472,6 +481,7 @@ class NetCDF(Dataset):
                 bool(self._is_md_array),
                 bool(self._is_subset),
                 self._source_var_name,
+                self._group_path,
             ),
         )
 
@@ -631,6 +641,7 @@ class NetCDF(Dataset):
             "_is_subset": self._is_subset,
             "_parent_nc": self._parent_nc,
             "_source_var_name": self._source_var_name,
+            "_group_path": self._group_path,
             "_gdal_md_arr_ref": self._gdal_md_arr_ref,
             "_gdal_rg_ref": self._gdal_rg_ref,
             "_gdal_classic_src_ref": self._gdal_classic_src_ref,
@@ -2791,7 +2802,12 @@ class NetCDF(Dataset):
             open_options = {
                 "Open Mode": "SHARED" if self.is_subset else "MULTIDIM_RASTER"
             }
-            self._cached_meta_data = get_metadata(self._raster, open_options)
+            # Scope traversal to the working group so a get_group() view reports
+            # its sub-group's metadata, not the whole store (ARC-12). For a normal
+            # container the working group is the root group, so this is unchanged.
+            self._cached_meta_data = get_metadata(
+                self._raster, open_options, start_group=self._working_group()
+            )
         return self._cached_meta_data
 
     @meta_data.setter
@@ -2816,7 +2832,9 @@ class NetCDF(Dataset):
         Returns:
             NetCDFMetadata
         """
-        result = get_metadata(self._raster, open_options)
+        result = get_metadata(
+            self._raster, open_options, start_group=self._working_group()
+        )
         return result
 
     def get_time_variable(
@@ -3098,18 +3116,28 @@ class NetCDF(Dataset):
         return result
 
     def get_group(self, group_name: str) -> NetCDF:
-        """Open a sub-group as a NetCDF container.
+        """Open a sub-group as a NetCDF container, without copying its data.
 
-        The returned object wraps the sub-group's GDAL dataset and
-        exposes the sub-group's variables and dimensions via the
-        same API as the root container.
+        The returned :class:`Container` is a **zero-copy view** (ARC-12): it
+        shares this container's open GDAL dataset and records the path to the
+        sub-group, rather than materialising every array into a new in-memory
+        store. Variables, dimensions, and attributes are read from the
+        sub-group in place, and `read_array(chunks=)` on a variable extracted
+        from the view stays lazy — so opening a group of large variables no
+        longer reads them all into memory up front.
+
+        The view holds its own reference to the shared dataset and keeps this
+        parent container alive, so closing either side only drops a reference;
+        the underlying GDAL dataset is freed once both are released.
 
         Args:
             group_name: Name of the sub-group. Supports nested paths
-                separated by `/` (e.g. `"forecast/surface"`).
+                separated by `/` (e.g. `"forecast/surface"`). Applied
+                relative to this container's current group, so `get_group`
+                can be chained.
 
         Returns:
-            NetCDF: A container backed by the sub-group.
+            NetCDF: A `Container` view backed by the sub-group.
 
         Raises:
             ValueError: If the group doesn't exist or the dataset
@@ -3119,10 +3147,10 @@ class NetCDF(Dataset):
         if rg is None:
             raise ValueError("get_group requires a multidimensional container.")
 
-        # Navigate nested paths: "forecast/surface" → open each level
+        # Validate that the requested (possibly nested) path resolves from the
+        # current working group before building the view.
         group = rg
-        parts = group_name.split("/")
-        for part in parts:
+        for part in group_name.split("/"):
             try:
                 group = group.OpenGroup(part)
             except RuntimeError:
@@ -3133,63 +3161,17 @@ class NetCDF(Dataset):
                     f"Available groups: {self.group_names}"
                 )
 
-        # Create a multidimensional dataset from the sub-group.
-        # GDAL doesn't have a direct "group → dataset" conversion,
-        # so we build a MEM MDIM dataset and copy the group's
-        # arrays and dimensions into it.
-        dst = gdal.GetDriverByName("MEM").CreateMultiDimensional("group")
-        dst_rg = dst.GetRootGroup()
-
-        # Copy dimensions from the sub-group
-        dim_map = {}
-        for gdal_dim in group.GetDimensions() or []:
-            dim_name = gdal_dim.GetName()
-            new_dim = dst_rg.CreateDimension(
-                dim_name, gdal_dim.GetType(), None, gdal_dim.GetSize()
-            )
-            iv = gdal_dim.GetIndexingVariable()
-            if iv is not None:
-                coord_arr = dst_rg.CreateMDArray(
-                    dim_name,
-                    [new_dim],
-                    gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(iv.ReadAsArray())),
-                )
-                coord_arr.Write(iv.ReadAsArray())
-                new_dim.SetIndexingVariable(coord_arr)
-            dim_map[dim_name] = new_dim
-
-        # Copy arrays from the sub-group
-        for arr_name in group.GetMDArrayNames() or []:
-            md_arr = group.OpenMDArray(arr_name)
-            if md_arr is None:
-                continue
-            arr_dims = md_arr.GetDimensions()
-            # Map source dims to destination dims (by name)
-            new_dims = []
-            for d in arr_dims:
-                d_name = d.GetName()
-                if d_name in dim_map:
-                    new_dims.append(dim_map[d_name])
-                else:
-                    # Dimension from parent group — create locally
-                    new_d = dst_rg.CreateDimension(
-                        d_name, d.GetType(), None, d.GetSize()
-                    )
-                    dim_map[d_name] = new_d
-                    new_dims.append(new_d)
-            arr_data = md_arr.ReadAsArray()
-            arr_dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr_data))
-            new_arr = dst_rg.CreateMDArray(arr_name, new_dims, arr_dtype)
-            new_arr.Write(arr_data)
-            ndv = md_arr.GetNoDataValue()
-            if ndv is not None:
-                new_arr.SetNoDataValueDouble(ndv)
-            srs = md_arr.GetSpatialRef()
-            if srs is not None:
-                new_arr.SetSpatialRef(srs)
-
-        result = Container(dst)
-        return result
+        # Zero-copy view: share the parent's open dataset and record the path to
+        # the sub-group. `_working_group()` resolves it on demand, so no array
+        # data is copied. Compose paths so get_group() chains on an existing view.
+        view = Container(self._raster, access=self._access)
+        view._group_path = (
+            group_name if not self._group_path else f"{self._group_path}/{group_name}"
+        )
+        # Pin the parent so the shared dataset (and its SWIG wrappers) outlive the
+        # view even if the caller drops the parent reference.
+        view._parent_nc = self
+        return view
 
     def get_variable_names(self) -> list[str]:
         """Deprecated alias for the :attr:`variable_names` property (API-3).
