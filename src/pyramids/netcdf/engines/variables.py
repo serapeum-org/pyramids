@@ -406,9 +406,20 @@ def create_from_array(
     the dataset is created in memory (MEM driver); if a path is
     provided the netCDF driver writes to disk.
 
+    `arr` may be a `dask.array.Array` instead of a NumPy array. It is
+    then written to disk one block at a time (memory-bounded streaming),
+    so an array too large to hold in RAM can still be written — peak
+    source memory is a single dask block rather than the whole array. The
+    output is byte-identical to passing the materialised NumPy array.
+    When `chunk_sizes` is not given, the on-disk chunking defaults to the
+    dask block shape. Writing to memory (`path=None`) still materialises
+    one block at a time but the in-memory result holds the full array.
+
     Args:
         arr: 2-D `(rows, cols)`, 3-D `(extra_dim, rows, cols)`, or
-            4-D+ `(d_0, ..., d_{n-1}, rows, cols)` NumPy array.
+            4-D+ `(d_0, ..., d_{n-1}, rows, cols)` array. Either a NumPy
+            array (written eagerly) or a `dask.array.Array` (streamed
+            block-by-block, see above).
         geo: Geotransform tuple `(x_min, pixel_size, rotation,
             y_max, rotation, pixel_size)`.
         epsg: EPSG code for the spatial reference.
@@ -688,6 +699,72 @@ def _write_grid_mapping(rg: Any, md_arr: Any, srse: Any) -> None:
     write_attributes_to_md_array(md_arr, {"grid_mapping": gm_var_name})
 
 
+def _is_dask_array(obj: Any) -> bool:
+    """Return whether ``obj`` is a dask array, without importing dask.
+
+    Duck-types on the public block-iteration surface the streaming write path
+    relies on (``compute`` / ``blocks`` / ``chunks`` / ``numblocks``) plus a
+    ``dask`` module origin. A plain ``np.ndarray`` (or any non-dask object) is
+    therefore never mistaken for one, and dask stays an optional dependency that
+    this module never imports — the caller supplies the live dask array.
+
+    Args:
+        obj: Any candidate array passed as ``create_from_array``'s ``arr``.
+
+    Returns:
+        bool: True only for a dask array.
+    """
+    return (
+        type(obj).__module__.split(".", 1)[0] == "dask"
+        and hasattr(obj, "compute")
+        and hasattr(obj, "blocks")
+        and hasattr(obj, "chunks")
+        and hasattr(obj, "numblocks")
+    )
+
+
+def _iter_block_windows(dask_arr: Any):
+    """Yield ``(block_index, starts, counts)`` for every dask block in storage order.
+
+    ``starts`` / ``counts`` are the per-axis ``array_start_idx`` / ``count``
+    windows for a GDAL windowed write, derived from the cumulative
+    ``dask_arr.chunks`` offsets so the blocks tile the array exactly with no
+    overlap or gap (ragged final chunks included).
+
+    Args:
+        dask_arr: A dask array (see :func:`_is_dask_array`).
+
+    Yields:
+        tuple: ``(block_index, starts, counts)`` per block, where ``block_index``
+        is the tuple index into ``dask_arr.blocks``.
+    """
+    offsets = [np.cumsum((0,) + tuple(axis_chunks)) for axis_chunks in dask_arr.chunks]
+    for block_index in np.ndindex(*dask_arr.numblocks):
+        starts = [int(offsets[ax][bi]) for ax, bi in enumerate(block_index)]
+        counts = [int(dask_arr.chunks[ax][bi]) for ax, bi in enumerate(block_index)]
+        yield block_index, starts, counts
+
+
+def _write_blocks_streaming(md_arr: Any, dask_arr: Any) -> None:
+    """Write a dask array into ``md_arr`` one block at a time (memory-bounded).
+
+    Materialises a single dask block per iteration and writes it to its window
+    via ``md_arr.Write(block, array_start_idx=starts, count=counts)``, so peak
+    source memory is one block rather than the whole array. This is the streaming
+    equivalent of the eager single ``md_arr.Write(arr)`` call in
+    :func:`_create_netcdf_from_array` and produces byte-identical output.
+
+    Args:
+        md_arr: The freshly created GDAL ``MDArray`` to populate. Its no-data and
+            spatial reference must already be set (netCDF requires no-data before
+            the first write).
+        dask_arr: The dask array to stream, in ``(extra..., y, x)`` storage order.
+    """
+    for block_index, starts, counts in _iter_block_windows(dask_arr):
+        block = np.asarray(dask_arr.blocks[block_index].compute())
+        md_arr.Write(block, array_start_idx=starts, count=counts)
+
+
 def _create_netcdf_from_array(
     arr: np.ndarray,
     variable_name: str,
@@ -706,11 +783,14 @@ def _create_netcdf_from_array(
     """Build a multidimensional GDAL dataset from an array.
 
     The driver is inferred from `path`: `None` -> MEM (in-memory),
-    otherwise the netCDF driver writes to disk.
+    otherwise the netCDF driver writes to disk. A `dask.array.Array`
+    `arr` is streamed block-by-block via windowed writes (ARC-11); a
+    NumPy `arr` is written in a single call.
 
     Args:
         arr: 2-D `(rows, cols)`, 3-D `(extra_dim, rows, cols)`, or
-            4-D+ `(d_0, ..., d_{n-1}, rows, cols)` NumPy array.
+            4-D+ `(d_0, ..., d_{n-1}, rows, cols)` array — NumPy
+            (eager) or `dask.array.Array` (streamed).
         variable_name: Name of the data variable.
         cols: Number of columns.
         rows: Number of rows.
@@ -751,7 +831,9 @@ def _create_netcdf_from_array(
 
     if extra_dims is None:
         extra_dims = []
-    dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr))
+    # `arr.dtype` is a `np.dtype` for both a NumPy array and a dask array, so the
+    # GDAL type is derived without materialising a (possibly out-of-core) dask input.
+    dtype = gdal.ExtendedDataType.Create(numpy_to_gdal_dtype(arr.dtype))
     x_dim_values = NetCDF.get_x_lon_dimension_array(geo[0], geo[1], cols)
     # Y/lat pixel height comes from geo[5] (negative), not geo[1] — using the X cell here would
     # square a non-square grid (e.g. 2° lon, 1° lat). Pass the positive height abs(geo[5]).
@@ -793,6 +875,11 @@ def _create_netcdf_from_array(
     )
 
     gdal_extra_dims = _create_extra_dimensions(rg, extra_dims, dtype, use_set_indexing)
+    # For a dask input with no explicit on-disk chunking, align the netCDF storage
+    # BLOCKSIZE with the dask block shape so the streamed windows map onto whole
+    # storage chunks. An explicit `chunk_sizes` always wins.
+    if chunk_sizes is None and _is_dask_array(arr):
+        chunk_sizes = tuple(int(axis_chunks[0]) for axis_chunks in arr.chunks)
     md_arr = rg.CreateMDArray(
         variable_name,
         [*gdal_extra_dims, dim_y, dim_x],
@@ -813,7 +900,14 @@ def _create_netcdf_from_array(
     if ndv_scalar is not None:
         md_arr.SetNoDataValueDouble(float(ndv_scalar))
     md_arr.SetSpatialRef(srse)
-    md_arr.Write(arr)
+    # Eager NumPy input writes in one call; a dask input streams block-by-block so
+    # peak source memory is one block rather than the whole array (ARC-11). Both
+    # produce byte-identical output. nodata + SRS are set above first — the netCDF
+    # driver requires nodata before the initial write.
+    if _is_dask_array(arr):
+        _write_blocks_streaming(md_arr, arr)
+    else:
+        md_arr.Write(arr)
 
     if driver_type == "MEM":
         _write_grid_mapping(rg, md_arr, srse)
