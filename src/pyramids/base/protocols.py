@@ -1,6 +1,6 @@
 """Structural-typing protocols shared across the pyramids package.
 
-This module exposes two cross-cutting structural types:
+This module exposes three cross-cutting structural types:
 
 * :class:`SpatialObject` — the surface shared by
   :class:`pyramids.dataset.Dataset` (raster) and
