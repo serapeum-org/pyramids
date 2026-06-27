@@ -1,5 +1,10 @@
 """Tests for :meth:`pyramids.dataset.DatasetCollection.to_netcdf` (PY-4).
 
+``to_netcdf`` requires xarray, so the whole module is ``xarray``-marked and runs
+only in the xarray CI job. The *missing*-xarray branch (the
+``OptionalPackageDoesNotExist`` path) lives in ``test_to_netcdf_missing_xarray.py``
+as a ``core`` test so it still runs in the extras-free suite.
+
 Inspection round-trip is done with :func:`osgeo.gdal.OpenEx` in
 ``OF_MULTIDIM_RASTER`` mode so the assertions don't require an xarray
 NetCDF engine (xarray in CI may not pull ``netcdf4``).
@@ -9,7 +14,6 @@ from __future__ import annotations
 
 import datetime as dt
 import os
-import sys
 import warnings
 
 import numpy as np
@@ -17,11 +21,10 @@ import pandas as pd
 import pytest
 from osgeo import gdal
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.netcdf import NetCDF
 
-pytestmark = pytest.mark.core
+pytestmark = pytest.mark.xarray
 
 
 def _root_attrs(path: str) -> dict:
@@ -600,27 +603,6 @@ class TestToNetcdfNoFilesPath:
         assert out.exists(), "no-files write did not produce a file"
         values = _array_values(str(out), "Band_1")
         assert values.shape == (3, 4, 5), f"unexpected shape: {values.shape}"
-
-
-class TestToNetcdfMissingXarray:
-    """Behaviour when the optional ``xarray`` dependency is missing."""
-
-    def test_missing_xarray_raises_optional_package(self, tmp_path, monkeypatch):
-        """When ``xarray`` is not importable the writer raises ``OptionalPackageDoesNotExist``.
-
-        Args:
-            tmp_path: pytest temp directory.
-            monkeypatch: pytest monkeypatch fixture.
-
-        Test scenario:
-            Force ``import xarray`` to fail via ``sys.modules`` — expected:
-            ``OptionalPackageDoesNotExist`` with an install hint mentioning
-            ``xarray``.
-        """
-        col, _ = _make_int16_collection(tmp_path)
-        monkeypatch.setitem(sys.modules, "xarray", None)
-        with pytest.raises(OptionalPackageDoesNotExist, match="xarray"):
-            col.to_netcdf(str(tmp_path / "noxr.nc"))
 
 
 @pytest.mark.xarray
