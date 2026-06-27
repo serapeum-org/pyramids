@@ -95,7 +95,7 @@ class Variables(_Engine):
                 (not opened in multidimensional mode).
         """
         nc = self._ds
-        rg = nc._raster.GetRootGroup()
+        rg = nc._working_group()
         if rg is None:
             raise ValueError(
                 "set_variable requires a multidimensional container. "
@@ -186,7 +186,13 @@ class Variables(_Engine):
         from pyramids.netcdf.netcdf import NetCDF
 
         nc = self._ds
-        var_rg = dataset._raster.GetRootGroup()
+        # A NetCDF source may be a group view; read its working group so variables
+        # are copied from the active sub-group. A plain Dataset has no group view.
+        var_rg = (
+            dataset._working_group()
+            if hasattr(dataset, "_working_group")
+            else dataset._raster.GetRootGroup()
+        )
         names_to_copy: list[str]
         if variable_name is not None:
             names_to_copy = [variable_name]
@@ -249,7 +255,7 @@ class Variables(_Engine):
         if new_name in nc.variable_names:
             raise ValueError(f"Variable '{new_name}' already exists.")
 
-        if nc._raster.GetRootGroup() is None:
+        if nc._working_group() is None:
             raise ValueError("rename_variable requires a multidimensional container.")
 
         # CreateMDArray is rejected on a file-backed group (netCDF data mode);

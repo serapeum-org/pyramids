@@ -90,7 +90,7 @@ class Interop(_Engine):
                 "  - conda-forge: conda install -c conda-forge xarray"
             )
 
-        rg = ds._raster.GetRootGroup()
+        rg = ds._working_group()
         if rg is None:
             raise ValueError(
                 "to_xarray requires a multidimensional container. "

@@ -77,6 +77,7 @@ class MetadataBuilder:
         self,
         src: gdal.Dataset,
         open_options: dict[str, Any] | None = None,
+        start_group: "gdal.Group | None" = None,
     ) -> None:
         """Initialize MetadataBuilder.
 
@@ -85,9 +86,16 @@ class MetadataBuilder:
                 to a NetCDF file. Must not be `None`.
             open_options: Optional dictionary of GDAL
                 open-options recorded for provenance.
+            start_group: Optional GDAL group to traverse from
+                instead of the dataset's root group. Used by a
+                `NetCDF` group view (`get_group()`) so its metadata
+                is scoped to the sub-group rather than the whole
+                store (ARC-12). When `None`, the dataset's root
+                group is used (the historical behaviour).
         """
         self.gdal_dataset = src
         self.open_options = open_options or None
+        self.start_group = start_group
         # Cache for `_read_classic_metadata_for_topup`: lazy-filled on
         # first call so repeat builds (or repeat calls within a build)
         # don't re-open the file in classic mode. `None` means "not yet
@@ -124,9 +132,11 @@ class MetadataBuilder:
         """
         ds = self.gdal_dataset
 
-        # Driver name and root group
+        # Driver name and root group. A group view passes an explicit
+        # start_group so traversal is scoped to that sub-group (ARC-12);
+        # otherwise traverse from the dataset's root group as before.
         driver_name = _get_driver_name(ds)
-        root_group = _get_root_group(ds)
+        root_group = self.start_group if self.start_group is not None else _get_root_group(ds)
 
         groups_map: dict[str, GroupInfo] = {}
         variables_map: dict[str, VariableInfo] = {}
@@ -612,6 +622,7 @@ class GroupTraverser:
 def get_metadata(
     source,
     open_options: dict[str, Any] | None = None,
+    start_group: "gdal.Group | None" = None,
 ) -> NetCDFMetadata:
     """Read and normalize all NetCDF MDIM metadata.
 
@@ -627,6 +638,10 @@ def get_metadata(
         open_options: Optional dictionary of GDAL open-options.
             Stored in the resulting metadata for provenance but
             not used to open the file.
+        start_group: Optional GDAL group to traverse from instead
+            of the dataset's root group. A `NetCDF` group view
+            passes its working sub-group so the metadata is scoped
+            to that group (ARC-12). Ignored for string/path sources.
 
     Returns:
         NetCDFMetadata: Fully populated metadata dataclass.
@@ -658,10 +673,10 @@ def get_metadata(
         ds = None  # close the temporary handle
         return result
     elif hasattr(source, "_raster"):
-        builder = MetadataBuilder(source._raster, open_options)
+        builder = MetadataBuilder(source._raster, open_options, start_group)
         return builder.build()
     else:
-        builder = MetadataBuilder(source, open_options)
+        builder = MetadataBuilder(source, open_options, start_group)
         return builder.build()
 
 

@@ -210,10 +210,11 @@ class TestTypePreservation:
         out = tmp_path / "var_copy.nc"
         copied = variable.copy(str(out))
         _func, args = copied.__reduce__()
-        path, _access, _is_md, is_subset, source_var = args
+        path, _access, _is_md, is_subset, source_var, group_path = args
         assert Path(path).name == "var_copy.nc", f"recipe must target the copy, got {path!r}"
         assert is_subset is False, "a copy must not be pickled as a parent subset"
         assert source_var is None, "a copy must not carry a parent source-variable name"
+        assert group_path is None, "a copy must not be pickled as a group view"
 
     def test_epsg_setter_inplace_preserves_variable_type(self, variable):
         """An in-place op (the ``epsg`` setter) does not downgrade a Variable.
