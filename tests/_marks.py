@@ -18,6 +18,7 @@ mapping below spells both out explicitly.
 from __future__ import annotations
 
 import importlib.util
+import os
 
 import pytest
 
@@ -92,6 +93,14 @@ requires_parquet_lazy = pytest.mark.skipif(
 requires_stac = pytest.mark.skipif(
     not _HAS_STAC, reason="pyramids-gis[stac] not installed"
 )
+# `vfs` is not an optional-dependency extra — it gates live virtual-filesystem /
+# network tests (e.g. reading a COG over https from a public S3 bucket). They need
+# network access and can be flaky, so they are off by default and only run when
+# explicitly opted in via `PYRAMIDS_RUN_VFS=1`.
+requires_vfs = pytest.mark.skipif(
+    not os.environ.get("PYRAMIDS_RUN_VFS"),
+    reason="live VFS/network test; set PYRAMIDS_RUN_VFS=1 to run",
+)
 
 
 # Legacy aliases for existing callsites that import the older names.
@@ -117,4 +126,5 @@ EXTRA_MARKERS: dict[str, pytest.MarkDecorator] = {
     "parquet": requires_parquet,
     "parquet_lazy": requires_parquet_lazy,
     "stac": requires_stac,
+    "vfs": requires_vfs,
 }

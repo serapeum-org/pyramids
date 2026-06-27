@@ -16,7 +16,6 @@ skips cleanly otherwise.
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 
 import geopandas as gpd
@@ -25,10 +24,7 @@ from shapely.geometry import Point, Polygon
 
 from pyramids.feature import FeatureCollection
 
-pytestmark = pytest.mark.skipif(
-    importlib.util.find_spec("pyarrow") is None,
-    reason="pyarrow not installed (install with `pip install pyramids-gis[parquet]`)",
-)
+pytestmark = pytest.mark.parquet
 
 
 @pytest.fixture

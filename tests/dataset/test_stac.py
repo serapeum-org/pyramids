@@ -18,10 +18,8 @@ from osgeo import gdal
 
 from pyramids.base._errors import (
     AlignmentError,
-    OptionalPackageDoesNotExist,
     StacAssetError,
 )
-from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.dataset._stac import (
     _horizontal_bounds,
@@ -94,11 +92,8 @@ class TestFromStac:
             left == right
         ), f"files mismatch (normalised): got {left}, expected {right}"
 
+    @pytest.mark.lazy
     def test_lazy_data_computes(self, stac_items):
-        try:
-            import_dask("dask not installed")
-        except OptionalPackageDoesNotExist:
-            pytest.skip("dask not installed")
         collection = DatasetCollection.from_stac(stac_items, asset="data")
         arr = collection.data.compute()
         assert arr.shape[0] == 3

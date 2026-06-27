@@ -10,8 +10,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_zarr
 from pyramids.dataset.ops._geobox_zarr import (
     GRID_MAPPING_VAR,
     detect_data_var,
@@ -23,13 +21,9 @@ from pyramids.dataset.ops._geobox_zarr import (
 pytestmark = pytest.mark.core
 
 try:
-    import_zarr("zarr not installed")
     import zarr
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_ZARR = False
-else:
-    HAS_ZARR = True
-requires_zarr = pytest.mark.skipif(not HAS_ZARR, reason="zarr not installed")
+except ImportError:  # pragma: no cover - zarr-using tests are @pytest.mark.lazy gated
+    zarr = None
 
 _WKT_4326 = (
     'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],'
@@ -72,7 +66,7 @@ class TestPixelCentreCoords:
         np.testing.assert_allclose(y, [3.5], err_msg=f"y={y}")
 
 
-@requires_zarr
+@pytest.mark.lazy
 class TestWriteGeobox:
     """Tests for write_geobox."""
 
@@ -175,7 +169,7 @@ class TestWriteGeobox:
         assert int(sr[()]) == 0, f"value {int(sr[()])}"
 
 
-@requires_zarr
+@pytest.mark.lazy
 class TestReadGeobox:
     """Tests for read_geobox."""
 
@@ -279,7 +273,7 @@ class TestReadGeobox:
             read_geobox(group)
 
 
-@requires_zarr
+@pytest.mark.lazy
 class TestFinalizeZarrMetadata:
     """Tests for finalize_zarr_metadata (shared Dataset/collection finalizer)."""
 
@@ -314,7 +308,7 @@ class TestFinalizeZarrMetadata:
         assert reopened["data"].attrs["grid_mapping"] == GRID_MAPPING_VAR
 
 
-@requires_zarr
+@pytest.mark.lazy
 class TestForeignGeoZarr:
     """read_geobox / detect_data_var handle non-pyramids GeoZarr stores (FR-8)."""
 

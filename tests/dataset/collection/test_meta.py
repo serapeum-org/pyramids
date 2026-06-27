@@ -20,7 +20,7 @@ import pytest
 from pyramids.base._raster_meta import RasterMeta
 from pyramids.dataset import Dataset, DatasetCollection
 
-pytestmark = pytest.mark.lazy
+pytestmark = pytest.mark.core
 
 
 @pytest.fixture
