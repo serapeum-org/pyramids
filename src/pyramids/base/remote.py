@@ -78,6 +78,10 @@ URL_SCHEMES: dict[str, str] = {
 }
 """Map URL scheme to GDAL VSI prefix. Empty string means strip-and-use."""
 
+# OPeNDAP / THREDDS scheme. Not in URL_SCHEMES because it maps to a NETCDF:
+# connection string (GDAL's DAP-capable netCDF driver), not a /vsi* prefix.
+_DODS_SCHEME = "dods"
+
 
 _VSI_PREFIXES: tuple[str, ...] = (
     "/vsis3/",
@@ -145,7 +149,7 @@ def is_remote(path: str) -> bool:
         result = True
     else:
         scheme = urlparse(path).scheme.lower()
-        result = (scheme in URL_SCHEMES or scheme == "dods") and len(scheme) > 1
+        result = (scheme in URL_SCHEMES or scheme == _DODS_SCHEME) and len(scheme) > 1
     return result
 
 
@@ -337,7 +341,7 @@ def _scheme_to_vsi(parsed: ParseResult, scheme: str, path: str) -> str:
     cognitive-complexity budget. `parsed` is the :func:`urllib.parse.urlparse`
     result for `path`; `scheme` is its lower-cased scheme.
     """
-    if scheme == "dods":
+    if scheme == _DODS_SCHEME:
         # OPeNDAP / THREDDS: libnetcdf speaks DAP, so route the DAP URL to GDAL's
         # netCDF driver rather than /vsicurl/ (which would byte-range a DAP endpoint
         # and fail). dods://host/path -> NETCDF:"https://host/path" (query/fragment
