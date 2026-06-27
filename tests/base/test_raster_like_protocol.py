@@ -8,11 +8,14 @@ that accepts either without importing the concrete classes.
 
 from __future__ import annotations
 
+import geopandas as gpd
 import numpy as np
 import pytest
+from shapely.geometry import box
 
 from pyramids.base.protocols import RasterLike, SpatialObject
 from pyramids.dataset import Dataset
+from pyramids.feature import FeatureCollection
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
@@ -103,3 +106,15 @@ class TestRasterLikeNegative:
     def test_ndarray_is_not_raster_like(self):
         """A numpy array is not a raster object."""
         assert not isinstance(np.zeros((4, 4)), RasterLike)
+
+    def test_vector_spatial_object_is_not_raster_like(self):
+        """A FeatureCollection is a SpatialObject but lacks the raster surface, so not RasterLike.
+
+        This locks RasterLike to the raster-specific contract: refining
+        SpatialObject must not accidentally widen back to accepting vectors.
+        """
+        fc = FeatureCollection(
+            gpd.GeoDataFrame({"v": [1]}, geometry=[box(0, 0, 1, 1)], crs="EPSG:4326")
+        )
+        assert isinstance(fc, SpatialObject), "fixture must be a SpatialObject"
+        assert not isinstance(fc, RasterLike), "a vector SpatialObject must not be RasterLike"
