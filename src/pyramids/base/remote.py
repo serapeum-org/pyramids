@@ -29,7 +29,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from typing import Any, Mapping
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 from osgeo import gdal
 
@@ -78,6 +78,10 @@ URL_SCHEMES: dict[str, str] = {
 }
 """Map URL scheme to GDAL VSI prefix. Empty string means strip-and-use."""
 
+# OPeNDAP / THREDDS scheme. Not in URL_SCHEMES because it maps to a NETCDF:
+# connection string (GDAL's DAP-capable netCDF driver), not a /vsi* prefix.
+_DODS_SCHEME = "dods"
+
 
 _VSI_PREFIXES: tuple[str, ...] = (
     "/vsis3/",
@@ -119,6 +123,8 @@ def is_remote(path: str) -> bool:
             True
             >>> is_remote("gs://bucket/key.tif")
             True
+            >>> is_remote("dods://test.opendap.org/data.nc")  # OPeNDAP / THREDDS
+            True
 
             ```
         - Already-rewritten VSI paths are also remote:
@@ -143,7 +149,7 @@ def is_remote(path: str) -> bool:
         result = True
     else:
         scheme = urlparse(path).scheme.lower()
-        result = scheme in URL_SCHEMES and len(scheme) > 1
+        result = (scheme in URL_SCHEMES or scheme == _DODS_SCHEME) and len(scheme) > 1
     return result
 
 
@@ -299,6 +305,13 @@ def _to_vsi(path: str) -> str:
             '/vsicurl/https://example.com/scene.tif'
 
             ```
+        - OPeNDAP / THREDDS `dods://` URLs route to GDAL's netCDF driver
+          (libnetcdf speaks DAP) instead of `/vsicurl/`:
+            ```python
+            >>> _to_vsi("dods://test.opendap.org/data/coads.nc")
+            'NETCDF:"https://test.opendap.org/data/coads.nc"'
+
+            ```
         - Already-VSI and plain local paths pass through unchanged:
             ```python
             >>> _to_vsi("/vsis3/bucket/x.tif")
@@ -308,39 +321,50 @@ def _to_vsi(path: str) -> str:
 
             ```
     """
-    new_path: str
     if path.startswith(_VSI_PREFIXES):
-        new_path = path
-    else:
-        parsed = urlparse(path)
-        scheme = parsed.scheme.lower()
-        if scheme not in URL_SCHEMES or len(scheme) <= 1:
-            new_path = path
-        elif scheme in {"s3", "gs", "az", "abfs"}:
-            bucket = parsed.netloc
-            key = parsed.path.lstrip("/")
-            new_path = f"{URL_SCHEMES[scheme]}{bucket}/{key}"
-        elif scheme in {"http", "https"}:
-            new_path = f"/vsicurl/{path}"
-        elif scheme == "file":
-            local = parsed.path
-            # Windows file URIs: file:///C:/path -> /C:/path -> C:/path
-            if local.startswith("/") and len(local) > 2 and local[2] == ":":
-                local = local[1:]
-            new_path = local
-        else:  # pragma: no cover — all schemes above covered
-            new_path = path
-
-        new_path = _chain_archive_vsi(new_path)
-
-        if new_path != path:
-            # N2: downgraded from info to debug — a DatasetCollection
-            # of thousands of files fires this once per chunk read and
-            # floods the stream. Users can re-enable with
-            # `logging.getLogger("pyramids.base.remote").setLevel(
-            # logging.DEBUG)`.
-            logger.debug("cloud path rewritten: %r -> %r", path, new_path)
+        return path
+    parsed = urlparse(path)
+    scheme = parsed.scheme.lower()
+    new_path = _chain_archive_vsi(_scheme_to_vsi(parsed, scheme, path))
+    if new_path != path:
+        # N2: downgraded from info to debug — a DatasetCollection of thousands of
+        # files fires this once per chunk read and floods the stream. Re-enable with
+        # `logging.getLogger("pyramids.base.remote").setLevel(logging.DEBUG)`.
+        logger.debug("cloud path rewritten: %r -> %r", path, new_path)
     return new_path
+
+
+def _scheme_to_vsi(parsed: ParseResult, scheme: str, path: str) -> str:
+    """Rewrite one URL scheme to its GDAL `/vsi*` (or `NETCDF:`) form.
+
+    Split out of :func:`_to_vsi` to keep that function within the
+    cognitive-complexity budget. `parsed` is the :func:`urllib.parse.urlparse`
+    result for `path`; `scheme` is its lower-cased scheme.
+    """
+    if scheme == _DODS_SCHEME:
+        # OPeNDAP / THREDDS: libnetcdf speaks DAP, so route the DAP URL to GDAL's
+        # netCDF driver rather than /vsicurl/ (which would byte-range a DAP endpoint
+        # and fail). dods://host/path -> NETCDF:"https://host/path" (query/fragment
+        # preserved). dods:// assumes https; an http-only DAP server is reached by
+        # passing the GDAL form directly, e.g.
+        # NetCDF.read_file('NETCDF:"http://host/path"'), which passes through here.
+        remainder = path[len(scheme) + 1 :].lstrip("/")  # after "dods:" / "dods://"
+        return f'NETCDF:"https://{remainder}"'
+    if scheme not in URL_SCHEMES or len(scheme) <= 1:
+        return path
+    if scheme in {"s3", "gs", "az", "abfs"}:
+        bucket = parsed.netloc
+        key = parsed.path.lstrip("/")
+        return f"{URL_SCHEMES[scheme]}{bucket}/{key}"
+    if scheme in {"http", "https"}:
+        return f"/vsicurl/{path}"
+    if scheme == "file":
+        local = parsed.path
+        # Windows file URIs: file:///C:/path -> /C:/path -> C:/path
+        if local.startswith("/") and len(local) > 2 and local[2] == ":":
+            local = local[1:]
+        return local
+    return path  # pragma: no cover — all schemes above covered
 
 
 def _extract_archive_search_region(path: str) -> str | None:
