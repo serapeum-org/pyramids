@@ -57,6 +57,8 @@ from pyramids.basemap.basemap import add_basemap
 from pyramids.feature import _h3
 from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
+from pyramids.feature._postgis import from_postgis as _from_postgis
+from pyramids.feature._postgis import to_postgis as _to_postgis
 from pyramids.feature._wfs import from_wfs as _from_wfs
 
 CATALOG = Catalog(raster_driver=False)
@@ -1725,6 +1727,129 @@ class FeatureCollection(GeoDataFrame):
             version=version,
             auth=auth,
             timeout=timeout,
+        )
+
+    @classmethod
+    def from_postgis(
+        cls,
+        connection: str,
+        *,
+        table: str | None = None,
+        sql: str | None = None,
+        bbox: tuple[float, float, float, float] | None = None,
+        where: str | None = None,
+        columns: list[str] | None = None,
+        max_features: int | None = None,
+    ) -> FeatureCollection:
+        """Read a table or query from a **PostGIS** database into a FeatureCollection.
+
+        Reads from PostGIS through GDAL's native OGR PostgreSQL driver (the ``PG:``
+        connection string), decoded by the same OGR/pyogrio reader that backs
+        :class:`FeatureCollection`. No SQLAlchemy / psycopg dependency. The OGR
+        PostgreSQL driver ships in the conda-forge ``libgdal-pg`` package; if it is
+        missing a clear :class:`pyramids.errors.PostGISError` is raised.
+
+        Args:
+            connection: A GDAL PostGIS datasource — either a full ``PG:host=…
+                dbname=… user=… password=…`` string or the bare ``host=… dbname=…``
+                keyword string (it is prefixed with ``PG:`` automatically). Auth and
+                deployment specifics belong in the connection string.
+            table: Table (optionally ``schema.table``) to read. Provide exactly one
+                of ``table`` or ``sql``.
+            sql: A SQL ``SELECT`` to run instead of reading a whole table. Provide
+                exactly one of ``table`` or ``sql``.
+            bbox: Optional ``(minx, miny, maxx, maxy)`` spatial filter in the layer's
+                CRS; only intersecting rows are returned.
+            where: Optional SQL attribute filter pushed down to the server.
+            columns: Optional list of attribute columns to fetch (ignored when
+                ``sql`` is given — select the columns in the query instead).
+            max_features: Optional cap on the number of rows returned.
+
+        Returns:
+            FeatureCollection: The selected rows (empty if none match).
+
+        Raises:
+            ValueError: neither or both of ``table`` / ``sql`` given, ``bbox`` is
+                malformed, or ``max_features`` is negative.
+            pyramids.errors.PostGISError: the PostgreSQL driver is unavailable or the
+                read failed.
+
+        Examples:
+            Read a bbox subset of a table (needs a live PostGIS — skipped in doctests):
+
+            ```python
+            >>> from pyramids.feature import FeatureCollection
+            >>> fc = FeatureCollection.from_postgis(  # doctest: +SKIP
+            ...     "PG:host=db dbname=gis user=app password=secret",
+            ...     table="public.parcels",
+            ...     bbox=(-104, 35, -94, 41),
+            ...     where="area_ha > 100",
+            ... )
+
+            ```
+
+        See Also:
+            - :meth:`to_postgis`: write a FeatureCollection to PostGIS.
+            - :meth:`from_wfs`: read from an OGC Web Feature Service.
+        """
+        return _from_postgis(
+            cls,
+            connection,
+            table=table,
+            sql=sql,
+            bbox=bbox,
+            where=where,
+            columns=columns,
+            max_features=max_features,
+        )
+
+    def to_postgis(
+        self,
+        connection: str,
+        *,
+        table: str,
+        if_exists: str = "fail",
+        schema: str | None = None,
+        geometry_column: str = "geom",
+        srid: int | None = None,
+    ) -> None:
+        """Write this FeatureCollection to a **PostGIS** table.
+
+        Writes through GDAL's native OGR PostgreSQL driver (no SQLAlchemy / psycopg
+        dependency). The OGR PostgreSQL driver ships in the conda-forge
+        ``libgdal-pg`` package; if it is missing a clear
+        :class:`pyramids.errors.PostGISError` is raised.
+
+        Args:
+            connection: A GDAL PostGIS datasource string (see :meth:`from_postgis`).
+            table: Destination table name.
+            if_exists: ``"fail"`` (default), ``"replace"``, or ``"append"`` when the
+                table already exists.
+            schema: Optional destination schema (qualifies the table as
+                ``schema.table``).
+            geometry_column: Name of the geometry column to create. Defaults to
+                ``"geom"``.
+            srid: Optional SRID to stamp on the geometry column. ``None`` lets the
+                driver infer it from the data's CRS.
+
+        Raises:
+            ValueError: ``if_exists`` is not one of ``"fail"`` / ``"replace"`` /
+                ``"append"``.
+            pyramids.errors.PostGISError: the PostgreSQL driver is unavailable or the
+                write failed.
+
+        See Also:
+            - :meth:`from_postgis`: read a table / query from PostGIS.
+            - :meth:`to_file`: write to a vector file.
+        """
+        _to_postgis(
+            self,
+            connection,
+            table=table,
+            if_exists=if_exists,
+            schema=schema,
+            geometry_column=geometry_column,
+            srid=srid,
         )
 
     @classmethod

@@ -356,6 +356,8 @@ libgdal-netcdf = ">=3.13,<3.14"
 libgdal-hdf4 = ">=3.13,<3.14"
 libgdal-grib = ">=3.13,<3.14"
 libgdal-jp2openjpeg = ">=3.13,<3.14"
+# OGR PostgreSQL / PostGIS driver — enables FeatureCollection.from_postgis / to_postgis.
+libgdal-pg = ">=3.13,<3.14"
 
 # swig builds the osgeo bindings against libgdal; build-only, so it stays in the
 # wheel-build feature (not the shared gdal feature). setup-gdal-micromamba.sh reads it.

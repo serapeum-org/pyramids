@@ -176,6 +176,20 @@ class WFSError(_PyramidsError):
     """
 
 
+class PostGISError(_PyramidsError):
+    """A failure reading from or writing to a PostGIS database.
+
+    Raised by :meth:`pyramids.feature.FeatureCollection.from_postgis` /
+    :meth:`~pyramids.feature.FeatureCollection.to_postgis` (implementation in
+    :mod:`pyramids.feature._postgis`) when the connection cannot be opened, the
+    OGR PostgreSQL driver is unavailable, or the read/write itself fails.
+
+    A *missing* table or a malformed argument raises a plain :class:`ValueError`
+    instead, mirroring how the rest of pyramids reports a bad argument as opposed
+    to a backend failure.
+    """
+
+
 class GeometryWarning(UserWarning):
     """Pyramids-emitted warning about geometry validity / degeneracy.
 
