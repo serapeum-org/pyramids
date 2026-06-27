@@ -29,7 +29,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from typing import Any, Mapping
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 from osgeo import gdal
 
@@ -330,7 +330,7 @@ def _to_vsi(path: str) -> str:
     return new_path
 
 
-def _scheme_to_vsi(parsed: Any, scheme: str, path: str) -> str:
+def _scheme_to_vsi(parsed: ParseResult, scheme: str, path: str) -> str:
     """Rewrite one URL scheme to its GDAL `/vsi*` (or `NETCDF:`) form.
 
     Split out of :func:`_to_vsi` to keep that function within the
