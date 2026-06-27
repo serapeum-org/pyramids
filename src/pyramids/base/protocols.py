@@ -168,7 +168,7 @@ class RasterLike(SpatialObject, Protocol):
     crs: Any
     raster: Any
 
-    def read_array(self, *args: Any, **kwargs: Any) -> "ArrayLike":
+    def read_array(self, *args: Any, **kwargs: Any) -> "ArrayLike":  # pragma: no cover - protocol stub
         """Read band data as a numpy or dask array (protocol stub; see concrete impls)."""
         ...
 
