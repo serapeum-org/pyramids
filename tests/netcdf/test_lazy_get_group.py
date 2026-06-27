@@ -25,6 +25,19 @@ pytestmark = pytest.mark.core
 DISK_GROUPS = "tests/data/netcdf/none__35v__1d35__groups-nc4.nc"
 
 
+GEO = (0.0, 1.0, 0, 5.0, 0, -1.0)
+
+
+def _write_grouped_disk(path) -> str:
+    """Write the in-memory grouped fixture to an on-disk netCDF and return the path."""
+    mem = _build_grouped_mem()
+    out = gdal.GetDriverByName("netCDF").CreateCopy(str(path), mem._raster)
+    out.FlushCache()
+    out = None
+    mem.close()
+    return str(path)
+
+
 def _build_grouped_mem() -> Container:
     """Return an in-memory container: root elevation + forecast (nested surface) + analysis."""
     src = gdal.GetDriverByName("MEM").CreateMultiDimensional("test")
@@ -130,6 +143,47 @@ class TestCloseRefcount:
         view = nc.get_group("forecast")
         nc.close()
         assert "temperature" in view.variable_names, "view must still read after parent close()"
+
+
+class TestNoEagerCopy:
+    """get_group must not read array data up front (the ARC-12 win)."""
+
+    def test_get_group_does_not_read_arrays(self, monkeypatch):
+        """Building the view performs no MDArray ReadAsArray (no eager materialisation)."""
+        nc = _build_grouped_mem()
+        calls = {"n": 0}
+        original = gdal.MDArray.ReadAsArray
+
+        def _counting_read(self, *args, **kwargs):
+            calls["n"] += 1
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(gdal.MDArray, "ReadAsArray", _counting_read)
+        view = nc.get_group("forecast")
+        assert view._raster is nc._raster, "view must share the dataset (no copy)"
+        assert calls["n"] == 0, "get_group must not read any array data eagerly"
+
+
+class TestFileBackedMutation:
+    """Mutating a file-backed group view targets the sub-group, not the store root."""
+
+    def test_set_variable_targets_subgroup(self, tmp_path):
+        """set_variable on a file-backed group view lands in the group the view reads."""
+        path = _write_grouped_disk(tmp_path / "grouped.nc")
+        nc = NetCDF.read_file(path)
+        view = nc.get_group("forecast")
+        source = NetCDF.create_from_array(
+            arr=np.full((5, 8), 7.0), geo=GEO, variable_name="precip"
+        ).get_variable("precip")
+
+        view.set_variable("precip", source)
+
+        assert "precip" in view.variable_names, "written variable must be visible in the group view"
+        assert_allclose(
+            np.asarray(view.get_variable("precip").read_array(band=0)),
+            np.full((5, 8), 7.0),
+            err_msg="the group view must read back the value it wrote",
+        )
 
 
 class TestPickleRoundTrip:
