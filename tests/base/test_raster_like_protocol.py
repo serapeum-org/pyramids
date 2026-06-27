@@ -107,6 +107,45 @@ class TestRasterLikeNegative:
         """A numpy array is not a raster object."""
         assert not isinstance(np.zeros((4, 4)), RasterLike)
 
+    def test_read_only_object_without_operations_is_not_raster_like(self):
+        """An object with only the read surface (no crop/to_crs/... operations) is not RasterLike.
+
+        Locks the complete-dataset-surface contract: the raster operations are
+        required members, not just the geo/grid read properties.
+        """
+
+        class _ReadOnly:
+            epsg = 4326
+            total_bounds = None
+            top_left_corner = None
+            geotransform = None
+            raster = None
+            no_data_value = None
+            shape = None
+            crs = None
+            cell_size = 1.0
+            rows = 1
+            columns = 1
+            band_count = 1
+
+            def read_array(self, *a, **k):
+                ...
+
+            def read_file(self, *a, **k):
+                ...
+
+            def to_file(self, *a, **k):
+                ...
+
+            def plot(self, *a, **k):
+                ...
+
+            # deliberately NO crop / to_crs / overlay / extract / overview ops
+
+        assert not isinstance(_ReadOnly(), RasterLike), (
+            "an object lacking the raster operations must not satisfy RasterLike"
+        )
+
     def test_vector_spatial_object_is_not_raster_like(self):
         """A FeatureCollection is a SpatialObject but lacks the raster surface, so not RasterLike.
 
