@@ -139,6 +139,10 @@ class TestToVsi:
         # urlparse still classifies "dods:host/path" as scheme dods; must not crash.
         assert _to_vsi("dods:host/path") == 'NETCDF:"https://host/path"'
 
+    def test_dods_uppercase_scheme(self):
+        # scheme match is case-insensitive; the slice uses the lower-cased length.
+        assert _to_vsi("DODS://test.opendap.org/data.nc") == 'NETCDF:"https://test.opendap.org/data.nc"'
+
     def test_dods_routed_through_parse_path(self):
         # The read path (read_file -> _parse_path -> _to_vsi) must yield the NETCDF: form.
         assert _io._parse_path("dods://h/x.nc") == 'NETCDF:"https://h/x.nc"'
