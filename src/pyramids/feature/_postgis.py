@@ -144,19 +144,13 @@ def to_postgis(
     _require_pg_driver()
     conn = _pg_connection(connection)
     layer = _qualified_table(table, schema)
-    options = [f"GEOMETRY_NAME={geometry_column}"]
+    # FeatureCollection.to_file takes (driver, layer, mode, **creation_options); PG
+    # layer creation options (GEOMETRY_NAME, SRID) are passed as individual kwargs.
+    creation_options: dict[str, str] = {"GEOMETRY_NAME": geometry_column}
     if srid is not None:
-        options.append(f"SRID={int(srid)}")
-    write_kwargs: dict[str, Any] = {
-        "driver": _PG_DRIVER,
-        "layer": layer,
-        "append": if_exists == "append",
-        "layer_options": options,
-    }
-    if if_exists == "fail":
-        # OGR overwrites by default; emulate "fail" by refusing an existing table.
-        write_kwargs["mode"] = "w"
+        creation_options["SRID"] = str(int(srid))
+    mode = "a" if if_exists == "append" else "w"
     try:
-        fc.to_file(conn, **write_kwargs)
+        fc.to_file(conn, driver=_PG_DRIVER, layer=layer, mode=mode, **creation_options)
     except Exception as exc:  # noqa: BLE001 — normalise any write failure to PostGISError
         raise PostGISError(f"PostGIS write failed for {layer!r}: {exc}") from exc

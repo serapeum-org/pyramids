@@ -159,12 +159,22 @@ class TestToPostgis:
             "host=db dbname=gis", table="parcels", schema="public",
             if_exists="append", geometry_column="the_geom", srid=4326,
         )
+        kw = captured["kwargs"]
         assert captured["conn"] == "PG:host=db dbname=gis"
-        assert captured["kwargs"]["driver"] == "PostgreSQL"
-        assert captured["kwargs"]["layer"] == "public.parcels"
-        assert captured["kwargs"]["append"] is True
-        assert "GEOMETRY_NAME=the_geom" in captured["kwargs"]["layer_options"]
-        assert "SRID=4326" in captured["kwargs"]["layer_options"]
+        assert kw["driver"] == "PostgreSQL"
+        assert kw["layer"] == "public.parcels"
+        assert kw["mode"] == "a"  # append -> mode "a" (to_file's contract)
+        assert kw["GEOMETRY_NAME"] == "the_geom"
+        assert kw["SRID"] == "4326"
+        assert "append" not in kw and "layer_options" not in kw  # not to_file params
+
+    def test_write_replace_uses_mode_w(self, monkeypatch):
+        _driver_present(monkeypatch)
+        fc = _sample_fc()
+        captured = {}
+        monkeypatch.setattr(fc, "to_file", lambda conn, **kw: captured.update(kw))
+        fc.to_postgis("PG:x", table="t", if_exists="replace")
+        assert captured["mode"] == "w"
 
     def test_write_failure_raises_postgiserror(self, monkeypatch):
         _driver_present(monkeypatch)
