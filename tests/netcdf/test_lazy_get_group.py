@@ -76,6 +76,21 @@ class TestZeroCopyView:
         assert "elevation" not in view.variable_names, "view must not see the root variable"
         assert "wind_speed" not in view.variable_names, "view must not see a sibling group"
 
+    def test_variable_names_stable_after_metadata_cache(self):
+        """Caching meta_data must not flip variable_names to full paths (review H1)."""
+        nc = _build_grouped_mem()
+        view = nc.get_group("forecast")
+        _ = view.meta_data  # cache metadata first (keyed by full store path)
+        assert view.variable_names == ["temperature"], (
+            f"variable_names must stay bare after caching, got {view.variable_names}"
+        )
+        # get_variable validates against variable_names, so it must still resolve the bare name.
+        assert_allclose(
+            np.asarray(view.get_variable("temperature").read_array(band=0)),
+            np.full((5, 8), 300.0),
+            err_msg="get_variable must work on a group view after metadata is cached",
+        )
+
     def test_view_metadata_is_group_scoped(self):
         """`meta_data` traversal is scoped to the sub-group."""
         nc = _build_grouped_mem()
