@@ -1113,8 +1113,9 @@ class Bands(_Engine):
         for band in range(self._ds.band_count):
             arr = self._ds.read_array(band)
             try:
-                arr[is_no_data(arr, old_value)] = new_value[band]
-            except TypeError:
+                with np.errstate(invalid="raise"):
+                    arr[is_no_data(arr, old_value)] = new_value[band]
+            except (TypeError, FloatingPointError):
                 raise NoDataValueError(
                     f"The dtype of the given no_data_value: {new_value[band]} differs from the dtype of the "
                     f"band: {gdal_to_numpy_dtype(self._ds.gdal_dtype[band])}"
