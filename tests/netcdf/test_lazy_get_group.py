@@ -91,6 +91,18 @@ class TestZeroCopyView:
             err_msg="get_variable must work on a group view after metadata is cached",
         )
 
+    def test_view_reports_inherited_dimensions(self):
+        """A group view reports dims its variables inherit from the root (review M1)."""
+        # The fixture defines x/y at the root; forecast/temperature references them.
+        nc = _build_grouped_mem()
+        view = nc.get_group("forecast")
+        assert set(view.dimension_names) >= {"x", "y"}, (
+            f"view must report inherited root dims, got {view.dimension_names}"
+        )
+        assert view.dimension_sizes.get("x") == 8 and view.dimension_sizes.get("y") == 5, (
+            f"inherited dim sizes must be correct, got {view.dimension_sizes}"
+        )
+
     def test_view_metadata_is_group_scoped(self):
         """`meta_data` traversal is scoped to the sub-group."""
         nc = _build_grouped_mem()
