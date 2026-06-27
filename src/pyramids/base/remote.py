@@ -119,6 +119,8 @@ def is_remote(path: str) -> bool:
             True
             >>> is_remote("gs://bucket/key.tif")
             True
+            >>> is_remote("dods://test.opendap.org/data.nc")  # OPeNDAP / THREDDS
+            True
 
             ```
         - Already-rewritten VSI paths are also remote:
@@ -143,7 +145,7 @@ def is_remote(path: str) -> bool:
         result = True
     else:
         scheme = urlparse(path).scheme.lower()
-        result = scheme in URL_SCHEMES and len(scheme) > 1
+        result = (scheme in URL_SCHEMES or scheme == "dods") and len(scheme) > 1
     return result
 
 
@@ -299,6 +301,13 @@ def _to_vsi(path: str) -> str:
             '/vsicurl/https://example.com/scene.tif'
 
             ```
+        - OPeNDAP / THREDDS `dods://` URLs route to GDAL's netCDF driver
+          (libnetcdf speaks DAP) instead of `/vsicurl/`:
+            ```python
+            >>> _to_vsi("dods://test.opendap.org/data/coads.nc")
+            'NETCDF:"https://test.opendap.org/data/coads.nc"'
+
+            ```
         - Already-VSI and plain local paths pass through unchanged:
             ```python
             >>> _to_vsi("/vsis3/bucket/x.tif")
@@ -314,7 +323,12 @@ def _to_vsi(path: str) -> str:
     else:
         parsed = urlparse(path)
         scheme = parsed.scheme.lower()
-        if scheme not in URL_SCHEMES or len(scheme) <= 1:
+        if scheme == "dods":
+            # OPeNDAP / THREDDS: libnetcdf speaks DAP, so route the DAP URL to
+            # GDAL's netCDF driver rather than /vsicurl/ (which would byte-range a
+            # DAP endpoint and fail). dods://host/path -> NETCDF:"https://host/path".
+            new_path = f'NETCDF:"https://{path.split("://", 1)[1]}"'
+        elif scheme not in URL_SCHEMES or len(scheme) <= 1:
             new_path = path
         elif scheme in {"s3", "gs", "az", "abfs"}:
             bucket = parsed.netloc
