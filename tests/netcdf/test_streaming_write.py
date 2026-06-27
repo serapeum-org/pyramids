@@ -16,8 +16,6 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-import dask.array as da
-
 from pyramids.netcdf.engines.variables import (
     _is_dask_array,
     _iter_block_windows,
@@ -26,7 +24,12 @@ from pyramids.netcdf.engines.variables import (
 from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.netcdf import NetCDF
 
-pytestmark = pytest.mark.core
+# dask is the headline dep of the [lazy] extra; gate collection on it so the
+# bare-wheel core job (which collects every module before -m selection) does not
+# error here, and route the suite to the dask-equipped lazy job via the marker.
+da = pytest.importorskip("dask.array")
+
+pytestmark = pytest.mark.lazy
 
 SEED = 7
 GEO = (0.0, 0.01, 0, 1.0, 0, -0.01)
