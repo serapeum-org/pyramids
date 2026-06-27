@@ -108,6 +108,9 @@ def from_postgis(
     read_kwargs = _read_kwargs(bbox, where, columns, max_features)
     try:
         if sql is not None:
+            # pyogrio treats `columns` and `sql` as mutually exclusive — select
+            # the columns inside the query instead.
+            read_kwargs.pop("columns", None)
             gdf = gpd.read_file(conn, sql=sql, **read_kwargs)
         else:
             gdf = gpd.read_file(conn, layer=table, **read_kwargs)

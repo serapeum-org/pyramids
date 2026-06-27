@@ -120,9 +120,12 @@ class TestFromPostgis:
             return gpd.GeoDataFrame({"n": [1]}, geometry=[Point(0, 0)], crs="EPSG:4326")
 
         monkeypatch.setattr(_postgis.gpd, "read_file", fake_read)
-        FeatureCollection.from_postgis("PG:x", sql="SELECT * FROM t WHERE n > 0")
+        FeatureCollection.from_postgis(
+            "PG:x", sql="SELECT * FROM t WHERE n > 0", columns=["n"]
+        )
         assert captured["sql"] == "SELECT * FROM t WHERE n > 0"
         assert "layer" not in captured
+        assert "columns" not in captured  # mutually exclusive with sql in pyogrio
 
     def test_read_failure_raises_postgiserror(self, monkeypatch):
         _driver_present(monkeypatch)
