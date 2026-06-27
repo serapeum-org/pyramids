@@ -37,10 +37,8 @@ else:
     HAS_DASK = True
 try:
     import xarray as xr
-except ImportError:  # pragma: no cover
-    HAS_XARRAY = False
-else:
-    HAS_XARRAY = True
+except ImportError:  # pragma: no cover - tests using xr are @pytest.mark.xarray gated
+    xr = None
 try:
     import_kerchunk("kerchunk not installed")
 except OptionalPackageDoesNotExist:  # pragma: no cover
@@ -48,7 +46,6 @@ except OptionalPackageDoesNotExist:  # pragma: no cover
 else:
     HAS_KERCHUNK = True
 requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")
-requires_xarray = pytest.mark.skipif(not HAS_XARRAY, reason="xarray not installed")
 requires_kerchunk = pytest.mark.skipif(
     not HAS_KERCHUNK, reason="kerchunk not installed"
 )
@@ -94,7 +91,6 @@ class TestNetCDFLazyPipelines:
 
     @pytest.mark.xarray
     @requires_kerchunk
-    @requires_xarray
     def test_kerchunk_roundtrip_via_xarray(self, tmp_path):
         """to_kerchunk manifest opens with xarray engine="kerchunk".
 
