@@ -134,6 +134,10 @@ class TestToVsi:
     def test_dods_preserves_query(self):
         assert _to_vsi("dods://h/path?a=b") == 'NETCDF:"https://h/path?a=b"'
 
+    def test_dods_without_double_slash(self):
+        # urlparse still classifies "dods:host/path" as scheme dods; must not crash.
+        assert _to_vsi("dods:host/path") == 'NETCDF:"https://host/path"'
+
 
 class TestIsRemote:
     @pytest.mark.parametrize(

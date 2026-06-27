@@ -326,8 +326,12 @@ def _to_vsi(path: str) -> str:
         if scheme == "dods":
             # OPeNDAP / THREDDS: libnetcdf speaks DAP, so route the DAP URL to
             # GDAL's netCDF driver rather than /vsicurl/ (which would byte-range a
-            # DAP endpoint and fail). dods://host/path -> NETCDF:"https://host/path".
-            new_path = f'NETCDF:"https://{path.split("://", 1)[1]}"'
+            # DAP endpoint and fail). dods://host/path -> NETCDF:"https://host/path"
+            # (query/fragment preserved). dods:// assumes https; an http-only DAP
+            # server is reached by passing the GDAL form directly, e.g.
+            # NetCDF.read_file('NETCDF:"http://host/path"'), which passes through here.
+            remainder = path[len(scheme) + 1 :].lstrip("/")  # after "dods:" / "dods://"
+            new_path = f'NETCDF:"https://{remainder}"'
         elif scheme not in URL_SCHEMES or len(scheme) <= 1:
             new_path = path
         elif scheme in {"s3", "gs", "az", "abfs"}:
