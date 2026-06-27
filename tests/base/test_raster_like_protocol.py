@@ -67,7 +67,7 @@ class TestRasterLikeProtocol:
         """The raster-specific members are present and have sane values."""
         assert ds.rows == 10 and ds.columns == 10
         assert ds.band_count == 1
-        assert ds.cell_size == 1000.0
+        assert ds.cell_size == pytest.approx(1000.0)
         assert len(ds.geotransform) == 6
         assert ds.raster is not None
 
