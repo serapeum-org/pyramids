@@ -52,6 +52,17 @@ class TestFloatArrayMatchesRuntime:
         assert arr.dtype == np.float64
         assert arr.shape == (4,)
 
+    def test_integer_inputs_still_float64(self):
+        """Integer pivot/cell_size still yield float64 (locks the FloatArray annotation).
+
+        The `cell_size / 2` true-division forces float regardless of input dtype;
+        this is the non-obvious case the float64 annotation depends on.
+        """
+        x = Dataset.get_x_lon_dimension_array(0, 10, 5)
+        y = Dataset.get_y_lat_dimension_array(100, 10, 4)
+        assert x.dtype == np.float64, f"int inputs must still give float64 x, got {x.dtype}"
+        assert y.dtype == np.float64, f"int inputs must still give float64 y, got {y.dtype}"
+
 
 class TestAsNumpyReturn:
     """`as_numpy` returns a concrete numpy array for an eager input."""
