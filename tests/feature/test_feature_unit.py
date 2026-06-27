@@ -188,7 +188,7 @@ class TestEpsgCaching:
         replacement = pyproj.CRS("EPSG:4326")
         fc.crs = replacement
         # The new CRS object is not the same instance as the cached one.
-        assert fc._epsg_cache_crs is not replacement or True
+        assert fc._epsg_cache_crs is not replacement
 
         assert fc.epsg == 4326
         assert fc._epsg_cache_value == original_cached

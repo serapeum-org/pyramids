@@ -1,5 +1,6 @@
 """Test the Dataset class."""
 
+import shutil
 import warnings
 from pathlib import Path
 from types import GeneratorType
@@ -206,9 +207,17 @@ class TestAttributesTable:
         "Color": ["#008000", "#0000FF", "#808080"],
     }
     attribute_table = pd.DataFrame(data)
-    # the second band in the raster has an attribute table
-    src = gdal.Open("tests/data/geotiff/raster-with-attribute-table.tif")
-    dataset = Dataset(src)
+
+    @pytest.fixture
+    def writable_dataset(self, tmp_path):
+        src_path = Path("tests/data/geotiff/raster-with-attribute-table.tif")
+        dst_path = tmp_path / src_path.name
+        shutil.copy2(src_path, dst_path)
+        aux_src = Path(str(src_path) + ".aux.xml")
+        if aux_src.exists():
+            shutil.copy2(aux_src, Path(str(dst_path) + ".aux.xml"))
+        gdal_src = gdal.Open(str(dst_path), gdal.GA_Update)
+        yield Dataset(gdal_src)
 
     def test_convert_df_to_attribute_table(self):
         df = pd.DataFrame(self.data)
@@ -222,20 +231,18 @@ class TestAttributesTable:
         assert isinstance(df2, pd.DataFrame)
         assert df.equals(df2)
 
-    def test_add_attribute_table(self):
-        df = self.dataset.get_attribute_table(band=1)
+    def test_add_attribute_table(self, writable_dataset):
+        df = writable_dataset.get_attribute_table(band=1)
         pd.testing.assert_frame_equal(self.attribute_table, df)
 
-    def test_set_attribute_table(self):
-        dataset = Dataset(self.src)
-        dataset.set_attribute_table(self.attribute_table, band=0)
+    def test_set_attribute_table(self, writable_dataset):
+        writable_dataset.set_attribute_table(self.attribute_table, band=0)
         assert isinstance(
-            dataset._raster.GetRasterBand(1).GetDefaultRAT(), gdal.RasterAttributeTable
+            writable_dataset._raster.GetRasterBand(1).GetDefaultRAT(), gdal.RasterAttributeTable
         )
 
-    def test_overwrite_attribute_table(self):
-        dataset = Dataset(self.src)
-        assert dataset.set_attribute_table(self.attribute_table, band=1) is None
+    def test_overwrite_attribute_table(self, writable_dataset):
+        assert writable_dataset.set_attribute_table(self.attribute_table, band=1) is None
 
 
 class TestAddBand:
@@ -593,10 +600,8 @@ class TestNoDataValue:
     ):
         # try to store None in the array (int)
         dataset = Dataset(int_none_nodatavalue_attr_0_stored)
-        try:
+        with pytest.raises(NoDataValueError):
             dataset.change_no_data_value(None, 0)
-        except NoDataValueError:
-            pass
 
     @pytest.mark.parametrize(
         "dtype, expected",
@@ -680,10 +685,8 @@ class TestSetCRS:
     ):
         proj = 'GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AXIS["Latitude",NORTH],AXIS["Longitude",EAST],AUTHORITY["EPSG","4326"]]'
         dataset = Dataset.read_file(ascii_without_projection)
-        try:
+        with pytest.raises(TypeError):
             dataset.set_crs(crs=proj)
-        except TypeError:
-            pass
 
 
 class TestCountDomainCells:
@@ -2060,7 +2063,7 @@ class TestNCtoGeoTIFF:
         dataset = Dataset(noah)
         new_dataset = dataset.wrap_longitude()
         lon = new_dataset.lon
-        assert lon.max() < 1805
+        assert lon.max() < 180
         assert new_dataset.top_left_corner == (-180, 90)
 
     def test_convert_0_360_to_180_180_longitude_inplace(self, noah: gdal.Dataset):
@@ -2224,7 +2227,6 @@ class TestWriteArray:
 
 
 def test_nearest_neigbors():
-    # TODO: create better test
     arr = np.random.rand(5, 5)
     top_left_corner = (0, 0)
     cell_size = 0.05
@@ -2235,6 +2237,7 @@ def test_nearest_neigbors():
     req_cols = [2, 4]
     no_data_value = dataset.no_data_value[0]
     new_array = Vectorize._nearest_neighbour(arr, no_data_value, req_rows, req_cols)
+    assert new_array.shape == arr.shape
 
 
 def test_to_xyz():

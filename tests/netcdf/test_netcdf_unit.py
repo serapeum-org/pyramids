@@ -1665,23 +1665,15 @@ class TestSetVariableAttrException:
     def test_set_variable_with_attr_create_failure(self):
         """Verify set_variable silences exceptions in attribute creation.
 
-        Covers the except pass block when
-        CreateAttribute or Write raises.
+        Covers the except pass block when CreateAttribute or Write raises.
+        The attribute-writing helper (_write_attrs) catches all exceptions
+        internally, so set_variable must not propagate them: the variable
+        is created and the call completes without raising even when attrs
+        cannot be written.
         """
         nc = _make_2d_nc()
         ds = _make_dataset_2d()
-        # Create a normal variable first
         nc.set_variable("base_var", ds)
-        # Now try setting an attribute that will cause issues
-        # by patching CreateAttribute to raise
-        rg = nc._raster.GetRootGroup()
-        original_open = rg.OpenMDArray
-
-        def open_and_patch(name, *args, **kwargs):
-            """Open the array and patch CreateAttribute to fail."""
-            arr = original_open(name, *args, **kwargs)
-            return arr
-
         nc.set_variable(
             "attr_err_var",
             ds,
@@ -1716,14 +1708,8 @@ class TestReadMdArray1DNumeric:
         profile.Write(np.array([10.0, 20.0, 30.0, 40.0, 50.0]))
 
         nc = Container(src)
-        try:
-            result = nc._read_md_array("profile")
-            # If it succeeds, verify we got data back
-            assert result is not None, "Should return result for 1D numeric array"
-        except RuntimeError:
-            # AsClassicDataset(0, 1) may raise on some GDAL versions
-            # for 1D arrays -- that's expected behavior on this path
-            pass
+        result = nc._read_md_array("profile")
+        assert result is not None, "Should return result for 1D numeric array"
 
 
 class TestCubeDimensionNames:

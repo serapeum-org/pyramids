@@ -57,14 +57,19 @@ class TestDecodeFlags:
         assert "sensor_error" not in result, f"sensor_error should not be in {result}"
 
     def test_combined_masks_and_values(self):
-        """Decode combined flag_masks + flag_values."""
+        """Decode combined flag_masks + flag_values.
+
+        Test scenario:
+            flag_masks=[3,3], flag_values=[1,2], meanings=[partly_cloudy, cloudy].
+            value=3: (3 & 3)=3 does not equal 1 or 2, so no flag matches -> ["unknown"].
+        """
         result = decode_flags(
             3,
             flag_masks=[3, 3],
             flag_values=[1, 2],
             flag_meanings=["partly_cloudy", "cloudy"],
         )
-        assert isinstance(result, list), f"Expected list, got {type(result)}"
+        assert result == ["unknown"], f"Expected ['unknown'], got {result!r}"
 
     def test_no_meanings_returns_unknown(self):
         """No flag_meanings returns ['unknown']."""
@@ -144,9 +149,10 @@ class TestCFAttributePreservation:
             variable_name="temp",
         )
         var = nc.get_variable("temp")
-        assert hasattr(
-            var, "_variable_attrs"
-        ), "Variable should have _variable_attrs from RT-7"
+        # RT-7: get_variable surfaces the variable's real CF attributes — the
+        # grid-mapping link create_from_array writes — not just an empty/missing
+        # dict. A regression that drops or mangles the tracked attrs fails here.
+        assert var._variable_attrs == {"grid_mapping": "spatial_ref"}, var._variable_attrs
 
     def test_conventions_preserved_after_copy(self):
         """Conventions attribute preserved after copy().
