@@ -29,6 +29,7 @@ from pyramids.feature import FeatureCollection
 from pyramids.feature import _ogr as _feature_ogr
 
 if TYPE_CHECKING:
+    from pyramids.base.protocols import RasterLike
     from pyramids.dataset.dataset import Dataset
 
 from pyramids.dataset.engines._base import _Engine
@@ -1107,7 +1108,7 @@ class Spatial(_Engine):
 
     def align(
         self,
-        alignment_src: Dataset,
+        alignment_src: RasterLike,
     ) -> Dataset:
         """Align the current dataset (rows and columns) to match a given dataset.
 
@@ -1118,9 +1119,10 @@ class Spatial(_Engine):
         Then resamples values from the current dataset using the nearest neighbor interpolation.
 
         Args:
-            alignment_src (Dataset):
+            alignment_src (RasterLike):
                 Spatial information source raster to get the spatial information (coordinate system, number of rows and
-                columns). The data values of the current dataset are resampled to this alignment.
+                columns) — any pyramids raster (`Dataset` or `NetCDF`). The data values of the current dataset are
+                resampled to this alignment.
 
         Returns:
             Dataset: A new aligned Dataset.
