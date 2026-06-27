@@ -7,6 +7,10 @@ This module exposes two cross-cutting structural types:
   :class:`pyramids.feature.FeatureCollection` (vector), so callers can
   write generic utilities that accept either without importing both
   concrete classes (and without creating import cycles).
+* :class:`RasterLike` — the raster-specific surface shared by
+  :class:`pyramids.dataset.Dataset` and its :class:`pyramids.netcdf.NetCDF`
+  subclass (extends :class:`SpatialObject`), for raster-only generic
+  utilities that should accept either without importing the concrete classes.
 * :class:`ArrayLike` — the structural type matching both
   :class:`numpy.ndarray` and :class:`dask.array.Array`, used to annotate
   array-returning methods that may be either eager or lazy.
@@ -101,6 +105,63 @@ class SpatialObject(Protocol):
 
     def plot(self, *args: Any, **kwargs: Any) -> Any:
         """Render a matplotlib view of this object (protocol stub; see concrete impls)."""
+        ...
+
+
+@runtime_checkable
+class RasterLike(SpatialObject, Protocol):
+    """Structural type for a pyramids raster (`Dataset` and its `NetCDF` subclass).
+
+    Extends :class:`SpatialObject` with the raster-specific read surface shared
+    by :class:`pyramids.dataset.Dataset` and :class:`pyramids.netcdf.NetCDF`:
+    the geotransform-derived geometry, grid shape, band / no-data metadata, the
+    underlying GDAL handle, and array reads. Use it to annotate generic
+    raster utilities that should accept either a `Dataset` or a `NetCDF`
+    (or any future raster type) **without importing the concrete classes** —
+    which also lets `base`-layer code, that sits below `dataset` in the import
+    graph, reference "a raster" without an import cycle.
+
+    This is purely a typing aid: it does **not** replace the concrete
+    :class:`pyramids.dataset.abstract_dataset.RasterBase` base class, and
+    `isinstance(x, RasterBase)` (a nominal check) is unaffected.
+
+    Attributes / properties (in addition to those on :class:`SpatialObject`):
+        cell_size:
+            Pixel size in CRS units (the geotransform's X spacing).
+        rows (int): Number of raster rows.
+        columns (int): Number of raster columns.
+        band_count (int): Number of raster bands.
+        no_data_value:
+            Per-band no-data sentinels (a sequence) or `None`.
+        geotransform:
+            The 6-tuple GDAL geotransform.
+        raster:
+            The underlying `osgeo.gdal.Dataset` handle.
+
+    Methods:
+        read_array(...):
+            Read band data into a numpy array (eager) or a dask array
+            (lazy `chunks=`), i.e. an :data:`ArrayLike`.
+
+    Because this is :func:`typing.runtime_checkable`, you can use it with
+    :func:`isinstance` (PEP 544 — attribute/method presence only, not
+    signatures or return types):
+
+    >>> from pyramids.base.protocols import RasterLike
+    >>> def cell_count(r: RasterLike) -> int:
+    ...     return r.rows * r.columns
+    """
+
+    cell_size: Any
+    rows: int
+    columns: int
+    band_count: int
+    no_data_value: Any
+    geotransform: Any
+    raster: Any
+
+    def read_array(self, *args: Any, **kwargs: Any) -> "ArrayLike":
+        """Read band data as a numpy or dask array (protocol stub; see concrete impls)."""
         ...
 
 
