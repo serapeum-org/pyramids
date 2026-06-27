@@ -3065,7 +3065,7 @@ class NetCDF(Dataset):
                 pass
         return result
 
-    def _working_group(self) -> Any:
+    def _working_group(self) -> "gdal.Group | None":
         """Return the GDAL group this container is rooted at.
 
         For a normal container (`_group_path` is None) this is the dataset's
@@ -3122,9 +3122,14 @@ class NetCDF(Dataset):
         shares this container's open GDAL dataset and records the path to the
         sub-group, rather than materialising every array into a new in-memory
         store. Variables, dimensions, and attributes are read from the
-        sub-group in place, and `read_array(chunks=)` on a variable extracted
-        from the view stays lazy — so opening a group of large variables no
-        longer reads them all into memory up front.
+        sub-group in place, and each variable's data is materialised only when
+        it is extracted via `get_variable` — so opening a group of large
+        variables no longer reads them all into memory up front.
+
+        (The lazy `read_array(chunks=)` dask path resolves a variable from the
+        store's root group, so it does not yet reach a sub-group variable — the
+        same pre-existing limitation as the group-qualified
+        `get_variable("group/var")` path; eager reads work as usual.)
 
         The view holds its own reference to the shared dataset and keeps this
         parent container alive, so closing either side only drops a reference;
@@ -3715,7 +3720,7 @@ class NetCDF(Dataset):
             cube._offset = None
 
     def _writable_root_group(self) -> tuple[gdal.Dataset, gdal.Group]:
-        """Return a ``(dataset, root_group)`` pair that is safe to mutate.
+        """Return a ``(dataset, working_group)`` pair that is safe to mutate.
 
         A file-backed netCDF root group is opened in "data mode", which rejects
         ``CreateMDArray`` / ``DeleteMDArray`` / ``CreateDimension``. So for a file-backed
@@ -3723,14 +3728,28 @@ class NetCDF(Dataset):
         an already in-memory container is returned as-is. The caller is responsible for
         swapping the returned dataset in via :meth:`_replace_raster`.
 
+        For a `get_group()` view (`_group_path` set) the returned group is the
+        **sub-group** inside the writable dataset, not its root — so
+        ``set_variable`` / ``add_variable`` / ``rename_variable`` mutate the group
+        the view reads from rather than the store root (ARC-12). `_group_path` is
+        preserved across :meth:`_replace_raster`, so reads stay consistent with the
+        write. For a normal container the working group is the root group, so the
+        behaviour is unchanged.
+
         Returns:
-            tuple: The writable :class:`osgeo.gdal.Dataset` and its root group.
+            tuple: The writable :class:`osgeo.gdal.Dataset` and its working group.
         """
         if self.driver_type == "memory":
             dst = self._raster
         else:
             dst = gdal.GetDriverByName("MEM").CreateCopy("", self._raster, 0)
-        return dst, dst.GetRootGroup()
+        group = dst.GetRootGroup()
+        if group is not None and self._group_path:
+            for part in self._group_path.split("/"):
+                group = group.OpenGroup(part)
+                if group is None:
+                    break
+        return dst, group
 
     @staticmethod
     def _derive_primary_band_view(
