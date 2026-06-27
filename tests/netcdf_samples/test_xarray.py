@@ -4,7 +4,7 @@ import pytest
 
 from pyramids.netcdf import NetCDF
 
-pytestmark = pytest.mark.core
+pytestmark = pytest.mark.xarray
 xr = pytest.importorskip("xarray")
 
 

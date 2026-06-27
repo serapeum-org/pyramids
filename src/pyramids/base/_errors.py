@@ -159,6 +159,23 @@ class WCSError(_PyramidsError):
     """
 
 
+class WFSError(_PyramidsError):
+    """A failure talking to an OGC Web Feature Service (WFS).
+
+    Raised by :meth:`pyramids.feature.FeatureCollection.from_wfs` (implementation
+    in :mod:`pyramids.feature._wfs`) when the server cannot be reached, the
+    feature type cannot be fetched, or the server answers with an
+    ``<ows:ExceptionReport>`` / ``<ServiceExceptionReport>`` body instead of
+    features. WFS servers commonly return such errors as **HTTP 200 +
+    ``application/xml``**, so this is raised even when the transport succeeded.
+
+    A *missing* feature type (one not advertised by ``GetCapabilities``) raises a
+    plain :class:`ValueError` instead, mirroring how the rest of pyramids reports
+    a bad argument as opposed to a service failure. This is the vector sibling of
+    :class:`WCSError`.
+    """
+
+
 class GeometryWarning(UserWarning):
     """Pyramids-emitted warning about geometry validity / degeneracy.
 
