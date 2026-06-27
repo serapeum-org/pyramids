@@ -249,7 +249,7 @@ platforms = ["win-64", "linux-64", "linux-aarch64", "osx-arm64", "osx-64"]
 pyramids-gis = { path = ".", editable = true }
 
 [tool.pixi.tasks]
-main = { cmd = "pytest -vvv --cov=src/pyramids -sv -m 'not plot and not xarray' --cov-report=xml", description = "Run the main test suite" }
+main = { cmd = "pytest -vvv --cov=src/pyramids -sv -m 'not plot and not xarray and not vfs' --cov-report=xml", description = "Run the main test suite" }
 plot = { cmd = "pytest -vvv --cov=src/pyramids --cov-append -sv -m 'plot' --cov-report=xml", description = "Run plot test suite" }
 xarray-tests = { cmd = "pytest -vvv --cov=src/pyramids --cov-append -sv -m 'xarray' --cov-report=xml", description = "Run xarray interop tests" }
 test-all = { cmd = "pytest -vvv --cov=src/pyramids -sv --cov-report=xml --cov-report=term-missing", description = "Run all testsuite" }
