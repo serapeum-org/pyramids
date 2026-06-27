@@ -2891,10 +2891,10 @@ class NetCDF(Dataset):
                 >>> nc.dimension_sizes  # doctest: +SKIP
                 {'soil_layers_stag': 4, 'time': 128568, 'vis_nir': 2, 'x': 4608, 'y': 3840}
         """
-        rg = self._working_group()
-        if rg is None:
-            return {}
-        return {dim.GetName(): int(dim.GetSize()) for dim in rg.GetDimensions()}
+        return {
+            dim.GetName(): int(dim.GetSize())
+            for dim in self._working_group_dimensions()
+        }
 
     def get_time_values(self, var_name: str = "time") -> np.ndarray | None:
         """Raw (undecoded) values of the time coordinate, or ``None`` if absent.
@@ -2944,8 +2944,7 @@ class NetCDF(Dataset):
         """
         rg = self._working_group()
         if rg is not None:
-            dims = rg.GetDimensions()
-            return [dim.GetName() for dim in dims]
+            return [dim.GetName() for dim in self._working_group_dimensions()]
         cached = getattr(self, "_md_array_dims", None)
         if cached:
             return list(cached)
@@ -2969,13 +2968,11 @@ class NetCDF(Dataset):
         return self._get_dimension_names()
 
     def _get_dimension(self, name: str) -> gdal.Dimension:
-        dim_names = self.dimension_names
-        if dim_names is not None and name in dim_names:
-            rg = self._working_group()
-            dims = rg.GetDimensions()
-            dim = dims[dim_names.index(name)]
-        else:
-            dim = None
+        dim = None
+        for candidate in self._working_group_dimensions():
+            if candidate.GetName() == name:
+                dim = candidate
+                break
         return dim
 
     def _needs_y_flip(self, rg, md_arr) -> bool:
@@ -3094,6 +3091,41 @@ class NetCDF(Dataset):
             if group is None:
                 return None
         return group
+
+    def _working_group_dimensions(self) -> list:
+        """Return the dimensions visible to this container's working group.
+
+        For a normal container this is exactly the root group's
+        ``GetDimensions()``. For a `get_group()` view it also includes
+        dimensions the group's variables **inherit** from an ancestor group:
+        a netCDF file commonly defines shared `x`/`y` (and `time`) at the root
+        and references them from sub-group variables, and a GDAL group's
+        ``GetDimensions()`` lists only the dimensions declared *in* that group.
+        Without this union a group view would report no dimensions for a
+        variable that is plainly 2-D (the pre-`get_group`-view behaviour
+        recreated the inherited dimensions, so this preserves it).
+
+        Returns:
+            list: GDAL ``Dimension`` objects, de-duplicated by name, in group
+            order followed by any inherited dimensions discovered on the
+            group's variables.
+        """
+        rg = self._working_group()
+        if rg is None:
+            return []
+        dims = list(rg.GetDimensions())
+        if not self._group_path:
+            # Normal container: the root group's dimensions are complete, and
+            # scanning every variable would be needless work on a hot path.
+            return dims
+        seen = {dim.GetName(): dim for dim in dims}
+        for var in rg.GetMDArrayNames() or []:
+            md_arr = rg.OpenMDArray(var)
+            if md_arr is None:
+                continue
+            for dim in md_arr.GetDimensions():
+                seen.setdefault(dim.GetName(), dim)
+        return list(seen.values())
 
     @property
     def group_names(self) -> list[str]:
