@@ -125,38 +125,27 @@ class SpatialObject(Protocol):
 
 @runtime_checkable
 class RasterLike(SpatialObject, Protocol):
-    """Structural type for a pyramids raster (`Dataset` and its `NetCDF` subclass).
+    """Structural type for the full pyramids raster surface (`Dataset` / `NetCDF`).
 
-    Extends :class:`SpatialObject` with the raster-specific read surface shared
-    by :class:`pyramids.dataset.Dataset` and :class:`pyramids.netcdf.NetCDF`:
-    the geotransform-derived geometry, grid shape, band / no-data metadata, the
-    underlying GDAL handle, and array reads. Use it to annotate generic
-    raster utilities that should accept either a `Dataset` or a `NetCDF`
-    (or any future raster type) **without importing the concrete classes** —
-    which also lets `base`-layer code, that sits below `dataset` in the import
-    graph, reference "a raster" without an import cycle.
+    The protocol-based type constraint for the dataset surface (ARC-18). It
+    extends :class:`SpatialObject` with the raster **read** surface
+    (geotransform-derived geometry, grid shape, band / no-data metadata, the
+    GDAL handle, array reads) **and** the public raster **operations**
+    (`crop`, `to_crs`, `overlay`, `extract`, `change_no_data_value`, the
+    overview family) plus the `create_from_array` constructor — i.e. the
+    structural mirror of the
+    :class:`pyramids.dataset.abstract_dataset.RasterBase` abstract contract.
+    Use it to annotate code that accepts or returns "a pyramids raster"
+    (`Dataset`, `NetCDF`, or a future raster type) **without importing the
+    concrete classes**, which also lets `base`-layer code below `dataset` in
+    the import graph reference a raster without an import cycle.
 
-    This is purely a typing aid: it does **not** replace the concrete
-    :class:`pyramids.dataset.abstract_dataset.RasterBase` base class, and
-    `isinstance(x, RasterBase)` (a nominal check) is unaffected.
-
-    Attributes / properties (in addition to those on :class:`SpatialObject`):
-        cell_size:
-            Pixel size in CRS units (the geotransform's X spacing).
-        rows (int): Number of raster rows.
-        columns (int): Number of raster columns.
-        band_count (int): Number of raster bands.
-        no_data_value:
-            Per-band no-data sentinels (a sequence) or `None`.
-        geotransform:
-            The 6-tuple GDAL geotransform.
-        raster:
-            The underlying `osgeo.gdal.Dataset` handle.
-
-    Methods:
-        read_array(...):
-            Read band data into a numpy array (eager) or a dask array
-            (lazy `chunks=`), i.e. an :data:`ArrayLike`.
+    This is a typing aid, not a replacement for the ABC: a `Protocol` cannot
+    hold the instance state (`_raster`, the geotransform) or the shared method
+    bodies that `Dataset` / `NetCDF` inherit, so `RasterBase` remains the
+    concrete implementation base and nominal `isinstance(x, RasterBase)`
+    checks are unaffected. `RasterLike` is the *type/contract* layer;
+    `RasterBase` is the *implementation* layer.
 
     Because this is :func:`typing.runtime_checkable`, you can use it with
     :func:`isinstance` (PEP 544 — attribute/method presence only, not
@@ -167,16 +156,69 @@ class RasterLike(SpatialObject, Protocol):
     ...     return r.rows * r.columns
     """
 
+    # Geo / grid read surface (in addition to SpatialObject's epsg /
+    # total_bounds / top_left_corner).
     cell_size: Any
     rows: int
     columns: int
     band_count: int
     no_data_value: Any
     geotransform: Any
+    shape: Any
+    crs: Any
     raster: Any
 
     def read_array(self, *args: Any, **kwargs: Any) -> "ArrayLike":
         """Read band data as a numpy or dask array (protocol stub; see concrete impls)."""
+        ...
+
+    @classmethod
+    def create_from_array(  # pragma: no cover - protocol stub
+        cls, *args: Any, **kwargs: Any
+    ) -> "RasterLike":
+        """Construct a raster from an array (protocol stub; see concrete impls)."""
+        ...
+
+    def crop(self, *args: Any, **kwargs: Any) -> "RasterLike":  # pragma: no cover - protocol stub
+        """Crop to a mask / bounds (protocol stub; see concrete impls)."""
+        ...
+
+    def to_crs(self, *args: Any, **kwargs: Any) -> "RasterLike":  # pragma: no cover - protocol stub
+        """Reproject to a target CRS (protocol stub; see concrete impls)."""
+        ...
+
+    def overlay(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - protocol stub
+        """Zonal/overlay extraction against another object (protocol stub)."""
+        ...
+
+    def extract(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - protocol stub
+        """Extract cell values (protocol stub; see concrete impls)."""
+        ...
+
+    def change_no_data_value(  # pragma: no cover - protocol stub
+        self, *args: Any, **kwargs: Any
+    ) -> Any:
+        """Change the no-data sentinel (protocol stub; see concrete impls)."""
+        ...
+
+    def create_overviews(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - protocol stub
+        """Build reduced-resolution overviews (protocol stub)."""
+        ...
+
+    def recreate_overviews(  # pragma: no cover - protocol stub
+        self, *args: Any, **kwargs: Any
+    ) -> Any:
+        """Rebuild overviews (protocol stub; see concrete impls)."""
+        ...
+
+    def get_overview(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - protocol stub
+        """Return an overview level (protocol stub; see concrete impls)."""
+        ...
+
+    def read_overview_array(  # pragma: no cover - protocol stub
+        self, *args: Any, **kwargs: Any
+    ) -> "ArrayLike":
+        """Read an overview level as an array (protocol stub)."""
         ...
 
 
