@@ -3203,7 +3203,17 @@ class NetCDF(Dataset):
         Returns:
             list[str]: Variable names (e.g., `["temperature", "precipitation"]`).
         """
-        if self._cached_meta_data is not None and self._cached_meta_data.cf is not None:
+        # A group view's cached metadata keys variables by their full store path
+        # (e.g. "forecast/temperature"), but the view's API uses names relative to
+        # its sub-group. So for a group view always resolve bare names from the
+        # working group directly — otherwise variable_names (and get_variable's
+        # validation) would flip from "temperature" to "forecast/temperature" once
+        # metadata is cached, breaking get_variable (ARC-12 review H1).
+        if (
+            self._group_path is None
+            and self._cached_meta_data is not None
+            and self._cached_meta_data.cf is not None
+        ):
             variable_names = list(self._cached_meta_data.cf.data_variable_names)
         else:
             rg = self._working_group()
