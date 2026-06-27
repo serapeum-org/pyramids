@@ -9,6 +9,7 @@ import numpy as np  # noqa: E402
 import pytest
 from osgeo import gdal
 
+from pyramids import _io
 from pyramids.base.remote import (
     CloudConfig,
     _to_vsi,
@@ -137,6 +138,10 @@ class TestToVsi:
     def test_dods_without_double_slash(self):
         # urlparse still classifies "dods:host/path" as scheme dods; must not crash.
         assert _to_vsi("dods:host/path") == 'NETCDF:"https://host/path"'
+
+    def test_dods_routed_through_parse_path(self):
+        # The read path (read_file -> _parse_path -> _to_vsi) must yield the NETCDF: form.
+        assert _io._parse_path("dods://h/x.nc") == 'NETCDF:"https://h/x.nc"'
 
 
 class TestIsRemote:
