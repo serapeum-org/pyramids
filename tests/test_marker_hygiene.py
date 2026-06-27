@@ -87,6 +87,28 @@ def _importorskip_dep(call: ast.Call) -> str | None:
     return None
 
 
+def _bare_import_deps(node: ast.stmt) -> list[str]:
+    """Optional-dep top-level modules imported by a top-level ``import`` / ``from`` node."""
+    if isinstance(node, ast.Import):
+        tops = [alias.name.split(".")[0] for alias in node.names]
+    elif isinstance(node, ast.ImportFrom):
+        tops = [(node.module or "").split(".")[0]]
+    else:
+        return []
+    return [top for top in tops if top in _OPTIONAL_DEPS]
+
+
+def _node_importorskip_dep(node: ast.stmt) -> str | None:
+    """Optional dep ``importorskip``ed by a top-level expr/assignment node, else ``None``."""
+    # `pytest.importorskip(...)` appears either bare (`Expr`) or assigned (`da = ...`); both
+    # expose the call as `node.value`, so they collapse into one branch.
+    if isinstance(node, (ast.Expr, ast.Assign)) and isinstance(node.value, ast.Call):
+        dep = _importorskip_dep(node.value)
+        if dep in _OPTIONAL_DEPS:
+            return dep
+    return None
+
+
 def _module_offenders(tree: ast.Module) -> tuple[list[str], list[str]]:
     """Optional deps pulled at MODULE scope (top-level only; guarded/inner are skipped).
 
@@ -97,26 +119,10 @@ def _module_offenders(tree: ast.Module) -> tuple[list[str], list[str]]:
     bare_imports: list[str] = []
     importorskips: list[str] = []
     for node in tree.body:
-        if isinstance(node, ast.Import):
-            bare_imports += [
-                alias.name.split(".")[0]
-                for alias in node.names
-                if alias.name.split(".")[0] in _OPTIONAL_DEPS
-            ]
-        elif isinstance(node, ast.ImportFrom):
-            top = (node.module or "").split(".")[0]
-            if top in _OPTIONAL_DEPS:
-                bare_imports.append(top)
-        else:
-            call = None
-            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
-                call = node.value
-            elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
-                call = node.value
-            if call is not None:
-                dep = _importorskip_dep(call)
-                if dep in _OPTIONAL_DEPS:
-                    importorskips.append(dep)
+        bare_imports += _bare_import_deps(node)
+        dep = _node_importorskip_dep(node)
+        if dep is not None:
+            importorskips.append(dep)
     return bare_imports, importorskips
 
 
