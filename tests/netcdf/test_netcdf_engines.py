@@ -128,16 +128,6 @@ class TestEngineWiring:
 class TestInteropEngine:
     """Edge / error branches of :class:`Interop` and the module functions."""
 
-    def test_to_xarray_requires_multidimensional(self, classic_container):
-        """``to_xarray`` on a classic container raises ValueError.
-
-        Test scenario:
-            A non-MDIM container has no GDAL root group, so the conversion
-            cannot proceed and a guiding ValueError is raised.
-        """
-        with pytest.raises(ValueError, match="multidimensional container"):
-            classic_container.to_xarray()
-
     def test_to_xarray_missing_xarray_raises(self, mdim_container, monkeypatch):
         """``to_xarray`` raises OptionalPackageDoesNotExist when xarray is absent.
 
@@ -151,17 +141,6 @@ class TestInteropEngine:
         with pytest.raises(OptionalPackageDoesNotExist, match="xarray is required"):
             mdim_container.to_xarray()
 
-    def test_from_xarray_rejects_non_dataset(self):
-        """``from_xarray`` raises TypeError when handed a non-Dataset.
-
-        Test scenario:
-            Passing a plain object that is not an ``xarray.Dataset`` is a
-            programming error and raises TypeError naming the bad type.
-        """
-        pytest.importorskip("xarray")
-        with pytest.raises(TypeError, match="Expected xarray.Dataset"):
-            NetCDF.from_xarray(object())
-
     def test_from_xarray_missing_xarray_raises(self, monkeypatch):
         """``from_xarray`` raises OptionalPackageDoesNotExist when xarray is absent.
 
@@ -174,64 +153,6 @@ class TestInteropEngine:
         monkeypatch.setitem(sys.modules, "xarray", None)
         with pytest.raises(OptionalPackageDoesNotExist, match="xarray is required"):
             NetCDF.from_xarray(object())
-
-    def test_from_xarray_skips_non_dimension_coord(self):
-        """A coordinate that is not also a dimension is skipped on write.
-
-        Test scenario:
-            ``_build_multidim_from_xarray`` only writes coords whose name matches
-            a dimension; a scalar/auxiliary coord is silently skipped, so the
-            round-trip drops it rather than crashing.
-        """
-        xr = pytest.importorskip("xarray")
-        ds = xr.Dataset(
-            data_vars={"t": (("y", "x"), np.arange(6.0).reshape(2, 3))},
-            coords={
-                "y": ("y", [0.0, 1.0]),
-                "x": ("x", [0.0, 1.0, 2.0]),
-                "scalar_meta": 42.0,  # not a dimension -> skipped
-            },
-        )
-        nc = NetCDF.from_xarray(ds)
-        assert "t" in nc.variable_names, "data variable lost on round-trip"
-        assert "scalar_meta" not in nc.variable_names, "non-dim coord should be skipped"
-
-    def test_units_survive_from_xarray_to_xarray_roundtrip(self):
-        """A variable's ``units`` survive ``from_xarray`` → ``to_xarray``.
-
-        Test scenario:
-            GDAL's netCDF layer moves the CF ``units`` attribute onto the MDArray
-            unit slot, so the engines route it through ``SetUnit`` on write and
-            merge it back from ``GetUnit`` on read. Building a dataset whose data
-            variable carries ``units`` and round-tripping it preserves that unit,
-            exercising both the write-side and read-side unit handling.
-        """
-        xr = pytest.importorskip("xarray")
-        ds = xr.Dataset(
-            data_vars={
-                "t": (("y", "x"), np.arange(6.0).reshape(2, 3), {"units": "kelvin"})
-            },
-            coords={"y": ("y", [0.0, 1.0]), "x": ("x", [0.0, 1.0, 2.0])},
-        )
-        nc = NetCDF.from_xarray(ds)
-        out = nc.to_xarray()
-        assert out["t"].attrs.get("units") == "kelvin", (
-            f"units lost on round-trip: {out['t'].attrs}"
-        )
-
-    def test_to_xarray_roundtrip_through_engine(self, mdim_container):
-        """``nc.interop.to_xarray()`` and ``nc.to_xarray()`` agree.
-
-        Test scenario:
-            Calling the engine directly and through the façade produce datasets
-            with the same data variables — the façade adds no behaviour.
-        """
-        pytest.importorskip("xarray")
-        via_engine = mdim_container.interop.to_xarray()
-        via_facade = mdim_container.to_xarray()
-        assert set(via_engine.data_vars) == set(via_facade.data_vars), (
-            "engine and façade disagree on variables"
-        )
 
 
 class TestVariablesEngine:

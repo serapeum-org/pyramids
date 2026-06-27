@@ -41,10 +41,8 @@ else:
 
 try:
     import xarray as xr
-except ImportError:  # pragma: no cover
-    HAS_XARRAY = False
-else:
-    HAS_XARRAY = True
+except ImportError:  # pragma: no cover - tests using xr are @pytest.mark.xarray gated
+    xr = None
 
 
 try:
@@ -58,7 +56,6 @@ pytestmark = pytest.mark.lazy
 
 
 requires_zarr = pytest.mark.skipif(not HAS_ZARR, reason="dask + zarr needed")
-requires_xarray = pytest.mark.skipif(not HAS_XARRAY, reason="xarray needed")
 requires_kerchunk = pytest.mark.skipif(not HAS_KERCHUNK, reason="kerchunk needed")
 
 
@@ -139,7 +136,6 @@ class TestCollectionIOE2E:
 
     @pytest.mark.xarray
     @requires_kerchunk
-    @requires_xarray
     def test_to_kerchunk_consumer_via_xarray(self, tmp_path):
         """`collection.to_kerchunk` → `xr.open_dataset(engine="kerchunk")`.
 

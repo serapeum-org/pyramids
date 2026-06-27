@@ -120,12 +120,12 @@ jobs:
 
       - name: Run core tests
         shell: bash -el {0}
-        # ``core`` is auto-applied by tests/conftest.py to every test
-        # that carries no extras marker — see
-        # ``pytest_collection_modifyitems`` there. Any new extra added
-        # in the future is handled automatically: new extras-gated
-        # tests get their extras marker, non-extras tests keep getting
-        # ``core`` without needing a negation list update here.
+        # ``core`` is an explicit ``pytestmark = pytest.mark.core`` on every
+        # extras-free test module. Tests that need an optional dependency carry
+        # the matching extras marker instead (``xarray`` / ``lazy`` / …), and
+        # tests/conftest.py's ``pytest_collection_modifyitems`` auto-applies the
+        # corresponding ``requires_<extra>`` skip to those — so ``-m core`` here
+        # selects only the bare-install tests and never collects an extras test.
         run: |
           pytest -vvv -sv -m core tests/
 

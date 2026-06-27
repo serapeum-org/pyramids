@@ -1,5 +1,10 @@
 """Tests for :meth:`pyramids.dataset.DatasetCollection.to_netcdf` (PY-4).
 
+``to_netcdf`` requires xarray, so the whole module is ``xarray``-marked and runs
+only in the xarray CI job. The *missing*-xarray branch (the
+``OptionalPackageDoesNotExist`` path) lives in ``test_to_netcdf_missing_xarray.py``
+as a ``core`` test so it still runs in the extras-free suite.
+
 Inspection round-trip is done with :func:`osgeo.gdal.OpenEx` in
 ``OF_MULTIDIM_RASTER`` mode so the assertions don't require an xarray
 NetCDF engine (xarray in CI may not pull ``netcdf4``).
@@ -9,7 +14,6 @@ from __future__ import annotations
 
 import datetime as dt
 import os
-import sys
 import warnings
 
 import numpy as np
@@ -17,11 +21,13 @@ import pandas as pd
 import pytest
 from osgeo import gdal
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.dataset import Dataset, DatasetCollection
 from pyramids.netcdf import NetCDF
+from tests.dataset.collection._helpers import (
+    make_int16_collection as _make_int16_collection,
+)
 
-pytestmark = pytest.mark.core
+pytestmark = pytest.mark.xarray
 
 
 def _root_attrs(path: str) -> dict:
@@ -64,34 +70,6 @@ def _array_values(path: str, name: str) -> np.ndarray:
     """
     g = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER).GetRootGroup()
     return np.asarray(g.OpenMDArray(name).ReadAsArray())
-
-
-def _make_int16_collection(tmp_path, count: int = 2, no_data_value: int = -9999):
-    """Build a small int16 file-backed collection.
-
-    Args:
-        tmp_path: pytest temp directory.
-        count: Number of timesteps to materialise.
-        no_data_value: Value stamped as nodata on each timestep.
-
-    Returns:
-        tuple[DatasetCollection, list[str]]: the collection plus its
-        backing paths, so tests can introspect ``_files``.
-    """
-    paths = []
-    for i in range(count):
-        arr = np.arange(20, dtype="int16").reshape(4, 5) + 100 * i
-        p = os.path.join(str(tmp_path), f"t{i}.tif")
-        Dataset.create_from_array(
-            arr,
-            top_left_corner=(0, 0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=no_data_value,
-            path=p,
-        ).close()
-        paths.append(p)
-    return DatasetCollection.from_files(paths), paths
 
 
 @pytest.mark.xarray
@@ -600,27 +578,6 @@ class TestToNetcdfNoFilesPath:
         assert out.exists(), "no-files write did not produce a file"
         values = _array_values(str(out), "Band_1")
         assert values.shape == (3, 4, 5), f"unexpected shape: {values.shape}"
-
-
-class TestToNetcdfMissingXarray:
-    """Behaviour when the optional ``xarray`` dependency is missing."""
-
-    def test_missing_xarray_raises_optional_package(self, tmp_path, monkeypatch):
-        """When ``xarray`` is not importable the writer raises ``OptionalPackageDoesNotExist``.
-
-        Args:
-            tmp_path: pytest temp directory.
-            monkeypatch: pytest monkeypatch fixture.
-
-        Test scenario:
-            Force ``import xarray`` to fail via ``sys.modules`` — expected:
-            ``OptionalPackageDoesNotExist`` with an install hint mentioning
-            ``xarray``.
-        """
-        col, _ = _make_int16_collection(tmp_path)
-        monkeypatch.setitem(sys.modules, "xarray", None)
-        with pytest.raises(OptionalPackageDoesNotExist, match="xarray"):
-            col.to_netcdf(str(tmp_path / "noxr.nc"))
 
 
 @pytest.mark.xarray

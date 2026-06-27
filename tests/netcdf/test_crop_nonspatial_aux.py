@@ -3,16 +3,18 @@
 ``NetCDF.crop`` (and the shared ``_apply_to_all_variables`` fan-out used by
 ``to_crs``) used to crash on a multi-variable root container that carried a
 non-spatial auxiliary variable — e.g. an ERA5 cube with ``t2m(valid_time,
-latitude, longitude)`` plus a 1-D ``expver(valid_time)`` / ``number(valid_time)``
-that has no ``y`` / ``x`` axes. The fan-out now crops only the gridded variables
-(detected per variable) and **carries the non-spatial auxiliary variables through
+y, x)`` plus a 1-D ``expver(valid_time)`` / ``number(valid_time)`` that has no
+``y`` / ``x`` axes. The fan-out now crops only the gridded variables (detected
+per variable) and **carries the non-spatial auxiliary variables through
 unchanged** into the result, the way ``rioxarray.clip`` leaves them alone.
 
-These tests build the cube through ``NetCDF.from_xarray`` (pyramids' own writer),
-so the whole module is skipped when xarray is unavailable. ERA5's real ``expver``
-is a string variable, which ``from_xarray`` does not write; the defect is
-dtype-agnostic (it is about a 1-D non-spatial variable in the fan-out), so a
-numeric ``number`` aux reproduces it faithfully.
+The cubes are built with pyramids' own writers: the gridded variable through
+``NetCDF.create_from_array``, and the non-spatial / non-gridded auxiliaries —
+which ``create_from_array`` cannot express — straight through the GDAL
+multidim API (``_attach``), so the module needs no xarray. ERA5's real
+``expver`` is a string variable; the defect is dtype-agnostic (it is about a
+1-D non-spatial variable in the fan-out), so a numeric ``number`` aux
+reproduces it faithfully.
 """
 
 from __future__ import annotations
@@ -23,20 +25,58 @@ from unittest.mock import Mock
 import geopandas as gpd
 import numpy as np
 import pytest
+from osgeo import gdal
 from shapely.geometry import box
 
-from pyramids.netcdf.netcdf import NetCDF
-
-xr = pytest.importorskip("xarray")
+from pyramids.netcdf.netcdf import Container, NetCDF
 
 pytestmark = pytest.mark.core
 
 
-def _era5_like_cube(*, with_spatial=True, with_aux=True, with_second_spatial=False):
-    """Build an ERA5-shaped multidimensional cube via ``NetCDF.from_xarray``.
+def _attach(nc, name, dims, values, gdal_dtype):
+    """Add a variable on named dimensions straight through the GDAL multidim API.
+
+    Existing dimensions are reused by name+size (so an aux variable shares the
+    gridded variable's ``valid_time``), missing ones are created. This builds the
+    non-gridded auxiliaries that ``create_from_array`` cannot express — without
+    any xarray.
 
     Args:
-        with_spatial: Include the gridded ``t2m(valid_time, latitude, longitude)``.
+        nc: The in-memory container to attach the variable to.
+        name: Variable name.
+        dims: Ordered ``(dim_name, size)`` pairs for the variable's axes.
+        values: The array to write (shape must match ``dims``).
+        gdal_dtype: GDAL numeric type code for the variable (e.g.
+            ``gdal.GDT_Int32``).
+
+    Returns:
+        Container: ``nc``, for chaining.
+    """
+    rg = nc._raster.GetRootGroup()
+    existing = {d.GetName(): d for d in (rg.GetDimensions() or [])}
+    gdal_dims = []
+    for dim_name, size in dims:
+        dim = existing.get(dim_name)
+        if dim is None or dim.GetSize() != size:
+            dim = rg.CreateDimension(dim_name, "", "", size)
+            existing[dim_name] = dim
+        gdal_dims.append(dim)
+    md = rg.CreateMDArray(name, gdal_dims, gdal.ExtendedDataType.Create(gdal_dtype))
+    md.Write(np.ascontiguousarray(values))
+    nc._invalidate_caches()
+    return nc
+
+
+def _era5_like_cube(*, with_spatial=True, with_aux=True, with_second_spatial=False):
+    """Build an ERA5-shaped multidimensional cube with pyramids' native writers.
+
+    The gridded ``t2m(valid_time, y, x)`` is written by
+    ``NetCDF.create_from_array``; the non-spatial 1-D ``number(valid_time)`` and
+    the optional second gridded ``tp`` are attached onto the same root group via
+    :func:`_attach`, so the aux variable shares ``t2m``'s ``valid_time``.
+
+    Args:
+        with_spatial: Include the gridded ``t2m(valid_time, y, x)``.
         with_aux: Include the non-spatial 1-D ``number(valid_time)`` auxiliary.
         with_second_spatial: Also include a second gridded ``tp`` variable.
 
@@ -44,26 +84,34 @@ def _era5_like_cube(*, with_spatial=True, with_aux=True, with_second_spatial=Fal
         NetCDF: The opened multi-variable container.
     """
     n_t, n_lat, n_lon = 4, 5, 5
-    lat = np.arange(5.0, 0.0, -1.0)
-    lon = np.arange(0.0, 5.0, 1.0)
-    data_vars = {}
     if with_spatial:
-        data_vars["t2m"] = (
-            ("valid_time", "latitude", "longitude"),
+        nc = NetCDF.create_from_array(
             np.ones((n_t, n_lat, n_lon), "float32"),
+            top_left_corner=(0.0, 5.0),
+            cell_size=1.0,
+            epsg=4326,
+            extra_dims=[("valid_time", list(range(n_t)))],
+            variable_name="t2m",
         )
+    else:
+        nc = Container(gdal.GetDriverByName("MEM").CreateMultiDimensional("netcdf"))
     if with_second_spatial:
-        data_vars["tp"] = (
-            ("valid_time", "latitude", "longitude"),
+        _attach(
+            nc,
+            "tp",
+            [("valid_time", n_t), ("y", n_lat), ("x", n_lon)],
             np.full((n_t, n_lat, n_lon), 2.0, "float32"),
+            gdal.GDT_Float32,
         )
     if with_aux:
-        data_vars["number"] = (("valid_time",), np.array([0, 0, 1, 1], dtype="int32"))
-    coords = {"valid_time": np.arange(n_t), "latitude": lat, "longitude": lon}
-    ds = xr.Dataset(data_vars, coords=coords)
-    ds.latitude.attrs.update(units="degrees_north", standard_name="latitude")
-    ds.longitude.attrs.update(units="degrees_east", standard_name="longitude")
-    return NetCDF.from_xarray(ds)
+        _attach(
+            nc,
+            "number",
+            [("valid_time", n_t)],
+            np.array([0, 0, 1, 1], dtype="int32"),
+            gdal.GDT_Int32,
+        )
+    return nc
 
 
 def _raw_values(cube, var_name):
@@ -84,9 +132,8 @@ class TestCropNonSpatialAux:
             ``t2m`` + 1-D ``number`` container, crop to a box -> the fan-out no
             longer crashes; the result contains both ``t2m`` (with its 4
             valid_time bands intact) and the carried-through ``number``. Actual
-            mask clipping is covered by ``TestWholeContainerCrop`` — here the
-            synthetic ``from_xarray`` cube carries no CRS, so we only assert the
-            #513 regression.
+            mask clipping is covered by ``TestWholeContainerCrop`` — here we only
+            assert the #513 regression (both variables survive the fan-out).
         """
         cube = _era5_like_cube()
         cropped = cube.crop(mask=_MASK, touch=True)
@@ -183,28 +230,14 @@ class TestCropNonSpatialAux:
             carried through untransformed. crop must warn that it is NOT being
             cropped/reprojected, rather than dropping it silently.
         """
-        n_t = 4
-        lat = np.arange(5.0, 0.0, -1.0)
-        lon = np.arange(0.0, 5.0, 1.0)
-        ds = xr.Dataset(
-            {
-                "t2m": (
-                    ("valid_time", "latitude", "longitude"),
-                    np.ones((n_t, 5, 5), "float32"),
-                ),
-                "weird": (("alpha", "beta"), np.ones((5, 5), "float32")),
-            },
-            coords={
-                "valid_time": np.arange(n_t),
-                "latitude": lat,
-                "longitude": lon,
-                "alpha": np.arange(5.0),
-                "beta": np.arange(5.0),
-            },
+        cube = _era5_like_cube(with_aux=False)
+        _attach(
+            cube,
+            "weird",
+            [("alpha", 5), ("beta", 5)],
+            np.ones((5, 5), "float32"),
+            gdal.GDT_Float32,
         )
-        ds.latitude.attrs.update(units="degrees_north", standard_name="latitude")
-        ds.longitude.attrs.update(units="degrees_east", standard_name="longitude")
-        cube = NetCDF.from_xarray(ds)
         with pytest.warns(UserWarning, match="not recognised as spatial"):
             cube.crop(_MASK)
 
@@ -218,26 +251,14 @@ class TestCropNonSpatialAux:
             variables with >= 2 unrecognised axes, i.e. a likely unmapped grid).
         """
         n_t, n_lev = 4, 3
-        lat = np.arange(5.0, 0.0, -1.0)
-        lon = np.arange(0.0, 5.0, 1.0)
-        ds = xr.Dataset(
-            {
-                "t2m": (
-                    ("valid_time", "latitude", "longitude"),
-                    np.ones((n_t, 5, 5), "float32"),
-                ),
-                "lut": (("valid_time", "level"), np.ones((n_t, n_lev), "float32")),
-            },
-            coords={
-                "valid_time": np.arange(n_t),
-                "latitude": lat,
-                "longitude": lon,
-                "level": np.arange(n_lev),
-            },
+        cube = _era5_like_cube(with_aux=False)
+        _attach(
+            cube,
+            "lut",
+            [("valid_time", n_t), ("level", n_lev)],
+            np.ones((n_t, n_lev), "float32"),
+            gdal.GDT_Float32,
         )
-        ds.latitude.attrs.update(units="degrees_north", standard_name="latitude")
-        ds.longitude.attrs.update(units="degrees_east", standard_name="longitude")
-        cube = NetCDF.from_xarray(ds)
         with warnings.catch_warnings(record=True) as records:
             warnings.simplefilter("always")
             cube.crop(_MASK)

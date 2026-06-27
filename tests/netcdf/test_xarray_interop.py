@@ -620,3 +620,65 @@ class TestFileBacked3DRoundTrip:
             f"Original variables {orig_names} should be in "
             f"round-trip result {result_names}"
         )
+
+
+class TestInteropEngineBranches:
+    """Engine-level ``from_xarray`` / ``to_xarray`` behaviour (moved from
+    ``test_netcdf_engines.py`` — these genuinely exercise the two interop
+    methods, so they belong with the rest of the interop suite)."""
+
+    def test_from_xarray_skips_non_dimension_coord(self):
+        """A coordinate that is not also a dimension is skipped on write.
+
+        Test scenario:
+            ``_build_multidim_from_xarray`` only writes coords whose name matches
+            a dimension; a scalar/auxiliary coord is silently skipped, so the
+            round-trip drops it rather than crashing.
+        """
+        ds = xr.Dataset(
+            data_vars={"t": (("y", "x"), np.arange(6.0).reshape(2, 3))},
+            coords={
+                "y": ("y", [0.0, 1.0]),
+                "x": ("x", [0.0, 1.0, 2.0]),
+                "scalar_meta": 42.0,  # not a dimension -> skipped
+            },
+        )
+        nc = NetCDF.from_xarray(ds)
+        assert "t" in nc.variable_names, "data variable lost on round-trip"
+        assert "scalar_meta" not in nc.variable_names, "non-dim coord should be skipped"
+
+    def test_units_survive_from_xarray_to_xarray_roundtrip(self):
+        """A variable's ``units`` survive ``from_xarray`` → ``to_xarray``.
+
+        Test scenario:
+            GDAL's netCDF layer moves the CF ``units`` attribute onto the MDArray
+            unit slot, so the engines route it through ``SetUnit`` on write and
+            merge it back from ``GetUnit`` on read. Building a dataset whose data
+            variable carries ``units`` and round-tripping it preserves that unit,
+            exercising both the write-side and read-side unit handling.
+        """
+        ds = xr.Dataset(
+            data_vars={
+                "t": (("y", "x"), np.arange(6.0).reshape(2, 3), {"units": "kelvin"})
+            },
+            coords={"y": ("y", [0.0, 1.0]), "x": ("x", [0.0, 1.0, 2.0])},
+        )
+        nc = NetCDF.from_xarray(ds)
+        out = nc.to_xarray()
+        assert out["t"].attrs.get("units") == "kelvin", (
+            f"units lost on round-trip: {out['t'].attrs}"
+        )
+
+    def test_to_xarray_roundtrip_through_engine(self):
+        """``nc.interop.to_xarray()`` and ``nc.to_xarray()`` agree.
+
+        Test scenario:
+            Calling the engine directly and through the façade produce datasets
+            with the same data variables — the façade adds no behaviour.
+        """
+        nc = _make_3d_nc()
+        via_engine = nc.interop.to_xarray()
+        via_facade = nc.to_xarray()
+        assert set(via_engine.data_vars) == set(via_facade.data_vars), (
+            "engine and façade disagree on variables"
+        )

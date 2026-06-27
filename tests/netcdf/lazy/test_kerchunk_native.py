@@ -31,10 +31,8 @@ h5py = pytest.importorskip("h5py")
 
 try:
     import xarray as xr
-except ImportError:  # pragma: no cover
-    HAS_XARRAY = False
-else:
-    HAS_XARRAY = True
+except ImportError:  # pragma: no cover - tests using xr are @pytest.mark.xarray gated
+    xr = None
 try:
     import_kerchunk("kerchunk not installed")
 except OptionalPackageDoesNotExist:  # pragma: no cover
@@ -42,7 +40,6 @@ except OptionalPackageDoesNotExist:  # pragma: no cover
 else:
     HAS_KERCHUNK = True
 
-requires_xarray = pytest.mark.skipif(not HAS_XARRAY, reason="xarray not installed")
 requires_kerchunk = pytest.mark.skipif(
     not HAS_KERCHUNK, reason="kerchunk not installed"
 )
@@ -143,7 +140,7 @@ class TestParityWithKerchunk:
 class TestRoundTrip:
     """Native manifest opens correctly through xarray's kerchunk engine."""
 
-    @requires_xarray
+    @pytest.mark.xarray
     @requires_kerchunk
     def test_fixture_values_match_direct_read(self, tmp_path):
         """Non-fill data round-trips; fill cells decode to NaN."""
@@ -164,7 +161,7 @@ class TestRoundTrip:
         finally:
             ds.close()
 
-    @requires_xarray
+    @pytest.mark.xarray
     @requires_kerchunk
     def test_chunked_compressed_roundtrip(self, tmp_path):
         """A chunked + gzip + shuffle dataset round-trips bit-for-bit."""
@@ -276,7 +273,7 @@ class TestCombine:
         assert json.loads(combined["time/.zarray"])["shape"] == [6]
         assert json.loads(combined["lat/.zarray"])["shape"] == [5], "lat not stacked"
 
-    @requires_xarray
+    @pytest.mark.xarray
     @requires_kerchunk
     def test_combined_data_equals_real_stack(self, tmp_path):
         """Round-trip: the combined cube equals np.concatenate of the inputs."""
