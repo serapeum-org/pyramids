@@ -15,6 +15,13 @@ This module exposes three cross-cutting structural types:
   :class:`numpy.ndarray` and :class:`dask.array.Array`, used to annotate
   array-returning methods that may be either eager or lazy.
 
+For dtype-precise *eager* array returns the module re-exports
+:data:`numpy.typing.NDArray` and a :data:`FloatArray` alias
+(``NDArray[np.float64]``) — used to annotate typed numpy returns such as
+coordinate / dimension arrays from a single place. (The :data:`ArrayLike`
+union stays dtype-agnostic because dask arrays do not compose with
+``NDArray[...]``.)
+
 The module also exports two small dispatch helpers — :func:`is_lazy` and
 :func:`as_numpy` — so the rest of the codebase has a single place to
 branch between the eager and lazy paths.
@@ -31,6 +38,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, Union, runtime_checkable
 
 import numpy as np
+from numpy.typing import NDArray
 
 if TYPE_CHECKING:  # pragma: no cover - only for type checkers
     import dask.array as da  # noqa: F401
@@ -42,6 +50,13 @@ if TYPE_CHECKING:  # pragma: no cover - only for type checkers
 # either backend; use the :class:`_ArrayLikeProto` Protocol below for runtime
 # isinstance checks.
 ArrayLike = Union[np.ndarray, "da.Array"]
+
+# Dtype-precise alias for *eager* array returns whose element type is known
+# (e.g. coordinate / dimension arrays, which are always float64). `NDArray` is
+# re-exported from `numpy.typing` so callers annotate typed numpy returns from a
+# single place (ARC-19); `ArrayLike` above stays the eager-or-lazy union and is
+# deliberately dtype-agnostic (dask arrays do not compose with `NDArray[...]`).
+FloatArray = NDArray[np.float64]
 
 
 @runtime_checkable
@@ -273,7 +288,7 @@ class _ArrayLikeProto(Protocol):
 
     def __array__(
         self, dtype: Any = None
-    ) -> np.ndarray:  # pragma: no cover - protocol stub
+    ) -> NDArray:  # pragma: no cover - protocol stub
         """Return a numpy representation of the array."""
         ...
 
@@ -311,7 +326,7 @@ def is_lazy(x: Any) -> bool:
     return hasattr(x, "dask") and hasattr(x, "compute")
 
 
-def as_numpy(x: ArrayLike) -> np.ndarray:
+def as_numpy(x: ArrayLike) -> NDArray:
     """Return a numpy ndarray view/copy of `x`, computing if lazy.
 
     Eager :class:`numpy.ndarray` inputs are returned via

@@ -29,7 +29,7 @@ from pyramids.base._utils import (
     Catalog,
 )
 from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
-from pyramids.base.protocols import ArrayLike
+from pyramids.base.protocols import ArrayLike, FloatArray
 from pyramids.dataset.transform import GeoTransform
 from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
@@ -433,7 +433,7 @@ class RasterBase(ABC):
         return self._raster.GetMetadata()
 
     @staticmethod
-    def get_x_lon_dimension_array(pivot_x, cell_size, columns) -> np.ndarray:
+    def get_x_lon_dimension_array(pivot_x, cell_size, columns) -> FloatArray:
         """Build a 1-D array of x/longitude cell-centre coordinates.
 
         Args:
@@ -452,7 +452,7 @@ class RasterBase(ABC):
         return x_coords
 
     @staticmethod
-    def get_y_lat_dimension_array(pivot_y, cell_size, rows) -> np.ndarray:
+    def get_y_lat_dimension_array(pivot_y, cell_size, rows) -> FloatArray:
         """Build a 1-D array of y/latitude cell-centre coordinates.
 
         Coordinates decrease from north to south (top to bottom).
