@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 from pyramids.base.protocols import ArrayLike, _ArrayLikeProto, as_numpy, is_lazy
-from tests._marks import requires_dask
+from tests._marks import requires_dask_array as requires_dask
 
 pytestmark = pytest.mark.core
 
