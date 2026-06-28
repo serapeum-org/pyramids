@@ -44,9 +44,14 @@ def _make_2d_nc(rows=6, cols=8, variable_name="elevation"):
 def nc_3d():
     """3D NetCDF container fixture with 5 time steps."""
     return make_3d_nc(
-        rows=6, cols=8, bands=5, variable_name="temperature",
-        geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-        extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+        rows=6,
+        cols=8,
+        bands=5,
+        variable_name="temperature",
+        geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+        arr_type="sequential",
+        extra_dim_name="time",
+        extra_dim_values=[0, 6, 12, 18, 24],
     )
 
 
@@ -350,9 +355,14 @@ class TestSelDataIntegrity:
             The sel() result data should exactly equal that band.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         sel_result = var.sel(time=12)
@@ -371,9 +381,14 @@ class TestSelDataIntegrity:
             should produce the same array as np.stack([band0, band3]).
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         sel_result = var.sel(time=[0, 18])
@@ -393,9 +408,14 @@ class TestSelDataIntegrity:
             Time coords [6,12,18] have band indices [1,2,3].
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         sel_result = var.sel(time=slice(6, 18))
@@ -415,9 +435,14 @@ class TestSelDataIntegrity:
             array as read_array() on the full variable.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         sel_result = var.sel(time=[0, 6, 12, 18, 24])
@@ -435,9 +460,14 @@ class TestSelDataIntegrity:
             Boundary: first band (index 0) should be returned as 2D.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         result = var.sel(time=0)
@@ -455,9 +485,14 @@ class TestSelDataIntegrity:
             Boundary: last band (index 4) should be returned as 2D.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         result = var.sel(time=24)
@@ -480,9 +515,14 @@ class TestSelChaining:
             The final data should match the original band index 2.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         first = var.sel(time=[6, 12, 18])
@@ -502,9 +542,14 @@ class TestSelChaining:
             sel(time=[0,12]) → coords [0,12].
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         first = var.sel(time=[0, 6, 12])
@@ -527,9 +572,14 @@ class TestSelChaining:
             _variable_attrs should all be preserved.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         first = var.sel(time=[0, 6, 12])
@@ -556,9 +606,14 @@ class TestSelShape:
             (6, 8) array (the single band is squeezed).
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         result = var.sel(time=6)
@@ -575,9 +630,14 @@ class TestSelShape:
             sel(time=[6, 18]) should produce shape (2, 6, 8).
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         result = var.sel(time=[6, 18])
@@ -591,9 +651,14 @@ class TestSelShape:
             sel(time=[0,6,12,18,24]) should produce shape (5, 6, 8).
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         result = var.sel(time=[0, 6, 12, 18, 24])
@@ -615,9 +680,14 @@ class TestSelEdgeCases:
             Post-#311 the lookup is on ``_band_dim_values_map[dim_name]``.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         var._band_dim_values_map["time"] = None
@@ -636,9 +706,14 @@ class TestSelReturnTypeAndMetadata:
             The result type should be NetCDF for method chaining.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         result = var.sel(time=6)
@@ -653,9 +728,14 @@ class TestSelReturnTypeAndMetadata:
             The dimension name should survive selection.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         result = var.sel(time=[6, 12])
@@ -670,9 +750,14 @@ class TestSelReturnTypeAndMetadata:
             Scale/offset set before sel() should survive.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         var._scale = 0.01
@@ -689,9 +774,14 @@ class TestSelReturnTypeAndMetadata:
             the transformation correctly.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         var._scale = 2.0
@@ -719,9 +809,14 @@ class TestSelSetVariableRoundTrip:
             container with the subsetted variable.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         selected = var.sel(time=[0, 12])
@@ -738,9 +833,14 @@ class TestSelSetVariableRoundTrip:
             sel() result when read back.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         selected = var.sel(time=[6, 18])
@@ -894,9 +994,14 @@ class TestSelNonContiguousBands:
             requested band without including intermediate ones.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         result = var.sel(time=[0, 12, 24])
@@ -917,9 +1022,14 @@ class TestSelNonContiguousBands:
             sel(time=[0, 12, 24]) -> _band_dim_values == [0, 12, 24].
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         result = var.sel(time=[0, 12, 24])
@@ -937,9 +1047,14 @@ class TestSelNonContiguousBands:
             survive selection.
         """
         nc = make_3d_nc(
-            rows=6, cols=8, bands=5, variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0), arr_type="sequential",
-            extra_dim_name="time", extra_dim_values=[0, 6, 12, 18, 24],
+            rows=6,
+            cols=8,
+            bands=5,
+            variable_name="temperature",
+            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+            arr_type="sequential",
+            extra_dim_name="time",
+            extra_dim_values=[0, 6, 12, 18, 24],
         )
         var = nc.get_variable("temperature")
         result = var.sel(time=6)
