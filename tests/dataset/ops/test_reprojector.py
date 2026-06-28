@@ -30,7 +30,9 @@ except ImportError:  # pragma: no cover - Delayed-using tests are @pytest.mark.l
 
 @pytest.fixture
 def wgs84_dataset(tmp_path):
-    arr = np.zeros((4, 4), dtype=np.float32)
+    # A deterministic gradient (not zeros) so the lazy==eager pixel comparison
+    # actually verifies warped values, not just shape agreement on an all-zero array.
+    arr = np.arange(16, dtype=np.float32).reshape(4, 4)
     ds = Dataset.create_from_array(
         arr,
         top_left_corner=(0.0, 4.0),
@@ -42,7 +44,7 @@ def wgs84_dataset(tmp_path):
 
 @pytest.fixture
 def wgs84_dataset_fine(tmp_path):
-    arr = np.zeros((8, 8), dtype=np.float32)
+    arr = np.arange(64, dtype=np.float32).reshape(8, 8)
     ds = Dataset.create_from_array(
         arr,
         top_left_corner=(0.0, 4.0),
