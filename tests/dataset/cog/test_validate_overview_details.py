@@ -7,10 +7,9 @@ import pytest
 
 from pyramids.dataset import Dataset
 from pyramids.dataset.cog import validate
+from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
-
-_GEOTRANSFORM = (0.0, 0.01, 0.0, 10.0, 0.0, -0.01)
 
 
 @pytest.fixture
@@ -24,7 +23,7 @@ def big_cog(tmp_path) -> str:
         str: Path to the COG.
     """
     arr = (np.random.default_rng(seed=4).random((600, 600)) * 100).astype("float32")
-    ds = Dataset.create_from_array(arr, geo=_GEOTRANSFORM, epsg=4326)
+    ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
     return str(ds.to_cog(tmp_path / "big.tif"))
 
 

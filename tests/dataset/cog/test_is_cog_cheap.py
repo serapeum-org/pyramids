@@ -12,10 +12,9 @@ import pytest
 from osgeo import gdal
 
 from pyramids.dataset import Dataset
+from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
-
-_GEOTRANSFORM = (0.0, 0.01, 0.0, 10.0, 0.0, -0.01)
 
 
 def _make(arr, path) -> str:
@@ -30,7 +29,7 @@ def _make(arr, path) -> str:
     """
     h, w = arr.shape
     ds = gdal.GetDriverByName("GTiff").Create(str(path), w, h, 1, gdal.GDT_Float32)
-    ds.SetGeoTransform(_GEOTRANSFORM)
+    ds.SetGeoTransform(COG_GEOTRANSFORM)
     ds.GetRasterBand(1).WriteArray(arr)
     ds.FlushCache()
     ds = None
@@ -50,7 +49,7 @@ class TestIsCogCheap:
             A 600x600 COG -> is_cog True (and validate_cog agrees).
         """
         arr = (np.random.default_rng(0).random((600, 600)) * 100).astype("float32")
-        ds = Dataset.create_from_array(arr, geo=_GEOTRANSFORM, epsg=4326)
+        ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
         out = ds.to_cog(tmp_path / "c.tif")
         reopened = Dataset.read_file(str(out))
         assert reopened.is_cog is True, "real COG should be is_cog True"
@@ -66,7 +65,7 @@ class TestIsCogCheap:
             A 64x64 COG has no overviews yet is still a valid COG -> True.
         """
         arr = np.ones((64, 64), dtype="float32")
-        ds = Dataset.create_from_array(arr, geo=_GEOTRANSFORM, epsg=4326)
+        ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
         out = ds.to_cog(tmp_path / "s.tif")
         assert Dataset.read_file(str(out)).is_cog is True, "small COG should be True"
 

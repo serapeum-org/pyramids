@@ -12,10 +12,9 @@ import pytest
 from osgeo import gdal
 
 from pyramids.dataset import Dataset
+from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
-
-_GEOTRANSFORM = (0.0, 0.01, 0.0, 10.0, 0.0, -0.01)
 
 
 @pytest.fixture
@@ -27,7 +26,7 @@ def float_dataset() -> Dataset:
     """
     rng = np.random.default_rng(seed=3)
     arr = (rng.random((600, 600)) * 100.0).astype("float32")
-    return Dataset.create_from_array(arr, geo=_GEOTRANSFORM, epsg=4326)
+    return Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
 
 
 def _vsimem_entries() -> list[str]:
