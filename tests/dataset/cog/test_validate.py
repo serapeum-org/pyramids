@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 from osgeo import gdal
 
@@ -46,7 +48,7 @@ class TestValidationReport:
 
     def test_frozen(self):
         r = ValidationReport(is_valid=True)
-        with pytest.raises(Exception):  # dataclass(frozen=True) -> FrozenInstanceError
+        with pytest.raises(dataclasses.FrozenInstanceError):
             r.is_valid = False  # type: ignore[misc]
 
 
@@ -114,11 +116,10 @@ class TestValidate:
 
         loose = validate(p, strict=False)
         strict = validate(p, strict=True)
-        if loose.warnings:
-            # warnings moved into errors under strict
-            assert len(strict.errors) >= len(loose.errors)
-            assert strict.warnings == []
-            assert strict.is_valid is False
+        # warnings moved into errors under strict
+        assert len(strict.errors) >= len(loose.errors)
+        assert strict.warnings == []
+        assert strict.is_valid is False
 
     def test_file_not_found_local(self, tmp_path):
         missing = tmp_path / "does_not_exist.tif"

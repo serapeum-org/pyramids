@@ -29,7 +29,7 @@ from pyramids.base._utils import (
     Catalog,
 )
 from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
-from pyramids.base.protocols import ArrayLike
+from pyramids.base.protocols import ArrayLike, FloatArray
 from pyramids.dataset.transform import GeoTransform
 from pyramids.dataset.window import Window
 from pyramids.feature import FeatureCollection
@@ -433,7 +433,7 @@ class RasterBase(ABC):
         return self._raster.GetMetadata()
 
     @staticmethod
-    def get_x_lon_dimension_array(pivot_x, cell_size, columns) -> np.ndarray:
+    def get_x_lon_dimension_array(pivot_x, cell_size, columns) -> FloatArray:
         """Build a 1-D array of x/longitude cell-centre coordinates.
 
         Args:
@@ -452,7 +452,7 @@ class RasterBase(ABC):
         return x_coords
 
     @staticmethod
-    def get_y_lat_dimension_array(pivot_y, cell_size, rows) -> np.ndarray:
+    def get_y_lat_dimension_array(pivot_y, cell_size, rows) -> FloatArray:
         """Build a 1-D array of y/latitude cell-centre coordinates.
 
         Coordinates decrease from north to south (top to bottom).
@@ -621,7 +621,7 @@ class RasterBase(ABC):
 
     def iter_blocks(
         self, band: int = 0, *, window: Window | None = None
-    ) -> Generator[tuple[Window, np.ndarray], None, None]:
+    ) -> Generator[tuple[Window, np.typing.NDArray], None, None]:
         """Yield ``(Window, ndarray)`` for every native block of ``band``.
 
         The streaming read companion of :meth:`block_windows`: each yielded
@@ -738,7 +738,7 @@ class RasterBase(ABC):
     @abstractmethod
     def _read_block(
         self, band: int, window: list[int] | GeoDataFrame | None = None
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Read block of data from the dataset.
 
         Args:
@@ -1093,7 +1093,7 @@ class RasterBase(ABC):
         self,
         exclude_value: Any | None = None,
         mask: FeatureCollection | GeoDataFrame | None = None,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Extract.
 
             - Extract method gets all the values in a raster, and excludes the values in the exclude_value parameter.
@@ -1203,7 +1203,7 @@ class RasterBase(ABC):
     @abstractmethod
     def read_overview_array(
         self, band: int | None = None, overview_index: int = 0
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Read an overview array.
 
             - read the values stored in a given band.

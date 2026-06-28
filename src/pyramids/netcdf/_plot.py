@@ -616,7 +616,7 @@ class NetCDFPlot:
         col: str,
         row: str | None,
         col_wrap: int | None,
-    ) -> tuple[np.ndarray, dict[str, Any]]:
+    ) -> tuple[np.typing.NDArray, dict[str, Any]]:
         """Materialise the facet stack and the cleopatra ``facet`` kwargs.
 
         For a ``col``-only facet over a band dim of size ``N`` the
@@ -1010,7 +1010,7 @@ class NetCDFPlot:
         # 0). Serve a copy for the streamed frame so the template stays independent.
         _frame_zero = np.asarray(nc.read_array(band=0))
 
-        def _data_getter(i: int) -> np.ndarray:
+        def _data_getter(i: int) -> np.typing.NDArray:
             if i == 0:
                 return _frame_zero.copy()
             return nc.read_array(band=i * frame_stride)
@@ -1146,7 +1146,7 @@ class NetCDFPlot:
         nc: NetCDF,
         *,
         coords: tuple | list | None,
-    ) -> tuple[np.ndarray, np.ndarray] | None:
+    ) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
         """Resolve curvilinear ``(x, y)`` coords for the rendered slice.
 
         Detection priority (first match wins):
@@ -1349,7 +1349,7 @@ class NetCDFPlot:
         spec: Any,
         parent: NetCDF,
         axis_label: str,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Convert a single coord spec (str or array) to a numpy array.
 
         Args:
@@ -1390,7 +1390,7 @@ class NetCDFPlot:
     def _squeeze_leading_axes(
         arr: np.ndarray,
         data_shape: tuple[int, int],
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Drop leading singleton/time axes so a coord matches the slice shape.
 
         WRF stores `XLAT` / `XLONG` as `(time, lat, lon)` even though the
@@ -1460,7 +1460,7 @@ class NetCDFPlot:
         self,
         nc: NetCDF,
         parent: NetCDF,
-    ) -> tuple[np.ndarray, np.ndarray] | None:
+    ) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
         """Parse the CF `coordinates` attribute into an `(x, y)` array pair.
 
         The CF Conventions allow a data variable to declare auxiliary

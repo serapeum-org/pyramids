@@ -117,10 +117,8 @@ class TestReadGzip:
         multiple_compressed_file_gzip_content: List[str],
     ):
         first_file = multiple_compressed_file_gzip_content[0]
-        try:
+        with pytest.raises(FileFormatNotSupportedError):
             read_file(f"{multiple_compressed_file_gzip}/{first_file}")
-        except FileFormatNotSupportedError:
-            pass
 
 
 class TestReadTar:
@@ -209,17 +207,17 @@ class TestReadFileNotFound:
 
     def test_nonexistent_file_raises(self):
         """Reading a file that does not exist should raise an error."""
-        with pytest.raises(Exception):
+        with pytest.raises((FileNotFoundError, RuntimeError)):
             read_file("/nonexistent/path/to/file_that_does_not_exist.tif")
 
     def test_nonexistent_compressed_file_raises(self):
         """Reading a non-existent .zip file should raise an error."""
-        with pytest.raises(Exception):
+        with pytest.raises((FileNotFoundError, RuntimeError)):
             read_file("nonexistent_file.zip")
 
     def test_unrecognized_format_non_compressed_reraises(self):
         """A file with unrecognized format and non-compressed extension re-raises the original error."""
-        with pytest.raises(Exception):
+        with pytest.raises((FileNotFoundError, RuntimeError)):
             read_file("/nonexistent/path/to/bad_format.xyz")
 
 

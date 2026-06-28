@@ -7,6 +7,7 @@ subclass that targets a reference :class:`Dataset` geobox. Supports
 
 from __future__ import annotations
 
+import dataclasses
 import pickle
 
 import numpy as np
@@ -29,7 +30,9 @@ except ImportError:  # pragma: no cover - Delayed-using tests are @pytest.mark.l
 
 @pytest.fixture
 def wgs84_dataset(tmp_path):
-    arr = np.zeros((4, 4), dtype=np.float32)
+    # A deterministic gradient (not zeros) so the lazy==eager pixel comparison
+    # actually verifies warped values, not just shape agreement on an all-zero array.
+    arr = np.arange(16, dtype=np.float32).reshape(4, 4)
     ds = Dataset.create_from_array(
         arr,
         top_left_corner=(0.0, 4.0),
@@ -41,7 +44,7 @@ def wgs84_dataset(tmp_path):
 
 @pytest.fixture
 def wgs84_dataset_fine(tmp_path):
-    arr = np.zeros((8, 8), dtype=np.float32)
+    arr = np.arange(64, dtype=np.float32).reshape(8, 8)
     ds = Dataset.create_from_array(
         arr,
         top_left_corner=(0.0, 4.0),
@@ -63,7 +66,7 @@ class TestReprojectPlanPicklable:
 
     def test_frozen(self):
         plan = ReprojectPlan(target_epsg=3857)
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             plan.target_epsg = 4326  # type: ignore
 
 
@@ -120,6 +123,7 @@ class TestReprojectorLazy:
         lazy = op(wgs84_dataset, compute=False).compute()
         assert lazy.epsg == eager.epsg
         assert lazy.rows == eager.rows
+        np.testing.assert_array_equal(lazy.read_array(), eager.read_array())
 
 
 class TestAlignerEager:
@@ -151,6 +155,7 @@ class TestAlignerLazy:
         eager = aligner(wgs84_dataset_fine)
         lazy = aligner(wgs84_dataset_fine, compute=False).compute()
         assert lazy.rows == eager.rows
+        np.testing.assert_array_equal(lazy.read_array(), eager.read_array())
 
 
 class TestImportErrorWithoutDask:

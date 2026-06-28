@@ -569,7 +569,7 @@ def decode_cf_time(
     values: np.ndarray,
     unit: str | None,
     calendar: str = "standard",
-) -> np.ndarray:
+) -> np.typing.NDArray:
     """Decode numeric CF time offsets to datetimes.
 
     Standard / gregorian / proleptic_gregorian calendars yield ``datetime64[ns]`` when

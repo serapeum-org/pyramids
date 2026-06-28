@@ -2301,7 +2301,7 @@ class TestToFileOptions:
 
     def test_to_file_runtime_error_raises(self, single_band_dataset):
         """to_file to an invalid path should raise FailedToSaveError."""
-        with pytest.raises((FailedToSaveError, RuntimeError)):
+        with pytest.raises(FailedToSaveError):
             single_band_dataset.to_file("/nonexistent/path/to/file.tif")
 
 
@@ -4068,6 +4068,7 @@ class TestColorTableSetterValid:
             }
         )
         ds.color_table = df
+        assert ds.color_table is not None
 
 
 class TestToXyzEdgeCases:

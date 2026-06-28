@@ -1,15 +1,34 @@
 """Structural-typing protocols shared across the pyramids package.
 
-This module exposes two cross-cutting structural types:
+This module exposes three cross-cutting structural types:
 
 * :class:`SpatialObject` — the surface shared by
   :class:`pyramids.dataset.Dataset` (raster) and
   :class:`pyramids.feature.FeatureCollection` (vector), so callers can
   write generic utilities that accept either without importing both
   concrete classes (and without creating import cycles).
+* :class:`RasterLike` — the raster-specific surface shared by
+  :class:`pyramids.dataset.Dataset` and its :class:`pyramids.netcdf.NetCDF`
+  subclass (extends :class:`SpatialObject`), for raster-only generic
+  utilities that should accept either without importing the concrete classes.
 * :class:`ArrayLike` — the structural type matching both
   :class:`numpy.ndarray` and :class:`dask.array.Array`, used to annotate
   array-returning methods that may be either eager or lazy.
+
+For dtype-precise *eager* array returns the module re-exports
+:data:`numpy.typing.NDArray` and a :data:`FloatArray` alias
+(``NDArray[np.float64]``) — used to annotate typed numpy returns such as
+coordinate / dimension arrays from a single place. (The :data:`ArrayLike`
+union stays dtype-agnostic because dask arrays do not compose with
+``NDArray[...]``.)
+
+**Spelling convention:** this module imports `NDArray` and defines the
+precise `FloatArray` here, but consumer modules across the package spell a
+generic array return inline as ``np.typing.NDArray`` (resolved off their
+existing ``import numpy as np``, so no extra import / isort churn). Reserve
+`FloatArray` for returns whose element type is provably float64; leave
+dtype-variable returns (data reads of arbitrary dtype) as the Any-dtype
+``np.typing.NDArray`` / :data:`ArrayLike`.
 
 The module also exports two small dispatch helpers — :func:`is_lazy` and
 :func:`as_numpy` — so the rest of the codebase has a single place to
@@ -27,6 +46,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, Union, runtime_checkable
 
 import numpy as np
+from numpy.typing import NDArray
 
 if TYPE_CHECKING:  # pragma: no cover - only for type checkers
     import dask.array as da  # noqa: F401
@@ -38,6 +58,13 @@ if TYPE_CHECKING:  # pragma: no cover - only for type checkers
 # either backend; use the :class:`_ArrayLikeProto` Protocol below for runtime
 # isinstance checks.
 ArrayLike = Union[np.ndarray, "da.Array"]
+
+# Dtype-precise alias for *eager* array returns whose element type is known
+# (e.g. coordinate / dimension arrays, which are always float64). `NDArray` is
+# re-exported from `numpy.typing` so callers annotate typed numpy returns from a
+# single place (ARC-19); `ArrayLike` above stays the eager-or-lazy union and is
+# deliberately dtype-agnostic (dask arrays do not compose with `NDArray[...]`).
+FloatArray = NDArray[np.float64]
 
 
 @runtime_checkable
@@ -101,6 +128,115 @@ class SpatialObject(Protocol):
 
     def plot(self, *args: Any, **kwargs: Any) -> Any:
         """Render a matplotlib view of this object (protocol stub; see concrete impls)."""
+        ...
+
+
+@runtime_checkable
+class RasterLike(SpatialObject, Protocol):
+    """Structural type for the full pyramids raster surface (`Dataset` / `NetCDF`).
+
+    The protocol-based type constraint for the dataset surface (ARC-18). It
+    extends :class:`SpatialObject` with the raster **read** surface
+    (geotransform-derived geometry, grid shape, band / no-data metadata, the
+    GDAL handle, array reads) **and** the public raster **operations**
+    (`crop`, `to_crs`, `overlay`, `extract`, `change_no_data_value`, the
+    overview family) plus the `create_from_array` constructor — i.e. the
+    structural mirror of the
+    :class:`pyramids.dataset.abstract_dataset.RasterBase` abstract contract.
+    Use it to annotate code that accepts or returns "a pyramids raster"
+    (`Dataset`, `NetCDF`, or a future raster type) **without importing the
+    concrete classes**, which also lets `base`-layer code below `dataset` in
+    the import graph reference a raster without an import cycle.
+
+    This is a typing aid, not a replacement for the ABC: a `Protocol` cannot
+    hold the instance state (`_raster`, the geotransform) or the shared method
+    bodies that `Dataset` / `NetCDF` inherit, so `RasterBase` remains the
+    concrete implementation base and nominal `isinstance(x, RasterBase)`
+    checks are unaffected. `RasterLike` is the *type/contract* layer;
+    `RasterBase` is the *implementation* layer.
+
+    Intended use is as an **exported, consumer-facing contract** — downstream
+    code (and `base`-layer helpers) annotate against it; pyramids' own internal
+    call sites generally use the concrete `Dataset` / `RasterBase` types and
+    their nominal `isinstance` checks, so `RasterLike` is deliberately not
+    forced onto internal signatures (e.g. it is *not* `align`'s parameter type:
+    a 0-band `NetCDF` *container* structurally satisfies this protocol yet is
+    not a usable alignment source). It is kept `runtime_checkable` so consumers
+    *can* `isinstance`-check it — at the cost of a 26-attribute presence probe,
+    so prefer it for annotations over hot-loop `isinstance`.
+
+    Because this is :func:`typing.runtime_checkable`, you can use it with
+    :func:`isinstance` (PEP 544 — attribute/method presence only, not
+    signatures or return types):
+
+    >>> from pyramids.base.protocols import RasterLike
+    >>> def cell_count(r: RasterLike) -> int:
+    ...     return r.rows * r.columns
+    """
+
+    # Geo / grid read surface (in addition to SpatialObject's epsg /
+    # total_bounds / top_left_corner).
+    cell_size: Any
+    rows: int
+    columns: int
+    band_count: int
+    no_data_value: Any
+    geotransform: Any
+    shape: Any
+    crs: Any
+    raster: Any
+
+    def read_array(self, *args: Any, **kwargs: Any) -> "ArrayLike":  # pragma: no cover - protocol stub
+        """Read band data as a numpy or dask array (protocol stub; see concrete impls)."""
+        ...
+
+    @classmethod
+    def create_from_array(  # pragma: no cover - protocol stub
+        cls, *args: Any, **kwargs: Any
+    ) -> "RasterLike":
+        """Construct a raster from an array (protocol stub; see concrete impls)."""
+        ...
+
+    def crop(self, *args: Any, **kwargs: Any) -> "RasterLike":  # pragma: no cover - protocol stub
+        """Crop to a mask / bounds (protocol stub; see concrete impls)."""
+        ...
+
+    def to_crs(self, *args: Any, **kwargs: Any) -> "RasterLike":  # pragma: no cover - protocol stub
+        """Reproject to a target CRS (protocol stub; see concrete impls)."""
+        ...
+
+    def overlay(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - protocol stub
+        """Zonal/overlay extraction against another object (protocol stub)."""
+        ...
+
+    def extract(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - protocol stub
+        """Extract cell values (protocol stub; see concrete impls)."""
+        ...
+
+    def change_no_data_value(  # pragma: no cover - protocol stub
+        self, *args: Any, **kwargs: Any
+    ) -> Any:
+        """Change the no-data sentinel (protocol stub; see concrete impls)."""
+        ...
+
+    def create_overviews(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - protocol stub
+        """Build reduced-resolution overviews (protocol stub)."""
+        ...
+
+    def recreate_overviews(  # pragma: no cover - protocol stub
+        self, *args: Any, **kwargs: Any
+    ) -> Any:
+        """Rebuild overviews (protocol stub; see concrete impls)."""
+        ...
+
+    def get_overview(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - protocol stub
+        """Return an overview level (protocol stub; see concrete impls)."""
+        ...
+
+    def read_overview_array(  # pragma: no cover - protocol stub
+        self, *args: Any, **kwargs: Any
+    ) -> "ArrayLike":
+        """Read an overview level as an array (protocol stub)."""
         ...
 
 
@@ -212,7 +348,7 @@ class _ArrayLikeProto(Protocol):
 
     def __array__(
         self, dtype: Any = None
-    ) -> np.ndarray:  # pragma: no cover - protocol stub
+    ) -> NDArray:  # pragma: no cover - protocol stub
         """Return a numpy representation of the array."""
         ...
 
@@ -250,7 +386,7 @@ def is_lazy(x: Any) -> bool:
     return hasattr(x, "dask") and hasattr(x, "compute")
 
 
-def as_numpy(x: ArrayLike) -> np.ndarray:
+def as_numpy(x: ArrayLike) -> NDArray:
     """Return a numpy ndarray view/copy of `x`, computing if lazy.
 
     Eager :class:`numpy.ndarray` inputs are returned via

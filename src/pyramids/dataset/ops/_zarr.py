@@ -326,7 +326,7 @@ def _finalize_after_write(
 
 def _read_data_array(
     resolved_store: Any, zarr_array: Any, chunks: Any, *, component: str = "data"
-) -> np.ndarray:
+) -> np.typing.NDArray:
     """Read the ``data`` array — eagerly, or via a parallel chunked dask read.
 
     With ``chunks=None`` (default) the array is read in one synchronous

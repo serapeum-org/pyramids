@@ -855,7 +855,7 @@ class COG(_Engine):
         bbox_crs: int = 4326,
         resampling: str = "bilinear",
         band: int | None = None,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Read a geographic window, decimated from the nearest overview.
 
         Requesting a `dst_width`/`dst_height` smaller than the source window
@@ -1016,7 +1016,7 @@ class COG(_Engine):
         max_size: int = 1024,
         resampling: str = "bilinear",
         band: int | None = None,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Read a whole-image thumbnail downsampled to `max_size` on the long edge.
 
         Pulls from a coarse overview when one exists, so previewing a huge COG
@@ -1067,7 +1067,7 @@ class COG(_Engine):
         *,
         point_crs: int = 4326,
         band: int | None = None,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Sample band value(s) at a single coordinate.
 
         Args:
@@ -1114,7 +1114,7 @@ class COG(_Engine):
         tilesize: int = 256,
         resampling: str = "bilinear",
         band: int | None = None,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Read a Web-Mercator XYZ/slippy-map tile.
 
         Computes the EPSG:3857 bounds of tile `(z, x, y)` from the closed-form

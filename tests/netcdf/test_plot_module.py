@@ -32,7 +32,6 @@ def _make_3d_nc(n_times: int = 4, rows: int = 5, cols: int = 5):
 
 def test_netcdf_plot_engine_importable():
     """The extracted engine is importable from its private module."""
-    assert NetCDFPlot is not None
     assert hasattr(NetCDFPlot, "run")
 
 

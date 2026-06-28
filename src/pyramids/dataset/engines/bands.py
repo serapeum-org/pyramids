@@ -1068,6 +1068,12 @@ class Bands(_Engine):
             Dataset:
                 A new Dataset with the updated no-data value. If inplace is True, returns self.
 
+        Raises:
+            NoDataValueError:
+                If `new_value` cannot be stored in a band's dtype — e.g. `None` or `NaN`
+                given for an integer band — the dtype mismatch is reported instead of
+                leaking a raw numpy `TypeError`/`ValueError`.
+
         Warning:
             The `change_no_data_value` method creates a new dataset in memory in order to change the `no_data_value` in the raster bands.
         Examples:
@@ -1113,8 +1119,14 @@ class Bands(_Engine):
         for band in range(self._ds.band_count):
             arr = self._ds.read_array(band)
             try:
-                arr[is_no_data(arr, old_value)] = new_value[band]
-            except TypeError:
+                with np.errstate(invalid="raise"):
+                    arr[is_no_data(arr, old_value)] = new_value[band]
+            # A dtype mismatch surfaces differently across numpy paths: a None value
+            # is not subscriptable (TypeError), a NaN cast into an integer band raises
+            # ValueError ("cannot convert float NaN to integer"), and an invalid
+            # floating-point cast trips errstate (FloatingPointError). Map all of them
+            # to the package-level NoDataValueError.
+            except (TypeError, ValueError, FloatingPointError):
                 raise NoDataValueError(
                     f"The dtype of the given no_data_value: {new_value[band]} differs from the dtype of the "
                     f"band: {gdal_to_numpy_dtype(self._ds.gdal_dtype[band])}"

@@ -110,4 +110,4 @@ class TestErrors:
         out = tmp_path / "refs.json"
         result = collection.to_kerchunk(out)
         assert out.exists()
-        assert "refs" in result or "version" in result
+        assert result.get("version") == 1 and isinstance(result["refs"], dict)

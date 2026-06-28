@@ -37,7 +37,7 @@ def _read_chunk(
     band: int | None,
     out_dtype: np.dtype,
     single_band: bool,
-) -> np.ndarray:
+) -> np.typing.NDArray:
     """Read one chunk of a raster through a pickleable :class:`CachingFileManager`.
 
     Module-level (not a closure) so dask can pickle the resulting task

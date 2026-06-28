@@ -33,7 +33,7 @@ class Cell(_Engine):
 
     def get_cell_coords(
         self, location: str = "center", domain_only: bool = False
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Get coordinates for the center/corner of cells inside the dataset domain.
 
         Returns the coordinates of the cell centers inside the domain (only the cells that
@@ -310,7 +310,7 @@ class Cell(_Engine):
     def map_to_array_coordinates(
         self,
         points: GeoDataFrame | FeatureCollection | DataFrame,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Convert coordinates of points to array indices.
 
         - map_to_array_coordinates locates a point with real coordinates (x, y) or (lon, lat) on the array by finding

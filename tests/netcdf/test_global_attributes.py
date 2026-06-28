@@ -26,15 +26,18 @@ def _make_nc():
 class TestGlobalAttributesProperty:
     """Tests for the global_attributes property."""
 
-    def test_empty_by_default(self):
-        """A newly created NetCDF should have no global attributes.
+    def test_conventions_set_by_default(self):
+        """A newly created NetCDF has exactly one global attribute: Conventions=CF-1.8.
 
         Test scenario:
-            create_from_array → global_attributes is empty dict.
+            create_from_array always writes Conventions=CF-1.8;
+            global_attributes should equal that single-key dict.
         """
         nc = _make_nc()
         attrs = nc.global_attributes
-        assert isinstance(attrs, dict), f"Expected dict, got {type(attrs)}"
+        assert attrs == {"Conventions": "CF-1.8"}, (
+            f"Expected {{'Conventions': 'CF-1.8'}}, got {attrs!r}"
+        )
 
     def test_returns_set_attributes(self):
         """After setting attributes, they should appear in the property.

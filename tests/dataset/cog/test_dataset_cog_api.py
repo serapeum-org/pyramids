@@ -103,14 +103,13 @@ class TestToCogCompression:
 
     def test_compress_none(self, small_float_dataset, tmp_path):
         out = small_float_dataset.to_cog(tmp_path / "out.tif", compress="NONE")
-        info = gdal.Info(str(out))
-        assert (
-            "COMPRESSION"
-            not in info.split("Image Structure Metadata:", 1)[1].split("\n", 1)[0]
-            or True
-        )
-        # Just verify the file opens; some GDAL builds omit COMPRESSION metadata when NONE.
         assert out.exists()
+        # compress="NONE" must yield an uncompressed raster: GDAL either omits the
+        # COMPRESSION metadata key entirely or reports it as "NONE".
+        ds = gdal.Open(str(out))
+        compression = ds.GetMetadataItem("COMPRESSION", "IMAGE_STRUCTURE")
+        ds = None
+        assert compression in (None, "NONE"), f"expected uncompressed, got {compression!r}"
 
 
 class TestToCogExtra:
@@ -277,7 +276,7 @@ class TestToFileDriverCog:
         small_float_dataset.to_file(out)  # no driver kwarg
         # Not a COG (no COG-specific layout requested)
         reopened = Dataset.read_file(out)
-        assert reopened.is_cog is False or reopened.is_cog is True
+        assert reopened.is_cog is False
         reopened.close()
 
     def test_driver_cog_returns_none(self, small_float_dataset, tmp_path):

@@ -399,10 +399,10 @@ class TestS3UrlRewriteNoNetwork:
     def test_s3_rewrite_attempt_reaches_gdal(self):
         from pyramids.dataset import Dataset
 
-        # Any GDAL error is acceptable — we only care that pyramids
-        # doesn't raise ValueError about unknown schemes, and that the
-        # rewrite reached /vsis3/.
-        with pytest.raises(Exception):
+        # We only care that pyramids doesn't raise ValueError about
+        # unknown schemes, and that the rewrite reached /vsis3/.
+        # GDAL raises RuntimeError or OSError for missing S3 resources.
+        with pytest.raises((RuntimeError, OSError)):
             Dataset.read_file("s3://nonexistent-bucket-xyz-1234/nope.tif")
 
     def test_pipeline_uses_vsis3_prefix(self):
