@@ -4,11 +4,10 @@ import numpy as np
 import pytest
 
 from pyramids.netcdf import NetCDF
+from tests.netcdf_samples.conftest import RHUM
 
 pytestmark = pytest.mark.lazy
 da = pytest.importorskip("dask.array")
-
-RHUM = "coards__5v__1d4-4d1.nc"
 
 
 def test_chunked_read_returns_dask_and_matches_eager(sample):

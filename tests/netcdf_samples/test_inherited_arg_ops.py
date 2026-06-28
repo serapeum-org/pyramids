@@ -15,10 +15,9 @@ from shapely.geometry import Point, box
 from pyramids.base._errors import ReadOnlyError
 from pyramids.dataset import Dataset
 from pyramids.netcdf import NetCDF
+from tests.netcdf_samples.conftest import TOS
 
 pytestmark = pytest.mark.core
-
-TOS = "cf__7v__1d3-2d3-3d1.nc"
 
 
 @pytest.fixture

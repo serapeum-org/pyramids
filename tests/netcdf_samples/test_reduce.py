@@ -3,10 +3,9 @@
 import pytest
 
 from pyramids.netcdf import NetCDF
+from tests.netcdf_samples.conftest import RHUM
 
 pytestmark = pytest.mark.core
-
-RHUM = "coards__5v__1d4-4d1.nc"  # rhum(time=12, level=4, lat=37, lon=72)
 
 
 def test_reduce_mean_collapses_named_dimension(sample):

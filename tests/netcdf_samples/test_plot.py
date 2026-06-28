@@ -6,6 +6,7 @@ Marked ``plot`` and run under the Agg backend; requires the optional viz depende
 import pytest
 
 from pyramids.netcdf import ColourOpts, FacetSpec, NetCDF, Selectors
+from tests.netcdf_samples.conftest import RHUM
 
 pytestmark = pytest.mark.plot
 # Skip the whole module (not error) on a no-viz install: the importorskip calls must run before any
@@ -13,8 +14,6 @@ pytestmark = pytest.mark.plot
 # deps instead of failing collection with ModuleNotFoundError.
 pytest.importorskip("cleopatra")
 plt = pytest.importorskip("matplotlib.pyplot")
-
-RHUM = "coards__5v__1d4-4d1.nc"  # rhum(time=12, level=4, lat=37, lon=72)
 
 
 # A known plottable (finite-valued) data variable per gridded sample file.

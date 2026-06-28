@@ -5,11 +5,10 @@ import shutil
 import pytest
 
 from pyramids.netcdf import NetCDF
+from tests.netcdf_samples.conftest import AIR
 
 pytestmark = pytest.mark.lazy
 pytest.importorskip("dask")
-
-AIR = "coards__4v__1d3-3d1.nc"
 
 
 def test_open_mfdataset_stacks_variable(sample, tmp_path):

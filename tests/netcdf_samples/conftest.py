@@ -20,6 +20,12 @@ import pytest
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "netcdf"
 
+# Shared sample-file name constants — imported by individual test modules to avoid duplication.
+TOS = "cf__7v__1d3-2d3-3d1.nc"   # tos(time=24, lat=170, lon=180), EPSG:4326, non-square cells
+RHUM = "coards__5v__1d4-4d1.nc"  # rhum(time=12, level=4, lat=37, lon=72)
+AIR = "coards__4v__1d3-3d1.nc"   # air(time, lat, lon) — has a concat 'time' dim
+MESH = "ugrid__6v__1d5-2d1.nc"   # quad-hexagon UGRID mesh: 16 nodes, 4 faces
+
 # Capability registry — the single source of truth for which files exercise which behaviours.
 #
 # Flags: convention(cf|coards|none) · gridded · packed · time · level · fourd · curvilinear · staggered ·
