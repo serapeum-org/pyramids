@@ -16,11 +16,7 @@ is set, so normal CI stays offline.
 
 from __future__ import annotations
 
-import http.server
 import os
-import socketserver
-import threading
-from collections import Counter
 
 import pytest
 from osgeo import gdal, osr
@@ -29,6 +25,7 @@ from pyramids.dataset import Dataset
 from pyramids.dataset import _wcs
 from pyramids.errors import WCSError
 from tests.dataset.wcs_mock_server import WcsMock
+from tests.http_mock import make_fixed_body_server
 
 CAPS_2_0_1 = """<?xml version="1.0" encoding="UTF-8"?>
 <wcs:Capabilities xmlns:wcs="http://www.opengis.net/wcs/2.0"
@@ -62,28 +59,8 @@ def _clear_caps_cache():
 
 
 def _make_server(body: str, content_type: str = "application/xml"):
-    """Start a local HTTP server returning `body` for every GET; yield (url, counter)."""
-    counter: Counter[str] = Counter()
-    payload = body.encode("utf-8")
-
-    class Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802
-            counter["GET"] += 1
-            self.send_response(200)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
-
-        def log_message(self, *args, **kwargs):  # noqa: N802
-            return
-
-    httpd = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
-    port = httpd.server_address[1]
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    url = f"http://127.0.0.1:{port}/mapserv?map=/map/nitrogen.map"
-    return url, counter, httpd
+    """Local HTTP server returning `body` for every GET; returns (url, counter, httpd)."""
+    return make_fixed_body_server(body, content_type, path="/mapserv?map=/map/nitrogen.map")
 
 
 @pytest.fixture
