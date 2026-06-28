@@ -169,7 +169,7 @@ show_missing = true
 fail_under = 90
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 mypy_path = "src"
 packages = ["pyramids"]
 explicit_package_bases = true
