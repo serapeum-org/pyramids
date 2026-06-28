@@ -57,6 +57,7 @@ from pyramids.basemap.basemap import add_basemap
 from pyramids.feature import _h3
 from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
+from pyramids.feature._oapif import from_ogc_api_features as _from_ogc_api_features
 from pyramids.feature._wfs import from_wfs as _from_wfs
 
 CATALOG = Catalog(raster_driver=False)
@@ -1723,6 +1724,99 @@ class FeatureCollection(GeoDataFrame):
             where=where,
             max_features=max_features,
             version=version,
+            auth=auth,
+            timeout=timeout,
+        )
+
+    @classmethod
+    def from_ogc_api_features(
+        cls,
+        endpoint: str,
+        *,
+        collection: str,
+        bbox: tuple[float, float, float, float] | None = None,
+        output_crs: str | None = None,
+        where: str | None = None,
+        max_features: int | None = None,
+        auth: tuple[str, str] | None = None,
+        timeout: float = 60.0,
+    ) -> FeatureCollection:
+        """Read a collection from an **OGC API – Features** service.
+
+        Fetches a subset of a collection from an OGC API – Features service and
+        returns it as a :class:`FeatureCollection`. OGC API – Features is the
+        modern REST/JSON successor to WFS: a landing page links to ``/collections``
+        and each collection exposes ``/collections/{id}/items`` as GeoJSON, paged
+        through ``rel="next"`` links. The transport is GDAL's native OGR ``OAPIF``
+        driver, so conformance negotiation and paging happen inside GDAL; the
+        caller supplies a single lon/lat ``bbox`` and an optional attribute filter.
+        This is the OGC-API-era sibling of :meth:`from_wfs`.
+
+        The ``collection`` is validated against a (cached) ``/collections``
+        document so an unadvertised collection fails fast with a clear
+        :class:`ValueError` rather than an opaque driver error.
+
+        Args:
+            endpoint: The OGC API landing-page / base URL (e.g.
+                ``"https://demo.pygeoapi.io/master"``). Catalog routing belongs in
+                the calling layer, not here.
+            collection: The collection identifier as advertised by ``/collections``
+                (e.g. ``"lakes"``). A value the service does not advertise raises
+                :class:`ValueError`.
+            bbox: Optional ``(minx, miny, maxx, maxy)`` spatial filter, interpreted
+                in the collection's storage CRS (CRS84 / lon-lat by default for OGC
+                API – Features). Only intersecting features are returned. ``None``
+                (default) fetches all features.
+            output_crs: Optional CRS to reproject the result into (any form
+                :meth:`to_crs` accepts). ``None`` (default) keeps the service's CRS.
+            where: Optional OGR/SQL attribute filter (e.g. ``"scalerank <= 2"``)
+                pushed down to the driver.
+            max_features: Optional cap on the number of features returned. ``None``
+                (default) returns all, across as many pages as the service serves.
+            auth: Optional ``(username, password)`` for Basic-authed services.
+            timeout: HTTP timeout in seconds for the metadata / items requests
+                (whole seconds; a value below 1 is clamped to 1). Defaults to
+                ``60.0``.
+
+        Returns:
+            FeatureCollection: The fetched features (empty if the filter matches
+            none).
+
+        Raises:
+            ValueError: ``collection`` is not advertised, ``bbox`` is malformed, or
+                ``max_features`` is negative.
+            pyramids.errors.OGCAPIError: The service could not be reached or
+                returned an error / a non-feature body, or ``output_crs`` was
+                requested but the result carries no CRS.
+
+        Examples:
+            Read a bbox subset of a public collection (network call — skipped in
+            doctests):
+
+            ```python
+            >>> from pyramids.feature import FeatureCollection
+            >>> fc = FeatureCollection.from_ogc_api_features(  # doctest: +SKIP
+            ...     "https://demo.pygeoapi.io/master",
+            ...     collection="lakes",
+            ...     bbox=(-104, 35, -94, 41),
+            ...     where="scalerank <= 2",
+            ... )
+
+            ```
+
+        See Also:
+            - :meth:`from_wfs`: the classic WFS sibling.
+            - :meth:`from_featureserver`: read an Esri ArcGIS FeatureServer layer.
+            - :meth:`read_file`: read a vector file or URL.
+        """
+        return _from_ogc_api_features(
+            cls,
+            endpoint,
+            collection=collection,
+            bbox=bbox,
+            output_crs=output_crs,
+            where=where,
+            max_features=max_features,
             auth=auth,
             timeout=timeout,
         )
