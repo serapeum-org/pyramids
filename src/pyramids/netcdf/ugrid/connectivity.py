@@ -91,7 +91,7 @@ class Connectivity:
         result = self.data.shape[1] if self.data.ndim > 1 else 1
         return result
 
-    def get_element(self, idx: int) -> np.ndarray:
+    def get_element(self, idx: int) -> np.typing.NDArray:
         """Return valid node indices for a single element.
 
         Excludes fill values, returning only the actual node indices
@@ -110,7 +110,7 @@ class Connectivity:
             result = row[row != self.fill_value]
         return result
 
-    def nodes_per_element(self) -> np.ndarray:
+    def nodes_per_element(self) -> np.typing.NDArray:
         """Return the number of valid nodes per element.
 
         Returns:

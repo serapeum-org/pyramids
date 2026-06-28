@@ -35,7 +35,7 @@ def is_no_data(
     no_data_value: float | None,
     *,
     rtol: float = DEFAULT_RTOL,
-) -> np.ndarray | bool:
+) -> np.typing.NDArray | bool:
     """Boolean mask: True where `arr` cells equal `no_data_value`.
 
     NaN- and None-safe. Works on scalars (returns `bool`) and
@@ -90,7 +90,7 @@ def inside_domain(
     no_data_value: float | None,
     *,
     rtol: float = DEFAULT_RTOL,
-) -> np.ndarray | bool:
+) -> np.typing.NDArray | bool:
     """Boolean mask: True where `arr` cells are inside the domain.
 
     Inverse of :func:`is_no_data`; same NaN/None handling.

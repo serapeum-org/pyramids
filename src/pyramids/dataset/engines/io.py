@@ -185,7 +185,7 @@ def _encode_terrain_rgb(
     encoding: str,
     base_val: float,
     interval: float,
-) -> np.ndarray:
+) -> np.typing.NDArray:
     """Pack a float elevation grid (metres) into a ``(3, rows, cols)`` uint8 RGB stack.
 
     Mirrors the Mapbox Terrain-RGB and Mapzen Terrarium specs. Out-of-range
@@ -262,7 +262,7 @@ def _terrain_rgba_stack(
     encoding: str,
     base_val: float,
     interval: float,
-) -> np.ndarray:
+) -> np.typing.NDArray:
     """Build the terrain-RGB(A) byte stack, adding an alpha band only when needed.
 
     No-data pixels become fully transparent (alpha 0); when the source declares
@@ -795,7 +795,7 @@ class IO(_Engine):
         self: Dataset,
         band: int | None,
         window: GeoDataFrame | list[int] | None,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Eagerly read through this thread's private handle.
 
         Routes the read through a :class:`ThreadLocalFileManager` cached on
@@ -897,7 +897,7 @@ class IO(_Engine):
         handle: gdal.Dataset,
         band: int | None,
         window: list[int] | None,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Read the requested bands/window from a private GDAL handle.
 
         Args:
@@ -980,7 +980,7 @@ class IO(_Engine):
         index: int,
         data: np.ndarray,
         window: list[int] | None,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Build the invalid-pixel mask for one band of an eager read.
 
         Combines the no-data comparison (exact equality on integer bands;
@@ -1153,7 +1153,7 @@ class IO(_Engine):
         window: Window | list[int] | GeoDataFrame | None,
         out_shape: tuple[int, int],
         resampling: str,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Read at a reduced (or enlarged) resolution via GDAL's buffer args.
 
         Delegates the decimation to ``ReadAsArray(buf_xsize=, buf_ysize=,
@@ -1232,7 +1232,7 @@ class IO(_Engine):
         rows: int,
         cols: int,
         alg: int,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Run one decimated band read, normalising the out-of-range error.
 
         Args:
@@ -1272,7 +1272,7 @@ class IO(_Engine):
         band: int | None,
         window: Window | list[int] | tuple[int, ...],
         fill_value: float | None,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Read a window that may extend past the raster, filling the outside.
 
         The output always has the full requested window shape. The part of the
@@ -1337,7 +1337,7 @@ class IO(_Engine):
         self: Dataset,
         band: int,
         window: Window | list[int] | GeoDataFrame | None = None,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Read block of data from the dataset.
 
         Args:
@@ -1402,7 +1402,7 @@ class IO(_Engine):
         *,
         band: int | None = None,
         threads: int = 4,
-    ) -> list[np.ndarray]:
+    ) -> list[np.typing.NDArray]:
         """Read many windows concurrently, preserving input order.
 
         Fans the windows across a thread pool, reading each through a per-thread
@@ -1444,7 +1444,7 @@ class IO(_Engine):
                 "per thread. Write it to a path first."
             )
 
-        def _read_one(window: Window) -> np.ndarray:
+        def _read_one(window: Window) -> np.typing.NDArray:
             return np.asarray(
                 self._ds.read_array(band=band, window=window, threadsafe=True)
             )
@@ -2007,7 +2007,7 @@ class IO(_Engine):
                 xsize = size if size + xoff <= cols else cols - xoff
                 yield xoff, yoff, xsize, ysize
 
-    def get_tile(self: Dataset, size=256) -> Generator[np.ndarray, None, None]:
+    def get_tile(self: Dataset, size=256) -> Generator[np.typing.NDArray, None, None]:
         """Get tile.
 
         Args:
@@ -2803,7 +2803,7 @@ class IO(_Engine):
 
     def read_overview_array(
         self: Dataset, band: int | None = None, overview_index: int = 0
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Read overview values.
             - Read the values stored in a given band or overview.
         Args:

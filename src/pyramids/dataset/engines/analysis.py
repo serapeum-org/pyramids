@@ -344,7 +344,7 @@ class Analysis(_Engine):
         band: int | None = None,
         exclude_value: Any | None = None,
         mask: FeatureCollection | GeoDataFrame | None = None,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Extract.
 
         - Extract method gets all the values in a raster, and excludes the values in the exclude_value parameter.
@@ -471,7 +471,7 @@ class Analysis(_Engine):
 
     def _points_to_xy(
         self, points: FeatureCollection | GeoDataFrame | DataFrame
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Extract an ``(N, 2)`` float array of ``(x, y)`` coordinates from points.
 
         Args:
@@ -510,7 +510,7 @@ class Analysis(_Engine):
         bands: int | list[int] | None = None,
         masked: bool = False,
         on_out_of_bounds: str = "nodata",
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Sample band values at point coordinates.
 
         The memory- and out-of-bounds-safe counterpart to
@@ -978,7 +978,7 @@ class Analysis(_Engine):
 
         return values
 
-    def get_mask(self, band: int = 0) -> np.ndarray:
+    def get_mask(self, band: int = 0) -> np.typing.NDArray:
         """Get the mask array.
 
         Args:
@@ -1031,7 +1031,7 @@ class Analysis(_Engine):
         band: int | None = None,
         *,
         window: Window | None = None,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Read per-band mask arrays (``0`` invalid, ``255`` valid).
 
         The companion to :meth:`Dataset.read_array(masked=True) <read_array>`:
@@ -1240,7 +1240,7 @@ class Analysis(_Engine):
         return gdf
 
     @staticmethod
-    def normalize(array: np.ndarray) -> np.ndarray:
+    def normalize(array: np.ndarray) -> np.typing.NDArray:
         """Normalize numpy arrays into scale 0.0-1.0.
 
         Args:
@@ -1255,7 +1255,7 @@ class Analysis(_Engine):
         return np.asarray(val)
 
     @staticmethod
-    def _rescale(array: np.ndarray, min_value: float, max_value: float) -> np.ndarray:
+    def _rescale(array: np.ndarray, min_value: float, max_value: float) -> np.typing.NDArray:
         val = (array - min_value) / (max_value - min_value)
         return val
 

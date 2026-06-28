@@ -174,7 +174,7 @@ def _same_grid(a: Dataset, b: Dataset) -> bool:
     )
 
 
-def _remap_nodata_to(arr: np.ndarray, src_nd: Any, dst_nd: Any) -> np.ndarray:
+def _remap_nodata_to(arr: np.ndarray, src_nd: Any, dst_nd: Any) -> np.typing.NDArray:
     """Replace ``src_nd`` cells in ``arr`` with ``dst_nd`` when the two differ.
 
     Used by :meth:`Dataset.from_band_files` (``align=True`` branch) so that
@@ -1825,7 +1825,7 @@ class Dataset(RasterBase):
         )
 
     @property
-    def total_bounds(self) -> np.ndarray:
+    def total_bounds(self) -> np.typing.NDArray:
         """Bounding box `[minx, miny, maxx, maxy]` as a NumPy array.
 
         introduced this property so that `Dataset` and
@@ -1837,7 +1837,7 @@ class Dataset(RasterBase):
         return np.asarray(self._calculate_bbox())
 
     @property
-    def lon(self) -> np.ndarray:
+    def lon(self) -> np.typing.NDArray:
         """Longitude / x cell-centre coordinates.
 
         Uses the geotransform's pixel width (``geotransform[1]``) so the axis is
@@ -1870,7 +1870,7 @@ class Dataset(RasterBase):
         return x_coords
 
     @property
-    def lat(self) -> np.ndarray:
+    def lat(self) -> np.typing.NDArray:
         """Latitude / y cell-centre coordinates.
 
         Uses the geotransform's pixel height (``abs(geotransform[5])``) rather than
@@ -1917,7 +1917,7 @@ class Dataset(RasterBase):
         return y_coords
 
     @property
-    def x(self) -> np.ndarray:
+    def x(self) -> np.typing.NDArray:
         """X cell-centre coordinates (alias of :attr:`lon`).
 
         Examples:
@@ -1940,7 +1940,7 @@ class Dataset(RasterBase):
         return self.lon
 
     @property
-    def y(self) -> np.ndarray:
+    def y(self) -> np.typing.NDArray:
         """Y cell-centre coordinates (alias of :attr:`lat`).
 
         Examples:

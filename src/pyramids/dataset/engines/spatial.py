@@ -954,7 +954,7 @@ class Spatial(_Engine):
         )
         return dst_obj
 
-    def fill_gaps(self, mask, src_array: np.ndarray) -> np.ndarray:
+    def fill_gaps(self, mask, src_array: np.ndarray) -> np.typing.NDArray:
         """Fill gaps in src_array using nearest neighbors where mask indicates valid cells.
 
         Args:

@@ -283,7 +283,7 @@ def _read_mdarray_chunk(
     starts: list[int],
     counts: list[int],
     expected_dtype: np.dtype,
-) -> np.ndarray:
+) -> np.typing.NDArray:
     """Read one block of an MDArray through a :class:`CachingFileManager`.
 
     Mirrors the shape of the eager chunk read at
@@ -435,7 +435,7 @@ class _MDArrayChunkReader:
         manager, variable_name, expected_dtype, starts, counts = state
         self.__init__(manager, variable_name, expected_dtype, starts, counts)
 
-    def __call__(self) -> np.ndarray:
+    def __call__(self) -> np.typing.NDArray:
         return _read_mdarray_chunk(
             self.manager,
             self.variable_name,

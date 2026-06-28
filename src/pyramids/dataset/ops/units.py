@@ -47,7 +47,7 @@ def supported_conversions() -> list[tuple[str, str]]:
     return sorted(_AFFINE.keys())
 
 
-def convert_array(array: np.ndarray, source: str, target: str) -> np.ndarray:
+def convert_array(array: np.ndarray, source: str, target: str) -> np.typing.NDArray:
     """Convert an array of values from ``source`` units to ``target`` units.
 
     Args:
