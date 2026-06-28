@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
 
 
-class Variables(_Engine):
+class Variables(_Engine["NetCDF"]):
     """Variable add / remove / rename / write collaborator for :class:`NetCDF`.
 
     Owns the bodies of the variable-mutation family. ``NetCDF`` wires one

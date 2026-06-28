@@ -49,7 +49,7 @@ _REQUIRED_RPC_KEYS: frozenset[str] = frozenset(
 )
 
 
-class Georef(_Engine):
+class Georef(_Engine["Dataset"]):
     """Ground-control-point and RPC georeferencing for a :class:`Dataset`.
 
     A normal raster is georeferenced by an affine geotransform. Raw imagery

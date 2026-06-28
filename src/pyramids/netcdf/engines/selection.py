@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
 
 
-class Selection(_Engine):
+class Selection(_Engine["NetCDF"]):
     """Spatial / dimensional selection collaborator for :class:`NetCDF`.
 
     Owns the bodies of :meth:`crop` (with the curvilinear and rectilinear

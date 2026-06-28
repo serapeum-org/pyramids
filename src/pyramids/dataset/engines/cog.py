@@ -11,7 +11,7 @@ import math
 import uuid
 import warnings
 from pathlib import Path
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 import numpy as np
 from osgeo import gdal
@@ -38,6 +38,9 @@ from pyramids.dataset.cog import (
 )
 from pyramids.dataset.cog.validate import _resolve_read_config, config_context
 from pyramids.dataset.engines._base import _Engine
+
+if TYPE_CHECKING:
+    from pyramids.dataset.dataset import Dataset  # noqa: F401  (forward ref in _Engine["Dataset"])
 
 _AVERAGING_RESAMPLERS: frozenset[str] = frozenset(
     {"average", "bilinear", "cubic", "cubicspline", "lanczos"}
@@ -143,7 +146,7 @@ def _xyz_bounds_3857(z: int, x: int, y: int) -> tuple[float, float, float, float
     return west, south, east, north
 
 
-class COG(_Engine):
+class COG(_Engine["Dataset"]):
     """Cloud Optimized GeoTIFF read/write/validate operations for `Dataset`.
 
     Owns the real implementations of `to_cog`, `is_cog` (property),
