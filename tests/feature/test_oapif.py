@@ -185,13 +185,13 @@ class TestCollections:
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         return httpd, f"http://127.0.0.1:{httpd.server_address[1]}", attempts
 
-    def test_auth_answers_the_basic_challenge(self):
-        """Given credentials, the reader answers the 401 challenge and reads collections."""
+    def test_auth_sends_preemptive_basic_credentials(self):
+        """Given credentials, the reader sends them preemptively and reads in one request."""
         httpd, url, attempts = self._challenging_server()
         try:
             ids = _oapif._get_collections(url, ("user", "secret"), 30.0)
             assert ids == {"lakes", "roads"}
-            assert attempts["GET"] >= 2  # 401 challenge, then the credentialed retry
+            assert attempts["GET"] == 1  # preemptive: succeeds without a 401 round-trip
         finally:
             httpd.shutdown()
             httpd.server_close()

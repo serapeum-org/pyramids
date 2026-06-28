@@ -24,6 +24,7 @@ non-PROJ CRS — live in the downstream consumer (``earthlens``), which calls
 
 from __future__ import annotations
 
+import base64
 import json
 import urllib.request
 from functools import lru_cache
@@ -79,14 +80,16 @@ def _get_collections(
             answered with a non-JSON body or an OGC API exception document.
     """
     url = _collections_url(endpoint)
-    opener = urllib.request.build_opener()
+    headers = dict(_DISCOVERY_HEADERS)
     if auth is not None:
-        mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-        mgr.add_password(None, endpoint, auth[0], auth[1])
-        opener.add_handler(urllib.request.HTTPBasicAuthHandler(mgr))
-    request = urllib.request.Request(url, headers=_DISCOVERY_HEADERS)
+        # Send Basic credentials preemptively (matching the GDAL items read's
+        # GDAL_HTTP_USERPWD), so a service that 403s without a 401 challenge still
+        # gets them — a reactive HTTPBasicAuthHandler would only react to a 401.
+        token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()
+        headers["Authorization"] = f"Basic {token}"
+    request = urllib.request.Request(url, headers=headers)
     try:
-        with opener.open(request, timeout=timeout) as resp:
+        with urllib.request.urlopen(request, timeout=timeout) as resp:
             payload = resp.read()
     except OSError as exc:
         # urllib.error.URLError / HTTPError both derive from OSError.
