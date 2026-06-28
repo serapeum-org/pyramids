@@ -234,6 +234,30 @@ class TestCollections:
             httpd.shutdown()
             httpd.server_close()
 
+    def test_http_error_problem_document_message_extracted(self):
+        """A 4xx/5xx problem document's description is surfaced, not just the status."""
+        body = json.dumps({"description": "collection backend down"}).encode("utf-8")
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                self.send_response(503)
+                self.send_header("Content-Type", "application/problem+json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args, **kwargs):  # noqa: N802
+                return
+
+        httpd = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            with pytest.raises(OGCAPIError, match="collection backend down"):
+                _oapif._get_collections(f"http://127.0.0.1:{httpd.server_address[1]}", None, 30.0)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
     def test_transport_failure_raises_ogcapierror(self, monkeypatch):
         def boom(self, *args, **kwargs):
             raise OSError("connection refused")

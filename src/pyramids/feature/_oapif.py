@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import base64
 import json
+import urllib.error
 import urllib.request
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
@@ -91,8 +92,14 @@ def _get_collections(
     try:
         with urllib.request.urlopen(request, timeout=timeout) as resp:
             payload = resp.read()
+    except urllib.error.HTTPError as exc:
+        # 4xx/5xx commonly carry an RFC 7807 problem document — surface its message.
+        raise OGCAPIError(
+            f"OGC API /collections request failed for {endpoint!r}: "
+            f"HTTP {exc.code} {_http_error_detail(exc)}"
+        ) from exc
     except OSError as exc:
-        # urllib.error.URLError / HTTPError both derive from OSError.
+        # urllib.error.URLError and other transport errors derive from OSError.
         raise OGCAPIError(f"OGC API /collections request failed for {endpoint!r}: {exc}") from exc
 
     try:
@@ -133,6 +140,23 @@ def _error_text(doc: Any) -> str:
             if value:
                 return str(value).strip()
     return "no message provided"
+
+
+def _http_error_detail(exc: urllib.error.HTTPError) -> str:
+    """Best-effort human message from an ``HTTPError`` body (RFC 7807 problem+json).
+
+    Reads the error response body and runs a JSON one through :func:`_error_text`;
+    falls back to a truncated plain-text body or the HTTP reason phrase.
+    """
+    try:
+        body = exc.read()
+    except OSError:
+        return exc.reason or "no message provided"
+    try:
+        return _error_text(json.loads(body))
+    except (ValueError, TypeError):
+        text = body.decode("utf-8", "replace").strip()
+        return text[:200] or exc.reason or "no message provided"
 
 
 def _oapif_connection(endpoint: str) -> str:
