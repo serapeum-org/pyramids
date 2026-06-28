@@ -108,6 +108,9 @@ def make_2d_nc(
     Returns:
         NetCDF: An in-memory multidimensional NetCDF container.
     """
+    # Arbitrary deterministic fill — only the shape/dtype/structure matter to
+    # the consumers; no test asserts on the exact cell values, so the modern
+    # default_rng stream (vs the legacy RandomState it replaced) is fine here.
     arr = np.random.default_rng(99).random((rows, cols)).astype(np.float64)
     geo = (0.0, 1.0, 0, float(rows), 0, -1.0)
     return NetCDF.create_from_array(
