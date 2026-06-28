@@ -448,7 +448,10 @@ class TestNetCDFPlotCoordAxes:
             shape does not match the slice's 2-D shape.
         """
         nc = _make_3d_nc()
-        nc.plot(variable="t2m", coords=("t2m", "t2m"))
+        result = nc.plot(variable="t2m", coords=("t2m", "t2m"))
+        assert isinstance(result, ArrayGlyph), (
+            f"Expected ArrayGlyph from valid-coords render, got {type(result).__name__}"
+        )
 
 
 class TestNetCDFPlotDefaultRender:
@@ -560,7 +563,7 @@ class TestNetCDFPlotVariableResolutionEdges:
             not left with a cryptic GDAL error.
         """
         nc = _make_3d_nc()
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=r"is not a valid variable name"):
             nc.plot(variable="")
 
     def test_whitespace_variable_name_raises(self):
@@ -572,13 +575,13 @@ class TestNetCDFPlotVariableResolutionEdges:
             must raise rather than silently rendering the wrong thing.
         """
         nc = _make_3d_nc()
-        with pytest.raises((ValueError, RuntimeError)):
+        with pytest.raises(ValueError, match=r"is not a valid variable name"):
             nc.plot(variable=" t2m ")
 
     def test_unknown_variable_name_raises(self):
         """``variable="missing"`` is not in ``variable_names`` and must raise."""
         nc = _make_3d_nc()
-        with pytest.raises((ValueError, KeyError, RuntimeError)):
+        with pytest.raises(ValueError, match=r"is not a valid variable name"):
             nc.plot(variable="missing")
 
     def test_4d_no_selectors_raises_did_not_pin(self):

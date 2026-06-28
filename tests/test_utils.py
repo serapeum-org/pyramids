@@ -33,10 +33,8 @@ def test_gdal_to_numpy_dtype():
     assert gdal_to_numpy_dtype(6) == "float32"
     assert gdal_to_numpy_dtype(7) == "float64"
     assert gdal_to_numpy_dtype(2) == "uint16"
-    try:
+    with pytest.raises(ValueError):
         gdal_to_numpy_dtype(20)
-    except ValueError:
-        pass
 
 
 def test_gdal_to_ogr_dtype(test_image: gdal.Dataset, src: gdal.Dataset):
@@ -46,10 +44,8 @@ def test_gdal_to_ogr_dtype(test_image: gdal.Dataset, src: gdal.Dataset):
 
 def test_ogr_to_numpy_dtype():
     assert ogr_to_numpy_dtype(0) == np.int32
-    try:
+    with pytest.raises(ValueError):
         ogr_to_numpy_dtype(1)
-    except ValueError:
-        pass
 
 
 class TestCatalog:
@@ -66,10 +62,8 @@ class TestCatalog:
         catalog = Catalog()
         driver = catalog.get_driver_by_extension("nc")
         assert driver.get("GDAL Name") == "netCDF"
-        try:
+        with pytest.raises(DriverNotExistError):
             catalog.get_driver_by_extension("mm")
-        except DriverNotExistError:
-            pass
 
     def test_get_gdal_name(self):
         catalog = Catalog()

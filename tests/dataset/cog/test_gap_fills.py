@@ -148,9 +148,14 @@ class TestToCogOptionInteractions:
         )
         reopened = gdal.Open(str(out))
         try:
-            assert reopened.RasterCount >= small_float_dataset.band_count, (
-                f"add_mask should add at least one band; "
-                f"got RasterCount={reopened.RasterCount}"
+            # ADD_ALPHA in the COG driver stores the mask internally (not as a
+            # counted raster band), so RasterCount equals the source band count
+            # rather than growing — the original `>=` could not catch a band-count
+            # regression, this `==` can.
+            assert reopened.RasterCount == small_float_dataset.band_count, (
+                f"COG with add_mask should preserve the source band count; "
+                f"got RasterCount={reopened.RasterCount}, "
+                f"expected={small_float_dataset.band_count}"
             )
         finally:
             reopened = None

@@ -468,14 +468,12 @@ class TestCFGlobalAttributesRoundTrip:
         ), f"history lost after round-trip, got {ga.get('history')!r}"
 
     def test_round_trip_with_disk_path(self, tmp_path):
-        """create_from_array with path= writes CF attrs directly.
+        """create_from_array with path= writes CF attrs; reopening the file confirms it.
 
         Test scenario:
-            Creating directly to disk (path= parameter) should also
-            set CF global attributes. We verify by reading the global
-            attributes from the in-memory handle returned by
-            create_from_array (the netCDF driver writes to disk during
-            creation, and the returned handle is backed by that file).
+            Create directly to disk (path= parameter), close the handle,
+            reopen the file, and verify Conventions and title are present
+            in the on-disk representation.
         """
         arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
         out_path = str(tmp_path / "direct_write.nc")
@@ -486,10 +484,13 @@ class TestCFGlobalAttributesRoundTrip:
             path=out_path,
             title="Direct write",
         )
-        ga = nc.global_attributes
+        nc.close()
+        nc2 = NetCDF.read_file(out_path)
+        ga = nc2.global_attributes
         assert (
             ga.get("Conventions") == "CF-1.8"
-        ), f"Conventions missing from direct write, got {ga.get('Conventions')!r}"
+        ), f"Conventions missing from disk round-trip, got {ga.get('Conventions')!r}"
         assert (
             ga.get("title") == "Direct write"
-        ), f"title missing from direct write, got {ga.get('title')!r}"
+        ), f"title missing from disk round-trip, got {ga.get('title')!r}"
+        nc2.close()

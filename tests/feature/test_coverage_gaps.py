@@ -26,6 +26,8 @@ import geopandas as gpd
 import pytest
 from shapely.geometry import LineString, Point, Polygon, box
 
+from pyogrio.errors import DataSourceError
+
 from pyramids.base._errors import CRSError
 from pyramids.base.crs import reproject_coordinates
 from pyramids.feature import FeatureCollection, get_line_coords, get_poly_coords
@@ -92,14 +94,12 @@ class TestMissingFileErrors:
 
     def test_iter_features_missing_file(self, tmp_path: Path):
         missing = tmp_path / "does_not_exist.geojson"
-        with pytest.raises(Exception):
-            # pyogrio raises DataSourceError — the exact class depends
-            # on the engine; we just check that an exception surfaces.
+        with pytest.raises((DataSourceError, FileNotFoundError)):
             list(FeatureCollection.iter_features(missing))
 
     def test_list_layers_missing_file(self, tmp_path: Path):
         missing = tmp_path / "nope.gpkg"
-        with pytest.raises(Exception):
+        with pytest.raises((DataSourceError, FileNotFoundError)):
             FeatureCollection.list_layers(missing)
 
 

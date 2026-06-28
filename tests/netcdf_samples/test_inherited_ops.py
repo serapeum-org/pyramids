@@ -13,13 +13,19 @@ from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
-# Inherited @property members (from Dataset / AbstractDataset / RasterBase).
-INHERITED_PROPERTIES = [
+# Inherited @property members that must return a non-None value on a real variable view.
+INHERITED_PROPERTIES_NONNULL = [
     "access", "band_color", "band_count", "band_names", "band_units", "bbox", "block_size",
-    "bounds", "cell_size", "color_table", "columns", "crs", "driver_type", "dtype", "epsg",
-    "gcp_count", "gcp_projection", "gcps", "gdal_dtype", "has_gcps", "has_rpcs", "is_cog",
-    "numpy_dtype", "offset", "overview_count", "raster", "rows", "rpcs", "scale", "shape",
+    "bounds", "cell_size", "columns", "crs", "dtype", "epsg",
+    "gcp_count", "gdal_dtype", "has_gcps", "has_rpcs", "is_cog",
+    "numpy_dtype", "offset", "overview_count", "raster", "rows", "scale", "shape",
     "total_bounds", "transform",
+]
+
+# Inherited @property members that may legitimately return None (no GCPs/RPCs/colour table set,
+# or an in-memory variable view that carries no driver metadata).
+INHERITED_PROPERTIES_NULLABLE = [
+    "color_table", "driver_type", "gcps", "gcp_projection", "rpcs",
 ]
 
 # Inherited zero-argument methods that should run on a variable view without raising.
@@ -46,10 +52,16 @@ def tos_view(sample):
         nc.close()
 
 
-@pytest.mark.parametrize("prop", INHERITED_PROPERTIES)
+@pytest.mark.parametrize("prop", INHERITED_PROPERTIES_NONNULL)
 def test_inherited_property_accessible(tos_view, prop):
-    """Every inherited property is readable on a NetCDF variable view without raising."""
-    getattr(tos_view, prop)
+    """Every non-nullable inherited property returns a non-None value on a NetCDF variable view."""
+    assert getattr(tos_view, prop) is not None
+
+
+@pytest.mark.parametrize("prop", INHERITED_PROPERTIES_NULLABLE)
+def test_inherited_nullable_property_accessible(tos_view, prop):
+    """Nullable inherited properties are readable without raising (None is an acceptable return)."""
+    getattr(tos_view, prop)  # must not raise; None is a legitimate value
 
 
 @pytest.mark.parametrize("method", INHERITED_NOARG_METHODS)
@@ -58,7 +70,7 @@ def test_inherited_noarg_method_runs(tos_view, method):
     getattr(tos_view, method)()
 
 
-@pytest.mark.xfail(reason="footprint's internal mask yields a None band on NetCDF views (#592)", strict=False)
+@pytest.mark.xfail(reason="footprint's internal mask yields a None band on NetCDF views (#592)", strict=True)
 def test_inherited_footprint(tos_view):
     """footprint should produce a coverage polygon for the variable view (currently fails, #592)."""
     assert tos_view.footprint() is not None

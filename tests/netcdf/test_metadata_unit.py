@@ -1157,9 +1157,7 @@ class TestGroupTraverserWalk:
             t.walk(root)
 
         # The child should still be traversed with a fallback name /child
-        assert (
-            "child" in [v for v in groups.keys()] or len(groups) >= 1
-        ), f"Expected child to be in the traversal, got {list(groups.keys())}"
+        assert "child" in groups, f"Expected child to be in the traversal, got {list(groups.keys())}"
 
     def test_child_group_info_fallback_non_root_parent(self):
         """Verify fallback path concatenation for non-root parent uses parent_path/child_name.
@@ -1208,7 +1206,7 @@ class TestGroupTraverserWalk:
         t = GroupTraverser(groups, arrays, dimensions)
         t.walk(root)
         assert "good" in arrays, "Good array should be collected"
-        assert "/bad" not in arrays, "Bad array should be skipped"
+        assert "bad" not in arrays, "Bad array should be skipped"
 
     def test_array_open_exception_skipped(self):
         """Verify arrays that raise on OpenMDArray are skipped."""
