@@ -24,21 +24,18 @@ from __future__ import annotations
 
 import urllib.request
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET
 
 import geopandas as gpd
 from osgeo import gdal
 
 from pyramids.base._errors import WFSError
+from pyramids.feature._ogc import gdal_http_config as _gdal_http_config
+from pyramids.feature._ogc import read_kwargs as _read_kwargs
 
 if TYPE_CHECKING:
     from pyramids.feature.collection import FeatureCollection
-
-# GDAL's HTTP Basic-auth env var. Assembled in two pieces so static analysis does
-# not misread the literal key as a hard-coded credential: the value is always
-# supplied by the caller's ``auth``, never hard-coded here.
-_GDAL_HTTP_AUTH_VAR = "GDAL_HTTP_USER" + "PWD"
 
 
 def _localname(tag: str) -> str:
@@ -131,41 +128,6 @@ def _wfs_connection(endpoint: str, version: str | None) -> str:
         sep = "&" if "?" in url else "?"
         url = f"{url}{sep}VERSION={version}"
     return f"WFS:{url}"
-
-
-def _gdal_http_config(auth: tuple[str, str] | None, timeout: float) -> dict[str, str]:
-    """GDAL config options for the WFS HTTP requests (auth + timeout)."""
-    # GDAL_HTTP_TIMEOUT is whole seconds; clamp to >= 1 so a sub-second timeout is
-    # not truncated to "0", which GDAL reads as "no timeout".
-    config = {"GDAL_HTTP_TIMEOUT": str(max(1, int(timeout)))}
-    if auth is not None:
-        config[_GDAL_HTTP_AUTH_VAR] = f"{auth[0]}:{auth[1]}"
-    return config
-
-
-def _read_kwargs(
-    bbox: tuple[float, float, float, float] | None,
-    where: str | None,
-    max_features: int | None,
-) -> dict[str, Any]:
-    """Assemble the pyogrio / GDAL read filters (bbox, attribute filter, count)."""
-    kwargs: dict[str, Any] = {}
-    if bbox is not None:
-        if len(bbox) != 4:
-            raise ValueError(f"bbox must be (minx, miny, maxx, maxy), got {bbox!r}")
-        minx, miny, maxx, maxy = (float(v) for v in bbox)
-        if minx >= maxx or miny >= maxy:
-            raise ValueError(f"bbox must have minx < maxx and miny < maxy, got {bbox!r}")
-        kwargs["bbox"] = (minx, miny, maxx, maxy)
-    if where is not None:
-        kwargs["where"] = where
-    if max_features is not None:
-        # 0 is rejected: pyogrio reads rows=0 as "no limit" (returns everything), so a
-        # 0 cap would silently fetch the whole feature type. Require >= 1 or None.
-        if max_features < 1:
-            raise ValueError(f"max_features must be >= 1 or None, got {max_features}")
-        kwargs["rows"] = max_features
-    return kwargs
 
 
 def from_wfs(
