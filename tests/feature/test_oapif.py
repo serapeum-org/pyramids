@@ -256,6 +256,43 @@ class TestFromOgcApiFeatures:
             FeatureCollection.from_ogc_api_features("https://h/api", collection="lakes")
 
 
+class TestReadKwargsContract:
+    """The filter kwargs `_read_kwargs` builds must be accepted by the *real* `gpd.read_file`.
+
+    The `TestFromOgcApiFeatures` cases stub `read_file`, so they cannot catch a
+    kwarg the installed reader rejects — the blind spot that let the PostGIS PR
+    ship a broken write path. These feed the exact `_read_kwargs` output to the
+    unmocked reader on a local file. (`layer=` acceptance is covered separately by
+    `test_read_file_filters.py`.)
+    """
+
+    @pytest.fixture
+    def sample_file(self, tmp_path):
+        """A two-feature GeoJSON written by the OGR writer, readable by the reader."""
+        path = tmp_path / "sample.geojson"
+        gpd.GeoDataFrame(
+            {"name": ["a", "b"], "v": [1, 9]},
+            geometry=[Point(5.0, 52.0), Point(6.0, 51.0)],
+            crs="EPSG:4326",
+        ).to_file(path, driver="GeoJSON")
+        return path
+
+    def test_rows_kwarg_caps_features(self, sample_file):
+        """`rows` (from max_features) is a valid read kwarg and caps the result."""
+        gdf = gpd.read_file(sample_file, **_oapif._read_kwargs(None, None, 1))
+        assert len(gdf) == 1
+
+    def test_where_kwarg_filters(self, sample_file):
+        """`where` is a valid read kwarg and pushes the attribute filter down."""
+        gdf = gpd.read_file(sample_file, **_oapif._read_kwargs(None, "v > 5", None))
+        assert list(gdf["name"]) == ["b"]
+
+    def test_bbox_kwarg_filters(self, sample_file):
+        """`bbox` is a valid read kwarg and restricts to intersecting features."""
+        gdf = gpd.read_file(sample_file, **_oapif._read_kwargs((0.0, 0.0, 5.5, 53.0), None, None))
+        assert list(gdf["name"]) == ["a"]
+
+
 def _feature(fid: str, x: float, y: float, name: str) -> dict:
     """A single GeoJSON point feature."""
     return {
