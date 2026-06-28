@@ -10,7 +10,7 @@ Depends on:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from osgeo import gdal
@@ -293,14 +293,16 @@ def _parse_single_topology(
     node_x_var, node_y_var = _split_coord_pair(attrs, "node_coordinates")
 
     if topo_dim is not None and node_x_var is not None and node_y_var is not None:
-        topo_dim = int(topo_dim)
+        topo_dim = int(cast("int", topo_dim))
 
-        face_node_var = attrs.get("face_node_connectivity")
-        edge_node_var = attrs.get("edge_node_connectivity")
-        face_edge_var = attrs.get("face_edge_connectivity")
-        face_face_var = attrs.get("face_face_connectivity")
-        edge_face_var = attrs.get("edge_face_connectivity")
-        boundary_node_var = attrs.get("boundary_node_connectivity")
+        # UGRID connectivity attributes are CF variable-name strings; the
+        # generic attrs map types values as the broad GDAL value union.
+        face_node_var = cast("str | None", attrs.get("face_node_connectivity"))
+        edge_node_var = cast("str | None", attrs.get("edge_node_connectivity"))
+        face_edge_var = cast("str | None", attrs.get("face_edge_connectivity"))
+        face_face_var = cast("str | None", attrs.get("face_face_connectivity"))
+        edge_face_var = cast("str | None", attrs.get("edge_face_connectivity"))
+        boundary_node_var = cast("str | None", attrs.get("boundary_node_connectivity"))
 
         face_x_var, face_y_var = _split_coord_pair(attrs, "face_coordinates")
         edge_x_var, edge_y_var = _split_coord_pair(attrs, "edge_coordinates")
@@ -383,7 +385,7 @@ def _detect_crs(scan: _MeshArrayScan, node_x_var: str) -> str | None:
     if node_x_arr is not None:
         srs = node_x_arr.GetSpatialRef()
         if srs is not None:
-            return srs.ExportToWkt()
+            return cast("str", srs.ExportToWkt())
 
     for candidate in ("projected_coordinate_system", "crs", "spatial_ref"):
         crs_arr = scan.open(candidate)
@@ -480,8 +482,12 @@ def write_ugrid_topology(
         )
 
     if mesh.has_face_coords:
-        _write_coord_array(rg, f"{mesh_name}_face_x", [n_face_dim], mesh.face_x)
-        _write_coord_array(rg, f"{mesh_name}_face_y", [n_face_dim], mesh.face_y)
+        _write_coord_array(
+            rg, f"{mesh_name}_face_x", [n_face_dim], cast("np.typing.NDArray", mesh.face_x)
+        )
+        _write_coord_array(
+            rg, f"{mesh_name}_face_y", [n_face_dim], cast("np.typing.NDArray", mesh.face_y)
+        )
 
     if crs_wkt is not None:
         _write_crs_variable(rg, crs_wkt, topo_dim)
@@ -618,7 +624,7 @@ def write_ugrid_data_variable(
     )
     md_arr.Write(var.data)
 
-    var_attrs = {"mesh": mesh_name, "location": var.location}
+    var_attrs: dict[str, Any] = {"mesh": mesh_name, "location": var.location}
     if var.units:
         var_attrs["units"] = var.units
     if var.standard_name:

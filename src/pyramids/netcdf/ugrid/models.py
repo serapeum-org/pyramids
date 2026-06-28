@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -152,8 +152,8 @@ class MeshVariable:
         """
         if not self.has_time:
             raise ValueError(f"Variable '{self.name}' has no time dimension.")
-        result = self.data[index]
-        return result
+        result = cast("np.typing.NDArray", self.data)[index]
+        return cast("np.typing.NDArray", result)
 
     def sel_time_range(self, start: int, stop: int) -> MeshVariable:
         """Select a time range, returning a new MeshVariable.
@@ -170,7 +170,7 @@ class MeshVariable:
         """
         if not self.has_time:
             raise ValueError(f"Variable '{self.name}' has no time dimension.")
-        return self.with_data(self.data[start:stop])
+        return self.with_data(cast("np.typing.NDArray", self.data)[start:stop])
 
     def with_data(self, data: np.ndarray | None) -> MeshVariable:
         """Return a copy of this variable carrying ``data``, keeping all other metadata.
