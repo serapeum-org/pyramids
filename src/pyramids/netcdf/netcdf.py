@@ -443,6 +443,14 @@ class NetCDF(Dataset):
         https://acdguide.github.io/Governance/create/create-basics.html
     """
 
+    # NetCDF-only instance attributes assigned outside ``__init__``: the
+    # temp-file path tracked for an xarray round-trip (set by the interop
+    # engine) and the 2-D curvilinear coordinate windows carried on a
+    # cropped subset (set by the selection engine, read defensively via
+    # ``getattr`` in the plot engine).
+    _xarray_temp_path: str
+    _curvilinear_coords: tuple[Any, Any] | None
+
     def __reduce__(self):  # type: ignore[override]
         """Emit the extended recipe tuple carrying NetCDF mode flags.
 

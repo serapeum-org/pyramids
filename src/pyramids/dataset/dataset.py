@@ -233,6 +233,23 @@ class Dataset(RasterBase):
     release deterministic on Windows.
     """
 
+    # Instance attributes assigned outside ``__init__`` — lazily by the io
+    # engine (``_backend``), by warp/georef operations (``_warp_source``),
+    # by the bytes/VSI round-trip (``_vsimem_path``), or on the base
+    # ``Dataset`` that ``NetCDF`` produces for a flattened band axis (the
+    # ``_band_dim_*`` / ``_variable_attrs`` group, also initialised in
+    # ``NetCDF.__init__``). Declared here so the checker knows the surface;
+    # the runtime values are set where each is produced.
+    _backend: str
+    _warp_source: Dataset | None
+    _vsimem_path: str
+    _band_dim_name: str | None
+    _band_dim_values: list[Any] | None
+    _band_dim_names: tuple[str, ...]
+    _band_dim_values_map: dict[str, list[Any] | None]
+    _band_dim_sizes: tuple[int, ...]
+    _variable_attrs: dict[str, Any]
+
     def __init__(self, src: gdal.Dataset, access: str = "read_only"):
         """__init__."""
         self.logger = logging.getLogger(__name__)
