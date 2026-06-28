@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import math
 import warnings
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -273,7 +273,7 @@ class NetCDFPlot:
         if faceting_active:
             stack, facet_kwargs = self._build_facet_stack(
                 pinned,
-                col=facet.col,
+                col=cast("str", facet.col),
                 row=facet.row,
                 col_wrap=facet.col_wrap,
             )
@@ -715,7 +715,7 @@ class NetCDFPlot:
         col_axis = names.index(col)
         col_stride = math.prod(sizes[col_axis + 1 :])
 
-        col_values = list(nc._band_dim_values_map.get(col, []))
+        col_values = list(nc._band_dim_values_map.get(col) or [])
         if not col_values:
             col_values = list(range(sizes[col_axis]))
         slices: list[Any] = []
@@ -732,7 +732,7 @@ class NetCDFPlot:
         else:
             row_axis = names.index(row)
             row_stride = math.prod(sizes[row_axis + 1 :])
-            row_values = list(nc._band_dim_values_map.get(row, []))
+            row_values = list(nc._band_dim_values_map.get(row) or [])
             if not row_values:
                 row_values = list(range(sizes[row_axis]))
             for ci in range(len(col_values)):
@@ -1013,7 +1013,7 @@ class NetCDFPlot:
         def _data_getter(i: int) -> np.typing.NDArray:
             if i == 0:
                 return _frame_zero.copy()
-            return nc.read_array(band=i * frame_stride)
+            return cast("np.typing.NDArray", nc.read_array(band=i * frame_stride))
 
         template = _frame_zero
 
@@ -1312,12 +1312,12 @@ class NetCDFPlot:
         if result is None and data_shape is not None:
             for x_name, y_name in self._CURVILINEAR_NAME_PAIRS:
                 if x_name in parent.variable_names and y_name in parent.variable_names:
-                    x_arr = parent._read_variable(x_name)
-                    y_arr = parent._read_variable(y_name)
-                    if x_arr is None or y_arr is None:
+                    xv = parent._read_variable(x_name)
+                    yv = parent._read_variable(y_name)
+                    if xv is None or yv is None:
                         continue
-                    x_arr = self._squeeze_leading_axes(x_arr, data_shape)
-                    y_arr = self._squeeze_leading_axes(y_arr, data_shape)
+                    x_arr = self._squeeze_leading_axes(xv, data_shape)
+                    y_arr = self._squeeze_leading_axes(yv, data_shape)
                     if self._coord_shapes_match(x_arr, y_arr, data_shape):
                         warnings.warn(
                             "Resolving curvilinear coordinates by hardcoded "
@@ -1410,7 +1410,7 @@ class NetCDFPlot:
             result = arr[0]
         else:
             result = arr
-        return result
+        return cast("np.typing.NDArray", result)
 
     @staticmethod
     def _matches_x_axis(arr: np.ndarray, data_shape: tuple[int, int]) -> bool:

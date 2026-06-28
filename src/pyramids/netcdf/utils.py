@@ -66,7 +66,7 @@ def resolve_full_name(obj: Any, group_full_name: str, fallback_name: str) -> str
         The resolved full-name string.
     """
     try:
-        return obj.GetFullName()
+        return cast("str", obj.GetFullName())
     except Exception:
         if group_full_name != "/":
             return f"{group_full_name}/{fallback_name}"

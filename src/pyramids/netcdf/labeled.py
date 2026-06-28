@@ -21,7 +21,7 @@ from __future__ import annotations
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -532,7 +532,9 @@ class LabeledDataset:
     ) -> np.typing.NDArray:
         """Strided ``ReadAsArray`` over each selected dim's index span, then a
         local fancy index to pick the exact requested labels within the span."""
-        starts, counts, local = [], [], []
+        starts: list[int] = []
+        counts: list[int] = []
+        local: list[np.typing.NDArray | None] = []
         for dim in dim_names:
             idx = self._index.get(dim)
             if idx is None:
@@ -902,7 +904,7 @@ class LabeledDataset:
         values: np.ndarray,
         dims: tuple[str, ...],
         out_dims: list[str],
-        grids: list[np.ndarray],
+        grids: Sequence[np.ndarray],
     ) -> np.typing.NDArray:
         """Broadcast an array over `dims` onto the full `out_dims` row grid."""
         if not dims:
@@ -913,7 +915,7 @@ class LabeledDataset:
         idx: list[Any] = []
         for d in dims:
             idx.append(grids[axis_for[d]])
-        return gathered[tuple(idx)]
+        return cast("np.typing.NDArray", gathered[tuple(idx)])
 
     def to_parquet(self, path: str | Path, **kwargs: Any) -> Path:
         """Write the store to a Parquet file (tidy table).
@@ -962,7 +964,7 @@ class LabeledDataset:
         """Enter the runtime context, returning ``self``."""
         return self
 
-    def __exit__(self, *exc: Any) -> bool:
+    def __exit__(self, *exc: Any) -> Literal[False]:
         """Close the store on context exit; never suppresses exceptions."""
         self.close()
         return False
