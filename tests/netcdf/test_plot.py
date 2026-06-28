@@ -1877,7 +1877,7 @@ class TestCurvilinearCoordsEdges:
             the col length. ``_coord_shapes_match`` returns False, so
             the explicit-coord branch rejects them. With no other
             curvilinear conventions on the container (plain NetCDF
-            from :func:`_make_3d_nc`) the render falls back to
+            from :func:`make_plot_3d_nc`) the render falls back to
             extent. We assert no crash and ``cleo.coords is None``.
         """
         nc = make_plot_3d_nc(n_times=1, rows=5, cols=6)
@@ -2833,7 +2833,7 @@ class TestNetCDFPlotLazyEdges:
         """Variables under 100 MB never trigger the hint.
 
         Test scenario:
-            The default ``_make_3d_nc`` fixture builds a tiny 4x5x5
+            The default ``make_plot_3d_nc`` fixture builds a tiny 4x5x5
             float32 variable (~400 bytes). The hint is gated on a
             100 MB threshold, so no log record must mention ``chunks=``.
         """
