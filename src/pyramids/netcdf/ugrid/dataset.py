@@ -820,6 +820,10 @@ class UgridDataset:
                   use it for a custom colorbar or ``glyph.im.set_clim(...)``.
                   It is ``None`` after :meth:`plot_outline` (an outline
                   carries no scalar mapping).
+
+        Raises:
+            ValueError: If the selected variable has no loaded data, or if
+                `basemap` is requested while the dataset has no CRS (`epsg`).
         """
         var = self.get_data(variable_name)
         data = var.data

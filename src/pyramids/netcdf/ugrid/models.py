@@ -148,7 +148,8 @@ class MeshVariable:
 
         Raises:
             IndexError: If index is out of range.
-            ValueError: If the variable has no time dimension.
+            ValueError: If the variable has no time dimension, or has no
+                loaded data array.
         """
         if not self.has_time:
             raise ValueError(f"Variable '{self.name}' has no time dimension.")
@@ -168,7 +169,8 @@ class MeshVariable:
             New MeshVariable with the selected time range.
 
         Raises:
-            ValueError: If the variable has no time dimension.
+            ValueError: If the variable has no time dimension, or has no
+                loaded data array.
         """
         if not self.has_time:
             raise ValueError(f"Variable '{self.name}' has no time dimension.")
