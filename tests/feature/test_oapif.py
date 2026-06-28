@@ -403,6 +403,8 @@ class TestOapifDriverPaging:
             ds = gdal.OpenEx(f"OAPIF:{oapif_service}", gdal.OF_VECTOR)
             layer = ds.GetLayerByName("lakes")
             names = sorted(f.GetField("name") for f in layer)
+            layer = None
+            ds = None  # release the dataset's HTTP handle before the server tears down
         finally:
             gdal.SetConfigOption("GDAL_HTTP_TIMEOUT", None)
         assert names == ["a", "b", "c"]  # 2 from page 1 + 1 from page 2 (rel=next)
