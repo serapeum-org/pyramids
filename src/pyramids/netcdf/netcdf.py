@@ -702,7 +702,7 @@ class NetCDF(Dataset):
         return xmin, ymax
 
     @property
-    def lon(self) -> np.ndarray:
+    def lon(self) -> np.typing.NDArray:
         """Longitude / x-coordinate values as a 1D array.
 
         Looks for a variable named `"lon"` first, then `"x"`.
@@ -723,7 +723,7 @@ class NetCDF(Dataset):
         return result
 
     @property
-    def lat(self) -> np.ndarray:
+    def lat(self) -> np.typing.NDArray:
         """Latitude / y-coordinate values as a 1D array.
 
         Looks for a variable named `"lat"` first, then `"y"`.
@@ -744,13 +744,13 @@ class NetCDF(Dataset):
         return result
 
     @property
-    def x(self) -> np.ndarray:
+    def x(self) -> np.typing.NDArray:
         """x-coordinate/longitude."""
         # X_coordinate = upper-left corner x + index * cell size + cell-size/2
         return self.lon
 
     @property
-    def y(self) -> np.ndarray:
+    def y(self) -> np.typing.NDArray:
         """y-coordinate/latitude."""
         # Y_coordinate = upper-left corner y - index * cell size - cell-size/2
         return self.lat
@@ -2145,7 +2145,7 @@ class NetCDF(Dataset):
         return scalar_no_data(no_data_value)
 
     @staticmethod
-    def _materialize_variable_array(var: NetCDF) -> np.ndarray:
+    def _materialize_variable_array(var: NetCDF) -> np.typing.NDArray:
         """Read a variable as `(*band_dim_sizes, rows, cols)` (or `(rows, cols)`).
 
         Undoes ``read_array``'s singleton-band squeeze and GDAL's row-major
@@ -2161,7 +2161,7 @@ class NetCDF(Dataset):
 
     def _resolve_group_positions(
         self, dim: str, groupby: list | tuple | str | None
-    ) -> list[np.ndarray] | None:
+    ) -> list[np.typing.NDArray] | None:
         """Resolve `groupby` into ordered lists of source index positions.
 
         Returns ``None`` for the collapse case (``groupby is None``).
@@ -2896,7 +2896,7 @@ class NetCDF(Dataset):
             for dim in self._working_group_dimensions()
         }
 
-    def get_time_values(self, var_name: str = "time") -> np.ndarray | None:
+    def get_time_values(self, var_name: str = "time") -> np.typing.NDArray | None:
         """Raw (undecoded) values of the time coordinate, or ``None`` if absent.
 
         Use this when :meth:`get_time_variable` returns ``None`` because the
@@ -2992,7 +2992,7 @@ class NetCDF(Dataset):
         self,
         var: str,
         window: list[tuple[int, int]] | None = None,
-    ) -> np.ndarray | None:
+    ) -> np.typing.NDArray | None:
         """Read a variable's data as a numpy array, optionally windowed.
 
         Uses the MDIM root group when available (avoids opening a new GDAL
@@ -4617,7 +4617,7 @@ class NetCDF(Dataset):
         y_coords: np.ndarray,
         x_window: tuple[int, int],
         y_window: tuple[int, int],
-    ) -> tuple[np.ndarray, tuple[float, float, float, float, float, float]]:
+    ) -> tuple[np.typing.NDArray, tuple[float, float, float, float, float, float]]:
         """Flip ``arr`` to north-up / west-to-east; return ``(arr, geotransform)``.
 
         Cell size comes from the full coordinate spacing so a 1-cell-wide window
@@ -4882,7 +4882,7 @@ class NetCDF(Dataset):
         return None
 
     @staticmethod
-    def _read_axis_coords(rg: Any, name: str, axis_label: str) -> np.ndarray:
+    def _read_axis_coords(rg: Any, name: str, axis_label: str) -> np.typing.NDArray:
         """Read a spatial axis's 1-D coordinate values, or raise a clear error.
 
         A gridded variable can name a spatial dimension that has no indexing

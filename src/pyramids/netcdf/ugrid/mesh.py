@@ -61,12 +61,12 @@ class Mesh2d:
         self._cached_fan_triangles: np.ndarray | None = None
 
     @property
-    def node_x(self) -> np.ndarray:
+    def node_x(self) -> np.typing.NDArray:
         """Node x-coordinates array (n_node,)."""
         return self._node_x
 
     @property
-    def node_y(self) -> np.ndarray:
+    def node_y(self) -> np.typing.NDArray:
         """Node y-coordinates array (n_node,)."""
         return self._node_y
 
@@ -96,22 +96,22 @@ class Mesh2d:
         return self._edge_face_connectivity
 
     @property
-    def face_x(self) -> np.ndarray | None:
+    def face_x(self) -> np.typing.NDArray | None:
         """Face x-coordinates (n_face,) when provided at construction, else None."""
         return self._face_x
 
     @property
-    def face_y(self) -> np.ndarray | None:
+    def face_y(self) -> np.typing.NDArray | None:
         """Face y-coordinates (n_face,) when provided at construction, else None."""
         return self._face_y
 
     @property
-    def edge_x(self) -> np.ndarray | None:
+    def edge_x(self) -> np.typing.NDArray | None:
         """Edge x-coordinates (n_edge,) when provided at construction, else None."""
         return self._edge_x
 
     @property
-    def edge_y(self) -> np.ndarray | None:
+    def edge_y(self) -> np.typing.NDArray | None:
         """Edge y-coordinates (n_edge,) when provided at construction, else None."""
         return self._edge_y
 
@@ -157,7 +157,7 @@ class Mesh2d:
         return result
 
     @property
-    def face_centroids(self) -> tuple[np.ndarray, np.ndarray]:
+    def face_centroids(self) -> tuple[np.typing.NDArray, np.typing.NDArray]:
         """Face centroid coordinates (cx, cy).
 
         If face center coordinates were provided at construction,
@@ -185,7 +185,7 @@ class Mesh2d:
         return self._cached_face_centroids
 
     @property
-    def face_areas(self) -> np.ndarray:
+    def face_areas(self) -> np.typing.NDArray:
         """Face areas computed using the shoelace formula.
 
         Returns a 1D array of length n_face with the area of each face.
@@ -220,7 +220,7 @@ class Mesh2d:
         return self._cached_face_areas
 
     @property
-    def fan_triangles(self) -> np.ndarray:
+    def fan_triangles(self) -> np.typing.NDArray:
         """Fan triangulation as a pure numpy array (no matplotlib).
 
         Decomposes each mesh face into triangles using fan
@@ -303,7 +303,7 @@ class Mesh2d:
 
         return self._cached_fan_triangles
 
-    def get_face_nodes(self, face_idx: int) -> np.ndarray:
+    def get_face_nodes(self, face_idx: int) -> np.typing.NDArray:
         """Return valid node indices for a single face.
 
         Args:
@@ -315,7 +315,7 @@ class Mesh2d:
         result = self._face_node_connectivity.get_element(face_idx)
         return result
 
-    def get_face_polygon(self, face_idx: int) -> np.ndarray:
+    def get_face_polygon(self, face_idx: int) -> np.typing.NDArray:
         """Return the coordinate array for a face's boundary.
 
         Args:
@@ -328,7 +328,7 @@ class Mesh2d:
         coords = np.column_stack([self._node_x[nodes], self._node_y[nodes]])
         return coords
 
-    def get_edge_coords(self, edge_idx: int) -> tuple[np.ndarray, np.ndarray]:
+    def get_edge_coords(self, edge_idx: int) -> tuple[np.typing.NDArray, np.typing.NDArray]:
         """Return start and end coordinates for an edge.
 
         Args:

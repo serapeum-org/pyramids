@@ -321,7 +321,7 @@ def _finalize_after_write(data_result, resolved_store, meta, files) -> None:
 
 def _read_time_step(
     path: str | Path, gdal_env: dict[str, str] | None = None
-) -> np.ndarray:
+) -> np.typing.NDArray:
     """Synchronous per-file reader used by the lazy `data` dask graph.
 
     Module-level (not a closure) so each
@@ -779,13 +779,13 @@ class DatasetCollection:
             result.append((label, dataset))
         return result
 
-    def _reduce(self, op_name: str, *, skipna: bool) -> np.ndarray:
+    def _reduce(self, op_name: str, *, skipna: bool) -> np.typing.NDArray:
         """Shared reduction dispatcher over the time axis."""
         func, _ = resolve_dask_op(op_name, skipna=skipna)
         result = func(self.data, axis=0)
         return np.asarray(result.compute())
 
-    def mean(self, *, skipna: bool = True) -> np.ndarray:
+    def mean(self, *, skipna: bool = True) -> np.typing.NDArray:
         """Element-wise mean across the time axis.
 
         Args:
@@ -798,23 +798,23 @@ class DatasetCollection:
         """
         return self._reduce("mean", skipna=skipna)
 
-    def sum(self, *, skipna: bool = True) -> np.ndarray:
+    def sum(self, *, skipna: bool = True) -> np.typing.NDArray:
         """Element-wise sum across the time axis."""
         return self._reduce("sum", skipna=skipna)
 
-    def min(self, *, skipna: bool = True) -> np.ndarray:
+    def min(self, *, skipna: bool = True) -> np.typing.NDArray:
         """Element-wise minimum across the time axis."""
         return self._reduce("min", skipna=skipna)
 
-    def max(self, *, skipna: bool = True) -> np.ndarray:
+    def max(self, *, skipna: bool = True) -> np.typing.NDArray:
         """Element-wise maximum across the time axis."""
         return self._reduce("max", skipna=skipna)
 
-    def std(self, *, skipna: bool = True) -> np.ndarray:
+    def std(self, *, skipna: bool = True) -> np.typing.NDArray:
         """Element-wise standard deviation across the time axis."""
         return self._reduce("std", skipna=skipna)
 
-    def var(self, *, skipna: bool = True) -> np.ndarray:
+    def var(self, *, skipna: bool = True) -> np.typing.NDArray:
         """Element-wise variance across the time axis."""
         return self._reduce("var", skipna=skipna)
 
@@ -1809,7 +1809,7 @@ class DatasetCollection:
         return cls(sample, len(files), files)
 
     @property
-    def values(self) -> np.ndarray:
+    def values(self) -> np.typing.NDArray:
         """Materialise the per-timestep arrays as a 3D numpy cube.
 
         **Derived, not cached.** Every access reads each timestep's
@@ -1902,7 +1902,7 @@ class DatasetCollection:
         del band  # unused
         return None
 
-    def __getitem__(self, key) -> np.ndarray:
+    def __getitem__(self, key) -> np.typing.NDArray:
         """Return one or more timestep arrays, indexed along the time axis.
 
         Equivalent to ``self.values[key]`` but with one slight
@@ -1964,7 +1964,7 @@ class DatasetCollection:
         for ds in self.datasets:
             yield ds.read_array(band=0)
 
-    def head(self, n: int = 5) -> np.ndarray:
+    def head(self, n: int = 5) -> np.typing.NDArray:
         """First ``n`` timestep arrays as a 3D numpy slice.
 
         Args:
@@ -1975,7 +1975,7 @@ class DatasetCollection:
         """
         return self.values[:n]
 
-    def tail(self, n: int = -5) -> np.ndarray:
+    def tail(self, n: int = -5) -> np.typing.NDArray:
         """Last ``-n`` timestep arrays as a 3D numpy slice.
 
         Matches the legacy signature: a NEGATIVE ``n`` (the default
@@ -1993,7 +1993,7 @@ class DatasetCollection:
         """
         return self.values[n:]
 
-    def first(self) -> np.ndarray:
+    def first(self) -> np.typing.NDArray:
         """First timestep array (2D).
 
         Cheaper than ``self.values[0]`` because it only reads one
@@ -2001,7 +2001,7 @@ class DatasetCollection:
         """
         return self.datasets[0].read_array(band=0)
 
-    def last(self) -> np.ndarray:
+    def last(self) -> np.typing.NDArray:
         """Last timestep array (2D).
 
         Cheaper than ``self.values[-1]`` because it only reads one

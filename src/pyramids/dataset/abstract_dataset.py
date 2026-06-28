@@ -621,7 +621,7 @@ class RasterBase(ABC):
 
     def iter_blocks(
         self, band: int = 0, *, window: Window | None = None
-    ) -> Generator[tuple[Window, np.ndarray], None, None]:
+    ) -> Generator[tuple[Window, np.typing.NDArray], None, None]:
         """Yield ``(Window, ndarray)`` for every native block of ``band``.
 
         The streaming read companion of :meth:`block_windows`: each yielded
@@ -738,7 +738,7 @@ class RasterBase(ABC):
     @abstractmethod
     def _read_block(
         self, band: int, window: list[int] | GeoDataFrame | None = None
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Read block of data from the dataset.
 
         Args:
@@ -1093,7 +1093,7 @@ class RasterBase(ABC):
         self,
         exclude_value: Any | None = None,
         mask: FeatureCollection | GeoDataFrame | None = None,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Extract.
 
             - Extract method gets all the values in a raster, and excludes the values in the exclude_value parameter.
@@ -1203,7 +1203,7 @@ class RasterBase(ABC):
     @abstractmethod
     def read_overview_array(
         self, band: int | None = None, overview_index: int = 0
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Read an overview array.
 
             - read the values stored in a given band.

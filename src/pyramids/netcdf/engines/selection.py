@@ -895,7 +895,7 @@ def _window_no_data(nc: NetCDF) -> Any:
 
 def _read_curvilinear_window(
     nc: NetCDF, r0: int, r1: int, c0: int, c1: int, chunks: Any
-) -> np.ndarray:
+) -> np.typing.NDArray:
     """Read just the ``(r0:r1, c0:c1)`` bounding window of a curvilinear variable.
 
     With ``chunks`` the read goes through the dask-backed lazy path (only the
@@ -957,7 +957,7 @@ def _map_dim_to_band_indices(
     return band_indices
 
 
-def _read_selected_bands(nc: NetCDF, band_indices: list[int]) -> np.ndarray:
+def _read_selected_bands(nc: NetCDF, band_indices: list[int]) -> np.typing.NDArray:
     """Read just the selected classic bands into one pre-allocated buffer.
 
     Mirrors the all-bands read path in ``IO.read_array`` rather than stacking N

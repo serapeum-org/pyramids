@@ -114,7 +114,7 @@ def focal_mean(
     """
     size = 2 * radius + 1
 
-    def _kernel(arr: np.ndarray) -> np.ndarray:
+    def _kernel(arr: np.ndarray) -> np.typing.NDArray:
         return ndimage.uniform_filter(arr, size=size, mode="reflect")
 
     return _apply_eager_or_lazy(_kernel, ds, radius, chunks, band, np.float64)
@@ -165,7 +165,7 @@ def focal_std(
     """
     size = 2 * radius + 1
 
-    def _kernel(arr: np.ndarray) -> np.ndarray:
+    def _kernel(arr: np.ndarray) -> np.typing.NDArray:
         local_mean = ndimage.uniform_filter(arr, size=size, mode="reflect")
         deviations = (arr - local_mean) ** 2
         var = ndimage.uniform_filter(deviations, size=size, mode="reflect")
@@ -217,13 +217,13 @@ def focal_apply(
     """
     size = 2 * radius + 1
 
-    def _kernel(arr: np.ndarray) -> np.ndarray:
+    def _kernel(arr: np.ndarray) -> np.typing.NDArray:
         return ndimage.generic_filter(arr, func, size=size, mode="reflect")
 
     return _apply_eager_or_lazy(_kernel, ds, radius, chunks, band, np.float64)
 
 
-def _gradient(arr: np.ndarray, cell_size: float) -> tuple[np.ndarray, np.ndarray]:
+def _gradient(arr: np.ndarray, cell_size: float) -> tuple[np.typing.NDArray, np.typing.NDArray]:
     """Centered-difference gradient (dz/dx, dz/dy) at each cell."""
     dz_dy, dz_dx = np.gradient(arr, cell_size)
     return dz_dx, dz_dy
@@ -266,7 +266,7 @@ def slope(
     """
     cell_size = float(ds.cell_size)
 
-    def _kernel(arr: np.ndarray) -> np.ndarray:
+    def _kernel(arr: np.ndarray) -> np.typing.NDArray:
         dz_dx, dz_dy = _gradient(arr, cell_size)
         magnitude = np.hypot(dz_dx, dz_dy)
         radians = np.arctan(magnitude)
@@ -312,7 +312,7 @@ def aspect(
     """
     cell_size = float(ds.cell_size)
 
-    def _kernel(arr: np.ndarray) -> np.ndarray:
+    def _kernel(arr: np.ndarray) -> np.typing.NDArray:
         dz_dx, dz_dy = _gradient(arr, cell_size)
         angle = np.degrees(np.arctan2(dz_dy, -dz_dx))
         return np.mod(450.0 - angle, 360.0)
@@ -363,7 +363,7 @@ def hillshade(
     az_rad = np.deg2rad(360.0 - azimuth + 90.0)
     alt_rad = np.deg2rad(altitude)
 
-    def _kernel(arr: np.ndarray) -> np.ndarray:
+    def _kernel(arr: np.ndarray) -> np.typing.NDArray:
         dz_dx, dz_dy = _gradient(arr, cell_size)
         slope_rad = np.arctan(np.hypot(dz_dx, dz_dy))
         aspect_rad = np.arctan2(dz_dy, -dz_dx)

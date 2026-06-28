@@ -39,7 +39,7 @@ _LEGACY_WARNING = (
 
 def pixel_centre_coords(
     geotransform: tuple[float, ...], rows: int, cols: int
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.typing.NDArray, np.typing.NDArray]:
     """Return 1-D ``x`` / ``y`` pixel-centre coordinates for a north-up geotransform.
 
     Args:

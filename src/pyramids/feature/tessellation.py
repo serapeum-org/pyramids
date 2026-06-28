@@ -30,7 +30,7 @@ QUADTREE_AGG: dict[str, Callable[..., Any]] = {**NAN_REDUCERS, "count": len}
 """Reducers usable as ``quadtree(agg=...)`` — the NaN-aware reducers plus ``"count"``."""
 
 
-def point_xy(geometry: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def point_xy(geometry: Any) -> tuple[np.typing.NDArray, np.typing.NDArray, np.typing.NDArray]:
     """Return the finite ``(xs, ys, keep)`` of a point ``GeoSeries``.
 
     Points whose coordinates are non-finite are dropped, and ``keep`` holds the positional indices of the
@@ -131,7 +131,7 @@ def polygon_parts(geometry: Any) -> list:
     return parts
 
 
-def dedupe_xy(xs: np.ndarray, ys: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def dedupe_xy(xs: np.ndarray, ys: np.ndarray) -> tuple[np.typing.NDArray, np.typing.NDArray, np.typing.NDArray]:
     """Drop coincident points, keeping the first occurrence of each in input order.
 
     ``shapely.voronoi_polygons(..., ordered=True)`` raises ``GEOSException`` when two input points share a
@@ -356,7 +356,7 @@ def _split_quads(
     xs: np.ndarray,
     ys: np.ndarray,
     idx: np.ndarray,
-) -> list[tuple[float, float, float, float, np.ndarray]]:
+) -> list[tuple[float, float, float, float, np.typing.NDArray]]:
     """Split a cell into its four quadrants, partitioning ``idx`` by the cell midpoint.
 
     Args:

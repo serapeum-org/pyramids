@@ -26,7 +26,7 @@ def mesh_to_grid(
     bounds: tuple[float, float, float, float] | None = None,
     nodata: float = -9999.0,
     max_distance: float | None = None,
-) -> tuple[np.ndarray, tuple[float, ...]]:
+) -> tuple[np.typing.NDArray, tuple[float, ...]]:
     """Interpolate mesh data onto a regular grid.
 
     This is the core bridge function. The result is a 2D numpy array
@@ -92,7 +92,7 @@ def _get_source_data(
     mesh: Mesh2d,
     data: np.ndarray,
     location: str,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.typing.NDArray, np.typing.NDArray]:
     """Extract source point coordinates based on mesh location.
 
     Args:
@@ -132,7 +132,7 @@ def _interpolate_nearest(
     target_points: np.ndarray,
     nodata: float,
     max_distance: float,
-) -> np.ndarray:
+) -> np.typing.NDArray:
     """Nearest-neighbor interpolation with max_distance cutoff.
 
     Args:
@@ -162,7 +162,7 @@ def _interpolate_linear(
     source_values: np.ndarray,
     target_points: np.ndarray,
     nodata: float,
-) -> np.ndarray:
+) -> np.typing.NDArray:
     """Linear interpolation via scipy.interpolate.LinearNDInterpolator.
 
     Args:

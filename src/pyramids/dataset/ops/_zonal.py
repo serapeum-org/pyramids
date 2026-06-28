@@ -50,7 +50,7 @@ _STAT_FUNCS = {
 }
 
 
-def _rasterize_labels(ds: Dataset, fc: FeatureCollection) -> np.ndarray:
+def _rasterize_labels(ds: Dataset, fc: FeatureCollection) -> np.typing.NDArray:
     """Rasterize `fc` into an integer label array shaped like `ds`.
 
     Label values are 0-based feature-index integers. Pixels not
@@ -156,7 +156,7 @@ def _bincount_stats(
     labels: np.ndarray,
     n_features: int,
     stats: list[str],
-) -> dict[str, np.ndarray]:
+) -> dict[str, np.typing.NDArray]:
     """Vectorised sum / count / mean via :func:`numpy.bincount`.
 
     `labels` uses -1 for unassigned pixels; we shift by +1 so
