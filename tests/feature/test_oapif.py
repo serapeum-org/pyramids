@@ -10,6 +10,7 @@ normalisation — is covered without a live service, plus the pure helpers and t
 
 from __future__ import annotations
 
+import base64
 import http.server
 import json
 import os
@@ -154,10 +155,55 @@ class TestCollections:
         _oapif._get_collections(url, None, 30.0)
         assert counter["GET"] == 1
 
-    def test_auth_wires_a_basic_auth_handler(self, collections_server):
-        url, _ = collections_server
-        ids = _oapif._get_collections(url, ("user", "secret"), 30.0)
-        assert "lakes" in ids
+    @staticmethod
+    def _challenging_server():
+        """Start a server that 401-challenges until correct Basic credentials arrive."""
+        payload = COLLECTIONS_DOC.encode("utf-8")
+        expected = "Basic " + base64.b64encode(b"user:secret").decode()
+        attempts: Counter[str] = Counter()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                attempts["GET"] += 1
+                if self.headers.get("Authorization") != expected:
+                    self.send_response(401)
+                    self.send_header("WWW-Authenticate", 'Basic realm="oapif"')
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args, **kwargs):  # noqa: N802
+                return
+
+        httpd = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        return httpd, f"http://127.0.0.1:{httpd.server_address[1]}", attempts
+
+    def test_auth_answers_the_basic_challenge(self):
+        """Given credentials, the reader answers the 401 challenge and reads collections."""
+        httpd, url, attempts = self._challenging_server()
+        try:
+            ids = _oapif._get_collections(url, ("user", "secret"), 30.0)
+            assert ids == {"lakes", "roads"}
+            assert attempts["GET"] >= 2  # 401 challenge, then the credentialed retry
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    def test_missing_credentials_against_challenge_raises(self):
+        """Without credentials the 401-challenging service yields an OGCAPIError."""
+        httpd, url, _ = self._challenging_server()
+        try:
+            with pytest.raises(OGCAPIError, match="request failed"):
+                _oapif._get_collections(url, None, 30.0)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
 
     def test_error_document_raises_ogcapierror(self):
         url, _, httpd = _make_server(ERROR_DOC)
