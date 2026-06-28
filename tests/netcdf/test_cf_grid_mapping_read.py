@@ -51,6 +51,9 @@ class TestGridMappingToSrs:
             gm_name == "latitude_longitude"
         ), f"Expected latitude_longitude, got {gm_name}"
         assert srs_rebuilt.IsGeographic() == 1, "Rebuilt SRS should be geographic"
+        assert srs_rebuilt.IsSame(srs_orig), (
+            "Rebuilt SRS should match the original EPSG:4326 datum and ellipsoid"
+        )
 
     def test_utm_32637_round_trip(self):
         """EPSG:32637 round-trip through CF parameters.

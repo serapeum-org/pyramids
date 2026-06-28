@@ -149,7 +149,10 @@ def test_fill_gaps(tos):
 
 
 def test_set_attribute_table(tos):
-    tos.set_attribute_table(pd.DataFrame({"values": [0, 1], "label": ["a", "b"]}), band=0)
+    df_in = pd.DataFrame({"values": [0, 1], "label": ["a", "b"]})
+    tos.set_attribute_table(df_in, band=0)
+    df_out = tos.get_attribute_table(band=0)
+    assert df_out is not None and len(df_out) == len(df_in)
 
 
 def test_apply_guarded_on_variable_view(tos):

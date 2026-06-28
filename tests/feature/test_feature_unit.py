@@ -188,13 +188,15 @@ class TestEpsgCaching:
         replacement = pyproj.CRS("EPSG:4326")
         fc.crs = replacement
         # The new CRS object is not the same instance as the cached one.
-        assert fc._epsg_cache_crs is not replacement or True
+        assert fc._epsg_cache_crs is not replacement
 
+        # Reading `fc.epsg` above takes the equality-fallback path (the cached key
+        # was a *different* object equal by value) and, as a side effect, rebinds the
+        # cache key to the new object. So after the access it matches by identity —
+        # a value comparison would be vacuous here since the old key was already equal.
         assert fc.epsg == 4326
         assert fc._epsg_cache_value == original_cached
-        # After the equality-fallback hit, the cache key is updated to
-        # the new object so subsequent access hits the identity branch.
-        assert fc._epsg_cache_crs is replacement or fc._epsg_cache_crs == replacement
+        assert fc._epsg_cache_crs is replacement
 
     def test_epsg_recomputes_on_genuine_crs_change(
         self, simple_polygon_gdf: GeoDataFrame

@@ -28,8 +28,9 @@ def test_get_variable_unknown_raises(sample):
         nc.close()
 
 
-def test_close_is_idempotent(sample_name, sample):
-    """Calling ``close`` twice on any sample does not raise."""
-    nc = NetCDF.read_file(sample(sample_name))
+def test_close_is_idempotent(sample):
+    """Calling ``close`` twice releases the GDAL handle and is safe to repeat."""
+    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1.nc"))
     nc.close()
     nc.close()
+    assert nc._raster is None

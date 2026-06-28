@@ -385,11 +385,12 @@ class TestIterFeaturesIncludeIndex:
             absolute row index.
         """
         feats = list(FeatureCollection.iter_features(small_geojson))
+        feats_indexed = list(FeatureCollection.iter_features(small_geojson, include_index=True))
         ids = [f.get("id") for f in feats]
-        # Not every geopandas version sets "id" in every feature; the
-        # only invariant we care about is that without the flag, we do
-        # NOT overwrite the value to the absolute row index.
-        assert ids != list(range(len(feats))) or all(i is None for i in ids)
+        ids_indexed = [f["id"] for f in feats_indexed]
+        # include_index=False must produce different ids than include_index=True
+        # (which always yields 0-based sequential integers).
+        assert ids != ids_indexed
 
     def test_chunked_include_index_adds_row_index_column(self, larger_geojson: Path):
         """Chunked + include_index adds a ``_row_index`` column per chunk."""

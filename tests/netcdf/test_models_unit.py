@@ -518,6 +518,7 @@ class TestVariableInfoFromMdArray:
         arr.GetShape.side_effect = RuntimeError("fail")
         arr.GetDimensions.side_effect = RuntimeError("fail")
         info = VariableInfo.from_md_array(arr, "temp", "/")
+        assert info.shape == [], f"Expected empty shape, got {info.shape}"
         assert (
             info.dimensions == []
         ), f"Expected empty dimensions, got {info.dimensions}"
