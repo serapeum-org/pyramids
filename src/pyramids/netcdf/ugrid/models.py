@@ -98,7 +98,7 @@ class MeshVariable:
     _dtype: np.dtype | None = field(default=None, repr=False)
 
     @property
-    def data(self) -> np.ndarray | None:
+    def data(self) -> np.typing.NDArray | None:
         """Return the data array, triggering lazy load if needed."""
         if self._data is None and self._loader is not None:
             self._data = self._loader()
@@ -137,7 +137,7 @@ class MeshVariable:
             result = np.dtype("float64")
         return result
 
-    def sel_time(self, index: int) -> np.ndarray:
+    def sel_time(self, index: int) -> np.typing.NDArray:
         """Select a single time step.
 
         Args:

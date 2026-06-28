@@ -678,7 +678,7 @@ class Vectorize(_Engine):
     @staticmethod
     def _nearest_neighbour(
         array: np.ndarray, no_data_value: float | int, rows: list, cols: list
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Fill specified cells with the value of the nearest neighbor.
 
             - The _nearest_neighbour method fills the cells with the given indices in rows and cols with the value
@@ -818,7 +818,7 @@ class Vectorize(_Engine):
 
     def cluster(
         self, lower_bound: Any, upper_bound: Any
-    ) -> tuple[np.ndarray, int, list, list]:
+    ) -> tuple[np.typing.NDArray, int, list, list]:
         """Group all the connected values between two bounds.
 
         Args:

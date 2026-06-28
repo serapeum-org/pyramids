@@ -902,7 +902,7 @@ def _make_variable_loader(path: str, var_name: str):
         ``None`` when it has no readable values).
     """
 
-    def _load() -> np.ndarray | None:
+    def _load() -> np.typing.NDArray | None:
         ds = gdal.OpenEx(str(path), gdal.OF_MULTIDIM_RASTER | gdal.OF_VERBOSE_ERROR)
         if ds is None:
             raise ValueError(f"GDAL cannot re-open {path!r} for a lazy variable read.")

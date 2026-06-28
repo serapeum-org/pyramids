@@ -497,7 +497,7 @@ class LabeledDataset:
         """Data-variable names (excludes coordinates)."""
         return list(self._var_names)
 
-    def _read(self, name: str) -> tuple[np.ndarray, tuple[str, ...]]:
+    def _read(self, name: str) -> tuple[np.typing.NDArray, tuple[str, ...]]:
         """Read array `name` with the current selection applied.
 
         Returns:
@@ -517,7 +517,7 @@ class LabeledDataset:
 
     def _read_string_selection(
         self, arr: gdal.MDArray, dim_names: list[str]
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Full-read a string array (GDAL has no strided string read) and apply
         the current per-dimension fancy index."""
         values = np.asarray(arr.Read(), dtype=object)
@@ -529,7 +529,7 @@ class LabeledDataset:
 
     def _read_numeric_selection(
         self, arr: gdal.MDArray, dim_names: list[str]
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Strided ``ReadAsArray`` over each selected dim's index span, then a
         local fancy index to pick the exact requested labels within the span."""
         starts, counts, local = [], [], []
@@ -552,7 +552,7 @@ class LabeledDataset:
 
     def _squeeze_scalar_dims(
         self, values: np.ndarray, dim_names: list[str]
-    ) -> tuple[np.ndarray, tuple[str, ...]]:
+    ) -> tuple[np.typing.NDArray, tuple[str, ...]]:
         """Squeeze out scalar-selected dimensions, returning ``(values, dims)``."""
         keep_axes = tuple(
             i for i, d in enumerate(dim_names) if d not in self._scalar_dims
@@ -566,7 +566,7 @@ class LabeledDataset:
         return values, out_dims
 
     @staticmethod
-    def _maybe_decode_time(arr: gdal.MDArray, values: np.ndarray) -> np.ndarray:
+    def _maybe_decode_time(arr: gdal.MDArray, values: np.ndarray) -> np.typing.NDArray:
         """Decode a CF time array's numeric values to datetimes.
 
         A coordinate with a ``<interval> since <date>`` unit is decoded with
@@ -589,7 +589,7 @@ class LabeledDataset:
         calendar = cal_attr.ReadAsString() if cal_attr is not None else "standard"
         return decode_cf_time(values, unit, calendar)
 
-    def _coord_full(self, name: str) -> np.ndarray:
+    def _coord_full(self, name: str) -> np.typing.NDArray:
         """Read a coordinate's full (unselected) values."""
         with self._with_store() as grp:
             arr = grp.OpenMDArray(name)
@@ -599,7 +599,7 @@ class LabeledDataset:
                 values = np.asarray(arr.ReadAsArray())
         return values
 
-    def _coord_current(self, name: str, dim: str) -> np.ndarray:
+    def _coord_current(self, name: str, dim: str) -> np.typing.NDArray:
         """Read coordinate `name` over `dim` at the current selection."""
         full = self._coord_full(name)
         idx = self._index.get(dim)
@@ -903,7 +903,7 @@ class LabeledDataset:
         dims: tuple[str, ...],
         out_dims: list[str],
         grids: list[np.ndarray],
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Broadcast an array over `dims` onto the full `out_dims` row grid."""
         if not dims:
             return np.full(grids[0].shape, np.asarray(values).reshape(-1)[0])

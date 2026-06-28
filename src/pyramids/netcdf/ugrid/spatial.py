@@ -114,7 +114,7 @@ class MeshSpatialIndex:
         x: float | np.ndarray,
         y: float | np.ndarray,
         k: int = 1,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Find k nearest nodes to query point(s).
 
         Args:
@@ -136,7 +136,7 @@ class MeshSpatialIndex:
         x: float | np.ndarray,
         y: float | np.ndarray,
         k: int = 1,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Find k nearest face centroids to query point(s).
 
         Args:
@@ -159,7 +159,7 @@ class MeshSpatialIndex:
         ymin: float,
         xmax: float,
         ymax: float,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Find all nodes within a bounding box.
 
         Args:
@@ -186,7 +186,7 @@ class MeshSpatialIndex:
         ymin: float,
         xmax: float,
         ymax: float,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Find all faces whose centroids fall within a bounding box.
 
         Args:
@@ -207,7 +207,7 @@ class MeshSpatialIndex:
         self,
         x: np.ndarray,
         y: np.ndarray,
-    ) -> np.ndarray:
+    ) -> np.typing.NDArray:
         """Find which face contains each query point.
 
         Uses Shapely STRtree for exact containment testing.
