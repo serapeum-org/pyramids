@@ -1662,26 +1662,30 @@ class TestSetVariableNoDataException:
 class TestSetVariableAttrException:
     """Tests for set_variable attribute exception silencing."""
 
-    def test_set_variable_with_attr_create_failure(self):
-        """Verify set_variable silences exceptions in attribute creation.
+    def test_set_variable_with_attr_create_failure(self, monkeypatch):
+        """set_variable silences a CreateAttribute failure (the except-pass branch).
 
-        Covers the except pass block when CreateAttribute or Write raises.
-        The attribute-writing helper (_write_attrs) catches all exceptions
-        internally, so set_variable must not propagate them: the variable
-        is created and the call completes without raising even when attrs
-        cannot be written.
+        Force every ``MDArray.CreateAttribute`` call to raise, then write a
+        variable with attributes. The per-attribute helper (`_write_attrs`)
+        swallows the failure, so set_variable must still create the variable and
+        return without propagating the error.
         """
         nc = _make_2d_nc()
         ds = _make_dataset_2d()
-        nc.set_variable("base_var", ds)
-        nc.set_variable(
-            "attr_err_var",
-            ds,
-            attrs={"units": "K", "scale": 1.0, "flag": 1, "blob": [1, 2]},
-        )
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("forced CreateAttribute failure")
+
+        monkeypatch.setattr(gdal.MDArray, "CreateAttribute", boom)
+
+        # Must NOT raise despite every attribute write failing.
+        nc.set_variable("attr_err_var", ds, attrs={"units": "K", "flag": 1})
+
         rg = nc._raster.GetRootGroup()
         md_arr = rg.OpenMDArray("attr_err_var")
-        assert md_arr is not None, "Variable should still exist"
+        assert md_arr is not None, "Variable should still be created despite attr failure"
+        attr_names = [a.GetName() for a in (md_arr.GetAttributes() or [])]
+        assert "units" not in attr_names, "the failed attribute must not be written"
 
 
 class TestReadMdArray1DNumeric:
