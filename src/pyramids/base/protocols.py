@@ -22,6 +22,14 @@ coordinate / dimension arrays from a single place. (The :data:`ArrayLike`
 union stays dtype-agnostic because dask arrays do not compose with
 ``NDArray[...]``.)
 
+**Spelling convention:** this module imports `NDArray` and defines the
+precise `FloatArray` here, but consumer modules across the package spell a
+generic array return inline as ``np.typing.NDArray`` (resolved off their
+existing ``import numpy as np``, so no extra import / isort churn). Reserve
+`FloatArray` for returns whose element type is provably float64; leave
+dtype-variable returns (data reads of arbitrary dtype) as the Any-dtype
+``np.typing.NDArray`` / :data:`ArrayLike`.
+
 The module also exports two small dispatch helpers — :func:`is_lazy` and
 :func:`as_numpy` — so the rest of the codebase has a single place to
 branch between the eager and lazy paths.
@@ -146,6 +154,16 @@ class RasterLike(SpatialObject, Protocol):
     concrete implementation base and nominal `isinstance(x, RasterBase)`
     checks are unaffected. `RasterLike` is the *type/contract* layer;
     `RasterBase` is the *implementation* layer.
+
+    Intended use is as an **exported, consumer-facing contract** — downstream
+    code (and `base`-layer helpers) annotate against it; pyramids' own internal
+    call sites generally use the concrete `Dataset` / `RasterBase` types and
+    their nominal `isinstance` checks, so `RasterLike` is deliberately not
+    forced onto internal signatures (e.g. it is *not* `align`'s parameter type:
+    a 0-band `NetCDF` *container* structurally satisfies this protocol yet is
+    not a usable alignment source). It is kept `runtime_checkable` so consumers
+    *can* `isinstance`-check it — at the cost of a 26-attribute presence probe,
+    so prefer it for annotations over hot-loop `isinstance`.
 
     Because this is :func:`typing.runtime_checkable`, you can use it with
     :func:`isinstance` (PEP 544 — attribute/method presence only, not
