@@ -21,42 +21,20 @@ import pickle
 import numpy as np
 import pytest
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import (
-    import_dask,
-    import_kerchunk,
-    import_zarr,
-)
 from pyramids.dataset import Dataset, DatasetCollection
+from tests._marks import requires_kerchunk, requires_lazy as requires_zarr
 
 try:
-    import_dask("dask + zarr needed for io_e2e tests")
-    import_zarr("dask + zarr needed for io_e2e tests")
     import zarr
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_ZARR = False
-else:
-    HAS_ZARR = True
-
+except ImportError:  # pragma: no cover
+    zarr = None
 
 try:
     import xarray as xr
 except ImportError:  # pragma: no cover - tests using xr are @pytest.mark.xarray gated
     xr = None
 
-
-try:
-    import_kerchunk("kerchunk needed for io_e2e tests")
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_KERCHUNK = False
-else:
-    HAS_KERCHUNK = True
-
 pytestmark = pytest.mark.lazy
-
-
-requires_zarr = pytest.mark.skipif(not HAS_ZARR, reason="dask + zarr needed")
-requires_kerchunk = pytest.mark.skipif(not HAS_KERCHUNK, reason="kerchunk needed")
 
 
 # Time-coordinate NetCDF (dims: time, pressure_level, lat, lon). The kerchunk

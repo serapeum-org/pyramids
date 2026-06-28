@@ -16,21 +16,10 @@ from typing import Any
 import numpy as np
 import pytest
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset, DatasetCollection
-
-try:
-    import_dask("dask not installed")
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_DASK = False
-else:
-    HAS_DASK = True
+from tests._marks import requires_dask
 
 pytestmark = pytest.mark.lazy
-
-
-requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")
 
 
 @pytest.fixture

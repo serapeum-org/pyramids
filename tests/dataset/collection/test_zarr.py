@@ -15,22 +15,15 @@ import numpy as np
 import pytest
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_dask, import_zarr
 from pyramids.dataset import Dataset, DatasetCollection
+from tests._marks import requires_lazy as requires_zarr
 
 try:
-    import_dask("zarr + dask not installed")
-    import_zarr("zarr + dask not installed")
     import zarr
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_ZARR = False
-else:
-    HAS_ZARR = True
+except ImportError:  # pragma: no cover
+    zarr = None
 
 pytestmark = pytest.mark.lazy
-
-
-requires_zarr = pytest.mark.skipif(not HAS_ZARR, reason="zarr + dask not installed")
 
 
 @pytest.fixture

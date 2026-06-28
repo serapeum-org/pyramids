@@ -13,23 +13,10 @@ import json
 import numpy as np
 import pytest
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_kerchunk
 from pyramids.dataset import Dataset, DatasetCollection
-
-try:
-    import_kerchunk("kerchunk not installed")
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_KERCHUNK = False
-else:
-    HAS_KERCHUNK = True
+from tests._marks import requires_kerchunk
 
 pytestmark = pytest.mark.lazy
-
-
-requires_kerchunk = pytest.mark.skipif(
-    not HAS_KERCHUNK, reason="kerchunk not installed"
-)
 
 
 # A time-coordinate NetCDF (dims: time, pressure_level, lat, lon). kerchunk's
