@@ -120,6 +120,35 @@ def make_2d_nc(
     )
 
 
+def make_plot_3d_nc(n_times: int = 4, rows: int = 5, cols: int = 5) -> NetCDF:
+    """Build a 3-D (time, lat, lon) in-memory NetCDF for plot tests.
+
+    Uses ``float32`` data, variable name ``t2m``, and a fixed RNG seed (0)
+    so every call with the same arguments returns the same synthetic array.
+    Distinct from :func:`make_3d_nc` which uses float64, ``temperature``,
+    and a configurable seed.
+
+    Args:
+        n_times: Number of time steps.
+        rows: Number of latitude rows.
+        cols: Number of longitude columns.
+
+    Returns:
+        NetCDF: Root MDIM container with a single variable ``t2m``.
+    """
+    rng = np.random.default_rng(0)
+    arr = rng.random((n_times, rows, cols)).astype(np.float32)
+    nc = NetCDF.create_from_array(
+        arr=arr,
+        geo=(0.0, 1.0, 0, float(rows), 0, -1.0),
+        epsg=4326,
+        variable_name="t2m",
+        extra_dim_name="time",
+        extra_dim_values=list(range(n_times)),
+    )
+    return nc
+
+
 class MockDim:
     """Minimal mock of a GDAL MDArray dimension for CF tests.
 

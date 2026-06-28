@@ -10,24 +10,10 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import numpy as np
-
 import pyramids.netcdf
 from pyramids.netcdf import NetCDF
 from pyramids.netcdf._plot import NetCDFPlot
-
-
-def _make_3d_nc(n_times: int = 4, rows: int = 5, cols: int = 5):
-    rng = np.random.default_rng(0)
-    arr = rng.random((n_times, rows, cols)).astype(np.float32)
-    return NetCDF.create_from_array(
-        arr=arr,
-        geo=(0.0, 1.0, 0, float(rows), 0, -1.0),
-        epsg=4326,
-        variable_name="t2m",
-        extra_dim_name="time",
-        extra_dim_values=list(range(n_times)),
-    )
+from tests.netcdf.conftest import make_plot_3d_nc
 
 
 def test_netcdf_plot_engine_importable():
@@ -43,7 +29,7 @@ def test_netcdfplot_not_reexported_from_subpackage():
 
 def test_plot_facade_delegates_to_engine():
     """``NetCDF.plot`` constructs a ``NetCDFPlot`` and calls ``.run``."""
-    nc = _make_3d_nc()
+    nc = make_plot_3d_nc()
     sentinel = object()
     with patch.object(
         NetCDFPlot, "run", autospec=True, return_value=sentinel
@@ -63,7 +49,7 @@ def test_engine_run_equivalent_to_facade():
     Both routes ultimately reach ``Analysis.plot`` with the same kwargs;
     here we patch that engine method and compare the captured calls.
     """
-    nc = _make_3d_nc()
+    nc = make_plot_3d_nc()
     var = nc.get_variable("t2m")
     captured: list = []
 

@@ -38,6 +38,7 @@ from numpy.testing import assert_array_equal
 
 from pyramids.netcdf import ColourOpts, FacetSpec, Selectors
 from pyramids.netcdf.netcdf import NetCDF
+from tests.netcdf.conftest import make_plot_3d_nc
 
 pytestmark = pytest.mark.plot
 
@@ -51,28 +52,20 @@ Config = _cleo_config.Config
 Config.set_matplotlib_backend("Agg")
 
 
-def _make_3d_nc(n_times: int = 4, rows: int = 5, cols: int = 5):
-    """Build a 3-D (time, lat, lon) NetCDF in memory.
+def _make_capture(captured: dict):
+    """Return a side-effect for patching Analysis.plot that stores the rendered slice."""
+    def _inner(self_engine, **kw):
+        captured["data"] = self_engine._ds.read_array(band=0)
+        return "ok"
+    return _inner
 
-    Args:
-        n_times: Number of time steps.
-        rows: Number of latitude rows.
-        cols: Number of longitude columns.
 
-    Returns:
-        NetCDF: Root MDIM container with a single variable ``t2m``.
-    """
-    rng = np.random.default_rng(0)
-    arr = rng.random((n_times, rows, cols)).astype(np.float32)
-    nc = NetCDF.create_from_array(
-        arr=arr,
-        geo=(0.0, 1.0, 0, float(rows), 0, -1.0),
-        epsg=4326,
-        variable_name="t2m",
-        extra_dim_name="time",
-        extra_dim_values=list(range(n_times)),
-    )
-    return nc
+def _make_fake_render(captured: dict):
+    """Return a side-effect for patching _render_array that stores the call kwargs."""
+    def _inner(**kw):
+        captured["kw"] = kw
+        return "ok"
+    return _inner
 
 
 def _make_3d_nc_with_dates():
@@ -132,7 +125,7 @@ class TestNetCDFPlotVariableResolution:
             The error message must mention `variable=` and list the
             available variables so the user can see what to pick.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"variable="):
             nc.plot()
 
@@ -143,7 +136,7 @@ class TestNetCDFPlotVariableResolution:
             `nc.plot(variable="t2m")` must return an ArrayGlyph (i.e.
             the call delegates to the subset's plot path and renders).
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         result = nc.plot(variable="t2m")
         assert isinstance(
             result, ArrayGlyph
@@ -157,7 +150,7 @@ class TestNetCDFPlotVariableResolution:
             pinned variable name and ignores it (since the variable is
             already resolved).
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
@@ -171,7 +164,7 @@ class TestNetCDFPlotVariableResolution:
             Calling `var.plot(variable="other")` must mention the
             pinned name and direct the caller back to the parent.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with pytest.raises(ValueError, match=r"pinned to 't2m'"):
             var.plot(variable="other")
@@ -195,12 +188,8 @@ class TestNetCDFPlotSelectors:
         expected = var.sel(time="2024-01-15").read_array()
         captured: dict = {}
 
-        def _capture(self_engine, **kw):
-            captured["data"] = self_engine._ds.read_array(band=0)
-            return "ok"
-
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_capture
+            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
         ):
             var.plot(selectors=Selectors(time="2024-01-15"))
         assert_array_equal(
@@ -215,12 +204,8 @@ class TestNetCDFPlotSelectors:
         expected = var.sel(time="2024-01-14").read_array()
         captured: dict = {}
 
-        def _capture(self_engine, **kw):
-            captured["data"] = self_engine._ds.read_array(band=0)
-            return "ok"
-
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_capture
+            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
         ):
             var.plot(selectors=Selectors(sel={"time": "2024-01-14"}))
         assert_array_equal(
@@ -231,17 +216,13 @@ class TestNetCDFPlotSelectors:
 
     def test_isel_positional_index(self):
         """`isel={"time": 2}` indexes by integer into `_band_dim_values_map`."""
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         var = nc.get_variable("t2m")
         expected = var.read_array()[2]
         captured: dict = {}
 
-        def _capture(self_engine, **kw):
-            captured["data"] = self_engine._ds.read_array(band=0)
-            return "ok"
-
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_capture
+            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
         ):
             nc.plot(variable="t2m", selectors=Selectors(isel={"time": 2}))
         assert_array_equal(
@@ -262,12 +243,8 @@ class TestNetCDFPlotSelectors:
         expected = var.sel(time=12).sel(pressure_level=500).read_array()
         captured: dict = {}
 
-        def _capture(self_engine, **kw):
-            captured["data"] = self_engine._ds.read_array(band=0)
-            return "ok"
-
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_capture
+            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
         ):
             nc.plot(
                 variable="temperature",
@@ -301,39 +278,39 @@ class TestNetCDFPlotRejectedKwargs:
 
     def test_rgb_raises_with_replacement_hint(self):
         """`rgb=` mentions `time=`/`level=`/`isel=`/`band=` replacements."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(TypeError, match=r"time=") as exc_info:
             nc.plot(variable="t2m", rgb=[0, 1, 2])
         assert "rgb=" in str(exc_info.value)
 
     def test_surface_reflectance_raises(self):
         """`surface_reflectance=` is Sentinel-only; rejected on NetCDF."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(TypeError, match=r"Sentinel-only"):
             nc.plot(variable="t2m", surface_reflectance=10000)
 
     def test_cutoff_raises_with_vmin_vmax_hint(self):
         """`cutoff=` mentions `vmin=`/`vmax=`/`robust=True`."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(TypeError, match=r"vmin=") as exc_info:
             nc.plot(variable="t2m", cutoff=[0.1, 0.9])
         assert "robust" in str(exc_info.value).lower() or "vmax=" in str(exc_info.value)
 
     def test_percentile_raises_with_robust_hint(self):
         """`percentile=` is rejected with a `robust=True` replacement hint."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(TypeError, match=r"robust=True"):
             nc.plot(variable="t2m", percentile=2)
 
     def test_overview_raises_with_geotiff_hint(self):
         """`overview=` is rejected with a GeoTIFF/COG hint."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(TypeError, match=r"GeoTIFF/COG"):
             nc.plot(variable="t2m", overview=True)
 
     def test_overview_index_raises_with_geotiff_hint(self):
         """`overview_index=` is rejected with the same GeoTIFF/COG hint."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(TypeError, match=r"GeoTIFF/COG"):
             nc.plot(variable="t2m", overview_index=2)
 
@@ -343,7 +320,7 @@ class TestNetCDFPlotColourForwarding:
 
     def test_robust_forwarded(self):
         """`robust=True` reaches `Analysis.plot` as `robust=True`."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
@@ -352,7 +329,7 @@ class TestNetCDFPlotColourForwarding:
 
     def test_center_forwarded(self):
         """`center=0.0` reaches `Analysis.plot` as `center=0.0`."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
@@ -361,7 +338,7 @@ class TestNetCDFPlotColourForwarding:
 
     def test_robust_default_not_forwarded(self):
         """`robust=False` (the default) is NOT forwarded to keep kwargs lean."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
@@ -370,7 +347,7 @@ class TestNetCDFPlotColourForwarding:
 
     def test_levels_extend_cbar_kwargs_forwarded(self):
         """`levels=`, `extend=`, and `cbar_kwargs=` reach the renderer verbatim."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         cbar = {"label": "test"}
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
@@ -397,7 +374,7 @@ class TestNetCDFPlotBandKwargRejected:
             `_FORBIDDEN_PLOT_KWARGS`; the error message must mention
             `Selectors` so the user knows the replacement.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(TypeError, match=r"band=") as exc_info:
             nc.plot(variable="t2m", band=0)
         msg = str(exc_info.value)
@@ -412,7 +389,7 @@ class TestNetCDFPlotBandKwargRejected:
             Patch `Analysis.plot`; passing `band=2` must raise before
             the engine is ever invoked.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             with pytest.raises(TypeError, match=r"band="):
@@ -425,13 +402,13 @@ class TestNetCDFPlotCoordAxes:
 
     def test_invalid_coords_x_raises(self):
         """`coords=("nope", "t2m")` is rejected because "nope" is unknown."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"coords x="):
             nc.plot(variable="t2m", coords=("nope", "t2m"))
 
     def test_invalid_coords_y_raises(self):
         """`coords=("t2m", "nope")` is rejected because "nope" is unknown."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"coords y="):
             nc.plot(variable="t2m", coords=("t2m", "nope"))
 
@@ -447,7 +424,7 @@ class TestNetCDFPlotCoordAxes:
             geotransform-derived extent because the data variable's
             shape does not match the slice's 2-D shape.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         result = nc.plot(variable="t2m", coords=("t2m", "t2m"))
         assert isinstance(result, ArrayGlyph), (
             f"Expected ArrayGlyph from valid-coords render, got {type(result).__name__}"
@@ -459,7 +436,7 @@ class TestNetCDFPlotDefaultRender:
 
     def test_3d_returns_array_glyph(self):
         """`nc.plot(variable=...)` on a 3-D variable returns an ArrayGlyph."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         result = nc.plot(variable="t2m")
         assert isinstance(result, ArrayGlyph)
 
@@ -471,7 +448,7 @@ class TestNetCDFPlotDefaultRender:
             inside ``NetCDF.plot``, so ``selectors=None`` must render
             byte-for-byte the same 2-D array as the bare call.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         explicit_none = nc.plot(variable="t2m", selectors=None)
         omitted = nc.plot(variable="t2m")
         assert isinstance(explicit_none, ArrayGlyph)
@@ -491,7 +468,7 @@ class TestNetCDFPlotDefaultRender:
             array of shape ``(5, 5)`` that equals the corresponding
             band of the source.
         """
-        nc = _make_3d_nc(n_times=3, rows=5, cols=5)
+        nc = make_plot_3d_nc(n_times=3, rows=5, cols=5)
         var = nc.get_variable("t2m")
         expected = var.read_array()[1]
         result = nc.plot(variable="t2m", selectors=Selectors(time=1))
@@ -541,7 +518,7 @@ class TestNetCDFPlotDefaultRender:
             matplotlib figure instances — each render gets its own
             canvas and no state leaks between calls.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         first = nc.plot(variable="t2m", selectors=Selectors(time=0))
         second = nc.plot(variable="t2m", selectors=Selectors(time=0))
         assert first is not second, "Successive plot calls returned the same object"
@@ -562,7 +539,7 @@ class TestNetCDFPlotVariableResolutionEdges:
             must surface as a meaningful ValueError so the user is
             not left with a cryptic GDAL error.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"is not a valid variable name"):
             nc.plot(variable="")
 
@@ -574,13 +551,13 @@ class TestNetCDFPlotVariableResolutionEdges:
             not match the canonical variable name ``"t2m"``; the call
             must raise rather than silently rendering the wrong thing.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"is not a valid variable name"):
             nc.plot(variable=" t2m ")
 
     def test_unknown_variable_name_raises(self):
         """``variable="missing"`` is not in ``variable_names`` and must raise."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"is not a valid variable name"):
             nc.plot(variable="missing")
 
@@ -637,7 +614,7 @@ class TestNetCDFPlotRejectedKwargsCombinations:
             one that surfaces. This documents the precedence and
             guards against an accidental dict reorder regression.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(TypeError, match=r"rgb="):
             nc.plot(
                 variable="t2m",
@@ -658,7 +635,7 @@ class TestNetCDFPlotRejectedKwargsCombinations:
             who builds the kwargs dict programmatically must hit the
             same TypeError, ensuring the contract is keyword-agnostic.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         extra = {"percentile": 2}
         with pytest.raises(TypeError, match=r"robust=True"):
             nc.plot(variable="t2m", **extra)
@@ -675,7 +652,7 @@ class TestNetCDFPlotRejectedKwargsCombinations:
             ``DeprecationWarning`` is emitted — the back-compat shim is
             gone, ``band=`` is a hard rejection now.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with warnings.catch_warnings(record=True) as captured:
             warnings.simplefilter("always")
             with pytest.raises(TypeError, match=r"band="):
@@ -694,7 +671,7 @@ class TestNetCDFPlotSelectorEdges:
 
     def test_empty_sel_dict_is_noop(self):
         """``sel={}`` adds no resolved selectors; default render proceeds."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         result = nc.plot(variable="t2m", selectors=Selectors(sel={}))
         assert isinstance(
             result, ArrayGlyph
@@ -702,7 +679,7 @@ class TestNetCDFPlotSelectorEdges:
 
     def test_empty_isel_dict_is_noop(self):
         """``isel={}`` adds no resolved selectors; default render proceeds."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         result = nc.plot(variable="t2m", selectors=Selectors(isel={}))
         assert isinstance(
             result, ArrayGlyph
@@ -718,17 +695,13 @@ class TestNetCDFPlotSelectorEdges:
             sel-dict entry. Verify by capturing the band index that
             actually reaches the renderer.
         """
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         var = nc.get_variable("t2m")
         expected = var.read_array()[2]
         captured: dict = {}
 
-        def _capture(self_engine, **kw):
-            captured["data"] = self_engine._ds.read_array(band=0)
-            return "ok"
-
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_capture
+            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
         ):
             nc.plot(
                 variable="t2m",
@@ -750,17 +723,13 @@ class TestNetCDFPlotSelectorEdges:
             ``isel``, so the isel entry is the one that survives in
             ``resolved_sel``.
         """
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         var = nc.get_variable("t2m")
         expected = var.read_array()[2]
         captured: dict = {}
 
-        def _capture(self_engine, **kw):
-            captured["data"] = self_engine._ds.read_array(band=0)
-            return "ok"
-
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_capture
+            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
         ):
             nc.plot(
                 variable="t2m",
@@ -774,13 +743,13 @@ class TestNetCDFPlotSelectorEdges:
 
     def test_time_value_not_in_coords_raises(self):
         """An unknown ``time=`` value surfaces as a ValueError from ``sel``."""
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         with pytest.raises(ValueError, match=r"No bands match"):
             nc.plot(variable="t2m", selectors=Selectors(time=999))
 
     def test_isel_unknown_dim_name_raises(self):
         """``isel`` keyed by a non-band-dim name must raise with a helpful list."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"is not a band dim"):
             nc.plot(variable="t2m", selectors=Selectors(isel={"bogus_dim": 0}))
 
@@ -794,7 +763,7 @@ class TestNetCDFPlotSelectorEdges:
             resolver must raise and include the available band dims
             in the message.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"level=") as exc_info:
             nc.plot(variable="t2m", selectors=Selectors(level=500))
         assert "['time']" in str(
@@ -803,7 +772,7 @@ class TestNetCDFPlotSelectorEdges:
 
     def test_member_on_variable_without_ensemble_dim_raises(self):
         """``member=`` on a non-ensemble variable surfaces a clear ValueError."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"member=") as exc_info:
             nc.plot(variable="t2m", selectors=Selectors(member=0))
         assert "['time']" in str(
@@ -837,7 +806,7 @@ class TestNetCDFPlotCoordAxesExtra:
 
     def test_invalid_coords_x_with_valid_y_raises_on_x_first(self):
         """`coords=("bogus", "t2m")` raises on the x axis first."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"coords x=") as exc_info:
             nc.plot(variable="t2m", coords=("bogus", "t2m"))
         assert "bogus" in str(
@@ -853,7 +822,7 @@ class TestNetCDFPlotCoordAxesExtra:
             validation then falls back through the auto-detection
             ladder, and the final render returns an ArrayGlyph.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         result = nc.plot(variable="t2m", coords=("t2m", "t2m"))
         assert isinstance(result, ArrayGlyph), "coords=(<valid>, <valid>) should render"
 
@@ -863,7 +832,7 @@ class TestNetCDFPlotForwardingExtra:
 
     def test_cmap_forwarded(self):
         """``cmap="viridis"`` reaches ``Analysis.plot`` verbatim."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
@@ -874,7 +843,7 @@ class TestNetCDFPlotForwardingExtra:
 
     def test_vmin_vmax_forwarded(self):
         """``vmin``/``vmax`` are forwarded to the renderer."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
@@ -893,7 +862,7 @@ class TestNetCDFPlotForwardingExtra:
             ``get_variable`` and confirm NetCDF.plot does not
             short-circuit the basemap contract.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         real_get_variable = type(nc).get_variable
 
         def _spy(self_, name, x_dim=None, y_dim=None):
@@ -918,7 +887,7 @@ class TestNetCDFPlotAddColorbar:
             The returned ArrayGlyph must still expose a non-``None``
             ``.cbar`` attribute (cleopatra attaches one by default).
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         cleo = nc.plot(variable="t2m")
         assert getattr(cleo, "cbar", None) is not None, (
             "Default add_colorbar=True must preserve cleopatra's colorbar; "
@@ -935,7 +904,7 @@ class TestNetCDFPlotAddColorbar:
             remove it post-render. We assert the ``.cbar`` attribute
             is dropped to ``None``.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         cleo = nc.plot(variable="t2m", colour=ColourOpts(add_colorbar=False))
         assert getattr(cleo, "cbar", None) is None, (
             "add_colorbar=False must remove the colorbar; "
@@ -952,7 +921,7 @@ class TestNetCDFPlotAddColorbar:
             raise ``"Unknown option"``). Patch the engine and confirm
             ``add_colorbar`` never appears in its kwargs.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = SimpleNamespace(cbar=None)
@@ -989,7 +958,7 @@ class TestNetCDFPlotContainerBehaviour:
             ValueError text must include ``'t2m'`` so users can pick
             from the list verbatim.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"variable=") as exc_info:
             nc.plot()
         assert "t2m" in str(
@@ -1005,7 +974,7 @@ class TestNetCDFPlotContainerBehaviour:
             render. We patch ``Analysis.plot`` to confirm the call
             reaches the engine.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
@@ -1118,12 +1087,8 @@ class TestNetCDFPlotDimResolverFallbacks:
         expected = var.read_array()[1]
         captured: dict = {}
 
-        def _capture(self_engine, **kw):
-            captured["data"] = self_engine._ds.read_array(band=0)
-            return "ok"
-
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_capture
+            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
         ):
             nc.plot(variable="signal", selectors=Selectors(time=20))
         assert_array_equal(
@@ -1150,12 +1115,8 @@ class TestNetCDFPlotMemberSelector:
         expected = var.read_array()[1]
         captured: dict = {}
 
-        def _capture(self_engine, **kw):
-            captured["data"] = self_engine._ds.read_array(band=0)
-            return "ok"
-
         with patch.object(
-            type(var.analysis), "plot", autospec=True, side_effect=_capture
+            type(var.analysis), "plot", autospec=True, side_effect=_make_capture(captured)
         ):
             nc.plot(variable="forecast", selectors=Selectors(member=1))
         assert_array_equal(
@@ -1180,7 +1141,7 @@ class TestNetCDFPlotIselNoCoordValues:
             ``sel(time=1)`` must raise because no coord values exist
             — which we accept here; the goal is exercising the branch.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         var._band_dim_values_map = dict(var._band_dim_values_map)
         var._band_dim_values_map["time"] = None
@@ -1409,7 +1370,7 @@ class TestCurvilinearCoords:
             extent — verified by ``cleo.coords is None`` and a non-None
             ``cleo.extent``.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         cleo = nc.plot(variable="t2m")
         assert cleo.coords is None
         assert cleo.extent is not None
@@ -1501,7 +1462,7 @@ class TestNetCDFPlotFaceting:
 
     def test_col_only_returns_facet_grid_with_one_row(self):
         """`col="time"` on a 3-D variable returns N=time_len subplots."""
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         grid = nc.plot(variable="t2m", facet=FacetSpec(col="time"))
         assert isinstance(grid, _FacetGrid)
         assert grid.axes.shape == (1, 4)
@@ -1527,7 +1488,7 @@ class TestNetCDFPlotFaceting:
 
     def test_col_wrap_wraps_into_grid(self):
         """`col_wrap=3` wraps N=4 panels into a 2x3 grid."""
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         grid = nc.plot(
             variable="t2m",
             facet=FacetSpec(col="time", col_wrap=3),
@@ -1553,7 +1514,7 @@ class TestNetCDFPlotFaceting:
 
     def test_conflict_time_kwarg_and_col_time(self):
         """`time=0, col="time"` is rejected — the same dim cannot be both."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"already pinned"):
             nc.plot(
                 variable="t2m",
@@ -1563,7 +1524,7 @@ class TestNetCDFPlotFaceting:
 
     def test_conflict_isel_and_col(self):
         """`isel={"time": 0}, col="time"` is also rejected with the same hint."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"already pinned"):
             nc.plot(
                 variable="t2m",
@@ -1573,7 +1534,7 @@ class TestNetCDFPlotFaceting:
 
     def test_conflict_sel_and_col(self):
         """`sel={"time": 0}, col="time"` is also rejected."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"already pinned"):
             nc.plot(
                 variable="t2m",
@@ -1589,13 +1550,13 @@ class TestNetCDFPlotFaceting:
 
     def test_facet_dim_not_a_band_dim_raises(self):
         """`col="bogus"` is not a band dim of the variable; raises."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"not a band dim"):
             nc.plot(variable="t2m", facet=FacetSpec(col="bogus"))
 
     def test_invalid_col_wrap_raises(self):
         """`col_wrap=0` or non-int raises ValueError."""
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         with pytest.raises(ValueError, match=r"positive int"):
             nc.plot(
                 variable="t2m",
@@ -1865,7 +1826,7 @@ class TestCurvilinearCoordsEdges:
             renderer should fall through to imshow — verified by
             ``cleo.coords is None`` and a populated extent.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         cleo = nc.plot(variable="t2m", kind="auto")
         assert (
             cleo.coords is None
@@ -1881,7 +1842,7 @@ class TestCurvilinearCoordsEdges:
             index-derived grid. The pyramids layer must forward the
             kind verbatim and not crash; cleo handles the rest.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         cleo = nc.plot(variable="t2m", kind="pcolormesh")
         assert isinstance(
             cleo, ArrayGlyph
@@ -1919,7 +1880,7 @@ class TestCurvilinearCoordsEdges:
             from :func:`_make_3d_nc`) the render falls back to
             extent. We assert no crash and ``cleo.coords is None``.
         """
-        nc = _make_3d_nc(n_times=1, rows=5, cols=6)
+        nc = make_plot_3d_nc(n_times=1, rows=5, cols=6)
         x_wrong = np.linspace(-1.0, 1.0, 5, dtype=np.float32)
         y_wrong = np.linspace(0.0, 1.0, 6, dtype=np.float32)
         cleo = nc.plot(variable="t2m", coords=(x_wrong, y_wrong))
@@ -1957,7 +1918,7 @@ class TestNetCDFPlotFacetingEdges:
 
     def test_col_wrap_one_produces_single_column(self):
         """`col_wrap=1` arranges N panels into N rows × 1 col."""
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         grid = nc.plot(
             variable="t2m",
             facet=FacetSpec(col="time", col_wrap=1),
@@ -1979,7 +1940,7 @@ class TestNetCDFPlotFacetingEdges:
             the wrap; we confirm the grid is constructed without
             crashing and has the expected shape.
         """
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         grid = nc.plot(
             variable="t2m",
             facet=FacetSpec(col="time", col_wrap=8),
@@ -2002,7 +1963,7 @@ class TestNetCDFPlotFacetingEdges:
             facet contract; the resulting grid has one cell. Used to
             guard against off-by-one bugs in the stack builder.
         """
-        nc = _make_3d_nc(n_times=1)
+        nc = make_plot_3d_nc(n_times=1)
         grid = nc.plot(variable="t2m", facet=FacetSpec(col="time"))
         assert isinstance(grid, _FacetGrid)
         assert grid.axes.shape == (
@@ -2020,7 +1981,7 @@ class TestNetCDFPlotFacetingEdges:
             variable. Verify the message contains both ``bogus`` and
             ``time`` (the real band dim).
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"not a band dim") as exc_info:
             nc.plot(variable="t2m", facet=FacetSpec(col="bogus"))
         msg = str(exc_info.value)
@@ -2029,7 +1990,7 @@ class TestNetCDFPlotFacetingEdges:
 
     def test_row_alone_error_mentions_col_requirement(self):
         """`row=` alone error message explicitly mentions `col=` requirement."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"requires `col=`") as exc_info:
             nc.plot(variable="t2m", facet=FacetSpec(row="time"))
         assert "col=" in str(
@@ -2068,7 +2029,7 @@ class TestNetCDFPlotFacetingEdges:
             ``Analysis.plot`` and confirm both ``facet_kwargs`` and
             ``kind="pcolormesh"`` reach the engine.
         """
-        nc = _make_3d_nc(n_times=3)
+        nc = make_plot_3d_nc(n_times=3)
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "stub"
@@ -2118,7 +2079,7 @@ class TestNetCDFPlotFacetingEdges:
             ``Analysis.plot`` and assert ``robust=True`` is in the
             call kwargs alongside ``facet_kwargs``.
         """
-        nc = _make_3d_nc(n_times=3)
+        nc = make_plot_3d_nc(n_times=3)
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "stub"
@@ -2135,7 +2096,7 @@ class TestNetCDFPlotFacetingEdges:
 
     def test_facet_grid_exposes_fig_axes_cbar_name_dicts(self):
         """Returned FacetGrid carries `.fig`, `.axes`, `.cbar`, `.name_dicts`."""
-        nc = _make_3d_nc(n_times=3)
+        nc = make_plot_3d_nc(n_times=3)
         grid = nc.plot(variable="t2m", facet=FacetSpec(col="time"))
         assert hasattr(grid, "fig"), "FacetGrid must expose .fig"
         assert hasattr(grid, "axes"), "FacetGrid must expose .axes"
@@ -2147,7 +2108,7 @@ class TestNetCDFPlotFacetingEdges:
 
     def test_facet_invalid_col_wrap_non_integer_raises(self):
         """`col_wrap="three"` (str) raises with the positive-int hint."""
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         with pytest.raises(ValueError, match=r"positive int") as exc_info:
             nc.plot(variable="t2m", facet=FacetSpec(col="time", col_wrap="three"))
         assert "col_wrap" in str(
@@ -2223,7 +2184,7 @@ class TestNetCDFPlotFacetingEdges:
             fires once per panel (3 panels for `col="time"` over a
             3-time-step variable), each with the subset's `crs`.
         """
-        nc = _make_3d_nc(n_times=3)
+        nc = make_plot_3d_nc(n_times=3)
         with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
             nc.plot(
                 variable="t2m",
@@ -2246,7 +2207,7 @@ class TestNetCDFPlotFacetingEdges:
             two slots are hidden (`set_visible(False)`). `add_basemap`
             must fire exactly 4 times (the visible panels), not 6.
         """
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
             nc.plot(
                 variable="t2m",
@@ -2259,7 +2220,7 @@ class TestNetCDFPlotFacetingEdges:
 
     def test_facet_with_basemap_string_source_propagates(self):
         """`basemap="CartoDB.Positron"` forwards the provider name to every panel."""
-        nc = _make_3d_nc(n_times=2)
+        nc = make_plot_3d_nc(n_times=2)
         with patch("pyramids.basemap.basemap.add_basemap") as mock_add:
             nc.plot(
                 variable="t2m",
@@ -2284,7 +2245,7 @@ class TestNetCDFPlotFacetingEdges:
             `render_array`, plot a faceted variable, and confirm the
             `extent=` it receives equals the variable subset's `bbox`.
         """
-        nc = _make_3d_nc(n_times=3)
+        nc = make_plot_3d_nc(n_times=3)
         var = nc.get_variable("t2m")
         with patch("pyramids.dataset.engines.analysis.render_array") as mock_render:
             mock_render.return_value = "ok"
@@ -2307,7 +2268,7 @@ class TestNetCDFPlotFacetingEdges:
             kwarg, so `Analysis.plot` falls back to `self._ds.bbox` —
             which equals the variable subset's `bbox`.
         """
-        nc = _make_3d_nc(n_times=3)
+        nc = make_plot_3d_nc(n_times=3)
         var = nc.get_variable("t2m")
         with patch("pyramids.dataset.engines.analysis.render_array") as mock_render:
             mock_render.return_value = "ok"
@@ -2332,7 +2293,7 @@ class TestNetCDFPlotAnimate:
             the streamed animation. The matplotlib animation object is
             attached to the glyph's figure.
         """
-        nc = _make_3d_nc(n_times=3)
+        nc = make_plot_3d_nc(n_times=3)
         result = nc.plot(variable="t2m", animate=True)
         assert isinstance(
             result, ArrayGlyph
@@ -2341,7 +2302,7 @@ class TestNetCDFPlotAnimate:
 
     def test_animate_string_resolves_named_dim(self):
         """``animate="time"`` walks the named dim and returns ArrayGlyph."""
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         result = nc.plot(variable="t2m", animate="time")
         assert isinstance(result, ArrayGlyph)
 
@@ -2356,7 +2317,7 @@ class TestNetCDFPlotAnimate:
             conflict, ``animate=True`` ambiguity). The message still
             lists the available band dims.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(KeyError, match=r"animate='bogus'") as exc_info:
             nc.plot(variable="t2m", animate="bogus")
         assert "time" in str(
@@ -2365,13 +2326,13 @@ class TestNetCDFPlotAnimate:
 
     def test_animate_with_col_raises_mutually_exclusive(self):
         """``animate=True`` together with ``col=`` is rejected up-front."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"mutually exclusive"):
             nc.plot(variable="t2m", animate=True, facet=FacetSpec(col="time"))
 
     def test_animate_with_pinned_dim_raises(self):
         """``animate="time"`` together with ``time=`` selector conflicts."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"already pinned"):
             nc.plot(variable="t2m", animate="time", selectors=Selectors(time=0))
 
@@ -2416,13 +2377,10 @@ class TestNetCDFPlotAnimate:
             :func:`pyramids.dataset._plot_helpers.render_array` via
             ``animation_axis_values``.
         """
-        nc = _make_3d_nc(n_times=3)
+        nc = make_plot_3d_nc(n_times=3)
         labels = ["2024-01-01", "2024-01-02", "2024-01-03"]
         captured: dict = {}
 
-        def _fake_render(**kw):
-            captured["kw"] = kw
-            return "ok"
 
         with patch(
             "pyramids.netcdf.netcdf.NetCDF.get_time_variable",
@@ -2430,7 +2388,7 @@ class TestNetCDFPlotAnimate:
         ):
             with patch(
                 "pyramids.netcdf._plot._render_array",
-                side_effect=_fake_render,
+                side_effect=_make_fake_render(captured),
             ):
                 nc.plot(variable="t2m", animate=True)
         assert captured["kw"]["mode"] == "animate"
@@ -2447,16 +2405,13 @@ class TestNetCDFPlotAnimate:
             ``sel().read_array(band=0)`` exactly once per call and
             return a 2-D array matching the source slice.
         """
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         captured: dict = {}
 
-        def _fake_render(**kw):
-            captured["kw"] = kw
-            return "ok"
 
         with patch(
             "pyramids.netcdf._plot._render_array",
-            side_effect=_fake_render,
+            side_effect=_make_fake_render(captured),
         ):
             nc.plot(variable="t2m", animate=True)
         getter = captured["kw"]["data_getter"]
@@ -2481,16 +2436,13 @@ class TestNetCDFPlotAnimate:
             ``data_getter(0)`` call). The remaining frames are pulled
             lazily once cleopatra iterates the animation.
         """
-        nc = _make_3d_nc(n_times=5)
+        nc = make_plot_3d_nc(n_times=5)
         captured: dict = {}
 
-        def _fake_render(**kw):
-            captured["kw"] = kw
-            return "ok"
 
         with patch(
             "pyramids.netcdf._plot._render_array",
-            side_effect=_fake_render,
+            side_effect=_make_fake_render(captured),
         ):
             nc.plot(variable="t2m", animate=True)
         template = captured["kw"]["arr"]
@@ -2500,7 +2452,7 @@ class TestNetCDFPlotAnimate:
 
     def test_animate_invalid_type_raises(self):
         """``animate=1.0`` (non-bool, non-str) is rejected with a clear error."""
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"animate="):
             nc.plot(variable="t2m", animate=1.0)
 
@@ -2520,7 +2472,7 @@ class TestNetCDFPlotLazy:
             requested band. The result is the same cleopatra
             ``ArrayGlyph`` shape as the eager path.
         """
-        nc_mem = _make_3d_nc(n_times=2, rows=4, cols=4)
+        nc_mem = make_plot_3d_nc(n_times=2, rows=4, cols=4)
         out = tmp_path / "tiny.nc"
         nc_mem.to_file(out)
         nc = NetCDF.read_file(str(out))
@@ -2540,7 +2492,7 @@ class TestNetCDFPlotLazy:
             kwargs it receives. ``chunks=None`` (default) must not
             inject any ``_chunks`` kwarg into the call.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
@@ -2556,7 +2508,7 @@ class TestNetCDFPlotLazy:
             ``_chunks={"cols": 1}`` into the engine call so ``Analysis.plot``
             can pick it up and route the read through the dask path.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         spec = {"x": 1}
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
@@ -2574,7 +2526,7 @@ class TestNetCDFPlotLazy:
             an ``INFO``-level log with the ``chunks=`` hint. The plot
             call itself is short-circuited by patching ``Analysis.plot``.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         large_shape = (50, 4000, 4000)
         with patch.object(
@@ -2598,7 +2550,7 @@ class TestNetCDFPlotLazy:
             ``chunks={"cols": 1}`` set. The hint is gated on
             ``chunks is None`` so the log message must be absent.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         large_shape = (50, 4000, 4000)
         with patch.object(
@@ -2663,13 +2615,10 @@ class TestNetCDFPlotAnimateEdges:
         nc = _make_4d_nc()
         captured: dict = {}
 
-        def _fake_render(**kw):
-            captured["kw"] = kw
-            return "ok"
 
         with patch(
             "pyramids.netcdf._plot._render_array",
-            side_effect=_fake_render,
+            side_effect=_make_fake_render(captured),
         ):
             nc.plot(
                 variable="temperature",
@@ -2693,7 +2642,7 @@ class TestNetCDFPlotAnimateEdges:
             animate walker can iterate. The pin must lose to a clear
             ValueError that names the already-pinned dim.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with pytest.raises(ValueError, match=r"already pinned"):
             nc.plot(
                 variable="t2m",
@@ -2713,13 +2662,10 @@ class TestNetCDFPlotAnimateEdges:
         nc = _make_4d_nc()
         captured: dict = {}
 
-        def _fake_render(**kw):
-            captured["kw"] = kw
-            return "ok"
 
         with patch(
             "pyramids.netcdf._plot._render_array",
-            side_effect=_fake_render,
+            side_effect=_make_fake_render(captured),
         ):
             nc.plot(
                 variable="temperature",
@@ -2741,7 +2687,7 @@ class TestNetCDFPlotAnimateEdges:
             the static-plot path. Patch the engine to capture the
             kwargs and verify there is no ``animation_axis_values`` key.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
@@ -2763,16 +2709,13 @@ class TestNetCDFPlotAnimateEdges:
             must propagate that exception unchanged so caller-facing
             errors surface with the original traceback.
         """
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         captured: dict = {}
 
-        def _fake_render(**kw):
-            captured["kw"] = kw
-            return "ok"
 
         with patch(
             "pyramids.netcdf._plot._render_array",
-            side_effect=_fake_render,
+            side_effect=_make_fake_render(captured),
         ):
             nc.plot(variable="t2m", animate=True)
         getter = captured["kw"]["data_getter"]
@@ -2802,19 +2745,16 @@ class TestNetCDFPlotAnimateEdges:
             captured ``data_getter`` for every frame and confirm it
             returns the correct slices.
         """
-        nc = _make_3d_nc(n_times=4)
+        nc = make_plot_3d_nc(n_times=4)
         captured: dict = {}
 
-        def _fake_render(**kw):
-            captured["kw"] = kw
-            return "ok"
 
         from pyramids.netcdf.netcdf import NetCDF
 
         with patch.object(NetCDF, "sel", autospec=True) as sel_mock:
             with patch(
                 "pyramids.netcdf._plot._render_array",
-                side_effect=_fake_render,
+                side_effect=_make_fake_render(captured),
             ):
                 nc.plot(variable="t2m", animate=True)
             assert not sel_mock.called, (
@@ -2879,7 +2819,7 @@ class TestNetCDFPlotLazyEdges:
             must be preserved verbatim — the engine decides how to
             interpret it on the dask side.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
@@ -2897,7 +2837,7 @@ class TestNetCDFPlotLazyEdges:
             float32 variable (~400 bytes). The hint is gated on a
             100 MB threshold, so no log record must mention ``chunks=``.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         with patch(
             "pyramids.netcdf._plot._render_array",
             return_value="ok",
@@ -2917,7 +2857,7 @@ class TestNetCDFPlotLazyEdges:
             The message must contain the literal ``chunks=`` token so
             users can search docs and run-time output for it.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         large_shape = (60, 4000, 4000)
         with patch.object(
@@ -2947,7 +2887,7 @@ class TestNetCDFPlotLazyEdges:
         """
         from pyramids.netcdf._plot import _LAZY_HINT_THRESHOLD_BYTES
 
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         itemsize = int(np.dtype(var.dtype[0]).itemsize)
         total_elems = _LAZY_HINT_THRESHOLD_BYTES // itemsize

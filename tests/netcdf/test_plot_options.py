@@ -14,36 +14,12 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError
 from unittest.mock import patch
 
-import numpy as np
 import pytest
 
 import pyramids
 from pyramids.netcdf import ColourOpts, FacetSpec, Selectors
 from pyramids.netcdf.netcdf import NetCDF
-
-
-def _make_3d_nc(n_times: int = 4, rows: int = 5, cols: int = 5) -> NetCDF:
-    """Build a 3-D (time, lat, lon) NetCDF container in memory.
-
-    Args:
-        n_times: Number of time steps.
-        rows: Number of latitude rows.
-        cols: Number of longitude columns.
-
-    Returns:
-        NetCDF: Root MDIM container with a single variable ``t2m``.
-    """
-    rng = np.random.default_rng(0)
-    arr = rng.random((n_times, rows, cols)).astype(np.float32)
-    nc = NetCDF.create_from_array(
-        arr=arr,
-        geo=(0.0, 1.0, 0, float(rows), 0, -1.0),
-        epsg=4326,
-        variable_name="t2m",
-        extra_dim_name="time",
-        extra_dim_values=list(range(n_times)),
-    )
-    return nc
+from tests.netcdf.conftest import make_plot_3d_nc
 
 
 class TestPlotOptionDataclasses:
@@ -175,7 +151,7 @@ class TestPlotConsumesOptionDataclasses:
             engine sees the same ``band`` regardless of which form the
             caller used.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
@@ -193,7 +169,7 @@ class TestPlotConsumesOptionDataclasses:
             The dataclass unpacking happens inside ``NetCDF.plot``; the
             engine still receives the flat ``cmap=`` kwarg.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
@@ -208,7 +184,7 @@ class TestPlotConsumesOptionDataclasses:
             fields are all ``None``/default, so no colour kwarg leaks to
             the engine (only the always-present ``rgb=None`` default).
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
@@ -226,7 +202,7 @@ class TestPlotConsumesOptionDataclasses:
             ``None``), so the static single-panel path runs and no
             ``_facet_stack`` is forwarded to the engine.
         """
-        nc = _make_3d_nc()
+        nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
             mock_plot.return_value = "ok"
