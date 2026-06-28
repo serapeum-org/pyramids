@@ -103,8 +103,13 @@ class TestToCogCompression:
 
     def test_compress_none(self, small_float_dataset, tmp_path):
         out = small_float_dataset.to_cog(tmp_path / "out.tif", compress="NONE")
-        # Just verify the file opens; some GDAL builds omit COMPRESSION metadata when NONE.
         assert out.exists()
+        # compress="NONE" must yield an uncompressed raster: GDAL either omits the
+        # COMPRESSION metadata key entirely or reports it as "NONE".
+        ds = gdal.Open(str(out))
+        compression = ds.GetMetadataItem("COMPRESSION", "IMAGE_STRUCTURE")
+        ds = None
+        assert compression in (None, "NONE"), f"expected uncompressed, got {compression!r}"
 
 
 class TestToCogExtra:
