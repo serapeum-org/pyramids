@@ -3072,6 +3072,14 @@ class NetCDF(Dataset):
         group's variables, dimensions, and attributes in place without copying
         any data (ARC-12).
 
+        The sub-group is re-resolved on every call (no memoization). This is
+        deliberate: caching the resolved `gdal.Group` would hold a live
+        reference to the dataset's GDAL internals, which would fight the
+        handle-release contract that :meth:`close` enforces (it drops the SWIG
+        refs and forces a GC so the file unlocks promptly). Re-walking
+        `OpenGroup` is cheap relative to that risk, and the spatial/metadata
+        queries that call this are not hot loops.
+
         Returns:
             The active `osgeo.gdal.Group`, or `None` when the dataset is closed,
             in classic (non-MDIM) mode, or the recorded group path no longer
@@ -3166,6 +3174,13 @@ class NetCDF(Dataset):
         The view holds its own reference to the shared dataset and keeps this
         parent container alive, so closing either side only drops a reference;
         the underlying GDAL dataset is freed once both are released.
+
+        Thread-safety: because the view shares the parent's `gdal.Dataset`
+        (GDAL datasets are not thread-safe), do **not** read the parent and a
+        view — or two views of the same store — concurrently from different
+        threads. The `read_array(threadsafe=True)` per-thread-handle path does
+        not cover this shared multidimensional handle; for concurrent access,
+        open the file independently per thread instead.
 
         Args:
             group_name: Name of the sub-group. Supports nested paths
