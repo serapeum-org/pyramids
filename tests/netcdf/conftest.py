@@ -108,7 +108,7 @@ def make_2d_nc(
     Returns:
         NetCDF: An in-memory multidimensional NetCDF container.
     """
-    arr = np.random.RandomState(99).rand(rows, cols).astype(np.float64)
+    arr = np.random.default_rng(99).random((rows, cols)).astype(np.float64)
     geo = (0.0, 1.0, 0, float(rows), 0, -1.0)
     return NetCDF.create_from_array(
         arr=arr,

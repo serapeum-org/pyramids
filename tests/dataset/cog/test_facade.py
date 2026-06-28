@@ -404,7 +404,7 @@ class TestWriteCog:
             The int path validates as a COG.
         """
         out = tmp_path / "int.tif"
-        path, report = write_cog(int_array, out, crs=4326, transform=COG_GEOTRANSFORM)
+        _, report = write_cog(int_array, out, crs=4326, transform=COG_GEOTRANSFORM)
         assert report.is_valid, f"Expected valid COG, errors: {report.errors}"
 
     def test_default_compression_is_deflate(self, float_array, tmp_path):
