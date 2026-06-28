@@ -416,5 +416,7 @@ def as_numpy(x: ArrayLike) -> NDArray:
     if is_lazy(x):
         # `is_lazy` narrows `x` to `dask.array.Array`; `.compute()` returns an
         # untyped value, so cast the materialized result back to a numpy array.
-        return cast("NDArray", x.compute())
-    return np.asarray(x)
+        result = cast("NDArray", x.compute())
+    else:
+        result = np.asarray(x)
+    return result

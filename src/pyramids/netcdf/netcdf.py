@@ -3324,18 +3324,20 @@ class NetCDF(Dataset):
     def _dimension_index(dim_names: list[str], target: str) -> int:
         """Index of a dimension matched by full name or short (leaf) name."""
         if target in dim_names:
-            return dim_names.index(target)
-        short = target.lstrip("/").split("/")[-1]
-        match = next(
-            (i for i, name in enumerate(dim_names)
-             if name.lstrip("/").split("/")[-1] == short),
-            None,
-        )
-        if match is None:
-            raise ValueError(
-                f"dimension {target!r} not found; available dimensions: {dim_names}"
+            result = dim_names.index(target)
+        else:
+            short = target.lstrip("/").split("/")[-1]
+            match = next(
+                (i for i, name in enumerate(dim_names)
+                 if name.lstrip("/").split("/")[-1] == short),
+                None,
             )
-        return match
+            if match is None:
+                raise ValueError(
+                    f"dimension {target!r} not found; available dimensions: {dim_names}"
+                )
+            result = match
+        return result
 
     @staticmethod
     def _axis_role_of_dimension(dim) -> str | None:
@@ -3441,8 +3443,11 @@ class NetCDF(Dataset):
         """
         rg = self._working_group()
         # This MDIM read path is only reached for a multidim container, which
-        # always resolves to a working group (never None).
-        assert rg is not None
+        # always resolves to a working group; guard explicitly (rather than
+        # `assert`, which `python -O` would strip) so a None never reaches
+        # OpenMDArray as a bare AttributeError.
+        if rg is None:
+            raise RuntimeError("No working group resolved for the MDIM read.")
         md_arr = rg.OpenMDArray(variable_name)
         dims = md_arr.GetDimensions()
 
