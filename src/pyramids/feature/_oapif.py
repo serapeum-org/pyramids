@@ -1,6 +1,6 @@
 """OGC API – Features → :class:`~pyramids.feature.FeatureCollection`.
 
-Implementation behind :meth:`pyramids.feature.FeatureCollection.from_ogc_api_features`.
+Implementation behind :meth:`pyramids.feature.FeatureCollection.from_ogc_features`.
 It fetches a collection subset from an OGC API – Features service and returns a
 :class:`~pyramids.feature.FeatureCollection`.
 
@@ -19,7 +19,7 @@ This is the OGC-API-era sibling of :mod:`pyramids.feature._wfs` (the WFS reader)
 the two share the same generic-OGC-primitive shape and scope boundary (see
 ``docs/SCOPE.md``): provider specifics — catalogs, agency auth endpoints,
 non-PROJ CRS — live in the downstream consumer (``earthlens``), which calls
-``from_ogc_api_features`` and passes ``auth`` as needed.
+``from_ogc_features`` and passes ``auth`` as needed.
 """
 
 from __future__ import annotations
@@ -164,7 +164,7 @@ def _oapif_connection(endpoint: str) -> str:
     return f"OAPIF:{endpoint}"
 
 
-def from_ogc_api_features(
+def from_ogc_features(
     featurecollection_cls: type["FeatureCollection"],
     endpoint: str,
     *,
@@ -179,7 +179,7 @@ def from_ogc_api_features(
     """Fetch an OGC API – Features collection subset and return a :class:`FeatureCollection`.
 
     This is the private implementation; the public API is the
-    :meth:`pyramids.feature.FeatureCollection.from_ogc_api_features` classmethod,
+    :meth:`pyramids.feature.FeatureCollection.from_ogc_features` classmethod,
     which forwards here. See that method for the full parameter documentation.
 
     Raises:

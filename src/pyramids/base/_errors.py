@@ -179,7 +179,7 @@ class WFSError(_PyramidsError):
 class OGCAPIError(_PyramidsError):
     """A failure talking to an **OGC API – Features** service.
 
-    Raised by :meth:`pyramids.feature.FeatureCollection.from_ogc_api_features`
+    Raised by :meth:`pyramids.feature.FeatureCollection.from_ogc_features`
     (implementation in :mod:`pyramids.feature._oapif`) when the service landing
     page / ``/collections`` document cannot be reached, returns a non-JSON or
     error body, or the items request fails. OGC API – Features is the modern
