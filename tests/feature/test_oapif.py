@@ -2,7 +2,7 @@
 
 Network-free. The OGR ``OAPIF`` driver's ``next``-link paging is proven against a
 protocol-faithful local mock in ``TestOapifDriverPaging``. Elsewhere the OGR read
-is monkeypatched so ``from_ogc_api_features``'s own logic — collection validation,
+is monkeypatched so ``from_ogc_features``'s own logic — collection validation,
 the read filters, FeatureCollection wrapping, ``output_crs`` reproject and error
 normalisation — is covered without a live service, plus the pure helpers and the
 ``/collections`` fetch/parse/cache.
@@ -308,7 +308,7 @@ class TestFromOgcApiFeatures:
         """A successful read is wrapped into a FeatureCollection."""
         self._patch_collections(monkeypatch)
         monkeypatch.setattr(_oapif.gpd, "read_file", lambda *a, **k: _sample_gdf())
-        fc = FeatureCollection.from_ogc_api_features("https://h/api", collection="lakes")
+        fc = FeatureCollection.from_ogc_features("https://h/api", collection="lakes")
         assert isinstance(fc, FeatureCollection)
         assert len(fc) == 2 and fc.crs.to_epsg() == 4326
 
@@ -323,7 +323,7 @@ class TestFromOgcApiFeatures:
             return _sample_gdf()
 
         monkeypatch.setattr(_oapif.gpd, "read_file", fake_read)
-        FeatureCollection.from_ogc_api_features(
+        FeatureCollection.from_ogc_features(
             "https://h/api", collection="lakes", bbox=(1.0, 2.0, 3.0, 4.0),
             where="scalerank <= 2", max_features=5,
         )
@@ -336,7 +336,7 @@ class TestFromOgcApiFeatures:
     def test_output_crs_reprojects(self, monkeypatch):
         self._patch_collections(monkeypatch)
         monkeypatch.setattr(_oapif.gpd, "read_file", lambda *a, **k: _sample_gdf())
-        fc = FeatureCollection.from_ogc_api_features(
+        fc = FeatureCollection.from_ogc_features(
             "https://h/api", collection="lakes", output_crs="EPSG:3857"
         )
         assert fc.crs.to_epsg() == 3857
@@ -347,14 +347,14 @@ class TestFromOgcApiFeatures:
         crsless = gpd.GeoDataFrame({"name": ["a"]}, geometry=[Point(5.0, 52.0)])
         monkeypatch.setattr(_oapif.gpd, "read_file", lambda *a, **k: crsless)
         with pytest.raises(OGCAPIError, match="without a CRS"):
-            FeatureCollection.from_ogc_api_features(
+            FeatureCollection.from_ogc_features(
                 "https://h/api", collection="lakes", output_crs="EPSG:3857"
             )
 
     def test_unknown_collection_raises_valueerror(self, monkeypatch):
         self._patch_collections(monkeypatch, ids=("lakes",))
         with pytest.raises(ValueError, match="not advertised"):
-            FeatureCollection.from_ogc_api_features("https://h/api", collection="missing")
+            FeatureCollection.from_ogc_features("https://h/api", collection="missing")
 
     def test_read_failure_raises_ogcapierror(self, monkeypatch):
         self._patch_collections(monkeypatch)
@@ -364,7 +364,7 @@ class TestFromOgcApiFeatures:
 
         monkeypatch.setattr(_oapif.gpd, "read_file", boom)
         with pytest.raises(OGCAPIError, match="items request failed"):
-            FeatureCollection.from_ogc_api_features("https://h/api", collection="lakes")
+            FeatureCollection.from_ogc_features("https://h/api", collection="lakes")
 
     def test_auth_and_timeout_active_during_read(self, monkeypatch):
         """The items read runs inside a GDAL config context carrying auth + timeout."""
@@ -377,7 +377,7 @@ class TestFromOgcApiFeatures:
             return _sample_gdf()
 
         monkeypatch.setattr(_oapif.gpd, "read_file", fake_read)
-        FeatureCollection.from_ogc_api_features(
+        FeatureCollection.from_ogc_features(
             "https://h/api", collection="lakes", auth=("u", "p"), timeout=42.0
         )
         assert seen["userpwd"] == "u:p"
@@ -516,11 +516,11 @@ class _OapifHandler(http.server.BaseHTTPRequestHandler):
 class TestOapifDriverPaging:
     """Drive the real OAPIF driver against a local two-page mock service.
 
-    ``from_ogc_api_features`` reads through GDAL's OGR ``OAPIF`` driver (via
+    ``from_ogc_features`` reads through GDAL's OGR ``OAPIF`` driver (via
     ``gpd.read_file``); this test exercises that same driver directly with
     ``gdal.OpenEx`` so the ``rel="next"`` paging is proven offline. (The bundled
     pyogrio reader cannot reach a localhost mock reliably in CI, so the
-    ``from_ogc_api_features`` wrapper itself is covered end-to-end only by the
+    ``from_ogc_features`` wrapper itself is covered end-to-end only by the
     gated live test below.)
     """
 
@@ -560,6 +560,6 @@ class TestLiveOapif:
         """Exercise the real OGR OAPIF driver against a caller-supplied public endpoint."""
         endpoint = os.environ["PYRAMIDS_OAPIF_ENDPOINT"]
         collection = os.environ["PYRAMIDS_OAPIF_COLLECTION"]
-        fc = FeatureCollection.from_ogc_api_features(endpoint, collection=collection, max_features=5)
+        fc = FeatureCollection.from_ogc_features(endpoint, collection=collection, max_features=5)
         assert isinstance(fc, FeatureCollection)
         assert len(fc) <= 5
