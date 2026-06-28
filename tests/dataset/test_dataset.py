@@ -603,6 +603,23 @@ class TestNoDataValue:
         with pytest.raises(NoDataValueError):
             dataset.change_no_data_value(None, 0)
 
+    def test_change_no_data_nan_into_int_band_raises(self):
+        """A NaN no-data into an integer band is a dtype mismatch -> NoDataValueError.
+
+        The NaN->int cast raises ``ValueError`` ("cannot convert float NaN to
+        integer") rather than ``TypeError``/``FloatingPointError``; the guard must
+        still surface it as the package-level ``NoDataValueError`` and not leak a raw
+        numpy error to the caller.
+        """
+        dataset = Dataset.create_from_array(
+            np.arange(9, dtype="int32").reshape(3, 3),
+            geo=(0, 1, 0, 3, 0, -1),
+            epsg=4326,
+            no_data_value=0,
+        )
+        with pytest.raises(NoDataValueError):
+            dataset.change_no_data_value(np.nan, 0)
+
     @pytest.mark.parametrize(
         "dtype, expected",
         [

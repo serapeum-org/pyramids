@@ -1115,7 +1115,12 @@ class Bands(_Engine):
             try:
                 with np.errstate(invalid="raise"):
                     arr[is_no_data(arr, old_value)] = new_value[band]
-            except (TypeError, FloatingPointError):
+            # A dtype mismatch surfaces differently across numpy paths: a None value
+            # is not subscriptable (TypeError), a NaN cast into an integer band raises
+            # ValueError ("cannot convert float NaN to integer"), and an invalid
+            # floating-point cast trips errstate (FloatingPointError). Map all of them
+            # to the package-level NoDataValueError.
+            except (TypeError, ValueError, FloatingPointError):
                 raise NoDataValueError(
                     f"The dtype of the given no_data_value: {new_value[band]} differs from the dtype of the "
                     f"band: {gdal_to_numpy_dtype(self._ds.gdal_dtype[band])}"
