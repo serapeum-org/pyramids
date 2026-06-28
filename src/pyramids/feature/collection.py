@@ -1764,9 +1764,11 @@ class FeatureCollection(GeoDataFrame):
                 (e.g. ``"lakes"``). A value the service does not advertise raises
                 :class:`ValueError`.
             bbox: Optional ``(minx, miny, maxx, maxy)`` spatial filter in **lon/lat
-                (CRS84)** — the OGC API – Features default for the ``bbox`` query,
-                regardless of the collection's storage CRS. Only intersecting
-                features are returned. ``None`` (default) fetches all features.
+                (CRS84)**. The filter is applied in the CRS the OAPIF driver exposes
+                the layer in; that is CRS84 (lon/lat) because OGC API – Features
+                serves GeoJSON, so CRS84 coordinates are correct for the current
+                driver. Only intersecting features are returned. ``None`` (default)
+                fetches all features.
             output_crs: Optional CRS to reproject the result into (any form
                 :meth:`to_crs` accepts). ``None`` (default) keeps the service's CRS.
             where: Optional OGR/SQL attribute filter (e.g. ``"scalerank <= 2"``)
