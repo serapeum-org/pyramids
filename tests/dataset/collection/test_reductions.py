@@ -17,7 +17,7 @@ pytestmark = pytest.mark.lazy
 
 
 @pytest.fixture
-def three_files(tmp_path):
+def three_files_4x5_ramp(tmp_path):
     paths = []
     for i in range(3):
         arr = np.full((4, 5), float(i + 1), dtype=np.float32)
@@ -35,8 +35,8 @@ def three_files(tmp_path):
 
 class TestMean:
     @requires_dask
-    def test_mean_all_cells_equal_2(self, three_files):
-        collection = DatasetCollection.from_files(three_files)
+    def test_mean_all_cells_equal_2(self, three_files_4x5_ramp):
+        collection = DatasetCollection.from_files(three_files_4x5_ramp)
         result = collection.mean()
         assert result.shape == (1, 4, 5)
         assert np.allclose(result, 2.0)
@@ -44,39 +44,39 @@ class TestMean:
 
 class TestSum:
     @requires_dask
-    def test_sum_is_six(self, three_files):
-        collection = DatasetCollection.from_files(three_files)
+    def test_sum_is_six(self, three_files_4x5_ramp):
+        collection = DatasetCollection.from_files(three_files_4x5_ramp)
         result = collection.sum()
         assert np.allclose(result, 6.0)
 
 
 class TestMin:
     @requires_dask
-    def test_min_is_one(self, three_files):
-        collection = DatasetCollection.from_files(three_files)
+    def test_min_is_one(self, three_files_4x5_ramp):
+        collection = DatasetCollection.from_files(three_files_4x5_ramp)
         result = collection.min()
         assert np.allclose(result, 1.0)
 
 
 class TestMax:
     @requires_dask
-    def test_max_is_three(self, three_files):
-        collection = DatasetCollection.from_files(three_files)
+    def test_max_is_three(self, three_files_4x5_ramp):
+        collection = DatasetCollection.from_files(three_files_4x5_ramp)
         result = collection.max()
         assert np.allclose(result, 3.0)
 
 
 class TestStdVar:
     @requires_dask
-    def test_std(self, three_files):
-        collection = DatasetCollection.from_files(three_files)
+    def test_std(self, three_files_4x5_ramp):
+        collection = DatasetCollection.from_files(three_files_4x5_ramp)
         result = collection.std()
         expected = np.std([1.0, 2.0, 3.0])
         assert np.allclose(result, expected)
 
     @requires_dask
-    def test_var(self, three_files):
-        collection = DatasetCollection.from_files(three_files)
+    def test_var(self, three_files_4x5_ramp):
+        collection = DatasetCollection.from_files(three_files_4x5_ramp)
         result = collection.var()
         expected = np.var([1.0, 2.0, 3.0])
         assert np.allclose(result, expected)
@@ -84,8 +84,8 @@ class TestStdVar:
 
 class TestSkipNaFalse:
     @requires_dask
-    def test_skipna_false_dispatches_non_nan_op(self, three_files):
-        collection = DatasetCollection.from_files(three_files)
+    def test_skipna_false_dispatches_non_nan_op(self, three_files_4x5_ramp):
+        collection = DatasetCollection.from_files(three_files_4x5_ramp)
         result_skipna = collection.mean(skipna=True)
         result_exact = collection.mean(skipna=False)
         assert np.allclose(result_skipna, result_exact)
