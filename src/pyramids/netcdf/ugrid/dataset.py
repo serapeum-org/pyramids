@@ -822,7 +822,9 @@ class UgridDataset:
                   carries no scalar mapping).
         """
         var = self.get_data(variable_name)
-        data = cast("np.typing.NDArray", var.data)
+        data = var.data
+        if data is None:
+            raise ValueError(f"Variable {variable_name!r} has no loaded data to plot.")
         if var.has_time:
             data = data[0]
         if title is None:
