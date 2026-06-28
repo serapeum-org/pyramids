@@ -145,6 +145,26 @@ class TestPureHelpers:
         assert _oapif._error_text({}) == "no message provided"
         assert _oapif._error_text("not a dict") == "no message provided"
 
+    def test_http_error_detail_unreadable_body(self):
+        """An HTTPError whose body cannot be read falls back to the reason phrase."""
+        class _Unreadable:
+            reason = "Server Error"
+
+            def read(self):
+                raise OSError("connection gone")
+
+        assert _oapif._http_error_detail(_Unreadable()) == "Server Error"
+
+    def test_http_error_detail_non_json_body(self):
+        """A non-JSON HTTPError body is returned as truncated plain text."""
+        class _Plain:
+            reason = "Bad Gateway"
+
+            def read(self):
+                return b"upstream exploded"
+
+        assert _oapif._http_error_detail(_Plain()) == "upstream exploded"
+
 
 class TestCollections:
     def test_parses_collection_ids(self, collections_server):
