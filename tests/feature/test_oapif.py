@@ -130,7 +130,7 @@ class TestPureHelpers:
 
     def test_error_text(self):
         assert _oapif._error_text({"description": "boom"}) == "boom"
-        assert _oapif._error_text({"title": "bad"}) == "bad"  # falls through to title
+        assert _oapif._error_text({"title": "bad"}) == "bad"  # description/detail absent -> title
         assert _oapif._error_text({}) == "no message provided"
         assert _oapif._error_text("not a dict") == "no message provided"
 
