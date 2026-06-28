@@ -43,6 +43,12 @@ if TYPE_CHECKING:
 # supplied by the caller's ``auth``, never hard-coded here.
 _GDAL_HTTP_AUTH_VAR = "GDAL_HTTP_USER" + "PWD"
 
+# Headers for the urllib ``/collections`` pre-check. A real User-Agent avoids
+# services that block the default ``Python-urllib`` agent, and ``Accept`` adds
+# JSON content negotiation alongside the ``f=json`` query so the pre-check is no
+# stricter than the GDAL driver it guards.
+_DISCOVERY_HEADERS = {"User-Agent": "pyramids-gis OGC API client", "Accept": "application/json"}
+
 
 def _collections_url(endpoint: str) -> str:
     """Build the ``/collections`` discovery URL for an OGC API landing page.
@@ -78,8 +84,9 @@ def _get_collections(
         mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
         mgr.add_password(None, endpoint, auth[0], auth[1])
         opener.add_handler(urllib.request.HTTPBasicAuthHandler(mgr))
+    request = urllib.request.Request(url, headers=_DISCOVERY_HEADERS)
     try:
-        with opener.open(url, timeout=timeout) as resp:
+        with opener.open(request, timeout=timeout) as resp:
             payload = resp.read()
     except OSError as exc:
         # urllib.error.URLError / HTTPError both derive from OSError.

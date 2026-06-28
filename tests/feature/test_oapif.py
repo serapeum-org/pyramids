@@ -195,6 +195,34 @@ class TestCollections:
         with pytest.raises(OGCAPIError, match="request failed"):
             _oapif._get_collections("https://oapif.invalid/x", None, 5.0)
 
+    def test_discovery_sends_json_accept_and_useragent(self):
+        """The /collections pre-check negotiates JSON and sends a real User-Agent."""
+        seen = {}
+        payload = COLLECTIONS_DOC.encode("utf-8")
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                seen["accept"] = self.headers.get("Accept")
+                seen["user_agent"] = self.headers.get("User-Agent")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args, **kwargs):  # noqa: N802
+                return
+
+        httpd = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            _oapif._get_collections(f"http://127.0.0.1:{httpd.server_address[1]}", None, 30.0)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+        assert seen["accept"] == "application/json"
+        assert seen["user_agent"] and "Python-urllib" not in seen["user_agent"]
+
 
 class TestFromOgcApiFeatures:
     def _patch_collections(self, monkeypatch, ids=("lakes",)):
