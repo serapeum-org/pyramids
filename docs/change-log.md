@@ -1,6 +1,63 @@
 ﻿# Change log
 
 
+## 0.38.0 (2026-06-28)
+
+### BREAKING CHANGE
+
+- opening a store now returns a Container and extracting a
+variable returns a Variable (both NetCDF subclasses, so isinstance(x,
+NetCDF) still holds); type(x) is NetCDF is no longer true for these.
+Directly constructing NetCDF(...) is deprecated and emits a
+DeprecationWarning — use NetCDF.read_file(...) / NetCDF.create_from_array(...)
+(-> Container) and container.get_variable(...) (-> Variable). NetCDF remains
+an isinstance-compatible base for one major version.
+
+### Feat
+
+- **base**: RasterLike protocol + numpy.typing array-return typing (ARC-18/ARC-19) (#648)
+- **netcdf**: zero-copy lazy get_group view (ARC-12) (#642)
+- **netcdf**: read remote NetCDF over OPeNDAP/THREDDS via dods:// URLs (#644)
+- **netcdf**: stream create_from_array writes for dask inputs (ARC-11) (#637)
+- **feature**: add FeatureCollection.from_wfs OGC Web Feature Service reader (#635)
+- **wcs**: add Dataset.from_wcs OGC Web Coverage Service reader (#632)
+- **wcs**: add Dataset.from_wcs OGC Web Coverage Service reader
+                                                                                                              
+  Add a version-normalising OGC WCS reader exposed as the                                                     
+  Dataset.from_wcs classmethod (implementation in dataset/_wcs.py),                                           
+  backed by GDAL's native WCS driver so the 1.0.0 vs 2.0.x GetCoverage                                        
+  dialect fork is handled inside GDAL rather than hand-written.                                               
+                                                                                                              
+  - Caller supplies one lon/lat bbox plus optional resolution and                                             
+    output_crs; the reader issues the version-correct GetCoverage.                                            
+  - CRS shim: attach a caller-supplied coverage_crs when the server's                                         
+    advertised CRS is absent from PROJ (e.g. SoilGrids EPSG:152160).                                          
+  - Client-side bbox reprojection into the coverage's native CRS via                                          
+    pyproj, densified with transform_bounds so distorted or large                                             
+    windows stay covered.                                                                                     
+  - GetCapabilities fetched once per endpoint (LRU-cached); an unknown                                        
+    coverage raises ValueError, server errors raise the new WCSError.                                         
+  - The windowed read goes through an in-memory dataset, so a                                                 
+    non-raster ExceptionReport body can never be written to a .tif.                                           
+  - No new dependencies: GDAL handles transport and decode, pyproj                                            
+    (core) the CRS transform, and Dataset the warp/IO.                                                        
+  - Tests: pure helpers, the CRS shim, the capabilities cache, and a                                          
+    protocol-faithful mock server that drives GDAL end-to-end for both                                        
+    WCS dialects (asserting each call shape), plus gated live SoilGrids                                       
+    tests; 100% line and branch coverage on the new module.                                                   
+                                                                                                              
+  Closes #626
+- **netcdf**: split NetCDF into Container + Variable types (API-1) (#625)
+
+### Fix
+
+- **netcdf**: drop xarray interop tests duplicated in test_xarray_interop (#636)
+
+### Refactor
+
+- **netcdf**: extract engine subpackage from the NetCDF god-object (STR-1) (#627)
+- **netcdf**: consolidate duplicated MDIM/CF/UGRID logic behind the stable API (#612)
+
 ## 0.36.0 (2026-06-23)
 
 ### Feat
