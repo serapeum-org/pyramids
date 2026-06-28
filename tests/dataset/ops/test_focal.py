@@ -5,19 +5,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
-
-try:
-    import_dask("dask not installed")
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_DASK = False
-else:
-    HAS_DASK = True
-requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")
 
 
 @pytest.fixture
@@ -59,7 +49,7 @@ class TestFocalMean:
         out = constant_raster.focal_mean(radius=1)
         assert out.shape == (5, 5)
 
-    @requires_dask
+    @pytest.mark.lazy
     def test_lazy_matches_eager(self, constant_raster):
         eager = constant_raster.focal_mean(radius=1)
         lazy = constant_raster.focal_mean(radius=1, chunks="auto").compute()
@@ -92,7 +82,7 @@ class TestSlope:
         inside = out[1:-1, 1:-1]
         assert float(inside.mean()) > 0.0
 
-    @requires_dask
+    @pytest.mark.lazy
     def test_lazy_slope_equals_eager_interior(self, ramp_raster):
         """Interior cells agree; edge cells can differ due to boundary.
 
@@ -118,7 +108,7 @@ class TestHillshade:
         assert float(out.min()) >= 0.0
         assert float(out.max()) <= 255.0
 
-    @requires_dask
+    @pytest.mark.lazy
     def test_lazy_matches_eager_interior(self, ramp_raster):
         """Same boundary caveat as slope — compare interior cells."""
         eager = ramp_raster.hillshade()

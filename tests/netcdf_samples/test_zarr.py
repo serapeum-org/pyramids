@@ -4,7 +4,7 @@ import pytest
 
 from pyramids.netcdf import NetCDF
 
-pytestmark = pytest.mark.core
+pytestmark = pytest.mark.lazy
 pytest.importorskip("zarr")
 
 TOS = "cf__7v__1d3-2d3-3d1.nc"

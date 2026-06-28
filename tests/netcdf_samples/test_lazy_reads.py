@@ -5,7 +5,7 @@ import pytest
 
 from pyramids.netcdf import NetCDF
 
-pytestmark = pytest.mark.core
+pytestmark = pytest.mark.lazy
 da = pytest.importorskip("dask.array")
 
 RHUM = "coards__5v__1d4-4d1.nc"

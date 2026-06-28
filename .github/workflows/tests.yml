@@ -44,8 +44,12 @@ jobs:
           activate-environment: ${{ matrix.environment }}
           cache: true
 
-      - name: Run main tests (not plot, not xarray)
-        run: pixi run -e ${{ matrix.environment }} main --cov-append --cov-fail-under=0
+      - name: Run main tests (not plot, not xarray, not vfs)
+        # Run pytest directly (not the `main` task) so we can append `not vfs` to the
+        # selector — the live-network vfs tests must not run in CI. Editing the pixi
+        # `main` task in pyproject.toml would invalidate pixi.lock and fail the
+        # lock-freshness check, so the deselection lives here instead.
+        run: pixi run -e ${{ matrix.environment }} pytest -vvv --cov=src/pyramids -sv -m 'not plot and not xarray and not vfs' --cov-report=xml --cov-append --cov-fail-under=0
 
       - name: Run plot tests
         run: pixi run -e ${{ matrix.environment }} plot --cov-fail-under=0

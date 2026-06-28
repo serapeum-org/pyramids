@@ -462,18 +462,7 @@ class TestLoadAsset:
             load_asset({"href": "s3://b/data.bin"})
 
 
-try:
-    from pyramids.base._utils import import_dask as _imp_dask
-    from pyramids.base._utils import import_zarr as _imp_zarr
-
-    _imp_dask("x")
-    _imp_zarr("x")
-    _HAS_ZARR = True
-except Exception:  # pragma: no cover
-    _HAS_ZARR = False
-
-
-@pytest.mark.skipif(not _HAS_ZARR, reason="zarr + dask not installed")
+@pytest.mark.lazy
 class TestLoadZarrAsset:
     """STAC Zarr assets load via pyramids' GeoZarr reader (FR-9)."""
 

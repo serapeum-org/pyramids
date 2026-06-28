@@ -6,7 +6,7 @@ import pytest
 
 from pyramids.netcdf import NetCDF
 
-pytestmark = pytest.mark.core
+pytestmark = pytest.mark.lazy
 pytest.importorskip("dask")
 
 AIR = "coards__4v__1d3-3d1.nc"

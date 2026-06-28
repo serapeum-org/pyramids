@@ -126,8 +126,10 @@ jobs:
         # tests/conftest.py's ``pytest_collection_modifyitems`` auto-applies the
         # corresponding ``requires_<extra>`` skip to those — so ``-m core`` here
         # selects only the bare-install tests and never collects an extras test.
+        # ``not vfs`` deselects the live-network (S3/HTTP) tests, which are marked
+        # ``vfs`` and must not run in CI.
         run: |
-          pytest -vvv -sv -m core tests/
+          pytest -vvv -sv -m "core and not vfs" tests/
 
   # Per-extra wheel test: one job per optional extra. Each matrix cell
   # gets a freshly-provisioned conda env, installs the wheel with just
