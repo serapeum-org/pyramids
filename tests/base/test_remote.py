@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import nullcontext
 
 import numpy as np  # noqa: E402
 import pytest
 from osgeo import gdal
 
+from pyramids import _io
 from pyramids.base.remote import (
     CloudConfig,
     _to_vsi,
     is_remote,
     signer_cloud_config,
 )
+from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -123,6 +126,27 @@ class TestToVsi:
     def test_relative_path_unchanged(self):
         assert _to_vsi("data/x.tif") == "data/x.tif"
 
+    def test_dods_maps_to_netcdf_dap(self):
+        assert (
+            _to_vsi("dods://test.opendap.org/opendap/data/nc/coads.nc")
+            == 'NETCDF:"https://test.opendap.org/opendap/data/nc/coads.nc"'
+        )
+
+    def test_dods_preserves_query(self):
+        assert _to_vsi("dods://h/path?a=b") == 'NETCDF:"https://h/path?a=b"'
+
+    def test_dods_without_double_slash(self):
+        # urlparse still classifies "dods:host/path" as scheme dods; must not crash.
+        assert _to_vsi("dods:host/path") == 'NETCDF:"https://host/path"'
+
+    def test_dods_uppercase_scheme(self):
+        # scheme match is case-insensitive; the slice uses the lower-cased length.
+        assert _to_vsi("DODS://test.opendap.org/data.nc") == 'NETCDF:"https://test.opendap.org/data.nc"'
+
+    def test_dods_routed_through_parse_path(self):
+        # The read path (read_file -> _parse_path -> _to_vsi) must yield the NETCDF: form.
+        assert _io._parse_path("dods://h/x.nc") == 'NETCDF:"https://h/x.nc"'
+
 
 class TestIsRemote:
     @pytest.mark.parametrize(
@@ -138,6 +162,7 @@ class TestIsRemote:
             "/vsicurl/https://foo/x.tif",
             "/vsimem/x.tif",
             "/vsizip/a.zip/b.tif",
+            "dods://test.opendap.org/opendap/data/nc/coads.nc",
         ],
     )
     def test_true_cases(self, path):
@@ -633,3 +658,26 @@ class TestToVsiArchiveChainingEdgeCases:
         assert (
             result == f"/vsicurl/{url}"
         ), f".tif/ is not an archive; must not chain; got: {result}"
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    not os.environ.get("PYRAMIDS_OPENDAP_LIVE"),
+    reason="live OPeNDAP test; set PYRAMIDS_OPENDAP_LIVE=1 (optionally with "
+    "PYRAMIDS_OPENDAP_URL / PYRAMIDS_OPENDAP_VAR) to read a real DAP dataset",
+)
+class TestLiveOpenDAP:
+    """Read a real OPeNDAP/THREDDS dataset over dods:// via GDAL's netCDF DAP support."""
+
+    URL = os.environ.get(
+        "PYRAMIDS_OPENDAP_URL",
+        "dods://psl.noaa.gov/thredds/dodsC/Datasets/ncep.reanalysis/surface/air.sig995.2012.nc",
+    )
+    VAR = os.environ.get("PYRAMIDS_OPENDAP_VAR", "air")
+
+    def test_read_opendap_schema(self):
+        """A dods:// URL opens as a NetCDF and its variable schema is read without a full download."""
+        nc = NetCDF.read_file(self.URL)
+        assert self.VAR in list(nc.variables), f"{self.VAR!r} not in {list(nc.variables)[:8]}"
+        variable = nc.get_variable(self.VAR)
+        assert variable.shape[0] >= 1

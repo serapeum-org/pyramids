@@ -13,20 +13,14 @@ import numpy as np
 import pytest
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_dask, import_zarr
 from pyramids.dataset import Dataset
 
 pytestmark = pytest.mark.core
 
 try:
-    import_dask("dask not installed")
-    import_zarr("zarr not installed")
     import zarr
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_ZARR = False
-else:
-    HAS_ZARR = True
-requires_zarr = pytest.mark.skipif(not HAS_ZARR, reason="dask + zarr not installed")
+except ImportError:  # pragma: no cover - zarr-using tests are @pytest.mark.lazy gated
+    zarr = None
 
 
 @pytest.fixture
@@ -51,7 +45,7 @@ def small_dataset(tmp_path):
 class TestRoundtripEager:
     """Eager Dataset → Zarr → Dataset round-trip preserves values + geobox."""
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_values_roundtrip(self, small_dataset, tmp_path):
         store = str(tmp_path / "roundtrip.zarr")
         small_dataset.to_zarr(store)
@@ -63,21 +57,21 @@ class TestRoundtripEager:
             roundtrip = np.atleast_3d(roundtrip)
         np.testing.assert_array_equal(original.squeeze(), roundtrip.squeeze())
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_epsg_roundtrip(self, small_dataset, tmp_path):
         store = str(tmp_path / "epsg.zarr")
         small_dataset.to_zarr(store)
         reloaded = Dataset.from_zarr(store)
         assert reloaded.epsg == small_dataset.epsg
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_geotransform_roundtrip(self, small_dataset, tmp_path):
         store = str(tmp_path / "gt.zarr")
         small_dataset.to_zarr(store)
         reloaded = Dataset.from_zarr(store)
         assert reloaded.geotransform == small_dataset.geotransform
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_per_band_nodata_roundtrip(self, tmp_path):
         """Per-band no-data values survive the round-trip (Z-4).
 
@@ -103,7 +97,7 @@ class TestRoundtripEager:
             6.0,
         ), f"per-band no-data not recovered: {reloaded.no_data_value}"
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_absent_nodata_roundtrip(self, tmp_path):
         """A dataset with no no-data stays no-data after round-trip (Z-4).
 
@@ -127,7 +121,7 @@ class TestRoundtripEager:
             None,
         ), f"absent no-data not preserved: {reloaded.no_data_value}"
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_projected_crs_roundtrip(self, tmp_path):
         """A projected CRS survives the round-trip via the stored WKT (Z-3).
 
@@ -147,7 +141,7 @@ class TestRoundtripEager:
         reloaded = Dataset.from_zarr(str(tmp_path / "utm.zarr"))
         assert reloaded.epsg == 32636, f"projected CRS not recovered: {reloaded.epsg}"
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_band_names_roundtrip(self, tmp_path):
         """Custom band names survive a Zarr round-trip (Z-5).
 
@@ -171,7 +165,7 @@ class TestRoundtripEager:
             "beta",
         ], f"band names not restored: {reloaded.band_names}"
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_multiband_band_read_finite_after_from_zarr(self, tmp_path):
         """A multi-band from_zarr store round-trips its pixels (end-to-end #570 guard).
 
@@ -215,7 +209,7 @@ class TestRoundtripEager:
 class TestComputeFalseDefers:
     """``compute=False`` returns :class:`dask.delayed.Delayed`."""
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_returns_delayed(self, small_dataset, tmp_path):
         from dask.delayed import Delayed
 
@@ -223,7 +217,7 @@ class TestComputeFalseDefers:
         result = small_dataset.to_zarr(store, compute=False)
         assert isinstance(result, Delayed)
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_delayed_compute_writes_data(self, small_dataset, tmp_path):
         store = str(tmp_path / "compute.zarr")
         delayed = small_dataset.to_zarr(store, compute=False)
@@ -234,7 +228,7 @@ class TestComputeFalseDefers:
             np.atleast_3d(small_dataset.read_array()).squeeze(),
         )
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_delayed_compute_finalizes_metadata(self, small_dataset, tmp_path):
         """Computing the deferred write also writes geobox attrs (Z-9).
 
@@ -257,14 +251,14 @@ class TestComputeFalseDefers:
 class TestChunksParameter:
     """``chunks=`` controls the underlying dask-array chunking."""
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_custom_chunks_respected(self, small_dataset, tmp_path):
         store = str(tmp_path / "chunked.zarr")
         small_dataset.to_zarr(store, chunks=(1, 3, 3))
         root = zarr.open_group(store, mode="r")
         assert root["data"].chunks == (1, 3, 3)
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_chunked_read_matches_eager(self, small_dataset, tmp_path):
         """from_zarr(chunks=...) parallel-reads identical values (FR-2).
 
@@ -324,7 +318,7 @@ class TestImportErrorPath:
 class TestGeoZarrLayout:
     """The written store follows the GeoZarr / CF convention (FR-1)."""
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_store_has_geozarr_arrays(self, small_dataset, tmp_path):
         """A written store carries spatial_ref + x/y coords + grid_mapping (FR-1).
 
@@ -354,7 +348,7 @@ class TestGeoZarrLayout:
         assert group["x"].shape == (small_dataset.columns,), "x length mismatch"
         assert group["y"].shape == (small_dataset.rows,), "y length mismatch"
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_legacy_store_read_warns_and_recovers(self, tmp_path):
         """Reading a legacy flat-attr store warns but still recovers the geobox.
 
@@ -394,7 +388,7 @@ class TestGeoZarrLayout:
 class TestCompressor:
     """``compressor=`` controls the zarr codec on the data array (FR-4)."""
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_custom_codec_applied(self, small_dataset, tmp_path):
         """A passed zarr-v3 codec is used for the data array (FR-4).
 
@@ -416,7 +410,7 @@ class TestCompressor:
             np.atleast_3d(small_dataset.read_array()).squeeze(),
         )
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_uncompressed(self, small_dataset, tmp_path):
         """``compressor=None`` writes an uncompressed data array (FR-4).
 
@@ -444,7 +438,7 @@ class TestMultiscalePyramid:
         ds.to_file(src)
         return Dataset.read_file(src)
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_writes_levels_and_multiscales_attr(self, big_dataset, tmp_path):
         """to_zarr(overview_factors=...) writes decimated levels + multiscales (FR-7).
 
@@ -471,7 +465,7 @@ class TestMultiscalePyramid:
         assert scales == [1.0, 2.0, 4.0], f"scales {scales}"
         assert ms[0]["axes"][0]["name"] == "band" and ms[0]["axes"][2]["name"] == "x"
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_read_level_scales_geobox(self, big_dataset, tmp_path):
         """from_zarr(level=f) reads the decimated level with cell size scaled (FR-7).
 
@@ -492,7 +486,7 @@ class TestMultiscalePyramid:
         assert lvl2.epsg == 4326, f"level-2 epsg {lvl2.epsg}"
         assert Dataset.from_zarr(store).rows == 16, "level-1 should be full res"
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_missing_level_raises(self, big_dataset, tmp_path):
         """Requesting an unwritten level raises a clear KeyError (FR-7).
 
@@ -505,7 +499,7 @@ class TestMultiscalePyramid:
         with pytest.raises(KeyError, match="data_8|overview level 8"):
             Dataset.from_zarr(store, level=8)
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_overviews_require_compute(self, big_dataset, tmp_path):
         """overview_factors with compute=False raises (FR-7).
 
@@ -517,7 +511,7 @@ class TestMultiscalePyramid:
         with pytest.raises(ValueError, match="compute=True"):
             big_dataset.to_zarr(store, overview_factors=[2], compute=False)
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_level_read_preserves_nodata_and_band_names(self, tmp_path):
         """Level reads carry nodata + band names from the base (M2).
 
@@ -568,7 +562,7 @@ class TestResolveStore:
         assert isinstance(result, str), f"expected str, got {type(result).__name__}"
         assert result.endswith("s.zarr"), f"unexpected return: {result}"
 
-    @requires_zarr
+    @pytest.mark.lazy
     def test_url_with_storage_options_uses_fsspec_store(self, monkeypatch):
         """A URL + storage_options routes through `FsspecStore.from_url` (M1).
 

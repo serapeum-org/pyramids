@@ -9,17 +9,6 @@ from pyramids.stac._geoparquet import from_geoparquet, to_geoparquet
 
 pytestmark = pytest.mark.core
 
-try:
-    import pyarrow  # noqa: F401
-
-    HAS_PYARROW = True
-except ImportError:
-    HAS_PYARROW = False
-
-requires_pyarrow = pytest.mark.skipif(
-    not HAS_PYARROW, reason="pyarrow ([parquet] extra) not installed"
-)
-
 
 def _item(item_id, lon, lat):
     """A minimal STAC item dict with a Point geometry."""
@@ -56,7 +45,7 @@ class TestToGeoparquetGuards:
             to_geoparquet([123], "x.parquet")
 
 
-@requires_pyarrow
+@pytest.mark.parquet
 class TestRoundTrip:
     """Round-trip items through GeoParquet (needs pyarrow)."""
 

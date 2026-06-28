@@ -20,6 +20,8 @@ from pyramids.netcdf._mdim import (
     scalar_no_data,
 )
 
+pytestmark = pytest.mark.core
+
 
 @pytest.fixture(scope="function")
 def mdim_dataset():

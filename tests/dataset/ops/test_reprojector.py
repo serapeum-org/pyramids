@@ -23,14 +23,8 @@ pytestmark = pytest.mark.core
 
 try:
     from dask.delayed import Delayed
-
-    HAS_DASK = True
-except ImportError:  # pragma: no cover
+except ImportError:  # pragma: no cover - Delayed-using tests are @pytest.mark.lazy gated
     Delayed = None
-    HAS_DASK = False
-
-
-requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")
 
 
 @pytest.fixture
@@ -113,13 +107,13 @@ class TestReprojectorPickle:
 class TestReprojectorLazy:
     """``compute=False`` returns :class:`dask.delayed.Delayed`."""
 
-    @requires_dask
+    @pytest.mark.lazy
     def test_returns_delayed(self, wgs84_dataset):
         op = Reprojector(target_epsg=3857)
         result = op(wgs84_dataset, compute=False)
         assert isinstance(result, Delayed)
 
-    @requires_dask
+    @pytest.mark.lazy
     def test_delayed_compute_equals_eager(self, wgs84_dataset):
         op = Reprojector(target_epsg=3857)
         eager = op(wgs84_dataset)
@@ -145,13 +139,13 @@ class TestAlignerEager:
 class TestAlignerLazy:
     """``Aligner(..., compute=False)`` returns :class:`Delayed`."""
 
-    @requires_dask
+    @pytest.mark.lazy
     def test_returns_delayed(self, wgs84_dataset, wgs84_dataset_fine):
         aligner = Aligner(wgs84_dataset)
         result = aligner(wgs84_dataset_fine, compute=False)
         assert isinstance(result, Delayed)
 
-    @requires_dask
+    @pytest.mark.lazy
     def test_delayed_compute_matches_eager(self, wgs84_dataset, wgs84_dataset_fine):
         aligner = Aligner(wgs84_dataset)
         eager = aligner(wgs84_dataset_fine)

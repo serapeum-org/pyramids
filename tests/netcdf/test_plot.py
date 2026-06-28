@@ -2505,6 +2505,7 @@ class TestNetCDFPlotAnimate:
 class TestNetCDFPlotLazy:
     """Tests for the PR-5 ``chunks=`` lazy static-plot path."""
 
+    @pytest.mark.lazy
     def test_chunks_dict_routes_through_dask(self, tmp_path):
         """``chunks={"x": 5, "y": 5}`` switches the read path to dask.
 
@@ -2516,7 +2517,6 @@ class TestNetCDFPlotLazy:
             requested band. The result is the same cleopatra
             ``ArrayGlyph`` shape as the eager path.
         """
-        pytest.importorskip("dask", reason="dask not installed")
         nc_mem = _make_3d_nc(n_times=2, rows=4, cols=4)
         out = tmp_path / "tiny.nc"
         nc_mem.to_file(out)
@@ -2586,6 +2586,7 @@ class TestNetCDFPlotLazy:
             "chunks=" in m for m in msgs
         ), f"Expected chunks= hint in logs, got: {msgs}"
 
+    @pytest.mark.lazy
     def test_lazy_hint_not_logged_when_chunks_supplied(self, caplog):
         """No hint is logged when the caller already passed ``chunks=``.
 
@@ -2594,7 +2595,6 @@ class TestNetCDFPlotLazy:
             ``chunks={"cols": 1}`` set. The hint is gated on
             ``chunks is None`` so the log message must be absent.
         """
-        pytest.importorskip("dask", reason="dask not installed")
         nc = _make_3d_nc()
         var = nc.get_variable("t2m")
         large_shape = (50, 4000, 4000)
@@ -2614,6 +2614,7 @@ class TestNetCDFPlotLazy:
             "chunks=" in m for m in msgs
         ), f"Hint must not fire when chunks= is supplied; got: {msgs}"
 
+    @pytest.mark.lazy
     def test_chunks_with_unpinned_band_dims_renders_2d_slice(self, tmp_path):
         """`chunks=` on a multi-band-dim variable renders a 2-D slice, not the whole cube (L3).
 
@@ -2628,7 +2629,6 @@ class TestNetCDFPlotLazy:
             render). Plotted with no selectors, the rendered slice has
             the same shape as the eager band-0 read.
         """
-        pytest.importorskip("dask", reason="dask not installed")
         nc_mem = _make_4d_nc()
         out = tmp_path / "cube4d.nc"
         nc_mem.to_file(out)

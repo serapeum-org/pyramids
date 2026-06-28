@@ -21,6 +21,8 @@ from pyramids.feature import FeatureCollection
 from pyramids.feature import _h3
 from pyramids.feature import tessellation as tess
 
+pytestmark = pytest.mark.core
+
 
 def _h3_vectors():
     """Load the committed H3 ground-truth fixtures (generated from the h3 library)."""

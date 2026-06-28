@@ -93,7 +93,7 @@ def test_rasm_curvilinear_crop(sample):
         nc.close()
 
 
-@pytest.mark.netcdf_lazy
+@pytest.mark.lazy
 def test_roms_curvilinear_crop_lazy_matches_eager(sample):
     """``chunks=`` reads the cropped window through the lazy/dask path and matches the eager crop."""
     nc = NetCDF.read_file(sample(ROMS))
@@ -192,7 +192,7 @@ def test_crop_touch_parameter_accepted(sample):
         nc.close()
 
 
-@pytest.mark.netcdf_lazy
+@pytest.mark.lazy
 def test_rasm_crop_lazy_matches_eager(sample):
     """rasm curvilinear crop: the ``chunks=`` (lazy) path matches the eager crop."""
     nc = NetCDF.read_file(sample(RASM))

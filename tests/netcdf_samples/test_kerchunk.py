@@ -6,7 +6,7 @@ import pytest
 
 from pyramids.netcdf import NetCDF
 
-pytestmark = pytest.mark.core
+pytestmark = pytest.mark.netcdf_lazy
 pytest.importorskip("kerchunk")
 pytest.importorskip("fsspec")
 
