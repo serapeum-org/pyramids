@@ -1068,6 +1068,12 @@ class Bands(_Engine):
             Dataset:
                 A new Dataset with the updated no-data value. If inplace is True, returns self.
 
+        Raises:
+            NoDataValueError:
+                If `new_value` cannot be stored in a band's dtype — e.g. `None` or `NaN`
+                given for an integer band — the dtype mismatch is reported instead of
+                leaking a raw numpy `TypeError`/`ValueError`.
+
         Warning:
             The `change_no_data_value` method creates a new dataset in memory in order to change the `no_data_value` in the raster bands.
         Examples:
