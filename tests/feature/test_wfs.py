@@ -10,11 +10,7 @@ and the capabilities fetch/parse/cache.
 
 from __future__ import annotations
 
-import http.server
 import os
-import socketserver
-import threading
-from collections import Counter
 
 import geopandas as gpd
 import pytest
@@ -23,6 +19,7 @@ from shapely.geometry import Point
 from pyramids.feature import FeatureCollection
 from pyramids.feature import _wfs
 from pyramids.errors import WFSError
+from tests.http_mock import make_fixed_body_server
 
 CAPS_2_0_0 = """<?xml version="1.0" encoding="UTF-8"?>
 <wfs:WFS_Capabilities xmlns:wfs="http://www.opengis.net/wfs/2.0"
@@ -62,26 +59,8 @@ def _clear_caps_cache():
 
 
 def _make_server(body: str, content_type: str = "application/xml"):
-    """Start a local HTTP server returning `body` for every GET; yield (url, counter, httpd)."""
-    counter: Counter[str] = Counter()
-    payload = body.encode("utf-8")
-
-    class Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802
-            counter["GET"] += 1
-            self.send_response(200)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
-
-        def log_message(self, *args, **kwargs):  # noqa: N802
-            return
-
-    httpd = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
-    port = httpd.server_address[1]
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    return f"http://127.0.0.1:{port}/ows", counter, httpd
+    """Local HTTP server returning `body` for every GET; returns (url, counter, httpd)."""
+    return make_fixed_body_server(body, content_type, path="/ows")
 
 
 @pytest.fixture
@@ -135,8 +114,10 @@ class TestPureHelpers:
         with pytest.raises(ValueError, match="max_features"):
             _wfs._read_kwargs(None, None, -1)
 
-    def test_read_kwargs_allows_zero_max_features(self):
-        assert _wfs._read_kwargs(None, None, 0) == {"rows": 0}
+    def test_read_kwargs_rejects_zero_max_features(self):
+        """0 is rejected: pyogrio reads rows=0 as 'no limit', so a 0 cap would fetch everything."""
+        with pytest.raises(ValueError, match="max_features must be >= 1"):
+            _wfs._read_kwargs(None, None, 0)
 
     def test_read_kwargs_rejects_bad_bbox_length(self):
         with pytest.raises(ValueError, match="minx, miny, maxx, maxy"):
