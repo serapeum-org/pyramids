@@ -22,23 +22,6 @@ from tests._marks import requires_dask
 pytestmark = pytest.mark.lazy
 
 
-@pytest.fixture
-def three_files(tmp_path):
-    paths = []
-    for i in range(3):
-        arr = np.full((4, 5), i, dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 4.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
-        p = str(tmp_path / f"f{i}.tif")
-        ds.to_file(p)
-        paths.append(p)
-    return paths
-
-
 def _worker_compute_mean(payload: bytes) -> float:
     """Worker: unpickle a DatasetCollection + compute mean on worker."""
     collection = pickle.loads(payload)

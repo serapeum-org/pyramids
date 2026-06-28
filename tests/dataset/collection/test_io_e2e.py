@@ -23,6 +23,7 @@ import pytest
 
 from pyramids.dataset import Dataset, DatasetCollection
 from tests._marks import requires_kerchunk, requires_lazy as requires_zarr
+from tests.dataset.collection.conftest import NC_FIXTURE
 
 try:
     import zarr
@@ -37,29 +38,6 @@ except ImportError:  # pragma: no cover - tests using xr are @pytest.mark.xarray
 pytestmark = pytest.mark.lazy
 
 
-# Time-coordinate NetCDF (dims: time, pressure_level, lat, lon). The kerchunk
-# combine path concatenates along ``time``, so sources must carry a ``time``
-# axis — the band-indexed 3-D fixture does not.
-NC_FIXTURE = "tests/data/netcdf/pyramids-netcdf-4d.nc"
-
-
-@pytest.fixture
-def three_files(tmp_path):
-    paths = []
-    for i in range(3):
-        arr = np.full((3, 4), float(i + 1), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
-        p = str(tmp_path / f"f{i}.tif")
-        ds.to_file(p)
-        paths.append(p)
-    return paths
-
-
 def _worker_write_zarr(payload: bytes, store: str) -> tuple[int, int, int, int]:
     """Worker: unpickle collection, write to Zarr, return shape."""
     collection = pickle.loads(payload)
@@ -72,7 +50,7 @@ class TestCollectionIOE2E:
     """Cross-task pipelines for the Phase 4 cube IO path."""
 
     @requires_zarr
-    def test_from_stac_then_to_zarr(self, three_files, tmp_path):
+    def test_from_stac_then_to_zarr(self, three_files_ramp, tmp_path):
         """Raw-JSON STAC items → DatasetCollection → Zarr round-trip.
 
         Uses plain dicts rather than :class:`pystac.Item` objects —
@@ -85,7 +63,7 @@ class TestCollectionIOE2E:
                 "bbox": [0.0, 0.0, 1.0, 1.0],
                 "assets": {"data": {"href": path}},
             }
-            for i, path in enumerate(three_files)
+            for i, path in enumerate(three_files_ramp)
         ]
         collection = DatasetCollection.from_stac(items, asset="data")
         store = str(tmp_path / "stac_cube.zarr")
@@ -96,7 +74,7 @@ class TestCollectionIOE2E:
         assert root["data"].attrs["epsg"] == 4326
 
     @requires_zarr
-    def test_collection_zarr_then_dataset_from_zarr(self, three_files, tmp_path):
+    def test_collection_zarr_then_dataset_from_zarr(self, three_files_ramp, tmp_path):
         """Collection.to_zarr followed by Dataset.from_zarr (Phase 1 reader).
 
         `DatasetCollection.to_zarr` writes a 4-D cube, while
@@ -104,7 +82,7 @@ class TestCollectionIOE2E:
         verifies that the cube's `data` array is still readable as
         a bare Zarr array — the geobox metadata is consistent.
         """
-        collection = DatasetCollection.from_files(three_files)
+        collection = DatasetCollection.from_files(three_files_ramp)
         store = str(tmp_path / "cube_then_single.zarr")
         collection.to_zarr(store)
         root = zarr.open_group(store, mode="r")
@@ -130,9 +108,9 @@ class TestCollectionIOE2E:
         assert len(ds.data_vars) >= 1
 
     @requires_zarr
-    def test_pickle_collection_write_on_subprocess(self, three_files, tmp_path):
+    def test_pickle_collection_write_on_subprocess(self, three_files_ramp, tmp_path):
         """Collection pickles + writes to Zarr in a spawn subprocess."""
-        collection = DatasetCollection.from_files(three_files)
+        collection = DatasetCollection.from_files(three_files_ramp)
         payload = pickle.dumps(collection)
         store = str(tmp_path / "worker.zarr")
         ctx = multiprocessing.get_context("spawn")

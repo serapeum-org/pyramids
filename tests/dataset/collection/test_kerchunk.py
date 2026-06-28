@@ -15,14 +15,9 @@ import pytest
 
 from pyramids.dataset import Dataset, DatasetCollection
 from tests._marks import requires_kerchunk
+from tests.dataset.collection.conftest import NC_FIXTURE
 
 pytestmark = pytest.mark.lazy
-
-
-# A time-coordinate NetCDF (dims: time, pressure_level, lat, lon). kerchunk's
-# combine path concatenates per-file coordinates along ``time``, so the source
-# files must carry a ``time`` axis — the band-indexed 3-D fixture does not.
-NC_FIXTURE = "tests/data/netcdf/pyramids-netcdf-4d.nc"
 
 
 class TestToKerchunk:
