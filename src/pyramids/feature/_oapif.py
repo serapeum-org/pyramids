@@ -28,6 +28,7 @@ import json
 import urllib.request
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit, urlunsplit
 
 import geopandas as gpd
 from osgeo import gdal
@@ -46,12 +47,16 @@ _GDAL_HTTP_AUTH_VAR = "GDAL_HTTP_USER" + "PWD"
 def _collections_url(endpoint: str) -> str:
     """Build the ``/collections`` discovery URL for an OGC API landing page.
 
-    The ``f=json`` query forces JSON content negotiation on services that default
-    to HTML. OGC API landing pages carry no query string of their own (the path
-    layout — ``/collections``, ``/collections/{id}/items`` — is fixed by the
-    standard), so a plain append is correct.
+    The ``/collections`` path segment is inserted **before** any existing query
+    string, and ``f=json`` is merged into the query to force JSON content
+    negotiation on services that default to HTML. Inserting before the query keeps
+    a query-string-auth endpoint (e.g. ``https://host/ogc?api_key=…``) intact
+    instead of producing ``…?api_key=…/collections``.
     """
-    return f"{endpoint.rstrip('/')}/collections?f=json"
+    parts = urlsplit(endpoint)
+    path = f"{parts.path.rstrip('/')}/collections"
+    query = f"{parts.query}&f=json" if parts.query else "f=json"
+    return urlunsplit((parts.scheme, parts.netloc, path, query, ""))
 
 
 @lru_cache(maxsize=32)

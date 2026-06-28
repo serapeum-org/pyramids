@@ -93,6 +93,13 @@ class TestPureHelpers:
         assert _oapif._collections_url("https://h/api") == "https://h/api/collections?f=json"
         assert _oapif._collections_url("https://h/api/") == "https://h/api/collections?f=json"
 
+    def test_collections_url_preserves_query_auth(self):
+        """A query-string-auth endpoint keeps its query; /collections goes before it."""
+        assert (
+            _oapif._collections_url("https://h/ogc?api_key=XYZ")
+            == "https://h/ogc/collections?api_key=XYZ&f=json"
+        )
+
     def test_oapif_connection(self):
         assert _oapif._oapif_connection("https://h/api") == "OAPIF:https://h/api"
 
