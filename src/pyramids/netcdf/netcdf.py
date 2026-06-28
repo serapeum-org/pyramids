@@ -15,7 +15,7 @@ import warnings
 import weakref
 from numbers import Number
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -96,7 +96,7 @@ class _LazyVariableDict(dict):
     def __getitem__(self, key: str) -> NetCDF:
         if not dict.__contains__(self, key) and key in self._names:
             dict.__setitem__(self, key, self._nc.get_variable(key))
-        return dict.__getitem__(self, key)
+        return cast("NetCDF", dict.__getitem__(self, key))
 
     def get(self, key: str, default: Any = None) -> NetCDF | Any:
         if key in self._names:
@@ -112,13 +112,16 @@ class _LazyVariableDict(dict):
     def __iter__(self):
         return iter(self._names)
 
-    def keys(self) -> list[str]:
+    # This lazy view returns materialized lists rather than live dict
+    # views (callers iterate variable names/datasets, not a changing
+    # mapping), so the return types deliberately diverge from dict/Mapping.
+    def keys(self) -> list[str]:  # type: ignore[override]
         return self._names
 
-    def values(self) -> list[NetCDF]:
+    def values(self) -> list[NetCDF]:  # type: ignore[override]
         return [self[k] for k in self._names]
 
-    def items(self) -> list[tuple[str, NetCDF]]:
+    def items(self) -> list[tuple[str, NetCDF]]:  # type: ignore[override]
         return [(k, self[k]) for k in self._names]
 
 
@@ -1033,7 +1036,10 @@ class NetCDF(Dataset):
                 f"Use nc.get_variable('var_name').{operation}(...) instead."
             )
 
-    def plot(
+    # NetCDF intentionally exposes a richer, variable/selector-oriented plot
+    # signature than the band-oriented Dataset/RasterBase one; the override
+    # is deliberate and not Liskov-substitutable.
+    def plot(  # type: ignore[override]
         self,
         variable: str | None = None,
         *,
@@ -1530,7 +1536,10 @@ class NetCDF(Dataset):
             **kwargs,
         )
 
-    def read_array(
+    # NetCDF adds a leading `variable` selector (and unpack/bbox/masked
+    # options) on top of the RasterBase read_array contract; the wider
+    # signature is deliberate and not Liskov-substitutable.
+    def read_array(  # type: ignore[override]
         self,
         variable: str | None = None,
         band: int | None = None,
@@ -1677,7 +1686,7 @@ class NetCDF(Dataset):
         if is_container:
             if variable is None:
                 self._check_not_container("read_array")
-            subset = self.get_variable(variable)
+            subset = self.get_variable(cast("str", variable))
             return subset.read_array(
                 band=band,
                 window=window,
@@ -1738,7 +1747,7 @@ class NetCDF(Dataset):
                     getattr(self, "_scale", None),
                     getattr(self, "_offset", None),
                 )
-        return result
+        return cast(ArrayLike, result)
 
     def _preserve_netcdf_metadata(self, result: Dataset) -> NetCDF:
         """Wrap a Dataset result as a NetCDF, preserving variable-subset metadata.
@@ -2140,8 +2149,8 @@ class NetCDF(Dataset):
                 NetCDF._copy_band_dim_metadata(ds, var)
                 result.set_variable(var_name, ds)
 
-        self._carry_aux_variables(result, aux_vars, operation)
-        return result
+        self._carry_aux_variables(cast("NetCDF", result), aux_vars, operation)
+        return cast("NetCDF", result)
 
     def reduce(self, *args, **kwargs) -> "NetCDF":
         """Facade — :meth:`Selection.reduce <pyramids.netcdf.engines.selection.Selection.reduce>`."""
@@ -2165,7 +2174,7 @@ class NetCDF(Dataset):
                 arr = np.expand_dims(arr, axis=0)
             if len(var._band_dim_names) > 1 and arr.ndim == 3 and var._band_dim_sizes:
                 arr = arr.reshape(*var._band_dim_sizes, arr.shape[-2], arr.shape[-1])
-        return arr
+        return cast("np.typing.NDArray", arr)
 
     def _resolve_group_positions(
         self, dim: str, groupby: list | tuple | str | None
@@ -2359,7 +2368,7 @@ class NetCDF(Dataset):
                 maintain_alignment=maintain_alignment,
             )
             result = self._preserve_netcdf_metadata(result)
-        return result
+        return cast("NetCDF", result)
 
     def warped_view(
         self,
@@ -2477,7 +2486,7 @@ class NetCDF(Dataset):
                 method=method,
             )
             result = self._preserve_netcdf_metadata(result)
-        return result
+        return cast("NetCDF", result)
 
     def sel(self, *args, **kwargs) -> "NetCDF":
         """Facade — :meth:`Selection.sel <pyramids.netcdf.engines.selection.Selection.sel>`."""
@@ -3315,19 +3324,18 @@ class NetCDF(Dataset):
     def _dimension_index(dim_names: list[str], target: str) -> int:
         """Index of a dimension matched by full name or short (leaf) name."""
         if target in dim_names:
-            result = dim_names.index(target)
-        else:
-            short = target.lstrip("/").split("/")[-1]
-            result = next(
-                (i for i, name in enumerate(dim_names)
-                 if name.lstrip("/").split("/")[-1] == short),
-                None,
+            return dim_names.index(target)
+        short = target.lstrip("/").split("/")[-1]
+        match = next(
+            (i for i, name in enumerate(dim_names)
+             if name.lstrip("/").split("/")[-1] == short),
+            None,
+        )
+        if match is None:
+            raise ValueError(
+                f"dimension {target!r} not found; available dimensions: {dim_names}"
             )
-            if result is None:
-                raise ValueError(
-                    f"dimension {target!r} not found; available dimensions: {dim_names}"
-                )
-        return result
+        return match
 
     @staticmethod
     def _axis_role_of_dimension(dim) -> str | None:
@@ -3432,6 +3440,9 @@ class NetCDF(Dataset):
         Windows).
         """
         rg = self._working_group()
+        # This MDIM read path is only reached for a multidim container, which
+        # always resolves to a working group (never None).
+        assert rg is not None
         md_arr = rg.OpenMDArray(variable_name)
         dims = md_arr.GetDimensions()
 
@@ -4530,7 +4541,7 @@ class NetCDF(Dataset):
             else no_data_value
         )
         materialized = Dataset.create_from_array(
-            arr,
+            cast("np.typing.NDArray", arr),
             geo=reprojected.geotransform,
             epsg=reprojected.epsg,
             no_data_value=ndv_scalar,
@@ -4833,7 +4844,7 @@ class NetCDF(Dataset):
                     f"{label}={value!r} is not a dimension of this variable; "
                     f"available: {dim_names}"
                 )
-        return dim_names.index(y_dim), dim_names.index(x_dim)
+        return dim_names.index(cast("str", y_dim)), dim_names.index(cast("str", x_dim))
 
     @staticmethod
     def _cf_spatial_axes(rg: Any, dim_names: list[str]) -> tuple[int, int] | None:
@@ -5004,7 +5015,7 @@ class NetCDF(Dataset):
                 if attr is not None:
                     result = float(np.asarray(attr.ReadAsDoubleArray()).ravel()[0])
                     break
-        return result
+        return cast("float | None", result)
 
     @staticmethod
     def _reproject_bbox_envelope(
