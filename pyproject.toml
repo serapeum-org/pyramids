@@ -169,6 +169,11 @@ show_missing = true
 fail_under = 90
 
 [tool.mypy]
+# Checker target is 3.12 even though `requires-python` floors at 3.11: numpy 2.5
+# ships PEP 695 `type` statements in its stubs, which mypy only parses when the
+# target is >= 3.12 (at 3.11 it aborts with a syntax error before checking any
+# source). This only widens the *typing* target; actual 3.11 runtime
+# compatibility is covered by the py311 leg of the test matrix, not by mypy.
 python_version = "3.12"
 mypy_path = "src"
 packages = ["pyramids"]
