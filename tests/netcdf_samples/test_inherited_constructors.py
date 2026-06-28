@@ -12,18 +12,8 @@ from shapely.geometry import Point, box
 
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
-from tests.netcdf_samples.conftest import TOS
 
 pytestmark = pytest.mark.core
-
-
-@pytest.fixture
-def tos(sample):
-    nc = NetCDF.read_file(sample(TOS))
-    try:
-        yield nc.get_variable("tos")
-    finally:
-        nc.close()
 
 
 def test_create():

@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from pyramids.netcdf import NetCDF
+
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "netcdf"
 
 # Shared sample-file name constants — imported by individual test modules to avoid duplication.
@@ -172,3 +174,13 @@ def rank_histogram():
         return dict(Counter(len(info.shape) for info in variables.values()))
 
     return _hist
+
+
+@pytest.fixture
+def tos(sample):
+    """Open the TOS sample and yield its ``tos`` variable view; close the parent on teardown."""
+    nc = NetCDF.read_file(sample(TOS))
+    try:
+        yield nc.get_variable("tos")
+    finally:
+        nc.close()
