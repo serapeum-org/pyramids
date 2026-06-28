@@ -19,6 +19,7 @@ import threading
 from collections import Counter
 
 import geopandas as gpd
+import pyogrio
 import pytest
 from osgeo import gdal
 from shapely.geometry import Point
@@ -372,6 +373,16 @@ class TestReadKwargsContract:
         """`bbox` is a valid read kwarg and restricts to intersecting features."""
         gdf = gpd.read_file(sample_file, **_oapif._read_kwargs((0.0, 0.0, 5.5, 53.0), None, None))
         assert list(gdf["name"]) == ["a"]
+
+    def test_oapif_driver_is_available_to_the_reader(self):
+        """The OAPIF driver is registered in the installed pyogrio reader.
+
+        The wrapper reads via `gpd.read_file("OAPIF:…")` (pyogrio); this guards against a
+        pyogrio/GDAL build lacking the driver, which would break the feature wholesale — the
+        one wrapper-read property that *can* be checked offline (pyogrio cannot reach a
+        localhost mock here, so the full read is covered by the gated live test).
+        """
+        assert "OAPIF" in pyogrio.list_drivers()
 
 
 def _feature(fid: str, x: float, y: float, name: str) -> dict:
