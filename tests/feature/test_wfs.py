@@ -19,7 +19,7 @@ from shapely.geometry import Point
 from pyramids.feature import FeatureCollection
 from pyramids.feature import _wfs
 from pyramids.errors import WFSError
-from tests.feature.conftest import make_fixed_body_server
+from tests.http_mock import make_fixed_body_server
 
 CAPS_2_0_0 = """<?xml version="1.0" encoding="UTF-8"?>
 <wfs:WFS_Capabilities xmlns:wfs="http://www.opengis.net/wfs/2.0"

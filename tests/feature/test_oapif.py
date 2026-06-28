@@ -27,7 +27,7 @@ from shapely.geometry import Point
 from pyramids.feature import FeatureCollection
 from pyramids.feature import _oapif
 from pyramids.errors import OGCAPIError
-from tests.feature.conftest import make_fixed_body_server
+from tests.http_mock import make_fixed_body_server
 
 COLLECTIONS_DOC = json.dumps(
     {
