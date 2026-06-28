@@ -337,6 +337,23 @@ class TestFromOgcApiFeatures:
         with pytest.raises(OGCAPIError, match="items request failed"):
             FeatureCollection.from_ogc_api_features("https://h/api", collection="lakes")
 
+    def test_auth_and_timeout_active_during_read(self, monkeypatch):
+        """The items read runs inside a GDAL config context carrying auth + timeout."""
+        self._patch_collections(monkeypatch)
+        seen = {}
+
+        def fake_read(connection, **kwargs):
+            seen["userpwd"] = _oapif.gdal.GetConfigOption("GDAL_HTTP_USERPWD")
+            seen["timeout"] = _oapif.gdal.GetConfigOption("GDAL_HTTP_TIMEOUT")
+            return _sample_gdf()
+
+        monkeypatch.setattr(_oapif.gpd, "read_file", fake_read)
+        FeatureCollection.from_ogc_api_features(
+            "https://h/api", collection="lakes", auth=("u", "p"), timeout=42.0
+        )
+        assert seen["userpwd"] == "u:p"
+        assert seen["timeout"] == "42"
+
 
 class TestReadKwargsContract:
     """The filter kwargs `_read_kwargs` builds must be accepted by the *real* `gpd.read_file`.
