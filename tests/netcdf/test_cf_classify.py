@@ -14,11 +14,9 @@ from pyramids.netcdf.cf import (
 )
 from pyramids.netcdf.netcdf import NetCDF
 from pyramids.netcdf.utils import create_time_conversion_func
+from tests.netcdf.conftest import GEO, SEED
 
 pytestmark = pytest.mark.core
-
-GEO = (30.0, 0.5, 0, 35.0, 0, -0.5)
-SEED = 42
 
 
 class TestDetectAxis:

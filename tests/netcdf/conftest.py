@@ -7,6 +7,11 @@ import pytest
 
 from pyramids.netcdf.netcdf import NetCDF
 
+# Shared random seed used across NetCDF test modules.
+SEED = 42
+# Shared geographic geotransform (lon_origin, x_res, 0, lat_origin, 0, -y_res).
+GEO = (30.0, 0.5, 0, 35.0, 0, -0.5)
+
 
 @pytest.fixture(scope="module")
 def noah_nc_path() -> str:

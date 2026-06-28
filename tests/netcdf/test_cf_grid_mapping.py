@@ -10,12 +10,11 @@ from osgeo import osr
 
 from pyramids.netcdf.cf import srs_to_grid_mapping
 from pyramids.netcdf.netcdf import NetCDF
+from tests.netcdf.conftest import GEO as GEO_GEO, SEED
 
 pytestmark = pytest.mark.core
 
-GEO_GEO = (30.0, 0.5, 0, 35.0, 0, -0.5)
 GEO_UTM = (500000.0, 100.0, 0, 3000000.0, 0, -100.0)
-SEED = 42
 
 
 class TestSrsToGridMapping:

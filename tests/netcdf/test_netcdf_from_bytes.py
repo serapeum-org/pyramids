@@ -13,17 +13,18 @@ from pyramids.netcdf import NetCDF, Container
 
 pytestmark = pytest.mark.core
 
-NC_FIXTURE = "tests/data/netcdf/noah-precipitation-1979.nc"
-
 
 @pytest.fixture(scope="module")
-def netcdf_bytes() -> bytes:
+def netcdf_bytes(noah_nc_path: str) -> bytes:
     """Raw bytes of a small NetCDF fixture.
 
+    Args:
+        noah_nc_path: Path to the noah-precipitation-1979.nc fixture.
+
     Returns:
-        bytes: Contents of ``tests/data/netcdf/noah-precipitation-1979.nc``.
+        bytes: Contents of the noah-precipitation-1979.nc fixture.
     """
-    return Path(NC_FIXTURE).read_bytes()
+    return Path(noah_nc_path).read_bytes()
 
 
 class TestNetCDFFromBytes:
@@ -44,17 +45,18 @@ class TestNetCDFFromBytes:
         assert isinstance(nc, NetCDF), f"expected NetCDF, got {type(nc)}"
         assert type(nc) is Container, f"expected Container, got {type(nc)}"
 
-    def test_round_trip_matches_read_file(self, netcdf_bytes: bytes):
+    def test_round_trip_matches_read_file(self, netcdf_bytes: bytes, noah_nc_path: str):
         """Opening from bytes matches opening the same file from disk.
 
         Args:
             netcdf_bytes: Raw bytes of the NetCDF fixture.
+            noah_nc_path: Path to the noah-precipitation-1979.nc fixture.
 
         Test scenario:
             ``NetCDF.from_bytes(bytes)`` vs ``NetCDF.read_file(path)`` —
             expected: same shape, epsg, and variable list.
         """
-        ref = NetCDF.read_file(NC_FIXTURE)
+        ref = NetCDF.read_file(noah_nc_path)
         nc = NetCDF.from_bytes(netcdf_bytes)
         assert nc.shape == ref.shape, f"shape mismatch: {nc.shape} != {ref.shape}"
         assert nc.epsg == ref.epsg, f"epsg mismatch: {nc.epsg} != {ref.epsg}"

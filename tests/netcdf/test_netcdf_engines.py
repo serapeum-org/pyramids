@@ -32,7 +32,6 @@ pytestmark = pytest.mark.core
 
 CURVILINEAR_PATH = "tests/data/netcdf/none__4v__1d1-2d2-3d1__curv.nc"
 THREE_D_PATH = "tests/data/netcdf/pyramids-netcdf-3d.nc"
-NOAH_PATH = "tests/data/netcdf/noah-precipitation-1979.nc"
 
 
 @pytest.fixture
@@ -42,9 +41,13 @@ def mdim_container():
 
 
 @pytest.fixture
-def classic_container():
-    """A classic-mode (non-MDIM) container — has no GDAL root group."""
-    return NetCDF.read_file(NOAH_PATH, open_as_multi_dimensional=False)
+def classic_container(noah_nc_path: str):
+    """A classic-mode (non-MDIM) container — has no GDAL root group.
+
+    Args:
+        noah_nc_path: Path to the noah-precipitation-1979.nc fixture.
+    """
+    return NetCDF.read_file(noah_nc_path, open_as_multi_dimensional=False)
 
 
 @pytest.fixture

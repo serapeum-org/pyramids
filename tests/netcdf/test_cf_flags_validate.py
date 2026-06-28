@@ -7,11 +7,9 @@ import pytest
 
 from pyramids.netcdf.cf import decode_flags, validate_cf
 from pyramids.netcdf.netcdf import NetCDF
+from tests.netcdf.conftest import GEO, SEED
 
 pytestmark = pytest.mark.core
-
-GEO = (30.0, 0.5, 0, 35.0, 0, -0.5)
-SEED = 42
 
 
 class TestDecodeFlags:
