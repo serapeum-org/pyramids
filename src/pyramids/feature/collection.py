@@ -1690,7 +1690,7 @@ class FeatureCollection(GeoDataFrame):
 
         Raises:
             ValueError: ``typename`` or ``version`` is not advertised, ``bbox`` is
-                malformed, or ``max_features`` is negative.
+                malformed, or ``max_features`` is less than 1.
             pyramids.errors.WFSError: The server could not be reached or returned
                 an error / a non-feature (``<ows:ExceptionReport>``) body, or
                 ``output_crs`` was requested but the result carries no CRS.
@@ -1786,7 +1786,7 @@ class FeatureCollection(GeoDataFrame):
 
         Raises:
             ValueError: ``collection`` is not advertised, ``bbox`` is malformed, or
-                ``max_features`` is negative.
+                ``max_features`` is less than 1.
             pyramids.errors.OGCAPIError: The service could not be reached or
                 returned an error / a non-feature body, or ``output_crs`` was
                 requested but the result carries no CRS.

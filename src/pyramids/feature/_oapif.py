@@ -191,8 +191,10 @@ def _read_kwargs(
     if where is not None:
         kwargs["where"] = where
     if max_features is not None:
-        if max_features < 0:
-            raise ValueError(f"max_features must be >= 0 or None, got {max_features}")
+        # 0 is rejected: pyogrio reads rows=0 as "no limit" (returns everything), so a
+        # 0 cap would silently fetch the whole collection. Require >= 1 or None.
+        if max_features < 1:
+            raise ValueError(f"max_features must be >= 1 or None, got {max_features}")
         kwargs["rows"] = max_features
     return kwargs
 
@@ -217,7 +219,7 @@ def from_ogc_api_features(
 
     Raises:
         ValueError: ``collection`` is not advertised by the service, ``bbox`` is
-            malformed, or ``max_features`` is negative.
+            malformed, or ``max_features`` is less than 1.
         OGCAPIError: The service could not be reached or returned an error / a
             non-feature body, or ``output_crs`` was requested but the result
             carries no CRS.

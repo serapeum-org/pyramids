@@ -122,8 +122,10 @@ class TestPureHelpers:
         with pytest.raises(ValueError, match="max_features"):
             _oapif._read_kwargs(None, None, -1)
 
-    def test_read_kwargs_allows_zero_max_features(self):
-        assert _oapif._read_kwargs(None, None, 0) == {"rows": 0}
+    def test_read_kwargs_rejects_zero_max_features(self):
+        """0 is rejected: pyogrio reads rows=0 as 'no limit', so a 0 cap would fetch everything."""
+        with pytest.raises(ValueError, match="max_features must be >= 1"):
+            _oapif._read_kwargs(None, None, 0)
 
     def test_read_kwargs_rejects_bad_bbox_length(self):
         with pytest.raises(ValueError, match="minx, miny, maxx, maxy"):
