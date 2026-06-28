@@ -51,6 +51,9 @@ _GDAL_HTTP_AUTH_VAR = "GDAL_HTTP_USER" + "PWD"
 # stricter than the GDAL driver it guards.
 _DISCOVERY_HEADERS = {"User-Agent": "pyramids-gis OGC API client", "Accept": "application/json"}
 
+# Fallback when an OGC API error document / HTTP error carries no usable message.
+_NO_MESSAGE = "no message provided"
+
 
 def _collections_url(endpoint: str) -> str:
     """Build the ``/collections`` discovery URL for an OGC API landing page.
@@ -139,7 +142,7 @@ def _error_text(doc: Any) -> str:
             value = doc.get(key)
             if value:
                 return str(value).strip()
-    return "no message provided"
+    return _NO_MESSAGE
 
 
 def _http_error_detail(exc: urllib.error.HTTPError) -> str:
@@ -151,12 +154,12 @@ def _http_error_detail(exc: urllib.error.HTTPError) -> str:
     try:
         body = exc.read()
     except OSError:
-        return exc.reason or "no message provided"
+        return exc.reason or _NO_MESSAGE
     try:
         return _error_text(json.loads(body))
     except (ValueError, TypeError):
         text = body.decode("utf-8", "replace").strip()
-        return text[:200] or exc.reason or "no message provided"
+        return text[:200] or exc.reason or _NO_MESSAGE
 
 
 def _oapif_connection(endpoint: str) -> str:
