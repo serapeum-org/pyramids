@@ -23,39 +23,21 @@ import pickle
 import numpy as np
 import pytest
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_dask, import_kerchunk
 from pyramids.netcdf import NetCDF
+from tests._marks import requires_dask, requires_kerchunk
+from tests.netcdf.lazy.conftest import THREE_D_NC_FIXTURE as FIXTURE
 
 pytestmark = pytest.mark.netcdf_lazy
 
 try:
-    import_dask("dask not installed")
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_DASK = False
-else:
-    HAS_DASK = True
-try:
     import xarray as xr
 except ImportError:  # pragma: no cover - tests using xr are @pytest.mark.xarray gated
     xr = None
-try:
-    import_kerchunk("kerchunk not installed")
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_KERCHUNK = False
-else:
-    HAS_KERCHUNK = True
-requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")
-requires_kerchunk = pytest.mark.skipif(
-    not HAS_KERCHUNK, reason="kerchunk not installed"
-)
+
 # #530: the deadlock was in manifest *generation* (kerchunk.hdf -> zarr-v3 sync()),
 # not the xarray read. NetCDF.to_kerchunk now builds the manifest natively with h5py
 # (no live zarr group), so generation can no longer deadlock and this runs on CI again.
 # The global pytest-timeout remains as a backstop.
-
-
-FIXTURE = "tests/data/netcdf/pyramids-netcdf-3d.nc"
 
 
 def _compute_variable_sum(payload: bytes) -> float:
