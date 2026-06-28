@@ -177,15 +177,15 @@ class WFSError(_PyramidsError):
 
 
 class OGCAPIError(_PyramidsError):
-    """A failure talking to an **OGC API** service (Features, and later Coverages).
+    """A failure talking to an **OGC API – Features** service.
 
     Raised by :meth:`pyramids.feature.FeatureCollection.from_ogc_api_features`
     (implementation in :mod:`pyramids.feature._oapif`) when the service landing
     page / ``/collections`` document cannot be reached, returns a non-JSON or
     error body, or the items request fails. OGC API – Features is the modern
     REST/JSON successor to WFS, so this is the OGC-API-era sibling of
-    :class:`WFSError`; the name is intentionally protocol-family-wide so the
-    future OGC API – Coverages reader can share it.
+    :class:`WFSError`. The name is kept protocol-family-wide (``OGCAPIError``
+    rather than a Features-only name) so other OGC API readers can reuse it.
 
     A *missing* collection (one not advertised by ``/collections``) raises a plain
     :class:`ValueError` instead, mirroring how the rest of pyramids reports a bad
