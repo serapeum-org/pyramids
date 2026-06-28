@@ -21,51 +21,10 @@ from pyramids.dataset import Dataset
 from pyramids.netcdf.engines.variables import _create_netcdf_from_array
 from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.netcdf import NetCDF, Container
-from tests.netcdf.conftest import make_3d_nc
+from tests.netcdf.conftest import make_2d_nc, make_3d_nc
 
 pytestmark = pytest.mark.core
 
-
-def _make_3d_nc(
-    rows=10,
-    cols=12,
-    bands=3,
-    epsg=4326,
-    variable_name="temperature",
-    no_data_value=-9999.0,
-):
-    """Create a 3D in-memory NetCDF for testing.
-
-    Delegates to the shared ``make_3d_nc`` helper in conftest.
-    """
-    return make_3d_nc(
-        rows=rows,
-        cols=cols,
-        bands=bands,
-        epsg=epsg,
-        variable_name=variable_name,
-        no_data_value=no_data_value,
-        arr_type="random",
-        seed=42,
-    )
-
-
-def _make_2d_nc(rows=10, cols=12, variable_name="elevation"):
-    """Create a 2D in-memory NetCDF for testing.
-
-    Returns:
-        NetCDF: An in-memory multidimensional NetCDF container.
-    """
-    arr = np.random.RandomState(99).rand(rows, cols).astype(np.float64)
-    geo = (0.0, 1.0, 0, float(rows), 0, -1.0)
-    return NetCDF.create_from_array(
-        arr=arr,
-        geo=geo,
-        epsg=4326,
-        no_data_value=-9999.0,
-        path=None,
-        variable_name=variable_name,
-    )
 
 
 def _make_dataset_2d(rows=10, cols=12, no_data=-9999.0):
@@ -109,7 +68,7 @@ class TestGeotransformFallback:
         Covers the branch returning self._geotransform when
         lon and lat are not available from _read_variable.
         """
-        nc = _make_3d_nc()
+        nc = make_3d_nc()
         var = nc.get_variable("temperature")
         # Patch lon and lat to return None to force fallback
         with (
@@ -138,7 +97,7 @@ class TestInvalidateCaches:
             geometry, so it must not survive a raster swap / in-place update.
             Seed it, invalidate, and assert it (and the metadata cache) are cleared.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         nc._geostationary_gt_cache["elevation"] = (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)
         nc._cached_meta_data = object()
 
@@ -163,7 +122,7 @@ class TestNarrowedExceptionPropagation:
             NetCDF: An in-memory dataset with its `_raster` swapped for a mock whose
             root group raises on `GetGroupNames`.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         fake_rg = MagicMock()
         fake_rg.GetGroupNames.side_effect = group_names_side_effect
         fake_raster = MagicMock()
@@ -204,7 +163,7 @@ class TestNoDataValueSetter:
         Covers the else branch that calls
         _change_no_data_value_attr(0, value) for a scalar.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         var = nc.get_variable("elevation")
         var.no_data_value = -1.0
         assert (
@@ -217,7 +176,7 @@ class TestNoDataValueSetter:
         Covers the if-isinstance(value, list) branch
         that iterates and sets per-band no-data values.
         """
-        nc = _make_3d_nc()
+        nc = make_3d_nc()
         var = nc.get_variable("temperature")
         new_values = [-1.0, -2.0, -3.0]
         var.no_data_value = new_values
@@ -236,7 +195,7 @@ class TestTimeStamp:
         Covers delegates to get_time_variable() which returns
         None when time dimension lacks a 'units' attribute.
         """
-        nc = _make_3d_nc()
+        nc = make_3d_nc()
         result = nc.time_stamp
         assert (
             result is None
@@ -267,7 +226,7 @@ class TestGetTimeVariable:
 
         Covers (time_stamp = None) return.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         result = nc.get_time_variable()
         assert (
             result is None
@@ -328,7 +287,7 @@ class TestSpatialOperationDelegates:
 
         Covers super().crop() call after _check_not_container.
         """
-        nc = _make_3d_nc(rows=20, cols=24, bands=2)
+        nc = make_3d_nc(rows=20, cols=24, bands=2)
         var = nc.get_variable("temperature")
         import geopandas as gpd
         from shapely.geometry import box
@@ -348,7 +307,7 @@ class TestSpatialOperationDelegates:
 
         Covers super().to_crs() call after _check_not_container.
         """
-        nc = _make_3d_nc(rows=10, cols=12, bands=1, epsg=4326)
+        nc = make_3d_nc(rows=10, cols=12, bands=1, epsg=4326)
         var = nc.get_variable("temperature")
         result = var.to_crs(to_epsg=32637)
         assert result is not None, "to_crs should return a reprojected Dataset"
@@ -362,7 +321,7 @@ class TestReadFileWriteMode:
 
         Covers the else branch setting read_only = 'write'.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         out = str(tmp_path / "writable.nc")
         nc.to_file(out)
         writable_nc = NetCDF.read_file(
@@ -385,7 +344,7 @@ class TestMetaDataSetter:
         Covers the isinstance(value, dict) branch
         calling SetMetadataItem for each key.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         nc.meta_data = {"source": "test", "version": "1.0"}
         gdal_meta = nc._raster.GetMetadata()
         assert (
@@ -400,7 +359,7 @@ class TestMetaDataSetter:
         """
         from pyramids.netcdf.models import DimensionInfo
 
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         custom_meta = NetCDFMetadata(
             driver="netCDF",
             root_group="/",
@@ -428,7 +387,7 @@ class TestReadVariable:
         Covers the fallback to dim.GetIndexingVariable()
         when OpenMDArray returns None.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         result = nc._read_variable("x")
         assert result is not None, "Should read 'x' dimension values"
         assert isinstance(
@@ -454,7 +413,7 @@ class TestReadVariable:
 
     def test_read_variable_nonexistent_returns_none(self):
         """Verify _read_variable returns None for nonexistent variables."""
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         result = nc._read_variable("nonexistent_variable_xyz")
         assert result is None, f"Expected None for nonexistent variable, got {result}"
 
@@ -503,7 +462,7 @@ class TestNeedsYFlip:
 
         1-D arrays have no Y axis to flip.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         rg = nc._raster.GetRootGroup()
         md_arr = rg.OpenMDArray("x")
         result = nc._needs_y_flip(rg, md_arr)
@@ -518,7 +477,7 @@ class TestNeedsYFlip:
         is already GDAL-convention (negative Y), so the result
         may be False.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         rg = nc._raster.GetRootGroup()
         md_arr = rg.OpenMDArray("elevation")
         result = nc._needs_y_flip(rg, md_arr)
@@ -533,7 +492,7 @@ class TestGetVariableEdgeCases:
 
         Covers branch where src is None after gdal.Open.
         """
-        nc = _make_3d_nc()
+        nc = make_3d_nc()
         with pytest.raises(ValueError, match="not a valid variable name"):
             nc.get_variable("nonexistent_variable")
 
@@ -560,7 +519,7 @@ class TestGetVariableEdgeCases:
 
         Covers the code where dims are stored.
         """
-        nc = _make_3d_nc()
+        nc = make_3d_nc()
         var = nc.get_variable("temperature")
         assert isinstance(
             var._md_array_dims, list
@@ -574,7 +533,7 @@ class TestGetVariableEdgeCases:
 
         Covers where band dimension info is extracted.
         """
-        nc = _make_3d_nc()
+        nc = make_3d_nc()
         var = nc.get_variable("temperature")
         assert (
             var._band_dim_name is not None
@@ -591,7 +550,7 @@ class TestGetVariableEdgeCases:
 
         Covers the else branch where ndim <= 2.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         var = nc.get_variable("elevation")
         assert (
             var._band_dim_name is None
@@ -610,7 +569,7 @@ class TestGetVariableBandDimErrors:
         Covers when ReadAsArray on the indexing variable
         raises RuntimeError, falls back to range indices.
         """
-        nc = _make_3d_nc()
+        nc = make_3d_nc()
         var = nc.get_variable("temperature")
         # The band dim values should be populated even in normal case
         assert var._band_dim_values is not None, "Band dim values should not be None"
@@ -624,7 +583,7 @@ class TestToFile:
 
         Covers super().to_file() path for subsets.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         var = nc.get_variable("elevation")
         out = tmp_path / "output.tif"
         var.to_file(out)
@@ -637,7 +596,7 @@ class TestToFile:
         Covers the ValueError for multidimensional
         container + non-nc extension.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         out = tmp_path / "output.tif"
         with pytest.raises(ValueError, match="Cannot save a multidimensional"):
             nc.to_file(out)
@@ -647,7 +606,7 @@ class TestToFile:
 
         Covers the RuntimeError branch.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         with patch.object(gdal.Driver, "CreateCopy", return_value=None):
             out = str(tmp_path / "bad_output.nc")
             with pytest.raises(RuntimeError, match="Failed to save NetCDF"):
@@ -662,7 +621,7 @@ class TestCopy:
 
         Covers the RuntimeError branch.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         with patch.object(gdal.Driver, "CreateCopy", return_value=None):
             with pytest.raises(RuntimeError, match="Failed to copy"):
                 nc.copy()
@@ -672,7 +631,7 @@ class TestCopy:
 
         Covers the else branch setting driver='netCDF'.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         out = tmp_path / "copy_output.nc"
         copied = nc.copy(path=out)
         assert copied is not None, "Copy should return a valid NetCDF"
@@ -796,7 +755,7 @@ class TestAddMdArrayToGroupFallback:
             Source variable with GetNoDataValue() returning None should
             not produce a phantom -9999 sentinel on the copy.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         src_rg = nc._raster.GetRootGroup()
         src_arr = src_rg.OpenMDArray("elevation")
 
@@ -825,7 +784,7 @@ class TestSetVariableAttributes:
 
         Covers the float attribute branch.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         ds = _make_dataset_2d()
         nc.set_variable(
             "pressure",
@@ -844,7 +803,7 @@ class TestSetVariableAttributes:
 
         Covers the int attribute branch.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         ds = _make_dataset_2d()
         nc.set_variable(
             "pressure",
@@ -862,7 +821,7 @@ class TestSetVariableAttributes:
         Covers the else branch converting value to
         str and using CreateString.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         ds = _make_dataset_2d()
         nc.set_variable(
             "pressure",
@@ -878,7 +837,7 @@ class TestSetVariableAttributes:
 
         Covers the string attribute branch.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         ds = _make_dataset_2d()
         nc.set_variable(
             "wind",
@@ -895,7 +854,7 @@ class TestSetVariableAttributes:
 
         Covers the except branch in no-data setting.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         ds = _make_dataset_2d()
         # The normal path should set no data without error
         nc.set_variable("with_nodata", ds)
@@ -908,7 +867,7 @@ class TestSetVariableAttributes:
 
         Covers rg.DeleteMDArray(variable_name).
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         ds1 = _make_dataset_2d()
         ds2 = _make_dataset_2d(rows=10, cols=12)
         nc.set_variable("replace_me", ds1)
@@ -925,7 +884,7 @@ class TestSetVariableAttributes:
 
         Covers default band_dim_name and values.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         ds = _make_dataset_3d(bands=2, rows=10, cols=12)
         nc.set_variable("multi_band", ds)
         rg = nc._raster.GetRootGroup()
@@ -942,7 +901,7 @@ class TestSetVariableAttributes:
 
         Covers the except pass block.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         ds = _make_dataset_2d()
         # This should not raise even if CreateAttribute fails internally
         nc.set_variable(
@@ -976,8 +935,8 @@ class TestAddVariable:
 
         Covers names_to_copy = [variable_name].
         """
-        nc = _make_3d_nc(variable_name="temp")
-        nc2 = _make_3d_nc(variable_name="precip")
+        nc = make_3d_nc(variable_name="temp")
+        nc2 = make_3d_nc(variable_name="precip")
         nc.add_variable(nc2, variable_name="precip")
         assert (
             "precip" in nc.variable_names
@@ -988,7 +947,7 @@ class TestAddVariable:
 
         Covers names_to_copy = [] for non-NetCDF dataset.
         """
-        nc = _make_3d_nc(variable_name="temp")
+        nc = make_3d_nc(variable_name="temp")
         ds = _make_dataset_2d()
         # Assign a _raster with a root group via a mock
         original_names = nc.variable_names[:]
@@ -1014,7 +973,7 @@ class TestRemoveVariable:
         Covers the else branch using CreateCopy for
         non-memory drivers.
         """
-        nc = _make_3d_nc(variable_name="temp")
+        nc = make_3d_nc(variable_name="temp")
         out = str(tmp_path / "to_remove.nc")
         nc.to_file(out)
         file_nc = NetCDF.read_file(
@@ -1033,7 +992,7 @@ class TestRemoveVariable:
 
         Covers the if driver_type == 'memory' branch.
         """
-        nc = _make_3d_nc(variable_name="temp")
+        nc = make_3d_nc(variable_name="temp")
         assert "temp" in nc.variable_names, "Variable should exist before removal"
         nc.remove_variable("temp")
         assert (
@@ -1216,7 +1175,7 @@ class TestReadVariableFallbackPaths:
         Covers when OpenMDArray returns None for a
         dimension name, falls back to dim.GetIndexingVariable().
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         # Patch OpenMDArray to return None for the dimension variable
         original_rg = nc._raster.GetRootGroup()
 
@@ -1335,7 +1294,7 @@ class TestGetVariableYFlipAndErrors:
         Covers the RuntimeError branch where
         ReadAsArray on the band dim indexing variable fails.
         """
-        nc = _make_3d_nc()
+        nc = make_3d_nc()
 
         original_read_md = nc._read_md_array
 
@@ -1416,7 +1375,7 @@ class TestGetVariableYFlipAndErrors:
         Covers the branch where md_arr is None after
         _read_md_array returns a non-MDArray (e.g. string type).
         """
-        nc = _make_3d_nc()
+        nc = make_3d_nc()
         # If _read_md_array returns None md_arr (second element), the code
         # sets md_arr = None, then the fallback path sets defaults
         original_read = nc._read_md_array
@@ -1570,7 +1529,7 @@ class TestGetVariableAttrException:
         Covers the except Exception: pass block when
         GetAttributes raises on the MDArray.
         """
-        nc = _make_3d_nc()
+        nc = make_3d_nc()
         original_read_md = nc._read_md_array
 
         def patched_read(variable_name, x_dim=None, y_dim=None):
@@ -1612,7 +1571,7 @@ class TestSetVariableAttrWriteException:
         Covers the except Exception: pass block
         when CreateAttribute or Write raises.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         ds = _make_dataset_2d()
 
         # We need the CreateAttribute call to succeed but Write to fail
@@ -1648,7 +1607,7 @@ class TestSetVariableNoDataException:
         Covers the except pass block when
         SetNoDataValueDouble raises.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         ds = _make_dataset_2d()
         # Set a no_data_value that can't be converted to float
         ds._no_data_value = ["not_a_number"]
@@ -1670,7 +1629,7 @@ class TestSetVariableAttrException:
         swallows the failure, so set_variable must still create the variable and
         return without propagating the error.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         ds = _make_dataset_2d()
 
         def boom(*args, **kwargs):

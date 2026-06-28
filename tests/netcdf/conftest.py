@@ -89,3 +89,45 @@ def make_3d_nc(
 
     nc = NetCDF.create_from_array(**kwargs)
     return nc
+
+
+def make_2d_nc(
+    rows: int = 10,
+    cols: int = 12,
+    variable_name: str = "elevation",
+) -> NetCDF:
+    """Create a 2D in-memory NetCDF container for testing.
+
+    This is a shared helper used across multiple test modules.
+
+    Args:
+        rows: Number of rows.
+        cols: Number of columns.
+        variable_name: Name of the variable.
+
+    Returns:
+        NetCDF: An in-memory multidimensional NetCDF container.
+    """
+    arr = np.random.RandomState(99).rand(rows, cols).astype(np.float64)
+    geo = (0.0, 1.0, 0, float(rows), 0, -1.0)
+    return NetCDF.create_from_array(
+        arr=arr,
+        geo=geo,
+        epsg=4326,
+        no_data_value=-9999.0,
+        path=None,
+        variable_name=variable_name,
+    )
+
+
+class MockDim:
+    """Minimal mock of a GDAL MDArray dimension for CF tests.
+
+    Attributes:
+        name: Short dimension name (e.g. ``"x"``).
+        full_name: Fully qualified name in the form ``"/<name>"``.
+    """
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.full_name = f"/{name}"
