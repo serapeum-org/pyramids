@@ -26,6 +26,29 @@ from tests.netcdf.conftest import make_2d_nc, make_3d_nc
 pytestmark = pytest.mark.core
 
 
+def _make_3d_nc(
+    rows=10,
+    cols=12,
+    bands=3,
+    epsg=4326,
+    variable_name="temperature",
+    no_data_value=-9999.0,
+):
+    """Create a 3D in-memory NetCDF for testing.
+
+    Delegates to the shared ``make_3d_nc`` helper in conftest.
+    """
+    return make_3d_nc(
+        rows=rows,
+        cols=cols,
+        bands=bands,
+        epsg=epsg,
+        variable_name=variable_name,
+        no_data_value=no_data_value,
+        arr_type="random",
+        seed=42,
+    )
+
 
 def _make_dataset_2d(rows=10, cols=12, no_data=-9999.0):
     """Create a 2D in-memory Dataset for testing.
@@ -68,7 +91,7 @@ class TestGeotransformFallback:
         Covers the branch returning self._geotransform when
         lon and lat are not available from _read_variable.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         # Patch lon and lat to return None to force fallback
         with (
@@ -176,7 +199,7 @@ class TestNoDataValueSetter:
         Covers the if-isinstance(value, list) branch
         that iterates and sets per-band no-data values.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         new_values = [-1.0, -2.0, -3.0]
         var.no_data_value = new_values
@@ -195,7 +218,7 @@ class TestTimeStamp:
         Covers delegates to get_time_variable() which returns
         None when time dimension lacks a 'units' attribute.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         result = nc.time_stamp
         assert (
             result is None
@@ -287,7 +310,7 @@ class TestSpatialOperationDelegates:
 
         Covers super().crop() call after _check_not_container.
         """
-        nc = make_3d_nc(rows=20, cols=24, bands=2)
+        nc = _make_3d_nc(rows=20, cols=24, bands=2)
         var = nc.get_variable("temperature")
         import geopandas as gpd
         from shapely.geometry import box
@@ -307,7 +330,7 @@ class TestSpatialOperationDelegates:
 
         Covers super().to_crs() call after _check_not_container.
         """
-        nc = make_3d_nc(rows=10, cols=12, bands=1, epsg=4326)
+        nc = _make_3d_nc(rows=10, cols=12, bands=1, epsg=4326)
         var = nc.get_variable("temperature")
         result = var.to_crs(to_epsg=32637)
         assert result is not None, "to_crs should return a reprojected Dataset"
@@ -492,7 +515,7 @@ class TestGetVariableEdgeCases:
 
         Covers branch where src is None after gdal.Open.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         with pytest.raises(ValueError, match="not a valid variable name"):
             nc.get_variable("nonexistent_variable")
 
@@ -519,7 +542,7 @@ class TestGetVariableEdgeCases:
 
         Covers the code where dims are stored.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         assert isinstance(
             var._md_array_dims, list
@@ -533,7 +556,7 @@ class TestGetVariableEdgeCases:
 
         Covers where band dimension info is extracted.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         assert (
             var._band_dim_name is not None
@@ -569,7 +592,7 @@ class TestGetVariableBandDimErrors:
         Covers when ReadAsArray on the indexing variable
         raises RuntimeError, falls back to range indices.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         # The band dim values should be populated even in normal case
         assert var._band_dim_values is not None, "Band dim values should not be None"
@@ -935,8 +958,8 @@ class TestAddVariable:
 
         Covers names_to_copy = [variable_name].
         """
-        nc = make_3d_nc(variable_name="temp")
-        nc2 = make_3d_nc(variable_name="precip")
+        nc = _make_3d_nc(variable_name="temp")
+        nc2 = _make_3d_nc(variable_name="precip")
         nc.add_variable(nc2, variable_name="precip")
         assert (
             "precip" in nc.variable_names
@@ -947,7 +970,7 @@ class TestAddVariable:
 
         Covers names_to_copy = [] for non-NetCDF dataset.
         """
-        nc = make_3d_nc(variable_name="temp")
+        nc = _make_3d_nc(variable_name="temp")
         ds = _make_dataset_2d()
         # Assign a _raster with a root group via a mock
         original_names = nc.variable_names[:]
@@ -973,7 +996,7 @@ class TestRemoveVariable:
         Covers the else branch using CreateCopy for
         non-memory drivers.
         """
-        nc = make_3d_nc(variable_name="temp")
+        nc = _make_3d_nc(variable_name="temp")
         out = str(tmp_path / "to_remove.nc")
         nc.to_file(out)
         file_nc = NetCDF.read_file(
@@ -992,7 +1015,7 @@ class TestRemoveVariable:
 
         Covers the if driver_type == 'memory' branch.
         """
-        nc = make_3d_nc(variable_name="temp")
+        nc = _make_3d_nc(variable_name="temp")
         assert "temp" in nc.variable_names, "Variable should exist before removal"
         nc.remove_variable("temp")
         assert (
@@ -1294,7 +1317,7 @@ class TestGetVariableYFlipAndErrors:
         Covers the RuntimeError branch where
         ReadAsArray on the band dim indexing variable fails.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
 
         original_read_md = nc._read_md_array
 
@@ -1375,7 +1398,7 @@ class TestGetVariableYFlipAndErrors:
         Covers the branch where md_arr is None after
         _read_md_array returns a non-MDArray (e.g. string type).
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         # If _read_md_array returns None md_arr (second element), the code
         # sets md_arr = None, then the fallback path sets defaults
         original_read = nc._read_md_array
@@ -1529,7 +1552,7 @@ class TestGetVariableAttrException:
         Covers the except Exception: pass block when
         GetAttributes raises on the MDArray.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         original_read_md = nc._read_md_array
 
         def patched_read(variable_name, x_dim=None, y_dim=None):

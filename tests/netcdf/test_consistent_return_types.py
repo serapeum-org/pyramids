@@ -20,6 +20,30 @@ from tests.netcdf.conftest import make_3d_nc
 pytestmark = pytest.mark.core
 
 
+def _make_3d_nc(
+    rows=10,
+    cols=12,
+    bands=4,
+    epsg=4326,
+    variable_name="temperature",
+):
+    """Create a 3D in-memory NetCDF container for testing.
+
+    Delegates to the shared ``make_3d_nc`` helper in conftest.
+    """
+    return make_3d_nc(
+        rows=rows,
+        cols=cols,
+        bands=bands,
+        epsg=epsg,
+        variable_name=variable_name,
+        geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
+        arr_type="random",
+        seed=42,
+        extra_dim_name="time",
+        extra_dim_values=[0, 6, 12, 18],
+    )
+
 
 def _make_2d_nc(rows=10, cols=12, variable_name="elevation"):
     """Create a 2D in-memory NetCDF container for testing.
@@ -45,18 +69,7 @@ def _make_multi_var_nc():
     Returns:
         NetCDF: Container with 'temperature' and 'pressure' variables.
     """
-    nc = make_3d_nc(
-        rows=10,
-        cols=12,
-        bands=4,
-        epsg=4326,
-        variable_name="temperature",
-        geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-        arr_type="random",
-        seed=42,
-        extra_dim_name="time",
-        extra_dim_values=[0, 6, 12, 18],
-    )
+    nc = _make_3d_nc(variable_name="temperature")
     arr2 = np.random.RandomState(7).rand(4, 10, 12).astype(np.float64)
     ds2 = Dataset.create_from_array(
         arr2,
@@ -73,18 +86,7 @@ def _make_multi_var_nc():
 @pytest.fixture
 def nc_3d():
     """3D NetCDF container fixture."""
-    return make_3d_nc(
-        rows=10,
-        cols=12,
-        bands=4,
-        epsg=4326,
-        variable_name="temperature",
-        geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-        arr_type="random",
-        seed=42,
-        extra_dim_name="time",
-        extra_dim_values=[0, 6, 12, 18],
-    )
+    return _make_3d_nc()
 
 
 @pytest.fixture
@@ -142,18 +144,7 @@ class TestPreserveNetcdfMetadata:
         Test scenario:
             If the input is already NetCDF, no new wrapper is created.
         """
-        other_nc = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        )
+        other_nc = _make_3d_nc()
         wrapped = var_3d._preserve_netcdf_metadata(other_nc)
         assert isinstance(
             wrapped, NetCDF
@@ -381,18 +372,7 @@ class TestCropReturnType:
         Test scenario:
             crop always returns a new object (inplace was removed).
         """
-        var = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        ).get_variable("temperature")
+        var = _make_3d_nc().get_variable("temperature")
         result = var.crop(mask=crop_mask)
         assert result is not None, f"Expected a new NetCDF, got None"
 
@@ -490,18 +470,7 @@ class TestToCrsReturnType:
         Test scenario:
             to_crs always returns a new object (inplace was removed).
         """
-        var = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        ).get_variable("temperature")
+        var = _make_3d_nc().get_variable("temperature")
         result = var.to_crs(to_epsg=32637)
         assert result is not None, f"Expected a new NetCDF, got None"
 
@@ -573,18 +542,7 @@ class TestResampleReturnType:
         Test scenario:
             resample always returns a new object (inplace was removed).
         """
-        var = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        ).get_variable("temperature")
+        var = _make_3d_nc().get_variable("temperature")
         result = var.resample(cell_size=2.0)
         assert result is not None, f"Expected a new NetCDF, got None"
 
@@ -696,18 +654,7 @@ class TestChaining:
         Test scenario:
             Chain sel() -> crop(). Both should return NetCDF.
         """
-        nc = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        )
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         selected = var.sel(time=[0, 6])
         cropped = selected.crop(mask=crop_mask)
@@ -721,18 +668,7 @@ class TestChaining:
         Test scenario:
             Chain crop() -> resample(). Both should return NetCDF.
         """
-        nc = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        )
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         cropped = var.crop(mask=crop_mask)
         resampled = cropped.resample(cell_size=2.0)
@@ -747,18 +683,7 @@ class TestChaining:
         Test scenario:
             Chain crop() -> to_crs(). Both should return NetCDF.
         """
-        nc = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        )
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         cropped = var.crop(mask=crop_mask)
         reprojected = cropped.to_crs(to_epsg=32637)
@@ -774,18 +699,7 @@ class TestChaining:
             Chain sel([0,6,12]) -> sel([0,12]). The second sel()
             must work because the first returns NetCDF with metadata.
         """
-        nc = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        )
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         first = var.sel(time=[0, 6, 12])
         second = first.sel(time=[0, 12])
@@ -803,18 +717,7 @@ class TestChaining:
         Test scenario:
             Chain to_crs() -> resample(). Both return NetCDF.
         """
-        nc = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        )
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         reprojected = var.to_crs(to_epsg=32637)
         resampled = reprojected.resample(cell_size=200000)
@@ -829,18 +732,7 @@ class TestChaining:
         Test scenario:
             sel -> crop -> resample should all carry 'time' through.
         """
-        nc = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        )
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         result = var.sel(time=[0, 6])
         assert (
@@ -862,18 +754,7 @@ class TestChaining:
             After cropping, unpack should apply scale/offset since
             the result is NetCDF with _scale/_offset preserved.
         """
-        nc = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        )
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         var._scale = 2.0
         var._offset = 10.0
@@ -895,18 +776,7 @@ class TestChaining:
             After reprojecting with bilinear interpolation, unpack should
             correctly apply scale/offset to the interpolated values.
         """
-        nc = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        )
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         var._scale = 0.5
         var._offset = 100.0
@@ -934,18 +804,7 @@ class TestChaining:
             After resampling with cubic interpolation, unpack should
             correctly apply scale/offset to the resampled values.
         """
-        nc = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        )
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         var._scale = 0.01
         var._offset = 273.15
@@ -1024,18 +883,7 @@ class TestSetVariableAfterSpatialOps:
             get_variable -> crop -> set_variable should produce a
             valid container.
         """
-        nc = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        )
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         cropped = var.crop(mask=crop_mask)
         nc.set_variable("temperature", cropped)
@@ -1051,18 +899,7 @@ class TestSetVariableAfterSpatialOps:
             get_variable -> sel -> set_variable should produce a
             valid container with fewer bands.
         """
-        nc = make_3d_nc(
-            rows=10,
-            cols=12,
-            bands=4,
-            epsg=4326,
-            variable_name="temperature",
-            geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
-            arr_type="random",
-            seed=42,
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12, 18],
-        )
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         selected = var.sel(time=[0, 12])
         nc.set_variable("temp_subset", selected)

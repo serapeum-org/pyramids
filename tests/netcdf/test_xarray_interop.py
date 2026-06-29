@@ -23,6 +23,27 @@ from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_3d_nc
 
 
+def _make_3d_nc(
+    rows=4,
+    cols=6,
+    bands=3,
+    variable_name="temperature",
+):
+    """Create a 3D in-memory NetCDF with sequential data.
+
+    Delegates to the shared ``make_3d_nc`` helper in conftest.
+    """
+    return make_3d_nc(
+        rows=rows,
+        cols=cols,
+        bands=bands,
+        variable_name=variable_name,
+        geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
+        arr_type="sequential",
+        extra_dim_name="time",
+        extra_dim_values=[0, 6, 12],
+    )
+
 
 def _make_2d_nc(rows=4, cols=6, variable_name="elevation"):
     """Create a 2D in-memory NetCDF with sequential data.
@@ -48,16 +69,7 @@ def _make_multi_var_nc():
     Returns:
         NetCDF: Container with 'temperature' and 'pressure'.
     """
-    nc = make_3d_nc(
-        rows=4,
-        cols=6,
-        bands=3,
-        variable_name="temperature",
-        geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-        arr_type="sequential",
-        extra_dim_name="time",
-        extra_dim_values=[0, 6, 12],
-    )
+    nc = _make_3d_nc(variable_name="temperature")
     arr2 = np.arange(72, dtype=np.float64).reshape(3, 4, 6) + 1000
     ds2 = Dataset.create_from_array(
         arr2,
@@ -80,16 +92,7 @@ class TestToXarrayInMemory3D:
         Test scenario:
             The return type must be xr.Dataset for xarray compatibility.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         assert isinstance(
             ds, xr.Dataset
@@ -101,16 +104,7 @@ class TestToXarrayInMemory3D:
         Test scenario:
             The xr.Dataset should contain 'temperature' as a data_var.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         assert (
             "temperature" in ds.data_vars
@@ -123,16 +117,7 @@ class TestToXarrayInMemory3D:
             The 'temperature' variable should be (3, 4, 6) matching
             the (time, y, x) dimensions.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         assert ds["temperature"].shape == (
             3,
@@ -147,16 +132,7 @@ class TestToXarrayInMemory3D:
             The data read from xr.Dataset should match the original
             numpy array written to the pyramids container.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         expected = np.arange(72, dtype=np.float64).reshape(3, 4, 6)
         assert_array_equal(
@@ -172,16 +148,7 @@ class TestToXarrayInMemory3D:
             The xr.Dataset should have 'time' as a coordinate with
             values [0, 6, 12].
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         assert "time" in ds.coords, f"Expected 'time' in coords, got {list(ds.coords)}"
         expected_time = np.array([0.0, 6.0, 12.0])
@@ -198,16 +165,7 @@ class TestToXarrayInMemory3D:
         Test scenario:
             The xr.Dataset should have 'x' and 'y' as coordinates.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         assert "x" in ds.coords, f"Expected 'x' in coords, got {list(ds.coords)}"
         assert "y" in ds.coords, f"Expected 'y' in coords, got {list(ds.coords)}"
@@ -219,16 +177,7 @@ class TestToXarrayInMemory3D:
             With geo=(10.0, 1.0, ...), 6 columns, x coords should be
             cell centres: [10.5, 11.5, 12.5, 13.5, 14.5, 15.5].
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         expected_x = np.array([10.5, 11.5, 12.5, 13.5, 14.5, 15.5])
         assert_allclose(
@@ -245,16 +194,7 @@ class TestToXarrayInMemory3D:
             The 'temperature' variable should have dimensions
             ('time', 'y', 'x').
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         assert ds["temperature"].dims == ("time", "y", "x"), (
             f"Expected dims ('time', 'y', 'x'), " f"got {ds['temperature'].dims}"
@@ -391,16 +331,7 @@ class TestFromXarrayRoundTrip:
             A 3D container with 'temperature' should survive the
             round-trip with the same variable name.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         nc2 = NetCDF.from_xarray(ds)
         assert (
@@ -414,16 +345,7 @@ class TestFromXarrayRoundTrip:
             The array data should be identical after a full
             to_xarray -> from_xarray round-trip.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         nc2 = NetCDF.from_xarray(ds)
         var = nc2.get_variable("temperature")
@@ -458,16 +380,7 @@ class TestFromXarrayRoundTrip:
             A 3D variable with 3 time steps should have 3 bands
             after the round-trip.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         nc2 = NetCDF.from_xarray(ds)
         var = nc2.get_variable("temperature")
@@ -503,16 +416,7 @@ class TestFromXarrayWithPath:
         Test scenario:
             The specified .nc file should exist on disk after the call.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         out_path = tmp_path / "output.nc"
         nc2 = NetCDF.from_xarray(ds, path=out_path)
@@ -525,16 +429,7 @@ class TestFromXarrayWithPath:
             Data read from the explicitly-written file should match
             the original.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         out_path = tmp_path / "output.nc"
         nc2 = NetCDF.from_xarray(ds, path=out_path)
@@ -554,16 +449,7 @@ class TestFromXarrayWithPath:
         Test scenario:
             Passing a string instead of a Path should also work.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         out_path = str(tmp_path / "string_path.nc")
         nc2 = NetCDF.from_xarray(ds, path=out_path)
@@ -582,16 +468,7 @@ class TestFromXarrayTempFile:
             When no path is given, the result should have
             _xarray_temp_path set to a real file.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         nc2 = NetCDF.from_xarray(ds)
         assert hasattr(
@@ -608,16 +485,7 @@ class TestFromXarrayTempFile:
             The returned NetCDF should be able to extract variables
             from the temporary file.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         ds = nc.to_xarray()
         nc2 = NetCDF.from_xarray(ds)
         assert len(nc2.variable_names) > 0, "Temp-backed NetCDF should have variables"
@@ -678,16 +546,7 @@ class TestToXarrayErrors:
             A NetCDF opened in classic mode (no root group) and
             with no file on disk should raise ValueError.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         nc_fake = NetCDF.__new__(NetCDF)
         nc_fake.__dict__.update(var.__dict__)
@@ -709,16 +568,7 @@ class TestGlobalAttributes:
             xarray, convert back, and verify the attribute is present
             in the xarray Dataset.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         nc.set_global_attribute("history", "created by test")
         nc.set_global_attribute("Conventions", "CF-1.6")
         ds = nc.to_xarray()
@@ -735,16 +585,7 @@ class TestGlobalAttributes:
         Test scenario:
             A float global attribute should survive conversion.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         nc.set_global_attribute("version", 2.0)
         ds = nc.to_xarray()
         assert ds.attrs.get("version") == pytest.approx(
@@ -835,16 +676,7 @@ class TestInteropEngineBranches:
             Calling the engine directly and through the façade produce datasets
             with the same data variables — the façade adds no behaviour.
         """
-        nc = make_3d_nc(
-            rows=4,
-            cols=6,
-            bands=3,
-            variable_name="temperature",
-            geo=(10.0, 1.0, 0, 44.0, 0, -1.0),
-            arr_type="sequential",
-            extra_dim_name="time",
-            extra_dim_values=[0, 6, 12],
-        )
+        nc = _make_3d_nc()
         via_engine = nc.interop.to_xarray()
         via_facade = nc.to_xarray()
         assert set(via_engine.data_vars) == set(via_facade.data_vars), (

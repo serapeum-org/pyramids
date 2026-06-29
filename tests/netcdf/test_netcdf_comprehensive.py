@@ -21,11 +21,26 @@ from tests.netcdf.conftest import make_2d_nc, make_3d_nc
 pytestmark = pytest.mark.core
 
 
+def _make_3d_nc(rows=10, cols=12, bands=3, epsg=4326, variable_name="temperature"):
+    """Create a 3D in-memory NetCDF for testing.
+
+    Delegates to the shared ``make_3d_nc`` helper in conftest.
+    """
+    return make_3d_nc(
+        rows=rows,
+        cols=cols,
+        bands=bands,
+        epsg=epsg,
+        variable_name=variable_name,
+        arr_type="random",
+        seed=42,
+    )
+
 
 @pytest.fixture(scope="module")
 def nc_3d():
     """Module-scoped 3D NetCDF fixture."""
-    return make_3d_nc()
+    return _make_3d_nc()
 
 
 @pytest.fixture(scope="module")
@@ -82,7 +97,7 @@ class TestInit:
             A fresh NetCDF should have _cached_variables=None and
             _cached_meta_data=None before any property access.
         """
-        fresh = make_3d_nc(variable_name="fresh_test")
+        fresh = _make_3d_nc(variable_name="fresh_test")
         assert fresh._cached_variables is None, "variables cache should start as None"
         assert fresh._cached_meta_data is None, "meta_data cache should start as None"
 
@@ -219,7 +234,7 @@ class TestGeotransform:
             When lon/lat are not available, geotransform should return
             the parent class's _geotransform instead of None.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         gt = var.geotransform
         assert gt is not None, "geotransform should never be None"
@@ -578,7 +593,7 @@ class TestSetVariableEdgeCases:
             Providing band_dim_name="time" and band_dim_values=[0,1,2]
             should create a time dimension with those values.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         arr = np.random.rand(3, 10, 12)
         ds = Dataset.create_from_array(
             arr,
@@ -610,7 +625,7 @@ class TestReplaceRaster:
             After replacing the raster, rows/columns/band_count should
             reflect the new dataset.
         """
-        nc = make_3d_nc(rows=5, cols=6, bands=2)
+        nc = _make_3d_nc(rows=5, cols=6, bands=2)
         var = nc.get_variable("temperature")
         old_rows = var.rows
         old_cols = var.columns
@@ -634,7 +649,7 @@ class TestReplaceRaster:
             After replacing the raster, NetCDF-specific flags should remain
             unchanged.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         var = nc.get_variable("temperature")
         assert var._is_subset is True
         new_ds = Dataset.create_from_array(
@@ -654,7 +669,7 @@ class TestReplaceRaster:
             After replacing the raster, _cached_variables and
             _cached_meta_data should be None.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         _ = nc.variables
         _ = nc.meta_data
         assert nc._cached_variables is not None
@@ -674,7 +689,7 @@ class TestInvalidateCaches:
             After populating caches, calling _invalidate_caches should
             reset them.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         _ = nc.variables
         _ = nc.meta_data
         nc._invalidate_caches()
@@ -707,7 +722,7 @@ class TestCopyEdgeCases:
         Test scenario:
             A copied NetCDF should have the same variable_names as original.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         copied = nc.copy()
         assert (
             copied.variable_names == nc.variable_names
@@ -723,7 +738,7 @@ class TestLazyVariableDict:
         Test scenario:
             The internal dict should have 0 entries after access.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         v = nc.variables
         loaded = len(dict.keys(v))
         assert loaded == 0, f"Expected 0 loaded initially, got {loaded}"
@@ -734,7 +749,7 @@ class TestLazyVariableDict:
         Test scenario:
             Access 'temperature' → 1 loaded in internal dict.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         v = nc.variables
         _ = v["temperature"]
         loaded = len(dict.keys(v))
@@ -747,7 +762,7 @@ class TestLazyVariableDict:
             H1 fix — CPython dict.get() bypassed __getitem__
             before the override was added.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         v = nc.variables
         result = v.get("temperature")
         assert result is not None, "get() returned None — lazy loading bypassed"
@@ -758,7 +773,7 @@ class TestLazyVariableDict:
         Test scenario:
             Non-existent key with no default → None.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         result = nc.variables.get("nope")
         assert result is None, f"Expected None, got {result}"
 
@@ -768,7 +783,7 @@ class TestLazyVariableDict:
         Test scenario:
             Non-existent key with explicit default.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         result = nc.variables.get("nope", 42)
         assert result == 42, f"Expected 42, got {result}"
 
@@ -778,7 +793,7 @@ class TestLazyVariableDict:
         Test scenario:
             'temperature' exists, 'nope' does not.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         v = nc.variables
         assert "temperature" in v, "Expected 'temperature' in variables"
         assert "nope" not in v, "Expected 'nope' not in variables"
@@ -789,7 +804,7 @@ class TestLazyVariableDict:
         Test scenario:
             1 variable exists regardless of loading state.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         assert len(nc.variables) == 1, f"Expected 1, got {len(nc.variables)}"
 
     def test_keys_values_items(self):
@@ -798,7 +813,7 @@ class TestLazyVariableDict:
         Test scenario:
             Each should have length matching variable count.
         """
-        nc = make_3d_nc()
+        nc = _make_3d_nc()
         v = nc.variables
         assert list(v.keys()) == [
             "temperature"
@@ -820,7 +835,7 @@ class TestEndToEndRoundTrip:
             4. Write back via set_variable
             5. Verify the stored data matches the modification
         """
-        nc = make_3d_nc(rows=5, cols=6, bands=2, variable_name="precip")
+        nc = _make_3d_nc(rows=5, cols=6, bands=2, variable_name="precip")
         var = nc.get_variable("precip")
         arr_orig = var.read_array()
         arr_modified = arr_orig * 2.0
@@ -849,7 +864,7 @@ class TestEndToEndRoundTrip:
             3. Reload from disk
             4. Verify variable names and data match
         """
-        nc = make_3d_nc(rows=5, cols=6, bands=2, variable_name="wind")
+        nc = _make_3d_nc(rows=5, cols=6, bands=2, variable_name="wind")
         var = nc.get_variable("wind")
         arr_orig = var.read_array()
         out = str(tmp_path / "roundtrip_e2e.nc")
