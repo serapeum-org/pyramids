@@ -24,6 +24,7 @@ import pytest
 from osgeo import gdal
 from shapely.geometry import Point
 
+from pyramids.base import _ogc_api
 from pyramids.feature import FeatureCollection
 from pyramids.feature import _oapif
 from pyramids.errors import OGCAPIError
@@ -75,13 +76,13 @@ def _sample_gdf(crs="EPSG:4326") -> gpd.GeoDataFrame:
 
 class TestPureHelpers:
     def test_collections_url(self):
-        assert _oapif._collections_url("https://h/api") == "https://h/api/collections?f=json"
-        assert _oapif._collections_url("https://h/api/") == "https://h/api/collections?f=json"
+        assert _ogc_api.collections_url("https://h/api") == "https://h/api/collections?f=json"
+        assert _ogc_api.collections_url("https://h/api/") == "https://h/api/collections?f=json"
 
     def test_collections_url_preserves_query_auth(self):
         """A query-string-auth endpoint keeps its query; /collections goes before it."""
         assert (
-            _oapif._collections_url("https://h/ogc?api_key=XYZ")
+            _ogc_api.collections_url("https://h/ogc?api_key=XYZ")
             == "https://h/ogc/collections?api_key=XYZ&f=json"
         )
 
@@ -120,13 +121,13 @@ class TestPureHelpers:
 
     def test_collection_ids_prefers_id_then_name(self):
         doc = {"collections": [{"id": "a"}, {"name": "b"}, {"title": "no-id"}, "junk"]}
-        assert _oapif._collection_ids(doc) == {"a", "b"}
+        assert _ogc_api.collection_ids(doc) == {"a", "b"}
 
     def test_error_text(self):
-        assert _oapif._error_text({"description": "boom"}) == "boom"
-        assert _oapif._error_text({"title": "bad"}) == "bad"  # description/detail absent -> title
-        assert _oapif._error_text({}) == "no message provided"
-        assert _oapif._error_text("not a dict") == "no message provided"
+        assert _ogc_api.error_text({"description": "boom"}) == "boom"
+        assert _ogc_api.error_text({"title": "bad"}) == "bad"  # description/detail absent -> title
+        assert _ogc_api.error_text({}) == "no message provided"
+        assert _ogc_api.error_text("not a dict") == "no message provided"
 
     def test_http_error_detail_unreadable_body(self):
         """An HTTPError whose body cannot be read falls back to the reason phrase."""
@@ -136,7 +137,7 @@ class TestPureHelpers:
             def read(self):
                 raise OSError("connection gone")
 
-        assert _oapif._http_error_detail(_Unreadable()) == "Server Error"
+        assert _ogc_api.http_error_detail(_Unreadable()) == "Server Error"
 
     def test_http_error_detail_non_json_body(self):
         """A non-JSON HTTPError body is returned as truncated plain text."""
@@ -146,7 +147,7 @@ class TestPureHelpers:
             def read(self):
                 return b"upstream exploded"
 
-        assert _oapif._http_error_detail(_Plain()) == "upstream exploded"
+        assert _ogc_api.http_error_detail(_Plain()) == "upstream exploded"
 
 
 class TestCollections:
@@ -267,7 +268,7 @@ class TestCollections:
         def boom(self, *args, **kwargs):
             raise OSError("connection refused")
 
-        monkeypatch.setattr(_oapif.urllib.request.OpenerDirector, "open", boom)
+        monkeypatch.setattr(_ogc_api.urllib.request.OpenerDirector, "open", boom)
         with pytest.raises(OGCAPIError, match="request failed"):
             _oapif._get_collections("https://oapif.invalid/x", None, 5.0)
 
