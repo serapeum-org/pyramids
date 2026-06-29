@@ -57,6 +57,7 @@ from pyramids.dataset.ops.interpolate import grid_points
 from pyramids.dataset.ops.units import convert_array
 from pyramids.dataset.ops.vectorize import rasterize_features
 from pyramids.dataset._wcs import from_wcs as _from_wcs
+from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
 from pyramids.feature import FeatureCollection, create_polygon
 
 # tuple of collaborator attribute names. Used by
@@ -2280,6 +2281,103 @@ class Dataset(RasterBase):
             auth=auth,
             timeout=timeout,
             extra_params=extra_params,
+        )
+
+    @classmethod
+    def from_ogc_coverages(
+        cls,
+        endpoint: str,
+        *,
+        coverage: str,
+        bbox: tuple[float, float, float, float] | None = None,
+        output_crs: str | None = None,
+        resolution: float | tuple[float, float] | None = None,
+        output: str | Path | None = None,
+        resample: str = "nearest",
+        auth: tuple[str, str] | None = None,
+        timeout: float = 60.0,
+    ) -> Dataset:
+        """Read a coverage subset from an **OGC API – Coverages** service.
+
+        Fetches a windowed subset of a coverage from an OGC API – Coverages
+        service and returns it as a :class:`Dataset`. OGC API – Coverages is the
+        modern REST/JSON successor to WCS: a landing page links to
+        ``/collections`` and each coverage exposes ``/collections/{id}/coverage``
+        with ``bbox`` subsetting and format negotiation. The transport is GDAL's
+        native ``OGCAPI`` driver, so discovery, GeoTIFF negotiation and the
+        windowed read happen inside GDAL; the caller supplies an optional single
+        lon/lat ``bbox`` (plus optional ``resolution`` and ``output_crs``). This
+        is the OGC-API-era sibling of :meth:`from_wcs`.
+
+        The ``coverage`` is validated against a (cached) ``/collections`` document
+        so an unadvertised coverage fails fast with a clear :class:`ValueError`
+        rather than an opaque driver error.
+
+        Args:
+            endpoint: The OGC API landing-page / base URL (e.g.
+                ``"https://maps.gnosis.earth/ogcapi"``). Catalog / coverage-name
+                routing belongs in the calling layer, not here.
+            coverage: The coverage identifier as advertised by ``/collections``
+                (e.g. ``"SRTM_ViewFinderPanorama"``). A value the service does not
+                advertise raises :class:`ValueError`.
+            bbox: Optional ``(minx, miny, maxx, maxy)`` spatial subset in **lon/lat
+                (CRS84)**. The OGCAPI coverage driver interprets the subset window
+                in CRS84, so the values pass through unchanged. ``None`` (default)
+                fetches the full coverage extent.
+            output_crs: Optional CRS to reproject the result into (any form
+                :meth:`to_crs` accepts). ``None`` (default) keeps the coverage's
+                native CRS.
+            resolution: Output pixel size in the units of ``output_crs`` (or the
+                native CRS when ``output_crs`` is ``None``). A scalar gives square
+                pixels; an ``(x_res, y_res)`` pair gives non-square pixels.
+                ``None`` (default) keeps the coverage's native resolution.
+            output: Optional path to also write the result to as a GeoTIFF. The
+                method still returns the :class:`Dataset`.
+            resample: Resampling method for the ``output_crs`` / ``resolution``
+                warp. Defaults to ``"nearest"``.
+            auth: Optional ``(username, password)`` for Basic-authed services.
+            timeout: HTTP timeout in seconds for the metadata / coverage requests
+                (whole seconds; a value below 1 is clamped to 1). Defaults to
+                ``60.0``.
+
+        Returns:
+            Dataset: The fetched coverage subset.
+
+        Raises:
+            ValueError: ``bbox`` is malformed, or ``coverage`` is not advertised.
+            pyramids.errors.OGCAPIError: The service could not be reached or
+                returned an error / a non-raster body.
+
+        Examples:
+            Read a small bbox subset of a public coverage (network call — skipped
+            in doctests):
+
+            ```python
+            >>> ds = Dataset.from_ogc_coverages(  # doctest: +SKIP
+            ...     "https://maps.gnosis.earth/ogcapi",
+            ...     coverage="SRTM_ViewFinderPanorama",
+            ...     bbox=(5.0, 51.0, 6.0, 52.0),
+            ... )
+
+            ```
+
+        See Also:
+            - :meth:`from_wcs`: the classic WCS sibling.
+            - :meth:`pyramids.feature.FeatureCollection.from_ogc_features`: the OGC
+              API – Features (vector) sibling.
+            - :meth:`read_file`: open a raster from a path or URL.
+        """
+        return _from_ogc_coverages(
+            cls,
+            endpoint,
+            coverage=coverage,
+            bbox=bbox,
+            output_crs=output_crs,
+            resolution=resolution,
+            output=output,
+            resample=resample,
+            auth=auth,
+            timeout=timeout,
         )
 
     def copy(self, path: str | Path | None = None) -> Dataset:
