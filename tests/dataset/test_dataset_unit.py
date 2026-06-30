@@ -734,6 +734,27 @@ class TestWriteArray:
         assert result[2, 2] == pytest.approx(10.0), "Offset write failed at (2,2)"
         assert result[0, 0] == pytest.approx(0.0), "Cell outside patch should be unchanged"
 
+    def test_write_array_multi_band(self):
+        """write_array writes a multi-band patch at an offset across every band.
+
+        Ports the multi-band scenario from the legacy duplicate (which used the
+        on-disk ``empty-to-fill-multi-band.tif`` fixture). A (2, 2, 2) patch
+        written at row/col offset (3, 5) must round-trip exactly on both bands.
+        """
+        base = np.zeros((2, 8, 8), dtype=np.float64)
+        ds = Dataset.create_from_array(
+            base,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+        )
+        arr = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
+        xoff = 5
+        yoff = 3
+        ds.write_array(arr, top_left_corner=[yoff, xoff])
+        retrieved = ds._raster.ReadAsArray(xoff, yoff, 2, 2)
+        np.testing.assert_array_equal(arr, retrieved)
+
 
 class TestSetNoDataValueErrors:
     """Tests for _set_no_data_value error handling."""
@@ -1408,6 +1429,7 @@ class TestIloc:
         """Valid index should return a gdal.Band object."""
         band = single_band_dataset._iloc(0)
         assert band is not None, "Band should not be None"
+        assert isinstance(band, gdal.Band), "Band should be a gdal.Band"
 
     def test_iloc_on_closed_dataset(self, single_band_dataset):
         """Accessing a band on a closed dataset should raise RuntimeError.
@@ -1853,6 +1875,34 @@ class TestStats:
         """stats(band=0) should return stats for only that band."""
         df = multi_band_dataset.stats(band=0)
         assert len(df) == 1, "Should have 1 row for a single band"
+
+    def test_stats_all_bands_values(self, era5_image, era5_image_stats):
+        """stats() values match the reference era5 per-band statistics.
+
+        Ports the numeric-correctness scenario from the legacy duplicate so the
+        computed min/max/mean/std are checked against a known reference, not just
+        for the right column layout.
+        """
+        dataset = Dataset(era5_image)
+        stats = dataset.stats()
+        assert isinstance(stats, pd.DataFrame), "stats should return DataFrame"
+        assert list(stats.columns) == ["min", "max", "mean", "std"]
+        assert np.isclose(
+            stats.values, era5_image_stats.values, rtol=0.000001, atol=0.00001
+        ).all(), "stats() values diverge from the reference era5 statistics"
+
+    def test_stats_specific_band_values(self, era5_image, era5_image_stats):
+        """stats(0) values match the first band of the reference statistics."""
+        dataset = Dataset(era5_image)
+        stats = dataset.stats(0)
+        assert isinstance(stats, pd.DataFrame), "stats should return DataFrame"
+        assert list(stats.columns) == ["min", "max", "mean", "std"]
+        assert np.isclose(
+            stats.values,
+            era5_image_stats.iloc[0, :].values,
+            rtol=0.000001,
+            atol=0.00001,
+        ).all(), "stats(0) values diverge from the reference era5 statistics"
 
 
 class TestCreateDataset:
@@ -4004,6 +4054,35 @@ class TestStatsWithMask:
         gdf = gpd.GeoDataFrame(geometry=[poly], crs="EPSG:4326")
         df = single_band_dataset.stats(mask=gdf)
         assert isinstance(df, pd.DataFrame), "stats with mask should return DataFrame"
+
+    def test_stats_all_bands_with_mask_values(self, era5_image, era5_mask):
+        """Masked stats equal the statistics of the masked (second) row.
+
+        Ports the numeric mask scenario from the legacy duplicate. The era5 mask
+        covers only the second row of the array, so the masked mean/std/min/max
+        must equal those computed directly from ``arr[:, 1, :]``.
+        """
+        dataset = Dataset(era5_image)
+        stats = dataset.stats(mask=era5_mask)
+        assert isinstance(stats, pd.DataFrame), "stats with mask should return DataFrame"
+        assert list(stats.columns) == ["min", "max", "mean", "std"]
+        arr = dataset.read_array()
+        mean = arr[:, 1, :].mean(axis=1)
+        std = arr[:, 1, :].std(axis=1)
+        min_val = arr[:, 1, :].min(axis=1)
+        max_val = arr[:, 1, :].max(axis=1)
+        assert np.isclose(
+            stats["mean"].values, mean, rtol=0.000001, atol=0.00001
+        ).all(), "masked mean diverges from arr[:, 1, :]"
+        assert np.isclose(
+            stats["std"].values, std, rtol=0.000001, atol=0.00001
+        ).all(), "masked std diverges from arr[:, 1, :]"
+        assert np.isclose(
+            stats["min"].values, min_val, rtol=0.000001, atol=0.00001
+        ).all(), "masked min diverges from arr[:, 1, :]"
+        assert np.isclose(
+            stats["max"].values, max_val, rtol=0.000001, atol=0.00001
+        ).all(), "masked max diverges from arr[:, 1, :]"
 
 
 class TestGetStatsRuntimeError:
