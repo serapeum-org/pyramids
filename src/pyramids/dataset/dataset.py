@@ -2289,7 +2289,7 @@ class Dataset(RasterBase):
         endpoint: str,
         *,
         coverage: str,
-        bbox: tuple[float, float, float, float] | None = None,
+        bbox: tuple[float, float, float, float],
         output_crs: str | None = None,
         resolution: float | tuple[float, float] | None = None,
         output: str | Path | None = None,
@@ -2305,9 +2305,14 @@ class Dataset(RasterBase):
         ``/collections`` and each coverage exposes ``/collections/{id}/coverage``
         with ``bbox`` subsetting and format negotiation. The transport is GDAL's
         native ``OGCAPI`` driver, so discovery, GeoTIFF negotiation and the
-        windowed read happen inside GDAL; the caller supplies an optional single
-        lon/lat ``bbox`` (plus optional ``resolution`` and ``output_crs``). This
-        is the OGC-API-era sibling of :meth:`from_wcs`.
+        windowed read happen inside GDAL; the caller supplies a single lon/lat
+        ``bbox`` (plus optional ``resolution`` and ``output_crs``). This is the
+        OGC-API-era sibling of :meth:`from_wcs`.
+
+        A ``bbox`` is **required**. The driver exposes the coverage as an unbounded
+        virtual raster, so a windowless read is impossible; pyramids projects the
+        lon/lat ``bbox`` into the coverage's native CRS and reads it with an
+        explicit output-size cap so the fetch always stays bounded.
 
         The ``coverage`` is validated against a (cached) ``/collections`` document
         so an unadvertised coverage fails fast with a clear :class:`ValueError`
@@ -2320,21 +2325,22 @@ class Dataset(RasterBase):
             coverage: The coverage identifier as advertised by ``/collections``
                 (e.g. ``"SRTM_ViewFinderPanorama"``). A value the service does not
                 advertise raises :class:`ValueError`.
-            bbox: Optional ``(minx, miny, maxx, maxy)`` spatial subset in **lon/lat
-                (CRS84)**. The OGCAPI coverage driver interprets the subset window
-                in CRS84, so the values pass through unchanged. ``None`` (default)
-                fetches the full coverage extent.
+            bbox: **Required** ``(minx, miny, maxx, maxy)`` spatial subset in
+                **lon/lat (CRS84)**. It is projected into the coverage's native CRS
+                and read as a bounded, size-capped window; an unbounded full read is
+                not supported (the virtual raster spans the whole coverage).
             output_crs: Optional CRS to reproject the result into (any form
                 :meth:`to_crs` accepts). ``None`` (default) keeps the coverage's
                 native CRS.
-            resolution: Output pixel size in the units of ``output_crs`` (or the
-                native CRS when ``output_crs`` is ``None``). A scalar gives square
-                pixels; an ``(x_res, y_res)`` pair gives non-square pixels.
-                ``None`` (default) keeps the coverage's native resolution.
+            resolution: Pixel size of the read window, in the units of the
+                coverage's **native CRS**. A scalar gives square pixels; an
+                ``(x_res, y_res)`` pair gives non-square pixels. ``None`` (default)
+                caps the longer side of the window at 1024 px (preserving the bbox
+                aspect ratio) so a bbox-only read is always bounded.
             output: Optional path to also write the result to as a GeoTIFF. The
                 method still returns the :class:`Dataset`.
-            resample: Resampling method for the ``output_crs`` / ``resolution``
-                warp. Defaults to ``"nearest"``.
+            resample: Resampling method for the ``output_crs`` reprojection.
+                Defaults to ``"nearest"``.
             auth: Optional ``(username, password)`` for Basic-authed services.
             timeout: HTTP timeout in seconds for the metadata / coverage requests
                 (whole seconds; a value below 1 is clamped to 1). Defaults to
