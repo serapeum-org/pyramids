@@ -14,13 +14,18 @@ pytestmark = pytest.mark.core
 
 
 def _make_nc():
-    """Create a 3D NetCDF with known time coordinates [0, 6, 12, 18, 24]."""
+    """Create a 3D NetCDF with known time coordinates [0, 6, 12, 18, 24].
+
+    Carries a -9999.0 no-data sentinel so preservation tests can pin the
+    literal (the data values 0-59 never collide with it).
+    """
     arr = np.arange(60, dtype=np.float64).reshape(5, 3, 4)
     geo = (0.0, 1.0, 0, 3.0, 0, -1.0)
     nc = NetCDF.create_from_array(
         arr=arr,
         geo=geo,
         variable_name="temp",
+        no_data_value=-9999.0,
         extra_dim_name="time",
         extra_dim_values=[0, 6, 12, 18, 24],
     )
@@ -40,6 +45,8 @@ class TestSelSingleValue:
         var = nc.get_variable("temp")
         result = var.sel(time=6)
         assert result.shape == (1, 3, 4), f"Expected (1, 3, 4), got {result.shape}"
+        read = result.read_array()
+        assert read.shape == (3, 4), f"single-band read should squeeze to 2D, got {read.shape}"
 
     def test_data_matches_original_band(self):
         """Selected data should match the corresponding band in the original.
@@ -508,6 +515,7 @@ class TestSelPreservation:
         result = var.sel(time=[0, 6])
         orig_ndv = var.no_data_value[0]
         result_ndv = result.no_data_value[0]
+        assert orig_ndv == -9999.0, f"fixture nodata should be -9999.0, got {orig_ndv}"
         assert result_ndv == orig_ndv, f"No-data changed: {orig_ndv} → {result_ndv}"
 
 
