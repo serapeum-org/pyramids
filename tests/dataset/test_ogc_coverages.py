@@ -28,7 +28,7 @@ from osgeo import gdal, osr
 
 from pyramids.base import _ogc_api
 from pyramids.dataset import Dataset, _ogc_coverages
-from pyramids.errors import OGCAPIError
+from pyramids.errors import OGCAPIError, WCSError
 
 
 @pytest.fixture(autouse=True)
@@ -99,6 +99,11 @@ class TestPureHelpers:
     def test_read_size_clamps_to_one(self):
         w, h = _ogc_coverages._read_size([2.0, 5.0, 4.0, 3.0], (1000.0, 1000.0))
         assert (w, h) == (1, 1)
+
+    def test_read_size_rejects_oversize_window(self):
+        """A fine resolution over a wide bbox exceeds the hard ceiling and is rejected."""
+        with pytest.raises(ValueError, match="px limit"):
+            _ogc_coverages._read_size([0.0, 2.0, 2.0, 0.0], (1e-5, 1e-5))
 
 
 class TestOpenCoverage:
@@ -214,6 +219,44 @@ class TestFromOgcCoveragesValidation:
             )
         assert seen["userpwd"] == "u:p"
         assert seen["timeout"] == "42"
+
+    def test_crs_less_coverage_raises_ogcapierror(self, monkeypatch):
+        """A coverage with no resolvable CRS surfaces OGCAPIError, not the reused WCSError."""
+        self._patch_collections(monkeypatch)
+        mem = gdal.GetDriverByName("MEM").Create("", 4, 4, 1)
+        monkeypatch.setattr(_ogc_coverages.gdal, "OpenEx", lambda *a, **k: mem)
+
+        def no_srs(*a, **k):
+            raise WCSError("the WCS coverage has no resolvable spatial reference")
+
+        monkeypatch.setattr(_ogc_coverages, "_resolve_native_srs", no_srs)
+        with pytest.raises(OGCAPIError, match="no resolvable spatial reference"):
+            Dataset.from_ogc_coverages(
+                "https://h/ogc", coverage="cov", bbox=(5.0, 51.0, 6.0, 52.0)
+            )
+
+    def test_resolution_sizes_the_native_read(self, monkeypatch):
+        """`resolution` (native-CRS units) drives the windowed read size, not a post-warp cell size."""
+        self._patch_collections(monkeypatch)
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        monkeypatch.setattr(
+            _ogc_coverages.gdal, "OpenEx",
+            lambda *a, **k: gdal.GetDriverByName("MEM").Create("", 4, 4, 1),
+        )
+        monkeypatch.setattr(_ogc_coverages, "_resolve_native_srs", lambda *a, **k: srs)
+        monkeypatch.setattr(_ogc_coverages, "_native_projwin", lambda *a, **k: [5.0, 52.0, 6.0, 51.0])
+        seen = {}
+
+        def fake_translate(src, projwin, size, coverage):
+            seen["size"] = size
+            return gdal.GetDriverByName("MEM").Create("", size[0], size[1], 1)
+
+        monkeypatch.setattr(_ogc_coverages, "_translate_window", fake_translate)
+        Dataset.from_ogc_coverages(
+            "https://h/ogc", coverage="cov", bbox=(5.0, 51.0, 6.0, 52.0), resolution=0.01,
+        )
+        assert seen["size"] == (100, 100)  # 1° span / 0.01° → 100 px each side
 
 
 # Coverage geo definition (EPSG:4326, Lat/Long order like GNOSIS).

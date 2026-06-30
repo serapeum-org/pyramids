@@ -46,7 +46,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 
 from osgeo import gdal
 
-from pyramids.base._errors import OGCAPIError
+from pyramids.base._errors import OGCAPIError, WCSError
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.base._ogc_api import get_collections as _get_collections
 from pyramids.dataset._wcs import (
@@ -63,6 +63,10 @@ if TYPE_CHECKING:
 # pixels. Keeps an otherwise unbounded coverage read to a manageable preview while
 # preserving the bbox aspect ratio.
 _DEFAULT_MAX_PX = 1024
+
+# Hard ceiling on either side of the read, enforced even when a `resolution` is
+# given, so a fine resolution over a wide bbox cannot request an unbounded read.
+_MAX_PX = 25000
 
 _OPEN_OPTIONS = ["API=COVERAGE", "IMAGE_FORMAT=GEOTIFF", "CACHE=NO"]
 
@@ -113,8 +117,13 @@ def _read_size(
     ``projwin`` is ``[ulx, uly, lrx, lry]`` in the native CRS; its span gives the
     window's extent in that CRS's units. With a ``resolution`` the size follows
     directly (``span / res``); without one the longer side is capped at
-    :data:`_DEFAULT_MAX_PX` and the shorter scaled to preserve the aspect ratio, so
-    a bbox-only read is always bounded. Every dimension is clamped to at least 1.
+    :data:`_DEFAULT_MAX_PX` and the shorter scaled to preserve the aspect ratio.
+    Either way every dimension is clamped to at least 1 and rejected above the hard
+    :data:`_MAX_PX` ceiling, so even a fine ``resolution`` over a wide ``bbox``
+    cannot request an unbounded read.
+
+    Raises:
+        ValueError: the requested window exceeds :data:`_MAX_PX` on either side.
     """
     ulx, uly, lrx, lry = projwin
     span_x = abs(lrx - ulx)
@@ -123,13 +132,17 @@ def _read_size(
         x_res, y_res = res
         width = max(1, round(span_x / x_res)) if x_res else _DEFAULT_MAX_PX
         height = max(1, round(span_y / y_res)) if y_res else _DEFAULT_MAX_PX
-        return width, height
-    if span_x >= span_y:
+    elif span_x >= span_y:
         width = _DEFAULT_MAX_PX
         height = max(1, round(_DEFAULT_MAX_PX * span_y / span_x)) if span_x else _DEFAULT_MAX_PX
     else:
         height = _DEFAULT_MAX_PX
         width = max(1, round(_DEFAULT_MAX_PX * span_x / span_y)) if span_y else _DEFAULT_MAX_PX
+    if width > _MAX_PX or height > _MAX_PX:
+        raise ValueError(
+            f"the requested window is {width}x{height} px (over the {_MAX_PX} px limit); "
+            "pass a coarser resolution or a smaller bbox to keep the read bounded"
+        )
     return width, height
 
 
@@ -205,7 +218,16 @@ def from_ogc_coverages(
     config = _gdal_http_config(auth, timeout)
     with gdal.config_options(config):
         src = _open_coverage(connection, coverage)
-        native_srs = _resolve_native_srs(src, None)
+        try:
+            # _resolve_native_srs is shared with the WCS reader; normalise its
+            # WCSError (CRS-less coverage) to this reader's OGCAPIError so the
+            # documented Raises contract holds and the message names OGC API.
+            native_srs = _resolve_native_srs(src, None)
+        except WCSError as exc:
+            raise OGCAPIError(
+                f"OGC API coverage {coverage!r} has no resolvable spatial reference; "
+                "the service advertised no usable CRS for the coverage"
+            ) from exc
         projwin = _native_projwin(box, "EPSG:4326", native_srs)
         size = _read_size(projwin, res)
         mem = _translate_window(src, projwin, size, coverage)

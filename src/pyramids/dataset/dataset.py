@@ -2333,10 +2333,13 @@ class Dataset(RasterBase):
                 :meth:`to_crs` accepts). ``None`` (default) keeps the coverage's
                 native CRS.
             resolution: Pixel size of the read window, in the units of the
-                coverage's **native CRS**. A scalar gives square pixels; an
-                ``(x_res, y_res)`` pair gives non-square pixels. ``None`` (default)
-                caps the longer side of the window at 1024 px (preserving the bbox
-                aspect ratio) so a bbox-only read is always bounded.
+                coverage's **native CRS** (CRS84 degrees by default). A scalar
+                gives square pixels; an ``(x_res, y_res)`` pair gives non-square
+                pixels. ``None`` (default) caps the longer side of the window at
+                1024 px (preserving the bbox aspect ratio). A window larger than
+                25000 px on either side is rejected with :class:`ValueError`. When
+                ``output_crs`` is set, ``resolution`` sizes the native-CRS read;
+                the reprojected output's pixel size is then chosen by the warp.
             output: Optional path to also write the result to as a GeoTIFF. The
                 method still returns the :class:`Dataset`.
             resample: Resampling method for the ``output_crs`` reprojection.

@@ -12,22 +12,20 @@ Gating:
 * **Linux only** — GDAL's netCDF driver needs Linux ``userfaultfd`` to open a
   ``.nc`` over any ``/vsi*`` path (the same constraint as
   ``test_netcdf_archive.py``), so it is skipped on Windows / macOS.
-* **Opt-in** — it hits the public NOAA Open Data buckets (no credentials, via
-  ``AWS_NO_SIGN_REQUEST``). To keep the default suite offline and fast it only
-  runs when ``PYRAMIDS_RUN_GOES_GRANULE_TEST=1`` is set.
+* **Live (network)** — it hits the public NOAA Open Data buckets (no credentials,
+  via ``AWS_NO_SIGN_REQUEST``). Marked ``@pytest.mark.live`` and deselected from the
+  default suite; run it with ``-m live``.
 * **Network-tolerant** — if the bucket/prefix is unreachable or empty it skips
   rather than fails.
 
 Run it with::
 
-    PYRAMIDS_RUN_GOES_GRANULE_TEST=1 pixi run -e dev pytest \
-        tests/netcdf/test_goes_real_granule.py -v
+    pixi run -e dev pytest -m live tests/netcdf/test_goes_real_granule.py -v
 """
 
 from __future__ import annotations
 
 import fnmatch
-import os
 import sys
 
 import pytest
@@ -35,9 +33,7 @@ from osgeo import gdal
 
 from pyramids.netcdf import NetCDF
 
-pytestmark = pytest.mark.slow
-
-_OPT_IN = os.environ.get("PYRAMIDS_RUN_GOES_GRANULE_TEST") == "1"
+pytestmark = [pytest.mark.slow, pytest.mark.live]
 
 # A historical full-disc Cloud & Moisture Imagery (CMIPF) hour NOAA retains:
 # day-of-year 180 (~Jun 28) 2024, 12Z, ABI band 13 (clean longwave IR).
@@ -69,10 +65,6 @@ def _first_granule(bucket: str, sat: str) -> str | None:
 @pytest.mark.skipif(
     not sys.platform.startswith("linux"),
     reason="GDAL netCDF driver needs Linux userfaultfd for /vsis3/ paths",
-)
-@pytest.mark.skipif(
-    not _OPT_IN,
-    reason="set PYRAMIDS_RUN_GOES_GRANULE_TEST=1 to run the NOAA S3 granule test",
 )
 @pytest.mark.parametrize(
     "bucket, sat, expected_lon_0",
