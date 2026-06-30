@@ -8,6 +8,7 @@ for mixed-element meshes.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 from osgeo import gdal
@@ -52,10 +53,10 @@ class Connectivity:
             Connectivity instance with 0-indexed data.
         """
         attrs = _read_attributes(md_arr)
-        start_index = int(attrs.get("start_index", 0))
+        start_index = int(cast("int", attrs.get("start_index", 0)))
         raw_fill = attrs.get("_FillValue")
         if raw_fill is not None:
-            raw_fill = int(raw_fill)
+            raw_fill = int(cast("int", raw_fill))
         else:
             raw_fill = -999
 
@@ -83,7 +84,7 @@ class Connectivity:
     def n_elements(self) -> int:
         """Number of elements (rows in the connectivity array)."""
         result = self.data.shape[0]
-        return result
+        return cast("int", result)
 
     @property
     def max_nodes_per_element(self) -> int:
@@ -108,7 +109,7 @@ class Connectivity:
             result = np.atleast_1d(row)
         else:
             result = row[row != self.fill_value]
-        return result
+        return cast("np.typing.NDArray", result)
 
     def nodes_per_element(self) -> np.typing.NDArray:
         """Return the number of valid nodes per element.

@@ -9,22 +9,11 @@ from __future__ import annotations
 
 import pytest
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_dask
 from pyramids.netcdf import NetCDF
+from tests._marks import requires_dask
+from tests.netcdf.lazy.conftest import THREE_D_NC_FIXTURE as FIXTURE
 
 pytestmark = pytest.mark.netcdf_lazy
-
-try:
-    import_dask("dask not installed")
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_DASK = False
-else:
-    HAS_DASK = True
-requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")
-
-
-FIXTURE = "tests/data/netcdf/pyramids-netcdf-3d.nc"
 
 
 class TestSingleFile:

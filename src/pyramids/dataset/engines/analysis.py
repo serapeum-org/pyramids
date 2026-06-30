@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 from pyramids.dataset.engines._base import _Engine
 
 
-class Analysis(_Engine):
+class Analysis(_Engine["Dataset"]):
     """Mixin providing analysis, statistics, and data extraction operations for Dataset."""
 
     def stats(
@@ -893,7 +893,7 @@ class Analysis(_Engine):
         return self._ds.__class__(out_ds, access="write")
 
     def overlay(
-        self: Dataset,
+        self,
         classes_map,
         band: int = 0,
         exclude_value: float | int | None = None,
@@ -1118,7 +1118,7 @@ class Analysis(_Engine):
         self._ds.raster.CreateMaskBand(gdal.GMF_PER_DATASET if per_dataset else 0)
 
     def footprint(
-        self: Dataset,
+        self,
         band: int = 0,
         exclude_values: list[Any] | None = None,
     ) -> GeoDataFrame | None:
@@ -1260,7 +1260,7 @@ class Analysis(_Engine):
         return val
 
     def get_histogram(
-        self: Dataset,
+        self,
         band: int = 0,
         bins: int = 6,
         min_value: float | None = None,

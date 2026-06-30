@@ -43,7 +43,7 @@ installed.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, Union, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TypeGuard, Union, cast, runtime_checkable
 
 import numpy as np
 from numpy.typing import NDArray
@@ -359,7 +359,7 @@ class _ArrayLikeProto(Protocol):
         ...
 
 
-def is_lazy(x: Any) -> bool:
+def is_lazy(x: Any) -> TypeGuard["da.Array"]:
     """Return True if `x` is a dask-backed array, False if eager.
 
     The check is duck-typed rather than isinstance-based, so any
@@ -373,7 +373,9 @@ def is_lazy(x: Any) -> bool:
 
     Returns:
         bool: `True` when `x` is lazy (has dask graph and a
-        `compute` method), `False` otherwise.
+        `compute` method), `False` otherwise. Typed as a
+        :data:`typing.TypeGuard`, so a truthy result narrows `x` to
+        `dask.array.Array` for the type checker.
 
     Examples:
         >>> import numpy as np
@@ -412,7 +414,9 @@ def as_numpy(x: ArrayLike) -> NDArray:
         [0, 1, 2, 3]
     """
     if is_lazy(x):
-        result = x.compute()
+        # `is_lazy` narrows `x` to `dask.array.Array`; `.compute()` returns an
+        # untyped value, so cast the materialized result back to a numpy array.
+        result = cast("NDArray", x.compute())
     else:
         result = np.asarray(x)
     return result

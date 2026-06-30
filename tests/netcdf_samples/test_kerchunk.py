@@ -5,12 +5,11 @@ import shutil
 import pytest
 
 from pyramids.netcdf import NetCDF
+from tests.netcdf_samples.conftest import AIR
 
 pytestmark = pytest.mark.netcdf_lazy
 pytest.importorskip("kerchunk")
 pytest.importorskip("fsspec")
-
-AIR = "coards__4v__1d3-3d1.nc"  # air(time, lat, lon) — has a concat 'time' dim
 
 
 def test_to_kerchunk_writes_manifest(sample, tmp_path):

@@ -8,7 +8,7 @@ Owns the Cell family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 from numbers import Number
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import geopandas as gpd
 import numpy as np
@@ -19,8 +19,11 @@ from pandas import DataFrame
 from pyramids.dataset.engines._base import _Engine
 from pyramids.feature import FeatureCollection, create_points, create_polygon
 
+if TYPE_CHECKING:
+    from pyramids.dataset.dataset import Dataset  # noqa: F401  (forward ref in _Engine["Dataset"])
 
-class Cell(_Engine):
+
+class Cell(_Engine["Dataset"]):
     """Cell-geometry operations on a Dataset.
 
     Owns the real implementations of `get_cell_coords`,

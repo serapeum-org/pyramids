@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 import warnings
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from shapely import contains_xy
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
 
 
-class Selection(_Engine):
+class Selection(_Engine["NetCDF"]):
     """Spatial / dimensional selection collaborator for :class:`NetCDF`.
 
     Owns the bodies of :meth:`crop` (with the curvilinear and rectilinear
@@ -169,7 +169,7 @@ class Selection(_Engine):
             result = nc._apply_to_all_variables("crop", {"mask": mask, "touch": touch})
         else:
             result = self._crop_one(mask, touch=touch, chunks=chunks)
-        return result
+        return cast("NetCDF", result)
 
     def _resolve_crop_mask(
         self,
@@ -239,7 +239,12 @@ class Selection(_Engine):
             and np.asarray(curv[1]).ndim == 2
         )
         if is_curvilinear:
-            result = self._crop_curvilinear(mask, curv, touch=touch, chunks=chunks)
+            result = self._crop_curvilinear(
+                mask,
+                cast("tuple[np.typing.NDArray, np.typing.NDArray]", curv),
+                touch=touch,
+                chunks=chunks,
+            )
         else:
             if chunks is not None:
                 raise ValueError(
@@ -641,7 +646,7 @@ class Selection(_Engine):
             y_start, y_stop = 0, dim_sizes[y_axis]
         else:
             min_x, min_y, max_x, max_y = nc._reproject_bbox_envelope(
-                tuple(bbox), crs, srs, densify
+                cast("tuple[float, float, float, float]", tuple(bbox)), crs, srs, densify
             )
             x_start, x_stop = _contiguous_range(x_coords, min_x, max_x, "x", bbox)
             y_start, y_stop = _contiguous_range(y_coords, min_y, max_y, "y", bbox)
@@ -862,8 +867,8 @@ class Selection(_Engine):
                 # call site is three frames up — keeping the original warning location.
                 stacklevel=3,
             )
-        nc._carry_aux_variables(result, carry_aux, "reduce")
-        return result
+        nc._carry_aux_variables(cast("NetCDF", result), carry_aux, "reduce")
+        return cast("NetCDF", result)
 
 
 def _reconcile_mask_to_crs(mask: FeatureCollection, epsg: int | None) -> Any:
@@ -908,7 +913,7 @@ def _read_curvilinear_window(
         lazy = nc.read_array(chunks=chunks)
         if lazy.ndim > 2:
             lazy = lazy.reshape(-1, *lazy.shape[-2:])
-        return np.array(lazy[..., r0:r1, c0:c1].compute(), copy=True)
+        return np.array(cast("Any", lazy[..., r0:r1, c0:c1]).compute(), copy=True)
     return np.array(nc.read_array(window=[c0, r0, c1 - c0, r1 - r0]), copy=True)
 
 
@@ -967,8 +972,8 @@ def _read_selected_bands(nc: NetCDF, band_indices: list[int]) -> np.typing.NDArr
     :meth:`Selection.sel`.
     """
     if len(band_indices) == 1:
-        return nc._iloc(band_indices[0]).ReadAsArray()
-    selected = np.empty(
+        return cast("np.typing.NDArray", nc._iloc(band_indices[0]).ReadAsArray())
+    selected: np.typing.NDArray = np.empty(
         (len(band_indices), nc.rows, nc.columns), dtype=nc.numpy_dtype[0]
     )
     for out_i, band_index in enumerate(band_indices):

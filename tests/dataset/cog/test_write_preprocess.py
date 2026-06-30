@@ -12,10 +12,9 @@ import pytest
 from osgeo import gdal, osr
 
 from pyramids.dataset import Dataset
+from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
-
-_GEOTRANSFORM = (0.0, 0.01, 0.0, 10.0, 0.0, -0.01)
 
 
 @pytest.fixture
@@ -26,7 +25,7 @@ def multiband_float() -> Dataset:
         Dataset: An in-memory multiband dataset; band i is filled with value i.
     """
     mem = gdal.GetDriverByName("MEM").Create("", 64, 64, 4, gdal.GDT_Float32)
-    mem.SetGeoTransform(_GEOTRANSFORM)
+    mem.SetGeoTransform(COG_GEOTRANSFORM)
     sr = osr.SpatialReference()
     sr.ImportFromEPSG(4326)
     mem.SetProjection(sr.ExportToWkt())

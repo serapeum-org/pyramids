@@ -12,19 +12,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_dask
 from pyramids.dataset import Dataset, DatasetCollection
-
-try:
-    import_dask("dask not installed")
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_DASK = False
-else:
-    HAS_DASK = True
+from tests._marks import requires_dask
 
 pytestmark = pytest.mark.lazy
-requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")
 
 _GEO = (0.0, 1.0, 0.0, 3.0, 0.0, -1.0)
 _NODATA = -9999.0

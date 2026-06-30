@@ -4,11 +4,9 @@ import pytest
 
 from pyramids.dataset import Dataset
 from pyramids.netcdf import NetCDF
+from tests.netcdf_samples.conftest import RHUM, TOS
 
 pytestmark = pytest.mark.core
-
-RHUM = "coards__5v__1d4-4d1.nc"  # rhum(time=12, level=4, lat=37, lon=72) -> 48 bands flattened
-TOS = "cf__7v__1d3-2d3-3d1.nc"   # tos(time=24, lat=170, lon=180)
 
 
 def test_sel_level_pins_band_dimension(sample):

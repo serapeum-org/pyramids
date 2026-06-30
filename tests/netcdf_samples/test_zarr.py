@@ -3,11 +3,10 @@
 import pytest
 
 from pyramids.netcdf import NetCDF
+from tests.netcdf_samples.conftest import TOS
 
 pytestmark = pytest.mark.lazy
 pytest.importorskip("zarr")
-
-TOS = "cf__7v__1d3-2d3-3d1.nc"
 
 
 def test_to_zarr_from_zarr_roundtrip(sample, tmp_path):

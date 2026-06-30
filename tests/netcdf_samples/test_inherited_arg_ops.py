@@ -18,17 +18,6 @@ from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
-TOS = "cf__7v__1d3-2d3-3d1.nc"
-
-
-@pytest.fixture
-def tos(sample):
-    nc = NetCDF.read_file(sample(TOS))
-    try:
-        yield nc.get_variable("tos")
-    finally:
-        nc.close()
-
 
 def _inside_xy(v):
     """A point inside the raster, in the raster's own coordinate space (from the geotransform)."""

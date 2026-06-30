@@ -14,7 +14,7 @@ the GDAL 3.13 ``AsClassicDataset`` materialisation) deliberately stay in ``netcd
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from osgeo import gdal
 
@@ -166,6 +166,6 @@ def needs_y_flip(rg: gdal.Group, md_arr: gdal.MDArray) -> bool:
         return False
     try:
         src = md_arr.AsClassicDataset(len(dims) - 1, len(dims) - 2, rg)
-        return src.GetGeoTransform()[5] > 0
+        return cast("bool", src.GetGeoTransform()[5] > 0)
     except Exception:  # nosec B110 - driver/orientation probe is best-effort
         return False

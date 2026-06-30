@@ -25,7 +25,6 @@ from pyramids.netcdf import NetCDF, Container, Variable
 pytestmark = pytest.mark.core
 
 THREE_D = "tests/data/netcdf/pyramids-netcdf-3d.nc"
-CLASSIC = "tests/data/netcdf/noah-precipitation-1979.nc"
 
 
 @pytest.fixture(scope="function")
@@ -65,24 +64,30 @@ class TestContainerRouting:
         assert type(container) is Container, f"got {type(container)}"
         assert isinstance(container, NetCDF), "container must remain a NetCDF instance"
 
-    def test_read_file_classic_returns_container(self):
+    def test_read_file_classic_returns_container(self, noah_nc_path: str):
         """``read_file(open_as_multi_dimensional=False)`` also returns a Container.
+
+        Args:
+            noah_nc_path: Path to the noah-precipitation-1979.nc fixture.
 
         Test scenario:
             Opening a file is a container operation regardless of mode; the classic-mode
             handle is still a Container (and a NetCDF).
         """
-        nc = NetCDF.read_file(CLASSIC, open_as_multi_dimensional=False)
+        nc = NetCDF.read_file(noah_nc_path, open_as_multi_dimensional=False)
         assert type(nc) is Container, f"got {type(nc)}"
         assert isinstance(nc, NetCDF)
 
-    def test_from_bytes_returns_container(self):
+    def test_from_bytes_returns_container(self, noah_nc_path: str):
         """``from_bytes`` returns a Container.
+
+        Args:
+            noah_nc_path: Path to the noah-precipitation-1979.nc fixture.
 
         Test scenario:
             Opening from in-memory bytes is a file-open, so it yields a Container.
         """
-        nc = NetCDF.from_bytes(Path(CLASSIC).read_bytes())
+        nc = NetCDF.from_bytes(Path(noah_nc_path).read_bytes())
         assert type(nc) is Container, f"got {type(nc)}"
 
     def test_create_from_array_returns_container(self):

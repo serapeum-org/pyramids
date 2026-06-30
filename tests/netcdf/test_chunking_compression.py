@@ -16,10 +16,10 @@ from numpy.testing import assert_allclose
 from osgeo import gdal
 
 from pyramids.netcdf.netcdf import NetCDF
+from tests.netcdf.conftest import SEED
 
 pytestmark = pytest.mark.core
 
-SEED = 42
 GEO = (0.0, 0.01, 0, 1.0, 0, -0.01)
 
 

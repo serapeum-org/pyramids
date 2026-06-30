@@ -22,8 +22,8 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_kerchunk
+from tests._marks import requires_kerchunk
+from tests.netcdf.lazy.conftest import THREE_D_NC_FIXTURE as FIXTURE
 
 pytestmark = pytest.mark.netcdf_lazy
 
@@ -33,18 +33,6 @@ try:
     import xarray as xr
 except ImportError:  # pragma: no cover - tests using xr are @pytest.mark.xarray gated
     xr = None
-try:
-    import_kerchunk("kerchunk not installed")
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_KERCHUNK = False
-else:
-    HAS_KERCHUNK = True
-
-requires_kerchunk = pytest.mark.skipif(
-    not HAS_KERCHUNK, reason="kerchunk not installed"
-)
-
-FIXTURE = "tests/data/netcdf/pyramids-netcdf-3d.nc"
 
 
 def _make_chunked_file(path: str) -> np.ndarray:

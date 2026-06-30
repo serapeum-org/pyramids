@@ -26,7 +26,7 @@ import os
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Iterator, Sequence
+from typing import Any, Callable, Iterator, Sequence, cast
 
 import numpy as np
 
@@ -67,7 +67,7 @@ def _scalar_fill_value_shim() -> Iterator[None]:
     except ImportError:
         pass
     try:
-        from zarr import meta as _zmeta
+        from zarr import meta as _zmeta  # type: ignore[attr-defined]  # zarr<3 only
 
         if hasattr(_zmeta, "encode_fill_value"):
             modules.append(_zmeta)
@@ -87,7 +87,7 @@ def _scalar_fill_value_shim() -> Iterator[None]:
         def _scalarized(value: Any, dtype: Any, object_codec: Any = None) -> Any:
             if (
                 value is not None
-                and getattr(value, "ndim", 0)
+                and getattr(value, "ndim", 0)  # type: ignore[arg-type]  # getattr int-default overload quirk
                 and np.asarray(value).size == 1
             ):
                 value = np.asarray(value).reshape(()).item()
@@ -140,7 +140,7 @@ def _kerchunk_translate_single(
             error="warn",
             vlen_encode=vlen_encode,
         ).translate()
-    return refs
+    return cast("dict[str, Any]", refs)
 
 
 def _native_or_fallback(
@@ -308,11 +308,14 @@ def _kerchunk_combine(
             ).translate()
             per_file.append(refs)
 
-    return multi_zarr_to_zarr(
-        per_file,
-        concat_dims=list(concat_dims),
-        identical_dims=list(identical_dims),
-    ).translate()
+    return cast(
+        "dict[str, Any]",
+        multi_zarr_to_zarr(
+            per_file,
+            concat_dims=list(concat_dims),
+            identical_dims=list(identical_dims),
+        ).translate(),
+    )
 
 
 def combine_kerchunk(

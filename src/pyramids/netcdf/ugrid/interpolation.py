@@ -12,7 +12,10 @@ Depends on:
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
+from numpy.typing import NDArray
 
 from pyramids.netcdf.ugrid.mesh import Mesh2d
 
@@ -113,7 +116,8 @@ def _get_source_data(
         cx, cy = mesh.node_x, mesh.node_y
     elif location == "edge":
         if mesh.has_edge_coords:
-            cx, cy = mesh.edge_x, mesh.edge_y
+            cx = cast(NDArray, mesh.edge_x)
+            cy = cast(NDArray, mesh.edge_y)
         else:
             raise ValueError("Edge coordinates not available for interpolation.")
     else:
@@ -179,4 +183,4 @@ def _interpolate_linear(
     interpolator = LinearNDInterpolator(source_points, source_values, fill_value=nodata)
     result = interpolator(target_points)
 
-    return result
+    return cast(NDArray, result)

@@ -315,10 +315,10 @@ def _terrain_rgba_stack(
     return np.concatenate([rgb, alpha[np.newaxis, :, :]], axis=0)
 
 
-class IO(_Engine):
+class IO(_Engine["Dataset"]):
 
     def read_array(
-        self: Dataset,
+        self,
         band: int | None = None,
         window: Window | GeoDataFrame | list[int] | None = None,
         *,
@@ -768,7 +768,7 @@ class IO(_Engine):
                 arr = self._to_masked(arr, band, window=window)
         return arr
 
-    def _require_reopenable_path(self: Dataset) -> str:
+    def _require_reopenable_path(self) -> str:
         """Return the dataset's path if per-thread handles can reopen it.
 
         Per-thread reads work by opening one read-only handle per thread from
@@ -792,7 +792,7 @@ class IO(_Engine):
         return path
 
     def _threadsafe_eager_read(
-        self: Dataset,
+        self,
         band: int | None,
         window: GeoDataFrame | list[int] | None,
     ) -> np.typing.NDArray:
@@ -857,7 +857,7 @@ class IO(_Engine):
             raise
         return np.asarray(arr)
 
-    def _get_thread_manager(self: Dataset) -> ThreadLocalFileManager:
+    def _get_thread_manager(self) -> ThreadLocalFileManager:
         """Return the Dataset's per-thread handle manager, creating it once.
 
         Uses double-checked locking on the module-level creation lock so
@@ -893,7 +893,7 @@ class IO(_Engine):
         return manager
 
     def _read_via_handle(
-        self: Dataset,
+        self,
         handle: gdal.Dataset,
         band: int | None,
         window: list[int] | None,
@@ -927,7 +927,7 @@ class IO(_Engine):
         return arr
 
     def _to_masked(
-        self: Dataset,
+        self,
         arr: np.ndarray,
         band: int | None,
         *,
@@ -976,7 +976,7 @@ class IO(_Engine):
         return np.ma.MaskedArray(arr, mask=full_mask)
 
     def _band_mask(
-        self: Dataset,
+        self,
         index: int,
         data: np.ndarray,
         window: list[int] | None,
@@ -1030,7 +1030,7 @@ class IO(_Engine):
         return mask
 
     def _lazy_read_array(
-        self: Dataset,
+        self,
         band: int | None,
         chunks: int | tuple | dict | str,
         lock: Any,
@@ -1148,7 +1148,7 @@ class IO(_Engine):
         return arr
 
     def _decimated_read(
-        self: Dataset,
+        self,
         band: int | None,
         window: Window | list[int] | GeoDataFrame | None,
         out_shape: tuple[int, int],
@@ -1226,7 +1226,7 @@ class IO(_Engine):
         return arr
 
     def _decimated_band_read(
-        self: Dataset,
+        self,
         band: int,
         window_args: tuple[int, ...],
         rows: int,
@@ -1268,7 +1268,7 @@ class IO(_Engine):
         return np.asarray(block)
 
     def _boundless_read(
-        self: Dataset,
+        self,
         band: int | None,
         window: Window | list[int] | tuple[int, ...],
         fill_value: float | None,
@@ -1334,7 +1334,7 @@ class IO(_Engine):
         return result
 
     def _read_block(
-        self: Dataset,
+        self,
         band: int,
         window: Window | list[int] | GeoDataFrame | None = None,
     ) -> np.typing.NDArray:
@@ -1382,7 +1382,7 @@ class IO(_Engine):
         return np.asarray(block)
 
     def _convert_polygon_to_window(
-        self: Dataset, poly: GeoDataFrame | FeatureCollection
+        self, poly: GeoDataFrame | FeatureCollection
     ) -> list[Any]:
         poly = FeatureCollection(poly)
         bounds = poly.total_bounds
@@ -1397,7 +1397,7 @@ class IO(_Engine):
         return [xoff, yoff, x_size, y_size]
 
     def read_windows(
-        self: Dataset,
+        self,
         windows: Sequence[Window],
         *,
         band: int | None = None,
@@ -1454,7 +1454,7 @@ class IO(_Engine):
         return results
 
     def write_array(
-        self: Dataset,
+        self,
         array: np.ndarray,
         top_left_corner: list[int] | None = None,
         *,
@@ -1615,7 +1615,7 @@ class IO(_Engine):
         self._ds._raster.FlushCache()
 
     def get_block_arrangement(
-        self: Dataset,
+        self,
         band: int = 0,
         x_block_size: int | None = None,
         y_block_size: int | None = None,
@@ -1678,7 +1678,7 @@ class IO(_Engine):
         return df
 
     def to_file(
-        self: Dataset,
+        self,
         path: str | Path,
         band: int = 0,
         tile_length: int | None = None,
@@ -1805,7 +1805,7 @@ class IO(_Engine):
         return result
 
     def to_bytes(
-        self: Dataset,
+        self,
         driver: str = "GTiff",
         creation_options: dict[str, Any] | None = None,
     ) -> bytes:
@@ -1947,7 +1947,7 @@ class IO(_Engine):
         return payload
 
     def to_raster(
-        self: Dataset,
+        self,
         path: str | Path,
         band: int = 0,
         tile_length: int | None = None,
@@ -1972,7 +1972,7 @@ class IO(_Engine):
             lock=lock,
         )
 
-    def _tile_offsets(self: Dataset, size: int = 256) -> Generator:
+    def _tile_offsets(self, size: int = 256) -> Generator:
         """Dataset square window size/offsets.
 
         Args:
@@ -2007,7 +2007,7 @@ class IO(_Engine):
                 xsize = size if size + xoff <= cols else cols - xoff
                 yield xoff, yoff, xsize, ysize
 
-    def get_tile(self: Dataset, size=256) -> Generator[np.typing.NDArray, None, None]:
+    def get_tile(self, size=256) -> Generator[np.typing.NDArray, None, None]:
         """Get tile.
 
         Args:
@@ -2085,7 +2085,7 @@ class IO(_Engine):
             )
 
     def map_blocks(
-        self: Dataset,
+        self,
         func: Callable[[np.ndarray], np.ndarray],
         tile_size: int = 256,
         band: int | None = None,
@@ -2212,7 +2212,7 @@ class IO(_Engine):
         return result
 
     def to_xyz(
-        self: Dataset, bands: list[int] | None = None, path: str | Path | None = None
+        self, bands: list[int] | None = None, path: str | Path | None = None
     ) -> DataFrame | None:
         """Convert to XYZ.
 
@@ -2297,7 +2297,7 @@ class IO(_Engine):
         return result
 
     def to_terrain_rgb(
-        self: Dataset,
+        self,
         path: str | Path,
         *,
         encoding: str = "mapbox",
@@ -2442,7 +2442,7 @@ class IO(_Engine):
         return mem
 
     def _terrain_rgb_single(
-        self: Dataset,
+        self,
         source: Dataset,
         path: Path,
         *,
@@ -2473,7 +2473,7 @@ class IO(_Engine):
         return path
 
     def _terrain_rgb_tiles(
-        self: Dataset,
+        self,
         source: Dataset,
         path: Path,
         *,
@@ -2544,7 +2544,7 @@ class IO(_Engine):
                 yield x, y
 
     def _write_terrain_tile(
-        self: Dataset,
+        self,
         source: Dataset,
         root: Path,
         zoom: int,
@@ -2598,7 +2598,7 @@ class IO(_Engine):
         out.FlushCache()
 
     @property
-    def overview_count(self: Dataset) -> list[int]:
+    def overview_count(self) -> list[int]:
         """Number of the overviews for each band."""
         overview_number = []
         for i in range(self._ds.band_count):
@@ -2606,7 +2606,7 @@ class IO(_Engine):
         return overview_number
 
     def create_overviews(
-        self: Dataset,
+        self,
         resampling_method: str = "nearest",
         overview_levels: list | None = None,
     ) -> None:
@@ -2685,7 +2685,7 @@ class IO(_Engine):
         # NEAREST is the resampling method used. Other methods include AVERAGE, GAUSS, etc.
         self._ds.raster.BuildOverviews(resampling_method, overview_levels)
 
-    def recreate_overviews(self: Dataset, resampling_method: str = "nearest") -> None:
+    def recreate_overviews(self, resampling_method: str = "nearest") -> None:
         """Recreate overviews for the dataset.
         Args:
             resampling_method (str): Resampling method used to recreate overviews. Possible values are
@@ -2724,7 +2724,7 @@ class IO(_Engine):
             )
 
     def get_overview(
-        self: Dataset, band: int = 0, overview_index: int = 0
+        self, band: int = 0, overview_index: int = 0
     ) -> gdal.Band:
         """Get an overview of a band.
         Args:
@@ -2802,7 +2802,7 @@ class IO(_Engine):
         return band_obj.GetOverview(overview_index)
 
     def read_overview_array(
-        self: Dataset, band: int | None = None, overview_index: int = 0
+        self, band: int | None = None, overview_index: int = 0
     ) -> np.typing.NDArray:
         """Read overview values.
             - Read the values stored in a given band or overview.

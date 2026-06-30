@@ -14,10 +14,9 @@ from osgeo import gdal, osr
 from pyramids.base._errors import OutOfBoundsError
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines.cog import _xyz_bounds_3857
+from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
-
-_GT_4326 = (0.0, 0.01, 0.0, 10.0, 0.0, -0.01)
 
 
 @pytest.fixture
@@ -28,7 +27,7 @@ def ramp_4326() -> Dataset:
         Dataset: An in-memory dataset with a deterministic ramp.
     """
     arr = np.arange(100 * 100, dtype="float32").reshape(100, 100)
-    return Dataset.create_from_array(arr, geo=_GT_4326, epsg=4326)
+    return Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
 
 
 @pytest.fixture
@@ -247,7 +246,7 @@ class TestReadPart:
             the top-right quarter returns a padded (3, 80, 80) array.
         """
         arr = np.arange(3 * 100 * 100, dtype="float32").reshape(3, 100, 100)
-        ds = Dataset.create_from_array(arr, geo=_GT_4326, epsg=4326)
+        ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
         out = ds.read_part(
             (0.5, 9.5, 1.5, 10.5), dst_width=80, dst_height=80, bbox_crs=4326
         )
@@ -279,7 +278,7 @@ class TestReadPart:
             remainder of a partial window with -1.
         """
         arr = np.arange(100 * 100, dtype="float32").reshape(100, 100)
-        ds = Dataset.create_from_array(arr, geo=_GT_4326, epsg=4326, no_data_value=-1.0)
+        ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326, no_data_value=-1.0)
         out = ds.read_part(
             (0.5, 9.5, 1.5, 10.5), dst_width=100, dst_height=100, bbox_crs=4326, band=0
         )

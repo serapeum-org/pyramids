@@ -94,7 +94,7 @@ def _resolve_resolution(
     return result
 
 
-class Spatial(_Engine):
+class Spatial(_Engine["Dataset"]):
 
     def _get_crs(self) -> str:
         """Get coordinate reference system."""

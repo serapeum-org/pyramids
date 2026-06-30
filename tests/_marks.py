@@ -94,6 +94,13 @@ requires_stac = pytest.mark.skipif(
 )
 
 
+# Precise dask.array-only gate for tests that exercise the array backend
+# without needing zarr (e.g. the ArrayLike protocol tests). Distinct from
+# `requires_lazy`, which also requires zarr.
+requires_dask_array = pytest.mark.skipif(
+    not HAS_DASK_ARRAY, reason="dask.array not installed"
+)
+
 # Legacy aliases for existing callsites that import the older names.
 # Remove in a follow-up once the open call-sites migrate.
 requires_dask = requires_lazy

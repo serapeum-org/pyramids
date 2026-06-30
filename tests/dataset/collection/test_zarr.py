@@ -15,63 +15,39 @@ import numpy as np
 import pytest
 
 from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_dask, import_zarr
 from pyramids.dataset import Dataset, DatasetCollection
+from tests._marks import requires_lazy as requires_zarr
 
 try:
-    import_dask("zarr + dask not installed")
-    import_zarr("zarr + dask not installed")
     import zarr
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_ZARR = False
-else:
-    HAS_ZARR = True
+except ImportError:  # pragma: no cover
+    zarr = None
 
 pytestmark = pytest.mark.lazy
-
-
-requires_zarr = pytest.mark.skipif(not HAS_ZARR, reason="zarr + dask not installed")
-
-
-@pytest.fixture
-def three_files(tmp_path):
-    paths = []
-    for i in range(3):
-        arr = np.full((3, 4), float(i + 1), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 3.0),
-            cell_size=1.0,
-            epsg=4326,
-        )
-        p = str(tmp_path / f"f{i}.tif")
-        ds.to_file(p)
-        paths.append(p)
-    return paths
 
 
 class TestToZarrCubeRoundtrip:
     """Collection → Zarr → zarr.open roundtrip preserves values + metadata."""
 
     @requires_zarr
-    def test_store_contains_data_array(self, three_files, tmp_path):
-        collection = DatasetCollection.from_files(three_files)
+    def test_store_contains_data_array(self, three_files_ramp, tmp_path):
+        collection = DatasetCollection.from_files(three_files_ramp)
         out = str(tmp_path / "cube.zarr")
         collection.to_zarr(out)
         root = zarr.open_group(out, mode="r")
         assert "data" in root
 
     @requires_zarr
-    def test_shape_matches_collection(self, three_files, tmp_path):
-        collection = DatasetCollection.from_files(three_files)
+    def test_shape_matches_collection(self, three_files_ramp, tmp_path):
+        collection = DatasetCollection.from_files(three_files_ramp)
         out = str(tmp_path / "shape.zarr")
         collection.to_zarr(out)
         root = zarr.open_group(out, mode="r")
         assert root["data"].shape == (3, 1, 3, 4)
 
     @requires_zarr
-    def test_values_roundtrip(self, three_files, tmp_path):
-        collection = DatasetCollection.from_files(three_files)
+    def test_values_roundtrip(self, three_files_ramp, tmp_path):
+        collection = DatasetCollection.from_files(three_files_ramp)
         out = str(tmp_path / "vals.zarr")
         collection.to_zarr(out)
         root = zarr.open_group(out, mode="r")
@@ -84,8 +60,8 @@ class TestMetadataAttrs:
     """Root group + data array carry pyramids/rioxarray-style attributes."""
 
     @requires_zarr
-    def test_root_attrs_include_file_list(self, three_files, tmp_path):
-        collection = DatasetCollection.from_files(three_files)
+    def test_root_attrs_include_file_list(self, three_files_ramp, tmp_path):
+        collection = DatasetCollection.from_files(three_files_ramp)
         out = str(tmp_path / "attrs.zarr")
         collection.to_zarr(out)
         root = zarr.open_group(out, mode="r")
@@ -93,8 +69,8 @@ class TestMetadataAttrs:
         assert len(root.attrs["pyramids_file_list"]) == 3
 
     @requires_zarr
-    def test_data_attrs_include_epsg_and_transform(self, three_files, tmp_path):
-        collection = DatasetCollection.from_files(three_files)
+    def test_data_attrs_include_epsg_and_transform(self, three_files_ramp, tmp_path):
+        collection = DatasetCollection.from_files(three_files_ramp)
         out = str(tmp_path / "geo.zarr")
         collection.to_zarr(out)
         root = zarr.open_group(out, mode="r")
@@ -104,7 +80,7 @@ class TestMetadataAttrs:
         assert "crs_wkt" in data_attrs
 
     @requires_zarr
-    def test_cube_has_geozarr_layout(self, three_files, tmp_path):
+    def test_cube_has_geozarr_layout(self, three_files_ramp, tmp_path):
         """The cube store follows the GeoZarr convention (FR-1, collection path).
 
         Test scenario:
@@ -114,7 +90,7 @@ class TestMetadataAttrs:
             ``grid_mapping='spatial_ref'`` so standards-based readers
             georeference the cube without pyramids.
         """
-        collection = DatasetCollection.from_files(three_files)
+        collection = DatasetCollection.from_files(three_files_ramp)
         out = str(tmp_path / "geozarr_cube.zarr")
         collection.to_zarr(out)
         root = zarr.open_group(out, mode="r")
@@ -136,16 +112,16 @@ class TestComputeFalse:
     """`compute=False` returns a :class:`dask.delayed.Delayed`."""
 
     @requires_zarr
-    def test_returns_delayed(self, three_files, tmp_path):
+    def test_returns_delayed(self, three_files_ramp, tmp_path):
         from dask.delayed import Delayed
 
-        collection = DatasetCollection.from_files(three_files)
+        collection = DatasetCollection.from_files(three_files_ramp)
         result = collection.to_zarr(str(tmp_path / "lazy.zarr"), compute=False)
         assert isinstance(result, Delayed)
 
     @requires_zarr
-    def test_compute_writes_data(self, three_files, tmp_path):
-        collection = DatasetCollection.from_files(three_files)
+    def test_compute_writes_data(self, three_files_ramp, tmp_path):
+        collection = DatasetCollection.from_files(three_files_ramp)
         out = str(tmp_path / "delayed.zarr")
         delayed = collection.to_zarr(out, compute=False)
         delayed.compute()
@@ -166,7 +142,7 @@ class TestErrors:
         with pytest.raises(RuntimeError, match="file-backed"):
             collection.to_zarr(str(tmp_path / "nope.zarr"))
 
-    def test_import_error_without_zarr(self, three_files, tmp_path, monkeypatch):
+    def test_import_error_without_zarr(self, three_files_ramp, tmp_path, monkeypatch):
         import builtins
 
         real_import = builtins.__import__
@@ -177,7 +153,7 @@ class TestErrors:
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
-        collection = DatasetCollection.from_files(three_files)
+        collection = DatasetCollection.from_files(three_files_ramp)
         with pytest.raises(OptionalPackageDoesNotExist) as exc_info:
             collection.to_zarr(str(tmp_path / "nope.zarr"))
         message = str(exc_info.value)
@@ -193,7 +169,7 @@ class TestFromZarrRoundtrip:
     """DatasetCollection.to_zarr → from_zarr round-trips the cube (FR-3, Z-7)."""
 
     @requires_zarr
-    def test_roundtrip_shape_and_geobox(self, three_files, tmp_path):
+    def test_roundtrip_shape_and_geobox(self, three_files_ramp, tmp_path):
         """from_zarr recovers time_length, geobox and EPSG.
 
         Test scenario:
@@ -201,14 +177,14 @@ class TestFromZarrRoundtrip:
             same time_length, rows/cols and EPSG.
         """
         out = str(tmp_path / "rt_cube.zarr")
-        DatasetCollection.from_files(three_files).to_zarr(out)
+        DatasetCollection.from_files(three_files_ramp).to_zarr(out)
         rt = DatasetCollection.from_zarr(out)
         assert rt.time_length == 3, f"time_length {rt.time_length}"
         assert (rt.rows, rt.columns) == (3, 4), f"dims {(rt.rows, rt.columns)}"
         assert rt.meta.epsg == 4326, f"epsg {rt.meta.epsg}"
 
     @requires_zarr
-    def test_data_is_lazy_and_values_match(self, three_files, tmp_path):
+    def test_data_is_lazy_and_values_match(self, three_files_ramp, tmp_path):
         """from_zarr.data is a lazy dask cube whose values match the source.
 
         Test scenario:
@@ -217,7 +193,7 @@ class TestFromZarrRoundtrip:
         """
         import dask.array as da
 
-        source = DatasetCollection.from_files(three_files)
+        source = DatasetCollection.from_files(three_files_ramp)
         out = str(tmp_path / "rt_vals.zarr")
         source.to_zarr(out)
         rt = DatasetCollection.from_zarr(out)

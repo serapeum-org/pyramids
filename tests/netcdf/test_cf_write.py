@@ -18,11 +18,9 @@ from osgeo import gdal
 
 from pyramids.netcdf.cf import write_attributes_to_md_array, write_global_attributes
 from pyramids.netcdf.netcdf import NetCDF
+from tests.netcdf.conftest import GEO, SEED
 
 pytestmark = pytest.mark.core
-
-GEO = (30.0, 0.5, 0, 35.0, 0, -0.5)
-SEED = 42
 
 
 def _make_mem_md_array():

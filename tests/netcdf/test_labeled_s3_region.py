@@ -63,6 +63,20 @@ class _FakeOpener:
         return self._response
 
 
+class _SpyConfig:
+    """Context-manager spy that counts how many times it is entered."""
+
+    def __init__(self):
+        self.entered = 0
+
+    def __enter__(self):
+        self.entered += 1
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
 class TestResolveS3Region:
     """Tests for the anonymous bucket-region HEAD probe."""
 
@@ -412,17 +426,6 @@ class TestS3PathStyleAddressing:
         """
         import numpy as np
 
-        class _SpyConfig:
-            def __init__(self):
-                self.entered = 0
-
-            def __enter__(self):
-                self.entered += 1
-                return self
-
-            def __exit__(self, *exc):
-                return False
-
         mem = gdal.GetDriverByName("MEM").CreateMultiDimensional("m")
         rg = mem.GetRootGroup()
         dim = rg.CreateDimension("x", "", "", 3)
@@ -467,17 +470,6 @@ class TestS3PathStyleAddressing:
     def test_variable_read_reapplies_cloud_config(self):
         """A variable read via ``_read`` also re-enters the stored cloud config."""
         import numpy as np
-
-        class _SpyConfig:
-            def __init__(self):
-                self.entered = 0
-
-            def __enter__(self):
-                self.entered += 1
-                return self
-
-            def __exit__(self, *exc):
-                return False
 
         spy = _SpyConfig()
         store = self._mem_store_with_variable(spy)

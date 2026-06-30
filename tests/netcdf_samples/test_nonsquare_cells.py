@@ -11,10 +11,9 @@ from shapely.geometry import box
 
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
+from tests.netcdf_samples.conftest import TOS as NONSQUARE
 
 pytestmark = pytest.mark.core
-
-NONSQUARE = "cf__7v__1d3-2d3-3d1.nc"  # tos: 2° lon, 1° lat
 
 
 def test_geotransform_uses_separate_x_y_cells(sample):
