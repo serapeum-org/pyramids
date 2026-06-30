@@ -108,6 +108,7 @@ def _to_jsonable(value: Any) -> Any:
 
             ```
     """
+    result: Any
     if isinstance(value, bytes):
         result = value.decode("utf-8", "replace")
     elif isinstance(value, np.ndarray):

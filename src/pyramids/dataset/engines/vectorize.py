@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 from pyramids.dataset.engines._base import _Engine, logger
 
 
-class Vectorize(_Engine):
+class Vectorize(_Engine["Dataset"]):
     """Mixin providing vectorization, clustering, and translate methods for Dataset."""
 
     def _band_to_polygon(self, band: int, col_name: str) -> GeoDataFrame:

@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 from pyramids.dataset.engines._base import _Engine
 
 
-class Bands(_Engine):
+class Bands(_Engine["Dataset"]):
     """Mixin providing band metadata, attribute table, and color table operations."""
 
     def _iloc(self, i: int) -> gdal.Band:

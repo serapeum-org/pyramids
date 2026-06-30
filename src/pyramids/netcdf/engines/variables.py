@@ -21,7 +21,7 @@ own GDAL plumbing (``_writable_root_group`` / ``_replace_raster`` /
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from osgeo import gdal
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from pyramids.netcdf.netcdf import NetCDF
 
 
-class Variables(_Engine):
+class Variables(_Engine["NetCDF"]):
     """Variable add / remove / rename / write collaborator for :class:`NetCDF`.
 
     Owns the bodies of the variable-mutation family. ``NetCDF`` wires one
@@ -886,7 +886,7 @@ def _create_netcdf_from_array(
     # BLOCKSIZE with the dask block shape so the streamed windows map onto whole
     # storage chunks. An explicit `chunk_sizes` always wins.
     if chunk_sizes is None and _is_dask_array(arr):
-        chunk_sizes = tuple(int(axis_chunks[0]) for axis_chunks in arr.chunks)
+        chunk_sizes = tuple(int(axis_chunks[0]) for axis_chunks in cast("Any", arr).chunks)
     md_arr = rg.CreateMDArray(
         variable_name,
         [*gdal_extra_dims, dim_y, dim_x],

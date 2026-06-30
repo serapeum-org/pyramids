@@ -433,7 +433,8 @@ class _MDArrayChunkReader:
 
     def __setstate__(self, state: tuple) -> None:
         manager, variable_name, expected_dtype, starts, counts = state
-        self.__init__(manager, variable_name, expected_dtype, starts, counts)
+        # Re-running __init__ from __setstate__ is the intended unpickle path.
+        self.__init__(manager, variable_name, expected_dtype, starts, counts)  # type: ignore[misc]
 
     def __call__(self) -> np.typing.NDArray:
         return _read_mdarray_chunk(

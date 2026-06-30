@@ -470,6 +470,18 @@ class TestMeshVariable:
         with pytest.raises(ValueError, match="no time dimension"):
             face_var_1d.sel_time(0)
 
+    def test_sel_time_no_data_raises(self):
+        """sel_time raises ValueError when a temporal variable has no loaded data."""
+        var = MeshVariable(name="v", location="face", mesh_name="m", shape=(3, 5))
+        with pytest.raises(ValueError, match="no loaded data"):
+            var.sel_time(0)
+
+    def test_sel_time_range_no_data_raises(self):
+        """sel_time_range raises ValueError when a temporal variable has no loaded data."""
+        var = MeshVariable(name="v", location="face", mesh_name="m", shape=(3, 5))
+        with pytest.raises(ValueError, match="no loaded data"):
+            var.sel_time_range(0, 2)
+
     def test_sel_time_range_valid(self, temporal_var):
         """Test sel_time_range returns a new MeshVariable with sliced data.
 

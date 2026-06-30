@@ -15,7 +15,7 @@ import warnings
 import weakref
 from numbers import Number
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -96,7 +96,7 @@ class _LazyVariableDict(dict):
     def __getitem__(self, key: str) -> NetCDF:
         if not dict.__contains__(self, key) and key in self._names:
             dict.__setitem__(self, key, self._nc.get_variable(key))
-        return dict.__getitem__(self, key)
+        return cast("NetCDF", dict.__getitem__(self, key))
 
     def get(self, key: str, default: Any = None) -> NetCDF | Any:
         if key in self._names:
@@ -112,13 +112,16 @@ class _LazyVariableDict(dict):
     def __iter__(self):
         return iter(self._names)
 
-    def keys(self) -> list[str]:
+    # This lazy view returns materialized lists rather than live dict
+    # views (callers iterate variable names/datasets, not a changing
+    # mapping), so the return types deliberately diverge from dict/Mapping.
+    def keys(self) -> list[str]:  # type: ignore[override]
         return self._names
 
-    def values(self) -> list[NetCDF]:
+    def values(self) -> list[NetCDF]:  # type: ignore[override]
         return [self[k] for k in self._names]
 
-    def items(self) -> list[tuple[str, NetCDF]]:
+    def items(self) -> list[tuple[str, NetCDF]]:  # type: ignore[override]
         return [(k, self[k]) for k in self._names]
 
 
@@ -442,6 +445,14 @@ class NetCDF(Dataset):
     NetCDF Creation guidelines:
         https://acdguide.github.io/Governance/create/create-basics.html
     """
+
+    # NetCDF-only instance attributes assigned outside ``__init__``: the
+    # temp-file path tracked for an xarray round-trip (set by the interop
+    # engine) and the 2-D curvilinear coordinate windows carried on a
+    # cropped subset (set by the selection engine, read defensively via
+    # ``getattr`` in the plot engine).
+    _xarray_temp_path: str
+    _curvilinear_coords: tuple[Any, Any] | None
 
     def __reduce__(self):  # type: ignore[override]
         """Emit the extended recipe tuple carrying NetCDF mode flags.
@@ -1025,7 +1036,10 @@ class NetCDF(Dataset):
                 f"Use nc.get_variable('var_name').{operation}(...) instead."
             )
 
-    def plot(
+    # NetCDF intentionally exposes a richer, variable/selector-oriented plot
+    # signature than the band-oriented Dataset/RasterBase one; the override
+    # is deliberate and not Liskov-substitutable.
+    def plot(  # type: ignore[override]
         self,
         variable: str | None = None,
         *,
@@ -1522,7 +1536,10 @@ class NetCDF(Dataset):
             **kwargs,
         )
 
-    def read_array(
+    # NetCDF adds a leading `variable` selector (and unpack/bbox/masked
+    # options) on top of the RasterBase read_array contract; the wider
+    # signature is deliberate and not Liskov-substitutable.
+    def read_array(  # type: ignore[override]
         self,
         variable: str | None = None,
         band: int | None = None,
@@ -1639,43 +1656,17 @@ class NetCDF(Dataset):
               ``bbox=`` / ``epsg=`` surface for plain rasters.
             - :meth:`crop`: clip the whole dataset by bbox.
         """
-        if bbox is not None:
-            if window is not None:
-                raise ValueError(
-                    "read_array accepts either `window` or `bbox`, not both"
-                )
-            if chunks is not None:
-                raise ValueError(
-                    "read_array(chunks=..., bbox=...) is not supported; "
-                    "read lazily and slice the resulting dask array instead."
-                )
-            crs = epsg if epsg is not None else self.epsg
-            if crs is None:
-                raise ValueError(
-                    "read_array(bbox=…) requires an explicit `epsg=` when "
-                    "the NetCDF itself has no CRS (self.epsg is None) — a "
-                    "bbox without a CRS is ambiguous"
-                )
-            # Build the FC once at the override boundary and forward as
-            # `window=fc, bbox=None` so the guards never re-fire on the
-            # recursive container→subset call or on super().read_array.
-            # Mirrors NetCDF.crop's "build mask once at the top" pattern.
-            window = FeatureCollection.from_bbox(bbox, epsg=crs)
-            bbox = None
-            epsg = None
+        read_window = self._resolve_bbox_to_window(window, bbox, epsg, chunks)
         is_container = (
             self._is_md_array and not self._is_subset and self.band_count == 0
         )
         if is_container:
             if variable is None:
                 self._check_not_container("read_array")
-            subset = self.get_variable(variable)
-            return subset.read_array(
+            return self.get_variable(cast("str", variable)).read_array(
                 band=band,
-                window=window,
+                window=read_window,
                 unpack=unpack,
-                bbox=bbox,
-                epsg=epsg,
                 chunks=chunks,
                 lock=lock,
                 masked=masked,
@@ -1688,49 +1679,88 @@ class NetCDF(Dataset):
                 "instead."
             )
         if chunks is None:
-            result = super().read_array(
-                band=band,
-                window=window,
-                bbox=bbox,
-                epsg=epsg,
-                masked=masked,
-            )
-            if unpack:
-                result = apply_unpack(
-                    result,
-                    getattr(self, "_scale", None),
-                    getattr(self, "_offset", None),
-                )
+            result = self._read_array_eager(band, read_window, masked)
         else:
-            if masked:
-                raise NotImplementedError(
-                    "read_array(masked=True) is not supported together with "
-                    "chunks=; read eagerly, or mask the dask array yourself."
-                )
-            parent = self._parent_nc if self._parent_nc is not None else self
-            path = parent._file_name
-            if path.startswith("NETCDF"):
-                path = path.split(":")[1][1:-1]
-            var_name = self._source_var_name
-            if var_name is None:
-                raise ValueError(
-                    "Lazy read requires a variable name; pass "
-                    "`variable=` on the container or call read_array "
-                    "on a subset from `get_variable()`."
-                )
-            result = build_lazy_array(
+            result = self._read_array_lazy(chunks, lock, masked)
+        if unpack:
+            result = apply_unpack(
+                result,
+                getattr(self, "_scale", None),
+                getattr(self, "_offset", None),
+            )
+        return cast(ArrayLike, result)
+
+    def _resolve_bbox_to_window(
+        self,
+        window: Any,
+        bbox: tuple[float, float, float, float] | list[float] | None,
+        epsg: Any,
+        chunks: Any,
+    ) -> Any:
+        """Fold a ``bbox`` into a one-row FeatureCollection window (else pass ``window`` through).
+
+        Building the FeatureCollection once here — and returning ``window``
+        unchanged when no ``bbox`` is given — keeps the bbox/window/chunks
+        guards from re-firing on the recursive container->subset call or on
+        ``super().read_array``. Mirrors NetCDF.crop's "build mask once at the
+        top" pattern.
+        """
+        if bbox is None:
+            return window
+        if window is not None:
+            raise ValueError(
+                "read_array accepts either `window` or `bbox`, not both"
+            )
+        if chunks is not None:
+            raise ValueError(
+                "read_array(chunks=..., bbox=...) is not supported; "
+                "read lazily and slice the resulting dask array instead."
+            )
+        crs = epsg if epsg is not None else self.epsg
+        if crs is None:
+            raise ValueError(
+                "read_array(bbox=…) requires an explicit `epsg=` when "
+                "the NetCDF itself has no CRS (self.epsg is None) — a "
+                "bbox without a CRS is ambiguous"
+            )
+        return FeatureCollection.from_bbox(bbox, epsg=crs)
+
+    def _read_array_eager(
+        self, band: int | None, window: Any, masked: bool
+    ) -> ArrayLike:
+        """Eager (numpy) read through the Dataset mixin."""
+        return cast(
+            ArrayLike,
+            super().read_array(band=band, window=window, masked=masked),
+        )
+
+    def _read_array_lazy(self, chunks: Any, lock: Any, masked: bool) -> ArrayLike:
+        """Lazy (dask) read via ``build_lazy_array``; rejects unsupported combos."""
+        if masked:
+            raise NotImplementedError(
+                "read_array(masked=True) is not supported together with "
+                "chunks=; read eagerly, or mask the dask array yourself."
+            )
+        parent = self._parent_nc if self._parent_nc is not None else self
+        path = parent._file_name
+        if path.startswith("NETCDF"):
+            path = path.split(":")[1][1:-1]
+        var_name = self._source_var_name
+        if var_name is None:
+            raise ValueError(
+                "Lazy read requires a variable name; pass "
+                "`variable=` on the container or call read_array "
+                "on a subset from `get_variable()`."
+            )
+        return cast(
+            ArrayLike,
+            build_lazy_array(
                 path=path,
                 variable_name=var_name,
                 chunks=chunks,
                 lock=lock,
-            )
-            if unpack:
-                result = apply_unpack(
-                    result,
-                    getattr(self, "_scale", None),
-                    getattr(self, "_offset", None),
-                )
-        return result
+            ),
+        )
 
     def _preserve_netcdf_metadata(self, result: Dataset) -> NetCDF:
         """Wrap a Dataset result as a NetCDF, preserving variable-subset metadata.
@@ -2132,8 +2162,8 @@ class NetCDF(Dataset):
                 NetCDF._copy_band_dim_metadata(ds, var)
                 result.set_variable(var_name, ds)
 
-        self._carry_aux_variables(result, aux_vars, operation)
-        return result
+        self._carry_aux_variables(cast("NetCDF", result), aux_vars, operation)
+        return cast("NetCDF", result)
 
     def reduce(self, *args, **kwargs) -> "NetCDF":
         """Facade — :meth:`Selection.reduce <pyramids.netcdf.engines.selection.Selection.reduce>`."""
@@ -2157,7 +2187,7 @@ class NetCDF(Dataset):
                 arr = np.expand_dims(arr, axis=0)
             if len(var._band_dim_names) > 1 and arr.ndim == 3 and var._band_dim_sizes:
                 arr = arr.reshape(*var._band_dim_sizes, arr.shape[-2], arr.shape[-1])
-        return arr
+        return cast("np.typing.NDArray", arr)
 
     def _resolve_group_positions(
         self, dim: str, groupby: list | tuple | str | None
@@ -2351,7 +2381,7 @@ class NetCDF(Dataset):
                 maintain_alignment=maintain_alignment,
             )
             result = self._preserve_netcdf_metadata(result)
-        return result
+        return cast("NetCDF", result)
 
     def warped_view(
         self,
@@ -2469,7 +2499,7 @@ class NetCDF(Dataset):
                 method=method,
             )
             result = self._preserve_netcdf_metadata(result)
-        return result
+        return cast("NetCDF", result)
 
     def sel(self, *args, **kwargs) -> "NetCDF":
         """Facade — :meth:`Selection.sel <pyramids.netcdf.engines.selection.Selection.sel>`."""
@@ -3310,15 +3340,16 @@ class NetCDF(Dataset):
             result = dim_names.index(target)
         else:
             short = target.lstrip("/").split("/")[-1]
-            result = next(
+            match = next(
                 (i for i, name in enumerate(dim_names)
                  if name.lstrip("/").split("/")[-1] == short),
                 None,
             )
-            if result is None:
+            if match is None:
                 raise ValueError(
                     f"dimension {target!r} not found; available dimensions: {dim_names}"
                 )
+            result = match
         return result
 
     @staticmethod
@@ -3424,6 +3455,12 @@ class NetCDF(Dataset):
         Windows).
         """
         rg = self._working_group()
+        # This MDIM read path is only reached for a multidim container, which
+        # always resolves to a working group; guard explicitly (rather than
+        # `assert`, which `python -O` would strip) so a None never reaches
+        # OpenMDArray as a bare AttributeError.
+        if rg is None:
+            raise RuntimeError("No working group resolved for the MDIM read.")
         md_arr = rg.OpenMDArray(variable_name)
         dims = md_arr.GetDimensions()
 
@@ -4522,7 +4559,7 @@ class NetCDF(Dataset):
             else no_data_value
         )
         materialized = Dataset.create_from_array(
-            arr,
+            cast("np.typing.NDArray", arr),
             geo=reprojected.geotransform,
             epsg=reprojected.epsg,
             no_data_value=ndv_scalar,
@@ -4825,7 +4862,7 @@ class NetCDF(Dataset):
                     f"{label}={value!r} is not a dimension of this variable; "
                     f"available: {dim_names}"
                 )
-        return dim_names.index(y_dim), dim_names.index(x_dim)
+        return dim_names.index(cast("str", y_dim)), dim_names.index(cast("str", x_dim))
 
     @staticmethod
     def _cf_spatial_axes(rg: Any, dim_names: list[str]) -> tuple[int, int] | None:
@@ -4996,7 +5033,7 @@ class NetCDF(Dataset):
                 if attr is not None:
                     result = float(np.asarray(attr.ReadAsDoubleArray()).ravel()[0])
                     break
-        return result
+        return cast("float | None", result)
 
     @staticmethod
     def _reproject_bbox_envelope(

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import geopandas as gpd
 import numpy as np
@@ -165,7 +165,7 @@ class UgridDataset:
                 self._cached_crs = CRS.from_wkt(self._crs_wkt)
             except Exception:
                 pass
-        return self._cached_crs
+        return cast("CRS | None", self._cached_crs)
 
     @property
     def epsg(self) -> int | None:
@@ -286,7 +286,7 @@ class UgridDataset:
         target_epsg = epsg or self.epsg or 4326
         result = Dataset.create_from_array(
             grid_array,
-            geo=geotransform,
+            geo=cast("tuple[float, float, float, float, float, float]", geotransform),
             epsg=target_epsg,
             no_data_value=nodata,
         )
@@ -820,9 +820,15 @@ class UgridDataset:
                   use it for a custom colorbar or ``glyph.im.set_clim(...)``.
                   It is ``None`` after :meth:`plot_outline` (an outline
                   carries no scalar mapping).
+
+        Raises:
+            ValueError: If the selected variable has no loaded data, or if
+                `basemap` is requested while the dataset has no CRS (`epsg`).
         """
         var = self.get_data(variable_name)
         data = var.data
+        if data is None:
+            raise ValueError(f"Variable {variable_name!r} has no loaded data to plot.")
         if var.has_time:
             data = data[0]
         if title is None:
@@ -950,9 +956,9 @@ def _read_data_variables(
 
         nodata = attrs.get("_FillValue")
         if nodata is not None:
-            nodata = float(nodata)
-        units = attrs.get("units")
-        standard_name = attrs.get("standard_name")
+            nodata = float(cast("float", nodata))
+        units = cast("str | None", attrs.get("units"))
+        standard_name = cast("str | None", attrs.get("standard_name"))
         try:
             dtype = np.dtype(_dtype_to_str(md_arr.GetDataType()))
         except (RuntimeError, TypeError):

@@ -11,10 +11,17 @@ from __future__ import annotations
 
 import logging
 import weakref
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
 
 if TYPE_CHECKING:
-    from pyramids.dataset.dataset import Dataset
+    from pyramids.dataset.abstract_dataset import RasterBase
+
+# Every engine is parameterised by the concrete dataset it collaborates with:
+# the raster engines bind `_Engine["Dataset"]`, the netCDF engines
+# `_Engine["NetCDF"]`. This lets the type checker resolve `self._ds.<attr>`
+# against the right surface (e.g. NetCDF-only members on the netCDF engines).
+# Bound to the `RasterBase` ABC that `Dataset`/`NetCDF` extend.
+_DatasetT = TypeVar("_DatasetT", bound="RasterBase")
 
 
 # Module-level logger used by engine staticmethods that have no
@@ -38,7 +45,7 @@ def _recreate_placeholder() -> _Placeholder:
     return _Placeholder()
 
 
-class _Engine:
+class _Engine(Generic[_DatasetT]):
     """Base class for every Dataset collaborator.
 
     Holds a **weak** back-reference to the parent `Dataset`. The
@@ -62,10 +69,18 @@ class _Engine:
     # to re-bind the back-reference after `__dict__.update`.
     __slots__ = ("_ds",)
 
-    def __init__(self, ds: Dataset) -> None:
+    # `weakref.proxy` is transparent — at runtime the proxy forwards every
+    # attribute to the wrapped dataset (see the class docstring) — so the
+    # slot is typed as the dataset it stands in for. The runtime value is a
+    # `weakref.ProxyType[_DatasetT]`, but typing it as `_DatasetT` lets the
+    # checker resolve `self._ds.crs`, `self._ds.read_array(...)`, etc.
+    _ds: _DatasetT
+
+    def __init__(self, ds: _DatasetT) -> None:
         # `weakref.proxy` so the back-reference does not create a
         # strong cycle with the parent Dataset. See class docstring.
-        self._ds = weakref.proxy(ds)
+        # The proxy is transparent, so cast it back to the wrapped type.
+        self._ds = cast(_DatasetT, weakref.proxy(ds))
 
     def __reduce__(self) -> tuple[Any, tuple]:
         return (_recreate_placeholder, ())
