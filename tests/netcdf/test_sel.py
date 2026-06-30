@@ -135,6 +135,12 @@ class TestSelSlice:
             12.0,
             18.0,
         ], f"Expected [6, 12, 18], got {result._band_dim_values}"
+        expected = np.stack([var.read_array(band=i) for i in (1, 2, 3)], axis=0)
+        assert_array_equal(
+            result.read_array(),
+            expected,
+            err_msg="slice(6, 18) data should equal stacked bands 1, 2, 3",
+        )
 
     def test_open_start(self):
         """slice(None, 12) should select from beginning up to 12.
