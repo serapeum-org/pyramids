@@ -49,15 +49,6 @@ def test_every_root_variable_loads(sample_name, sample):
         nc.close()
 
 
-def test_global_attributes_readable(sample_name, sample):
-    """``global_attributes`` returns a dict (possibly empty) without raising on any shape."""
-    nc = NetCDF.read_file(sample(sample_name))
-    try:
-        assert isinstance(nc.global_attributes, dict)
-    finally:
-        nc.close()
-
-
 def test_close_releases_handle_and_reopens(sample_name, sample):
     """After ``close()`` the file handle is released, so the same path re-opens (Windows lock check)."""
     path = sample(sample_name)

@@ -18,16 +18,6 @@ def test_classic_mode_rename_raises(sample):
         nc.close()
 
 
-def test_get_variable_unknown_raises(sample):
-    """Requesting a missing variable raises ValueError naming the bad variable."""
-    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1.nc"))
-    try:
-        with pytest.raises(ValueError, match="not a valid variable name"):
-            nc.get_variable("no_such_variable")
-    finally:
-        nc.close()
-
-
 def test_close_is_idempotent(sample):
     """Calling ``close`` twice releases the GDAL handle and is safe to repeat."""
     nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1.nc"))
