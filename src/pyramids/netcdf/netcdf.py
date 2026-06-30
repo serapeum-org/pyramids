@@ -1656,43 +1656,17 @@ class NetCDF(Dataset):
               ``bbox=`` / ``epsg=`` surface for plain rasters.
             - :meth:`crop`: clip the whole dataset by bbox.
         """
-        if bbox is not None:
-            if window is not None:
-                raise ValueError(
-                    "read_array accepts either `window` or `bbox`, not both"
-                )
-            if chunks is not None:
-                raise ValueError(
-                    "read_array(chunks=..., bbox=...) is not supported; "
-                    "read lazily and slice the resulting dask array instead."
-                )
-            crs = epsg if epsg is not None else self.epsg
-            if crs is None:
-                raise ValueError(
-                    "read_array(bbox=…) requires an explicit `epsg=` when "
-                    "the NetCDF itself has no CRS (self.epsg is None) — a "
-                    "bbox without a CRS is ambiguous"
-                )
-            # Build the FC once at the override boundary and forward as
-            # `window=fc, bbox=None` so the guards never re-fire on the
-            # recursive container→subset call or on super().read_array.
-            # Mirrors NetCDF.crop's "build mask once at the top" pattern.
-            window = FeatureCollection.from_bbox(bbox, epsg=crs)
-            bbox = None
-            epsg = None
+        read_window = self._resolve_bbox_to_window(window, bbox, epsg, chunks)
         is_container = (
             self._is_md_array and not self._is_subset and self.band_count == 0
         )
         if is_container:
             if variable is None:
                 self._check_not_container("read_array")
-            subset = self.get_variable(cast("str", variable))
-            return subset.read_array(
+            return self.get_variable(cast("str", variable)).read_array(
                 band=band,
-                window=window,
+                window=read_window,
                 unpack=unpack,
-                bbox=bbox,
-                epsg=epsg,
                 chunks=chunks,
                 lock=lock,
                 masked=masked,
@@ -1705,49 +1679,88 @@ class NetCDF(Dataset):
                 "instead."
             )
         if chunks is None:
-            result = super().read_array(
-                band=band,
-                window=window,
-                bbox=bbox,
-                epsg=epsg,
-                masked=masked,
-            )
-            if unpack:
-                result = apply_unpack(
-                    result,
-                    getattr(self, "_scale", None),
-                    getattr(self, "_offset", None),
-                )
+            result = self._read_array_eager(band, read_window, masked)
         else:
-            if masked:
-                raise NotImplementedError(
-                    "read_array(masked=True) is not supported together with "
-                    "chunks=; read eagerly, or mask the dask array yourself."
-                )
-            parent = self._parent_nc if self._parent_nc is not None else self
-            path = parent._file_name
-            if path.startswith("NETCDF"):
-                path = path.split(":")[1][1:-1]
-            var_name = self._source_var_name
-            if var_name is None:
-                raise ValueError(
-                    "Lazy read requires a variable name; pass "
-                    "`variable=` on the container or call read_array "
-                    "on a subset from `get_variable()`."
-                )
-            result = build_lazy_array(
+            result = self._read_array_lazy(chunks, lock, masked)
+        if unpack:
+            result = apply_unpack(
+                result,
+                getattr(self, "_scale", None),
+                getattr(self, "_offset", None),
+            )
+        return cast(ArrayLike, result)
+
+    def _resolve_bbox_to_window(
+        self,
+        window: Any,
+        bbox: tuple[float, float, float, float] | list[float] | None,
+        epsg: Any,
+        chunks: Any,
+    ) -> Any:
+        """Fold a ``bbox`` into a one-row FeatureCollection window (else pass ``window`` through).
+
+        Building the FeatureCollection once here — and returning ``window``
+        unchanged when no ``bbox`` is given — keeps the bbox/window/chunks
+        guards from re-firing on the recursive container->subset call or on
+        ``super().read_array``. Mirrors NetCDF.crop's "build mask once at the
+        top" pattern.
+        """
+        if bbox is None:
+            return window
+        if window is not None:
+            raise ValueError(
+                "read_array accepts either `window` or `bbox`, not both"
+            )
+        if chunks is not None:
+            raise ValueError(
+                "read_array(chunks=..., bbox=...) is not supported; "
+                "read lazily and slice the resulting dask array instead."
+            )
+        crs = epsg if epsg is not None else self.epsg
+        if crs is None:
+            raise ValueError(
+                "read_array(bbox=…) requires an explicit `epsg=` when "
+                "the NetCDF itself has no CRS (self.epsg is None) — a "
+                "bbox without a CRS is ambiguous"
+            )
+        return FeatureCollection.from_bbox(bbox, epsg=crs)
+
+    def _read_array_eager(
+        self, band: int | None, window: Any, masked: bool
+    ) -> ArrayLike:
+        """Eager (numpy) read through the Dataset mixin."""
+        return cast(
+            ArrayLike,
+            super().read_array(band=band, window=window, masked=masked),
+        )
+
+    def _read_array_lazy(self, chunks: Any, lock: Any, masked: bool) -> ArrayLike:
+        """Lazy (dask) read via ``build_lazy_array``; rejects unsupported combos."""
+        if masked:
+            raise NotImplementedError(
+                "read_array(masked=True) is not supported together with "
+                "chunks=; read eagerly, or mask the dask array yourself."
+            )
+        parent = self._parent_nc if self._parent_nc is not None else self
+        path = parent._file_name
+        if path.startswith("NETCDF"):
+            path = path.split(":")[1][1:-1]
+        var_name = self._source_var_name
+        if var_name is None:
+            raise ValueError(
+                "Lazy read requires a variable name; pass "
+                "`variable=` on the container or call read_array "
+                "on a subset from `get_variable()`."
+            )
+        return cast(
+            ArrayLike,
+            build_lazy_array(
                 path=path,
                 variable_name=var_name,
                 chunks=chunks,
                 lock=lock,
-            )
-            if unpack:
-                result = apply_unpack(
-                    result,
-                    getattr(self, "_scale", None),
-                    getattr(self, "_offset", None),
-                )
-        return cast(ArrayLike, result)
+            ),
+        )
 
     def _preserve_netcdf_metadata(self, result: Dataset) -> NetCDF:
         """Wrap a Dataset result as a NetCDF, preserving variable-subset metadata.
