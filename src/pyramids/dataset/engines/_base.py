@@ -14,14 +14,14 @@ import weakref
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
 
 if TYPE_CHECKING:
-    from pyramids.dataset.abstract_dataset import AbstractDataset
-    from pyramids.dataset.dataset import Dataset  # noqa: F401  (referenced in subclass forward refs)
+    from pyramids.dataset.abstract_dataset import RasterBase
 
 # Every engine is parameterised by the concrete dataset it collaborates with:
 # the raster engines bind `_Engine["Dataset"]`, the netCDF engines
 # `_Engine["NetCDF"]`. This lets the type checker resolve `self._ds.<attr>`
 # against the right surface (e.g. NetCDF-only members on the netCDF engines).
-_DatasetT = TypeVar("_DatasetT", bound="AbstractDataset")
+# Bound to the `RasterBase` ABC that `Dataset`/`NetCDF` extend.
+_DatasetT = TypeVar("_DatasetT", bound="RasterBase")
 
 
 # Module-level logger used by engine staticmethods that have no
