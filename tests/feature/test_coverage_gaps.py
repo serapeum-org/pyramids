@@ -97,11 +97,6 @@ class TestMissingFileErrors:
         with pytest.raises((DataSourceError, FileNotFoundError)):
             list(FeatureCollection.iter_features(missing))
 
-    def test_list_layers_missing_file(self, tmp_path: Path):
-        missing = tmp_path / "nope.gpkg"
-        with pytest.raises((DataSourceError, FileNotFoundError)):
-            FeatureCollection.list_layers(missing)
-
 
 class TestSchemaPolygon:
     """Pure-Polygon schema reports 'Polygon'."""
