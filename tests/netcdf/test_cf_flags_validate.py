@@ -7,11 +7,9 @@ import pytest
 
 from pyramids.netcdf.cf import decode_flags, validate_cf
 from pyramids.netcdf.netcdf import NetCDF
+from tests.netcdf.conftest import GEO, SEED, MockDim
 
 pytestmark = pytest.mark.core
-
-GEO = (30.0, 0.5, 0, 35.0, 0, -0.5)
-SEED = 42
 
 
 class TestDecodeFlags:
@@ -89,11 +87,6 @@ class TestValidateCF:
         return MockVar(attrs, unit)
 
     def _make_mock_dim(self, name):
-        class MockDim:
-            def __init__(self, n):
-                self.name = n
-                self.full_name = f"/{n}"
-
         return MockDim(name)
 
     def test_compliant_file(self):

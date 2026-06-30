@@ -3,11 +3,11 @@
 import pytest
 
 from pyramids.netcdf import NetCDF, UgridDataset
+from tests.netcdf_samples.conftest import MESH
 
 pytestmark = pytest.mark.core
 
 _UNSTRUCTURED_DIMS = {"n_face", "n_node", "n_edge", "ncol"}
-MESH = "ugrid__6v__1d5-2d1.nc"               # a true mesh: nodes/faces + face_node_connectivity
 DATA_ONLY = ["ugrid__1v__3d1.nc", "ugrid__1v__1d1.nc"]  # data over a mesh dim, no topology in-file
 
 

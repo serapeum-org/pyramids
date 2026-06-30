@@ -16,12 +16,12 @@ from shapely.geometry import MultiPolygon, Polygon
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
 from pyramids.netcdf._plot import NetCDFPlot
+from tests.netcdf_samples.conftest import TOS as RECTILINEAR
 
 pytestmark = pytest.mark.core
 
 ROMS = "cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc"
 RASM = "none__4v__1d1-2d2-3d1__curv.nc"
-RECTILINEAR = "cf__7v__1d3-2d3-3d1.nc"
 
 
 def _fc(coords):

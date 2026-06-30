@@ -27,6 +27,7 @@ from pyramids.dataset.merge import (
     merge_rasters,
     stack_bands,
 )
+from tests._helpers import write_raster
 
 pytestmark = pytest.mark.core
 
@@ -61,31 +62,6 @@ class _FakeSigner:
         return dict(self._env)
 
 
-def _write(path, arr, top_left, *, epsg=4326, cell_size=1.0, nodata=-9999.0):
-    """Write ``arr`` to ``path`` as a GeoTIFF and return the path string.
-
-    Args:
-        path: Output path for the GeoTIFF.
-        arr: Array to write.
-        top_left: Top-left corner of the raster.
-        epsg: EPSG code of the source CRS (default 4326).
-        cell_size: Pixel size in CRS units.
-        nodata: No-data marker stamped on the output.
-
-    Returns:
-        str: The output path as a string.
-    """
-    ds = Dataset.create_from_array(
-        arr,
-        top_left_corner=top_left,
-        cell_size=cell_size,
-        epsg=epsg,
-        no_data_value=nodata,
-    )
-    ds.to_file(str(path))
-    return str(path)
-
-
 @pytest.fixture(scope="function")
 def overlapping_pair(tmp_path):
     """Two 4x4 rasters overlapping in a 2-column strip on a shared 6x4 grid.
@@ -98,8 +74,8 @@ def overlapping_pair(tmp_path):
     """
     a = np.full((4, 4), 10.0, dtype="float32")
     b = np.full((4, 4), 20.0, dtype="float32")
-    pa = _write(tmp_path / "a.tif", a, (0, 4))
-    pb = _write(tmp_path / "b.tif", b, (2, 4))
+    pa = write_raster(tmp_path / "a.tif", a, (0, 4))
+    pb = write_raster(tmp_path / "b.tif", b, (2, 4))
     return pa, pb
 
 
@@ -158,8 +134,8 @@ class TestMergeMethod:
         """
         a = np.full((2, 2), 5.0, dtype="float32")
         b = np.full((2, 2), 7.0, dtype="float32")
-        pa = _write(tmp_path / "tl.tif", a, (0, 4))
-        pb = _write(tmp_path / "br.tif", b, (2, 2))
+        pa = write_raster(tmp_path / "tl.tif", a, (0, 4))
+        pb = write_raster(tmp_path / "br.tif", b, (2, 2))
         out = tmp_path / "gappy.tif"
         merge_rasters([pa, pb], out, no_data_value=-1.0, method="sum")
         arr = Dataset.read_file(str(out)).read_array()
@@ -183,8 +159,8 @@ class TestMergeMethod:
         """
         a = np.stack([np.full((3, 3), 1.0), np.full((3, 3), 8.0)]).astype("float32")
         b = np.stack([np.full((3, 3), 4.0), np.full((3, 3), 2.0)]).astype("float32")
-        pa = _write(tmp_path / "ma.tif", a, (0, 3))
-        pb = _write(tmp_path / "mb.tif", b, (0, 3))
+        pa = write_raster(tmp_path / "ma.tif", a, (0, 3))
+        pb = write_raster(tmp_path / "mb.tif", b, (0, 3))
         out = tmp_path / "mmax.tif"
         merge_rasters([pa, pb], out, no_data_value=-9999.0, method="max")
         arr = Dataset.read_file(str(out)).read_array()
@@ -204,8 +180,8 @@ class TestMergeMethod:
         """
         a = np.full((4, 4), 10.0, dtype="float32")
         b = np.full((4, 4), 20.0, dtype="float32")
-        pa = _write(tmp_path / "na.tif", a, (0, 4), nodata=-9999.0)
-        pb = _write(tmp_path / "nb.tif", b, (2, 4), nodata=-9999.0)
+        pa = write_raster(tmp_path / "na.tif", a, (0, 4), nodata=-9999.0)
+        pb = write_raster(tmp_path / "nb.tif", b, (2, 4), nodata=-9999.0)
         out = tmp_path / "n_min.tif"
         merge_rasters([pa, pb], out, no_data_value=-1.0, n=20, method="min")
         arr = Dataset.read_file(str(out)).read_array()
@@ -268,8 +244,8 @@ def disjoint_pair(tmp_path):
     """
     a = np.full((4, 4), 10, dtype="int32")
     b = np.full((4, 4), 20, dtype="int32")
-    pa = _write(tmp_path / "left.tif", a, (0, 4))
-    pb = _write(tmp_path / "right.tif", b, (8, 4))
+    pa = write_raster(tmp_path / "left.tif", a, (0, 4))
+    pb = write_raster(tmp_path / "right.tif", b, (8, 4))
     return pa, pb
 
 
@@ -393,8 +369,8 @@ def shared_crs_pair(tmp_path):
     """
     a = np.full((4, 4), 10.0, dtype="float32")
     b = np.full((4, 4), 20.0, dtype="float32")
-    pa = _write(tmp_path / "sa.tif", a, (0, 4), epsg=4326)
-    pb = _write(tmp_path / "sb.tif", b, (2, 4), epsg=4326)
+    pa = write_raster(tmp_path / "sa.tif", a, (0, 4), epsg=4326)
+    pb = write_raster(tmp_path / "sb.tif", b, (2, 4), epsg=4326)
     return pa, pb
 
 
@@ -410,8 +386,8 @@ def disagree_pair(tmp_path):
     """
     a = np.full((4, 4), 10.0, dtype="float32")
     b = np.full((4, 4), 20.0, dtype="float32")
-    pa = _write(tmp_path / "da_4326.tif", a, (0, 4), epsg=4326)
-    pb_4326 = _write(tmp_path / "db_4326.tif", b, (2, 4), epsg=4326)
+    pa = write_raster(tmp_path / "da_4326.tif", a, (0, 4), epsg=4326)
+    pb_4326 = write_raster(tmp_path / "db_4326.tif", b, (2, 4), epsg=4326)
     pb = str(tmp_path / "db_3857.tif")
     Dataset.read_file(pb_4326).to_crs(3857).to_file(pb)
     return pa, pb
@@ -692,8 +668,8 @@ def same_grid_bands(tmp_path):
     """
     a = np.full((4, 4), 1.0, dtype="float32")
     b = np.full((4, 4), 2.0, dtype="float32")
-    pa = _write(tmp_path / "band_a.tif", a, (0, 4))
-    pb = _write(tmp_path / "band_b.tif", b, (0, 4))
+    pa = write_raster(tmp_path / "band_a.tif", a, (0, 4))
+    pb = write_raster(tmp_path / "band_b.tif", b, (0, 4))
     return pa, pb
 
 

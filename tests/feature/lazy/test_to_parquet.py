@@ -13,53 +13,11 @@ original.
 
 from __future__ import annotations
 
-import geopandas as gpd
 import pytest
-from shapely.geometry import Point
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_dask_geopandas, import_pyarrow
+from tests._marks import requires_dask_geopandas, requires_pyarrow
 
 pytestmark = pytest.mark.parquet_lazy
-
-try:
-    import_dask_geopandas("dask-geopandas not installed")
-    import dask_geopandas
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_DASK_GP = False
-else:
-    HAS_DASK_GP = True
-try:
-    import_pyarrow("pyarrow not installed")
-    import pyarrow
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_PYARROW = False
-else:
-    HAS_PYARROW = True
-requires_dask_geopandas = pytest.mark.skipif(
-    not HAS_DASK_GP, reason="dask-geopandas not installed"
-)
-requires_pyarrow = pytest.mark.skipif(not HAS_PYARROW, reason="pyarrow not installed")
-
-
-@pytest.fixture
-def small_gdf():
-    """10 points in EPSG:4326."""
-    return gpd.GeoDataFrame(
-        {"id": list(range(10)), "class": ["a"] * 5 + ["b"] * 5},
-        geometry=[Point(i, i) for i in range(10)],
-        crs="EPSG:4326",
-    )
-
-
-@pytest.fixture
-def lfc(small_gdf):
-    """A 2-partition LazyFeatureCollection built from small_gdf."""
-    dg = pytest.importorskip("dask_geopandas")
-    from pyramids.feature import LazyFeatureCollection
-
-    ddf = dg.from_geopandas(small_gdf, npartitions=2)
-    return LazyFeatureCollection.from_dask_gdf(ddf)
 
 
 @requires_pyarrow

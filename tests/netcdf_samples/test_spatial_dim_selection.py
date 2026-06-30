@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from pyramids.netcdf import NetCDF
+from tests.netcdf_samples.conftest import AIR as CF
 
 pytestmark = pytest.mark.core
 
@@ -39,8 +40,6 @@ def test_time_coordinate_dimension_is_not_spatial():
 # cf__48v T(time, lat, lev, lon): lat/lon are NOT the trailing dims and carry no CF axis attributes,
 # so it is the canonical "needs an explicit override" case (lat=64, lev=6, lon=128).
 NONSTD = "cf__48v__1d17-3d21-4d10.nc"
-# A CF file whose lat/lon coordinate variables carry units -> auto-detection should fire.
-CF = "coards__4v__1d3-3d1.nc"
 
 
 def test_cf_auto_detection_resolves_lat_lon(sample):

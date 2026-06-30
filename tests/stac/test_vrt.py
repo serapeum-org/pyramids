@@ -11,21 +11,9 @@ import pytest
 
 from pyramids.dataset import Dataset
 from pyramids.stac._vrt import build_vrt_from_stac
+from tests._helpers import write_raster
 
 pytestmark = pytest.mark.core
-
-
-def _write(path, arr, top_left, *, cell_size=1.0, epsg=4326, nodata=-9999.0):
-    """Write `arr` to `path` as a GeoTIFF and return the path string."""
-    ds = Dataset.create_from_array(
-        arr,
-        top_left_corner=top_left,
-        cell_size=cell_size,
-        epsg=epsg,
-        no_data_value=nodata,
-    )
-    ds.to_file(str(path))
-    return str(path)
 
 
 @pytest.fixture
@@ -39,8 +27,8 @@ def adjacent_tiles(tmp_path):
     """
     a = np.full((4, 4), 10.0, dtype="float32")
     b = np.full((4, 4), 20.0, dtype="float32")
-    pa = _write(tmp_path / "a.tif", a, (0.0, 4.0))
-    pb = _write(tmp_path / "b.tif", b, (4.0, 4.0))
+    pa = write_raster(tmp_path / "a.tif", a, (0.0, 4.0))
+    pb = write_raster(tmp_path / "b.tif", b, (4.0, 4.0))
     return [{"assets": {"data": {"href": pa}}}, {"assets": {"data": {"href": pb}}}]
 
 
@@ -81,8 +69,8 @@ class TestBuildVrtFromStac:
         """
         a = np.full((3, 3), 1.0, dtype="float32")
         b = np.full((3, 3), 2.0, dtype="float32")
-        pa = _write(tmp_path / "sa.tif", a, (0.0, 3.0))
-        pb = _write(tmp_path / "sb.tif", b, (0.0, 3.0))
+        pa = write_raster(tmp_path / "sa.tif", a, (0.0, 3.0))
+        pb = write_raster(tmp_path / "sb.tif", b, (0.0, 3.0))
         items = [{"assets": {"d": {"href": pa}}}, {"assets": {"d": {"href": pb}}}]
         ds = build_vrt_from_stac(items, asset="d", separate=True)
         assert (

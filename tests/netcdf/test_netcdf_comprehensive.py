@@ -16,7 +16,7 @@ from osgeo import gdal
 
 from pyramids.dataset import Dataset
 from pyramids.netcdf.netcdf import NetCDF
-from tests.netcdf.conftest import make_3d_nc
+from tests.netcdf.conftest import make_2d_nc, make_3d_nc
 
 pytestmark = pytest.mark.core
 
@@ -37,24 +37,6 @@ def _make_3d_nc(rows=10, cols=12, bands=3, epsg=4326, variable_name="temperature
     )
 
 
-def _make_2d_nc(rows=10, cols=12, variable_name="elevation"):
-    """Create a 2D in-memory NetCDF for testing.
-
-    Returns:
-        NetCDF: An in-memory multidimensional NetCDF container.
-    """
-    arr = np.random.RandomState(99).rand(rows, cols).astype(np.float64)
-    geo = (0.0, 1.0, 0, float(rows), 0, -1.0)
-    return NetCDF.create_from_array(
-        arr=arr,
-        geo=geo,
-        epsg=4326,
-        no_data_value=-9999.0,
-        path=None,
-        variable_name=variable_name,
-    )
-
-
 @pytest.fixture(scope="module")
 def nc_3d():
     """Module-scoped 3D NetCDF fixture."""
@@ -64,7 +46,7 @@ def nc_3d():
 @pytest.fixture(scope="module")
 def nc_2d():
     """Module-scoped 2D NetCDF fixture."""
-    return _make_2d_nc()
+    return make_2d_nc()
 
 
 @pytest.fixture(scope="module")
@@ -306,7 +288,7 @@ class TestNoDataValue:
             The property setter delegates to super() which has a known
             compatibility issue, so we test the underlying mechanism.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         var = nc.get_variable("elevation")
         original = tuple(var.no_data_value)
         var._no_data_value = [-1.0]
@@ -567,7 +549,7 @@ class TestSetVariableEdgeCases:
             Passing attrs={"units": "K", "scale_factor": 1.0} should create
             corresponding attributes on the MDArray.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         ds = Dataset.create_from_array(
             np.random.rand(10, 12),
             geo=(0.0, 1.0, 0, 10.0, 0, -1.0),
@@ -591,7 +573,7 @@ class TestSetVariableEdgeCases:
         Test scenario:
             A 2D Dataset should create a 2D MDArray with only x and y dims.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         ds = Dataset.create_from_array(
             np.ones((10, 12)),
             geo=(0.0, 1.0, 0, 10.0, 0, -1.0),
@@ -724,7 +706,7 @@ class TestToFileEdgeCases:
         Test scenario:
             The .nc4 extension should be treated the same as .nc.
         """
-        nc = _make_2d_nc()
+        nc = make_2d_nc()
         out = tmp_path / "output.nc4"
         nc.to_file(out)
         assert out.exists(), f"File should exist at {out}"
@@ -904,7 +886,7 @@ class TestEndToEndRoundTrip:
             3. Save to disk, reload
             4. Verify the modified variable exists and data matches
         """
-        nc = _make_2d_nc(rows=8, cols=10, variable_name="temp")
+        nc = make_2d_nc(rows=8, cols=10, variable_name="temp")
         var = nc.get_variable("temp")
         arr = var.read_array()
         arr_plus = arr + 100.0

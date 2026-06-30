@@ -14,10 +14,9 @@ from osgeo import gdal
 
 from pyramids.dataset import Dataset
 from pyramids.dataset.cog import COGInfo, OverviewLevel, cog_info
+from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
-
-_GEOTRANSFORM = (0.0, 0.01, 0.0, 10.0, 0.0, -0.01)
 
 
 @pytest.fixture
@@ -32,7 +31,7 @@ def big_float_cog(tmp_path) -> str:
     """
     rng = np.random.default_rng(seed=11)
     arr = (rng.random((600, 600)) * 100.0).astype("float32")
-    ds = Dataset.create_from_array(arr, geo=_GEOTRANSFORM, epsg=4326)
+    ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
     out = ds.to_cog(tmp_path / "big.tif")
     return str(out)
 
@@ -55,7 +54,7 @@ def plain_geotiff(tmp_path) -> str:
     """
     path = str(tmp_path / "plain.tif")
     ds = gdal.GetDriverByName("GTiff").Create(path, 600, 600, 1, gdal.GDT_Float32)
-    ds.SetGeoTransform(_GEOTRANSFORM)
+    ds.SetGeoTransform(COG_GEOTRANSFORM)
     ds.GetRasterBand(1).WriteArray(np.ones((600, 600), dtype="float32"))
     ds.FlushCache()
     ds = None
@@ -155,7 +154,7 @@ class TestCogInfo:
         """
         path = str(tmp_path / "palette.tif")
         ds = gdal.GetDriverByName("GTiff").Create(path, 16, 16, 1, gdal.GDT_Byte)
-        ds.SetGeoTransform(_GEOTRANSFORM)
+        ds.SetGeoTransform(COG_GEOTRANSFORM)
         ct = gdal.ColorTable()
         ct.SetColorEntry(0, (0, 0, 0, 255))
         ct.SetColorEntry(1, (255, 0, 0, 255))
@@ -176,7 +175,7 @@ class TestCogInfo:
         """
         path = str(tmp_path / "tagged.tif")
         ds = gdal.GetDriverByName("GTiff").Create(path, 16, 16, 1, gdal.GDT_Float32)
-        ds.SetGeoTransform(_GEOTRANSFORM)
+        ds.SetGeoTransform(COG_GEOTRANSFORM)
         ds.GetRasterBand(1).SetMetadataItem("BAND_NAME", "NDVI")
         ds.FlushCache()
         ds = None
@@ -223,6 +222,6 @@ class TestCogInfoFacade:
             An in-memory Dataset has no on-disk file to inspect.
         """
         arr = np.ones((8, 8), dtype="float32")
-        ds = Dataset.create_from_array(arr, geo=_GEOTRANSFORM, epsg=4326)
+        ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
         with pytest.raises(FileNotFoundError):
             ds.cog_info()

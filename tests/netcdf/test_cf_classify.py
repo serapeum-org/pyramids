@@ -14,11 +14,9 @@ from pyramids.netcdf.cf import (
 )
 from pyramids.netcdf.netcdf import NetCDF
 from pyramids.netcdf.utils import create_time_conversion_func
+from tests.netcdf.conftest import GEO, SEED, MockDim
 
 pytestmark = pytest.mark.core
-
-GEO = (30.0, 0.5, 0, 35.0, 0, -0.5)
-SEED = 42
 
 
 class TestDetectAxis:
@@ -204,11 +202,6 @@ class TestClassifyVariables:
         return MockVar(attrs)
 
     def _make_mock_dim(self, name):
-        class MockDim:
-            def __init__(self, n):
-                self.name = n
-                self.full_name = f"/{n}"
-
         return MockDim(name)
 
     def test_coordinate_by_dimension_name(self):

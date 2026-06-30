@@ -19,10 +19,9 @@ from pyramids.dataset.cog.facade import (
     write_cog,
 )
 from pyramids.dataset.dataset import Dataset
+from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
-
-_GEOTRANSFORM = (0.0, 0.01, 0.0, 10.0, 0.0, -0.01)
 
 
 def _read_compression(path: str | Path) -> str:
@@ -174,7 +173,7 @@ class TestArrayToDataset:
         Test scenario:
             Shape, band count, and EPSG are preserved.
         """
-        ds = _array_to_dataset(float_array, 4326, _GEOTRANSFORM, None)
+        ds = _array_to_dataset(float_array, 4326, COG_GEOTRANSFORM, None)
         assert ds.band_count == 1, f"Expected 1 band, got {ds.band_count}"
         assert ds.epsg == 4326, f"Expected EPSG 4326, got {ds.epsg}"
 
@@ -185,7 +184,7 @@ class TestArrayToDataset:
             A `(3, 16, 16)` array yields a 3-band Dataset.
         """
         arr = np.zeros((3, 16, 16), dtype="float32")
-        ds = _array_to_dataset(arr, 4326, _GEOTRANSFORM, None)
+        ds = _array_to_dataset(arr, 4326, COG_GEOTRANSFORM, None)
         assert ds.band_count == 3, f"Expected 3 bands, got {ds.band_count}"
 
     def test_nodata_applied(self, int_array):
@@ -197,7 +196,7 @@ class TestArrayToDataset:
         Test scenario:
             The first band's nodata equals the requested value.
         """
-        ds = _array_to_dataset(int_array, 4326, _GEOTRANSFORM, -1)
+        ds = _array_to_dataset(int_array, 4326, COG_GEOTRANSFORM, -1)
         assert ds.no_data_value[0] == -1, f"nodata not applied: {ds.no_data_value}"
 
     def test_missing_crs_raises(self, float_array):
@@ -210,7 +209,7 @@ class TestArrayToDataset:
             `crs=None` is rejected with a helpful message.
         """
         with pytest.raises(ValueError, match="crs.*transform|requires both"):
-            _array_to_dataset(float_array, None, _GEOTRANSFORM, None)
+            _array_to_dataset(float_array, None, COG_GEOTRANSFORM, None)
 
     def test_missing_transform_raises(self, float_array):
         """Omitting `transform` raises ValueError.
@@ -237,7 +236,7 @@ class TestNormalizeToDataset:
         Test scenario:
             The same object identity is preserved.
         """
-        ds = Dataset.create_from_array(float_array, geo=_GEOTRANSFORM, epsg=4326)
+        ds = Dataset.create_from_array(float_array, geo=COG_GEOTRANSFORM, epsg=4326)
         result = _normalize_to_dataset(ds, None, None, None)
         assert result is ds, "Existing Dataset should pass through unchanged"
 
@@ -264,7 +263,7 @@ class TestNormalizeToDataset:
         Test scenario:
             A written GeoTIFF path is read back into a Dataset.
         """
-        src = Dataset.create_from_array(float_array, geo=_GEOTRANSFORM, epsg=4326)
+        src = Dataset.create_from_array(float_array, geo=COG_GEOTRANSFORM, epsg=4326)
         p = tmp_path / "src.tif"
         src.to_file(str(p))
         result = _normalize_to_dataset(str(p), None, None, None)
@@ -279,7 +278,7 @@ class TestNormalizeToDataset:
         Test scenario:
             The result is a single-band Dataset.
         """
-        result = _normalize_to_dataset(float_array, 4326, _GEOTRANSFORM, None)
+        result = _normalize_to_dataset(float_array, 4326, COG_GEOTRANSFORM, None)
         assert result.band_count == 1, f"Expected 1 band, got {result.band_count}"
 
     def test_nodata_set_on_prebuilt(self, mem_dataset):
@@ -320,7 +319,7 @@ class TestWriteCog:
             The returned path exists and the report reports validity.
         """
         out = tmp_path / "float.tif"
-        path, report = write_cog(float_array, out, crs=4326, transform=_GEOTRANSFORM)
+        path, report = write_cog(float_array, out, crs=4326, transform=COG_GEOTRANSFORM)
         assert path.exists(), "Output COG should exist"
         assert (
             report is not None and report.is_valid
@@ -355,7 +354,7 @@ class TestWriteCog:
             float_array,
             out,
             crs=4326,
-            transform=_GEOTRANSFORM,
+            transform=COG_GEOTRANSFORM,
             options={"COMPRESS": "ZSTD", "LEVEL": 18},
             validate=False,
         )
@@ -390,7 +389,7 @@ class TestWriteCog:
                 float_array,
                 tmp_path / "boom.tif",
                 crs=4326,
-                transform=_GEOTRANSFORM,
+                transform=COG_GEOTRANSFORM,
                 validate=False,
             )
 
@@ -405,7 +404,7 @@ class TestWriteCog:
             The int path validates as a COG.
         """
         out = tmp_path / "int.tif"
-        path, report = write_cog(int_array, out, crs=4326, transform=_GEOTRANSFORM)
+        _, report = write_cog(int_array, out, crs=4326, transform=COG_GEOTRANSFORM)
         assert report.is_valid, f"Expected valid COG, errors: {report.errors}"
 
     def test_default_compression_is_deflate(self, float_array, tmp_path):
@@ -419,7 +418,7 @@ class TestWriteCog:
             The written file reports DEFLATE compression.
         """
         out = tmp_path / "deflate.tif"
-        write_cog(float_array, out, crs=4326, transform=_GEOTRANSFORM)
+        write_cog(float_array, out, crs=4326, transform=COG_GEOTRANSFORM)
         assert (
             _read_compression(out) == "DEFLATE"
         ), "Default compression should be DEFLATE"
@@ -439,7 +438,7 @@ class TestWriteCog:
             int_array,
             out,
             crs=4326,
-            transform=_GEOTRANSFORM,
+            transform=COG_GEOTRANSFORM,
             options={"COMPRESS": "LZW"},
         )
         assert _read_compression(out) == "LZW", "COMPRESS override should win"
@@ -456,7 +455,7 @@ class TestWriteCog:
         """
         out = tmp_path / "novalidate.tif"
         path, report = write_cog(
-            float_array, out, crs=4326, transform=_GEOTRANSFORM, validate=False
+            float_array, out, crs=4326, transform=COG_GEOTRANSFORM, validate=False
         )
         assert path.exists(), "Output should still be written"
         assert (
@@ -476,7 +475,7 @@ class TestWriteCog:
             float source must carry the floating-point predictor (3).
         """
         out, _ = write_cog(
-            float_array, tmp_path / "p.tif", crs=4326, transform=_GEOTRANSFORM
+            float_array, tmp_path / "p.tif", crs=4326, transform=COG_GEOTRANSFORM
         )
         assert _read_predictor(out) == "3", "float source should yield PREDICTOR=3"
 
@@ -491,7 +490,7 @@ class TestWriteCog:
             An integer source must carry horizontal-differencing predictor (2).
         """
         out, _ = write_cog(
-            int_array, tmp_path / "p.tif", crs=4326, transform=_GEOTRANSFORM
+            int_array, tmp_path / "p.tif", crs=4326, transform=COG_GEOTRANSFORM
         )
         assert _read_predictor(out) == "2", "int source should yield PREDICTOR=2"
 
@@ -510,7 +509,7 @@ class TestWriteCog:
             float_array,
             tmp_path / "p.tif",
             crs=4326,
-            transform=_GEOTRANSFORM,
+            transform=COG_GEOTRANSFORM,
             options={"PREDICTOR": 1},
         )
         assert _read_predictor(out) in ("", "1"), "explicit predictor=1 should win"
@@ -545,7 +544,7 @@ class TestWriteCog:
             `STATISTICS=YES` path is covered by the in-memory write tests
             above; here we only assert the path → COG re-encode is valid.
         """
-        src = Dataset.create_from_array(float_array, geo=_GEOTRANSFORM, epsg=4326)
+        src = Dataset.create_from_array(float_array, geo=COG_GEOTRANSFORM, epsg=4326)
         src_path = tmp_path / "plain.tif"
         src.to_file(str(src_path))
         out = tmp_path / "cog.tif"
@@ -563,7 +562,7 @@ class TestWriteCog:
             The array branch requires both crs and transform.
         """
         with pytest.raises(ValueError, match="crs.*transform|requires both"):
-            write_cog(float_array, tmp_path / "x.tif", transform=_GEOTRANSFORM)
+            write_cog(float_array, tmp_path / "x.tif", transform=COG_GEOTRANSFORM)
 
     def test_invalid_cog_raises_runtime_error(self, mocker, float_array, tmp_path):
         """A failed validation surfaces as RuntimeError.
@@ -584,7 +583,7 @@ class TestWriteCog:
         )
         with pytest.raises(RuntimeError, match="invalid COG"):
             write_cog(
-                float_array, tmp_path / "bad.tif", crs=4326, transform=_GEOTRANSFORM
+                float_array, tmp_path / "bad.tif", crs=4326, transform=COG_GEOTRANSFORM
             )
 
     def test_strict_forwarded_to_validator(self, mocker, float_array, tmp_path):
@@ -607,7 +606,7 @@ class TestWriteCog:
             float_array,
             tmp_path / "s.tif",
             crs=4326,
-            transform=_GEOTRANSFORM,
+            transform=COG_GEOTRANSFORM,
             strict=True,
         )
         assert spy.call_args.kwargs["strict"] is True, "strict should be forwarded"

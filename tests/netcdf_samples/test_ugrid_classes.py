@@ -5,10 +5,9 @@ import pytest
 
 from pyramids.netcdf import UgridDataset
 from pyramids.netcdf.ugrid import Connectivity, MeshSpatialIndex, Mesh2d
+from tests.netcdf_samples.conftest import MESH
 
 pytestmark = pytest.mark.core
-
-MESH = "ugrid__6v__1d5-2d1.nc"  # quad-hexagon: 16 nodes, 4 faces
 
 
 @pytest.fixture

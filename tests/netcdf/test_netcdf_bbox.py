@@ -15,18 +15,20 @@ from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
-NC_FIXTURE = "tests/data/netcdf/noah-precipitation-1979.nc"
 INSIDE_BBOX = (10.0, -50.0, 50.0, -20.0)
 
 
 @pytest.fixture(scope="module")
-def root_nc() -> NetCDF:
+def root_nc(noah_nc_path: str) -> NetCDF:
     """Open the test NetCDF as a root MDIM container.
+
+    Args:
+        noah_nc_path: Path to the noah-precipitation-1979.nc fixture.
 
     Returns:
         NetCDF: Container with four data variables (``Band1`` … ``Band4``).
     """
-    return NetCDF.read_file(NC_FIXTURE)
+    return NetCDF.read_file(noah_nc_path)
 
 
 class TestNetCDFCropBbox:

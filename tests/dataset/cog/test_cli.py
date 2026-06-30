@@ -12,10 +12,9 @@ from osgeo import gdal
 
 from pyramids.cli import main
 from pyramids.dataset import Dataset
+from tests.dataset.cog.conftest import COG_GEOTRANSFORM
 
 pytestmark = pytest.mark.core
-
-_GEOTRANSFORM = (0.0, 0.01, 0.0, 10.0, 0.0, -0.01)
 
 
 @pytest.fixture
@@ -29,7 +28,7 @@ def source_tif(tmp_path) -> str:
         str: Path to the source raster.
     """
     arr = (np.random.default_rng(7).random((600, 600)) * 100).astype("float32")
-    ds = Dataset.create_from_array(arr, geo=_GEOTRANSFORM, epsg=4326)
+    ds = Dataset.create_from_array(arr, geo=COG_GEOTRANSFORM, epsg=4326)
     path = tmp_path / "src.tif"
     ds.to_file(path)
     return str(path)

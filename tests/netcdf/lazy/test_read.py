@@ -32,20 +32,15 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from pyramids.base._errors import OptionalPackageDoesNotExist
-from pyramids.base._utils import import_dask
 from pyramids.netcdf.netcdf import NetCDF
+from tests._marks import requires_dask
 
 pytestmark = pytest.mark.netcdf_lazy
 
 try:
-    import_dask("dask not installed")
     import dask.array as dask_array
-except OptionalPackageDoesNotExist:  # pragma: no cover
-    HAS_DASK = False
-else:
-    HAS_DASK = True
-requires_dask = pytest.mark.skipif(not HAS_DASK, reason="dask not installed")
+except ImportError:  # pragma: no cover
+    dask_array = None  # type: ignore[assignment]
 
 
 @pytest.fixture(scope="module")

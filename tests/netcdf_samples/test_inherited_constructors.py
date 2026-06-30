@@ -15,17 +15,6 @@ from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
-TOS = "cf__7v__1d3-2d3-3d1.nc"
-
-
-@pytest.fixture
-def tos(sample):
-    nc = NetCDF.read_file(sample(TOS))
-    try:
-        yield nc.get_variable("tos")
-    finally:
-        nc.close()
-
 
 def test_create():
     ds = NetCDF.create(1.0, 5, 5, "float32", 1, (0, 10), 4326)

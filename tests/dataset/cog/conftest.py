@@ -6,6 +6,9 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
+# Canonical geotransform used across all COG test modules (EPSG:4326, 0.01° resolution, origin at lon=0 lat=10).
+COG_GEOTRANSFORM = (0.0, 0.01, 0.0, 10.0, 0.0, -0.01)
+
 
 @pytest.fixture
 def mem_dataset() -> gdal.Dataset:
