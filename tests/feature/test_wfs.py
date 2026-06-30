@@ -286,11 +286,7 @@ class TestFromWfs:
 
 
 @pytest.mark.slow
-@pytest.mark.skipif(
-    not os.environ.get("PYRAMIDS_WFS_LIVE"),
-    reason="live WFS test; set PYRAMIDS_WFS_LIVE=1 plus PYRAMIDS_WFS_ENDPOINT / "
-    "PYRAMIDS_WFS_TYPENAME to run the real GDAL OGR WFS driver end-to-end",
-)
+@pytest.mark.live
 class TestLiveWfs:
     def test_live_read(self):
         """Exercise the real OGR WFS driver against a caller-supplied public endpoint."""

@@ -661,11 +661,7 @@ class TestToVsiArchiveChainingEdgeCases:
 
 
 @pytest.mark.slow
-@pytest.mark.skipif(
-    not os.environ.get("PYRAMIDS_OPENDAP_LIVE"),
-    reason="live OPeNDAP test; set PYRAMIDS_OPENDAP_LIVE=1 (optionally with "
-    "PYRAMIDS_OPENDAP_URL / PYRAMIDS_OPENDAP_VAR) to read a real DAP dataset",
-)
+@pytest.mark.live
 class TestLiveOpenDAP:
     """Read a real OPeNDAP/THREDDS dataset over dods:// via GDAL's netCDF DAP support."""
 

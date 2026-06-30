@@ -12,7 +12,6 @@ retrospective store exercises the full remote path end to end.
 from __future__ import annotations
 
 import gc
-import os
 from unittest.mock import Mock
 
 import numpy as np
@@ -80,9 +79,6 @@ def _write_multidim(path, data_vars, coords):
 
 NWM_LDASOUT = "s3://noaa-nwm-retrospective-3-0-pds/CONUS/zarr/ldasout.zarr"
 
-# The live NWM tests hit a public S3 bucket; opt in explicitly so the default
-# suite never depends on network reachability of a third-party store.
-_RUN_LIVE_NWM = os.environ.get("PYRAMIDS_RUN_NWM_SUBSET_TEST") == "1"
 
 # Transport-level failures that justify a graceful skip of a live read. Anything
 # NOT matching these (a real read_file / subset defect) must propagate and fail
@@ -858,10 +854,7 @@ class TestSubsetInterleavedLayer:
 
 @pytest.mark.slow
 @pytest.mark.vfs
-@pytest.mark.skipif(
-    not _RUN_LIVE_NWM,
-    reason="set PYRAMIDS_RUN_NWM_SUBSET_TEST=1 to run the live NWM S3 subset test",
-)
+@pytest.mark.live
 class TestSubsetLiveNWM:
     """Opt-in live test against the public NWM retrospective gridded Zarr.
 

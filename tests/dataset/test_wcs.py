@@ -16,7 +16,6 @@ is set, so normal CI stays offline.
 
 from __future__ import annotations
 
-import os
 
 import pytest
 from osgeo import gdal, osr
@@ -348,10 +347,7 @@ class TestDriverFullCycle:
 
 
 @pytest.mark.slow
-@pytest.mark.skipif(
-    not os.environ.get("PYRAMIDS_WCS_LIVE"),
-    reason="live network test; set PYRAMIDS_WCS_LIVE=1 to run",
-)
+@pytest.mark.live
 class TestLiveSoilGrids:
     ENDPOINT = "https://maps.isric.org/mapserv?map=/map/nitrogen.map"
     IGH = "+proj=igh +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"

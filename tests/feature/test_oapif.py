@@ -550,12 +550,7 @@ class TestOapifDriverPaging:
 
 
 @pytest.mark.slow
-@pytest.mark.skipif(
-    not os.environ.get("PYRAMIDS_OAPIF_LIVE"),
-    reason="live OGC API – Features test; set PYRAMIDS_OAPIF_LIVE=1 plus "
-    "PYRAMIDS_OAPIF_ENDPOINT / PYRAMIDS_OAPIF_COLLECTION to run the real GDAL OGR "
-    "OAPIF driver end-to-end",
-)
+@pytest.mark.live
 class TestLiveOapif:
     def test_live_read(self):
         """Exercise the real OGR OAPIF driver against a caller-supplied public endpoint."""

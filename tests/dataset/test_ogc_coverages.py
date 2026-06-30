@@ -227,11 +227,7 @@ class TestFromOgcCoverages:
 
 
 @pytest.mark.slow
-@pytest.mark.skipif(
-    not os.environ.get("PYRAMIDS_OGC_COVERAGES_LIVE"),
-    reason="live OGC API – Coverages test; set PYRAMIDS_OGC_COVERAGES_LIVE=1 to run "
-    "the real GDAL OGCAPI driver end-to-end against maps.gnosis.earth",
-)
+@pytest.mark.live
 class TestLiveOgcCoverages:
     ENDPOINT = "https://maps.gnosis.earth/ogcapi"
 
