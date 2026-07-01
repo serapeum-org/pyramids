@@ -9,6 +9,28 @@ GeoTIFF / Sentinel-imagery semantics of `Dataset.plot`. You pick a *variable*, s
 non-spatial dimensions, and pass colour / faceting / coordinate options through small grouped,
 frozen dataclasses (`Selectors`, `ColourOpts`, `FacetSpec`) re-exported from `pyramids.netcdf`.
 
+The three option bags feed `NetCDF.plot`, which is a thin facade over `NetCDFPlot` (`_plot.py`). That
+resolves the variable/slice and hands the array to the shared `render_array` core (`_plot_helpers.py`)
+— the same renderer behind `Dataset.plot` and `DatasetCollection.plot` — which draws into a cleopatra
+`ArrayGlyph` and returns the glyph (`.fig` / `.ax` / `.im`):
+
+```mermaid
+flowchart LR
+    SEL["Selectors<br/>time · level · member<br/>sel · isel"]
+    COL["ColorOpts / ColourOpts<br/>cmap · vmin · vmax · robust<br/>levels · norm · center · extend"]
+    FAC["FacetSpec<br/>col · row · col_wrap"]
+    SEL --> P["NetCDF.plot(variable, ...)"]
+    COL --> P
+    FAC --> P
+    P --> NP["NetCDFPlot<br/>(_plot.py)"]
+    NP --> RA["render_array<br/>(_plot_helpers.py)"]
+    RA --> CG(["cleopatra ArrayGlyph"])
+    CG --> FIG[("glyph<br/>.fig · .ax · .im")]
+```
+
+> `ColorOpts` is the canonical name; `ColourOpts` is a deprecated British-spelling alias that warns on
+> construction but compares/hashes equal to the corresponding `ColorOpts`.
+
 ```python
 from pyramids.netcdf import NetCDF, Selectors, ColourOpts, FacetSpec
 

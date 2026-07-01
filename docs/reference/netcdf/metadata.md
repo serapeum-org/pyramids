@@ -9,6 +9,31 @@ Overview:
 - Produce a JSON-serializable metadata object
 - Keep compatibility with the existing dimension parser exposed via `NetCDF.meta_data`
 
+## Pipeline
+
+`get_metadata` drives a `MetadataBuilder`, which hands a `GroupTraverser` the root group and walks it
+breadth-first, emitting one info record per group / array / dimension into the aggregate
+`NetCDFMetadata`. The result serializes to JSON, a plain dict, or a flat search index — and round-trips
+back from JSON:
+
+```mermaid
+flowchart LR
+    S[("GDAL MDIM dataset<br/>GetRootGroup()")] --> B["MetadataBuilder.build()"]
+    B --> T["GroupTraverser.walk(root)<br/>breadth-first"]
+    T --> VI["VariableInfo"]
+    T --> DI["DimensionInfo"]
+    T --> GI["GroupInfo"]
+    VI --> M["NetCDFMetadata"]
+    DI --> M
+    GI --> M
+    M -->|to_json| J[("JSON string")]
+    M -->|to_dict| D[("dict")]
+    M -->|flatten_for_index| FI[("flat index")]
+    J -->|from_json| M
+```
+
+See the [data models](models.md) for the structure of each info record.
+
 ## Usage
 
 Read all metadata from a file:

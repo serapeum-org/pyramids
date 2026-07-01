@@ -20,6 +20,26 @@ structured `NetCDF` class and the unstructured `UgridDataset` class.
 - **Data masking**: Apply `valid_range`, `valid_min`, `valid_max` masks
 - **Flag decoding**: Decode CF `flag_values` / `flag_meanings`
 
+## Capability map
+
+The `cf` module is a flat collection of helpers (no classes) shared by the structured `NetCDF` reader
+and the unstructured `UgridDataset`. They group into five roles — classification, CRS translation,
+convention parsing, attribute writing, and value decoding/validation:
+
+```mermaid
+flowchart TB
+    NC["NetCDF"] --> CF
+    UG["UgridDataset"] --> CF
+    subgraph CF["cf module"]
+        direction TB
+        CLS["classify_variables()<br/>coordinate · data · mesh · connectivity"]
+        CRS["grid_mapping_to_srs() ⇄ srs_to_grid_mapping()"]
+        PAR["detect_axis() · parse_conventions()<br/>parse_cell_methods()"]
+        WR["write_attributes_to_md_array()<br/>write_global_attributes()<br/>build_coordinate_attrs()"]
+        DEC["apply_valid_range_mask() · decode_flags()<br/>validate_cf()"]
+    end
+```
+
 ## API Reference
 
 ::: pyramids.netcdf.cf.classify_variables

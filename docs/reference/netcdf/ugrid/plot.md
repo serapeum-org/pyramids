@@ -9,6 +9,15 @@ helper (which also applies the optional web-tile basemap)" contract used by the 
 (`Dataset.plot` / `NetCDF.plot`). The functions below are the low-level entry points it builds
 on; the cleopatra optional dependency is checked via `pyramids.base._utils.require_cleopatra`.
 
+```mermaid
+flowchart LR
+    U["UgridDataset.plot(var)"] --> MR["mesh_render<br/>(_plot_helpers.py)"]
+    O["UgridDataset.plot_outline()"] --> PMO["plot_mesh_outline(mesh)"]
+    MR --> PMD["plot_mesh_data(mesh, data, location)"]
+    PMD --> G(["cleopatra MeshGlyph"])
+    PMO --> G
+```
+
 ::: pyramids.netcdf.ugrid.plot.plot_mesh_data
     options:
         show_root_heading: true
