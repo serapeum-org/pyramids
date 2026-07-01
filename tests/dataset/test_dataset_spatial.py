@@ -11,7 +11,6 @@ from osgeo import gdal, osr
 from pyproj import CRS as PyprojCRS
 from shapely.geometry import Polygon
 
-from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines import Vectorize
 

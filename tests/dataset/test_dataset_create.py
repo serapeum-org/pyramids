@@ -10,7 +10,6 @@ import pandas as pd
 import pytest
 from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal
-from pandas import DataFrame
 from shapely.geometry import Polygon
 
 from pyramids.base._errors import OutOfBoundsError
