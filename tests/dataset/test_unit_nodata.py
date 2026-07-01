@@ -479,7 +479,7 @@ class TestSetNoDataValueMocked:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        err_msg = "Attempt to write to read only dataset " "in GDALRasterBand::Fill()."
+        err_msg = "Attempt to write to read only dataset in GDALRasterBand::Fill()."
         with patch.object(
             ds.bands, "_set_no_data_value_backend", side_effect=RuntimeError(err_msg)
         ):
@@ -496,7 +496,7 @@ class TestSetNoDataValueMocked:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        err_msg = "in method 'Band_SetNoDataValue', " "argument 2 of type 'double'"
+        err_msg = "in method 'Band_SetNoDataValue', argument 2 of type 'double'"
         call_count = [0]
         original = ds.bands._set_no_data_value_backend
 
@@ -532,7 +532,7 @@ class TestSetNoDataValueMocked:
             """Raise on first call, succeed on retry."""
             call_count[0] += 1
             if call_count[0] == 1:
-                raise Exception("some unknown error")
+                raise RuntimeError("some unknown error")
             original(band, val)
 
         with patch.object(
@@ -570,7 +570,7 @@ class TestSetNoDataValueBackendMocked:
             def mock_fill(val):
                 wrapper_count[0] += 1
                 if wrapper_count[0] == 1:
-                    raise Exception(err_msg)
+                    raise RuntimeError(err_msg)
                 return original_fill(val)
 
             real_band.Fill = mock_fill
@@ -596,7 +596,7 @@ class TestSetNoDataValueBackendMocked:
             real_band = original_get_band(band_num)
 
             def mock_fill(val):
-                raise Exception("some strange error")
+                raise RuntimeError("some strange error")
 
             real_band.Fill = mock_fill
             return real_band
@@ -662,7 +662,7 @@ class TestChangeNoDataAttrConversion:
             def mock_set(val):
                 call_count[0] += 1
                 if call_count[0] == 1:
-                    raise Exception(
+                    raise RuntimeError(
                         "in method 'Band_SetNoDataValue', "
                         "argument 2 of type 'double'"
                     )
@@ -688,7 +688,7 @@ class TestChangeNoDataAttrConversion:
             no_data_value=-9999.0,
         )
         original_get_band = ds.raster.GetRasterBand
-        err_msg = "Attempt to write to read only dataset " "in GDALRasterBand::Fill()."
+        err_msg = "Attempt to write to read only dataset in GDALRasterBand::Fill()."
 
         def mock_get_band(band_num):
             """Return band that raises on SetNoDataValue."""
