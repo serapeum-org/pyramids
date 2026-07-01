@@ -186,7 +186,7 @@ class TestToXyz:
             ds.to_xyz(bands="invalid")
 
 
-class TestCreateFromArray:
+class TestCreateFromArrayEdgeCases:
     """Tests for create_from_array edge cases."""
 
     def test_missing_geo_and_top_left_raises(self):
