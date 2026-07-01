@@ -16,7 +16,6 @@ is set, so normal CI stays offline.
 
 from __future__ import annotations
 
-import os
 
 import pytest
 from osgeo import gdal, osr
@@ -88,6 +87,11 @@ class TestPureHelpers:
         assert _wcs._resolution_pair(None) is None
         assert _wcs._resolution_pair(250) == (250.0, 250.0)
         assert _wcs._resolution_pair((250, 500)) == (250.0, 500.0)
+
+    @pytest.mark.parametrize("bad", [0, -1, (0, 10), (10, -5)])
+    def test_resolution_pair_rejects_non_positive(self, bad):
+        with pytest.raises(ValueError, match="strictly positive"):
+            _wcs._resolution_pair(bad)
 
     def test_localname(self):
         assert _wcs._localname("{http://www.opengis.net/wcs/2.0}CoverageId") == "CoverageId"
@@ -348,10 +352,7 @@ class TestDriverFullCycle:
 
 
 @pytest.mark.slow
-@pytest.mark.skipif(
-    not os.environ.get("PYRAMIDS_WCS_LIVE"),
-    reason="live network test; set PYRAMIDS_WCS_LIVE=1 to run",
-)
+@pytest.mark.live
 class TestLiveSoilGrids:
     ENDPOINT = "https://maps.isric.org/mapserv?map=/map/nitrogen.map"
     IGH = "+proj=igh +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"

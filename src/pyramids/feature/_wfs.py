@@ -31,7 +31,7 @@ import geopandas as gpd
 from osgeo import gdal
 
 from pyramids.base._errors import WFSError
-from pyramids.feature._ogc import gdal_http_config as _gdal_http_config
+from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.feature._ogc import read_kwargs as _read_kwargs
 
 if TYPE_CHECKING:
