@@ -336,7 +336,7 @@ _RANGETYPE = {
 
 _SUBSET_LON_RE = re.compile(r"(?:Long|Lon)\(([-\d.]+):([-\d.]+)\)")
 _SUBSET_LAT_RE = re.compile(r"Lat\(([-\d.]+):([-\d.]+)\)")
-_SCALE_RE = re.compile(r"(?:Long|Lon)\((\d+)\).*?Lat\((\d+)\)")
+_SCALE_RE = re.compile(r"(?:Long|Lon)\((\d+)\),Lat\((\d+)\)")
 
 
 def _make_geotiff(width, height, minx, miny, maxx, maxy):
