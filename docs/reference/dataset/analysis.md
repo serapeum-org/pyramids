@@ -6,8 +6,8 @@ Statistics, extraction, overlay, apply, fill, histogram, and plotting.
 flowchart LR
     AN(("Analysis<br/>ds.analysis"))
     AN --> S["<b>statistics</b><br/>stats · count_domain_cells<br/>get_histogram · normalize"]
-    AN --> E["<b>sample / extract</b><br/>extract · sample · footprint"]
-    AN --> T["<b>transform</b><br/>apply · fill · sieve<br/>proximity · overlay"]
+    AN --> E["<b>sample / extract</b><br/>extract · sample · overlay · footprint"]
+    AN --> T["<b>transform</b><br/>apply · fill · sieve · proximity"]
     AN --> M["<b>masks</b><br/>get_mask · mask_flags<br/>read_masks · create_mask_band"]
     AN --> V["<b>visualize</b><br/>plot · plot_histogram<br/>plot_vector_field · to_image"]
 ```

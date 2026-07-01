@@ -8,7 +8,6 @@ flowchart LR
     GE --> WA["<b>warp to a map grid</b><br/>orthorectify · georeference"]
 ```
 
-
 Read, attach, and warp-from **ground-control points** and **rational-polynomial coefficients** to
 georeference raw / un-orthorectified imagery — the one case where a raster is not described by a simple
 affine geotransform. Accessed as `ds.georef`, with same-named facades on `Dataset` (`ds.gcps`,
