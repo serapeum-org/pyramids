@@ -231,16 +231,19 @@ def from_ogc_coverages(
             # to this reader's OGCAPIError so the documented Raises contract holds
             # and the message names OGC API. A bad coverage_crs raises ValueError,
             # which propagates.
-            native_srs = _resolve_native_srs(src, coverage_crs)
-        except CoverageError as exc:
-            raise OGCAPIError(
-                f"OGC API coverage {coverage!r} has no resolvable spatial reference; "
-                "the service advertised no usable CRS for the coverage"
-            ) from exc
-        projwin = _native_projwin(box, "EPSG:4326", native_srs)
-        size = _read_size(projwin, res)
-        mem = _translate_window(src, projwin, size, coverage)
-        src = None
+            try:
+                native_srs = _resolve_native_srs(src, coverage_crs)
+            except CoverageError as exc:
+                raise OGCAPIError(
+                    f"OGC API coverage {coverage!r} has no resolvable spatial reference; "
+                    "the service advertised no usable CRS for the coverage"
+                ) from exc
+            projwin = _native_projwin(box, "EPSG:4326", native_srs)
+            size = _read_size(projwin, res)
+            mem = _translate_window(src, projwin, size, coverage)
+        finally:
+            # release the opened coverage handle on every path, error or not.
+            src = None
 
     mem.SetSpatialRef(native_srs)
     ds = dataset_cls(mem, access="write")
