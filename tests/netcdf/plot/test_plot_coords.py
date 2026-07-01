@@ -12,8 +12,8 @@ from numpy.testing import assert_array_equal
 
 from pyramids.netcdf import Selectors
 from pyramids.netcdf.netcdf import NetCDF
-from tests.netcdf._plot_helpers import _make_2d_nc, _make_3d_nc_anon_dim, _make_capture, _make_curvilinear_nc
 from tests.netcdf.conftest import make_plot_3d_nc
+from tests.netcdf.plot._plot_helpers import _make_2d_nc, _make_3d_nc_anon_dim, _make_capture, _make_curvilinear_nc
 
 pytestmark = pytest.mark.plot
 

@@ -8,8 +8,8 @@ import pytest
 
 from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.netcdf import NetCDF
-from tests.netcdf._netcdf_unit_helpers import _make_3d_nc, _make_nc_with_time_units
 from tests.netcdf.conftest import make_2d_nc
+from tests.netcdf.unit._netcdf_unit_helpers import _make_3d_nc, _make_nc_with_time_units
 
 pytestmark = pytest.mark.core
 

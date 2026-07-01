@@ -9,8 +9,8 @@ from osgeo import gdal
 
 from pyramids.netcdf.models import DimensionInfo, NetCDFMetadata
 from pyramids.netcdf.netcdf import NetCDF
-from tests.netcdf._netcdf_unit_helpers import _make_3d_nc, _make_dataset_2d, _make_dataset_3d
 from tests.netcdf.conftest import make_2d_nc
+from tests.netcdf.unit._netcdf_unit_helpers import _make_3d_nc, _make_dataset_2d, _make_dataset_3d
 
 pytestmark = pytest.mark.core
 

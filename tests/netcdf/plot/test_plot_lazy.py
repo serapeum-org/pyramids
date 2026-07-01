@@ -10,8 +10,8 @@ import pytest
 from pyramids.netcdf import Selectors
 from pyramids.netcdf._plot import _LAZY_HINT_THRESHOLD_BYTES
 from pyramids.netcdf.netcdf import NetCDF
-from tests.netcdf._plot_helpers import _make_4d_nc
 from tests.netcdf.conftest import make_plot_3d_nc
+from tests.netcdf.plot._plot_helpers import _make_4d_nc
 
 pytestmark = pytest.mark.plot
 
