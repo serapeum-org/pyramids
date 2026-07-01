@@ -92,3 +92,31 @@ def test_is_degree_geographic_gate():
     assert _is_degree_geographic(4326) is True
     assert _is_degree_geographic(3857) is False
     assert _is_degree_geographic("not-a-crs") is False
+
+
+def test_row_wrapping_more_than_once_is_fully_unwrapped():
+    """A row that wraps twice (>720 deg) accumulates the wrap count and unwraps cleanly."""
+    lon = np.tile(np.array([0.0, 120.0, 240.0, 0.0, 120.0, 240.0, 0.0]), (3, 1))
+    lat = np.zeros_like(lon)
+    x, _ = _unwrap_geographic_longitude((lon, lat), 4326)
+    assert _max_adjacent_step(x) < 180.0
+
+
+def test_single_column_grid_is_noop():
+    """A single-column grid has no horizontal neighbours, so it is returned unchanged."""
+    lon = np.array([[10.0], [20.0], [30.0]])
+    lat = np.zeros_like(lon)
+    x, _ = _unwrap_geographic_longitude((lon, lat), 4326)
+    assert x is lon
+
+
+def test_interior_nan_off_seam_still_unwraps_the_row():
+    """A NaN away from the seam is preserved while the row's real wrap is still unwrapped."""
+    lon = np.array(
+        [[330.0, 340.0, 350.0, 0.0, 10.0], [330.0, np.nan, 350.0, 0.0, 10.0]]
+    )
+    lat = np.zeros_like(lon)
+    x, _ = _unwrap_geographic_longitude((lon, lat), 4326)
+    x = np.asarray(x)
+    assert np.array_equal(np.isnan(x), np.isnan(lon))  # NaN stays put
+    assert x[1, 3] == 360.0 and x[1, 4] == 370.0  # seam still unwrapped around the NaN
