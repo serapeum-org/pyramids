@@ -1,6 +1,6 @@
 # Vectorization & Clustering
 
-Raster-to-vector conversion, clustering, polygonization, and translate.
+Raster-to-vector conversion, clustering, and translate.
 
 ```mermaid
 flowchart LR

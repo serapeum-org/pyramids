@@ -20,7 +20,7 @@ flowchart LR
 
 `Dataset` is a thin **facade**: each family of operations lives in its own engine
 (`ds.io`, `ds.spatial`, …) and `ds.<method>(...)` forwards to `ds.<engine>.<method>(...)`.
-The reference pages below are one per engine.
+The reference pages below are one per engine (COG's page lives in its own **COG** section).
 
 ```mermaid
 flowchart TB
@@ -32,7 +32,7 @@ flowchart TB
     DS -->|ds.cell| CE["<b>Cell</b> · cell.md<br/>get_cell_coords / _polygons / _points<br/>map ↔ array coordinates"]
     DS -->|ds.georef| GE["<b>Georef</b> · georef.md<br/>GCPs · RPCs · orthorectify<br/>set_gcps · georeference"]
     DS -->|ds.vectorize| VE["<b>Vectorize</b> · vectorize.md<br/>contour · to_feature_collection<br/>cluster · translate"]
-    DS -->|ds.cog| CG["<b>COG</b> · ../cog/index.md<br/>to_cog · validate_cog · info<br/>read_part · preview · read_tile"]
+    DS -->|ds.cog| CG["<b>COG</b> · cog/ section<br/>to_cog · validate_cog · info<br/>read_part · preview · read_tile"]
 ```
 
 - Detailed class diagram for the `Dataset` class and related components:
