@@ -917,8 +917,6 @@ class TestToFileBlockSize:
 
     def test_to_file_with_block_size(self, tmp_path):
         """to_file should include block size options when set."""
-        import os
-
         arr = np.ones((3, 3), dtype=np.float32)
         ds = Dataset.create_from_array(
             arr,

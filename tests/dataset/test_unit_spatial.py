@@ -7,9 +7,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.base._errors import AlignmentError
-from pyramids.base.crs import sr_from_epsg
 from pyramids.dataset import Dataset
-from pyramids.dataset.abstract_dataset import RasterBase
 from pyramids.dataset.engines import Analysis, Spatial, Vectorize
 
 pytestmark = pytest.mark.core
