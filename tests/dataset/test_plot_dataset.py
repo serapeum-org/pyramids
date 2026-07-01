@@ -8,8 +8,6 @@ import pytest
 from osgeo import gdal
 
 from pyramids.dataset import Dataset, DatasetCollection
-from pyramids.dataset._plot_helpers import render_array
-from pyramids.dataset.engines import Analysis
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.plot
