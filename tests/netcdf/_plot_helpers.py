@@ -29,8 +29,9 @@ def _make_3d_nc_with_dates():
     """Build a 3-D variable with date-string time coords for label selection.
 
     Returns:
-        tuple[NetCDF, list[str]]: The container plus the list of time
-            coord values (strings) used for the time axis.
+        tuple[NetCDF, list[str], NetCDF]: The container, the list of time
+            coord values (strings) used for the time axis, and the ``t2m``
+            variable subset (whose patched date coords the caller relies on).
     """
     rng = np.random.default_rng(1)
     times = ["2024-01-13", "2024-01-14", "2024-01-15", "2024-01-16"]

@@ -125,7 +125,6 @@ class TestNetCDFPlotAnimate:
         labels = ["2024-01-01", "2024-01-02", "2024-01-03"]
         captured: dict = {}
 
-
         with patch(
             "pyramids.netcdf.netcdf.NetCDF.get_time_variable",
             return_value=labels,
@@ -151,7 +150,6 @@ class TestNetCDFPlotAnimate:
         """
         nc = make_plot_3d_nc(n_times=4)
         captured: dict = {}
-
 
         with patch(
             "pyramids.netcdf._plot._render_array",
@@ -183,7 +181,6 @@ class TestNetCDFPlotAnimate:
         nc = make_plot_3d_nc(n_times=5)
         captured: dict = {}
 
-
         with patch(
             "pyramids.netcdf._plot._render_array",
             side_effect=_make_fake_render(captured),
@@ -214,7 +211,6 @@ class TestNetCDFPlotAnimateEdges:
         """
         nc = _make_4d_nc()
         captured: dict = {}
-
 
         with patch(
             "pyramids.netcdf._plot._render_array",
@@ -261,7 +257,6 @@ class TestNetCDFPlotAnimateEdges:
         """
         nc = _make_4d_nc()
         captured: dict = {}
-
 
         with patch(
             "pyramids.netcdf._plot._render_array",
@@ -311,7 +306,6 @@ class TestNetCDFPlotAnimateEdges:
         """
         nc = make_plot_3d_nc(n_times=4)
         captured: dict = {}
-
 
         with patch(
             "pyramids.netcdf._plot._render_array",
