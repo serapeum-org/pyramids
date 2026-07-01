@@ -40,14 +40,10 @@ from osgeo import gdal, osr
 from pyproj import CRS, Transformer
 
 from pyramids.base._errors import WCSError
+from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
-
-# GDAL's HTTP Basic-auth env var. Assembled in two pieces so static analysis does
-# not misread the literal key as a hard-coded credential: the value is always
-# supplied by the caller's ``auth``, never hard-coded here.
-_GDAL_HTTP_AUTH_VAR = "GDAL_HTTP_USER" + "PWD"
 
 
 def _localname(tag: str) -> str:
@@ -171,14 +167,6 @@ def _xml_escape(text: str) -> str:
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
-
-
-def _gdal_http_config(auth: tuple[str, str] | None, timeout: float) -> dict[str, str]:
-    """GDAL config options for the WCS HTTP requests (auth + timeout)."""
-    config = {"GDAL_HTTP_TIMEOUT": str(int(timeout))}
-    if auth is not None:
-        config[_GDAL_HTTP_AUTH_VAR] = f"{auth[0]}:{auth[1]}"
-    return config
 
 
 def _open_service(descriptor: str, coverage: str) -> "gdal.Dataset":
