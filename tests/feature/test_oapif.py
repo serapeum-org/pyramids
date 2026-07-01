@@ -552,10 +552,12 @@ class TestOapifDriverPaging:
 @pytest.mark.slow
 @pytest.mark.live
 class TestLiveOapif:
+    ENDPOINT = "https://demo.pygeoapi.io/master"
+
     def test_live_read(self):
-        """Exercise the real OGR OAPIF driver against a caller-supplied public endpoint."""
-        endpoint = os.environ["PYRAMIDS_OAPIF_ENDPOINT"]
-        collection = os.environ["PYRAMIDS_OAPIF_COLLECTION"]
+        """Exercise the real OGR OAPIF driver against a public endpoint (override via env)."""
+        endpoint = os.environ.get("PYRAMIDS_OAPIF_ENDPOINT", self.ENDPOINT)
+        collection = os.environ.get("PYRAMIDS_OAPIF_COLLECTION", "lakes")
         fc = FeatureCollection.from_ogc_features(endpoint, collection=collection, max_features=5)
         assert isinstance(fc, FeatureCollection)
         assert len(fc) <= 5

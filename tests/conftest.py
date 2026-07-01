@@ -74,6 +74,16 @@ def pytest_collection_modifyitems(config, items):
             if marker_name in item.keywords:
                 item.add_marker(skip_marker)
 
+    # `live` tests hit real external services; they are opt-in, never run by a
+    # bare `pytest` / `pixi run main`. Skip them unless `live` is named in the
+    # `-m` expression (e.g. `-m live`); `-m "not live"` already deselects them.
+    markexpr = config.option.markexpr or ""
+    if "live" not in markexpr:
+        skip_live = pytest.mark.skip(reason="live network test; run it with `-m live`")
+        for item in items:
+            if "live" in item.keywords:
+                item.add_marker(skip_live)
+
 
 @pytest.fixture(scope="session", autouse=True)
 def seed_randomness():
