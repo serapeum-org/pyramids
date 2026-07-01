@@ -1,6 +1,64 @@
 ﻿# Change log
 
 
+## 0.39.0 (2026-07-01)
+
+### Feat
+
+- **dataset**: add Dataset.from_ogc_coverages and finish the OGC reader family (#663)
+- **feature**: add FeatureCollection.from_ogc_api_features reader (#656)
+
+### Fix
+
+- **netcdf**: stop curvilinear plots smearing across the antimeridian (#670)
+- **netcdf**: stop curvilinear plots smearing across the antimeridian
+                                                                                                              
+  Curvilinear NetCDF grids whose longitude crosses the 0/360                                                  
+  antimeridian rendered as a full-width smear, because pcolormesh                                             
+  read the 359->0 wrap as one giant cell. render_array now makes a                                            
+  wrapping degree-geographic longitude continuous before it reaches                                           
+  cleopatra, gated so projected, unknown-CRS, and non-wrapping grids                                          
+  are left untouched.                                                                                         
+                                                                                                              
+  Plotting fix:                                                                                               
+  - NaN-safe, degrees-only, dtype-preserving, single-return unwrap                                            
+  - unit tests for the unwrap and CRS gate, plus an end-to-end                                                
+    regression on a real wrapping curvilinear file                                                            
+  - cover multi-wrap rows, single-column grids, and interior-NaN edges                                        
+                                                                                                              
+  Documentation:                                                                                              
+  - correct the basemap claims in the CF/COARDS explore notebooks:                                            
+    they plot in the data's own CRS with a Natural Earth coastline                                            
+    overlay, not a reprojected OpenStreetMap / Web Mercator basemap                                           
+  - drop the redundant crs= from add_features across the explore and                                          
+    anatomy notebooks; the returned glyph already carries the CRS                                             
+  - plot the anatomy examples via NetCDF.plot() instead of raw matplotlib                                     
+  - add a NetCDF class anatomy & reference notebook                                                           
+  - add mermaid diagrams across the NetCDF reference: container/variable                                      
+    object model, engines, the metadata pipeline and dataclass                                                
+    aggregation, the plot pipeline, the CF capability map, and the                                            
+    ugrid class model, conversion bridges, and submodule diagrams                                             
+                                                                                                              
+  Documentation accuracy & hygiene:                                                                           
+  - fix the UgridMetadata data_variables edge (it is a dict[str,str]                                          
+    name->location map, not MeshVariable records)                                                             
+  - clarify the metadata serializers are module-level functions, not                                          
+    methods on NetCDFMetadata                                                                                 
+  - list representative CF classification roles instead of a partial set                                      
+  - remove the object-model flowchart's subgraph self-loop                                                    
+  - scrub committed notebook output: drop an INFO log line and sanitize                                       
+    an ipykernel temp path that leaked a local username                                                       
+                                                                                                              
+  Test quality:                                                                                               
+  - assert unwrapped values with np.isclose instead of float ==                                               
+  - pass an unresolvable EPSG code, not a str, to the CRS-gate test                                           
+                                                                                                              
+  Closes #669
+
+### Refactor
+
+- **typing**: make the netCDF subpackage and engine layer pass mypy (#657)
+
 ## 0.38.0 (2026-06-28)
 
 ### BREAKING CHANGE
