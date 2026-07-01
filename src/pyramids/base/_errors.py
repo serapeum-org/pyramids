@@ -143,6 +143,21 @@ class UnsupportedAssetError(StacError, ValueError):
     """
 
 
+class CoverageError(_PyramidsError):
+    """A coverage's native CRS cannot be resolved.
+
+    Raised by the protocol-neutral CRS resolver in
+    :mod:`pyramids.base._coverage` when a coverage carries no spatial reference
+    (the service advertises a CRS absent from the PROJ database) and no
+    ``coverage_crs`` shim was supplied. It is the shared, protocol-agnostic error
+    that each coverage reader re-wraps into its own branded error —
+    :class:`WCSError` for :meth:`pyramids.dataset.Dataset.from_wcs`,
+    :class:`OGCAPIError` for
+    :meth:`pyramids.dataset.Dataset.from_ogc_coverages` — so neither reader has to
+    import the other's internals.
+    """
+
+
 class WCSError(_PyramidsError):
     """A failure talking to an OGC Web Coverage Service (WCS).
 

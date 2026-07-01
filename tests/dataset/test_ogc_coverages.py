@@ -28,7 +28,7 @@ from osgeo import gdal, osr
 
 from pyramids.base import _ogc_api
 from pyramids.dataset import Dataset, _ogc_coverages
-from pyramids.errors import OGCAPIError, WCSError
+from pyramids.errors import CoverageError, OGCAPIError
 
 
 @pytest.fixture(autouse=True)
@@ -221,13 +221,13 @@ class TestFromOgcCoveragesValidation:
         assert seen["timeout"] == "42"
 
     def test_crs_less_coverage_raises_ogcapierror(self, monkeypatch):
-        """A coverage with no resolvable CRS surfaces OGCAPIError, not the reused WCSError."""
+        """A coverage with no resolvable CRS surfaces OGCAPIError, not the neutral CoverageError."""
         self._patch_collections(monkeypatch)
         mem = gdal.GetDriverByName("MEM").Create("", 4, 4, 1)
         monkeypatch.setattr(_ogc_coverages.gdal, "OpenEx", lambda *a, **k: mem)
 
         def no_srs(*a, **k):
-            raise WCSError("the WCS coverage has no resolvable spatial reference")
+            raise CoverageError("the coverage has no resolvable spatial reference")
 
         monkeypatch.setattr(_ogc_coverages, "_resolve_native_srs", no_srs)
         with pytest.raises(OGCAPIError, match="no resolvable spatial reference"):

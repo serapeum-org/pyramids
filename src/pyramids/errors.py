@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from pyramids.base._errors import (
     AlignmentError,
+    CoverageError,
     CRSError,
     DatasetNotFoundError,
     DriverNotExistError,
@@ -45,6 +46,7 @@ from pyramids.base._errors import _PyramidsError as PyramidsError
 __all__ = [
     "PyramidsError",
     "AlignmentError",
+    "CoverageError",
     "CRSError",
     "DatasetNotFoundError",
     "DriverNotExistError",

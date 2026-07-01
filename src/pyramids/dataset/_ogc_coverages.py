@@ -27,10 +27,11 @@ unadvertised coverage fails fast with a clear :class:`ValueError`, and so
 transport / driver failures surface as
 :class:`~pyramids.base._errors.OGCAPIError`.
 
-This is the OGC-API-era sibling of :mod:`pyramids.dataset._wcs` (the WCS reader),
-whose bbox/CRS/window helpers it reuses, and it shares its ``/collections``
-discovery with :mod:`pyramids.feature._oapif` (the OGC API – Features reader)
-through :mod:`pyramids.base._ogc_api`.
+This is the OGC-API-era sibling of :mod:`pyramids.dataset._wcs` (the WCS reader);
+the two share their bbox/CRS/window helpers through the protocol-neutral
+:mod:`pyramids.base._coverage`, and share their ``/collections`` discovery with
+:mod:`pyramids.feature._oapif` (the OGC API – Features reader) through
+:mod:`pyramids.base._ogc_api`.
 
 Scope boundary (see ``docs/SCOPE.md``): this reader takes only generic OGC
 inputs. Provider specifics — coverage-name catalogs, agency auth endpoints, the
@@ -47,15 +48,13 @@ from urllib.parse import quote, urlsplit, urlunsplit
 
 from osgeo import gdal
 
-from pyramids.base._errors import OGCAPIError, WCSError
+from pyramids.base._coverage import native_projwin as _native_projwin
+from pyramids.base._coverage import resolution_pair as _resolution_pair
+from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs
+from pyramids.base._coverage import validate_bbox as _validate_bbox
+from pyramids.base._errors import CoverageError, OGCAPIError
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.base._ogc_api import get_collections as _get_collections
-from pyramids.dataset._wcs import (
-    _native_projwin,
-    _resolution_pair,
-    _resolve_native_srs,
-    _validate_bbox,
-)
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
@@ -226,12 +225,13 @@ def from_ogc_coverages(
     with gdal.config_options(config):
         src = _open_coverage(connection, coverage)
         try:
-            # _resolve_native_srs is shared with the WCS reader; normalise its
-            # WCSError (CRS-less coverage, no coverage_crs shim) to this reader's
-            # OGCAPIError so the documented Raises contract holds and the message
-            # names OGC API. A bad coverage_crs raises ValueError, which propagates.
+            # _resolve_native_srs is the shared, protocol-neutral resolver;
+            # normalise its CoverageError (CRS-less coverage, no coverage_crs shim)
+            # to this reader's OGCAPIError so the documented Raises contract holds
+            # and the message names OGC API. A bad coverage_crs raises ValueError,
+            # which propagates.
             native_srs = _resolve_native_srs(src, coverage_crs)
-        except WCSError as exc:
+        except CoverageError as exc:
             raise OGCAPIError(
                 f"OGC API coverage {coverage!r} has no resolvable spatial reference; "
                 "the service advertised no usable CRS for the coverage"

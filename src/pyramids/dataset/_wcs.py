@@ -36,14 +36,36 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET
 
-from osgeo import gdal, osr
-from pyproj import CRS, Transformer
+from osgeo import gdal
 
-from pyramids.base._errors import WCSError
+from pyramids.base._coverage import native_projwin as _native_projwin
+from pyramids.base._coverage import resolution_pair as _resolution_pair
+from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_neutral
+from pyramids.base._coverage import validate_bbox as _validate_bbox
+from pyramids.base._errors import CoverageError, WCSError
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 
 if TYPE_CHECKING:
+    from osgeo import osr
+
     from pyramids.dataset.dataset import Dataset
+
+
+def _resolve_native_srs(
+    src: "gdal.Dataset", coverage_crs: str | None
+) -> "osr.SpatialReference":
+    """Resolve the coverage's native CRS, re-branding CoverageError as WCSError.
+
+    Delegates to the shared, protocol-neutral resolver in
+    :mod:`pyramids.base._coverage` and re-wraps its :class:`CoverageError`
+    (CRS-less coverage, no ``coverage_crs`` shim) into :class:`WCSError`, so
+    :meth:`pyramids.dataset.Dataset.from_wcs` keeps its documented error contract.
+    A bad ``coverage_crs`` still raises :class:`ValueError` from the shared resolver.
+    """
+    try:
+        return _resolve_native_srs_neutral(src, coverage_crs)
+    except CoverageError as exc:
+        raise WCSError(str(exc)) from exc
 
 
 def _localname(tag: str) -> str:
@@ -183,82 +205,6 @@ def _open_service(descriptor: str, coverage: str) -> "gdal.Dataset":
     if src is None:
         raise WCSError(f"GDAL returned no dataset for WCS coverage {coverage!r}")
     return src
-
-
-def _resolve_native_srs(
-    src: "gdal.Dataset", coverage_crs: str | None
-) -> "osr.SpatialReference":
-    """Return the coverage's native CRS, applying the ``coverage_crs`` shim.
-
-    GDAL reports no spatial reference when the server's advertised CRS is not in
-    the PROJ database. The caller must then supply ``coverage_crs``.
-
-    Raises:
-        WCSError: The dataset has no CRS and no ``coverage_crs`` was given.
-        ValueError: ``coverage_crs`` could not be interpreted.
-    """
-    srs = src.GetSpatialRef()
-    if srs is not None:
-        return srs.Clone()
-    if coverage_crs is None:
-        raise WCSError(
-            "the WCS coverage has no resolvable spatial reference (the server "
-            "likely advertises a CRS absent from the PROJ database). Pass "
-            "coverage_crs= with the coverage's CRS, e.g. the proj4 string."
-        )
-    shim = osr.SpatialReference()
-    try:
-        # GDAL exceptions are enabled package-wide, so a bad CRS raises here.
-        shim.SetFromUserInput(coverage_crs)
-    except RuntimeError as exc:
-        raise ValueError(
-            f"coverage_crs could not be interpreted: {coverage_crs!r} ({exc})"
-        ) from exc
-    return shim
-
-
-def _native_projwin(
-    bbox: tuple[float, float, float, float],
-    crs: str,
-    native_srs: "osr.SpatialReference",
-) -> list[float]:
-    """Transform a lon/lat-ordered `bbox` into a native-CRS ``projWin``.
-
-    Returns ``[ulx, uly, lrx, lry]`` in the native CRS, the form
-    :func:`gdal.Translate` expects.
-    """
-    native = CRS.from_user_input(native_srs.ExportToWkt())
-    transformer = Transformer.from_crs(CRS.from_user_input(crs), native, always_xy=True)
-    minx, miny, maxx, maxy = bbox
-    # Densify the edges (not just the corners) so the native-CRS window still
-    # covers the requested area under projection curvature / interruptions (e.g.
-    # the Interrupted Goode Homolosine), where the corner hull can bow inward.
-    left, bottom, right, top = transformer.transform_bounds(
-        minx, miny, maxx, maxy, densify_pts=21
-    )
-    return [left, top, right, bottom]
-
-
-def _validate_bbox(bbox: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
-    """Validate a ``(minx, miny, maxx, maxy)`` bbox."""
-    if len(bbox) != 4:
-        raise ValueError(f"bbox must be (minx, miny, maxx, maxy), got {bbox!r}")
-    minx, miny, maxx, maxy = (float(v) for v in bbox)
-    if minx >= maxx or miny >= maxy:
-        raise ValueError(f"bbox must have minx < maxx and miny < maxy, got {bbox!r}")
-    return minx, miny, maxx, maxy
-
-
-def _resolution_pair(
-    resolution: float | tuple[float, float] | None,
-) -> tuple[float, float] | None:
-    """Normalise `resolution` to an ``(x_res, y_res)`` pair (or ``None``)."""
-    if resolution is None:
-        return None
-    if isinstance(resolution, (int, float)):
-        return float(resolution), float(resolution)
-    x_res, y_res = resolution
-    return float(x_res), float(y_res)
 
 
 def from_wcs(
