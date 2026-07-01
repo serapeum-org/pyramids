@@ -782,7 +782,7 @@ def ogr_ds_to_gdal_dataset(ogr_ds: ogr.DataSource) -> gdal.Dataset:
     Returns:
         gdal.Dataset: An in-memory GDAL dataset converted from the OGR source.
     """
-    gdal_ds = gdal.GetDriverByName("Memory").Create("", 0, 0, 0, gdal.GDT_Unknown)
+    gdal_ds = gdal.GetDriverByName("MEM").Create("", 0, 0, 0, gdal.GDT_Unknown)
 
     for i in range(ogr_ds.GetLayerCount()):
         layer = ogr_ds.GetLayerByIndex(i)

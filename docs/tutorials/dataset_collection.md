@@ -43,7 +43,7 @@ The DatasetCollection object has the following attributes:
 
 Note:
     — read_multiple_files only parses file names; to open each raster, read a specific band, and add
-        it to the DatasetCollection you have to do one step further using the open_datacube method.
+        it to the DatasetCollection you have to do one step further using the open_multi_dataset method.
 
 #### Parameters
 
@@ -116,7 +116,7 @@ If the directory contains files with a number in each file name:
 ```
 
 ```python
-rasters_folder_path = "tests/data/geotiff/rhine"
+rasters_folder_path = "examples/data/geotiff/rhine"
 dc = DatasetCollection.read_multiple_files(
     rasters_folder_path, with_order=True, regex_string=r"\d+", date=False,
 )
@@ -128,15 +128,15 @@ print(dc)
 # >>>     Mask: 2147483648.0
 ```
 
-### open_datacube
+### open_multi_dataset
 
 After using read_multiple_files to parse the files in the directory, you can read the values of a
-specific band from each raster using open_datacube.
+specific band from each raster using open_multi_dataset.
 
 ```python
 rasters_folder_path = "examples/data/geotiff/raster-folder"
 dc = DatasetCollection.read_multiple_files(
-    rasters_folder_path, file_name_data_fmt="%Y.%m.%d", separator="."
+    rasters_folder_path, file_name_data_fmt="%Y.%m.%d"
 )
 dc.open_multi_dataset()
 print(dc.values.shape)

@@ -16,7 +16,7 @@ rasters. `NetCDF` and `DatasetCollection` build on top of it.
 ```python
 from pyramids.dataset import Dataset
 
-ds = Dataset.read_file("tests/data/acc4000.tif")
+ds = Dataset.read_file("dem.tif")
 ds.shape, ds.band_count, ds.epsg, ds.cell_size   # grid + georeferencing
 arr = ds.read_array()                            # (bands, rows, cols) NumPy array
 ds.to_file("copy.tif")                           # driver inferred from the extension
