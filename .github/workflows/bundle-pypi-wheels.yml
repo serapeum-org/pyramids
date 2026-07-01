@@ -58,7 +58,7 @@ jobs:
           # the workflow_run head_sha is captured; we need the branch tip to see them.
           ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
@@ -96,7 +96,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
@@ -138,7 +138,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
@@ -178,7 +178,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
 
@@ -228,7 +228,7 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ matrix.python-version }}
 
