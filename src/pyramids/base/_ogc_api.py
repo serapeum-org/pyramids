@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 from functools import lru_cache
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 from pyramids.base._errors import OGCAPIError
 
@@ -50,17 +50,26 @@ def gdal_http_config(auth: tuple[str, str] | None, timeout: float) -> dict[str, 
     return config
 
 
+def append_path(endpoint: str, suffix: str) -> tuple[SplitResult, str]:
+    """Split `endpoint` and append `suffix` to its path, *before* any query string.
+
+    Returns the ``urlsplit`` parts and the new path. Appending before the query
+    keeps a query-string-auth endpoint (e.g. ``https://host/ogc?api_key=…``) intact
+    instead of producing ``…?api_key=…{suffix}``. Shared by the ``/collections``
+    discovery URL and the coverages ``OGCAPI:`` connection string.
+    """
+    parts = urlsplit(endpoint)
+    return parts, f"{parts.path.rstrip('/')}{suffix}"
+
+
 def collections_url(endpoint: str) -> str:
     """Build the ``/collections`` discovery URL for an OGC API landing page.
 
     The ``/collections`` path segment is inserted **before** any existing query
     string, and ``f=json`` is merged into the query to force JSON content
-    negotiation on services that default to HTML. Inserting before the query keeps
-    a query-string-auth endpoint (e.g. ``https://host/ogc?api_key=…``) intact
-    instead of producing ``…?api_key=…/collections``.
+    negotiation on services that default to HTML.
     """
-    parts = urlsplit(endpoint)
-    path = f"{parts.path.rstrip('/')}/collections"
+    parts, path = append_path(endpoint, "/collections")
     query = f"{parts.query}&f=json" if parts.query else "f=json"
     return urlunsplit((parts.scheme, parts.netloc, path, query, ""))
 

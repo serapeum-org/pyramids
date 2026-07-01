@@ -44,7 +44,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote, urlunsplit
 
 from osgeo import gdal
 
@@ -53,6 +53,7 @@ from pyramids.base._coverage import resolution_pair as _resolution_pair
 from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, OGCAPIError
+from pyramids.base._ogc_api import append_path as _append_path
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 from pyramids.base._ogc_api import get_collections as _get_collections
 
@@ -75,14 +76,14 @@ def _coverage_connection(endpoint: str, coverage: str) -> str:
     """Build the GDAL ``OGCAPI:`` connection string for one coverage collection.
 
     The ``/collections/{coverage}`` path segment is inserted **before** any
-    existing query string (mirroring :func:`pyramids.base._ogc_api.collections_url`)
-    so a query-string-auth endpoint (e.g. ``https://host/ogc?api_key=…``) keeps its
-    query intact instead of producing ``…?api_key=…/collections/{coverage}``. The
-    coverage identifier is URL-encoded so a name containing ``/`` or other reserved
-    characters lands as a single path segment.
+    existing query string (via the shared
+    :func:`pyramids.base._ogc_api.append_path`) so a query-string-auth endpoint
+    (e.g. ``https://host/ogc?api_key=…``) keeps its query intact instead of
+    producing ``…?api_key=…/collections/{coverage}``. The coverage identifier is
+    URL-encoded so a name containing ``/`` or other reserved characters lands as a
+    single path segment.
     """
-    parts = urlsplit(endpoint)
-    path = f"{parts.path.rstrip('/')}/collections/{quote(coverage, safe='')}"
+    parts, path = _append_path(endpoint, f"/collections/{quote(coverage, safe='')}")
     base = urlunsplit((parts.scheme, parts.netloc, path, parts.query, ""))
     return f"OGCAPI:{base}"
 
