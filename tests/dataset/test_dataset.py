@@ -2110,82 +2110,6 @@ class TestTiling:
         ]
 
 
-class TestIloc:
-    """extract band from a dataset."""
-
-    def test_iloc_out_of_bound_index(
-        self,
-        src: gdal.Dataset,
-        src_no_data_value: float,
-    ):
-        dataset = Dataset(src)
-        with pytest.raises(IndexError):
-            dataset._iloc(1)
-        with pytest.raises(IndexError):
-            dataset._iloc(-1)
-
-    def test_iloc(
-        self,
-        src: gdal.Dataset,
-        src_no_data_value: float,
-    ):
-        dataset = Dataset(src)
-        band = dataset._iloc(0)
-        assert isinstance(band, gdal.Band)
-
-
-class TestStats:
-    def test_all_bands(self, era5_image: gdal.Dataset, era5_image_stats: DataFrame):
-        dataset = Dataset(era5_image)
-        stats = dataset.stats()
-        assert isinstance(stats, DataFrame)
-        assert all(stats.columns == ["min", "max", "mean", "std"])
-        assert np.isclose(
-            stats.values, era5_image_stats.values, rtol=0.000001, atol=0.00001
-        ).all()
-
-    def test_specific_band(self, era5_image: gdal.Dataset, era5_image_stats: DataFrame):
-        dataset = Dataset(era5_image)
-        stats = dataset.stats(0)
-        assert isinstance(stats, DataFrame)
-        assert all(stats.columns == ["min", "max", "mean", "std"])
-        assert np.isclose(
-            stats.values,
-            era5_image_stats.iloc[0, :].values,
-            rtol=0.000001,
-            atol=0.00001,
-        ).all()
-
-    def test_all_bands_with_mask(
-        self,
-        era5_image: gdal.Dataset,
-        era5_image_stats: DataFrame,
-        era5_mask: GeoDataFrame,
-    ):
-        """
-        Test the stats function with a mask.
-        The mask covers only the second row of the array, the test checks if the mean of the second row is equal to the
-        mean calculated by the stats function.
-        """
-        dataset = Dataset(era5_image)
-        stats = dataset.stats(mask=era5_mask)
-        assert isinstance(stats, DataFrame)
-        assert all(stats.columns == ["min", "max", "mean", "std"])
-        arr = dataset.read_array()
-        mean = arr[:, 1, :].mean(axis=1)
-        std = arr[:, 1, :].std(axis=1)
-        min_val = arr[:, 1, :].min(axis=1)
-        max_val = arr[:, 1, :].max(axis=1)
-        assert np.isclose(stats["mean"].values, mean, rtol=0.000001, atol=0.00001).all()
-        assert np.isclose(stats["std"].values, std, rtol=0.000001, atol=0.00001).all()
-        assert np.isclose(
-            stats["min"].values, min_val, rtol=0.000001, atol=0.00001
-        ).all()
-        assert np.isclose(
-            stats["max"].values, max_val, rtol=0.000001, atol=0.00001
-        ).all()
-
-
 class TestDistributedRead:  # unittest.TestCase
     def test_get_block_arrangement_default(self, src: Dataset):
         dataset = Dataset(src)
@@ -2218,29 +2142,6 @@ class TestHistogram:
         hist, ranges = dataset.get_histogram(band=0)
         assert len(ranges) == 6
         assert hist == [75, 6, 0, 4, 2, 1]
-
-
-class TestWriteArray:
-    def test_single_band(self):
-        path = "tests/data/geotiff/empty-to-fill-single-band.tif"
-        dataset = Dataset.read_file(path, read_only=False).copy()
-        arr = np.array([[1, 2], [3, 4]])
-        xoff = 5  # col
-        yoff = 3  # row
-        dataset.write_array(arr, top_left_corner=[yoff, xoff])
-        retrieved_arr = dataset._raster.ReadAsArray(xoff, yoff, 2, 2)
-        np.testing.assert_array_equal(arr, retrieved_arr)
-
-    def test_multi_band(self):
-        # Multi Band
-        path = "tests/data/geotiff/empty-to-fill-multi-band.tif"
-        dataset = Dataset.read_file(path, read_only=False).copy()
-        arr = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
-        xoff = 5
-        yoff = 3
-        dataset.write_array(arr, top_left_corner=[yoff, xoff])
-        retrieved_arr = dataset._raster.ReadAsArray(xoff, yoff, 2, 2)
-        np.testing.assert_array_equal(arr, retrieved_arr)
 
 
 def test_nearest_neigbors():

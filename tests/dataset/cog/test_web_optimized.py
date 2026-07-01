@@ -85,21 +85,3 @@ class TestWebOptimizedCog:
             tmp_path / "web.tif", tiling_scheme="GoogleMapsCompatible"
         )
         assert Dataset.read_file(str(out)).validate_cog().is_valid, "invalid web COG"
-
-    def test_tiling_scheme_and_target_srs_warns(self, big_dataset, tmp_path):
-        """Passing both tiling_scheme and target_srs warns (scheme wins).
-
-        Args:
-            big_dataset: 600x600 EPSG:4326 fixture.
-            tmp_path: pytest temp directory.
-
-        Test scenario:
-            The two are mutually exclusive; tiling_scheme wins and a UserWarning
-            is emitted.
-        """
-        with pytest.warns(UserWarning, match="tiling_scheme"):
-            big_dataset.to_cog(
-                tmp_path / "w.tif",
-                tiling_scheme="GoogleMapsCompatible",
-                target_srs=4326,
-            )

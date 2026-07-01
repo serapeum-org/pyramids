@@ -11,7 +11,9 @@ Covers:
 * Direct unit tests for ``_get_line_coords`` and ``_get_poly_coords``
   (previously exercised only transitively via higher-level calls).
 * ``top_left_corner`` with negative coordinates and a single point.
-* ``iter_features`` / ``list_layers`` error paths on a missing file.
+* ``iter_features`` error path on a missing file (the ``list_layers``
+  missing-file case now lives in
+  ``tests/feature/test_schema_and_layers.py::TestListLayersMissingFile``).
 * ``schema`` on a pure-Polygon collection (existing tests only cover
   Point or mixed geom types).
 * ``reproject_coordinates`` edge cases: empty input lists,
@@ -96,11 +98,6 @@ class TestMissingFileErrors:
         missing = tmp_path / "does_not_exist.geojson"
         with pytest.raises((DataSourceError, FileNotFoundError)):
             list(FeatureCollection.iter_features(missing))
-
-    def test_list_layers_missing_file(self, tmp_path: Path):
-        missing = tmp_path / "nope.gpkg"
-        with pytest.raises((DataSourceError, FileNotFoundError)):
-            FeatureCollection.list_layers(missing)
 
 
 class TestSchemaPolygon:

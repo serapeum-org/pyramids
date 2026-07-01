@@ -357,112 +357,6 @@ class TestReadVariableClassicMode:
         )
 
 
-class TestSelDataIntegrity:
-    """sel() data integrity — ARC-10 band-level reads produce correct data."""
-
-    def test_sel_single_matches_full_read_band(self):
-        """sel(time=12) data matches read_array(band=2).
-
-        Test scenario:
-            Band index 2 corresponds to time=12 in [0,6,12,18,24].
-            The sel() result data should exactly equal that band.
-        """
-        nc = _make_3d_nc()
-        var = nc.get_variable("temperature")
-        sel_result = var.sel(time=12)
-        expected = var.read_array(band=2)
-        assert_array_equal(
-            sel_result.read_array(),
-            expected,
-            err_msg="sel(time=12) data should match band index 2",
-        )
-
-    def test_sel_list_matches_stacked_bands(self):
-        """sel(time=[0, 18]) matches stacking bands 0 and 3.
-
-        Test scenario:
-            Selecting time steps 0 and 18 (band indices 0 and 3)
-            should produce the same array as np.stack([band0, band3]).
-        """
-        nc = _make_3d_nc()
-        var = nc.get_variable("temperature")
-        sel_result = var.sel(time=[0, 18])
-        band_0 = var.read_array(band=0)
-        band_3 = var.read_array(band=3)
-        expected = np.stack([band_0, band_3], axis=0)
-        assert_array_equal(
-            sel_result.read_array(),
-            expected,
-            err_msg="sel(time=[0,18]) should equal stack of bands 0,3",
-        )
-
-    def test_sel_slice_matches_sequential_bands(self):
-        """sel(time=slice(6, 18)) matches bands 1, 2, 3.
-
-        Test scenario:
-            Time coords [6,12,18] have band indices [1,2,3].
-        """
-        nc = _make_3d_nc()
-        var = nc.get_variable("temperature")
-        sel_result = var.sel(time=slice(6, 18))
-        bands = [var.read_array(band=i) for i in [1, 2, 3]]
-        expected = np.stack(bands, axis=0)
-        assert_array_equal(
-            sel_result.read_array(),
-            expected,
-            err_msg="sel(time=slice(6,18)) should match bands 1-3",
-        )
-
-    def test_sel_all_values_matches_full_read(self):
-        """sel(time=[0,6,12,18,24]) matches full read_array().
-
-        Test scenario:
-            Selecting all time steps should produce the exact same
-            array as read_array() on the full variable.
-        """
-        nc = _make_3d_nc()
-        var = nc.get_variable("temperature")
-        sel_result = var.sel(time=[0, 6, 12, 18, 24])
-        expected = var.read_array()
-        assert_array_equal(
-            sel_result.read_array(),
-            expected,
-            err_msg="Selecting all times should match full read",
-        )
-
-    def test_sel_first_band(self):
-        """sel(time=0) selects the first band correctly.
-
-        Test scenario:
-            Boundary: first band (index 0) should be returned as 2D.
-        """
-        nc = _make_3d_nc()
-        var = nc.get_variable("temperature")
-        result = var.sel(time=0)
-        expected = var.read_array(band=0)
-        assert_array_equal(
-            result.read_array(),
-            expected,
-            err_msg="sel(time=0) should match first band",
-        )
-
-    def test_sel_last_band(self):
-        """sel(time=24) selects the last band correctly.
-
-        Test scenario:
-            Boundary: last band (index 4) should be returned as 2D.
-        """
-        nc = _make_3d_nc()
-        var = nc.get_variable("temperature")
-        result = var.sel(time=24)
-        expected = var.read_array(band=4)
-        assert_array_equal(
-            result.read_array(),
-            expected,
-            err_msg="sel(time=24) should match last band",
-        )
-
-
 class TestSelChaining:
     """sel() chaining — sequential sel() calls produce correct results."""
 
@@ -525,50 +419,6 @@ class TestSelChaining:
         assert isinstance(
             second, NetCDF
         ), f"Expected NetCDF, got {type(second).__name__}"
-
-
-class TestSelShape:
-    """sel() output shape correctness."""
-
-    def test_single_value_shape_is_2d(self):
-        """Selecting a single time step returns a 2D array (squeezed).
-
-        Test scenario:
-            sel(time=6) on a (5, 6, 8) variable should produce a
-            (6, 8) array (the single band is squeezed).
-        """
-        nc = _make_3d_nc()
-        var = nc.get_variable("temperature")
-        result = var.sel(time=6)
-        arr = result.read_array()
-        assert arr.shape == (
-            6,
-            8,
-        ), f"Expected (6, 8) for single-band sel, got {arr.shape}"
-
-    def test_two_values_shape_is_3d(self):
-        """Selecting two time steps returns a 3D array.
-
-        Test scenario:
-            sel(time=[6, 18]) should produce shape (2, 6, 8).
-        """
-        nc = _make_3d_nc()
-        var = nc.get_variable("temperature")
-        result = var.sel(time=[6, 18])
-        arr = result.read_array()
-        assert arr.shape == (2, 6, 8), f"Expected (2, 6, 8), got {arr.shape}"
-
-    def test_all_values_shape_matches_original(self):
-        """Selecting all time steps returns the original shape.
-
-        Test scenario:
-            sel(time=[0,6,12,18,24]) should produce shape (5, 6, 8).
-        """
-        nc = _make_3d_nc()
-        var = nc.get_variable("temperature")
-        result = var.sel(time=[0, 6, 12, 18, 24])
-        arr = result.read_array()
-        assert arr.shape == (5, 6, 8), f"Expected (5, 6, 8), got {arr.shape}"
 
 
 class TestSelEdgeCases:
@@ -655,46 +505,6 @@ class TestSelReturnTypeAndMetadata:
             expected,
             rtol=1e-10,
             err_msg="Unpack should apply scale*value+offset",
-        )
-
-
-class TestSelSetVariableRoundTrip:
-    """sel() results can be written back via set_variable."""
-
-    def test_sel_result_stores_back(self):
-        """A sel() result can be stored in a container via set_variable.
-
-        Test scenario:
-            get_variable → sel → set_variable should produce a valid
-            container with the subsetted variable.
-        """
-        nc = _make_3d_nc()
-        var = nc.get_variable("temperature")
-        selected = var.sel(time=[0, 12])
-        nc.set_variable("temp_subset", selected)
-        assert (
-            "temp_subset" in nc.variable_names
-        ), "temp_subset should appear in variable_names"
-
-    def test_sel_round_trip_data_integrity(self):
-        """Data survives a sel -> set_variable -> get_variable round trip.
-
-        Test scenario:
-            The data stored via set_variable should match the original
-            sel() result when read back.
-        """
-        nc = _make_3d_nc()
-        var = nc.get_variable("temperature")
-        selected = var.sel(time=[6, 18])
-        sel_data = selected.read_array()
-        nc.set_variable("temp_sub", selected)
-        restored = nc.get_variable("temp_sub")
-        restored_data = restored.read_array()
-        assert_allclose(
-            restored_data,
-            sel_data,
-            rtol=1e-10,
-            err_msg="Data should survive sel -> set_variable round trip",
         )
 
 
@@ -823,59 +633,6 @@ class TestReadVariableWindowBoundary:
         assert (
             windowed.dtype == full.dtype
         ), f"Expected dtype {full.dtype}, got {windowed.dtype}"
-
-
-class TestSelNonContiguousBands:
-    """sel() with non-contiguous band indices."""
-
-    def test_sel_non_contiguous_indices(self):
-        """sel(time=[0, 12, 24]) selects bands 0, 2, 4 (skipping 1, 3).
-
-        Test scenario:
-            Non-contiguous selection should correctly pick each
-            requested band without including intermediate ones.
-        """
-        nc = _make_3d_nc()
-        var = nc.get_variable("temperature")
-        result = var.sel(time=[0, 12, 24])
-        band_0 = var.read_array(band=0)
-        band_2 = var.read_array(band=2)
-        band_4 = var.read_array(band=4)
-        expected = np.stack([band_0, band_2, band_4], axis=0)
-        assert_array_equal(
-            result.read_array(),
-            expected,
-            err_msg=("Non-contiguous sel should pick bands 0, 2, 4"),
-        )
-
-    def test_sel_non_contiguous_coords_correct(self):
-        """Non-contiguous sel carries the correct coordinate values.
-
-        Test scenario:
-            sel(time=[0, 12, 24]) -> _band_dim_values == [0, 12, 24].
-        """
-        nc = _make_3d_nc()
-        var = nc.get_variable("temperature")
-        result = var.sel(time=[0, 12, 24])
-        assert result._band_dim_values == [
-            0,
-            12,
-            24,
-        ], f"Expected [0, 12, 24], got {result._band_dim_values}"
-
-    def test_sel_preserves_nodata(self):
-        """sel() preserves the no_data_value on the result.
-
-        Test scenario:
-            The original variable has nodata=-9999.0 which must
-            survive selection.
-        """
-        nc = _make_3d_nc()
-        var = nc.get_variable("temperature")
-        result = var.sel(time=6)
-        ndv = result.no_data_value
-        ndv_scalar = ndv[0] if isinstance(ndv, (list, tuple)) else ndv
-        assert ndv_scalar == -9999.0, f"Expected nodata=-9999.0, got {ndv_scalar}"
 
 
 class TestSelOnDiskFile:

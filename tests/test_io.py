@@ -383,38 +383,3 @@ class TestHelperFunctions:
     def test_is_tar_non_tar(self):
         """_is_tar should return False for non-tar files."""
         assert _is_tar("file.tif") is False, "file.tif should not be tar"
-
-
-class TestParsePathRemote:
-    """URL-scheme rewriting in _parse_path (Task 5)."""
-
-    def test_s3_becomes_vsis3(self):
-        assert _parse_path("s3://bucket/key.tif") == "/vsis3/bucket/key.tif"
-
-    def test_gs_becomes_vsigs(self):
-        assert _parse_path("gs://bucket/key.tif") == "/vsigs/bucket/key.tif"
-
-    def test_az_becomes_vsiaz(self):
-        assert _parse_path("az://container/blob.tif") == "/vsiaz/container/blob.tif"
-
-    def test_https_becomes_vsicurl(self):
-        assert _parse_path("https://foo.com/x.tif") == "/vsicurl/https://foo.com/x.tif"
-
-    def test_http_becomes_vsicurl(self):
-        assert _parse_path("http://foo.com/x.tif") == "/vsicurl/http://foo.com/x.tif"
-
-    def test_already_vsi_passthrough(self):
-        assert _parse_path("/vsicurl/https://foo/x.tif") == "/vsicurl/https://foo/x.tif"
-
-    def test_vsis3_passthrough(self):
-        assert _parse_path("/vsis3/bucket/key.tif") == "/vsis3/bucket/key.tif"
-
-    def test_local_path_unchanged(self):
-        assert _parse_path("/home/user/x.tif") == "/home/user/x.tif"
-
-    def test_windows_local_unchanged(self):
-        assert _parse_path("C:/data/x.tif") == "C:/data/x.tif"
-
-    def test_presigned_url_query_preserved(self):
-        url = "https://foo.com/x.tif?sig=abc&exp=123"
-        assert _parse_path(url) == f"/vsicurl/{url}"

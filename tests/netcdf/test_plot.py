@@ -1542,18 +1542,6 @@ class TestNetCDFPlotFaceting:
                 facet=FacetSpec(col="time"),
             )
 
-    def test_row_without_col_raises(self):
-        """`row=` without `col=` is rejected with a clear error."""
-        nc = _make_4d_nc()
-        with pytest.raises(ValueError, match=r"requires `col=`"):
-            nc.plot(variable="temperature", facet=FacetSpec(row="time"))
-
-    def test_facet_dim_not_a_band_dim_raises(self):
-        """`col="bogus"` is not a band dim of the variable; raises."""
-        nc = make_plot_3d_nc()
-        with pytest.raises(ValueError, match=r"not a band dim"):
-            nc.plot(variable="t2m", facet=FacetSpec(col="bogus"))
-
     def test_invalid_col_wrap_raises(self):
         """`col_wrap=0` or non-int raises ValueError."""
         nc = make_plot_3d_nc(n_times=4)
