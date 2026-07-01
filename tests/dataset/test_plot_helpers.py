@@ -88,10 +88,10 @@ def test_input_float32_longitude_stays_float32():
 
 
 def test_is_degree_geographic_gate():
-    """`_is_degree_geographic` accepts EPSG:4326, rejects a projected CRS and junk (no raise)."""
+    """`_is_degree_geographic` accepts EPSG:4326, rejects a projected CRS and an unresolvable code."""
     assert _is_degree_geographic(4326) is True
     assert _is_degree_geographic(3857) is False
-    assert _is_degree_geographic("not-a-crs") is False
+    assert _is_degree_geographic(999999) is False  # unassigned code -> CRSError -> False
 
 
 def test_row_wrapping_more_than_once_is_fully_unwrapped():
