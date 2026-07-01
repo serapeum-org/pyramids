@@ -12,6 +12,8 @@ which each reader re-wraps into its own branded error (WCSError / OGCAPIError).
 
 from __future__ import annotations
 
+from math import isfinite
+
 from osgeo import gdal, osr
 from pyproj import CRS, Transformer
 
@@ -92,6 +94,11 @@ def native_projwin(
 
     Returns ``[ulx, uly, lrx, lry]`` in the native CRS, the form
     :func:`gdal.Translate` expects.
+
+    Raises:
+        ValueError: the bbox does not project to a finite native-CRS window
+            (``pyproj`` returns ``inf``/``nan`` when the bbox falls outside the
+            native CRS's area of use).
     """
     native = CRS.from_user_input(native_srs.ExportToWkt())
     transformer = Transformer.from_crs(CRS.from_user_input(crs), native, always_xy=True)
@@ -102,4 +109,10 @@ def native_projwin(
     left, bottom, right, top = transformer.transform_bounds(
         minx, miny, maxx, maxy, densify_pts=21
     )
-    return [left, top, right, bottom]
+    projwin = [left, top, right, bottom]
+    if not all(isfinite(v) for v in projwin):
+        raise ValueError(
+            f"bbox {bbox!r} does not project to a finite window in the coverage's "
+            "native CRS; pass a bbox within the coverage's extent / CRS area of use"
+        )
+    return projwin

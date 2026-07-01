@@ -87,6 +87,14 @@ class TestPureHelpers:
         with pytest.raises(ValueError):
             _ogc_coverages._validate_bbox(bad)
 
+    def test_native_projwin_rejects_non_finite_window(self):
+        """A bbox outside the native CRS's area of use projects to inf/nan and is rejected."""
+        ortho = osr.SpatialReference()
+        # Orthographic sees one hemisphere; the far side (lon ~180 here) projects to inf.
+        ortho.ImportFromProj4("+proj=ortho +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs")
+        with pytest.raises(ValueError, match="finite window"):
+            _ogc_coverages._native_projwin((170.0, -5.0, 179.0, 5.0), "EPSG:4326", ortho)
+
     def test_read_size_from_resolution(self):
         # projWin span is 2.0 x 2.0 native units; 0.01 res -> 200 x 200 px
         assert _ogc_coverages._read_size([2.0, 5.0, 4.0, 3.0], (0.01, 0.01)) == (200, 200)
