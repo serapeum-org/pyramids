@@ -11,6 +11,8 @@ from osgeo.gdal import Dataset
 from pandas import DataFrame
 from shapely import wkt
 
+from pyramids.dataset import Dataset as PyramidsDataset
+
 
 @pytest.fixture(scope="module")
 def src_path() -> str:
@@ -500,3 +502,76 @@ def sentinel_classes() -> gdal.Dataset:
 @pytest.fixture(scope="function")
 def noah() -> gdal.Dataset:
     return gdal.Open("tests/data/geotiff/noah-precipitation-1979.tif")
+
+
+@pytest.fixture()
+def single_band_dataset():
+    """Create a single-band in-memory dataset with known values.
+
+    Shared across the ``tests/dataset/`` package.
+    """
+    arr = np.array(
+        [
+            [1.0, 2.0, 3.0],
+            [4.0, 5.0, 6.0],
+            [7.0, 8.0, 9.0],
+        ],
+        dtype=np.float32,
+    )
+    ds = PyramidsDataset.create_from_array(
+        arr,
+        top_left_corner=(0.0, 0.0),
+        cell_size=0.05,
+        epsg=4326,
+        no_data_value=-9999.0,
+    )
+    return ds
+
+
+@pytest.fixture()
+def multi_band_dataset():
+    """Create a 3-band in-memory dataset with known values.
+
+    Shared across the ``tests/dataset/`` package.
+    """
+    arr = np.array(
+        [
+            [[1, 2, 3], [4, 5, 6]],
+            [[7, 8, 9], [10, 11, 12]],
+            [[13, 14, 15], [16, 17, 18]],
+        ],
+        dtype=np.float64,
+    )
+    ds = PyramidsDataset.create_from_array(
+        arr,
+        top_left_corner=(10.0, 50.0),
+        cell_size=1.0,
+        epsg=4326,
+        no_data_value=-9999.0,
+    )
+    return ds
+
+
+@pytest.fixture()
+def dataset_with_nodata():
+    """Create a single-band dataset where some cells hold the no-data value.
+
+    Shared across the ``tests/dataset/`` package.
+    """
+    nd = -9999.0
+    arr = np.array(
+        [
+            [nd, 2.0, nd],
+            [4.0, nd, 6.0],
+            [nd, 8.0, nd],
+        ],
+        dtype=np.float32,
+    )
+    ds = PyramidsDataset.create_from_array(
+        arr,
+        top_left_corner=(0.0, 0.0),
+        cell_size=0.05,
+        epsg=4326,
+        no_data_value=nd,
+    )
+    return ds

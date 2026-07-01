@@ -1,0 +1,648 @@
+"""Integration tests for Dataset creation, properties, bands, CRS, and math ops."""
+
+import shutil
+from pathlib import Path
+from typing import Tuple
+
+import geopandas as gpd
+import numpy as np
+import pandas as pd
+import pytest
+from geopandas.geodataframe import GeoDataFrame
+from osgeo import gdal
+from shapely.geometry import Polygon
+
+from pyramids.base._errors import OutOfBoundsError
+from pyramids.base.crs import sr_from_epsg
+from pyramids.dataset import Dataset
+from pyramids.dataset.engines import Bands
+
+pytestmark = pytest.mark.core
+
+WGS84_WKT = (
+    'GEOGCS["WGS 84",DATUM["WGS_1984",'
+    'SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],'
+    'AUTHORITY["EPSG","6326"]],'
+    'PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],'
+    'UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],'
+    'AXIS["Latitude",NORTH],AXIS["Longitude",EAST],'
+    'AUTHORITY["EPSG","4326"]]'
+)
+
+
+class TestCreateRasterObject:
+    def test_create_from_array(
+        self,
+        src_arr: np.ndarray,
+        src_geotransform: tuple,
+        src_epsg: int,
+        src_no_data_value: float,
+    ):
+        # Create dataset using top_left_corner and cell size
+        top_left_corner = (src_geotransform[0], src_geotransform[3])
+        cell_size = src_geotransform[1]
+        src = Dataset.create_from_array(
+            arr=src_arr,
+            top_left_corner=top_left_corner,
+            cell_size=cell_size,
+            epsg=src_epsg,
+            no_data_value=src_no_data_value,
+        )
+        assert isinstance(src.raster, gdal.Dataset)
+        assert src.access == "write"
+        assert np.isclose(src.raster.ReadAsArray(), src_arr, rtol=0.00001).all()
+        assert np.isclose(
+            src.raster.GetRasterBand(1).GetNoDataValue(),
+            src_no_data_value,
+            rtol=0.00001,
+        )
+        assert src.raster.GetGeoTransform() == src_geotransform
+        # create dataset with the geotransform
+        src = Dataset.create_from_array(
+            arr=src_arr,
+            geo=src_geotransform,
+            epsg=src_epsg,
+            no_data_value=src_no_data_value,
+        )
+        assert isinstance(src.raster, gdal.Dataset)
+        assert src.access == "write"
+        assert np.isclose(src.raster.ReadAsArray(), src_arr, rtol=0.00001).all()
+        assert np.isclose(
+            src.raster.GetRasterBand(1).GetNoDataValue(),
+            src_no_data_value,
+            rtol=0.00001,
+        )
+        assert src.raster.GetGeoTransform() == src_geotransform
+
+    def test_create(self):
+        cell_size = 4000
+        rows = 13
+        columns = 14
+        dtype = "int32"  # 5
+        bands_count = 1
+        top_left_corner = (432968.1206170588, 520007.787999178)
+        ds_epsg = 32618
+        no_data_value = -3.4028230607370965e38
+        dataset_n = Dataset.create(
+            cell_size,
+            rows,
+            columns,
+            dtype,
+            bands_count,
+            top_left_corner,
+            ds_epsg,
+            no_data_value,
+        )
+        assert dataset_n.access == "write"
+        assert dataset_n.rows == rows
+        assert dataset_n.columns == columns
+        assert dataset_n.epsg == ds_epsg
+        assert dataset_n.cell_size == cell_size
+        assert dataset_n.top_left_corner == top_left_corner
+        assert dataset_n.band_count == bands_count
+        assert dataset_n.dtype == ["int32"]
+        arr = dataset_n.read_array()
+        # check that the raster is filled with the no_data_value value.
+        assert np.unique(arr) == dataset_n.no_data_value[0]
+        # the dtype is np.int32, and the no_data_value is -3.4028230607370965e+38
+        # Dataset_check_no_data_value()
+        # trying to convert the no_data_value to int32 will give the following error
+        # "OverflowError: Python int too large to convert to C long"
+        # then the default_no_data_value (-9999) will be converted to int32 and used as the no_data_value
+
+        # Bands._change_no_data_value_attr(band=0, no_data_value=-9999.0)
+        # the _change_no_data_value_attr method will try to change the no_data_value to -9999.0 (int32)
+        # but the self.raster.GetRasterBand(band + 1).SetNoDataValue(no_data_value) will raise an error
+        # "TypeError: in method 'Band_SetNoDataValue', argument 2 of type 'double'" , so the no_data_value will be
+        # changed to float64
+        new_no_data_value = np.float64(dataset_n.default_no_data_value)
+        assert dataset_n.no_data_value[0] == [new_no_data_value]
+        assert isinstance(dataset_n.no_data_value[0], np.float64)
+        arr = dataset_n.read_array()
+        assert arr[0, 0] == new_no_data_value
+
+    def test_copy(self, src: gdal.Dataset):
+        src = Dataset(src)
+        dst = src.copy()
+        assert isinstance(dst, Dataset)
+        # In-memory copy preserves the source's access mode. The
+        # default ``Dataset(src)`` constructor uses ``read_only``.
+        assert dst.access == src.access == "read_only"
+        assert id(dst) != id(src)
+        assert dst.raster.GetGeoTransform() == src.raster.GetGeoTransform()
+        assert dst.raster.GetProjection() == src.raster.GetProjection()
+        assert (
+            dst.raster.GetRasterBand(1).GetNoDataValue()
+            == src.raster.GetRasterBand(1).GetNoDataValue()
+        )
+        src_arr = dst.raster.GetRasterBand(1).ReadAsArray()
+        dst_arr = src.raster.GetRasterBand(1).ReadAsArray()
+        np.testing.assert_array_equal(
+            src_arr, dst_arr, err_msg="arrays are not equal", strict=True
+        )
+        # An in-memory copy of a write-mode source stays write-mode.
+        src_write = Dataset(src._raster, access="write")
+        assert src_write.copy().access == "write"
+        # An on-disk copy is always returned in write mode (the caller
+        # has just created a new file they presumably want to populate).
+        path = Path("tests/data/geotiff/test-copy-dataset-to-disk-delete.tif")
+        on_disk = src.copy(path=path)
+        assert on_disk.access == "write"
+        on_disk.close()
+        src.close()
+        assert path.exists()
+        path.unlink()
+
+    class TestRasterLike:
+        def test_to_disk(
+            self,
+            src: gdal.Dataset,
+            src_arr: np.ndarray,
+            src_no_data_value: float,
+            raster_like_path: Path,
+        ):
+            # remove the file if it exists
+            if raster_like_path.exists():
+                raster_like_path.unlink()
+
+            arr2 = np.ones(shape=src_arr.shape, dtype=np.float64) * src_no_data_value
+            arr2[~np.isclose(src_arr, src_no_data_value, rtol=0.001)] = 5
+            src_obj = Dataset(src)
+            dst_obj = Dataset.dataset_like(src_obj, arr2, path=raster_like_path)
+            assert raster_like_path.exists()
+            assert dst_obj.access == "write"
+
+            arr = dst_obj.raster.ReadAsArray()
+            assert arr.shape == src_arr.shape
+            assert np.isclose(
+                src.GetRasterBand(1).GetNoDataValue(), src_no_data_value, rtol=0.00001
+            )
+            assert src_obj.geotransform == dst_obj.geotransform
+
+        def test_to_mem(
+            self,
+            src: gdal.Dataset,
+            src_arr: np.ndarray,
+            src_no_data_value: float,
+        ):
+            # test single-band
+            arr2 = np.ones(shape=src_arr.shape, dtype=np.float64) * src_no_data_value
+            arr2[~np.isclose(src_arr, src_no_data_value, rtol=0.001)] = 5
+
+            src_obj = Dataset(src)
+            dst_obj = Dataset.dataset_like(src_obj, arr2)
+            assert dst_obj.access == "write"
+            arr = dst_obj.raster.ReadAsArray()
+            assert arr.shape == src_arr.shape
+            assert np.isclose(
+                src.GetRasterBand(1).GetNoDataValue(), src_no_data_value, rtol=0.00001
+            )
+            assert src_obj.geotransform == dst_obj.geotransform
+
+            # test multi-band
+            arr = np.array([arr2, arr2])
+            dst_obj = Dataset.dataset_like(src_obj, arr)
+            assert dst_obj.shape == arr.shape
+
+
+class TestAttributesTable:
+    data = {
+        "Value": [1, 2, 3],
+        "ClassName": ["Forest", "Water", "Urban"],
+        "Color": ["#008000", "#0000FF", "#808080"],
+    }
+    attribute_table = pd.DataFrame(data)
+
+    @pytest.fixture
+    def writable_dataset(self, tmp_path):
+        src_path = Path("tests/data/geotiff/raster-with-attribute-table.tif")
+        dst_path = tmp_path / src_path.name
+        shutil.copy2(src_path, dst_path)
+        aux_src = Path(str(src_path) + ".aux.xml")
+        if aux_src.exists():
+            shutil.copy2(aux_src, Path(str(dst_path) + ".aux.xml"))
+        gdal_src = gdal.Open(str(dst_path), gdal.GA_Update)
+        yield Dataset(gdal_src)
+
+    def test_convert_df_to_attribute_table(self):
+        df = pd.DataFrame(self.data)
+        rat = Bands._df_to_attribute_table(df)
+        assert isinstance(rat, gdal.RasterAttributeTable)
+
+    def test_convert_attribute_table_to_df(self):
+        df = pd.DataFrame(self.data)
+        rat = Bands._df_to_attribute_table(df)
+        df2 = Bands._attribute_table_to_df(rat)
+        assert isinstance(df2, pd.DataFrame)
+        assert df.equals(df2)
+
+    def test_add_attribute_table(self, writable_dataset):
+        df = writable_dataset.get_attribute_table(band=1)
+        pd.testing.assert_frame_equal(self.attribute_table, df)
+
+    def test_set_attribute_table(self, writable_dataset):
+        writable_dataset.set_attribute_table(self.attribute_table, band=0)
+        assert isinstance(
+            writable_dataset._raster.GetRasterBand(1).GetDefaultRAT(), gdal.RasterAttributeTable
+        )
+
+    def test_overwrite_attribute_table(self, writable_dataset):
+        assert writable_dataset.set_attribute_table(self.attribute_table, band=1) is None
+
+
+class TestAddBand:
+    def test_add_band_return_copy(self, src: gdal.Dataset):
+        dataset = Dataset(src)
+        arr = dataset.read_array()
+        # test add different dimension array
+        new_dataset = dataset.add_band(arr, unit="meter")
+        assert new_dataset.band_count == 2
+        band = new_dataset._iloc(1)
+        assert band.GetUnitType() == "meter"
+        np.testing.assert_array_equal(band.ReadAsArray(), arr)
+
+    def test_add_band_inplace(self, src: gdal.Dataset):
+        dataset = Dataset(src)
+        arr = dataset.read_array()
+        with pytest.raises(ValueError):
+            dataset.add_band(arr, unit="meter", inplace=True)
+
+    def test_add_band_1d_array(self, src: gdal.Dataset):
+        dataset = Dataset(src)
+        arr = np.random.default_rng(0).random(13)
+        with pytest.raises(ValueError):
+            dataset.add_band(arr)
+
+    def test_add_band_different_dimension(self, src: gdal.Dataset):
+        dataset = Dataset(src)
+        arr = np.random.default_rng(0).random((2, 2))
+        with pytest.raises(ValueError):
+            dataset.add_band(arr)
+
+    def test_add_band_with_attribute_table(self, src: gdal.Dataset):
+        dataset = Dataset(src)
+        arr = dataset.read_array()
+        data = {
+            "Value": [1, 2, 3],
+            "ClassName": ["Forest", "Water", "Urban"],
+            "Color": ["#008000", "#0000FF", "#808080"],
+        }
+        df = pd.DataFrame(data)
+        # test add different dimension array
+        new_dataset = dataset.add_band(arr, unit="meter", attribute_table=df)
+        band = new_dataset._iloc(1)
+        assert band.GetDefaultRAT() is not None
+
+    def test_wrong_dims_array(self, src: gdal.Dataset):
+        # test add different dimension array
+        dataset = Dataset(src)
+        arr = dataset.read_array()[:5, :5]
+        with pytest.raises(ValueError):
+            dataset.add_band(arr)
+
+
+class TestProperties:
+    def test_top_left_corner(self, src: gdal.Dataset):
+        dataset = Dataset(src)
+        xy = dataset.top_left_corner
+        assert xy[0] == pytest.approx(432968.1206170588)
+        assert xy[1] == pytest.approx(520007.787999178)
+
+    def test_lon_lat(self, src: gdal.Dataset, lon_coords: list, lat_coords: list):
+        dataset = Dataset(src)
+        assert all(np.isclose(dataset.lon, lon_coords, rtol=0.00001))
+        assert all(np.isclose(dataset.x, lon_coords, rtol=0.00001))
+        assert all(np.isclose(dataset.lat, lat_coords, rtol=0.00001))
+        assert all(np.isclose(dataset.y, lat_coords, rtol=0.00001))
+
+    def test_create_bounds(self, src: gdal.Dataset, bounds_gdf: GeoDataFrame):
+        dataset = Dataset(src)
+        poly = dataset._calculate_bounds()
+        assert isinstance(poly, GeoDataFrame)
+        assert all(bounds_gdf == poly)
+
+    def test_create_bbox(self, src: gdal.Dataset, bounds_gdf: GeoDataFrame):
+        dataset = Dataset(src)
+        bbox = dataset._calculate_bbox()
+        assert isinstance(bbox, list)
+        assert bbox == [
+            432968.1206170588,
+            468007.787999178,
+            488968.1206170588,
+            520007.787999178,
+        ]
+        bbox = dataset.bbox
+        assert bbox == [
+            432968.1206170588,
+            468007.787999178,
+            488968.1206170588,
+            520007.787999178,
+        ]
+
+    def test_bounds_property(self, src: gdal.Dataset, bounds_gdf: GeoDataFrame):
+        dataset = Dataset(src)
+        assert all(dataset.bounds == bounds_gdf)
+
+    def test_shape(self, src: gdal.Dataset):
+        dataset = Dataset(src)
+        assert dataset.shape == (1, 13, 14)
+
+    def test_read_array(self, src: gdal.Dataset):
+        dataset = Dataset(src)
+        assert isinstance(dataset.read_array(), np.ndarray)
+
+    def test_get_band_names(self, src: gdal.Dataset):
+        src = Dataset(src)
+        names = src._get_band_names()
+        assert isinstance(names, list)
+        assert names == ["Band_1"]
+
+    def test_set_band_names(self, src: gdal.Dataset):
+        src = Dataset(src)
+        name_list = ["new_name"]
+        src.bands._set_band_names(name_list)
+        # check that the name is changed in the dataset object
+        assert src.band_names == name_list
+        assert src.raster.GetRasterBand(1).GetDescription() == name_list[0]
+        # return back the old name so that the test_get_band_names pass the test.
+        src.bands._set_band_names(["Band_1"])
+
+    def test_band_names(self, src: gdal.Dataset):
+        name_list = ["new_name"]
+        src = Dataset(src)
+        assert src.band_names == ["Band_1"]
+        src.band_names = name_list
+        assert src.band_names == name_list
+        src.band_names = ["Band_1"]
+
+    def test_numpy_dtype(self, src: gdal.Dataset):
+        src = Dataset(src)
+        assert src.numpy_dtype == [np.float32]
+
+    def test_dtype(self, src: gdal.Dataset):
+        src = Dataset(src)
+        assert src.dtype == ["float32"]
+
+    def test_gdal_dtype(self, src: gdal.Dataset):
+        src = Dataset(src)
+        assert src.gdal_dtype == [6]
+
+    def test_block_size(self, src: gdal.Dataset):
+        src = Dataset(src)
+        assert src.block_size == [[128, 128]]
+
+    def test_block_size_setter(self, src: gdal.Dataset):
+        src = Dataset(src)
+        src.block_size = [[5, 5]]
+        assert src.block_size == [[5, 5]]
+
+    def test__str__(self, src: gdal.Dataset):
+        src = Dataset(src)
+        assert isinstance(src.__str__(), str)
+
+    def test__repr__(self, src: gdal.Dataset):
+        src = Dataset(src)
+        assert isinstance(src.__repr__(), str)
+
+    def test_band_units(self, src: gdal.Dataset):
+        src = Dataset(src)
+        src = src.copy()
+        assert src.band_units == [""]
+        src.band_units = ["meter"]
+        assert src._iloc(0).GetUnitType() == "meter"
+
+    def test_scale(self, src: gdal.Dataset):
+        src = Dataset(src)
+        src = src.copy()
+        assert src.scale == [1.0]
+        src.scale = [2.0]
+        assert src._iloc(0).GetScale() == pytest.approx(2.0)
+
+    def test_offset(self, src: gdal.Dataset):
+        src = Dataset(src)
+        src = src.copy()
+        assert src.offset == [0]
+        src.offset = [2.0]
+        assert src._iloc(0).GetOffset() == pytest.approx(2.0)
+
+    def test_band_color(self, src: gdal.Dataset):
+        src = Dataset(src)
+        src = src.copy()
+        assert src.band_color == {0: "gray_index"}
+        src.band_color = {0: "undefined"}
+        assert src._iloc(0).GetColorInterpretation() == 0
+
+    def test_get_band_by_color(self, src: gdal.Dataset):
+        src = Dataset(src)
+        band_index = src.get_band_by_color("gray_index")
+        assert band_index == 0
+
+    def test_metadata(self, src: gdal.Dataset):
+        src = Dataset(src)
+        src = src.copy()
+        assert src.meta_data == {"AREA_OR_POINT": "Area"}
+        src.meta_data = {"key": "value"}
+        assert src.meta_data == {"AREA_OR_POINT": "Area", "key": "value"}
+
+    def test_epsg(self, src: gdal.Dataset):
+        src = Dataset(src)
+        assert src.epsg == 32618
+        dst = src.copy()
+        dst.epsg = 4326
+        assert dst.epsg == 4326
+
+
+class TestSpatialProperties:
+    def test_read_array(
+        self,
+        src: Dataset,
+        src_shape: tuple,
+        src_arr: np.ndarray,
+    ):
+        src = Dataset(src)
+        arr = src.read_array(band=0)
+        assert np.array_equal(src_arr, arr)
+
+    def test_read_array_multi_bands(
+        self,
+        multi_band: gdal.Dataset,
+    ):
+        src = Dataset(multi_band)
+        arr = src.read_array()
+        assert np.array_equal(multi_band.ReadAsArray(), arr)
+
+    def test_read_block_with_list_window(
+        self,
+        src: Dataset,
+        src_shape: tuple,
+        src_arr: np.ndarray,
+    ):
+        src = Dataset(src)
+        arr = src.read_array(band=0, window=[0, 0, 5, 5])
+        assert np.array_equal(src_arr[:5, :5], arr)
+
+    def test_read_block_with_polygon(
+        self,
+        src: gdal.Dataset,
+    ):
+        dataset = Dataset(src)
+        x_coords = [456968.12, 460968.12, 460968.12, 456968.12, 456968.12]
+        y_coords = [508007.788, 508007.788, 504007.788, 504007.788, 508007.788]
+        coords = list(zip(x_coords, y_coords))
+        gdf = gpd.GeoDataFrame(
+            columns=["id"], geometry=[Polygon(coords)], crs=32632, data=[[0]]
+        )
+        window = dataset.io._convert_polygon_to_window(gdf)
+        assert window == [5, 2, 1, 1]
+        arr = dataset.read_array(band=0, window=window)
+        assert arr[0] == 1
+        arr = dataset.read_array(band=0, window=gdf)
+        assert arr[0] == 1
+
+    def test_read_block_bigger_than_array(
+        self,
+        src: Dataset,
+        src_shape: tuple,
+        src_arr: np.ndarray,
+    ):
+        src = Dataset(src)
+        with pytest.raises(OutOfBoundsError):
+            src.read_array(band=0, window=[0, 0, 20, 20])
+
+    def test_read_block_multi_bands(
+        self,
+        multi_band: gdal.Dataset,
+    ):
+        src = Dataset(multi_band)
+        arr = src.read_array(window=[0, 0, 5, 5])
+        assert np.array_equal(multi_band.ReadAsArray()[:, :5, :5], arr)
+
+    def test_create_sr_from_epsg(self):
+        sr = sr_from_epsg(4326)
+        assert sr.GetAuthorityCode(None) == f"{4326}"
+
+
+class TestSetCRS:
+    def test_geotiff_using_epsg(self, src: gdal.Dataset):
+        proj = WGS84_WKT
+        proj_epsg = 4326
+        dataset = Dataset(src).copy()
+        dataset.set_crs(epsg=proj_epsg)
+        assert dataset.epsg == proj_epsg
+        assert dataset.raster.GetProjection() == proj
+
+    def test_geotiff_using_wkt(self, src: gdal.Dataset):
+        proj = WGS84_WKT
+        proj_epsg = 4326
+        dataset = Dataset(src).copy()
+        dataset.set_crs(crs=proj)
+        assert dataset.epsg == proj_epsg
+        assert dataset.raster.GetProjection() == proj
+
+    def test_ascii(
+        self,
+        ascii_without_projection: Path,
+    ):
+        proj = WGS84_WKT
+        dataset = Dataset.read_file(ascii_without_projection)
+        with pytest.raises(TypeError):
+            dataset.set_crs(crs=proj)
+
+
+class TestCountDomainCells:
+    """test count domain cells"""
+
+    def test_single_band(self, src: gdal.Dataset):
+        src = Dataset(src)
+        assert src.count_domain_cells() == 89
+
+    def test_multi_band(self, era5_image: gdal.Dataset):
+        src = Dataset(era5_image)
+        assert src.count_domain_cells() == 5
+
+
+class TestGetCellCoordsAndCreateCellGeometry:
+    def test_cell_center_masked_cells(
+        self,
+        src: gdal.Dataset,
+        src_masked_values_len: int,
+        src_masked_cells_center_coords_last4,
+    ):
+        """get cell coordinates from cells inside the domain only."""
+        src = Dataset(src)
+        coords = src.get_cell_coords(location="center", domain_only=True)
+        assert coords.shape[0] == src_masked_values_len
+        assert np.isclose(
+            coords[-4:, :], src_masked_cells_center_coords_last4, rtol=0.000001
+        ).all()
+
+    def test_cell_center_all_cells(
+        self,
+        src: gdal.Dataset,
+        src_shape: tuple,
+        src_cell_center_coords_first_4_rows,
+        src_cell_center_coords_last_4_rows,
+        cells_centerscoords: np.ndarray,
+    ):
+        """get center coordinates of all cells."""
+        src = Dataset(src)
+        coords = src.get_cell_coords(location="center", domain_only=False)
+        assert len(coords) == src_shape[0] * src_shape[1]
+        assert np.isclose(
+            coords[:4, :], src_cell_center_coords_first_4_rows, rtol=0.000001
+        ).all(), "the coordinates of the first 4 rows differ from the validation coords"
+        assert np.isclose(
+            coords[-4:, :], src_cell_center_coords_last_4_rows, rtol=0.000001
+        ).all(), "the coordinates of the last 4 rows differs from the validation coords"
+
+    def test_cell_corner_all_cells(
+        self,
+        src: gdal.Dataset,
+        src_cells_corner_coords_last4,
+    ):
+        src = Dataset(src)
+        coords = src.get_cell_coords(location="corner")
+        assert np.isclose(
+            coords[-4:, :], src_cells_corner_coords_last4, rtol=0.000001
+        ).all()
+
+    def test_create_cell_polygon(
+        self, src: gdal.Dataset, src_shape: Tuple, src_epsg: int
+    ):
+        src = Dataset(src)
+        gdf = src.get_cell_polygons()
+        assert len(gdf) == src_shape[0] * src_shape[1]
+        assert gdf.crs.to_epsg() == src_epsg
+
+    def test_create_cell_points(
+        self, src: gdal.Dataset, src_shape: Tuple, src_epsg: int
+    ):
+        src = Dataset(src)
+        gdf = src.get_cell_points()
+        # check the size
+        assert len(gdf) == src_shape[0] * src_shape[1]
+        assert gdf.crs.to_epsg() == src_epsg
+
+    def test_create_cell_points_no_data_value_is_none(
+        self, era5_image: gdal.Dataset, src_shape: Tuple, src_epsg: int
+    ):
+        src = Dataset(era5_image)
+        gdf = src.get_cell_points(domain_only=True)
+        # check the size
+        assert len(gdf) == 5
+        assert gdf.crs.to_epsg() == 4326
+
+
+class TestMathOperations:
+    def test_apply(
+        self,
+        src: gdal.Dataset,
+        mapalgebra_function,
+    ):
+        src = Dataset(src)
+        dst = src.apply(mapalgebra_function)
+        arr = dst.raster.ReadAsArray()
+        nodataval = dst.raster.GetRasterBand(1).GetNoDataValue()
+        vals = arr[~np.isclose(arr, nodataval, rtol=0.00000000000001)]
+        vals = list(set(vals))
+        assert vals == [1.0, 2.0, 3.0, 4.0, 5.0]
