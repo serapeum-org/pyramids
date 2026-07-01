@@ -1,6 +1,7 @@
 import gc
 import os
 import random
+import re
 from pathlib import Path
 from typing import Iterator, List, Tuple
 
@@ -75,10 +76,13 @@ def pytest_collection_modifyitems(config, items):
                 item.add_marker(skip_marker)
 
     # `live` tests hit real external services; they are opt-in, never run by a
-    # bare `pytest` / `pixi run main`. Skip them unless `live` is named in the
-    # `-m` expression (e.g. `-m live`); `-m "not live"` already deselects them.
+    # bare `pytest` / `pixi run main`. Skip them unless `live` is named as a whole
+    # token in the `-m` expression (e.g. `-m live`, `-m "live and slow"`);
+    # `-m "not live"` also names it, so pytest deselects them itself. A word-boundary
+    # match avoids a marker/token that merely contains "live" (e.g. `deliverable`)
+    # silently disabling the guard.
     markexpr = config.option.markexpr or ""
-    if "live" not in markexpr:
+    if not re.search(r"\blive\b", markexpr):
         skip_live = pytest.mark.skip(reason="live network test; run it with `-m live`")
         for item in items:
             if "live" in item.keywords:
