@@ -32,7 +32,7 @@ flowchart TB
     UG["UgridDataset"] --> CF
     subgraph CF["cf module"]
         direction TB
-        CLS["classify_variables()<br/>coordinate · data · mesh · connectivity"]
+        CLS["classify_variables()<br/>data · coordinate · grid_mapping · bounds<br/>mesh_topology · connectivity · …"]
         CRS["grid_mapping_to_srs() ⇄ srs_to_grid_mapping()"]
         PAR["detect_axis() · parse_conventions()<br/>parse_cell_methods()"]
         WR["write_attributes_to_md_array()<br/>write_global_attributes()<br/>build_coordinate_attrs()"]
