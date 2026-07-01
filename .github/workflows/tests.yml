@@ -107,7 +107,7 @@ jobs:
         # job at Codecov.
         run: >-
           pixi run -e ${{ matrix.target.env }}
-          pytest -vvv ${{ matrix.target.dir }}
+          pytest -vvv ${{ matrix.target.dir }} -m 'not live'
           --cov=src/pyramids --cov-report=xml --cov-report=term-missing
           --cov-fail-under=0
 
