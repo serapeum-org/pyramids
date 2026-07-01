@@ -506,7 +506,10 @@ def noah() -> gdal.Dataset:
 
 @pytest.fixture()
 def single_band_dataset():
-    """Create a single-band in-memory dataset with known values."""
+    """Create a single-band in-memory dataset with known values.
+
+    Shared across the ``tests/dataset/`` package.
+    """
     arr = np.array(
         [
             [1.0, 2.0, 3.0],
@@ -527,7 +530,10 @@ def single_band_dataset():
 
 @pytest.fixture()
 def multi_band_dataset():
-    """Create a 3-band in-memory dataset with known values."""
+    """Create a 3-band in-memory dataset with known values.
+
+    Shared across the ``tests/dataset/`` package.
+    """
     arr = np.array(
         [
             [[1, 2, 3], [4, 5, 6]],
@@ -548,7 +554,10 @@ def multi_band_dataset():
 
 @pytest.fixture()
 def dataset_with_nodata():
-    """Create a single-band dataset where some cells hold the no-data value."""
+    """Create a single-band dataset where some cells hold the no-data value.
+
+    Shared across the ``tests/dataset/`` package.
+    """
     nd = -9999.0
     arr = np.array(
         [
