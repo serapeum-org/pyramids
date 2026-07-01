@@ -453,8 +453,16 @@ def coverage_server():
         thread.join(timeout=5)
 
 
+@pytest.mark.skipif(
+    gdal.GetDriverByName("OGCAPI") is None,
+    reason="GDAL build lacks the OGCAPI driver; the real-driver path cannot run",
+)
 class TestRealDriverOffline:
-    """Drive the real GDAL OGCAPI driver end-to-end against the in-process mock."""
+    """Drive the real GDAL OGCAPI driver end-to-end against the in-process mock.
+
+    Skipped whole-class on a GDAL build without the ``OGCAPI`` driver, so such a
+    build skips these cleanly instead of hard-failing inside ``_open_coverage``.
+    """
 
     def test_bounded_read_at_resolution(self, coverage_server):
         ds = Dataset.from_ogc_coverages(
