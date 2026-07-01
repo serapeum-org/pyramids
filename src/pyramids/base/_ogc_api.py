@@ -132,12 +132,14 @@ def collection_ids(doc: dict[str, Any]) -> set[str]:
 
 def error_text(doc: Any) -> str:
     """Extract a human-readable message from an OGC API exception document."""
+    message = NO_MESSAGE
     if isinstance(doc, dict):
         for key in ("description", "detail", "title", "code"):
             value = doc.get(key)
             if value:
-                return str(value).strip()
-    return NO_MESSAGE
+                message = str(value).strip()
+                break
+    return message
 
 
 def http_error_detail(exc: urllib.error.HTTPError) -> str:
@@ -146,12 +148,15 @@ def http_error_detail(exc: urllib.error.HTTPError) -> str:
     Reads the error response body and runs a JSON one through :func:`error_text`;
     falls back to a truncated plain-text body or the HTTP reason phrase.
     """
+    detail = exc.reason or NO_MESSAGE
     try:
         body = exc.read()
     except OSError:
-        return exc.reason or NO_MESSAGE
-    try:
-        return error_text(json.loads(body))
-    except (ValueError, TypeError):
-        text = body.decode("utf-8", "replace").strip()
-        return text[:200] or exc.reason or NO_MESSAGE
+        body = None
+    if body is not None:
+        try:
+            detail = error_text(json.loads(body))
+        except (ValueError, TypeError):
+            text = body.decode("utf-8", "replace").strip()
+            detail = text[:200] or exc.reason or NO_MESSAGE
+    return detail
