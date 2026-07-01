@@ -41,16 +41,18 @@ def resolution_pair(
         ValueError: any axis of `resolution` is not strictly positive (a zero or
             negative pixel size cannot size a read window).
     """
-    if resolution is None:
-        return None
-    if isinstance(resolution, (int, float)):
-        pair = (float(resolution), float(resolution))
-    else:
-        x_res, y_res = resolution
-        pair = (float(x_res), float(y_res))
-    if pair[0] <= 0 or pair[1] <= 0:
-        raise ValueError(f"resolution must be strictly positive on each axis, got {resolution!r}")
-    return pair
+    result: tuple[float, float] | None = None
+    if resolution is not None:
+        if isinstance(resolution, (int, float)):
+            result = (float(resolution), float(resolution))
+        else:
+            x_res, y_res = resolution
+            result = (float(x_res), float(y_res))
+        if result[0] <= 0 or result[1] <= 0:
+            raise ValueError(
+                f"resolution must be strictly positive on each axis, got {resolution!r}"
+            )
+    return result
 
 
 def resolve_native_srs(
@@ -67,22 +69,23 @@ def resolve_native_srs(
     """
     srs = src.GetSpatialRef()
     if srs is not None:
-        return srs.Clone()
-    if coverage_crs is None:
+        result = srs.Clone()
+    elif coverage_crs is None:
         raise CoverageError(
             "the coverage has no resolvable spatial reference (the service likely "
             "advertises a CRS absent from the PROJ database). Pass coverage_crs= "
             "with the coverage's CRS, e.g. the proj4 string."
         )
-    shim = osr.SpatialReference()
-    try:
-        # GDAL exceptions are enabled package-wide, so a bad CRS raises here.
-        shim.SetFromUserInput(coverage_crs)
-    except RuntimeError as exc:
-        raise ValueError(
-            f"coverage_crs could not be interpreted: {coverage_crs!r} ({exc})"
-        ) from exc
-    return shim
+    else:
+        result = osr.SpatialReference()
+        try:
+            # GDAL exceptions are enabled package-wide, so a bad CRS raises here.
+            result.SetFromUserInput(coverage_crs)
+        except RuntimeError as exc:
+            raise ValueError(
+                f"coverage_crs could not be interpreted: {coverage_crs!r} ({exc})"
+            ) from exc
+    return result
 
 
 def native_projwin(
