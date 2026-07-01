@@ -48,7 +48,7 @@ class TestGetHistogram:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        hist, ranges = ds.get_histogram(band=0, bins=4, min_value=5, max_value=20)
+        hist, _ = ds.get_histogram(band=0, bins=4, min_value=5, max_value=20)
         assert len(hist) == 4, "Should have 4 bins"
 
 

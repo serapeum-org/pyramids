@@ -854,7 +854,7 @@ class TestWindow:
             no_data_value=-9999.0,
         )
         windows = list(ds.io._tile_offsets(size=3))
-        assert len(windows) >= 4, f"Should yield at least 4 windows for 7x7 with size 3"
+        assert len(windows) >= 4, "Should yield at least 4 windows for 7x7 with size 3"
 
 
 class TestGetTile:

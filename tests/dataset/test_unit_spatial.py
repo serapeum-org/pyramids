@@ -1044,26 +1044,9 @@ class TestNearestNeighbour:
     def test_nearest_neighbour_above_neighbor(self):
         """_nearest_neighbour fills from above at last col, col-1=0."""
         nd = -9999.0
-        # Cell at last col where col-1 = 0 (so cols[i]-1 > 0 fails)
-        # Then it goes to the above check
-        arr = np.array(
-            [
-                [nd, 5.0],
-                [nd, nd],
-                [nd, nd],
-            ],
-            dtype=np.float32,
-        )
-        # Cell (1,1): last col, col-1=0 so cols[i]-1 > 0 is False
-        # Skip left. Above (0,1)=5.0. rows[i]-1=0, rows[i]-1 > 0
-        # is False. Skip above. Below (2,1)=nd. Then diags.
-        # Actually col-1=0 so 0 > 0 is False. Skip left entirely.
-        # Then check above: rows[i]-1=0, 0 > 0 is False. skip.
-        # Then below: rows[i]+1=2, arr[2,1]=nd. skip.
-        # The current code would hit index error at diagonal.
-        # So this path can't be tested without hitting a bug.
-        # Instead just test a valid scenario where we can reach
-        # the left branch successfully.
+        # The last-col/col-1=0 path can't be exercised without tripping an
+        # index error at the diagonal check, so test a valid scenario that
+        # reaches the left branch successfully instead.
         arr2 = np.array(
             [
                 [nd, nd, nd],
@@ -1130,7 +1113,7 @@ class TestArrayToMapCoordinates:
 
     def test_array_to_map_corner(self, single_band_dataset):
         """array_to_map_coordinates with center=False returns corner."""
-        x, y = single_band_dataset.array_to_map_coordinates(
+        x, _ = single_band_dataset.array_to_map_coordinates(
             rows_index=[0],
             column_index=[0],
             center=False,
