@@ -116,7 +116,7 @@ If the directory contains files with a number in each file name:
 ```
 
 ```python
-rasters_folder_path = "tests/data/geotiff/rhine"
+rasters_folder_path = "examples/data/geotiff/rhine"
 dc = DatasetCollection.read_multiple_files(
     rasters_folder_path, with_order=True, regex_string=r"\d+", date=False,
 )
@@ -136,7 +136,7 @@ specific band from each raster using open_multi_dataset.
 ```python
 rasters_folder_path = "examples/data/geotiff/raster-folder"
 dc = DatasetCollection.read_multiple_files(
-    rasters_folder_path, file_name_data_fmt="%Y.%m.%d", separator="."
+    rasters_folder_path, file_name_data_fmt="%Y.%m.%d"
 )
 dc.open_multi_dataset()
 print(dc.values.shape)
