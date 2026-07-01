@@ -10,6 +10,7 @@ from osgeo import gdal
 from osgeo.gdal import Dataset
 from pandas import DataFrame
 from shapely import wkt
+
 from pyramids.dataset import Dataset as PyramidsDataset
 
 
@@ -523,6 +524,7 @@ def single_band_dataset():
     )
     return ds
 
+
 @pytest.fixture()
 def multi_band_dataset():
     """Create a 3-band in-memory dataset with known values."""
@@ -542,6 +544,7 @@ def multi_band_dataset():
         no_data_value=-9999.0,
     )
     return ds
+
 
 @pytest.fixture()
 def dataset_with_nodata():
