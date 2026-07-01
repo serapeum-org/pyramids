@@ -545,6 +545,7 @@ class TestContextManager:
             arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
         )
         with ds:
+            # entering then exiting the context manager is the behaviour under test
             pass
         ds.close()
         assert ds._raster is None, "Should remain None after redundant close"
