@@ -62,6 +62,8 @@ from __future__ import annotations
 from typing import Any, Callable
 
 import numpy as np
+from pyproj import CRS
+from pyproj.exceptions import CRSError
 
 from pyramids.base._utils import require_cleopatra
 
@@ -78,6 +80,79 @@ from pyramids.basemap import basemap as _basemap_module
 # trivially discoverable. Implementation forwards to
 # :mod:`pyramids.netcdf.ugrid.plot` to avoid a circular import; the
 # UGRID-side helpers contain the cleopatra ``MeshGlyph`` dispatch.
+
+
+def _is_degree_geographic(epsg: int) -> bool:
+    """Return True iff `epsg` resolves to a geographic CRS expressed in degrees.
+
+    The longitude unwrap uses a 360-degree period, so it must not run on a
+    geographic CRS in radians/gradians, on a projected CRS, or on a CRS value
+    that fails to resolve — all of those return False.
+
+    Args:
+        epsg: The dataset CRS code.
+
+    Returns:
+        True when `epsg` is a geographic CRS whose angular unit is degrees.
+    """
+    try:
+        crs = CRS.from_user_input(epsg)
+    except CRSError:
+        return False
+    return (
+        crs.is_geographic
+        and bool(crs.axis_info)
+        and all("degree" in (axis.unit_name or "").lower() for axis in crs.axis_info)
+    )
+
+
+def _unwrap_geographic_longitude(
+    coords: tuple | list | None, epsg: int | None
+) -> tuple | list | None:
+    """Unwrap a wrapping geographic longitude so cleopatra gets continuous coords.
+
+    A curvilinear grid whose 2-D longitude wraps 0->360 (crossing the
+    antimeridian) hands cleopatra a discontinuous coordinate: the 359->1 degree
+    step is drawn as one ~178-degree-wide `pcolormesh` quad (the "seam smear",
+    serapeum-org/cleopatra#179). pyramids owns the CRS, so it unwraps the
+    longitude here — shifting values by +/-360 so horizontally-adjacent cells
+    stay within 180 degrees — before building the glyph.
+
+    Gated so it never mangles a grid it should not touch: it acts only when
+    `epsg` is a geographic CRS in degrees (see `_is_degree_geographic`) and the
+    longitude actually wraps. The seam is assumed to be an antimeridian wrap
+    along the **last (column) axis**; a wrap along axis 0, a projected /
+    non-degree / unknown CRS, or a non-wrapping grid is returned unchanged. The
+    unwrap is NaN-safe — a NaN in the longitude stays in place rather than
+    propagating down its row the way `np.unwrap` would.
+
+    Args:
+        coords: The `(x, y)` curvilinear coordinate pair, or `None`.
+        epsg: The dataset CRS code, or `None` when the CRS is unknown.
+
+    Returns:
+        `coords` with the longitude (`x`) unwrapped when it is a wrapping
+        geographic longitude in degrees; the original `coords` otherwise.
+    """
+    result = coords
+    if coords is not None and epsg is not None and _is_degree_geographic(epsg):
+        raw = np.asarray(coords[0])
+        # Preserve the incoming float precision (float32 stays float32); only a
+        # non-float coordinate (rare) is promoted so the arithmetic below works.
+        lon = raw if np.issubdtype(raw.dtype, np.floating) else raw.astype(np.float64)
+        if lon.ndim == 2:
+            # A seam is a >180-degree jump between horizontally-adjacent cells,
+            # which `round(step / 360)` maps to a +/-1 wrap count (small steps
+            # map to 0). NaN steps contribute 0, so a NaN stays in place instead
+            # of propagating along its row. Only a true antimeridian wrap is
+            # expected here, not an arbitrary >180-degree physical discontinuity.
+            step = np.diff(lon, axis=-1)
+            wraps = np.where(np.isfinite(step), np.round(step / 360.0), 0.0)
+            if np.any(wraps):
+                offset = np.zeros_like(lon)
+                offset[..., 1:] = np.cumsum(wraps, axis=-1) * 360.0
+                result = (lon - offset, coords[1])
+    return result
 
 
 def render_array(
@@ -345,6 +420,16 @@ def render_array(
                 f"Unsupported color_scale {color_scale!r}; valid options: {valid}."
             ) from None
 
+    # Unwrap a wrapping geographic longitude before handing curvilinear coords
+    # to cleopatra, so its pcolormesh doesn't smear a ~178-degree quad across
+    # the 0/360 antimeridian seam (#669, serapeum-org/cleopatra#179). No-op for
+    # non-geographic, unknown-CRS, or non-wrapping coords.
+    # NOTE: after unwrapping, longitudes on an antimeridian-crossing grid can run
+    # outside [-180, 180]. That is exactly what the pcolormesh mesh needs, but
+    # overlaying web-mercator `basemap=` tiles on such a grid is an untested
+    # combination (tile placement past 180 is unverified) — see review L2.
+    coords = _unwrap_geographic_longitude(coords, basemap_epsg)
+
     # cleopatra's `coords` and `extent` are mutually exclusive; drop
     # `extent` when curvilinear coords are present.
     effective_extent = None if coords is not None else extent
@@ -413,8 +498,10 @@ def render_array(
     # Stamp the data CRS onto the glyph so its reference-layer helpers
     # (``glyph.add_features`` / ``glyph.add_tiles``) default to it without the
     # caller restating ``crs=`` on every call — see issue #630. ``basemap_epsg``
-    # is the dataset's EPSG, which every plot caller passes regardless of
-    # ``basemap``; ``None`` (no dataset CRS) leaves cleopatra's own default.
+    # is the dataset's EPSG; the plot callers that carry curvilinear coords
+    # (``Analysis.plot``, ``NetCDF.plot``) always pass it, while the
+    # ``DatasetCollection.plot`` animate paths do not (they carry no coords, so
+    # it is moot there); ``None`` leaves cleopatra's own default.
     # Relies on the ``GeoMixin.crs`` default added in cleopatra >= 0.20.0.
     if basemap_epsg is not None:
         cleo.crs = basemap_epsg

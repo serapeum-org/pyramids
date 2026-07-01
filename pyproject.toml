@@ -243,6 +243,7 @@ markers = [
     "parquet: tests requiring the [parquet] extra (pyarrow)",
     "parquet_lazy: tests requiring dask-geopandas (now part of the [parquet] extra)",
     "stac: tests requiring the [stac] extra (pystac-client)",
+    "live: live network test against a real external service (deselect with '-m \"not live\"', run with '-m live')",
 ]
 
 

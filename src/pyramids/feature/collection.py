@@ -57,7 +57,7 @@ from pyramids.basemap.basemap import add_basemap
 from pyramids.feature import _h3
 from pyramids.feature import geometry as _geom
 from pyramids.feature import tessellation as _tess
-from pyramids.feature._oapif import from_ogc_api_features as _from_ogc_api_features
+from pyramids.feature._oapif import from_ogc_features as _from_ogc_features
 from pyramids.feature._wfs import from_wfs as _from_wfs
 
 CATALOG = Catalog(raster_driver=False)
@@ -1729,7 +1729,7 @@ class FeatureCollection(GeoDataFrame):
         )
 
     @classmethod
-    def from_ogc_api_features(
+    def from_ogc_features(
         cls,
         endpoint: str,
         *,
@@ -1797,7 +1797,7 @@ class FeatureCollection(GeoDataFrame):
 
             ```python
             >>> from pyramids.feature import FeatureCollection
-            >>> fc = FeatureCollection.from_ogc_api_features(  # doctest: +SKIP
+            >>> fc = FeatureCollection.from_ogc_features(  # doctest: +SKIP
             ...     "https://demo.pygeoapi.io/master",
             ...     collection="lakes",
             ...     bbox=(-104, 35, -94, 41),
@@ -1811,7 +1811,7 @@ class FeatureCollection(GeoDataFrame):
             - :meth:`from_featureserver`: read an Esri ArcGIS FeatureServer layer.
             - :meth:`read_file`: read a vector file or URL.
         """
-        return _from_ogc_api_features(
+        return _from_ogc_features(
             cls,
             endpoint,
             collection=collection,

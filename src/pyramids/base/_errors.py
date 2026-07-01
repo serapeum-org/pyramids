@@ -143,6 +143,21 @@ class UnsupportedAssetError(StacError, ValueError):
     """
 
 
+class CoverageError(_PyramidsError):
+    """A coverage's native CRS cannot be resolved.
+
+    Raised by the protocol-neutral CRS resolver in
+    :mod:`pyramids.base._coverage` when a coverage carries no spatial reference
+    (the service advertises a CRS absent from the PROJ database) and no
+    ``coverage_crs`` shim was supplied. It is the shared, protocol-agnostic error
+    that each coverage reader re-wraps into its own branded error —
+    :class:`WCSError` for :meth:`pyramids.dataset.Dataset.from_wcs`,
+    :class:`OGCAPIError` for
+    :meth:`pyramids.dataset.Dataset.from_ogc_coverages` — so neither reader has to
+    import the other's internals.
+    """
+
+
 class WCSError(_PyramidsError):
     """A failure talking to an OGC Web Coverage Service (WCS).
 
@@ -177,19 +192,27 @@ class WFSError(_PyramidsError):
 
 
 class OGCAPIError(_PyramidsError):
-    """A failure talking to an **OGC API – Features** service.
+    """A failure talking to an **OGC API** service (Features or Coverages).
 
-    Raised by :meth:`pyramids.feature.FeatureCollection.from_ogc_api_features`
-    (implementation in :mod:`pyramids.feature._oapif`) when the service landing
-    page / ``/collections`` document cannot be reached, returns a non-JSON or
-    error body, or the items request fails. OGC API – Features is the modern
-    REST/JSON successor to WFS, so this is the OGC-API-era sibling of
-    :class:`WFSError`. The name is kept protocol-family-wide (``OGCAPIError``
-    rather than a Features-only name) so other OGC API readers can reuse it.
+    Raised by both OGC API readers:
 
-    A *missing* collection (one not advertised by ``/collections``) raises a plain
-    :class:`ValueError` instead, mirroring how the rest of pyramids reports a bad
-    argument as opposed to a service failure.
+    * :meth:`pyramids.feature.FeatureCollection.from_ogc_features` (implementation
+      in :mod:`pyramids.feature._oapif`) — when the service landing page /
+      ``/collections`` document cannot be reached, returns a non-JSON or error
+      body, or the items request fails.
+    * :meth:`pyramids.dataset.Dataset.from_ogc_coverages` (implementation in
+      :mod:`pyramids.dataset._ogc_coverages`) — when the ``OGCAPI`` driver is
+      unavailable, the coverage cannot be opened, or the windowed read returns an
+      error / non-raster body.
+
+    OGC API – Features and OGC API – Coverages are the modern REST/JSON successors
+    to WFS and WCS, so this is the OGC-API-era sibling of :class:`WFSError` /
+    :class:`WCSError`. The name is kept protocol-family-wide (``OGCAPIError``
+    rather than a Features-only name) so every OGC API reader can reuse it.
+
+    A *missing* collection / coverage (one not advertised by ``/collections``)
+    raises a plain :class:`ValueError` instead, mirroring how the rest of pyramids
+    reports a bad argument as opposed to a service failure.
     """
 
 

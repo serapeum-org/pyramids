@@ -286,16 +286,14 @@ class TestFromWfs:
 
 
 @pytest.mark.slow
-@pytest.mark.skipif(
-    not os.environ.get("PYRAMIDS_WFS_LIVE"),
-    reason="live WFS test; set PYRAMIDS_WFS_LIVE=1 plus PYRAMIDS_WFS_ENDPOINT / "
-    "PYRAMIDS_WFS_TYPENAME to run the real GDAL OGR WFS driver end-to-end",
-)
+@pytest.mark.live
 class TestLiveWfs:
+    ENDPOINT = "https://ows.terrestris.de/osm/service"
+
     def test_live_read(self):
-        """Exercise the real OGR WFS driver against a caller-supplied public endpoint."""
-        endpoint = os.environ["PYRAMIDS_WFS_ENDPOINT"]
-        typename = os.environ["PYRAMIDS_WFS_TYPENAME"]
+        """Exercise the real OGR WFS driver against a public endpoint (override via env)."""
+        endpoint = os.environ.get("PYRAMIDS_WFS_ENDPOINT", self.ENDPOINT)
+        typename = os.environ.get("PYRAMIDS_WFS_TYPENAME", "osm:osm-fuel")
         fc = FeatureCollection.from_wfs(endpoint, typename=typename, max_features=5)
         assert isinstance(fc, FeatureCollection)
         assert len(fc) <= 5

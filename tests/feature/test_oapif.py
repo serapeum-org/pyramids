@@ -2,7 +2,7 @@
 
 Network-free. The OGR ``OAPIF`` driver's ``next``-link paging is proven against a
 protocol-faithful local mock in ``TestOapifDriverPaging``. Elsewhere the OGR read
-is monkeypatched so ``from_ogc_api_features``'s own logic — collection validation,
+is monkeypatched so ``from_ogc_features``'s own logic — collection validation,
 the read filters, FeatureCollection wrapping, ``output_crs`` reproject and error
 normalisation — is covered without a live service, plus the pure helpers and the
 ``/collections`` fetch/parse/cache.
@@ -24,6 +24,7 @@ import pytest
 from osgeo import gdal
 from shapely.geometry import Point
 
+from pyramids.base import _ogc_api
 from pyramids.feature import FeatureCollection
 from pyramids.feature import _oapif
 from pyramids.errors import OGCAPIError
@@ -75,13 +76,13 @@ def _sample_gdf(crs="EPSG:4326") -> gpd.GeoDataFrame:
 
 class TestPureHelpers:
     def test_collections_url(self):
-        assert _oapif._collections_url("https://h/api") == "https://h/api/collections?f=json"
-        assert _oapif._collections_url("https://h/api/") == "https://h/api/collections?f=json"
+        assert _ogc_api.collections_url("https://h/api") == "https://h/api/collections?f=json"
+        assert _ogc_api.collections_url("https://h/api/") == "https://h/api/collections?f=json"
 
     def test_collections_url_preserves_query_auth(self):
         """A query-string-auth endpoint keeps its query; /collections goes before it."""
         assert (
-            _oapif._collections_url("https://h/ogc?api_key=XYZ")
+            _ogc_api.collections_url("https://h/ogc?api_key=XYZ")
             == "https://h/ogc/collections?api_key=XYZ&f=json"
         )
 
@@ -120,13 +121,13 @@ class TestPureHelpers:
 
     def test_collection_ids_prefers_id_then_name(self):
         doc = {"collections": [{"id": "a"}, {"name": "b"}, {"title": "no-id"}, "junk"]}
-        assert _oapif._collection_ids(doc) == {"a", "b"}
+        assert _ogc_api.collection_ids(doc) == {"a", "b"}
 
     def test_error_text(self):
-        assert _oapif._error_text({"description": "boom"}) == "boom"
-        assert _oapif._error_text({"title": "bad"}) == "bad"  # description/detail absent -> title
-        assert _oapif._error_text({}) == "no message provided"
-        assert _oapif._error_text("not a dict") == "no message provided"
+        assert _ogc_api.error_text({"description": "boom"}) == "boom"
+        assert _ogc_api.error_text({"title": "bad"}) == "bad"  # description/detail absent -> title
+        assert _ogc_api.error_text({}) == "no message provided"
+        assert _ogc_api.error_text("not a dict") == "no message provided"
 
     def test_http_error_detail_unreadable_body(self):
         """An HTTPError whose body cannot be read falls back to the reason phrase."""
@@ -136,7 +137,7 @@ class TestPureHelpers:
             def read(self):
                 raise OSError("connection gone")
 
-        assert _oapif._http_error_detail(_Unreadable()) == "Server Error"
+        assert _ogc_api.http_error_detail(_Unreadable()) == "Server Error"
 
     def test_http_error_detail_non_json_body(self):
         """A non-JSON HTTPError body is returned as truncated plain text."""
@@ -146,7 +147,7 @@ class TestPureHelpers:
             def read(self):
                 return b"upstream exploded"
 
-        assert _oapif._http_error_detail(_Plain()) == "upstream exploded"
+        assert _ogc_api.http_error_detail(_Plain()) == "upstream exploded"
 
 
 class TestCollections:
@@ -267,7 +268,7 @@ class TestCollections:
         def boom(self, *args, **kwargs):
             raise OSError("connection refused")
 
-        monkeypatch.setattr(_oapif.urllib.request.OpenerDirector, "open", boom)
+        monkeypatch.setattr(_ogc_api.urllib.request.OpenerDirector, "open", boom)
         with pytest.raises(OGCAPIError, match="request failed"):
             _oapif._get_collections("https://oapif.invalid/x", None, 5.0)
 
@@ -308,7 +309,7 @@ class TestFromOgcApiFeatures:
         """A successful read is wrapped into a FeatureCollection."""
         self._patch_collections(monkeypatch)
         monkeypatch.setattr(_oapif.gpd, "read_file", lambda *a, **k: _sample_gdf())
-        fc = FeatureCollection.from_ogc_api_features("https://h/api", collection="lakes")
+        fc = FeatureCollection.from_ogc_features("https://h/api", collection="lakes")
         assert isinstance(fc, FeatureCollection)
         assert len(fc) == 2 and fc.crs.to_epsg() == 4326
 
@@ -323,7 +324,7 @@ class TestFromOgcApiFeatures:
             return _sample_gdf()
 
         monkeypatch.setattr(_oapif.gpd, "read_file", fake_read)
-        FeatureCollection.from_ogc_api_features(
+        FeatureCollection.from_ogc_features(
             "https://h/api", collection="lakes", bbox=(1.0, 2.0, 3.0, 4.0),
             where="scalerank <= 2", max_features=5,
         )
@@ -336,7 +337,7 @@ class TestFromOgcApiFeatures:
     def test_output_crs_reprojects(self, monkeypatch):
         self._patch_collections(monkeypatch)
         monkeypatch.setattr(_oapif.gpd, "read_file", lambda *a, **k: _sample_gdf())
-        fc = FeatureCollection.from_ogc_api_features(
+        fc = FeatureCollection.from_ogc_features(
             "https://h/api", collection="lakes", output_crs="EPSG:3857"
         )
         assert fc.crs.to_epsg() == 3857
@@ -347,14 +348,14 @@ class TestFromOgcApiFeatures:
         crsless = gpd.GeoDataFrame({"name": ["a"]}, geometry=[Point(5.0, 52.0)])
         monkeypatch.setattr(_oapif.gpd, "read_file", lambda *a, **k: crsless)
         with pytest.raises(OGCAPIError, match="without a CRS"):
-            FeatureCollection.from_ogc_api_features(
+            FeatureCollection.from_ogc_features(
                 "https://h/api", collection="lakes", output_crs="EPSG:3857"
             )
 
     def test_unknown_collection_raises_valueerror(self, monkeypatch):
         self._patch_collections(monkeypatch, ids=("lakes",))
         with pytest.raises(ValueError, match="not advertised"):
-            FeatureCollection.from_ogc_api_features("https://h/api", collection="missing")
+            FeatureCollection.from_ogc_features("https://h/api", collection="missing")
 
     def test_read_failure_raises_ogcapierror(self, monkeypatch):
         self._patch_collections(monkeypatch)
@@ -364,7 +365,7 @@ class TestFromOgcApiFeatures:
 
         monkeypatch.setattr(_oapif.gpd, "read_file", boom)
         with pytest.raises(OGCAPIError, match="items request failed"):
-            FeatureCollection.from_ogc_api_features("https://h/api", collection="lakes")
+            FeatureCollection.from_ogc_features("https://h/api", collection="lakes")
 
     def test_auth_and_timeout_active_during_read(self, monkeypatch):
         """The items read runs inside a GDAL config context carrying auth + timeout."""
@@ -377,7 +378,7 @@ class TestFromOgcApiFeatures:
             return _sample_gdf()
 
         monkeypatch.setattr(_oapif.gpd, "read_file", fake_read)
-        FeatureCollection.from_ogc_api_features(
+        FeatureCollection.from_ogc_features(
             "https://h/api", collection="lakes", auth=("u", "p"), timeout=42.0
         )
         assert seen["userpwd"] == "u:p"
@@ -516,11 +517,11 @@ class _OapifHandler(http.server.BaseHTTPRequestHandler):
 class TestOapifDriverPaging:
     """Drive the real OAPIF driver against a local two-page mock service.
 
-    ``from_ogc_api_features`` reads through GDAL's OGR ``OAPIF`` driver (via
+    ``from_ogc_features`` reads through GDAL's OGR ``OAPIF`` driver (via
     ``gpd.read_file``); this test exercises that same driver directly with
     ``gdal.OpenEx`` so the ``rel="next"`` paging is proven offline. (The bundled
     pyogrio reader cannot reach a localhost mock reliably in CI, so the
-    ``from_ogc_api_features`` wrapper itself is covered end-to-end only by the
+    ``from_ogc_features`` wrapper itself is covered end-to-end only by the
     gated live test below.)
     """
 
@@ -549,17 +550,14 @@ class TestOapifDriverPaging:
 
 
 @pytest.mark.slow
-@pytest.mark.skipif(
-    not os.environ.get("PYRAMIDS_OAPIF_LIVE"),
-    reason="live OGC API – Features test; set PYRAMIDS_OAPIF_LIVE=1 plus "
-    "PYRAMIDS_OAPIF_ENDPOINT / PYRAMIDS_OAPIF_COLLECTION to run the real GDAL OGR "
-    "OAPIF driver end-to-end",
-)
+@pytest.mark.live
 class TestLiveOapif:
+    ENDPOINT = "https://demo.pygeoapi.io/master"
+
     def test_live_read(self):
-        """Exercise the real OGR OAPIF driver against a caller-supplied public endpoint."""
-        endpoint = os.environ["PYRAMIDS_OAPIF_ENDPOINT"]
-        collection = os.environ["PYRAMIDS_OAPIF_COLLECTION"]
-        fc = FeatureCollection.from_ogc_api_features(endpoint, collection=collection, max_features=5)
+        """Exercise the real OGR OAPIF driver against a public endpoint (override via env)."""
+        endpoint = os.environ.get("PYRAMIDS_OAPIF_ENDPOINT", self.ENDPOINT)
+        collection = os.environ.get("PYRAMIDS_OAPIF_COLLECTION", "lakes")
+        fc = FeatureCollection.from_ogc_features(endpoint, collection=collection, max_features=5)
         assert isinstance(fc, FeatureCollection)
         assert len(fc) <= 5
