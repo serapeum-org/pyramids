@@ -119,4 +119,5 @@ def test_interior_nan_off_seam_still_unwraps_the_row():
     x, _ = _unwrap_geographic_longitude((lon, lat), 4326)
     x = np.asarray(x)
     assert np.array_equal(np.isnan(x), np.isnan(lon))  # NaN stays put
-    assert x[1, 3] == 360.0 and x[1, 4] == 370.0  # seam still unwrapped around the NaN
+    # seam still unwrapped around the NaN (isclose, not ==, on floats)
+    assert np.isclose(x[1, 3], 360.0) and np.isclose(x[1, 4], 370.0)
