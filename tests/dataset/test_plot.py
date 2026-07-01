@@ -1451,7 +1451,7 @@ class TestPlotPhase3CrossCutting:
     """
 
     @pytest.fixture(scope="function")
-    def single_band_dataset(self):
+    def random_single_band_for_plot(self):
         """Build a deterministic single-band dataset for cross-cutting tests.
 
         Returns:
@@ -1464,7 +1464,7 @@ class TestPlotPhase3CrossCutting:
         )
 
     @pytest.mark.plot
-    def test_dataset_plot_returns_array_glyph_post_refactor(self, single_band_dataset):
+    def test_dataset_plot_returns_array_glyph_post_refactor(self, random_single_band_for_plot):
         """`Dataset.plot()` still returns an ArrayGlyph after D-2 collapse.
 
         Test scenario:
@@ -1474,13 +1474,13 @@ class TestPlotPhase3CrossCutting:
             instance. Pre-refactor parity is required for downstream
             callers that chain visual customisations.
         """
-        result = single_band_dataset.plot()
+        result = random_single_band_for_plot.plot()
         assert isinstance(
             result, ArrayGlyph
         ), f"Dataset.plot() must return ArrayGlyph after D-2, got: {type(result).__name__}"
 
     @pytest.mark.plot
-    def test_analysis_plot_returns_array_glyph_post_refactor(self, single_band_dataset):
+    def test_analysis_plot_returns_array_glyph_post_refactor(self, random_single_band_for_plot):
         """`Analysis.plot(band=N)` still returns an ArrayGlyph after D-2.
 
         Test scenario:
@@ -1489,7 +1489,7 @@ class TestPlotPhase3CrossCutting:
             call must still produce an ArrayGlyph (this is the
             existing public engine API).
         """
-        result = single_band_dataset.analysis.plot(band=0)
+        result = random_single_band_for_plot.analysis.plot(band=0)
         assert isinstance(result, ArrayGlyph), (
             f"Analysis.plot() must return ArrayGlyph after D-2, "
             f"got: {type(result).__name__}"
@@ -1519,7 +1519,7 @@ class TestPlotPhase3CrossCutting:
         )
 
     @pytest.mark.plot
-    def test_render_array_direct_call_matches_analysis_plot(self, single_band_dataset):
+    def test_render_array_direct_call_matches_analysis_plot(self, random_single_band_for_plot):
         """Calling `render_array(mode="plot")` directly produces the same array.
 
         Test scenario:
@@ -1530,15 +1530,15 @@ class TestPlotPhase3CrossCutting:
             regression where the engine and helper diverge on how the
             data array is reshaped.
         """
-        arr = single_band_dataset.read_array(band=0)
-        bbox = single_band_dataset.bbox
+        arr = random_single_band_for_plot.read_array(band=0)
+        bbox = random_single_band_for_plot.bbox
         helper_glyph = render_array(
             arr=arr,
             extent=bbox,
             exclude_value=[np.nan],
             mode="plot",
         )
-        engine_glyph = single_band_dataset.analysis.plot(band=0)
+        engine_glyph = random_single_band_for_plot.analysis.plot(band=0)
         np.testing.assert_array_equal(
             helper_glyph.arr,
             engine_glyph.arr,
