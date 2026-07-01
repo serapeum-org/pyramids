@@ -33,9 +33,10 @@ discovery with :mod:`pyramids.feature._oapif` (the OGC API – Features reader)
 through :mod:`pyramids.base._ogc_api`.
 
 Scope boundary (see ``docs/SCOPE.md``): this reader takes only generic OGC
-inputs. Provider specifics — coverage-name catalogs, agency auth endpoints,
-non-PROJ CRS — live in the downstream consumer (``earthlens``), which calls
-``from_ogc_coverages`` and passes ``auth`` as needed.
+inputs. Provider specifics — coverage-name catalogs, agency auth endpoints, the
+proj4/WKT string for a coverage whose advertised CRS is absent from PROJ — live
+in the downstream consumer (``earthlens``), which calls ``from_ogc_coverages``
+and passes ``coverage_crs`` / ``auth`` as needed.
 """
 
 from __future__ import annotations
@@ -181,6 +182,7 @@ def from_ogc_coverages(
     bbox: tuple[float, float, float, float],
     output_crs: str | None = None,
     resolution: float | tuple[float, float] | None = None,
+    coverage_crs: str | None = None,
     output: str | Path | None = None,
     resample: str = "nearest",
     auth: tuple[str, str] | None = None,
@@ -197,9 +199,14 @@ def from_ogc_coverages(
     (CRS84) ``bbox`` is projected into the coverage's native CRS and read with a
     size cap so the fetch stays bounded.
 
+    ``coverage_crs`` is the CRS shim: when the service advertises a CRS the local
+    PROJ database cannot resolve, GDAL opens the coverage with no spatial reference
+    and the bbox cannot be projected. Passing ``coverage_crs`` (any proj4 / WKT /
+    authority string) supplies that CRS explicitly, mirroring :meth:`from_wcs`.
+
     Raises:
-        ValueError: ``bbox`` is malformed, or ``coverage`` is not advertised by the
-            service.
+        ValueError: ``bbox`` is malformed, ``coverage`` is not advertised by the
+            service, or ``coverage_crs`` cannot be interpreted.
         OGCAPIError: The ``OGCAPI`` driver is unavailable, the service could not be
             reached, or it returned an error / a non-raster body.
     """
@@ -220,9 +227,10 @@ def from_ogc_coverages(
         src = _open_coverage(connection, coverage)
         try:
             # _resolve_native_srs is shared with the WCS reader; normalise its
-            # WCSError (CRS-less coverage) to this reader's OGCAPIError so the
-            # documented Raises contract holds and the message names OGC API.
-            native_srs = _resolve_native_srs(src, None)
+            # WCSError (CRS-less coverage, no coverage_crs shim) to this reader's
+            # OGCAPIError so the documented Raises contract holds and the message
+            # names OGC API. A bad coverage_crs raises ValueError, which propagates.
+            native_srs = _resolve_native_srs(src, coverage_crs)
         except WCSError as exc:
             raise OGCAPIError(
                 f"OGC API coverage {coverage!r} has no resolvable spatial reference; "

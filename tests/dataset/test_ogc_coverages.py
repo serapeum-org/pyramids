@@ -235,6 +235,33 @@ class TestFromOgcCoveragesValidation:
                 "https://h/ogc", coverage="cov", bbox=(5.0, 51.0, 6.0, 52.0)
             )
 
+    def test_coverage_crs_forwarded_to_resolver(self, monkeypatch):
+        """`coverage_crs` is handed to the CRS resolver so a non-PROJ coverage is shimmable."""
+        self._patch_collections(monkeypatch)
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        monkeypatch.setattr(
+            _ogc_coverages.gdal, "OpenEx",
+            lambda *a, **k: gdal.GetDriverByName("MEM").Create("", 4, 4, 1),
+        )
+        seen = {}
+
+        def fake_resolve(src, coverage_crs):
+            seen["coverage_crs"] = coverage_crs
+            return srs
+
+        monkeypatch.setattr(_ogc_coverages, "_resolve_native_srs", fake_resolve)
+        monkeypatch.setattr(_ogc_coverages, "_native_projwin", lambda *a, **k: [5.0, 52.0, 6.0, 51.0])
+        monkeypatch.setattr(
+            _ogc_coverages, "_translate_window",
+            lambda src, projwin, size, coverage: gdal.GetDriverByName("MEM").Create("", size[0], size[1], 1),
+        )
+        Dataset.from_ogc_coverages(
+            "https://h/ogc", coverage="cov", bbox=(5.0, 51.0, 6.0, 52.0),
+            coverage_crs="+proj=igh +datum=WGS84 +units=m +no_defs",
+        )
+        assert seen["coverage_crs"] == "+proj=igh +datum=WGS84 +units=m +no_defs"
+
     def test_resolution_sizes_the_native_read(self, monkeypatch):
         """`resolution` (native-CRS units) drives the windowed read size, not a post-warp cell size."""
         self._patch_collections(monkeypatch)

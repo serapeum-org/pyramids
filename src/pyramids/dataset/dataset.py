@@ -2309,6 +2309,7 @@ class Dataset(RasterBase):
         bbox: tuple[float, float, float, float],
         output_crs: str | None = None,
         resolution: float | tuple[float, float] | None = None,
+        coverage_crs: str | None = None,
         output: str | Path | None = None,
         resample: str = "nearest",
         auth: tuple[str, str] | None = None,
@@ -2357,6 +2358,11 @@ class Dataset(RasterBase):
                 25000 px on either side is rejected with :class:`ValueError`. When
                 ``output_crs`` is set, ``resolution`` sizes the native-CRS read;
                 the reprojected output's pixel size is then chosen by the warp.
+            coverage_crs: The coverage's CRS, used only when the service's
+                advertised CRS does not resolve in PROJ so GDAL opens the coverage
+                with no spatial reference. Any proj4 / WKT / authority string
+                ``pyproj`` understands. ``None`` (default) relies on the CRS the
+                service advertises. Mirrors :meth:`from_wcs`.
             output: Optional path to also write the result to as a GeoTIFF. The
                 method still returns the :class:`Dataset`.
             resample: Resampling method for the ``output_crs`` reprojection.
@@ -2370,7 +2376,8 @@ class Dataset(RasterBase):
             Dataset: The fetched coverage subset.
 
         Raises:
-            ValueError: ``bbox`` is malformed, or ``coverage`` is not advertised.
+            ValueError: ``bbox`` is malformed, ``coverage`` is not advertised, or
+                ``coverage_crs`` cannot be interpreted.
             pyramids.errors.OGCAPIError: The service could not be reached or
                 returned an error / a non-raster body.
 
@@ -2400,6 +2407,7 @@ class Dataset(RasterBase):
             bbox=bbox,
             output_crs=output_crs,
             resolution=resolution,
+            coverage_crs=coverage_crs,
             output=output,
             resample=resample,
             auth=auth,
