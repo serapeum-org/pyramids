@@ -2321,10 +2321,12 @@ class Dataset(RasterBase):
         service and returns it as a :class:`Dataset`. OGC API – Coverages is the
         modern REST/JSON successor to WCS: a landing page links to
         ``/collections`` and each coverage exposes ``/collections/{id}/coverage``
-        with ``bbox`` subsetting and format negotiation. The transport is GDAL's
-        native ``OGCAPI`` driver, so discovery, GeoTIFF negotiation and the
-        windowed read happen inside GDAL; the caller supplies a single lon/lat
-        ``bbox`` (plus optional ``resolution`` and ``output_crs``). This is the
+        with format negotiation. The transport is GDAL's native ``OGCAPI`` driver,
+        so discovery, GeoTIFF negotiation and the windowed read happen inside GDAL;
+        the caller supplies a single lon/lat ``bbox`` (plus optional ``resolution``
+        and ``output_crs``). The driver exposes the coverage as an unbounded virtual
+        raster, so the ``bbox`` is applied at read time as a native-CRS ``projWin``
+        window (not passed through as a service-side ``bbox`` subset). This is the
         OGC-API-era sibling of :meth:`from_wcs`.
 
         A ``bbox`` is **required**. The driver exposes the coverage as an unbounded
