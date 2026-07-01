@@ -32,6 +32,10 @@ flowchart LR
     J -->|from_json| M
 ```
 
+`to_json`, `to_dict`, `from_json`, and `flatten_for_index` (the edge labels above) are **module-level
+functions** in `pyramids.netcdf.metadata` that take a `NetCDFMetadata` argument — not methods on the
+class. `NetCDFMetadata`'s only public method is `get_dimension`.
+
 See the [data models](models.md) for the structure of each info record.
 
 ## Usage
