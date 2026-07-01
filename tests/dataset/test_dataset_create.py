@@ -269,13 +269,13 @@ class TestAddBand:
 
     def test_add_band_1d_array(self, src: gdal.Dataset):
         dataset = Dataset(src)
-        arr = np.random.default_rng().random(13)
+        arr = np.random.default_rng(0).random(13)
         with pytest.raises(ValueError):
             dataset.add_band(arr)
 
     def test_add_band_different_dimension(self, src: gdal.Dataset):
         dataset = Dataset(src)
-        arr = np.random.default_rng().random((2, 2))
+        arr = np.random.default_rng(0).random((2, 2))
         with pytest.raises(ValueError):
             dataset.add_band(arr)
 
@@ -292,8 +292,6 @@ class TestAddBand:
         new_dataset = dataset.add_band(arr, unit="meter", attribute_table=df)
         band = new_dataset._iloc(1)
         assert band.GetDefaultRAT() is not None
-        # assert Path("test_add_band_with_attribute_table.tif.aux.xml")
-        # os.remove("dataset_with_attribute_table.tif.aux.xml")
 
     def test_wrong_dims_array(self, src: gdal.Dataset):
         # test add different dimension array

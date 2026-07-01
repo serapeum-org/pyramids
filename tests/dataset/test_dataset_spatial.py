@@ -508,11 +508,11 @@ class TestCrop:
 
     def test_crop_multi_band_dataset_with_multi_band_mask(self):
         # the dataset has 4 bands
-        arr = np.random.default_rng().random((4, 6, 5))
+        arr = np.random.default_rng(0).random((4, 6, 5))
         geotransform = (0, 0.05, 0, 0, 0, -0.05)
         dataset = Dataset.create_from_array(arr, geo=geotransform, epsg=4326)
         # the mask has 3 bands
-        arr_mask = np.random.default_rng().random((3, 2, 2))
+        arr_mask = np.random.default_rng(0).random((3, 2, 2))
         geotransform = (0.1, 0.05, 0.0, -0.1, 0.0, -0.05)
         mask = Dataset.create_from_array(arr_mask, geo=geotransform, epsg=4326)
         cropped_dataset = dataset.crop(mask=mask)
@@ -595,7 +595,7 @@ class TestCropWithPolygon:
 
     def test_by_warp_touch_true_multi_band(self):
         """Test that the function works with multi-band raster."""
-        arr = np.random.default_rng().random((4, 6, 5))
+        arr = np.random.default_rng(0).random((4, 6, 5))
         geotransform = (0, 0.05, 0, 0, 0, -0.05)
         dataset = Dataset.create_from_array(arr, geo=geotransform, epsg=4326)
         mask = gpd.GeoDataFrame(
@@ -792,7 +792,7 @@ class TestClustering:
 
 
 def test_nearest_neigbors():
-    arr = np.random.default_rng().random((5, 5))
+    arr = np.random.default_rng(0).random((5, 5))
     top_left_corner = (0, 0)
     cell_size = 0.05
     dataset = Dataset.create_from_array(

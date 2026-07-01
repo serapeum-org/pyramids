@@ -20,7 +20,7 @@ class TestToFeatureCollection:
 
     def test_tiling(self) -> None:
         """Test converting dataset to featurecollection using tiling."""
-        arr = np.random.default_rng().random((2, 2))
+        arr = np.random.default_rng(0).random((2, 2))
         top_left_corner = (0, 0)
         cell_size = 0.05
         dataset = Dataset.create_from_array(
@@ -241,7 +241,7 @@ class TestExtract:
         assert np.array_equal(arr, values)
 
     def test_multi_band_with_mask(self):
-        arr = np.random.default_rng().integers(1, 5, size=(2, 4, 4))
+        arr = np.random.default_rng(0).integers(1, 5, size=(2, 4, 4))
         top_left_corner = (0, 0)
         cell_size = 0.05
         dataset = Dataset.create_from_array(
@@ -264,7 +264,7 @@ class TestExtract:
         np.testing.assert_array_equal(values, arr_extracted_values)
 
     def test_array_to_map_coordinates(self):
-        arr = np.random.default_rng().integers(1, 5, size=(15, 15))
+        arr = np.random.default_rng(0).integers(1, 5, size=(15, 15))
         top_left_corner = (432968.1206170588, 520007.787999178)
         cell_size = 4000
         dataset = Dataset.create_from_array(
