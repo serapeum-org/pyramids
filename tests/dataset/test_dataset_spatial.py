@@ -109,7 +109,6 @@ class TestReproject:
         dst = src.to_crs(to_epsg=epsg, maintain_alignment=True)
         assert dst.band_count == src.band_count
         assert dst.epsg == epsg
-        # assert dst.shape == src.shape
 
     def test_option_donot_maintain_alignment(
         self,
@@ -138,7 +137,6 @@ class TestReproject:
         dst = src.to_crs(to_epsg=epsg, maintain_alignment=False)
         assert dst.band_count == src.band_count
         assert dst.epsg == epsg
-        # assert dst.shape == src.shape
 
     def test_robinson_esri_authority_string(
         self,
@@ -471,7 +469,6 @@ class TestAlign:
         dataset_aligned = dataset.align(alignment_src)
         assert dataset_aligned.rows == resampled_multi_band_dims[0]
         assert dataset_aligned.columns == resampled_multi_band_dims[1]
-        # assert dataset_aligned.no_data_value == dataset.no_data_value
         assert dataset.top_left_corner == dataset_aligned.top_left_corner
 
 
@@ -511,11 +508,11 @@ class TestCrop:
 
     def test_crop_multi_band_dataset_with_multi_band_mask(self):
         # the dataset has 4 bands
-        arr = np.random.rand(4, 6, 5)
+        arr = np.random.default_rng().random((4, 6, 5))
         geotransform = (0, 0.05, 0, 0, 0, -0.05)
         dataset = Dataset.create_from_array(arr, geo=geotransform, epsg=4326)
         # the mask has 3 bands
-        arr_mask = np.random.rand(3, 2, 2)
+        arr_mask = np.random.default_rng().random((3, 2, 2))
         geotransform = (0.1, 0.05, 0.0, -0.1, 0.0, -0.05)
         mask = Dataset.create_from_array(arr_mask, geo=geotransform, epsg=4326)
         cropped_dataset = dataset.crop(mask=mask)
@@ -569,7 +566,7 @@ class TestCropWithPolygon:
         cells = dataset.count_domain_cells()
         dataset = dataset.crop(polygon_mask, touch=True)
         new_cells = dataset.count_domain_cells()
-        assert not cells == new_cells
+        assert cells != new_cells
 
     def test_by_warp_touch_true_single_band(
         self,
@@ -598,7 +595,7 @@ class TestCropWithPolygon:
 
     def test_by_warp_touch_true_multi_band(self):
         """Test that the function works with multi-band raster."""
-        arr = np.random.rand(4, 6, 5)
+        arr = np.random.default_rng().random((4, 6, 5))
         geotransform = (0, 0.05, 0, 0, 0, -0.05)
         dataset = Dataset.create_from_array(arr, geo=geotransform, epsg=4326)
         mask = gpd.GeoDataFrame(
@@ -764,8 +761,7 @@ class TestMAsk:
 class TestClustering:
 
     def test_generated_data(self):
-        np.random.seed(42)
-        arr = np.random.randint(1, 5, size=(3, 3))
+        arr = np.random.default_rng(42).integers(1, 5, size=(3, 3))
         top_left_corner = (0, 0)
         cell_size = 0.05
         dataset = Dataset.create_from_array(
@@ -796,7 +792,7 @@ class TestClustering:
 
 
 def test_nearest_neigbors():
-    arr = np.random.rand(5, 5)
+    arr = np.random.default_rng().random((5, 5))
     top_left_corner = (0, 0)
     cell_size = 0.05
     dataset = Dataset.create_from_array(

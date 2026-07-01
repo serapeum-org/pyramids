@@ -45,7 +45,6 @@ class TestCreateRasterObject:
             arr=src_arr,
             top_left_corner=top_left_corner,
             cell_size=cell_size,
-            # geo=src_geotransform,
             epsg=src_epsg,
             no_data_value=src_no_data_value,
         )
@@ -270,13 +269,13 @@ class TestAddBand:
 
     def test_add_band_1d_array(self, src: gdal.Dataset):
         dataset = Dataset(src)
-        arr = np.random.rand(13)
+        arr = np.random.default_rng().random(13)
         with pytest.raises(ValueError):
             dataset.add_band(arr)
 
     def test_add_band_different_dimension(self, src: gdal.Dataset):
         dataset = Dataset(src)
-        arr = np.random.rand(2, 2)
+        arr = np.random.default_rng().random((2, 2))
         with pytest.raises(ValueError):
             dataset.add_band(arr)
 
@@ -293,7 +292,6 @@ class TestAddBand:
         new_dataset = dataset.add_band(arr, unit="meter", attribute_table=df)
         band = new_dataset._iloc(1)
         assert band.GetDefaultRAT() is not None
-        # new_dataset.to_file("test_add_band_with_attribute_table.tif")
         # assert Path("test_add_band_with_attribute_table.tif.aux.xml")
         # os.remove("dataset_with_attribute_table.tif.aux.xml")
 
@@ -627,7 +625,7 @@ class TestGetCellCoordsAndCreateCellGeometry:
         assert len(gdf) == src_shape[0] * src_shape[1]
         assert gdf.crs.to_epsg() == src_epsg
 
-    def test_create_cell_points_no_data_value_is_None(
+    def test_create_cell_points_no_data_value_is_none(
         self, era5_image: gdal.Dataset, src_shape: Tuple, src_epsg: int
     ):
         src = Dataset(era5_image)

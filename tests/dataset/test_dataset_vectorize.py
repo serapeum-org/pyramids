@@ -20,7 +20,7 @@ class TestToFeatureCollection:
 
     def test_tiling(self) -> None:
         """Test converting dataset to featurecollection using tiling."""
-        arr = np.random.rand(2, 2)
+        arr = np.random.default_rng().random((2, 2))
         top_left_corner = (0, 0)
         cell_size = 0.05
         dataset = Dataset.create_from_array(
@@ -95,23 +95,10 @@ class TestToFeatureCollection:
             )
             arr_flatten = np.array(arr_flatten)
             extracted_values = gdf.loc[:, gdf.columns[0]].values
-            # extracted_values = extracted_values.reshape(arr_flatten.shape)
             assert np.array_equal(extracted_values, arr_flatten), (
                 "the extracted values in the dataframe does not equa the real "
                 "values in the array"
             )
-
-    # def test_with_mask_multi_band(
-    #     self, era5_image: gdal.Dataset, era5_image_gdf: GeoDataFrame, era5_mask: GeoDataFrame
-    # ):
-    #     """the input raster is given as a string path on disk."""
-    #     dataset = Dataset(era5_image)
-    #     gdf = dataset.to_feature_collection(add_geometry="Point", mask=era5_mask)
-    #     assert isinstance(gdf, GeoDataFrame)
-    #     assert gdf.equals(era5_image_gdf), (
-    #         "the extracted values in the dataframe does not equa the real "
-    #         "values in the array"
-    #     )
 
     class TestWithMask:
         def test_polygon_entirely_inside_raster(
@@ -254,7 +241,7 @@ class TestExtract:
         assert np.array_equal(arr, values)
 
     def test_multi_band_with_mask(self):
-        arr = np.random.randint(1, 5, size=(2, 4, 4))
+        arr = np.random.default_rng().integers(1, 5, size=(2, 4, 4))
         top_left_corner = (0, 0)
         cell_size = 0.05
         dataset = Dataset.create_from_array(
@@ -277,7 +264,7 @@ class TestExtract:
         np.testing.assert_array_equal(values, arr_extracted_values)
 
     def test_array_to_map_coordinates(self):
-        arr = np.random.randint(1, 5, size=(15, 15))
+        arr = np.random.default_rng().integers(1, 5, size=(15, 15))
         top_left_corner = (432968.1206170588, 520007.787999178)
         cell_size = 4000
         dataset = Dataset.create_from_array(
@@ -387,7 +374,7 @@ class TestFootPrint:
         # extent column should have one class only
         assert len(set(extent[dataset.band_names[0]])) == 1
         # the class should be 2
-        assert list(set(extent[dataset.band_names[0]]))[0] == 2
+        assert next(iter(set(extent[dataset.band_names[0]]))) == 2
 
     @pytest.mark.fast
     def test_max_depth_raster(self, footprint_test: Dataset, replace_values: List):
@@ -397,7 +384,7 @@ class TestFootPrint:
         # extent column should have one class only
         assert len(set(extent[dataset.band_names[0]])) == 1
         # the class should be 2
-        assert list(set(extent[dataset.band_names[0]]))[0] == 2
+        assert next(iter(set(extent[dataset.band_names[0]]))) == 2
 
     @pytest.mark.fast
     def test_raster_full_of_no_data_value(
@@ -417,7 +404,7 @@ class TestFootPrint:
         # extent column should have one class only
         assert len(set(extent[dataset.band_names[0]])) == 1
         # the class should be 2
-        assert list(set(extent[dataset.band_names[0]]))[0] == 2
+        assert next(iter(set(extent[dataset.band_names[0]]))) == 2
 
     @pytest.mark.fast
     def test_era5_one_band_no_no_data_value_in_raster(
@@ -428,4 +415,4 @@ class TestFootPrint:
         # extent column should have one class only
         assert len(set(extent[dataset.band_names[0]])) == 1
         # the class should be 2
-        assert list(set(extent[dataset.band_names[0]]))[0] == 2
+        assert next(iter(set(extent[dataset.band_names[0]]))) == 2
