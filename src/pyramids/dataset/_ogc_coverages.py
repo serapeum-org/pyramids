@@ -129,9 +129,10 @@ def _read_size(
     span_x = abs(lrx - ulx)
     span_y = abs(uly - lry)
     if res is not None:
+        # res axes are guaranteed strictly positive by resolution_pair.
         x_res, y_res = res
-        width = max(1, round(span_x / x_res)) if x_res else _DEFAULT_MAX_PX
-        height = max(1, round(span_y / y_res)) if y_res else _DEFAULT_MAX_PX
+        width = max(1, round(span_x / x_res))
+        height = max(1, round(span_y / y_res))
     elif span_x >= span_y:
         width = _DEFAULT_MAX_PX
         height = max(1, round(_DEFAULT_MAX_PX * span_y / span_x)) if span_x else _DEFAULT_MAX_PX

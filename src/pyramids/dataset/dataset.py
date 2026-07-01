@@ -2350,14 +2350,19 @@ class Dataset(RasterBase):
             output_crs: Optional CRS to reproject the result into (any form
                 :meth:`to_crs` accepts). ``None`` (default) keeps the coverage's
                 native CRS.
-            resolution: Pixel size of the read window, in the units of the
-                coverage's **native CRS** (CRS84 degrees by default). A scalar
+            resolution: Approximate pixel size of the read window, in the units of
+                the coverage's **native CRS** (CRS84 degrees by default). A scalar
                 gives square pixels; an ``(x_res, y_res)`` pair gives non-square
-                pixels. ``None`` (default) caps the longer side of the window at
-                1024 px (preserving the bbox aspect ratio). A window larger than
-                25000 px on either side is rejected with :class:`ValueError`. When
-                ``output_crs`` is set, ``resolution`` sizes the native-CRS read;
-                the reprojected output's pixel size is then chosen by the warp.
+                pixels; every axis must be strictly positive (:class:`ValueError`
+                otherwise). The window size is ``round(span / resolution)`` per
+                axis, so the realised cell size equals ``resolution`` exactly only
+                when ``span / resolution`` is integral and is otherwise the nearest
+                whole-pixel fit. ``None`` (default) caps the longer side of the
+                window at 1024 px (preserving the bbox aspect ratio). A window
+                larger than 25000 px on either side is rejected with
+                :class:`ValueError`. When ``output_crs`` is set, ``resolution``
+                sizes the native-CRS read; the reprojected output's pixel size is
+                then chosen by the warp.
             coverage_crs: The coverage's CRS, used only when the service's
                 advertised CRS does not resolve in PROJ so GDAL opens the coverage
                 with no spatial reference. Any proj4 / WKT / authority string

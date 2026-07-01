@@ -33,13 +33,22 @@ def validate_bbox(
 def resolution_pair(
     resolution: float | tuple[float, float] | None,
 ) -> tuple[float, float] | None:
-    """Normalise `resolution` to an ``(x_res, y_res)`` pair (or ``None``)."""
+    """Normalise `resolution` to an ``(x_res, y_res)`` pair (or ``None``).
+
+    Raises:
+        ValueError: any axis of `resolution` is not strictly positive (a zero or
+            negative pixel size cannot size a read window).
+    """
     if resolution is None:
         return None
     if isinstance(resolution, (int, float)):
-        return float(resolution), float(resolution)
-    x_res, y_res = resolution
-    return float(x_res), float(y_res)
+        pair = (float(resolution), float(resolution))
+    else:
+        x_res, y_res = resolution
+        pair = (float(x_res), float(y_res))
+    if pair[0] <= 0 or pair[1] <= 0:
+        raise ValueError(f"resolution must be strictly positive on each axis, got {resolution!r}")
+    return pair
 
 
 def resolve_native_srs(

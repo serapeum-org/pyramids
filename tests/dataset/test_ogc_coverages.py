@@ -71,6 +71,11 @@ class TestPureHelpers:
         assert _ogc_coverages._resolution_pair(250) == (250.0, 250.0)
         assert _ogc_coverages._resolution_pair((250, 500)) == (250.0, 500.0)
 
+    @pytest.mark.parametrize("bad", [0, -1, 0.0, (0, 10), (10, -5)])
+    def test_resolution_pair_rejects_non_positive(self, bad):
+        with pytest.raises(ValueError, match="strictly positive"):
+            _ogc_coverages._resolution_pair(bad)
+
     def test_validate_bbox_ok(self):
         assert _ogc_coverages._validate_bbox((5.0, 51.0, 6.0, 52.0)) == (5.0, 51.0, 6.0, 52.0)
 
