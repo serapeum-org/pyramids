@@ -40,7 +40,7 @@ class Vectorize(_Engine["Dataset"]):
         # Build the OGR DataSource directly â€” FeatureCollection.create_ds
         # was deleted because it exposed ogr.DataSource on the public API.
         # Here the DataSource is purely local scratch space for gdal.Polygonize.
-        dst_ds = ogr.GetDriverByName("Memory").CreateDataSource("memData")
+        dst_ds = ogr.GetDriverByName("MEM").CreateDataSource("memData")
         if dst_ds is None:
             raise RuntimeError("Failed to create in-memory OGR DataSource")
         dst_layer = dst_ds.CreateLayer(col_name, srs=srs)
