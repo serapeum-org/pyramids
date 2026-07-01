@@ -63,6 +63,7 @@ from typing import Any, Callable
 
 import numpy as np
 from pyproj import CRS
+from pyproj.exceptions import CRSError
 
 from pyramids.base._utils import require_cleopatra
 
@@ -81,6 +82,30 @@ from pyramids.basemap import basemap as _basemap_module
 # UGRID-side helpers contain the cleopatra ``MeshGlyph`` dispatch.
 
 
+def _is_degree_geographic(epsg: int) -> bool:
+    """Return True iff `epsg` resolves to a geographic CRS expressed in degrees.
+
+    The longitude unwrap uses a 360-degree period, so it must not run on a
+    geographic CRS in radians/gradians, on a projected CRS, or on a CRS value
+    that fails to resolve — all of those return False.
+
+    Args:
+        epsg: The dataset CRS code.
+
+    Returns:
+        True when `epsg` is a geographic CRS whose angular unit is degrees.
+    """
+    try:
+        crs = CRS.from_user_input(epsg)
+    except CRSError:
+        return False
+    return (
+        crs.is_geographic
+        and bool(crs.axis_info)
+        and all("degree" in (axis.unit_name or "").lower() for axis in crs.axis_info)
+    )
+
+
 def _unwrap_geographic_longitude(
     coords: tuple | list | None, epsg: int | None
 ) -> tuple | list | None:
@@ -93,10 +118,13 @@ def _unwrap_geographic_longitude(
     longitude here — shifting values by +/-360 so horizontally-adjacent cells
     stay within 180 degrees — before building the glyph.
 
-    Gated so it never mangles non-geographic grids: it acts only when `epsg` is
-    a geographic (lon/lat) CRS *and* the longitude actually wraps (a >180-degree
-    step between horizontally-adjacent cells). Non-geographic, unknown-CRS, or
-    non-wrapping coords are returned unchanged.
+    Gated so it never mangles a grid it should not touch: it acts only when
+    `epsg` is a geographic CRS in degrees (see `_is_degree_geographic`) and the
+    longitude actually wraps. The seam is assumed to be an antimeridian wrap
+    along the **last (column) axis**; a wrap along axis 0, a projected /
+    non-degree / unknown CRS, or a non-wrapping grid is returned unchanged. The
+    unwrap is NaN-safe — a NaN in the longitude stays in place rather than
+    propagating down its row the way `np.unwrap` would.
 
     Args:
         coords: The `(x, y)` curvilinear coordinate pair, or `None`.
@@ -104,25 +132,27 @@ def _unwrap_geographic_longitude(
 
     Returns:
         `coords` with the longitude (`x`) unwrapped when it is a wrapping
-        geographic longitude; the original `coords` otherwise.
+        geographic longitude in degrees; the original `coords` otherwise.
     """
-    if coords is None or epsg is None:
-        return coords
-    try:
-        if not CRS.from_user_input(epsg).is_geographic:
-            return coords
-    except Exception:
-        # An unusable CRS value is not a licence to assume degrees; leave as-is.
-        return coords
-    lon = np.asarray(coords[0], dtype=float)
-    if lon.ndim != 2:
-        return coords
-    # A seam shows up as a >180-degree step between horizontally-adjacent cells.
-    row_steps = np.abs(np.diff(lon, axis=-1))
-    if not np.isfinite(row_steps).any() or np.nanmax(row_steps) <= 180.0:
-        return coords
-    unwrapped = np.unwrap(lon, period=360.0, axis=-1)
-    return (unwrapped, coords[1])
+    result = coords
+    if coords is not None and epsg is not None and _is_degree_geographic(epsg):
+        raw = np.asarray(coords[0])
+        # Preserve the incoming float precision (float32 stays float32); only a
+        # non-float coordinate (rare) is promoted so the arithmetic below works.
+        lon = raw if np.issubdtype(raw.dtype, np.floating) else raw.astype(np.float64)
+        if lon.ndim == 2:
+            # A seam is a >180-degree jump between horizontally-adjacent cells,
+            # which `round(step / 360)` maps to a +/-1 wrap count (small steps
+            # map to 0). NaN steps contribute 0, so a NaN stays in place instead
+            # of propagating along its row. Only a true antimeridian wrap is
+            # expected here, not an arbitrary >180-degree physical discontinuity.
+            step = np.diff(lon, axis=-1)
+            wraps = np.where(np.isfinite(step), np.round(step / 360.0), 0.0)
+            if np.any(wraps):
+                offset = np.zeros_like(lon)
+                offset[..., 1:] = np.cumsum(wraps, axis=-1) * 360.0
+                result = (lon - offset, coords[1])
+    return result
 
 
 def render_array(

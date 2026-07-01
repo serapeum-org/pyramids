@@ -7,7 +7,10 @@ non-geographic, unknown-CRS, and non-wrapping coords are left untouched.
 """
 import numpy as np
 
-from pyramids.dataset._plot_helpers import _unwrap_geographic_longitude
+from pyramids.dataset._plot_helpers import (
+    _is_degree_geographic,
+    _unwrap_geographic_longitude,
+)
 
 
 def _wrapping_grid():
@@ -63,3 +66,29 @@ def test_nonwrapping_geographic_grid_is_left_untouched():
 def test_none_coords_pass_through():
     """`None` coords (non-curvilinear plot) are returned as-is."""
     assert _unwrap_geographic_longitude(None, 4326) is None
+
+
+def test_interior_nan_does_not_propagate():
+    """A NaN in the longitude stays put; the unwrap never spreads it down the row."""
+    lon = np.array(
+        [[330.0, 340.0, 350.0, 0.0, 10.0], [330.0, 340.0, np.nan, 0.0, 10.0]]
+    )
+    lat = np.zeros_like(lon)
+    x, _ = _unwrap_geographic_longitude((lon, lat), 4326)
+    assert np.array_equal(np.isnan(np.asarray(x)), np.isnan(lon))
+
+
+def test_input_float32_longitude_stays_float32():
+    """Unwrapping preserves the incoming float precision instead of upcasting to float64."""
+    lon = (np.arange(-30, 40, 10.0) % 360.0).astype(np.float32)
+    lon = np.tile(lon, (4, 1))
+    lat = np.zeros_like(lon)
+    x, _ = _unwrap_geographic_longitude((lon, lat), 4326)
+    assert np.asarray(x).dtype == np.float32
+
+
+def test_is_degree_geographic_gate():
+    """`_is_degree_geographic` accepts EPSG:4326, rejects a projected CRS and junk (no raise)."""
+    assert _is_degree_geographic(4326) is True
+    assert _is_degree_geographic(3857) is False
+    assert _is_degree_geographic("not-a-crs") is False
