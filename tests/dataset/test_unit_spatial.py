@@ -1041,8 +1041,8 @@ class TestNearestNeighbour:
         result = Vectorize._nearest_neighbour(arr.copy(), nd, [1], [2])
         assert result[1, 2] == pytest.approx(5.0), "Cell at last col should fill from left"
 
-    def test_nearest_neighbour_above_neighbor(self):
-        """_nearest_neighbour fills from above at last col, col-1=0."""
+    def test_nearest_neighbour_above_path_falls_back_to_left(self):
+        """_nearest_neighbour: the last-col above path is unreachable, so it fills from the left."""
         nd = -9999.0
         # The last-col/col-1=0 path can't be exercised without tripping an
         # index error at the diagonal check, so test a valid scenario that
