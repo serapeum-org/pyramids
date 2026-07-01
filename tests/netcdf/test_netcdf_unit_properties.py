@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
+import geopandas as gpd
 import pytest
+from shapely.geometry import box
 
 from tests.netcdf._netcdf_unit_helpers import _make_3d_nc
 from tests.netcdf.conftest import make_2d_nc
@@ -117,9 +119,6 @@ class TestSpatialOperationDelegates:
         """
         nc = _make_3d_nc(rows=20, cols=24, bands=2)
         var = nc.get_variable("temperature")
-        import geopandas as gpd
-        from shapely.geometry import box
-
         mask = gpd.GeoDataFrame(
             geometry=[box(1.0, 1.0, 5.0, 5.0)],
             crs="EPSG:4326",

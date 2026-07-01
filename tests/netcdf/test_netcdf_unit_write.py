@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from osgeo import gdal
 
-from pyramids.netcdf.models import NetCDFMetadata
+from pyramids.netcdf.models import DimensionInfo, NetCDFMetadata
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf._netcdf_unit_helpers import _make_3d_nc, _make_dataset_2d, _make_dataset_3d
 from tests.netcdf.conftest import make_2d_nc
@@ -69,8 +69,6 @@ class TestMetaDataSetter:
         Covers the else branch that directly sets
         _cached_meta_data.
         """
-        from pyramids.netcdf.models import DimensionInfo
-
         nc = make_2d_nc()
         custom_meta = NetCDFMetadata(
             driver="netCDF",
