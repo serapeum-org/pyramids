@@ -318,11 +318,9 @@ class TestNetCDFPlotVariableResolutionEdges:
             selector dict, and the remaining shape.
         """
         nc = _make_4d_nc()
+        sel = Selectors(isel={"time": 0})
         with pytest.raises(ValueError, match=r"single 2-D slice") as exc_info:
-            nc.plot(
-                variable="temperature",
-                selectors=Selectors(isel={"time": 0}),
-            )
+            nc.plot(variable="temperature", selectors=sel)
         msg = str(exc_info.value)
         assert "time" in msg, f"Resolved selectors should be reported, got: {msg}"
         assert (
