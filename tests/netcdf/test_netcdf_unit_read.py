@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.netcdf.netcdf import NetCDF, Container
+from pyramids.netcdf.netcdf import Container, NetCDF
 from tests.netcdf._netcdf_unit_helpers import _make_3d_nc
 from tests.netcdf.conftest import make_2d_nc
 
