@@ -1047,7 +1047,7 @@ class TestNearestNeighbour:
         # The last-col/col-1=0 path can't be exercised without tripping an
         # index error at the diagonal check, so test a valid scenario that
         # reaches the left branch successfully instead.
-        arr2 = np.array(
+        arr = np.array(
             [
                 [nd, nd, nd],
                 [nd, 5.0, nd],
@@ -1056,7 +1056,7 @@ class TestNearestNeighbour:
             dtype=np.float32,
         )
         # Cell (1,2) at last col. Left (1,1)=5.0, cols[i]-1=1 > 0
-        result = Vectorize._nearest_neighbour(arr2.copy(), nd, [1], [2])
+        result = Vectorize._nearest_neighbour(arr.copy(), nd, [1], [2])
         assert result[1, 2] == pytest.approx(5.0), "Cell should be filled from left neighbor"
 
 
