@@ -174,11 +174,9 @@ class TestNetCDFPlotSelectors:
             remaining shape so the user can debug.
         """
         nc = _make_4d_nc()
+        sel = Selectors(sel={"time": 12})
         with pytest.raises(ValueError, match=r"single 2-D slice"):
-            nc.plot(
-                variable="temperature",
-                selectors=Selectors(sel={"time": 12}),
-            )
+            nc.plot(variable="temperature", selectors=sel)
 
 
 class TestNetCDFPlotRejectedKwargs:
@@ -474,14 +472,16 @@ class TestNetCDFPlotSelectorEdges:
     def test_time_value_not_in_coords_raises(self):
         """An unknown ``time=`` value surfaces as a ValueError from ``sel``."""
         nc = make_plot_3d_nc(n_times=4)
+        sel = Selectors(time=999)
         with pytest.raises(ValueError, match=r"No bands match"):
-            nc.plot(variable="t2m", selectors=Selectors(time=999))
+            nc.plot(variable="t2m", selectors=sel)
 
     def test_isel_unknown_dim_name_raises(self):
         """``isel`` keyed by a non-band-dim name must raise with a helpful list."""
         nc = make_plot_3d_nc()
+        sel = Selectors(isel={"bogus_dim": 0})
         with pytest.raises(ValueError, match=r"is not a band dim"):
-            nc.plot(variable="t2m", selectors=Selectors(isel={"bogus_dim": 0}))
+            nc.plot(variable="t2m", selectors=sel)
 
     def test_level_on_variable_without_vertical_dim_raises(self):
         """``level=`` on a variable whose band dims do not include a vertical name.
@@ -494,8 +494,9 @@ class TestNetCDFPlotSelectorEdges:
             in the message.
         """
         nc = make_plot_3d_nc()
+        sel = Selectors(level=500)
         with pytest.raises(ValueError, match=r"level=") as exc_info:
-            nc.plot(variable="t2m", selectors=Selectors(level=500))
+            nc.plot(variable="t2m", selectors=sel)
         assert "['time']" in str(
             exc_info.value
         ), f"Band dim names must be reported in the error, got: {exc_info.value}"
@@ -503,8 +504,9 @@ class TestNetCDFPlotSelectorEdges:
     def test_member_on_variable_without_ensemble_dim_raises(self):
         """``member=`` on a non-ensemble variable surfaces a clear ValueError."""
         nc = make_plot_3d_nc()
+        sel = Selectors(member=0)
         with pytest.raises(ValueError, match=r"member=") as exc_info:
-            nc.plot(variable="t2m", selectors=Selectors(member=0))
+            nc.plot(variable="t2m", selectors=sel)
         assert "['time']" in str(
             exc_info.value
         ), f"Available band dims must be listed, got: {exc_info.value}"
@@ -519,11 +521,9 @@ class TestNetCDFPlotSelectorEdges:
             user can debug.
         """
         nc = _make_4d_nc()
+        sel = Selectors(sel={"time": 12})
         with pytest.raises(ValueError, match=r"single 2-D slice") as exc_info:
-            nc.plot(
-                variable="temperature",
-                selectors=Selectors(sel={"time": 12}),
-            )
+            nc.plot(variable="temperature", selectors=sel)
         message = str(exc_info.value)
         assert "Resolved" in message, f"Error must mention 'Resolved', got: {message}"
         assert (
@@ -578,5 +578,6 @@ class TestNetCDFPlotIselNoCoordValues:
         var = nc.get_variable("t2m")
         var._band_dim_values_map = dict(var._band_dim_values_map)
         var._band_dim_values_map["time"] = None
+        sel = Selectors(isel={"time": 1})
         with pytest.raises(ValueError, match=r"No coordinate values"):
-            var.plot(selectors=Selectors(isel={"time": 1}))
+            var.plot(selectors=sel)

@@ -2027,13 +2027,10 @@ class TestMeshRenderHelper:
         """
         from pyramids.dataset._plot_helpers import mesh_render
 
+        sentinel = object()
+        data = np.array([1.0])
         with pytest.raises(ValueError, match=r"CRS"):
-            mesh_render(
-                mesh=object(),
-                data=np.array([1.0]),
-                basemap=True,
-                basemap_epsg=None,
-            )
+            mesh_render(mesh=sentinel, data=data, basemap=True, basemap_epsg=None)
 
     def test_mesh_render_basemap_false_skips_add_basemap(self):
         """``basemap=False`` short-circuits before ``add_basemap`` is called.

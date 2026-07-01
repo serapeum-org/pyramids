@@ -99,22 +99,25 @@ class TestNetCDFPlotDimResolverFallbacks:
         """
         nc = _make_2d_nc()
         var = nc.get_variable("surface")
+        sel = Selectors(time=0)
         with pytest.raises(ValueError, match=r"no band dimension"):
-            var.plot(selectors=Selectors(time=0))
+            var.plot(selectors=sel)
 
     def test_level_on_pure_2d_variable_raises(self):
         """``level=`` on a 2-D variable raises with the band-dim hint."""
         nc = _make_2d_nc()
         var = nc.get_variable("surface")
+        sel = Selectors(level=500)
         with pytest.raises(ValueError, match=r"no band dimension"):
-            var.plot(selectors=Selectors(level=500))
+            var.plot(selectors=sel)
 
     def test_member_on_pure_2d_variable_raises(self):
         """``member=`` on a 2-D variable raises with the band-dim hint."""
         nc = _make_2d_nc()
         var = nc.get_variable("surface")
+        sel = Selectors(member=0)
         with pytest.raises(ValueError, match=r"no band dimension"):
-            var.plot(selectors=Selectors(member=0))
+            var.plot(selectors=sel)
 
     def test_time_falls_back_to_primary_band_dim(self):
         """``time=`` returns the first band dim when no candidate name matches.
@@ -163,7 +166,7 @@ class TestCurvilinearCoords:
             ``(rows, cols)`` and exposes the resolved coords on
             ``cleo.coords``.
         """
-        nc, x_2d, y_2d, _ = _make_curvilinear_nc(rows=6, cols=7)
+        nc = _make_curvilinear_nc(rows=6, cols=7)[0]
         cleo = nc.plot(variable="CANWAT", kind="pcolormesh")
         assert isinstance(cleo, ArrayGlyph)
         assert cleo.coords is not None, "curvilinear coords must reach cleopatra"
@@ -209,7 +212,7 @@ class TestCurvilinearCoords:
 
     def test_explicit_coords_by_name(self):
         """`coords=("XLONG", "XLAT")` looks up coord variables by name."""
-        nc, x_2d, y_2d, _ = _make_curvilinear_nc(rows=5, cols=6)
+        nc = _make_curvilinear_nc(rows=5, cols=6)[0]
         cleo = nc.plot(variable="CANWAT", coords=("XLONG", "XLAT"))
         assert cleo.coords is not None
         assert cleo.coords[0].shape == (5, 6)
@@ -237,7 +240,7 @@ class TestCurvilinearCoords:
             explicitly and verifies the same coords still reach
             cleopatra (i.e. the explicit path uses the same arrays).
         """
-        nc, x_2d, _, _ = _make_curvilinear_nc(rows=5, cols=6)
+        nc = _make_curvilinear_nc(rows=5, cols=6)[0]
         cleo = nc.plot(variable="CANWAT", coords=("XLONG", "XLAT"))
         assert cleo.coords is not None
         assert cleo.coords[0].shape == (5, 6)

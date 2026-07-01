@@ -711,10 +711,11 @@ class TestNonSquareResolution:
 
     def test_resample_rejects_bad_resolution(self):
         """A non-positive or malformed cell_size raises a clear ValueError."""
+        src = self._square_source()
         with pytest.raises(ValueError, match="cell_size must be positive"):
-            self._square_source().resample(cell_size=(2.0, 0.0))
+            src.resample(cell_size=(2.0, 0.0))
         with pytest.raises(ValueError, match="x_res, y_res"):
-            self._square_source().resample(cell_size=(1.0, 2.0, 3.0))
+            src.resample(cell_size=(1.0, 2.0, 3.0))
 
 
 class TestResampleErrors:
@@ -1168,8 +1169,9 @@ class TestArrayToMapCoordinates:
 
     def test_array_to_map_length_mismatch_raises(self):
         """Mismatched-length index inputs raise instead of pairing silently."""
+        ds = self._nonsquare()
         with pytest.raises(ValueError, match="same length"):
-            self._nonsquare().array_to_map_coordinates([0, 1], [0])
+            ds.array_to_map_coordinates([0, 1], [0])
 
     def test_array_to_map_empty_input(self):
         """Empty index inputs return a pair of empty lists, not an error."""

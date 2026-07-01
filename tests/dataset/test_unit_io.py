@@ -889,7 +889,7 @@ class TestWriteArrayException:
             epsg=4326,
         )
         bad_arr = np.ones((10, 10), dtype=np.float32)
-        with pytest.raises(Exception):
+        with pytest.raises(OutOfBoundsError, match="falls outside"):
             ds.write_array(bad_arr, top_left_corner=[0, 0])
 
 

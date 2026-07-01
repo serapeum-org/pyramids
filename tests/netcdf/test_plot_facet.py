@@ -87,41 +87,33 @@ class TestNetCDFPlotFaceting:
     def test_conflict_time_kwarg_and_col_time(self):
         """`time=0, col="time"` is rejected — the same dim cannot be both."""
         nc = make_plot_3d_nc()
+        sel = Selectors(time=0)
+        spec = FacetSpec(col="time")
         with pytest.raises(ValueError, match=r"already pinned"):
-            nc.plot(
-                variable="t2m",
-                selectors=Selectors(time=0),
-                facet=FacetSpec(col="time"),
-            )
+            nc.plot(variable="t2m", selectors=sel, facet=spec)
 
     def test_conflict_isel_and_col(self):
         """`isel={"time": 0}, col="time"` is also rejected with the same hint."""
         nc = make_plot_3d_nc()
+        sel = Selectors(isel={"time": 0})
+        spec = FacetSpec(col="time")
         with pytest.raises(ValueError, match=r"already pinned"):
-            nc.plot(
-                variable="t2m",
-                selectors=Selectors(isel={"time": 0}),
-                facet=FacetSpec(col="time"),
-            )
+            nc.plot(variable="t2m", selectors=sel, facet=spec)
 
     def test_conflict_sel_and_col(self):
         """`sel={"time": 0}, col="time"` is also rejected."""
         nc = make_plot_3d_nc()
+        sel = Selectors(sel={"time": 0})
+        spec = FacetSpec(col="time")
         with pytest.raises(ValueError, match=r"already pinned"):
-            nc.plot(
-                variable="t2m",
-                selectors=Selectors(sel={"time": 0}),
-                facet=FacetSpec(col="time"),
-            )
+            nc.plot(variable="t2m", selectors=sel, facet=spec)
 
     def test_invalid_col_wrap_raises(self):
         """`col_wrap=0` or non-int raises ValueError."""
         nc = make_plot_3d_nc(n_times=4)
+        spec = FacetSpec(col="time", col_wrap=0)
         with pytest.raises(ValueError, match=r"positive int"):
-            nc.plot(
-                variable="t2m",
-                facet=FacetSpec(col="time", col_wrap=0),
-            )
+            nc.plot(variable="t2m", facet=spec)
 
 
 class TestNetCDFPlotFacetingEdges:
@@ -199,8 +191,9 @@ class TestNetCDFPlotFacetingEdges:
             ``time`` (the real band dim).
         """
         nc = make_plot_3d_nc()
+        spec = FacetSpec(col="bogus")
         with pytest.raises(ValueError, match=r"not a band dim") as exc_info:
-            nc.plot(variable="t2m", facet=FacetSpec(col="bogus"))
+            nc.plot(variable="t2m", facet=spec)
         msg = str(exc_info.value)
         assert "bogus" in msg, f"Error must echo the bad name, got: {msg}"
         assert "time" in msg, f"Error must list 'time' as available, got: {msg}"
@@ -208,8 +201,9 @@ class TestNetCDFPlotFacetingEdges:
     def test_row_alone_error_mentions_col_requirement(self):
         """`row=` alone error message explicitly mentions `col=` requirement."""
         nc = make_plot_3d_nc()
+        spec = FacetSpec(row="time")
         with pytest.raises(ValueError, match=r"requires `col=`") as exc_info:
-            nc.plot(variable="t2m", facet=FacetSpec(row="time"))
+            nc.plot(variable="t2m", facet=spec)
         assert "col=" in str(
             exc_info.value
         ), f"Error must mention col= requirement, got: {exc_info.value}"
@@ -326,8 +320,9 @@ class TestNetCDFPlotFacetingEdges:
     def test_facet_invalid_col_wrap_non_integer_raises(self):
         """`col_wrap="three"` (str) raises with the positive-int hint."""
         nc = make_plot_3d_nc(n_times=4)
+        spec = FacetSpec(col="time", col_wrap="three")
         with pytest.raises(ValueError, match=r"positive int") as exc_info:
-            nc.plot(variable="t2m", facet=FacetSpec(col="time", col_wrap="three"))
+            nc.plot(variable="t2m", facet=spec)
         assert "col_wrap" in str(
             exc_info.value
         ), f"Error must reference col_wrap, got: {exc_info.value}"

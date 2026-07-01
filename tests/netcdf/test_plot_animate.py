@@ -71,14 +71,16 @@ class TestNetCDFPlotAnimate:
     def test_animate_with_col_raises_mutually_exclusive(self):
         """``animate=True`` together with ``col=`` is rejected up-front."""
         nc = make_plot_3d_nc()
+        spec = FacetSpec(col="time")
         with pytest.raises(ValueError, match=r"mutually exclusive"):
-            nc.plot(variable="t2m", animate=True, facet=FacetSpec(col="time"))
+            nc.plot(variable="t2m", animate=True, facet=spec)
 
     def test_animate_with_pinned_dim_raises(self):
         """``animate="time"`` together with ``time=`` selector conflicts."""
         nc = make_plot_3d_nc()
+        sel = Selectors(time=0)
         with pytest.raises(ValueError, match=r"already pinned"):
-            nc.plot(variable="t2m", animate="time", selectors=Selectors(time=0))
+            nc.plot(variable="t2m", animate="time", selectors=sel)
 
     def test_animate_true_with_multiple_band_dims_raises(self):
         """``animate=True`` on a 4-D variable without selectors is ambiguous.
@@ -239,12 +241,9 @@ class TestNetCDFPlotAnimateEdges:
             ValueError that names the already-pinned dim.
         """
         nc = make_plot_3d_nc()
+        sel = Selectors(isel={"time": 0})
         with pytest.raises(ValueError, match=r"already pinned"):
-            nc.plot(
-                variable="t2m",
-                animate="time",
-                selectors=Selectors(isel={"time": 0}),
-            )
+            nc.plot(variable="t2m", animate="time", selectors=sel)
 
     def test_animate_string_when_other_band_dims_free(self):
         """4-D variable: ``animate='pressure_level'`` walks the named dim.

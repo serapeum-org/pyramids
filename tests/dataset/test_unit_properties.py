@@ -1020,8 +1020,9 @@ class TestPDEP8InplacePattern:
         elif method_name == "to_crs":
             kwargs["to_epsg"] = 3857
 
+        bound = getattr(single_band_dataset, method_name)
         with pytest.raises(TypeError):
-            getattr(single_band_dataset, method_name)(**kwargs)
+            bound(**kwargs)
 
     def test_wrap_longitude_rejects_inplace_kwarg(self):
         """wrap_longitude should raise TypeError if inplace is passed.
