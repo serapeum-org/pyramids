@@ -2,6 +2,13 @@
 
 Free functions for combining multiple rasters into one.
 
+```mermaid
+flowchart LR
+    M["<b>pyramids.dataset.merge</b>"]
+    M --> MR["<b>merge_rasters</b><br/>mosaic overlapping rasters<br/>into one (reproject on the fly)"]
+    M --> SB["<b>stack_bands</b><br/>stack single-band rasters<br/>into one multi-band Dataset"]
+```
+
 - `merge_rasters` — mosaic several (overlapping or adjacent) rasters into a single raster covering
   their union.
 - `stack_bands` — stack several single-band rasters into one multi-band raster.

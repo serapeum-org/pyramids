@@ -2,6 +2,15 @@
 
 Crop, align, reproject, resample, CRS handling, and coordinate conversion.
 
+```mermaid
+flowchart LR
+    SP(("Spatial<br/>ds.spatial"))
+    SP --> C["<b>clip / align</b><br/>crop · align"]
+    SP --> R["<b>reproject / resample</b><br/>to_crs · warped_view · resample"]
+    SP --> M["<b>CRS & longitude</b><br/>set_crs · wrap_longitude"]
+    SP --> G["<b>gap fill</b><br/>fill_gaps"]
+```
+
 ## Crop with a polygon, raster, or bbox tuple
 
 `Dataset.crop(mask)` accepts a `FeatureCollection` / `GeoDataFrame`
