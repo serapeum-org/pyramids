@@ -424,6 +424,10 @@ def render_array(
     # to cleopatra, so its pcolormesh doesn't smear a ~178-degree quad across
     # the 0/360 antimeridian seam (#669, serapeum-org/cleopatra#179). No-op for
     # non-geographic, unknown-CRS, or non-wrapping coords.
+    # NOTE: after unwrapping, longitudes on an antimeridian-crossing grid can run
+    # outside [-180, 180]. That is exactly what the pcolormesh mesh needs, but
+    # overlaying web-mercator `basemap=` tiles on such a grid is an untested
+    # combination (tile placement past 180 is unverified) — see review L2.
     coords = _unwrap_geographic_longitude(coords, basemap_epsg)
 
     # cleopatra's `coords` and `extent` are mutually exclusive; drop
@@ -494,8 +498,10 @@ def render_array(
     # Stamp the data CRS onto the glyph so its reference-layer helpers
     # (``glyph.add_features`` / ``glyph.add_tiles``) default to it without the
     # caller restating ``crs=`` on every call — see issue #630. ``basemap_epsg``
-    # is the dataset's EPSG, which every plot caller passes regardless of
-    # ``basemap``; ``None`` (no dataset CRS) leaves cleopatra's own default.
+    # is the dataset's EPSG; the plot callers that carry curvilinear coords
+    # (``Analysis.plot``, ``NetCDF.plot``) always pass it, while the
+    # ``DatasetCollection.plot`` animate paths do not (they carry no coords, so
+    # it is moot there); ``None`` leaves cleopatra's own default.
     # Relies on the ``GeoMixin.crs`` default added in cleopatra >= 0.20.0.
     if basemap_epsg is not None:
         cleo.crs = basemap_epsg
