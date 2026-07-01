@@ -10,6 +10,7 @@ import pytest
 from numpy.testing import assert_array_equal
 
 from pyramids.netcdf import ColourOpts, Selectors
+from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf._plot_helpers import _make_4d_nc
 from tests.netcdf.conftest import make_plot_3d_nc
@@ -283,8 +284,6 @@ class TestNetCDFPlotAddColorbar:
             user's render call still succeeds even if the colorbar
             cannot be removed.
         """
-        from pyramids.netcdf._plot import NetCDFPlot
-
         NetCDFPlot._remove_colorbar(SimpleNamespace())
         NetCDFPlot._remove_colorbar(SimpleNamespace(cbar=None))
 

@@ -9,7 +9,6 @@ import pytest
 from numpy.testing import assert_array_equal
 
 from pyramids.netcdf import Selectors
-from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf._plot_helpers import _make_3d_nc_with_dates, _make_4d_nc, _make_capture, _make_ensemble_nc
 from tests.netcdf.conftest import make_plot_3d_nc
 

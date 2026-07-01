@@ -348,9 +348,6 @@ class TestNetCDFPlotAnimateEdges:
         nc = make_plot_3d_nc(n_times=4)
         captured: dict = {}
 
-
-        from pyramids.netcdf.netcdf import NetCDF
-
         with patch.object(NetCDF, "sel", autospec=True) as sel_mock:
             with patch(
                 "pyramids.netcdf._plot._render_array",

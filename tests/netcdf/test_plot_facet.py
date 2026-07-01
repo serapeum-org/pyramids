@@ -6,10 +6,9 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
-from numpy.testing import assert_array_equal
 
 from pyramids.netcdf import ColourOpts, FacetSpec, Selectors
-from pyramids.netcdf.netcdf import NetCDF
+from pyramids.netcdf._plot import NetCDFPlot
 from tests.netcdf._plot_helpers import _make_4d_nc, _make_curvilinear_nc
 from tests.netcdf.conftest import make_plot_3d_nc
 
@@ -18,7 +17,6 @@ pytestmark = pytest.mark.plot
 _cleo_array = pytest.importorskip(
     "cleopatra.array_glyph", reason="cleopatra not installed"
 )
-ArrayGlyph = _cleo_array.ArrayGlyph
 _FacetGrid = _cleo_array.FacetGrid
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
 Config = _cleo_config.Config
@@ -371,8 +369,6 @@ class TestNetCDFPlotFacetingEdges:
             ``sel(time=...).sel(pressure_level=...).read_array(band=0)`` path produces —
             pinning value-equivalence, not just the grid shape.
         """
-        from pyramids.netcdf._plot import NetCDFPlot
-
         nc = _make_4d_nc()
         sub = nc.get_variable("temperature")
         stack, _fkw = NetCDFPlot(sub)._build_facet_stack(

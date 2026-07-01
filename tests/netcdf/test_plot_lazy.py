@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from pyramids.netcdf import Selectors
+from pyramids.netcdf._plot import _LAZY_HINT_THRESHOLD_BYTES
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf._plot_helpers import _make_4d_nc
 from tests.netcdf.conftest import make_plot_3d_nc
@@ -246,8 +247,6 @@ class TestNetCDFPlotLazyEdges:
             so the boundary case must NOT log the hint — a regression
             here would fire the hint on every plot of a 99-MB variable.
         """
-        from pyramids.netcdf._plot import _LAZY_HINT_THRESHOLD_BYTES
-
         nc = make_plot_3d_nc()
         var = nc.get_variable("t2m")
         itemsize = int(np.dtype(var.dtype[0]).itemsize)
