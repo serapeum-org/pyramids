@@ -1311,6 +1311,26 @@ class TestCurvilinearCoords:
             cleo.extent is None
         ), "extent must be suppressed when curvilinear coords are present"
 
+    def test_wrapping_curvilinear_grid_has_no_antimeridian_smear(self):
+        """A real 0-360 wrapping curvilinear grid renders without a seam smear (#669).
+
+        Test scenario:
+            `none__4v__1d1-2d2-3d1__curv.nc` is a RASM-style converging-pole grid
+            whose 2-D longitude wraps 0->360 (a ~360-degree row jump). Plotting
+            `Tair` must unwrap the longitude upstream so no rendered `pcolormesh`
+            quad spans the antimeridian (~178 degrees wide); the widest legitimate
+            converging-pole cell is well under that.
+        """
+        nc = NetCDF.read_file("tests/data/netcdf/none__4v__1d1-2d2-3d1__curv.nc")
+        cleo = nc.plot(variable="Tair")
+        assert cleo.coords is not None, "curvilinear coords must reach cleopatra"
+        mesh_lon = np.asarray(cleo.im.get_coordinates()[..., 0], dtype=float)
+        max_quad_width = float(np.nanmax(np.abs(np.diff(mesh_lon, axis=1))))
+        assert max_quad_width < 100.0, (
+            f"seam smear: a quad spans {max_quad_width:.1f} deg of longitude "
+            "(unwrap should keep every cell well under the ~178 deg antimeridian jump)"
+        )
+
     def test_kind_auto_routes_to_pcolormesh_with_2d_coords(self):
         """`kind="auto"` (default) auto-routes when 2-D coords are detected.
 
