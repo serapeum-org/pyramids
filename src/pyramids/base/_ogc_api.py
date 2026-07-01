@@ -97,6 +97,9 @@ def get_collections(
         headers["Authorization"] = f"Basic {token}"
     request = urllib.request.Request(url, headers=headers)
     try:
+        # urllib honours the raw float timeout (a sub-second value is a valid fast
+        # timeout here); only the GDAL driver read clamps to >= 1s, because GDAL
+        # truncates GDAL_HTTP_TIMEOUT to whole seconds and reads "0" as no timeout.
         with urllib.request.urlopen(request, timeout=timeout) as resp:
             payload = resp.read()
     except urllib.error.HTTPError as exc:
