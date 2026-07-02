@@ -75,6 +75,12 @@ jobs:
       - name: Show glibc (must be < 2.39 for the spike to prove anything)
         run: ldd --version | head -1
 
+      - name: Install libexpat (documented slim-image requirement)
+        # Same requirement as the current wheel (docs/installation.md): the
+        # manylinux policy whitelists libexpat.so.1, so auditwheel does not
+        # bundle it and minimal images must provide it.
+        run: apt-get update -qq && apt-get install -y -qq libexpat1
+
       - name: Install wheel
         shell: bash
         run: |
