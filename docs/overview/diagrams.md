@@ -514,7 +514,7 @@ classDiagram
     }
     class engines_Vectorize {
         +to_feature_collection · translate
-        +cluster · cluster2
+        +cluster · to_polygons
     }
     class engines_COG {
         +to_cog · is_cog · validate_cog

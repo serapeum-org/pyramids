@@ -699,7 +699,7 @@ class TestCluster2:
         test_image: gdal.Dataset,
     ):
         dataset = Dataset(test_image)
-        gdf = dataset.cluster2()
+        gdf = dataset.to_polygons()
         assert isinstance(gdf, GeoDataFrame)
         assert len(gdf) == 4
         assert all(gdf.columns == ["GPP", "geometry"])
@@ -710,7 +710,7 @@ class TestCluster2:
         sentinel_raster: gdal.Dataset,
     ):
         dataset = Dataset(sentinel_raster)
-        gdf = dataset.cluster2()
+        gdf = dataset.to_polygons()
         assert isinstance(gdf, GeoDataFrame)
         assert len(gdf) == 1767
         assert all(

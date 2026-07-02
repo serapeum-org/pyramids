@@ -8,6 +8,7 @@ Owns the Vectorize family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 import collections
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -936,11 +937,11 @@ class Vectorize(_Engine["Dataset"]):
 
         return cluster, count, position, values
 
-    def cluster2(
+    def to_polygons(
         self,
         band: int | list[int] | None = None,
     ) -> GeoDataFrame:
-        """Cluster the connected equal cells into polygons.
+        """Polygonize a raster band — merge connected equal-valued cells into polygons.
 
         - Creates vector polygons for all connected regions of pixels in the raster sharing a common
             pixel value (group neighboring cells with the same value into one polygon).
@@ -982,7 +983,7 @@ class Vectorize(_Engine["Dataset"]):
 
             - Now, let's cluster the connected equal cells into polygons.
               ```python
-              >>> gdf = dataset.cluster2()
+              >>> gdf = dataset.to_polygons()
               >>> print(gdf)  # doctest: +SKIP
                   Band_1                                           geometry
               0        3  POLYGON ((0 0, 0 -0.05, 0.05 -0.05, 0.05 0, 0 0))
@@ -1019,3 +1020,17 @@ class Vectorize(_Engine["Dataset"]):
             gdf = gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True))
 
         return gdf
+
+    def cluster2(self, band: int | list[int] | None = None) -> GeoDataFrame:
+        """Deprecated alias for :meth:`to_polygons`.
+
+        .. deprecated::
+            ``cluster2`` was renamed to :meth:`to_polygons` for clarity. This alias forwards to
+            :meth:`to_polygons` and will be removed in a future release.
+        """
+        warnings.warn(
+            "cluster2 is deprecated and will be removed in a future release; use to_polygons instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.to_polygons(band=band)
