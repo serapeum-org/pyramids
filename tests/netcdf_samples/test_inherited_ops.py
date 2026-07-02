@@ -6,6 +6,7 @@ property and every zero-argument inherited method against a real variable view t
 breakage (e.g. #588 resample, #592 color_table/footprint), plus a few argument-taking methods.
 """
 
+import numpy as np
 import pytest
 
 from pyramids.base._errors import ReadOnlyError
@@ -29,7 +30,7 @@ INHERITED_PROPERTIES_NULLABLE = [
 ]
 
 # Inherited zero-argument methods that should run on a variable view without raising.
-# (plot_histogram / plot_vector_field are exercised in the plot module; footprint is xfailed below.)
+# (plot_histogram / plot_vector_field are exercised in the plot module; footprint has its own test below.)
 INHERITED_NOARG_METHODS = [
     "aspect", "block_windows", "cluster2", "wrap_longitude", "count_domain_cells",
     "create_overviews", "extract", "focal_mean", "focal_std", "get_attribute_table",
@@ -70,9 +71,16 @@ def test_inherited_noarg_method_runs(tos_view, method):
     getattr(tos_view, method)()
 
 
+@pytest.mark.filterwarnings("ignore:Geometry is in a geographic CRS")
 def test_inherited_footprint(tos_view):
-    """footprint produces a coverage polygon for a NetCDF variable view (#592)."""
-    assert tos_view.footprint() is not None
+    """footprint covers only the data cells of a NetCDF variable view, not the nodata fill (#592)."""
+    arr = np.asarray(tos_view.read_array(band=0))
+    data_cells = int((~np.isclose(arr, tos_view.no_data_value[0], rtol=1e-5)).sum())
+    fp = tos_view.footprint(band=0)
+    assert fp is not None, "footprint should return a GeoDataFrame"
+    gt = tos_view.geotransform
+    covered = round(fp.geometry.area.sum() / abs(gt[1] * gt[5]))
+    assert covered == data_cells, f"footprint should cover {data_cells} data cells, got {covered}"
 
 
 def test_recreate_overviews_requires_write(tos_view):
