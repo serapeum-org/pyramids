@@ -1240,7 +1240,7 @@ class Analysis(_Engine["Dataset"]):
         )
         # The mask is always single-band (the one extracted band flagged as 2 / nodata),
         # so polygonise its first band regardless of the source band index.
-        gdf = new_dataset.cluster2(band=0)
+        gdf = new_dataset.to_polygons(band=0)
         names = self._ds.band_names
         col_name = names[band] if band < len(names) else f"Band_{band + 1}"
         gdf.rename(columns={"Band_1": col_name}, inplace=True)
