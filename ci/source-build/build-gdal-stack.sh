@@ -27,6 +27,11 @@ echo "=== from-source GDAL stack: GDAL ${GDAL_VERSION} -> ${BUILD_PREFIX} ==="
 if ! command -v wget >/dev/null 2>&1; then
     (dnf install -y wget || yum install -y wget) >/dev/null
 fi
+# OpenSSL's Configure requires full perl (IPC::Cmd, FindBin, Pod::*); the
+# AlmaLinux base image ships a minimal perl that aborts at BEGIN.
+if ! perl -MIPC::Cmd -e1 >/dev/null 2>&1; then
+    (dnf install -y perl-core || yum install -y perl-core) >/dev/null
+fi
 if ! command -v cmake >/dev/null 2>&1; then
     pipx install cmake >/dev/null 2>&1 || /opt/python/cp312-cp312/bin/pip install --quiet cmake
     command -v cmake >/dev/null 2>&1 || export PATH="/opt/python/cp312-cp312/bin:${PATH}"
