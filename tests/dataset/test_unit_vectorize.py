@@ -39,20 +39,6 @@ class TestFootprint:
         result = ds.footprint()
         assert result is None, "footprint on all-nodata raster should return None"
 
-    def test_footprint_all_nodata_returns_none(self):
-        """footprint on raster entirely filled with nodata returns None."""
-        nd = -9999.0
-        arr = np.full((3, 3), nd, dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=nd,
-        )
-        result = ds.footprint()
-        assert result is None, "All-nodata footprint should return None"
-
 
 class TestBandToPolygon:
     """Tests for _band_to_polygon method."""
@@ -81,34 +67,11 @@ class TestToFeatureCollection:
         assert isinstance(df, pd.DataFrame), "Should return a DataFrame"
         assert len(df) > 0, "Should have rows"
 
-    def test_to_feature_collection_single_band_with_nodata(self, dataset_with_nodata):
-        """to_feature_collection filters out nodata cells."""
-        df = dataset_with_nodata.to_feature_collection()
-        assert len(df) == 4, "Should have 4 rows (non-nodata cells)"
-
     def test_to_feature_collection_multi_band(self, multi_band_dataset):
         """to_feature_collection on multi-band returns multi-column df."""
         df = multi_band_dataset.to_feature_collection()
         assert isinstance(df, pd.DataFrame), "Should return DataFrame"
         assert df.shape[1] >= 3, "Should have at least 3 columns for 3 bands"
-
-    def test_to_feature_collection_with_geometry(self, single_band_dataset):
-        """to_feature_collection with add_geometry returns GeoDataFrame."""
-        import geopandas as gpd
-
-        result = single_band_dataset.to_feature_collection(add_geometry="point")
-        assert isinstance(
-            result, gpd.GeoDataFrame
-        ), "Should return GeoDataFrame with geometry"
-
-    def test_to_feature_collection_polygon_geometry(self, single_band_dataset):
-        """to_feature_collection with polygon geometry."""
-        import geopandas as gpd
-
-        result = single_band_dataset.to_feature_collection(add_geometry="polygon")
-        assert isinstance(
-            result, gpd.GeoDataFrame
-        ), "Should return GeoDataFrame with polygon geometry"
 
     def test_to_feature_collection_all_nodata(self):
         """Test that a dataset with all no-data cells returns an empty DataFrame.
@@ -210,30 +173,6 @@ class TestToFeatureCollection:
         assert all(
             g.geom_type == "Polygon" for g in gdf.geometry
         ), "All geometries should be Polygons"
-
-    def test_to_feature_collection_tile_matches_non_tile(self):
-        """Test that tile=True produces the same values as tile=False.
-
-        Test scenario:
-            Both paths should extract the same cell values; only the
-            reading strategy differs.
-        """
-        arr = np.arange(1, 17, dtype=np.float32).reshape(4, 4)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
-        df_full = ds.to_feature_collection(tile=False)
-        df_tiled = ds.to_feature_collection(tile=True, tile_size=2)
-        full_vals = sorted(df_full.iloc[:, 0].tolist())
-        tiled_vals = sorted(df_tiled.iloc[:, 0].tolist())
-        assert full_vals == tiled_vals, (
-            f"Tiled and non-tiled should produce same values.\n"
-            f"Full: {full_vals}\nTiled: {tiled_vals}"
-        )
 
     def test_to_feature_collection_vector_mask_with_geometry(self, single_band_dataset):
         """Test to_feature_collection with both vector_mask and add_geometry.

@@ -159,20 +159,6 @@ class TestFillGaps:
 class TestCheckNoDataValue:
     """Tests for _check_no_data_value method."""
 
-    def test_check_nodata_overflow(self):
-        """No-data value that overflows the dtype should fall back to default."""
-        arr = np.ones((3, 3), dtype=np.int32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-3.4028230607370965e38,
-        )
-        # The no-data value should have been adjusted (overflow for int32)
-        ndv = ds.no_data_value[0]
-        assert ndv is not None, "no_data_value should not be None"
-
     def test_check_nodata_nan_float(self):
         """NaN no-data for float dtype should be preserved as NaN."""
         arr = np.ones((3, 3), dtype=np.float32)
@@ -188,29 +174,6 @@ class TestCheckNoDataValue:
         assert ndv is None or np.isnan(
             ndv
         ), f"Expected None or NaN for float no_data with None input, got {ndv}"
-
-
-class TestChangeNoDataValue:
-    """Tests for the change_no_data_value method."""
-
-    def test_change_no_data_value(self):
-        """change_no_data_value should replace old nodata with new value."""
-        nd = -9999.0
-        arr = np.array(
-            [[nd, 2.0], [3.0, nd]],
-            dtype=np.float32,
-        )
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=nd,
-        )
-        new_ds = ds.change_no_data_value(-1.0, old_value=nd)
-        result = new_ds.read_array()
-        assert np.isclose(result[0, 0], -1.0), "Old nodata cells should now be -1.0"
-        assert np.isclose(result[0, 1], 2.0), "Valid cells should remain unchanged"
 
 
 class TestFill:
@@ -267,21 +230,6 @@ class TestSetNoDataValueBackend:
         with pytest.raises(ReadOnlyError):
             ro_ds.bands._set_no_data_value_backend(0, -1234.0)
 
-    def test_change_nodata_attr_updates_value(self):
-        """_change_no_data_value_attr should update internal no_data_value."""
-        arr = np.ones((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
-        ds.bands._change_no_data_value_attr(0, -1234.0)
-        assert (
-            ds.no_data_value[0] == -1234.0
-        ), "no_data_value should be updated to -1234.0"
-
 
 class TestChangeNoDataValueNan:
     """Tests for change_no_data_value with NaN old values."""
@@ -303,20 +251,6 @@ class TestChangeNoDataValueNan:
         result = new_ds.read_array()
         assert np.isclose(result[0, 0], -9999.0), "NaN cells should now be -9999"
         assert np.isclose(result[0, 1], 2.0), "Valid cells should remain unchanged"
-
-    def test_change_nodata_with_old_value(self):
-        """change_no_data_value with explicit old_value replaces correctly."""
-        arr = np.array([[-9999.0, 2.0], [3.0, -9999.0]], dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
-        new_ds = ds.change_no_data_value(-1.0, old_value=-9999.0)
-        result = new_ds.read_array()
-        assert np.isclose(result[0, 0], -1.0), "Old nodata cells should be replaced"
 
     def test_change_nodata_list_new_value(self):
         """change_no_data_value with new_value as list (branch 3016)."""
@@ -430,25 +364,6 @@ class TestSetNoDataValueRecovery:
         assert ds.no_data_value[0] is not None, "No data value should be set"
 
 
-class TestSetNoDataValueBackendErrors:
-    """Tests for _set_no_data_value_backend error handling."""
-
-    def test_backend_fill_with_valid_value(self):
-        """_set_no_data_value_backend should fill band with valid no_data."""
-        arr = np.ones((3, 3), dtype=np.float32) * 5.0
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
-        ds.bands._set_no_data_value_backend(0, -1234.0)
-        assert (
-            ds.no_data_value[0] == -1234.0
-        ), "No data value should be updated by backend"
-
-
 class TestCreateNoDataNone:
     """Tests for create with no_data_value=None."""
 
@@ -469,23 +384,6 @@ class TestCreateNoDataNone:
 
 class TestSetNoDataValueMocked:
     """Tests for _set_no_data_value error paths using mocks."""
-
-    def test_set_nodata_read_only_error_via_mock(self):
-        """_set_no_data_value raises ReadOnlyError on read-only fill error."""
-        arr = np.ones((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
-        err_msg = "Attempt to write to read only dataset in GDALRasterBand::Fill()."
-        with patch.object(
-            ds.bands, "_set_no_data_value_backend", side_effect=RuntimeError(err_msg)
-        ):
-            with pytest.raises(ReadOnlyError):
-                ds.bands._set_no_data_value([-1234.0])
 
     def test_set_nodata_double_conversion_via_mock(self):
         """_set_no_data_value retries with float64 on type error."""

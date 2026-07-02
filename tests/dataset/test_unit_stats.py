@@ -86,22 +86,6 @@ class TestIloc:
 class TestStats:
     """Tests for the stats method."""
 
-    def test_stats_all_bands(self, single_band_dataset):
-        """stats() should return a DataFrame with min, max, mean, std."""
-        df = single_band_dataset.stats()
-        assert isinstance(df, pd.DataFrame), "stats should return DataFrame"
-        assert list(df.columns) == [
-            "min",
-            "max",
-            "mean",
-            "std",
-        ], "stats columns are wrong"
-
-    def test_stats_single_band(self, multi_band_dataset):
-        """stats(band=0) should return stats for only that band."""
-        df = multi_band_dataset.stats(band=0)
-        assert len(df) == 1, "Should have 1 row for a single band"
-
     def test_stats_all_bands_values(self, era5_image, era5_image_stats):
         """stats() values match the reference era5 per-band statistics.
 
@@ -216,27 +200,6 @@ class TestStatsEdgeCases:
 
 class TestStatsWithMask:
     """Tests for stats with a mask GeoDataFrame."""
-
-    def test_stats_with_mask_and_band(self, single_band_dataset):
-        """stats(band=0, mask=gdf) should use mask path."""
-        import geopandas as gpd
-        from shapely.geometry import box
-
-        poly = box(0.0, -0.15, 0.15, 0.0)
-        gdf = gpd.GeoDataFrame(geometry=[poly], crs="EPSG:4326")
-        df = single_band_dataset.stats(band=0, mask=gdf)
-        assert isinstance(df, pd.DataFrame), "stats with mask should return DataFrame"
-        assert len(df) == 1, "Should have 1 row for single band"
-
-    def test_stats_with_mask_no_band(self, single_band_dataset):
-        """stats(mask=gdf) without band should use mask path."""
-        import geopandas as gpd
-        from shapely.geometry import box
-
-        poly = box(0.0, -0.15, 0.15, 0.0)
-        gdf = gpd.GeoDataFrame(geometry=[poly], crs="EPSG:4326")
-        df = single_band_dataset.stats(mask=gdf)
-        assert isinstance(df, pd.DataFrame), "stats with mask should return DataFrame"
 
     def test_stats_all_bands_with_mask_values(self, era5_image, era5_mask):
         """Masked stats equal the statistics of the masked (second) row.

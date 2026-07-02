@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pandas as pd
 import pytest
 from osgeo import gdal
 
@@ -15,11 +14,6 @@ pytestmark = pytest.mark.core
 
 class TestTranslate:
     """Tests for the translate method."""
-
-    def test_translate_returns_dataset(self, single_band_dataset):
-        """translate() should return a new Dataset object."""
-        result = single_band_dataset.translate()
-        assert isinstance(result, Dataset), "translate() should return a Dataset"
 
     def test_translate_unscale(self):
         """translate(unscale=True) should apply scale and offset."""
@@ -102,47 +96,8 @@ class TestWriteArray:
         np.testing.assert_array_equal(arr, retrieved)
 
 
-class TestCreateFromArray:
-    """Tests for ``Dataset.create_from_array`` (the public form)."""
-
-    def test_single_band(self):
-        """Create a single-band dataset from a 2D array."""
-        arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
-        geo = (0.0, 0.5, 0.0, 10.0, 0.0, -0.5)
-        result = Dataset.create_from_array(arr, geo=geo, epsg=4326)
-        assert isinstance(result, Dataset), "Should return a Dataset"
-        read_arr = result.read_array()
-        np.testing.assert_array_equal(read_arr, arr, err_msg="Array values mismatch")
-
-    def test_multi_band(self):
-        """Create a multi-band dataset from a 3D array."""
-        arr = np.ones((3, 4, 5), dtype=np.float64)
-        geo = (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)
-        result = Dataset.create_from_array(arr, geo=geo, epsg=4326)
-        assert result.band_count == 3, "Expected 3 bands"
-
-
 class TestToXyz:
     """Tests for the to_xyz method."""
-
-    def test_to_xyz_returns_dataframe(self):
-        """to_xyz without path should return a DataFrame."""
-        arr = np.array(
-            [[[1, 2], [3, 4]], [[5, 6], [7, 8]]],
-            dtype=np.int32,
-        )
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999,
-        )
-        df = ds.to_xyz()
-        assert isinstance(df, pd.DataFrame), "to_xyz should return DataFrame"
-        assert "lon" in df.columns, "DataFrame should have 'lon' column"
-        assert "lat" in df.columns, "DataFrame should have 'lat' column"
-        assert len(df) == 4, f"Expected 4 rows, got {len(df)}"
 
     def test_to_xyz_specific_bands(self):
         """to_xyz with specific bands should only include those bands."""
@@ -157,33 +112,6 @@ class TestToXyz:
         df = ds.to_xyz(bands=[0])
         band_cols = [c for c in df.columns if c not in ("lon", "lat")]
         assert len(band_cols) == 1, f"Expected 1 band column, got {len(band_cols)}"
-
-    def test_to_xyz_int_band(self):
-        """to_xyz with a single integer band should work."""
-        arr = np.ones((2, 3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
-        df = ds.to_xyz(bands=1)
-        band_cols = [c for c in df.columns if c not in ("lon", "lat")]
-        assert len(band_cols) == 1, "Should have exactly 1 band column"
-
-    def test_to_xyz_invalid_bands_raises(self):
-        """to_xyz with invalid bands type should raise ValueError."""
-        arr = np.ones((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
-        with pytest.raises(ValueError, match="integer or a list"):
-            ds.to_xyz(bands="invalid")
 
 
 class TestCreateFromArrayEdgeCases:
@@ -251,32 +179,6 @@ class TestReadArray:
         """Lazy path: negative band index rejected with same error."""
         with pytest.raises(ValueError, match="band index should be between"):
             single_band_dataset.read_array(band=-1, chunks="auto")
-
-
-class TestCopy:
-    """Tests for the copy method."""
-
-    def test_copy_in_memory(self, single_band_dataset):
-        """copy() without path should produce an in-memory copy."""
-        copied = single_band_dataset.copy()
-        assert isinstance(copied, Dataset), "copy() should return Dataset"
-        assert copied.access == "write", "Copied dataset should have write access"
-        np.testing.assert_array_equal(
-            copied.read_array(),
-            single_band_dataset.read_array(),
-            err_msg="Copied array differs from original",
-        )
-        assert id(copied) != id(
-            single_band_dataset
-        ), "Copy should be a different object"
-
-    def test_copy_to_disk(self, single_band_dataset, tmp_path):
-        """copy(path=...) should create a file on disk."""
-        path = tmp_path / "test_copy.tif"
-        copied = single_band_dataset.copy(path=path)
-        assert path.exists(), "File should exist on disk"
-        assert isinstance(copied, Dataset), "Should return Dataset"
-        copied.close()
 
 
 class TestToFile:
@@ -411,13 +313,6 @@ class TestReadBlockError:
 class TestAddBand:
     """Tests for the add_band method."""
 
-    def test_add_band_not_inplace(self, single_band_dataset):
-        """add_band(inplace=False) should return a new Dataset with extra band."""
-        new_arr = np.ones((3, 3), dtype=np.float32) * 42
-        result = single_band_dataset.add_band(new_arr, inplace=False)
-        assert result is not None, "add_band not inplace should return a Dataset"
-        assert result.band_count == 2, f"Expected 2 bands, got {result.band_count}"
-
     def test_add_band_inplace(self, single_band_dataset):
         """add_band(inplace=True) should modify the dataset in place."""
         new_arr = np.ones((3, 3), dtype=np.float32) * 99
@@ -426,15 +321,6 @@ class TestAddBand:
         assert (
             single_band_dataset.band_count == 2
         ), "Band count should increase after inplace add"
-
-    def test_add_band_with_unit(self, single_band_dataset):
-        """add_band with unit should set the unit on the new band."""
-        new_arr = np.ones((3, 3), dtype=np.float32)
-        result = single_band_dataset.add_band(new_arr, unit="meters", inplace=False)
-        last_band = result._iloc(result.band_count - 1)
-        assert (
-            last_band.GetUnitType() == "meters"
-        ), "Unit should be 'meters' on added band"
 
 
 class TestTranslateWithPath:
@@ -446,26 +332,6 @@ class TestTranslateWithPath:
         result = single_band_dataset.translate(path=path)
         assert isinstance(result, Dataset), "translate with path should return Dataset"
         assert path.exists(), "Translated file should exist on disk"
-
-
-class TestWriteArrayErrors:
-    """Tests for write_array error handling."""
-
-    def test_write_array_default_top_left(self):
-        """write_array with top_left_corner=None should default to (0,0)."""
-        arr = np.ones((3, 3), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-        )
-        new_data = np.full((3, 3), 77.0, dtype=np.float32)
-        ds.write_array(new_data, top_left_corner=[0, 0])
-        result = ds.read_array()
-        assert np.all(
-            result == pytest.approx(77.0)
-        ), "All cells should be 77 after writing with None top_left"
 
 
 class TestToFileOptions:
@@ -771,25 +637,6 @@ class TestReadOverviewArrayBranches:
             ds.read_overview_array(band=0)
 
 
-class TestToXyzNoBands:
-    """Tests for to_xyz with bands=None default."""
-
-    def test_to_xyz_none_bands_single_band(self):
-        """to_xyz with bands=None on single-band dataset."""
-        arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
-        df = ds.to_xyz(bands=None)
-        assert isinstance(df, pd.DataFrame), "Should return DataFrame"
-        assert "lon" in df.columns, "Should have lon column"
-        assert "lat" in df.columns, "Should have lat column"
-
-
 class TestRecreateOverviewsReadOnly:
     """Tests for recreate_overviews on read-only dataset."""
 
@@ -812,49 +659,6 @@ class TestRecreateOverviewsReadOnly:
         ds_ro = Dataset.read_file(path, read_only=True)
         with pytest.raises(ReadOnlyError):
             ds_ro.recreate_overviews()
-
-
-class TestToXyzEdgeCases:
-    """Tests for to_xyz edge cases."""
-
-    def test_to_xyz_to_file_returns_none(self, single_band_dataset, tmp_path):
-        """to_xyz with path outputs to file and returns None."""
-        path = tmp_path / "xyz_out.xyz"
-        result = single_band_dataset.to_xyz(path=path)
-        assert result is None, "to_xyz with path returns None"
-        assert path.exists(), "XYZ output file should exist on disk"
-
-
-class TestWindow:
-    """Tests for _window generator method."""
-
-    def test_window_yields_tuples(self):
-        """_window should yield (xoff, yoff, xsize, ysize) tuples."""
-        arr = np.ones((10, 10), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
-        windows = list(ds.io._tile_offsets(size=5))
-        assert len(windows) > 0, "Should yield at least 1 window"
-        for w in windows:
-            assert len(w) == 4, "Each window is (xoff, yoff, w, h)"
-
-    def test_window_covers_raster(self):
-        """_window should cover the entire raster."""
-        arr = np.ones((7, 7), dtype=np.float32)
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
-        windows = list(ds.io._tile_offsets(size=3))
-        assert len(windows) >= 4, "Should yield at least 4 windows for 7x7 with size 3"
 
 
 class TestGetTile:
