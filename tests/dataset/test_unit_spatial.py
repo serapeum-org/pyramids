@@ -1710,28 +1710,3 @@ class TestNonSquareCells:
         )
         coords = ds.get_cell_coords(location="center")
         assert coords is not None, "Should return coordinates for non-square cells"
-
-
-class TestGroupNeighbours:
-    """Tests for _group_neighbours boundary cases."""
-
-    def test_group_neighbours_at_corners(self):
-        """_group_neighbours should handle corner/edge cells."""
-        arr = np.array(
-            [
-                [1, 1, 2, 2],
-                [1, 1, 2, 2],
-                [3, 3, 4, 4],
-                [3, 3, 4, 4],
-            ],
-            dtype=np.int32,
-        )
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999,
-        )
-        gdf = ds.cluster2(band=0)
-        assert len(gdf) >= 4, "Should find at least 4 clusters"

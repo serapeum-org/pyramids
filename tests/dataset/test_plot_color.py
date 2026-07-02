@@ -1,11 +1,8 @@
 """Plot tests: colour tables, colour relief, and plot-band resolution."""
 
-from unittest.mock import patch
-
 import numpy as np
 import pandas as pd
 import pytest
-from osgeo import gdal
 from pandas import DataFrame
 
 from pyramids.dataset import Dataset
@@ -123,106 +120,3 @@ class TestColorRelief:
         color_table = Analysis._process_color_table(self.df)
         assert isinstance(color_table, DataFrame)
         assert all(color_table.columns == ["values", "red", "green", "blue", "alpha"])
-
-
-class TestResolvePlotBand:
-    """Regression tests for the per-class band-resolution policy (PR-1 / D-0, D-1).
-
-    These tests pin down where the RGB heuristic now lives (``Dataset.plot``) and
-    that it only fires when there is genuine evidence the data is RGB imagery
-    (i.e. at least one band carries a GDAL ``ColorInterpretation``). The generic
-    ``Analysis.plot`` engine must no longer apply any band-resolution policy.
-
-    See also:
-        ``tests/dataset/test_plot_resolution.py::TestResolvePlotBandPolicy`` — the
-        wider parametrised matrix over band counts / colour-interp configs / RGB
-        overrides. This class holds the original PR-1 cases; the deliberate
-        overlap exercises the same rules from a focused vs a tabular angle.
-    """
-
-    @pytest.mark.plot
-    def test_multi_band_without_color_interpretation_defaults_to_band_zero(self):
-        """D-1 regression: 3+ bands but no ``ColorInterpretation`` set must NOT
-        be treated as RGB.
-
-        A 4-band raster with ``GCI_Undefined`` on every band (e.g. a time stack
-        masquerading as 4 GeoTIFF bands) must default to ``band=0``, not
-        ``band=2`` (the legacy Sentinel-2 fallback head).
-        """
-        rng = np.random.default_rng(0)
-        arr = rng.random((4, 10, 10)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
-        for i in range(dataset.band_count):
-            assert dataset.bands._iloc(i).GetColorInterpretation() == gdal.GCI_Undefined
-
-        resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
-        assert resolved_band == 0
-        assert resolved_rgb is None
-
-    @pytest.mark.plot
-    def test_multi_band_with_color_interpretation_resolves_rgb(self):
-        """Positive case: bands tagged ``red``/``green``/``blue`` are resolved
-        to their declared indices and the red band is returned.
-        """
-        rng = np.random.default_rng(1)
-        arr = rng.random((3, 10, 10)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
-        dataset.band_color = {0: "red", 1: "green", 2: "blue"}
-
-        resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
-        assert resolved_band == 0
-        assert resolved_rgb == [0, 1, 2]
-
-    @pytest.mark.plot
-    def test_explicit_band_passes_through(self):
-        """When ``band`` is supplied, the heuristic must not override it."""
-        rng = np.random.default_rng(2)
-        arr = rng.random((3, 10, 10)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
-        dataset.band_color = {0: "red", 1: "green", 2: "blue"}
-
-        resolved_band, resolved_rgb = dataset._resolve_plot_band(band=1, rgb=None)
-        assert resolved_band == 1
-        assert resolved_rgb is None
-
-    @pytest.mark.plot
-    def test_single_band_defaults_to_zero(self):
-        """``band_count < 3`` must default to band 0 regardless of colour tags."""
-        rng = np.random.default_rng(3)
-        arr = rng.random((10, 10)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
-
-        resolved_band, resolved_rgb = dataset._resolve_plot_band(band=None, rgb=None)
-        assert resolved_band == 0
-        assert resolved_rgb is None
-
-    @pytest.mark.plot
-    def test_multi_band_without_color_interpretation_plot_call(self):
-        """End-to-end regression for D-1 via the full :meth:`Dataset.plot` facade.
-
-        Intercept the analysis engine and verify it is called with ``band=0`` —
-        not ``band=2`` — when the multi-band raster has no ColorInterpretation.
-        """
-        rng = np.random.default_rng(4)
-        arr = rng.random((4, 10, 10)).astype("float32")
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=(0, 0), cell_size=0.05, epsg=4326
-        )
-
-        with patch.object(type(dataset.analysis), "plot", autospec=True) as mock_plot:
-            mock_plot.return_value = "sentinel"
-            result = dataset.plot()
-
-        assert result == "sentinel"
-        assert mock_plot.call_count == 1
-        call_kwargs = mock_plot.call_args.kwargs
-        assert call_kwargs["band"] == 0
-        assert call_kwargs["rgb"] is None

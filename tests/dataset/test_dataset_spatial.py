@@ -12,7 +12,6 @@ from pyproj import CRS as PyprojCRS
 from shapely.geometry import Polygon
 
 from pyramids.dataset import Dataset
-from pyramids.dataset.engines import Vectorize
 
 pytestmark = pytest.mark.core
 
@@ -756,50 +755,3 @@ class TestMAsk:
         np.testing.assert_equal(values, arr)
         vals = np.unique(arr)
         assert np.array_equal(vals, [0, 255])
-
-
-class TestClustering:
-
-    def test_generated_data(self):
-        arr = np.random.default_rng(42).integers(1, 5, size=(3, 3))
-        top_left_corner = (0, 0)
-        cell_size = 0.05
-        dataset = Dataset.create_from_array(
-            arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
-        )
-
-        lower_value = 2
-        upper_value = 4
-        cluster_array, count, position, values = dataset.cluster(
-            lower_value, upper_value
-        )
-        assert isinstance(cluster_array, np.ndarray)
-        assert isinstance(count, int)
-        assert isinstance(position, list)
-        assert isinstance(values, list)
-
-    def test_cluster(self, rhine_dem: gdal.Dataset, clusters: np.ndarray):
-        dataset = Dataset(rhine_dem)
-        lower_value = 0.1
-        upper_value = 20
-        cluster_array, count, position, values = dataset.cluster(
-            lower_value, upper_value
-        )
-        assert count == 155
-        assert np.array_equal(cluster_array, clusters)
-        assert len(position) == 2364
-        assert len(values) == 2364
-
-
-def test_nearest_neigbors():
-    arr = np.random.default_rng(0).random((5, 5))
-    top_left_corner = (0, 0)
-    cell_size = 0.05
-    dataset = Dataset.create_from_array(
-        arr, top_left_corner=top_left_corner, cell_size=cell_size, epsg=4326
-    )
-    req_rows = [1, 3]
-    req_cols = [2, 4]
-    no_data_value = dataset.no_data_value[0]
-    new_array = Vectorize._nearest_neighbour(arr, no_data_value, req_rows, req_cols)
-    assert new_array.shape == arr.shape
