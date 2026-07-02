@@ -68,6 +68,23 @@ class TestFootprint:
         assert result is not None and len(result) > 0, "footprint should cover the non-NaN cells"
 
     @pytest.mark.filterwarnings("ignore:Geometry is in a geographic CRS")
+    def test_footprint_float_nan_nodata_excludes_fill(self):
+        """footprint with a float NaN nodata fill excludes the NaN cells, not the whole grid."""
+        nd = float("nan")
+        arr = np.array([[nd, nd, 5.0], [nd, 7.0, 9.0], [nd, nd, 11.0]], dtype=np.float64)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=nd,
+        )
+        result = ds.footprint(band=0)
+        assert result is not None and len(result) > 0, "footprint should return polygons"
+        covered = round(result.geometry.area.sum())  # cell area is 1.0 (1x1 degree cells)
+        assert covered == 4, f"footprint should cover the 4 data cells only, got {covered}"
+
+    @pytest.mark.filterwarnings("ignore:Geometry is in a geographic CRS")
     def test_footprint_multiband_non_zero_band_positive_nodata(self):
         """footprint on band > 0 with a positive nodata fill excludes the nodata cells."""
         nd = 1e20
