@@ -179,10 +179,13 @@ def _check_netcdf_driver() -> None:
        check that actually distinguishes the #465 fix from the bug.
     """
     plugins = Path(pyramids.__file__).parent / "_data" / "gdalplugins"
-    if not plugins.is_dir():
-        _fail(
-            f"bundled wheel is missing {plugins} — driver plugins not vendored (#465)"
-        )
+    if plugins.is_dir():
+        print(f"driver plugins vendored at {plugins} (plugin build model)")
+    else:
+        # From-source builds (#332 spike) compile netCDF/HDF5/GRIB INTO
+        # libgdal — no plugin dir exists and none is needed. The registration
+        # + round-trip checks below are the actual #465 invariant either way.
+        print("no _data/gdalplugins — drivers built into libgdal (from-source model)")
 
     gdal.UseExceptions()
     drv = gdal.GetDriverByName("netCDF")
