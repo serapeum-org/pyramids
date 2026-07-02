@@ -53,6 +53,20 @@ class TestFootprint:
         result = ds.footprint()
         assert result is None, "All-nodata footprint should return None"
 
+    def test_footprint_none_nodata_covers_non_nan(self):
+        """footprint with a None nodata treats every non-NaN cell as covered and drops NaN cells."""
+        arr = np.array([[1.0, np.nan, 3.0], [4.0, 5.0, np.nan]], dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        ds._no_data_value = [None]
+        result = ds.footprint()
+        assert result is not None and len(result) > 0, "footprint should cover the non-NaN cells"
+
     @pytest.mark.filterwarnings("ignore:Geometry is in a geographic CRS")
     def test_footprint_multiband_non_zero_band_positive_nodata(self):
         """footprint on band > 0 with a positive nodata fill excludes the nodata cells."""
