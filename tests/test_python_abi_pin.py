@@ -109,10 +109,11 @@ def test_feature_targeting_314_pins_gil_abi(feature: str):
 def test_lockfile_has_no_free_threaded_python():
     """The committed ``pixi.lock`` must carry no free-threaded ``cp314t`` build, in any env/platform."""
     lock = PIXI_LOCK.read_text(encoding="utf-8")
-    # Any token containing ``cp314t`` is a free-threaded build — catches both the artifact filenames
-    # (``python-3.14.6-..._cp314t.conda``) and the space-delimited matchspec lines (``python_abi
-    # 3.14.* *_cp314t``). ``cp314t`` appears nowhere else in the lock.
-    offenders = sorted(set(re.findall(r"\S*cp314t\S*", lock)))
+    # Any whitespace-delimited token containing ``cp314t`` is a free-threaded build — catches both
+    # the artifact filenames (``python-3.14.6-..._cp314t.conda``) and the matchspec lines
+    # (``python_abi 3.14.* *_cp314t``). A plain token scan (not a regex) keeps this linear.
+    # ``cp314t`` appears nowhere else in the lock.
+    offenders = sorted({token for token in lock.split() if "cp314t" in token})
     assert not offenders, (
         f"pixi.lock contains free-threaded (cp314t) Python builds: {offenders}. Re-pin the ABI in "
         "pyproject.toml and regenerate the lock with `pixi update python python_abi`."
