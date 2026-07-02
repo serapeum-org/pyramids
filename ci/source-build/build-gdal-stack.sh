@@ -38,12 +38,30 @@ if ! command -v cmake >/dev/null 2>&1; then
 fi
 echo "cmake: $(command -v cmake) ($(cmake --version | head -1))"
 
-# Build in a scratch dir: config.sh downloads + extracts every source tarball
-# into its CWD and drops stamp files there.
-work="/tmp/gdal-src-build"
-mkdir -p "${work}"
-cd "${work}"
-bash "${SCRIPT_DIR}/config.sh"
+# Dep-stack cache: the full compile is ~50 min; a tar of the installed
+# prefix keyed on config.sh's hash makes iteration cheap. The tar lives
+# under the mounted project dir so the host job can persist it via
+# actions/cache across runs.
+PROJECT_DIR="$(dirname "$(dirname "${SCRIPT_DIR}")")"
+CACHE_DIR="${PROJECT_DIR}/.srcbuild-cache"
+_cfg_hash=$(sha256sum "${SCRIPT_DIR}/config.sh" | cut -c1-16)
+CACHE_TAR="${CACHE_DIR}/gdal-stack-${_cfg_hash}-$(uname -m).tar"
+
+if [[ -f "${CACHE_TAR}" ]]; then
+    echo "=== restoring cached stack ($(basename "${CACHE_TAR}")) ==="
+    tar -C / -xf "${CACHE_TAR}"
+else
+    # Build in a scratch dir: config.sh downloads + extracts every source
+    # tarball into its CWD and drops stamp files there.
+    work="/tmp/gdal-src-build"
+    mkdir -p "${work}"
+    cd "${work}"
+    bash "${SCRIPT_DIR}/config.sh"
+    cd /
+    mkdir -p "${CACHE_DIR}"
+    echo "=== caching built stack to $(basename "${CACHE_TAR}") ==="
+    tar -C / -cf "${CACHE_TAR}" usr/local
+fi
 
 # Post-build wiring the vendor step expects.
 echo "${GDAL_VERSION}" > "${BUILD_PREFIX}/GDAL_VERSION"
@@ -88,20 +106,30 @@ echo "all required drivers present"
 echo "--- driver capability flags ---"
 grep -E "netCDF|GTiff|HDF5|Zarr|GRIB" <<<"${_gdal_formats}" || true
 
-# /vsizip netCDF probe — reproduces the iteration-5 verify failure
-# (tests/netcdf/test_netcdf_archive.py: nc-inside-zip read). The netCDF
-# driver needs the library's in-memory open (netcdf_mem.h -> NETCDF_HAS_MEM)
-# for virtual file systems; surface the driver's real CPLError here instead
-# of the generic "not recognized" the test sees.
+# /vsizip netCDF probe (informational). GDAL 3.13's netCDF driver opens
+# non-/vsimem VSI paths (nc inside /vsizip, /vsitar, ...) ONLY via Linux
+# userfaultfd (netcdfdataset.cpp: /vsimem -> nc_open_mem; other /vsi ->
+# uffd; no in-memory fallback). Two acceptable outcomes here:
+#   - read OK: uffd compiled AND permitted in this container;
+#   - FAILED with a "requires Linux userfaultfd" message: uffd compiled but
+#     blocked by docker's default seccomp — expected in-container; the wheel
+#     works on real hosts / seccomp=unconfined containers. Same behavior as
+#     the conda-extract wheel (parity).
+# A FAILURE WITHOUT the userfaultfd message means ENABLE_UFFD was not even
+# compiled (missing linux/userfaultfd.h at configure) — that's a real build
+# defect: install kernel-headers and rebuild.
 echo "--- /vsizip netCDF probe ---"
-ls -la "${BUILD_PREFIX}/include/netcdf_mem.h" 2>/dev/null || echo "netcdf_mem.h MISSING from ${BUILD_PREFIX}/include"
 "${BUILD_PREFIX}/bin/gdal_create" -of netCDF -outsize 8 8 -bands 1 /tmp/probe.nc
 (cd /tmp && /opt/python/cp312-cp312/bin/python -m zipfile -c probe.zip probe.nc)
 if CPL_DEBUG=ON "${BUILD_PREFIX}/bin/gdalinfo" /vsizip//tmp/probe.zip/probe.nc >/tmp/probe.out 2>&1; then
-    echo "vsizip netCDF read OK"
+    echo "vsizip netCDF read OK (userfaultfd available in this container)"
+elif grep -qi "userfaultfd" /tmp/probe.out; then
+    echo "vsizip netCDF blocked by container seccomp (uffd COMPILED — expected in docker; OK)"
 else
-    echo "vsizip netCDF read FAILED — CPL_DEBUG tail:"
-    tail -40 /tmp/probe.out
+    echo "ERROR: vsizip netCDF failed WITHOUT the userfaultfd message — ENABLE_UFFD likely" >&2
+    echo "       not compiled (missing linux/userfaultfd.h). CPL_DEBUG tail:" >&2
+    tail -40 /tmp/probe.out >&2
+    exit 1
 fi
 
 "${BUILD_PREFIX}/bin/gdal-config" --version

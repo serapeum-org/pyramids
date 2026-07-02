@@ -32,6 +32,16 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Persist the compiled dep stack (tar of /usr/local created by
+      # build-gdal-stack.sh inside the container, staged under the mounted
+      # project dir) so iterations skip the ~50-min compile when config.sh
+      # is unchanged.
+      - name: Cache the built GDAL stack
+        uses: actions/cache@v4
+        with:
+          path: .srcbuild-cache
+          key: srcbuild-${{ runner.arch }}-${{ hashFiles('ci/source-build/config.sh') }}
+
       - name: Build wheel (cp312 x86_64, from-source GDAL, manylinux_2_28)
         uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55 # v4.1.0
         env:
@@ -62,7 +72,16 @@ jobs:
     # today's manylinux_2_39 wheel. If this job goes green, the spike passed.
     needs: build-spike
     runs-on: ubuntu-latest
-    container: python:3.12-slim-bookworm
+    container:
+      image: python:3.12-slim-bookworm
+      # GDAL's netCDF driver opens non-/vsimem VSI paths (e.g. nc inside a
+      # zip via /vsizip/) ONLY through Linux userfaultfd (GDAL 3.13
+      # netcdfdataset.cpp — there is no in-memory fallback for /vsizip).
+      # Docker's default seccomp profile blocks the userfaultfd syscall, so
+      # the driver itself prescribes this option. The conda-extract wheel has
+      # the IDENTICAL requirement (its test job runs uncontained on the raw
+      # runner, which is why it never hits this) — parity, not a regression.
+      options: --security-opt seccomp=unconfined
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
