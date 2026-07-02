@@ -1212,21 +1212,18 @@ class Analysis(_Engine["Dataset"]):
                     arr = arr.astype(np.float32)
                     arr[np.isclose(arr, val)] = no_data_val
 
-        # replace all the values with 2
+        # Build the coverage mask: valid cells -> 2, nodata cells -> 0, and register the
+        # mask's own nodata as 0. Polygonisation then collects only the covered cells
+        # regardless of the source nodata value — a positive fill (e.g. a NetCDF fill of
+        # 1e20) must not leak into the footprint.
         if no_data_val is None:
-            # check if the whole raster is full of no_data_value
-            if (np.isnan(arr)).all():
-                self._ds.logger.warning("the raster is full of no_data_value")
-                return None
-
-            arr[~np.isnan(arr)] = 2
+            valid = ~np.isnan(arr)
         else:
-            # check if the whole raster is full of no_data_value
-            if (np.isclose(arr, no_data_val, rtol=0.00001)).all():
-                self._ds.logger.warning("the raster is full of no_data_value")
-                return None
-
-            arr[~np.isclose(arr, no_data_val, rtol=0.00001)] = 2
+            valid = ~np.isclose(arr, no_data_val, rtol=0.00001)
+        if not valid.any():
+            self._ds.logger.warning("the raster is full of no_data_value")
+            return None
+        arr = np.where(valid, 2.0, 0.0)
         # The scratch mask must be a plain raster Dataset that exposes GetRasterBand
         # for polygonisation. Dispatching through self._ds.create_from_array builds a
         # NetCDF container (no conventional bands) for a NetCDF variable view, whose
@@ -1238,7 +1235,7 @@ class Analysis(_Engine["Dataset"]):
             arr,
             geo=self._ds.geotransform,
             epsg=self._ds.epsg,
-            no_data_value=self._ds.no_data_value,
+            no_data_value=0,
         )
         # The mask is always single-band (the one extracted band flagged as 2 / nodata),
         # so polygonise its first band regardless of the source band index.
