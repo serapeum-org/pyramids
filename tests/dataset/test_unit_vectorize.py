@@ -53,6 +53,22 @@ class TestFootprint:
         result = ds.footprint()
         assert result is None, "All-nodata footprint should return None"
 
+    def test_footprint_multiband_non_zero_band(self):
+        """footprint on band > 0 polygonises the single-band mask and names it after the source band."""
+        nd = -9999.0
+        band0 = np.full((3, 3), 5.0, dtype=np.float32)
+        band1 = np.array([[1.0, nd, 1.0], [1.0, 1.0, nd], [nd, 1.0, 1.0]], dtype=np.float32)
+        ds = Dataset.create_from_array(
+            np.stack([band0, band1]),
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=nd,
+        )
+        result = ds.footprint(band=1)
+        assert result is not None and len(result) > 0, "band-1 footprint should return polygons"
+        assert list(result.columns)[0] == ds.band_names[1], "column should carry the source band's name"
+
 
 class TestBandToPolygon:
     """Tests for _band_to_polygon method."""

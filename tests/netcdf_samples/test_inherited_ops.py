@@ -70,9 +70,8 @@ def test_inherited_noarg_method_runs(tos_view, method):
     getattr(tos_view, method)()
 
 
-@pytest.mark.xfail(reason="footprint's internal mask yields a None band on NetCDF views (#592)", strict=True)
 def test_inherited_footprint(tos_view):
-    """footprint should produce a coverage polygon for the variable view (currently fails, #592)."""
+    """footprint produces a coverage polygon for a NetCDF variable view (#592)."""
     assert tos_view.footprint() is not None
 
 

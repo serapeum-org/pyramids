@@ -1227,15 +1227,25 @@ class Analysis(_Engine["Dataset"]):
                 return None
 
             arr[~np.isclose(arr, no_data_val, rtol=0.00001)] = 2
-        new_dataset = self._ds.create_from_array(
+        # The scratch mask must be a plain raster Dataset that exposes GetRasterBand
+        # for polygonisation. Dispatching through self._ds.create_from_array builds a
+        # NetCDF container (no conventional bands) for a NetCDF variable view, whose
+        # GetRasterBand returns None, so call the base Dataset classmethod explicitly.
+        # Local import breaks the engines <-> Dataset import cycle.
+        from pyramids.dataset.dataset import Dataset
+
+        new_dataset = Dataset.create_from_array(
             arr,
             geo=self._ds.geotransform,
             epsg=self._ds.epsg,
             no_data_value=self._ds.no_data_value,
         )
-        # then convert the raster into polygon
-        gdf = new_dataset.cluster2(band=band)
-        gdf.rename(columns={"Band_1": self._ds.band_names[band]}, inplace=True)
+        # The mask is always single-band (the one extracted band flagged as 2 / nodata),
+        # so polygonise its first band regardless of the source band index.
+        gdf = new_dataset.cluster2(band=0)
+        names = self._ds.band_names
+        col_name = names[band] if band < len(names) else f"Band_{band + 1}"
+        gdf.rename(columns={"Band_1": col_name}, inplace=True)
 
         return gdf
 
