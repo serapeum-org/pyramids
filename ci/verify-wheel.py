@@ -238,7 +238,11 @@ def _check_netcdf_driver() -> None:
         _fail(
             f"netCDF driver lost under a foreign GDAL_DRIVER_PATH — #465 fix not effective:\n{out}"
         )
-    if bogus in result.stdout:
+    # The bootstrap only re-points GDAL_DRIVER_PATH when a bundled plugin dir
+    # exists (plugin build model). With drivers compiled into libgdal
+    # (from-source model) the foreign path harmlessly remains — CHILD_OK above
+    # already proved the driver survives it.
+    if plugins.is_dir() and bogus in result.stdout:
         _fail(
             f"GDAL_DRIVER_PATH still points at the foreign dir {bogus!r} — #465 fix not effective"
         )
