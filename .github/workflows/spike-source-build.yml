@@ -1,0 +1,86 @@
+name: Spike - from-source GDAL (manylinux_2_28)
+
+# Phase-1 feasibility spike for #332 (from-source GDAL build). Dispatch-only,
+# single wheel (cp312 / linux x86_64). Gate: the wheel builds, tags
+# manylinux_2_28, passes verify-wheel + the hermetic core suite on Debian 12
+# (glibc 2.36 — unreachable by the current 2_39 wheel), and lands in the
+# 35-45 MB band. See planning/bundle/from-source-gdal-build-plan.md.
+
+on:
+  workflow_dispatch:
+
+env:
+  # Compressed/installed ceilings looser than the size plan's target so the
+  # gate MEASURES rather than blocks; the hard band check is read manually.
+  WHEEL_SIZE_BUDGET_MB: "60"
+  WHEEL_INSTALLED_BUDGET_MB: "150"
+
+jobs:
+  build-spike:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build wheel (cp312 x86_64, from-source GDAL, manylinux_2_28)
+        uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55 # v4.1.0
+        env:
+          CIBW_BUILD: "cp312-manylinux_x86_64"
+          CIBW_ARCHS_LINUX: x86_64
+          # Replace the conda-extract before-all with the source build; the
+          # TOML [tool.cibuildwheel.linux.environment] block (BUILD_PREFIX,
+          # GDAL_DATA, PROJ_DATA, PACKAGE_DATA, LD_LIBRARY_PATH) still applies
+          # and matches the /usr/local install prefix.
+          CIBW_BEFORE_ALL: "bash ./ci/source-build/build-gdal-stack.sh"
+          # The whole point: tag at the image's own floor, not conda's 2_39.
+          CIBW_REPAIR_WHEEL_COMMAND: >-
+            LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64
+            auditwheel repair --plat manylinux_2_28_x86_64 -w {dest_dir} {wheel}
+
+      - name: Report wheel sizes
+        shell: bash
+        run: bash ci/check-wheel-size.sh wheelhouse
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-spike-linux-x86_64
+          path: wheelhouse/*.whl
+          retention-days: 3
+
+  verify-debian12:
+    # The distro that motivates #332: Debian 12 (glibc 2.36) cannot install
+    # today's manylinux_2_39 wheel. If this job goes green, the spike passed.
+    needs: build-spike
+    runs-on: ubuntu-latest
+    container: python:3.12-slim-bookworm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels-spike-linux-x86_64
+          path: wheelhouse
+
+      - name: Show glibc (must be < 2.39 for the spike to prove anything)
+        run: ldd --version | head -1
+
+      - name: Install wheel
+        shell: bash
+        run: |
+          WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*manylinux_2_28_x86_64.whl)
+          echo "installing ${WHEEL}"
+          pip install "${WHEEL}"
+          pip install pytest pytest-env pytest-mock pytest-timeout
+
+      - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
+        run: python ci/verify-wheel.py
+
+      - name: Run hermetic core test suite
+        run: pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m "core and not vfs and not slow" tests/
