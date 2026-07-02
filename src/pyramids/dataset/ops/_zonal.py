@@ -79,7 +79,7 @@ def _rasterize_labels(ds: Dataset, fc: FeatureCollection) -> np.typing.NDArray:
         srs = sr_from_epsg(ds_epsg)
     else:
         srs = osr.SpatialReference()
-    mem_driver = ogr.GetDriverByName("Memory")
+    mem_driver = ogr.GetDriverByName("MEM")
     ds_vec = mem_driver.CreateDataSource("zonal_mem")
     layer = ds_vec.CreateLayer("features", srs=srs, geom_type=ogr.wkbPolygon)
     id_field = ogr.FieldDefn("pid", ogr.OFTInteger)

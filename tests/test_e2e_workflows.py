@@ -775,7 +775,7 @@ class TestClusterE2E:
         """Create dataset -> cluster -> convert clusters to vector polygons.
 
         Test scenario:
-            Create a dataset, cluster it, then use cluster2 (GDAL
+            Create a dataset, cluster it, then use to_polygons (GDAL
             Polygonize) on the cluster array to produce vector polygons.
             Verify the polygons are valid and cover the clustered region.
         """
@@ -799,7 +799,7 @@ class TestClusterE2E:
             cell_size=1.0,
             epsg=4326,
         )
-        gdf = cluster_ds.cluster2()
+        gdf = cluster_ds.to_polygons()
 
         assert isinstance(
             gdf, gpd.GeoDataFrame

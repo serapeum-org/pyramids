@@ -8,12 +8,31 @@ flowchart LR
 
     DS --> PR["<b>properties</b><br/>rows · columns · band_count · band_names<br/>epsg · crs · cell_size · geotransform<br/>bbox · bounds · no_data_value · dtype"]
     DS --> AC["<b>access data</b><br/>read_array — window · bbox · chunks<br/>sample · extract · get_tile · read_part"]
-    DS --> SP["<b>spatial</b><br/>crop · to_crs · resample · align<br/>fill_gaps · wrap_longitude"]
+    DS --> SP["<b>spatial</b><br/>crop · to_crs · warped_view · resample<br/>align · fill_gaps · wrap_longitude"]
     DS --> AN["<b>analysis</b><br/>stats · zonal_stats · apply · overlay<br/>map_blocks · slope · aspect · hillshade<br/>proximity · cluster"]
     DS --> ND["<b>no-data</b><br/>change_no_data_value · fill · get_mask"]
     DS --> VE["<b>vectorize</b><br/>to_feature_collection · contour · sieve"]
     DS --> VI["<b>visualize</b><br/>plot · plot_histogram · to_image<br/>color_table · create_overviews · preview"]
-    DS --> WR["<b>write</b><br/>to_file — .tif · .nc · .asc<br/>to_cog · to_zarr"]
+    DS --> WR["<b>write</b><br/>to_file — .tif · .nc · .asc<br/>to_cog · to_zarr · to_terrain_rgb"]
+```
+
+## Architecture — the engine layer
+
+`Dataset` is a thin **facade**: each family of operations lives in its own engine
+(`ds.io`, `ds.spatial`, …) and `ds.<method>(...)` forwards to `ds.<engine>.<method>(...)`.
+The reference pages below are one per engine (COG's page lives in its own **COG** section).
+
+```mermaid
+flowchart TB
+    DS(("Dataset<br/>facade"))
+    DS -->|ds.io| IO["<b>IO</b> · io.md<br/>read_array · write_array · to_file<br/>to_bytes · get_tile · to_xyz<br/>to_terrain_rgb · create_overviews"]
+    DS -->|ds.spatial| SP["<b>Spatial</b> · spatial.md<br/>crop · to_crs · warped_view<br/>resample · align · wrap_longitude"]
+    DS -->|ds.analysis| AN["<b>Analysis</b> · analysis.md<br/>stats · extract · sample · overlay<br/>proximity · masks · footprint · plot"]
+    DS -->|ds.bands| BA["<b>Bands</b> · band_metadata.md<br/>attribute tables · colours<br/>add_band · change_no_data_value"]
+    DS -->|ds.cell| CE["<b>Cell</b> · cell.md<br/>get_cell_coords / _polygons / _points<br/>map ↔ array coordinates"]
+    DS -->|ds.georef| GE["<b>Georef</b> · georef.md<br/>GCPs · RPCs · orthorectify<br/>set_gcps · georeference"]
+    DS -->|ds.vectorize| VE["<b>Vectorize</b> · vectorize.md<br/>contour · to_feature_collection<br/>cluster · translate"]
+    DS -->|ds.cog| CG["<b>COG</b> · cog/ section<br/>to_cog · validate_cog · info<br/>read_part · preview · read_tile"]
 ```
 
 - Detailed class diagram for the `Dataset` class and related components:
@@ -210,7 +229,7 @@ classDiagram
         +fill()
         +normalize()
         +cluster()
-        +cluster2()
+        +to_polygons()
         +get_tile()
         +groupNeighbours()
     }

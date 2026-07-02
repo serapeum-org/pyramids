@@ -2,6 +2,14 @@
 
 Array reading/writing, file serialization, tiling, and overview operations.
 
+```mermaid
+flowchart LR
+    IO(("IO<br/>ds.io"))
+    IO --> R["<b>read</b><br/>read_array · read_windows<br/>get_block_arrangement<br/>get_tile · map_blocks"]
+    IO --> W["<b>write / export</b><br/>write_array · to_file · to_bytes<br/>to_raster · to_xyz · to_terrain_rgb"]
+    IO --> O["<b>overviews</b><br/>overview_count · create_overviews<br/>recreate_overviews · get_overview<br/>read_overview_array"]
+```
+
 ## Open a raster — paths, URLs, archives, and bytes
 
 `Dataset.read_file(path)` accepts plain paths, `/vsi*` paths, and URL
@@ -64,6 +72,33 @@ See [Lazy rasters](../../tutorials/lazy/lazy-raster.md) for chunk-size rules,
 locks, `Dataset.to_zarr` / `from_zarr`, and parallel Zarr writes.
 
 Install: `pip install 'pyramids-gis[lazy]'`.
+
+## Terrain-RGB — `to_terrain_rgb(...)`
+
+`Dataset.to_terrain_rgb(path)` encodes a single-band elevation raster (a DEM in
+metres) into terrain-RGB so browser/GPU engines (MapLibre `raster-dem`,
+deck.gl, Cesium) can decode elevation and render 3-D terrain. The elevation is
+packed into the R/G/B channels; no-data pixels become fully transparent
+(RGBA alpha 0). The source is reprojected to EPSG:3857 first.
+
+| Parameter | Meaning | Default |
+|-----------|---------|---------|
+| `encoding` | `"mapbox"` (Terrain-RGB) or `"terrarium"` (Mapzen) | `"mapbox"` |
+| `tiles` | `True` → an XYZ `{z}/{x}/{y}.png` pyramid; `False` → one RGB(A) raster | `True` |
+| `min_zoom` / `max_zoom` | XYZ zoom range (`max_zoom=None` derives it from the source resolution) | `0` / `None` |
+| `base_val` / `interval` | Mapbox base elevation and metres-per-unit | `-10000.0` / `0.1` |
+
+```python
+from pyramids.dataset import Dataset
+
+dem = Dataset.read_file("elevation.tif")          # single-band metres
+dem.to_terrain_rgb("tiles/", encoding="mapbox")   # {z}/{x}/{y}.png pyramid
+dem.to_terrain_rgb("dem_rgb.png", tiles=False)    # one RGB(A) raster
+```
+
+The decoder is the exact inverse of the encoder — for mapbox,
+`height = base_val + (R*65536 + G*256 + B) * interval` — so a written tile
+round-trips to the source elevation within one `interval`.
 
 ::: pyramids.dataset.engines.IO
     options:

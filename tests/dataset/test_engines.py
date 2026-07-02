@@ -272,7 +272,7 @@ FACADE_METHODS = [
     ("vectorize", "to_feature_collection"),
     ("vectorize", "translate"),
     ("vectorize", "cluster"),
-    ("vectorize", "cluster2"),
+    ("vectorize", "to_polygons"),
     ("analysis", "stats"),
     ("analysis", "count_domain_cells"),
     ("analysis", "apply"),

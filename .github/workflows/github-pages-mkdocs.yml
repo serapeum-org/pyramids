@@ -39,7 +39,6 @@ jobs:
           # outputs (plots/tables). Only the network-only notebooks are excluded.
           notebooks-path: 'docs/examples'
           notebooks-exclude: |
-            dataset/dask-lazy-datasets.ipynb
             netcdf/dask-lazy-netcdf.ipynb
             feature/dask-lazy-features.ipynb
             stac/stac-cloud-earth-search.ipynb
@@ -63,7 +62,6 @@ jobs:
         deploy-token: ${{ secrets.ACTIONS_DEPLOY_TOKEN }}
         notebooks-path: 'docs/examples'
         notebooks-exclude: |
-          dataset/dask-lazy-datasets.ipynb
           netcdf/dask-lazy-netcdf.ipynb
           feature/dask-lazy-features.ipynb
           stac/stac-cloud-earth-search.ipynb
@@ -100,7 +98,6 @@ jobs:
         mike-alias: 'latest'
         notebooks-path: 'docs/examples'
         notebooks-exclude: |
-          dataset/dask-lazy-datasets.ipynb
           netcdf/dask-lazy-netcdf.ipynb
           feature/dask-lazy-features.ipynb
           stac/stac-cloud-earth-search.ipynb

@@ -135,6 +135,26 @@ To install the latest release from PyPI:
 pip install pyramids-gis
 ```
 
+### Linux + pixi/uv: raise the glibc baseline
+
+If you add the PyPI wheel to a **pixi** (or uv) project on **Linux** and hit `ModuleNotFoundError: No module named
+'osgeo'` at runtime, or a resolve error like *"has no wheels with a matching platform tag"*, it's the glibc baseline.
+pyramids-gis ships its Linux wheels tagged `manylinux_2_39` (the bundled GDAL is built with conda-forge's GCC 13 and
+needs `GLIBCXX_3.4.32`), but pixi's default Linux baseline is **glibc 2.17**, so no wheel matches and pixi silently
+falls back to the GDAL-less sdist.
+
+Tell pixi the target actually has glibc ≥ 2.39 by adding this to the **consuming project's** `pyproject.toml` (or
+`pixi.toml`):
+
+```toml
+[tool.pixi.system-requirements]
+libc = "2.39"
+```
+
+This declares the environment targets **Ubuntu 24.04+ / RHEL 10+**; it only affects Linux (macOS and Windows are
+unaffected). On older Linux (glibc < 2.39), install from conda-forge instead. See the full
+[installation guide](docs/installation.md) and [troubleshooting](docs/troubleshooting.md) for the other cases.
+
 
 ## Optional extras
 

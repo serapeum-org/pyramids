@@ -427,8 +427,13 @@ class Dataset(RasterBase):
         """Facade — delegates to :meth:`Vectorize.cluster <pyramids.dataset.engines.Vectorize.cluster>`."""
         return self.vectorize.cluster(*args, **kwargs)
 
+    def to_polygons(self, *args, **kwargs):
+        """Facade — delegates to :meth:`Vectorize.to_polygons <pyramids.dataset.engines.Vectorize.to_polygons>`."""
+        return self.vectorize.to_polygons(*args, **kwargs)
+
     def cluster2(self, *args, **kwargs):
-        """Facade — delegates to :meth:`Vectorize.cluster2 <pyramids.dataset.engines.Vectorize.cluster2>`."""
+        """Deprecated alias for :meth:`to_polygons` — delegates to
+        :meth:`Vectorize.cluster2 <pyramids.dataset.engines.Vectorize.cluster2>`."""
         return self.vectorize.cluster2(*args, **kwargs)
 
     def stats(self, *args, **kwargs):
