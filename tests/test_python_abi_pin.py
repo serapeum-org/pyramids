@@ -14,11 +14,12 @@ Two complementary guards, because the ABI cannot be constrained the same way eve
   The feature list is derived from the manifest, so a newly added 3.14 feature is checked
   automatically.
 - :func:`test_lockfile_has_no_free_threaded_python` — the committed ``pixi.lock`` must carry no
-  ``cp314t`` build on any platform. This is the **universal** backstop: several envs (``default``,
-  ``dev``, ``docs``, ``lazy``, ``parquet``) float Python to the newest (3.14) with no ABI pin of
-  their own and cannot be ABI-constrained at solve time without freezing their version (a shared pin
-  would also break the ``py311`` / ``py312`` / ``py313`` envs). This whole-lock scan is therefore
-  what guarantees none of those envs drifts to the free-threaded interpreter on the next re-solve.
+  ``cp314t`` build on any platform. This is the **universal** backstop: the envs that share the
+  ``default`` / ``docs`` solve-groups float Python to the newest (3.14) with no ABI pin of their own
+  and cannot be ABI-constrained at solve time without freezing their version (a shared pin would also
+  break the ``py311`` / ``py312`` / ``py313`` envs). This whole-lock scan is therefore what
+  guarantees none of those envs drifts to the free-threaded interpreter on the next re-solve, and it
+  also backstops the per-feature guard against manifest forms it does not parse (see below).
 """
 
 import re
@@ -39,27 +40,40 @@ def _load_pixi() -> dict:
 
 
 def _python_spec(feature: dict):
-    """Return a feature's ``python`` dependency spec (bare string, table, or ``None``)."""
+    """Return a feature's top-level ``python`` dependency spec (bare string, table, or ``None``).
+
+    Only ``[...dependencies]`` is inspected, not per-platform
+    ``target.<platform>.dependencies`` tables. A 3.14 pin placed under a ``target`` table would be
+    missed by the per-feature check, but :func:`test_lockfile_has_no_free_threaded_python` scans the
+    whole lock and is the universal backstop for any form this helper does not parse.
+    """
     return feature.get("dependencies", {}).get("python")
 
 
+def _spec_tokens(python) -> list[str]:
+    """Tokens of a bare matchspec string, split on whitespace or ``=`` (``"3.14.* *_cp314"`` or
+    ``"3.14.*=*_cp314"``)."""
+    return [t for t in re.split(r"[ =]+", str(python).strip()) if t] if python else []
+
+
 def _spec_version(python) -> str:
-    """Version half of a pixi python spec — table ``{version=}`` or bare ``"3.14.* *_cp314"``."""
+    """Version half of a pixi python spec — table ``{version=}`` or a bare matchspec string."""
     if isinstance(python, dict):
         return str(python.get("version", ""))
-    return str(python).split()[0] if python else ""
+    tokens = _spec_tokens(python)
+    return tokens[0] if tokens else ""
 
 
 def _spec_build(python) -> str:
     """Build half of a pixi python spec (``""`` if the spec carries no build string)."""
     if isinstance(python, dict):
         return str(python.get("build", ""))
-    parts = str(python).split() if python else []
-    return parts[1] if len(parts) > 1 else ""
+    tokens = _spec_tokens(python)
+    return tokens[1] if len(tokens) > 1 else ""
 
 
 def _features_targeting_314() -> list[str]:
-    """Names of pixi features whose ``python`` spec explicitly targets 3.14."""
+    """Names of pixi features whose top-level ``python`` spec explicitly targets 3.14."""
     features = _load_pixi().get("feature", {})
     return sorted(
         name
@@ -81,11 +95,14 @@ def test_known_314_features_are_detected():
 def test_feature_targeting_314_pins_gil_abi(feature: str):
     """Each feature targeting Python 3.14 must pin the standard-GIL ``*_cp314`` build."""
     python = _python_spec(_load_pixi()["feature"][feature])
-    version, build = _spec_version(python), _spec_build(python)
-    assert version.startswith("3.14"), f"feature {feature!r} python {python!r} is not a 3.14 spec."
-    assert "cp314" in build and "cp314t" not in build, (
-        f"feature {feature!r} python spec {python!r} does not pin the standard-GIL 'cp314' ABI; a "
-        "bare '3.14.*' lets the solver pick the free-threaded 'cp314t' build."
+    # Reject the free-threaded ABI anywhere in the spec (so an =-delimited or oddly-formatted
+    # cp314t pin can't hide in the version half), and require the standard-GIL cp314 build pin.
+    assert "cp314t" not in str(python), (
+        f"feature {feature!r} python spec {python!r} allows the free-threaded 'cp314t' ABI."
+    )
+    assert "cp314" in _spec_build(python), (
+        f"feature {feature!r} python spec {python!r} does not pin the standard-GIL 'cp314' build; a "
+        "bare '3.14.*' lets the solver pick either ABI."
     )
 
 
