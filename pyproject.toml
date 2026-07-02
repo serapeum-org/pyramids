@@ -244,6 +244,7 @@ markers = [
     "parquet_lazy: tests requiring dask-geopandas (now part of the [parquet] extra)",
     "stac: tests requiring the [stac] extra (pystac-client)",
     "live: live network test against a real external service (deselect with '-m \"not live\"', run with '-m live')",
+    "samples: NetCDF sample-file corpus test; samples(*flags) restricts to files with those capability flags",
 ]
 
 

@@ -114,14 +114,6 @@ def parse_structural_name(filename):
     return convention, nvars, histogram, features
 
 
-def pytest_configure(config):
-    config.addinivalue_line(
-        "markers",
-        "samples(*flags): restrict a `sample_name`-parametrized test to files carrying these "
-        "capability flags (see SAMPLES in conftest).",
-    )
-
-
 def pytest_generate_tests(metafunc):
     """Parametrize any test taking ``sample_name`` over all files, or a capability subset.
 
