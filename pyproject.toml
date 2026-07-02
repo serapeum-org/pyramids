@@ -302,7 +302,12 @@ python = "3.12.*"
 [tool.pixi.feature.py313.dependencies]
 python = "3.13.*"
 [tool.pixi.feature.py314.dependencies]
-python = "3.14.*"
+# Pin the standard-GIL ABI. conda-forge ships two Python 3.14 builds at the same
+# version — *_cp314 (GIL) and *_cp314t (free-threaded / no-GIL, PEP 703) — and a
+# bare "3.14.*" lets the solver pick either, inconsistently per platform. pyramids
+# has thread-sensitive code (per-thread GDAL handles, base/_locks.py), so the 3.14
+# leg must test one intended ABI. Free-threaded would be a separate opt-in leg.
+python = { version = "3.14.*", build = "*_cp314" }
 
 [tool.pixi.feature.dev.dependencies]
 scipy = ">=1.17.1,<2"
@@ -367,6 +372,14 @@ libgdal-jp2openjpeg = ">=3.13,<3.14"
 # wheel-build feature (not the shared gdal feature). setup-gdal-micromamba.sh reads it.
 [tool.pixi.feature.wheel-build.dependencies]
 swig = ">=4.3,<5"
+# This no-default-feature env used to float Python to the newest available with no ABI
+# constraint, so the solver picked the free-threaded *_cp314t build on osx-64 and win-64
+# while the py314 env used *_cp314 — a per-platform ABI mismatch in the lock. Pin it to
+# the same standard-GIL 3.14 build so wheel-build and py314 agree everywhere. This also
+# freezes the env at 3.14 (no longer floating): intended, since cibuildwheel provides its
+# own target interpreters and this env's Python only drives the build toolchain — bump
+# the version here when 3.15 support is added.
+python = { version = "3.14.*", build = "*_cp314" }
 
 # libstdcxx-ng provides the GCC-13 libstdc++.so.6 that conda-forge's GDAL
 # is built against (GLIBCXX_3.4.32). Linux-only — Apple Clang and MSVC
