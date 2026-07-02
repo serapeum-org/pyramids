@@ -372,10 +372,13 @@ libgdal-jp2openjpeg = ">=3.13,<3.14"
 # wheel-build feature (not the shared gdal feature). setup-gdal-micromamba.sh reads it.
 [tool.pixi.feature.wheel-build.dependencies]
 swig = ">=4.3,<5"
-# This no-default-feature env floats Python to the newest (3.14) with no ABI
-# constraint, so the solver was picking the free-threaded *_cp314t build on osx-64
-# and win-64 while the py314 test env used *_cp314 — a per-platform ABI mismatch in
-# the lock. Pin the same GIL ABI here so wheel-build and py314 agree everywhere.
+# This no-default-feature env used to float Python to the newest available with no ABI
+# constraint, so the solver picked the free-threaded *_cp314t build on osx-64 and win-64
+# while the py314 env used *_cp314 — a per-platform ABI mismatch in the lock. Pin it to
+# the same standard-GIL 3.14 build so wheel-build and py314 agree everywhere. This also
+# freezes the env at 3.14 (no longer floating): intended, since cibuildwheel provides its
+# own target interpreters and this env's Python only drives the build toolchain — bump
+# the version here when 3.15 support is added.
 python = { version = "3.14.*", build = "*_cp314" }
 
 # libstdcxx-ng provides the GCC-13 libstdc++.so.6 that conda-forge's GDAL
