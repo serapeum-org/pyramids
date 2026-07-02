@@ -270,6 +270,7 @@ class TestPlotPR6Cleanups:
         """
         from pyramids.base._utils import require_cleopatra
 
+        assert callable(require_cleopatra), "require_cleopatra must be importable and callable"
         require_cleopatra()
         require_cleopatra("optional override message")
 
@@ -361,6 +362,7 @@ class TestPR6CleanupGrepGuards:
         """
         from pyramids.base._utils import import_cleopatra
 
+        assert callable(import_cleopatra), "the legacy import_cleopatra symbol must stay importable"
         import_cleopatra("legacy back-compat call")
 
     def test_import_cleopatra_not_called_outside_definition(self):

@@ -92,26 +92,6 @@ class TestCreateDatasetCollection:
         assert dataset.base.rows == rasters_folder_dim[0]
         assert dataset.base.columns == rasters_folder_dim[1]
 
-    def test_read_with_order_error(
-        self,
-        rasters_folder_path: str,
-        rasters_folder_start_date: str,
-        rasters_folder_end_date: str,
-        rasters_folder_date_fmt: str,
-    ):
-        try:
-            dataset = DatasetCollection.read_multiple_files(
-                rasters_folder_path,
-                with_order=True,
-                file_name_data_fmt="%Y.%m.%d",
-                # separator="d",
-                start=rasters_folder_start_date,
-                end=rasters_folder_end_date,
-                fmt=rasters_folder_date_fmt,
-            )
-        except ValueError:
-            pass
-
 
 class TestAscii:
     def test_read_all_without_order(
@@ -399,19 +379,6 @@ def test_merge_instance_method_in_memory_collection(tmp_path: Path):
     assert src.GetRasterBand(1).GetNoDataValue() == 0
 
 
-class TestApply:
-    def test_1(
-        self,
-        rasters_folder_path: str,
-    ):
-        cube = DatasetCollection.read_multiple_files(
-            rasters_folder_path, with_order=False
-        )
-        cube.open_multi_dataset()
-        func = np.abs
-        cube.apply(func)
-
-
 def test_overlay(rasters_folder_path: str, germany_classes: Path):
     cube = DatasetCollection.read_multiple_files(rasters_folder_path, with_order=False)
     cube.open_multi_dataset()
@@ -554,22 +521,3 @@ class TestProperties:
         arr = arr * 0
         cube.values = arr
         assert np.array_equal(cube.values, arr)
-
-    def test_values_sette_different_dimensions(
-        self,
-        rasters_folder_path: str,
-        rasters_folder_rasters_number: int,
-        rasters_folder_dim: tuple,
-    ):
-        cube = DatasetCollection.read_multiple_files(
-            rasters_folder_path, with_order=False
-        )
-        cube.open_multi_dataset()
-        # access the data attribute
-        arr = cube.values
-        # modify the array
-        arr = arr[0:4, :, :] * np.nan
-        try:
-            cube.values = arr
-        except ValueError:
-            pass

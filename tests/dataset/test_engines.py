@@ -234,12 +234,6 @@ class TestCollaboratorAttachment:
         ), f"ds.{attr_name} should be {expected_type.__name__}, got {type(collab).__name__}"
 
 
-# Stage 1 forwarders: collaborator method delegates to the same-named
-# Dataset method (the mixin is still in Dataset's MRO). PR 2.1 (cell)
-# migrated method bodies into the collaborator and inverted the
-# direction — those methods are tested in TestFacadeDelegation below.
-FORWARDING_METHODS: list[tuple[str, str]] = []
-
 # Stage 2 facades: Dataset method delegates to the collaborator method
 # (the mixin has been removed from Dataset's MRO). PR 2.1 — cell, PR 2.2 —
 # cog, PR 2.3 — vectorize, PR 2.4 — analysis, PR 2.5 — spatial.
@@ -297,47 +291,6 @@ FACADE_METHODS = [
 ]
 
 
-class TestForwardingParity:
-    """Each public collaborator forwarder method delegates to the same-named Dataset method."""
-
-    @pytest.mark.parametrize("collab_attr, method_name", FORWARDING_METHODS)
-    def test_method_forwards_args_and_return(
-        self,
-        in_memory_dataset,
-        mocker,
-        collab_attr,
-        method_name,
-    ):
-        """Forwarder calls the underlying Dataset method with identical args.
-
-        Args:
-            collab_attr: Collaborator attribute name on the Dataset
-                (one of ``io``, ``spatial``, ``bands``, ``analysis``,
-                ``vectorize``, ``cog``).
-            method_name: Public method to test on that collaborator.
-
-        Test scenario:
-            Patch ``Dataset.<method_name>`` to return a sentinel. Call
-            ``ds.<collab_attr>.<method_name>(1, 2, foo="bar")``. The
-            forwarder must (a) pass the positional and keyword arguments
-            through unchanged and (b) return the same sentinel.
-        """
-        sentinel = object()
-        mock = mocker.patch.object(
-            in_memory_dataset, method_name, return_value=sentinel
-        )
-        collab = getattr(in_memory_dataset, collab_attr)
-        bound = getattr(collab, method_name)
-
-        result = bound(1, 2, foo="bar")
-
-        assert result is sentinel, (
-            f"{collab_attr}.{method_name} did not return the underlying "
-            f"call's value (got {result!r})"
-        )
-        mock.assert_called_once_with(1, 2, foo="bar")
-
-
 class TestFacadeDelegation:
     """Each migrated Dataset facade method delegates to the collaborator method."""
 
@@ -376,10 +329,6 @@ class TestFacadeDelegation:
         mock.assert_called_once_with(1, 2, foo="bar")
 
 
-READONLY_PROPERTIES = []
-
-READWRITE_PROPERTIES: list[tuple[str, str]] = []
-
 # Stage 2 facade properties: Dataset property delegates to a same-named
 # property on the collaborator. PR 2.2 — cog.is_cog. PR 2.6 — io.overview_count.
 FACADE_PROPERTIES = [
@@ -392,38 +341,6 @@ FACADE_PROPERTIES = [
 
 class TestPropertyForwarding:
     """Properties on collaborators forward to the same-named Dataset property."""
-
-    @pytest.mark.parametrize("collab_attr, prop_name", READONLY_PROPERTIES)
-    def test_readonly_property_reads_from_dataset(
-        self,
-        in_memory_dataset,
-        mocker,
-        collab_attr,
-        prop_name,
-    ):
-        """Read-only collaborator property delegates to ``Dataset.<prop>``.
-
-        Args:
-            collab_attr: Collaborator attribute name (e.g. ``"io"``).
-            prop_name: Property on that collaborator (e.g. ``"overview_count"``).
-
-        Test scenario:
-            Patch the property on the Dataset class with a ``PropertyMock``
-            returning a sentinel. Reading the same-named property through
-            the collaborator should produce that sentinel.
-        """
-        sentinel = object()
-        mocker.patch.object(
-            type(in_memory_dataset),
-            prop_name,
-            new_callable=mocker.PropertyMock,
-            return_value=sentinel,
-        )
-        collab = getattr(in_memory_dataset, collab_attr)
-        result = getattr(collab, prop_name)
-        assert (
-            result is sentinel
-        ), f"{collab_attr}.{prop_name} getter did not forward to Dataset.{prop_name}"
 
     @pytest.mark.parametrize("collab_attr, prop_name", FACADE_PROPERTIES)
     def test_facade_property_reads_from_collaborator(
@@ -458,45 +375,6 @@ class TestPropertyForwarding:
             f"Dataset.{prop_name} facade did not read from {collab_attr}.{prop_name} "
             f"(got {result!r})"
         )
-
-    @pytest.mark.parametrize("collab_attr, prop_name", READWRITE_PROPERTIES)
-    def test_readwrite_property_get_and_set(
-        self,
-        in_memory_dataset,
-        mocker,
-        collab_attr,
-        prop_name,
-    ):
-        """Read/write collaborator property forwards both getter and setter.
-
-        Args:
-            collab_attr: Collaborator attribute name.
-            prop_name: Read/write property name.
-
-        Test scenario:
-            Replace the underlying Dataset property with a ``PropertyMock``.
-            Reading via the collaborator must return the mock's value;
-            setting via the collaborator must call the mock with the new
-            value (PropertyMock records sets as calls with one positional
-            arg).
-        """
-        getter_value = object()
-        new_value = {"red": 1, "green": 2}
-        prop_mock = mocker.patch.object(
-            type(in_memory_dataset),
-            prop_name,
-            new_callable=mocker.PropertyMock,
-            return_value=getter_value,
-        )
-        collab = getattr(in_memory_dataset, collab_attr)
-
-        observed = getattr(collab, prop_name)
-        assert (
-            observed is getter_value
-        ), f"{collab_attr}.{prop_name} getter did not forward (got {observed!r})"
-
-        setattr(collab, prop_name, new_value)
-        prop_mock.assert_any_call(new_value)
 
 
 class TestAnalysisNormalize:

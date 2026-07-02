@@ -206,16 +206,6 @@ class TestToTerrainRgbErrors:
             _dem_3857().to_terrain_rgb(tmp_path / "x.png", tiles=False, band=5)
 
 
-class TestToTerrainRgbExposure:
-    """Facade wiring."""
-
-    def test_exposed_on_dataset(self):
-        """``to_terrain_rgb`` is a callable method on the Dataset facade."""
-        assert callable(getattr(Dataset, "to_terrain_rgb", None)), (
-            "Dataset must expose to_terrain_rgb"
-        )
-
-
 class TestEncodeTerrainRgb:
     """Unit tests for the pure ``_encode_terrain_rgb`` packer."""
 

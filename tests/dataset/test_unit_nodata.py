@@ -7,6 +7,7 @@ import pytest
 
 from pyramids.base._errors import NoDataValueError, ReadOnlyError
 from pyramids.dataset import Dataset
+from pyramids.dataset.abstract_dataset import DEFAULT_NO_DATA_VALUE
 
 pytestmark = pytest.mark.core
 
@@ -542,6 +543,10 @@ class TestSetNoDataValueMocked:
         ):
             ds.bands._set_no_data_value([-1234.0])
         assert call_count[0] >= 2, "Should have retried with default value"
+        assert ds.no_data_value[0] == pytest.approx(DEFAULT_NO_DATA_VALUE), (
+            "an unknown backend error should fall back to DEFAULT_NO_DATA_VALUE, "
+            "not leave the requested -1234.0 in place"
+        )
 
 
 class TestSetNoDataValueBackendMocked:
@@ -578,6 +583,10 @@ class TestSetNoDataValueBackendMocked:
 
         with patch.object(ds.raster, "GetRasterBand", mock_get_band):
             ds.bands._set_no_data_value_backend(0, -1234.0)
+
+        assert ds.no_data_value[0] == pytest.approx(-1234.0), (
+            "after the Fill retry the band nodata should hold the requested value"
+        )
 
     def test_backend_generic_error_raises(self):
         """_set_no_data_value_backend raises ValueError on unknown error."""
@@ -726,7 +735,11 @@ class TestFillGapsLessNodata:
             no_data_value=nd,
         )
         result = src_ds.fill_gaps(mask_ds, src_arr.copy())
-        assert result is not None, "fill_gaps should return an array"
+        # The mask has more valid cells than src, so both src gaps are filled
+        # from their valid neighbours (all 10.0) and no nodata should remain.
+        assert result[0, 0] == pytest.approx(10.0)
+        assert result[1, 1] == pytest.approx(10.0)
+        assert not np.any(result == nd), "every src gap should have been filled"
 
     def test_fill_gaps_equal_valid(self):
         """fill_gaps when mask and src have same valid cells."""
@@ -750,4 +763,7 @@ class TestFillGapsLessNodata:
             no_data_value=nd,
         )
         result = src_ds.fill_gaps(mask_ds, src_arr.copy())
-        assert result is not None, "fill_gaps with equal valid cells works"
+        # Equal valid-cell counts, so no interpolation happens and the src gap
+        # at (1, 1) is left untouched.
+        assert result[1, 1] == pytest.approx(nd), "equal valid counts should skip filling"
+        assert result[0, 0] == pytest.approx(10.0)
