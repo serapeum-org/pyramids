@@ -1212,22 +1212,23 @@ class Analysis(_Engine["Dataset"]):
                     arr = arr.astype(np.float32)
                     arr[np.isclose(arr, val)] = no_data_val
 
-        # Build the coverage mask: valid cells -> 2, nodata cells -> 0, and register the
-        # mask's own nodata as 0. Polygonisation then collects only the covered cells
-        # regardless of the source nodata value — a positive fill (e.g. a NetCDF fill of
-        # 1e20) must not leak into the footprint.
-        if no_data_val is None:
+        # Build the coverage mask: covered cells -> 2, nodata cells -> 0. A NaN fill may
+        # be stored as None or as a float nan (GDAL's GetNoDataValue returns nan), and
+        # np.isclose(x, nan) is always False, so both are compared with np.isnan.
+        if no_data_val is None or (isinstance(no_data_val, float) and np.isnan(no_data_val)):
             valid = ~np.isnan(arr)
         else:
             valid = ~np.isclose(arr, no_data_val, rtol=0.00001)
         if not valid.any():
             self._ds.logger.warning("the raster is full of no_data_value")
             return None
-        arr = np.where(valid, 2.0, 0.0)
-        # The scratch mask must be a plain raster Dataset that exposes GetRasterBand
-        # for polygonisation. Dispatching through self._ds.create_from_array builds a
-        # NetCDF container (no conventional bands) for a NetCDF variable view, whose
-        # GetRasterBand returns None, so call the base Dataset classmethod explicitly.
+        # _band_to_polygon polygonises the mask using the band as its own Polygonize
+        # mask, which drops mask==0 cells, so only the covered (2) cells are collected
+        # for any source nodata value. float32 keeps the mask lightweight.
+        arr = np.where(valid, 2, 0).astype(np.float32)
+        # The scratch mask must be a plain raster Dataset that exposes GetRasterBand for
+        # polygonisation. self._ds.create_from_array would build a bandless NetCDF
+        # container for a variable view, so call the base Dataset classmethod explicitly.
         # Local import breaks the engines <-> Dataset import cycle.
         from pyramids.dataset.dataset import Dataset
 
