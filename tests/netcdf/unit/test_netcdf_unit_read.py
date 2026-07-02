@@ -81,7 +81,7 @@ class TestReadMdArray1D:
         rg = src_ds.GetRootGroup()
         dim = rg.CreateDimension("labels", None, None, 3)
         str_dtype = gdal.ExtendedDataType.CreateString()
-        str_arr = rg.CreateMDArray("label_data", [dim], str_dtype)
+        rg.CreateMDArray("label_data", [dim], str_dtype)
         nc = Container(src_ds)
         result_src, result_md, result_rg, _ix, _iy = nc._read_md_array("label_data")
         # For string type, src should be the md_arr itself (not a Dataset)
@@ -479,7 +479,7 @@ class TestGetVariableNonDataset:
         # Create a 1D string array as data variable
         str_dim = rg.CreateDimension("labels_dim", None, None, 3)
         str_dtype = gdal.ExtendedDataType.CreateString()
-        str_arr = rg.CreateMDArray("labels", [str_dim], str_dtype)
+        rg.CreateMDArray("labels", [str_dim], str_dtype)
 
         nc = Container(src)
         assert (
