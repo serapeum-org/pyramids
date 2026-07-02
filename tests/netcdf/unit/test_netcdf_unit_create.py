@@ -109,7 +109,7 @@ class TestCreateFromArrayAlternatives:
         Covers the branch building geo from
         top_left_corner and cell_size.
         """
-        arr = np.random.rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(0).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             top_left_corner=(10.0, 50.0),
@@ -128,7 +128,7 @@ class TestCreateFromArrayAlternatives:
         Covers the ValueError when geo is None and
         top_left_corner/cell_size are not both provided.
         """
-        arr = np.random.rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(0).random((5, 10)).astype(np.float64)
         with pytest.raises(ValueError, match="Either 'geo'"):
             NetCDF.create_from_array(
                 arr=arr,
@@ -141,7 +141,7 @@ class TestCreateFromArrayAlternatives:
 
         Covers variable_name = 'data' default.
         """
-        arr = np.random.rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(0).random((5, 10)).astype(np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
         nc = NetCDF.create_from_array(
             arr=arr,
@@ -159,7 +159,7 @@ class TestCreateFromArrayAlternatives:
 
         Covers the default extra_dim_values generation for 3D arrays.
         """
-        arr = np.random.rand(4, 5, 10).astype(np.float64)
+        arr = np.random.default_rng(0).random((4, 5, 10)).astype(np.float64)
         geo = (0.0, 1.0, 0, 5.0, 0, -1.0)
         nc = NetCDF.create_from_array(
             arr=arr,
@@ -181,7 +181,7 @@ class TestCreateNetcdfFromArrayValidation:
 
         Covers the ValueError for variable_name is None.
         """
-        arr = np.random.rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(0).random((5, 10)).astype(np.float64)
         with pytest.raises(ValueError, match="Variable_name cannot be None"):
             _create_netcdf_from_array(
                 arr,
@@ -196,7 +196,7 @@ class TestCreateNetcdfFromArrayValidation:
 
         Covers the ValueError for geo is None.
         """
-        arr = np.random.rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(0).random((5, 10)).astype(np.float64)
         with pytest.raises(ValueError, match="geo cannot be None"):
             _create_netcdf_from_array(
                 arr,

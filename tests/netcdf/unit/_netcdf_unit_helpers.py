@@ -43,7 +43,7 @@ def _make_dataset_2d(rows=10, cols=12, no_data=-9999.0):
     Returns:
         Dataset: A plain raster Dataset.
     """
-    arr = np.random.RandomState(77).rand(rows, cols).astype(np.float64)
+    arr = np.random.default_rng(77).random((rows, cols)).astype(np.float64)
     geo = (0.0, 1.0, 0, float(rows), 0, -1.0)
     return Dataset.create_from_array(
         arr,
@@ -59,7 +59,7 @@ def _make_dataset_3d(bands=3, rows=10, cols=12, no_data=-9999.0):
     Returns:
         Dataset: A plain raster Dataset with multiple bands.
     """
-    arr = np.random.RandomState(77).rand(bands, rows, cols).astype(np.float64)
+    arr = np.random.default_rng(77).random((bands, rows, cols)).astype(np.float64)
     geo = (0.0, 1.0, 0, float(rows), 0, -1.0)
     return Dataset.create_from_array(
         arr,
@@ -107,7 +107,7 @@ def _make_nc_with_time_units(rows=4, cols=5, n_times=3):
 
     # Create a data variable
     data_arr = rg.CreateMDArray("temperature", [dim_t, dim_y, dim_x], dtype)
-    data_arr.Write(np.random.RandomState(55).rand(n_times, rows, cols))
+    data_arr.Write(np.random.default_rng(55).random((n_times, rows, cols)))
     data_arr.SetNoDataValueDouble(-9999.0)
 
     return Container(src)

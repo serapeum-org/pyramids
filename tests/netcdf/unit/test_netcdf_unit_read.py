@@ -302,7 +302,7 @@ class TestGetVariableYFlipAndErrors:
 
         # Create data variable
         data_arr = rg.CreateMDArray("temp", [dim_y, dim_x], dtype)
-        data_arr.Write(np.random.RandomState(88).rand(4, 5).astype(np.float64))
+        data_arr.Write(np.random.default_rng(88).random((4, 5)).astype(np.float64))
         data_arr.SetNoDataValueDouble(-9999.0)
 
         nc = Container(src)
@@ -536,7 +536,7 @@ class TestGetVariableMultipleBandDims:
         dim_e.SetIndexingVariable(e_v)
 
         data = rg.CreateMDArray("temp", [dim_t, dim_e, dim_y, dim_x], dtype)
-        data.Write(np.random.rand(2, 2, 3, 3).astype(np.float64))
+        data.Write(np.random.default_rng(0).random((2, 2, 3, 3)).astype(np.float64))
         data.SetNoDataValueDouble(-9999.0)
 
         nc = Container(src)
