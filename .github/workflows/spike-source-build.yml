@@ -6,8 +6,12 @@ name: Spike - from-source GDAL (manylinux_2_28)
 # (glibc 2.36 — unreachable by the current 2_39 wheel), and lands in the
 # 35-45 MB band. See planning/bundle/from-source-gdal-build-plan.md.
 
+# workflow_dispatch only registers from the default branch, so the spike
+# self-triggers on pushes to its own branch instead (spike-scoped).
 on:
   workflow_dispatch:
+  push:
+    branches: ["spike/from-source-gdal"]
 
 env:
   # Compressed/installed ceilings looser than the size plan's target so the
