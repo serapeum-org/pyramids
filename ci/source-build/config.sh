@@ -719,9 +719,12 @@ function build_jpegturbo {
 function build_giflib {
 	if [ -e giflib-stamp ]; then return; fi
     echo "Running build_giflib"
+	# pyramids delta: giflib's default `all` also renders doc images via
+	# ImageMagick `convert`, which the manylinux image doesn't ship — build
+	# and install only the library targets GDAL links against.
 	(cd ${GIFLIB_FNAME} &&
-		make &&
-		make install PREFIX=$BUILD_PREFIX)
+		make libgif.a libgif.so &&
+		make install-include install-lib PREFIX=$BUILD_PREFIX)
 	touch giflib-stamp
 }
 
