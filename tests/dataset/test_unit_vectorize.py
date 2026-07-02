@@ -99,7 +99,7 @@ class TestFootprint:
         )
         result = ds.footprint(band=1)
         assert result is not None and len(result) > 0, "band-1 footprint should return polygons"
-        assert list(result.columns)[0] == ds.band_names[1], "column should carry the source band's name"
+        assert result.columns[0] == ds.band_names[1], "column should carry the source band's name"
         covered = round(result.geometry.area.sum())  # cell area is 1.0 (1x1 degree cells)
         assert covered == 6, f"footprint should cover the 6 data cells only, got {covered}"
 
