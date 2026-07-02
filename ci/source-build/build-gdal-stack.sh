@@ -83,5 +83,26 @@ if (( _missing )); then
     exit 1
 fi
 echo "all required drivers present"
+
+# Capability flags for the record ('v' after rw = virtual-IO support).
+echo "--- driver capability flags ---"
+grep -E "netCDF|GTiff|HDF5|Zarr|GRIB" <<<"${_gdal_formats}" || true
+
+# /vsizip netCDF probe — reproduces the iteration-5 verify failure
+# (tests/netcdf/test_netcdf_archive.py: nc-inside-zip read). The netCDF
+# driver needs the library's in-memory open (netcdf_mem.h -> NETCDF_HAS_MEM)
+# for virtual file systems; surface the driver's real CPLError here instead
+# of the generic "not recognized" the test sees.
+echo "--- /vsizip netCDF probe ---"
+ls -la "${BUILD_PREFIX}/include/netcdf_mem.h" 2>/dev/null || echo "netcdf_mem.h MISSING from ${BUILD_PREFIX}/include"
+"${BUILD_PREFIX}/bin/gdal_create" -of netCDF -outsize 8 8 -bands 1 /tmp/probe.nc
+(cd /tmp && /opt/python/cp312-cp312/bin/python -m zipfile -c probe.zip probe.nc)
+if CPL_DEBUG=ON "${BUILD_PREFIX}/bin/gdalinfo" /vsizip//tmp/probe.zip/probe.nc >/tmp/probe.out 2>&1; then
+    echo "vsizip netCDF read OK"
+else
+    echo "vsizip netCDF read FAILED — CPL_DEBUG tail:"
+    tail -40 /tmp/probe.out
+fi
+
 "${BUILD_PREFIX}/bin/gdal-config" --version
 echo "=== from-source GDAL stack complete ==="
