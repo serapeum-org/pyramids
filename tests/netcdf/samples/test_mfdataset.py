@@ -5,7 +5,7 @@ import shutil
 import pytest
 
 from pyramids.netcdf import NetCDF
-from tests.netcdf_samples.conftest import AIR
+from tests.netcdf.samples.conftest import AIR
 
 pytestmark = pytest.mark.lazy
 pytest.importorskip("dask")

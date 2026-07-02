@@ -16,7 +16,7 @@ from shapely.geometry import MultiPolygon, Polygon
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
 from pyramids.netcdf._plot import NetCDFPlot
-from tests.netcdf_samples.conftest import TOS as RECTILINEAR
+from tests.netcdf.samples.conftest import TOS as RECTILINEAR
 
 pytestmark = pytest.mark.core
 

@@ -11,7 +11,7 @@ from shapely.geometry import box
 
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
-from tests.netcdf_samples.conftest import TOS as NONSQUARE
+from tests.netcdf.samples.conftest import TOS as NONSQUARE
 
 pytestmark = pytest.mark.core
 

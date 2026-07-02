@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from pyramids.netcdf import NetCDF
-from tests.netcdf_samples.conftest import RHUM
+from tests.netcdf.samples.conftest import RHUM
 
 pytestmark = pytest.mark.lazy
 da = pytest.importorskip("dask.array")

@@ -4,7 +4,7 @@ import pytest
 
 from pyramids.dataset import Dataset
 from pyramids.netcdf import NetCDF
-from tests.netcdf_samples.conftest import RHUM, TOS
+from tests.netcdf.samples.conftest import RHUM, TOS
 
 pytestmark = pytest.mark.core
 

@@ -5,7 +5,7 @@ import pytest
 
 from pyramids.netcdf import UgridDataset
 from pyramids.netcdf.ugrid import Connectivity, MeshSpatialIndex, Mesh2d
-from tests.netcdf_samples.conftest import MESH
+from tests.netcdf.samples.conftest import MESH
 
 pytestmark = pytest.mark.core
 

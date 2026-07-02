@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from pyramids.netcdf import NetCDF
-from tests.netcdf_samples.conftest import AIR as CF
+from tests.netcdf.samples.conftest import AIR as CF
 
 pytestmark = pytest.mark.core
 

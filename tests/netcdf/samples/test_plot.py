@@ -6,7 +6,7 @@ Marked ``plot`` and run under the Agg backend; requires the optional viz depende
 import pytest
 
 from pyramids.netcdf import ColourOpts, FacetSpec, NetCDF, Selectors
-from tests.netcdf_samples.conftest import RHUM
+from tests.netcdf.samples.conftest import RHUM
 
 pytestmark = pytest.mark.plot
 # Skip the whole module (not error) on a no-viz install: the importorskip calls must run before any

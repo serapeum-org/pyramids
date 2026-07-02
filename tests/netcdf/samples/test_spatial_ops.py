@@ -3,7 +3,7 @@
 import pytest
 
 from pyramids.netcdf import NetCDF
-from tests.netcdf_samples.conftest import TOS
+from tests.netcdf.samples.conftest import TOS
 
 pytestmark = pytest.mark.core
 
