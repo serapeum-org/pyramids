@@ -355,16 +355,6 @@ class TestSetVariableAttrWriteException:
         nc = make_2d_nc()
         ds = _make_dataset_2d()
 
-        # We need the CreateAttribute call to succeed but Write to fail
-        # We'll patch CreateAttribute to return a mock whose Write raises
-        original_set_variable = NetCDF.set_variable
-
-        def intercept_set_variable(self_nc, var_name, dataset, **kwargs):
-            """Call set_variable but with an attr that will fail on Write."""
-            # Use an attr dict with a special sentinel
-            kwargs["attrs"] = {"will_fail": object()}
-            original_set_variable(self_nc, var_name, dataset, **kwargs)
-
         # Simply test that the exception is silenced
         # Using object() as attr value forces str() conversion in the
         # else branch. The Write may or may not fail, but the test
