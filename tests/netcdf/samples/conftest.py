@@ -20,7 +20,7 @@ import pytest
 
 from pyramids.netcdf import NetCDF
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "netcdf"
+DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "netcdf"
 
 # Shared sample-file name constants — imported by individual test modules to avoid duplication.
 TOS = "cf__7v__1d3-2d3-3d1.nc"   # tos(time=24, lat=170, lon=180), EPSG:4326, non-square cells
