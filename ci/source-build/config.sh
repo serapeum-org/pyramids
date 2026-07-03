@@ -367,7 +367,10 @@ TIFF_URL="https://download.osgeo.org/libtiff/tiff-${TIFF_VERSION}.tar.gz"
 TIFF_FNAME="tiff-${TIFF_VERSION}"
 fetch_untar ${TIFF_URL} ${TIFF_FNAME}.tar.gz
 
-XZ_URL="https://tukaani.org/xz/xz-${XZ_VERSION}.tar.gz"
+# pyramids delta: fetch xz from its GitHub release mirror — tukaani.org is a
+# single host and timed out hard in CI (2026-07-03); the release asset is the
+# identical official tarball and the download is SHA256-verified either way.
+XZ_URL="https://github.com/tukaani-project/xz/releases/download/v${XZ_VERSION}/xz-${XZ_VERSION}.tar.gz"
 XZ_FNAME="xz-${XZ_VERSION}"
 XZ_SHA256="ce09c50a5962786b83e5da389c90dd2c15ecd0980a258dd01f70f9e7ce58a8f1"
 fetch_untar ${XZ_URL} ${XZ_FNAME}.tar.gz ${XZ_SHA256}

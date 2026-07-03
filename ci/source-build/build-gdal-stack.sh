@@ -60,11 +60,14 @@ echo "cmake: $(command -v cmake) ($(cmake --version | head -1))"
 PROJECT_DIR="$(dirname "$(dirname "${SCRIPT_DIR}")")"
 CACHE_DIR="${PROJECT_DIR}/.srcbuild-cache"
 _cfg_hash=$(sha256sum "${SCRIPT_DIR}/config.sh" | cut -c1-16)
-CACHE_TAR="${CACHE_DIR}/gdal-stack-${_cfg_hash}-${LIBC_FLAVOR}-$(uname -m).tar"
+# gzip the tar: four flavors x several key generations of uncompressed
+# ~1 GB tars blow past GitHub's 10 GB per-repo cache pool and evict each
+# other (observed 2026-07-03); compressed they coexist for many generations.
+CACHE_TAR="${CACHE_DIR}/gdal-stack-${_cfg_hash}-${LIBC_FLAVOR}-$(uname -m).tar.gz"
 
 if [[ -f "${CACHE_TAR}" ]]; then
     echo "=== restoring cached stack ($(basename "${CACHE_TAR}")) ==="
-    tar -C / -xf "${CACHE_TAR}"
+    tar -C / -xzf "${CACHE_TAR}"
 else
     # Build in a scratch dir: config.sh downloads + extracts every source
     # tarball into its CWD and drops stamp files there.
@@ -94,7 +97,7 @@ else
     cd /
     mkdir -p "${CACHE_DIR}"
     echo "=== caching built stack to $(basename "${CACHE_TAR}") ==="
-    tar -C / -cf "${CACHE_TAR}" usr/local
+    tar -C / -czf "${CACHE_TAR}" usr/local
 fi
 
 # Post-build wiring the vendor step expects.
