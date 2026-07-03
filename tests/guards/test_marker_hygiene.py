@@ -29,7 +29,7 @@ from tests._marks import EXTRA_MARKERS
 
 pytestmark = pytest.mark.core
 
-_TESTS_ROOT = Path(__file__).parent
+_TESTS_ROOT = Path(__file__).parents[1]
 _EXTRAS = set(EXTRA_MARKERS)
 
 # Top-level module names of the optional dependencies pyramids gates behind extras.
