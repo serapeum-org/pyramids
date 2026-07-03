@@ -16,10 +16,10 @@ installation required.
 pip install pyramids-gis
 ```
 
-That's it. The wheel includes GDAL 3.13, PROJ, GEOS, HDF4/5, NetCDF,
+That's it. The wheel includes GDAL 3.13, PROJ, GEOS, HDF5, NetCDF, GRIB,
 JPEG2000 (OpenJPEG, for JP2-packed GRIB2), libtiff, and all other native
-dependencies. No `gdal-config`, no `apt install libgdal-dev`, no OSGeo4W
-installer needed.
+dependencies (HDF4 additionally ships in the macOS/Windows wheels). No
+`gdal-config`, no `apt install libgdal-dev`, no OSGeo4W installer needed.
 
 ### Optional extras
 
@@ -61,32 +61,31 @@ pixi add pyramids-gis
 
 #### Linux: raise the glibc baseline so the wheel resolves
 
-pyramids-gis ships its Linux wheels tagged **`manylinux_2_39`** (the
-bundled GDAL is built with conda-forge's GCC 13, which needs
-`GLIBCXX_3.4.32`). pixi/uv pick a wheel **at lock time** against a
-*declared* baseline, and pixi's default Linux baseline is **glibc 2.17**
-(manylinux2014). Because `2.39 > 2.17`, no wheel matches, and pixi either
-falls back to the GDAL-less sdist (→ `ModuleNotFoundError: No module
-named 'osgeo'` at runtime) or — for a wheel-only release with no sdist —
-fails outright with:
+pyramids-gis ships its Linux wheels tagged **`manylinux_2_28`** (GDAL and
+its native stack are compiled from source with the manylinux toolchain).
+pixi/uv pick a wheel **at lock time** against a *declared* baseline, and
+pixi's default Linux baseline is **glibc 2.17** (manylinux2014). Because
+`2.28 > 2.17`, no wheel matches, and pixi either falls back to the
+GDAL-less sdist (→ `ModuleNotFoundError: No module named 'osgeo'` at
+runtime) or — for a wheel-only release with no sdist — fails outright with:
 
 ```text
 because pyramids-gis==X.Y.Z has no wheels with a matching platform tag
 (e.g., `manylinux_2_28_x86_64`) ... cannot be used
 ```
 
-Tell pixi the target actually has glibc ≥ 2.39 by adding this to the
+Tell pixi the target actually has glibc ≥ 2.28 by adding this to the
 **consuming project's** `pyproject.toml` (or `pixi.toml`):
 
 ```toml
 [tool.pixi.system-requirements]
-libc = "2.39"
+libc = "2.28"
 ```
 
-pixi now advertises glibc 2.39, the `manylinux_2_39` wheel matches, and
-the bundled wheel is locked. This declares the env targets **Ubuntu
-24.04+ / RHEL 10+** (older Linux won't resolve — use conda-forge there).
-It only affects Linux; macOS and Windows are unaffected. This is a
+pixi now advertises glibc 2.28, the `manylinux_2_28` wheel matches, and
+the bundled wheel is locked. Virtually every distro still in support
+clears this floor (Ubuntu 20.04+, Debian 11+, RHEL 8+, Amazon Linux
+2023). It only affects Linux; macOS and Windows are unaffected. This is a
 *consumer-side* setting — it can't be exported by pyramids itself, so
 each pixi project that depends on the bundled wheel on Linux sets it.
 
@@ -109,23 +108,24 @@ print(gdal.__version__)          # should print 3.13.x
 
 | Platform | Architecture | Wheel tag | Status |
 |----------|-------------|-----------|--------|
-| Linux (glibc ≥ 2.39) | x86_64 | `manylinux_2_39_x86_64` | ✅ Supported |
-| Linux (glibc < 2.39) | x86_64 | — | ❌ Fall back to conda |
-| Linux | aarch64 | — | 🔵 Planned |
+| Linux (glibc ≥ 2.28) | x86_64 | `manylinux_2_28_x86_64` | ✅ Supported |
+| Linux (glibc ≥ 2.28) | aarch64 | `manylinux_2_28_aarch64` | ✅ Supported |
+| Linux (glibc < 2.28) | any | — | ❌ Fall back to conda |
 | macOS 11+ | x86_64 | `macosx_11_0_x86_64` | ✅ Supported |
 | macOS 11+ | arm64 (Apple Silicon) | `macosx_11_0_arm64` | ✅ Supported |
 | Windows 10+ | x64 | `win_amd64` | ✅ Supported |
-| Alpine (musl) | any | — | 🔵 Planned |
+| Alpine (musl) | any | — | ⏸ Built in CI, unpublished — blocked on upstream `pyogrio` musl wheels |
 
 Distros covered by the Linux wheel out of the box:
 
-- Ubuntu 24.04 LTS and newer
-- Debian 13 (trixie) and newer
-- RHEL / Rocky / Alma Linux 10 and newer
-- Fedora 39 and newer
+- Ubuntu 20.04 LTS and newer
+- Debian 11 (bullseye) and newer
+- RHEL / Rocky / Alma Linux 8 and newer
+- Amazon Linux 2023
+- Fedora 38 and newer
 - Arch Linux (rolling)
 
-If your distro has **glibc < 2.39**, use the conda-forge path instead.
+If your distro has **glibc < 2.28**, use the conda-forge path instead.
 
 ## System dependencies
 
@@ -242,10 +242,10 @@ runtime issues.
 
 `pyramids-gis` is licensed under GPLv3. The platform wheels published on
 PyPI bundle **GDAL** and its native dependencies — PROJ, GEOS, libtiff,
-libgeotiff, NetCDF-C, HDF5 / HDF4, libcurl, OpenSSL, libxml2, libpng,
-libjpeg-turbo, libwebp, zlib / libdeflate / zstd / lz4 / bzip2 / liblzma,
-and on Linux the GCC 13 libstdc++ — each under its own MIT, BSD, LGPL,
-or Apache license.
+libgeotiff, NetCDF-C, HDF5, OpenJPEG, libcurl, OpenSSL, libpng,
+libjpeg-turbo, libwebp, zlib / libdeflate / zstd / liblzma, and more
+(macOS/Windows additionally bundle HDF4 and libxml2 via the conda-forge
+build) — each under its own MIT, BSD, LGPL, or Apache license.
 
 The full license text for every bundled library ships inside the wheel
 under `pyramids/_licenses/<package>/` and stays bound to that wheel even

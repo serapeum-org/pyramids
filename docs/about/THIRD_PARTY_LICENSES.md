@@ -7,11 +7,15 @@ The platform wheels published on PyPI **bundle** GDAL and its native dependencie
 so that `pip install pyramids-gis` yields a self-contained install with no
 out-of-band compiler or system GDAL. Each bundled library has its own copyright
 and license, listed below. The full license text for every entry is shipped
-inside the wheel under `pyramids/_licenses/<package>/` — `ci/install-and-vendor-osgeo.py`
-mirrors each conda-forge package's `info/licenses/` directory there at build
-time. Source-distribution (sdist) users build their own GDAL out-of-band, so the
-sdist does not bundle third-party binaries and the licenses below do not apply
-to it.
+inside the wheel under `pyramids/_licenses/<package>/`. The mirror source
+depends on the build model: **Linux** wheels compile the stack from source
+(`ci/source-build/`) and copy each dependency's `LICENSE`/`COPYING` from its
+source tree; **macOS/Windows** wheels extract conda-forge packages and mirror
+each package's `info/licenses/` directory. The exact bundled set therefore
+differs per platform (the Linux wheel carries a leaner, curated stack — no
+HDF4, SpatiaLite, Xerces-C, ICU, or JPEG-XL). Source-distribution (sdist)
+users build their own GDAL out-of-band, so the sdist does not bundle
+third-party binaries and the licenses below do not apply to it.
 
 If you redistribute a `pyramids-gis` platform wheel — directly or as a component
 of a larger product — the MIT, BSD, LGPL, and Apache notices below must travel

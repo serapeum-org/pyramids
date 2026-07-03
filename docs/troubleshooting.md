@@ -9,18 +9,18 @@ fix them.
 
 **Symptoms:**
 ```
-ERROR: pyramids_gis-0.13.0-cp312-cp312-manylinux_2_39_x86_64.whl
+ERROR: pyramids_gis-X.Y.Z-cp312-cp312-manylinux_2_28_x86_64.whl
 is not a supported wheel on this platform.
 ```
 
-**Cause:** Your Linux system has glibc older than 2.39. Our wheels are
-tagged `manylinux_2_39` because conda-forge's GDAL is compiled with
-GCC 13 and references GLIBCXX_3.4.32 symbols only available in glibc 2.39+
-(Ubuntu 24.04+, RHEL 10+, Debian 13+).
+**Cause:** Your Linux system has glibc older than 2.28. Our Linux wheels
+are tagged `manylinux_2_28` (GDAL and its stack are compiled from source
+with the manylinux toolchain), which covers Ubuntu 20.04+, Debian 11+,
+RHEL/Rocky/Alma 8+, and Amazon Linux 2023.
 
 **Fix options (pick one):**
 
-1. **Upgrade your distro** to one with glibc 2.39+.
+1. **Upgrade your distro** to one with glibc 2.28+.
 
 2. **Use conda-forge** instead of pip:
    ```console
@@ -273,13 +273,27 @@ from osgeo import gdal     # now finds them
 
 ### Wheel too large / slow download
 
-Our wheel is ~63 MB (vs rasterio's ~26 MB) because it bundles HDF4,
-HDF5, and NetCDF drivers. If you don't need these:
+The Linux wheel is ~30 MB compressed (a curated GDAL stack compiled from
+source); macOS/Windows wheels are larger because they bundle conda-forge's
+full-driver GDAL (incl. HDF4). If you need an even smaller install, the
+conda-forge package is modular and only pulls in NetCDF/HDF5 if you
+explicitly install `libgdal-netcdf`.
 
-- The conda-forge package is modular and only pulls in HDF4/NetCDF if
-  you explicitly install `libgdal-netcdf`, `libgdal-hdf4`.
-- We don't currently ship a "lite" wheel without these drivers. File an
-  issue if that would be valuable.
+---
+
+### Reading NetCDF inside a zip fails in Docker (`/vsizip/...nc not recognized`)
+
+**Symptoms:** reading a `.nc` inside an archive (`/vsizip//data/x.zip/x.nc`)
+fails in a container with "not recognized as being in a supported file
+format", while the same read works on the host.
+
+**Cause:** GDAL's netCDF driver opens non-`/vsimem` virtual paths only via
+Linux **userfaultfd**, and Docker's default seccomp profile blocks that
+syscall. This applies to every pyramids wheel (and any GDAL build).
+
+**Fix:** run the container with `--security-opt seccomp=unconfined` (or a
+custom profile allowing `userfaultfd`), or extract the archive before
+reading. Plain files, `/vsimem/`, and zipped GTiff/GeoJSON are unaffected.
 
 ---
 

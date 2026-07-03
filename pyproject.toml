@@ -410,38 +410,39 @@ test-skip = "*"
 # to a shared block silently broke every build ("PACKAGE_DATA != 1"; commit 607d3153).
 
 [tool.cibuildwheel.linux]
-# manylinux_2_28 build image covers Ubuntu 20.04+ / RHEL 8+. Need 2_28
-# (not 2014) because conda-forge GDAL links symbols newer than glibc 2.17.
+# Linux wheels are built FROM SOURCE (#332): ci/source-build/config.sh
+# compiles the curated GDAL dependency stack with the build image's own
+# toolchain, so no symbol exceeds the image's glibc baseline and the wheel
+# tags manylinux_2_28 (Ubuntu 20.04+ / Debian 11+ / RHEL 8+ / AL2023).
+# macOS/Windows keep the conda-extract model (setup-gdal-from-pixi.*).
 manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
-# Forward the toolchain pins (set in build-wheels.yml's env block) into
-# the manylinux container — host env vars don't auto-propagate there.
-environment-pass = ["PIXI_VERSION", "MICROMAMBA_VERSION"]
-before-all = ["bash ./ci/setup-gdal-from-pixi.sh"]
+before-all = ["bash ./ci/source-build/build-gdal-stack.sh"]
 # install-and-vendor-osgeo.py runs pip WITH build isolation so it picks
 # up setuptools>=77 (GDAL's build-system.requires) and a matching
 # numpy. Without isolation, the manylinux container's pre-installed
 # setuptools 75.5.0 rejects GDAL's PEP 639 license string.
 before-build = ["python ./ci/install-and-vendor-osgeo.py"]
 # auditwheel walks the .so dep graph, bundles libgdal + transitive deps
-# into pyramids_gis.libs/, and rewrites RPATH. Output tagged
-# manylinux_2_39 because conda-forge's GDAL is GCC-13 (GLIBCXX_3.4.32);
-# tighten when conda-forge ships with older GCC. ${AUDITWHEEL_ARCH} is
+# into pyramids_gis.libs/, and rewrites RPATH. Tag = the build image's own
+# floor (the whole point of the from-source stack). ${AUDITWHEEL_ARCH} is
 # auto-exported by cibuildwheel inside the container (x86_64/aarch64).
+# The musl canary jobs in bundle-pypi-wheels.yml override --plat to
+# musllinux_1_2_* via CIBW_REPAIR_WHEEL_COMMAND.
 repair-wheel-command = [
-    "LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 auditwheel repair --plat manylinux_2_39_${AUDITWHEEL_ARCH} -w {dest_dir} {wheel}",
+    "LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64 auditwheel repair --plat manylinux_2_28_${AUDITWHEEL_ARCH} -w {dest_dir} {wheel}",
 ]
 
 [tool.cibuildwheel.linux.environment]
-# GDAL_VERSION resolved at runtime by setup-gdal-from-pixi.sh and written
-# to ${BUILD_PREFIX}/GDAL_VERSION (source of truth = pixi.lock).
+# GDAL_VERSION is pinned in ci/source-build/build-gdal-stack.sh (which also
+# writes ${BUILD_PREFIX}/GDAL_VERSION for install-and-vendor-osgeo.py); bump
+# it together with ci/source-build/config.sh's dep pins.
 BUILD_PREFIX = "/usr/local"
 GDAL_DATA = "/usr/local/share/gdal"
 PROJ_DATA = "/usr/local/share/proj"
 PROJ_LIB = "/usr/local/share/proj"
 PACKAGE_DATA = "1"
 LD_LIBRARY_PATH = "/usr/local/lib:/usr/local/lib64"
-PIXI_NO_PATH_UPDATE = "1"
 
 
 # macOS: same pixi/conda-forge flow as Linux, but with .dylib +

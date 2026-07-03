@@ -33,10 +33,10 @@ env:
   # (T3.1, #474). Generous backstop above the current per-platform footprint
   # (~143 MB Linux x86_64 post-#471); catches a regression without false-failing.
   WHEEL_INSTALLED_BUDGET_MB: "250"
-  # Toolchain pins for the GDAL-extraction scripts (ci/setup-gdal-*.sh,
-  # .ps1). macOS / Windows cibuildwheel runs before-all on the host and
-  # inherits these directly; the Linux container build forwards them via
-  # [tool.cibuildwheel.linux].environment-pass in pyproject.toml.
+  # Toolchain pins for the conda GDAL-extraction scripts (ci/setup-gdal-*.sh,
+  # .ps1) used by macOS / Windows, whose cibuildwheel runs before-all on the
+  # host and inherits these directly. Linux builds from source
+  # (ci/source-build/) and no longer needs them.
   PIXI_VERSION: "0.68.1"
   MICROMAMBA_VERSION: "2.6.1"
 
@@ -74,6 +74,10 @@ jobs:
           retention-days: 3
 
   build-linux-wheels:
+    # Linux wheels are built FROM SOURCE (#332): pyproject's
+    # [tool.cibuildwheel.linux] runs ci/source-build/build-gdal-stack.sh as
+    # before-all and tags manylinux_2_28. A compiled-stack cache keeps warm
+    # builds at ~15 min; cold (build-script changes) ~60 min.
     if: >-
       github.event_name != 'workflow_run' ||
       (github.event.workflow_run.conclusion == 'success' &&
@@ -81,7 +85,7 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     permissions:
       contents: read
-    timeout-minutes: 30
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -100,6 +104,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Cache the built GDAL stack
+        uses: actions/cache@v4
+        with:
+          path: .srcbuild-cache
+          key: srcbuild-glibc-${{ matrix.arch }}-${{ hashFiles('ci/source-build/config.sh', 'ci/source-build/build-gdal-stack.sh') }}
+
       - name: Build wheels
         uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55 # v4.1.0
         env:
@@ -116,6 +126,72 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: wheels-linux-${{ matrix.arch }}
+          path: wheelhouse/*.whl
+          retention-days: 3
+
+  build-musl-wheels:
+    # CANARY ONLY — built and verified but NOT published (#333): a naive
+    # `pip install pyramids-gis` on Alpine currently fails upstream of us
+    # (geopandas hard-requires pyogrio, which ships no musllinux wheels and
+    # whose sdist needs gdal-config). Publishing waits on upstream pyogrio
+    # musl wheels. The `canary-` artifact prefix keeps these out of the
+    # release job's `{sdist,wheels-*}` download pattern.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ${{ matrix.runs-on }}
+    permissions:
+      contents: read
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runs-on: ubuntu-latest
+            build: "cp311-musllinux_x86_64 cp312-musllinux_x86_64 cp313-musllinux_x86_64 cp314-musllinux_x86_64"
+            plat: musllinux_1_2_x86_64
+          - arch: aarch64
+            runs-on: ubuntu-24.04-arm
+            build: "cp311-musllinux_aarch64 cp312-musllinux_aarch64 cp313-musllinux_aarch64 cp314-musllinux_aarch64"
+            plat: musllinux_1_2_aarch64
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Cache the built GDAL stack
+        uses: actions/cache@v4
+        with:
+          path: .srcbuild-cache
+          key: srcbuild-musl-${{ matrix.arch }}-${{ hashFiles('ci/source-build/config.sh', 'ci/source-build/build-gdal-stack.sh') }}
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55 # v4.1.0
+        env:
+          CIBW_ARCHS_LINUX: ${{ matrix.arch }}
+          # Override the TOML skip (which excludes *musllinux*) and the glibc
+          # repair --plat; before-all/environment come from the TOML linux
+          # block, which applies to musllinux builds too.
+          CIBW_BUILD: ${{ matrix.build }}
+          CIBW_SKIP: "*pp* cp314t-*"
+          CIBW_REPAIR_WHEEL_COMMAND: >-
+            LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib64
+            auditwheel repair --plat ${{ matrix.plat }} -w {dest_dir} {wheel}
+
+      - name: Report wheel sizes
+        shell: bash
+        run: bash ci/check-wheel-size.sh wheelhouse
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: canary-musl-${{ matrix.arch }}
           path: wheelhouse/*.whl
           retention-days: 3
 
@@ -260,9 +336,132 @@ jobs:
         timeout-minutes: 10
         run: pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m "core and not vfs and not slow" tests/
 
+  # Old-glibc reach validation — the distros the pre-#332 manylinux_2_39
+  # wheel could not install on. seccomp=unconfined: GDAL's netCDF driver
+  # opens nc-inside-archives (/vsizip) only via Linux userfaultfd, which
+  # docker's default seccomp blocks (identical requirement for every build
+  # model; the uncontained test-wheels jobs never hit it).
+  verify-debian12:
+    needs: build-linux-wheels
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-slim-bookworm
+      options: --security-opt seccomp=unconfined
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: wheels-linux-x86_64
+          path: wheelhouse
+
+      - name: Show glibc
+        run: ldd --version | head -1
+
+      - name: Install libexpat (slim-image requirement; manylinux policy whitelists it)
+        run: apt-get update -qq && apt-get install -y -qq libexpat1
+
+      - name: Install wheel
+        shell: bash
+        run: |
+          WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*manylinux_2_28_x86_64.whl)
+          pip install "${WHEEL}"
+          pip install pytest pytest-env pytest-mock pytest-timeout
+
+      - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
+        run: python ci/verify-wheel.py
+
+      - name: Run hermetic core test suite
+        run: pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m "core and not vfs and not slow" tests/
+
+  verify-rocky9:
+    needs: build-linux-wheels
+    runs-on: ubuntu-latest
+    container:
+      image: rockylinux:9
+      options: --security-opt seccomp=unconfined
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: wheels-linux-x86_64
+          path: wheelhouse
+
+      - name: Install python 3.12 + show glibc
+        run: |
+          dnf install -y -q python3.12 python3.12-pip
+          ldd --version | head -1
+
+      - name: Install wheel
+        shell: bash
+        run: |
+          WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*manylinux_2_28_x86_64.whl)
+          python3.12 -m pip install "${WHEEL}"
+          python3.12 -m pip install pytest pytest-env pytest-mock pytest-timeout
+
+      - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
+        run: python3.12 ci/verify-wheel.py
+
+      - name: Run hermetic core test suite
+        run: python3.12 -m pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m "core and not vfs and not slow" tests/
+
+  # Alpine/musl canary (#333, not published). Vector file I/O is unavailable
+  # until upstream pyogrio ships musllinux wheels (geopandas hard-requires
+  # pyogrio, so its install here is --no-deps); the suite is raster/netCDF
+  # scoped and extras-marked tests auto-skip.
+  verify-alpine:
+    needs: build-musl-wheels
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-alpine
+      options: --security-opt seccomp=unconfined
+    timeout-minutes: 30
+    steps:
+      - name: Install bash (alpine ships only busybox sh)
+        shell: sh
+        run: apk add --no-cache bash
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: canary-musl-x86_64
+          path: wheelhouse
+
+      - name: Install wheel (controlled deps — pyogrio has no musl wheels)
+        shell: bash
+        run: |
+          WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*musllinux_1_2_x86_64.whl)
+          pip install "${WHEEL}" --no-deps
+          pip install numpy pandas scipy shapely pyproj PyYAML cftime hpc-utils packaging
+          pip install geopandas --no-deps
+          pip install pytest pytest-env pytest-mock pytest-timeout
+
+      - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
+        run: python ci/verify-wheel.py
+
+      - name: Run raster/netCDF-scoped core suite
+        run: >-
+          pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread
+          -m "core and not vfs and not slow"
+          tests/base tests/netcdf tests/test_io.py tests/test_grib.py
+
   release:
     name: Publish to PyPI + attach to GitHub release
-    needs: [build-sdist, build-linux-wheels, build-macos-wheels, build-windows-wheels, test-wheels]
+    # NOTE: musl canaries (build-musl-wheels / verify-alpine) are deliberately
+    # NOT in needs and their `canary-*` artifacts don't match the download
+    # pattern — they are built + verified but unpublished until upstream
+    # pyogrio ships musllinux wheels (#333).
+    needs: [build-sdist, build-linux-wheels, build-macos-wheels, build-windows-wheels, test-wheels, verify-debian12, verify-rocky9]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: >-
@@ -276,10 +475,11 @@ jobs:
       # uploads to a unique name (sdist, wheels-<os>-<arch>); this gather relies on
       # download-artifact v4+ `merge-multiple` to collect them all into dist/.
       # Keep the per-job names unique if you add build matrix entries.
-      - name: Download all artifacts from this run
+      - name: Download release artifacts from this run (excludes musl canaries)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: dist/
+          pattern: "{sdist,wheels-*}"
           merge-multiple: true
 
       - name: List artifacts about to be released
