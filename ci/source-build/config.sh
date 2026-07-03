@@ -416,8 +416,12 @@ function build_blosc {
 	if [ -e blosc-stamp ]; then return; fi
 	local cmake=cmake
     echo "Running build_blosc"
+	# pyramids delta: skip bench/tests/fuzzers — GDAL links only the library,
+	# and c-blosc's bench.c trips musl's feature-macro strictness
+	# (clock_gettime/CLOCK_MONOTONIC undeclared without _GNU_SOURCE).
 	(cd ${BLOSC_FNAME} &&
-		$cmake -DCMAKE_INSTALL_PREFIX=$BUILD_PREFIX -DCMAKE_POLICY_VERSION_MINIMUM=3.5 . &&
+		$cmake -DCMAKE_INSTALL_PREFIX=$BUILD_PREFIX -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+			-DBUILD_BENCHMARKS=OFF -DBUILD_TESTS=OFF -DBUILD_FUZZERS=OFF . &&
 		make install)
 	if [ -n "$IS_MACOS" ]; then
 		# Fix blosc library id bug
