@@ -240,7 +240,7 @@ class TestPlotPR6Cleanups:
         """
         from pathlib import Path
 
-        repo = Path(__file__).parents[2]
+        repo = Path(__file__).parents[3]
         targets = [
             "src/pyramids/dataset/_plot_helpers.py",
             "src/pyramids/dataset/engines/analysis.py",
@@ -378,7 +378,7 @@ class TestPR6CleanupGrepGuards:
         import re
         from pathlib import Path
 
-        repo = Path(__file__).parents[2]
+        repo = Path(__file__).parents[3]
         src = repo / "src" / "pyramids"
         pattern = re.compile(r"import_cleopatra\s*\(")
         offenders: list[str] = []
@@ -411,7 +411,7 @@ class TestPR6CleanupGrepGuards:
         """
         from pathlib import Path
 
-        repo = Path(__file__).parents[2]
+        repo = Path(__file__).parents[3]
         targets = [
             "src/pyramids/dataset/_plot_helpers.py",
             "src/pyramids/dataset/engines/analysis.py",

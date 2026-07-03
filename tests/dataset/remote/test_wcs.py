@@ -23,7 +23,7 @@ from osgeo import gdal, osr
 from pyramids.dataset import Dataset
 from pyramids.dataset import _wcs
 from pyramids.errors import WCSError
-from tests.dataset.wcs_mock_server import WcsMock
+from tests.dataset.remote.wcs_mock_server import WcsMock
 from tests.http_mock import make_fixed_body_server
 
 CAPS_2_0_1 = """<?xml version="1.0" encoding="UTF-8"?>
