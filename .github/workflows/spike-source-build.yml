@@ -183,6 +183,10 @@ jobs:
           name: wheels-musl-x86_64
           path: wheelhouse
 
+      - name: Install bash (alpine ships only busybox sh; explicit shell:bash steps need it)
+        shell: sh
+        run: apk add --no-cache bash
+
       - name: Show libc
         run: apk info musl 2>/dev/null | head -1 || ldd 2>&1 | head -1
 
