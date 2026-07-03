@@ -18,7 +18,7 @@ pytestmark = pytest.mark.core
 
 def _make_nc(rows=20, cols=30, bands=5):
     """Create an in-memory NetCDF with a regular geographic grid."""
-    arr = np.random.RandomState(42).rand(bands, rows, cols).astype(np.float64)
+    arr = np.random.default_rng(42).random((bands, rows, cols)).astype(np.float64)
     geo = (30.0, 0.5, 0, 35.0, 0, -0.5)
     nc = NetCDF.create_from_array(
         arr=arr,
@@ -150,7 +150,7 @@ class TestWholeContainerCrop:
     def _make_multi_var_nc(self):
         """Create a container with two variables."""
         nc = _make_nc()
-        arr2 = np.random.RandomState(99).rand(5, 20, 30).astype(np.float64)
+        arr2 = np.random.default_rng(99).random((5, 20, 30)).astype(np.float64)
         ds2 = Dataset.create_from_array(
             arr2,
             geo=(30.0, 0.5, 0, 35.0, 0, -0.5),
@@ -227,7 +227,7 @@ class TestWholeContainerResample:
         """
         nc = _make_nc()
         ds2 = Dataset.create_from_array(
-            np.random.RandomState(99).rand(5, 20, 30),
+            np.random.default_rng(99).random((5, 20, 30)),
             geo=(30.0, 0.5, 0, 35.0, 0, -0.5),
             epsg=4326,
             no_data_value=-9999.0,

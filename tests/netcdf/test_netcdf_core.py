@@ -386,7 +386,7 @@ class TestReadMdArray:
             A 3D variable's non-spatial dimensions should become bands.
             Returns a tuple (dataset, md_arr, rg, iXDim, iYDim) for lifetime safety.
         """
-        src, md_arr, rg, _ix, _iy = nc_3d._read_md_array("temperature")
+        src, _, _, _ix, _iy = nc_3d._read_md_array("temperature")
         assert isinstance(src, gdal.Dataset), f"Expected gdal.Dataset, got {type(src)}"
         assert (
             src.RasterCount == 3
@@ -490,8 +490,8 @@ class TestGetOrCreateDimension:
         rg = src.GetRootGroup()
         values = np.array([1.0, 2.0, 3.0])
         dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
-        dim1 = NetCDF._get_or_create_dimension(rg, "x", values, dtype)
-        dim2 = NetCDF._get_or_create_dimension(rg, "x", values, dtype)
+        NetCDF._get_or_create_dimension(rg, "x", values, dtype)
+        NetCDF._get_or_create_dimension(rg, "x", values, dtype)
         dims = rg.GetDimensions()
         x_dims = [d for d in dims if d.GetName().startswith("x")]
         assert len(x_dims) == 1, f"Expected 1 x-dimension (reused), got {len(x_dims)}"
@@ -551,7 +551,7 @@ class TestSetVariableEdgeCases:
         """
         nc = make_2d_nc()
         ds = Dataset.create_from_array(
-            np.random.rand(10, 12),
+            np.random.default_rng(0).random((10, 12)),
             geo=(0.0, 1.0, 0, 10.0, 0, -1.0),
             epsg=4326,
             no_data_value=-9999.0,
@@ -594,7 +594,7 @@ class TestSetVariableEdgeCases:
             should create a time dimension with those values.
         """
         nc = _make_3d_nc()
-        arr = np.random.rand(3, 10, 12)
+        arr = np.random.default_rng(0).random((3, 10, 12))
         ds = Dataset.create_from_array(
             arr,
             geo=(0.0, 1.0, 0, 10.0, 0, -1.0),
@@ -627,9 +627,7 @@ class TestReplaceRaster:
         """
         nc = _make_3d_nc(rows=5, cols=6, bands=2)
         var = nc.get_variable("temperature")
-        old_rows = var.rows
-        old_cols = var.columns
-        new_arr = np.random.rand(4, 8, 10)
+        new_arr = np.random.default_rng(0).random((4, 8, 10))
         new_geo = (0.0, 0.5, 0, 4.0, 0, -0.5)
         new_ds = Dataset.create_from_array(
             new_arr,
@@ -653,7 +651,7 @@ class TestReplaceRaster:
         var = nc.get_variable("temperature")
         assert var._is_subset is True
         new_ds = Dataset.create_from_array(
-            np.random.rand(3, 5, 5),
+            np.random.default_rng(0).random((3, 5, 5)),
             geo=(0.0, 1.0, 0, 5.0, 0, -1.0),
             epsg=4326,
             no_data_value=-9999.0,
