@@ -99,7 +99,7 @@ class TestToCogStackKwargs:
         out = tmp_path / "cog_stack"
         paths = small_collection.to_cog_stack(out, blocksize=128)
         reopened = gdal.Open(str(paths[0]))
-        bx, by = reopened.GetRasterBand(1).GetBlockSize()
+        bx, _ = reopened.GetRasterBand(1).GetBlockSize()
         assert bx == 128
         reopened = None
 
