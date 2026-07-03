@@ -496,7 +496,11 @@ function build_proj {
 
 function build_sqlite {
 
-	if [ -z "$IS_MACOS" ]; then
+	# pyramids delta: only glibc has the LFS64 aliases. musl removed
+	# off64_t/pread64/pwrite64 from its headers (1.2.4+) — its plain
+	# pread/pwrite are already 64-bit — so force-defining HAVE_PREAD64
+	# there makes sqlite3.c reference undeclared symbols and fail.
+	if [ -z "$IS_MACOS" ] && ! command -v apk >/dev/null 2>&1; then
 		CFLAGS="$CFLAGS -DHAVE_PREAD64 -DHAVE_PWRITE64"
 	fi
 
