@@ -398,6 +398,23 @@ class TestCreateNoDataNone:
 class TestSetNoDataValueMocked:
     """Tests for _set_no_data_value error paths using mocks."""
 
+    def test_set_nodata_read_only_error_via_mock(self):
+        """_set_no_data_value translates a read-only fill RuntimeError into ReadOnlyError."""
+        arr = np.ones((3, 3), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        err_msg = "Attempt to write to read only dataset in GDALRasterBand::Fill()."
+        with patch.object(
+            ds.bands, "_set_no_data_value_backend", side_effect=RuntimeError(err_msg)
+        ):
+            with pytest.raises(ReadOnlyError):
+                ds.bands._set_no_data_value([-1234.0])
+
     def test_set_nodata_double_conversion_via_mock(self):
         """_set_no_data_value retries with float64 on type error."""
         arr = np.ones((3, 3), dtype=np.float32)
