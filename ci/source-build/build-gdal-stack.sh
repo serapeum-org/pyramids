@@ -1,36 +1,51 @@
 #!/bin/bash
 #
-# Phase-1 spike (#332): build the curated GDAL stack FROM SOURCE inside the
-# manylinux_2_28 container, replacing ci/setup-gdal-from-pixi.sh as
-# CIBW_BEFORE_ALL. Everything compiles with the image's own toolchain, so no
-# GLIBCXX symbol exceeds the 2.28 baseline and auditwheel can tag
-# manylinux_2_28 (vs the conda-extract model's forced 2_39).
+# Build the curated GDAL stack FROM SOURCE inside the wheel-build container,
+# replacing ci/setup-gdal-from-pixi.sh as CIBW_BEFORE_ALL (#332 / #333).
+# Everything compiles with the image's own toolchain, so the wheel tags at
+# the image's floor:
+#   - quay.io/pypa/manylinux_2_28_*  -> manylinux_2_28 (glibc >= 2.28)
+#   - quay.io/pypa/musllinux_1_2_*   -> musllinux_1_2 (Alpine/musl — a
+#     platform conda-forge cannot serve at all)
 #
 # Contract with the rest of the pipeline (mirrors setup-gdal-from-pixi.sh):
 #   - installs the stack into ${BUILD_PREFIX} (default /usr/local): libs,
 #     gdal-config, share/gdal, share/proj
 #   - writes ${BUILD_PREFIX}/GDAL_VERSION for ci/install-and-vendor-osgeo.py
 #   - stages the curl CA bundle at ${BUILD_PREFIX}/ssl/cacert.pem (#412)
-# Known spike gaps (Phase 2 work, not blockers for the feasibility gate):
-#   - third-party license texts are NOT vendored (no conda-meta to mirror);
-#     _vendor_license_texts warns and continues
+#   - collects each dep's LICENSE/COPYING into
+#     ${BUILD_PREFIX}/share/pyramids-bundled-licenses/<dep>/ so
+#     install-and-vendor-osgeo.py can ship them in _licenses/ (no conda-meta
+#     to mirror under the from-source model)
 set -euo pipefail
 
 export BUILD_PREFIX="${BUILD_PREFIX:-/usr/local}"
 export GDAL_VERSION="${GDAL_VERSION:-3.13.1}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-echo "=== from-source GDAL stack: GDAL ${GDAL_VERSION} -> ${BUILD_PREFIX} ==="
-
-# Toolchain prerequisites. manylinux_2_28 (AlmaLinux 8) ships gcc-toolset +
-# make; cmake/wget vary by image revision, so ensure them explicitly.
-if ! command -v wget >/dev/null 2>&1; then
-    (dnf install -y wget || yum install -y wget) >/dev/null
+# glibc (manylinux/AlmaLinux, dnf) vs musl (musllinux/Alpine, apk).
+if command -v apk >/dev/null 2>&1; then
+    LIBC_FLAVOR="musl"
+else
+    LIBC_FLAVOR="glibc"
 fi
-# OpenSSL's Configure requires full perl (IPC::Cmd, FindBin, Pod::*); the
-# AlmaLinux base image ships a minimal perl that aborts at BEGIN.
-if ! perl -MIPC::Cmd -e1 >/dev/null 2>&1; then
-    (dnf install -y perl-core || yum install -y perl-core) >/dev/null
+echo "=== from-source GDAL stack: GDAL ${GDAL_VERSION} -> ${BUILD_PREFIX} (${LIBC_FLAVOR} $(uname -m)) ==="
+
+# Toolchain prerequisites.
+#   - wget: config.sh's fetch helper.
+#   - perl: OpenSSL's Configure needs full perl (IPC::Cmd, FindBin, Pod::*);
+#     both base images ship a minimal or no perl.
+#   - linux-headers (musl only): linux/userfaultfd.h so ENABLE_UFFD compiles
+#     into the netCDF driver (manylinux gets it via kernel-headers already).
+if [[ "${LIBC_FLAVOR}" == "musl" ]]; then
+    apk add --no-cache wget perl linux-headers >/dev/null
+else
+    if ! command -v wget >/dev/null 2>&1; then
+        (dnf install -y wget || yum install -y wget) >/dev/null
+    fi
+    if ! perl -MIPC::Cmd -e1 >/dev/null 2>&1; then
+        (dnf install -y perl-core || yum install -y perl-core) >/dev/null
+    fi
 fi
 if ! command -v cmake >/dev/null 2>&1; then
     pipx install cmake >/dev/null 2>&1 || /opt/python/cp312-cp312/bin/pip install --quiet cmake
@@ -39,13 +54,13 @@ fi
 echo "cmake: $(command -v cmake) ($(cmake --version | head -1))"
 
 # Dep-stack cache: the full compile is ~50 min; a tar of the installed
-# prefix keyed on config.sh's hash makes iteration cheap. The tar lives
-# under the mounted project dir so the host job can persist it via
-# actions/cache across runs.
+# prefix keyed on config.sh's hash + libc flavor + arch makes iteration
+# cheap. The tar lives under the mounted project dir so the host job can
+# persist it via actions/cache across runs.
 PROJECT_DIR="$(dirname "$(dirname "${SCRIPT_DIR}")")"
 CACHE_DIR="${PROJECT_DIR}/.srcbuild-cache"
 _cfg_hash=$(sha256sum "${SCRIPT_DIR}/config.sh" | cut -c1-16)
-CACHE_TAR="${CACHE_DIR}/gdal-stack-${_cfg_hash}-$(uname -m).tar"
+CACHE_TAR="${CACHE_DIR}/gdal-stack-${_cfg_hash}-${LIBC_FLAVOR}-$(uname -m).tar"
 
 if [[ -f "${CACHE_TAR}" ]]; then
     echo "=== restoring cached stack ($(basename "${CACHE_TAR}")) ==="
@@ -57,6 +72,25 @@ else
     mkdir -p "${work}"
     cd "${work}"
     bash "${SCRIPT_DIR}/config.sh"
+
+    # License collection (from-source replacement for the conda-meta mirror):
+    # every dependency's source tree is still extracted in ${work}; copy each
+    # LICENSE/COPYING variant into the prefix so it (a) ships in the wheel via
+    # install-and-vendor-osgeo.py and (b) rides inside the cache tar.
+    LIC_DST="${BUILD_PREFIX}/share/pyramids-bundled-licenses"
+    mkdir -p "${LIC_DST}"
+    for d in "${work}"/*/; do
+        dep=$(basename "${d}")
+        for f in LICENSE LICENSE.TXT LICENSE.txt LICENSE.md LICENSES.txt COPYING \
+                 COPYING.txt COPYING.LIB COPYING.LESSER COPYRIGHT LICENCE license.txt; do
+            if [[ -f "${d}${f}" ]]; then
+                mkdir -p "${LIC_DST}/${dep}"
+                cp "${d}${f}" "${LIC_DST}/${dep}/${f}"
+            fi
+        done
+    done
+    echo "collected licenses for: $(ls "${LIC_DST}" | tr '\n' ' ')"
+
     cd /
     mkdir -p "${CACHE_DIR}"
     echo "=== caching built stack to $(basename "${CACHE_TAR}") ==="
@@ -70,7 +104,8 @@ echo "${GDAL_VERSION}" > "${BUILD_PREFIX}/GDAL_VERSION"
 # default CA file; ship a real bundle in the wheel and let the runtime
 # bootstrap point GDAL/curl at it.
 mkdir -p "${BUILD_PREFIX}/ssl"
-for ca in /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt; do
+for ca in /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/certs/ca-certificates.crt \
+          /etc/ssl/cert.pem; do
     if [[ -f "${ca}" ]]; then
         cp "${ca}" "${BUILD_PREFIX}/ssl/cacert.pem"
         echo "CA bundle staged from ${ca}"
@@ -106,6 +141,13 @@ echo "all required drivers present"
 echo "--- driver capability flags ---"
 grep -E "netCDF|GTiff|HDF5|Zarr|GRIB" <<<"${_gdal_formats}" || true
 
+# License gate: an empty collection means the wheel would ship without the
+# legally required third-party notices.
+if [[ -z "$(ls -A "${BUILD_PREFIX}/share/pyramids-bundled-licenses" 2>/dev/null)" ]]; then
+    echo "ERROR: no bundled licenses collected (share/pyramids-bundled-licenses empty)" >&2
+    exit 1
+fi
+
 # /vsizip netCDF probe (informational). GDAL 3.13's netCDF driver opens
 # non-/vsimem VSI paths (nc inside /vsizip, /vsitar, ...) ONLY via Linux
 # userfaultfd (netcdfdataset.cpp: /vsimem -> nc_open_mem; other /vsi ->
@@ -117,7 +159,7 @@ grep -E "netCDF|GTiff|HDF5|Zarr|GRIB" <<<"${_gdal_formats}" || true
 #     the conda-extract wheel (parity).
 # A FAILURE WITHOUT the userfaultfd message means ENABLE_UFFD was not even
 # compiled (missing linux/userfaultfd.h at configure) — that's a real build
-# defect: install kernel-headers and rebuild.
+# defect: install kernel-headers / linux-headers and rebuild.
 echo "--- /vsizip netCDF probe ---"
 "${BUILD_PREFIX}/bin/gdal_create" -of netCDF -outsize 8 8 -bands 1 /tmp/probe.nc
 (cd /tmp && /opt/python/cp312-cp312/bin/python -m zipfile -c probe.zip probe.nc)

@@ -538,10 +538,23 @@ def vendor_osgeo_into_package() -> None:
     # `pyramids/_licenses/<pkg>/` so the wheel physically ships each
     # license alongside the libgdal / libproj / libgeos / … binaries
     # it bundles.
-    _vendor_license_texts(
-        REPO_ROOT / ".pixi" / "envs" / "wheel-build",
-        src_pyramids / "_licenses",
-    )
+    # Two build models: conda-extract mirrors each conda package's
+    # info/licenses; the from-source stack (#332/#333) has no conda-meta, so
+    # ci/source-build/build-gdal-stack.sh collects each dep's LICENSE/COPYING
+    # from its source tree into share/pyramids-bundled-licenses instead.
+    source_licenses = _data_layout_roots(prefix)[1] / "pyramids-bundled-licenses"
+    if source_licenses.is_dir():
+        _copy_tree_replacing(source_licenses, src_pyramids / "_licenses")
+        print(
+            "[install-and-vendor-osgeo] vendored from-source license texts "
+            f"({sum(1 for _ in (src_pyramids / '_licenses').iterdir())} packages)",
+            flush=True,
+        )
+    else:
+        _vendor_license_texts(
+            REPO_ROOT / ".pixi" / "envs" / "wheel-build",
+            src_pyramids / "_licenses",
+        )
 
     # 7. Defense-in-depth `.gitignore` markers. The repo .gitignore
     # already excludes `src/pyramids/_vendor/` and `src/pyramids/_data/`,
