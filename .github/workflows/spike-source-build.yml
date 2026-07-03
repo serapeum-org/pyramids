@@ -190,12 +190,22 @@ jobs:
       - name: Show libc
         run: apk info musl 2>/dev/null | head -1 || ldd 2>&1 | head -1
 
-      - name: Install wheel
+      - name: Install wheel (controlled deps — pyogrio has no musl wheels)
         shell: bash
         run: |
           WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*musllinux_1_2_x86_64.whl)
           echo "installing ${WHEEL}"
-          pip install "${WHEEL}"
+          # A naive `pip install pyramids-gis` on Alpine currently fails
+          # UPSTREAM of us: geopandas 1.x hard-requires pyogrio, pyogrio ships
+          # no musllinux wheels, and its sdist needs gdal-config. geopandas
+          # imports pyogrio lazily (io/file.py), so installing geopandas with
+          # --no-deps keeps everything except vector file I/O functional.
+          # Every dep below ships musl wheels (verified on PyPI) or is pure.
+          # => musl wheel PUBLISHING is gated on upstream pyogrio musl wheels;
+          # this job validates our artifact and stays as the canary.
+          pip install "${WHEEL}" --no-deps
+          pip install numpy pandas scipy shapely pyproj PyYAML cftime hpc-utils packaging
+          pip install geopandas --no-deps
           pip install pytest pytest-env pytest-mock pytest-timeout
 
       - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
