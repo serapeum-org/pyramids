@@ -1,9 +1,11 @@
 """Unit tests for Dataset statistics, histograms, iloc, and the attribute table."""
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
 from osgeo import gdal
+from shapely.geometry import box
 
 from pyramids.dataset import Dataset
 from pyramids.dataset.engines import Bands
@@ -229,6 +231,14 @@ class TestStatsWithMask:
         assert np.isclose(
             stats["max"].values, max_val, rtol=0.000001, atol=0.00001
         ).all(), "masked max diverges from arr[:, 1, :]"
+
+    def test_stats_with_mask_and_band(self, single_band_dataset):
+        """stats(band=0, mask=gdf) exercises the combined band-plus-mask path."""
+        poly = box(0.0, -0.15, 0.15, 0.0)
+        gdf = gpd.GeoDataFrame(geometry=[poly], crs="EPSG:4326")
+        df = single_band_dataset.stats(band=0, mask=gdf)
+        assert isinstance(df, pd.DataFrame), "stats with mask should return DataFrame"
+        assert len(df) == 1, "Should have 1 row for single band"
 
 
 class TestGetStatsRuntimeError:

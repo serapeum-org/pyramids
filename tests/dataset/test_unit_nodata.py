@@ -175,6 +175,19 @@ class TestCheckNoDataValue:
             ndv
         ), f"Expected None or NaN for float no_data with None input, got {ndv}"
 
+    def test_check_nodata_overflow(self):
+        """No-data value that overflows the dtype should fall back to a valid sentinel."""
+        arr = np.ones((3, 3), dtype=np.int32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=-3.4028230607370965e38,
+        )
+        ndv = ds.no_data_value[0]
+        assert ndv is not None, "overflowing no_data_value should fall back, not stay None"
+
 
 class TestFill:
     """Tests for the fill method."""

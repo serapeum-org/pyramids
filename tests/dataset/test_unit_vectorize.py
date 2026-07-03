@@ -137,6 +137,20 @@ class TestToFeatureCollection:
         assert isinstance(df, pd.DataFrame), "Should return DataFrame"
         assert df.shape[1] >= 3, "Should have at least 3 columns for 3 bands"
 
+    def test_to_feature_collection_tile_matches_non_tile(self):
+        """Tiled and non-tiled extraction produce the same values in the presence of no-data."""
+        arr = np.arange(1, 17, dtype=np.float32).reshape(4, 4)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        full_vals = sorted(ds.to_feature_collection(tile=False).iloc[:, 0].tolist())
+        tiled_vals = sorted(ds.to_feature_collection(tile=True, tile_size=2).iloc[:, 0].tolist())
+        assert full_vals == tiled_vals, "tiled and non-tiled should extract the same values"
+
     def test_to_feature_collection_all_nodata(self):
         """Test that a dataset with all no-data cells returns an empty DataFrame.
 

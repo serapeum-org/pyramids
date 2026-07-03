@@ -113,6 +113,19 @@ class TestToXyz:
         band_cols = [c for c in df.columns if c not in ("lon", "lat")]
         assert len(band_cols) == 1, f"Expected 1 band column, got {len(band_cols)}"
 
+    def test_to_xyz_invalid_bands_raises(self):
+        """to_xyz with an invalid bands type raises ValueError with a guiding message."""
+        arr = np.ones((3, 3), dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        with pytest.raises(ValueError, match="integer or a list"):
+            ds.to_xyz(bands="invalid")
+
 
 class TestCreateFromArrayEdgeCases:
     """Tests for create_from_array edge cases."""
