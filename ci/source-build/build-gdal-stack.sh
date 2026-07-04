@@ -59,11 +59,15 @@ echo "cmake: $(command -v cmake) ($(cmake --version | head -1))"
 # persist it via actions/cache across runs.
 PROJECT_DIR="$(dirname "$(dirname "${SCRIPT_DIR}")")"
 CACHE_DIR="${PROJECT_DIR}/.srcbuild-cache"
-_cfg_hash=$(sha256sum "${SCRIPT_DIR}/config.sh" | cut -c1-16)
+# Key on everything that shapes the installed prefix: config.sh (the dep
+# pins + build flags), this script (license collector, prereqs), and the
+# GDAL version, which is injected via the environment rather than
+# config.sh's text and would otherwise restore a stale stack.
+_cfg_hash=$(cat "${SCRIPT_DIR}/config.sh" "${BASH_SOURCE[0]}" | sha256sum | cut -c1-16)
 # gzip the tar: four flavors x several key generations of uncompressed
 # ~1 GB tars blow past GitHub's 10 GB per-repo cache pool and evict each
 # other (observed 2026-07-03); compressed they coexist for many generations.
-CACHE_TAR="${CACHE_DIR}/gdal-stack-${_cfg_hash}-${LIBC_FLAVOR}-$(uname -m).tar.gz"
+CACHE_TAR="${CACHE_DIR}/gdal-stack-${_cfg_hash}-gdal${GDAL_VERSION}-${LIBC_FLAVOR}-$(uname -m).tar.gz"
 
 if [[ -f "${CACHE_TAR}" ]]; then
     echo "=== restoring cached stack ($(basename "${CACHE_TAR}")) ==="
@@ -97,7 +101,7 @@ else
     cd /
     mkdir -p "${CACHE_DIR}"
     echo "=== caching built stack to $(basename "${CACHE_TAR}") ==="
-    tar -C / -czf "${CACHE_TAR}" usr/local
+    tar -C / -czf "${CACHE_TAR}" "${BUILD_PREFIX#/}"
 fi
 
 # Post-build wiring the vendor step expects.
