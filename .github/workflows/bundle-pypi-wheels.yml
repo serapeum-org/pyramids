@@ -355,6 +355,8 @@ jobs:
   verify-debian12:
     needs: build-linux-wheels
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     container:
       image: python:3.12-slim-bookworm
       options: --security-opt seccomp=unconfined
@@ -393,6 +395,8 @@ jobs:
   verify-rocky9:
     needs: build-linux-wheels
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     container:
       image: rockylinux:9
       options: --security-opt seccomp=unconfined
@@ -432,6 +436,8 @@ jobs:
   verify-alpine:
     needs: build-musl-wheels
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     container:
       image: python:3.12-alpine
       options: --security-opt seccomp=unconfined
