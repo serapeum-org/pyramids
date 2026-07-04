@@ -180,8 +180,8 @@ pip install .
 
 ## Platform-specific: no wheel available
 
-If you're on a platform we don't ship a wheel for (e.g., Linux aarch64,
-musllinux/Alpine, glibc < 2.39), pip will try to build pyramids-gis
+If you're on a platform we don't ship a wheel for (e.g., musllinux/Alpine,
+glibc < 2.28), pip will try to build pyramids-gis
 from the sdist. That requires a pre-installed native GDAL:
 
 ### Linux (Debian/Ubuntu)

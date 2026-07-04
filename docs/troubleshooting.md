@@ -40,7 +40,7 @@ RHEL/Rocky/Alma 8+, and Amazon Linux 2023.
 **Check your glibc version:**
 ```console
 ldd --version | head -1
-# e.g., "ldd (Ubuntu GLIBC 2.39-0ubuntu8.3) 2.39"
+# e.g., "ldd (Debian GLIBC 2.36-9+deb12u10) 2.36"  -> 2.36 >= 2.28, wheel OK
 ```
 
 ---
