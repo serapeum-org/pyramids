@@ -229,7 +229,7 @@ classDiagram
         +fill()
         +normalize()
         +cluster()
-        +cluster2()
+        +to_polygons()
         +get_tile()
         +groupNeighbours()
     }

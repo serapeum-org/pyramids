@@ -53,6 +53,56 @@ class TestFootprint:
         result = ds.footprint()
         assert result is None, "All-nodata footprint should return None"
 
+    def test_footprint_none_nodata_covers_non_nan(self):
+        """footprint with a None nodata treats every non-NaN cell as covered and drops NaN cells."""
+        arr = np.array([[1.0, np.nan, 3.0], [4.0, 5.0, np.nan]], dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        ds._no_data_value = [None]
+        result = ds.footprint()
+        assert result is not None and len(result) > 0, "footprint should cover the non-NaN cells"
+
+    @pytest.mark.filterwarnings("ignore:Geometry is in a geographic CRS")
+    def test_footprint_float_nan_nodata_excludes_fill(self):
+        """footprint with a float NaN nodata fill excludes the NaN cells, not the whole grid."""
+        nd = float("nan")
+        arr = np.array([[nd, nd, 5.0], [nd, 7.0, 9.0], [nd, nd, 11.0]], dtype=np.float64)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=nd,
+        )
+        result = ds.footprint(band=0)
+        assert result is not None and len(result) > 0, "footprint should return polygons"
+        covered = round(result.geometry.area.sum())  # cell area is 1.0 (1x1 degree cells)
+        assert covered == 4, f"footprint should cover the 4 data cells only, got {covered}"
+
+    @pytest.mark.filterwarnings("ignore:Geometry is in a geographic CRS")
+    def test_footprint_multiband_non_zero_band_positive_nodata(self):
+        """footprint on band > 0 with a positive nodata fill excludes the nodata cells."""
+        nd = 1e20
+        band0 = np.full((3, 3), 5.0, dtype=np.float64)
+        band1 = np.array([[1.0, nd, 1.0], [1.0, 1.0, nd], [nd, 1.0, 1.0]], dtype=np.float64)
+        ds = Dataset.create_from_array(
+            np.stack([band0, band1]),
+            top_left_corner=(0.0, 0.0),
+            cell_size=1.0,
+            epsg=4326,
+            no_data_value=nd,
+        )
+        result = ds.footprint(band=1)
+        assert result is not None and len(result) > 0, "band-1 footprint should return polygons"
+        assert result.columns[0] == ds.band_names[1], "column should carry the source band's name"
+        covered = round(result.geometry.area.sum())  # cell area is 1.0 (1x1 degree cells)
+        assert covered == 6, f"footprint should cover the 6 data cells only, got {covered}"
+
 
 class TestBandToPolygon:
     """Tests for _band_to_polygon method."""

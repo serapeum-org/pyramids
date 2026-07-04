@@ -1264,10 +1264,10 @@ class TestNormalizeRescale:
 
 
 class TestCluster2:
-    """Tests for cluster2/to_feature_collection band selection."""
+    """Tests for to_polygons/to_feature_collection band selection."""
 
-    def test_cluster2_band_as_list(self):
-        """cluster2 with band as a list should use the first element."""
+    def test_to_polygons_band_as_list(self):
+        """to_polygons with band as a list should use the first element."""
         arr = np.array([[1, 1, 2], [2, 3, 3], [3, 1, 2]], dtype=np.int32)
         ds = Dataset.create_from_array(
             arr,
@@ -1276,8 +1276,8 @@ class TestCluster2:
             epsg=4326,
             no_data_value=-9999,
         )
-        gdf = ds.cluster2(band=[0])
-        assert gdf is not None, "cluster2 with list band should return a GeoDataFrame"
+        gdf = ds.to_polygons(band=[0])
+        assert gdf is not None, "to_polygons with list band should return a GeoDataFrame"
         assert len(gdf) > 0, "Should have some polygons"
 
 
@@ -1565,10 +1565,10 @@ class TestCropWithRasterString:
 
 
 class TestCluster2BandList:
-    """Tests for cluster2 with band passed as a list."""
+    """Tests for to_polygons with band passed as a list."""
 
-    def test_cluster2_with_list_band(self):
-        """cluster2 with band=[0] should use the first element."""
+    def test_to_polygons_with_list_band(self):
+        """to_polygons with band=[0] should use the first element."""
         arr = np.array([[1, 2], [3, 4]], dtype=np.int32)
         ds = Dataset.create_from_array(
             arr,
@@ -1577,8 +1577,8 @@ class TestCluster2BandList:
             epsg=4326,
             no_data_value=-9999,
         )
-        gdf = ds.cluster2(band=[0])
-        assert gdf is not None, "cluster2 should return a GeoDataFrame"
+        gdf = ds.to_polygons(band=[0])
+        assert gdf is not None, "to_polygons should return a GeoDataFrame"
         assert len(gdf) > 0, "Should have some polygons"
 
 
@@ -1597,10 +1597,10 @@ class TestCropWithPolygonWarpError:
 
 
 class TestCluster2BandNone:
-    """Tests for cluster2 with band=None."""
+    """Tests for to_polygons with band=None."""
 
-    def test_cluster2_none_band(self):
-        """cluster2 with band=None should default to band 0."""
+    def test_to_polygons_none_band(self):
+        """to_polygons with band=None should default to band 0."""
         arr = np.array([[1, 1, 2], [2, 3, 3]], dtype=np.int32)
         ds = Dataset.create_from_array(
             arr,
@@ -1609,11 +1609,11 @@ class TestCluster2BandNone:
             epsg=4326,
             no_data_value=-9999,
         )
-        gdf = ds.cluster2(band=None)
-        assert gdf is not None, "cluster2 with None band should work"
+        gdf = ds.to_polygons(band=None)
+        assert gdf is not None, "to_polygons with None band should work"
 
-    def test_cluster2_int_band(self):
-        """cluster2 with band as integer."""
+    def test_to_polygons_int_band(self):
+        """to_polygons with band as integer."""
         arr = np.array([[1, 2], [3, 4]], dtype=np.int32)
         ds = Dataset.create_from_array(
             arr,
@@ -1622,11 +1622,11 @@ class TestCluster2BandNone:
             epsg=4326,
             no_data_value=-9999,
         )
-        gdf = ds.cluster2(band=0)
-        assert gdf is not None, "cluster2 with int band should work"
+        gdf = ds.to_polygons(band=0)
+        assert gdf is not None, "to_polygons with int band should work"
 
-    def test_cluster2_list_band(self):
-        """cluster2 with band as a list should use first element."""
+    def test_to_polygons_list_band(self):
+        """to_polygons with band as a list should use first element."""
         arr = np.array([[1, 2], [3, 4]], dtype=np.int32)
         ds = Dataset.create_from_array(
             arr,
@@ -1635,8 +1635,22 @@ class TestCluster2BandNone:
             epsg=4326,
             no_data_value=-9999,
         )
-        gdf = ds.cluster2(band=[0])
-        assert gdf is not None, "cluster2 with list band should work"
+        gdf = ds.to_polygons(band=[0])
+        assert gdf is not None, "to_polygons with list band should work"
+
+    def test_cluster2_deprecated_alias_warns_and_forwards(self):
+        """cluster2 is a deprecated alias that warns and returns the same result as to_polygons."""
+        arr = np.array([[1, 1, 2], [2, 3, 3]], dtype=np.int32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=-9999,
+        )
+        with pytest.warns(DeprecationWarning, match="cluster2 is deprecated"):
+            legacy = ds.cluster2()
+        assert len(legacy) == len(ds.to_polygons()), "cluster2 should forward to to_polygons"
 
 
 class TestWrapLongitudeInplace:
@@ -1733,5 +1747,5 @@ class TestGroupNeighbours:
             epsg=4326,
             no_data_value=-9999,
         )
-        gdf = ds.cluster2(band=0)
+        gdf = ds.to_polygons(band=0)
         assert len(gdf) >= 4, "Should find at least 4 clusters"

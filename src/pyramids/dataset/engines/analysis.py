@@ -1212,30 +1212,38 @@ class Analysis(_Engine["Dataset"]):
                     arr = arr.astype(np.float32)
                     arr[np.isclose(arr, val)] = no_data_val
 
-        # replace all the values with 2
-        if no_data_val is None:
-            # check if the whole raster is full of no_data_value
-            if (np.isnan(arr)).all():
-                self._ds.logger.warning("the raster is full of no_data_value")
-                return None
-
-            arr[~np.isnan(arr)] = 2
+        # Build the coverage mask: covered cells -> 2, nodata cells -> 0. A NaN fill may
+        # be stored as None or as a float nan (GDAL's GetNoDataValue returns nan), and
+        # np.isclose(x, nan) is always False, so both are compared with np.isnan.
+        if no_data_val is None or (isinstance(no_data_val, float) and np.isnan(no_data_val)):
+            valid = ~np.isnan(arr)
         else:
-            # check if the whole raster is full of no_data_value
-            if (np.isclose(arr, no_data_val, rtol=0.00001)).all():
-                self._ds.logger.warning("the raster is full of no_data_value")
-                return None
+            valid = ~np.isclose(arr, no_data_val, rtol=0.00001)
+        if not valid.any():
+            self._ds.logger.warning("the raster is full of no_data_value")
+            return None
+        # _band_to_polygon polygonises the mask using the band as its own Polygonize
+        # mask, which drops mask==0 cells, so only the covered (2) cells are collected
+        # for any source nodata value. float32 keeps the mask lightweight.
+        arr = np.where(valid, 2, 0).astype(np.float32)
+        # The scratch mask must be a plain raster Dataset that exposes GetRasterBand for
+        # polygonisation. self._ds.create_from_array would build a bandless NetCDF
+        # container for a variable view, so call the base Dataset classmethod explicitly.
+        # Local import breaks the engines <-> Dataset import cycle.
+        from pyramids.dataset.dataset import Dataset
 
-            arr[~np.isclose(arr, no_data_val, rtol=0.00001)] = 2
-        new_dataset = self._ds.create_from_array(
+        new_dataset = Dataset.create_from_array(
             arr,
             geo=self._ds.geotransform,
             epsg=self._ds.epsg,
-            no_data_value=self._ds.no_data_value,
+            no_data_value=0,
         )
-        # then convert the raster into polygon
-        gdf = new_dataset.cluster2(band=band)
-        gdf.rename(columns={"Band_1": self._ds.band_names[band]}, inplace=True)
+        # The mask is always single-band (the one extracted band flagged as 2 / nodata),
+        # so polygonise its first band regardless of the source band index.
+        gdf = new_dataset.to_polygons(band=0)
+        names = self._ds.band_names
+        col_name = names[band] if band < len(names) else f"Band_{band + 1}"
+        gdf.rename(columns={"Band_1": col_name}, inplace=True)
 
         return gdf
 
