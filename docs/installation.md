@@ -67,13 +67,15 @@ pixi picks a wheel **at lock time** against a *declared* baseline, and
 pixi's default Linux baseline is **glibc 2.28** (it tracks conda-forge's
 floor). Because the wheel tag equals the default baseline, the wheel
 resolves out of the box — **no `system-requirements` entry is needed**
-(verified against pixi 0.65 defaults; rasterio's 2_28 wheels resolve the
-same way).
+(verified against pixi 0.65 defaults — newer versions, including the
+0.68.1 this repo pins in CI, share the same baseline; rasterio's 2_28
+wheels resolve the same way).
 
 Two situations still need a declared baseline in the **consuming
 project's** `pyproject.toml` (or `pixi.toml`):
 
-- **You pin `pyramids-gis <= 0.39.x`** — those wheels are tagged
+- **You pin one of the older releases that shipped `manylinux_2_39`
+  wheels (0.2x–0.39.x)** — those wheels are tagged
   `manylinux_2_39` and exceed the default baseline, so pixi silently
   falls back to the GDAL-less sdist (→ `ModuleNotFoundError: No module
   named 'osgeo'` at runtime). Declare:

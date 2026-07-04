@@ -139,13 +139,14 @@ pip install pyramids-gis
 
 pyramids-gis ships its Linux wheels tagged `manylinux_2_28` (GDAL and its native stack are compiled from source with
 the manylinux toolchain). pixi's default Linux baseline is glibc 2.28 (it tracks conda-forge's floor), so the wheel
-resolves out of the box — no `[tool.pixi.system-requirements]` entry required (verified with pixi 0.65 defaults).
+resolves out of the box — no `[tool.pixi.system-requirements]` entry required (verified with pixi 0.65 defaults;
+newer versions, including the 0.68.1 this repo pins in CI, share the same baseline).
 
 Two cases still need a pin in the **consuming project's** `pyproject.toml` / `pixi.toml`:
 
 ```toml
 [tool.pixi.system-requirements]
-libc = "2.39"    # only if you pin pyramids-gis <= 0.39.x (those wheels are manylinux_2_39)
+libc = "2.39"    # only for the older releases that shipped manylinux_2_39 wheels (0.2x-0.39.x)
 ```
 
 or `libc = "2.28"` if you run a pixi version old enough that its default baseline is still below 2.28. On Linux with
