@@ -272,6 +272,69 @@ class TestCurvilinearCoords:
         assert cleo.coords is not None
         assert cleo.coords[0].shape == (5, 6)
 
+    def test_xc_yc_naming_convention_auto_detected(self):
+        """RASM-style `xc`/`yc` are auto-detected via the well-known fallback (#633).
+
+        Test scenario:
+            The container advertises `xc`/`yc` coordinate variables with no
+            CF `coordinates` attribute, so detection can only succeed through
+            the hardcoded name-pair fallback. Auto-detection must still pick
+            them up and forward the 2-D coords to cleopatra.
+        """
+        nc, x_2d, y_2d, _ = _make_curvilinear_nc(
+            rows=5,
+            cols=6,
+            x_name="xc",
+            y_name="yc",
+        )
+        cleo = nc.plot(variable="CANWAT")
+        assert cleo.coords is not None
+        # Ordering is load-bearing: x must be xc (lon), y must be yc (lat).
+        # The two arrays live in disjoint ranges, so a swap would fail here.
+        np.testing.assert_allclose(cleo.coords[0], x_2d)
+        np.testing.assert_allclose(cleo.coords[1], y_2d)
+
+    def test_1d_xc_yc_not_auto_detected(self):
+        """1-D `xc`/`yc` (projected axes) are not treated as curvilinear (#633).
+
+        Test scenario:
+            `xc`/`yc` is also a common name for 1-D projected axis
+            variables (metres). Those must not flip the render to
+            pcolormesh: with 1-D `xc`/`yc` and no CF `coordinates`
+            attribute the 2-D-only gate skips them, auto-detection
+            returns nothing, and the plot keeps the geotransform extent.
+        """
+        nc, _, _, _ = _make_curvilinear_nc(
+            rows=5,
+            cols=6,
+            x_name="xc",
+            y_name="yc",
+            coord_ndim=1,
+        )
+        cleo = nc.plot(variable="CANWAT")
+        assert cleo.coords is None
+        assert cleo.extent is not None
+
+    def test_mixed_ndim_xc_yc_not_auto_detected(self):
+        """A 2-D `xc` with a 1-D `yc` is rejected as ambiguous (#633).
+
+        Test scenario:
+            The 2-D-only gate requires BOTH coord arrays to be 2-D. A
+            degenerate file with a 2-D `xc` and a 1-D `yc` is neither a
+            clean curvilinear grid nor a clean rectilinear one, so it is
+            skipped and the plot falls back to the geotransform extent.
+        """
+        nc, _, _, _ = _make_curvilinear_nc(
+            rows=5,
+            cols=6,
+            x_name="xc",
+            y_name="yc",
+            coord_ndim=(2, 1),
+        )
+        cleo = nc.plot(variable="CANWAT")
+        assert cleo.coords is None
+        assert cleo.extent is not None
+
     def test_kind_contour_forwards(self):
         """`kind="contour"` is forwarded and renders."""
         nc, _, _, _ = _make_curvilinear_nc(rows=5, cols=6)

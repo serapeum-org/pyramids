@@ -132,10 +132,18 @@ class NetCDFPlot:
     on a pinned subset rather than the original instance).
     """
 
+    # Conventional curvilinear coordinate-variable name triples, each
+    # ``(lon_name, lat_name, require_2d)``. The first name maps to the x axis,
+    # the second to the y axis with no range disambiguation, so the order is
+    # load-bearing. ``require_2d`` restricts a *generic* pair (one also common as
+    # 1-D projected axis variables, e.g. ``xc``/``yc``) to genuinely 2-D
+    # curvilinear coordinates, so a projected rectilinear grid is not
+    # mis-detected as curvilinear.
     _CURVILINEAR_NAME_PAIRS = (
-        ("XLONG", "XLAT"),
-        ("lon_rho", "lat_rho"),
-        ("nav_lon", "nav_lat"),
+        ("XLONG", "XLAT", False),
+        ("lon_rho", "lat_rho", False),
+        ("nav_lon", "nav_lat", False),
+        ("xc", "yc", True),
     )
 
     def __init__(self, nc: NetCDF) -> None:
@@ -452,7 +460,7 @@ class NetCDFPlot:
         # Curvilinear coord resolution. Priority (highest first):
         # 1. Explicit user `coords=`.
         # 2. CF `coordinates` attribute + well-known conventions
-        #    (XLAT/XLONG, lat_rho/lon_rho, nav_lat/nav_lon).
+        #    (XLAT/XLONG, lat_rho/lon_rho, nav_lat/nav_lon, yc/xc).
         # When nothing resolves the engine falls back to `extent=bbox`.
         resolved_coords = self._resolve_curvilinear_coords(pinned, coords=coords)
         if resolved_coords is not None:
@@ -1160,7 +1168,9 @@ class NetCDFPlot:
            the auxiliary coord variables for the data variable.
         4. Well-known curvilinear naming conventions for files that
            omit the CF attribute: WRF (``XLAT`` / ``XLONG``), ROMS
-           (``lat_rho`` / ``lon_rho``), NEMO (``nav_lat`` / ``nav_lon``).
+           (``lat_rho`` / ``lon_rho``), NEMO (``nav_lat`` / ``nav_lon``),
+           and RASM (``yc`` / ``xc``, matched only when the coords are
+           genuinely 2-D).
 
         For each candidate pair the helper reads the named variables
         via the parent container's :meth:`NetCDF._read_variable` (or uses
@@ -1189,7 +1199,7 @@ class NetCDFPlot:
 
         Examples:
             - A NetCDF without curvilinear coords (no CF
-              ``coordinates`` attribute, no WRF/ROMS/NEMO names) returns
+              ``coordinates`` attribute, no WRF/ROMS/NEMO/RASM names) returns
               ``None`` so the caller can fall back to the
               geotransform-derived extent:
 
@@ -1310,7 +1320,7 @@ class NetCDFPlot:
                     result = (x_arr, y_arr)
 
         if result is None and data_shape is not None:
-            for x_name, y_name in self._CURVILINEAR_NAME_PAIRS:
+            for x_name, y_name, require_2d in self._CURVILINEAR_NAME_PAIRS:
                 if x_name in parent.variable_names and y_name in parent.variable_names:
                     xv = parent._read_variable(x_name)
                     yv = parent._read_variable(y_name)
@@ -1318,14 +1328,24 @@ class NetCDFPlot:
                         continue
                     x_arr = self._squeeze_leading_axes(xv, data_shape)
                     y_arr = self._squeeze_leading_axes(yv, data_shape)
+                    if require_2d and (x_arr.ndim != 2 or y_arr.ndim != 2):
+                        # A generic name pair (e.g. xc/yc) is trusted only when
+                        # BOTH arrays are genuinely 2-D. A 1-D pair (or a 1-D/2-D
+                        # mix) means projected/rectilinear axes, not curvilinear
+                        # coords, so skip it and fall back to the geotransform
+                        # extent. The gate is ndim-only: 2-D xc/yc in projected
+                        # metres cannot be told apart from 2-D lon/lat here — use
+                        # the CF `coordinates` attribute or explicit `coords=` for
+                        # those.
+                        continue
                     if self._coord_shapes_match(x_arr, y_arr, data_shape):
                         warnings.warn(
                             "Resolving curvilinear coordinates by hardcoded "
                             f"model-specific names ({x_name!r}, {y_name!r}) is "
-                            "deprecated and will be removed: WRF/ROMS/NEMO name "
-                            "heuristics are domain knowledge, not a generic GIS "
-                            "convention. Set the CF `coordinates` attribute, or pass "
-                            "`coords=` explicitly.",
+                            "deprecated and will be removed: model-specific name "
+                            "heuristics (WRF, ROMS, NEMO, RASM) are domain "
+                            "knowledge, not a generic GIS convention. Set the CF "
+                            "`coordinates` attribute, or pass `coords=` explicitly.",
                             DeprecationWarning,
                             stacklevel=3,
                         )
