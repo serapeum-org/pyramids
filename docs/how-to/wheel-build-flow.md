@@ -109,7 +109,7 @@ the **conda-forge install path**:
 |---|---|---|---|
 | Linux glibc < 2.28 (RHEL 7, Ubuntu 18.04, …) | below the manylinux_2_28 image floor | conda-forge | intentional |
 | Alpine / musl Linux | built + verified in CI, unpublished (pyogrio has no musl wheels) | conda-forge | #333 |
-| Windows on ARM64 | no `win_arm64`; conda-forge GDAL is x64-only on Windows | AMD64 wheel under x86 emulation | #334 |
+| Windows on ARM64 | from-source vcpkg build planned (rasterio precedent) | AMD64 wheel under x86 emulation | #334 |
 | Free-threaded CPython (`cp31Nt`) | GDAL SWIG bindings + numpy not ready | use a GIL build | #683 |
 | Python 3.10 or earlier | excluded by `requires-python = ">= 3.11"` | upgrade Python, or pin `< 0.20` | intentional |
 | Python 3.15+ (future) | not yet released by CPython | conda-forge until wheels ship | #335 |
@@ -138,7 +138,7 @@ Amazon Linux 2023 with a ~30 MB wheel (vs ~47 MB under conda-extract).
 |-----------------------------------|-------|------------------------|-----------------------------------------------------------------|
 | Lower glibc floor (< 2.39)        | #332  | **shipped**            | from-source `manylinux_2_28` wheels (this pipeline)             |
 | musllinux (Alpine)                | #333  | **built, unpublished** | canaries green in CI; blocked on pyogrio musl wheels            |
-| Windows ARM64                     | #334  | pending upstream       | blocked on conda-forge `gdal` win-arm64; <2% of Windows         |
+| Windows ARM64                     | #334  | **planned: vcpkg**     | from-source via vcpkg (rasterio precedent); follow-up PR         |
 | Python 3.15+                      | #335  | pending upstream       | ships when CPython 3.15 + ecosystem land; one-line `build` bump |
 | Free-threaded (`cp313t`/`cp314t`) | #683  | pending upstream       | GDAL SWIG bindings + numpy first; revisit at 3.15               |
 
