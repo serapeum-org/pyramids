@@ -10,6 +10,9 @@
 #     SHAPE, GPX, PMTILES, FLATGEOBUF, GML, KML, WFS, OAPIF) — pyramids ships
 #     FeatureCollection; rasterio is raster-only. Evidence:
 #     planning/bundle/from-source-phase0-audit.md (#332 Phase 0).
+#   - GDAL_ENABLE_DRIVER_OGCAPI=ON (rasterio turns it OFF): pyramids'
+#     Dataset.from_ogc_coverages hard-requires the OGCAPI driver
+#     (src/pyramids/dataset/_ogc_coverages.py); it needs only curl.
 #   - Raster optional drivers stay auto-ON (GDAL_BUILD_OPTIONAL_DRIVERS=ON):
 #     Zarr (blosc/zstd present), WCS (curl), GRIB/netCDF/HDF5/JP2 explicit below.
 # Deliberately ABSENT (the whole point, F0.3-verified unused): ICU, xerces,
@@ -949,7 +952,7 @@ function build_gdal {
 			-DGDAL_USE_NETCDF=ON \
 			-DGDAL_ENABLE_DRIVER_OPENJPEG=ON \
 			-DGDAL_ENABLE_DRIVER_PNG=ON \
-			-DGDAL_ENABLE_DRIVER_OGCAPI=OFF \
+			-DGDAL_ENABLE_DRIVER_OGCAPI=ON \
 			-DGDAL_USE_SQLITE3=ON \
 			-DOGR_ENABLE_DRIVER_SQLITE=ON \
 			-DOGR_ENABLE_DRIVER_GPKG=ON \

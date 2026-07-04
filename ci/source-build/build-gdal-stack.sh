@@ -139,7 +139,7 @@ for drv in "GeoJSON" "ESRI Shapefile" "GPKG" "GPX" "PMTiles" "MVT" "GML" "KML" "
         echo "MISSING OGR driver: ${drv}" >&2; _missing=1
     fi
 done
-for drv in "GTiff" "COG" "netCDF" "GRIB" "HDF5" "JP2OpenJPEG" "Zarr" "PNG" "JPEG" "WCS" "VRT"; do
+for drv in "GTiff" "COG" "netCDF" "GRIB" "HDF5" "JP2OpenJPEG" "Zarr" "PNG" "JPEG" "WCS" "OGCAPI" "VRT"; do
     if ! grep -q "^ *${drv} -" <<<"${_gdal_formats}"; then
         echo "MISSING raster driver: ${drv}" >&2; _missing=1
     fi
