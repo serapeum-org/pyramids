@@ -209,6 +209,34 @@ jobs:
         shell: bash
         run: bash ci/check-wheel-size.sh wheelhouse
 
+      # pyogrio has no musllinux wheels on PyPI (the #333 publish blocker).
+      # Build one here against the canary's own GDAL stack (restored from the
+      # tar that before-all wrote into .srcbuild-cache/) so verify-alpine can
+      # exercise the FULL suite, vector I/O included, and so the recipe is a
+      # ready-made upstream contribution. Canary-only — never published.
+      - name: Build pyogrio musllinux wheel against the canary stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/project" -w /project \
+            quay.io/pypa/musllinux_1_2_${{ matrix.arch }} bash -c '
+              set -euo pipefail
+              STACK_TAR=$(ls -t .srcbuild-cache/gdal-stack-*-musl-*.tar.gz | head -1)
+              tar -C / -xzf "${STACK_TAR}"
+              export PATH="/usr/local/bin:${PATH}"
+              export LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64"
+              PYBIN=$(ls -d /opt/python/cp312*/bin | head -1)
+              "${PYBIN}/pip" wheel "pyogrio==0.13.0" --no-deps -w /tmp/pyogrio-raw
+              auditwheel repair --plat "musllinux_1_2_$(uname -m)" \
+                  -w /project/pyogrio-wheelhouse /tmp/pyogrio-raw/pyogrio-*.whl
+            '
+          ls -lah pyogrio-wheelhouse/
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: canary-pyogrio-${{ matrix.arch }}
+          path: pyogrio-wheelhouse/*.whl
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: canary-musl-${{ matrix.arch }}
@@ -483,12 +511,11 @@ jobs:
           python3.12 -m pytest -vvv -o "pythonpath=" --timeout=60
           --timeout-method=thread -m "core and not vfs and not slow" tests/
 
-  # Alpine/musl canary (#333, not published). Vector file I/O is unavailable
-  # until upstream pyogrio ships musllinux wheels (geopandas hard-requires
-  # pyogrio, so its install here is --no-deps). Scope: base + netCDF + io +
-  # grib suites in full, and tests/dataset minus the 14 class nodes whose
-  # fixtures call geopandas read_file/to_file (list derived empirically by
-  # running the suite with pyogrio import-blocked: 1722 passed, 0 failed).
+  # Alpine/musl canary (#333, not published). PyPI's pyogrio still has no
+  # musllinux wheels (the publish blocker), so build-musl-wheels compiles a
+  # canary pyogrio against its own stack; with it installed, vector I/O works
+  # and this job runs the full core suite (base, netCDF, io, grib, dataset,
+  # feature).
   verify-alpine:
     needs: build-musl-wheels
     runs-on: ubuntu-latest
@@ -512,38 +539,36 @@ jobs:
           name: canary-musl-x86_64
           path: wheelhouse
 
-      - name: Install wheel (controlled deps — pyogrio has no musl wheels)
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: canary-pyogrio-x86_64
+          path: pyogrio-wheelhouse
+
+      # Install the canary-built pyogrio wheel FIRST: with the distribution
+      # already present, `pip install geopandas` resolves its pyogrio>=0.7.2
+      # requirement instead of falling back to the sdist (the exact failure
+      # PyPI Alpine users would hit — see #333). Everything else still
+      # installs explicitly because the pyramids wheel itself goes in
+      # --no-deps.
+      - name: Install wheel + canary pyogrio (full vector I/O)
         shell: bash
         run: |
           WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*musllinux_1_2_x86_64.whl)
           pip install "${WHEEL}" --no-deps
+          pip install pyogrio-wheelhouse/pyogrio-*.whl
           pip install numpy pandas scipy shapely pyproj PyYAML cftime hpc-utils packaging
-          pip install geopandas --no-deps
+          pip install geopandas
           pip install pytest pytest-env pytest-mock pytest-timeout
 
       - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
         run: python ci/verify-wheel.py
 
-      - name: Run core suite (raster/netCDF full; dataset minus pyogrio-bound classes)
+      - name: Run hermetic core test suite (full — vector I/O via canary pyogrio)
         run: >-
           pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread
           -m "core and not vfs and not slow"
           tests/base tests/netcdf tests/test_io.py tests/test_grib.py
-          tests/dataset
-          --deselect tests/dataset/test_contour.py::TestContour
-          --deselect tests/dataset/test_dataset_collection.py::TestCrop
-          --deselect tests/dataset/test_dataset_spatial.py::TestCluster2
-          --deselect tests/dataset/test_dataset_spatial.py::TestCropWithPolygon
-          --deselect tests/dataset/test_dataset_vectorize.py::TestExtract
-          --deselect tests/dataset/test_dataset_vectorize.py::TestFootPrint
-          --deselect tests/dataset/test_dataset_vectorize.py::TestToFeatureCollection
-          --deselect tests/dataset/test_unit_spatial.py::TestCluster2
-          --deselect tests/dataset/test_unit_spatial.py::TestCluster2BandList
-          --deselect tests/dataset/test_unit_spatial.py::TestCluster2BandNone
-          --deselect tests/dataset/test_unit_spatial.py::TestGroupNeighbours
-          --deselect tests/dataset/test_unit_stats.py::TestStatsWithMask
-          --deselect tests/dataset/test_unit_vectorize.py::TestBandToPolygon
-          --deselect tests/dataset/test_unit_vectorize.py::TestFootprint
+          tests/dataset tests/feature
 
   release:
     name: Publish to PyPI + attach to GitHub release

@@ -253,7 +253,8 @@ Python C API ABI.
 │
 ├── verify-debian12 / verify-rocky9 (full hermetic suite on glibc 2.36 / 2.34
 │   containers — distros the old 2_39 wheel could never install on) and
-│   verify-alpine (raster/netCDF-scoped suite for the musl canary). All three
+│   verify-alpine (full core suite for the musl canary — vector I/O via a
+│   canary-built pyogrio musl wheel, since PyPI has none). All three
 │   run with --security-opt seccomp=unconfined (the netCDF driver needs
 │   userfaultfd for /vsizip reads — see docs/troubleshooting.md).
 │
@@ -335,7 +336,7 @@ On GitHub-hosted runners (jobs parallel where possible):
 | `build-windows-wheels`                                 | ~12 min (4 wheels)              |
 | `test-wheels` matrix (16 jobs)                         | ~3 min (parallel, after builds) |
 | `verify-debian12` / `verify-rocky9` (full suite)       | ~8 min each                     |
-| `verify-alpine` (raster-scoped suite)                  | ~5 min                          |
+| `verify-alpine` (full core suite, canary pyogrio)      | ~8 min                          |
 
 Release builds are always cold on Linux (the cache step is skipped on
 `workflow_run` so published binaries never come from a cache), so budget
