@@ -115,7 +115,9 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .srcbuild-cache
-          key: srcbuild-glibc-${{ matrix.arch }}-${{ hashFiles('ci/source-build/config.sh', 'ci/source-build/build-gdal-stack.sh') }}
+          key: >-
+            srcbuild-glibc-${{ matrix.arch }}-${{
+            hashFiles('ci/source-build/config.sh', 'ci/source-build/build-gdal-stack.sh') }}
 
       - name: Build wheels
         uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55 # v4.1.0
@@ -181,7 +183,9 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .srcbuild-cache
-          key: srcbuild-musl-${{ matrix.arch }}-${{ hashFiles('ci/source-build/config.sh', 'ci/source-build/build-gdal-stack.sh') }}
+          key: >-
+            srcbuild-musl-${{ matrix.arch }}-${{
+            hashFiles('ci/source-build/config.sh', 'ci/source-build/build-gdal-stack.sh') }}
 
       - name: Build wheels
         uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55 # v4.1.0
@@ -427,7 +431,9 @@ jobs:
         run: python3.12 ci/verify-wheel.py
 
       - name: Run hermetic core test suite
-        run: python3.12 -m pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread -m "core and not vfs and not slow" tests/
+        run: >-
+          python3.12 -m pytest -vvv -o "pythonpath=" --timeout=60
+          --timeout-method=thread -m "core and not vfs and not slow" tests/
 
   # Alpine/musl canary (#333, not published). Vector file I/O is unavailable
   # until upstream pyogrio ships musllinux wheels (geopandas hard-requires
@@ -480,7 +486,8 @@ jobs:
     # NOT in needs and their `canary-*` artifacts don't match the download
     # pattern — they are built + verified but unpublished until upstream
     # pyogrio ships musllinux wheels (#333).
-    needs: [build-sdist, build-linux-wheels, build-macos-wheels, build-windows-wheels, test-wheels, verify-debian12, verify-rocky9]
+    needs: [build-sdist, build-linux-wheels, build-macos-wheels,
+            build-windows-wheels, test-wheels, verify-debian12, verify-rocky9]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: >-
