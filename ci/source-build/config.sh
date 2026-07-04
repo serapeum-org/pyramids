@@ -553,8 +553,24 @@ function build_expat {
 		# silently require the system package on slim images (python:*-slim
 		# ships none). Linking expat statically into libgdal removes the
 		# runtime dependency entirely — the wheel is self-contained again.
+		# MUST use expat's CMake build for this: the autotools build installs
+		# CMake package files hardcoded to a SHARED imported target even
+		# under --disable-shared (cmake/autotools/expat__linux.cmake.in), so
+		# GDAL's find_package(EXPAT) fatals on the missing libexpat.so
+		# (observed: run 28716182717).
+		local cmake=cmake
 		(cd ${EXPAT_FNAME} &&
-			./configure --prefix=$BUILD_PREFIX --disable-shared --enable-static --with-pic &&
+			mkdir cmake_build && cd cmake_build &&
+			$cmake .. \
+				-DCMAKE_INSTALL_PREFIX=$BUILD_PREFIX \
+				-DCMAKE_BUILD_TYPE=Release \
+				-DEXPAT_SHARED_LIBS=OFF \
+				-DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+				-DEXPAT_BUILD_TOOLS=OFF \
+				-DEXPAT_BUILD_EXAMPLES=OFF \
+				-DEXPAT_BUILD_TESTS=OFF \
+				-DEXPAT_BUILD_DOCS=OFF \
+				-DEXPAT_BUILD_FUZZERS=OFF &&
 			make -j4 &&
 			make install)
 	fi

@@ -379,9 +379,9 @@ jobs:
         run: ldd --version | head -1
 
       # No apt-get libexpat1 here ON PURPOSE: expat is linked statically into
-      # libgdal (build_expat --disable-shared), so importing the wheel on a
-      # bare slim image with zero extra system packages is exactly what this
-      # job proves. If this step ever needs a package install again, the
+      # libgdal (build_expat, EXPAT_SHARED_LIBS=OFF), so importing the wheel
+      # on a bare slim image with zero extra system packages is exactly what
+      # this job proves. If this step ever needs a package install again, the
       # wheel has regressed to depending on the host.
       - name: Install wheel
         shell: bash
