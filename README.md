@@ -135,25 +135,21 @@ To install the latest release from PyPI:
 pip install pyramids-gis
 ```
 
-### Linux + pixi/uv: raise the glibc baseline
+### Linux + pixi: no glibc pin needed anymore
 
-If you add the PyPI wheel to a **pixi** (or uv) project on **Linux** and hit `ModuleNotFoundError: No module named
-'osgeo'` at runtime, or a resolve error like *"has no wheels with a matching platform tag"*, it's the glibc baseline.
 pyramids-gis ships its Linux wheels tagged `manylinux_2_28` (GDAL and its native stack are compiled from source with
-the manylinux toolchain), but pixi's default Linux baseline is **glibc 2.17**, so no wheel matches and pixi silently
-falls back to the GDAL-less sdist.
+the manylinux toolchain). pixi's default Linux baseline is glibc 2.28 (it tracks conda-forge's floor), so the wheel
+resolves out of the box — no `[tool.pixi.system-requirements]` entry required (verified with pixi 0.65 defaults).
 
-Tell pixi the target actually has glibc ≥ 2.28 by adding this to the **consuming project's** `pyproject.toml` (or
-`pixi.toml`):
+Two cases still need a pin in the **consuming project's** `pyproject.toml` / `pixi.toml`:
 
 ```toml
 [tool.pixi.system-requirements]
-libc = "2.28"
+libc = "2.39"    # only if you pin pyramids-gis <= 0.39.x (those wheels are manylinux_2_39)
 ```
 
-Virtually every distro still in support clears this floor (**Ubuntu 20.04+, Debian 11+, RHEL 8+, Amazon Linux
-2023**); it only affects Linux (macOS and Windows are unaffected). On older Linux (glibc < 2.28), install from
-conda-forge instead. See the full
+or `libc = "2.28"` if you run a pixi version old enough that its default baseline is still below 2.28. On Linux with
+glibc < 2.28, install from conda-forge instead. See the full
 [installation guide](docs/installation.md) and [troubleshooting](docs/troubleshooting.md) for the other cases.
 
 

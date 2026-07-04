@@ -59,39 +59,38 @@ package). Use this if you're already in a conda/mamba environment.
 pixi add pyramids-gis
 ```
 
-#### Linux: raise the glibc baseline so the wheel resolves
+#### Linux: the glibc baseline (usually nothing to do)
 
 pyramids-gis ships its Linux wheels tagged **`manylinux_2_28`** (GDAL and
 its native stack are compiled from source with the manylinux toolchain).
-pixi/uv pick a wheel **at lock time** against a *declared* baseline, and
-pixi's default Linux baseline is **glibc 2.17** (manylinux2014). Because
-`2.28 > 2.17`, no wheel matches, and pixi either falls back to the
-GDAL-less sdist (→ `ModuleNotFoundError: No module named 'osgeo'` at
-runtime) or — for a wheel-only release with no sdist — fails outright with:
+pixi picks a wheel **at lock time** against a *declared* baseline, and
+pixi's default Linux baseline is **glibc 2.28** (it tracks conda-forge's
+floor). Because the wheel tag equals the default baseline, the wheel
+resolves out of the box — **no `system-requirements` entry is needed**
+(verified against pixi 0.65 defaults; rasterio's 2_28 wheels resolve the
+same way).
 
-```text
-because pyramids-gis==X.Y.Z has no wheels with a matching platform tag
-(e.g., `manylinux_2_28_x86_64`) ... cannot be used
-```
+Two situations still need a declared baseline in the **consuming
+project's** `pyproject.toml` (or `pixi.toml`):
 
-Tell pixi the target actually has glibc ≥ 2.28 by adding this to the
-**consuming project's** `pyproject.toml` (or `pixi.toml`):
+- **You pin `pyramids-gis <= 0.39.x`** — those wheels are tagged
+  `manylinux_2_39` and exceed the default baseline, so pixi silently
+  falls back to the GDAL-less sdist (→ `ModuleNotFoundError: No module
+  named 'osgeo'` at runtime). Declare:
 
-```toml
-[tool.pixi.system-requirements]
-libc = "2.28"
-```
+  ```toml
+  [tool.pixi.system-requirements]
+  libc = "2.39"
+  ```
 
-pixi now advertises glibc 2.28, the `manylinux_2_28` wheel matches, and
-the bundled wheel is locked. Virtually every distro still in support
-clears this floor (Ubuntu 20.04+, Debian 11+, RHEL 8+, Amazon Linux
-2023). It only affects Linux; macOS and Windows are unaffected. This is a
-*consumer-side* setting — it can't be exported by pyramids itself, so
-each pixi project that depends on the bundled wheel on Linux sets it.
+- **You run an older pixi** whose default Linux baseline predates the
+  2.28 floor — declare `libc = "2.28"` (satisfied by Ubuntu 20.04+,
+  Debian 11+, RHEL 8+, Amazon Linux 2023).
 
-If you'd rather not pin a glibc floor, install pyramids-gis from
-conda-forge instead (`pixi add --channel conda-forge pyramids`), which
-gets native GDAL via conda and has no manylinux tag to match.
+It only affects Linux; macOS and Windows are unaffected. If you'd rather
+avoid the topic entirely, install pyramids-gis from conda-forge instead
+(`pixi add --channel conda-forge pyramids`), which gets native GDAL via
+conda and has no manylinux tag to match.
 
 ## Verify the install
 
