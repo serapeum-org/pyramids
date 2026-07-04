@@ -129,22 +129,16 @@ If your distro has **glibc < 2.28**, use the conda-forge path instead.
 
 ## System dependencies
 
-The wheel bundles nearly everything. The only system dependencies are
-standard C runtime libraries that every Linux distro ships:
+The wheel bundles nearly everything (expat is linked statically into the
+bundled GDAL). The only system dependencies are standard C runtime
+libraries that every Linux distro — including `python:*-slim` Docker
+images — ships out of the box:
 
 - `libc.so.6`, `libm.so.6`, `libpthread.so.0`, `libdl.so.2` (glibc)
-- `libexpat.so.1` (XML parsing — on **minimal** Debian/Alpine images this
-  may need `apt-get install libexpat1`; full distros have it)
 - `libgcc_s.so.1`, `libstdc++.so.6` (GCC runtime)
 
-On Docker `python:3.12-slim`:
-
-```console
-apt-get update && apt-get install -y libexpat1
-pip install pyramids-gis
-```
-
-No other system packages are required.
+No system packages need to be installed — `pip install pyramids-gis`
+works on a bare `python:3.12-slim` image as-is.
 
 ## Editable / development install
 

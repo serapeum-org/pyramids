@@ -526,8 +526,13 @@ function build_expat {
 		:
 	else
         echo "Running build_expat"
+		# pyramids delta: static + PIC. auditwheel's manylinux policy
+		# WHITELISTS libexpat.so.1 (does not vendor it), which made the wheel
+		# silently require the system package on slim images (python:*-slim
+		# ships none). Linking expat statically into libgdal removes the
+		# runtime dependency entirely — the wheel is self-contained again.
 		(cd ${EXPAT_FNAME} &&
-			./configure --prefix=$BUILD_PREFIX &&
+			./configure --prefix=$BUILD_PREFIX --disable-shared --enable-static --with-pic &&
 			make -j4 &&
 			make install)
 	fi

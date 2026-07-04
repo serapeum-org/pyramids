@@ -116,21 +116,26 @@ ImportError: libexpat.so.1: cannot open shared object file: No such
 file or directory
 ```
 
-**Cause:** You're on a minimal Linux image (`python:3.12-slim`,
-Alpine, scratch) that doesn't ship `libexpat`. Most full Linux distros
-have it installed by default.
+**Cause:** This only affects **pyramids-gis ≤ 0.39.x** Linux wheels on
+minimal images (`python:3.12-slim`, scratch) that don't ship
+`libexpat` — the manylinux policy treats it as a system library, so
+those wheels didn't bundle it. Current wheels link expat statically
+into the bundled GDAL and import cleanly on bare slim images.
 
-**Fix (Debian/Ubuntu slim images):**
+**Fix (preferred):** upgrade to the latest wheel:
+```console
+pip install --upgrade pyramids-gis
+```
+
+**Fix (staying on an old version, Debian/Ubuntu slim images):**
 ```console
 apt-get update && apt-get install -y libexpat1
 ```
 
-**Fix (RPM-based):**
+**Fix (staying on an old version, RPM-based):**
 ```console
 dnf install -y expat
 ```
-
-**Fix (Alpine — note: wheel isn't supported on Alpine yet; use conda).**
 
 ---
 
