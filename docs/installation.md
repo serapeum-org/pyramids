@@ -128,6 +128,31 @@ Distros covered by the Linux wheel out of the box:
 
 If your distro has **glibc < 2.28**, use the conda-forge path instead.
 
+### Coverage gaps — what has no wheel yet, and why
+
+Every remaining gap waits on something upstream of pyramids; none of
+them can be closed from this repo alone. Progress is tracked in
+[#333](https://github.com/serapeum-org/pyramids/issues/333) (Alpine),
+[#334](https://github.com/serapeum-org/pyramids/issues/334) (Windows ARM64), and
+[#335](https://github.com/serapeum-org/pyramids/issues/335) (Python 3.15).
+Until a row clears, the workaround column applies.
+
+| Platform / target | Why no wheel today | Ships when | Workaround |
+|---|---|---|---|
+| Alpine / musl Linux | built + verified in CI; `pyogrio` has no musl wheels | pyogrio ships them (#333) | conda-forge |
+| Windows on ARM64 | no conda-forge `win-arm64` GDAL yet | conda-forge lands it (#334) | AMD64 wheel, x86 emulation |
+| Python 3.15 | CPython unreleased; ecosystem needs cp315 wheels | after CPython 3.15, ~Oct 2026 (#335) | — |
+| Free-threaded (`cp31Nt`) | GDAL SWIG bindings + numpy not ready | revisit at 3.15 | standard (GIL) build |
+| Linux glibc < 2.28 | below the oldest maintained manylinux image | never (intentional) | conda-forge |
+| PyPy / Python ≤ 3.10 | GDAL bindings target CPython 3.11+ | never (intentional) | CPython 3.11+ |
+
+One **feature-level** difference inside a covered platform: the Linux
+wheel does not include the HDF4 driver (the macOS and Windows wheels
+do). HDF4 is a legacy format; if you need it on Linux, use conda-forge.
+This is the only driver difference — the wheel pipeline asserts the
+full promised driver set on every build, so drivers cannot silently
+disappear from a release.
+
 ## System dependencies
 
 The wheel bundles nearly everything (expat is linked statically into the
