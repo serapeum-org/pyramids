@@ -110,7 +110,7 @@ the **conda-forge install path**:
 | Linux glibc < 2.28 (RHEL 7, Ubuntu 18.04, …) | below the manylinux_2_28 image floor | conda-forge | intentional |
 | Alpine / musl Linux | built + verified in CI, unpublished (pyogrio has no musl wheels) | conda-forge | #333 |
 | Windows on ARM64 | no `win_arm64`; conda-forge GDAL is x64-only on Windows | AMD64 wheel under x86 emulation | #334 |
-| Free-threaded CPython (`cp31Nt`) | GDAL SWIG bindings + numpy not ready | use a GIL build | — |
+| Free-threaded CPython (`cp31Nt`) | GDAL SWIG bindings + numpy not ready | use a GIL build | #683 |
 | Python 3.10 or earlier | excluded by `requires-python = ">= 3.11"` | upgrade Python, or pin `< 0.20` | intentional |
 | Python 3.15+ (future) | not yet released by CPython | conda-forge until wheels ship | #335 |
 | PyPy | `skip = ["*pp*"]`; GDAL bindings target CPython | use CPython | intentional |
@@ -134,13 +134,13 @@ Amazon Linux 2023 with a ~30 MB wheel (vs ~47 MB under conda-extract).
 
 ### Coverage roadmap (not committed)
 
-| Gap | Issue | Status | Notes |
-|---|---|---|---|
-| Lower glibc floor (< 2.39) | #332 | **shipped** | from-source `manylinux_2_28` wheels (this pipeline) |
-| musllinux (Alpine) | #333 | **built, unpublished** | canaries green in CI; blocked on pyogrio musl wheels |
-| Windows ARM64 | #334 | pending upstream | blocked on conda-forge `gdal` win-arm64; <2% of Windows |
-| Python 3.15+ | #335 | pending upstream | ships when CPython 3.15 + ecosystem land; one-line `build` bump |
-| Free-threaded (`cp313t`/`cp314t`) | — | pending upstream | GDAL SWIG bindings + numpy first; revisit at 3.15 |
+| Gap                               | Issue | Status                 | Notes                                                           |
+|-----------------------------------|-------|------------------------|-----------------------------------------------------------------|
+| Lower glibc floor (< 2.39)        | #332  | **shipped**            | from-source `manylinux_2_28` wheels (this pipeline)             |
+| musllinux (Alpine)                | #333  | **built, unpublished** | canaries green in CI; blocked on pyogrio musl wheels            |
+| Windows ARM64                     | #334  | pending upstream       | blocked on conda-forge `gdal` win-arm64; <2% of Windows         |
+| Python 3.15+                      | #335  | pending upstream       | ships when CPython 3.15 + ecosystem land; one-line `build` bump |
+| Free-threaded (`cp313t`/`cp314t`) | #683  | pending upstream       | GDAL SWIG bindings + numpy first; revisit at 3.15               |
 
 ## Why separate wheels per OS / arch / Python version?
 
@@ -324,18 +324,18 @@ Examples:
 
 On GitHub-hosted runners (jobs parallel where possible):
 
-| Job | Duration |
-|-----|----------|
-| `build-sdist` | ~2 min |
-| `build-linux-wheels` (cold: full stack compile) | ~60 min (4 wheels) |
-| `build-linux-wheels` (warm: stack restored from cache) | ~15 min (4 wheels) |
-| `build-musl-wheels` (canaries, same cold/warm split) | ~60 / ~15 min |
-| `build-macos-wheels` (arm64, native) | ~6 min (4 wheels) |
-| `build-macos-wheels` (x86_64, cross-compiled) | ~7 min (4 wheels) |
-| `build-windows-wheels` | ~12 min (4 wheels) |
-| `test-wheels` matrix (16 jobs) | ~3 min (parallel, after builds) |
-| `verify-debian12` / `verify-rocky9` (full suite) | ~8 min each |
-| `verify-alpine` (raster-scoped suite) | ~5 min |
+| Job                                                    | Duration                        |
+|--------------------------------------------------------|---------------------------------|
+| `build-sdist`                                          | ~2 min                          |
+| `build-linux-wheels` (cold: full stack compile)        | ~60 min (4 wheels)              |
+| `build-linux-wheels` (warm: stack restored from cache) | ~15 min (4 wheels)              |
+| `build-musl-wheels` (canaries, same cold/warm split)   | ~60 / ~15 min                   |
+| `build-macos-wheels` (arm64, native)                   | ~6 min (4 wheels)               |
+| `build-macos-wheels` (x86_64, cross-compiled)          | ~7 min (4 wheels)               |
+| `build-windows-wheels`                                 | ~12 min (4 wheels)              |
+| `test-wheels` matrix (16 jobs)                         | ~3 min (parallel, after builds) |
+| `verify-debian12` / `verify-rocky9` (full suite)       | ~8 min each                     |
+| `verify-alpine` (raster-scoped suite)                  | ~5 min                          |
 
 Release builds are always cold on Linux (the cache step is skipped on
 `workflow_run` so published binaries never come from a cache), so budget
@@ -389,24 +389,24 @@ cibuildwheel --only cp312-win_amd64
 
 ## File map
 
-| File | Role |
-|------|------|
-| `.github/workflows/bundle-pypi-wheels.yml` | The full pipeline (build + test + verify + publish) |
-| `.github/workflows/pypi-release.yml` | Emergency sdist-only PyPI fallback |
-| `ci/source-build/config.sh` | Linux: dep version pins + SHA256 hashes + per-dep build functions (rasterio fork) |
-| `ci/source-build/build-gdal-stack.sh` | Linux before-all: prereqs, cache, license collection, driver/license gates |
-| `ci/source-build/reference/` | Pristine copy of rasterio's config.sh for future diffing |
-| `ci/setup-gdal-from-pixi.sh` | macOS native: pixi install, extract conda-forge binaries, toolchain shims |
-| `ci/setup-gdal-micromamba.sh` | macOS cross-compile: install micromamba and resolve target-platform env |
-| `ci/setup-gdal-from-pixi.ps1` | Windows: PowerShell version of the pixi setup |
-| `ci/install-and-vendor-osgeo.py` | Per-Python: build GDAL SWIG bindings + vendor osgeo + data + licenses |
-| `ci/verify-wheel.py` | Post-install smoke test: drivers, JP2 round-trip, TLS /vsicurl |
-| `ci/check-wheel-size.sh` | Enforces the `WHEEL_SIZE_BUDGET_MB` ceiling per built wheel |
-| `pyproject.toml` `[tool.cibuildwheel.*]` | cibuildwheel config per OS |
-| `pyproject.toml` `[tool.pixi.feature.wheel-build]` | Pixi env with GDAL native deps (conda-extract model only) |
-| `setup.py` | `BinaryDistribution` override to force platform-specific wheel |
-| `src/pyramids/__init__.py` | Runtime bootstrap: loads vendored osgeo + prepends `pyramids_gis.libs` to Windows PATH |
-| `bundle-pypi-wheels.yml` `env:` | `PIXI_VERSION` / `MICROMAMBA_VERSION` pins consumed by `ci/setup-gdal-*` |
+| File                                               | Role                                                                                   |
+|----------------------------------------------------|----------------------------------------------------------------------------------------|
+| `.github/workflows/bundle-pypi-wheels.yml`         | The full pipeline (build + test + verify + publish)                                    |
+| `.github/workflows/pypi-release.yml`               | Emergency sdist-only PyPI fallback                                                     |
+| `ci/source-build/config.sh`                        | Linux: dep version pins + SHA256 hashes + per-dep build functions (rasterio fork)      |
+| `ci/source-build/build-gdal-stack.sh`              | Linux before-all: prereqs, cache, license collection, driver/license gates             |
+| `ci/source-build/reference/`                       | Pristine copy of rasterio's config.sh for future diffing                               |
+| `ci/setup-gdal-from-pixi.sh`                       | macOS native: pixi install, extract conda-forge binaries, toolchain shims              |
+| `ci/setup-gdal-micromamba.sh`                      | macOS cross-compile: install micromamba and resolve target-platform env                |
+| `ci/setup-gdal-from-pixi.ps1`                      | Windows: PowerShell version of the pixi setup                                          |
+| `ci/install-and-vendor-osgeo.py`                   | Per-Python: build GDAL SWIG bindings + vendor osgeo + data + licenses                  |
+| `ci/verify-wheel.py`                               | Post-install smoke test: drivers, JP2 round-trip, TLS /vsicurl                         |
+| `ci/check-wheel-size.sh`                           | Enforces the `WHEEL_SIZE_BUDGET_MB` ceiling per built wheel                            |
+| `pyproject.toml` `[tool.cibuildwheel.*]`           | cibuildwheel config per OS                                                             |
+| `pyproject.toml` `[tool.pixi.feature.wheel-build]` | Pixi env with GDAL native deps (conda-extract model only)                              |
+| `setup.py`                                         | `BinaryDistribution` override to force platform-specific wheel                         |
+| `src/pyramids/__init__.py`                         | Runtime bootstrap: loads vendored osgeo + prepends `pyramids_gis.libs` to Windows PATH |
+| `bundle-pypi-wheels.yml` `env:`                    | `PIXI_VERSION` / `MICROMAMBA_VERSION` pins consumed by `ci/setup-gdal-*`               |
 
 ## Toolchain version pinning
 

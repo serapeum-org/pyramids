@@ -142,7 +142,7 @@ Until a row clears, the workaround column applies.
 | Alpine / musl Linux | built + verified in CI; `pyogrio` has no musl wheels | pyogrio ships them (#333) | conda-forge |
 | Windows on ARM64 | no conda-forge `win-arm64` GDAL yet | conda-forge lands it (#334) | AMD64 wheel, x86 emulation |
 | Python 3.15 | CPython unreleased; ecosystem needs cp315 wheels | after CPython 3.15, ~Oct 2026 (#335) | — |
-| Free-threaded (`cp31Nt`) | GDAL SWIG bindings + numpy not ready | revisit at 3.15 | standard (GIL) build |
+| Free-threaded (`cp31Nt`) | GDAL SWIG bindings + numpy not ready | revisit at 3.15 (#683) | standard (GIL) build |
 | Linux glibc < 2.28 | below the oldest maintained manylinux image | never (intentional) | conda-forge |
 | PyPy / Python ≤ 3.10 | GDAL bindings target CPython 3.11+ | never (intentional) | CPython 3.11+ |
 
