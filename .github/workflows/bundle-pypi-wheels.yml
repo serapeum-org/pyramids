@@ -105,7 +105,7 @@ jobs:
           python-version: "3.12"
 
       - name: Cache the built GDAL stack
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .srcbuild-cache
           key: srcbuild-glibc-${{ matrix.arch }}-${{ hashFiles('ci/source-build/config.sh', 'ci/source-build/build-gdal-stack.sh') }}
@@ -167,7 +167,7 @@ jobs:
           python-version: "3.12"
 
       - name: Cache the built GDAL stack
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .srcbuild-cache
           key: srcbuild-musl-${{ matrix.arch }}-${{ hashFiles('ci/source-build/config.sh', 'ci/source-build/build-gdal-stack.sh') }}
