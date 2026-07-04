@@ -50,9 +50,20 @@ fi
 # Any of the image's CPython installs works for the helper tasks below
 # (cmake fallback, zipfile probe) — don't hardcode one ABI dir.
 _PYBIN=$(ls -d /opt/python/cp3*/bin 2>/dev/null | head -1)
+if [[ -z "${_PYBIN}" ]]; then
+    echo "ERROR: no /opt/python/cp3*/bin interpreter found in this image" >&2
+    exit 1
+fi
 if ! command -v cmake >/dev/null 2>&1; then
     pipx install cmake >/dev/null 2>&1 || "${_PYBIN}/pip" install --quiet cmake
     command -v cmake >/dev/null 2>&1 || export PATH="${_PYBIN}:${PATH}"
+fi
+# Fail fast with a clear message instead of an opaque "cmake: command not
+# found" deep inside the first cmake-based dep (pipx can "succeed" into a
+# bin dir that is not on PATH).
+if ! command -v cmake >/dev/null 2>&1; then
+    echo "ERROR: cmake unavailable after bootstrap (pipx/pip install did not land on PATH)" >&2
+    exit 1
 fi
 echo "cmake: $(command -v cmake) ($(cmake --version | head -1))"
 
