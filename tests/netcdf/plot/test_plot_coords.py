@@ -315,6 +315,26 @@ class TestCurvilinearCoords:
         assert cleo.coords is None
         assert cleo.extent is not None
 
+    def test_mixed_ndim_xc_yc_not_auto_detected(self):
+        """A 2-D `xc` with a 1-D `yc` is rejected as ambiguous (#633).
+
+        Test scenario:
+            The 2-D-only gate requires BOTH coord arrays to be 2-D. A
+            degenerate file with a 2-D `xc` and a 1-D `yc` is neither a
+            clean curvilinear grid nor a clean rectilinear one, so it is
+            skipped and the plot falls back to the geotransform extent.
+        """
+        nc, _, _, _ = _make_curvilinear_nc(
+            rows=5,
+            cols=6,
+            x_name="xc",
+            y_name="yc",
+            coord_ndim=(2, 1),
+        )
+        cleo = nc.plot(variable="CANWAT")
+        assert cleo.coords is None
+        assert cleo.extent is not None
+
     def test_kind_contour_forwards(self):
         """`kind="contour"` is forwarded and renders."""
         nc, _, _, _ = _make_curvilinear_nc(rows=5, cols=6)

@@ -1329,9 +1329,14 @@ class NetCDFPlot:
                     x_arr = self._squeeze_leading_axes(xv, data_shape)
                     y_arr = self._squeeze_leading_axes(yv, data_shape)
                     if require_2d and (x_arr.ndim != 2 or y_arr.ndim != 2):
-                        # A generic name pair (e.g. xc/yc) resolving to 1-D arrays
-                        # is a projected rectilinear grid, not curvilinear; skip it
-                        # so the plot falls back to the geotransform extent.
+                        # A generic name pair (e.g. xc/yc) is trusted only when
+                        # BOTH arrays are genuinely 2-D. A 1-D pair (or a 1-D/2-D
+                        # mix) means projected/rectilinear axes, not curvilinear
+                        # coords, so skip it and fall back to the geotransform
+                        # extent. The gate is ndim-only: 2-D xc/yc in projected
+                        # metres cannot be told apart from 2-D lon/lat here — use
+                        # the CF `coordinates` attribute or explicit `coords=` for
+                        # those.
                         continue
                     if self._coord_shapes_match(x_arr, y_arr, data_shape):
                         warnings.warn(
