@@ -268,7 +268,8 @@ fi
 
 BLOSC_URL="https://github.com/Blosc/c-blosc/archive/refs/tags/v${BLOSC_VERSION}.tar.gz"
 BLOSC_FNAME="c-blosc-${BLOSC_VERSION}"
-fetch_untar ${BLOSC_URL} -O ${BLOSC_FNAME}.tar.gz
+BLOSC_SHA256="9fcd60301aae28f97f1301b735f966cc19e7c49b6b4321b839b4579a0c156f38"
+fetch_untar ${BLOSC_URL} -O ${BLOSC_FNAME}.tar.gz ${BLOSC_SHA256}
 
 CURL_URL="https://curl.se/download/curl-${CURL_VERSION}.tar.gz"
 CURL_FNAME="curl-${CURL_VERSION}"
@@ -281,70 +282,86 @@ else
 	EXPAT_VERSION_UNDERSCORED="${EXPAT_VERSION//./_}"
 	EXPAT_URL="https://github.com/libexpat/libexpat/releases/download/R_${EXPAT_VERSION_UNDERSCORED}/expat-${EXPAT_VERSION}.tar.bz2"
 	EXPAT_FNAME="expat-${EXPAT_VERSION}"
-	fetch_untar ${EXPAT_URL} ${EXPAT_FNAME}.tar.bz2
+	EXPAT_SHA256="e6af11b01e32e5ef64906a5cca8809eabc4beb7ff2f9a0e6aabbd42e825135d0"
+	fetch_untar ${EXPAT_URL} ${EXPAT_FNAME}.tar.bz2 ${EXPAT_SHA256}
 fi
 
+# GDAL_VERSION arrives via the environment (build-gdal-stack.sh); this hash
+# pins the default 3.13.1 — bump both together or the fetch fails loudly.
 GDAL_URL="https://download.osgeo.org/gdal/${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz"
 GDAL_FNAME="gdal-${GDAL_VERSION}"
-fetch_untar ${GDAL_URL} ${GDAL_FNAME}.tar.gz
+GDAL_SHA256="e04e9813bd215b56753d5554330c53be25f3df2d7ed7e6413a19e6b66751c675"
+fetch_untar ${GDAL_URL} ${GDAL_FNAME}.tar.gz ${GDAL_SHA256}
 
 GIFLIB_URL="https://sourceforge.net/projects/giflib/files/giflib-${GIFLIB_VERSION}.tar.gz/download"
 GIFLIB_FNAME="giflib-${GIFLIB_VERSION}"
 GIFLIB_SHA256="be7ffbd057cadebe2aa144542fd90c6838c6a083b5e8a9048b8ee3b66b29d5fb"
 fetch_untar ${GIFLIB_URL} -O ${GIFLIB_FNAME}.tar.gz ${GIFLIB_SHA256}
 
-GEOS_URL="http://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2"
+GEOS_URL="https://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2"
 GEOS_FNAME="geos-${GEOS_VERSION}"
-fetch_untar ${GEOS_URL} ${GEOS_FNAME}.tar.bz2
+GEOS_SHA256="3c20919cda9a505db07b5216baa980bacdaa0702da715b43f176fb07eff7e716"
+fetch_untar ${GEOS_URL} ${GEOS_FNAME}.tar.bz2 ${GEOS_SHA256}
 
-HDF5_URL=http://github.com/HDFGroup/hdf5/releases/download/${HDF5_VERSION}/hdf5-${HDF5_VERSION}.tar.gz
+HDF5_URL=https://github.com/HDFGroup/hdf5/releases/download/${HDF5_VERSION}/hdf5-${HDF5_VERSION}.tar.gz
 HDF5_FNAME="hdf5-${HDF5_VERSION}"
 HDF5_SHA256="ce7f5515a95d588b8606c3fb50643f8b88ac52ffbbde9c63bb1edca6a256e964"
 fetch_untar ${HDF5_URL} ${HDF5_FNAME}.tar.gz ${HDF5_SHA256}
 
 JPEGTURBO_URL="https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/${JPEGTURBO_VERSION}/libjpeg-turbo-${JPEGTURBO_VERSION}.tar.gz"
 JPEGTURBO_FNAME="libjpeg-turbo-${JPEGTURBO_VERSION}"
-fetch_untar ${JPEGTURBO_URL} ${JPEGTURBO_FNAME}.tar.gz
+JPEGTURBO_SHA256="075920b826834ac4ddf97661cc73491047855859affd671d52079c6867c1c6c0"
+fetch_untar ${JPEGTURBO_URL} ${JPEGTURBO_FNAME}.tar.gz ${JPEGTURBO_SHA256}
 
 JSONC_URL="https://s3.amazonaws.com/json-c_releases/releases/json-c-${JSONC_VERSION}.tar.gz"
 JSONC_FNAME="json-c-${JSONC_VERSION}"
-fetch_untar ${JSONC_URL} ${JSONC_FNAME}.tar.gz
+JSONC_SHA256="876ab046479166b869afc6896d288183bbc0e5843f141200c677b3e8dfb11724"
+fetch_untar ${JSONC_URL} ${JSONC_FNAME}.tar.gz ${JSONC_SHA256}
 
 LCMS2_URL="https://github.com/mm2/Little-CMS/releases/download/lcms${LCMS2_VERSION}/lcms2-${LCMS2_VERSION}.tar.gz"
 LCMS2_FNAME="lcms2-${LCMS2_VERSION}"
-fetch_untar ${LCMS2_URL} ${LCMS2_FNAME}.tar.gz
+LCMS2_SHA256="d11af569e42a1baa1650d20ad61d12e41af4fead4aa7964a01f93b08b53ab074"
+fetch_untar ${LCMS2_URL} ${LCMS2_FNAME}.tar.gz ${LCMS2_SHA256}
 
 LERC_URL="https://github.com/Esri/lerc/archive/refs/tags/v${LERC_VERSION}.tar.gz"
 LERC_FNAME="lerc-${LERC_VERSION}"
-fetch_untar ${LERC_URL} -O ${LERC_FNAME}.tar.gz
+LERC_SHA256="91431c2b16d0e3de6cbaea188603359f87caed08259a645fd5a3805784ee30a0"
+fetch_untar ${LERC_URL} -O ${LERC_FNAME}.tar.gz ${LERC_SHA256}
 
 LIBAEC_URL="https://github.com/MathisRosenhauer/libaec/releases/download/v${LIBAEC_VERSION}/libaec-${LIBAEC_VERSION}.tar.gz"
 LIBAEC_FNAME="libaec-${LIBAEC_VERSION}"
-fetch_untar ${LIBAEC_URL} -O ${LIBAEC_FNAME}.tar.gz
+LIBAEC_SHA256="a469be4d835127e358c4f97de74943a54fbcb870aaf03cd2303c1dcc9fd4af4b"
+fetch_untar ${LIBAEC_URL} -O ${LIBAEC_FNAME}.tar.gz ${LIBAEC_SHA256}
 
 LIBDEFLATE_URL="https://github.com/ebiggers/libdeflate/archive/refs/tags/v${LIBDEFLATE_VERSION}.tar.gz"
 LIBDEFLATE_FNAME="libdeflate-${LIBDEFLATE_VERSION}"
-fetch_untar ${LIBDEFLATE_URL} -O ${LIBDEFLATE_FNAME}.tar.gz
+LIBDEFLATE_SHA256="ad8d3723d0065c4723ab738be9723f2ff1cb0f1571e8bfcf0301ff9661f475e8"
+fetch_untar ${LIBDEFLATE_URL} -O ${LIBDEFLATE_FNAME}.tar.gz ${LIBDEFLATE_SHA256}
 
 LIBPNG_URL="https://github.com/pnggroup/libpng/archive/refs/tags/v${LIBPNG_VERSION}.tar.gz"
 LIBPNG_FNAME="libpng-${LIBPNG_VERSION}"
-fetch_untar ${LIBPNG_URL} -O ${LIBPNG_FNAME}.tar.gz
+LIBPNG_SHA256="ba7efce137409079989df4667706c339bebfbb10e9f413474718012a13c8cd4c"
+fetch_untar ${LIBPNG_URL} -O ${LIBPNG_FNAME}.tar.gz ${LIBPNG_SHA256}
 
 LIBWEBP_URL="https://github.com/webmproject/libwebp/archive/refs/tags/v$LIBWEBP_VERSION.tar.gz"
 LIBWEBP_FNAME="libwebp-${LIBWEBP_VERSION}"
-fetch_untar ${LIBWEBP_URL} -O ${LIBWEBP_FNAME}.tar.gz
+LIBWEBP_SHA256="93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136"
+fetch_untar ${LIBWEBP_URL} -O ${LIBWEBP_FNAME}.tar.gz ${LIBWEBP_SHA256}
 
 NETCDF_URL="https://github.com/Unidata/netcdf-c/archive/refs/tags/v${NETCDF_VERSION}.tar.gz"
 NETCDF_FNAME="netcdf-c-${NETCDF_VERSION}"
-fetch_untar ${NETCDF_URL} -O ${NETCDF_FNAME}.tar.gz
+NETCDF_SHA256="ce160f9c1483b32d1ba8b7633d7984510259e4e439c48a218b95a023dc02fd4c"
+fetch_untar ${NETCDF_URL} -O ${NETCDF_FNAME}.tar.gz ${NETCDF_SHA256}
 
 NGHTTP2_URL="https://github.com/nghttp2/nghttp2/releases/download/v${NGHTTP2_VERSION}/nghttp2-${NGHTTP2_VERSION}.tar.gz"
 NGHTTP2_FNAME="nghttp2-${NGHTTP2_VERSION}"
-fetch_untar ${NGHTTP2_URL} ${NGHTTP2_FNAME}.tar.gz
+NGHTTP2_SHA256="2c16ffc588ad3f9e2613c3fad72db48ecb5ce15bc362fcc85b342e48daf51013"
+fetch_untar ${NGHTTP2_URL} ${NGHTTP2_FNAME}.tar.gz ${NGHTTP2_SHA256}
 
 OPENJPEG_URL="https://github.com/uclouvain/openjpeg/archive/refs/tags/v${OPENJPEG_VERSION}.tar.gz"
 OPENJPEG_FNAME="openjpeg-${OPENJPEG_VERSION}"
-fetch_untar ${OPENJPEG_URL} -O ${OPENJPEG_FNAME}.tar.gz
+OPENJPEG_SHA256="a695fbe19c0165f295a8531b1e4e855cd94d0875d2f88ec4b61080677e27188a"
+fetch_untar ${OPENJPEG_URL} -O ${OPENJPEG_FNAME}.tar.gz ${OPENJPEG_SHA256}
 
 OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz"
 OPENSSL_FNAME="openssl-${OPENSSL_VERSION}"
@@ -353,19 +370,23 @@ fetch_untar ${OPENSSL_URL} ${OPENSSL_FNAME}.tar.gz ${OPENSSL_SHA256}
 
 PCRE2_URL="https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${PCRE_VERSION}/pcre2-${PCRE_VERSION}.tar.bz2"
 PCRE2_FNAME="pcre2-${PCRE_VERSION}"
-fetch_untar $PCRE2_URL ${PCRE2_FNAME}.tar.bz2
+PCRE2_SHA256="47fe8c99461250d42f89e6e8fdaeba9da057855d06eb7fc08d9ca03fd08d7bc7"
+fetch_untar $PCRE2_URL ${PCRE2_FNAME}.tar.bz2 ${PCRE2_SHA256}
 
 PROJ_URL="https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz"
 PROJ_FNAME="proj-${PROJ_VERSION}"
-fetch_untar ${PROJ_URL} ${PROJ_FNAME}.tar.gz
+PROJ_SHA256="6c097dc803c561929cdfcc46e4bf9945ea977611fb31493ad14e88edaeae260f"
+fetch_untar ${PROJ_URL} ${PROJ_FNAME}.tar.gz ${PROJ_SHA256}
 
 SQLITE_URL="https://www.sqlite.org/2026/sqlite-autoconf-${SQLITE_VERSION}.tar.gz"
 SQLITE_FNAME="sqlite-autoconf-${SQLITE_VERSION}"
-fetch_untar ${SQLITE_URL} ${SQLITE_FNAME}.tar.gz
+SQLITE_SHA256="fbd89f866b1403bb66a143065440089dd76100f2238314d92274a082d4f2b7bb"
+fetch_untar ${SQLITE_URL} ${SQLITE_FNAME}.tar.gz ${SQLITE_SHA256}
 
 TIFF_URL="https://download.osgeo.org/libtiff/tiff-${TIFF_VERSION}.tar.gz"
 TIFF_FNAME="tiff-${TIFF_VERSION}"
-fetch_untar ${TIFF_URL} ${TIFF_FNAME}.tar.gz
+TIFF_SHA256="f698d94f3103da8ca7438d84e0344e453fe0ba3b7486e04c5bf7a9a3fabe9b69"
+fetch_untar ${TIFF_URL} ${TIFF_FNAME}.tar.gz ${TIFF_SHA256}
 
 # pyramids delta: fetch xz from its GitHub release mirror — tukaani.org is a
 # single host and timed out hard in CI (2026-07-03); the release asset is the
@@ -375,14 +396,15 @@ XZ_FNAME="xz-${XZ_VERSION}"
 XZ_SHA256="ce09c50a5962786b83e5da389c90dd2c15ecd0980a258dd01f70f9e7ce58a8f1"
 fetch_untar ${XZ_URL} ${XZ_FNAME}.tar.gz ${XZ_SHA256}
 
-ZLIB_URL="http://github.com/madler/zlib/releases/download/v$ZLIB_VERSION/zlib-$ZLIB_VERSION.tar.gz"
+ZLIB_URL="https://github.com/madler/zlib/releases/download/v$ZLIB_VERSION/zlib-$ZLIB_VERSION.tar.gz"
 ZLIB_FNAME="zlib-${ZLIB_VERSION}"
 ZLIB_SHA256="bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
 fetch_untar $ZLIB_URL ${ZLIB_FNAME}.tar.gz ${ZLIB_SHA256}
 
 ZSTD_URL="https://github.com/facebook/zstd/archive/v${ZSTD_VERSION}.tar.gz"
 ZSTD_FNAME="zstd-${ZSTD_VERSION}"
-fetch_untar ${ZSTD_URL} -O ${ZSTD_FNAME}.tar.gz
+ZSTD_SHA256="37d7284556b20954e56e1ca85b80226768902e2edabd3b649e9e72c0c9012ee3"
+fetch_untar ${ZSTD_URL} -O ${ZSTD_FNAME}.tar.gz ${ZSTD_SHA256}
 
 
 echo "Compiling libraries ..."
