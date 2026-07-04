@@ -440,6 +440,49 @@ jobs:
           python3.12 -m pytest -vvv -o "pythonpath=" --timeout=60
           --timeout-method=thread -m "core and not vfs and not slow" tests/
 
+  # Same old-glibc reach check for the aarch64 wheel: without this, the
+  # newly shipped manylinux_2_28_aarch64 wheel would only ever meet
+  # glibc 2.39 (the arm runner's own Ubuntu 24.04) and its 2.28-era
+  # compatibility would rest on the toolchain argument alone.
+  verify-rocky9-aarch64:
+    needs: build-linux-wheels
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    container:
+      image: rockylinux:9
+      options: --security-opt seccomp=unconfined
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: wheels-linux-aarch64
+          path: wheelhouse
+
+      - name: Install python 3.12 + show glibc
+        run: |
+          dnf install -y -q python3.12 python3.12-pip
+          ldd --version | head -1
+
+      - name: Install wheel
+        shell: bash
+        run: |
+          WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*manylinux_2_28_aarch64.whl)
+          python3.12 -m pip install "${WHEEL}"
+          python3.12 -m pip install pytest pytest-env pytest-mock pytest-timeout
+
+      - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
+        run: python3.12 ci/verify-wheel.py
+
+      - name: Run hermetic core test suite
+        run: >-
+          python3.12 -m pytest -vvv -o "pythonpath=" --timeout=60
+          --timeout-method=thread -m "core and not vfs and not slow" tests/
+
   # Alpine/musl canary (#333, not published). Vector file I/O is unavailable
   # until upstream pyogrio ships musllinux wheels (geopandas hard-requires
   # pyogrio, so its install here is --no-deps); the suite is raster/netCDF
@@ -492,7 +535,8 @@ jobs:
     # pattern — they are built + verified but unpublished until upstream
     # pyogrio ships musllinux wheels (#333).
     needs: [build-sdist, build-linux-wheels, build-macos-wheels,
-            build-windows-wheels, test-wheels, verify-debian12, verify-rocky9]
+            build-windows-wheels, test-wheels, verify-debian12, verify-rocky9,
+            verify-rocky9-aarch64]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Dry-run path (workflow_dispatch + dry-run-release): executes the
