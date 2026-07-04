@@ -251,6 +251,41 @@ def _check_netcdf_driver() -> None:
     )
 
 
+# The driver contract every published wheel promises (the #332 F0.2
+# allow-list): raster formats pyramids ships plus the OGR vector set
+# FeatureCollection uses. Asserted here — post-install, on every wheel,
+# on every platform — because the pytest layers skipif on driver
+# presence, which turns a curation mistake (a cmake flag lost on a GDAL
+# bump, a dep regression disabling a driver at configure time) into
+# green skips instead of a failure. OGCAPI is the proven case: it was
+# silently absent from the first from-source builds while CI stayed
+# green.
+_COMMON_DRIVERS = (
+    "GTiff", "COG", "netCDF", "GRIB", "HDF5", "JP2OpenJPEG", "Zarr",
+    "PNG", "JPEG", "WCS", "OGCAPI", "VRT", "MEM",
+    "GeoJSON", "ESRI Shapefile", "GPKG", "GPX", "PMTiles", "MVT",
+    "GML", "KML", "WFS", "OAPIF", "FlatGeobuf", "SQLite", "OSM",
+)
+# Platform extras: HDF4 ships only in the conda-extract wheels — the
+# curated Linux from-source stack deliberately drops it.
+_PLATFORM_DRIVERS = {"darwin": ("HDF4",), "win32": ("HDF4",)}
+
+
+def _check_driver_set() -> None:
+    """Assert every promised driver is registered in the bundled GDAL."""
+    expected = list(_COMMON_DRIVERS)
+    for platform_prefix, extras in _PLATFORM_DRIVERS.items():
+        if sys.platform.startswith(platform_prefix):
+            expected.extend(extras)
+    missing = [name for name in expected if gdal.GetDriverByName(name) is None]
+    if missing:
+        _fail(
+            "bundled GDAL is missing promised drivers: "
+            + ", ".join(missing)
+        )
+    print(f"driver-set check OK — all {len(expected)} promised drivers registered.")
+
+
 def _check_jp2_driver() -> None:
     """Confirm the bundled JP2OpenJPEG driver loads and round-trips (issue #600).
 
@@ -278,6 +313,7 @@ def _check_jp2_driver() -> None:
     print("JP2OpenJPEG round-trip OK — bundled driver reads/writes JPEG2000 (#600).")
 
 
+_check_driver_set()
 _check_netcdf_driver()
 _check_jp2_driver()
 _check_tls_read()
