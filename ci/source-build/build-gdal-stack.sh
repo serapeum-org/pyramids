@@ -128,13 +128,16 @@ echo "=== driver-presence gate ==="
 _ogr_formats=$("${BUILD_PREFIX}/bin/ogrinfo" --formats)
 _gdal_formats=$("${BUILD_PREFIX}/bin/gdalinfo" --formats)
 _missing=0
+# Anchor on the "  <ShortName> -vector-/-raster-" line shape so a short name
+# cannot be satisfied by a different driver that merely contains it (KML by
+# KMLSuperOverlay/LIBKML, GML by GMLAS, ...).
 for drv in "GeoJSON" "ESRI Shapefile" "GPKG" "GPX" "PMTiles" "MVT" "GML" "KML" "WFS" "OAPIF" "FlatGeobuf"; do
-    if ! grep -qi -- "${drv}" <<<"${_ogr_formats}"; then
+    if ! grep -q "^ *${drv} -" <<<"${_ogr_formats}"; then
         echo "MISSING OGR driver: ${drv}" >&2; _missing=1
     fi
 done
 for drv in "GTiff" "COG" "netCDF" "GRIB" "HDF5" "JP2OpenJPEG" "Zarr" "PNG" "JPEG" "WCS" "VRT"; do
-    if ! grep -qi -- "${drv}" <<<"${_gdal_formats}"; then
+    if ! grep -q "^ *${drv} -" <<<"${_gdal_formats}"; then
         echo "MISSING raster driver: ${drv}" >&2; _missing=1
     fi
 done
@@ -148,12 +151,27 @@ echo "all required drivers present"
 echo "--- driver capability flags ---"
 grep -E "netCDF|GTiff|HDF5|Zarr|GRIB" <<<"${_gdal_formats}" || true
 
-# License gate: an empty collection means the wheel would ship without the
-# legally required third-party notices.
-if [[ -z "$(ls -A "${BUILD_PREFIX}/share/pyramids-bundled-licenses" 2>/dev/null)" ]]; then
-    echo "ERROR: no bundled licenses collected (share/pyramids-bundled-licenses empty)" >&2
+# License gate: every dep in the stack must have a collected license dir, so
+# a partial collection (an upstream rename of LICENSE/COPYING, a path drift)
+# fails the build instead of silently shipping a wheel missing notices. The
+# list mirrors config.sh's pins; verified against each pinned tarball's root
+# (2026-07-04). sqlite is the one deliberate absentee: it is public domain
+# and its autoconf tarball ships no license file at all.
+echo "=== license-completeness gate ==="
+_lic_missing=0
+for dep in c-blosc curl expat gdal geos giflib hdf5 json-c lcms2 lerc libaec libdeflate \
+           libjpeg-turbo libpng libwebp netcdf-c nghttp2 openjpeg openssl pcre2 proj \
+           tiff xz zlib zstd; do
+    if ! ls -d "${BUILD_PREFIX}/share/pyramids-bundled-licenses/${dep}-"[0-9]* >/dev/null 2>&1; then
+        echo "MISSING bundled license dir for: ${dep}" >&2; _lic_missing=1
+    fi
+done
+if (( _lic_missing )); then
+    echo "ERROR: license collection incomplete (see above) — the wheel would ship without" >&2
+    echo "       legally required third-party notices" >&2
     exit 1
 fi
+echo "all $(ls "${BUILD_PREFIX}/share/pyramids-bundled-licenses" | wc -l) expected license dirs present"
 
 # /vsizip netCDF probe (informational). GDAL 3.13's netCDF driver opens
 # non-/vsimem VSI paths (nc inside /vsizip, /vsitar, ...) ONLY via Linux

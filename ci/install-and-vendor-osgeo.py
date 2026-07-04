@@ -551,10 +551,16 @@ def vendor_osgeo_into_package() -> None:
             flush=True,
         )
     else:
-        _vendor_license_texts(
-            REPO_ROOT / ".pixi" / "envs" / "wheel-build",
-            src_pyramids / "_licenses",
-        )
+        conda_env = REPO_ROOT / ".pixi" / "envs" / "wheel-build"
+        if sys.platform.startswith("linux") and not conda_env.is_dir():
+            # On Linux one of the two license sources MUST exist; a silent
+            # skip here would build a green wheel with an empty _licenses/
+            # (no legally required third-party notices).
+            raise RuntimeError(
+                f"no license source found: neither {source_licenses} "
+                f"(from-source stack) nor {conda_env} (conda-extract) exists"
+            )
+        _vendor_license_texts(conda_env, src_pyramids / "_licenses")
 
     # 7. Defense-in-depth `.gitignore` markers. The repo .gitignore
     # already excludes `src/pyramids/_vendor/` and `src/pyramids/_data/`,
