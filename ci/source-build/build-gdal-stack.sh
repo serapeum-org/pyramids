@@ -47,9 +47,12 @@ else
         (dnf install -y perl-core || yum install -y perl-core) >/dev/null
     fi
 fi
+# Any of the image's CPython installs works for the helper tasks below
+# (cmake fallback, zipfile probe) — don't hardcode one ABI dir.
+_PYBIN=$(ls -d /opt/python/cp3*/bin 2>/dev/null | head -1)
 if ! command -v cmake >/dev/null 2>&1; then
-    pipx install cmake >/dev/null 2>&1 || /opt/python/cp312-cp312/bin/pip install --quiet cmake
-    command -v cmake >/dev/null 2>&1 || export PATH="/opt/python/cp312-cp312/bin:${PATH}"
+    pipx install cmake >/dev/null 2>&1 || "${_PYBIN}/pip" install --quiet cmake
+    command -v cmake >/dev/null 2>&1 || export PATH="${_PYBIN}:${PATH}"
 fi
 echo "cmake: $(command -v cmake) ($(cmake --version | head -1))"
 
@@ -187,7 +190,7 @@ echo "all $(ls "${BUILD_PREFIX}/share/pyramids-bundled-licenses" | wc -l) expect
 # defect: install kernel-headers / linux-headers and rebuild.
 echo "--- /vsizip netCDF probe ---"
 "${BUILD_PREFIX}/bin/gdal_create" -of netCDF -outsize 8 8 -bands 1 /tmp/probe.nc
-(cd /tmp && /opt/python/cp312-cp312/bin/python -m zipfile -c probe.zip probe.nc)
+(cd /tmp && "${_PYBIN}/python" -m zipfile -c probe.zip probe.nc)
 if CPL_DEBUG=ON "${BUILD_PREFIX}/bin/gdalinfo" /vsizip//tmp/probe.zip/probe.nc >/tmp/probe.out 2>&1; then
     echo "vsizip netCDF read OK (userfaultfd available in this container)"
 elif grep -qi "userfaultfd" /tmp/probe.out; then
