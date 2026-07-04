@@ -132,11 +132,18 @@ class NetCDFPlot:
     on a pinned subset rather than the original instance).
     """
 
+    # Conventional curvilinear coordinate-variable name pairs, each ordered
+    # ``(lon_name, lat_name)`` — the first name maps to the x axis, the second to
+    # the y axis with no range disambiguation, so the order is load-bearing. The
+    # third field, ``require_2d``, restricts a *generic* pair (one also common as
+    # 1-D projected axis variables, e.g. ``xc``/``yc``) to genuinely 2-D
+    # curvilinear coordinates, so a projected rectilinear grid is not
+    # mis-detected as curvilinear.
     _CURVILINEAR_NAME_PAIRS = (
-        ("XLONG", "XLAT"),
-        ("lon_rho", "lat_rho"),
-        ("nav_lon", "nav_lat"),
-        ("xc", "yc"),
+        ("XLONG", "XLAT", False),
+        ("lon_rho", "lat_rho", False),
+        ("nav_lon", "nav_lat", False),
+        ("xc", "yc", True),
     )
 
     def __init__(self, nc: NetCDF) -> None:
@@ -1311,7 +1318,7 @@ class NetCDFPlot:
                     result = (x_arr, y_arr)
 
         if result is None and data_shape is not None:
-            for x_name, y_name in self._CURVILINEAR_NAME_PAIRS:
+            for x_name, y_name, require_2d in self._CURVILINEAR_NAME_PAIRS:
                 if x_name in parent.variable_names and y_name in parent.variable_names:
                     xv = parent._read_variable(x_name)
                     yv = parent._read_variable(y_name)
@@ -1319,6 +1326,11 @@ class NetCDFPlot:
                         continue
                     x_arr = self._squeeze_leading_axes(xv, data_shape)
                     y_arr = self._squeeze_leading_axes(yv, data_shape)
+                    if require_2d and (x_arr.ndim != 2 or y_arr.ndim != 2):
+                        # A generic name pair (e.g. xc/yc) resolving to 1-D arrays
+                        # is a projected rectilinear grid, not curvilinear; skip it
+                        # so the plot falls back to the geotransform extent.
+                        continue
                     if self._coord_shapes_match(x_arr, y_arr, data_shape):
                         warnings.warn(
                             "Resolving curvilinear coordinates by hardcoded "
