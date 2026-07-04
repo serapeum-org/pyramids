@@ -20,6 +20,11 @@ on:
         required: false
         default: ""
         type: string
+      dry_run_release:
+        description: "Also run the release job's gather + composition gate (stops before upload/publish)"
+        required: false
+        default: false
+        type: boolean
 
 # Cancel superseded runs to free the hosted-runner pool, but only for pull_request builds —
 # never cancel a push/workflow_run build, since those can publish wheels to PyPI.
@@ -490,10 +495,15 @@ jobs:
             build-windows-wheels, test-wheels, verify-debian12, verify-rocky9]
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Dry-run path (workflow_dispatch + dry-run-release): executes the
+    # artifact gather and the composition gate against this run's own
+    # artifacts, then stops — upload and publish are workflow_run-only.
+    # This is how the release plumbing gets exercised without a release.
     if: >-
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && inputs.dry_run_release)
     permissions:
       contents: write
     steps:
@@ -553,7 +563,12 @@ jobs:
           fi
           echo "release composition OK: 1 sdist + ${#wheels[@]} wheels (${pyvers} CPython x 5 platforms)"
 
+      - name: Dry run stops here — gather + gate passed, nothing published
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "release dry run OK (composition gate passed); upload/publish skipped"
+
       - name: Resolve target release tag
+        if: github.event_name == 'workflow_run'
         id: release-tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -564,6 +579,7 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Attach wheels + sdist to the GitHub release
+        if: github.event_name == 'workflow_run'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -574,6 +590,7 @@ jobs:
               --clobber
 
       - name: Publish to PyPI
+        if: github.event_name == 'workflow_run'
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
           password: ${{ secrets.PYPI_PUBLISH }}
