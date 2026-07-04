@@ -414,8 +414,9 @@ archs = ["auto64"]
 build-verbosity = 3
 # cibuildwheel's in-container self-test is skipped: the wheels are
 # exercised far more thoroughly by bundle-pypi-wheels.yml's test-wheels
-# matrix (4 OSes x cp311-cp314) and the verify-debian12 / verify-rocky9 /
-# verify-alpine full-suite jobs, so a container smoke test would add
+# matrix (4 OSes x cp311-cp314), the verify-debian12 / verify-rocky9
+# full-suite jobs, and the raster-scoped verify-alpine, so a container
+# smoke test would add
 # minutes per build for no extra signal.
 test-skip = "*"
 

@@ -485,8 +485,10 @@ jobs:
 
   # Alpine/musl canary (#333, not published). Vector file I/O is unavailable
   # until upstream pyogrio ships musllinux wheels (geopandas hard-requires
-  # pyogrio, so its install here is --no-deps); the suite is raster/netCDF
-  # scoped and extras-marked tests auto-skip.
+  # pyogrio, so its install here is --no-deps). Scope: base + netCDF + io +
+  # grib suites in full, and tests/dataset minus the 14 class nodes whose
+  # fixtures call geopandas read_file/to_file (list derived empirically by
+  # running the suite with pyogrio import-blocked: 1722 passed, 0 failed).
   verify-alpine:
     needs: build-musl-wheels
     runs-on: ubuntu-latest
@@ -522,11 +524,26 @@ jobs:
       - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
         run: python ci/verify-wheel.py
 
-      - name: Run raster/netCDF-scoped core suite
+      - name: Run core suite (raster/netCDF full; dataset minus pyogrio-bound classes)
         run: >-
           pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread
           -m "core and not vfs and not slow"
           tests/base tests/netcdf tests/test_io.py tests/test_grib.py
+          tests/dataset
+          --deselect tests/dataset/test_contour.py::TestContour
+          --deselect tests/dataset/test_dataset_collection.py::TestCrop
+          --deselect tests/dataset/test_dataset_spatial.py::TestCluster2
+          --deselect tests/dataset/test_dataset_spatial.py::TestCropWithPolygon
+          --deselect tests/dataset/test_dataset_vectorize.py::TestExtract
+          --deselect tests/dataset/test_dataset_vectorize.py::TestFootPrint
+          --deselect tests/dataset/test_dataset_vectorize.py::TestToFeatureCollection
+          --deselect tests/dataset/test_unit_spatial.py::TestCluster2
+          --deselect tests/dataset/test_unit_spatial.py::TestCluster2BandList
+          --deselect tests/dataset/test_unit_spatial.py::TestCluster2BandNone
+          --deselect tests/dataset/test_unit_spatial.py::TestGroupNeighbours
+          --deselect tests/dataset/test_unit_stats.py::TestStatsWithMask
+          --deselect tests/dataset/test_unit_vectorize.py::TestBandToPolygon
+          --deselect tests/dataset/test_unit_vectorize.py::TestFootprint
 
   release:
     name: Publish to PyPI + attach to GitHub release
