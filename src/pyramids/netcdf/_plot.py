@@ -132,10 +132,10 @@ class NetCDFPlot:
     on a pinned subset rather than the original instance).
     """
 
-    # Conventional curvilinear coordinate-variable name pairs, each ordered
-    # ``(lon_name, lat_name)`` — the first name maps to the x axis, the second to
-    # the y axis with no range disambiguation, so the order is load-bearing. The
-    # third field, ``require_2d``, restricts a *generic* pair (one also common as
+    # Conventional curvilinear coordinate-variable name triples, each
+    # ``(lon_name, lat_name, require_2d)``. The first name maps to the x axis,
+    # the second to the y axis with no range disambiguation, so the order is
+    # load-bearing. ``require_2d`` restricts a *generic* pair (one also common as
     # 1-D projected axis variables, e.g. ``xc``/``yc``) to genuinely 2-D
     # curvilinear coordinates, so a projected rectilinear grid is not
     # mis-detected as curvilinear.
@@ -1199,7 +1199,7 @@ class NetCDFPlot:
 
         Examples:
             - A NetCDF without curvilinear coords (no CF
-              ``coordinates`` attribute, no WRF/ROMS/NEMO names) returns
+              ``coordinates`` attribute, no WRF/ROMS/NEMO/RASM names) returns
               ``None`` so the caller can fall back to the
               geotransform-derived extent:
 
