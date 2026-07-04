@@ -136,6 +136,7 @@ class NetCDFPlot:
         ("XLONG", "XLAT"),
         ("lon_rho", "lat_rho"),
         ("nav_lon", "nav_lat"),
+        ("xc", "yc"),
     )
 
     def __init__(self, nc: NetCDF) -> None:

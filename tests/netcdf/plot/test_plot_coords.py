@@ -272,6 +272,25 @@ class TestCurvilinearCoords:
         assert cleo.coords is not None
         assert cleo.coords[0].shape == (5, 6)
 
+    def test_xc_yc_naming_convention_auto_detected(self):
+        """RASM-style `xc`/`yc` are auto-detected via the well-known fallback (#633).
+
+        Test scenario:
+            The container advertises `xc`/`yc` coordinate variables with no
+            CF `coordinates` attribute, so detection can only succeed through
+            the hardcoded name-pair fallback. Auto-detection must still pick
+            them up and forward the 2-D coords to cleopatra.
+        """
+        nc, _, _, _ = _make_curvilinear_nc(
+            rows=5,
+            cols=6,
+            x_name="xc",
+            y_name="yc",
+        )
+        cleo = nc.plot(variable="CANWAT")
+        assert cleo.coords is not None
+        assert cleo.coords[0].shape == (5, 6)
+
     def test_kind_contour_forwards(self):
         """`kind="contour"` is forwarded and renders."""
         nc, _, _, _ = _make_curvilinear_nc(rows=5, cols=6)
