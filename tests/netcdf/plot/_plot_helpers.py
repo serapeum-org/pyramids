@@ -137,6 +137,7 @@ def _attach_curvilinear_coords(
     x_name: str = "XLONG",
     y_name: str = "XLAT",
     cf_attr: str | None = None,
+    coord_ndim: int = 2,
 ):
     """Splice synthetic 2-D curvilinear coord arrays onto the container.
 
@@ -155,15 +156,19 @@ def _attach_curvilinear_coords(
         cf_attr: When not None, the value is written as a CF
             ``coordinates`` attribute on the data variable's subset so
             the CF detection path fires.
+        coord_ndim: ``2`` (default) installs 2-D meshgrid curvilinear
+            coords; ``1`` installs 1-D axis vectors (``cols``-long x,
+            ``rows``-long y) to simulate a projected rectilinear grid.
 
     Returns:
-        tuple: ``(x_arr, y_arr)`` — the synthetic 2-D coord arrays
-        that were installed.
+        tuple: ``(x_arr, y_arr)`` — the synthetic coord arrays that were
+        installed (2-D by default, 1-D when ``coord_ndim == 1``).
     """
     x_arr = np.linspace(-110.0, -100.0, cols, dtype=np.float32)
     y_arr = np.linspace(35.0, 45.0, rows, dtype=np.float32)
     x_2d, y_2d = np.meshgrid(x_arr, y_arr)
-    extra_vars = {x_name: x_2d, y_name: y_2d}
+    x_installed, y_installed = (x_arr, y_arr) if coord_ndim == 1 else (x_2d, y_2d)
+    extra_vars = {x_name: x_installed, y_name: y_installed}
     base_names = list(nc.variable_names)
     spliced_names = base_names + [x_name, y_name]
     original_read = type(nc)._read_variable
@@ -200,7 +205,7 @@ def _attach_curvilinear_coords(
         {"variable_names": property(lambda _self: spliced_names)},
     )
     nc.__class__ = subcls
-    return x_2d, y_2d
+    return x_installed, y_installed
 
 
 def _make_curvilinear_nc(
@@ -211,6 +216,7 @@ def _make_curvilinear_nc(
     y_name: str = "XLAT",
     cf_attr: str | None = None,
     n_times: int | None = None,
+    coord_ndim: int = 2,
 ):
     """Build a NetCDF whose container advertises curvilinear coords.
 
@@ -225,6 +231,8 @@ def _make_curvilinear_nc(
             the CF detection path fires.
         n_times: When set, build a 3-D (time, lat, lon) variable;
             otherwise build a 2-D (lat, lon) variable.
+        coord_ndim: ``2`` (default) attaches 2-D curvilinear coords;
+            ``1`` attaches 1-D projected axis vectors instead.
 
     Returns:
         tuple: ``(nc, x_arr, y_arr, data_var_name)`` — the container,
@@ -257,5 +265,6 @@ def _make_curvilinear_nc(
         x_name=x_name,
         y_name=y_name,
         cf_attr=cf_attr,
+        coord_ndim=coord_ndim,
     )
     return nc, x_2d, y_2d, data_var

@@ -281,7 +281,7 @@ class TestCurvilinearCoords:
             the hardcoded name-pair fallback. Auto-detection must still pick
             them up and forward the 2-D coords to cleopatra.
         """
-        nc, _, _, _ = _make_curvilinear_nc(
+        nc, x_2d, y_2d, _ = _make_curvilinear_nc(
             rows=5,
             cols=6,
             x_name="xc",
@@ -289,7 +289,31 @@ class TestCurvilinearCoords:
         )
         cleo = nc.plot(variable="CANWAT")
         assert cleo.coords is not None
-        assert cleo.coords[0].shape == (5, 6)
+        # Ordering is load-bearing: x must be xc (lon), y must be yc (lat).
+        # The two arrays live in disjoint ranges, so a swap would fail here.
+        np.testing.assert_allclose(cleo.coords[0], x_2d)
+        np.testing.assert_allclose(cleo.coords[1], y_2d)
+
+    def test_1d_xc_yc_not_auto_detected(self):
+        """1-D `xc`/`yc` (projected axes) are not treated as curvilinear (#633).
+
+        Test scenario:
+            `xc`/`yc` is also a common name for 1-D projected axis
+            variables (metres). Those must not flip the render to
+            pcolormesh: with 1-D `xc`/`yc` and no CF `coordinates`
+            attribute the 2-D-only gate skips them, auto-detection
+            returns nothing, and the plot keeps the geotransform extent.
+        """
+        nc, _, _, _ = _make_curvilinear_nc(
+            rows=5,
+            cols=6,
+            x_name="xc",
+            y_name="yc",
+            coord_ndim=1,
+        )
+        cleo = nc.plot(variable="CANWAT")
+        assert cleo.coords is None
+        assert cleo.extent is not None
 
     def test_kind_contour_forwards(self):
         """`kind="contour"` is forwarded and renders."""
