@@ -104,7 +104,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Skipped on release (workflow_run) builds ON PURPOSE: these wheels
+      # publish to PyPI, and restoring the native stack from actions/cache
+      # would make the release artifact's provenance "whatever the cache
+      # contained" (cache-poisoning-to-release vector). A cold release build
+      # costs ~60 min once per release and compiles everything from the
+      # SHA256-pinned source tarballs.
       - name: Cache the built GDAL stack
+        if: github.event_name != 'workflow_run'
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .srcbuild-cache
@@ -166,6 +173,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Unlike the glibc job, this cache is NOT gated off workflow_run: the
+      # musl canaries are never published (excluded from the release job's
+      # needs + download pattern), so cache-restored binaries can't reach
+      # PyPI from here.
       - name: Cache the built GDAL stack
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
