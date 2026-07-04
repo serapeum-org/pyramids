@@ -514,34 +514,44 @@ jobs:
       # Belt-and-braces for the {sdist,wheels-*} gather pattern: assert the
       # exact composition before anything publishes, so a pattern typo or a
       # renamed artifact fails here instead of shipping a partial release.
-      # PYVERS = published CPython versions per platform; bump when a new
-      # cp31N joins the build matrix.
+      # Counting uses nullglob arrays, NEVER `ls | wc -l`: under pipefail a
+      # zero-match ls exits 2 and kills the script on the happy path (zero
+      # musl wheels) before any check runs. The per-platform expectation is
+      # derived from the distinct cpXY tags present in dist/, so a partial
+      # gather (one platform artifact missing) fails loudly without a
+      # hand-maintained version count.
       - name: Assert release composition before publishing
         shell: bash
         run: |
           set -euo pipefail
-          PYVERS=4  # cp311 cp312 cp313 cp314
+          shopt -s nullglob
           fail=0
-          n_sdist=$(ls dist/*.tar.gz 2>/dev/null | wc -l)
-          if [ "${n_sdist}" -ne 1 ]; then
-            echo "ERROR: expected exactly 1 sdist, found ${n_sdist}" >&2; fail=1
+          sdists=(dist/*.tar.gz)
+          if [ "${#sdists[@]}" -ne 1 ]; then
+            echo "ERROR: expected exactly 1 sdist, found ${#sdists[@]}" >&2; fail=1
           fi
-          n_musl=$(ls dist/*musllinux*.whl 2>/dev/null | wc -l)
-          if [ "${n_musl}" -ne 0 ]; then
+          musl=(dist/*musllinux*.whl)
+          if [ "${#musl[@]}" -ne 0 ]; then
             echo "ERROR: musl canaries are unpublished by policy (#333) but reached dist/:" >&2
-            ls dist/*musllinux*.whl >&2; fail=1
+            printf '%s\n' "${musl[@]}" >&2; fail=1
+          fi
+          wheels=(dist/*.whl)
+          pyvers=$(printf '%s\n' "${wheels[@]}" | grep -oE 'cp3[0-9]+' | sort -u | wc -l)
+          if [ "${pyvers}" -lt 4 ]; then
+            echo "ERROR: only ${pyvers} distinct CPython tags in dist/ (expected >= 4)" >&2; fail=1
           fi
           for tag in manylinux_2_28_x86_64 manylinux_2_28_aarch64 "macosx*x86_64" "macosx*arm64" win_amd64; do
-            n=$(ls dist/*${tag}.whl 2>/dev/null | wc -l)
-            if [ "${n}" -ne "${PYVERS}" ]; then
-              echo "ERROR: expected ${PYVERS} ${tag} wheels, found ${n}" >&2; fail=1
+            plat=(dist/*${tag}.whl)
+            if [ "${#plat[@]}" -ne "${pyvers}" ]; then
+              echo "ERROR: expected ${pyvers} ${tag} wheels (one per CPython tag), found ${#plat[@]}" >&2
+              fail=1
             fi
           done
           if [ "${fail}" -ne 0 ]; then
             echo "release composition check FAILED — nothing was published" >&2
             exit 1
           fi
-          echo "release composition OK: 1 sdist + $((PYVERS * 5)) wheels across 5 platforms"
+          echo "release composition OK: 1 sdist + ${#wheels[@]} wheels (${pyvers} CPython x 5 platforms)"
 
       - name: Resolve target release tag
         id: release-tag
