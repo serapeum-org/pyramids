@@ -460,7 +460,7 @@ class NetCDFPlot:
         # Curvilinear coord resolution. Priority (highest first):
         # 1. Explicit user `coords=`.
         # 2. CF `coordinates` attribute + well-known conventions
-        #    (XLAT/XLONG, lat_rho/lon_rho, nav_lat/nav_lon).
+        #    (XLAT/XLONG, lat_rho/lon_rho, nav_lat/nav_lon, yc/xc).
         # When nothing resolves the engine falls back to `extent=bbox`.
         resolved_coords = self._resolve_curvilinear_coords(pinned, coords=coords)
         if resolved_coords is not None:
@@ -1168,7 +1168,9 @@ class NetCDFPlot:
            the auxiliary coord variables for the data variable.
         4. Well-known curvilinear naming conventions for files that
            omit the CF attribute: WRF (``XLAT`` / ``XLONG``), ROMS
-           (``lat_rho`` / ``lon_rho``), NEMO (``nav_lat`` / ``nav_lon``).
+           (``lat_rho`` / ``lon_rho``), NEMO (``nav_lat`` / ``nav_lon``),
+           and RASM (``yc`` / ``xc``, matched only when the coords are
+           genuinely 2-D).
 
         For each candidate pair the helper reads the named variables
         via the parent container's :meth:`NetCDF._read_variable` (or uses
@@ -1335,10 +1337,10 @@ class NetCDFPlot:
                         warnings.warn(
                             "Resolving curvilinear coordinates by hardcoded "
                             f"model-specific names ({x_name!r}, {y_name!r}) is "
-                            "deprecated and will be removed: WRF/ROMS/NEMO name "
-                            "heuristics are domain knowledge, not a generic GIS "
-                            "convention. Set the CF `coordinates` attribute, or pass "
-                            "`coords=` explicitly.",
+                            "deprecated and will be removed: model-specific name "
+                            "heuristics (WRF, ROMS, NEMO, RASM) are domain "
+                            "knowledge, not a generic GIS convention. Set the CF "
+                            "`coordinates` attribute, or pass `coords=` explicitly.",
                             DeprecationWarning,
                             stacklevel=3,
                         )
