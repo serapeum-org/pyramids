@@ -382,9 +382,10 @@ swig = ">=4.3,<5"
 python = { version = "3.14.*", build = "*_cp314" }
 
 # libstdcxx-ng provides the GCC-13 libstdc++.so.6 that conda-forge's GDAL
-# is built against (GLIBCXX_3.4.32). Linux-only — Apple Clang and MSVC
-# don't use libstdc++. Without this, auditwheel can't resolve the
-# SWIG ext's GLIBCXX deps and the manylinux_2_39 tag fails to apply.
+# is built against. Only relevant to the conda-extract model — the Linux
+# wheels build from source (ci/source-build/) inside the manylinux image
+# and never touch this pixi env; it is kept for local conda-extract runs
+# (e.g. reproducing the macOS/Windows flow on a Linux box).
 [tool.pixi.feature.wheel-build.target.linux-64.dependencies]
 libstdcxx-ng = "*"
 
@@ -411,13 +412,14 @@ build = ["cp311-*", "cp312-*", "cp313-*", "cp314-*"]
 skip = ["*pp*", "*musllinux*", "cp314t-*"]
 archs = ["auto64"]
 build-verbosity = 3
-# manylinux_2_39 wheel can't be installed in manylinux_2_28 build
-# container (glibc too old), so cibuildwheel can't run a self-test.
-# Real wheel tests live in .github/workflows/build-wheels.yml's
-# test-wheels matrix instead.
+# cibuildwheel's in-container self-test is skipped: the wheels are
+# exercised far more thoroughly by bundle-pypi-wheels.yml's test-wheels
+# matrix (4 OSes x cp311-cp314) and the verify-debian12 / verify-rocky9 /
+# verify-alpine full-suite jobs, so a container smoke test would add
+# minutes per build for no extra signal.
 test-skip = "*"
 
-# PACKAGE_DATA + PIXI_NO_PATH_UPDATE are repeated in each per-platform
+# PACKAGE_DATA (and PIXI_NO_PATH_UPDATE on macOS/Windows) is repeated in each per-platform
 # [tool.cibuildwheel.<platform>.environment] block below: cibuildwheel REPLACES the
 # `environment` table across overrides (not merges, despite docs), so hoisting them
 # to a shared block silently broke every build ("PACKAGE_DATA != 1"; commit 607d3153).

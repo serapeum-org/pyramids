@@ -39,8 +39,8 @@ def _notice(msg: str) -> None:
 def _tag(filename: str) -> str | None:
     """Return the ``{python}-{abi}-{platform}`` tag of a wheel filename.
 
-    ``pyramids_gis-0.31.0-cp312-cp312-manylinux_2_39_x86_64.whl`` ->
-    ``cp312-cp312-manylinux_2_39_x86_64``. Platform tags use underscores, not
+    ``pyramids_gis-0.31.0-cp312-cp312-manylinux_2_28_x86_64.whl`` ->
+    ``cp312-cp312-manylinux_2_28_x86_64``. Platform tags use underscores, not
     dashes, so a well-formed wheel name splits into exactly 5 dash parts.
     """
     stem = filename[:-4] if filename.endswith(".whl") else filename

@@ -34,8 +34,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def _gdal_version() -> str:
     """Return the concrete GDAL version that BEFORE_ALL resolved.
 
-    `ci/setup-gdal-from-pixi.{sh,ps1}` writes the version pixi /
-    micromamba actually installed into `${BUILD_PREFIX}/GDAL_VERSION`
+    `ci/setup-gdal-from-pixi.{sh,ps1}` (conda-extract, macOS/Windows)
+    and `ci/source-build/build-gdal-stack.sh` (from-source, Linux) write
+    the version actually installed into `${BUILD_PREFIX}/GDAL_VERSION`
     so this script can `pip install GDAL==X.Y.Z` against the exact
     libgdal binary we bundle. Falls back to the `GDAL_VERSION` env
     var for transitional / out-of-band invocations.

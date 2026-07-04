@@ -35,8 +35,8 @@ env:
   WHEEL_INSTALLED_BUDGET_MB: "250"
   # Toolchain pins for the conda GDAL-extraction scripts (ci/setup-gdal-*.sh,
   # .ps1) used by macOS / Windows, whose cibuildwheel runs before-all on the
-  # host and inherits these directly. Linux builds from source
-  # (ci/source-build/) and no longer needs them.
+  # host and inherits these directly. The Linux wheels build from source
+  # (ci/source-build/) and no longer need them.
   PIXI_VERSION: "0.68.1"
   MICROMAMBA_VERSION: "2.6.1"
 
