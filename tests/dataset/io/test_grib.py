@@ -497,3 +497,45 @@ class TestGribToCog:
         """
         with pytest.raises(ValueError, match="No GRIB message with element"):
             grib_to_cog(grib_path, output=tmp_path / "y.tif", variable="NOPE")
+
+    def test_missing_grib_raises(self, tmp_path):
+        """A missing GRIB path raises FileNotFoundError (propagated from open_grib)."""
+        with pytest.raises(FileNotFoundError):
+            grib_to_cog(tmp_path / "nope.grib2", output=tmp_path / "x.tif")
+
+    def test_invalid_cog_profile_raises(self, grib_1band_path, tmp_path):
+        """An unrecognised cog_profile raises ValueError (propagated from to_cog).
+
+        Args:
+            grib_1band_path: Fixture path to a 1-band GRIB2.
+            tmp_path: pytest temp directory.
+        """
+        with pytest.raises(ValueError, match="COG profile"):
+            grib_to_cog(
+                grib_1band_path, output=tmp_path / "bad.tif", cog_profile="bogus"
+            )
+
+    def test_non_default_cog_profile_writes_cog(self, grib_1band_path, tmp_path):
+        """A non-default cog_profile (lzw) still produces a valid COG.
+
+        Args:
+            grib_1band_path: Fixture path to a 1-band GRIB2.
+            tmp_path: pytest temp directory.
+        """
+        out = grib_to_cog(
+            grib_1band_path, output=tmp_path / "lzw.tif", cog_profile="lzw"
+        )
+        assert cog_info(out).is_cog, "lzw profile should still be a valid COG"
+
+    def test_string_target_crs_reprojects(self, grib_1band_path, tmp_path):
+        """A string target_crs reprojects, matching to_cog's int|str contract.
+
+        Args:
+            grib_1band_path: Fixture path to a 1-band GRIB2.
+            tmp_path: pytest temp directory.
+        """
+        out = grib_to_cog(
+            grib_1band_path, output=tmp_path / "str_crs.tif", target_crs="EPSG:3857"
+        )
+        with Dataset.read_file(str(out)) as ds:
+            assert ds.epsg == 3857, "string target_crs should reproject to 3857"
