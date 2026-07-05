@@ -93,6 +93,49 @@ def test_rasm_curvilinear_crop(sample):
         nc.close()
 
 
+def test_rasm_antimeridian_crop_windows_across_seam(sample):
+    """A west>east bbox on the 0..360 rasm grid windows across 180 and stays curvilinear."""
+    nc = NetCDF.read_file(sample(RASM))
+    try:
+        tair = nc.get_variable("Tair")
+        full = np.asarray(tair.read_array())
+        strip = tair.crop(bbox=(170.0, 40.0, -170.0, 70.0))
+        arr = np.asarray(strip.read_array())
+        assert arr.shape[-1] < full.shape[-1], "antimeridian crop must window the grid"
+        assert hasattr(strip, "_curvilinear_coords"), "result must stay curvilinear"
+        lon = np.asarray(strip._curvilinear_coords[0])
+        # The bbox is brought into the grid's 0..360 frame as 170..190; the windowed
+        # longitudes must straddle the 180 seam.
+        assert (
+            float(np.nanmin(lon)) <= 180.0 <= float(np.nanmax(lon))
+        ), "windowed longitudes must span the 180 seam"
+    finally:
+        nc.close()
+
+
+def test_synthetic_curvilinear_antimeridian_masks_both_sides():
+    """A -180..180 curvilinear grid crossing the dateline masks both sides (MultiPolygon)."""
+    ny, nx = 8, 12
+    lon_row = ((np.arange(nx) + 172.0 + 180.0) % 360.0) - 180.0  # 172..179, -180..-169
+    lon2d = np.tile(lon_row, (ny, 1)).astype(float)
+    lat2d = np.tile(np.linspace(9.0, -9.0, ny).reshape(ny, 1), (1, nx)).astype(float)
+    data = np.arange(ny * nx, dtype="float32").reshape(1, ny, nx)
+    nc = NetCDF.create_from_array(
+        arr=data, geo=(172.0, 1.0, 0.0, 9.0, 0.0, -2.0), epsg=4326, variable_name="c"
+    )
+    try:
+        var = nc.get_variable("c")
+        var._curvilinear_coords = (lon2d, lat2d)
+        strip = var.crop(bbox=(175.0, -10.0, -177.0, 10.0))
+        assert hasattr(strip, "_curvilinear_coords"), "result must stay curvilinear"
+        slon = np.asarray(strip._curvilinear_coords[0])
+        present = set(np.round(slon[~np.isnan(slon)]).astype(int).tolist())
+        assert present & {176, 177, 178, 179}, f"west-of-seam cells missing: {present}"
+        assert present & {-180, -179, -178}, f"east-of-seam cells missing: {present}"
+    finally:
+        nc.close()
+
+
 @pytest.mark.lazy
 def test_roms_curvilinear_crop_lazy_matches_eager(sample):
     """``chunks=`` reads the cropped window through the lazy/dask path and matches the eager crop."""

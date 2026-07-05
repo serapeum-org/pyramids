@@ -97,3 +97,34 @@ class TestAntimeridianCrop:
         var = nc.get_variable("v")
         with pytest.raises(ValueError, match="does not overlap"):
             var.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+
+    def test_container_fans_out_across_variables(self):
+        """A root-container antimeridian crop crops every variable into the seam strip."""
+        v_arr = np.arange(180 * 360, dtype="float32").reshape(180, 360)
+        w_arr = (v_arr * -1.0).astype("float32")
+        geo = (-180.0, 1.0, 0.0, 90.0, 0.0, -1.0)
+        nc = NetCDF.create_from_array(arr=v_arr, geo=geo, epsg=4326, variable_name="v")
+        nc.set_variable("w", Dataset.create_from_array(w_arr, geo=geo, epsg=4326))
+        cropped = nc.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+        assert isinstance(cropped, NetCDF), "container crop stays a NetCDF container"
+        assert sorted(cropped.variable_names) == ["v", "w"], "every variable is kept"
+        for name, src in (("v", v_arr), ("w", w_arr)):
+            var = cropped.get_variable(name)
+            assert var.shape == (1, 20, 20), f"{name} strip shape"
+            assert var.bbox == pytest.approx([170.0, -10.0, 190.0, 10.0]), "past seam"
+            expected = np.concatenate(
+                [src[80:100, 350:360], src[80:100, 0:10]], axis=-1
+            )
+            assert np.array_equal(np.asarray(var.read_array()), expected), name
+
+    def test_chunks_rejected_on_container(self):
+        """``chunks`` is unsupported for an antimeridian container crop (eager merge)."""
+        arr = np.arange(180 * 360, dtype="float32").reshape(180, 360)
+        nc = NetCDF.create_from_array(
+            arr=arr,
+            geo=(-180.0, 1.0, 0.0, 90.0, 0.0, -1.0),
+            epsg=4326,
+            variable_name="v",
+        )
+        with pytest.raises(ValueError, match="chunks"):
+            nc.crop(bbox=(170.0, -10.0, -170.0, 10.0), chunks="auto")

@@ -21,14 +21,16 @@ import math
 import warnings
 from typing import TYPE_CHECKING, Any, cast
 
+import geopandas as gpd
 import numpy as np
-from shapely import contains_xy
+from shapely import box, contains_xy
 
 from pyramids.base.crs import sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines.spatial import (
     _crop_seam_halves,
+    _split_lon_bbox,
     _stitch_lon_halves,
 )
 from pyramids.feature import FeatureCollection
@@ -88,11 +90,14 @@ class Selection(_Engine["NetCDF"]):
                 :meth:`FeatureCollection.from_bbox` and routed through
                 the same polygon path. The FC is built **once** so a
                 root-container crop does not rebuild it for every
-                variable. Mutually exclusive with ``mask``. On a
-                variable subset, a *geographic* bbox with ``west > east``
-                (the STAC antimeridian convention, e.g.
-                ``(170, -10, -170, 10)``) is split at the 180°/360° seam
-                and stitched into one contiguous strip.
+                variable. Mutually exclusive with ``mask``. A *geographic*
+                bbox with ``west > east`` (the STAC antimeridian
+                convention, e.g. ``(170, -10, -170, 10)``) crosses the
+                180° meridian: on a rectilinear variable it is split at
+                the 180°/360° seam and stitched into one contiguous strip;
+                on a curvilinear variable the split halves become a
+                polygon mask over the 2-D coordinates; on a root container
+                it fans out to every variable.
             epsg (keyword-only): CRS for ``bbox`` — anything geopandas
                 accepts for ``crs=`` (EPSG int, ``"EPSG:4326"``, WKT,
                 :class:`pyproj.CRS`). Defaults to the dataset's own
@@ -205,11 +210,10 @@ class Selection(_Engine["NetCDF"]):
             chunks: Forwarded to the per-half crop.
 
         Returns:
-            The cropped variable strip when the bbox is a geographic ``west > east``
-            antimeridian request on a geographic dataset; otherwise ``None``.
-
-        Raises:
-            ValueError: The antimeridian bbox targets a root container.
+            The cropped result when the bbox is a geographic ``west > east``
+            antimeridian request on a geographic dataset — a stitched variable
+            strip, a masked curvilinear window, or a container with every variable
+            cropped — otherwise ``None``.
         """
         if bbox is None or mask is not None:
             return None
@@ -221,11 +225,43 @@ class Selection(_Engine["NetCDF"]):
         if not (west > east and crs_geo and ds_geo):
             return None
         if is_container:
-            raise ValueError(
-                "antimeridian crop (west > east) is not supported on a root "
-                "container; crop a single variable via get_variable(name)."
-            )
+            return self._crop_antimeridian_container(tuple(bbox), crs, touch, chunks)
         return self._crop_antimeridian(tuple(bbox), crs, touch, chunks)
+
+    def _crop_antimeridian_container(
+        self,
+        bbox: tuple[float, float, float, float],
+        crs: Any,
+        touch: bool,
+        chunks: Any,
+    ) -> "NetCDF":
+        """Fan an antimeridian bbox out across every variable of a root container.
+
+        The container has no single crop to run — each variable splits the bbox in
+        its own longitude frame and stitches (rectilinear) or masks (curvilinear)
+        itself, and :meth:`_apply_to_all_variables` reassembles the cropped
+        variables into a new container.
+
+        Args:
+            bbox: ``(west, south, east, north)`` with ``west > east``.
+            crs: The bbox CRS, forwarded to every per-variable crop.
+            touch: Forwarded to every per-variable crop.
+            chunks: Must be ``None`` — antimeridian crops are eager.
+
+        Returns:
+            NetCDF: A new container with every gridded variable cropped.
+
+        Raises:
+            ValueError: ``chunks`` was supplied.
+        """
+        if chunks is not None:
+            raise ValueError(
+                "chunks= is not supported for an antimeridian crop; it is eager "
+                "(the wrapped halves are read and concatenated)."
+            )
+        return self._ds._apply_to_all_variables(
+            "crop", {"bbox": bbox, "epsg": crs, "touch": touch}
+        )
 
     def _crop_antimeridian(
         self,
@@ -236,26 +272,32 @@ class Selection(_Engine["NetCDF"]):
     ) -> "NetCDF":
         """Crop a variable with a geographic ``west > east`` (antimeridian) bbox.
 
-        Splits the bbox at the grid's longitude seam (``180`` on a ``-180..180``
-        grid, ``360`` on a ``0..360`` grid — reusing :func:`split_antimeridian` for
-        the former), crops each ``west < east`` half through the normal path, and
-        concatenates the halves along longitude into one contiguous variable whose
-        coordinates continue past the seam. A half outside the variable's longitude
-        extent is skipped, so a single-sided overlap returns just that half.
+        A curvilinear variable (2-D lon/lat coords) is masked on its coordinate
+        arrays; a rectilinear one splits the bbox at the grid's longitude seam
+        (``180`` on a ``-180..180`` grid, ``360`` on a ``0..360`` grid), crops each
+        ``west < east`` half through the normal path, and concatenates the halves
+        along longitude into one contiguous variable whose coordinates continue past
+        the seam. A half outside the variable's longitude extent is skipped, so a
+        single-sided overlap returns just that half.
 
         Args:
             bbox: ``(west, south, east, north)`` with ``west > east``.
             crs: The bbox CRS.
-            touch: Forwarded to the per-half crop.
-            chunks: Must be ``None`` — the antimeridian merge is eager.
+            touch: Forwarded to the per-half crop / curvilinear mask.
+            chunks: Curvilinear-only lazy read; must be ``None`` on the rectilinear
+                path, whose merge is eager.
 
         Returns:
-            NetCDF: The cropped strip spanning the seam.
+            NetCDF: The cropped strip (rectilinear) or masked window (curvilinear)
+            spanning the seam.
 
         Raises:
-            ValueError: ``chunks`` was supplied, or the bbox does not overlap the
-                variable's longitude extent.
+            ValueError: ``chunks`` was supplied on the rectilinear path, or the bbox
+                does not overlap the variable's longitude extent.
         """
+        curv = _curvilinear_coords_2d(self._ds)
+        if curv is not None:
+            return self._crop_antimeridian_curvilinear(bbox, crs, curv, touch, chunks)
         if chunks is not None:
             raise ValueError(
                 "chunks= is not supported for an antimeridian crop; it is eager "
@@ -267,6 +309,43 @@ class Selection(_Engine["NetCDF"]):
             lambda half: self.crop(bbox=half, epsg=crs, touch=touch),
             self._merge_lon_halves,
         )
+
+    def _crop_antimeridian_curvilinear(
+        self,
+        bbox: tuple[float, float, float, float],
+        crs: Any,
+        coords2d: tuple[np.ndarray, np.ndarray],
+        touch: bool,
+        chunks: Any,
+    ) -> "NetCDF":
+        """Crop a curvilinear variable with a ``west > east`` bbox via a split mask.
+
+        Curvilinear grids have no affine seam to stitch across, but their crop
+        already masks on the 2-D ``(lon, lat)`` arrays — so the wrap is handled by
+        the *mask*, not a stitch. The bbox is split into ``west < east`` halves
+        (keyed off the 2-D longitude array's own max, so a 0..360 grid is detected
+        without an affine geotransform), turned into a polygon per half (a
+        ``MultiPolygon`` on a -180..180 grid, one box on a 0..360 grid), and passed
+        to the standard curvilinear point-in-polygon mask + window.
+
+        Args:
+            bbox: ``(west, south, east, north)`` with ``west > east``.
+            crs: The bbox CRS for the polygon mask.
+            coords2d: The variable's 2-D ``(lon, lat)`` coordinate arrays.
+            touch: Forwarded to the curvilinear mask (currently a no-op there).
+            chunks: Forwarded to the curvilinear windowed read (lazy when set).
+
+        Returns:
+            NetCDF: The masked + windowed curvilinear subset spanning the seam.
+        """
+        lon2d = np.asarray(coords2d[0], dtype=float)
+        halves = _split_lon_bbox(
+            bbox, float(np.nanmax(lon2d)), _lon_cell_size(lon2d)
+        )
+        mask = FeatureCollection(
+            gpd.GeoDataFrame(geometry=[box(*half) for half in halves], crs=crs)
+        )
+        return self._crop_curvilinear(mask, coords2d, touch=touch, chunks=chunks)
 
     def _merge_lon_halves(self, west_part: "NetCDF", east_part: "NetCDF") -> "NetCDF":
         """Concatenate two longitude-adjacent variable crops into one contiguous result.
@@ -348,16 +427,11 @@ class Selection(_Engine["NetCDF"]):
             ValueError: ``chunks`` was given for a rectilinear (affine) crop, which is eager.
         """
         nc = self._ds
-        curv = NetCDFPlot(nc)._resolve_curvilinear_coords(nc, coords=None)
-        is_curvilinear = (
-            curv is not None
-            and np.asarray(curv[0]).ndim == 2
-            and np.asarray(curv[1]).ndim == 2
-        )
-        if is_curvilinear:
+        curv = _curvilinear_coords_2d(nc)
+        if curv is not None:
             result = self._crop_curvilinear(
                 mask,
-                cast("tuple[np.typing.NDArray, np.typing.NDArray]", curv),
+                curv,
                 touch=touch,
                 chunks=chunks,
             )
@@ -985,6 +1059,38 @@ class Selection(_Engine["NetCDF"]):
             )
         nc._carry_aux_variables(cast("NetCDF", result), carry_aux, "reduce")
         return cast("NetCDF", result)
+
+
+def _curvilinear_coords_2d(
+    nc: NetCDF,
+) -> tuple[np.typing.NDArray, np.typing.NDArray] | None:
+    """Return the variable's 2-D ``(lon, lat)`` coords when it is curvilinear.
+
+    A curvilinear variable carries 2-D longitude/latitude arrays (no single affine
+    geotransform). Returns the coordinate pair when both are 2-D, else ``None`` for
+    a rectilinear grid. Shared by the plain and antimeridian crop paths.
+    """
+    curv = NetCDFPlot(nc)._resolve_curvilinear_coords(nc, coords=None)
+    if (
+        curv is not None
+        and np.asarray(curv[0]).ndim == 2
+        and np.asarray(curv[1]).ndim == 2
+    ):
+        return cast("tuple[np.typing.NDArray, np.typing.NDArray]", curv)
+    return None
+
+
+def _lon_cell_size(lon2d: np.typing.NDArray) -> float:
+    """Return the median centre-to-centre longitude spacing of a 2-D lon array.
+
+    Used as the one-cell seam tolerance for a curvilinear grid. The median is
+    robust to the ~360 jump a -180..180 grid shows at the dateline, so it recovers
+    the true cell size there; a single-column grid has no spacing and yields 0.0.
+    """
+    if lon2d.shape[-1] < 2:
+        return 0.0
+    med = float(np.nanmedian(np.abs(np.diff(lon2d, axis=-1))))
+    return med if math.isfinite(med) else 0.0
 
 
 def _reconcile_mask_to_crs(mask: FeatureCollection, epsg: int | None) -> Any:

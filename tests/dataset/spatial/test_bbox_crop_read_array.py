@@ -11,6 +11,7 @@ import pytest
 from shapely.geometry import box
 
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset.engines.spatial import _split_lon_bbox
 from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
@@ -329,6 +330,19 @@ class TestAntimeridianCrop:
         strip = ds.crop(bbox=(175.0, -10.0, -170.0, 10.0))
         assert strip.bbox[0] == pytest.approx(175.0), "west edge kept"
         assert strip.bbox[2] == pytest.approx(180.0), "only the west half (no wrap)"
+
+    def test_split_lon_bbox_0_360_yields_single_half(self):
+        """On a 0..360 grid the west>east bbox shifts into one west<east half."""
+        halves = _split_lon_bbox((170.0, -10.0, -170.0, 10.0), lon_max=359.0, cell_x=1.0)
+        assert halves == [(170.0, -10.0, 190.0, 10.0)]
+
+    def test_split_lon_bbox_180_yields_two_halves(self):
+        """On a -180..180 grid the west>east bbox splits at the 180 seam."""
+        halves = _split_lon_bbox((170.0, -10.0, -170.0, 10.0), lon_max=180.0, cell_x=1.0)
+        assert halves == [
+            (170.0, -10.0, 180.0, 10.0),
+            (-180.0, -10.0, -170.0, 10.0),
+        ]
 
 
 class TestDatasetReadArrayBbox:

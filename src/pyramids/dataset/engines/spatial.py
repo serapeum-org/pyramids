@@ -133,26 +133,29 @@ def _check_lon_halves_concatenable(
         )
 
 
-def _antimeridian_halves(
-    ds: RasterBase, bbox: tuple[float, float, float, float]
+def _split_lon_bbox(
+    bbox: tuple[float, float, float, float], lon_max: float, cell_x: float
 ) -> list[tuple[float, float, float, float]]:
     """Split a geographic ``west > east`` bbox into ``west < east`` halves.
 
-    A 0..360 grid (longitudes reaching past 180 by more than a cell) has the bbox
+    Pure numeric core shared by the rectilinear and curvilinear crop paths. A
+    0..360 grid (``lon_max`` reaching past 180 by more than a cell) has the bbox
     shifted into its own frame, which usually removes the wrap (one half); a
     -180..180 grid is split at 180 via :func:`split_antimeridian`.
 
     Args:
-        ds: The dataset whose longitude frame and cell size set the seam.
         bbox: ``(west, south, east, north)`` with ``west > east``.
+        lon_max: The grid's maximum longitude (its own frame's east edge).
+        cell_x: The grid's longitude cell size, used as a one-cell tolerance so a
+            -180..180 grid whose ``lon_max`` floats a hair over 180 is not
+            mistaken for a 0..360 grid.
 
     Returns:
         One or two ``west < east`` sub-bboxes to crop and stitch, in west-to-east
         order.
     """
     west, south, east, north = bbox
-    cell_x = abs(ds.geotransform[1])
-    if float(ds.bbox[2]) > 180.0 + cell_x:
+    if lon_max > 180.0 + cell_x:
         # 0..360 grid: bring the STAC (-180..180) bbox into the grid's frame.
         west = west + 360.0 if west < 0 else west
         east = east + 360.0 if east < 0 else east
@@ -163,6 +166,26 @@ def _antimeridian_halves(
     else:
         halves = split_antimeridian(bbox)
     return halves
+
+
+def _antimeridian_halves(
+    ds: RasterBase, bbox: tuple[float, float, float, float]
+) -> list[tuple[float, float, float, float]]:
+    """Split a ``west > east`` bbox using a rectilinear dataset's affine frame.
+
+    Reads the grid's east edge and cell size from the affine ``bbox`` /
+    ``geotransform`` and delegates to :func:`_split_lon_bbox`. Curvilinear grids
+    have no single affine frame and key the split off their 2-D longitude array
+    instead.
+
+    Args:
+        ds: The dataset whose longitude frame and cell size set the seam.
+        bbox: ``(west, south, east, north)`` with ``west > east``.
+
+    Returns:
+        One or two ``west < east`` sub-bboxes, in west-to-east order.
+    """
+    return _split_lon_bbox(bbox, float(ds.bbox[2]), abs(ds.geotransform[1]))
 
 
 def _crop_seam_halves(
