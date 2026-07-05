@@ -27,6 +27,7 @@ doesn't require fighting YAML + shell quoting.
 """
 
 import os
+import platform
 import subprocess
 import sys
 import tempfile
@@ -266,17 +267,26 @@ _COMMON_DRIVERS = (
     "GeoJSON", "ESRI Shapefile", "GPKG", "GPX", "PMTiles", "MVT",
     "GML", "KML", "WFS", "OAPIF", "FlatGeobuf", "SQLite", "OSM",
 )
-# Platform extras: HDF4 ships only in the conda-extract wheels — the
-# curated Linux from-source stack deliberately drops it.
-_PLATFORM_DRIVERS = {"darwin": ("HDF4",), "win32": ("HDF4",)}
+# Platform extras: HDF4 ships only in the conda-extract wheels (macOS +
+# Windows AMD64). The from-source builds deliberately drop it — the
+# curated Linux stack has no HDF4, and the vcpkg gdal port used for the
+# win_arm64 wheel (#334) has no hdf4 feature at all.
+_HDF4_PLATFORMS = ("darwin", "win32-amd64")
+
+
+def _platform_slug() -> str:
+    """Return `sys.platform`, suffixed with the machine arch on Windows."""
+    slug = sys.platform
+    if slug == "win32":
+        slug = f"win32-{platform.machine().lower()}"
+    return slug
 
 
 def _check_driver_set() -> None:
     """Assert every promised driver is registered in the bundled GDAL."""
     expected = list(_COMMON_DRIVERS)
-    for platform_prefix, extras in _PLATFORM_DRIVERS.items():
-        if sys.platform.startswith(platform_prefix):
-            expected.extend(extras)
+    if _platform_slug() in _HDF4_PLATFORMS:
+        expected.append("HDF4")
     missing = [name for name in expected if gdal.GetDriverByName(name) is None]
     if missing:
         _fail(
