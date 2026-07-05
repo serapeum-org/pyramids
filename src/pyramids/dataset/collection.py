@@ -2101,6 +2101,7 @@ class DatasetCollection:
             **kwargs:
                 | Parameter                  | Type                  | Description |
                 |----------------------------|-----------------------|-------------|
+                | animation_axis_values      | sequence, optional    | Per-frame labels for the animation, one per timestep. Defaults to `range(time_length)` (index labels). Pass the collection's real time coordinate (e.g. `range(2000, 2024)` or a list of dates) to label frames by date instead of index. |
                 | points                     | array                 | 3-column array: col 1 = value to display, col 2 = row index, col 3 = column index. Columns 2 and 3 indicate the location of the point. |
                 | point_color                | str                   | Color of the points. |
                 | point_size                 | Any                   | Size of the points. |
@@ -2197,6 +2198,16 @@ class DatasetCollection:
             cutoff=cutoff,
             percentile=percentile,
         )
+        # Frame labels for the animation. Default to a plain index axis, but
+        # let the caller pass ``animation_axis_values`` explicitly (e.g. the
+        # real dates) via ``**kwargs`` without colliding with the value the
+        # render_array call sites below pass positionally. A DatasetCollection
+        # does not itself carry a time coordinate (see the class docstring), so
+        # the default stays index-based; a caller holding parsed dates passes
+        # them here. (issue #693)
+        axis_values = kwargs.pop(
+            "animation_axis_values", list(range(self.time_length))
+        )
         # Materialise the cube on demand for plotting. The render helper
         # expects a single (time, rows, cols) numpy array; reading each
         # Dataset's band into one stacked array is fine for a plot call
@@ -2241,7 +2252,7 @@ class DatasetCollection:
                 cutoff=cutoff,
                 percentile=percentile,
                 mode="animate",
-                animation_axis_values=list(range(self.time_length)),
+                animation_axis_values=axis_values,
                 **kwargs,
             )
         data = np.stack([ds.read_array(band=band) for ds in self.datasets], axis=0)
@@ -2261,7 +2272,7 @@ class DatasetCollection:
             arr=data,
             exclude_value=exclude_value,
             mode="animate",
-            animation_axis_values=list(range(self.time_length)),
+            animation_axis_values=axis_values,
             **kwargs,
         )
 
