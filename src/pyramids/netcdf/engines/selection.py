@@ -28,8 +28,8 @@ from pyramids.base.crs import sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines.spatial import (
-    _antimeridian_halves,
-    _check_lon_halves_concatenable,
+    _crop_seam_halves,
+    _stitch_lon_halves,
 )
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf._mdim import open_mdarray
@@ -261,25 +261,12 @@ class Selection(_Engine["NetCDF"]):
                 "chunks= is not supported for an antimeridian crop; it is eager "
                 "(the wrapped halves are read and concatenated)."
             )
-        xmin, xmax = float(self._ds.bbox[0]), float(self._ds.bbox[2])
-        halves = _antimeridian_halves(self._ds, bbox)
-        parts: list = []
-        try:
-            for half in halves:
-                if half[0] < xmax and half[2] > xmin:
-                    parts.append(self.crop(bbox=half, epsg=crs, touch=touch))
-            if not parts:
-                raise ValueError(
-                    f"antimeridian bbox {bbox!r} does not overlap the dataset extent"
-                )
-            if len(parts) == 1:
-                result, parts = parts[0], []  # hand ownership to the caller
-            else:
-                result = self._merge_lon_halves(parts[0], parts[1])
-        finally:
-            for part in parts:
-                part.close()
-        return result
+        return _crop_seam_halves(
+            self._ds,
+            bbox,
+            lambda half: self.crop(bbox=half, epsg=crs, touch=touch),
+            self._merge_lon_halves,
+        )
 
     def _merge_lon_halves(self, west_part: "NetCDF", east_part: "NetCDF") -> "NetCDF":
         """Concatenate two longitude-adjacent variable crops into one contiguous result.
@@ -297,17 +284,7 @@ class Selection(_Engine["NetCDF"]):
         Returns:
             NetCDF: The concatenated variable.
         """
-        _check_lon_halves_concatenable(west_part, east_part)
-        merged = np.concatenate(
-            [west_part.read_array(), east_part.read_array()], axis=-1
-        )
-        raster = Dataset.create_from_array(
-            merged,
-            geo=west_part.geotransform,
-            epsg=west_part.epsg,
-            no_data_value=west_part.no_data_value,
-        )
-        raster.band_names = self._ds.band_names
+        raster = _stitch_lon_halves(self._ds, west_part, east_part)
         return self._ds._preserve_netcdf_metadata(raster)
 
     def _resolve_crop_mask(

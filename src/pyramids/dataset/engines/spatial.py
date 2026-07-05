@@ -165,6 +165,87 @@ def _antimeridian_halves(
     return halves
 
 
+def _crop_seam_halves(
+    ds: RasterBase,
+    bbox: tuple[float, float, float, float],
+    crop_half: Any,
+    merge_halves: Any,
+) -> Any:
+    """Crop the overlapping antimeridian halves of ``bbox`` and stitch them.
+
+    Shared by the raster (`Spatial`) and NetCDF (`Selection`) crop engines: each
+    half that overlaps the dataset's longitude extent is cropped through the normal
+    path via ``crop_half``; a single overlapping half is handed straight back, two
+    are stitched with ``merge_halves``. Non-adopted parts are always closed.
+
+    Args:
+        ds: The dataset whose ``bbox`` sets the longitude extent to test overlap
+            against.
+        bbox: The original ``(west, south, east, north)`` with ``west > east``.
+        crop_half: Callable cropping one ``west < east`` sub-bbox to a part.
+        merge_halves: Callable concatenating two parts into the final result.
+
+    Returns:
+        The single overlapping half or the stitched strip spanning the seam.
+
+    Raises:
+        ValueError: The bbox does not overlap the dataset's longitude extent.
+    """
+    xmin, xmax = float(ds.bbox[0]), float(ds.bbox[2])
+    halves = _antimeridian_halves(ds, bbox)
+    parts: list = []
+    try:
+        for half in halves:
+            if half[0] < xmax and half[2] > xmin:
+                parts.append(crop_half(half))
+        if not parts:
+            raise ValueError(
+                f"antimeridian bbox {bbox!r} does not overlap the dataset extent"
+            )
+        if len(parts) == 1:
+            result, parts = parts[0], []  # hand ownership to the caller
+        else:
+            result = merge_halves(parts[0], parts[1])
+    finally:
+        for part in parts:
+            part.close()
+    return result
+
+
+def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> "Dataset":
+    """Concatenate two longitude-adjacent crops into one contiguous raster Dataset.
+
+    `west_part` (pre-seam) sits to the left of `east_part` (wrapped past the seam);
+    the merged raster keeps `west_part`'s north-up geotransform, so the longitude
+    mapping continues past the seam (e.g. 170..180 then 180..190). Shared by both
+    crop engines; the NetCDF engine re-wraps the result to preserve variable
+    metadata.
+
+    Args:
+        ds: The dataset supplying the band names for the merged raster.
+        west_part: Crop of the pre-seam half.
+        east_part: Crop of the post-seam half.
+
+    Returns:
+        Dataset: The concatenated raster.
+    """
+    # Local import breaks the engines <-> Dataset cycle; the merged result must be a
+    # plain raster Dataset (create_from_array on a variable view would build a NetCDF
+    # container).
+    from pyramids.dataset.dataset import Dataset
+
+    _check_lon_halves_concatenable(west_part, east_part)
+    merged = np.concatenate([west_part.read_array(), east_part.read_array()], axis=-1)
+    out = Dataset.create_from_array(
+        merged,
+        geo=west_part.geotransform,
+        epsg=west_part.epsg,
+        no_data_value=west_part.no_data_value,
+    )
+    out.band_names = ds.band_names
+    return out
+
+
 class Spatial(_Engine["Dataset"]):
 
     def _get_crs(self) -> str:
@@ -1481,25 +1562,12 @@ class Spatial(_Engine["Dataset"]):
         Raises:
             ValueError: The bbox does not overlap the dataset's longitude extent.
         """
-        xmin, xmax = float(self._ds.bbox[0]), float(self._ds.bbox[2])
-        halves = _antimeridian_halves(self._ds, bbox)
-        parts: list[Dataset] = []
-        try:
-            for half in halves:
-                if half[0] < xmax and half[2] > xmin:
-                    parts.append(self.crop(bbox=half, epsg=crs, touch=touch))
-            if not parts:
-                raise ValueError(
-                    f"antimeridian bbox {bbox!r} does not overlap the dataset extent"
-                )
-            if len(parts) == 1:
-                result, parts = parts[0], []  # hand ownership to the caller
-            else:
-                result = self._merge_lon_halves(parts[0], parts[1])
-        finally:
-            for part in parts:
-                part.close()
-        return result
+        return _crop_seam_halves(
+            self._ds,
+            bbox,
+            lambda half: self.crop(bbox=half, epsg=crs, touch=touch),
+            self._merge_lon_halves,
+        )
 
     def _merge_lon_halves(self, west_part: Dataset, east_part: Dataset) -> Dataset:
         """Concatenate two longitude-adjacent crops into one contiguous raster.
@@ -1516,23 +1584,7 @@ class Spatial(_Engine["Dataset"]):
         Returns:
             Dataset: The concatenated raster.
         """
-        # Local import breaks the engines <-> Dataset cycle; the merged result must
-        # be a plain raster Dataset (self._ds.create_from_array would build a NetCDF
-        # container on a variable view).
-        from pyramids.dataset.dataset import Dataset
-
-        _check_lon_halves_concatenable(west_part, east_part)
-        merged = np.concatenate(
-            [west_part.read_array(), east_part.read_array()], axis=-1
-        )
-        out = Dataset.create_from_array(
-            merged,
-            geo=west_part.geotransform,
-            epsg=west_part.epsg,
-            no_data_value=west_part.no_data_value,
-        )
-        out.band_names = self._ds.band_names
-        return out
+        return _stitch_lon_halves(self._ds, west_part, east_part)
 
     def crop(
         self,
