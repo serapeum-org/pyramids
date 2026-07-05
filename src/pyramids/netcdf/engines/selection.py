@@ -231,7 +231,7 @@ class Selection(_Engine["NetCDF"]):
             crs_geo = crs is not None and sr_from_user_input(crs).IsGeographic()
             ds_geo = nc.epsg is not None and sr_from_user_input(nc.epsg).IsGeographic()
             if west > east and crs_geo and ds_geo:
-                _require_antimeridian_seam(nc)
+                _require_antimeridian_seam(nc, tuple(bbox))
                 if is_container:
                     result = self._crop_antimeridian_container(
                         tuple(bbox), crs, touch, chunks

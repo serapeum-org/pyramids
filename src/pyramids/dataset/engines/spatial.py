@@ -194,44 +194,51 @@ def _antimeridian_halves(
 
 
 def _reaches_antimeridian_seam(ds: RasterBase) -> bool:
-    """Whether the grid's longitude extent reaches the 180 antimeridian seam.
+    """Whether the grid can serve a *wrapping* antimeridian crop.
 
-    A ``west > east`` bbox only makes sense as an antimeridian crossing on a grid
-    that actually covers the seam: a 0..360 grid reaching past 180, or a -180..180
-    grid whose extent touches +180 or -180 (within a cell). A regional grid that
-    reaches neither (e.g. Europe, lon -10..40) cannot be antimeridian-cropped, so a
-    ``west > east`` bbox there is a transposed/typo bbox rather than a crossing.
+    A two-half (wrapping) crop needs the grid to actually reach the seam it wraps
+    across: a 0..360 grid must span (nearly) the full 0..360 (so the wrap at the
+    0/360 edge has data on both sides), and a -180..180 grid must touch +180 or
+    -180 (within a cell). A regional grid that reaches neither (e.g. Europe, lon
+    -10..40) — or a partial 0..360 grid that stops well short of 360 (e.g. lon
+    0..256) — cannot serve a wrap, so a ``west > east`` bbox producing one there is
+    a transposed/typo bbox rather than a genuine crossing.
 
     Args:
         ds: The dataset whose affine ``bbox`` / ``geotransform`` set the extent.
 
     Returns:
-        True when the extent reaches the seam; False for a regional grid that
-        does not.
+        True when the extent reaches the seam; False otherwise.
     """
     lon_min, lon_max = float(ds.bbox[0]), float(ds.bbox[2])
     cell_x = abs(ds.geotransform[1])
-    return (
-        lon_max > 180.0 + cell_x
-        or lon_max >= 180.0 - cell_x
-        or lon_min <= -180.0 + cell_x
-    )
+    if lon_max > 180.0 + cell_x:
+        # 0..360 frame: the wrap is at the 0/360 edge, so require a near-full span.
+        return lon_max >= 360.0 - cell_x and lon_min <= cell_x
+    # -180..180 frame: the extent must touch +180 or -180.
+    return lon_max >= 180.0 - cell_x or lon_min <= -180.0 + cell_x
 
 
-def _require_antimeridian_seam(ds: RasterBase) -> None:
-    """Raise unless the grid's longitude extent reaches the antimeridian seam.
+def _require_antimeridian_seam(
+    ds: RasterBase, bbox: tuple[float, float, float, float]
+) -> None:
+    """Raise when a *wrapping* antimeridian bbox targets a grid that can't serve it.
 
-    Guards the ``west > east`` reinterpretation: on a grid that does not reach the
-    seam the bbox cannot be a genuine antimeridian crossing, so raise a clear error
-    instead of silently returning a truncated single-half crop.
+    Guards the ``west > east`` reinterpretation. A contiguous (single-half) split —
+    e.g. ``170..190`` on a 0..360 grid — is just a normal crop and needs no check;
+    only a two-half **wrapping** split requires the grid to actually reach the seam.
+    Raising here turns a transposed/typo bbox into a clear error instead of a
+    truncated single-half crop or a downstream empty-crop failure.
 
     Args:
         ds: The dataset being cropped.
+        bbox: ``(west, south, east, north)`` with ``west > east``.
 
     Raises:
-        ValueError: The grid does not reach the 180 seam.
+        ValueError: A wrapping split targets a grid that does not reach the seam.
     """
-    if not _reaches_antimeridian_seam(ds):
+    wrapping = len(_antimeridian_halves(ds, bbox)) >= 2
+    if wrapping and not _reaches_antimeridian_seam(ds):
         raise ValueError(
             "bbox has west > east (antimeridian) but the dataset's longitude "
             "extent does not reach the 180 seam - the bbox may be transposed, or "
@@ -1588,8 +1595,15 @@ class Spatial(_Engine["Dataset"]):
         else:
             raise ValueError("Array must be 2D or 3D")
 
-        x_ind = np.where(~rows_to_remove)[0][0]
-        y_ind = np.where(~cols_to_remove)[0][0]
+        valid_rows = np.where(~rows_to_remove)[0]
+        valid_cols = np.where(~cols_to_remove)[0]
+        if valid_rows.size == 0 or valid_cols.size == 0:
+            raise ValueError(
+                "crop produced no valid pixels: the bbox / polygon does not "
+                "overlap any valid (non-no-data) data in the dataset."
+            )
+        x_ind = valid_rows[0]
+        y_ind = valid_cols[0]
         # Use the source's separate X/Y pixel sizes (gt[1], gt[5]) rather than a single cell_size, so
         # a non-square grid (e.g. 2° lon, 1° lat) keeps its true latitude spacing. Identical to the
         # old cell_size form on square grids (gt[1] == -gt[5] == cell_size).
@@ -1864,7 +1878,7 @@ class Spatial(_Engine["Dataset"]):
             ds_epsg = self._ds.epsg
             ds_geo = ds_epsg is not None and sr_from_user_input(ds_epsg).IsGeographic()
             if west > east and crs_geo and ds_geo:
-                _require_antimeridian_seam(self._ds)
+                _require_antimeridian_seam(self._ds, tuple(bbox))
                 return self._crop_antimeridian(tuple(bbox), crs, touch)
             mask = FeatureCollection.from_bbox(bbox, epsg=crs)
         if mask is None:

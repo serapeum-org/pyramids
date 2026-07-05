@@ -213,17 +213,19 @@ class TestNetCDFCropMutex:
             root_nc.crop()
 
     def test_invalid_bbox_raises_value_error(self, root_nc: NetCDF):
-        """Test ``W>=E`` / ``S>=N`` bbox raises ``ValueError`` via FC.from_bbox.
+        """Test a ``south >= north`` bbox raises ``ValueError`` via FC.from_bbox.
 
         Args:
             root_nc: Module-scope root NetCDF fixture.
 
         Test scenario:
-            Validation lives in ``FeatureCollection.from_bbox``; the
-            NetCDF override must surface that error unchanged.
+            Validation lives in ``FeatureCollection.from_bbox``; the NetCDF
+            override must surface that error unchanged. Uses ``south >= north``
+            (still always invalid) rather than ``west >= east``, which is now the
+            STAC antimeridian convention on a geographic grid.
         """
         with pytest.raises(ValueError):
-            root_nc.crop(bbox=(50.0, -50.0, 10.0, -20.0))  # west >= east
+            root_nc.crop(bbox=(10.0, -20.0, 50.0, -50.0))  # south >= north
 
     def test_crs_less_netcdf_without_epsg_raises(self, root_nc: NetCDF, mocker):
         """Test ``crop(bbox=…)`` on a CRS-less NetCDF raises a clear ``ValueError``.

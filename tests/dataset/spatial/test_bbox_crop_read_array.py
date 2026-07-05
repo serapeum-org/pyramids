@@ -241,6 +241,26 @@ class TestDatasetCropBbox:
         with pytest.raises(ValueError, match=r"west < east"):
             dataset.crop(bbox=(1, 0, 0, 1), epsg=3857)
 
+    def test_crop_entirely_nodata_raises_clear_error(self):
+        """A crop overlapping only no-data cells raises a clear error, not IndexError.
+
+        Args:
+            None.
+
+        Test scenario:
+            A grid with valid data only in its top-left quadrant, cropped over the
+            all-no-data bottom-right, must raise a "no valid pixels" ValueError from
+            the touch-cutline correction rather than crash with an IndexError.
+        """
+        arr = np.full((10, 10), -9999.0, dtype="float32")
+        arr[0:5, 0:5] = 1.0  # valid only in the top-left quadrant
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326,
+            no_data_value=-9999.0,
+        )
+        with pytest.raises(ValueError, match="no valid pixels"):
+            ds.crop(bbox=(6.0, 0.0, 9.0, 4.0))  # bottom-right: all no-data
+
 
 class TestAntimeridianCrop:
     """Tests for crop with a geographic ``west > east`` (antimeridian) bbox."""
@@ -355,14 +375,15 @@ class TestAntimeridianCrop:
         "top_left_x, ncols, reaches",
         [
             (-180.0, 360, True),  # global -180..180 (touches -180 and 180)
-            (0.0, 360, True),  # global 0..360 (reaches past 180)
+            (0.0, 360, True),  # global 0..360 (reaches past 180 to ~360)
             (170.0, 10, True),  # regional but ends exactly at the +180 seam
             (-10.0, 50, False),  # Europe -10..40: reaches neither seam
             (0.0, 90, False),  # eastern hemisphere 0..90: reaches neither
+            (0.0, 256, False),  # partial 0..360 (lon 0..256): stops short of 360
         ],
     )
     def test_reaches_antimeridian_seam(self, top_left_x, ncols, reaches):
-        """The seam gate accepts grids reaching 180/-180 and rejects regional ones."""
+        """The seam gate accepts grids reaching 180/-180 and rejects regional/partial ones."""
         ds = Dataset.create_from_array(
             np.zeros((2, ncols), dtype="float32"),
             top_left_corner=(top_left_x, 1.0),
