@@ -10,9 +10,8 @@
 #   $BuildPrefix/Library/share       - GDAL_DATA / PROJ data
 #
 # Used by the win_arm64 wheels (#334): conda-forge has no win-arm64 GDAL,
-# so this is the from-source path — the rasterio model (their
-# build-wheels.yaml builds ALL Windows wheels this way). The dependency
-# set lives in ci/vcpkg.json (manifest mode, pinned builtin-baseline).
+# so this is the from-source path. The dependency set lives in
+# ci/vcpkg.json (manifest mode, pinned builtin-baseline).
 $ErrorActionPreference = "Stop"
 
 $BuildPrefix = if ($env:BUILD_PREFIX) { $env:BUILD_PREFIX } else { "C:\gdal-prefix" }

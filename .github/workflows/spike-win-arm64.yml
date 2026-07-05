@@ -1,7 +1,7 @@
 name: spike-win-arm64
 
 # #334 spike: build the pyramids wheel for Windows ARM64 from source via
-# vcpkg (the rasterio model — conda-forge has no win-arm64 GDAL). Also
+# vcpkg (conda-forge has no win-arm64 GDAL). Also
 # canary-builds shapely + pyogrio win_arm64 wheels against the same vcpkg
 # prefix: neither ships win_arm64 wheels on PyPI yet, and both sit on
 # pyramids' hard dependency chain, so publishing the pyramids wheel is

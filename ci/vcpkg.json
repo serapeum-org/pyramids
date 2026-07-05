@@ -1,11 +1,11 @@
 {
     "$comment": [
         "GDAL native stack for the win_arm64 wheel (#334), built by ci/setup-gdal-from-vcpkg.ps1",
-        "on the windows-11-arm runner. Forked from rasterio's ci/vcpkg.json; the feature list",
-        "mirrors the curated driver contract asserted by ci/verify-wheel.py (default features are",
-        "OFF to drop postgresql/libkml/spatialite/libxml2, matching the Linux from-source",
-        "curation). NOTE: the vcpkg gdal port has no hdf4 feature, so the arm64 wheel shares the",
-        "Linux wheel's HDF4 gap."
+        "on the windows-11-arm runner. The feature list mirrors the curated driver contract",
+        "asserted by ci/verify-wheel.py (default features are OFF to drop",
+        "postgresql/libkml/spatialite/libxml2, matching the Linux from-source curation).",
+        "NOTE: the vcpkg gdal port has no hdf4 feature, so the arm64 wheel shares the Linux",
+        "wheel's HDF4 gap."
     ],
     "name": "pyramids-gis",
     "version": "0.40.0",

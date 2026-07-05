@@ -1,17 +1,15 @@
 #!/bin/bash
 # Curated from-source GDAL dependency stack for the pyramids Linux wheel.
-# FORK of rasterio's ci/config.sh (fetched 2026-07-02 from rasterio/rasterio@main,
-# pristine copy in reference/rasterio-config.sh) — see the diff for pyramids'
-# changes. Runs inside the manylinux container; env contract:
+# Runs inside the manylinux container; env contract:
 #   BUILD_PREFIX  install prefix (default /usr/local)
 #   GDAL_VERSION  GDAL release to build (required; e.g. 3.13.1)
-# pyramids deltas vs rasterio:
+# pyramids-specific choices:
 #   - build_gdal enables pyramids' OGR vector allow-list (GEOJSON incl. ESRIJSON,
 #     SHAPE, GPX, PMTILES, FLATGEOBUF, GML, KML, WFS, OAPIF) — pyramids ships
-#     FeatureCollection; rasterio is raster-only. Evidence:
+#     FeatureCollection. Evidence:
 #     planning/bundle/from-source-phase0-audit.md (#332 Phase 0).
-#   - GDAL_ENABLE_DRIVER_OGCAPI=ON (rasterio turns it OFF): pyramids'
-#     Dataset.from_ogc_coverages hard-requires the OGCAPI driver
+#   - GDAL_ENABLE_DRIVER_OGCAPI=ON: pyramids' Dataset.from_ogc_coverages
+#     hard-requires the OGCAPI driver
 #     (src/pyramids/dataset/_ogc_coverages.py); it needs only curl.
 #   - Raster optional drivers stay auto-ON (GDAL_BUILD_OPTIONAL_DRIVERS=ON):
 #     Zarr (blosc/zstd present), WCS (curl), GRIB/netCDF/HDF5/JP2 explicit below.
@@ -94,13 +92,8 @@ esac
 
 echo "IS_MACOS: ${IS_MACOS}"
 
-# ------------------------------------------------
-# From:
-#	 https://github.com/rasterio/rasterio-wheels
-#    https://github.com/multi-build/multibuild
-#
-#    (customized and updated)
-# ------------------------------------------------
+# Per-dependency build functions follow; each is stamped so re-runs skip
+# already-built packages.
 
 if [ -z "$IS_MACOS" ]; then
 	# Strip all binaries after compilation.
@@ -391,7 +384,7 @@ TIFF_FNAME="tiff-${TIFF_VERSION}"
 TIFF_SHA256="f698d94f3103da8ca7438d84e0344e453fe0ba3b7486e04c5bf7a9a3fabe9b69"
 fetch_untar ${TIFF_URL} ${TIFF_FNAME}.tar.gz ${TIFF_SHA256}
 
-# pyramids delta: fetch xz from its GitHub release mirror — tukaani.org is a
+# pyramids-specific: fetch xz from its GitHub release mirror — tukaani.org is a
 # single host and timed out hard in CI (2026-07-03); the release asset is the
 # identical official tarball and the download is SHA256-verified either way.
 XZ_URL="https://github.com/tukaani-project/xz/releases/download/v${XZ_VERSION}/xz-${XZ_VERSION}.tar.gz"
@@ -444,7 +437,7 @@ function build_blosc {
 	if [ -e blosc-stamp ]; then return; fi
 	local cmake=cmake
     echo "Running build_blosc"
-	# pyramids delta: skip bench/tests/fuzzers — GDAL links only the library,
+	# pyramids-specific: skip bench/tests/fuzzers — GDAL links only the library,
 	# and c-blosc's bench.c trips musl's feature-macro strictness
 	# (clock_gettime/CLOCK_MONOTONIC undeclared without _GNU_SOURCE).
 	(cd ${BLOSC_FNAME} &&
@@ -528,7 +521,7 @@ function build_proj {
 
 function build_sqlite {
 
-	# pyramids delta: only glibc has the LFS64 aliases. musl removed
+	# pyramids-specific: only glibc has the LFS64 aliases. musl removed
 	# off64_t/pread64/pwrite64 from its headers (1.2.4+) — its plain
 	# pread/pwrite are already 64-bit — so force-defining HAVE_PREAD64
 	# there makes sqlite3.c reference undeclared symbols and fail.
@@ -551,7 +544,7 @@ function build_expat {
 		:
 	else
         echo "Running build_expat"
-		# pyramids delta: static + PIC. auditwheel's manylinux policy
+		# pyramids-specific: static + PIC. auditwheel's manylinux policy
 		# WHITELISTS libexpat.so.1 (does not vendor it), which made the wheel
 		# silently require the system package on slim images (python:*-slim
 		# ships none). Linking expat statically into libgdal removes the
@@ -776,7 +769,7 @@ function build_jpegturbo {
 function build_giflib {
 	if [ -e giflib-stamp ]; then return; fi
     echo "Running build_giflib"
-	# pyramids delta: giflib's default `all` also renders doc images via
+	# pyramids-specific: giflib's default `all` also renders doc images via
 	# ImageMagick `convert`, which the manylinux image doesn't ship — build
 	# and install only the library targets GDAL links against.
 	(cd ${GIFLIB_FNAME} &&
