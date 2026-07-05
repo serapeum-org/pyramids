@@ -300,6 +300,17 @@ class TestAntimeridianCrop:
         out = ds.crop(bbox=(10.0, -10.0, 30.0, 10.0))
         assert out.bbox == [10.0, -10.0, 30.0, 10.0], "normal crop unaffected"
 
+    def test_projected_dataset_not_treated_as_antimeridian(self):
+        """A geographic west>east bbox on a projected dataset is not an antimeridian crop."""
+        ds = Dataset.create_from_array(
+            np.zeros((5, 5), dtype="float32"),
+            top_left_corner=(0.0, 1000.0),
+            cell_size=1000.0,
+            epsg=3857,
+        )
+        with pytest.raises(ValueError, match="west < east"):
+            ds.crop(bbox=(170.0, -10.0, -170.0, 10.0), epsg=4326)
+
     def test_no_overlap_raises(self):
         """An antimeridian bbox disjoint from the grid's longitudes raises."""
         arr = np.arange(180 * 50, dtype="float32").reshape(180, 50)

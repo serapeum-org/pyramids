@@ -95,12 +95,15 @@ def _resolve_resolution(
     return result
 
 
-def _check_lon_halves_concatenable(west_part: RasterBase, east_part: RasterBase) -> None:
-    """Validate two longitude-adjacent crop halves before concatenating them.
+def _check_lon_halves_concatenable(
+    west_part: RasterBase, east_part: RasterBase
+) -> None:
+    """Assert the invariant that two longitude-adjacent crop halves are stitchable.
 
-    Ensures the halves share row and band counts and meet exactly at the 180/360
-    seam (a cell boundary), so `np.concatenate` yields a geometrically correct
-    contiguous raster rather than a silently shifted or shape-mismatched one.
+    Both halves are cropped from the same source lattice, so equal row/band counts
+    and a shared cell boundary at the 180/360 seam are expected to hold — this is a
+    defensive guard that turns any future violation into a clear error instead of a
+    raw NumPy shape error or a silently shifted `np.concatenate` result.
 
     Args:
         west_part: Crop of the pre-seam half.
@@ -1461,18 +1464,22 @@ class Spatial(_Engine["Dataset"]):
                 halves = [(west, south, 360.0, north), (0.0, south, east, north)]
         else:
             halves = split_antimeridian(bbox)
-        parts = [
-            self.crop(bbox=half, epsg=crs, touch=touch)
-            for half in halves
-            if half[0] < xmax and half[2] > xmin
-        ]
-        if not parts:
-            raise ValueError(
-                f"antimeridian bbox {bbox!r} does not overlap the dataset extent"
-            )
-        result = (
-            parts[0] if len(parts) == 1 else self._merge_lon_halves(parts[0], parts[1])
-        )
+        parts: list[Dataset] = []
+        try:
+            for half in halves:
+                if half[0] < xmax and half[2] > xmin:
+                    parts.append(self.crop(bbox=half, epsg=crs, touch=touch))
+            if not parts:
+                raise ValueError(
+                    f"antimeridian bbox {bbox!r} does not overlap the dataset extent"
+                )
+            if len(parts) == 1:
+                result, parts = parts[0], []  # hand ownership to the caller
+            else:
+                result = self._merge_lon_halves(parts[0], parts[1])
+        finally:
+            for part in parts:
+                part.close()
         return result
 
     def _merge_lon_halves(self, west_part: Dataset, east_part: Dataset) -> Dataset:
@@ -1506,8 +1513,6 @@ class Spatial(_Engine["Dataset"]):
             no_data_value=west_part.no_data_value,
         )
         out.band_names = self._ds.band_names
-        west_part.close()
-        east_part.close()
         return out
 
     def crop(
@@ -1700,8 +1705,10 @@ class Spatial(_Engine["Dataset"]):
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
             crs = epsg if epsg is not None else self._ds.epsg
             west, _, east, _ = bbox
-            geographic = crs is not None and sr_from_user_input(crs).IsGeographic()
-            if west > east and geographic:
+            crs_geo = crs is not None and sr_from_user_input(crs).IsGeographic()
+            ds_epsg = self._ds.epsg
+            ds_geo = ds_epsg is not None and sr_from_user_input(ds_epsg).IsGeographic()
+            if west > east and crs_geo and ds_geo:
                 return self._crop_antimeridian(tuple(bbox), crs, touch)
             mask = FeatureCollection.from_bbox(bbox, epsg=crs)
         if mask is None:

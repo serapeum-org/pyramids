@@ -165,8 +165,9 @@ class Selection(_Engine["NetCDF"]):
         if bbox is not None and mask is None:
             crs = epsg if epsg is not None else nc.epsg
             west, _, east, _ = bbox
-            geographic = crs is not None and sr_from_user_input(crs).IsGeographic()
-            if west > east and geographic:
+            crs_geo = crs is not None and sr_from_user_input(crs).IsGeographic()
+            ds_geo = nc.epsg is not None and sr_from_user_input(nc.epsg).IsGeographic()
+            if west > east and crs_geo and ds_geo:
                 if is_container:
                     raise ValueError(
                         "antimeridian crop (west > east) is not supported on a root "
@@ -238,18 +239,22 @@ class Selection(_Engine["NetCDF"]):
                 halves = [(west, south, 360.0, north), (0.0, south, east, north)]
         else:
             halves = split_antimeridian(bbox)
-        parts = [
-            self.crop(bbox=half, epsg=crs, touch=touch)
-            for half in halves
-            if half[0] < xmax and half[2] > xmin
-        ]
-        if not parts:
-            raise ValueError(
-                f"antimeridian bbox {bbox!r} does not overlap the dataset extent"
-            )
-        result = (
-            parts[0] if len(parts) == 1 else self._merge_lon_halves(parts[0], parts[1])
-        )
+        parts: list = []
+        try:
+            for half in halves:
+                if half[0] < xmax and half[2] > xmin:
+                    parts.append(self.crop(bbox=half, epsg=crs, touch=touch))
+            if not parts:
+                raise ValueError(
+                    f"antimeridian bbox {bbox!r} does not overlap the dataset extent"
+                )
+            if len(parts) == 1:
+                result, parts = parts[0], []  # hand ownership to the caller
+            else:
+                result = self._merge_lon_halves(parts[0], parts[1])
+        finally:
+            for part in parts:
+                part.close()
         return result
 
     def _merge_lon_halves(self, west_part: "NetCDF", east_part: "NetCDF") -> "NetCDF":
@@ -279,10 +284,7 @@ class Selection(_Engine["NetCDF"]):
             no_data_value=west_part.no_data_value,
         )
         raster.band_names = self._ds.band_names
-        wrapped = self._ds._preserve_netcdf_metadata(raster)
-        west_part.close()
-        east_part.close()
-        return wrapped
+        return self._ds._preserve_netcdf_metadata(raster)
 
     def _resolve_crop_mask(
         self,
