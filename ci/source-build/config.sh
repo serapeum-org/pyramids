@@ -118,8 +118,8 @@ define jsonc      0.18      876ab046479166b869afc6896d288183bbc0e5843f141200c677
     "https://s3.amazonaws.com/json-c_releases/releases/json-c-0.18.tar.gz"                       json-c-0.18.tar.gz
 define sqlite     3510200   fbd89f866b1403bb66a143065440089dd76100f2238314d92274a082d4f2b7bb \
     "https://www.sqlite.org/2026/sqlite-autoconf-3510200.tar.gz"  sqlite-autoconf-3510200.tar.gz
-define proj       9.7.1     6c097dc803c561929cdfcc46e4bf9945ea977611fb31493ad14e88edaeae260f \
-    "https://download.osgeo.org/proj/proj-9.7.1.tar.gz"                                          proj-9.7.1.tar.gz
+define proj       9.8.1     af5b731c145c1d13c4e3b4eeb7d167e94e845e440f71e3496b4ed8dae0291960 \
+    "https://download.osgeo.org/proj/proj-9.8.1.tar.gz"                                          proj-9.8.1.tar.gz
 define expat      2.7.4     e6af11b01e32e5ef64906a5cca8809eabc4beb7ff2f9a0e6aabbd42e825135d0 \
     "https://github.com/libexpat/libexpat/releases/download/R_2_7_4/expat-2.7.4.tar.bz2"         expat-2.7.4.tar.bz2
 define geos       3.14.1    3c20919cda9a505db07b5216baa980bacdaa0702da715b43f176fb07eff7e716 \
