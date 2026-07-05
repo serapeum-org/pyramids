@@ -179,10 +179,13 @@ def _check_netcdf_driver() -> None:
        check that actually distinguishes the #465 fix from the bug.
     """
     plugins = Path(pyramids.__file__).parent / "_data" / "gdalplugins"
-    if not plugins.is_dir():
-        _fail(
-            f"bundled wheel is missing {plugins} — driver plugins not vendored (#465)"
-        )
+    if plugins.is_dir():
+        print(f"driver plugins vendored at {plugins} (plugin build model)")
+    else:
+        # From-source builds (#332 spike) compile netCDF/HDF5/GRIB INTO
+        # libgdal — no plugin dir exists and none is needed. The registration
+        # + round-trip checks below are the actual #465 invariant either way.
+        print("no _data/gdalplugins — drivers built into libgdal (from-source model)")
 
     gdal.UseExceptions()
     drv = gdal.GetDriverByName("netCDF")
@@ -235,13 +238,52 @@ def _check_netcdf_driver() -> None:
         _fail(
             f"netCDF driver lost under a foreign GDAL_DRIVER_PATH — #465 fix not effective:\n{out}"
         )
-    if bogus in result.stdout:
+    # The bootstrap only re-points GDAL_DRIVER_PATH when a bundled plugin dir
+    # exists (plugin build model). With drivers compiled into libgdal
+    # (from-source model) the foreign path harmlessly remains — CHILD_OK above
+    # already proved the driver survives it.
+    if plugins.is_dir() and bogus in result.stdout:
         _fail(
             f"GDAL_DRIVER_PATH still points at the foreign dir {bogus!r} — #465 fix not effective"
         )
     print(
         "netCDF override OK — bundled driver wins over a foreign GDAL_DRIVER_PATH (#465)."
     )
+
+
+# The driver contract every published wheel promises (the #332 F0.2
+# allow-list): raster formats pyramids ships plus the OGR vector set
+# FeatureCollection uses. Asserted here — post-install, on every wheel,
+# on every platform — because the pytest layers skipif on driver
+# presence, which turns a curation mistake (a cmake flag lost on a GDAL
+# bump, a dep regression disabling a driver at configure time) into
+# green skips instead of a failure. OGCAPI is the proven case: it was
+# silently absent from the first from-source builds while CI stayed
+# green.
+_COMMON_DRIVERS = (
+    "GTiff", "COG", "netCDF", "GRIB", "HDF5", "JP2OpenJPEG", "Zarr",
+    "PNG", "JPEG", "WCS", "OGCAPI", "VRT", "MEM",
+    "GeoJSON", "ESRI Shapefile", "GPKG", "GPX", "PMTiles", "MVT",
+    "GML", "KML", "WFS", "OAPIF", "FlatGeobuf", "SQLite", "OSM",
+)
+# Platform extras: HDF4 ships only in the conda-extract wheels — the
+# curated Linux from-source stack deliberately drops it.
+_PLATFORM_DRIVERS = {"darwin": ("HDF4",), "win32": ("HDF4",)}
+
+
+def _check_driver_set() -> None:
+    """Assert every promised driver is registered in the bundled GDAL."""
+    expected = list(_COMMON_DRIVERS)
+    for platform_prefix, extras in _PLATFORM_DRIVERS.items():
+        if sys.platform.startswith(platform_prefix):
+            expected.extend(extras)
+    missing = [name for name in expected if gdal.GetDriverByName(name) is None]
+    if missing:
+        _fail(
+            "bundled GDAL is missing promised drivers: "
+            + ", ".join(missing)
+        )
+    print(f"driver-set check OK — all {len(expected)} promised drivers registered.")
 
 
 def _check_jp2_driver() -> None:
@@ -271,6 +313,7 @@ def _check_jp2_driver() -> None:
     print("JP2OpenJPEG round-trip OK — bundled driver reads/writes JPEG2000 (#600).")
 
 
+_check_driver_set()
 _check_netcdf_driver()
 _check_jp2_driver()
 _check_tls_read()

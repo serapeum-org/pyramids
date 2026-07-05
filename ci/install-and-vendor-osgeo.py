@@ -34,8 +34,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def _gdal_version() -> str:
     """Return the concrete GDAL version that BEFORE_ALL resolved.
 
-    `ci/setup-gdal-from-pixi.{sh,ps1}` writes the version pixi /
-    micromamba actually installed into `${BUILD_PREFIX}/GDAL_VERSION`
+    `ci/setup-gdal-from-pixi.{sh,ps1}` (conda-extract, macOS/Windows)
+    and `ci/source-build/build-gdal-stack.sh` (from-source, Linux) write
+    the version actually installed into `${BUILD_PREFIX}/GDAL_VERSION`
     so this script can `pip install GDAL==X.Y.Z` against the exact
     libgdal binary we bundle. Falls back to the `GDAL_VERSION` env
     var for transitional / out-of-band invocations.
@@ -538,10 +539,29 @@ def vendor_osgeo_into_package() -> None:
     # `pyramids/_licenses/<pkg>/` so the wheel physically ships each
     # license alongside the libgdal / libproj / libgeos / … binaries
     # it bundles.
-    _vendor_license_texts(
-        REPO_ROOT / ".pixi" / "envs" / "wheel-build",
-        src_pyramids / "_licenses",
-    )
+    # Two build models: conda-extract mirrors each conda package's
+    # info/licenses; the from-source stack (#332/#333) has no conda-meta, so
+    # ci/source-build/build-gdal-stack.sh collects each dep's LICENSE/COPYING
+    # from its source tree into share/pyramids-bundled-licenses instead.
+    source_licenses = _data_layout_roots(prefix)[1] / "pyramids-bundled-licenses"
+    if source_licenses.is_dir():
+        _copy_tree_replacing(source_licenses, src_pyramids / "_licenses")
+        print(
+            "[install-and-vendor-osgeo] vendored from-source license texts "
+            f"({sum(1 for _ in (src_pyramids / '_licenses').iterdir())} packages)",
+            flush=True,
+        )
+    else:
+        conda_env = REPO_ROOT / ".pixi" / "envs" / "wheel-build"
+        if sys.platform.startswith("linux") and not conda_env.is_dir():
+            # On Linux one of the two license sources MUST exist; a silent
+            # skip here would build a green wheel with an empty _licenses/
+            # (no legally required third-party notices).
+            raise RuntimeError(
+                f"no license source found: neither {source_licenses} "
+                f"(from-source stack) nor {conda_env} (conda-extract) exists"
+            )
+        _vendor_license_texts(conda_env, src_pyramids / "_licenses")
 
     # 7. Defense-in-depth `.gitignore` markers. The repo .gitignore
     # already excludes `src/pyramids/_vendor/` and `src/pyramids/_data/`,
