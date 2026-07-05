@@ -133,6 +133,38 @@ def _check_lon_halves_concatenable(
         )
 
 
+def _antimeridian_halves(
+    ds: RasterBase, bbox: tuple[float, float, float, float]
+) -> list[tuple[float, float, float, float]]:
+    """Split a geographic ``west > east`` bbox into ``west < east`` halves.
+
+    A 0..360 grid (longitudes reaching past 180 by more than a cell) has the bbox
+    shifted into its own frame, which usually removes the wrap (one half); a
+    -180..180 grid is split at 180 via :func:`split_antimeridian`.
+
+    Args:
+        ds: The dataset whose longitude frame and cell size set the seam.
+        bbox: ``(west, south, east, north)`` with ``west > east``.
+
+    Returns:
+        One or two ``west < east`` sub-bboxes to crop and stitch, in west-to-east
+        order.
+    """
+    west, south, east, north = bbox
+    cell_x = abs(ds.geotransform[1])
+    if float(ds.bbox[2]) > 180.0 + cell_x:
+        # 0..360 grid: bring the STAC (-180..180) bbox into the grid's frame.
+        west = west + 360.0 if west < 0 else west
+        east = east + 360.0 if east < 0 else east
+        if west <= east:
+            halves = [(west, south, east, north)]
+        else:
+            halves = [(west, south, 360.0, north), (0.0, south, east, north)]
+    else:
+        halves = split_antimeridian(bbox)
+    return halves
+
+
 class Spatial(_Engine["Dataset"]):
 
     def _get_crs(self) -> str:
@@ -1449,21 +1481,8 @@ class Spatial(_Engine["Dataset"]):
         Raises:
             ValueError: The bbox does not overlap the dataset's longitude extent.
         """
-        west, south, east, north = bbox
         xmin, xmax = float(self._ds.bbox[0]), float(self._ds.bbox[2])
-        cell_x = abs(self._ds.geotransform[1])
-        if xmax > 180.0 + cell_x:
-            # 0..360 grid: longitudes genuinely reach past 180 (the +cell tolerance
-            # avoids misrouting a -180..180 grid whose xmax floats a hair over 180).
-            # Bring the STAC (-180..180) bbox into the grid's frame.
-            west = west + 360.0 if west < 0 else west
-            east = east + 360.0 if east < 0 else east
-            if west <= east:
-                halves = [(west, south, east, north)]
-            else:
-                halves = [(west, south, 360.0, north), (0.0, south, east, north)]
-        else:
-            halves = split_antimeridian(bbox)
+        halves = _antimeridian_halves(self._ds, bbox)
         parts: list[Dataset] = []
         try:
             for half in halves:

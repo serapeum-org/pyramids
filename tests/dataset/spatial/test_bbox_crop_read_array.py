@@ -327,7 +327,8 @@ class TestAntimeridianCrop:
             arr, top_left_corner=(170.0, 90.0), cell_size=1.0, epsg=4326
         )  # lon 170..180 only (west side of the seam)
         strip = ds.crop(bbox=(175.0, -10.0, -170.0, 10.0))
-        assert strip.bbox[0] == 175.0 and strip.bbox[2] == 180.0, "only the west half"
+        assert strip.bbox[0] == pytest.approx(175.0), "west edge kept"
+        assert strip.bbox[2] == pytest.approx(180.0), "only the west half (no wrap)"
 
 
 class TestDatasetReadArrayBbox:

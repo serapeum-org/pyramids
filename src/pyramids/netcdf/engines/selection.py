@@ -27,9 +27,11 @@ from shapely import contains_xy
 from pyramids.base.crs import sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
-from pyramids.dataset.engines.spatial import _check_lon_halves_concatenable
+from pyramids.dataset.engines.spatial import (
+    _antimeridian_halves,
+    _check_lon_halves_concatenable,
+)
 from pyramids.feature import FeatureCollection
-from pyramids.feature.bbox import split_antimeridian
 from pyramids.netcdf._mdim import open_mdarray
 from pyramids.netcdf._plot import NetCDFPlot
 
@@ -259,21 +261,8 @@ class Selection(_Engine["NetCDF"]):
                 "chunks= is not supported for an antimeridian crop; it is eager "
                 "(the wrapped halves are read and concatenated)."
             )
-        west, south, east, north = bbox
         xmin, xmax = float(self._ds.bbox[0]), float(self._ds.bbox[2])
-        cell_x = abs(self._ds.geotransform[1])
-        if xmax > 180.0 + cell_x:
-            # 0..360 grid: longitudes genuinely reach past 180 (the +cell tolerance
-            # avoids misrouting a -180..180 grid whose xmax floats a hair over 180).
-            # Bring the STAC (-180..180) bbox into the grid's frame.
-            west = west + 360.0 if west < 0 else west
-            east = east + 360.0 if east < 0 else east
-            if west <= east:
-                halves = [(west, south, east, north)]
-            else:
-                halves = [(west, south, 360.0, north), (0.0, south, east, north)]
-        else:
-            halves = split_antimeridian(bbox)
+        halves = _antimeridian_halves(self._ds, bbox)
         parts: list = []
         try:
             for half in halves:
