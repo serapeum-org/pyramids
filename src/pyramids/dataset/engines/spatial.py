@@ -27,6 +27,7 @@ from pyramids.base.crs import (
 from pyramids.dataset.abstract_dataset import RasterBase
 from pyramids.feature import FeatureCollection
 from pyramids.feature import _ogr as _feature_ogr
+from pyramids.feature.bbox import split_antimeridian
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
@@ -1385,6 +1386,89 @@ class Spatial(_Engine["Dataset"]):
             new_src.crs = src.crs
         return new_src
 
+    def _crop_antimeridian(
+        self,
+        bbox: tuple[float, float, float, float],
+        crs: Any,
+        touch: bool,
+    ) -> Dataset:
+        """Crop with a geographic bbox whose ``west > east`` crosses the antimeridian.
+
+        Splits the bbox at the grid's longitude seam (``180`` on a ``-180..180``
+        grid, ``360`` on a ``0..360`` grid), crops each ``west < east`` half through
+        the normal path, and concatenates the halves along longitude into one
+        contiguous raster. A half that falls outside the dataset's longitude extent
+        is skipped, so a single-sided overlap returns just that half.
+
+        Args:
+            bbox: ``(west, south, east, north)`` with ``west > east``.
+            crs: The bbox CRS (defaults to the dataset's own upstream).
+            touch: Forwarded to the per-half crop.
+
+        Returns:
+            Dataset: The cropped strip spanning the seam.
+
+        Raises:
+            ValueError: The bbox does not overlap the dataset's longitude extent.
+        """
+        west, south, east, north = bbox
+        xmin, xmax = float(self._ds.bbox[0]), float(self._ds.bbox[2])
+        if xmax > 180.0:
+            # 0..360 grid: bring the STAC (-180..180) bbox into the grid's frame.
+            west = west + 360.0 if west < 0 else west
+            east = east + 360.0 if east < 0 else east
+            if west <= east:
+                halves = [(west, south, east, north)]
+            else:
+                halves = [(west, south, 360.0, north), (0.0, south, east, north)]
+        else:
+            halves = split_antimeridian(bbox)
+        parts = [
+            self.crop(bbox=half, epsg=crs, touch=touch)
+            for half in halves
+            if half[0] < xmax and half[2] > xmin
+        ]
+        if not parts:
+            raise ValueError(
+                f"antimeridian bbox {bbox!r} does not overlap the dataset extent"
+            )
+        result = (
+            parts[0] if len(parts) == 1 else self._merge_lon_halves(parts[0], parts[1])
+        )
+        return result
+
+    def _merge_lon_halves(self, west_part: Dataset, east_part: Dataset) -> Dataset:
+        """Concatenate two longitude-adjacent crops into one contiguous raster.
+
+        `west_part` (the pre-seam half) sits to the left and `east_part` (the
+        wrapped half past the seam) to its right; the merged raster keeps
+        `west_part`'s north-up geotransform, so the linear longitude mapping simply
+        continues past the seam (e.g. 170..180 then 180..190).
+
+        Args:
+            west_part: Crop of the pre-seam half.
+            east_part: Crop of the post-seam half.
+
+        Returns:
+            Dataset: The concatenated raster.
+        """
+        # Local import breaks the engines <-> Dataset cycle; the merged result must
+        # be a plain raster Dataset (self._ds.create_from_array would build a NetCDF
+        # container on a variable view).
+        from pyramids.dataset.dataset import Dataset
+
+        merged = np.concatenate(
+            [west_part.read_array(), east_part.read_array()], axis=-1
+        )
+        out = Dataset.create_from_array(
+            merged,
+            geo=west_part.geotransform,
+            epsg=west_part.epsg,
+            no_data_value=west_part.no_data_value,
+        )
+        out.band_names = self._ds.band_names
+        return out
+
     def crop(
         self,
         mask: GeoDataFrame | FeatureCollection | None = None,
@@ -1412,7 +1496,12 @@ class Spatial(_Engine["Dataset"]):
                 ``(west, south, east, north)`` quadruple in the CRS named by
                 ``epsg``. Internally wrapped in a one-row
                 :class:`FeatureCollection` and routed through the same polygon
-                path. Mutually exclusive with ``mask``.
+                path. Mutually exclusive with ``mask``. A *geographic* bbox with
+                ``west > east`` (the STAC convention for an antimeridian-crossing
+                area, e.g. ``(170, -10, -170, 10)``) is split at the 180°/360°
+                seam, each half cropped, and the halves stitched into one
+                contiguous strip whose longitudes continue past the seam
+                (``170..190``). Works for ``-180..180`` and ``0..360`` grids.
             epsg (Any, keyword-only):
                 CRS for ``bbox`` — anything ``geopandas`` accepts for ``crs=``
                 (EPSG int, ``"EPSG:4326"``, WKT, ``pyproj.CRS``). Defaults to
@@ -1526,6 +1615,25 @@ class Spatial(_Engine["Dataset"]):
 
               ```
 
+            - Crop across the antimeridian with a ``west > east`` geographic bbox
+              (STAC convention); the two sides are stitched into one contiguous
+              strip whose longitudes continue past the 180° seam:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> grid = Dataset.create_from_array(
+              ...     np.arange(180 * 360, dtype="float32").reshape(180, 360),
+              ...     top_left_corner=(-180.0, 90.0), cell_size=1.0, epsg=4326,
+              ... )
+              >>> strip = grid.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+              >>> strip.shape
+              (1, 20, 20)
+              >>> strip.bbox
+              [170.0, -10.0, 190.0, 10.0]
+
+              ```
+
             - Supplying both ``mask`` and ``bbox`` is rejected:
 
               ```python
@@ -1550,6 +1658,9 @@ class Spatial(_Engine["Dataset"]):
             if mask is not None:
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
             crs = epsg if epsg is not None else self._ds.epsg
+            west, _, east, _ = bbox
+            if west > east and sr_from_user_input(crs).IsGeographic():
+                return self._crop_antimeridian(tuple(bbox), crs, touch)
             mask = FeatureCollection.from_bbox(bbox, epsg=crs)
         if mask is None:
             raise TypeError(
