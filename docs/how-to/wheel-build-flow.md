@@ -265,11 +265,12 @@ Python C API ABI.
 │   run with --security-opt seccomp=unconfined (the netCDF driver needs
 │   userfaultfd for /vsizip reads — see docs/troubleshooting.md).
 │
-└── release (workflow_run only; needs the build + test + verify jobs)
-    → gathers {sdist,wheels-*} artifacts (canary-musl-* can't match),
+└── release (workflow_run only; needs EVERY build + test + verify job,
+    canary verifies included — a red canary blocks the publish)
+    → gathers {sdist,wheels-*} artifacts (canary-* names can't match),
       asserts the exact composition (1 sdist + 4 wheels x 5 platforms,
-      zero musllinux), attaches everything to the GitHub release, and
-      publishes to PyPI.
+      zero musllinux, zero win_arm64), attaches everything to the
+      GitHub release, and publishes to PyPI.
 ```
 
 After all build jobs finish, `test-wheels` runs a 16-cell matrix

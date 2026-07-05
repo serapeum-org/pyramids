@@ -716,16 +716,16 @@ jobs:
 
   release:
     name: Publish to PyPI + attach to GitHub release
-    # NOTE: the canary families are deliberately NOT in needs and their
-    # `canary-*` artifacts don't match the download pattern — built +
-    # verified but unpublished until upstream unblocks:
-    #   - musl (build-musl-wheels / verify-alpine): pyogrio musllinux
-    #     wheels (#333)
-    #   - win_arm64 (build-winarm64-wheels / verify-winarm64): shapely +
-    #     pyogrio win_arm64 wheels (#334)
+    # NOTE: the canary wheels stay UNPUBLISHED (their `canary-*` artifacts
+    # can't match the download pattern and the composition gate rejects
+    # them) until upstream unblocks: musl on pyogrio musllinux wheels
+    # (#333), win_arm64 on shapely + pyogrio arm64 wheels (#334). Their
+    # verify jobs DO gate the release, though — maintainer decision after
+    # 0.40.0 published with verify-alpine red (a run-level failure is not
+    # loud enough on a release).
     needs: [build-sdist, build-linux-wheels, build-macos-wheels,
             build-windows-wheels, test-wheels, verify-debian12, verify-rocky9,
-            verify-rocky9-aarch64]
+            verify-rocky9-aarch64, verify-alpine, verify-winarm64]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Dry-run path (workflow_dispatch + dry-run-release): executes the
