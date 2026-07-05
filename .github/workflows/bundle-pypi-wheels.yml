@@ -577,7 +577,7 @@ jobs:
         run: >-
           pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread
           -m "core and not vfs and not slow"
-          tests/base tests/netcdf tests/test_io.py tests/test_grib.py
+          tests/base tests/netcdf tests/io
           tests/dataset tests/feature
 
   release:
