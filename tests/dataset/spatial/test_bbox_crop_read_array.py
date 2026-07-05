@@ -267,7 +267,7 @@ class TestAntimeridianCrop:
         assert np.array_equal(strip.read_array(), arr[80:100, 170:190]), "0..360 values"
 
     def test_multiband_keeps_all_bands(self):
-        """A multi-band grid keeps all bands across the seam."""
+        """A multi-band grid keeps all bands with correct stitched values."""
         arr, _ = self._global()
         ds = Dataset.create_from_array(
             np.stack([arr, arr + 1000.0]),
@@ -277,6 +277,22 @@ class TestAntimeridianCrop:
         )
         strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
         assert strip.shape == (2, 20, 20), "both bands retained"
+        seam = np.concatenate([arr[80:100, 350:360], arr[80:100, 0:10]], axis=-1)
+        assert np.array_equal(strip.read_array(band=1), seam + 1000.0), "band 2"
+
+    def test_float_overshoot_grid_keeps_both_halves(self):
+        """A grid whose xmax floats past 180 is not misrouted to 0..360 (H1)."""
+        cell = 360.0 / 169  # 169 cols -> bbox[2] == 180.00000000000006 > 180
+        ds = Dataset.create_from_array(
+            np.arange(20 * 169, dtype="float32").reshape(20, 169),
+            top_left_corner=(-180.0, 20.0),
+            cell_size=cell,
+            epsg=4326,
+        )
+        assert ds.bbox[2] > 180.0, "fixture must actually overshoot to exercise H1"
+        strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+        # both halves kept -> the strip's east edge continues to ~190, not ~180
+        assert abs(strip.bbox[2] - 190.0) < cell, "wrapped half must not be dropped"
 
     def test_normal_bbox_unchanged(self):
         """A west < east bbox still crops normally (no antimeridian path)."""

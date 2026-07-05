@@ -66,6 +66,9 @@ class TestAntimeridianCrop:
         strip = var.crop(bbox=(170.0, -10.0, -170.0, 10.0))
         assert isinstance(strip, NetCDF), "result stays a NetCDF variable"
         assert strip.shape == (1, 20, 20), "20 lat x 20 lon strip"
+        assert [float(x) for x in strip.bbox] == [170.0, -10.0, 190.0, 10.0], (
+            "extent continues past the 180 seam"
+        )
         expected = np.concatenate([arr[80:100, 350:360], arr[80:100, 0:10]], axis=-1)
         got = np.asarray(strip.read_array())
         assert np.array_equal(got, expected), "seam values preserved"
