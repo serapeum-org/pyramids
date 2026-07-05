@@ -86,12 +86,8 @@ if not osgeo_path.is_relative_to(expected_vendor_root.resolve()):
     _fail(f"osgeo not from {expected_vendor_root}: resolved to {osgeo_path}")
 
 
-def _check_tls_read() -> None:
-    """Open an HTTPS resource via /vsicurl to exercise the bundled CA store.
-
-    This runs only after we've already asserted osgeo resolves to the
-    vendored copy — i.e. this is always a real bundled wheel, never a
-    dev/editable install.
+def _assert_ca_wiring() -> None:
+    """Validate the CA setup for the current platform's trust model.
 
     Two legitimate CA models exist, and the expectation is keyed on the
     PLATFORM (like the HDF4 driver check) — never inferred from the wheel
@@ -105,19 +101,13 @@ def _check_tls_read() -> None:
       regression and fails hard (an earlier version *skipped*, silently
       masking the bug).
     * **OS trust store** (`win32-arm64`, whose vcpkg curl uses schannel):
-      no CA file exists anywhere, the bootstrap correctly sets no CAINFO,
-      and the TLS read below is the entire proof.
-
-    A CA/trust-store error during the read is the bug in either model
-    and fails hard. A generic network error (offline runner, DNS,
-    timeout) is not, so we warn and move on rather than make the smoke
-    test flaky on network conditions.
+      no CA file exists anywhere, and the bootstrap correctly sets no
+      CAINFO — the live TLS read is the entire proof there.
     """
     ca_bundle = Path(pyramids.__file__).parent / "_data" / "ssl" / "cacert.pem"
     cainfo = os.environ.get("GDAL_HTTP_CAINFO")
-    os_trust = _platform_slug() in _OS_TRUST_PLATFORMS
     print(f"GDAL_HTTP_CAINFO: {cainfo}")
-    if not os_trust:
+    if _platform_slug() not in _OS_TRUST_PLATFORMS:
         if not ca_bundle.is_file():
             _fail(
                 f"bundled wheel is missing {ca_bundle} — CA bundle not vendored (issue #412)"
@@ -133,8 +123,24 @@ def _check_tls_read() -> None:
     else:
         print(
             "OS-trust-store platform (schannel) — no CA bundle expected; "
-            "the /vsicurl read below is the proof"
+            "the /vsicurl read is the proof"
         )
+
+
+def _check_tls_read() -> None:
+    """Open an HTTPS resource via /vsicurl to exercise the trust store.
+
+    This runs only after we've already asserted osgeo resolves to the
+    vendored copy — i.e. this is always a real bundled wheel, never a
+    dev/editable install. The CA wiring itself is validated by
+    `_assert_ca_wiring` first.
+
+    A CA/trust-store error during the read is the bug in either trust
+    model and fails hard. A generic network error (offline runner, DNS,
+    timeout) is not, so we warn and move on rather than make the smoke
+    test flaky on network conditions.
+    """
+    _assert_ca_wiring()
 
     gdal.UseExceptions()
     gdal.SetConfigOption("GDAL_HTTP_TIMEOUT", "30")
