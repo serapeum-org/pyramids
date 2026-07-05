@@ -8,7 +8,7 @@ Two build models coexist in the pipeline:
 - **Linux (glibc + musl): from-source.** The whole native stack (GDAL, PROJ, GEOS,
   HDF5, netCDF, and ~20 codec/support libraries) is compiled inside the
   cibuildwheel container from SHA256-pinned source tarballs
-  (`ci/source-build/config.sh`, a maintained fork of rasterio's build), so the
+  (`ci/source-build/config.sh`), so the
   wheel tags at the build image's own floor — `manylinux_2_28` / `musllinux_1_2`.
 - **macOS / Windows: conda-extract.** Prebuilt conda-forge binaries are extracted
   into a prefix (`ci/setup-gdal-from-pixi.{sh,ps1}`) and bundled by
@@ -134,8 +134,8 @@ at runtime (full investigation in #332).
 The fix — shipped 2026-07 — is the **from-source model**: compile the entire
 stack inside the `manylinux_2_28` image with its own toolchain, so libgdal
 links the baseline libstdc++ and bundles none. That is exactly the
-rasterio/fiona approach, and `ci/source-build/config.sh` is a maintained fork
-of rasterio's build script. The cost is ownership of ~25 dependency version
+same approach rasterio and fiona use; `ci/source-build/config.sh` owns the
+recipe. The cost is ownership of ~25 dependency version
 pins; the win is covering Ubuntu 20.04/22.04, Debian 11/12, RHEL 8/9, and
 Amazon Linux 2023 with a ~30 MB wheel (vs ~47 MB under conda-extract).
 
@@ -401,9 +401,10 @@ cibuildwheel --only cp312-win_amd64
 |----------------------------------------------------|----------------------------------------------------------------------------------------|
 | `.github/workflows/bundle-pypi-wheels.yml`         | The full pipeline (build + test + verify + publish)                                    |
 | `.github/workflows/pypi-release.yml`               | Emergency sdist-only PyPI fallback                                                     |
-| `ci/source-build/config.sh`                        | Linux: dep version pins + SHA256 hashes + per-dep build functions (rasterio fork)      |
+| `ci/source-build/config.sh`                        | Linux: pinned dependency table (version + SHA256 + URL) + per-dep build recipes        |
 | `ci/source-build/build-gdal-stack.sh`              | Linux before-all: prereqs, cache, license collection, driver/license gates             |
-| `ci/source-build/reference/`                       | Pristine copy of rasterio's config.sh for future diffing                               |
+| `ci/vcpkg.json`                                    | win_arm64: pinned vcpkg manifest (curated gdal feature set, fixed builtin-baseline)    |
+| `ci/setup-gdal-from-vcpkg.ps1`                     | win_arm64 before-all: baseline checkout, vcpkg install, Library/ staging, licenses     |
 | `ci/setup-gdal-from-pixi.sh`                       | macOS native: pixi install, extract conda-forge binaries, toolchain shims              |
 | `ci/setup-gdal-micromamba.sh`                      | macOS cross-compile: install micromamba and resolve target-platform env                |
 | `ci/setup-gdal-from-pixi.ps1`                      | Windows: PowerShell version of the pixi setup                                          |
