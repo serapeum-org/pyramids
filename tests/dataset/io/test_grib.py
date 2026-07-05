@@ -332,6 +332,17 @@ class TestSelectGribBand:
         with pytest.raises(ValueError, match="non-empty"):
             _select_grib_band(meta, "")
 
+    def test_bool_variable_raises(self):
+        """A bool is rejected rather than treated as a band number (True == 1)."""
+        meta = [{"band": 1, "element": "TMP"}]
+        with pytest.raises(ValueError, match="band number, element name, or None"):
+            _select_grib_band(meta, True)
+
+    def test_matches_element_with_surrounding_whitespace(self):
+        """A stored element with stray whitespace still matches (both stripped)."""
+        meta = [{"band": 1, "element": " TMP "}]
+        assert _select_grib_band(meta, "tmp") == 0, "padded element should still match"
+
 
 class TestGribToCog:
     """Tests for grib_to_cog (open_grib -> band select -> to_cog)."""
@@ -354,12 +365,37 @@ class TestGribToCog:
             grib_1band_path: Fixture path to a 1-band GRIB2 (values 280.0).
             tmp_path: pytest temp directory.
         """
-        element = grib_band_metadata(open_grib(grib_1band_path))[0]["element"]
+        with open_grib(grib_1band_path) as src:
+            element = grib_band_metadata(src)[0]["element"]
         out = grib_to_cog(
             grib_1band_path, output=tmp_path / "var_cog.tif", variable=element
         )
-        arr = Dataset.read_file(str(out)).read_array()
+        with Dataset.read_file(str(out)) as ds:
+            arr = ds.read_array()
         assert np.allclose(arr, 280.0), "selected band values should reach the COG"
+
+    def test_selects_element_by_string_writes_that_bands_data(
+        self, grib_path, tmp_path, mocker
+    ):
+        """A distinct element string selects the right band's data on a multi-band file.
+
+        Args:
+            grib_path: Fixture path to a 2-band GRIB2 (band1=280.0, band2=101325.0).
+            tmp_path: pytest temp directory.
+            mocker: pytest-mock fixture (GDAL writes 'unknown' for synthetic
+                elements, so distinct names are injected).
+        """
+        mocker.patch(
+            "pyramids.grib.grib_band_metadata",
+            return_value=[
+                {"band": 1, "element": "AAA"},
+                {"band": 2, "element": "BBB"},
+            ],
+        )
+        out = grib_to_cog(grib_path, output=tmp_path / "bbb_cog.tif", variable="BBB")
+        with Dataset.read_file(str(out)) as ds:
+            arr = ds.read_array()
+        assert np.allclose(arr, 101325.0), "element BBB (band 2) data reaches COG"
 
     def test_int_band_selection_writes_that_bands_data(self, grib_path, tmp_path):
         """An int band number selects that specific message; its data reaches the COG.
@@ -369,7 +405,8 @@ class TestGribToCog:
             tmp_path: pytest temp directory.
         """
         out = grib_to_cog(grib_path, output=tmp_path / "band2_cog.tif", variable=2)
-        arr = Dataset.read_file(str(out)).read_array()
+        with Dataset.read_file(str(out)) as ds:
+            arr = ds.read_array()
         assert cog_info(out).is_cog, "output should be a COG"
         assert np.allclose(arr, 101325.0), "band 2 values (101325) should reach COG"
 
@@ -381,7 +418,8 @@ class TestGribToCog:
             tmp_path: pytest temp directory.
         """
         out = grib_to_cog(grib_1band_path, output=tmp_path / "native_cog.tif")
-        assert Dataset.read_file(str(out)).epsg == 4326, "native CRS should survive"
+        with Dataset.read_file(str(out)) as ds:
+            assert ds.epsg == 4326, "native CRS should survive"
 
     def test_target_crs_reprojects(self, grib_1band_path, tmp_path):
         """target_crs reprojects the COG to the requested EPSG.
@@ -393,7 +431,8 @@ class TestGribToCog:
         out = grib_to_cog(
             grib_1band_path, output=tmp_path / "reproj_cog.tif", target_crs=3857
         )
-        assert Dataset.read_file(str(out)).epsg == 3857, "should reproject to 3857"
+        with Dataset.read_file(str(out)) as ds:
+            assert ds.epsg == 3857, "should reproject to 3857"
         assert cog_info(out).is_cog, "reprojected output should still be a COG"
 
     def test_multiband_requires_variable(self, grib_path, tmp_path):

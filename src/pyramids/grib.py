@@ -211,6 +211,10 @@ def _select_grib_band(
             empty string; or no message carries the requested element.
     """
     band_count = len(metadata)
+    if isinstance(variable, bool):
+        raise ValueError(
+            f"variable must be a band number, element name, or None; got {variable!r}."
+        )
     if isinstance(variable, int):
         if not 1 <= variable <= band_count:
             raise ValueError(
@@ -231,7 +235,9 @@ def _select_grib_band(
             raise ValueError(
                 "variable must be a non-empty element name or band number."
             )
-        matches = [m for m in metadata if (m.get("element") or "").upper() == wanted]
+        matches = [
+            m for m in metadata if (m.get("element") or "").strip().upper() == wanted
+        ]
         if not matches:
             elements = sorted({m.get("element") for m in metadata if m.get("element")})
             raise ValueError(
