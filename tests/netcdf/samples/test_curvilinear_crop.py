@@ -119,6 +119,7 @@ def test_rasm_antimeridian_crop_windows_across_seam(sample):
     [
         (np.array([[10.0, 12.0, 14.0], [10.0, 12.0, 14.0]]), 2.0),  # even spacing
         (np.array([[172.0, 174.0, 176.0, 178.0, -180.0, -178.0]]), 2.0),  # seam outlier
+        (np.array([[170.0, 178.0, -178.0]]), 182.0),  # 3-col: median=mean of [8,356]
         (np.array([[10.0], [10.0]]), 0.0),  # single column -> no spacing
         (np.array([[np.nan, np.nan], [np.nan, np.nan]]), 0.0),  # all-NaN -> 0.0
     ],

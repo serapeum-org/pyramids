@@ -220,18 +220,21 @@ class Selection(_Engine["NetCDF"]):
             strip, a masked curvilinear window, or a container with every variable
             cropped — otherwise ``None``.
         """
-        if bbox is None or mask is not None:
-            return None
-        nc = self._ds
-        crs = epsg if epsg is not None else nc.epsg
-        west, _, east, _ = bbox
-        crs_geo = crs is not None and sr_from_user_input(crs).IsGeographic()
-        ds_geo = nc.epsg is not None and sr_from_user_input(nc.epsg).IsGeographic()
-        if not (west > east and crs_geo and ds_geo):
-            return None
-        if is_container:
-            return self._crop_antimeridian_container(tuple(bbox), crs, touch, chunks)
-        return self._crop_antimeridian(tuple(bbox), crs, touch, chunks)
+        result: "NetCDF | None" = None
+        if bbox is not None and mask is None:
+            nc = self._ds
+            crs = epsg if epsg is not None else nc.epsg
+            west, _, east, _ = bbox
+            crs_geo = crs is not None and sr_from_user_input(crs).IsGeographic()
+            ds_geo = nc.epsg is not None and sr_from_user_input(nc.epsg).IsGeographic()
+            if west > east and crs_geo and ds_geo:
+                if is_container:
+                    result = self._crop_antimeridian_container(
+                        tuple(bbox), crs, touch, chunks
+                    )
+                else:
+                    result = self._crop_antimeridian(tuple(bbox), crs, touch, chunks)
+        return result
 
     def _crop_antimeridian_container(
         self,
@@ -246,6 +249,12 @@ class Selection(_Engine["NetCDF"]):
         its own longitude frame and stitches (rectilinear) or masks (curvilinear)
         itself, and :meth:`_apply_to_all_variables` reassembles the cropped
         variables into a new container.
+
+        Note: as with any container fan-out, a *curvilinear* variable is rebuilt
+        from its cropped result's affine (bbox) geotransform, so its 2-D lon/lat
+        coordinates are dropped and it comes back rectilinear-approximated. Crop a
+        curvilinear variable directly (``get_variable(name).crop(...)``) to keep
+        its 2-D coordinates.
 
         Args:
             bbox: ``(west, south, east, north)`` with ``west > east``.
@@ -1099,11 +1108,15 @@ def _reject_antimeridian_chunks(chunks: Any) -> None:
 def _lon_cell_size(lon2d: np.typing.NDArray) -> float:
     """Return the median centre-to-centre longitude spacing of a 2-D lon array.
 
-    Used as the one-cell seam tolerance for a curvilinear grid. The median is
-    robust to the ~360 jump a -180..180 grid shows at the dateline, so it recovers
-    the true cell size there; a single-column grid (or all-NaN coordinates) has no
-    spacing to measure and yields 0.0. The all-finite guard avoids a NumPy
-    "All-NaN slice" RuntimeWarning on degenerate coordinate arrays.
+    Used as the one-cell seam tolerance for a curvilinear grid. Each row of a
+    -180..180 grid has one ~360 jump at the dateline; the median rejects it only
+    when it is a strict minority, i.e. for ``nx >= 4`` columns (for ``nx <= 3`` the
+    median collapses toward the jump, inflating the estimate). This is harmless
+    here: the inflated tolerance only widens the ``lon_max > 180 + cell_x`` test in
+    :func:`_split_lon_bbox`, and a -180..180 grid has ``lon_max < 180``, so the
+    0..360 branch is never wrongly taken. A single-column grid (or all-NaN
+    coordinates) has no spacing to measure and yields 0.0; the all-finite guard
+    avoids a NumPy "All-NaN slice" RuntimeWarning on degenerate arrays.
     """
     size = 0.0
     if lon2d.shape[-1] >= 2:

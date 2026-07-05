@@ -265,6 +265,7 @@ class TestAntimeridianCrop:
         arr, ds = self._global(top_left_x=0.0)
         strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
         assert strip.shape == (1, 20, 20), "20x20 strip"
+        assert strip.bbox == pytest.approx([170.0, -10.0, 190.0, 10.0]), "170..190 extent"
         assert np.array_equal(strip.read_array(), arr[80:100, 170:190]), "0..360 values"
 
     def test_multiband_keeps_all_bands(self):
