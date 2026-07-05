@@ -26,17 +26,15 @@ $ManifestRoot = $PSScriptRoot   # this script lives in ci/, next to vcpkg.json
 
 Write-Host "=== vcpkg GDAL stack: triplet=$Triplet -> $BuildPrefix ==="
 
-# 1. Bootstrap vcpkg (fetches the vcpkg binary itself; ports come from the
-#    manifest's pinned builtin-baseline, not from whatever the runner image
-#    happens to ship).
-& "$VcpkgRoot\bootstrap-vcpkg.bat" -disableMetrics
-if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg failed ($LASTEXITCODE)" }
-
-# The runner image's vcpkg clone can predate the manifest's pinned
-# builtin-baseline (observed: `git show <baseline>:versions/baseline.json`
-# exits 128 inside vcpkg). Fetch the baseline commit so manifest mode can
-# resolve port versions at that exact point; GitHub serves reachable-SHA
-# fetches, with a full fetch as fallback.
+# 1. Put the vcpkg tree EXACTLY at the manifest's pinned builtin-baseline.
+#    The runner image ships an arbitrary-age vcpkg checkout, and manifest
+#    mode reads the ports + version database from the WORKING TREE while
+#    reading baseline.json from the pinned commit — a tree older than the
+#    baseline fails with "no version database entry for <port> at <ver>"
+#    (observed for curl/tiff/sqlite3/json-c/libjpeg-turbo), and a tree
+#    newer than it would silently drift. Fetch the commit (reachable-SHA
+#    fetch, full fetch as fallback) and check it out before bootstrapping,
+#    so the vcpkg binary matches the tree it runs against.
 $Baseline = (Get-Content (Join-Path $ManifestRoot "vcpkg.json") -Raw |
     ConvertFrom-Json)."builtin-baseline"
 & git -C $VcpkgRoot fetch origin $Baseline
@@ -48,8 +46,15 @@ if ($LASTEXITCODE -ne 0) {
 if ($LASTEXITCODE -ne 0) {
     throw "vcpkg clone still lacks baseline commit $Baseline after fetch"
 }
+& git -C $VcpkgRoot -c advice.detachedHead=false checkout --force $Baseline
+if ($LASTEXITCODE -ne 0) { throw "git checkout of vcpkg baseline failed" }
 
-# 2. Install the manifest. --x-install-root keeps the tree in a stable,
+# 2. Bootstrap vcpkg (fetches the vcpkg binary matching the checked-out
+#    tree).
+& "$VcpkgRoot\bootstrap-vcpkg.bat" -disableMetrics
+if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg failed ($LASTEXITCODE)" }
+
+# 3. Install the manifest. --x-install-root keeps the tree in a stable,
 #    cacheable location (the workflow caches it keyed on vcpkg.json + this
 #    script + the triplet).
 & "$VcpkgRoot\vcpkg.exe" install `
@@ -59,7 +64,7 @@ if ($LASTEXITCODE -ne 0) {
     --feature-flags=versions,manifests
 if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed ($LASTEXITCODE)" }
 
-# 3. Mirror the triplet tree into the conda-style Library/ layout the
+# 4. Mirror the triplet tree into the conda-style Library/ layout the
 #    vendor script and cibuildwheel environment expect.
 $TripletDir = Join-Path $InstallRoot $Triplet
 foreach ($d in @("bin", "include", "lib", "share")) {
@@ -79,7 +84,7 @@ if (Test-Path $GdalLib) {
     Copy-Item -Path $GdalLib -Destination "$BuildPrefix\Library\lib\gdal_i.lib" -Force
 }
 
-# 4. Resolve the GDAL version vcpkg actually installed and write the
+# 5. Resolve the GDAL version vcpkg actually installed and write the
 #    GDAL_VERSION file install-and-vendor-osgeo.py keys the pip-binding
 #    install on. `vcpkg list gdal` prints e.g. "gdal:arm64-windows  3.12.4#1".
 $ListOutput = & "$VcpkgRoot\vcpkg.exe" list --x-install-root=$InstallRoot "gdal"
