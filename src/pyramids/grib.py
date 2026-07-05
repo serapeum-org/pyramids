@@ -233,28 +233,44 @@ def _select_grib_band(
             )
         selected = 0
     else:
-        wanted = variable.strip().upper()
-        if not wanted:
-            raise ValueError(
-                "variable must be a non-empty element name or band number."
-            )
-        matches = [
-            m for m in metadata if (m.get("element") or "").strip().upper() == wanted
-        ]
-        if not matches:
-            elements = sorted({m.get("element") for m in metadata if m.get("element")})
-            raise ValueError(
-                f"No GRIB message with element {variable!r}; "
-                f"available elements: {elements}."
-            )
-        if len(matches) > 1:
-            warnings.warn(
-                f"{len(matches)} GRIB messages match element {variable!r}; "
-                f"using the first (band {matches[0]['band']}).",
-                stacklevel=3,
-            )
-        selected = matches[0]["band"] - 1
+        selected = _match_grib_element(metadata, variable)
     return selected
+
+
+def _match_grib_element(metadata: list[dict[str, Any]], variable: str) -> int:
+    """Resolve the 0-based band index of the first message matching a GRIB element.
+
+    Args:
+        metadata: Per-band metadata from :func:`grib_band_metadata`.
+        variable: A non-empty GRIB element name (case-insensitive).
+
+    Returns:
+        The 0-based index of the first matching message.
+
+    Raises:
+        ValueError: `variable` is blank, or no message carries the element.
+    """
+    wanted = variable.strip().upper()
+    if not wanted:
+        raise ValueError(
+            "variable must be a non-empty element name or band number."
+        )
+    matches = [
+        m for m in metadata if (m.get("element") or "").strip().upper() == wanted
+    ]
+    if not matches:
+        elements = sorted({m.get("element") for m in metadata if m.get("element")})
+        raise ValueError(
+            f"No GRIB message with element {variable!r}; "
+            f"available elements: {elements}."
+        )
+    if len(matches) > 1:
+        warnings.warn(
+            f"{len(matches)} GRIB messages match element {variable!r}; "
+            f"using the first (band {matches[0]['band']}).",
+            stacklevel=4,
+        )
+    return matches[0]["band"] - 1
 
 
 def grib_to_cog(
