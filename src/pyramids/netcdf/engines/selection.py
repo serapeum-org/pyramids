@@ -254,11 +254,7 @@ class Selection(_Engine["NetCDF"]):
         Raises:
             ValueError: ``chunks`` was supplied.
         """
-        if chunks is not None:
-            raise ValueError(
-                "chunks= is not supported for an antimeridian crop; it is eager "
-                "(the wrapped halves are read and concatenated)."
-            )
+        _reject_antimeridian_chunks(chunks)
         return self._ds._apply_to_all_variables(
             "crop", {"bbox": bbox, "epsg": crs, "touch": touch}
         )
@@ -298,11 +294,7 @@ class Selection(_Engine["NetCDF"]):
         curv = _curvilinear_coords_2d(self._ds)
         if curv is not None:
             return self._crop_antimeridian_curvilinear(bbox, crs, curv, touch, chunks)
-        if chunks is not None:
-            raise ValueError(
-                "chunks= is not supported for an antimeridian crop; it is eager "
-                "(the wrapped halves are read and concatenated)."
-            )
+        _reject_antimeridian_chunks(chunks)
         return _crop_seam_halves(
             self._ds,
             bbox,
@@ -1078,6 +1070,19 @@ def _curvilinear_coords_2d(
     ):
         return cast("tuple[np.typing.NDArray, np.typing.NDArray]", curv)
     return None
+
+
+def _reject_antimeridian_chunks(chunks: Any) -> None:
+    """Reject ``chunks`` on an eager antimeridian path (rectilinear stitch / container).
+
+    Only the curvilinear antimeridian path (a windowed read) honours ``chunks``; the
+    rectilinear stitch and the container fan-out read the wrapped halves eagerly.
+    """
+    if chunks is not None:
+        raise ValueError(
+            "chunks= is not supported for an antimeridian crop; it is eager "
+            "(the wrapped halves are read and concatenated)."
+        )
 
 
 def _lon_cell_size(lon2d: np.typing.NDArray) -> float:
