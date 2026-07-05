@@ -338,6 +338,12 @@ class TestSelectGribBand:
         with pytest.raises(ValueError, match="band number, element name, or None"):
             _select_grib_band(meta, True)
 
+    def test_non_str_int_variable_raises(self):
+        """A float variable raises a clear ValueError, not a cryptic AttributeError."""
+        meta = [{"band": 1, "element": "TMP"}]
+        with pytest.raises(ValueError, match="band number, element name, or None"):
+            _select_grib_band(meta, 1.5)
+
     def test_matches_element_with_surrounding_whitespace(self):
         """A stored element with stray whitespace still matches (both stripped)."""
         meta = [{"band": 1, "element": " TMP "}]
@@ -367,8 +373,10 @@ class TestGribToCog:
         """
         with open_grib(grib_1band_path) as src:
             element = grib_band_metadata(src)[0]["element"]
+        # `element or None` keeps the test valid on GDAL builds that emit an empty
+        # or missing GRIB element (which would otherwise trip the empty-string guard).
         out = grib_to_cog(
-            grib_1band_path, output=tmp_path / "var_cog.tif", variable=element
+            grib_1band_path, output=tmp_path / "var_cog.tif", variable=element or None
         )
         with Dataset.read_file(str(out)) as ds:
             arr = ds.read_array()
@@ -409,6 +417,41 @@ class TestGribToCog:
             arr = ds.read_array()
         assert cog_info(out).is_cog, "output should be a COG"
         assert np.allclose(arr, 101325.0), "band 2 values (101325) should reach COG"
+
+    def test_preserves_grib_band_metadata(self, grib_1band_path, tmp_path):
+        """The output COG carries the source GRIB_* band metadata.
+
+        Args:
+            grib_1band_path: Fixture path to a 1-band GRIB2.
+            tmp_path: pytest temp directory.
+        """
+        out = grib_to_cog(grib_1band_path, output=tmp_path / "meta_cog.tif")
+        with Dataset.read_file(str(out)) as ds:
+            md = ds.raster.GetRasterBand(1).GetMetadata()
+        assert any(k.startswith("GRIB_") for k in md), "GRIB_* metadata should survive"
+
+    def test_shared_element_warns_and_takes_first(self, grib_path, tmp_path, mocker):
+        """A str element shared by several messages warns and selects the first band.
+
+        Args:
+            grib_path: Fixture path to a 2-band GRIB2 (band1=280.0, band2=101325.0).
+            tmp_path: pytest temp directory.
+            mocker: pytest-mock fixture (inject a duplicated element deterministically).
+        """
+        mocker.patch(
+            "pyramids.grib.grib_band_metadata",
+            return_value=[
+                {"band": 1, "element": "TMP"},
+                {"band": 2, "element": "TMP"},
+            ],
+        )
+        with pytest.warns(UserWarning, match="using the first"):
+            out = grib_to_cog(
+                grib_path, output=tmp_path / "warn_cog.tif", variable="TMP"
+            )
+        with Dataset.read_file(str(out)) as ds:
+            arr = ds.read_array()
+        assert np.allclose(arr, 280.0), "first matching band (280) should win"
 
     def test_preserves_native_crs(self, grib_1band_path, tmp_path):
         """Without target_crs the COG keeps the GRIB's native EPSG:4326.

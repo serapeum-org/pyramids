@@ -206,12 +206,15 @@ def _select_grib_band(
         The 0-based band index to keep.
 
     Raises:
-        ValueError: `variable` is `None` but the file holds more than one
+        ValueError: `variable` is not a `str`, `int`, or `None` (a `bool` is
+            rejected too); `variable` is `None` but the file holds more than one
             message; an `int` band number is out of range; `variable` is an
             empty string; or no message carries the requested element.
     """
     band_count = len(metadata)
-    if isinstance(variable, bool):
+    # `variable`, `band` and the user's band number are all 1-based; the returned
+    # index (and `to_cog(indexes=)`) is 0-based, hence the `- 1` conversions below.
+    if isinstance(variable, bool) or not isinstance(variable, (str, int, type(None))):
         raise ValueError(
             f"variable must be a band number, element name, or None; got {variable!r}."
         )
