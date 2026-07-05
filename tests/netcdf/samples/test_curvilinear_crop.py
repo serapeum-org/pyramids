@@ -16,6 +16,7 @@ from shapely.geometry import MultiPolygon, Polygon
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
 from pyramids.netcdf._plot import NetCDFPlot
+from pyramids.netcdf.engines.selection import _lon_cell_size
 from tests.netcdf.samples.conftest import TOS as RECTILINEAR
 
 pytestmark = pytest.mark.core
@@ -89,6 +90,64 @@ def test_rasm_curvilinear_crop(sample):
         arr = np.asarray(cropped.read_array())
         assert arr.shape[-1] < full.shape[-1], "not windowed"
         assert hasattr(cropped, "_curvilinear_coords")
+    finally:
+        nc.close()
+
+
+def test_rasm_antimeridian_crop_windows_across_seam(sample):
+    """A west>east bbox on the 0..360 rasm grid windows across 180 and stays curvilinear."""
+    nc = NetCDF.read_file(sample(RASM))
+    try:
+        tair = nc.get_variable("Tair")
+        full = np.asarray(tair.read_array())
+        strip = tair.crop(bbox=(170.0, 40.0, -170.0, 70.0))
+        arr = np.asarray(strip.read_array())
+        assert arr.shape[-1] < full.shape[-1], "antimeridian crop must window the grid"
+        assert hasattr(strip, "_curvilinear_coords"), "result must stay curvilinear"
+        lon = np.asarray(strip._curvilinear_coords[0])
+        # The bbox is brought into the grid's 0..360 frame as 170..190; the windowed
+        # longitudes must straddle the 180 seam.
+        assert (
+            float(np.nanmin(lon)) <= 180.0 <= float(np.nanmax(lon))
+        ), "windowed longitudes must span the 180 seam"
+    finally:
+        nc.close()
+
+
+@pytest.mark.parametrize(
+    "lon2d, expected",
+    [
+        (np.array([[10.0, 12.0, 14.0], [10.0, 12.0, 14.0]]), 2.0),  # even spacing
+        (np.array([[172.0, 174.0, 176.0, 178.0, -180.0, -178.0]]), 2.0),  # seam outlier
+        (np.array([[170.0, 178.0, -178.0]]), 182.0),  # 3-col: median=mean of [8,356]
+        (np.array([[10.0], [10.0]]), 0.0),  # single column -> no spacing
+        (np.array([[np.nan, np.nan], [np.nan, np.nan]]), 0.0),  # all-NaN -> 0.0
+    ],
+)
+def test_lon_cell_size(lon2d, expected):
+    """`_lon_cell_size` returns the seam-robust median spacing, 0.0 when undefined."""
+    assert _lon_cell_size(lon2d) == pytest.approx(expected)
+
+
+def test_synthetic_curvilinear_antimeridian_masks_both_sides():
+    """A -180..180 curvilinear grid crossing the dateline masks both sides (MultiPolygon)."""
+    ny, nx = 8, 12
+    lon_row = ((np.arange(nx) + 172.0 + 180.0) % 360.0) - 180.0  # 172..179, -180..-169
+    lon2d = np.tile(lon_row, (ny, 1)).astype(float)
+    lat2d = np.tile(np.linspace(9.0, -9.0, ny).reshape(ny, 1), (1, nx)).astype(float)
+    data = np.arange(ny * nx, dtype="float32").reshape(1, ny, nx)
+    nc = NetCDF.create_from_array(
+        arr=data, geo=(172.0, 1.0, 0.0, 9.0, 0.0, -2.0), epsg=4326, variable_name="c"
+    )
+    try:
+        var = nc.get_variable("c")
+        var._curvilinear_coords = (lon2d, lat2d)
+        strip = var.crop(bbox=(175.0, -10.0, -177.0, 10.0))
+        assert hasattr(strip, "_curvilinear_coords"), "result must stay curvilinear"
+        slon = np.asarray(strip._curvilinear_coords[0])
+        present = set(np.round(slon[~np.isnan(slon)]).astype(int).tolist())
+        assert present & {176, 177, 178, 179}, f"west-of-seam cells missing: {present}"
+        assert present & {-180, -179, -178}, f"east-of-seam cells missing: {present}"
     finally:
         nc.close()
 

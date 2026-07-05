@@ -11,6 +11,10 @@ import pytest
 from shapely.geometry import box
 
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset.engines.spatial import (
+    _reaches_antimeridian_seam,
+    _split_lon_bbox,
+)
 from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
@@ -230,11 +234,178 @@ class TestDatasetCropBbox:
             dataset: Raster fixture.
 
         Test scenario:
-            ``crop(bbox=(1, 0, 0, 1))`` (west >= east) — expected: ``ValueError``
-            from the underlying validator.
+            ``crop(bbox=(1, 0, 0, 1), epsg=3857)`` — ``west > east`` in a projected
+            CRS is not an antimeridian case, so the ``west < east`` validator still
+            raises (a geographic ``west > east`` is instead cropped across the seam).
         """
         with pytest.raises(ValueError, match=r"west < east"):
-            dataset.crop(bbox=(1, 0, 0, 1))
+            dataset.crop(bbox=(1, 0, 0, 1), epsg=3857)
+
+    def test_crop_entirely_nodata_raises_clear_error(self):
+        """A crop overlapping only no-data cells raises a clear error, not IndexError.
+
+        Args:
+            None.
+
+        Test scenario:
+            A grid with valid data only in its top-left quadrant, cropped over the
+            all-no-data bottom-right, must raise a "no valid pixels" ValueError from
+            the touch-cutline correction rather than crash with an IndexError.
+        """
+        arr = np.full((10, 10), -9999.0, dtype="float32")
+        arr[0:5, 0:5] = 1.0  # valid only in the top-left quadrant
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 10.0), cell_size=1.0, epsg=4326,
+            no_data_value=-9999.0,
+        )
+        with pytest.raises(ValueError, match="no valid pixels"):
+            ds.crop(bbox=(6.0, 0.0, 9.0, 4.0))  # bottom-right: all no-data
+
+
+class TestAntimeridianCrop:
+    """Tests for crop with a geographic ``west > east`` (antimeridian) bbox."""
+
+    @staticmethod
+    def _global(top_left_x=-180.0):
+        """Return (source array, global 1-degree Dataset) with the given lon origin."""
+        arr = np.arange(180 * 360, dtype="float32").reshape(180, 360)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(top_left_x, 90.0), cell_size=1.0, epsg=4326
+        )
+        return arr, ds
+
+    def test_strip_values_and_extent(self):
+        """A -180..180 grid crop across the dateline stitches a contiguous strip."""
+        arr, ds = self._global()
+        strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+        assert strip.shape == (1, 20, 20), "20 lat x 20 lon strip"
+        assert strip.bbox == pytest.approx([170.0, -10.0, 190.0, 10.0]), "past 180"
+        expected = np.concatenate([arr[80:100, 350:360], arr[80:100, 0:10]], axis=-1)
+        assert np.array_equal(strip.read_array(), expected), "seam values preserved"
+
+    def test_on_0_360_grid(self):
+        """A 0..360 grid crops the same STAC bbox as a contiguous 170..190 strip."""
+        arr, ds = self._global(top_left_x=0.0)
+        strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+        assert strip.shape == (1, 20, 20), "20x20 strip"
+        assert strip.bbox == pytest.approx([170.0, -10.0, 190.0, 10.0]), "170..190 extent"
+        assert np.array_equal(strip.read_array(), arr[80:100, 170:190]), "0..360 values"
+
+    def test_multiband_keeps_all_bands(self):
+        """A multi-band grid keeps all bands with correct stitched values."""
+        arr, _ = self._global()
+        ds = Dataset.create_from_array(
+            np.stack([arr, arr + 1000.0]),
+            top_left_corner=(-180.0, 90.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+        assert strip.shape == (2, 20, 20), "both bands retained"
+        seam = np.concatenate([arr[80:100, 350:360], arr[80:100, 0:10]], axis=-1)
+        assert np.array_equal(strip.read_array(band=1), seam + 1000.0), "band 2"
+
+    def test_multiband_on_0_360_grid_keeps_all_bands(self):
+        """A multi-band 0..360 grid keeps every band with correct 170..190 values."""
+        arr, _ = self._global(top_left_x=0.0)
+        ds = Dataset.create_from_array(
+            np.stack([arr, arr + 1000.0]),
+            top_left_corner=(0.0, 90.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+        assert strip.shape == (2, 20, 20), "both bands retained"
+        assert np.array_equal(strip.read_array(band=0), arr[80:100, 170:190]), "band 1"
+        assert np.array_equal(
+            strip.read_array(band=1), arr[80:100, 170:190] + 1000.0
+        ), "band 2"
+
+    def test_float_overshoot_grid_keeps_both_halves(self):
+        """A grid whose xmax floats past 180 is not misrouted to 0..360 (H1)."""
+        cell = 360.0 / 169  # 169 cols -> bbox[2] == 180.00000000000006 > 180
+        ds = Dataset.create_from_array(
+            np.arange(20 * 169, dtype="float32").reshape(20, 169),
+            top_left_corner=(-180.0, 20.0),
+            cell_size=cell,
+            epsg=4326,
+        )
+        assert ds.bbox[2] > 180.0, "fixture must actually overshoot to exercise H1"
+        strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+        # both halves kept -> the strip's east edge continues to ~190, not ~180
+        assert abs(strip.bbox[2] - 190.0) < cell, "wrapped half must not be dropped"
+
+    def test_normal_bbox_unchanged(self):
+        """A west < east bbox still crops normally (no antimeridian path)."""
+        _, ds = self._global()
+        out = ds.crop(bbox=(10.0, -10.0, 30.0, 10.0))
+        assert out.bbox == pytest.approx([10.0, -10.0, 30.0, 10.0]), "unaffected"
+
+    def test_projected_dataset_not_treated_as_antimeridian(self):
+        """A geographic west>east bbox on a projected dataset is not an antimeridian crop."""
+        ds = Dataset.create_from_array(
+            np.zeros((5, 5), dtype="float32"),
+            top_left_corner=(0.0, 1000.0),
+            cell_size=1000.0,
+            epsg=3857,
+        )
+        with pytest.raises(ValueError, match="west < east"):
+            ds.crop(bbox=(170.0, -10.0, -170.0, 10.0), epsg=4326)
+
+    def test_regional_grid_reversed_bbox_raises(self):
+        """A west>east bbox on a regional grid that never reaches the seam raises."""
+        arr = np.arange(180 * 50, dtype="float32").reshape(180, 50)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(-10.0, 90.0), cell_size=1.0, epsg=4326
+        )  # lon -10..40 (Europe): reaches neither +180 nor -180
+        with pytest.raises(ValueError, match="transposed|does not reach the 180 seam"):
+            ds.crop(bbox=(40.0, -10.0, 10.0, 10.0))
+
+    def test_single_side_overlap_returns_half(self):
+        """When only one side of the seam overlaps, that half is returned as-is."""
+        arr = np.arange(180 * 10, dtype="float32").reshape(180, 10)
+        ds = Dataset.create_from_array(
+            arr, top_left_corner=(170.0, 90.0), cell_size=1.0, epsg=4326
+        )  # lon 170..180 only (west side of the seam)
+        strip = ds.crop(bbox=(175.0, -10.0, -170.0, 10.0))
+        assert strip.bbox[0] == pytest.approx(175.0), "west edge kept"
+        assert strip.bbox[2] == pytest.approx(180.0), "only the west half (no wrap)"
+
+    @pytest.mark.parametrize(
+        "top_left_x, ncols, reaches",
+        [
+            (-180.0, 360, True),  # global -180..180 (touches -180 and 180)
+            (0.0, 360, True),  # global 0..360 (reaches past 180 to ~360)
+            (170.0, 10, True),  # regional but ends exactly at the +180 seam
+            (-10.0, 50, False),  # Europe -10..40: reaches neither seam
+            (0.0, 90, False),  # eastern hemisphere 0..90: reaches neither
+            (0.0, 256, False),  # partial 0..360 (lon 0..256): stops short of 360
+        ],
+    )
+    def test_reaches_antimeridian_seam(self, top_left_x, ncols, reaches):
+        """The seam gate accepts grids reaching 180/-180 and rejects regional/partial ones."""
+        ds = Dataset.create_from_array(
+            np.zeros((2, ncols), dtype="float32"),
+            top_left_corner=(top_left_x, 1.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        assert _reaches_antimeridian_seam(ds) is reaches
+
+    def test_split_lon_bbox_0_360_yields_single_half(self):
+        """On a 0..360 grid the west>east bbox shifts into one west<east half."""
+        bbox = (170.0, -10.0, -170.0, 10.0)
+        halves = _split_lon_bbox(bbox, lon_max=359.0, cell_x=1.0)
+        assert halves == [(170.0, -10.0, 190.0, 10.0)]
+
+    def test_split_lon_bbox_180_yields_two_halves(self):
+        """On a -180..180 grid the west>east bbox splits at the 180 seam."""
+        bbox = (170.0, -10.0, -170.0, 10.0)
+        halves = _split_lon_bbox(bbox, lon_max=180.0, cell_x=1.0)
+        assert halves == [
+            (170.0, -10.0, 180.0, 10.0),
+            (-180.0, -10.0, -170.0, 10.0),
+        ]
 
 
 class TestDatasetReadArrayBbox:
