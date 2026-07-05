@@ -379,12 +379,16 @@ jobs:
 
       - name: Report wheel sizes
         shell: bash
-        run: ls -lah wheelhouse/
+        run: bash ci/check-wheel-size.sh wheelhouse
 
       - name: Build canary shapely + pyogrio wheels
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          # Fail on native-command errors too: $ErrorActionPreference alone
+          # does not stop pwsh when pip/delvewheel exit non-zero, which let
+          # a failed `pip wheel` surface one job later as an unmatched glob.
+          $PSNativeCommandUseErrorActionPreference = $true
           $env:GEOS_INCLUDE_PATH = "C:/gdal-prefix/Library/include"
           $env:GEOS_LIBRARY_PATH = "C:/gdal-prefix/Library/lib"
           $env:GDAL_INCLUDE_PATH = "C:/gdal-prefix/Library/include"
