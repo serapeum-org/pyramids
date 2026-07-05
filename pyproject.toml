@@ -361,17 +361,20 @@ xarray = ">=2023.1.0"
 # read it so CI installs the same range. Bump all five together on a new gdal minor.
 # libgdal-jp2openjpeg ships the JP2OpenJPEG driver (pulls openjpeg) so the bundled GDAL
 # can read JPEG2000-packed GRIB2 (WMO template 5.40 — NCEP/ECCC/ECMWF); see issue #600.
-# Exact pins (not ranges): GDAL versions are bumped deliberately, in one
-# review, across all build models — ci/source-build/config.sh is the
-# canonical pin (Linux wheels), this block mirrors it for the
-# conda-extract wheels (macOS/win_amd64) and the dev envs, and
-# ci/vcpkg.json's overrides pin the win_arm64 canary. A range here let
-# `pixi update` drift the conda side silently.
+# Effectively-exact pins (single-patch window, not open ranges): GDAL
+# versions are bumped deliberately, in one review, across all build
+# models — ci/source-build/config.sh is the canonical pin (Linux
+# wheels), this block mirrors it for the conda-extract wheels
+# (macOS/win_amd64) and the dev envs, and ci/vcpkg.json's overrides pin
+# the win_arm64 canary. Operator-leading form on purpose: ci/gdal-pin.py
+# consumers build conda matchspecs as "gdal${SPEC}", so a digit-leading
+# spec like "3.13.1.*" concatenates into a nonexistent package name
+# (observed: micromamba "gdal3.13.1.* does not exist", macOS x86_64).
 [tool.pixi.feature.gdal.dependencies]
-gdal = "3.13.1.*"
-libgdal-netcdf = "3.13.1.*"
-libgdal-hdf4 = "3.13.1.*"
-libgdal-grib = "3.13.1.*"
+gdal = ">=3.13.1,<3.13.2"
+libgdal-netcdf = ">=3.13.1,<3.13.2"
+libgdal-hdf4 = ">=3.13.1,<3.13.2"
+libgdal-grib = ">=3.13.1,<3.13.2"
 libgdal-jp2openjpeg = ">=3.13,<3.14"
 
 # swig builds the osgeo bindings against libgdal; build-only, so it stays in the
