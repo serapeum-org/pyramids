@@ -93,17 +93,20 @@ def _check_tls_read() -> None:
     vendored copy — i.e. this is always a real bundled wheel, never a
     dev/editable install.
 
-    Two legitimate CA models exist:
+    Two legitimate CA models exist, and the expectation is keyed on the
+    PLATFORM (like the HDF4 driver check) — never inferred from the wheel
+    under test, because a wheel that lost its cert looks identical to one
+    that legitimately has none:
 
-    * **Vendored bundle** (conda-extract and the Linux from-source
-      builds): libcurl bakes a build-prefix CA path that is absent in
-      the consuming env, so the wheel MUST ship `_data/ssl/cacert.pem`
-      and the bootstrap MUST point `GDAL_HTTP_CAINFO` at it — a missing
-      file here is the #412 regression and fails hard (an earlier
-      version *skipped*, silently masking the bug).
-    * **OS trust store** (the vcpkg win_arm64 build, whose curl uses
-      schannel): no CA file exists anywhere, the bootstrap correctly
-      sets no CAINFO, and the TLS read below is the entire proof.
+    * **Vendored bundle** (every platform except Windows ARM64): libcurl
+      bakes a build-prefix CA path that is absent in the consuming env,
+      so the wheel MUST ship `_data/ssl/cacert.pem` and the bootstrap
+      MUST point `GDAL_HTTP_CAINFO` at it — a missing file is the #412
+      regression and fails hard (an earlier version *skipped*, silently
+      masking the bug).
+    * **OS trust store** (`win32-arm64`, whose vcpkg curl uses schannel):
+      no CA file exists anywhere, the bootstrap correctly sets no CAINFO,
+      and the TLS read below is the entire proof.
 
     A CA/trust-store error during the read is the bug in either model
     and fails hard. A generic network error (offline runner, DNS,
@@ -112,19 +115,24 @@ def _check_tls_read() -> None:
     """
     ca_bundle = Path(pyramids.__file__).parent / "_data" / "ssl" / "cacert.pem"
     cainfo = os.environ.get("GDAL_HTTP_CAINFO")
+    os_trust = _platform_slug() in _OS_TRUST_PLATFORMS
     print(f"GDAL_HTTP_CAINFO: {cainfo}")
-    if ca_bundle.is_file():
+    if not os_trust:
+        if not ca_bundle.is_file():
+            _fail(
+                f"bundled wheel is missing {ca_bundle} — CA bundle not vendored (issue #412)"
+            )
         if cainfo != str(ca_bundle):
             _fail(
                 f"GDAL_HTTP_CAINFO={cainfo!r} not pointed at bundled cert {ca_bundle} (issue #412)"
             )
     elif cainfo is not None and not Path(cainfo).is_file():
         _fail(
-            f"no CA bundle vendored, yet GDAL_HTTP_CAINFO={cainfo!r} points at a missing file"
+            f"OS-trust-store platform, yet GDAL_HTTP_CAINFO={cainfo!r} points at a missing file"
         )
     else:
         print(
-            "no vendored CA bundle — OS trust store model (schannel); "
+            "OS-trust-store platform (schannel) — no CA bundle expected; "
             "the /vsicurl read below is the proof"
         )
 
@@ -152,7 +160,10 @@ def _check_tls_read() -> None:
         # (curl global cleanup vs Winsock teardown), so the process hangs
         # after the script finishes until the CI job's timeout cancels it.
         gdal.VSICurlClearCache()
-    print("TLS /vsicurl read OK — bundled CA store loads trust anchors.")
+    if _platform_slug() in _OS_TRUST_PLATFORMS:
+        print("TLS /vsicurl read OK — OS trust store loads trust anchors.")
+    else:
+        print("TLS /vsicurl read OK — bundled CA store loads trust anchors.")
 
 
 def _netcdf_roundtrip(nc_driver, workdir: str) -> None:
@@ -287,6 +298,9 @@ _COMMON_DRIVERS = (
 # curated Linux stack has no HDF4, and the vcpkg gdal port used for the
 # win_arm64 wheel (#334) has no hdf4 feature at all.
 _HDF4_PLATFORMS = ("darwin", "win32-amd64")
+# Platforms whose curl uses the OS trust store (schannel) instead of a
+# vendored CA bundle — see _check_tls_read.
+_OS_TRUST_PLATFORMS = ("win32-arm64",)
 
 
 def _platform_slug() -> str:
