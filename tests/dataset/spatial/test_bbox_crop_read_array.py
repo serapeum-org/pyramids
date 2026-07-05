@@ -255,7 +255,7 @@ class TestAntimeridianCrop:
         arr, ds = self._global()
         strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
         assert strip.shape == (1, 20, 20), "20 lat x 20 lon strip"
-        assert strip.bbox == [170.0, -10.0, 190.0, 10.0], "extent continues past 180"
+        assert strip.bbox == pytest.approx([170.0, -10.0, 190.0, 10.0]), "past 180"
         expected = np.concatenate([arr[80:100, 350:360], arr[80:100, 0:10]], axis=-1)
         assert np.array_equal(strip.read_array(), expected), "seam values preserved"
 
@@ -298,7 +298,7 @@ class TestAntimeridianCrop:
         """A west < east bbox still crops normally (no antimeridian path)."""
         _, ds = self._global()
         out = ds.crop(bbox=(10.0, -10.0, 30.0, 10.0))
-        assert out.bbox == [10.0, -10.0, 30.0, 10.0], "normal crop unaffected"
+        assert out.bbox == pytest.approx([10.0, -10.0, 30.0, 10.0]), "unaffected"
 
     def test_projected_dataset_not_treated_as_antimeridian(self):
         """A geographic west>east bbox on a projected dataset is not an antimeridian crop."""

@@ -162,18 +162,11 @@ class Selection(_Engine["NetCDF"]):
         """
         nc = self._ds
         is_container = nc._is_md_array and not nc._is_subset and nc.band_count == 0
-        if bbox is not None and mask is None:
-            crs = epsg if epsg is not None else nc.epsg
-            west, _, east, _ = bbox
-            crs_geo = crs is not None and sr_from_user_input(crs).IsGeographic()
-            ds_geo = nc.epsg is not None and sr_from_user_input(nc.epsg).IsGeographic()
-            if west > east and crs_geo and ds_geo:
-                if is_container:
-                    raise ValueError(
-                        "antimeridian crop (west > east) is not supported on a root "
-                        "container; crop a single variable via get_variable(name)."
-                    )
-                return self._crop_antimeridian(tuple(bbox), crs, touch, chunks)
+        antimeridian = self._try_antimeridian(
+            bbox, mask, epsg, is_container, touch, chunks
+        )
+        if antimeridian is not None:
+            return antimeridian
         mask = self._resolve_crop_mask(mask, bbox, epsg)
         if is_container:
             # A container crops every variable; `chunks` is a curvilinear-only, per-variable knob
@@ -189,6 +182,48 @@ class Selection(_Engine["NetCDF"]):
         else:
             result = self._crop_one(mask, touch=touch, chunks=chunks)
         return cast("NetCDF", result)
+
+    def _try_antimeridian(
+        self,
+        bbox: tuple[float, float, float, float] | list[float] | None,
+        mask: Any,
+        epsg: Any,
+        is_container: bool,
+        touch: bool,
+        chunks: Any,
+    ) -> "NetCDF | None":
+        """Return an antimeridian crop when a geographic west>east bbox warrants it.
+
+        Args:
+            bbox: The crop bbox, or ``None``.
+            mask: The crop mask, or ``None`` (antimeridian is bbox-only).
+            epsg: The bbox CRS override, or ``None`` (defaults to the dataset CRS).
+            is_container: Whether ``self`` is a root MDIM container.
+            touch: Forwarded to the per-half crop.
+            chunks: Forwarded to the per-half crop.
+
+        Returns:
+            The cropped variable strip when the bbox is a geographic ``west > east``
+            antimeridian request on a geographic dataset; otherwise ``None``.
+
+        Raises:
+            ValueError: The antimeridian bbox targets a root container.
+        """
+        if bbox is None or mask is not None:
+            return None
+        nc = self._ds
+        crs = epsg if epsg is not None else nc.epsg
+        west, _, east, _ = bbox
+        crs_geo = crs is not None and sr_from_user_input(crs).IsGeographic()
+        ds_geo = nc.epsg is not None and sr_from_user_input(nc.epsg).IsGeographic()
+        if not (west > east and crs_geo and ds_geo):
+            return None
+        if is_container:
+            raise ValueError(
+                "antimeridian crop (west > east) is not supported on a root "
+                "container; crop a single variable via get_variable(name)."
+            )
+        return self._crop_antimeridian(tuple(bbox), crs, touch, chunks)
 
     def _crop_antimeridian(
         self,
