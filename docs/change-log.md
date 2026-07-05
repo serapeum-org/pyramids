@@ -1,6 +1,13 @@
 ﻿# Change log
 
 
+## 0.40.0 (2026-07-05)
+
+### Fix
+
+- **plot**: auto-detect RASM xc/yc curvilinear coordinates (#682)
+- **dataset**: correct footprint on NetCDF views and all nodata fills (#679)
+
 ## 0.39.0 (2026-07-01)
 
 ### Feat
