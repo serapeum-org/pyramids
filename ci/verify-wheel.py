@@ -311,6 +311,28 @@ def _check_driver_set() -> None:
     print(f"driver-set check OK — all {len(expected)} promised drivers registered.")
 
 
+def _check_licenses() -> None:
+    """Assert the wheel ships the bundled third-party license texts.
+
+    Every wheel vendors GDAL/PROJ/GEOS/curl/... binaries whose licenses
+    (MIT/BSD/LGPL/...) require their notices to travel with the
+    redistributed binaries. All three build models stage them into
+    `pyramids/_licenses/<package>/`; an empty directory means a collection
+    path silently broke (this happened on the first vcpkg build, which had
+    no license source at all and every CI job stayed green).
+    """
+    lic_dir = Path(pyramids.__file__).parent / "_licenses"
+    packages = (
+        [p for p in lic_dir.iterdir() if p.is_dir()] if lic_dir.is_dir() else []
+    )
+    if len(packages) < 10:
+        _fail(
+            f"wheel ships only {len(packages)} third-party license dirs at "
+            f"{lic_dir} — the bundled native libraries require their notices"
+        )
+    print(f"license check OK — {len(packages)} third-party license dirs ship in the wheel.")
+
+
 def _check_jp2_driver() -> None:
     """Confirm the bundled JP2OpenJPEG driver loads and round-trips (issue #600).
 
@@ -339,6 +361,7 @@ def _check_jp2_driver() -> None:
 
 
 _check_driver_set()
+_check_licenses()
 _check_netcdf_driver()
 _check_jp2_driver()
 _check_tls_read()

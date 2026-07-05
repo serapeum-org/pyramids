@@ -83,6 +83,27 @@ if (Test-Path $GdalLib) {
     Copy-Item -Path $GdalLib -Destination "$BuildPrefix\Library\lib\gdal_i.lib" -Force
 }
 
+# Third-party license collection: vcpkg installs every port's license text
+# at share/<port>/copyright. Gather them under the directory
+# install-and-vendor-osgeo.py's from-source branch mirrors into the wheel's
+# _licenses/ — without this the wheel would vendor GDAL/PROJ/GEOS/curl/...
+# binaries with no redistribution notices.
+$LicenseRoot = "$BuildPrefix\Library\share\pyramids-bundled-licenses"
+New-Item -ItemType Directory -Force -Path $LicenseRoot | Out-Null
+Get-ChildItem -Directory (Join-Path $TripletDir "share") | ForEach-Object {
+    $copyright = Join-Path $_.FullName "copyright"
+    if (Test-Path $copyright) {
+        $dst = Join-Path $LicenseRoot $_.Name
+        New-Item -ItemType Directory -Force -Path $dst | Out-Null
+        Copy-Item -Path $copyright -Destination (Join-Path $dst "copyright") -Force
+    }
+}
+$Collected = (Get-ChildItem -Directory $LicenseRoot).Count
+if ($Collected -lt 10) {
+    throw "license collection suspiciously small (${Collected} ports) - vcpkg share layout changed?"
+}
+Write-Host "collected license texts for ${Collected} vcpkg ports"
+
 # 5. Resolve the GDAL version vcpkg actually installed and write the
 #    GDAL_VERSION file install-and-vendor-osgeo.py keys the pip-binding
 #    install on. `vcpkg list gdal` prints e.g. "gdal:arm64-windows  3.12.4#1".
