@@ -20,6 +20,11 @@ $VcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
 if (-not $VcpkgRoot) {
     throw "VCPKG_INSTALLATION_ROOT is not set (expected preinstalled vcpkg on hosted runners)"
 }
+if ($VcpkgRoot -ne "C:\vcpkg") {
+    # The workflow caches C:\vcpkg\installed by literal path; a relocated
+    # vcpkg would silently turn every build into a 40-70 min cache miss.
+    throw "VCPKG_INSTALLATION_ROOT is '$VcpkgRoot' but the workflow cache step assumes C:\vcpkg - update both"
+}
 $InstallRoot = Join-Path $VcpkgRoot "installed"
 $ManifestRoot = $PSScriptRoot   # this script lives in ci/, next to vcpkg.json
 
@@ -79,9 +84,10 @@ foreach ($d in @("bin", "include", "lib", "share")) {
 # historical GDAL import-library name); vcpkg names it `gdal.lib`.
 # Provide both so `pip install GDAL==X.Y.Z` links either way.
 $GdalLib = "$BuildPrefix\Library\lib\gdal.lib"
-if (Test-Path $GdalLib) {
-    Copy-Item -Path $GdalLib -Destination "$BuildPrefix\Library\lib\gdal_i.lib" -Force
+if (-not (Test-Path $GdalLib)) {
+    throw "gdal.lib missing from the vcpkg tree - the GDAL binding link (gdal_i.lib) would fail later"
 }
+Copy-Item -Path $GdalLib -Destination "$BuildPrefix\Library\lib\gdal_i.lib" -Force
 
 # Third-party license collection: vcpkg installs every port's license text
 # at share/<port>/copyright. Gather them under the directory
@@ -124,7 +130,8 @@ Write-Host "resolved GDAL_VERSION=$GdalVersion"
 
 # Sanity: the DLL and data dirs the wheel build depends on must exist.
 foreach ($required in @("$BuildPrefix\Library\bin\gdal.dll",
-                        "$BuildPrefix\Library\share\gdal")) {
+                        "$BuildPrefix\Library\share\gdal",
+                        "$BuildPrefix\Library\share\proj\proj.db")) {
     if (-not (Test-Path $required)) {
         throw "expected artifact missing after vcpkg install: $required"
     }
