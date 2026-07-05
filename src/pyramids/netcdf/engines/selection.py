@@ -24,10 +24,11 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 from shapely import contains_xy
 
-from pyramids.base.crs import sr_from_epsg
+from pyramids.base.crs import sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
 from pyramids.feature import FeatureCollection
+from pyramids.feature.bbox import split_antimeridian
 from pyramids.netcdf._mdim import open_mdarray
 from pyramids.netcdf._plot import NetCDFPlot
 
@@ -84,7 +85,11 @@ class Selection(_Engine["NetCDF"]):
                 :meth:`FeatureCollection.from_bbox` and routed through
                 the same polygon path. The FC is built **once** so a
                 root-container crop does not rebuild it for every
-                variable. Mutually exclusive with ``mask``.
+                variable. Mutually exclusive with ``mask``. On a
+                variable subset, a *geographic* bbox with ``west > east``
+                (the STAC antimeridian convention, e.g.
+                ``(170, -10, -170, 10)``) is split at the 180°/360° seam
+                and stitched into one contiguous strip.
             epsg (keyword-only): CRS for ``bbox`` — anything geopandas
                 accepts for ``crs=`` (EPSG int, ``"EPSG:4326"``, WKT,
                 :class:`pyproj.CRS`). Defaults to the dataset's own
@@ -155,6 +160,13 @@ class Selection(_Engine["NetCDF"]):
               shared primitive that builds the one-row FC.
         """
         nc = self._ds
+        is_container = nc._is_md_array and not nc._is_subset and nc.band_count == 0
+        if bbox is not None and mask is None and not is_container:
+            crs = epsg if epsg is not None else nc.epsg
+            west, _, east, _ = bbox
+            geographic = crs is not None and sr_from_user_input(crs).IsGeographic()
+            if west > east and geographic:
+                return self._crop_antimeridian(tuple(bbox), crs, touch, chunks)
         mask = self._resolve_crop_mask(mask, bbox, epsg)
         if nc._is_md_array and not nc._is_subset and nc.band_count == 0:
             # A container crops every variable; `chunks` is a curvilinear-only, per-variable knob
@@ -170,6 +182,87 @@ class Selection(_Engine["NetCDF"]):
         else:
             result = self._crop_one(mask, touch=touch, chunks=chunks)
         return cast("NetCDF", result)
+
+    def _crop_antimeridian(
+        self,
+        bbox: tuple[float, float, float, float],
+        crs: Any,
+        touch: bool,
+        chunks: Any,
+    ) -> "NetCDF":
+        """Crop a variable with a geographic ``west > east`` (antimeridian) bbox.
+
+        Splits the bbox at the grid's longitude seam (``180`` on a ``-180..180``
+        grid, ``360`` on a ``0..360`` grid — reusing :func:`split_antimeridian` for
+        the former), crops each ``west < east`` half through the normal path, and
+        concatenates the halves along longitude into one contiguous variable whose
+        coordinates continue past the seam. A half outside the variable's longitude
+        extent is skipped, so a single-sided overlap returns just that half.
+
+        Args:
+            bbox: ``(west, south, east, north)`` with ``west > east``.
+            crs: The bbox CRS.
+            touch: Forwarded to the per-half crop.
+            chunks: Forwarded to the per-half crop.
+
+        Returns:
+            NetCDF: The cropped strip spanning the seam.
+
+        Raises:
+            ValueError: The bbox does not overlap the variable's longitude extent.
+        """
+        west, south, east, north = bbox
+        xmin, xmax = float(self._ds.bbox[0]), float(self._ds.bbox[2])
+        if xmax > 180.0:
+            # 0..360 grid: bring the STAC (-180..180) bbox into the grid's frame.
+            west = west + 360.0 if west < 0 else west
+            east = east + 360.0 if east < 0 else east
+            if west <= east:
+                halves = [(west, south, east, north)]
+            else:
+                halves = [(west, south, 360.0, north), (0.0, south, east, north)]
+        else:
+            halves = split_antimeridian(bbox)
+        parts = [
+            self.crop(bbox=half, epsg=crs, touch=touch, chunks=chunks)
+            for half in halves
+            if half[0] < xmax and half[2] > xmin
+        ]
+        if not parts:
+            raise ValueError(
+                f"antimeridian bbox {bbox!r} does not overlap the dataset extent"
+            )
+        result = (
+            parts[0] if len(parts) == 1 else self._merge_lon_halves(parts[0], parts[1])
+        )
+        return result
+
+    def _merge_lon_halves(self, west_part: "NetCDF", east_part: "NetCDF") -> "NetCDF":
+        """Concatenate two longitude-adjacent variable crops into one contiguous result.
+
+        `west_part` (the pre-seam half) sits to the left and `east_part` (the
+        wrapped half past the seam) to its right; the merged raster keeps
+        `west_part`'s north-up geotransform, so the longitude mapping continues
+        past the seam. The result is re-wrapped as :class:`NetCDF` so variable
+        metadata (band dims, ``sel``) survives.
+
+        Args:
+            west_part: Crop of the pre-seam half.
+            east_part: Crop of the post-seam half.
+
+        Returns:
+            NetCDF: The concatenated variable.
+        """
+        merged = np.concatenate(
+            [west_part.read_array(), east_part.read_array()], axis=-1
+        )
+        raster = Dataset.create_from_array(
+            merged,
+            geo=west_part.geotransform,
+            epsg=west_part.epsg,
+            no_data_value=west_part.no_data_value,
+        )
+        return self._ds._preserve_netcdf_metadata(raster)
 
     def _resolve_crop_mask(
         self,

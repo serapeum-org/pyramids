@@ -1,5 +1,6 @@
 """Selection and subsetting: sel (coordinate-value band selection) and subset (windowed Dataset)."""
 
+import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset
@@ -42,3 +43,55 @@ def test_subset_returns_smaller_dataset(sample):
         assert ds.shape[-1] < full_cols, "bbox subset should reduce the column extent"
     finally:
         nc.close()
+
+
+class TestAntimeridianCrop:
+    """Crop a NetCDF variable with a geographic west > east (antimeridian) bbox."""
+
+    @staticmethod
+    def _global_variable(top_left_x=-180.0):
+        """Return (source array, global NetCDF variable) for the given lon origin."""
+        arr = np.arange(180 * 360, dtype="float32").reshape(180, 360)
+        nc = NetCDF.create_from_array(
+            arr=arr,
+            geo=(top_left_x, 1.0, 0.0, 90.0, 0.0, -1.0),
+            epsg=4326,
+            variable_name="v",
+        )
+        return arr, nc.get_variable("v")
+
+    def test_strip_values_and_extent(self):
+        """A -180..180 variable crop across the dateline stitches a contiguous strip."""
+        arr, var = self._global_variable()
+        strip = var.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+        assert isinstance(strip, NetCDF), "result stays a NetCDF variable"
+        assert strip.shape == (1, 20, 20), "20 lat x 20 lon strip"
+        expected = np.concatenate([arr[80:100, 350:360], arr[80:100, 0:10]], axis=-1)
+        got = np.asarray(strip.read_array())
+        assert np.array_equal(got, expected), "seam values preserved"
+
+    def test_on_0_360_grid(self):
+        """A 0..360 variable crops the same STAC bbox as a contiguous 170..190 strip."""
+        arr, var = self._global_variable(top_left_x=0.0)
+        strip = var.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+        got = np.asarray(strip.read_array())
+        assert np.array_equal(got, arr[80:100, 170:190]), "0..360 values preserved"
+
+    def test_normal_bbox_unchanged(self):
+        """A west < east bbox still crops normally and returns a NetCDF."""
+        _, var = self._global_variable()
+        out = var.crop(bbox=(10.0, -10.0, 30.0, 10.0))
+        assert isinstance(out, NetCDF), "normal crop stays a NetCDF"
+        assert out.shape == (1, 20, 20), "normal crop shape"
+
+    def test_no_overlap_raises(self):
+        """An antimeridian bbox disjoint from the variable's longitudes raises."""
+        arr = np.arange(180 * 50, dtype="float32").reshape(180, 50)
+        nc = NetCDF.create_from_array(
+            arr=arr,
+            geo=(0.0, 1.0, 0.0, 90.0, 0.0, -1.0),
+            epsg=4326,
+            variable_name="v",
+        )  # lon 0..50 only
+        with pytest.raises(ValueError, match="does not overlap"):
+            nc.get_variable("v").crop(bbox=(170.0, -10.0, -170.0, 10.0))
