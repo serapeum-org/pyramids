@@ -285,35 +285,52 @@ class TestSelectGribBand:
     def test_none_variable_single_band(self):
         """variable=None on a single-message file selects band 0."""
         meta = [{"band": 1, "element": "TMP"}]
-        assert _select_grib_band(meta, None, 1) == 0, "single-band None should be 0"
+        assert _select_grib_band(meta, None) == 0, "single-band None should be 0"
 
     def test_none_variable_multiband_raises(self):
         """variable=None on a multi-message file raises with the element list."""
         meta = [{"band": 1, "element": "TMP"}, {"band": 2, "element": "PRES"}]
         with pytest.raises(ValueError, match="pass variable="):
-            _select_grib_band(meta, None, 2)
+            _select_grib_band(meta, None)
 
     def test_matches_element_returns_zero_based(self):
         """A matching element returns its 0-based index (band 2 -> 1)."""
         meta = [{"band": 1, "element": "TMP"}, {"band": 2, "element": "PRES"}]
-        assert _select_grib_band(meta, "PRES", 2) == 1, "PRES is band 2 -> index 1"
+        assert _select_grib_band(meta, "PRES") == 1, "PRES is band 2 -> index 1"
 
     def test_match_is_case_insensitive(self):
         """Element matching ignores case."""
         meta = [{"band": 1, "element": "TMP"}]
-        assert _select_grib_band(meta, "tmp", 1) == 0, "lowercase should match TMP"
+        assert _select_grib_band(meta, "tmp") == 0, "lowercase should match TMP"
 
     def test_multiple_matches_warns_and_uses_first(self):
         """Several messages sharing the element warn and select the first."""
         meta = [{"band": 1, "element": "TMP"}, {"band": 2, "element": "TMP"}]
         with pytest.warns(UserWarning, match="using the first"):
-            assert _select_grib_band(meta, "TMP", 2) == 0
+            assert _select_grib_band(meta, "TMP") == 0
 
     def test_unknown_element_raises(self):
         """An absent element raises with the available-elements list."""
         meta = [{"band": 1, "element": "TMP"}]
         with pytest.raises(ValueError, match="available elements"):
-            _select_grib_band(meta, "NOPE", 1)
+            _select_grib_band(meta, "NOPE")
+
+    def test_int_selects_band_number(self):
+        """An int selects that 1-based band directly (band 2 -> index 1)."""
+        meta = [{"band": 1, "element": "TMP"}, {"band": 2, "element": "TMP"}]
+        assert _select_grib_band(meta, 2) == 1, "band number 2 -> index 1"
+
+    def test_int_out_of_range_raises(self):
+        """An out-of-range band number raises."""
+        meta = [{"band": 1, "element": "TMP"}]
+        with pytest.raises(ValueError, match="out of range"):
+            _select_grib_band(meta, 5)
+
+    def test_empty_string_raises(self):
+        """An empty-string variable raises instead of matching None-element bands."""
+        meta = [{"band": 1, "element": None}]
+        with pytest.raises(ValueError, match="non-empty"):
+            _select_grib_band(meta, "")
 
 
 class TestGribToCog:
@@ -330,18 +347,31 @@ class TestGribToCog:
         assert out.exists(), "grib_to_cog should write the output file"
         assert cog_info(out).is_cog, "output should pass the COG validator"
 
-    def test_selects_variable_band(self, grib_1band_path, tmp_path):
-        """Passing the band's GRIB element selects it and writes a valid COG.
+    def test_selects_variable_band_preserves_data(self, grib_1band_path, tmp_path):
+        """Selecting the sole message by its GRIB element preserves its data in the COG.
 
         Args:
-            grib_1band_path: Fixture path to a 1-band GRIB2.
+            grib_1band_path: Fixture path to a 1-band GRIB2 (values 280.0).
             tmp_path: pytest temp directory.
         """
         element = grib_band_metadata(open_grib(grib_1band_path))[0]["element"]
         out = grib_to_cog(
             grib_1band_path, output=tmp_path / "var_cog.tif", variable=element
         )
-        assert cog_info(out).is_cog, "output should pass the COG validator"
+        arr = Dataset.read_file(str(out)).read_array()
+        assert np.allclose(arr, 280.0), "selected band values should reach the COG"
+
+    def test_int_band_selection_writes_that_bands_data(self, grib_path, tmp_path):
+        """An int band number selects that specific message; its data reaches the COG.
+
+        Args:
+            grib_path: Fixture path to a 2-band GRIB2 (band1=280.0, band2=101325.0).
+            tmp_path: pytest temp directory.
+        """
+        out = grib_to_cog(grib_path, output=tmp_path / "band2_cog.tif", variable=2)
+        arr = Dataset.read_file(str(out)).read_array()
+        assert cog_info(out).is_cog, "output should be a COG"
+        assert np.allclose(arr, 101325.0), "band 2 values (101325) should reach COG"
 
     def test_preserves_native_crs(self, grib_1band_path, tmp_path):
         """Without target_crs the COG keeps the GRIB's native EPSG:4326.

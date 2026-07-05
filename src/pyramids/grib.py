@@ -189,24 +189,35 @@ def grib_band_metadata(dataset: Dataset) -> list[dict[str, Any]]:
 
 
 def _select_grib_band(
-    metadata: list[dict[str, Any]], variable: str | None, band_count: int
+    metadata: list[dict[str, Any]], variable: str | int | None
 ) -> int:
-    """Resolve the 0-based band index for `variable`, matched on the GRIB element.
+    """Resolve the 0-based band index for `variable`.
 
     Args:
         metadata: Per-band metadata from :func:`grib_band_metadata`.
-        variable: GRIB element name to select (case-insensitive, e.g. `"TMP"`),
-            or `None` to use the sole band of a single-message file.
-        band_count: Number of bands (messages) in the dataset.
+        variable: How to pick the message. An `int` is a 1-based band number
+            (the unambiguous escape hatch for files that repeat an element
+            across levels/horizons). A non-empty `str` matches the GRIB element
+            (case-insensitive, e.g. `"TMP"`); when several messages share the
+            element the first is used and a warning is emitted. `None` selects
+            the sole band of a single-message file.
 
     Returns:
         The 0-based band index to keep.
 
     Raises:
-        ValueError: `variable` is `None` but the file holds more than one message,
-            or no message carries the requested element.
+        ValueError: `variable` is `None` but the file holds more than one
+            message; an `int` band number is out of range; `variable` is an
+            empty string; or no message carries the requested element.
     """
-    if variable is None:
+    band_count = len(metadata)
+    if isinstance(variable, int):
+        if not 1 <= variable <= band_count:
+            raise ValueError(
+                f"band number {variable} out of range 1..{band_count}."
+            )
+        selected = variable - 1
+    elif variable is None:
         if band_count > 1:
             elements = [m.get("element") for m in metadata]
             raise ValueError(
@@ -215,10 +226,12 @@ def _select_grib_band(
             )
         selected = 0
     else:
-        wanted = variable.upper()
-        matches = [
-            m for m in metadata if (m.get("element") or "").upper() == wanted
-        ]
+        wanted = variable.strip().upper()
+        if not wanted:
+            raise ValueError(
+                "variable must be a non-empty element name or band number."
+            )
+        matches = [m for m in metadata if (m.get("element") or "").upper() == wanted]
         if not matches:
             elements = sorted({m.get("element") for m in metadata if m.get("element")})
             raise ValueError(
@@ -239,8 +252,8 @@ def grib_to_cog(
     grib_path: str | Path,
     *,
     output: str | Path,
-    variable: str | None = None,
-    target_crs: int | None = None,
+    variable: str | int | None = None,
+    target_crs: int | str | None = None,
     cog_profile: str = "deflate",
     vsi: str | None = None,
 ) -> Path:
@@ -257,11 +270,14 @@ def grib_to_cog(
             `s3://` / `gs://` / `https://` URI — resolved like
             :func:`open_grib`).
         output: Destination COG path. Its parent directory must already exist.
-        variable: GRIB element name of the message to convert (case-insensitive,
-            e.g. `"TMP"`). `None` is allowed only when the file holds a single
-            message; when several messages share the element, the first is used
-            and a warning is emitted.
-        target_crs: Optional EPSG code to reproject to before the COG is written;
+        variable: Which GRIB message to convert. A `str` matches the GRIB element
+            (case-insensitive, e.g. `"TMP"`); when several messages share the
+            element the first is used and a warning is emitted. Pass an `int`
+            1-based band number to select a message unambiguously (e.g. one
+            element repeated across pressure levels). `None` is allowed only when
+            the file holds a single message.
+        target_crs: Optional CRS to reproject to before the COG is written — an
+            EPSG `int` or a WKT `str` (forwarded to `to_cog(target_srs=...)`).
             `None` keeps the GRIB's native CRS.
         cog_profile: Named COG compression preset forwarded to
             :meth:`~pyramids.dataset.Dataset.to_cog` (`profile=`), e.g.
@@ -274,8 +290,10 @@ def grib_to_cog(
 
     Raises:
         DriverNotExistError: The GDAL build lacks the GRIB driver.
-        ValueError: `variable` is `None` on a multi-message file, or no message
-            carries the requested element.
+        FileNotFoundError: `grib_path` does not exist (raised by :func:`open_grib`).
+        ValueError: `variable` cannot be resolved (`None` on a multi-message file,
+            an out-of-range band number, an empty string, or an unknown element),
+            or `cog_profile` is not a recognised COG profile (raised by `to_cog`).
 
     Examples:
         - Convert the 2-metre temperature message to a COG (requires libgdal-grib):
@@ -290,13 +308,12 @@ def grib_to_cog(
 
             ```
     """
-    dataset = open_grib(grib_path, vsi=vsi)
-    band_index = _select_grib_band(
-        grib_band_metadata(dataset), variable, dataset.band_count
-    )
-    return dataset.to_cog(
-        output,
-        indexes=[band_index],
-        profile=cog_profile,
-        target_srs=target_crs,
-    )
+    with open_grib(grib_path, vsi=vsi) as dataset:
+        band_index = _select_grib_band(grib_band_metadata(dataset), variable)
+        result = dataset.to_cog(
+            output,
+            indexes=[band_index],
+            profile=cog_profile,
+            target_srs=target_crs,
+        )
+    return result
