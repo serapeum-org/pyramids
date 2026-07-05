@@ -91,26 +91,41 @@ def _check_tls_read() -> None:
 
     This runs only after we've already asserted osgeo resolves to the
     vendored copy — i.e. this is always a real bundled wheel, never a
-    dev/editable install. So a missing cacert.pem is itself the #412
-    regression and fails hard (an earlier version *skipped* here, which
-    silently masked the bug when the cert wasn't bundled).
+    dev/editable install.
 
-    A CA/trust-store error during the read is also the #412 bug and fails
-    hard. A generic network error (offline runner, DNS, timeout) is not
-    this bug, so we warn and move on rather than make the smoke test flaky
-    on network conditions — the cert-presence + GDAL_HTTP_CAINFO checks
-    above already prove the fix shipped.
+    Two legitimate CA models exist:
+
+    * **Vendored bundle** (conda-extract and the Linux from-source
+      builds): libcurl bakes a build-prefix CA path that is absent in
+      the consuming env, so the wheel MUST ship `_data/ssl/cacert.pem`
+      and the bootstrap MUST point `GDAL_HTTP_CAINFO` at it — a missing
+      file here is the #412 regression and fails hard (an earlier
+      version *skipped*, silently masking the bug).
+    * **OS trust store** (the vcpkg win_arm64 build, whose curl uses
+      schannel): no CA file exists anywhere, the bootstrap correctly
+      sets no CAINFO, and the TLS read below is the entire proof.
+
+    A CA/trust-store error during the read is the bug in either model
+    and fails hard. A generic network error (offline runner, DNS,
+    timeout) is not, so we warn and move on rather than make the smoke
+    test flaky on network conditions.
     """
     ca_bundle = Path(pyramids.__file__).parent / "_data" / "ssl" / "cacert.pem"
-    if not ca_bundle.is_file():
-        _fail(
-            f"bundled wheel is missing {ca_bundle} — CA bundle not vendored (issue #412)"
-        )
     cainfo = os.environ.get("GDAL_HTTP_CAINFO")
     print(f"GDAL_HTTP_CAINFO: {cainfo}")
-    if cainfo != str(ca_bundle):
+    if ca_bundle.is_file():
+        if cainfo != str(ca_bundle):
+            _fail(
+                f"GDAL_HTTP_CAINFO={cainfo!r} not pointed at bundled cert {ca_bundle} (issue #412)"
+            )
+    elif cainfo is not None and not Path(cainfo).is_file():
         _fail(
-            f"GDAL_HTTP_CAINFO={cainfo!r} not pointed at bundled cert {ca_bundle} (issue #412)"
+            f"no CA bundle vendored, yet GDAL_HTTP_CAINFO={cainfo!r} points at a missing file"
+        )
+    else:
+        print(
+            "no vendored CA bundle — OS trust store model (schannel); "
+            "the /vsicurl read below is the proof"
         )
 
     gdal.UseExceptions()
