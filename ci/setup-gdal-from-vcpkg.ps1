@@ -32,6 +32,23 @@ Write-Host "=== vcpkg GDAL stack: triplet=$Triplet -> $BuildPrefix ==="
 & "$VcpkgRoot\bootstrap-vcpkg.bat" -disableMetrics
 if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg failed ($LASTEXITCODE)" }
 
+# The runner image's vcpkg clone can predate the manifest's pinned
+# builtin-baseline (observed: `git show <baseline>:versions/baseline.json`
+# exits 128 inside vcpkg). Fetch the baseline commit so manifest mode can
+# resolve port versions at that exact point; GitHub serves reachable-SHA
+# fetches, with a full fetch as fallback.
+$Baseline = (Get-Content (Join-Path $ManifestRoot "vcpkg.json") -Raw |
+    ConvertFrom-Json)."builtin-baseline"
+& git -C $VcpkgRoot fetch origin $Baseline
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "direct baseline fetch failed; falling back to a full fetch"
+    & git -C $VcpkgRoot fetch origin
+}
+& git -C $VcpkgRoot cat-file -e "$Baseline^{commit}"
+if ($LASTEXITCODE -ne 0) {
+    throw "vcpkg clone still lacks baseline commit $Baseline after fetch"
+}
+
 # 2. Install the manifest. --x-install-root keeps the tree in a stable,
 #    cacheable location (the workflow caches it keyed on vcpkg.json + this
 #    script + the triplet).
