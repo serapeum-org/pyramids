@@ -298,14 +298,18 @@ class Selection(_Engine["NetCDF"]):
         """
         curv = _curvilinear_coords_2d(self._ds)
         if curv is not None:
-            return self._crop_antimeridian_curvilinear(bbox, crs, curv, touch, chunks)
-        _reject_antimeridian_chunks(chunks)
-        return _crop_seam_halves(
-            self._ds,
-            bbox,
-            lambda half: self.crop(bbox=half, epsg=crs, touch=touch),
-            self._merge_lon_halves,
-        )
+            result = self._crop_antimeridian_curvilinear(
+                bbox, crs, curv, touch, chunks
+            )
+        else:
+            _reject_antimeridian_chunks(chunks)
+            result = _crop_seam_halves(
+                self._ds,
+                bbox,
+                lambda half: self.crop(bbox=half, epsg=crs, touch=touch),
+                self._merge_lon_halves,
+            )
+        return result
 
     def _crop_antimeridian_curvilinear(
         self,
@@ -336,9 +340,9 @@ class Selection(_Engine["NetCDF"]):
             NetCDF: The masked + windowed curvilinear subset spanning the seam.
         """
         lon2d = np.asarray(coords2d[0], dtype=float)
-        halves = _split_lon_bbox(
-            bbox, float(np.nanmax(lon2d)), _lon_cell_size(lon2d)
-        )
+        finite = lon2d[np.isfinite(lon2d)]
+        lon_max = float(finite.max()) if finite.size else 0.0
+        halves = _split_lon_bbox(bbox, lon_max, _lon_cell_size(lon2d))
         mask = FeatureCollection(
             gpd.GeoDataFrame(geometry=[box(*half) for half in halves], crs=crs)
         )
@@ -1068,13 +1072,15 @@ def _curvilinear_coords_2d(
     a rectilinear grid. Shared by the plain and antimeridian crop paths.
     """
     curv = NetCDFPlot(nc)._resolve_curvilinear_coords(nc, coords=None)
-    if (
+    is_2d = (
         curv is not None
         and np.asarray(curv[0]).ndim == 2
         and np.asarray(curv[1]).ndim == 2
-    ):
-        return cast("tuple[np.typing.NDArray, np.typing.NDArray]", curv)
-    return None
+    )
+    result = None
+    if is_2d:
+        result = cast("tuple[np.typing.NDArray, np.typing.NDArray]", curv)
+    return result
 
 
 def _reject_antimeridian_chunks(chunks: Any) -> None:
@@ -1095,12 +1101,16 @@ def _lon_cell_size(lon2d: np.typing.NDArray) -> float:
 
     Used as the one-cell seam tolerance for a curvilinear grid. The median is
     robust to the ~360 jump a -180..180 grid shows at the dateline, so it recovers
-    the true cell size there; a single-column grid has no spacing and yields 0.0.
+    the true cell size there; a single-column grid (or all-NaN coordinates) has no
+    spacing to measure and yields 0.0. The all-finite guard avoids a NumPy
+    "All-NaN slice" RuntimeWarning on degenerate coordinate arrays.
     """
-    if lon2d.shape[-1] < 2:
-        return 0.0
-    med = float(np.nanmedian(np.abs(np.diff(lon2d, axis=-1))))
-    return med if math.isfinite(med) else 0.0
+    size = 0.0
+    if lon2d.shape[-1] >= 2:
+        diffs = np.abs(np.diff(lon2d, axis=-1))
+        if np.any(np.isfinite(diffs)):
+            size = float(np.nanmedian(diffs))
+    return size
 
 
 def _reconcile_mask_to_crs(mask: FeatureCollection, epsg: int | None) -> Any:
