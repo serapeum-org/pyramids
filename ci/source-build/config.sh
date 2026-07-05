@@ -177,7 +177,8 @@ fetch() {
 
 src_dir() {
     # src_dir <dep>: the directory the dep's tarball extracts to.
-    local tarball="${TARBALL[$1]}"
+    local dep="$1"
+    local tarball="${TARBALL[$dep]}"
     tarball="${tarball%.tar.gz}"
     echo "${tarball%.tar.bz2}"
 }
