@@ -116,6 +116,7 @@ print(gdal.__version__)          # should print 3.13.x
 | macOS 11+ | arm64 (Apple Silicon) | `macosx_11_0_arm64` | ✅ Supported |
 | Windows 10+ | x64 | `win_amd64` | ✅ Supported |
 | Alpine (musl) | any | — | ⏸ Built in CI, unpublished — blocked on upstream `pyogrio` musl wheels |
+| Windows 11+ | ARM64 | — | ⏸ Built in CI, unpublished — blocked on upstream `shapely`/`pyogrio` arm64 wheels |
 
 Distros covered by the Linux wheel out of the box:
 
@@ -140,7 +141,7 @@ Until a row clears, the workaround column applies.
 | Platform / target | Why no wheel today | Ships when | Workaround |
 |---|---|---|---|
 | Alpine / musl Linux | built + verified in CI; `pyogrio` has no musl wheels | pyogrio ships them (#333) | conda-forge |
-| Windows on ARM64 | build in progress: from-source via vcpkg | next releases (#334) | AMD64 wheel, x86 emulation |
+| Windows on ARM64 | built + verified in CI; shapely/pyogrio lack arm64 wheels | upstream lands (#334) | AMD64 wheel |
 | Python 3.15 | CPython unreleased; ecosystem needs cp315 wheels | after CPython 3.15, ~Oct 2026 (#335) | — |
 | Free-threaded (`cp31Nt`) | GDAL SWIG bindings + numpy not ready | revisit at 3.15 (#683) | standard (GIL) build |
 | Linux glibc < 2.28 | below the oldest maintained manylinux image | never (intentional) | conda-forge |

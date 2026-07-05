@@ -329,6 +329,89 @@ jobs:
           path: wheelhouse/*.whl
           retention-days: 3
 
+  # Windows-on-ARM canary (#334, not published). conda-forge has no
+  # win-arm64 GDAL, so the stack builds from source via vcpkg
+  # (ci/vcpkg.json + ci/setup-gdal-from-vcpkg.ps1, staging the same
+  # C:/gdal-prefix/Library layout the conda path produces — only
+  # before-all differs from the AMD64 job). Publishing is blocked on
+  # upstream: shapely (hard dependency) and pyogrio (via geopandas) ship
+  # no win_arm64 wheels, so pip cannot resolve pyramids-gis on this
+  # platform yet; both are canary-built here against the same prefix so
+  # verify-winarm64 can run the full suite. cp311 is excluded — numpy and
+  # scipy ship no cp311 win_arm64 wheels.
+  build-winarm64-wheels:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: windows-11-arm
+    permissions:
+      contents: read
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      # Like the musl canaries, this cache is NOT gated off workflow_run:
+      # win_arm64 wheels are never published (excluded from the release
+      # gather + rejected by the composition gate), so cache-restored
+      # binaries can't reach PyPI from here.
+      - name: Cache the vcpkg-built GDAL stack
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: C:\vcpkg\installed
+          key: >-
+            vcpkg-arm64-${{
+            hashFiles('ci/vcpkg.json', 'ci/setup-gdal-from-vcpkg.ps1') }}
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55 # v4.1.0
+        env:
+          CIBW_ARCHS_WINDOWS: ARM64
+          CIBW_BUILD: "cp312-win_arm64 cp313-win_arm64 cp314-win_arm64"
+          CIBW_BEFORE_ALL_WINDOWS: powershell -File ci/setup-gdal-from-vcpkg.ps1
+
+      - name: Report wheel sizes
+        shell: bash
+        run: ls -lah wheelhouse/
+
+      - name: Build canary shapely + pyogrio wheels
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:GEOS_INCLUDE_PATH = "C:/gdal-prefix/Library/include"
+          $env:GEOS_LIBRARY_PATH = "C:/gdal-prefix/Library/lib"
+          $env:GDAL_INCLUDE_PATH = "C:/gdal-prefix/Library/include"
+          $env:GDAL_LIBRARY_PATH = "C:/gdal-prefix/Library/lib"
+          $env:GDAL_VERSION = Get-Content "C:/gdal-prefix/GDAL_VERSION"
+          $env:PATH = "C:/gdal-prefix/Library/bin;$env:PATH"
+          python -m pip install delvewheel
+          python -m pip wheel "shapely==2.1.2" --no-deps --no-binary shapely -w canary-raw
+          python -m pip wheel "pyogrio==0.13.0" --no-deps --no-binary pyogrio -w canary-raw
+          New-Item -ItemType Directory -Force -Path canary-deps-wheelhouse | Out-Null
+          Get-ChildItem canary-raw/*.whl | ForEach-Object {
+            delvewheel repair --add-path C:/gdal-prefix/Library/bin -w canary-deps-wheelhouse $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "delvewheel repair failed for $($_.Name)" }
+          }
+          Get-ChildItem canary-deps-wheelhouse
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: canary-winarm64
+          path: wheelhouse/*.whl
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: canary-deps-winarm64
+          path: canary-deps-wheelhouse/*.whl
+
+
   test-wheels:
     needs: [build-linux-wheels, build-macos-wheels, build-windows-wheels]
     permissions:
@@ -580,12 +663,62 @@ jobs:
           tests/base tests/netcdf tests/io
           tests/dataset tests/feature
 
+  # Native win_arm64 verification (no emulation — the runner executes its
+  # own arch): wheel + canary shapely/pyogrio installed, geopandas
+  # resolves normally against them, then verify-wheel (drivers, netCDF,
+  # JP2, schannel TLS) + the full hermetic core suite.
+  verify-winarm64:
+    needs: build-winarm64-wheels
+    runs-on: windows-11-arm
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: canary-winarm64
+          path: wheelhouse
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: canary-deps-winarm64
+          path: canary-deps-wheelhouse
+
+      - name: Install wheel + canary deps
+        shell: bash
+        run: |
+          pip install canary-deps-wheelhouse/shapely-*.whl canary-deps-wheelhouse/pyogrio-*.whl
+          WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*win_arm64.whl)
+          pip install "${WHEEL}"
+          pip install pytest pytest-env pytest-mock pytest-timeout
+
+      - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
+        run: python ci/verify-wheel.py
+
+      - name: Run hermetic core test suite
+        shell: bash
+        timeout-minutes: 15
+        run: >-
+          pytest -vvv -o "pythonpath=" --timeout=60 --timeout-method=thread
+          -m "core and not vfs and not slow" tests/
+
   release:
     name: Publish to PyPI + attach to GitHub release
-    # NOTE: musl canaries (build-musl-wheels / verify-alpine) are deliberately
-    # NOT in needs and their `canary-*` artifacts don't match the download
-    # pattern — they are built + verified but unpublished until upstream
-    # pyogrio ships musllinux wheels (#333).
+    # NOTE: the canary families are deliberately NOT in needs and their
+    # `canary-*` artifacts don't match the download pattern — built +
+    # verified but unpublished until upstream unblocks:
+    #   - musl (build-musl-wheels / verify-alpine): pyogrio musllinux
+    #     wheels (#333)
+    #   - win_arm64 (build-winarm64-wheels / verify-winarm64): shapely +
+    #     pyogrio win_arm64 wheels (#334)
     needs: [build-sdist, build-linux-wheels, build-macos-wheels,
             build-windows-wheels, test-wheels, verify-debian12, verify-rocky9,
             verify-rocky9-aarch64]
@@ -640,6 +773,11 @@ jobs:
           if [ "${#musl[@]}" -ne 0 ]; then
             echo "ERROR: musl canaries are unpublished by policy (#333) but reached dist/:" >&2
             printf '%s\n' "${musl[@]}" >&2; fail=1
+          fi
+          winarm=(dist/*win_arm64*.whl)
+          if [ "${#winarm[@]}" -ne 0 ]; then
+            echo "ERROR: win_arm64 canaries are unpublished by policy (#334) but reached dist/:" >&2
+            printf '%s\n' "${winarm[@]}" >&2; fail=1
           fi
           wheels=(dist/*.whl)
           pyvers=$(printf '%s\n' "${wheels[@]}" | grep -oE 'cp3[0-9]+' | sort -u | wc -l)
