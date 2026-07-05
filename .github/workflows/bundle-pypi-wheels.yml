@@ -128,6 +128,11 @@ jobs:
         uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55 # v4.1.0
         env:
           CIBW_ARCHS_LINUX: ${{ matrix.arch }}
+          # The before-all script persists the compiled-stack tar through
+          # cibuildwheel's /host mount (the project dir is a copy, not a
+          # mount) — forward the runner workspace path it needs.
+          HOST_WORKSPACE: ${{ github.workspace }}
+          CIBW_ENVIRONMENT_PASS_LINUX: HOST_WORKSPACE
 
       - name: Report wheel sizes
         shell: bash
@@ -196,6 +201,11 @@ jobs:
         uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55 # v4.1.0
         env:
           CIBW_ARCHS_LINUX: ${{ matrix.arch }}
+          # The before-all script persists the compiled-stack tar through
+          # cibuildwheel's /host mount (the project dir is a copy, not a
+          # mount) — forward the runner workspace path it needs.
+          HOST_WORKSPACE: ${{ github.workspace }}
+          CIBW_ENVIRONMENT_PASS_LINUX: HOST_WORKSPACE
           # Override the TOML skip (which excludes *musllinux*) and the glibc
           # repair --plat; before-all/environment come from the TOML linux
           # block, which applies to musllinux builds too.

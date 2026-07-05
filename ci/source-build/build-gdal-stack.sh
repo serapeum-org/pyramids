@@ -69,10 +69,20 @@ echo "cmake: $(command -v cmake) ($(cmake --version | head -1))"
 
 # Dep-stack cache: the full compile is ~50 min; a tar of the installed
 # prefix keyed on config.sh's hash + libc flavor + arch makes iteration
-# cheap. The tar lives under the mounted project dir so the host job can
-# persist it via actions/cache across runs.
+# cheap. CRITICAL: cibuildwheel COPIES the project into its container (no
+# bind mount), so a tar written under /project silently dies with the
+# container — actions/cache then warns "Path Validation Error ... no cache
+# is being saved" and every build stays cold (observed: zero srcbuild
+# caches ever created). cibuildwheel DOES bind-mount the host root at
+# /host, so persist the tar through that using the runner workspace path
+# forwarded via HOST_WORKSPACE (CIBW_ENVIRONMENT_PASS_LINUX). The project
+# dir remains the fallback for non-cibuildwheel invocations.
 PROJECT_DIR="$(dirname "$(dirname "${SCRIPT_DIR}")")"
-CACHE_DIR="${PROJECT_DIR}/.srcbuild-cache"
+if [[ -d /host && -n "${HOST_WORKSPACE:-}" ]]; then
+    CACHE_DIR="/host${HOST_WORKSPACE}/.srcbuild-cache"
+else
+    CACHE_DIR="${PROJECT_DIR}/.srcbuild-cache"
+fi
 # Key on everything that shapes the installed prefix: config.sh (the dep
 # pins + build flags), this script (license collector, prereqs), and the
 # GDAL version, which is injected via the environment rather than
