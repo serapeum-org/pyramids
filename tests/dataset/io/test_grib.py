@@ -10,11 +10,14 @@ from osgeo import gdal, osr
 
 from pyramids.base._errors import DriverNotExistError
 from pyramids.dataset import Dataset
+from pyramids.dataset.cog import cog_info
 from pyramids.grib import (
     _parse_grib_seconds,
     _parse_leading_int,
     _require_grib_driver,
+    _select_grib_band,
     grib_band_metadata,
+    grib_to_cog,
     open_grib,
 )
 
@@ -39,6 +42,30 @@ def grib_path(tmp_path):
     mem.GetRasterBand(1).WriteArray(np.full((6, 8), 280.0, "float32"))
     mem.GetRasterBand(2).WriteArray(np.full((6, 8), 101325.0, "float32"))
     path = tmp_path / "sample.grib2"
+    dst = gdal.GetDriverByName("GRIB").CreateCopy(str(path), mem)
+    dst.FlushCache()
+    dst = None
+    mem = None
+    return path
+
+
+@pytest.fixture
+def grib_1band_path(tmp_path):
+    """Write a single-message 8x6 GRIB2 on EPSG:4326 and return its path.
+
+    Args:
+        tmp_path: pytest temp directory.
+
+    Returns:
+        pathlib.Path: Path to a 1-band GRIB2.
+    """
+    mem = gdal.GetDriverByName("MEM").Create("", 8, 6, 1, gdal.GDT_Float32)
+    mem.SetGeoTransform((0.0, 1.0, 0.0, 6.0, 0.0, -1.0))
+    sr = osr.SpatialReference()
+    sr.ImportFromEPSG(4326)
+    mem.SetProjection(sr.ExportToWkt())
+    mem.GetRasterBand(1).WriteArray(np.full((6, 8), 280.0, "float32"))
+    path = tmp_path / "single.grib2"
     dst = gdal.GetDriverByName("GRIB").CreateCopy(str(path), mem)
     dst.FlushCache()
     dst = None
@@ -250,3 +277,111 @@ class TestGribBandMetadata:
         assert isinstance(
             entry["forecast_seconds"], int
         ), "forecast_seconds should be int"
+
+
+class TestSelectGribBand:
+    """Tests for _select_grib_band (0-based band resolution from GRIB element)."""
+
+    def test_none_variable_single_band(self):
+        """variable=None on a single-message file selects band 0."""
+        meta = [{"band": 1, "element": "TMP"}]
+        assert _select_grib_band(meta, None, 1) == 0, "single-band None should be 0"
+
+    def test_none_variable_multiband_raises(self):
+        """variable=None on a multi-message file raises with the element list."""
+        meta = [{"band": 1, "element": "TMP"}, {"band": 2, "element": "PRES"}]
+        with pytest.raises(ValueError, match="pass variable="):
+            _select_grib_band(meta, None, 2)
+
+    def test_matches_element_returns_zero_based(self):
+        """A matching element returns its 0-based index (band 2 -> 1)."""
+        meta = [{"band": 1, "element": "TMP"}, {"band": 2, "element": "PRES"}]
+        assert _select_grib_band(meta, "PRES", 2) == 1, "PRES is band 2 -> index 1"
+
+    def test_match_is_case_insensitive(self):
+        """Element matching ignores case."""
+        meta = [{"band": 1, "element": "TMP"}]
+        assert _select_grib_band(meta, "tmp", 1) == 0, "lowercase should match TMP"
+
+    def test_multiple_matches_warns_and_uses_first(self):
+        """Several messages sharing the element warn and select the first."""
+        meta = [{"band": 1, "element": "TMP"}, {"band": 2, "element": "TMP"}]
+        with pytest.warns(UserWarning, match="using the first"):
+            assert _select_grib_band(meta, "TMP", 2) == 0
+
+    def test_unknown_element_raises(self):
+        """An absent element raises with the available-elements list."""
+        meta = [{"band": 1, "element": "TMP"}]
+        with pytest.raises(ValueError, match="available elements"):
+            _select_grib_band(meta, "NOPE", 1)
+
+
+class TestGribToCog:
+    """Tests for grib_to_cog (open_grib -> band select -> to_cog)."""
+
+    def test_single_band_writes_valid_cog(self, grib_1band_path, tmp_path):
+        """A single-message GRIB with variable=None writes a valid COG.
+
+        Args:
+            grib_1band_path: Fixture path to a 1-band GRIB2.
+            tmp_path: pytest temp directory.
+        """
+        out = grib_to_cog(grib_1band_path, output=tmp_path / "single_cog.tif")
+        assert out.exists(), "grib_to_cog should write the output file"
+        assert cog_info(out).is_cog, "output should pass the COG validator"
+
+    def test_selects_variable_band(self, grib_1band_path, tmp_path):
+        """Passing the band's GRIB element selects it and writes a valid COG.
+
+        Args:
+            grib_1band_path: Fixture path to a 1-band GRIB2.
+            tmp_path: pytest temp directory.
+        """
+        element = grib_band_metadata(open_grib(grib_1band_path))[0]["element"]
+        out = grib_to_cog(
+            grib_1band_path, output=tmp_path / "var_cog.tif", variable=element
+        )
+        assert cog_info(out).is_cog, "output should pass the COG validator"
+
+    def test_preserves_native_crs(self, grib_1band_path, tmp_path):
+        """Without target_crs the COG keeps the GRIB's native EPSG:4326.
+
+        Args:
+            grib_1band_path: Fixture path to a 1-band GRIB2.
+            tmp_path: pytest temp directory.
+        """
+        out = grib_to_cog(grib_1band_path, output=tmp_path / "native_cog.tif")
+        assert Dataset.read_file(str(out)).epsg == 4326, "native CRS should survive"
+
+    def test_target_crs_reprojects(self, grib_1band_path, tmp_path):
+        """target_crs reprojects the COG to the requested EPSG.
+
+        Args:
+            grib_1band_path: Fixture path to a 1-band GRIB2.
+            tmp_path: pytest temp directory.
+        """
+        out = grib_to_cog(
+            grib_1band_path, output=tmp_path / "reproj_cog.tif", target_crs=3857
+        )
+        assert Dataset.read_file(str(out)).epsg == 3857, "should reproject to 3857"
+        assert cog_info(out).is_cog, "reprojected output should still be a COG"
+
+    def test_multiband_requires_variable(self, grib_path, tmp_path):
+        """A multi-message GRIB without variable= raises.
+
+        Args:
+            grib_path: Fixture path to a 2-band GRIB2.
+            tmp_path: pytest temp directory.
+        """
+        with pytest.raises(ValueError, match="pass variable="):
+            grib_to_cog(grib_path, output=tmp_path / "x.tif")
+
+    def test_unknown_variable_raises(self, grib_path, tmp_path):
+        """Requesting an element no message carries raises.
+
+        Args:
+            grib_path: Fixture path to a 2-band GRIB2.
+            tmp_path: pytest temp directory.
+        """
+        with pytest.raises(ValueError, match="No GRIB message with element"):
+            grib_to_cog(grib_path, output=tmp_path / "y.tif", variable="NOPE")
