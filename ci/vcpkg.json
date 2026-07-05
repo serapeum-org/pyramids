@@ -5,10 +5,12 @@
         "asserted by ci/verify-wheel.py (default features are OFF to drop",
         "postgresql/libkml/spatialite/libxml2, matching the Linux from-source curation).",
         "NOTE: the vcpkg gdal port has no hdf4 feature, so the arm64 wheel shares the Linux",
-        "wheel's HDF4 gap."
+        "wheel's HDF4 gap.",
+        "The manifest 'version' field is required by vcpkg but unused by this build and is NOT",
+        "commitizen-managed - it stays 0 permanently."
     ],
     "name": "pyramids-gis",
-    "version": "0.40.0",
+    "version": "0",
     "dependencies": [
         {
             "name": "tiff",
