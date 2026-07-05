@@ -95,6 +95,41 @@ def _resolve_resolution(
     return result
 
 
+def _check_lon_halves_concatenable(west_part: RasterBase, east_part: RasterBase) -> None:
+    """Validate two longitude-adjacent crop halves before concatenating them.
+
+    Ensures the halves share row and band counts and meet exactly at the 180/360
+    seam (a cell boundary), so `np.concatenate` yields a geometrically correct
+    contiguous raster rather than a silently shifted or shape-mismatched one.
+
+    Args:
+        west_part: Crop of the pre-seam half.
+        east_part: Crop of the post-seam half (wrapped past the seam).
+
+    Raises:
+        ValueError: The halves have mismatched row/band counts, or the grid has no
+            cell boundary at the seam so the halves are not seam-aligned.
+    """
+    if (
+        west_part.rows != east_part.rows
+        or west_part.band_count != east_part.band_count
+    ):
+        raise ValueError(
+            "antimeridian halves are not concatenable "
+            f"(rows {west_part.rows}/{east_part.rows}, "
+            f"bands {west_part.band_count}/{east_part.band_count})"
+        )
+    w_gt = west_part.geotransform
+    seam_gap = abs(
+        (w_gt[0] + west_part.columns * w_gt[1]) - (east_part.geotransform[0] + 360.0)
+    )
+    if seam_gap > 0.5 * abs(w_gt[1]):
+        raise ValueError(
+            "antimeridian halves are not seam-aligned; the grid has no cell "
+            "boundary at the 180/360 seam, so the halves cannot be stitched"
+        )
+
+
 class Spatial(_Engine["Dataset"]):
 
     def _get_crs(self) -> str:
@@ -1413,8 +1448,11 @@ class Spatial(_Engine["Dataset"]):
         """
         west, south, east, north = bbox
         xmin, xmax = float(self._ds.bbox[0]), float(self._ds.bbox[2])
-        if xmax > 180.0:
-            # 0..360 grid: bring the STAC (-180..180) bbox into the grid's frame.
+        cell_x = abs(self._ds.geotransform[1])
+        if xmax > 180.0 + cell_x:
+            # 0..360 grid: longitudes genuinely reach past 180 (the +cell tolerance
+            # avoids misrouting a -180..180 grid whose xmax floats a hair over 180).
+            # Bring the STAC (-180..180) bbox into the grid's frame.
             west = west + 360.0 if west < 0 else west
             east = east + 360.0 if east < 0 else east
             if west <= east:
@@ -1457,6 +1495,7 @@ class Spatial(_Engine["Dataset"]):
         # container on a variable view).
         from pyramids.dataset.dataset import Dataset
 
+        _check_lon_halves_concatenable(west_part, east_part)
         merged = np.concatenate(
             [west_part.read_array(), east_part.read_array()], axis=-1
         )
@@ -1467,6 +1506,8 @@ class Spatial(_Engine["Dataset"]):
             no_data_value=west_part.no_data_value,
         )
         out.band_names = self._ds.band_names
+        west_part.close()
+        east_part.close()
         return out
 
     def crop(
@@ -1659,7 +1700,8 @@ class Spatial(_Engine["Dataset"]):
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
             crs = epsg if epsg is not None else self._ds.epsg
             west, _, east, _ = bbox
-            if west > east and sr_from_user_input(crs).IsGeographic():
+            geographic = crs is not None and sr_from_user_input(crs).IsGeographic()
+            if west > east and geographic:
                 return self._crop_antimeridian(tuple(bbox), crs, touch)
             mask = FeatureCollection.from_bbox(bbox, epsg=crs)
         if mask is None:

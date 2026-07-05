@@ -27,6 +27,7 @@ from shapely import contains_xy
 from pyramids.base.crs import sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
+from pyramids.dataset.engines.spatial import _check_lon_halves_concatenable
 from pyramids.feature import FeatureCollection
 from pyramids.feature.bbox import split_antimeridian
 from pyramids.netcdf._mdim import open_mdarray
@@ -161,14 +162,19 @@ class Selection(_Engine["NetCDF"]):
         """
         nc = self._ds
         is_container = nc._is_md_array and not nc._is_subset and nc.band_count == 0
-        if bbox is not None and mask is None and not is_container:
+        if bbox is not None and mask is None:
             crs = epsg if epsg is not None else nc.epsg
             west, _, east, _ = bbox
             geographic = crs is not None and sr_from_user_input(crs).IsGeographic()
             if west > east and geographic:
+                if is_container:
+                    raise ValueError(
+                        "antimeridian crop (west > east) is not supported on a root "
+                        "container; crop a single variable via get_variable(name)."
+                    )
                 return self._crop_antimeridian(tuple(bbox), crs, touch, chunks)
         mask = self._resolve_crop_mask(mask, bbox, epsg)
-        if nc._is_md_array and not nc._is_subset and nc.band_count == 0:
+        if is_container:
             # A container crops every variable; `chunks` is a curvilinear-only, per-variable knob
             # (a container may mix curvilinear and rectilinear variables), so the per-variable fan-out
             # cannot honour it. Reject it explicitly rather than silently reading eagerly.
@@ -203,18 +209,27 @@ class Selection(_Engine["NetCDF"]):
             bbox: ``(west, south, east, north)`` with ``west > east``.
             crs: The bbox CRS.
             touch: Forwarded to the per-half crop.
-            chunks: Forwarded to the per-half crop.
+            chunks: Must be ``None`` — the antimeridian merge is eager.
 
         Returns:
             NetCDF: The cropped strip spanning the seam.
 
         Raises:
-            ValueError: The bbox does not overlap the variable's longitude extent.
+            ValueError: ``chunks`` was supplied, or the bbox does not overlap the
+                variable's longitude extent.
         """
+        if chunks is not None:
+            raise ValueError(
+                "chunks= is not supported for an antimeridian crop; it is eager "
+                "(the wrapped halves are read and concatenated)."
+            )
         west, south, east, north = bbox
         xmin, xmax = float(self._ds.bbox[0]), float(self._ds.bbox[2])
-        if xmax > 180.0:
-            # 0..360 grid: bring the STAC (-180..180) bbox into the grid's frame.
+        cell_x = abs(self._ds.geotransform[1])
+        if xmax > 180.0 + cell_x:
+            # 0..360 grid: longitudes genuinely reach past 180 (the +cell tolerance
+            # avoids misrouting a -180..180 grid whose xmax floats a hair over 180).
+            # Bring the STAC (-180..180) bbox into the grid's frame.
             west = west + 360.0 if west < 0 else west
             east = east + 360.0 if east < 0 else east
             if west <= east:
@@ -224,7 +239,7 @@ class Selection(_Engine["NetCDF"]):
         else:
             halves = split_antimeridian(bbox)
         parts = [
-            self.crop(bbox=half, epsg=crs, touch=touch, chunks=chunks)
+            self.crop(bbox=half, epsg=crs, touch=touch)
             for half in halves
             if half[0] < xmax and half[2] > xmin
         ]
@@ -253,6 +268,7 @@ class Selection(_Engine["NetCDF"]):
         Returns:
             NetCDF: The concatenated variable.
         """
+        _check_lon_halves_concatenable(west_part, east_part)
         merged = np.concatenate(
             [west_part.read_array(), east_part.read_array()], axis=-1
         )
@@ -262,7 +278,11 @@ class Selection(_Engine["NetCDF"]):
             epsg=west_part.epsg,
             no_data_value=west_part.no_data_value,
         )
-        return self._ds._preserve_netcdf_metadata(raster)
+        raster.band_names = self._ds.band_names
+        wrapped = self._ds._preserve_netcdf_metadata(raster)
+        west_part.close()
+        east_part.close()
+        return wrapped
 
     def _resolve_crop_mask(
         self,
