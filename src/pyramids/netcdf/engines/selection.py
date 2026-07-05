@@ -97,7 +97,12 @@ class Selection(_Engine["NetCDF"]):
                 the 180°/360° seam and stitched into one contiguous strip;
                 on a curvilinear variable the split halves become a
                 polygon mask over the 2-D coordinates; on a root container
-                it fans out to every variable.
+                it fans out to every variable. Behaviour change: a
+                *geographic* ``west > east`` bbox no longer raises
+                ``west < east``; it is read as the STAC antimeridian
+                convention, so a transposed / typo'd geographic bbox is no
+                longer rejected. A *projected* ``west > east`` bbox is
+                still validated and raises.
             epsg (keyword-only): CRS for ``bbox`` — anything geopandas
                 accepts for ``crs=`` (EPSG int, ``"EPSG:4326"``, WKT,
                 :class:`pyproj.CRS`). Defaults to the dataset's own

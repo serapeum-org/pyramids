@@ -143,6 +143,11 @@ def _split_lon_bbox(
     shifted into its own frame, which usually removes the wrap (one half); a
     -180..180 grid is split at 180 via :func:`split_antimeridian`.
 
+    The frame is inferred from ``lon_max`` alone: a 0..360 grid must actually
+    reach past 180 to be detected as such. An eastern-hemisphere-only grid that
+    ends at or below 180 is treated as -180..180 — harmless, since an
+    antimeridian bbox barely overlaps it and the non-overlapping half is skipped.
+
     Args:
         bbox: ``(west, south, east, north)`` with ``west > east``.
         lon_max: The grid's maximum longitude (its own frame's east edge).
@@ -1642,6 +1647,13 @@ class Spatial(_Engine["Dataset"]):
                 seam, each half cropped, and the halves stitched into one
                 contiguous strip whose longitudes continue past the seam
                 (``170..190``). Works for ``-180..180`` and ``0..360`` grids.
+                Behaviour change: a *geographic* ``west > east`` bbox no longer
+                raises ``bbox must satisfy west < east``; it is read as the STAC
+                antimeridian convention and returns a wrapped strip, so a
+                transposed / typo'd bbox on a geographic dataset is no longer
+                rejected (the two inputs are indistinguishable). A *projected*
+                ``west > east`` bbox is still validated and raises, since the
+                antimeridian has no meaning off a geographic CRS.
             epsg (Any, keyword-only):
                 CRS for ``bbox`` — anything ``geopandas`` accepts for ``crs=``
                 (EPSG int, ``"EPSG:4326"``, WKT, ``pyproj.CRS``). Defaults to
