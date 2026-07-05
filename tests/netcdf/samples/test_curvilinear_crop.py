@@ -16,6 +16,7 @@ from shapely.geometry import MultiPolygon, Polygon
 from pyramids.feature import FeatureCollection
 from pyramids.netcdf import NetCDF
 from pyramids.netcdf._plot import NetCDFPlot
+from pyramids.netcdf.engines.selection import _lon_cell_size
 from tests.netcdf.samples.conftest import TOS as RECTILINEAR
 
 pytestmark = pytest.mark.core
@@ -111,6 +112,20 @@ def test_rasm_antimeridian_crop_windows_across_seam(sample):
         ), "windowed longitudes must span the 180 seam"
     finally:
         nc.close()
+
+
+@pytest.mark.parametrize(
+    "lon2d, expected",
+    [
+        (np.array([[10.0, 12.0, 14.0], [10.0, 12.0, 14.0]]), 2.0),  # even spacing
+        (np.array([[172.0, 174.0, 176.0, 178.0, -180.0, -178.0]]), 2.0),  # seam outlier
+        (np.array([[10.0], [10.0]]), 0.0),  # single column -> no spacing
+        (np.array([[np.nan, np.nan], [np.nan, np.nan]]), 0.0),  # all-NaN -> 0.0
+    ],
+)
+def test_lon_cell_size(lon2d, expected):
+    """`_lon_cell_size` returns the seam-robust median spacing, 0.0 when undefined."""
+    assert _lon_cell_size(lon2d) == pytest.approx(expected)
 
 
 def test_synthetic_curvilinear_antimeridian_masks_both_sides():
