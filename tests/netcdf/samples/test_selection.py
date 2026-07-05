@@ -117,6 +117,34 @@ class TestAntimeridianCrop:
             )
             assert np.array_equal(np.asarray(var.read_array()), expected), name
 
+    def test_container_on_0_360_grid(self):
+        """A 0..360 root-container antimeridian crop windows every variable to 170..190."""
+        v_arr = np.arange(180 * 360, dtype="float32").reshape(180, 360)
+        w_arr = (v_arr + 1000.0).astype("float32")
+        geo = (0.0, 1.0, 0.0, 90.0, 0.0, -1.0)
+        nc = NetCDF.create_from_array(arr=v_arr, geo=geo, epsg=4326, variable_name="v")
+        nc.set_variable("w", Dataset.create_from_array(w_arr, geo=geo, epsg=4326))
+        cropped = nc.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+        assert sorted(cropped.variable_names) == ["v", "w"], "every variable is kept"
+        for name, src in (("v", v_arr), ("w", w_arr)):
+            var = cropped.get_variable(name)
+            assert var.shape == (1, 20, 20), f"{name} strip shape"
+            got = np.asarray(var.read_array())
+            assert np.array_equal(got, src[80:100, 170:190]), f"{name} 0..360 values"
+
+    def test_single_side_overlap_returns_half(self):
+        """When only one side of the seam overlaps, that half is returned as-is."""
+        arr = np.arange(180 * 10, dtype="float32").reshape(180, 10)
+        nc = NetCDF.create_from_array(
+            arr=arr,
+            geo=(170.0, 1.0, 0.0, 90.0, 0.0, -1.0),
+            epsg=4326,
+            variable_name="v",
+        )  # lon 170..180 only (west side of the seam)
+        strip = nc.get_variable("v").crop(bbox=(175.0, -10.0, -170.0, 10.0))
+        assert strip.bbox[0] == pytest.approx(175.0), "west edge kept"
+        assert strip.bbox[2] == pytest.approx(180.0), "only the west half (no wrap)"
+
     def test_chunks_rejected_on_container(self):
         """``chunks`` is unsupported for an antimeridian container crop (eager merge)."""
         arr = np.arange(180 * 360, dtype="float32").reshape(180, 360)

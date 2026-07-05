@@ -281,6 +281,22 @@ class TestAntimeridianCrop:
         seam = np.concatenate([arr[80:100, 350:360], arr[80:100, 0:10]], axis=-1)
         assert np.array_equal(strip.read_array(band=1), seam + 1000.0), "band 2"
 
+    def test_multiband_on_0_360_grid_keeps_all_bands(self):
+        """A multi-band 0..360 grid keeps every band with correct 170..190 values."""
+        arr, _ = self._global(top_left_x=0.0)
+        ds = Dataset.create_from_array(
+            np.stack([arr, arr + 1000.0]),
+            top_left_corner=(0.0, 90.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        strip = ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+        assert strip.shape == (2, 20, 20), "both bands retained"
+        assert np.array_equal(strip.read_array(band=0), arr[80:100, 170:190]), "band 1"
+        assert np.array_equal(
+            strip.read_array(band=1), arr[80:100, 170:190] + 1000.0
+        ), "band 2"
+
     def test_float_overshoot_grid_keeps_both_halves(self):
         """A grid whose xmax floats past 180 is not misrouted to 0..360 (H1)."""
         cell = 360.0 / 169  # 169 cols -> bbox[2] == 180.00000000000006 > 180
@@ -333,12 +349,14 @@ class TestAntimeridianCrop:
 
     def test_split_lon_bbox_0_360_yields_single_half(self):
         """On a 0..360 grid the west>east bbox shifts into one west<east half."""
-        halves = _split_lon_bbox((170.0, -10.0, -170.0, 10.0), lon_max=359.0, cell_x=1.0)
+        bbox = (170.0, -10.0, -170.0, 10.0)
+        halves = _split_lon_bbox(bbox, lon_max=359.0, cell_x=1.0)
         assert halves == [(170.0, -10.0, 190.0, 10.0)]
 
     def test_split_lon_bbox_180_yields_two_halves(self):
         """On a -180..180 grid the west>east bbox splits at the 180 seam."""
-        halves = _split_lon_bbox((170.0, -10.0, -170.0, 10.0), lon_max=180.0, cell_x=1.0)
+        bbox = (170.0, -10.0, -170.0, 10.0)
+        halves = _split_lon_bbox(bbox, lon_max=180.0, cell_x=1.0)
         assert halves == [
             (170.0, -10.0, 180.0, 10.0),
             (-180.0, -10.0, -170.0, 10.0),
