@@ -85,18 +85,18 @@ class TestAntimeridianCrop:
         assert isinstance(out, NetCDF), "normal crop stays a NetCDF"
         assert out.shape == (1, 20, 20), "normal crop shape"
 
-    def test_no_overlap_raises(self):
-        """An antimeridian bbox disjoint from the variable's longitudes raises."""
+    def test_regional_grid_reversed_bbox_raises(self):
+        """A west>east bbox on a regional variable that never reaches the seam raises."""
         arr = np.arange(180 * 50, dtype="float32").reshape(180, 50)
         nc = NetCDF.create_from_array(
             arr=arr,
-            geo=(0.0, 1.0, 0.0, 90.0, 0.0, -1.0),
+            geo=(-10.0, 1.0, 0.0, 90.0, 0.0, -1.0),
             epsg=4326,
             variable_name="v",
-        )  # lon 0..50 only
+        )  # lon -10..40 (Europe): reaches neither +180 nor -180
         var = nc.get_variable("v")
-        with pytest.raises(ValueError, match="does not overlap"):
-            var.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+        with pytest.raises(ValueError, match="transposed|does not reach the 180 seam"):
+            var.crop(bbox=(40.0, -10.0, 10.0, 10.0))
 
     def test_container_fans_out_across_variables(self):
         """A root-container antimeridian crop crops every variable into the seam strip."""

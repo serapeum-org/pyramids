@@ -193,6 +193,52 @@ def _antimeridian_halves(
     return _split_lon_bbox(bbox, float(ds.bbox[2]), abs(ds.geotransform[1]))
 
 
+def _reaches_antimeridian_seam(ds: RasterBase) -> bool:
+    """Whether the grid's longitude extent reaches the 180 antimeridian seam.
+
+    A ``west > east`` bbox only makes sense as an antimeridian crossing on a grid
+    that actually covers the seam: a 0..360 grid reaching past 180, or a -180..180
+    grid whose extent touches +180 or -180 (within a cell). A regional grid that
+    reaches neither (e.g. Europe, lon -10..40) cannot be antimeridian-cropped, so a
+    ``west > east`` bbox there is a transposed/typo bbox rather than a crossing.
+
+    Args:
+        ds: The dataset whose affine ``bbox`` / ``geotransform`` set the extent.
+
+    Returns:
+        True when the extent reaches the seam; False for a regional grid that
+        does not.
+    """
+    lon_min, lon_max = float(ds.bbox[0]), float(ds.bbox[2])
+    cell_x = abs(ds.geotransform[1])
+    return (
+        lon_max > 180.0 + cell_x
+        or lon_max >= 180.0 - cell_x
+        or lon_min <= -180.0 + cell_x
+    )
+
+
+def _require_antimeridian_seam(ds: RasterBase) -> None:
+    """Raise unless the grid's longitude extent reaches the antimeridian seam.
+
+    Guards the ``west > east`` reinterpretation: on a grid that does not reach the
+    seam the bbox cannot be a genuine antimeridian crossing, so raise a clear error
+    instead of silently returning a truncated single-half crop.
+
+    Args:
+        ds: The dataset being cropped.
+
+    Raises:
+        ValueError: The grid does not reach the 180 seam.
+    """
+    if not _reaches_antimeridian_seam(ds):
+        raise ValueError(
+            "bbox has west > east (antimeridian) but the dataset's longitude "
+            "extent does not reach the 180 seam - the bbox may be transposed, or "
+            "the dataset does not cover the antimeridian region."
+        )
+
+
 def _crop_seam_halves(
     ds: RasterBase,
     bbox: tuple[float, float, float, float],
@@ -1647,13 +1693,16 @@ class Spatial(_Engine["Dataset"]):
                 seam, each half cropped, and the halves stitched into one
                 contiguous strip whose longitudes continue past the seam
                 (``170..190``). Works for ``-180..180`` and ``0..360`` grids.
-                Behaviour change: a *geographic* ``west > east`` bbox no longer
-                raises ``bbox must satisfy west < east``; it is read as the STAC
-                antimeridian convention and returns a wrapped strip, so a
-                transposed / typo'd bbox on a geographic dataset is no longer
-                rejected (the two inputs are indistinguishable). A *projected*
-                ``west > east`` bbox is still validated and raises, since the
-                antimeridian has no meaning off a geographic CRS.
+                Behaviour change: a *geographic* ``west > east`` bbox is read as
+                the STAC antimeridian convention (rather than raising
+                ``bbox must satisfy west < east``) — but only when the dataset's
+                longitude extent actually reaches the 180 seam. On a *regional*
+                grid that does not reach the seam (e.g. Europe, lon ``-10..40``) a
+                ``west > east`` bbox cannot be a genuine crossing, so it raises a
+                clear error instead of silently returning a truncated crop —
+                catching a transposed / typo'd bbox. A *projected* ``west > east``
+                bbox is still validated and raises, since the antimeridian has no
+                meaning off a geographic CRS.
             epsg (Any, keyword-only):
                 CRS for ``bbox`` — anything ``geopandas`` accepts for ``crs=``
                 (EPSG int, ``"EPSG:4326"``, WKT, ``pyproj.CRS``). Defaults to
@@ -1815,6 +1864,7 @@ class Spatial(_Engine["Dataset"]):
             ds_epsg = self._ds.epsg
             ds_geo = ds_epsg is not None and sr_from_user_input(ds_epsg).IsGeographic()
             if west > east and crs_geo and ds_geo:
+                _require_antimeridian_seam(self._ds)
                 return self._crop_antimeridian(tuple(bbox), crs, touch)
             mask = FeatureCollection.from_bbox(bbox, epsg=crs)
         if mask is None:

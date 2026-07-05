@@ -11,7 +11,10 @@ import pytest
 from shapely.geometry import box
 
 from pyramids.dataset import Dataset, DatasetCollection
-from pyramids.dataset.engines.spatial import _split_lon_bbox
+from pyramids.dataset.engines.spatial import (
+    _reaches_antimeridian_seam,
+    _split_lon_bbox,
+)
 from pyramids.feature import FeatureCollection
 
 pytestmark = pytest.mark.core
@@ -329,14 +332,14 @@ class TestAntimeridianCrop:
         with pytest.raises(ValueError, match="west < east"):
             ds.crop(bbox=(170.0, -10.0, -170.0, 10.0), epsg=4326)
 
-    def test_no_overlap_raises(self):
-        """An antimeridian bbox disjoint from the grid's longitudes raises."""
+    def test_regional_grid_reversed_bbox_raises(self):
+        """A west>east bbox on a regional grid that never reaches the seam raises."""
         arr = np.arange(180 * 50, dtype="float32").reshape(180, 50)
         ds = Dataset.create_from_array(
-            arr, top_left_corner=(0.0, 90.0), cell_size=1.0, epsg=4326
-        )  # lon 0..50 only
-        with pytest.raises(ValueError, match="does not overlap"):
-            ds.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+            arr, top_left_corner=(-10.0, 90.0), cell_size=1.0, epsg=4326
+        )  # lon -10..40 (Europe): reaches neither +180 nor -180
+        with pytest.raises(ValueError, match="transposed|does not reach the 180 seam"):
+            ds.crop(bbox=(40.0, -10.0, 10.0, 10.0))
 
     def test_single_side_overlap_returns_half(self):
         """When only one side of the seam overlaps, that half is returned as-is."""
@@ -347,6 +350,26 @@ class TestAntimeridianCrop:
         strip = ds.crop(bbox=(175.0, -10.0, -170.0, 10.0))
         assert strip.bbox[0] == pytest.approx(175.0), "west edge kept"
         assert strip.bbox[2] == pytest.approx(180.0), "only the west half (no wrap)"
+
+    @pytest.mark.parametrize(
+        "top_left_x, ncols, reaches",
+        [
+            (-180.0, 360, True),  # global -180..180 (touches -180 and 180)
+            (0.0, 360, True),  # global 0..360 (reaches past 180)
+            (170.0, 10, True),  # regional but ends exactly at the +180 seam
+            (-10.0, 50, False),  # Europe -10..40: reaches neither seam
+            (0.0, 90, False),  # eastern hemisphere 0..90: reaches neither
+        ],
+    )
+    def test_reaches_antimeridian_seam(self, top_left_x, ncols, reaches):
+        """The seam gate accepts grids reaching 180/-180 and rejects regional ones."""
+        ds = Dataset.create_from_array(
+            np.zeros((2, ncols), dtype="float32"),
+            top_left_corner=(top_left_x, 1.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        assert _reaches_antimeridian_seam(ds) is reaches
 
     def test_split_lon_bbox_0_360_yields_single_half(self):
         """On a 0..360 grid the west>east bbox shifts into one west<east half."""

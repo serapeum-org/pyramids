@@ -30,6 +30,7 @@ from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
 from pyramids.dataset.engines.spatial import (
     _crop_seam_halves,
+    _require_antimeridian_seam,
     _split_lon_bbox,
     _stitch_lon_halves,
 )
@@ -98,11 +99,13 @@ class Selection(_Engine["NetCDF"]):
                 on a curvilinear variable the split halves become a
                 polygon mask over the 2-D coordinates; on a root container
                 it fans out to every variable. Behaviour change: a
-                *geographic* ``west > east`` bbox no longer raises
-                ``west < east``; it is read as the STAC antimeridian
-                convention, so a transposed / typo'd geographic bbox is no
-                longer rejected. A *projected* ``west > east`` bbox is
-                still validated and raises.
+                *geographic* ``west > east`` bbox is read as the STAC
+                antimeridian convention (rather than raising
+                ``west < east``) — but only when the dataset's longitude
+                extent reaches the 180 seam. On a *regional* grid that
+                does not reach the seam it raises a clear error instead,
+                catching a transposed / typo'd bbox. A *projected*
+                ``west > east`` bbox is still validated and raises.
             epsg (keyword-only): CRS for ``bbox`` — anything geopandas
                 accepts for ``crs=`` (EPSG int, ``"EPSG:4326"``, WKT,
                 :class:`pyproj.CRS`). Defaults to the dataset's own
@@ -228,6 +231,7 @@ class Selection(_Engine["NetCDF"]):
             crs_geo = crs is not None and sr_from_user_input(crs).IsGeographic()
             ds_geo = nc.epsg is not None and sr_from_user_input(nc.epsg).IsGeographic()
             if west > east and crs_geo and ds_geo:
+                _require_antimeridian_seam(nc)
                 if is_container:
                     result = self._crop_antimeridian_container(
                         tuple(bbox), crs, touch, chunks
