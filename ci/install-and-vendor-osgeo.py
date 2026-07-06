@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,19 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Vector stack vendored into the win_arm64 wheel ONLY (see
+# vendor_vector_stack_into_package): shapely and pyogrio ship no ARM64
+# wheels on PyPI, so pyramids' [project.dependencies] markers skip them
+# (and geopandas, which hard-requires pyogrio) on that platform and the
+# wheel carries its own copies instead. Exact pins so a rebuild is
+# reproducible; bump deliberately, and DELETE this whole mechanism when
+# upstream ships win_arm64 wheels (then also drop the pyproject markers).
+_VECTOR_STACK_PINS = {
+    "shapely": "2.1.2",
+    "pyogrio": "0.13.0",
+    "geopandas": "1.1.4",
+}
 
 
 def _gdal_version() -> str:
@@ -644,12 +658,127 @@ def _vendor_license_texts(pixi_env: Path, dst: Path) -> None:
     )
 
 
+def _is_win_arm64() -> bool:
+    """Return True when building on/for Windows ARM64."""
+    return sys.platform == "win32" and platform.machine().upper() == "ARM64"
+
+
+def vendor_vector_stack_into_package() -> None:
+    """Vendor shapely + pyogrio + geopandas into the win_arm64 wheel.
+
+    Neither shapely nor pyogrio publishes win_arm64 wheels, so the
+    platform markers in `[project.dependencies]` skip them (and
+    geopandas) there and this function supplies the wheel's own copies:
+
+    1. build shapely + pyogrio from sdist for the CURRENT Python against
+       the vcpkg prefix (GEOS/GDAL headers + import libs staged by
+       ci/setup-gdal-from-vcpkg.ps1),
+    2. delvewheel-repair them so geos_c.dll / gdal.dll land in
+       `<pkg>.libs/` next to each package (delvewheel patches each
+       package __init__ to add that directory, and the patch resolves
+       relative to the package — it keeps working from `_vendor/`),
+    3. `pip install --target` the repaired wheels plus pure-Python
+       geopandas and copy the top-level entries into
+       `src/pyramids/_vendor/`, where the runtime bootstrap already
+       puts them on sys.path (the same mechanism as the vendored osgeo),
+    4. ship each package's license text under `_licenses/`.
+    """
+    prefix = _build_prefix()
+    bin_dir, _, lib_dir = _data_layout_roots(prefix)
+    include_dir = prefix / "Library" / "include"
+    src_pyramids = REPO_ROOT / "src" / "pyramids"
+    vendor_dir = src_pyramids / "_vendor"
+
+    env = os.environ.copy()
+    env["GEOS_INCLUDE_PATH"] = str(include_dir)
+    env["GEOS_LIBRARY_PATH"] = str(lib_dir)
+    env["GDAL_INCLUDE_PATH"] = str(include_dir)
+    env["GDAL_LIBRARY_PATH"] = str(lib_dir)
+    env["GDAL_VERSION"] = _gdal_version()
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+
+    with tempfile.TemporaryDirectory(prefix="vector-stack-") as tmp:
+        raw = Path(tmp) / "raw"
+        repaired = Path(tmp) / "repaired"
+        target = Path(tmp) / "target"
+        shapely_pin = f"shapely=={_VECTOR_STACK_PINS['shapely']}"
+        pyogrio_pin = f"pyogrio=={_VECTOR_STACK_PINS['pyogrio']}"
+        print(
+            f"[install-and-vendor-osgeo] building {shapely_pin} + {pyogrio_pin} "
+            "from sdist for the win_arm64 vector stack",
+            flush=True,
+        )
+        subprocess.run(
+            [
+                sys.executable, "-m", "pip", "wheel",
+                shapely_pin, pyogrio_pin,
+                "--no-deps", "--no-binary", "shapely,pyogrio",
+                "-w", str(raw),
+            ],
+            check=True,
+            env=env,
+        )
+        repaired.mkdir()
+        for wheel in sorted(raw.glob("*.whl")):
+            subprocess.run(
+                [
+                    sys.executable, "-m", "delvewheel", "repair",
+                    "--add-path", str(bin_dir),
+                    "-w", str(repaired),
+                    str(wheel),
+                ],
+                check=True,
+                env=env,
+            )
+        install = [str(w) for w in sorted(repaired.glob("*.whl"))]
+        install.append(f"geopandas=={_VECTOR_STACK_PINS['geopandas']}")
+        subprocess.run(
+            [
+                sys.executable, "-m", "pip", "install",
+                *install,
+                "--no-deps", "--target", str(target),
+            ],
+            check=True,
+            env=env,
+        )
+
+        vendored = []
+        for entry in sorted(target.iterdir()):
+            if entry.name.endswith(".dist-info"):
+                # Ship the license texts alongside the other bundled
+                # notices; the metadata dir itself stays out of the wheel.
+                pkg = entry.name.split("-", 1)[0]
+                for license_file in entry.rglob("LICENSE*"):
+                    dst = src_pyramids / "_licenses" / pkg / license_file.name
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(license_file, dst)
+                continue
+            if entry.name in ("bin", "__pycache__"):
+                continue
+            if entry.is_dir():
+                _copy_tree_replacing(entry, vendor_dir / entry.name)
+                vendored.append(entry.name)
+
+    for required in ("shapely", "pyogrio", "geopandas"):
+        if required not in vendored:
+            raise RuntimeError(
+                f"vector-stack vendoring did not produce _vendor/{required} "
+                f"(got: {vendored})"
+            )
+    print(
+        f"[install-and-vendor-osgeo] vendored vector stack: {', '.join(vendored)}",
+        flush=True,
+    )
+
+
 def main() -> None:
     if os.environ.get("PACKAGE_DATA") != "1":
         print("[install-and-vendor-osgeo] PACKAGE_DATA != 1; skipping.", flush=True)
         return
     install_gdal_python_bindings()
     vendor_osgeo_into_package()
+    if _is_win_arm64():
+        vendor_vector_stack_into_package()
     print("[install-and-vendor-osgeo] done.", flush=True)
 
 
