@@ -749,6 +749,11 @@ def vendor_vector_stack_into_package() -> None:
                 # notices; the metadata dir itself stays out of the wheel.
                 pkg = entry.name.split("-", 1)[0]
                 for license_file in entry.rglob("LICENSE*"):
+                    # Windows globbing is case-insensitive, so "LICENSE*"
+                    # also matches PEP 639's `licenses/` DIRECTORY — copy
+                    # only the files (rglob descends into the dir anyway).
+                    if not license_file.is_file():
+                        continue
                     dst = src_pyramids / "_licenses" / pkg / license_file.name
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(license_file, dst)
