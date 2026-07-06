@@ -307,6 +307,10 @@ _HDF4_PLATFORMS = ("darwin", "win32-amd64")
 # Platforms whose curl uses the OS trust store (schannel) instead of a
 # vendored CA bundle — see _check_tls_read.
 _OS_TRUST_PLATFORMS = ("win32-arm64",)
+# Platforms whose wheel vendors the vector stack (shapely + geopandas +
+# pyogrio) because upstream ships no wheels there — see
+# _check_vendored_vector_stack.
+_VENDORED_VECTOR_PLATFORMS = ("win32-arm64",)
 
 
 def _platform_slug() -> str:
@@ -329,6 +333,39 @@ def _check_driver_set() -> None:
             + ", ".join(missing)
         )
     print(f"driver-set check OK — all {len(expected)} promised drivers registered.")
+
+
+def _check_vendored_vector_stack() -> None:
+    """Assert the vendored vector stack imports from `_vendor` where shipped.
+
+    On the platforms in `_VENDORED_VECTOR_PLATFORMS` the wheel's
+    dependency markers skip Shapely/geopandas, and the wheel carries its
+    own shapely + geopandas + pyogrio under `pyramids/_vendor/`. Importing
+    each and checking the resolved path proves the bootstrap exposes them
+    and their bundled GEOS/GDAL DLLs load (import executes the delvewheel
+    loader). A no-op elsewhere — those platforms install the real
+    distributions from PyPI.
+    """
+    if _platform_slug() not in _VENDORED_VECTOR_PLATFORMS:
+        print("vendored-vector check skipped — platform installs the stack from PyPI.")
+        return
+    vendor_root = (Path(pyramids.__file__).parent / "_vendor").resolve()
+    import geopandas
+    import pyogrio
+    import shapely
+
+    for module in (shapely, geopandas, pyogrio):
+        resolved = Path(module.__file__).resolve()
+        if not resolved.is_relative_to(vendor_root):
+            _fail(
+                f"{module.__name__} resolved to {resolved}, not the vendored "
+                f"copy under {vendor_root}"
+            )
+    print(
+        "vendored vector stack OK — shapely "
+        f"{shapely.__version__}, geopandas {geopandas.__version__}, "
+        f"pyogrio {pyogrio.__version__} all import from _vendor."
+    )
 
 
 def _check_licenses() -> None:
@@ -381,6 +418,7 @@ def _check_jp2_driver() -> None:
 
 
 _check_driver_set()
+_check_vendored_vector_stack()
 _check_licenses()
 _check_netcdf_driver()
 _check_jp2_driver()
