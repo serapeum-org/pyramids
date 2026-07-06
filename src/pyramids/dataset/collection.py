@@ -1013,6 +1013,12 @@ class DatasetCollection:
             `None` on `compute=True`; a :class:`dask.delayed.Delayed`
             on `compute=False`.
 
+        Note:
+            Unlike :meth:`to_netcdf`, this writer does not emit a ``time``
+            coordinate — only ``time_length`` as an attribute. A collection's
+            :attr:`time` (calendar) axis is therefore not carried into the Zarr
+            store; use :meth:`to_netcdf` when the calendar axis must round-trip.
+
         Raises:
             OptionalPackageDoesNotExist: When the `[lazy]` extra is not
                 installed.
@@ -1716,7 +1722,9 @@ class DatasetCollection:
                 ```
 
             regex_string (str):
-                A regex string used to locate the date in the file names. Default is r"\d{4}.\d{2}.\d{2}". For example:
+                A regex string used to locate the date in the file names. Default is r"\d{4}.\d{2}.\d{2}". Matched
+                against each file's name only (``Path(f).name``), not its directory path, so stray digit runs in the
+                path are never mistaken for the date. For example:
 
                 ```python
                 >>> fname = "MSWEP_YYYY.MM.DD.tif"
