@@ -286,6 +286,67 @@ class TestToNetcdfTimeCoords:
         expected_ns = [1577836800 * 1_000_000_000, 1577923200 * 1_000_000_000]
         assert values.tolist() == expected_ns, f"unexpected: {values!r}"
 
+    def test_time_axis_used_as_default_time_coords(self, tmp_path):
+        """A dated collection exports its own ``time`` axis when ``time_coords`` is omitted.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            ``col.time`` set to two dates, ``to_netcdf`` with no ``time_coords`` —
+            expected: the same int64-nanosecond encoding as passing those dates
+            explicitly, and no positional ``note`` attr.
+        """
+        col, _ = _make_int16_collection(tmp_path, count=2)
+        col.time = [dt.datetime(2020, 1, 1), dt.datetime(2020, 1, 2)]
+        out = tmp_path / "default_time.nc"
+        col.to_netcdf(str(out))  # no time_coords -> falls back to self.time
+        values = _array_values(str(out), "time")
+        expected_ns = [1577836800 * 1_000_000_000, 1577923200 * 1_000_000_000]
+        assert values.tolist() == expected_ns, f"self.time not used: {values!r}"
+        assert "note" not in _array_attrs(
+            str(out), "time"
+        ), "positional note leaked into a dated export"
+
+    def test_explicit_time_coords_override_time_axis(self, tmp_path):
+        """An explicit ``time_coords`` beats the collection's own ``time`` axis.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            ``col.time`` set to dates, but ``to_netcdf(time_coords=[10, 20])`` —
+            expected: the explicit integers win over the dated default.
+        """
+        col, _ = _make_int16_collection(tmp_path, count=2)
+        col.time = [dt.datetime(2020, 1, 1), dt.datetime(2020, 1, 2)]
+        out = tmp_path / "override.nc"
+        col.to_netcdf(str(out), time_coords=[10, 20])
+        assert _array_values(str(out), "time").tolist() == [
+            10,
+            20,
+        ], "explicit time_coords did not override the time axis"
+
+    def test_integer_time_axis_exported_as_is(self, tmp_path):
+        """Integer ``time`` order keys export as an integer axis, not ``0..T-1``.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            A ``date=False`` read leaves ``self.time`` holding integer order keys;
+            ``to_netcdf`` forwards them verbatim (they are real parsed values, not
+            a made-up positional index).
+        """
+        col, _ = _make_int16_collection(tmp_path, count=2)
+        col.time = [5, 9]
+        out = tmp_path / "int_axis.nc"
+        col.to_netcdf(str(out))
+        assert _array_values(str(out), "time").tolist() == [
+            5,
+            9,
+        ], "integer time axis not forwarded verbatim"
+
     def test_subsecond_datetime_roundtrips(self, tmp_path):
         """Sub-second timestamps survive the nanosecond CF encoding (L1 regression).
 
