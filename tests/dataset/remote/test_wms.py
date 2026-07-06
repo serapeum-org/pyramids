@@ -9,6 +9,7 @@ under ``-m live``.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset
@@ -18,6 +19,14 @@ from pyramids.errors import WMSError
 pytestmark = pytest.mark.core
 
 BBOX = (5.0, 51.0, 6.0, 52.0)
+
+
+def _tiny_dataset(epsg: int = 4326) -> Dataset:
+    """A 3-band 4x5 in-memory raster for offline reprojection tests."""
+    arr = np.ones((3, 4, 5), dtype="float32")
+    return Dataset.create_from_array(
+        arr, top_left_corner=(0.0, 0.0), cell_size=0.1, epsg=epsg
+    )
 
 
 class TestOutputSize:
@@ -97,12 +106,81 @@ class TestFromWmsGuards:
         with pytest.raises(ValueError, match="needs the output size"):
             Dataset.from_wms("https://host/wms?", layers="L", bbox=BBOX)
 
+    def test_from_wms_with_both_size_and_resolution_raises(self):
+        """size and resolution are mutually exclusive."""
+        with pytest.raises(ValueError, match="not both"):
+            Dataset.from_wms(
+                "https://host/wms?", layers="L", bbox=BBOX,
+                size=(10, 10), resolution=0.1,
+            )
+
+    @pytest.mark.parametrize("empty", ["", [], ()])
+    def test_from_wms_rejects_empty_layers(self, empty):
+        """An empty layers argument fails fast, before any network call."""
+        with pytest.raises(ValueError, match="at least one layer"):
+            Dataset.from_wms(
+                "https://host/wms?", layers=empty, bbox=BBOX, size=(10, 10)
+            )
+
     def test_from_wms_rejects_malformed_bbox(self):
         with pytest.raises(ValueError, match="minx < maxx"):
             Dataset.from_wms(
                 "https://host/wms?", layers="L", bbox=(6.0, 51.0, 5.0, 52.0),
                 size=(10, 10),
             )
+
+
+class TestRenderWmsErrorWrapping:
+    def test_translate_runtimeerror_becomes_wmserror(self, monkeypatch):
+        """A GetMap server error (RuntimeError during Translate) surfaces as WMSError."""
+        def boom(*_a, **_k):
+            raise RuntimeError("HTTP error 500")
+
+        monkeypatch.setattr(_wms.gdal, "Translate", boom)
+        with pytest.raises(WMSError, match="GetMap failed"):
+            _wms._render_wms(object(), "OSM-WMS")
+
+    def test_translate_none_becomes_wmserror(self, monkeypatch):
+        """A None return (no raster) also surfaces as WMSError."""
+        monkeypatch.setattr(_wms.gdal, "Translate", lambda *_a, **_k: None)
+        with pytest.raises(WMSError, match="no raster"):
+            _wms._render_wms(object(), "OSM-WMS")
+
+
+class TestReprojectTail:
+    def test_noop_without_output_crs(self):
+        """No output_crs -> the dataset is returned unchanged."""
+        ds = _tiny_dataset()
+        assert _wms._reproject_tail(ds, None, "nearest") is ds
+
+    def test_reprojects_to_output_crs(self):
+        """output_crs reprojects; no cell_size is forced (no unit mismatch)."""
+        out = _wms._reproject_tail(_tiny_dataset(4326), "EPSG:3857", "nearest")
+        assert out.epsg == 3857
+
+
+class TestAvailableWmtsLayers:
+    def test_parses_layer_ids_from_subdatasets(self, monkeypatch):
+        """Layer ids are extracted (and de-duplicated) from the WMTS subdatasets."""
+        class _Caps:
+            @staticmethod
+            def GetMetadata(_key):
+                return {
+                    "SUBDATASET_1_NAME": "WMTS:http://x,layer=B",
+                    "SUBDATASET_2_NAME": "WMTS:http://x,layer=A,tilematrixset=t",
+                    "SUBDATASET_1_DESC": "ignored, not a _NAME",
+                }
+
+        monkeypatch.setattr(_wms.gdal, "Open", lambda _c: _Caps())
+        assert _wms._available_wmts_layers("http://x") == ["A", "B"]
+
+    def test_returns_empty_when_open_fails(self, monkeypatch):
+        """A capabilities open failure yields [] (never masks the real error)."""
+        def boom(_c):
+            raise RuntimeError("offline")
+
+        monkeypatch.setattr(_wms.gdal, "Open", boom)
+        assert _wms._available_wmts_layers("http://x") == []
 
 
 @pytest.mark.slow

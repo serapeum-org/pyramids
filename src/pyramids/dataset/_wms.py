@@ -71,9 +71,13 @@ def _output_size(
     size in the bbox CRS units) is divided into the bbox extent.
 
     Raises:
-        ValueError: neither ``size`` nor ``resolution`` was given, or ``size`` is
-            not two positive integers.
+        ValueError: both or neither of ``size`` / ``resolution`` were given, or
+            ``size`` is not two positive integers.
     """
+    if size is not None and resolution is not None:
+        raise ValueError(
+            "pass either size=(width, height) or resolution=, not both."
+        )
     if size is not None:
         width, height = int(size[0]), int(size[1])
         if width <= 0 or height <= 0:
@@ -212,21 +216,38 @@ def _translate_window(
     return mem
 
 
-def _reproject_tail(
-    ds: "Dataset",
-    output_crs: str | None,
-    resolution: tuple[float, float] | None,
-    resample: str,
-) -> "Dataset":
+def _render_wms(src: "gdal.Dataset", layers: str) -> "gdal.Dataset":
+    """Fetch the WMS ``GetMap`` window into MEM, classifying failures as WMSError.
+
+    The ``GetMap`` HTTP request fires during :func:`gdal.Translate` (``gdal.Open``
+    only parses the descriptor), so a server error / non-image body raises here —
+    this wrapper turns that raw ``RuntimeError`` into the documented
+    :class:`WMSError`, mirroring the WCS reader's ``_translate_window``.
+
+    Raises:
+        WMSError: GDAL could not render the requested window.
+    """
+    try:
+        mem = gdal.Translate("", src, options=gdal.TranslateOptions(format="MEM"))
+    except RuntimeError as exc:
+        raise WMSError(f"WMS GetMap failed for {layers!r}: {exc}") from exc
+    if mem is None:
+        raise WMSError(f"WMS GetMap returned no raster for {layers!r}")
+    return mem
+
+
+def _reproject_tail(ds: "Dataset", output_crs: str | None, resample: str) -> "Dataset":
     """Reproject the result into ``output_crs`` when one was requested.
 
-    Unlike the WCS reader, the requested ``resolution`` is already applied upstream
-    (WMS bakes it into the descriptor image size; WMTS applies it in the windowed
-    :func:`gdal.Translate`), so there is no native-CRS resample here — only an
-    optional reprojection when the caller asked for a different ``output_crs``.
+    Only a CRS change happens here — the requested ``resolution`` is already
+    applied upstream (WMS bakes it into the descriptor image size; WMTS applies it
+    in the windowed :func:`gdal.Translate`), so ``cell_size`` is deliberately not
+    passed: doing so would reinterpret the request/native-CRS resolution as an
+    ``output_crs`` cell size (a unit mismatch across e.g. degrees → metres) and, on
+    the WMTS path, resample the layer a second time.
     """
     if output_crs is not None:
-        ds = ds.to_crs(output_crs, method=resample, cell_size=resolution)
+        ds = ds.to_crs(output_crs, method=resample)
     return ds
 
 
@@ -255,15 +276,18 @@ def from_wms(
     parameters.
 
     Raises:
-        ValueError: ``bbox`` is malformed, or neither ``size`` nor ``resolution``
-            was given.
+        ValueError: ``bbox`` is malformed, ``layers`` is empty, or ``size`` /
+            ``resolution`` was not given exactly once.
         WMSError: the server could not be reached or returned a non-raster body.
     """
     minx, miny, maxx, maxy = _validate_bbox(bbox)
+    layers_value = _layers_value(layers)
+    if not layers_value:
+        raise ValueError("layers must name at least one layer")
     width, height = _output_size((minx, miny, maxx, maxy), size, resolution)
     descriptor = _wms_descriptor(
         endpoint,
-        _layers_value(layers),
+        layers_value,
         crs,
         image_format,
         version,
@@ -273,14 +297,14 @@ def from_wms(
     )
     config = _gdal_http_config(auth, timeout)
     with gdal.config_options(config):
-        src = _open(descriptor, _layers_value(layers), "WMS")
-        mem = gdal.Translate("", src, options=gdal.TranslateOptions(format="MEM"))
-        src = None
-    if mem is None:
-        raise WMSError(f"WMS GetMap returned no raster for {_layers_value(layers)!r}")
+        src = _open(descriptor, layers_value, "WMS")
+        try:
+            mem = _render_wms(src, layers_value)
+        finally:
+            src = None
 
     ds = dataset_cls(mem, access="write")
-    ds = _reproject_tail(ds, output_crs, _resolution_pair(resolution), resample)
+    ds = _reproject_tail(ds, output_crs, resample)
     if output is not None:
         ds.to_file(output)
     return ds
@@ -338,7 +362,7 @@ def from_wmts(
 
     mem.SetSpatialRef(native_srs)
     ds = dataset_cls(mem, access="write")
-    ds = _reproject_tail(ds, output_crs, res, resample)
+    ds = _reproject_tail(ds, output_crs, resample)
     if output is not None:
         ds.to_file(output)
     return ds

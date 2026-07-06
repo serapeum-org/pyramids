@@ -2369,8 +2369,8 @@ class Dataset(RasterBase):
             Dataset: The rendered map window.
 
         Raises:
-            ValueError: ``bbox`` is malformed, or neither ``size`` nor
-                ``resolution`` was given.
+            ValueError: ``bbox`` is malformed, ``layers`` is empty, or ``size`` /
+                ``resolution`` was not given exactly once.
             pyramids.errors.WMSError: The server could not be reached or returned a
                 non-raster body.
 
