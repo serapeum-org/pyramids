@@ -27,6 +27,7 @@ doesn't require fighting YAML + shell quoting.
 """
 
 import os
+import platform
 import subprocess
 import sys
 import tempfile
@@ -85,32 +86,61 @@ if not osgeo_path.is_relative_to(expected_vendor_root.resolve()):
     _fail(f"osgeo not from {expected_vendor_root}: resolved to {osgeo_path}")
 
 
+def _assert_ca_wiring() -> None:
+    """Validate the CA setup for the current platform's trust model.
+
+    Two legitimate CA models exist, and the expectation is keyed on the
+    PLATFORM (like the HDF4 driver check) — never inferred from the wheel
+    under test, because a wheel that lost its cert looks identical to one
+    that legitimately has none:
+
+    * **Vendored bundle** (every platform except Windows ARM64): libcurl
+      bakes a build-prefix CA path that is absent in the consuming env,
+      so the wheel MUST ship `_data/ssl/cacert.pem` and the bootstrap
+      MUST point `GDAL_HTTP_CAINFO` at it — a missing file is the #412
+      regression and fails hard (an earlier version *skipped*, silently
+      masking the bug).
+    * **OS trust store** (`win32-arm64`, whose vcpkg curl uses schannel):
+      no CA file exists anywhere, and the bootstrap correctly sets no
+      CAINFO — the live TLS read is the entire proof there.
+    """
+    ca_bundle = Path(pyramids.__file__).parent / "_data" / "ssl" / "cacert.pem"
+    cainfo = os.environ.get("GDAL_HTTP_CAINFO")
+    print(f"GDAL_HTTP_CAINFO: {cainfo}")
+    if _platform_slug() not in _OS_TRUST_PLATFORMS:
+        if not ca_bundle.is_file():
+            _fail(
+                f"bundled wheel is missing {ca_bundle} — CA bundle not vendored (issue #412)"
+            )
+        if cainfo != str(ca_bundle):
+            _fail(
+                f"GDAL_HTTP_CAINFO={cainfo!r} not pointed at bundled cert {ca_bundle} (issue #412)"
+            )
+    elif cainfo is not None and not Path(cainfo).is_file():
+        _fail(
+            f"OS-trust-store platform, yet GDAL_HTTP_CAINFO={cainfo!r} points at a missing file"
+        )
+    else:
+        print(
+            "OS-trust-store platform (schannel) — no CA bundle expected; "
+            "the /vsicurl read is the proof"
+        )
+
+
 def _check_tls_read() -> None:
-    """Open an HTTPS resource via /vsicurl to exercise the bundled CA store.
+    """Open an HTTPS resource via /vsicurl to exercise the trust store.
 
     This runs only after we've already asserted osgeo resolves to the
     vendored copy — i.e. this is always a real bundled wheel, never a
-    dev/editable install. So a missing cacert.pem is itself the #412
-    regression and fails hard (an earlier version *skipped* here, which
-    silently masked the bug when the cert wasn't bundled).
+    dev/editable install. The CA wiring itself is validated by
+    `_assert_ca_wiring` first.
 
-    A CA/trust-store error during the read is also the #412 bug and fails
-    hard. A generic network error (offline runner, DNS, timeout) is not
-    this bug, so we warn and move on rather than make the smoke test flaky
-    on network conditions — the cert-presence + GDAL_HTTP_CAINFO checks
-    above already prove the fix shipped.
+    A CA/trust-store error during the read is the bug in either trust
+    model and fails hard. A generic network error (offline runner, DNS,
+    timeout) is not, so we warn and move on rather than make the smoke
+    test flaky on network conditions.
     """
-    ca_bundle = Path(pyramids.__file__).parent / "_data" / "ssl" / "cacert.pem"
-    if not ca_bundle.is_file():
-        _fail(
-            f"bundled wheel is missing {ca_bundle} — CA bundle not vendored (issue #412)"
-        )
-    cainfo = os.environ.get("GDAL_HTTP_CAINFO")
-    print(f"GDAL_HTTP_CAINFO: {cainfo}")
-    if cainfo != str(ca_bundle):
-        _fail(
-            f"GDAL_HTTP_CAINFO={cainfo!r} not pointed at bundled cert {ca_bundle} (issue #412)"
-        )
+    _assert_ca_wiring()
 
     gdal.UseExceptions()
     gdal.SetConfigOption("GDAL_HTTP_TIMEOUT", "30")
@@ -136,7 +166,10 @@ def _check_tls_read() -> None:
         # (curl global cleanup vs Winsock teardown), so the process hangs
         # after the script finishes until the CI job's timeout cancels it.
         gdal.VSICurlClearCache()
-    print("TLS /vsicurl read OK — bundled CA store loads trust anchors.")
+    if _platform_slug() in _OS_TRUST_PLATFORMS:
+        print("TLS /vsicurl read OK — OS trust store loads trust anchors.")
+    else:
+        print("TLS /vsicurl read OK — bundled CA store loads trust anchors.")
 
 
 def _netcdf_roundtrip(nc_driver, workdir: str) -> None:
@@ -266,17 +299,29 @@ _COMMON_DRIVERS = (
     "GeoJSON", "ESRI Shapefile", "GPKG", "GPX", "PMTiles", "MVT",
     "GML", "KML", "WFS", "OAPIF", "FlatGeobuf", "SQLite", "OSM",
 )
-# Platform extras: HDF4 ships only in the conda-extract wheels — the
-# curated Linux from-source stack deliberately drops it.
-_PLATFORM_DRIVERS = {"darwin": ("HDF4",), "win32": ("HDF4",)}
+# Platform extras: HDF4 ships only in the conda-extract wheels (macOS +
+# Windows AMD64). The from-source builds deliberately drop it — the
+# curated Linux stack has no HDF4, and the vcpkg gdal port used for the
+# win_arm64 wheel (#334) has no hdf4 feature at all.
+_HDF4_PLATFORMS = ("darwin", "win32-amd64")
+# Platforms whose curl uses the OS trust store (schannel) instead of a
+# vendored CA bundle — see _check_tls_read.
+_OS_TRUST_PLATFORMS = ("win32-arm64",)
+
+
+def _platform_slug() -> str:
+    """Return `sys.platform`, suffixed with the machine arch on Windows."""
+    slug = sys.platform
+    if slug == "win32":
+        slug = f"win32-{platform.machine().lower()}"
+    return slug
 
 
 def _check_driver_set() -> None:
     """Assert every promised driver is registered in the bundled GDAL."""
     expected = list(_COMMON_DRIVERS)
-    for platform_prefix, extras in _PLATFORM_DRIVERS.items():
-        if sys.platform.startswith(platform_prefix):
-            expected.extend(extras)
+    if _platform_slug() in _HDF4_PLATFORMS:
+        expected.append("HDF4")
     missing = [name for name in expected if gdal.GetDriverByName(name) is None]
     if missing:
         _fail(
@@ -284,6 +329,28 @@ def _check_driver_set() -> None:
             + ", ".join(missing)
         )
     print(f"driver-set check OK — all {len(expected)} promised drivers registered.")
+
+
+def _check_licenses() -> None:
+    """Assert the wheel ships the bundled third-party license texts.
+
+    Every wheel vendors GDAL/PROJ/GEOS/curl/... binaries whose licenses
+    (MIT/BSD/LGPL/...) require their notices to travel with the
+    redistributed binaries. All three build models stage them into
+    `pyramids/_licenses/<package>/`; an empty directory means a collection
+    path silently broke (this happened on the first vcpkg build, which had
+    no license source at all and every CI job stayed green).
+    """
+    lic_dir = Path(pyramids.__file__).parent / "_licenses"
+    packages = (
+        [p for p in lic_dir.iterdir() if p.is_dir()] if lic_dir.is_dir() else []
+    )
+    if len(packages) < 10:
+        _fail(
+            f"wheel ships only {len(packages)} third-party license dirs at "
+            f"{lic_dir} — the bundled native libraries require their notices"
+        )
+    print(f"license check OK — {len(packages)} third-party license dirs ship in the wheel.")
 
 
 def _check_jp2_driver() -> None:
@@ -314,6 +381,7 @@ def _check_jp2_driver() -> None:
 
 
 _check_driver_set()
+_check_licenses()
 _check_netcdf_driver()
 _check_jp2_driver()
 _check_tls_read()
