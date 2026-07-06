@@ -358,7 +358,20 @@ def _check_vendored_vector_stack() -> None:
     """
     pkg_root = Path(pyramids.__file__).parent
     vendor_root = (pkg_root / "_vendor").resolve()
-    if _platform_slug() not in _VENDORED_VECTOR_PLATFORMS:
+    if _platform_slug() in _VENDORED_VECTOR_PLATFORMS:
+        for module in (shapely, geopandas, pyogrio):
+            resolved = Path(module.__file__).resolve()
+            if not resolved.is_relative_to(vendor_root):
+                _fail(
+                    f"{module.__name__} resolved to {resolved}, not the "
+                    f"vendored copy under {vendor_root}"
+                )
+        print(
+            "vendored vector stack OK — shapely "
+            f"{shapely.__version__}, geopandas {geopandas.__version__}, "
+            f"pyogrio {pyogrio.__version__} all import from _vendor."
+        )
+    else:
         # Mirror BOTH halves of the build-side cleanup contract
         # (remove_stale_vector_stack): package dirs and license dirs.
         for pkg in ("shapely", "geopandas", "pyogrio"):
@@ -374,19 +387,6 @@ def _check_vendored_vector_stack() -> None:
             "vendored-vector check OK — no vector stack in this wheel; "
             "the platform installs it from PyPI."
         )
-        return
-    for module in (shapely, geopandas, pyogrio):
-        resolved = Path(module.__file__).resolve()
-        if not resolved.is_relative_to(vendor_root):
-            _fail(
-                f"{module.__name__} resolved to {resolved}, not the vendored "
-                f"copy under {vendor_root}"
-            )
-    print(
-        "vendored vector stack OK — shapely "
-        f"{shapely.__version__}, geopandas {geopandas.__version__}, "
-        f"pyogrio {pyogrio.__version__} all import from _vendor."
-    )
 
 
 def _check_licenses() -> None:
