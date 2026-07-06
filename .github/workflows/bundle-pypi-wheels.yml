@@ -691,6 +691,7 @@ jobs:
         run: python ci/verify-wheel.py
 
       - name: Install test dependencies
+        if: matrix.python-version == '3.12'
         run: pip install pytest pytest-env pytest-mock pytest-timeout
 
       - name: Run hermetic core test suite
