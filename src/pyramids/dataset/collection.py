@@ -478,6 +478,7 @@ class DatasetCollection:
         time_length: int,
         files: list[str] | None = None,
         *,
+        time: Sequence | None = None,
         meta: RasterMeta | None = None,
         datasets: list[Dataset] | None = None,
         gdal_env: dict[str, str] | None = None,
@@ -493,6 +494,13 @@ class DatasetCollection:
             files: Optional list of file paths backing each timestep.
                 When given, per-timestep ops open each path as a lazy
                 :class:`~pyramids.dataset.Dataset` on first access.
+            time: Optional per-timestep time coordinate, length
+                ``time_length`` (e.g. the dates parsed from the file
+                names by :meth:`read_multiple_files`). Exposed via the
+                :attr:`time` property and used by :meth:`plot` as the
+                default animation frame labels. ``None`` (the default)
+                leaves the collection without a time axis, so ``plot``
+                falls back to an index axis.
             meta: Optional :class:`RasterMeta` snapshot. When omitted,
                 a snapshot is derived eagerly from `src` so downstream
                 lazy paths can access geo metadata without
@@ -516,6 +524,12 @@ class DatasetCollection:
         self._base = src
         self._files = files
         self._time_length = time_length
+        if time is not None and len(time) != time_length:
+            raise ValueError(
+                f"time has length {len(time)} but the collection has "
+                f"{time_length} timesteps."
+            )
+        self._time: list | None = list(time) if time is not None else None
         self._meta = meta if meta is not None else RasterMeta.from_dataset(src)
         self._gdal_env: dict[str, str] = dict(gdal_env) if gdal_env else {}
         # When set (by from_zarr), the lazy `data` cube reads directly from this
@@ -621,6 +635,28 @@ class DatasetCollection:
     def time_length(self) -> int:
         """Length of the dataset."""
         return self._time_length
+
+    @property
+    def time(self) -> list | None:
+        """Per-timestep time coordinate, or ``None`` when unset.
+
+        Populated by :meth:`read_multiple_files` from the dates parsed out of
+        the file names, or assigned directly (any sequence of length
+        :attr:`time_length` — dates, years, labels). :meth:`plot` uses it as the
+        default animation frame labels, so an animated collection is labelled by
+        its real dates instead of ``0 … N-1`` when a time axis is present.
+        """
+        return self._time
+
+    @time.setter
+    def time(self, value: Sequence | None) -> None:
+        """Set (or clear) the time coordinate; length must match ``time_length``."""
+        if value is not None and len(value) != self._time_length:
+            raise ValueError(
+                f"time has length {len(value)} but the collection has "
+                f"{self._time_length} timesteps."
+            )
+        self._time = list(value) if value is not None else None
 
     @property
     def rows(self):
@@ -1754,50 +1790,58 @@ class DatasetCollection:
         else:
             files = [str(p) for p in path]
 
-        # to sort the files in the same order as the first number in the name
-        if with_order:
-            match_str_fn = lambda x: re.search(regex_string, x)
-            list_dates = list(map(match_str_fn, files))
-
-            if None in list_dates:
-                raise ValueError(
-                    "The date format/separator given does not match the file names"
-                )
-            if date:
-                if file_name_data_fmt is None:
+        # Parse a per-file date/order key from the file names when the caller
+        # signals the names encode one — either by requesting an ordered read
+        # (``with_order``) or by handing a ``file_name_data_fmt``. The parsed
+        # values feed both the optional sort and the collection's time axis,
+        # which :meth:`plot` uses as the animation frame labels. (issue #693)
+        df: pd.DataFrame | None = None
+        want_dates = with_order or (date and file_name_data_fmt is not None)
+        if want_dates:
+            matches = [re.search(regex_string, f) for f in files]
+            if None in matches:
+                # An ordered read genuinely needs the dates; a non-ordering
+                # opportunistic parse just skips building a time axis.
+                if with_order:
                     raise ValueError(
-                        f"To read the raster with a certain order (with_order = {with_order}, then you have to enter "
-                        f"the value of the parameter file_name_data_fmt(given: {file_name_data_fmt})"
+                        "The date format/separator given does not match the file names"
                     )
-                fn: Callable[[Any], Any] = lambda x: dt.datetime.strptime(
-                    x.group(), file_name_data_fmt
-                )
+            elif date and file_name_data_fmt is None:
+                # Ordered + date but no format is a hard error (kept from the
+                # original contract); without ordering we simply skip the axis.
+                if with_order:
+                    raise ValueError(
+                        f"To read the raster with a certain order (with_order = {with_order}, then you have "
+                        f"to enter the value of the parameter file_name_data_fmt(given: {file_name_data_fmt})"
+                    )
             else:
-                fn = lambda x: int(x.group())
-            list_dates = list(map(fn, list_dates))
-
-            df = pd.DataFrame()
-            df["files"] = files
-            df["date"] = list_dates
-            df.sort_values("date", inplace=True, ignore_index=True)
-            files = df.loc[:, "files"].values
+                if date:
+                    fn: Callable[[Any], Any] = lambda x: dt.datetime.strptime(
+                        x.group(), file_name_data_fmt
+                    )
+                else:
+                    fn = lambda x: int(x.group())
+                list_dates = [fn(m) for m in matches]
+                df = pd.DataFrame({"files": files, "date": list_dates})
+                if with_order:
+                    df.sort_values("date", inplace=True, ignore_index=True)
+                files = df.loc[:, "files"].values
 
         if start is not None or end is not None:
+            if df is None:
+                raise ValueError(
+                    "start/end filtering needs dates parsed from the file names; "
+                    "pass file_name_data_fmt (and a matching regex_string)."
+                )
             if date:
-                start_dt: Any = dt.datetime.strptime(str(start), fmt)
-                end_dt: Any = dt.datetime.strptime(str(end), fmt)
-
-                files = (
-                    df.loc[start_dt <= df["date"], :]
-                    .loc[df["date"] <= end_dt, "files"]
-                    .values
-                )
+                start_key: Any = dt.datetime.strptime(str(start), fmt)
+                end_key: Any = dt.datetime.strptime(str(end), fmt)
             else:
-                files = (
-                    df.loc[start <= df["date"], :]
-                    .loc[df["date"] <= end, "files"]
-                    .values
-                )
+                start_key, end_key = start, end
+            df = df.loc[(df["date"] >= start_key) & (df["date"] <= end_key)]
+            files = df.loc[:, "files"].values
+
+        time_axis = df["date"].tolist() if df is not None else None
 
         if not isinstance(path, list):
             # add the path to all the files
@@ -1806,7 +1850,7 @@ class DatasetCollection:
         # of the number of rasters in the folder
         sample = Dataset.read_file(files[0])
 
-        return cls(sample, len(files), files)
+        return cls(sample, len(files), files, time=time_axis)
 
     @property
     def values(self) -> np.typing.NDArray:
@@ -2101,7 +2145,7 @@ class DatasetCollection:
             **kwargs:
                 | Parameter                  | Type                  | Description |
                 |----------------------------|-----------------------|-------------|
-                | animation_axis_values      | sequence, optional    | Per-frame labels for the animation, one per timestep. Defaults to `range(time_length)` (index labels). Pass the collection's real time coordinate (e.g. `range(2000, 2024)` or a list of dates) to label frames by date instead of index. |
+                | animation_axis_values      | sequence, optional    | Per-frame labels for the animation, one per timestep. Defaults to the collection's `time` axis when set (e.g. dates parsed by `read_multiple_files`), else `range(time_length)` (index labels). Pass a sequence here to override (e.g. `range(2000, 2024)`). |
                 | points                     | array                 | 3-column array: col 1 = value to display, col 2 = row index, col 3 = column index. Columns 2 and 3 indicate the location of the point. |
                 | point_color                | str                   | Color of the points. |
                 | point_size                 | Any                   | Size of the points. |
@@ -2198,16 +2242,16 @@ class DatasetCollection:
             cutoff=cutoff,
             percentile=percentile,
         )
-        # Frame labels for the animation. Default to a plain index axis, but
-        # let the caller pass ``animation_axis_values`` explicitly (e.g. the
-        # real dates) via ``**kwargs`` without colliding with the value the
-        # render_array call sites below pass positionally. A DatasetCollection
-        # does not itself carry a time coordinate (see the class docstring), so
-        # the default stays index-based; a caller holding parsed dates passes
-        # them here. (issue #693)
-        axis_values = kwargs.pop(
-            "animation_axis_values", list(range(self.time_length))
+        # Frame labels for the animation. Default to the collection's time axis
+        # when it has one (e.g. dates parsed from the file names by
+        # read_multiple_files), else a plain index axis. An explicit
+        # ``animation_axis_values`` in ``**kwargs`` overrides both — popped once
+        # here so it can't collide with the value the render_array call sites
+        # below pass positionally. (issue #693)
+        default_labels = (
+            list(self.time) if self.time is not None else list(range(self.time_length))
         )
+        axis_values = kwargs.pop("animation_axis_values", default_labels)
         # Materialise the cube on demand for plotting. The render helper
         # expects a single (time, rows, cols) numpy array; reading each
         # Dataset's band into one stacked array is fine for a plot call
