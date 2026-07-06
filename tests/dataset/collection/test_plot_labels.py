@@ -174,6 +174,26 @@ class TestTimeAxis:
         assert cube.time == [dt.datetime(2000, 1, 1), dt.datetime(2001, 1, 1)]
         assert all(type(t) is dt.datetime for t in cube.time), "plain datetime"
 
+    def test_start_end_filter_keeps_time_axis_aligned(self, tmp_path):
+        """start/end filtering (without with_order) keeps files and time aligned.
+
+        This combination (``file_name_data_fmt`` + ``start``/``end`` but no
+        ``with_order``) is newly enabled by the date-parse rework; the filtered
+        time axis must match the filtered files in order and length.
+        """
+        files = _dated_files(tmp_path, years=(2000, 2001, 2002, 2003))
+        cube = DatasetCollection.read_multiple_files(
+            files,
+            date=True,
+            regex_string=r"\d{8}",
+            file_name_data_fmt="%Y%m%d",
+            start="20010101",
+            end="20020101",
+            fmt="%Y%m%d",
+        )
+        assert cube.time == [dt.datetime(2001, 1, 1), dt.datetime(2002, 1, 1)]
+        assert len(cube.time) == cube.time_length == 2
+
     def test_read_multiple_files_without_format_has_no_time_axis(self, tmp_path):
         """A default read (no format) leaves ``time`` unset — non-breaking."""
         cube = DatasetCollection.read_multiple_files(
