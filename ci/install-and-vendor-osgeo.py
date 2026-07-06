@@ -673,8 +673,40 @@ def _vendor_license_texts(pixi_env: Path, dst: Path) -> None:
 
 
 def _is_win_arm64() -> bool:
-    """Return True when building on/for Windows ARM64."""
-    return sys.platform == "win32" and platform.machine().upper() == "ARM64"
+    """Return True when this build TARGETS Windows ARM64.
+
+    The host arch (`platform.machine()`) decides by default — the
+    supported build topology is a native `windows-11-arm` runner. But
+    cibuildwheel can be asked to cross-build (CIBW_ARCHS[_WINDOWS]
+    names a different arch than the host), and the vendoring step
+    compiles shapely/pyogrio with the build interpreter, so host and
+    target must match:
+
+    - ARM64 requested on a non-ARM64 host: hard-fail. Silently skipping
+      would tag a wheel win_arm64 whose markers skip geopandas/shapely
+      AND that ships no vendored copies — it installs cleanly and dies
+      at `import geopandas`.
+    - non-ARM64 requested on an ARM64 host: return False, so the build
+      takes the stale-cleanup branch instead of vendoring ARM64 `.pyd`s
+      into a foreign wheel.
+    """
+    result = False
+    if sys.platform == "win32":
+        host_is_arm64 = platform.machine().upper() == "ARM64"
+        requested = (
+            os.environ.get("CIBW_ARCHS_WINDOWS")
+            or os.environ.get("CIBW_ARCHS")
+            or ""
+        ).upper()
+        if "ARM64" in requested and not host_is_arm64:
+            raise RuntimeError(
+                "win_arm64 wheels must be built on a native ARM64 host "
+                f"(host is {platform.machine()}): the vendored vector "
+                "stack is compiled with the build interpreter, so a "
+                "cross-build would ship wrong-arch binaries"
+            )
+        result = host_is_arm64 and ("ARM64" in requested or not requested)
+    return result
 
 
 def vendor_vector_stack_into_package() -> None:
