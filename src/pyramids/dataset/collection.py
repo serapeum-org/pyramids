@@ -524,12 +524,8 @@ class DatasetCollection:
         self._base = src
         self._files = files
         self._time_length = time_length
-        if time is not None and len(time) != time_length:
-            raise ValueError(
-                f"time has length {len(time)} but the collection has "
-                f"{time_length} timesteps."
-            )
-        self._time: list | None = list(time) if time is not None else None
+        self._time: list | None = None
+        self.time = time  # validates length + materialises a generator (see setter)
         self._meta = meta if meta is not None else RasterMeta.from_dataset(src)
         self._gdal_env: dict[str, str] = dict(gdal_env) if gdal_env else {}
         # When set (by from_zarr), the lazy `data` cube reads directly from this
@@ -651,12 +647,16 @@ class DatasetCollection:
     @time.setter
     def time(self, value: Sequence | None) -> None:
         """Set (or clear) the time coordinate; length must match ``time_length``."""
-        if value is not None and len(value) != self._time_length:
-            raise ValueError(
-                f"time has length {len(value)} but the collection has "
-                f"{self._time_length} timesteps."
-            )
-        self._time = list(value) if value is not None else None
+        if value is not None:
+            # Materialise generators / iterators before the length check so a
+            # lazy sequence raises the clear length error, not a bare TypeError.
+            value = list(value)
+            if len(value) != self._time_length:
+                raise ValueError(
+                    f"time has length {len(value)} but the collection has "
+                    f"{self._time_length} timesteps."
+                )
+        self._time = value
 
     @property
     def rows(self):
@@ -2274,6 +2274,8 @@ class DatasetCollection:
             list(self.time) if self.time is not None else list(range(self.time_length))
         )
         axis_values = kwargs.pop("animation_axis_values", default_labels)
+        if not hasattr(axis_values, "__len__"):
+            axis_values = list(axis_values)  # materialise a generator override
         # An explicit override must carry exactly one label per frame; the
         # defaults are correct-length by construction, but a wrong-length
         # override would otherwise be forwarded verbatim to cleopatra and
