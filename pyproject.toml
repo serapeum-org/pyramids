@@ -132,6 +132,15 @@ pyramids = [
     "base/data/*.yaml",
     "_vendor/osgeo/**/*",
     "_vendor/osgeo_utils/**/*",
+    # win_arm64 vector stack (empty dirs on every other platform): the
+    # vendored packages' .py files ship via package discovery, but the
+    # compiled extensions (shapely/lib.pyd, pyogrio/_io.pyd, ...) and the
+    # delvewheel .libs DLL dirs are data files and need explicit globs.
+    "_vendor/shapely/**/*",
+    "_vendor/shapely.libs/**/*",
+    "_vendor/geopandas/**/*",
+    "_vendor/pyogrio/**/*",
+    "_vendor/pyogrio.libs/**/*",
     "_data/gdal_data/*",
     "_data/proj_data/*",
     "_data/gdalplugins/*",
