@@ -768,6 +768,30 @@ def vendor_vector_stack_into_package() -> None:
     )
 
 
+def remove_stale_vector_stack() -> None:
+    """Drop vector-stack leftovers when NOT building for win_arm64.
+
+    vendor_vector_stack_into_package() writes into the source tree, and
+    the package-data globs shipping `_vendor/{shapely,geopandas,pyogrio}`
+    are unconditional — a leftover from an earlier win_arm64 build (e.g.
+    a local cibuildwheel experiment) would silently ride into every other
+    platform's wheel built from the same tree. Delete rather than trust;
+    ci/verify-wheel.py asserts the same absence on the consuming side.
+    """
+    src_pyramids = REPO_ROOT / "src" / "pyramids"
+    for pkg in _VECTOR_STACK_PINS:
+        for stale in (
+            src_pyramids / "_vendor" / pkg,
+            src_pyramids / "_licenses" / pkg,
+        ):
+            if stale.is_dir():
+                print(
+                    f"[install-and-vendor-osgeo] removing stale {stale}",
+                    flush=True,
+                )
+                shutil.rmtree(stale)
+
+
 def main() -> None:
     if os.environ.get("PACKAGE_DATA") != "1":
         print("[install-and-vendor-osgeo] PACKAGE_DATA != 1; skipping.", flush=True)
@@ -776,6 +800,8 @@ def main() -> None:
     vendor_osgeo_into_package()
     if _is_win_arm64():
         vendor_vector_stack_into_package()
+    else:
+        remove_stale_vector_stack()
     print("[install-and-vendor-osgeo] done.", flush=True)
 
 

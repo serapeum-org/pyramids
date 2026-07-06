@@ -343,13 +343,25 @@ def _check_vendored_vector_stack() -> None:
     own shapely + geopandas + pyogrio under `pyramids/_vendor/`. Importing
     each and checking the resolved path proves the bootstrap exposes them
     and their bundled GEOS/GDAL DLLs load (import executes the delvewheel
-    loader). A no-op elsewhere — those platforms install the real
-    distributions from PyPI.
+    loader). Elsewhere the check inverts: those platforms install the
+    real distributions from PyPI, so the wheel must ship NO vector stack
+    under `_vendor/` — a stale build tree would otherwise leak one in
+    (install-and-vendor-osgeo.py deletes leftovers on the build side).
     """
-    if _platform_slug() not in _VENDORED_VECTOR_PLATFORMS:
-        print("vendored-vector check skipped — platform installs the stack from PyPI.")
-        return
     vendor_root = (Path(pyramids.__file__).parent / "_vendor").resolve()
+    if _platform_slug() not in _VENDORED_VECTOR_PLATFORMS:
+        for pkg in ("shapely", "geopandas", "pyogrio"):
+            if (vendor_root / pkg).exists():
+                _fail(
+                    f"_vendor/{pkg} present in a {_platform_slug()} wheel — "
+                    "the vector stack is vendored on win_arm64 only; a stale "
+                    "build tree leaked into this wheel"
+                )
+        print(
+            "vendored-vector check OK — no vector stack in this wheel; "
+            "the platform installs it from PyPI."
+        )
+        return
     import geopandas
     import pyogrio
     import shapely
