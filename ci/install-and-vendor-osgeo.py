@@ -38,10 +38,24 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # wheel carries its own copies instead. Exact pins so a rebuild is
 # reproducible; bump deliberately, and DELETE this whole mechanism when
 # upstream ships win_arm64 wheels (then also drop the pyproject markers).
+# Each entry is (version, sha256) of the exact PyPI artifact fetched at
+# build time — the shapely/pyogrio sdists (compiled below) and the
+# pure-Python geopandas wheel. pip --require-hashes rejects anything
+# else, mirroring the SHA256 pinning of the Linux from-source stack
+# (ci/source-build/config.sh); these are release inputs, not cache.
 _VECTOR_STACK_PINS = {
-    "shapely": "2.1.2",
-    "pyogrio": "0.13.0",
-    "geopandas": "1.1.4",
+    "shapely": (
+        "2.1.2",
+        "2ed4ecb28320a433db18a5bf029986aa8afcfd740745e78847e330d5d94922a9",
+    ),
+    "pyogrio": (
+        "0.13.0",
+        "9614f27a1891113f80653e0b76b4233ea1fb3beeb1ac46d118ab22e1670f8f13",
+    ),
+    "geopandas": (
+        "1.1.4",
+        "1a0c459cbdb1537cd154dafe6174be20d1760844b7f1c967dc8520b180f2e773",
+    ),
 }
 
 
@@ -670,13 +684,15 @@ def vendor_vector_stack_into_package() -> None:
     platform markers in `[project.dependencies]` skip them (and
     geopandas) there and this function supplies the wheel's own copies:
 
-    1. build shapely + pyogrio from sdist for the CURRENT Python against
-       the vcpkg prefix (GEOS/GDAL headers + import libs staged by
-       ci/setup-gdal-from-vcpkg.ps1),
-    2. `pip install --target` the RAW wheels plus pure-Python geopandas
-       and copy the top-level entries into `src/pyramids/_vendor/`,
-       where the runtime bootstrap already puts them on sys.path (the
-       same mechanism as the vendored osgeo),
+    1. fetch the hash-pinned artifacts (`--require-hashes`) and build
+       shapely + pyogrio from sdist for the CURRENT Python against the
+       vcpkg prefix (GEOS/GDAL headers + import libs staged by
+       ci/setup-gdal-from-vcpkg.ps1); the pure-Python geopandas wheel
+       arrives through the same verified `pip wheel` run,
+    2. `pip install --target` the RAW wheels and copy the top-level
+       entries into `src/pyramids/_vendor/`, where the runtime
+       bootstrap already puts them on sys.path (the same mechanism as
+       the vendored osgeo),
     3. ship each package's license text under `_licenses/`.
 
     The vendored extension modules are deliberately NOT delvewheel-
@@ -705,29 +721,34 @@ def vendor_vector_stack_into_package() -> None:
     with tempfile.TemporaryDirectory(prefix="vector-stack-") as tmp:
         raw = Path(tmp) / "raw"
         target = Path(tmp) / "target"
-        shapely_pin = f"shapely=={_VECTOR_STACK_PINS['shapely']}"
-        pyogrio_pin = f"pyogrio=={_VECTOR_STACK_PINS['pyogrio']}"
+        requirements = Path(tmp) / "vector-stack-requirements.txt"
+        requirements.write_text(
+            "".join(
+                f"{pkg}=={version} --hash=sha256:{sha256}\n"
+                for pkg, (version, sha256) in _VECTOR_STACK_PINS.items()
+            ),
+            encoding="utf-8",
+        )
+        pins = ", ".join(f"{p}=={v}" for p, (v, _) in _VECTOR_STACK_PINS.items())
         print(
-            f"[install-and-vendor-osgeo] building {shapely_pin} + {pyogrio_pin} "
-            "from sdist for the win_arm64 vector stack",
+            f"[install-and-vendor-osgeo] building the win_arm64 vector stack "
+            f"({pins}) from hash-pinned PyPI artifacts",
             flush=True,
         )
         subprocess.run(
             [
                 sys.executable, "-m", "pip", "wheel",
-                shapely_pin, pyogrio_pin,
+                "-r", str(requirements), "--require-hashes",
                 "--no-deps", "--no-binary", "shapely,pyogrio",
                 "-w", str(raw),
             ],
             check=True,
             env=env,
         )
-        install = [str(w) for w in sorted(raw.glob("*.whl"))]
-        install.append(f"geopandas=={_VECTOR_STACK_PINS['geopandas']}")
         subprocess.run(
             [
                 sys.executable, "-m", "pip", "install",
-                *install,
+                *(str(w) for w in sorted(raw.glob("*.whl"))),
                 "--no-deps", "--target", str(target),
             ],
             check=True,
