@@ -682,10 +682,16 @@ jobs:
           PYTAG="cp$(echo '${{ matrix.python-version }}' | tr -d .)"
           WHEEL=$(ls wheelhouse/pyramids_gis-*${PYTAG}*win_arm64.whl)
           pip install "${WHEEL}"
-          pip install pytest pytest-env pytest-mock pytest-timeout
 
+      # Runs against the bare install closure, BEFORE the test deps land:
+      # pytest itself requires `packaging`, which the vendored geopandas
+      # imports at runtime, so installing pytest first masked a hole in
+      # the wheel's own dependency closure (caught in PR #695 review).
       - name: Verify GDAL import + drivers (vector stack, netCDF, JP2, TLS)
         run: python ci/verify-wheel.py
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-env pytest-mock pytest-timeout
 
       - name: Run hermetic core test suite
         if: matrix.python-version == '3.12'

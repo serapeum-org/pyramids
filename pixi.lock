@@ -36289,8 +36289,10 @@ packages:
 - pypi: ./
   name: pyramids-gis
   version: 0.40.0
-  sha256: 13113eb134fd9c14368aedf0b04319cc8a5e5ddd453a0ecd92aa25decb13ff96
+  sha256: d2e9d3ce8ae9d33864885d3f9fa97b6507ae97078d7c24628054c31b5088ccd4
   requires_dist:
+  - certifi ; platform_machine == 'ARM64' and sys_platform == 'win32'
+  - packaging ; platform_machine == 'ARM64' and sys_platform == 'win32'
   - cftime>=1.6.4
   - geopandas>=1.0.0 ; platform_machine != 'ARM64' or sys_platform != 'win32'
   - hpc-utils>=0.1.5

@@ -30,6 +30,14 @@ requires-python = ">= 3.11, <4"
 # Listing pip's PyPI GDAL would force a from-source build on Windows
 # (no wheel exists) and break most end-user pip installs.
 dependencies = [
+    # Inverse of the win_arm64 vendoring markers below: the vendored
+    # geopandas/pyogrio still import `packaging` (both) and `certifi`
+    # (pyogrio) at runtime, and with the real distributions skipped
+    # nothing else in the closure is guaranteed to install them — pip
+    # was satisfied while `import geopandas` died on a clean install.
+    # Drop these two lines together with the markers.
+    "certifi ; sys_platform == 'win32' and platform_machine == 'ARM64'",
+    "packaging ; sys_platform == 'win32' and platform_machine == 'ARM64'",
     "cftime >=1.6.4",
     # win_arm64: shapely and pyogrio (geopandas' hard dep) ship no ARM64
     # wheels on PyPI, so requiring them would make the platform
