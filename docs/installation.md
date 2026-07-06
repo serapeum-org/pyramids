@@ -6,7 +6,8 @@ works out of the box on Linux, macOS, and Windows — no system GDAL
 installation required.
 
 **Package name:** `pyramids-gis`
-**Supported Python versions:** 3.11, 3.12, 3.13 (requires `>=3.11,<4`)
+**Supported Python versions:** 3.11–3.14 (requires `>=3.11,<4`;
+3.12+ on Windows ARM64)
 
 ## Quick install (recommended for most users)
 
@@ -16,10 +17,11 @@ installation required.
 pip install pyramids-gis
 ```
 
-That's it. The wheel includes GDAL 3.13, PROJ, GEOS, HDF5, NetCDF, GRIB,
-JPEG2000 (OpenJPEG, for JP2-packed GRIB2), libtiff, and all other native
-dependencies (HDF4 additionally ships in the macOS/Windows wheels). No
-`gdal-config`, no `apt install libgdal-dev`, no OSGeo4W installer needed.
+That's it. The wheel includes GDAL 3.13 (3.12 on Windows ARM64), PROJ,
+GEOS, HDF5, NetCDF, GRIB, JPEG2000 (OpenJPEG, for JP2-packed GRIB2),
+libtiff, and all other native dependencies (HDF4 additionally ships in
+the macOS and Windows x64 wheels). No `gdal-config`, no
+`apt install libgdal-dev`, no OSGeo4W installer needed.
 
 ### Optional extras
 
@@ -161,10 +163,12 @@ set on every build, so drivers cannot silently disappear from a release.
 > them. `import geopandas` etc. work normally after `import pyramids`;
 > the vendored copies disappear once upstream ships ARM64 wheels.
 > On Python 3.11 there is no wheel and pip falls back to the sdist,
-> which installs *successfully* but cannot provide GDAL or the vector
-> stack (the dependency markers skip shapely/geopandas on Windows
-> ARM64) — use Python 3.12+ or conda-forge instead. The same caveat
-> applies to any deliberate sdist install on Windows ARM64.
+> which typically *fails* while trying to build numpy/scipy from
+> source (they ship no cp311 ARM64 wheels either) — and even a
+> forced install (`--no-deps`) provides neither GDAL nor the vector
+> stack, because the dependency markers skip shapely/geopandas on
+> Windows ARM64. Use Python 3.12+ or conda-forge instead. The same
+> caveat applies to any deliberate sdist install on Windows ARM64.
 
 ## System dependencies
 
