@@ -762,6 +762,18 @@ def vendor_vector_stack_into_package() -> None:
                 f"vector-stack vendoring did not produce _vendor/{required} "
                 f"(got: {vendored})"
             )
+        # The wheel redistributes these packages' binaries, so shipping
+        # their license texts is a hard requirement, not best-effort —
+        # and the wheel-level check only asserts a total dir count, which
+        # the vcpkg-staged licenses alone satisfy. Fail here if a pin's
+        # dist-info stopped matching the LICENSE* glob (e.g. a rename to
+        # COPYING or a new PEP 639 layout).
+        license_dir = src_pyramids / "_licenses" / required
+        if not license_dir.is_dir() or not any(license_dir.iterdir()):
+            raise RuntimeError(
+                f"vector-stack vendoring shipped no license text for "
+                f"{required} under {license_dir}"
+            )
     print(
         f"[install-and-vendor-osgeo] vendored vector stack: {', '.join(vendored)}",
         flush=True,
