@@ -102,9 +102,10 @@ class TestPlotAnimationAxisValues:
     def test_generator_axis_values_materialised(self):
         """A generator override is materialised so a length mismatch still raises clearly."""
         cube = _collection(3)
+        labels = iter([7, 8])  # a sized-less iterator, built outside the raises block
         with patch("pyramids.dataset.collection.render_array"):
             with pytest.raises(ValueError, match="animation_axis_values has 2 labels"):
-                cube.plot(band=0, animation_axis_values=iter([7, 8]))
+                cube.plot(band=0, animation_axis_values=labels)
 
     def test_parsed_dates_label_frames_end_to_end(self, tmp_path):
         """A dated collection animates with real dates, no manual relabelling.
