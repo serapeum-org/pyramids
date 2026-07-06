@@ -43,6 +43,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # pure-Python geopandas wheel. pip --require-hashes rejects anything
 # else, mirroring the SHA256 pinning of the Linux from-source stack
 # (ci/source-build/config.sh); these are release inputs, not cache.
+# Known gap vs the Linux stack: the sdist compiles run under pip build
+# isolation, whose own deps (setuptools/Cython/numpy) float unpinned.
 _VECTOR_STACK_PINS = {
     "shapely": (
         "2.1.2",
