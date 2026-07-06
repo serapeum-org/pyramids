@@ -329,16 +329,15 @@ jobs:
           path: wheelhouse/*.whl
           retention-days: 3
 
-  # Windows-on-ARM canary (#334, not published). conda-forge has no
+  # Windows-on-ARM wheels (#334, PUBLISHED). conda-forge has no
   # win-arm64 GDAL, so the stack builds from source via vcpkg
   # (ci/vcpkg.json + ci/setup-gdal-from-vcpkg.ps1, staging the same
   # C:/gdal-prefix/Library layout the conda path produces — only
-  # before-all differs from the AMD64 job). Publishing is blocked on
-  # upstream: shapely (hard dependency) and pyogrio (via geopandas) ship
-  # no win_arm64 wheels, so pip cannot resolve pyramids-gis on this
-  # platform yet; both are canary-built here against the same prefix so
-  # verify-winarm64 can run the full suite. cp311 is excluded — numpy and
-  # scipy ship no cp311 win_arm64 wheels.
+  # before-all differs from the AMD64 job). shapely and pyogrio ship no
+  # win_arm64 wheels upstream, so the dependency markers skip them (and
+  # geopandas) on this platform and install-and-vendor-osgeo.py vendors
+  # the whole vector stack into the wheel per Python version. cp311 is
+  # excluded — numpy and scipy ship no cp311 win_arm64 wheels.
   build-winarm64-wheels:
     if: >-
       github.event_name != 'workflow_run' ||
@@ -358,11 +357,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Like the musl canaries, this cache is NOT gated off workflow_run:
-      # win_arm64 wheels are never published (excluded from the release
-      # gather + rejected by the composition gate), so cache-restored
-      # binaries can't reach PyPI from here.
+      # Skipped on release (workflow_run) builds like the glibc job:
+      # these wheels publish to PyPI now, so release artifacts always
+      # cold-build from the pinned vcpkg snapshot instead of restoring
+      # cache-stored binaries.
       - name: Cache the vcpkg-built GDAL stack
+        if: github.event_name != 'workflow_run'
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: C:\vcpkg\installed
@@ -381,39 +381,13 @@ jobs:
         shell: bash
         run: bash ci/check-wheel-size.sh wheelhouse
 
-      - name: Build canary shapely + pyogrio wheels
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          # Fail on native-command errors too: $ErrorActionPreference alone
-          # does not stop pwsh when pip/delvewheel exit non-zero, which let
-          # a failed `pip wheel` surface one job later as an unmatched glob.
-          $PSNativeCommandUseErrorActionPreference = $true
-          $env:GEOS_INCLUDE_PATH = "C:/gdal-prefix/Library/include"
-          $env:GEOS_LIBRARY_PATH = "C:/gdal-prefix/Library/lib"
-          $env:GDAL_INCLUDE_PATH = "C:/gdal-prefix/Library/include"
-          $env:GDAL_LIBRARY_PATH = "C:/gdal-prefix/Library/lib"
-          $env:GDAL_VERSION = Get-Content "C:/gdal-prefix/GDAL_VERSION"
-          $env:PATH = "C:/gdal-prefix/Library/bin;$env:PATH"
-          python -m pip install delvewheel
-          python -m pip wheel "shapely==2.1.2" --no-deps --no-binary shapely -w canary-raw
-          python -m pip wheel "pyogrio==0.13.0" --no-deps --no-binary pyogrio -w canary-raw
-          New-Item -ItemType Directory -Force -Path canary-deps-wheelhouse | Out-Null
-          Get-ChildItem canary-raw/*.whl | ForEach-Object {
-            delvewheel repair --add-path C:/gdal-prefix/Library/bin -w canary-deps-wheelhouse $_.FullName
-            if ($LASTEXITCODE -ne 0) { throw "delvewheel repair failed for $($_.Name)" }
-          }
-          Get-ChildItem canary-deps-wheelhouse
-
+      # The vector stack (shapely/pyogrio/geopandas) is vendored inside
+      # each wheel by install-and-vendor-osgeo.py during before-build —
+      # no separate canary wheels exist anymore.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: canary-winarm64
+          name: wheels-winarm64
           path: wheelhouse/*.whl
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: canary-deps-winarm64
-          path: canary-deps-wheelhouse/*.whl
 
 
   test-wheels:
@@ -667,16 +641,22 @@ jobs:
           tests/base tests/netcdf tests/io
           tests/dataset tests/feature
 
-  # Native win_arm64 verification (no emulation — the runner executes its
-  # own arch): wheel + canary shapely/pyogrio installed, geopandas
-  # resolves normally against them, then verify-wheel (drivers, netCDF,
-  # JP2, schannel TLS) + the full hermetic core suite.
+  # Native win_arm64 verification (no emulation — the runner executes
+  # its own arch), one cell per shipped Python: a bare `pip install
+  # <wheel>` must resolve on its own (the dependency markers skip
+  # shapely/geopandas; the wheel vendors them), then verify-wheel checks
+  # drivers, the vendored vector stack, licenses, netCDF, JP2, and
+  # schannel TLS. The full hermetic suite runs once, on 3.12.
   verify-winarm64:
     needs: build-winarm64-wheels
     runs-on: windows-11-arm
     permissions:
       contents: read
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -684,30 +664,26 @@ jobs:
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: canary-winarm64
+          name: wheels-winarm64
           path: wheelhouse
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: canary-deps-winarm64
-          path: canary-deps-wheelhouse
-
-      - name: Install wheel + canary deps
+      - name: Install wheel (plain pip resolution — the real user path)
         shell: bash
         run: |
-          pip install canary-deps-wheelhouse/shapely-*.whl canary-deps-wheelhouse/pyogrio-*.whl
-          WHEEL=$(ls wheelhouse/pyramids_gis-*cp312*win_arm64.whl)
+          PYTAG="cp$(echo '${{ matrix.python-version }}' | tr -d .)"
+          WHEEL=$(ls wheelhouse/pyramids_gis-*${PYTAG}*win_arm64.whl)
           pip install "${WHEEL}"
           pip install pytest pytest-env pytest-mock pytest-timeout
 
-      - name: Verify GDAL import + drivers (netCDF, JP2, TLS)
+      - name: Verify GDAL import + drivers (vector stack, netCDF, JP2, TLS)
         run: python ci/verify-wheel.py
 
       - name: Run hermetic core test suite
+        if: matrix.python-version == '3.12'
         shell: bash
         timeout-minutes: 15
         run: >-
@@ -716,13 +692,13 @@ jobs:
 
   release:
     name: Publish to PyPI + attach to GitHub release
-    # NOTE: the canary wheels stay UNPUBLISHED (their `canary-*` artifacts
-    # can't match the download pattern and the composition gate rejects
-    # them) until upstream unblocks: musl on pyogrio musllinux wheels
-    # (#333), win_arm64 on shapely + pyogrio arm64 wheels (#334). Their
-    # verify jobs DO gate the release, though — maintainer decision after
-    # 0.40.0 published with verify-alpine red (a run-level failure is not
-    # loud enough on a release).
+    # NOTE: the musl canary wheels stay UNPUBLISHED (their `canary-*`
+    # artifacts can't match the download pattern and the composition gate
+    # rejects them) until upstream pyogrio ships musllinux wheels (#333).
+    # win_arm64 wheels PUBLISH as of #334's graduation (the wheel vendors
+    # its vector stack). Every verify job gates the release, canaries
+    # included — maintainer decision after 0.40.0 published with
+    # verify-alpine red (a run-level failure is not loud enough).
     needs: [build-sdist, build-linux-wheels, build-macos-wheels,
             build-windows-wheels, test-wheels, verify-debian12, verify-rocky9,
             verify-rocky9-aarch64, verify-alpine, verify-winarm64]
@@ -778,17 +754,18 @@ jobs:
             echo "ERROR: musl canaries are unpublished by policy (#333) but reached dist/:" >&2
             printf '%s\n' "${musl[@]}" >&2; fail=1
           fi
-          winarm=(dist/*win_arm64*.whl)
-          if [ "${#winarm[@]}" -ne 0 ]; then
-            echo "ERROR: win_arm64 canaries are unpublished by policy (#334) but reached dist/:" >&2
-            printf '%s\n' "${winarm[@]}" >&2; fail=1
-          fi
           wheels=(dist/*.whl)
           pyvers=$(printf '%s\n' "${wheels[@]}" | grep -oE 'cp3[0-9]+' | sort -u | wc -l)
           if [ "${pyvers}" -lt 4 ]; then
             echo "ERROR: only ${pyvers} distinct CPython tags in dist/ (expected >= 4)" >&2; fail=1
           fi
+          winarm=(dist/*win_arm64*.whl)
+          if [ "${#winarm[@]}" -ne $((pyvers - 1)) ]; then
+            echo "ERROR: expected $((pyvers - 1)) win_arm64 wheels (cp311 excluded — no" >&2
+            echo "       numpy/scipy ARM64 wheels), found ${#winarm[@]}" >&2; fail=1
+          fi
           for tag in manylinux_2_28_x86_64 manylinux_2_28_aarch64 "macosx*x86_64" "macosx*arm64" win_amd64; do
+            # win_arm64 is asserted separately above (pyvers - 1 wheels).
             plat=(dist/*${tag}.whl)
             if [ "${#plat[@]}" -ne "${pyvers}" ]; then
               echo "ERROR: expected ${pyvers} ${tag} wheels (one per CPython tag), found ${#plat[@]}" >&2
@@ -799,7 +776,8 @@ jobs:
             echo "release composition check FAILED — nothing was published" >&2
             exit 1
           fi
-          echo "release composition OK: 1 sdist + ${#wheels[@]} wheels (${pyvers} CPython x 5 platforms)"
+          echo "release composition OK: 1 sdist + ${#wheels[@]} wheels" \
+            "(${pyvers} CPython x 5 platforms + $((pyvers - 1)) win_arm64)"
 
       - name: Dry run stops here — gather + gate passed, nothing published
         if: github.event_name == 'workflow_dispatch'
