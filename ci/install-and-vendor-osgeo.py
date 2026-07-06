@@ -711,6 +711,65 @@ def _is_win_arm64() -> bool:
     return result
 
 
+def _copy_dist_info_licenses(dist_info: Path, src_pyramids: Path) -> None:
+    """Ship a vendored package's license texts under `_licenses/<pkg>/`.
+
+    The metadata dir itself stays out of the wheel — only the license
+    files ride along, next to the other bundled third-party notices.
+    """
+    pkg = dist_info.name.split("-", 1)[0]
+    for license_file in dist_info.rglob("LICENSE*"):
+        # Windows globbing is case-insensitive, so "LICENSE*" also
+        # matches PEP 639's `licenses/` DIRECTORY — copy only the
+        # files (rglob descends into the dir anyway).
+        if not license_file.is_file():
+            continue
+        dst = src_pyramids / "_licenses" / pkg / license_file.name
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(license_file, dst)
+
+
+def _copy_vector_stack_tree(
+    target: Path, src_pyramids: Path, vendor_dir: Path
+) -> list:
+    """Copy a pip --target tree's packages into `_vendor/`, licenses too.
+
+    Returns the vendored top-level package names.
+    """
+    vendored = []
+    for entry in sorted(target.iterdir()):
+        if entry.name.endswith(".dist-info"):
+            _copy_dist_info_licenses(entry, src_pyramids)
+        elif entry.is_dir() and entry.name not in ("bin", "__pycache__"):
+            _copy_tree_replacing(entry, vendor_dir / entry.name)
+            vendored.append(entry.name)
+    return vendored
+
+
+def _assert_vector_stack_complete(vendored: list, src_pyramids: Path) -> None:
+    """Hard-fail unless every pinned package vendored with a license.
+
+    The wheel redistributes these packages' binaries, so shipping their
+    license texts is a hard requirement, not best-effort — and the
+    wheel-level check only asserts a total dir count, which the
+    vcpkg-staged licenses alone satisfy. Fail here if a pin's dist-info
+    stopped matching the LICENSE* glob (e.g. a rename to COPYING or a
+    new PEP 639 layout).
+    """
+    for required in ("shapely", "pyogrio", "geopandas"):
+        if required not in vendored:
+            raise RuntimeError(
+                f"vector-stack vendoring did not produce _vendor/{required} "
+                f"(got: {vendored})"
+            )
+        license_dir = src_pyramids / "_licenses" / required
+        if not license_dir.is_dir() or not any(license_dir.iterdir()):
+            raise RuntimeError(
+                f"vector-stack vendoring shipped no license text for "
+                f"{required} under {license_dir}"
+            )
+
+
 def vendor_vector_stack_into_package() -> None:
     """Vendor shapely + pyogrio + geopandas into the win_arm64 wheel.
 
@@ -789,46 +848,9 @@ def vendor_vector_stack_into_package() -> None:
             env=env,
         )
 
-        vendored = []
-        for entry in sorted(target.iterdir()):
-            if entry.name.endswith(".dist-info"):
-                # Ship the license texts alongside the other bundled
-                # notices; the metadata dir itself stays out of the wheel.
-                pkg = entry.name.split("-", 1)[0]
-                for license_file in entry.rglob("LICENSE*"):
-                    # Windows globbing is case-insensitive, so "LICENSE*"
-                    # also matches PEP 639's `licenses/` DIRECTORY — copy
-                    # only the files (rglob descends into the dir anyway).
-                    if not license_file.is_file():
-                        continue
-                    dst = src_pyramids / "_licenses" / pkg / license_file.name
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(license_file, dst)
-                continue
-            if entry.name in ("bin", "__pycache__"):
-                continue
-            if entry.is_dir():
-                _copy_tree_replacing(entry, vendor_dir / entry.name)
-                vendored.append(entry.name)
+        vendored = _copy_vector_stack_tree(target, src_pyramids, vendor_dir)
 
-    for required in ("shapely", "pyogrio", "geopandas"):
-        if required not in vendored:
-            raise RuntimeError(
-                f"vector-stack vendoring did not produce _vendor/{required} "
-                f"(got: {vendored})"
-            )
-        # The wheel redistributes these packages' binaries, so shipping
-        # their license texts is a hard requirement, not best-effort —
-        # and the wheel-level check only asserts a total dir count, which
-        # the vcpkg-staged licenses alone satisfy. Fail here if a pin's
-        # dist-info stopped matching the LICENSE* glob (e.g. a rename to
-        # COPYING or a new PEP 639 layout).
-        license_dir = src_pyramids / "_licenses" / required
-        if not license_dir.is_dir() or not any(license_dir.iterdir()):
-            raise RuntimeError(
-                f"vector-stack vendoring shipped no license text for "
-                f"{required} under {license_dir}"
-            )
+    _assert_vector_stack_complete(vendored, src_pyramids)
     print(
         f"[install-and-vendor-osgeo] vendored vector stack: {', '.join(vendored)}",
         flush=True,
