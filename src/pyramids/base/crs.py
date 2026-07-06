@@ -361,7 +361,11 @@ def get_epsg_from_prj(prj: str) -> int:
         # the root — e.g. a UTM PROJCS whose WKT lacks an AUTHORITY node), or a
         # *non-numeric* authority code — notably OGC:CRS84 (the lon/lat WGS 84 that
         # WMS/WMTS layers report), where GetAuthorityCode returns "CRS84". Try an
-        # exact PROJ-database match before giving up (CRS84 matches EPSG:4326).
+        # exact PROJ-database match before giving up. A UTM PROJCS resolves to its
+        # numeric code here; CRS84's best match is CRS84 itself (still non-numeric),
+        # so it is dropped to None below and raises CRSError — the soft
+        # epsg_from_wkt() then supplies its default. The point of this branch is to
+        # never crash on int("CRS84"), not to equate CRS84 with EPSG:4326.
         match = _epsg_from_db_match(srs)
         code = match if (match and str(match).isdigit()) else None
     if code is None:

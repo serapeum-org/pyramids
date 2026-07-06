@@ -55,8 +55,32 @@ def _xml_escape(text: str) -> str:
 
 
 def _layers_value(layers: str | list[str] | tuple[str, ...]) -> str:
-    """Normalise the ``layers`` argument to a comma-joined WMS ``<Layers>`` value."""
-    return layers if isinstance(layers, str) else ",".join(layers)
+    """Normalise ``layers`` to a comma-joined WMS ``<Layers>`` value.
+
+    Raises:
+        ValueError: ``layers`` is empty or contains a blank entry — either would
+            produce a malformed ``<Layers>`` (e.g. ``<Layers></Layers>`` or a
+            leading comma) that the server rejects opaquely.
+    """
+    items = [layers] if isinstance(layers, str) else list(layers)
+    if not items or any(not str(item).strip() for item in items):
+        raise ValueError("layers must name at least one non-empty layer")
+    return ",".join(items)
+
+
+def _crs_element_tag(version: str) -> str:
+    """Return the WMS CRS element tag for ``version`` (``CRS`` >= 1.3.0, else ``SRS``).
+
+    GDAL's WMS minidriver refuses to initialize a descriptor that uses ``<CRS>``
+    for WMS 1.1.1 and below (it requires ``<SRS>``), and vice-versa for 1.3.0+, so
+    the tag must track the requested version. An unparseable version is assumed
+    modern (``CRS``).
+    """
+    try:
+        parsed = tuple(int(part) for part in version.split("."))
+    except ValueError:
+        parsed = (1, 3, 0)
+    return "CRS" if parsed >= (1, 3, 0) else "SRS"
 
 
 def _output_size(
@@ -113,17 +137,19 @@ def _wms_descriptor(
     ``<DataWindow>`` carries the request in the service CRS: upper-left / lower-
     right corners from ``bbox`` and the output ``SizeX`` / ``SizeY`` in pixels. GDAL
     handles the WMS 1.3.0 EPSG:4326 lat/lon axis swap internally, so the corners are
-    always written x/y (lon/lat).
+    always written x/y (lon/lat). The CRS element is ``<CRS>`` for WMS >= 1.3.0 and
+    ``<SRS>`` for 1.1.1 and below, as GDAL's minidriver requires.
     """
     minx, miny, maxx, maxy = bbox
     width, height = size
+    crs_tag = _crs_element_tag(version)
     return (
         "<GDAL_WMS>\n"
         '  <Service name="WMS">\n'
         f"    <Version>{_xml_escape(version)}</Version>\n"
         f"    <ServerUrl>{_xml_escape(endpoint)}</ServerUrl>\n"
         f"    <Layers>{_xml_escape(layers)}</Layers>\n"
-        f"    <CRS>{_xml_escape(crs)}</CRS>\n"
+        f"    <{crs_tag}>{_xml_escape(crs)}</{crs_tag}>\n"
         f"    <ImageFormat>{_xml_escape(image_format)}</ImageFormat>\n"
         "  </Service>\n"
         "  <DataWindow>\n"
@@ -183,8 +209,10 @@ def _available_wmts_layers(endpoint: str) -> list[str]:
     layers: list[str] = []
     if caps is not None:
         for key, value in caps.GetMetadata("SUBDATASETS").items():
-            if key.endswith("_NAME") and "layer=" in value:
-                layers.append(value.split("layer=", 1)[1].split(",", 1)[0])
+            # Split on the comma-prefixed ``,layer=`` GDAL subdataset key, not a
+            # bare ``layer=`` that a query-string in the caps URL might also carry.
+            if key.endswith("_NAME") and ",layer=" in value:
+                layers.append(value.split(",layer=", 1)[1].split(",", 1)[0])
     return sorted(set(layers))
 
 
@@ -282,8 +310,6 @@ def from_wms(
     """
     minx, miny, maxx, maxy = _validate_bbox(bbox)
     layers_value = _layers_value(layers)
-    if not layers_value:
-        raise ValueError("layers must name at least one layer")
     width, height = _output_size((minx, miny, maxx, maxy), size, resolution)
     descriptor = _wms_descriptor(
         endpoint,

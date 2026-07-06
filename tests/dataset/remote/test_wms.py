@@ -60,6 +60,11 @@ class TestLayersValue:
     def test_tuple_joined_with_commas(self):
         assert _wms._layers_value(("a", "b")) == "a,b"
 
+    @pytest.mark.parametrize("bad", ["", "  ", [], (), ["", "L"], ["A", "  "]])
+    def test_rejects_empty_or_blank_entries(self, bad):
+        with pytest.raises(ValueError, match="at least one non-empty layer"):
+            _wms._layers_value(bad)
+
 
 class TestWmsDescriptor:
     def test_carries_service_and_window(self):
@@ -90,6 +95,36 @@ class TestWmsDescriptor:
         assert "&b" not in xml.replace("&amp;", "")
 
 
+class TestCrsElementTag:
+    @pytest.mark.parametrize(
+        "version, tag",
+        [("1.3.0", "CRS"), ("1.1.1", "SRS"), ("1.1.0", "SRS"), ("1.0.0", "SRS"),
+         ("bogus", "CRS")],
+    )
+    def test_tag_tracks_version(self, version, tag):
+        assert _wms._crs_element_tag(version) == tag
+
+    def test_descriptor_uses_srs_below_1_3_0(self):
+        xml = _wms._wms_descriptor(
+            "http://x?", "L", "EPSG:4326", "image/png", "1.1.1", BBOX, (10, 10), 3,
+        )
+        assert "<SRS>EPSG:4326</SRS>" in xml and "<CRS>" not in xml
+
+    def test_descriptor_gdal_open_accepts_all_versions(self):
+        """GDAL must accept the descriptor GDAL-side for every WMS version (the M1 gap).
+
+        gdal.Open only parses the descriptor (the GetMap fetch is deferred), so this
+        is network-free; before the SRS/CRS fix it raised for 1.1.1 / 1.0.0.
+        """
+        for version in ("1.0.0", "1.1.1", "1.3.0"):
+            xml = _wms._wms_descriptor(
+                "http://example.invalid/wms?", "L", "EPSG:4326", "image/png",
+                version, BBOX, (16, 16), 3,
+            )
+            src = _wms.gdal.Open(xml)
+            assert src is not None, f"GDAL rejected the {version} descriptor"
+
+
 class TestWmtsConnection:
     def test_layer_only(self):
         conn = _wms._wmts_connection("http://c.xml", "TC", None)
@@ -114,10 +149,10 @@ class TestFromWmsGuards:
                 size=(10, 10), resolution=0.1,
             )
 
-    @pytest.mark.parametrize("empty", ["", [], ()])
+    @pytest.mark.parametrize("empty", ["", [], (), ["", "L"]])
     def test_from_wms_rejects_empty_layers(self, empty):
-        """An empty layers argument fails fast, before any network call."""
-        with pytest.raises(ValueError, match="at least one layer"):
+        """An empty or partial-empty layers argument fails fast, before any network."""
+        with pytest.raises(ValueError, match="at least one non-empty layer"):
             Dataset.from_wms(
                 "https://host/wms?", layers=empty, bbox=BBOX, size=(10, 10)
             )
@@ -210,7 +245,7 @@ class TestLiveWms:
             self.GIBS, layer=self.TRUECOLOR, bbox=BBOX, resolution=0.01,
         )
         assert ds.shape[-2:] == (100, 100)
-        assert ds.epsg == 4326  # CRS84 resolves to EPSG:4326
+        assert ds.epsg == 4326  # CRS84 is unresolvable -> epsg_from_wkt default 4326
         assert ds.bbox[0] == pytest.approx(5.0, abs=0.05)
 
     def test_wmts_unknown_layer_lists_available(self):
