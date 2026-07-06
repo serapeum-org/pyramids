@@ -31,13 +31,19 @@ requires-python = ">= 3.11, <4"
 # (no wheel exists) and break most end-user pip installs.
 dependencies = [
     "cftime >=1.6.4",
-    "geopandas >=1.0.0",
+    # win_arm64: shapely and pyogrio (geopandas' hard dep) ship no ARM64
+    # wheels on PyPI, so requiring them would make the platform
+    # uninstallable. The win_arm64 wheel vendors the whole vector stack
+    # (shapely + geopandas + pyogrio) under pyramids/_vendor/ instead —
+    # see ci/install-and-vendor-osgeo.py. Every other platform resolves
+    # these normally; drop the markers when upstream ships ARM64 wheels.
+    "geopandas >=1.0.0 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
     "hpc-utils >=0.1.5",
     "numpy >=2.0.0",
     "pandas >=2.0.0",
     "pyproj >=3.7.0",
     "PyYAML >=6.0.0",
-    "Shapely >=2.1.0",
+    "Shapely >=2.1.0 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
     "scipy >=1.10.0",
 ]
 
