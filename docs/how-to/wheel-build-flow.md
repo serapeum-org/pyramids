@@ -16,7 +16,7 @@ Two build models coexist in the pipeline:
 
 ## What gets built per release
 
-`bundle-pypi-wheels.yml` produces **20 published platform wheels + 1 sdist** per
+`bundle-pypi-wheels.yml` produces **23 published platform wheels + 1 sdist** per
 release, plus 8 unpublished musl canary wheels:
 
 | Platform | Architecture                        | Python versions        | Wheels |
@@ -26,6 +26,7 @@ release, plus 8 unpublished musl canary wheels:
 | macOS    | arm64 (Apple Silicon, `macosx_11_0`)| 3.11, 3.12, 3.13, 3.14 | 4      |
 | macOS    | x86_64 (Intel, cross-compiled)      | 3.11, 3.12, 3.13, 3.14 | 4      |
 | Windows  | AMD64 (x64)                         | 3.11, 3.12, 3.13, 3.14 | 4      |
+| Windows  | ARM64 (`win_arm64`, vcpkg build)    | 3.12, 3.13, 3.14       | 3      |
 | (any)    | sdist                               | —                      | 1      |
 
 **Total published: 20 wheels + 1 sdist.** Two **CI canary** families build and
@@ -116,7 +117,6 @@ the **conda-forge install path**:
 |---|---|---|---|
 | Linux glibc < 2.28 (RHEL 7, Ubuntu 18.04, …) | below the manylinux_2_28 image floor | conda-forge | intentional |
 | Alpine / musl Linux | built + verified in CI, unpublished (pyogrio has no musl wheels) | conda-forge | #333 |
-| Windows on ARM64 | built + verified in CI (shapely/pyogrio lack arm64 wheels) | AMD64 wheel under emulation | #334 |
 | Free-threaded CPython (`cp31Nt`) | GDAL SWIG bindings + numpy not ready | use a GIL build | #683 |
 | Python 3.10 or earlier | excluded by `requires-python = ">= 3.11"` | upgrade Python, or pin `< 0.20` | intentional |
 | Python 3.15+ (future) | not yet released by CPython | conda-forge until wheels ship | #335 |
@@ -145,7 +145,7 @@ Amazon Linux 2023 with a ~30 MB wheel (vs ~47 MB under conda-extract).
 |-----------------------------------|-------|------------------------|-----------------------------------------------------------------|
 | Lower glibc floor (< 2.39)        | #332  | **shipped**            | from-source `manylinux_2_28` wheels (this pipeline)             |
 | musllinux (Alpine)                | #333  | **built, unpublished** | canaries green in CI; blocked on pyogrio musl wheels            |
-| Windows ARM64                     | #334  | **built, unpublished** | vcpkg canaries green in CI; blocked on shapely/pyogrio arm64      |
+| Windows ARM64                     | #334  | **shipped**            | vcpkg build; vector stack vendored (shapely/pyogrio gap)         |
 | Python 3.15+                      | #335  | pending upstream       | ships when CPython 3.15 + ecosystem land; one-line `build` bump |
 | Free-threaded (`cp313t`/`cp314t`) | #683  | pending upstream       | GDAL SWIG bindings + numpy first; revisit at 3.15               |
 

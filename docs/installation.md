@@ -115,8 +115,8 @@ print(gdal.__version__)          # should print 3.13.x
 | macOS 11+ | x86_64 | `macosx_11_0_x86_64` | ✅ Supported |
 | macOS 11+ | arm64 (Apple Silicon) | `macosx_11_0_arm64` | ✅ Supported |
 | Windows 10+ | x64 | `win_amd64` | ✅ Supported |
+| Windows 11+ | ARM64 | `win_arm64` | ✅ Supported (Python 3.12+; see the ARM64 note below) |
 | Alpine (musl) | any | — | ⏸ Built in CI, unpublished — blocked on upstream `pyogrio` musl wheels |
-| Windows 11+ | ARM64 | — | ⏸ Built in CI, unpublished — blocked on upstream `shapely`/`pyogrio` arm64 wheels |
 
 Distros covered by the Linux wheel out of the box:
 
@@ -141,18 +141,26 @@ Until a row clears, the workaround column applies.
 | Platform / target | Why no wheel today | Ships when | Workaround |
 |---|---|---|---|
 | Alpine / musl Linux | built + verified in CI; `pyogrio` has no musl wheels | pyogrio ships them (#333) | conda-forge |
-| Windows on ARM64 | built + verified in CI; shapely/pyogrio lack arm64 wheels | upstream lands (#334) | AMD64 wheel |
 | Python 3.15 | CPython unreleased; ecosystem needs cp315 wheels | after CPython 3.15, ~Oct 2026 (#335) | — |
 | Free-threaded (`cp31Nt`) | GDAL SWIG bindings + numpy not ready | revisit at 3.15 (#683) | standard (GIL) build |
 | Linux glibc < 2.28 | below the oldest maintained manylinux image | never (intentional) | conda-forge |
 | PyPy / Python ≤ 3.10 | GDAL bindings target CPython 3.11+ | never (intentional) | CPython 3.11+ |
 
 One **feature-level** difference inside a covered platform: the Linux
-wheel does not include the HDF4 driver (the macOS and Windows wheels
-do). HDF4 is a legacy format; if you need it on Linux, use conda-forge.
+wheel does not include the HDF4 driver (the macOS x64 and Windows x64
+wheels do). HDF4 is a legacy format; if you need it on Linux, use conda-forge.
 This is the only driver difference — the wheel pipeline asserts the
 full promised driver set on every build, so drivers cannot silently
 disappear from a release.
+
+> **Windows ARM64 note**: the `win_arm64` wheel ships Python 3.12–3.14
+> (numpy/scipy publish no cp311 ARM64 wheels), carries GDAL 3.12.4 (the
+> pinned vcpkg port version; the other platforms ship 3.13.1), has no
+> HDF4 driver (like Linux), and **vendors its vector stack** — shapely,
+> geopandas, and pyogrio ship inside the wheel under
+> `pyramids/_vendor/` because upstream publishes no ARM64 wheels for
+> them. `import geopandas` etc. work normally after `import pyramids`;
+> the vendored copies disappear once upstream ships ARM64 wheels.
 
 ## System dependencies
 
