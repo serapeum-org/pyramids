@@ -356,15 +356,20 @@ def _check_vendored_vector_stack() -> None:
     under `_vendor/` — a stale build tree would otherwise leak one in
     (install-and-vendor-osgeo.py deletes leftovers on the build side).
     """
-    vendor_root = (Path(pyramids.__file__).parent / "_vendor").resolve()
+    pkg_root = Path(pyramids.__file__).parent
+    vendor_root = (pkg_root / "_vendor").resolve()
     if _platform_slug() not in _VENDORED_VECTOR_PLATFORMS:
+        # Mirror BOTH halves of the build-side cleanup contract
+        # (remove_stale_vector_stack): package dirs and license dirs.
         for pkg in ("shapely", "geopandas", "pyogrio"):
-            if (vendor_root / pkg).exists():
-                _fail(
-                    f"_vendor/{pkg} present in a {_platform_slug()} wheel — "
-                    "the vector stack is vendored on win_arm64 only; a stale "
-                    "build tree leaked into this wheel"
-                )
+            for stale in (vendor_root / pkg, pkg_root / "_licenses" / pkg):
+                if stale.exists():
+                    _fail(
+                        f"{stale.relative_to(pkg_root)} present in a "
+                        f"{_platform_slug()} wheel — the vector stack is "
+                        "vendored on win_arm64 only; a stale build tree "
+                        "leaked into this wheel"
+                    )
         print(
             "vendored-vector check OK — no vector stack in this wheel; "
             "the platform installs it from PyPI."
