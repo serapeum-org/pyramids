@@ -673,15 +673,20 @@ def vendor_vector_stack_into_package() -> None:
     1. build shapely + pyogrio from sdist for the CURRENT Python against
        the vcpkg prefix (GEOS/GDAL headers + import libs staged by
        ci/setup-gdal-from-vcpkg.ps1),
-    2. delvewheel-repair them so geos_c.dll / gdal.dll land in
-       `<pkg>.libs/` next to each package (delvewheel patches each
-       package __init__ to add that directory, and the patch resolves
-       relative to the package — it keeps working from `_vendor/`),
-    3. `pip install --target` the repaired wheels plus pure-Python
-       geopandas and copy the top-level entries into
-       `src/pyramids/_vendor/`, where the runtime bootstrap already
-       puts them on sys.path (the same mechanism as the vendored osgeo),
-    4. ship each package's license text under `_licenses/`.
+    2. `pip install --target` the RAW wheels plus pure-Python geopandas
+       and copy the top-level entries into `src/pyramids/_vendor/`,
+       where the runtime bootstrap already puts them on sys.path (the
+       same mechanism as the vendored osgeo),
+    3. ship each package's license text under `_licenses/`.
+
+    The vendored extension modules are deliberately NOT delvewheel-
+    repaired here: the wheel's own `delvewheel repair --analyze-existing`
+    pass walks every binary in the wheel, resolves their plain
+    geos_c.dll / gdal.dll imports from the vcpkg prefix, bundles ONE
+    shared copy of each into pyramids_gis.libs, and rewrites the import
+    tables. A pre-repaired (name-mangled) vendored binary breaks that
+    pass instead — it imports a gdal-<hash>.dll delvewheel cannot
+    resolve (observed: run 28782083527).
     """
     prefix = _build_prefix()
     bin_dir, _, lib_dir = _data_layout_roots(prefix)
@@ -699,7 +704,6 @@ def vendor_vector_stack_into_package() -> None:
 
     with tempfile.TemporaryDirectory(prefix="vector-stack-") as tmp:
         raw = Path(tmp) / "raw"
-        repaired = Path(tmp) / "repaired"
         target = Path(tmp) / "target"
         shapely_pin = f"shapely=={_VECTOR_STACK_PINS['shapely']}"
         pyogrio_pin = f"pyogrio=={_VECTOR_STACK_PINS['pyogrio']}"
@@ -718,19 +722,7 @@ def vendor_vector_stack_into_package() -> None:
             check=True,
             env=env,
         )
-        repaired.mkdir()
-        for wheel in sorted(raw.glob("*.whl")):
-            subprocess.run(
-                [
-                    sys.executable, "-m", "delvewheel", "repair",
-                    "--add-path", str(bin_dir),
-                    "-w", str(repaired),
-                    str(wheel),
-                ],
-                check=True,
-                env=env,
-            )
-        install = [str(w) for w in sorted(repaired.glob("*.whl"))]
+        install = [str(w) for w in sorted(raw.glob("*.whl"))]
         install.append(f"geopandas=={_VECTOR_STACK_PINS['geopandas']}")
         subprocess.run(
             [
