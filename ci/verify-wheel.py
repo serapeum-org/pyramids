@@ -43,6 +43,14 @@ import pyramids
 import osgeo
 from osgeo import gdal, ogr, osr  # noqa: F401 — ogr import is a smoke test
 
+# The same bootstrap-first constraint covers the vector stack: on
+# win_arm64 these three live under pyramids/_vendor and only resolve
+# after `import pyramids` (everywhere else they are real PyPI installs
+# pulled in by the wheel's dependencies).
+import geopandas
+import pyogrio
+import shapely
+
 # isort: on
 
 # Stable, valid-TLS HTTPS endpoint for the CA-trust check. Small text
@@ -307,6 +315,10 @@ _HDF4_PLATFORMS = ("darwin", "win32-amd64")
 # Platforms whose curl uses the OS trust store (schannel) instead of a
 # vendored CA bundle — see _check_tls_read.
 _OS_TRUST_PLATFORMS = ("win32-arm64",)
+# Platforms whose wheel vendors the vector stack (shapely + geopandas +
+# pyogrio) because upstream ships no wheels there — see
+# _check_vendored_vector_stack.
+_VENDORED_VECTOR_PLATFORMS = ("win32-arm64",)
 
 
 def _platform_slug() -> str:
@@ -329,6 +341,64 @@ def _check_driver_set() -> None:
             + ", ".join(missing)
         )
     print(f"driver-set check OK — all {len(expected)} promised drivers registered.")
+
+
+def _check_vendored_vector_stack() -> None:
+    """Assert the vendored vector stack imports from `_vendor` where shipped.
+
+    On the platforms in `_VENDORED_VECTOR_PLATFORMS` the wheel's
+    dependency markers skip Shapely/geopandas, and the wheel carries its
+    own shapely + geopandas + pyogrio under `pyramids/_vendor/`. Importing
+    each and checking the resolved path proves the bootstrap exposes them
+    and their bundled GEOS/GDAL DLLs load (import executes the delvewheel
+    loader). Elsewhere the check inverts: those platforms install the
+    real distributions from PyPI, so the wheel must ship NO vector stack
+    under `_vendor/` — a stale build tree would otherwise leak one in
+    (install-and-vendor-osgeo.py deletes leftovers on the build side).
+    """
+    pkg_root = Path(pyramids.__file__).parent
+    vendor_root = (pkg_root / "_vendor").resolve()
+    if _platform_slug() in _VENDORED_VECTOR_PLATFORMS:
+        _assert_vector_stack_vendored(vendor_root)
+    else:
+        _assert_vector_stack_absent(pkg_root, vendor_root)
+
+
+def _assert_vector_stack_vendored(vendor_root: Path) -> None:
+    """Fail unless shapely/geopandas/pyogrio resolve from `_vendor`."""
+    for module in (shapely, geopandas, pyogrio):
+        resolved = Path(module.__file__).resolve()
+        if not resolved.is_relative_to(vendor_root):
+            _fail(
+                f"{module.__name__} resolved to {resolved}, not the "
+                f"vendored copy under {vendor_root}"
+            )
+    print(
+        "vendored vector stack OK — shapely "
+        f"{shapely.__version__}, geopandas {geopandas.__version__}, "
+        f"pyogrio {pyogrio.__version__} all import from _vendor."
+    )
+
+
+def _assert_vector_stack_absent(pkg_root: Path, vendor_root: Path) -> None:
+    """Fail if a stale vendored vector stack leaked into this wheel.
+
+    Mirrors BOTH halves of the build-side cleanup contract
+    (remove_stale_vector_stack): package dirs and license dirs.
+    """
+    for pkg in ("shapely", "geopandas", "pyogrio"):
+        for stale in (vendor_root / pkg, pkg_root / "_licenses" / pkg):
+            if stale.exists():
+                _fail(
+                    f"{stale.relative_to(pkg_root)} present in a "
+                    f"{_platform_slug()} wheel — the vector stack is "
+                    "vendored on win_arm64 only; a stale build tree "
+                    "leaked into this wheel"
+                )
+    print(
+        "vendored-vector check OK — no vector stack in this wheel; "
+        "the platform installs it from PyPI."
+    )
 
 
 def _check_licenses() -> None:
@@ -381,6 +451,7 @@ def _check_jp2_driver() -> None:
 
 
 _check_driver_set()
+_check_vendored_vector_stack()
 _check_licenses()
 _check_netcdf_driver()
 _check_jp2_driver()

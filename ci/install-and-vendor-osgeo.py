@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,35 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Vector stack vendored into the win_arm64 wheel ONLY (see
+# vendor_vector_stack_into_package): shapely and pyogrio ship no ARM64
+# wheels on PyPI, so pyramids' [project.dependencies] markers skip them
+# (and geopandas, which hard-requires pyogrio) on that platform and the
+# wheel carries its own copies instead. Exact pins so a rebuild is
+# reproducible; bump deliberately, and DELETE this whole mechanism when
+# upstream ships win_arm64 wheels (then also drop the pyproject markers).
+# Each entry is (version, sha256) of the exact PyPI artifact fetched at
+# build time — the shapely/pyogrio sdists (compiled below) and the
+# pure-Python geopandas wheel. pip --require-hashes rejects anything
+# else, mirroring the SHA256 pinning of the Linux from-source stack
+# (ci/source-build/config.sh); these are release inputs, not cache.
+# Known gap vs the Linux stack: the sdist compiles run under pip build
+# isolation, whose own deps (setuptools/Cython/numpy) float unpinned.
+_VECTOR_STACK_PINS = {
+    "shapely": (
+        "2.1.2",
+        "2ed4ecb28320a433db18a5bf029986aa8afcfd740745e78847e330d5d94922a9",
+    ),
+    "pyogrio": (
+        "0.13.0",
+        "9614f27a1891113f80653e0b76b4233ea1fb3beeb1ac46d118ab22e1670f8f13",
+    ),
+    "geopandas": (
+        "1.1.4",
+        "1a0c459cbdb1537cd154dafe6174be20d1760844b7f1c967dc8520b180f2e773",
+    ),
+}
 
 
 def _gdal_version() -> str:
@@ -644,12 +674,223 @@ def _vendor_license_texts(pixi_env: Path, dst: Path) -> None:
     )
 
 
+def _is_win_arm64() -> bool:
+    """Return True when this build TARGETS Windows ARM64.
+
+    The host arch (`platform.machine()`) decides by default — the
+    supported build topology is a native `windows-11-arm` runner. But
+    cibuildwheel can be asked to cross-build (CIBW_ARCHS[_WINDOWS]
+    names a different arch than the host), and the vendoring step
+    compiles shapely/pyogrio with the build interpreter, so host and
+    target must match:
+
+    - ARM64 requested on a non-ARM64 host: hard-fail. Silently skipping
+      would tag a wheel win_arm64 whose markers skip geopandas/shapely
+      AND that ships no vendored copies — it installs cleanly and dies
+      at `import geopandas`.
+    - non-ARM64 requested on an ARM64 host: return False, so the build
+      takes the stale-cleanup branch instead of vendoring ARM64 `.pyd`s
+      into a foreign wheel.
+    """
+    result = False
+    if sys.platform == "win32":
+        host_is_arm64 = platform.machine().upper() == "ARM64"
+        requested = (
+            os.environ.get("CIBW_ARCHS_WINDOWS")
+            or os.environ.get("CIBW_ARCHS")
+            or ""
+        ).upper()
+        if "ARM64" in requested and not host_is_arm64:
+            raise RuntimeError(
+                "win_arm64 wheels must be built on a native ARM64 host "
+                f"(host is {platform.machine()}): the vendored vector "
+                "stack is compiled with the build interpreter, so a "
+                "cross-build would ship wrong-arch binaries"
+            )
+        result = host_is_arm64 and ("ARM64" in requested or not requested)
+    return result
+
+
+def _copy_dist_info_licenses(dist_info: Path, src_pyramids: Path) -> None:
+    """Ship a vendored package's license texts under `_licenses/<pkg>/`.
+
+    The metadata dir itself stays out of the wheel — only the license
+    files ride along, next to the other bundled third-party notices.
+    """
+    pkg = dist_info.name.split("-", 1)[0]
+    for license_file in dist_info.rglob("LICENSE*"):
+        # Windows globbing is case-insensitive, so "LICENSE*" also
+        # matches PEP 639's `licenses/` DIRECTORY — copy only the
+        # files (rglob descends into the dir anyway).
+        if not license_file.is_file():
+            continue
+        dst = src_pyramids / "_licenses" / pkg / license_file.name
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(license_file, dst)
+
+
+def _copy_vector_stack_tree(
+    target: Path, src_pyramids: Path, vendor_dir: Path
+) -> list:
+    """Copy a pip --target tree's packages into `_vendor/`, licenses too.
+
+    Returns the vendored top-level package names.
+    """
+    vendored = []
+    for entry in sorted(target.iterdir()):
+        if entry.name.endswith(".dist-info"):
+            _copy_dist_info_licenses(entry, src_pyramids)
+        elif entry.is_dir() and entry.name not in ("bin", "__pycache__"):
+            _copy_tree_replacing(entry, vendor_dir / entry.name)
+            vendored.append(entry.name)
+    return vendored
+
+
+def _assert_vector_stack_complete(vendored: list, src_pyramids: Path) -> None:
+    """Hard-fail unless every pinned package vendored with a license.
+
+    The wheel redistributes these packages' binaries, so shipping their
+    license texts is a hard requirement, not best-effort — and the
+    wheel-level check only asserts a total dir count, which the
+    vcpkg-staged licenses alone satisfy. Fail here if a pin's dist-info
+    stopped matching the LICENSE* glob (e.g. a rename to COPYING or a
+    new PEP 639 layout).
+    """
+    for required in ("shapely", "pyogrio", "geopandas"):
+        if required not in vendored:
+            raise RuntimeError(
+                f"vector-stack vendoring did not produce _vendor/{required} "
+                f"(got: {vendored})"
+            )
+        license_dir = src_pyramids / "_licenses" / required
+        if not license_dir.is_dir() or not any(license_dir.iterdir()):
+            raise RuntimeError(
+                f"vector-stack vendoring shipped no license text for "
+                f"{required} under {license_dir}"
+            )
+
+
+def vendor_vector_stack_into_package() -> None:
+    """Vendor shapely + pyogrio + geopandas into the win_arm64 wheel.
+
+    Neither shapely nor pyogrio publishes win_arm64 wheels, so the
+    platform markers in `[project.dependencies]` skip them (and
+    geopandas) there and this function supplies the wheel's own copies:
+
+    1. fetch the hash-pinned artifacts (`--require-hashes`) and build
+       shapely + pyogrio from sdist for the CURRENT Python against the
+       vcpkg prefix (GEOS/GDAL headers + import libs staged by
+       ci/setup-gdal-from-vcpkg.ps1); the pure-Python geopandas wheel
+       arrives through the same verified `pip wheel` run,
+    2. `pip install --target` the RAW wheels and copy the top-level
+       entries into `src/pyramids/_vendor/`, where the runtime
+       bootstrap already puts them on sys.path (the same mechanism as
+       the vendored osgeo),
+    3. ship each package's license text under `_licenses/`.
+
+    The vendored extension modules are deliberately NOT delvewheel-
+    repaired here: the wheel's own `delvewheel repair --analyze-existing`
+    pass walks every binary in the wheel, resolves their plain
+    geos_c.dll / gdal.dll imports from the vcpkg prefix, bundles ONE
+    shared copy of each into pyramids_gis.libs, and rewrites the import
+    tables. A pre-repaired (name-mangled) vendored binary breaks that
+    pass instead — it imports a gdal-<hash>.dll delvewheel cannot
+    resolve (observed: run 28782083527).
+    """
+    prefix = _build_prefix()
+    bin_dir, _, lib_dir = _data_layout_roots(prefix)
+    include_dir = prefix / "Library" / "include"
+    src_pyramids = REPO_ROOT / "src" / "pyramids"
+    vendor_dir = src_pyramids / "_vendor"
+
+    env = os.environ.copy()
+    env["GEOS_INCLUDE_PATH"] = str(include_dir)
+    env["GEOS_LIBRARY_PATH"] = str(lib_dir)
+    env["GDAL_INCLUDE_PATH"] = str(include_dir)
+    env["GDAL_LIBRARY_PATH"] = str(lib_dir)
+    env["GDAL_VERSION"] = _gdal_version()
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+
+    with tempfile.TemporaryDirectory(prefix="vector-stack-") as tmp:
+        raw = Path(tmp) / "raw"
+        target = Path(tmp) / "target"
+        requirements = Path(tmp) / "vector-stack-requirements.txt"
+        requirements.write_text(
+            "".join(
+                f"{pkg}=={version} --hash=sha256:{sha256}\n"
+                for pkg, (version, sha256) in _VECTOR_STACK_PINS.items()
+            ),
+            encoding="utf-8",
+        )
+        pins = ", ".join(f"{p}=={v}" for p, (v, _) in _VECTOR_STACK_PINS.items())
+        print(
+            f"[install-and-vendor-osgeo] building the win_arm64 vector stack "
+            f"({pins}) from hash-pinned PyPI artifacts",
+            flush=True,
+        )
+        subprocess.run(
+            [
+                sys.executable, "-m", "pip", "wheel",
+                "-r", str(requirements), "--require-hashes",
+                "--no-deps", "--no-binary", "shapely,pyogrio",
+                "-w", str(raw),
+            ],
+            check=True,
+            env=env,
+        )
+        subprocess.run(
+            [
+                sys.executable, "-m", "pip", "install",
+                *(str(w) for w in sorted(raw.glob("*.whl"))),
+                "--no-deps", "--target", str(target),
+            ],
+            check=True,
+            env=env,
+        )
+
+        vendored = _copy_vector_stack_tree(target, src_pyramids, vendor_dir)
+
+    _assert_vector_stack_complete(vendored, src_pyramids)
+    print(
+        f"[install-and-vendor-osgeo] vendored vector stack: {', '.join(vendored)}",
+        flush=True,
+    )
+
+
+def remove_stale_vector_stack() -> None:
+    """Drop vector-stack leftovers when NOT building for win_arm64.
+
+    vendor_vector_stack_into_package() writes into the source tree, and
+    the package-data globs shipping `_vendor/{shapely,geopandas,pyogrio}`
+    are unconditional — a leftover from an earlier win_arm64 build (e.g.
+    a local cibuildwheel experiment) would silently ride into every other
+    platform's wheel built from the same tree. Delete rather than trust;
+    ci/verify-wheel.py asserts the same absence on the consuming side.
+    """
+    src_pyramids = REPO_ROOT / "src" / "pyramids"
+    for pkg in _VECTOR_STACK_PINS:
+        for stale in (
+            src_pyramids / "_vendor" / pkg,
+            src_pyramids / "_licenses" / pkg,
+        ):
+            if stale.is_dir():
+                print(
+                    f"[install-and-vendor-osgeo] removing stale {stale}",
+                    flush=True,
+                )
+                shutil.rmtree(stale)
+
+
 def main() -> None:
     if os.environ.get("PACKAGE_DATA") != "1":
         print("[install-and-vendor-osgeo] PACKAGE_DATA != 1; skipping.", flush=True)
         return
     install_gdal_python_bindings()
     vendor_osgeo_into_package()
+    if _is_win_arm64():
+        vendor_vector_stack_into_package()
+    else:
+        remove_stale_vector_stack()
     print("[install-and-vendor-osgeo] done.", flush=True)
 
 
