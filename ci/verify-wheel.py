@@ -359,34 +359,46 @@ def _check_vendored_vector_stack() -> None:
     pkg_root = Path(pyramids.__file__).parent
     vendor_root = (pkg_root / "_vendor").resolve()
     if _platform_slug() in _VENDORED_VECTOR_PLATFORMS:
-        for module in (shapely, geopandas, pyogrio):
-            resolved = Path(module.__file__).resolve()
-            if not resolved.is_relative_to(vendor_root):
-                _fail(
-                    f"{module.__name__} resolved to {resolved}, not the "
-                    f"vendored copy under {vendor_root}"
-                )
-        print(
-            "vendored vector stack OK — shapely "
-            f"{shapely.__version__}, geopandas {geopandas.__version__}, "
-            f"pyogrio {pyogrio.__version__} all import from _vendor."
-        )
+        _assert_vector_stack_vendored(vendor_root)
     else:
-        # Mirror BOTH halves of the build-side cleanup contract
-        # (remove_stale_vector_stack): package dirs and license dirs.
-        for pkg in ("shapely", "geopandas", "pyogrio"):
-            for stale in (vendor_root / pkg, pkg_root / "_licenses" / pkg):
-                if stale.exists():
-                    _fail(
-                        f"{stale.relative_to(pkg_root)} present in a "
-                        f"{_platform_slug()} wheel — the vector stack is "
-                        "vendored on win_arm64 only; a stale build tree "
-                        "leaked into this wheel"
-                    )
-        print(
-            "vendored-vector check OK — no vector stack in this wheel; "
-            "the platform installs it from PyPI."
-        )
+        _assert_vector_stack_absent(pkg_root, vendor_root)
+
+
+def _assert_vector_stack_vendored(vendor_root: Path) -> None:
+    """Fail unless shapely/geopandas/pyogrio resolve from `_vendor`."""
+    for module in (shapely, geopandas, pyogrio):
+        resolved = Path(module.__file__).resolve()
+        if not resolved.is_relative_to(vendor_root):
+            _fail(
+                f"{module.__name__} resolved to {resolved}, not the "
+                f"vendored copy under {vendor_root}"
+            )
+    print(
+        "vendored vector stack OK — shapely "
+        f"{shapely.__version__}, geopandas {geopandas.__version__}, "
+        f"pyogrio {pyogrio.__version__} all import from _vendor."
+    )
+
+
+def _assert_vector_stack_absent(pkg_root: Path, vendor_root: Path) -> None:
+    """Fail if a stale vendored vector stack leaked into this wheel.
+
+    Mirrors BOTH halves of the build-side cleanup contract
+    (remove_stale_vector_stack): package dirs and license dirs.
+    """
+    for pkg in ("shapely", "geopandas", "pyogrio"):
+        for stale in (vendor_root / pkg, pkg_root / "_licenses" / pkg):
+            if stale.exists():
+                _fail(
+                    f"{stale.relative_to(pkg_root)} present in a "
+                    f"{_platform_slug()} wheel — the vector stack is "
+                    "vendored on win_arm64 only; a stale build tree "
+                    "leaked into this wheel"
+                )
+    print(
+        "vendored-vector check OK — no vector stack in this wheel; "
+        "the platform installs it from PyPI."
+    )
 
 
 def _check_licenses() -> None:
