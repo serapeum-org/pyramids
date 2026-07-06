@@ -17,6 +17,18 @@ on:
     workflows: ['github-release']
     types: [completed]
 
+# All jobs in this workflow push the built docs to the single shared `gh-pages`
+# branch via `mike deploy --push`. Without a concurrency guard, deploys from
+# concurrent PRs (and main pushes) race to push `gh-pages` and the loser gets a
+# non-fast-forward rejection ("Updates were rejected because the remote contains
+# work that you do not have locally"). Serialize every run of this workflow onto
+# one lane so the pushes queue instead of colliding. `cancel-in-progress: false`
+# keeps a queued run rather than cancelling an in-flight push (a cancelled
+# `gh-pages` push can leave the branch half-updated).
+concurrency:
+  group: mkdocs-gh-pages-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy-pr:
       if: github.event_name == 'pull_request'
