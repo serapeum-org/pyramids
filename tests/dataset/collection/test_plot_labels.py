@@ -151,6 +151,22 @@ class TestTimeAxis:
             dt.datetime(2002, 1, 1),
         ]
 
+    def test_date_parsed_from_name_not_path(self, tmp_path):
+        """The date regex matches the file name, not stray digits in the directory.
+
+        The result is a plain ``datetime.datetime``, not a pandas ``Timestamp``.
+        """
+        noisy = tmp_path / "12345678_run"  # an 8-digit run in the PATH, not the name
+        noisy.mkdir()
+        cube = DatasetCollection.read_multiple_files(
+            _dated_files(noisy, years=(2000, 2001)),
+            date=True,
+            regex_string=r"\d{8}",
+            file_name_data_fmt="%Y%m%d",
+        )
+        assert cube.time == [dt.datetime(2000, 1, 1), dt.datetime(2001, 1, 1)]
+        assert all(type(t) is dt.datetime for t in cube.time), "plain datetime"
+
     def test_read_multiple_files_without_format_has_no_time_axis(self, tmp_path):
         """A default read (no format) leaves ``time`` unset — non-breaking."""
         cube = DatasetCollection.read_multiple_files(

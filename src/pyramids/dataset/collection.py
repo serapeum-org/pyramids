@@ -1798,7 +1798,10 @@ class DatasetCollection:
         df: pd.DataFrame | None = None
         want_dates = with_order or (date and file_name_data_fmt is not None)
         if want_dates:
-            matches = [re.search(regex_string, f) for f in files]
+            # Match the date only in the file name, not the whole path: a list
+            # of absolute paths (or a temp dir) could carry stray digit runs
+            # that the regex would grab before reaching the name.
+            matches = [re.search(regex_string, Path(f).name) for f in files]
             if None in matches:
                 # An ordered read genuinely needs the dates; a non-ordering
                 # opportunistic parse just skips building a time axis.
@@ -1811,8 +1814,9 @@ class DatasetCollection:
                 # original contract); without ordering we simply skip the axis.
                 if with_order:
                     raise ValueError(
-                        f"To read the raster with a certain order (with_order = {with_order}, then you have "
-                        f"to enter the value of the parameter file_name_data_fmt(given: {file_name_data_fmt})"
+                        f"An ordered read (with_order={with_order}) needs a date "
+                        f"format; pass file_name_data_fmt (given: "
+                        f"{file_name_data_fmt})."
                     )
             else:
                 if date:
@@ -1841,7 +1845,16 @@ class DatasetCollection:
             df = df.loc[(df["date"] >= start_key) & (df["date"] <= end_key)]
             files = df.loc[:, "files"].values
 
-        time_axis = df["date"].tolist() if df is not None else None
+        # `df["date"].tolist()` yields pandas Timestamps for a datetime column;
+        # normalise back to plain `datetime.datetime` so `time` matches the type
+        # the docstring promises (int keys pass through unchanged).
+        if df is not None:
+            time_axis: list | None = [
+                t.to_pydatetime() if isinstance(t, pd.Timestamp) else t
+                for t in df["date"].tolist()
+            ]
+        else:
+            time_axis = None
 
         if not isinstance(path, list):
             # add the path to all the files
