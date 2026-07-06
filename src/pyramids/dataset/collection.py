@@ -2252,6 +2252,15 @@ class DatasetCollection:
             list(self.time) if self.time is not None else list(range(self.time_length))
         )
         axis_values = kwargs.pop("animation_axis_values", default_labels)
+        # An explicit override must carry exactly one label per frame; the
+        # defaults are correct-length by construction, but a wrong-length
+        # override would otherwise be forwarded verbatim to cleopatra and
+        # silently mislabel / truncate the animation. Fail fast instead.
+        if len(axis_values) != self.time_length:
+            raise ValueError(
+                f"animation_axis_values has {len(axis_values)} labels but the "
+                f"collection has {self.time_length} timesteps."
+            )
         # Materialise the cube on demand for plotting. The render helper
         # expects a single (time, rows, cols) numpy array; reading each
         # Dataset's band into one stacked array is fine for a plot call
