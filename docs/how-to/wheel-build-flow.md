@@ -72,7 +72,8 @@ pyramids_gis-0.40.0-cp314-cp314-manylinux_2_28_aarch64.whl    # Linux aarch64 3.
 pyramids_gis-0.40.0-cp311-cp311-macosx_11_0_arm64.whl         # macOS arm64 3.11
 pyramids_gis-0.40.0-cp311-cp311-macosx_11_0_x86_64.whl        # macOS x86_64 3.11
 ...
-pyramids_gis-0.40.0-cp314-cp314-win_amd64.whl                 # Windows 3.14
+pyramids_gis-0.40.0-cp314-cp314-win_amd64.whl                 # Windows x64 3.14
+pyramids_gis-0.40.0-cp312-cp312-win_arm64.whl                 # Windows ARM64 3.12
 pyramids_gis-0.40.0.tar.gz                                    # sdist
 ```
 
@@ -97,8 +98,11 @@ PyPI — no compiler, no system GDAL, no conda required:
 | macOS arm64, ≥ 11.0 | `macosx_11_0_arm64` | M1 / M2 / M3 / M4 Macs on macOS 11+ |
 | macOS x86_64, ≥ 11.0 | `macosx_11_0_x86_64` | Intel Macs on macOS 11+ (cross-compiled — see note) |
 | Windows AMD64 | `win_amd64` | Windows 10+ on x64 hardware |
+| Windows ARM64 | `win_arm64` | Windows 11 on ARM64 (Snapdragon X, Volterra, VMs on Apple Silicon) |
 
-All five platform wheels exist for Python **3.11, 3.12, 3.13, and 3.14**.
+All platform wheels exist for Python **3.11, 3.12, 3.13, and 3.14**,
+except `win_arm64`, which ships **3.12–3.14** (numpy/scipy publish no
+cp311 ARM64 wheels).
 
 > **macOS x86_64 caveat**: the wheel is cross-compiled on the
 > `macos-14` (arm64) runner because GitHub's `macos-13` (Intel) queue
@@ -107,9 +111,10 @@ All five platform wheels exist for Python **3.11, 3.12, 3.13, and 3.14**.
 > If you're on an Intel Mac and the wheel fails to load, please open
 > an issue.
 
-> **Feature difference vs macOS/Windows**: the from-source Linux wheel does not
-> include the HDF4 driver (macOS/Windows conda-extract wheels do). HDF4 is a
-> legacy format with heavy build baggage; see `docs/installation.md`.
+> **Feature difference**: the from-source Linux and Windows ARM64 wheels do
+> not include the HDF4 driver (the conda-extract macOS and Windows x64 wheels
+> do). HDF4 is a legacy format with heavy build baggage; see
+> `docs/installation.md`.
 
 ### What the wheels DON'T cover
 
@@ -149,7 +154,7 @@ Amazon Linux 2023 with a ~30 MB wheel (vs ~47 MB under conda-extract).
 |-----------------------------------|-------|------------------------|-----------------------------------------------------------------|
 | Lower glibc floor (< 2.39)        | #332  | **shipped**            | from-source `manylinux_2_28` wheels (this pipeline)             |
 | musllinux (Alpine)                | #333  | **built, unpublished** | canaries green in CI; blocked on pyogrio musl wheels            |
-| Windows ARM64                     | #334  | **shipped**            | vcpkg build; vector stack vendored (shapely/pyogrio gap)         |
+| Windows ARM64                     | #334  | **shipped**            | vcpkg build; vector stack vendored |
 | Python 3.15+                      | #335  | pending upstream       | ships when CPython 3.15 + ecosystem land; one-line `build` bump |
 | Free-threaded (`cp313t`/`cp314t`) | #683  | pending upstream       | GDAL SWIG bindings + numpy first; revisit at 3.15               |
 
@@ -262,12 +267,33 @@ Python C API ABI.
 │             pyramids_gis.libs/, patches PE import tables.
 │       └── upload-artifact: wheels-windows-AMD64
 │
+├── build-winarm64-wheels (1 job, windows-11-arm, builds 3 wheels)
+│   └── cibuildwheel (cp312–cp314; no cp311 — see CIBW_BUILD comment):
+│       ├── CIBW_BEFORE_ALL: powershell -File ci/setup-gdal-from-vcpkg.ps1
+│       │   → bootstraps vcpkg at the pinned baseline, builds GDAL 3.12.4
+│       │     + PROJ/GEOS/... from the manifest (ci/vcpkg.json), mirrors
+│       │     the Library/ layout, collects port licenses, writes
+│       │     GDAL_VERSION (cache skipped on workflow_run, like Linux)
+│       ├── For each Python: same vendor + build steps, PLUS
+│       │   install-and-vendor-osgeo.py vendors the vector stack
+│       │   (shapely + geopandas + pyogrio, hash-pinned, built from
+│       │   sdist) into src/pyramids/_vendor/ — win_arm64 only
+│       └── CIBW_REPAIR_WHEEL_COMMAND: one delvewheel repair
+│           --analyze-existing pass owns ALL DLLs, including the
+│           vendored .pyds' GEOS/GDAL imports (one shared copy)
+│       └── upload-artifact: wheels-winarm64
+│
 ├── verify-debian12 / verify-rocky9 (full hermetic suite on glibc 2.36 / 2.34
 │   containers — distros the old 2_39 wheel could never install on) and
 │   verify-alpine (full core suite for the musl canary — vector I/O via a
 │   canary-built pyogrio musl wheel, since PyPI has none). All three
 │   run with --security-opt seccomp=unconfined (the netCDF driver needs
 │   userfaultfd for /vsizip reads — see docs/troubleshooting.md).
+│
+├── verify-winarm64 (3 cells: 3.12/3.13/3.14 on windows-11-arm) —
+│   plain `pip install <wheel>` (markers resolving, the real user
+│   path), then ci/verify-wheel.py against the bare closure BEFORE
+│   test deps land; the 3.12 cell also runs the hermetic core suite.
 │
 └── release (workflow_run only; needs EVERY build + test + verify job,
     canary verifies included — a red canary blocks the publish)
@@ -402,6 +428,11 @@ cibuildwheel --only cp312-macosx_x86_64   # cross-compile from arm64
 
 # Windows (must run on Windows)
 cibuildwheel --only cp312-win_amd64
+
+# Windows ARM64 (must run on a NATIVE ARM64 Windows host — the
+# vendored vector stack is compiled with the build interpreter, so
+# install-and-vendor-osgeo.py hard-fails a cross-build from x64)
+cibuildwheel --only cp312-win_arm64
 ```
 
 ## File map
