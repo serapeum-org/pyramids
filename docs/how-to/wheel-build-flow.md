@@ -29,18 +29,22 @@ release, plus 8 unpublished musl canary wheels:
 | Windows  | ARM64 (`win_arm64`, vcpkg build)    | 3.12, 3.13, 3.14       | 3      |
 | (any)    | sdist                               | —                      | 1      |
 
-**Total published: 20 wheels + 1 sdist.** Two **CI canary** families build and
-verify on every run but are deliberately **not published** because pip could
+**Total published: 23 wheels + 1 sdist.** One **CI canary** family builds and
+verifies on every run but is deliberately **not published** because pip could
 not resolve pyramids-gis on those platforms yet:
 
 - `build-musl-wheels`: `musllinux_1_2` x86_64 + aarch64 (cp311–cp314) — blocked
   on upstream pyogrio musllinux wheels (#333; geopandas hard-requires pyogrio).
-- `build-winarm64-wheels`: `win_arm64` (cp312–cp314; numpy/scipy ship no cp311
-  arm64 wheels) built from source via vcpkg — blocked on upstream shapely +
-  pyogrio win_arm64 wheels (#334). GDAL comes from the vcpkg port (currently
-  3.12.4, trailing the 3.13.1 the other wheels ship); like Linux, no HDF4.
-  The canary also builds shapely + pyogrio arm64 wheels against the same
-  prefix so `verify-winarm64` runs the full suite natively.
+
+The `win_arm64` wheels (`build-winarm64-wheels`, cp312–cp314; numpy/scipy ship
+no cp311 arm64 wheels) are built from source via vcpkg. GDAL comes from the
+vcpkg port (currently 3.12.4, trailing the 3.13.1 the other wheels ship);
+like Linux, no HDF4. Because shapely and pyogrio publish no win_arm64 wheels
+on PyPI, the platform markers in `[project.dependencies]` skip them (and
+geopandas) there, and each wheel **vendors the vector stack** — shapely,
+geopandas, and pyogrio, built from sdist against the same vcpkg prefix —
+under `pyramids/_vendor/` (see `ci/install-and-vendor-osgeo.py`). The
+vendoring and the markers both go away once upstream ships win_arm64 wheels.
 
 The macOS x86_64 wheels are cross-compiled on a `macos-14` (arm64)
 runner via Rosetta + ARCHFLAGS — GitHub's `macos-13` (Intel) runner
@@ -268,8 +272,8 @@ Python C API ABI.
 └── release (workflow_run only; needs EVERY build + test + verify job,
     canary verifies included — a red canary blocks the publish)
     → gathers {sdist,wheels-*} artifacts (canary-* names can't match),
-      asserts the exact composition (1 sdist + 4 wheels x 5 platforms,
-      zero musllinux, zero win_arm64), attaches everything to the
+      asserts the exact composition (1 sdist + 4 wheels x 5 platforms
+      + 3 win_arm64, zero musllinux), attaches everything to the
       GitHub release, and publishes to PyPI.
 ```
 
@@ -326,7 +330,8 @@ Examples:
 | Windows 11 (x64) + Python 3.11 | `cp311-cp311-win_amd64` wheel |
 | RHEL 7 (glibc 2.17) | no wheel matches → sdist fails without system GDAL → use conda-forge |
 | Alpine Linux (musl) | no published wheel yet (#333) → use conda-forge |
-| Windows on ARM64 | no `win_arm64` wheel → run AMD64 wheel under x86 emulation |
+| Windows 11 ARM64 + Python 3.13 | `cp313-cp313-win_arm64` wheel (native; vendored vector stack) |
+| Windows 11 ARM64 + Python 3.11 | no wheel (numpy/scipy ship no cp311 arm64) → use Python 3.12+ |
 | Python 3.10 | excluded by `requires-python = ">= 3.11"` — upgrade, or pin `< 0.20` |
 
 ## CI timing
@@ -342,14 +347,17 @@ On GitHub-hosted runners (jobs parallel where possible):
 | `build-macos-wheels` (arm64, native)                   | ~6 min (4 wheels)               |
 | `build-macos-wheels` (x86_64, cross-compiled)          | ~7 min (4 wheels)               |
 | `build-windows-wheels`                                 | ~12 min (4 wheels)              |
+| `build-winarm64-wheels` (cold: full vcpkg compile)     | ~75 min (3 wheels)              |
+| `build-winarm64-wheels` (warm: vcpkg cache restored)   | ~9 min (3 wheels)               |
 | `test-wheels` matrix (16 jobs)                         | ~3 min (parallel, after builds) |
 | `verify-debian12` / `verify-rocky9` (full suite)       | ~8 min each                     |
 | `verify-alpine` (full core suite, canary pyogrio)      | ~8 min                          |
+| `verify-winarm64` (3 cells; full core suite on 3.12)   | ~1–6 min                        |
 
-Release builds are always cold on Linux (the cache step is skipped on
-`workflow_run` so published binaries never come from a cache), so budget
-~70 min wall-clock for a release; branch iterations with a warm cache
-complete in ~20 min.
+Release builds are always cold on Linux and Windows ARM64 (both cache
+steps are skipped on `workflow_run` so published binaries never come
+from a cache), so budget ~80 min wall-clock for a release; branch
+iterations with a warm cache complete in ~20 min.
 
 Each step has an explicit `timeout-minutes` cap plus pytest's own
 `--timeout=60 --timeout-method=thread` so a hung test fails fast on the
