@@ -43,6 +43,14 @@ import pyramids
 import osgeo
 from osgeo import gdal, ogr, osr  # noqa: F401 — ogr import is a smoke test
 
+# The same bootstrap-first constraint covers the vector stack: on
+# win_arm64 these three live under pyramids/_vendor and only resolve
+# after `import pyramids` (everywhere else they are real PyPI installs
+# pulled in by the wheel's dependencies).
+import geopandas
+import pyogrio
+import shapely
+
 # isort: on
 
 # Stable, valid-TLS HTTPS endpoint for the CA-trust check. Small text
@@ -362,10 +370,6 @@ def _check_vendored_vector_stack() -> None:
             "the platform installs it from PyPI."
         )
         return
-    import geopandas
-    import pyogrio
-    import shapely
-
     for module in (shapely, geopandas, pyogrio):
         resolved = Path(module.__file__).resolve()
         if not resolved.is_relative_to(vendor_root):
