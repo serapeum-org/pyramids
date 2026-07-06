@@ -374,6 +374,10 @@ jobs:
         uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55 # v4.1.0
         env:
           CIBW_ARCHS_WINDOWS: ARM64
+          # No cp311: numpy/scipy ship no ARM64 cp311 wheels. The release
+          # composition gate expects one fewer win_arm64 wheel than the
+          # other platforms (`pyvers - 1`) — keep the two in step when
+          # this list changes (e.g. adding cp315 or dropping cp311).
           CIBW_BUILD: "cp312-win_arm64 cp313-win_arm64 cp314-win_arm64"
           CIBW_BEFORE_ALL_WINDOWS: powershell -File ci/setup-gdal-from-vcpkg.ps1
 
@@ -388,6 +392,7 @@ jobs:
         with:
           name: wheels-winarm64
           path: wheelhouse/*.whl
+          retention-days: 3
 
 
   test-wheels:
@@ -759,6 +764,9 @@ jobs:
           if [ "${pyvers}" -lt 4 ]; then
             echo "ERROR: only ${pyvers} distinct CPython tags in dist/ (expected >= 4)" >&2; fail=1
           fi
+          # `pyvers - 1` mirrors the explicit CIBW_BUILD list in
+          # build-winarm64-wheels (cp312-cp314, no cp311) — see the
+          # comment there; the two must change together.
           winarm=(dist/*win_arm64*.whl)
           if [ "${#winarm[@]}" -ne $((pyvers - 1)) ]; then
             echo "ERROR: expected $((pyvers - 1)) win_arm64 wheels (cp311 excluded — no" >&2
