@@ -286,6 +286,28 @@ class TestToNetcdfTimeCoords:
         expected_ns = [1577836800 * 1_000_000_000, 1577923200 * 1_000_000_000]
         assert values.tolist() == expected_ns, f"unexpected: {values!r}"
 
+    def test_time_axis_used_as_default_time_coords(self, tmp_path):
+        """A dated collection exports its own ``time`` axis when ``time_coords`` is omitted.
+
+        Args:
+            tmp_path: pytest temp directory.
+
+        Test scenario:
+            ``col.time`` set to two dates, ``to_netcdf`` with no ``time_coords`` —
+            expected: the same int64-nanosecond encoding as passing those dates
+            explicitly, and no positional ``note`` attr.
+        """
+        col, _ = _make_int16_collection(tmp_path, count=2)
+        col.time = [dt.datetime(2020, 1, 1), dt.datetime(2020, 1, 2)]
+        out = tmp_path / "default_time.nc"
+        col.to_netcdf(str(out))  # no time_coords -> falls back to self.time
+        values = _array_values(str(out), "time")
+        expected_ns = [1577836800 * 1_000_000_000, 1577923200 * 1_000_000_000]
+        assert values.tolist() == expected_ns, f"self.time not used: {values!r}"
+        assert "note" not in _array_attrs(
+            str(out), "time"
+        ), "positional note leaked into a dated export"
+
     def test_subsecond_datetime_roundtrips(self, tmp_path):
         """Sub-second timestamps survive the nanosecond CF encoding (L1 regression).
 

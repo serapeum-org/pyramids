@@ -1143,8 +1143,11 @@ class DatasetCollection:
             time_dim: Name of the time dimension. Default ``"time"``.
             time_coords: Sequence of length ``time_length`` for the
                 time axis values (e.g. ``pd.date_range(...)``). ``None``
-                (default) emits a 0..T-1 integer index with a ``note``
-                attr explaining it is positional, not calendar.
+                (default) falls back to the collection's own :attr:`time`
+                axis when it has one (a dated stack read by
+                :meth:`read_multiple_files`), otherwise emits a 0..T-1
+                integer index with a ``note`` attr explaining it is
+                positional, not calendar.
             var_per_band: When ``True`` (default), each band becomes its
                 own data variable named after :attr:`meta.band_names`
                 — CF-friendly and what :func:`aggregate_netcdf`-style
@@ -1206,6 +1209,12 @@ class DatasetCollection:
                 "  - PyPI:        pip install xarray\n"
                 "  - conda-forge: conda install -c conda-forge xarray"
             ) from exc
+
+        if time_coords is None and self.time is not None:
+            # A dated collection (time axis parsed from the file names) exports
+            # with its own calendar axis by default; an explicit time_coords
+            # still overrides it.
+            time_coords = self.time
 
         if time_coords is not None:
             # Materialise generators / iterators up front so np.asarray gets a
