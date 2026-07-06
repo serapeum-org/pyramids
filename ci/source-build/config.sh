@@ -1,1042 +1,537 @@
 #!/bin/bash
-# Curated from-source GDAL dependency stack for the pyramids Linux wheel.
-# FORK of rasterio's ci/config.sh (fetched 2026-07-02 from rasterio/rasterio@main,
-# pristine copy in reference/rasterio-config.sh) — see the diff for pyramids'
-# changes. Runs inside the manylinux container; env contract:
+# From-source native stack for the pyramids Linux wheels (#332 glibc, #333 musl).
+#
+# Invoked by ci/source-build/build-gdal-stack.sh inside the cibuildwheel
+# container (manylinux_2_28 or musllinux_1_2). Compiles GDAL and its whole
+# dependency tree from SHA256-pinned release tarballs so the wheel tags at
+# the container image's own libc floor.
+#
+# Environment contract:
 #   BUILD_PREFIX  install prefix (default /usr/local)
-#   GDAL_VERSION  GDAL release to build (required; e.g. 3.13.1)
-# pyramids deltas vs rasterio:
-#   - build_gdal enables pyramids' OGR vector allow-list (GEOJSON incl. ESRIJSON,
-#     SHAPE, GPX, PMTILES, FLATGEOBUF, GML, KML, WFS, OAPIF) — pyramids ships
-#     FeatureCollection; rasterio is raster-only. Evidence:
-#     planning/bundle/from-source-phase0-audit.md (#332 Phase 0).
-#   - GDAL_ENABLE_DRIVER_OGCAPI=ON (rasterio turns it OFF): pyramids'
-#     Dataset.from_ogc_coverages hard-requires the OGCAPI driver
+#   GDAL_VERSION  GDAL release to build (required; the SHA256 below pins the
+#                 default 3.13.1 — bump both together or the fetch fails)
+#
+# Contract with build-gdal-stack.sh:
+#   - runs in a scratch dir; every tarball extracts here and the source
+#     trees are LEFT IN PLACE (the license collector reads each tree's
+#     LICENSE/COPYING afterwards, keyed on the <name>-<version> dir names)
+#   - installs everything into ${BUILD_PREFIX}
+#
+# Driver policy (evidence: planning/bundle/from-source-phase0-audit.md):
+#   - OGR vector allow-list only (OGR_BUILD_OPTIONAL_DRIVERS=OFF + explicit
+#     enables): GeoJSON/ESRIJSON, SHAPE, GPKG, GPX, PMTiles, MVT, FlatGeobuf,
+#     GML, KML, WFS, OAPIF, SQLite, OSM — the set FeatureCollection uses.
+#   - OGCAPI stays ON: Dataset.from_ogc_coverages hard-requires it
 #     (src/pyramids/dataset/_ogc_coverages.py); it needs only curl.
-#   - Raster optional drivers stay auto-ON (GDAL_BUILD_OPTIONAL_DRIVERS=ON):
-#     Zarr (blosc/zstd present), WCS (curl), GRIB/netCDF/HDF5/JP2 explicit below.
-# Deliberately ABSENT (the whole point, F0.3-verified unused): ICU, xerces,
-# libxml2, spatialite, jxl, libkml, muparser, HDF4, postgres, poppler, AWS-CRT.
+#   - Optional raster drivers stay auto-ON (Zarr via blosc/zstd, WCS via
+#     curl; GRIB/netCDF/HDF5/JP2 enabled explicitly).
+#   - Deliberately absent (verified unused by the test suite): ICU, xerces,
+#     libxml2, spatialite, jxl, libkml, muparser, HDF4, postgres, poppler.
+set -euo pipefail
 
-PROJ_VERSION=9.7.1
-SQLITE_VERSION=3510200
-OPENSSL_VERSION=3.6.1
-CURL_VERSION=8.18.0
-ZLIB_VERSION=1.3.2
-TIFF_VERSION=4.7.1
-NGHTTP2_VERSION=1.68.0
-LERC_VERSION=4.0.0
-LIBWEBP_VERSION=1.6.0
-ZSTD_VERSION=1.5.7
-LIBPNG_VERSION=1.6.54
-OPENJPEG_VERSION=2.5.4
-GIFLIB_VERSION=5.2.2
-JSONC_VERSION=0.18
-XZ_VERSION=5.8.2
-LCMS2_VERSION=2.17
-HDF5_VERSION=2.1.0
-LIBAEC_VERSION=1.1.6
-NETCDF_VERSION=4.10.0
-GEOS_VERSION=3.14.1
-BLOSC_VERSION=1.21.6
-PCRE_VERSION=10.47
-EXPAT_VERSION=2.7.4
-LIBDEFLATE_VERSION=1.24
-JPEGTURBO_VERSION=3.1.3
+if [[ "$(uname -s)" != "Linux" ]]; then
+    echo "ERROR: this script builds the Linux wheel stack only (got $(uname -s));" >&2
+    echo "       macOS and Windows wheels use the conda-extract / vcpkg paths." >&2
+    exit 1
+fi
 
 BUILD_PREFIX="${BUILD_PREFIX:-/usr/local}"
-
-export GDAL_CONFIG="$BUILD_PREFIX/bin/gdal-config"
-export PROJ_DATA="$BUILD_PREFIX/share/proj"
-
-echo "BUILD_PREFIX:"
-echo "$BUILD_PREFIX"
-echo "GDAL_CONFIG:"
-echo "$GDAL_CONFIG"
-echo "PROJ_DATA:"
-echo "$PROJ_DATA"
-
-set -e
-
-# 🔍 Detect OS and architecture
-OS="$(uname -s)"
+GDAL_VERSION="${GDAL_VERSION:?GDAL_VERSION must be set (e.g. 3.13.1)}"
 ARCH="$(uname -m)"
 
-# 🧠 Normalize OS
-case "$OS" in
-Darwin)
-	OS="macos"
-	IS_MACOS=1
-	;;
-Linux)
-	OS="linux"
-	;;
-*)
-	echo "❌ Unsupported OS: $OS"
-	exit 1
-	;;
+case "${ARCH}" in
+    x86_64)  OPENSSL_TARGET="linux-x86_64" ;;
+    aarch64) OPENSSL_TARGET="linux-aarch64" ;;
+    *) echo "ERROR: unsupported architecture ${ARCH}" >&2; exit 1 ;;
 esac
 
-PLATFORM="${OS}-${ARCH}"
-echo "✅ Detected platform: $PLATFORM"
-
-# 📦 Set OpenSSL Configure target
-case "$PLATFORM" in
-macos-arm64) TARGET="darwin64-${CMAKE_OSX_ARCHITECTURES}-cc" ;;
-macos-x86_64) TARGET="darwin64-x86_64-cc" ;;
-linux-aarch64) TARGET="linux-aarch64" ;;
-linux-x86_64) TARGET="linux-x86_64" ;;
-*)
-	echo "❌ Unsupported platform: $PLATFORM"
-	exit 1
-	;;
-esac
-
-echo "IS_MACOS: ${IS_MACOS}"
-
-# ------------------------------------------------
-# From:
-#	 https://github.com/rasterio/rasterio-wheels
-#    https://github.com/multi-build/multibuild
-#
-#    (customized and updated)
-# ------------------------------------------------
-
-if [ -z "$IS_MACOS" ]; then
-	# Strip all binaries after compilation.
-	STRIP_FLAGS=${STRIP_FLAGS:-"-Wl,-strip-all"}
-	export CFLAGS="${CFLAGS:-$STRIP_FLAGS}"
-	export CXXFLAGS="${CXXFLAGS:-$STRIP_FLAGS}"
-	export FFLAGS="${FFLAGS:-$STRIP_FLAGS}"
-fi
-
-if [ -n "$IS_MACOS" ]; then
-	export CFLAGS="$CFLAGS -arch $CMAKE_OSX_ARCHITECTURES -g -O2"
-	export CXXFLAGS="$CXXFLAGS -arch $CMAKE_OSX_ARCHITECTURES -g -O2"
-	lib_ext="dylib"
+# musl (Alpine) removed the LFS64 aliases (off64_t/pread64/pwrite64) in
+# 1.2.4+ — its plain pread/pwrite are already 64-bit. Only glibc builds may
+# define HAVE_PREAD64 (sqlite); detect the libc by the package manager.
+if command -v apk >/dev/null 2>&1; then
+    LIBC_FLAVOR="musl"
 else
-	export CFLAGS="$CFLAGS -g -O2"
-	export CXXFLAGS="$CXXFLAGS -g -O2"
-	lib_ext="so"
+    LIBC_FLAVOR="glibc"
 fi
 
-echo "Flags:"
-echo "$CFLAGS"
-echo "$CXXFLAGS"
+# Toolchain: optimized, debug-info-free binaries. -Wl,-strip-all keeps the
+# intermediate libraries small; build_gdal additionally strips libgdal
+# itself after install.
+export CFLAGS="${CFLAGS:--Wl,-strip-all} -g -O2"
+export CXXFLAGS="${CXXFLAGS:--Wl,-strip-all} -g -O2"
+export FFLAGS="${FFLAGS:--Wl,-strip-all}"
+export CPPFLAGS="-I${BUILD_PREFIX}/include ${CPPFLAGS:-}"
+export LIBRARY_PATH="${BUILD_PREFIX}/lib:${LIBRARY_PATH:-}"
+export PKG_CONFIG_PATH="${BUILD_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+export PATH="${BUILD_PREFIX}/bin:${PATH}"
+export GDAL_CONFIG="${BUILD_PREFIX}/bin/gdal-config"
+export PROJ_DATA="${BUILD_PREFIX}/share/proj"
 
-export CPPFLAGS_BACKUP="$CPPFLAGS"
-export LIBRARY_PATH_BACKUP="$LIBRARY_PATH"
-export PKG_CONFIG_PATH_BACKUP="$PKG_CONFIG_PATH"
+echo "=== pyramids source stack: ${LIBC_FLAVOR}/${ARCH} -> ${BUILD_PREFIX} (GDAL ${GDAL_VERSION}) ==="
 
-function suppress {
-	# Run a command, show output only if return code not 0.
-	# Takes into account state of -e option.
-	# Compare
-	# https://unix.stackexchange.com/questions/256120/how-can-i-suppress-output-only-if-the-command-succeeds#256122
-	# Set -e stuff agonized over in
-	# https://unix.stackexchange.com/questions/296526/set-e-in-a-subshell
-	local tmp=$(mktemp tmp.XXXXXXXXX) || return
-	local errexit_set
-	echo "Running $@"
-	if [[ $- = *e* ]]; then errexit_set=true; fi
-	set +e
-	(
-		if [[ -n $errexit_set ]]; then set -e; fi
-		"$@" >"$tmp" 2>&1
-	)
-	ret=$?
-	[ "$ret" -eq 0 ] || cat "$tmp"
-	rm -f "$tmp"
-	if [[ -n $errexit_set ]]; then set -e; fi
-	return "$ret"
+# Every dependency, pinned by version AND content hash. TARBALL is the local
+# file name; its stem is also the extraction dir the license collector reads.
+# GDAL's hash pins the default GDAL_VERSION.
+declare -A VERSION SHA256 URL TARBALL
+
+define() {
+    local dep="$1"
+    VERSION[$dep]="$2"
+    SHA256[$dep]="$3"
+    URL[$dep]="$4"
+    TARBALL[$dep]="$5"
 }
 
-function update_env_for_build_prefix {
-	# Promote BUILD_PREFIX on search path to any newly built libs
-	export CPPFLAGS="-I$BUILD_PREFIX/include $CPPFLAGS_BACKUP"
-	export LIBRARY_PATH="$BUILD_PREFIX/lib:$LIBRARY_PATH_BACKUP"
-	export PKG_CONFIG_PATH="$BUILD_PREFIX/lib/pkgconfig/:$PKG_CONFIG_PATH_BACKUP"
-	# Add binary path for configure utils etc
-	export PATH="$BUILD_PREFIX/bin:$PATH"
-}
+# define <dep> <version> <sha256> <url> <tarball>
+define zlib       1.3.2     bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16 \
+    "https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz"                  zlib-1.3.2.tar.gz
+define xz         5.8.2     ce09c50a5962786b83e5da389c90dd2c15ecd0980a258dd01f70f9e7ce58a8f1 \
+    "https://github.com/tukaani-project/xz/releases/download/v5.8.2/xz-5.8.2.tar.gz"             xz-5.8.2.tar.gz
+define nghttp2    1.68.0    2c16ffc588ad3f9e2613c3fad72db48ecb5ce15bc362fcc85b342e48daf51013 \
+    "https://github.com/nghttp2/nghttp2/releases/download/v1.68.0/nghttp2-1.68.0.tar.gz"         nghttp2-1.68.0.tar.gz
+define openssl    3.6.1     b1bfedcd5b289ff22aee87c9d600f515767ebf45f77168cb6d64f231f518a82e \
+    "https://github.com/openssl/openssl/releases/download/openssl-3.6.1/openssl-3.6.1.tar.gz"    openssl-3.6.1.tar.gz
+define curl       8.18.0    e9274a5f8ab5271c0e0e6762d2fce194d5f98acc568e4ce816845b2dcc0cf88f \
+    "https://curl.se/download/curl-8.18.0.tar.gz"                                                curl-8.18.0.tar.gz
+define libpng     1.6.54    ba7efce137409079989df4667706c339bebfbb10e9f413474718012a13c8cd4c \
+    "https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.54.tar.gz"                        libpng-1.6.54.tar.gz
+define giflib     5.2.2     be7ffbd057cadebe2aa144542fd90c6838c6a083b5e8a9048b8ee3b66b29d5fb \
+    "https://sourceforge.net/projects/giflib/files/giflib-5.2.2.tar.gz/download"                 giflib-5.2.2.tar.gz
+define libwebp    1.6.0     93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136 \
+    "https://github.com/webmproject/libwebp/archive/refs/tags/v1.6.0.tar.gz"                     libwebp-1.6.0.tar.gz
+define zstd       1.5.7     37d7284556b20954e56e1ca85b80226768902e2edabd3b649e9e72c0c9012ee3 \
+    "https://github.com/facebook/zstd/archive/v1.5.7.tar.gz"                                     zstd-1.5.7.tar.gz
+define libdeflate 1.24      ad8d3723d0065c4723ab738be9723f2ff1cb0f1571e8bfcf0301ff9661f475e8 \
+    "https://github.com/ebiggers/libdeflate/archive/refs/tags/v1.24.tar.gz"                      libdeflate-1.24.tar.gz
+define jpegturbo  3.1.3     075920b826834ac4ddf97661cc73491047855859affd671d52079c6867c1c6c0 \
+    "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.3/libjpeg-turbo-3.1.3.tar.gz" \
+    libjpeg-turbo-3.1.3.tar.gz
+define lerc       4.0.0     91431c2b16d0e3de6cbaea188603359f87caed08259a645fd5a3805784ee30a0 \
+    "https://github.com/Esri/lerc/archive/refs/tags/v4.0.0.tar.gz"                               lerc-4.0.0.tar.gz
+define tiff       4.7.1     f698d94f3103da8ca7438d84e0344e453fe0ba3b7486e04c5bf7a9a3fabe9b69 \
+    "https://download.osgeo.org/libtiff/tiff-4.7.1.tar.gz"                                       tiff-4.7.1.tar.gz
+define lcms2      2.17      d11af569e42a1baa1650d20ad61d12e41af4fead4aa7964a01f93b08b53ab074 \
+    "https://github.com/mm2/Little-CMS/releases/download/lcms2.17/lcms2-2.17.tar.gz"             lcms2-2.17.tar.gz
+define openjpeg   2.5.4     a695fbe19c0165f295a8531b1e4e855cd94d0875d2f88ec4b61080677e27188a \
+    "https://github.com/uclouvain/openjpeg/archive/refs/tags/v2.5.4.tar.gz"                      openjpeg-2.5.4.tar.gz
+define jsonc      0.18      876ab046479166b869afc6896d288183bbc0e5843f141200c677b3e8dfb11724 \
+    "https://s3.amazonaws.com/json-c_releases/releases/json-c-0.18.tar.gz"                       json-c-0.18.tar.gz
+define sqlite     3510200   fbd89f866b1403bb66a143065440089dd76100f2238314d92274a082d4f2b7bb \
+    "https://www.sqlite.org/2026/sqlite-autoconf-3510200.tar.gz"  sqlite-autoconf-3510200.tar.gz
+define proj       9.8.1     af5b731c145c1d13c4e3b4eeb7d167e94e845e440f71e3496b4ed8dae0291960 \
+    "https://download.osgeo.org/proj/proj-9.8.1.tar.gz"                                          proj-9.8.1.tar.gz
+define expat      2.7.4     e6af11b01e32e5ef64906a5cca8809eabc4beb7ff2f9a0e6aabbd42e825135d0 \
+    "https://github.com/libexpat/libexpat/releases/download/R_2_7_4/expat-2.7.4.tar.bz2"         expat-2.7.4.tar.bz2
+define geos       3.14.1    3c20919cda9a505db07b5216baa980bacdaa0702da715b43f176fb07eff7e716 \
+    "https://download.osgeo.org/geos/geos-3.14.1.tar.bz2"                                        geos-3.14.1.tar.bz2
+define libaec     1.1.6     a469be4d835127e358c4f97de74943a54fbcb870aaf03cd2303c1dcc9fd4af4b \
+    "https://github.com/MathisRosenhauer/libaec/releases/download/v1.1.6/libaec-1.1.6.tar.gz"    libaec-1.1.6.tar.gz
+define hdf5       2.1.0     ce7f5515a95d588b8606c3fb50643f8b88ac52ffbbde9c63bb1edca6a256e964 \
+    "https://github.com/HDFGroup/hdf5/releases/download/2.1.0/hdf5-2.1.0.tar.gz"                 hdf5-2.1.0.tar.gz
+define netcdf     4.10.0    ce160f9c1483b32d1ba8b7633d7984510259e4e439c48a218b95a023dc02fd4c \
+    "https://github.com/Unidata/netcdf-c/archive/refs/tags/v4.10.0.tar.gz"                       netcdf-c-4.10.0.tar.gz
+define blosc      1.21.6    9fcd60301aae28f97f1301b735f966cc19e7c49b6b4321b839b4579a0c156f38 \
+    "https://github.com/Blosc/c-blosc/archive/refs/tags/v1.21.6.tar.gz"                          c-blosc-1.21.6.tar.gz
+define pcre2      10.47     47fe8c99461250d42f89e6e8fdaeba9da057855d06eb7fc08d9ca03fd08d7bc7 \
+    "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.47/pcre2-10.47.tar.bz2"    pcre2-10.47.tar.bz2
+define gdal       "${GDAL_VERSION}" e04e9813bd215b56753d5554330c53be25f3df2d7ed7e6413a19e6b66751c675 \
+    "https://download.osgeo.org/gdal/${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz"  "gdal-${GDAL_VERSION}.tar.gz"
 
-function fetch_untar() {
-    opts="--retry-connrefused \
-          --waitretry=30 \
-          --dns-timeout=20 \
-          --connect-timeout=20 \
-          --read-timeout=300 \
-          --timeout=300 \
-          -t 5"
+# Build order: leaves first, GDAL last. Each entry is a src_<dep> function.
+BUILD_ORDER=(
+    zlib xz nghttp2 openssl curl
+    libpng giflib libwebp zstd libdeflate jpegturbo lerc tiff lcms2 openjpeg
+    jsonc sqlite proj expat geos
+    libaec hdf5 netcdf blosc pcre2
+    gdal
+)
 
-    if [[ "$#" -eq 1 ]]; then
-        # Only URL
-        wget $opts "$1"
+# Notes pinned by past CI failures — keep these with the mechanism they guard:
+#   - xz downloads from its GitHub release mirror: tukaani.org is a single
+#     host and timed out hard in CI (2026-07-03); the asset is the identical
+#     official tarball and is SHA256-verified either way.
+#   - the giflib tarball comes through sourceforge's redirector, hence the
+#     /download suffix and the explicit local file name.
 
-    elif [[ "$#" -eq 2 ]]; then
-        # URL + TAR_FILE (show hash, no check)
-        wget $opts "$1"
-        TAR_FILE="$2"
-        echo "SHA256: "
-        sha256sum "$TAR_FILE"
-        if [[ $TAR_FILE == *.gz ]]; then
-            tar -xzf "$TAR_FILE"
-        elif [[ $TAR_FILE == *.bz2 ]]; then
-            tar -xjf "$TAR_FILE"
-        else
-            echo "Unsupported file type: $TAR_FILE"
-        fi
-
-    elif [[ "$#" -eq 3 && "$2" == "-O" ]]; then
-        # URL + -O new-name (rename, show hash, no check)
-        wget $opts "$1" -O "$3"
-        TAR_FILE="$3"
-        echo "SHA256: "
-        sha256sum "$TAR_FILE"
-        if [[ $TAR_FILE == *.gz ]]; then
-            tar -xzf "$TAR_FILE"
-        elif [[ $TAR_FILE == *.bz2 ]]; then
-            tar -xjf "$TAR_FILE"
-        else
-            echo "Unsupported file type: $TAR_FILE"
-        fi
-
-    elif [[ "$#" -eq 3 ]]; then
-        # URL + TAR_FILE + SHA_FILE_URL (hash check, no rename)
-        wget $opts "$1"
-        TAR_FILE="$2"
-        SHA256="$3"    
-        EXPECTED_HASH="$SHA256"
-        ACTUAL_HASH=$(sha256sum "$TAR_FILE" | cut -d ' ' -f1)
-
-        echo "Expected hash: $EXPECTED_HASH"
-        echo "Actual hash: $ACTUAL_HASH"
-
-        if [ "$EXPECTED_HASH" == "$ACTUAL_HASH" ]; then
-            echo "SHA256 hash verified. Extracting..."
-            if [[ $TAR_FILE == *.gz ]]; then
-                tar -xzf "$TAR_FILE"
-            elif [[ $TAR_FILE == *.bz2 ]]; then
-                tar -xjf "$TAR_FILE"
-            else
-                echo "Unsupported file type: $TAR_FILE"
-            fi
-        else
-            echo "Hash mismatch! Aborting."
-            exit 1
-        fi
-
-    elif [[ "$#" -eq 4 && "$2" == "-O" ]]; then
-        # URL + -O new-name + SHA_FILE_URL (rename + hash check)
-        wget $opts "$1" -O "$3"
-        TAR_FILE="$3"
-        SHA256="$4"    
-        EXPECTED_HASH="$SHA256"
-        ACTUAL_HASH=$(sha256sum "$TAR_FILE" | cut -d ' ' -f1)
-
-        echo "Expected hash: $EXPECTED_HASH"
-        echo "Actual hash: $ACTUAL_HASH"
-
-        if [ "$EXPECTED_HASH" == "$ACTUAL_HASH" ]; then
-            echo "SHA256 hash verified. Extracting..."
-            if [[ $TAR_FILE == *.gz ]]; then
-                tar -xzf "$TAR_FILE"
-            elif [[ $TAR_FILE == *.bz2 ]]; then
-                tar -xjf "$TAR_FILE"
-            else
-                echo "Unsupported file type: $TAR_FILE"
-            fi
-        else
-            echo "Hash mismatch! Aborting."
-            exit 1
-        fi
+fetch() {
+    # fetch <dep>: download the pinned tarball, verify its SHA256, extract.
+    local dep="$1"
+    local tarball="${TARBALL[$dep]}"
+    wget --retry-connrefused --waitretry=30 --dns-timeout=20 \
+        --connect-timeout=20 --read-timeout=300 --timeout=300 -t 5 \
+        -O "${tarball}" "${URL[$dep]}"
+    local actual
+    actual="$(sha256sum "${tarball}" | cut -d ' ' -f1)"
+    if [[ "${actual}" != "${SHA256[$dep]}" ]]; then
+        echo "ERROR: SHA256 mismatch for ${dep} (${tarball})" >&2
+        echo "       expected ${SHA256[$dep]}" >&2
+        echo "       actual   ${actual}" >&2
+        exit 1
     fi
+    case "${tarball}" in
+        *.tar.gz)  tar -xzf "${tarball}" ;;
+        *.tar.bz2) tar -xjf "${tarball}" ;;
+        *) echo "ERROR: unhandled archive type: ${tarball}" >&2; exit 1 ;;
+    esac
 }
 
+src_dir() {
+    # src_dir <dep>: the directory the dep's tarball extracts to.
+    local dep="$1"
+    local tarball="${TARBALL[$dep]}"
+    tarball="${tarball%.tar.gz}"
+    echo "${tarball%.tar.bz2}"
+}
 
-echo "Downloading source code..."
- 
-### Avoid simultaneous downloads
+cmake_install() {
+    # cmake_install <source-subdir> <parallelism> [cmake args...]
+    # Configure in a fresh build dir, build, install. The common cache
+    # arguments every dependency wants come first so callers pass deltas.
+    local src="$1" jobs="$2"
+    shift 2
+    (
+        cd "${src}"
+        mkdir -p _pyramids_build && cd _pyramids_build
+        cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${BUILD_PREFIX}" \
+            -DCMAKE_PREFIX_PATH="${BUILD_PREFIX}" \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            "$@"
+        cmake --build . -j "${jobs}"
+        cmake --install .
+    )
+}
 
-if [ "$ARCH" = "x86_64" ]; then
-	echo "Architecture is x86_64. Waiting 60 seconds..."
-	sleep 60
-fi
+src_zlib() {
+    (cd "$(src_dir zlib)" && ./configure --prefix="${BUILD_PREFIX}" && make && make install)
+}
 
-if [ "$OS" = "linux" ]; then
-	echo "OS is linux. Waiting 30 seconds..."
-	sleep 30
-fi
+src_xz() {
+    (cd "$(src_dir xz)" && ./configure --prefix="${BUILD_PREFIX}" && make && make install)
+}
 
+src_nghttp2() {
+    (cd "$(src_dir nghttp2)" &&
+        ./configure --enable-lib-only --prefix="${BUILD_PREFIX}" &&
+        make -j "$(nproc)" && make install)
+}
 
-BLOSC_URL="https://github.com/Blosc/c-blosc/archive/refs/tags/v${BLOSC_VERSION}.tar.gz"
-BLOSC_FNAME="c-blosc-${BLOSC_VERSION}"
-BLOSC_SHA256="9fcd60301aae28f97f1301b735f966cc19e7c49b6b4321b839b4579a0c156f38"
-fetch_untar ${BLOSC_URL} -O ${BLOSC_FNAME}.tar.gz ${BLOSC_SHA256}
+src_openssl() {
+    (cd "$(src_dir openssl)" &&
+        ./config "${OPENSSL_TARGET}" -fPIC --prefix="${BUILD_PREFIX}" &&
+        make -j "$(nproc)" && make install)
+}
 
-CURL_URL="https://curl.se/download/curl-${CURL_VERSION}.tar.gz"
-CURL_FNAME="curl-${CURL_VERSION}"
-CURL_SHA256="e9274a5f8ab5271c0e0e6762d2fce194d5f98acc568e4ce816845b2dcc0cf88f"
-fetch_untar ${CURL_URL} ${CURL_FNAME}.tar.gz ${CURL_SHA256}
+src_curl() {
+    # The container image may ship its own libcurl in the prefix; ours must
+    # be the only one the linker can find.
+    rm -rf "${BUILD_PREFIX}"/lib/libcurl* || true
+    (cd "$(src_dir curl)" &&
+        ./configure --prefix="${BUILD_PREFIX}" \
+            --with-nghttp2="${BUILD_PREFIX}" \
+            --with-zlib="${BUILD_PREFIX}" \
+            --with-ssl="${BUILD_PREFIX}" \
+            --enable-shared --without-libidn2 --without-libpsl &&
+        make -j "$(nproc)" && make install)
+}
 
-if [ -n "$IS_MACOS" ]; then
-	:
-else
-	EXPAT_VERSION_UNDERSCORED="${EXPAT_VERSION//./_}"
-	EXPAT_URL="https://github.com/libexpat/libexpat/releases/download/R_${EXPAT_VERSION_UNDERSCORED}/expat-${EXPAT_VERSION}.tar.bz2"
-	EXPAT_FNAME="expat-${EXPAT_VERSION}"
-	EXPAT_SHA256="e6af11b01e32e5ef64906a5cca8809eabc4beb7ff2f9a0e6aabbd42e825135d0"
-	fetch_untar ${EXPAT_URL} ${EXPAT_FNAME}.tar.bz2 ${EXPAT_SHA256}
-fi
+src_libpng() {
+    (cd "$(src_dir libpng)" && ./configure --prefix="${BUILD_PREFIX}" && make && make install)
+}
 
-# GDAL_VERSION arrives via the environment (build-gdal-stack.sh); this hash
-# pins the default 3.13.1 — bump both together or the fetch fails loudly.
-GDAL_URL="https://download.osgeo.org/gdal/${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz"
-GDAL_FNAME="gdal-${GDAL_VERSION}"
-GDAL_SHA256="e04e9813bd215b56753d5554330c53be25f3df2d7ed7e6413a19e6b66751c675"
-fetch_untar ${GDAL_URL} ${GDAL_FNAME}.tar.gz ${GDAL_SHA256}
+src_giflib() {
+    # giflib's default `all` target also renders documentation images via
+    # ImageMagick, which the build images don't ship — build and install
+    # only the library targets GDAL links against.
+    (cd "$(src_dir giflib)" &&
+        make libgif.a libgif.so &&
+        make install-include install-lib PREFIX="${BUILD_PREFIX}")
+}
 
-GIFLIB_URL="https://sourceforge.net/projects/giflib/files/giflib-${GIFLIB_VERSION}.tar.gz/download"
-GIFLIB_FNAME="giflib-${GIFLIB_VERSION}"
-GIFLIB_SHA256="be7ffbd057cadebe2aa144542fd90c6838c6a083b5e8a9048b8ee3b66b29d5fb"
-fetch_untar ${GIFLIB_URL} -O ${GIFLIB_FNAME}.tar.gz ${GIFLIB_SHA256}
+src_libwebp() {
+    (cd "$(src_dir libwebp)" &&
+        ./autogen.sh &&
+        ./configure --prefix="${BUILD_PREFIX}" --enable-libwebpmux --enable-libwebpdemux &&
+        make && make install)
+}
 
-GEOS_URL="https://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2"
-GEOS_FNAME="geos-${GEOS_VERSION}"
-GEOS_SHA256="3c20919cda9a505db07b5216baa980bacdaa0702da715b43f176fb07eff7e716"
-fetch_untar ${GEOS_URL} ${GEOS_FNAME}.tar.bz2 ${GEOS_SHA256}
+src_zstd() {
+    # zstd's cmake project lives in a subdirectory of the source tree.
+    (
+        cd "$(src_dir zstd)/build/cmake"
+        cmake . \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${BUILD_PREFIX}" \
+            -DCMAKE_PREFIX_PATH="${BUILD_PREFIX}" \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DZSTD_LEGACY_SUPPORT=0 \
+            -DSED_ERE_OPT=-r
+        cmake --build .
+        cmake --install .
+    )
+}
 
-HDF5_URL=https://github.com/HDFGroup/hdf5/releases/download/${HDF5_VERSION}/hdf5-${HDF5_VERSION}.tar.gz
-HDF5_FNAME="hdf5-${HDF5_VERSION}"
-HDF5_SHA256="ce7f5515a95d588b8606c3fb50643f8b88ac52ffbbde9c63bb1edca6a256e964"
-fetch_untar ${HDF5_URL} ${HDF5_FNAME}.tar.gz ${HDF5_SHA256}
+src_libdeflate() {
+    cmake_install "$(src_dir libdeflate)" 4 -DBUILD_SHARED_LIBS=ON
+}
 
-JPEGTURBO_URL="https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/${JPEGTURBO_VERSION}/libjpeg-turbo-${JPEGTURBO_VERSION}.tar.gz"
-JPEGTURBO_FNAME="libjpeg-turbo-${JPEGTURBO_VERSION}"
-JPEGTURBO_SHA256="075920b826834ac4ddf97661cc73491047855859affd671d52079c6867c1c6c0"
-fetch_untar ${JPEGTURBO_URL} ${JPEGTURBO_FNAME}.tar.gz ${JPEGTURBO_SHA256}
+src_jpegturbo() {
+    # CMAKE_INSTALL_LIBDIR pinned so the library never lands in lib64 —
+    # downstream configure flags point at ${BUILD_PREFIX}/lib.
+    cmake_install "$(src_dir jpegturbo)" "$(nproc)" \
+        -DCMAKE_INSTALL_LIBDIR="${BUILD_PREFIX}/lib" \
+        -DWITH_JPEG8=1
+}
 
-JSONC_URL="https://s3.amazonaws.com/json-c_releases/releases/json-c-${JSONC_VERSION}.tar.gz"
-JSONC_FNAME="json-c-${JSONC_VERSION}"
-JSONC_SHA256="876ab046479166b869afc6896d288183bbc0e5843f141200c677b3e8dfb11724"
-fetch_untar ${JSONC_URL} ${JSONC_FNAME}.tar.gz ${JSONC_SHA256}
+src_lerc() {
+    cmake_install "$(src_dir lerc)" 4 -DBUILD_SHARED_LIBS=ON -DENABLE_IPO=ON
+}
 
-LCMS2_URL="https://github.com/mm2/Little-CMS/releases/download/lcms${LCMS2_VERSION}/lcms2-${LCMS2_VERSION}.tar.gz"
-LCMS2_FNAME="lcms2-${LCMS2_VERSION}"
-LCMS2_SHA256="d11af569e42a1baa1650d20ad61d12e41af4fead4aa7964a01f93b08b53ab074"
-fetch_untar ${LCMS2_URL} ${LCMS2_FNAME}.tar.gz ${LCMS2_SHA256}
+src_tiff() {
+    (cd "$(src_dir tiff)" &&
+        ./configure --prefix="${BUILD_PREFIX}" --libdir="${BUILD_PREFIX}/lib" \
+            --enable-zstd --enable-webp --enable-lerc \
+            --with-jpeg-include-dir="${BUILD_PREFIX}/include" \
+            --with-jpeg-lib-dir="${BUILD_PREFIX}/lib" &&
+        make -j "$(nproc)" && make install)
+}
 
-LERC_URL="https://github.com/Esri/lerc/archive/refs/tags/v${LERC_VERSION}.tar.gz"
-LERC_FNAME="lerc-${LERC_VERSION}"
-LERC_SHA256="91431c2b16d0e3de6cbaea188603359f87caed08259a645fd5a3805784ee30a0"
-fetch_untar ${LERC_URL} -O ${LERC_FNAME}.tar.gz ${LERC_SHA256}
+src_lcms2() {
+    (cd "$(src_dir lcms2)" &&
+        ./configure --prefix="${BUILD_PREFIX}" &&
+        make -j "$(nproc)" && make install)
+}
 
-LIBAEC_URL="https://github.com/MathisRosenhauer/libaec/releases/download/v${LIBAEC_VERSION}/libaec-${LIBAEC_VERSION}.tar.gz"
-LIBAEC_FNAME="libaec-${LIBAEC_VERSION}"
-LIBAEC_SHA256="a469be4d835127e358c4f97de74943a54fbcb870aaf03cd2303c1dcc9fd4af4b"
-fetch_untar ${LIBAEC_URL} -O ${LIBAEC_FNAME}.tar.gz ${LIBAEC_SHA256}
+src_openjpeg() {
+    cmake_install "$(src_dir openjpeg)" "$(nproc)"
+}
 
-LIBDEFLATE_URL="https://github.com/ebiggers/libdeflate/archive/refs/tags/v${LIBDEFLATE_VERSION}.tar.gz"
-LIBDEFLATE_FNAME="libdeflate-${LIBDEFLATE_VERSION}"
-LIBDEFLATE_SHA256="ad8d3723d0065c4723ab738be9723f2ff1cb0f1571e8bfcf0301ff9661f475e8"
-fetch_untar ${LIBDEFLATE_URL} -O ${LIBDEFLATE_FNAME}.tar.gz ${LIBDEFLATE_SHA256}
+src_jsonc() {
+    (
+        cd "$(src_dir jsonc)"
+        cmake . \
+            -DCMAKE_INSTALL_PREFIX="${BUILD_PREFIX}" \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+        make -j "$(nproc)"
+        make install
+    )
+}
 
-LIBPNG_URL="https://github.com/pnggroup/libpng/archive/refs/tags/v${LIBPNG_VERSION}.tar.gz"
-LIBPNG_FNAME="libpng-${LIBPNG_VERSION}"
-LIBPNG_SHA256="ba7efce137409079989df4667706c339bebfbb10e9f413474718012a13c8cd4c"
-fetch_untar ${LIBPNG_URL} -O ${LIBPNG_FNAME}.tar.gz ${LIBPNG_SHA256}
+src_sqlite() {
+    # HAVE_PREAD64/HAVE_PWRITE64 are glibc-only (see the LIBC_FLAVOR note at
+    # the top); scoped to this build so no other dependency sees the defines.
+    local sqlite_cflags="${CFLAGS}"
+    if [[ "${LIBC_FLAVOR}" == "glibc" ]]; then
+        sqlite_cflags="${CFLAGS} -DHAVE_PREAD64 -DHAVE_PWRITE64"
+    fi
+    (cd "$(src_dir sqlite)" &&
+        CFLAGS="${sqlite_cflags}" ./configure \
+            --enable-rtree --enable-threadsafe --prefix="${BUILD_PREFIX}" &&
+        make && make install)
+}
 
-LIBWEBP_URL="https://github.com/webmproject/libwebp/archive/refs/tags/v$LIBWEBP_VERSION.tar.gz"
-LIBWEBP_FNAME="libwebp-${LIBWEBP_VERSION}"
-LIBWEBP_SHA256="93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136"
-fetch_untar ${LIBWEBP_URL} -O ${LIBWEBP_FNAME}.tar.gz ${LIBWEBP_SHA256}
+src_proj() {
+    # PROJ_RENAME_SYMBOLS namespaces PROJ's symbols so the wheel's copy can
+    # coexist in-process with any other PROJ (pyproj bundles its own).
+    # GDAL's build repeats the same defines when it consumes this PROJ.
+    (
+        cd "$(src_dir proj)"
+        CFLAGS="${CFLAGS} -DPROJ_RENAME_SYMBOLS" \
+        CXXFLAGS="${CXXFLAGS} -DPROJ_RENAME_SYMBOLS -DPROJ_INTERNAL_CPP_NAMESPACE" \
+        cmake . \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${BUILD_PREFIX}" \
+            -DCMAKE_PREFIX_PATH="${BUILD_PREFIX}" \
+            -DCMAKE_INCLUDE_PATH="${BUILD_PREFIX}/include" \
+            -DSQLite3_INCLUDE_DIR="${BUILD_PREFIX}/include" \
+            -DSQLite3_LIBRARY="${BUILD_PREFIX}/lib/libsqlite3.so" \
+            -DBUILD_SHARED_LIBS=ON \
+            -DENABLE_IPO=ON \
+            -DBUILD_APPS:BOOL=OFF \
+            -DBUILD_TESTING:BOOL=OFF
+        cmake --build . -j "$(nproc)"
+        cmake --install .
+    )
+}
 
-NETCDF_URL="https://github.com/Unidata/netcdf-c/archive/refs/tags/v${NETCDF_VERSION}.tar.gz"
-NETCDF_FNAME="netcdf-c-${NETCDF_VERSION}"
-NETCDF_SHA256="ce160f9c1483b32d1ba8b7633d7984510259e4e439c48a218b95a023dc02fd4c"
-fetch_untar ${NETCDF_URL} -O ${NETCDF_FNAME}.tar.gz ${NETCDF_SHA256}
+src_expat() {
+    # Static + PIC, and it MUST be expat's CMake build: auditwheel's
+    # manylinux policy whitelists libexpat.so.1 instead of vendoring it, so
+    # a shared expat silently made the wheel depend on the host package
+    # (absent on python:*-slim). Static linking removes the runtime dep.
+    # The autotools build is unusable for this — even under
+    # --disable-shared it installs CMake package files hardcoded to a
+    # SHARED imported target, and GDAL's find_package(EXPAT) then fatals
+    # on the missing libexpat.so (observed: run 28716182717).
+    cmake_install "$(src_dir expat)" "$(nproc)" \
+        -DEXPAT_SHARED_LIBS=OFF \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DEXPAT_BUILD_TOOLS=OFF \
+        -DEXPAT_BUILD_EXAMPLES=OFF \
+        -DEXPAT_BUILD_TESTS=OFF \
+        -DEXPAT_BUILD_DOCS=OFF \
+        -DEXPAT_BUILD_FUZZERS=OFF
+}
 
-NGHTTP2_URL="https://github.com/nghttp2/nghttp2/releases/download/v${NGHTTP2_VERSION}/nghttp2-${NGHTTP2_VERSION}.tar.gz"
-NGHTTP2_FNAME="nghttp2-${NGHTTP2_VERSION}"
-NGHTTP2_SHA256="2c16ffc588ad3f9e2613c3fad72db48ecb5ce15bc362fcc85b342e48daf51013"
-fetch_untar ${NGHTTP2_URL} ${NGHTTP2_FNAME}.tar.gz ${NGHTTP2_SHA256}
+src_geos() {
+    cmake_install "$(src_dir geos)" 4 \
+        -DBUILD_SHARED_LIBS=ON \
+        -DENABLE_IPO=ON \
+        -DBUILD_APPS:BOOL=OFF \
+        -DBUILD_TESTING:BOOL=OFF
+}
 
-OPENJPEG_URL="https://github.com/uclouvain/openjpeg/archive/refs/tags/v${OPENJPEG_VERSION}.tar.gz"
-OPENJPEG_FNAME="openjpeg-${OPENJPEG_VERSION}"
-OPENJPEG_SHA256="a695fbe19c0165f295a8531b1e4e855cd94d0875d2f88ec4b61080677e27188a"
-fetch_untar ${OPENJPEG_URL} -O ${OPENJPEG_FNAME}.tar.gz ${OPENJPEG_SHA256}
+src_libaec() {
+    # libaec is the szip-compatible compression HDF5 links against.
+    cmake_install "$(src_dir libaec)" 4 \
+        -DBUILD_SHARED_LIBS=ON \
+        -DCMAKE_INSTALL_LIBDIR=lib
+}
 
-OPENSSL_URL="https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz"
-OPENSSL_FNAME="openssl-${OPENSSL_VERSION}"
-OPENSSL_SHA256="b1bfedcd5b289ff22aee87c9d600f515767ebf45f77168cb6d64f231f518a82e"
-fetch_untar ${OPENSSL_URL} ${OPENSSL_FNAME}.tar.gz ${OPENSSL_SHA256}
-
-PCRE2_URL="https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${PCRE_VERSION}/pcre2-${PCRE_VERSION}.tar.bz2"
-PCRE2_FNAME="pcre2-${PCRE_VERSION}"
-PCRE2_SHA256="47fe8c99461250d42f89e6e8fdaeba9da057855d06eb7fc08d9ca03fd08d7bc7"
-fetch_untar $PCRE2_URL ${PCRE2_FNAME}.tar.bz2 ${PCRE2_SHA256}
-
-PROJ_URL="https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz"
-PROJ_FNAME="proj-${PROJ_VERSION}"
-PROJ_SHA256="6c097dc803c561929cdfcc46e4bf9945ea977611fb31493ad14e88edaeae260f"
-fetch_untar ${PROJ_URL} ${PROJ_FNAME}.tar.gz ${PROJ_SHA256}
-
-SQLITE_URL="https://www.sqlite.org/2026/sqlite-autoconf-${SQLITE_VERSION}.tar.gz"
-SQLITE_FNAME="sqlite-autoconf-${SQLITE_VERSION}"
-SQLITE_SHA256="fbd89f866b1403bb66a143065440089dd76100f2238314d92274a082d4f2b7bb"
-fetch_untar ${SQLITE_URL} ${SQLITE_FNAME}.tar.gz ${SQLITE_SHA256}
-
-TIFF_URL="https://download.osgeo.org/libtiff/tiff-${TIFF_VERSION}.tar.gz"
-TIFF_FNAME="tiff-${TIFF_VERSION}"
-TIFF_SHA256="f698d94f3103da8ca7438d84e0344e453fe0ba3b7486e04c5bf7a9a3fabe9b69"
-fetch_untar ${TIFF_URL} ${TIFF_FNAME}.tar.gz ${TIFF_SHA256}
-
-# pyramids delta: fetch xz from its GitHub release mirror — tukaani.org is a
-# single host and timed out hard in CI (2026-07-03); the release asset is the
-# identical official tarball and the download is SHA256-verified either way.
-XZ_URL="https://github.com/tukaani-project/xz/releases/download/v${XZ_VERSION}/xz-${XZ_VERSION}.tar.gz"
-XZ_FNAME="xz-${XZ_VERSION}"
-XZ_SHA256="ce09c50a5962786b83e5da389c90dd2c15ecd0980a258dd01f70f9e7ce58a8f1"
-fetch_untar ${XZ_URL} ${XZ_FNAME}.tar.gz ${XZ_SHA256}
-
-ZLIB_URL="https://github.com/madler/zlib/releases/download/v$ZLIB_VERSION/zlib-$ZLIB_VERSION.tar.gz"
-ZLIB_FNAME="zlib-${ZLIB_VERSION}"
-ZLIB_SHA256="bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
-fetch_untar $ZLIB_URL ${ZLIB_FNAME}.tar.gz ${ZLIB_SHA256}
-
-ZSTD_URL="https://github.com/facebook/zstd/archive/v${ZSTD_VERSION}.tar.gz"
-ZSTD_FNAME="zstd-${ZSTD_VERSION}"
-ZSTD_SHA256="37d7284556b20954e56e1ca85b80226768902e2edabd3b649e9e72c0c9012ee3"
-fetch_untar ${ZSTD_URL} -O ${ZSTD_FNAME}.tar.gz ${ZSTD_SHA256}
-
-
-echo "Compiling libraries ..."
-
-function build_hdf5 {
-	if [ -e hdf5-stamp ]; then return; fi
-	build_zlib
-	# libaec is a drop-in replacement for szip
-	build_libaec
-    echo "Running build_hdf5"
-	local cmake=cmake
-	(cd ${HDF5_FNAME} &&
-		mkdir build && cd build &&
-        $cmake .. \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX:PATH=$BUILD_PREFIX \
-        -DCMAKE_PREFIX_PATH=${BUILD_PREFIX} \
-        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-        -DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET \
-        -DCMAKE_OSX_ARCHITECTURES=$CMAKE_OSX_ARCHITECTURES \
+src_hdf5() {
+    cmake_install "$(src_dir hdf5)" 4 \
         -DBUILD_SHARED_LIBS=ON \
         -DHDF5_ENABLE_ZLIB_SUPPORT=ON \
-        -DZLIB_ROOT=${BUILD_PREFIX} \
+        -DZLIB_ROOT="${BUILD_PREFIX}" \
         -DHDF5_ENABLE_SZIP_SUPPORT:BOOL=ON \
-        -Dlibaec_DIR=${BUILD_PREFIX}/lib/cmake/libaec \
-        -DSZIP_LIBRARY:PATH=$BUILD_PREFIX/lib/libsz.$lib_ext \
-        -DSZIP_INCLUDE_DIR=$BUILD_PREFIX/include &&
-    $cmake --build . -j4 &&
-    $cmake --install .)
-	touch hdf5-stamp
+        -Dlibaec_DIR="${BUILD_PREFIX}/lib/cmake/libaec" \
+        -DSZIP_LIBRARY:PATH="${BUILD_PREFIX}/lib/libsz.so" \
+        -DSZIP_INCLUDE_DIR="${BUILD_PREFIX}/include"
 }
 
-function build_blosc {
-	if [ -e blosc-stamp ]; then return; fi
-	local cmake=cmake
-    echo "Running build_blosc"
-	# pyramids delta: skip bench/tests/fuzzers — GDAL links only the library,
-	# and c-blosc's bench.c trips musl's feature-macro strictness
-	# (clock_gettime/CLOCK_MONOTONIC undeclared without _GNU_SOURCE).
-	(cd ${BLOSC_FNAME} &&
-		$cmake -DCMAKE_INSTALL_PREFIX=$BUILD_PREFIX -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-			-DBUILD_BENCHMARKS=OFF -DBUILD_TESTS=OFF -DBUILD_FUZZERS=OFF . &&
-		make install)
-	if [ -n "$IS_MACOS" ]; then
-		# Fix blosc library id bug
-		for lib in $(ls ${BUILD_PREFIX}/lib/libblosc*.dylib); do
-			install_name_tool -id $lib $lib
-		done
-	fi
-	touch blosc-stamp
-}
-
-function build_geos {
-
-	if [ -e geos-stamp ]; then return; fi
-	local cmake=cmake
-    echo "Running build_geos"
-	(cd ${GEOS_FNAME} &&
-		mkdir build && cd build &&
-		$cmake .. \
-			-DCMAKE_INSTALL_PREFIX:PATH=$BUILD_PREFIX \
-			-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-			-DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET \
-			-DCMAKE_OSX_ARCHITECTURES=$CMAKE_OSX_ARCHITECTURES \
-			-DBUILD_SHARED_LIBS=ON \
-			-DCMAKE_BUILD_TYPE=Release \
-			-DENABLE_IPO=ON \
-			-DBUILD_APPS:BOOL=OFF \
-			-DBUILD_TESTING:BOOL=OFF &&
-		$cmake --build . -j4 &&
-		$cmake --install .)
-	touch geos-stamp
-}
-
-function build_jsonc {
-	if [ -e jsonc-stamp ]; then return; fi
-	local cmake=cmake
-    echo "Running build_jsonc"
-	(cd ${JSONC_FNAME} &&
-		$cmake -DCMAKE_INSTALL_PREFIX=$BUILD_PREFIX -DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET -DCMAKE_POLICY_VERSION_MINIMUM=3.5 . &&
-		make -j4 &&
-		make install)
-	if [ -n "$IS_MACOS" ]; then
-		for lib in $(ls ${BUILD_PREFIX}/lib/libjson-c.5*.dylib); do
-			install_name_tool -id $lib $lib
-		done
-		for lib in $(ls ${BUILD_PREFIX}/lib/libjson-c.dylib); do
-			install_name_tool -id $lib $lib
-		done
-	fi
-	touch jsonc-stamp
-}
-
-function build_proj {
-	CFLAGS="$CFLAGS -DPROJ_RENAME_SYMBOLS"
-	CXXFLAGS="$CXXFLAGS -DPROJ_RENAME_SYMBOLS -DPROJ_INTERNAL_CPP_NAMESPACE"
-	if [ -e proj-stamp ]; then return; fi
-    echo "Running build_proj"
-	local cmake=cmake
-	(cd ${PROJ_FNAME} &&
-		$cmake . \
-			-DCMAKE_INSTALL_PREFIX:PATH=$BUILD_PREFIX \
-			-DCMAKE_PREFIX_PATH=${BUILD_PREFIX} \
-			-DCMAKE_INCLUDE_PATH=$BUILD_PREFIX/include \
-			-DSQLite3_INCLUDE_DIR=$BUILD_PREFIX/include \
-			-DSQLite3_LIBRARY=$BUILD_PREFIX/lib/libsqlite3.$lib_ext \
-			-DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET \
-			-DCMAKE_OSX_ARCHITECTURES=$CMAKE_OSX_ARCHITECTURES \
-			-DBUILD_SHARED_LIBS=ON \
-			-DCMAKE_BUILD_TYPE=Release \
-			-DENABLE_IPO=ON \
-			-DBUILD_APPS:BOOL=OFF \
-			-DBUILD_TESTING:BOOL=OFF &&
-		$cmake --build . -j$(nproc) &&
-		$cmake --install .)
-	touch proj-stamp
-}
-
-function build_sqlite {
-
-	# pyramids delta: only glibc has the LFS64 aliases. musl removed
-	# off64_t/pread64/pwrite64 from its headers (1.2.4+) — its plain
-	# pread/pwrite are already 64-bit — so force-defining HAVE_PREAD64
-	# there makes sqlite3.c reference undeclared symbols and fail.
-	if [ -z "$IS_MACOS" ] && ! command -v apk >/dev/null 2>&1; then
-		CFLAGS="$CFLAGS -DHAVE_PREAD64 -DHAVE_PWRITE64"
-	fi
-
-	if [ -e sqlite-stamp ]; then return; fi
-    echo "Running build_sqlite"
-	(cd ${SQLITE_FNAME} &&
-		./configure --enable-rtree --enable-threadsafe --prefix=$BUILD_PREFIX &&
-		make &&
-		make install)
-	touch sqlite-stamp
-}
-
-function build_expat {
-	if [ -e expat-stamp ]; then return; fi
-	if [ -n "$IS_MACOS" ]; then
-		:
-	else
-        echo "Running build_expat"
-		# pyramids delta: static + PIC. auditwheel's manylinux policy
-		# WHITELISTS libexpat.so.1 (does not vendor it), which made the wheel
-		# silently require the system package on slim images (python:*-slim
-		# ships none). Linking expat statically into libgdal removes the
-		# runtime dependency entirely — the wheel is self-contained again.
-		# MUST use expat's CMake build for this: the autotools build installs
-		# CMake package files hardcoded to a SHARED imported target even
-		# under --disable-shared (cmake/autotools/expat__linux.cmake.in), so
-		# GDAL's find_package(EXPAT) fatals on the missing libexpat.so
-		# (observed: run 28716182717).
-		local cmake=cmake
-		(cd ${EXPAT_FNAME} &&
-			mkdir cmake_build && cd cmake_build &&
-			$cmake .. \
-				-DCMAKE_INSTALL_PREFIX=$BUILD_PREFIX \
-				-DCMAKE_BUILD_TYPE=Release \
-				-DEXPAT_SHARED_LIBS=OFF \
-				-DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-				-DEXPAT_BUILD_TOOLS=OFF \
-				-DEXPAT_BUILD_EXAMPLES=OFF \
-				-DEXPAT_BUILD_TESTS=OFF \
-				-DEXPAT_BUILD_DOCS=OFF \
-				-DEXPAT_BUILD_FUZZERS=OFF &&
-			make -j4 &&
-			make install)
-	fi
-	touch expat-stamp
-}
-
-function build_lerc {
-
-	if [ -e lerc-stamp ]; then return; fi
-	local cmake=cmake
-    echo "Running build_lerc"
-	(cd ${LERC_FNAME} &&
-		mkdir cmake_build && cd cmake_build &&
-		$cmake .. \
-			-DCMAKE_INSTALL_PREFIX=$BUILD_PREFIX \
-			-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-			-DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET \
-			-DCMAKE_OSX_ARCHITECTURES=$CMAKE_OSX_ARCHITECTURES \
-			-DBUILD_SHARED_LIBS=ON \
-			-DCMAKE_BUILD_TYPE=Release \
-			-DENABLE_IPO=ON &&
-		$cmake --build . -j4 &&
-		$cmake --install .)
-	touch lerc-stamp
-}
-
-function build_tiff {
-
-	if [ -e tiff-stamp ]; then return; fi
-	local cmake=cmake
-	build_lerc
-	build_jpegturbo
-	build_libwebp
-	build_zlib
-	build_zstd
-	build_xz
-    echo "Running build_tiff"
-	(cd ${TIFF_FNAME} &&
-		./configure --prefix=$BUILD_PREFIX --libdir=$BUILD_PREFIX/lib --enable-zstd --enable-webp --enable-lerc --with-jpeg-include-dir=$BUILD_PREFIX/include --with-jpeg-lib-dir=$BUILD_PREFIX/lib &&
-		make -j4 &&
-		make install)
-	touch tiff-stamp
-}
-
-function build_openjpeg {
-
-	if [ -e openjpeg-stamp ]; then return; fi
-
-	build_zlib
-	build_tiff
-	build_lcms2
-    echo "Running build_openjpeg"
-	local cmake=cmake
-	(cd ${OPENJPEG_FNAME} &&
-		mkdir build &&
-		cd build &&
-		$cmake .. \
-			-DCMAKE_BUILD_TYPE=Release \
-			-DCMAKE_INSTALL_PREFIX=$BUILD_PREFIX \
-			-DCMAKE_PREFIX_PATH=${BUILD_PREFIX} \
-			-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-			-DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET \
-			-DCMAKE_OSX_ARCHITECTURES=$CMAKE_OSX_ARCHITECTURES &&
-		$cmake --build . -j$(nproc) &&
-		$cmake --install .)
-
-	touch openjpeg-stamp
-}
-
-function build_libwebp {
-
-	build_libpng
-	build_giflib
-
-	if [ -e libwebp-stamp ]; then return; fi
-    echo "Running build_libwebp"
-	(cd ${LIBWEBP_FNAME} &&
-		./autogen.sh &&
-		./configure --prefix=$BUILD_PREFIX \
-			--enable-libwebpmux \
-			--enable-libwebpdemux &&
-		make &&
-		make install)
-	touch libwebp-stamp
-}
-
-function build_nghttp2 {
-	if [ -e nghttp2-stamp ]; then return; fi
-    echo "Running build_nghttp2"
-	(cd ${NGHTTP2_FNAME} &&
-		./configure --enable-lib-only --prefix=$BUILD_PREFIX &&
-		make -j4 &&
-		make install)
-	touch nghttp2-stamp
-}
-
-function build_openssl  {
-	if [ -e openssl-stamp ]; then return; fi
-    echo "Running build_openssl"
-	(cd ${OPENSSL_FNAME} &&
-		./config $TARGET -fPIC --prefix=$BUILD_PREFIX &&
-		make -j4 &&
-		make install)
-	touch openssl-stamp
-}
-
-function build_curl {
-	if [ -e curl-stamp ]; then return; fi
-
-	suppress build_openssl
-	build_nghttp2
-	echo "Running build_curl"
-	local flags="--prefix=$BUILD_PREFIX --with-nghttp2=$BUILD_PREFIX --with-zlib=$BUILD_PREFIX --with-ssl=$BUILD_PREFIX --enable-shared --without-libidn2 --without-libpsl"
-
-	(cd ${CURL_FNAME} &&
-		LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$BUILD_PREFIX/lib:$BUILD_PREFIX/lib64 &&
-		DYLD_LIBRARY_PATH=$DYLD_LIBRARY_PATH:$BUILD_PREFIX/lib ./configure $flags &&
-		make -j4 &&
-		if [ -n "$IS_MACOS" ]; then make install; else make install; fi)
-	touch curl-stamp
-}
-
-function build_zstd {
-
-	if [ -e zstd-stamp ]; then return; fi
-
-	if [ -n "$IS_MACOS" ]; then
-		sed_ere_opt="-E"
-	else
-		sed_ere_opt="-r"
-	fi
-	echo "Running build_zstd"
-	local cmake=cmake
-	(cd ${ZSTD_FNAME}/build/cmake &&
-		$cmake . \
-			-DCMAKE_BUILD_TYPE=Release \
-			-DCMAKE_INSTALL_PREFIX:PATH=$BUILD_PREFIX \
-			-DCMAKE_PREFIX_PATH=${BUILD_PREFIX} \
-			-DCMAKE_OSX_ARCHITECTURES="${ARCH}" \
-			-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-			-DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET \
-			-DCMAKE_OSX_ARCHITECTURES=$CMAKE_OSX_ARCHITECTURES \
-			-DZSTD_LEGACY_SUPPORT=0 \
-			-DSED_ERE_OPT=$sed_ere_opt &&
-		$cmake --build . &&
-		$cmake --install .)
-
-	touch zstd-stamp
-}
-
-function build_pcre2 {
-	if [ -e pcre-stamp ]; then return; fi
-    echo "Running build_pcre2"
-	(cd ${PCRE2_FNAME} &&
-		./configure --prefix=$BUILD_PREFIX &&
-		make -j4 &&
-		make install)
-	touch pcre-stamp
-}
-
-function build_zlib {
-	if [ -e zlib-stamp ]; then return; fi
-    echo "Running build_zlib"
-	(cd ${ZLIB_FNAME} &&
-		./configure --prefix=$BUILD_PREFIX &&
-		make &&
-		make install)
-	touch zlib-stamp
-}
-
-function build_jpegturbo {
-
-    if [ -e jpeg-stamp ]; then
-        return
-    fi
-
-    echo "Running build_jpegturbo"
-
-    local cmake=cmake
-
-    (
-        cd ${JPEGTURBO_FNAME} &&
-        $cmake -G "Unix Makefiles" \
-            -DCMAKE_INSTALL_PREFIX="$BUILD_PREFIX" \
-            -DCMAKE_PREFIX_PATH="$BUILD_PREFIX" \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
-            -DCMAKE_OSX_ARCHITECTURES="$CMAKE_OSX_ARCHITECTURES" \
-            -DCMAKE_INSTALL_LIBDIR="$BUILD_PREFIX/lib" \
-            -DCMAKE_INSTALL_NAME_DIR="$BUILD_PREFIX/lib" \
-            -DWITH_JPEG8=1 \
-            . \
-        && make -j4 \
-        && make install
-    ) || return 1
-
-    touch jpeg-stamp
-}
-
-function build_giflib {
-	if [ -e giflib-stamp ]; then return; fi
-    echo "Running build_giflib"
-	# pyramids delta: giflib's default `all` also renders doc images via
-	# ImageMagick `convert`, which the manylinux image doesn't ship — build
-	# and install only the library targets GDAL links against.
-	(cd ${GIFLIB_FNAME} &&
-		make libgif.a libgif.so &&
-		make install-include install-lib PREFIX=$BUILD_PREFIX)
-	touch giflib-stamp
-}
-
-function build_libpng {
-
-	if [ -e libpng-stamp ]; then return; fi
- 
-	build_zlib
-    echo "Running build_libpng"
-	(cd ${LIBPNG_FNAME} &&
-		./configure --prefix=$BUILD_PREFIX &&
-		make &&
-		make install)
-	touch libpng-stamp
-}
-
-function build_xz {
-	if [ -e xz-stamp ]; then return; fi
-    echo "Running build_xz"
-	(cd ${XZ_FNAME} &&
-		./configure --prefix=$BUILD_PREFIX &&
-		make &&
-		make install)
-	touch xz-stamp
-}
-
-function build_lcms2 {
-
-	if [ -e lcms2-stamp ]; then return; fi
-
-	build_tiff
-    echo "Running build_lcms2"
-	(cd ${LCMS2_FNAME} &&
-		./configure --prefix=$BUILD_PREFIX &&
-		make -j$(nproc) &&
-		make install)
-	touch lcms2-stamp
-
-}
-
-function build_libdeflate {
-
-	if [ -e libdeflate-stamp ]; then return; fi
-    echo "Running build_libdeflate"
-	local cmake=cmake
-	(cd ${LIBDEFLATE_FNAME} &&
-		mkdir build && cd build &&
-		$cmake .. \
-			-DCMAKE_INSTALL_PREFIX:PATH=$BUILD_PREFIX \
-			-DCMAKE_PREFIX_PATH=${BUILD_PREFIX} \
-			-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-			-DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET \
-			-DCMAKE_OSX_ARCHITECTURES=$CMAKE_OSX_ARCHITECTURES \
-			-DBUILD_SHARED_LIBS=ON \
-			-DCMAKE_BUILD_TYPE=Release &&
-		$cmake --build . -j4 &&
-		$cmake --install .)
-
-	touch libdeflate-stamp
-}
-
-function build_libaec {
-	if [ -e libaec-stamp ]; then return; fi
-    echo "Running build_libaec"
-	local cmake=cmake
-    (cd ${LIBAEC_FNAME} &&
-    mkdir build && cd build &&
-    $cmake .. \
-        -DCMAKE_INSTALL_PREFIX:PATH=$BUILD_PREFIX \
-        -DCMAKE_PREFIX_PATH=${BUILD_PREFIX} \
-        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-        -DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET \
-        -DCMAKE_OSX_ARCHITECTURES=$CMAKE_OSX_ARCHITECTURES \
+src_netcdf() {
+    cmake_install "$(src_dir netcdf)" "$(nproc)" \
         -DBUILD_SHARED_LIBS=ON \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_LIBDIR=lib &&
-    $cmake --build . -j4 &&
-    $cmake --install .)
-	touch libaec-stamp
+        -DENABLE_DAP=ON
 }
 
-function build_netcdf {
-
-	if [ -e netcdf-stamp ]; then return; fi
-	local cmake=cmake
-	build_hdf5
-    echo "Running build_netcdf"
-	(cd ${NETCDF_FNAME} &&
-		mkdir build && cd build &&
-		$cmake .. \
-			-DCMAKE_BUILD_TYPE=Release \
-			-DCMAKE_INSTALL_PREFIX:PATH=$BUILD_PREFIX \
-			-DCMAKE_PREFIX_PATH=${BUILD_PREFIX} \
-			-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-			-DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET \
-			-DCMAKE_OSX_ARCHITECTURES=$CMAKE_OSX_ARCHITECTURES \
-			-DENABLE_DAP=ON \
-			-DBUILD_SHARED_LIBS=ON &&
-		$cmake --build . -j$(nproc) &&
-		$cmake --install .)
-	touch netcdf-stamp
+src_blosc() {
+    # Library only: GDAL's Zarr driver links libblosc, and the project's
+    # bench/tests need feature macros musl doesn't define implicitly
+    # (clock_gettime/CLOCK_MONOTONIC without _GNU_SOURCE).
+    (
+        cd "$(src_dir blosc)"
+        cmake . \
+            -DCMAKE_INSTALL_PREFIX="${BUILD_PREFIX}" \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DBUILD_BENCHMARKS=OFF \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_FUZZERS=OFF
+        make install
+    )
 }
 
-function build_gdal {
-	if [ -e gdal-stamp ]; then return; fi
-    echo "Running build_gdal"
-	CFLAGS="$CFLAGS -DPROJ_RENAME_SYMBOLS"
-	CXXFLAGS="$CXXFLAGS -DPROJ_RENAME_SYMBOLS -DPROJ_INTERNAL_CPP_NAMESPACE"
-
-	build_blosc
-	build_curl
-	build_lerc
-	build_jpegturbo
-	build_libpng
-	build_openjpeg
-	build_jsonc
-	build_sqlite
-	build_proj
-	build_expat
-	build_geos
-	build_hdf5
-	build_netcdf
-	build_zstd
-	build_pcre2
-
-	if [ -n "$IS_MACOS" ]; then
-		GEOS_CONFIG="-DGDAL_USE_GEOS=OFF"
-	else
-		GEOS_CONFIG="-DGDAL_USE_GEOS=ON"
-	fi
-
-	local cmake=cmake
-	(cd ${GDAL_FNAME} &&
-		mkdir build &&
-		cd build &&
-		$cmake .. \
-			-DCMAKE_INSTALL_PREFIX=$BUILD_PREFIX \
-			-DCMAKE_PREFIX_PATH=${BUILD_PREFIX} \
-			-DCMAKE_INCLUDE_PATH=$BUILD_PREFIX/include \
-			-DCMAKE_LIBRARY_PATH=$BUILD_PREFIX/lib \
-			-DCMAKE_PROGRAM_PATH=$BUILD_PREFIX/bin \
-			-DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET \
-			-DCMAKE_OSX_ARCHITECTURES=$CMAKE_OSX_ARCHITECTURES \
-			-DBUILD_SHARED_LIBS=ON \
-			-DCMAKE_BUILD_TYPE=Release \
-			-DGDAL_BUILD_OPTIONAL_DRIVERS=ON \
-			-DOGR_BUILD_OPTIONAL_DRIVERS=OFF \
-			-DSQLite3_INCLUDE_DIR=$BUILD_PREFIX/include \
-			-DSQLite3_LIBRARY=$BUILD_PREFIX/lib/libsqlite3.$lib_ext \
-			${GEOS_CONFIG} \
-			-DGDAL_USE_CURL=ON \
-			-DGDAL_USE_TIFF=ON \
-			-DGDAL_USE_TIFF_INTERNAL=OFF \
-			-DGDAL_USE_GEOTIFF_INTERNAL=ON \
-			-DGDAL_ENABLE_DRIVER_GIF=ON \
-			-DGDAL_ENABLE_DRIVER_GRIB=ON \
-			-DGDAL_ENABLE_DRIVER_JPEG=ON \
-			-DGDAL_USE_JXL=OFF \
-			-DGDAL_USE_ICONV=ON \
-			-DGDAL_USE_JSONC=ON \
-			-DGDAL_USE_JSONC_INTERNAL=OFF \
-			-DGDAL_USE_ZLIB=ON \
-			-DGDAL_USE_ZLIB_INTERNAL=OFF \
-			-DGDAL_ENABLE_DRIVER_HDF5=ON \
-			-DGDAL_USE_HDF5=ON \
-			-DHDF5_INCLUDE_DIRS=$BUILD_PREFIX/include \
-			-DGDAL_ENABLE_DRIVER_NETCDF=ON \
-			-DGDAL_USE_NETCDF=ON \
-			-DGDAL_ENABLE_DRIVER_OPENJPEG=ON \
-			-DGDAL_ENABLE_DRIVER_PNG=ON \
-			-DGDAL_ENABLE_DRIVER_OGCAPI=ON \
-			-DGDAL_USE_SQLITE3=ON \
-			-DOGR_ENABLE_DRIVER_SQLITE=ON \
-			-DOGR_ENABLE_DRIVER_GPKG=ON \
-			-DOGR_ENABLE_DRIVER_MVT=ON \
-			-DGDAL_ENABLE_DRIVER_MBTILES=ON \
-			-DOGR_ENABLE_DRIVER_OSM=ON \
-			-DOGR_ENABLE_DRIVER_GEOJSON=ON \
-			-DOGR_ENABLE_DRIVER_SHAPE=ON \
-			-DOGR_ENABLE_DRIVER_GPX=ON \
-			-DOGR_ENABLE_DRIVER_PMTILES=ON \
-			-DOGR_ENABLE_DRIVER_FLATGEOBUF=ON \
-			-DOGR_ENABLE_DRIVER_GML=ON \
-			-DOGR_ENABLE_DRIVER_KML=ON \
-			-DOGR_ENABLE_DRIVER_WFS=ON \
-			-DOGR_ENABLE_DRIVER_OAPIF=ON \
-			-DBUILD_PYTHON_BINDINGS=OFF \
-			-DBUILD_JAVA_BINDINGS=OFF \
-			-DBUILD_CSHARP_BINDINGS=OFF \
-			-DGDAL_USE_SFCGAL=OFF \
-			-DGDAL_USE_XERCESC=OFF \
-			-DGDAL_USE_LIBXML2=OFF \
-			-DGDAL_USE_PCRE2=ON \
-			-DPCRE2_INCLUDE_DIR=$BUILD_PREFIX/include \
-			-DPCRE2-8_LIBRARY=$BUILD_PREFIX/lib/libpcre2-8.$lib_ext \
-			-DGDAL_USE_POSTGRESQL=OFF \
-			-DGDAL_ENABLE_POSTGISRASTER=OFF \
-			-DGDAL_USE_OPENEXR=OFF \
-			-DGDAL_ENABLE_EXR=OFF \
-			-DGDAL_USE_OPENEXR=OFF \
-			-DGDAL_USE_HEIF=OFF \
-			-DGDAL_ENABLE_HEIF=OFF \
-			-DGDAL_USE_ODBC=OFF \
-			-DOGR_ENABLE_DRIVER_AVC=ON \
-			-DGDAL_ENABLE_DRIVER_AIGRID=ON \
-			-DGDAL_ENABLE_DRIVER_AAIGRID=ON \
-			-DGDAL_USE_LERC=ON \
-			-DGDAL_USE_LERC_INTERNAL=OFF \
-			-DGDAL_USE_POSTGRESQL=OFF \
-			-DGDAL_USE_ODBC=OFF &&
-		$cmake --build . -j4 &&
-		$cmake --install .)
-	if [ -n "$IS_MACOS" ]; then
-		:
-	else
-		strip -v --strip-unneeded ${BUILD_PREFIX}/lib/libgdal.so.* || true
-		strip -v --strip-unneeded ${BUILD_PREFIX}/lib64/libgdal.so.* || true
-	fi
-	touch gdal-stamp
+src_pcre2() {
+    (cd "$(src_dir pcre2)" &&
+        ./configure --prefix="${BUILD_PREFIX}" &&
+        make -j "$(nproc)" && make install)
 }
 
-suppress update_env_for_build_prefix
-build_zlib
-suppress build_xz
-suppress build_nghttp2
-# Remove previously installed curl.
-rm -rf $BUILD_PREFIX/lib/libcurl* || true
-suppress build_curl
-build_libwebp
-build_zstd
-build_libdeflate
-build_jpegturbo
-build_lerc
-build_tiff
-build_openjpeg
-suppress build_jsonc
-build_sqlite
-build_proj
-suppress build_expat
-suppress build_geos
-build_hdf5
-suppress build_netcdf
-build_gdal
+src_gdal() {
+    (
+        cd "$(src_dir gdal)"
+        mkdir -p _pyramids_build && cd _pyramids_build
+        CFLAGS="${CFLAGS} -DPROJ_RENAME_SYMBOLS" \
+        CXXFLAGS="${CXXFLAGS} -DPROJ_RENAME_SYMBOLS -DPROJ_INTERNAL_CPP_NAMESPACE" \
+        cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${BUILD_PREFIX}" \
+            -DCMAKE_PREFIX_PATH="${BUILD_PREFIX}" \
+            -DCMAKE_INCLUDE_PATH="${BUILD_PREFIX}/include" \
+            -DCMAKE_LIBRARY_PATH="${BUILD_PREFIX}/lib" \
+            -DCMAKE_PROGRAM_PATH="${BUILD_PREFIX}/bin" \
+            -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_PYTHON_BINDINGS=OFF \
+            -DBUILD_JAVA_BINDINGS=OFF \
+            -DBUILD_CSHARP_BINDINGS=OFF \
+            -DGDAL_BUILD_OPTIONAL_DRIVERS=ON \
+            -DOGR_BUILD_OPTIONAL_DRIVERS=OFF \
+            -DGDAL_USE_CURL=ON \
+            -DGDAL_USE_GEOS=ON \
+            -DGDAL_USE_TIFF=ON \
+            -DGDAL_USE_TIFF_INTERNAL=OFF \
+            -DGDAL_USE_GEOTIFF_INTERNAL=ON \
+            -DGDAL_USE_ICONV=ON \
+            -DGDAL_USE_JSONC=ON \
+            -DGDAL_USE_JSONC_INTERNAL=OFF \
+            -DGDAL_USE_ZLIB=ON \
+            -DGDAL_USE_ZLIB_INTERNAL=OFF \
+            -DGDAL_USE_HDF5=ON \
+            -DGDAL_USE_NETCDF=ON \
+            -DGDAL_USE_SQLITE3=ON \
+            -DGDAL_USE_PCRE2=ON \
+            -DGDAL_USE_LERC=ON \
+            -DGDAL_USE_LERC_INTERNAL=OFF \
+            -DGDAL_USE_JXL=OFF \
+            -DGDAL_USE_SFCGAL=OFF \
+            -DGDAL_USE_XERCESC=OFF \
+            -DGDAL_USE_LIBXML2=OFF \
+            -DGDAL_USE_POSTGRESQL=OFF \
+            -DGDAL_USE_OPENEXR=OFF \
+            -DGDAL_USE_HEIF=OFF \
+            -DGDAL_USE_ODBC=OFF \
+            -DSQLite3_INCLUDE_DIR="${BUILD_PREFIX}/include" \
+            -DSQLite3_LIBRARY="${BUILD_PREFIX}/lib/libsqlite3.so" \
+            -DHDF5_INCLUDE_DIRS="${BUILD_PREFIX}/include" \
+            -DPCRE2_INCLUDE_DIR="${BUILD_PREFIX}/include" \
+            -DPCRE2-8_LIBRARY="${BUILD_PREFIX}/lib/libpcre2-8.so" \
+            -DGDAL_ENABLE_DRIVER_GIF=ON \
+            -DGDAL_ENABLE_DRIVER_GRIB=ON \
+            -DGDAL_ENABLE_DRIVER_JPEG=ON \
+            -DGDAL_ENABLE_DRIVER_PNG=ON \
+            -DGDAL_ENABLE_DRIVER_HDF5=ON \
+            -DGDAL_ENABLE_DRIVER_NETCDF=ON \
+            -DGDAL_ENABLE_DRIVER_OPENJPEG=ON \
+            -DGDAL_ENABLE_DRIVER_OGCAPI=ON \
+            -DGDAL_ENABLE_DRIVER_MBTILES=ON \
+            -DGDAL_ENABLE_DRIVER_AIGRID=ON \
+            -DGDAL_ENABLE_DRIVER_AAIGRID=ON \
+            -DGDAL_ENABLE_POSTGISRASTER=OFF \
+            -DGDAL_ENABLE_EXR=OFF \
+            -DGDAL_ENABLE_HEIF=OFF \
+            -DOGR_ENABLE_DRIVER_SQLITE=ON \
+            -DOGR_ENABLE_DRIVER_GPKG=ON \
+            -DOGR_ENABLE_DRIVER_MVT=ON \
+            -DOGR_ENABLE_DRIVER_OSM=ON \
+            -DOGR_ENABLE_DRIVER_GEOJSON=ON \
+            -DOGR_ENABLE_DRIVER_SHAPE=ON \
+            -DOGR_ENABLE_DRIVER_GPX=ON \
+            -DOGR_ENABLE_DRIVER_PMTILES=ON \
+            -DOGR_ENABLE_DRIVER_FLATGEOBUF=ON \
+            -DOGR_ENABLE_DRIVER_GML=ON \
+            -DOGR_ENABLE_DRIVER_KML=ON \
+            -DOGR_ENABLE_DRIVER_WFS=ON \
+            -DOGR_ENABLE_DRIVER_OAPIF=ON \
+            -DOGR_ENABLE_DRIVER_AVC=ON
+        cmake --build . -j 4
+        cmake --install .
+    )
+    # The intermediate -Wl,-strip-all only covers what the linker emits;
+    # strip the installed libgdal again to drop everything else.
+    strip -v --strip-unneeded "${BUILD_PREFIX}"/lib/libgdal.so.* 2>/dev/null || true
+    strip -v --strip-unneeded "${BUILD_PREFIX}"/lib64/libgdal.so.* 2>/dev/null || true
+}
 
-echo "List contents of $BUILD_PREFIX/lib directory"
-ls "$BUILD_PREFIX/lib"
+echo "=== downloading + verifying ${#BUILD_ORDER[@]} pinned tarballs ==="
+for dep in "${BUILD_ORDER[@]}"; do
+    fetch "${dep}"
+done
 
-echo " "
+for dep in "${BUILD_ORDER[@]}"; do
+    stamp=".pyramids-built-${dep}"
+    if [[ -e "${stamp}" ]]; then
+        echo "=== ${dep}: already built, skipping ==="
+        continue
+    fi
+    echo "=== building ${dep} ${VERSION[$dep]} ==="
+    "src_${dep}"
+    touch "${stamp}"
+done
 
-if [ -d "$BUILD_PREFIX/lib64" ]; then
-	echo "List contents of $BUILD_PREFIX/lib64 directory"
-	ls "$BUILD_PREFIX/lib64"
+echo "=== stack complete ==="
+ls "${BUILD_PREFIX}/lib"
+if [[ -d "${BUILD_PREFIX}/lib64" ]]; then
+    ls "${BUILD_PREFIX}/lib64"
 fi
-
-echo "Using GDAL_CONFIG at: $GDAL_CONFIG"
-
-# Run the gdal-config binary
-"$GDAL_CONFIG" --version
+"${GDAL_CONFIG}" --version

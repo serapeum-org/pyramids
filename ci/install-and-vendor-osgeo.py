@@ -553,10 +553,13 @@ def vendor_osgeo_into_package() -> None:
         )
     else:
         conda_env = REPO_ROOT / ".pixi" / "envs" / "wheel-build"
-        if sys.platform.startswith("linux") and not conda_env.is_dir():
-            # On Linux one of the two license sources MUST exist; a silent
-            # skip here would build a green wheel with an empty _licenses/
-            # (no legally required third-party notices).
+        if not conda_env.is_dir():
+            # One of the two license sources MUST exist on every platform:
+            # the from-source builds (Linux stack, Windows-ARM vcpkg) stage
+            # pyramids-bundled-licenses, and the conda-extract builds
+            # (macOS, win_amd64) have the pixi env. A silent skip here
+            # would build a green wheel with an empty _licenses/ (no
+            # legally required third-party notices).
             raise RuntimeError(
                 f"no license source found: neither {source_licenses} "
                 f"(from-source stack) nor {conda_env} (conda-extract) exists"

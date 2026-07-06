@@ -27,6 +27,7 @@ from pyramids.base.crs import (
 from pyramids.dataset.abstract_dataset import RasterBase
 from pyramids.feature import FeatureCollection
 from pyramids.feature import _ogr as _feature_ogr
+from pyramids.feature.bbox import split_antimeridian
 
 if TYPE_CHECKING:
     from pyramids.dataset.dataset import Dataset
@@ -92,6 +93,238 @@ def _resolve_resolution(
             raise ValueError(f"cell_size must be positive, got {cell_size!r}.")
         result = (x_res, y_res)
     return result
+
+
+def _check_lon_halves_concatenable(
+    west_part: RasterBase, east_part: RasterBase
+) -> None:
+    """Assert the invariant that two longitude-adjacent crop halves are stitchable.
+
+    Both halves are cropped from the same source lattice, so equal row/band counts
+    and a shared cell boundary at the 180/360 seam are expected to hold — this is a
+    defensive guard that turns any future violation into a clear error instead of a
+    raw NumPy shape error or a silently shifted `np.concatenate` result.
+
+    Args:
+        west_part: Crop of the pre-seam half.
+        east_part: Crop of the post-seam half (wrapped past the seam).
+
+    Raises:
+        ValueError: The halves have mismatched row/band counts, or the grid has no
+            cell boundary at the seam so the halves are not seam-aligned.
+    """
+    if (
+        west_part.rows != east_part.rows
+        or west_part.band_count != east_part.band_count
+    ):
+        raise ValueError(
+            "antimeridian halves are not concatenable "
+            f"(rows {west_part.rows}/{east_part.rows}, "
+            f"bands {west_part.band_count}/{east_part.band_count})"
+        )
+    w_gt = west_part.geotransform
+    seam_gap = abs(
+        (w_gt[0] + west_part.columns * w_gt[1]) - (east_part.geotransform[0] + 360.0)
+    )
+    if seam_gap > 0.5 * abs(w_gt[1]):
+        raise ValueError(
+            "antimeridian halves are not seam-aligned; the grid has no cell "
+            "boundary at the 180/360 seam, so the halves cannot be stitched"
+        )
+
+
+def _split_lon_bbox(
+    bbox: tuple[float, float, float, float], lon_max: float, cell_x: float
+) -> list[tuple[float, float, float, float]]:
+    """Split a geographic ``west > east`` bbox into ``west < east`` halves.
+
+    Pure numeric core shared by the rectilinear and curvilinear crop paths. A
+    0..360 grid (``lon_max`` reaching past 180 by more than a cell) has the bbox
+    shifted into its own frame, which usually removes the wrap (one half); a
+    -180..180 grid is split at 180 via :func:`split_antimeridian`.
+
+    The frame is inferred from ``lon_max`` alone: a 0..360 grid must actually
+    reach past 180 to be detected as such. An eastern-hemisphere-only grid that
+    ends at or below 180 is treated as -180..180 — harmless, since an
+    antimeridian bbox barely overlaps it and the non-overlapping half is skipped.
+
+    Args:
+        bbox: ``(west, south, east, north)`` with ``west > east``.
+        lon_max: The grid's maximum longitude (its own frame's east edge).
+        cell_x: The grid's longitude cell size, used as a one-cell tolerance so a
+            -180..180 grid whose ``lon_max`` floats a hair over 180 is not
+            mistaken for a 0..360 grid.
+
+    Returns:
+        One or two ``west < east`` sub-bboxes to crop and stitch, in west-to-east
+        order.
+    """
+    west, south, east, north = bbox
+    if lon_max > 180.0 + cell_x:
+        # 0..360 grid: bring the STAC (-180..180) bbox into the grid's frame.
+        west = west + 360.0 if west < 0 else west
+        east = east + 360.0 if east < 0 else east
+        if west <= east:
+            halves = [(west, south, east, north)]
+        else:
+            halves = [(west, south, 360.0, north), (0.0, south, east, north)]
+    else:
+        halves = split_antimeridian(bbox)
+    return halves
+
+
+def _antimeridian_halves(
+    ds: RasterBase, bbox: tuple[float, float, float, float]
+) -> list[tuple[float, float, float, float]]:
+    """Split a ``west > east`` bbox using a rectilinear dataset's affine frame.
+
+    Reads the grid's east edge and cell size from the affine ``bbox`` /
+    ``geotransform`` and delegates to :func:`_split_lon_bbox`. Curvilinear grids
+    have no single affine frame and key the split off their 2-D longitude array
+    instead.
+
+    Args:
+        ds: The dataset whose longitude frame and cell size set the seam.
+        bbox: ``(west, south, east, north)`` with ``west > east``.
+
+    Returns:
+        One or two ``west < east`` sub-bboxes, in west-to-east order.
+    """
+    return _split_lon_bbox(bbox, float(ds.bbox[2]), abs(ds.geotransform[1]))
+
+
+def _reaches_antimeridian_seam(ds: RasterBase) -> bool:
+    """Whether the grid can serve a *wrapping* antimeridian crop.
+
+    A two-half (wrapping) crop needs the grid to actually reach the seam it wraps
+    across: a 0..360 grid must span (nearly) the full 0..360 (so the wrap at the
+    0/360 edge has data on both sides), and a -180..180 grid must touch +180 or
+    -180 (within a cell). A regional grid that reaches neither (e.g. Europe, lon
+    -10..40) — or a partial 0..360 grid that stops well short of 360 (e.g. lon
+    0..256) — cannot serve a wrap, so a ``west > east`` bbox producing one there is
+    a transposed/typo bbox rather than a genuine crossing.
+
+    Args:
+        ds: The dataset whose affine ``bbox`` / ``geotransform`` set the extent.
+
+    Returns:
+        True when the extent reaches the seam; False otherwise.
+    """
+    lon_min, lon_max = float(ds.bbox[0]), float(ds.bbox[2])
+    cell_x = abs(ds.geotransform[1])
+    if lon_max > 180.0 + cell_x:
+        # 0..360 frame: the wrap is at the 0/360 edge, so require a near-full span.
+        return lon_max >= 360.0 - cell_x and lon_min <= cell_x
+    # -180..180 frame: the extent must touch +180 or -180.
+    return lon_max >= 180.0 - cell_x or lon_min <= -180.0 + cell_x
+
+
+def _require_antimeridian_seam(
+    ds: RasterBase, bbox: tuple[float, float, float, float]
+) -> None:
+    """Raise when a *wrapping* antimeridian bbox targets a grid that can't serve it.
+
+    Guards the ``west > east`` reinterpretation. A contiguous (single-half) split —
+    e.g. ``170..190`` on a 0..360 grid — is just a normal crop and needs no check;
+    only a two-half **wrapping** split requires the grid to actually reach the seam.
+    Raising here turns a transposed/typo bbox into a clear error instead of a
+    truncated single-half crop or a downstream empty-crop failure.
+
+    Args:
+        ds: The dataset being cropped.
+        bbox: ``(west, south, east, north)`` with ``west > east``.
+
+    Raises:
+        ValueError: A wrapping split targets a grid that does not reach the seam.
+    """
+    wrapping = len(_antimeridian_halves(ds, bbox)) >= 2
+    if wrapping and not _reaches_antimeridian_seam(ds):
+        raise ValueError(
+            "bbox has west > east (antimeridian) but the dataset's longitude "
+            "extent does not reach the 180 seam - the bbox may be transposed, or "
+            "the dataset does not cover the antimeridian region."
+        )
+
+
+def _crop_seam_halves(
+    ds: RasterBase,
+    bbox: tuple[float, float, float, float],
+    crop_half: Any,
+    merge_halves: Any,
+) -> Any:
+    """Crop the overlapping antimeridian halves of ``bbox`` and stitch them.
+
+    Shared by the raster (`Spatial`) and NetCDF (`Selection`) crop engines: each
+    half that overlaps the dataset's longitude extent is cropped through the normal
+    path via ``crop_half``; a single overlapping half is handed straight back, two
+    are stitched with ``merge_halves``. Non-adopted parts are always closed.
+
+    Args:
+        ds: The dataset whose ``bbox`` sets the longitude extent to test overlap
+            against.
+        bbox: The original ``(west, south, east, north)`` with ``west > east``.
+        crop_half: Callable cropping one ``west < east`` sub-bbox to a part.
+        merge_halves: Callable concatenating two parts into the final result.
+
+    Returns:
+        The single overlapping half or the stitched strip spanning the seam.
+
+    Raises:
+        ValueError: The bbox does not overlap the dataset's longitude extent.
+    """
+    xmin, xmax = float(ds.bbox[0]), float(ds.bbox[2])
+    halves = _antimeridian_halves(ds, bbox)
+    parts: list = []
+    try:
+        for half in halves:
+            if half[0] < xmax and half[2] > xmin:
+                parts.append(crop_half(half))
+        if not parts:
+            raise ValueError(
+                f"antimeridian bbox {bbox!r} does not overlap the dataset extent"
+            )
+        if len(parts) == 1:
+            result, parts = parts[0], []  # hand ownership to the caller
+        else:
+            result = merge_halves(parts[0], parts[1])
+    finally:
+        for part in parts:
+            part.close()
+    return result
+
+
+def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> "Dataset":
+    """Concatenate two longitude-adjacent crops into one contiguous raster Dataset.
+
+    `west_part` (pre-seam) sits to the left of `east_part` (wrapped past the seam);
+    the merged raster keeps `west_part`'s north-up geotransform, so the longitude
+    mapping continues past the seam (e.g. 170..180 then 180..190). Shared by both
+    crop engines; the NetCDF engine re-wraps the result to preserve variable
+    metadata.
+
+    Args:
+        ds: The dataset supplying the band names for the merged raster.
+        west_part: Crop of the pre-seam half.
+        east_part: Crop of the post-seam half.
+
+    Returns:
+        Dataset: The concatenated raster.
+    """
+    # Local import breaks the engines <-> Dataset cycle; the merged result must be a
+    # plain raster Dataset (create_from_array on a variable view would build a NetCDF
+    # container).
+    from pyramids.dataset.dataset import Dataset
+
+    _check_lon_halves_concatenable(west_part, east_part)
+    merged = np.concatenate([west_part.read_array(), east_part.read_array()], axis=-1)
+    out = Dataset.create_from_array(
+        merged,
+        geo=west_part.geotransform,
+        epsg=west_part.epsg,
+        no_data_value=west_part.no_data_value,
+    )
+    out.band_names = ds.band_names
+    return out
 
 
 class Spatial(_Engine["Dataset"]):
@@ -1362,8 +1595,15 @@ class Spatial(_Engine["Dataset"]):
         else:
             raise ValueError("Array must be 2D or 3D")
 
-        x_ind = np.where(~rows_to_remove)[0][0]
-        y_ind = np.where(~cols_to_remove)[0][0]
+        valid_rows = np.where(~rows_to_remove)[0]
+        valid_cols = np.where(~cols_to_remove)[0]
+        if valid_rows.size == 0 or valid_cols.size == 0:
+            raise ValueError(
+                "crop produced no valid pixels: the bbox / polygon does not "
+                "overlap any valid (non-no-data) data in the dataset."
+            )
+        x_ind = valid_rows[0]
+        y_ind = valid_cols[0]
         # Use the source's separate X/Y pixel sizes (gt[1], gt[5]) rather than a single cell_size, so
         # a non-square grid (e.g. 2° lon, 1° lat) keeps its true latitude spacing. Identical to the
         # old cell_size form on square grids (gt[1] == -gt[5] == cell_size).
@@ -1384,6 +1624,55 @@ class Spatial(_Engine["Dataset"]):
         if src.crs:
             new_src.crs = src.crs
         return new_src
+
+    def _crop_antimeridian(
+        self,
+        bbox: tuple[float, float, float, float],
+        crs: Any,
+        touch: bool,
+    ) -> Dataset:
+        """Crop with a geographic bbox whose ``west > east`` crosses the antimeridian.
+
+        Splits the bbox at the grid's longitude seam (``180`` on a ``-180..180``
+        grid, ``360`` on a ``0..360`` grid), crops each ``west < east`` half through
+        the normal path, and concatenates the halves along longitude into one
+        contiguous raster. A half that falls outside the dataset's longitude extent
+        is skipped, so a single-sided overlap returns just that half.
+
+        Args:
+            bbox: ``(west, south, east, north)`` with ``west > east``.
+            crs: The bbox CRS (defaults to the dataset's own upstream).
+            touch: Forwarded to the per-half crop.
+
+        Returns:
+            Dataset: The cropped strip spanning the seam.
+
+        Raises:
+            ValueError: The bbox does not overlap the dataset's longitude extent.
+        """
+        return _crop_seam_halves(
+            self._ds,
+            bbox,
+            lambda half: self.crop(bbox=half, epsg=crs, touch=touch),
+            self._merge_lon_halves,
+        )
+
+    def _merge_lon_halves(self, west_part: Dataset, east_part: Dataset) -> Dataset:
+        """Concatenate two longitude-adjacent crops into one contiguous raster.
+
+        `west_part` (the pre-seam half) sits to the left and `east_part` (the
+        wrapped half past the seam) to its right; the merged raster keeps
+        `west_part`'s north-up geotransform, so the linear longitude mapping simply
+        continues past the seam (e.g. 170..180 then 180..190).
+
+        Args:
+            west_part: Crop of the pre-seam half.
+            east_part: Crop of the post-seam half.
+
+        Returns:
+            Dataset: The concatenated raster.
+        """
+        return _stitch_lon_halves(self._ds, west_part, east_part)
 
     def crop(
         self,
@@ -1412,7 +1701,22 @@ class Spatial(_Engine["Dataset"]):
                 ``(west, south, east, north)`` quadruple in the CRS named by
                 ``epsg``. Internally wrapped in a one-row
                 :class:`FeatureCollection` and routed through the same polygon
-                path. Mutually exclusive with ``mask``.
+                path. Mutually exclusive with ``mask``. A *geographic* bbox with
+                ``west > east`` (the STAC convention for an antimeridian-crossing
+                area, e.g. ``(170, -10, -170, 10)``) is split at the 180°/360°
+                seam, each half cropped, and the halves stitched into one
+                contiguous strip whose longitudes continue past the seam
+                (``170..190``). Works for ``-180..180`` and ``0..360`` grids.
+                Behaviour change: a *geographic* ``west > east`` bbox is read as
+                the STAC antimeridian convention (rather than raising
+                ``bbox must satisfy west < east``) — but only when the dataset's
+                longitude extent actually reaches the 180 seam. On a *regional*
+                grid that does not reach the seam (e.g. Europe, lon ``-10..40``) a
+                ``west > east`` bbox cannot be a genuine crossing, so it raises a
+                clear error instead of silently returning a truncated crop —
+                catching a transposed / typo'd bbox. A *projected* ``west > east``
+                bbox is still validated and raises, since the antimeridian has no
+                meaning off a geographic CRS.
             epsg (Any, keyword-only):
                 CRS for ``bbox`` — anything ``geopandas`` accepts for ``crs=``
                 (EPSG int, ``"EPSG:4326"``, WKT, ``pyproj.CRS``). Defaults to
@@ -1526,6 +1830,25 @@ class Spatial(_Engine["Dataset"]):
 
               ```
 
+            - Crop across the antimeridian with a ``west > east`` geographic bbox
+              (STAC convention); the two sides are stitched into one contiguous
+              strip whose longitudes continue past the 180° seam:
+
+              ```python
+              >>> import numpy as np
+              >>> from pyramids.dataset import Dataset
+              >>> grid = Dataset.create_from_array(
+              ...     np.arange(180 * 360, dtype="float32").reshape(180, 360),
+              ...     top_left_corner=(-180.0, 90.0), cell_size=1.0, epsg=4326,
+              ... )
+              >>> strip = grid.crop(bbox=(170.0, -10.0, -170.0, 10.0))
+              >>> strip.shape
+              (1, 20, 20)
+              >>> strip.bbox
+              [170.0, -10.0, 190.0, 10.0]
+
+              ```
+
             - Supplying both ``mask`` and ``bbox`` is rejected:
 
               ```python
@@ -1550,6 +1873,13 @@ class Spatial(_Engine["Dataset"]):
             if mask is not None:
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
             crs = epsg if epsg is not None else self._ds.epsg
+            west, _, east, _ = bbox
+            crs_geo = crs is not None and sr_from_user_input(crs).IsGeographic()
+            ds_epsg = self._ds.epsg
+            ds_geo = ds_epsg is not None and sr_from_user_input(ds_epsg).IsGeographic()
+            if west > east and crs_geo and ds_geo:
+                _require_antimeridian_seam(self._ds, tuple(bbox))
+                return self._crop_antimeridian(tuple(bbox), crs, touch)
             mask = FeatureCollection.from_bbox(bbox, epsg=crs)
         if mask is None:
             raise TypeError(

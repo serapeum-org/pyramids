@@ -8,7 +8,7 @@ Two build models coexist in the pipeline:
 - **Linux (glibc + musl): from-source.** The whole native stack (GDAL, PROJ, GEOS,
   HDF5, netCDF, and ~20 codec/support libraries) is compiled inside the
   cibuildwheel container from SHA256-pinned source tarballs
-  (`ci/source-build/config.sh`, a maintained fork of rasterio's build), so the
+  (`ci/source-build/config.sh`), so the
   wheel tags at the build image's own floor — `manylinux_2_28` / `musllinux_1_2`.
 - **macOS / Windows: conda-extract.** Prebuilt conda-forge binaries are extracted
   into a prefix (`ci/setup-gdal-from-pixi.{sh,ps1}`) and bundled by
@@ -28,11 +28,18 @@ release, plus 8 unpublished musl canary wheels:
 | Windows  | AMD64 (x64)                         | 3.11, 3.12, 3.13, 3.14 | 4      |
 | (any)    | sdist                               | —                      | 1      |
 
-**Total published: 20 wheels + 1 sdist.** The `build-musl-wheels` jobs also build
-`musllinux_1_2` x86_64 + aarch64 wheels (cp311–cp314) as **CI canaries** — built
-and verified on Alpine every run, but deliberately **not published** until
-upstream pyogrio ships musllinux wheels (#333): geopandas hard-requires pyogrio,
-so a naive `pip install pyramids-gis` on Alpine would fail upstream of us.
+**Total published: 20 wheels + 1 sdist.** Two **CI canary** families build and
+verify on every run but are deliberately **not published** because pip could
+not resolve pyramids-gis on those platforms yet:
+
+- `build-musl-wheels`: `musllinux_1_2` x86_64 + aarch64 (cp311–cp314) — blocked
+  on upstream pyogrio musllinux wheels (#333; geopandas hard-requires pyogrio).
+- `build-winarm64-wheels`: `win_arm64` (cp312–cp314; numpy/scipy ship no cp311
+  arm64 wheels) built from source via vcpkg — blocked on upstream shapely +
+  pyogrio win_arm64 wheels (#334). GDAL comes from the vcpkg port (currently
+  3.12.4, trailing the 3.13.1 the other wheels ship); like Linux, no HDF4.
+  The canary also builds shapely + pyogrio arm64 wheels against the same
+  prefix so `verify-winarm64` runs the full suite natively.
 
 The macOS x86_64 wheels are cross-compiled on a `macos-14` (arm64)
 runner via Rosetta + ARCHFLAGS — GitHub's `macos-13` (Intel) runner
@@ -109,7 +116,7 @@ the **conda-forge install path**:
 |---|---|---|---|
 | Linux glibc < 2.28 (RHEL 7, Ubuntu 18.04, …) | below the manylinux_2_28 image floor | conda-forge | intentional |
 | Alpine / musl Linux | built + verified in CI, unpublished (pyogrio has no musl wheels) | conda-forge | #333 |
-| Windows on ARM64 | from-source vcpkg build planned (rasterio precedent) | AMD64 wheel under x86 emulation | #334 |
+| Windows on ARM64 | built + verified in CI (shapely/pyogrio lack arm64 wheels) | AMD64 wheel under emulation | #334 |
 | Free-threaded CPython (`cp31Nt`) | GDAL SWIG bindings + numpy not ready | use a GIL build | #683 |
 | Python 3.10 or earlier | excluded by `requires-python = ">= 3.11"` | upgrade Python, or pin `< 0.20` | intentional |
 | Python 3.15+ (future) | not yet released by CPython | conda-forge until wheels ship | #335 |
@@ -127,8 +134,8 @@ at runtime (full investigation in #332).
 The fix — shipped 2026-07 — is the **from-source model**: compile the entire
 stack inside the `manylinux_2_28` image with its own toolchain, so libgdal
 links the baseline libstdc++ and bundles none. That is exactly the
-rasterio/fiona approach, and `ci/source-build/config.sh` is a maintained fork
-of rasterio's build script. The cost is ownership of ~25 dependency version
+same approach rasterio and fiona use; `ci/source-build/config.sh` owns the
+recipe. The cost is ownership of ~25 dependency version
 pins; the win is covering Ubuntu 20.04/22.04, Debian 11/12, RHEL 8/9, and
 Amazon Linux 2023 with a ~30 MB wheel (vs ~47 MB under conda-extract).
 
@@ -138,7 +145,7 @@ Amazon Linux 2023 with a ~30 MB wheel (vs ~47 MB under conda-extract).
 |-----------------------------------|-------|------------------------|-----------------------------------------------------------------|
 | Lower glibc floor (< 2.39)        | #332  | **shipped**            | from-source `manylinux_2_28` wheels (this pipeline)             |
 | musllinux (Alpine)                | #333  | **built, unpublished** | canaries green in CI; blocked on pyogrio musl wheels            |
-| Windows ARM64                     | #334  | **planned: vcpkg**     | from-source via vcpkg (rasterio precedent); follow-up PR         |
+| Windows ARM64                     | #334  | **built, unpublished** | vcpkg canaries green in CI; blocked on shapely/pyogrio arm64      |
 | Python 3.15+                      | #335  | pending upstream       | ships when CPython 3.15 + ecosystem land; one-line `build` bump |
 | Free-threaded (`cp313t`/`cp314t`) | #683  | pending upstream       | GDAL SWIG bindings + numpy first; revisit at 3.15               |
 
@@ -258,11 +265,12 @@ Python C API ABI.
 │   run with --security-opt seccomp=unconfined (the netCDF driver needs
 │   userfaultfd for /vsizip reads — see docs/troubleshooting.md).
 │
-└── release (workflow_run only; needs the build + test + verify jobs)
-    → gathers {sdist,wheels-*} artifacts (canary-musl-* can't match),
+└── release (workflow_run only; needs EVERY build + test + verify job,
+    canary verifies included — a red canary blocks the publish)
+    → gathers {sdist,wheels-*} artifacts (canary-* names can't match),
       asserts the exact composition (1 sdist + 4 wheels x 5 platforms,
-      zero musllinux), attaches everything to the GitHub release, and
-      publishes to PyPI.
+      zero musllinux, zero win_arm64), attaches everything to the
+      GitHub release, and publishes to PyPI.
 ```
 
 After all build jobs finish, `test-wheels` runs a 16-cell matrix
@@ -394,9 +402,10 @@ cibuildwheel --only cp312-win_amd64
 |----------------------------------------------------|----------------------------------------------------------------------------------------|
 | `.github/workflows/bundle-pypi-wheels.yml`         | The full pipeline (build + test + verify + publish)                                    |
 | `.github/workflows/pypi-release.yml`               | Emergency sdist-only PyPI fallback                                                     |
-| `ci/source-build/config.sh`                        | Linux: dep version pins + SHA256 hashes + per-dep build functions (rasterio fork)      |
+| `ci/source-build/config.sh`                        | Linux: pinned dependency table (version + SHA256 + URL) + per-dep build recipes        |
 | `ci/source-build/build-gdal-stack.sh`              | Linux before-all: prereqs, cache, license collection, driver/license gates             |
-| `ci/source-build/reference/`                       | Pristine copy of rasterio's config.sh for future diffing                               |
+| `ci/vcpkg.json`                                    | win_arm64: pinned vcpkg manifest (curated gdal feature set, fixed builtin-baseline)    |
+| `ci/setup-gdal-from-vcpkg.ps1`                     | win_arm64 before-all: baseline checkout, vcpkg install, Library/ staging, licenses     |
 | `ci/setup-gdal-from-pixi.sh`                       | macOS native: pixi install, extract conda-forge binaries, toolchain shims              |
 | `ci/setup-gdal-micromamba.sh`                      | macOS cross-compile: install micromamba and resolve target-platform env                |
 | `ci/setup-gdal-from-pixi.ps1`                      | Windows: PowerShell version of the pixi setup                                          |
