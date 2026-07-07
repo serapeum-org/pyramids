@@ -23,14 +23,18 @@ class TestWindowedRead705:
     """A partial-window read of a geostationary variable must not hit the GDAL >= 3.13 crash."""
 
     def test_eager_materialize_makes_the_view_window_readable(self):
-        """After the eager materialize a partial-window read off the raster no longer raises.
+        """A partial-window read raises on the raw view but succeeds after the eager materialize.
 
         Test scenario:
-            The same `ReadAsArray(100, 100, 200, 200)` that raises `arrayStartIdx >= 500` on the raw
-            multidim view must succeed once `_materialize_md_view` has swapped in the classic-driver
-            MEM, and must match the corresponding slice of the full read.
+            The same `ReadAsArray(100, 100, 200, 200)` raises `arrayStartIdx >= 500` on the raw multidim
+            view (the #705 crash), then succeeds once `_materialize_md_view` swaps in the classic-driver
+            MEM, matching the corresponding slice of the full read.
         """
         var = NetCDF.read_file(GOES).get_variable("CMI")
+        # Pre-fix behaviour: the same partial-window read raises on the un-materialized multidim view
+        # (GDAL >= 3.13) — this is exactly the crash the eager materialize removes.
+        with pytest.raises(RuntimeError, match="arrayStartIdx"):
+            var.raster.ReadAsArray(100, 100, 200, 200)
         var._materialize_md_view()
         assert var._md_view_materialized is True, "eager path should have materialized the view"
         window = var.raster.ReadAsArray(100, 100, 200, 200)
