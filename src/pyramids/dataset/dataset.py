@@ -1441,8 +1441,8 @@ class Dataset(RasterBase):
         return gt
 
     @property
-    def epsg(self) -> int:
-        """EPSG number."""
+    def epsg(self) -> int | None:
+        """EPSG number, or ``None`` for a CRS with no EPSG code (e.g. geostationary)."""
         return self._epsg
 
     @epsg.setter

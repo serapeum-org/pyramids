@@ -1,0 +1,131 @@
+"""Regression tests for geostationary CRS reporting on read (issue #706).
+
+A geostationary (GOES/Himawari/MTG) fixed-grid projection is a custom CRS with
+no EPSG authority code, so ``NetCDF.get_variable(...).epsg`` must report
+``None`` rather than the misleading ``4326`` that the generic ``epsg_from_wkt``
+fallback would otherwise produce, while ``.crs`` keeps the full geostationary
+WKT and ``to_crs`` still reprojects without a manual ``set_crs``.
+
+The fixture is built on the fly through GDAL's multidimensional (MDIM) API — a
+minimal GOES-style granule (radian ``x`` / ``y`` scan angles + a
+``goes_imager_projection`` grid mapping) — so the test needs no committed binary
+and no network.
+"""
+
+import numpy as np
+import pytest
+from osgeo import gdal
+
+from pyramids.netcdf import NetCDF
+
+pytestmark = pytest.mark.core
+
+_GEOS_LON_0 = -75.0
+
+
+def _attr_str(arr, name, value):
+    """Write a scalar string attribute onto an MDIM array."""
+    arr.CreateAttribute(name, [], gdal.ExtendedDataType.CreateString()).Write(value)
+
+
+def _attr_f64(arr, name, value):
+    """Write a scalar float64 attribute onto an MDIM array."""
+    dt = gdal.ExtendedDataType.Create(gdal.GDT_Float64)
+    arr.CreateAttribute(name, [], dt).Write(float(value))
+
+
+def _write_geostationary_mdim(path: str, ny: int = 120, nx: int = 150) -> None:
+    """Write a minimal GOES-style geostationary NetCDF via the GDAL MDIM API.
+
+    The ``x`` / ``y`` coordinates are packed ``int16`` scan angles in radians
+    (``scale_factor`` / ``add_offset``); ``goes_imager_projection`` carries the
+    CF ``grid_mapping_name = "geostationary"`` parameters; ``CMI_C02`` is the
+    data variable that references them.
+    """
+    ds = gdal.GetDriverByName("netCDF").CreateMultiDimensional(path)
+    rg = ds.GetRootGroup()
+    dy = rg.CreateDimension("y", "", "", ny)
+    dx = rg.CreateDimension("x", "", "", nx)
+    i16 = gdal.ExtendedDataType.Create(gdal.GDT_Int16)
+
+    x = rg.CreateMDArray("x", [dx], i16)
+    x.Write(np.arange(nx, dtype=np.int16))
+    _attr_str(x, "units", "rad")
+    _attr_str(x, "axis", "X")
+    _attr_str(x, "standard_name", "projection_x_coordinate")
+    _attr_f64(x, "scale_factor", 2.8e-05)
+    _attr_f64(x, "add_offset", -0.045)
+
+    y = rg.CreateMDArray("y", [dy], i16)
+    y.Write(np.arange(ny, dtype=np.int16))
+    _attr_str(y, "units", "rad")
+    _attr_str(y, "axis", "Y")
+    _attr_str(y, "standard_name", "projection_y_coordinate")
+    _attr_f64(y, "scale_factor", -2.8e-05)
+    _attr_f64(y, "add_offset", 0.065)
+
+    gp = rg.CreateMDArray("goes_imager_projection", [], gdal.ExtendedDataType.Create(gdal.GDT_Int32))
+    gp.Write(np.array(0, dtype=np.int32))
+    _attr_str(gp, "grid_mapping_name", "geostationary")
+    _attr_f64(gp, "perspective_point_height", 35786023.0)
+    _attr_f64(gp, "semi_major_axis", 6378137.0)
+    _attr_f64(gp, "semi_minor_axis", 6356752.31414)
+    _attr_f64(gp, "inverse_flattening", 298.2572221)
+    _attr_f64(gp, "latitude_of_projection_origin", 0.0)
+    _attr_f64(gp, "longitude_of_projection_origin", _GEOS_LON_0)
+    _attr_str(gp, "sweep_angle_axis", "x")
+
+    cmi = rg.CreateMDArray("CMI_C02", [dy, dx], gdal.ExtendedDataType.Create(gdal.GDT_UInt16))
+    cmi.Write(np.zeros((ny, nx), dtype=np.uint16))
+    _attr_str(cmi, "grid_mapping", "goes_imager_projection")
+    _attr_str(cmi, "coordinates", "y x")
+    _attr_f64(cmi, "scale_factor", 0.00031746)
+    _attr_f64(cmi, "add_offset", 0.0)
+
+
+@pytest.fixture
+def geos_cube(tmp_path) -> NetCDF:
+    """Read ``CMI_C02`` from a freshly MDIM-written geostationary granule."""
+    path = str(tmp_path / "synthetic_geos.nc")
+    _write_geostationary_mdim(path)
+    return NetCDF.read_file(path).get_variable("CMI_C02")
+
+
+class TestGeostationaryCRS:
+    """A geostationary variable reports no EPSG code but a usable CRS (#706)."""
+
+    def test_epsg_is_none_not_4326(self, geos_cube: NetCDF):
+        """`.epsg` is `None` — a geostationary CRS has no EPSG code, so the old
+        misleading `4326` must not be reported."""
+        assert geos_cube.epsg is None
+
+    def test_crs_is_geostationary(self, geos_cube: NetCDF):
+        """`.crs` keeps the full geostationary WKT."""
+        assert "Geostationary_Satellite" in geos_cube.crs
+
+    def test_is_geostationary_flag(self, geos_cube: NetCDF):
+        """The dataset is detected as geostationary on read."""
+        assert geos_cube._is_geostationary() is True
+
+    def test_central_meridian_is_sub_satellite_longitude(self, geos_cube: NetCDF):
+        """The reconstructed CRS carries the sub-satellite longitude."""
+        srs = geos_cube.raster.GetSpatialRef()
+        assert srs.GetProjParm("central_meridian", 999.0) == pytest.approx(_GEOS_LON_0)
+
+    def test_to_crs_works_without_manual_set_crs(self, geos_cube: NetCDF):
+        """`to_crs(4326)` reprojects straight from the read CRS — no hand-built
+        WKT, no `set_crs` — and yields a non-degenerate extent."""
+        warped = geos_cube.to_crs(4326)
+        minx, miny, maxx, maxy = warped.bbox
+        assert maxx - minx > 0.1, f"degenerate width: {warped.bbox}"
+        assert maxy - miny > 0.1, f"degenerate height: {warped.bbox}"
+
+
+class TestNonGeostationaryEpsgUnaffected:
+    """The `None`-for-geostationary rule must not touch ordinary CRSs."""
+
+    def test_latlon_epsg_stays_4326(self):
+        """A plain lat/lon NetCDF still reports its EPSG code."""
+        arr = np.zeros((5, 6), "f4")
+        nc = NetCDF.create_from_array(arr, geo=(0, 1, 0, 5, 0, -1), epsg=4326, variable_name="t")
+        assert nc.get_variable("t").epsg == 4326
