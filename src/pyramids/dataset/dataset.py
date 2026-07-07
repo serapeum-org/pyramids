@@ -25,7 +25,7 @@ from pyramids.base._utils import (
     UNDEFINED_COLOR_INTERP,
     numpy_to_gdal_dtype,
 )
-from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
+from pyramids.base.crs import epsg_from_wkt, sr_from_epsg, sr_from_user_input
 from pyramids.dataset.abstract_dataset import (
     DEFAULT_NO_DATA_VALUE,
     RasterBase,
@@ -1216,7 +1216,7 @@ class Dataset(RasterBase):
         coords = [(x_min, y_max), (x_min, y_min), (x_max, y_min), (x_max, y_max)]
         poly = create_polygon(coords)
         gdf = gpd.GeoDataFrame(geometry=[poly])
-        gdf.set_crs(epsg=self.epsg, inplace=True)
+        gdf.set_crs(self.epsg or self.crs, inplace=True)
         return gdf
 
     def _get_band_names(self):
@@ -1252,7 +1252,7 @@ class Dataset(RasterBase):
         """
         return str(self.raster.GetProjection())
 
-    def _get_epsg(self) -> int:
+    def _get_epsg(self) -> int | None:
         """Concrete override of :meth:`RasterBase._get_epsg`.
 
         Defined directly on Dataset for the same reason as
@@ -1447,8 +1447,8 @@ class Dataset(RasterBase):
         return gt
 
     @property
-    def epsg(self) -> int:
-        """EPSG number."""
+    def epsg(self) -> int | None:
+        """EPSG number, or ``None`` for a CRS with no EPSG code (e.g. geostationary)."""
         return self._epsg
 
     @epsg.setter
@@ -1620,7 +1620,7 @@ class Dataset(RasterBase):
         result = self.create_from_array(
             result_array,
             geo=self.geotransform,
-            epsg=self.epsg,
+            epsg=self.epsg or self.crs,
             no_data_value=list(no_data),
         )
         result.band_units = new_units
@@ -3404,13 +3404,21 @@ class Dataset(RasterBase):
             rows = int(arr.shape[1])
             cols = int(arr.shape[2])
 
+        # Keep the exact `sr_from_epsg` path for an EPSG int/numeric string; carry
+        # a no-EPSG CRS (e.g. geostationary) through as a WKT string so rebuilds
+        # preserve it instead of crashing on `int(None)` (#706).
+        try:
+            crs_wkt = sr_from_epsg(int(epsg)).ExportToWkt()
+        except (TypeError, ValueError):
+            crs_wkt = sr_from_user_input(epsg).ExportToWkt()
+
         return cls._build_dataset(
             cols,
             rows,
             bands,
             numpy_to_gdal_dtype(arr),
             geo,
-            sr_from_epsg(int(epsg)).ExportToWkt(),
+            crs_wkt,
             no_data_value,
             driver=driver_type,
             path=path,

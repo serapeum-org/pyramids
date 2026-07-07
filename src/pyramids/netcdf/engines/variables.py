@@ -27,7 +27,7 @@ import numpy as np
 from osgeo import gdal
 
 from pyramids.base._utils import numpy_to_gdal_dtype
-from pyramids.base.crs import sr_from_epsg
+from pyramids.base.crs import sr_from_epsg, sr_from_user_input
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
 from pyramids.dataset.engines._base import _Engine
 from pyramids.netcdf.cf import (
@@ -859,7 +859,14 @@ def _create_netcdf_from_array(
     # netCDF driver doesn't support SetIndexingVariable — create
     # dimension arrays manually without linking them.
     use_set_indexing = driver_type == "MEM"
-    srse = sr_from_epsg(int(epsg))
+    # `epsg` is normally an EPSG int/numeric string; keep the exact `sr_from_epsg`
+    # path for those. A geostationary (and other no-EPSG) CRS is carried through
+    # as a WKT string so the fan-out that rebuilds each variable preserves it
+    # instead of crashing on a None EPSG code (#706).
+    try:
+        srse = sr_from_epsg(int(epsg))
+    except (TypeError, ValueError):
+        srse = sr_from_user_input(epsg)
     is_geographic = srse.IsGeographic() == 1
 
     dim_x = NetCDF._create_dimension(

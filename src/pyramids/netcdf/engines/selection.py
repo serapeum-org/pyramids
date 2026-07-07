@@ -697,7 +697,7 @@ class Selection(_Engine["NetCDF"]):
         ds_result = Dataset.create_from_array(
             selected,
             geo=nc.geotransform,
-            epsg=nc.epsg,
+            epsg=nc.epsg or nc.crs,
             no_data_value=ndv_scalar,
         )
         result = nc._preserve_netcdf_metadata(ds_result)
@@ -1041,7 +1041,7 @@ class Selection(_Engine["NetCDF"]):
                 var_name,
                 arr,
                 var.geotransform,
-                var.epsg,
+                var.epsg or var.crs,
                 ndv,
                 band_names,
                 values_map,

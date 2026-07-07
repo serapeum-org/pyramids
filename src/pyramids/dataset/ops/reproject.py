@@ -151,6 +151,11 @@ class Aligner(Reprojector):
     """
 
     def __init__(self, reference: Dataset, method: str = "nearest neighbor") -> None:
+        if reference.epsg is None:
+            raise ValueError(
+                "the alignment reference has no EPSG code (e.g. a geostationary "
+                "CRS); reproject it with `to_crs(<epsg>)` before aligning to it."
+            )
         super().__init__(
             target_epsg=int(reference.epsg),
             method=method,
