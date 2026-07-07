@@ -2534,6 +2534,12 @@ class NetCDF(Dataset):
         flipped = getattr(self, "_md_y_flipped", None)
         if parent is None or var is None or not isinstance(flipped, bool):
             return None
+        # A group-qualified variable (get_variable("grp/var")) recurses with a bare _source_var_name and
+        # a parent whose file_name carries no group, so NETCDF:file:var would either miss it (safe) or
+        # silently open a same-named, same-shaped *root* variable — a collision the shape guard cannot
+        # detect. Force the correct slow fallback for grouped variables.
+        if getattr(parent, "_group_path", None) or "/" in var:
+            return None
         path = parent.file_name
         # The classic netCDF driver needs an on-disk / VSI source; a MEM dataset has no such path.
         if not path or str(path).startswith("/vsimem"):
