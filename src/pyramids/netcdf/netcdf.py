@@ -888,7 +888,7 @@ class NetCDF(Dataset):
         # MEM dataset has no such path.
         if path and not str(path).startswith("/vsimem"):
             try:
-                src = gdal.Open(f"NETCDF:{path}:{var}")
+                src = gdal.Open(f'NETCDF:"{path}":{var}')
             except RuntimeError:
                 src = None
             if src is not None:
