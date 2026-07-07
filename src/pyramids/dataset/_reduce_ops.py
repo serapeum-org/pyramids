@@ -17,21 +17,21 @@ _NAN_TABLE = {op: f"nan{op}" for op in _SUPPORTED_OPS}
 def resolve_dask_op(op_name: str, *, skipna: bool) -> Callable[..., Any]:
     """Return the :mod:`dask.array` callable for a reduction.
 
-    Centralises the `nan{op} if skipna else op` name mangling and the
-    `getattr(dask.array, name)` resolution so every call site agrees on
+    Centralises the ``nan{op} if skipna else op`` name mangling and the
+    ``getattr(dask.array, name)`` resolution so every call site agrees on
     the supported ops and the nan-aware naming convention.
 
     Args:
-        op_name: One of `mean`, `sum`, `min`, `max`, `std`, `var`.
+        op_name: One of ``mean``, ``sum``, ``min``, ``max``, ``std``, ``var``.
         skipna: When True, return the nan-aware variant
-            (e.g. `nanmean`); otherwise the plain op.
+            (e.g. ``nanmean``); otherwise the plain op.
 
     Returns:
-        The resolved :mod:`dask.array` callable (e.g. `dask.array.nanmean`).
+        The resolved :mod:`dask.array` callable (e.g. ``dask.array.nanmean``).
 
     Raises:
-        ValueError: If `op_name` is outside the supported set.
-        ImportError: If the optional `dask` dependency is not
+        ValueError: If ``op_name`` is outside the supported set.
+        ImportError: If the optional ``dask`` dependency is not
             installed.
     """
     if op_name not in _SUPPORTED_OPS:
