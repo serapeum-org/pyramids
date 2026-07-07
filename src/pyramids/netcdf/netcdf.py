@@ -2520,15 +2520,19 @@ class NetCDF(Dataset):
         latitude axis but *not* a projected ``projection_y_coordinate`` (e.g. GOES geostationary), where
         it leaves the data south-up while still reporting a north-up geotransform. ``_read_md_array``
         already decided the orientation and recorded it in ``_md_y_flipped``; replay that decision by
-        forcing GDAL's ``GDAL_NETCDF_BOTTOMUP`` config so the driver performs the flip internally. GDAL
-        bakes the orientation at open time, so the config is reset immediately after ``Open``.
+        forcing GDAL's ``GDAL_NETCDF_BOTTOMUP`` config (thread-locally) so the driver performs the flip
+        internally. GDAL bakes the orientation at open time, so the override is reset right after ``Open``.
+
+        For a ``/vsizip`` / ``/vsicurl`` / cloud-rewritten source this re-opens the whole remote or
+        compressed file — a second fetch or decompress — but it is still preferred over the slow fallback,
+        which reads the source just as remotely *and* keeps the GDAL >= 3.13 windowed-read crash.
 
         Returns:
             gdal.Dataset | None: A window-readable ``MEM`` raster carrying the wrapper's geotransform,
-            spatial reference and no-data values, or ``None`` when there is no classic-openable source
-            (in-memory / VSI-memory), the orientation was never recorded, or the classic driver's raster
-            shape disagrees with the view (curvilinear staggering, group nesting) — in which case the
-            caller falls back to the slow full copy.
+            spatial reference, and the view's no-data / scale / offset, or ``None`` when there is no
+            classic-openable source (in-memory / ``/vsimem``), the orientation was never recorded, the
+            variable is group-qualified, or the classic driver's raster shape disagrees with the view
+            (curvilinear staggering) — in which case the caller falls back to the slow full copy.
         """
         parent = self._parent_nc
         var = self._source_var_name
@@ -2552,7 +2556,7 @@ class NetCDF(Dataset):
         prev = gdal.GetThreadLocalConfigOption("GDAL_NETCDF_BOTTOMUP")
         gdal.SetThreadLocalConfigOption("GDAL_NETCDF_BOTTOMUP", "YES" if flipped else "NO")
         try:
-            classic = gdal.Open(f"NETCDF:{path}:{var}")
+            classic = gdal.Open(f'NETCDF:"{path}":{var}')
         except RuntimeError:
             classic = None
         finally:
