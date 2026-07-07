@@ -17,7 +17,7 @@ from pyramids import _io
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._raster_meta import RasterMeta
-from pyramids.base._utils import import_zarr, lazy_extra_hint
+from pyramids.base._utils import import_dask, import_zarr, lazy_extra_hint
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
@@ -171,8 +171,12 @@ def _grouped_reduce(
     Returns:
         dict: `{label: ndarray}` with one reduced `(B, R, C)` array per group.
     """
-    import dask
-
+    dask = import_dask(
+        lazy_extra_hint(
+            "DatasetCollection grouped reductions require the optional 'dask' "
+            "dependency."
+        )
+    )
     func = resolve_dask_op(op_name, skipna=skipna)
     reductions = [
         func(data[np.where(label_array == label)[0].tolist()], axis=0)
