@@ -61,8 +61,8 @@ their own dimension (the classic CF coordinate variables).
 | `none__4v__1d1-2d2-3d1__curv.nc`          | 1.7 MB  | (none)     | 4     | 1×1D, 2×2D, 1×3D       | **Curvilinear / 2-D coordinates** (`xc(y,x)`, `yc(y,x)`), `Tair(time,y,x)` (6 steps)‖                   |
 | `none__17v__1d1-2d5-3d6-4d5__stag-str.nc` | 3.8 MB  | (none)     | 17    | 1×1D, 5×2D, 6×3D, 5×4D | **Reduced WRF subset** — one var per distinct shape; `U/V/W`/`MAPFAC_*` on `*_stag` dims; char `Times`† |
 | `none__5v__1d2-2d2-3d1__curv.nc`          | 1.6 MB  | (none)     | 5     | 2×1D, 2×2D, 1×3D       | **Multiple 2-D** image bands (McIDAS satellite); 2-D `lat`/`lon` (deflate, full res)                    |
-| `none__111v__1d96-2d13-3d2__str__y-desc.nc`       | 0.27 MB | (AWIPS)    | 111   | 96×1D, 13×2D, 2×3D     | **Many 1-D variables** — station obs over `recNum`; char 2-D fields                                     |
-| `none__11v__1d11__y-desc.nc`                      | 0.01 MB | (none)     | 11    | 11×1D                  | **Multiple 1-D variables** — aircraft track time series                                                 |
+| `none__111v__1d96-2d13-3d2__str.nc`       | 0.27 MB | (AWIPS)    | 111   | 96×1D, 13×2D, 2×3D     | **Many 1-D variables** — station obs over `recNum`; char 2-D fields                                     |
+| `none__11v__1d11.nc`                      | 0.01 MB | (none)     | 11    | 11×1D                  | **Multiple 1-D variables** — aircraft track time series                                                 |
 | `none__35v__1d35__groups-nc4.nc`          | 0.09 MB | (none)     | 35    | 35×1D                  | **Hierarchical groups** (netCDF-4); 1-D arrays nested under flight groups                               |
 | `ugrid__6v__1d5-2d1.nc`                   | 0.02 MB | UGRID*     | 6     | 5×1D, 1×2D             | **UGRID mesh topology** — `node_lon`/`face_lon`, `face_node_connectivity(n_face,n_max_face_nodes)`      |
 | `ugrid__1v__3d1.nc`                       | 0.01 MB | UGRID*     | 1     | 1×3D                   | **UGRID data**, 3-D on an unstructured mesh: `multi_dim_data(time,lev,n_face)`                          |
@@ -112,9 +112,9 @@ file's provenance is never lost.
 | Structural name                              | Original filename                       | Source            |
 |----------------------------------------------|-----------------------------------------|-------------------|
 | `none__1v__1d1.nc`                           | `testrh.nc`                             | Unidata examples  |
-| `none__11v__1d11__y-desc.nc`                         | `WMI_Lear.nc`                           | Unidata examples  |
+| `none__11v__1d11.nc`                         | `WMI_Lear.nc`                           | Unidata examples  |
 | `none__35v__1d35__groups-nc4.nc`             | `test_hgroups.nc`                       | Unidata examples  |
-| `none__111v__1d96-2d13-3d2__str__y-desc.nc`          | `madis-sao.nc`                          | Unidata examples  |
+| `none__111v__1d96-2d13-3d2__str.nc`          | `madis-sao.nc`                          | Unidata examples  |
 | `none__5v__1d2-2d2-3d1__curv.nc`             | `IMAGE0002.nc`                          | Unidata examples  |
 | `none__4v__1d1-2d2-3d1__curv.nc`             | `rasm.nc`                               | xarray-data       |
 | `none__17v__1d1-2d5-3d6-4d5__stag-str.nc`    | `wrfout_v2_Lambert.nc` (reduced, 17/80) | Unidata examples  |
@@ -136,12 +136,12 @@ file's provenance is never lost.
   `coards__4v__1d3-3d1__y-desc.nc`, `ugrid__1v__1d1.nc` / `ugrid__1v__3d1.nc` (one var on a mesh).
 - **Multiple variables**: `cf__12v__1d4-2d5-3d2-4d1__y-asc.nc`, `cf__20v__1d3-3d17__y-desc.nc`, `cf__48v__1d17-3d21-4d10__y-asc.nc`,
   `cf__40v__1d28-2d9-3d3__nc4.nc`, `cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc`,
-  `none__17v__1d1-2d5-3d6-4d5__stag-str.nc`, `none__111v__1d96-2d13-3d2__str__y-desc.nc`,
+  `none__17v__1d1-2d5-3d6-4d5__stag-str.nc`, `none__111v__1d96-2d13-3d2__str.nc`,
   `none__35v__1d35__groups-nc4.nc`.
-- **Multiple 1-D variables**: `none__11v__1d11__y-desc.nc` (aircraft track), `none__111v__1d96-2d13-3d2__str__y-desc.nc`
+- **Multiple 1-D variables**: `none__11v__1d11.nc` (aircraft track), `none__111v__1d96-2d13-3d2__str.nc`
   (station obs), `none__35v__1d35__groups-nc4.nc` (1-D arrays in groups).
 - **Multiple 2-D variables**: `none__5v__1d2-2d2-3d1__curv.nc` (image bands), `cf__12v__1d4-2d5-3d2-4d1__y-asc.nc`
-  (`area`, `msk_rgn`, bounds), `none__111v__1d96-2d13-3d2__str__y-desc.nc`, `cf__40v__1d28-2d9-3d3__nc4.nc`.
+  (`area`, `msk_rgn`, bounds), `none__111v__1d96-2d13-3d2__str.nc`, `cf__40v__1d28-2d9-3d3__nc4.nc`.
 - **Multiple 3-D variables**: `cf__20v__1d3-3d17__y-desc.nc` (17×), `cf__48v__1d17-3d21-4d10__y-asc.nc` (21×),
   `none__17v__1d1-2d5-3d6-4d5__stag-str.nc` (6×, mass + u/v stagger).
 - **Multiple 4-D variables**: `cf__48v__1d17-3d21-4d10__y-asc.nc` (10× `(time,lev,lat,lon)`),
@@ -162,7 +162,7 @@ file's provenance is never lost.
   `cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc` (Arakawa-C).
 - **Hierarchical groups (netCDF-4)**: `none__35v__1d35__groups-nc4.nc`.
 - **Character/string variables**: `none__17v__1d1-2d5-3d6-4d5__stag-str.nc` (`Times`),
-  `none__111v__1d96-2d13-3d2__str__y-desc.nc` (station-id chars).
+  `none__111v__1d96-2d13-3d2__str.nc` (station-id chars).
 
 ## Regenerating
 

@@ -27,8 +27,8 @@ dl "$A/ECMWF_ERA-40_subset.nc"                 cf__20v__1d3-3d17__y-desc.nc
 dl "$A/cami_0000-09-01_64x128_L26_c030918.nc"  cf__48v__1d17-3d21-4d10__y-asc.nc
 dl "$A/OMI-Aura_L2-example.nc"                 cf__40v__1d28-2d9-3d3__nc4.nc
 dl "$A/rhum.2003.nc"                           coards__5v__1d4-4d1__y-desc.nc
-dl "$A/madis-sao.nc"                           none__111v__1d96-2d13-3d2__str__y-desc.nc
-dl "$A/WMI_Lear.nc"                            none__11v__1d11__y-desc.nc
+dl "$A/madis-sao.nc"                           none__111v__1d96-2d13-3d2__str.nc
+dl "$A/WMI_Lear.nc"                            none__11v__1d11.nc
 dl "$A/IMAGE0002.nc"                           none__5v__1d2-2d2-3d1__curv.nc
 dl "$A/wrfout_v2_Lambert.nc"                   none__80v__1d1-2d22-3d43-4d14__stag-str.nc
 dl "$A/test_hgroups.nc"                        none__35v__1d35__groups-nc4.nc
