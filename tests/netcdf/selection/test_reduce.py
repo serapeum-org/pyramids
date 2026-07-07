@@ -260,7 +260,7 @@ class TestReduceRealFixtures:
         """Monthly grouping of a single-month ERA5 file yields one window.
 
         Test scenario:
-            `era5_cds_beta_t2m_jan2022` (12 sub-daily steps in Jan 2022)
+            `cf__5v__1d4-3d1__geog__y-desc` (12 sub-daily steps in Jan 2022)
             reduced by `"1MS"` over `valid_time` gives a single band.
         """
         nc = NetCDF.read_file(_ERA5_T2M)
@@ -298,7 +298,7 @@ class TestReduceRealFixtures:
             expected: Expected number of output windows.
 
         Test scenario:
-            `era5_cds_beta_t2m_jan2022` holds 12 six-hourly steps over three
+            `cf__5v__1d4-3d1__geog__y-desc` holds 12 six-hourly steps over three
             days, so `"6h"` yields 12 windows, `"12h"` 6, and `"1D"` 3.
             Before the timestamp-resolution fix every sub-daily frequency
             collapsed to the 3 per-day buckets.
