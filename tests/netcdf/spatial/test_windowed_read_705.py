@@ -67,3 +67,60 @@ class TestWindowedRead705:
         assert (
             window.shape[-1] < full.shape[-1] and window.shape[-2] < full.shape[-2]
         ), f"window {window.shape} should be strictly smaller than the full read {full.shape}"
+
+
+class TestFastPathFallbacks:
+    """The fast path must decline (return None -> slow fallback) whenever it cannot guarantee correct data."""
+
+    def test_on_disk_variable_selects_fast_path(self):
+        """An on-disk variable uses the fast classic-driver path (returns a MEM, not None).
+
+        Test scenario:
+            The GOES16 fixture has a real path and a recorded flip decision, so the fast path applies.
+        """
+        var = NetCDF.read_file(GOES).get_variable("CMI")
+        assert var._materialize_via_classic_driver() is not None, "on-disk variable should take the fast path"
+
+    def test_in_memory_variable_falls_back_but_materializes_correctly(self):
+        """A no-on-disk-path variable declines the fast path yet still materializes the right data.
+
+        Test scenario:
+            create_from_array has no classic-openable source, so `_materialize_via_classic_driver`
+            returns None and `_materialize_md_view` uses the slow full copy without raising.
+        """
+        arr = np.arange(20.0).reshape(4, 5)
+        nc = NetCDF.create_from_array(arr=arr, geo=(0.0, 1.0, 0, 4.0, 0, -1.0), variable_name="v")
+        var = nc.get_variable("v")
+        assert var._materialize_via_classic_driver() is None, "in-memory source has no fast path"
+        var._materialize_md_view()
+        np.testing.assert_array_equal(var.read_array(band=0), arr)
+
+    def test_grouped_variable_declines_fast_path(self):
+        """A parent group path forces the slow fallback (a bare NETCDF:file:var could collide).
+
+        Test scenario:
+            Setting `_parent_nc._group_path` mimics a group view; the fast path must return None.
+        """
+        var = NetCDF.read_file(GOES).get_variable("CMI")
+        var._parent_nc._group_path = "some_group"
+        assert var._materialize_via_classic_driver() is None
+
+    def test_group_qualified_name_declines_fast_path(self):
+        """A still-slashed variable name forces the slow fallback.
+
+        Test scenario:
+            A `_source_var_name` containing '/' cannot be opened as a bare classic subdataset.
+        """
+        var = NetCDF.read_file(GOES).get_variable("CMI")
+        var._source_var_name = "grp/CMI"
+        assert var._materialize_via_classic_driver() is None
+
+    def test_missing_flip_decision_declines_fast_path(self):
+        """Without a recorded Y-flip decision the fast path declines (cannot choose BOTTOMUP).
+
+        Test scenario:
+            Removing `_md_y_flipped` leaves the orientation unknown, so the fast path must return None.
+        """
+        var = NetCDF.read_file(GOES).get_variable("CMI")
+        del var._md_y_flipped
+        assert var._materialize_via_classic_driver() is None
