@@ -119,8 +119,9 @@ class TestFastPathFallbacks:
         """Without a recorded Y-flip decision the fast path declines (cannot choose BOTTOMUP).
 
         Test scenario:
-            Removing `_md_y_flipped` leaves the orientation unknown, so the fast path must return None.
+            A `None` `_md_y_flipped` (the __init__ default, before a variable is read) leaves the
+            orientation unknown, so the fast path must return None.
         """
         var = NetCDF.read_file(GOES).get_variable("CMI")
-        del var._md_y_flipped
+        var._md_y_flipped = None
         assert var._materialize_via_classic_driver() is None

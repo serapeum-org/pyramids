@@ -553,6 +553,10 @@ class NetCDF(Dataset):
         # re-georeferenced through an in-memory VRT (see
         # _normalize_geostationary_geotransform).
         self._gdal_classic_src_ref: Any = None
+        # Whether get_variable reversed a south-to-north Y axis for this cube (None until a variable
+        # subset is read). The eager materialize path replays it on the fast classic driver; declared
+        # here so it is a class invariant snapshotted alongside the _gdal_* refs in _update_inplace.
+        self._md_y_flipped: bool | None = None
         # True once a geostationary scan-angle geotransform has been rescaled to
         # metres on this cube; tells the `geotransform` property to trust the
         # stored geotransform instead of re-deriving radian spacing from x/y.
@@ -656,7 +660,7 @@ class NetCDF(Dataset):
             "_gdal_md_arr_ref": self._gdal_md_arr_ref,
             "_gdal_rg_ref": self._gdal_rg_ref,
             "_gdal_classic_src_ref": self._gdal_classic_src_ref,
-            "_md_y_flipped": getattr(self, "_md_y_flipped", None),
+            "_md_y_flipped": self._md_y_flipped,
             "_geostationary_scaled": self._geostationary_scaled,
             "_md_array_dims": self._md_array_dims,
             "_band_dim_name": self._band_dim_name,
@@ -2536,7 +2540,7 @@ class NetCDF(Dataset):
         """
         parent = self._parent_nc
         var = self._source_var_name
-        flipped = getattr(self, "_md_y_flipped", None)
+        flipped = self._md_y_flipped
         if parent is None or var is None or not isinstance(flipped, bool):
             return None
         # A group-qualified variable (get_variable("grp/var")) recurses with a bare _source_var_name and
