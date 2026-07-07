@@ -2564,16 +2564,29 @@ class NetCDF(Dataset):
         ):
             return None
         mem = gdal.GetDriverByName("MEM").CreateCopy("", classic)
-        # The classic driver carries its own geotransform / CRS; re-apply the wrapper's, which already
-        # holds any metre-rescaled geostationary or coordinate-derived correction the view computed.
+        # Reconcile georeferencing and the data-affecting band metadata onto the classic-driver copy so the
+        # fast path matches the slow MEM.CreateCopy("", self._raster): the wrapper's geotransform (which may
+        # hold a metre-rescaled geostationary or coordinate-derived correction), the view's SRS, and each
+        # band's no-data / scale / offset as the view reports them — including *clearing* a no-data the
+        # classic driver set but the view lacks, so read_array(unpack=True) is identical on either path.
+        # Cosmetic band metadata (unit type, description) is left as the classic driver read it from the CF
+        # attributes, which is generally richer than the view's.
         mem.SetGeoTransform(self._geotransform)
         srs = ref.GetSpatialRef()
         if srs is not None:
             mem.SetSpatialRef(srs)
         for i in range(ref.RasterCount):
-            ndv = ref.GetRasterBand(i + 1).GetNoDataValue()
-            if ndv is not None:
-                mem.GetRasterBand(i + 1).SetNoDataValue(ndv)
+            src_band = ref.GetRasterBand(i + 1)
+            dst_band = mem.GetRasterBand(i + 1)
+            ndv = src_band.GetNoDataValue()
+            if ndv is None:
+                dst_band.DeleteNoDataValue()
+            else:
+                dst_band.SetNoDataValue(ndv)
+            scale = src_band.GetScale()
+            dst_band.SetScale(scale if scale is not None else 1.0)
+            offset = src_band.GetOffset()
+            dst_band.SetOffset(offset if offset is not None else 0.0)
         return mem
 
     def resample(
