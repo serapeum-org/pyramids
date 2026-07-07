@@ -11,12 +11,19 @@ Style: Google-style docstrings, <=120 char lines, no inline imports.
 
 import numpy as np
 import pytest
+from osgeo import gdal
 
 from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
 GOES = "tests/data/netcdf/cf__9v__1d7-2d2__geos__y-asc.nc"
+
+# The raw multidim-view partial-window crash (`arrayStartIdx`) is a GDAL >= 3.13 regression. The
+# win_arm64 wheel ships GDAL 3.12.4 (the vcpkg port ceiling), where the raw read succeeds instead of
+# raising, so the pre-fix crash is only asserted where that GDAL floor is met; the eager-materialize
+# fix itself is exercised on every platform.
+_GDAL_RAW_VIEW_CRASHES = int(gdal.VersionInfo("VERSION_NUM")) >= 3130000
 
 
 class TestWindowedRead705:
@@ -32,9 +39,11 @@ class TestWindowedRead705:
         """
         var = NetCDF.read_file(GOES).get_variable("CMI")
         # Pre-fix behaviour: the same partial-window read raises on the un-materialized multidim view
-        # (GDAL >= 3.13) — this is exactly the crash the eager materialize removes.
-        with pytest.raises(RuntimeError, match="arrayStartIdx"):
-            var.raster.ReadAsArray(100, 100, 200, 200)
+        # (GDAL >= 3.13) — this is exactly the crash the eager materialize removes. On GDAL 3.12.x
+        # (the win_arm64 wheel) the raw read does not crash, so only assert it where 3.13+ applies.
+        if _GDAL_RAW_VIEW_CRASHES:
+            with pytest.raises(RuntimeError, match="arrayStartIdx"):
+                var.raster.ReadAsArray(100, 100, 200, 200)
         var._materialize_md_view()
         assert var._md_view_materialized is True, "eager path should have materialized the view"
         window = var.raster.ReadAsArray(100, 100, 200, 200)
