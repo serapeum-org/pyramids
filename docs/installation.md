@@ -6,7 +6,8 @@ works out of the box on Linux, macOS, and Windows — no system GDAL
 installation required.
 
 **Package name:** `pyramids-gis`
-**Supported Python versions:** 3.11, 3.12, 3.13 (requires `>=3.11,<4`)
+**Supported Python versions:** 3.11–3.14 (requires `>=3.11,<4`;
+3.12+ on Windows ARM64)
 
 ## Quick install (recommended for most users)
 
@@ -16,10 +17,11 @@ installation required.
 pip install pyramids-gis
 ```
 
-That's it. The wheel includes GDAL 3.13, PROJ, GEOS, HDF5, NetCDF, GRIB,
-JPEG2000 (OpenJPEG, for JP2-packed GRIB2), libtiff, and all other native
-dependencies (HDF4 additionally ships in the macOS/Windows wheels). No
-`gdal-config`, no `apt install libgdal-dev`, no OSGeo4W installer needed.
+That's it. The wheel includes GDAL 3.13 (3.12 on Windows ARM64), PROJ,
+GEOS, HDF5, NetCDF, GRIB, JPEG2000 (OpenJPEG, for JP2-packed GRIB2),
+libtiff, and all other native dependencies (HDF4 additionally ships in
+the macOS and Windows x64 wheels). No `gdal-config`, no
+`apt install libgdal-dev`, no OSGeo4W installer needed.
 
 ### Optional extras
 
@@ -102,7 +104,7 @@ Open Python and run:
 import pyramids
 from osgeo import gdal
 print(pyramids.__version__)
-print(gdal.__version__)          # should print 3.13.x
+print(gdal.__version__)          # should print 3.13.x (3.12.x on Windows ARM64)
 ```
 
 ## Platform support matrix
@@ -115,8 +117,8 @@ print(gdal.__version__)          # should print 3.13.x
 | macOS 11+ | x86_64 | `macosx_11_0_x86_64` | ✅ Supported |
 | macOS 11+ | arm64 (Apple Silicon) | `macosx_11_0_arm64` | ✅ Supported |
 | Windows 10+ | x64 | `win_amd64` | ✅ Supported |
+| Windows 11+ | ARM64 | `win_arm64` | ✅ Supported (Python 3.12+; see the ARM64 note below) |
 | Alpine (musl) | any | — | ⏸ Built in CI, unpublished — blocked on upstream `pyogrio` musl wheels |
-| Windows 11+ | ARM64 | — | ⏸ Built in CI, unpublished — blocked on upstream `shapely`/`pyogrio` arm64 wheels |
 
 Distros covered by the Linux wheel out of the box:
 
@@ -133,26 +135,40 @@ If your distro has **glibc < 2.28**, use the conda-forge path instead.
 
 Every remaining gap waits on something upstream of pyramids; none of
 them can be closed from this repo alone. Progress is tracked in
-[#333](https://github.com/serapeum-org/pyramids/issues/333) (Alpine),
-[#334](https://github.com/serapeum-org/pyramids/issues/334) (Windows ARM64), and
+[#333](https://github.com/serapeum-org/pyramids/issues/333) (Alpine) and
 [#335](https://github.com/serapeum-org/pyramids/issues/335) (Python 3.15).
 Until a row clears, the workaround column applies.
 
 | Platform / target | Why no wheel today | Ships when | Workaround |
 |---|---|---|---|
 | Alpine / musl Linux | built + verified in CI; `pyogrio` has no musl wheels | pyogrio ships them (#333) | conda-forge |
-| Windows on ARM64 | built + verified in CI; shapely/pyogrio lack arm64 wheels | upstream lands (#334) | AMD64 wheel |
 | Python 3.15 | CPython unreleased; ecosystem needs cp315 wheels | after CPython 3.15, ~Oct 2026 (#335) | — |
 | Free-threaded (`cp31Nt`) | GDAL SWIG bindings + numpy not ready | revisit at 3.15 (#683) | standard (GIL) build |
 | Linux glibc < 2.28 | below the oldest maintained manylinux image | never (intentional) | conda-forge |
 | PyPy / Python ≤ 3.10 | GDAL bindings target CPython 3.11+ | never (intentional) | CPython 3.11+ |
 
-One **feature-level** difference inside a covered platform: the Linux
-wheel does not include the HDF4 driver (the macOS and Windows wheels
-do). HDF4 is a legacy format; if you need it on Linux, use conda-forge.
-This is the only driver difference — the wheel pipeline asserts the
-full promised driver set on every build, so drivers cannot silently
-disappear from a release.
+One **feature-level** difference inside covered platforms: the Linux
+and Windows ARM64 wheels do not include the HDF4 driver (the macOS
+wheels — both architectures — and the Windows x64 wheel do). HDF4 is a
+legacy format; if you need it there, use conda-forge. This is the only
+driver difference — the wheel pipeline asserts the full promised driver
+set on every build, so drivers cannot silently disappear from a release.
+
+> **Windows ARM64 note**: the `win_arm64` wheel ships Python 3.12–3.14
+> (numpy/scipy publish no cp311 ARM64 wheels), carries GDAL 3.12.4 (the
+> pinned vcpkg port version; the other platforms ship 3.13.1), has no
+> HDF4 driver (like Linux), and **vendors its vector stack** — shapely,
+> geopandas, and pyogrio ship inside the wheel under
+> `pyramids/_vendor/` because upstream publishes no ARM64 wheels for
+> them. `import geopandas` etc. work normally after `import pyramids`;
+> the vendored copies disappear once upstream ships ARM64 wheels.
+> On Python 3.11 there is no wheel and pip falls back to the sdist,
+> which typically *fails* while trying to build numpy/scipy from
+> source (they ship no cp311 ARM64 wheels either) — and even a
+> forced install (`--no-deps`) provides neither GDAL nor the vector
+> stack, because the dependency markers skip shapely/geopandas on
+> Windows ARM64. Use Python 3.12+ or conda-forge instead. The same
+> caveat applies to any deliberate sdist install on Windows ARM64.
 
 ## System dependencies
 
