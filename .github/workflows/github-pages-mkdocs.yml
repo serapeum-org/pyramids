@@ -54,6 +54,7 @@ jobs:
             netcdf/dask-lazy-netcdf.ipynb
             feature/dask-lazy-features.ipynb
             stac/stac-cloud-earth-search.ipynb
+            dataset/wms-wmts-readers.ipynb
           notebooks-continue-on-error: 'true'
 
   deploy-main:
@@ -77,6 +78,7 @@ jobs:
           netcdf/dask-lazy-netcdf.ipynb
           feature/dask-lazy-features.ipynb
           stac/stac-cloud-earth-search.ipynb
+          dataset/wms-wmts-readers.ipynb
         notebooks-continue-on-error: 'true'
 
   deploy-release:
@@ -113,4 +115,5 @@ jobs:
           netcdf/dask-lazy-netcdf.ipynb
           feature/dask-lazy-features.ipynb
           stac/stac-cloud-earth-search.ipynb
+          dataset/wms-wmts-readers.ipynb
         notebooks-continue-on-error: 'true'

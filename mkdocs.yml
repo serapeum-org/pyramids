@@ -162,6 +162,7 @@ nav:
           - RGB animation (DatasetCollection): examples/dataset/rgb_animation.ipynb
           - STAC solar-day grouping: examples/dataset/stac-solar-day.ipynb
           - South America: examples/dataset/south-america.ipynb
+          - WMS / WMTS map-service readers (live): examples/dataset/wms-wmts-readers.ipynb
           - Cloud Optimized GeoTIFFs: tutorials/cog.md
           - COG basics (offline): examples/cog/cog-basics.ipynb
           - COG with real data: examples/cog/cog-real-data.ipynb
