@@ -1,6 +1,21 @@
 ﻿# Change log
 
 
+## 0.42.0 (2026-07-07)
+
+### Feat
+
+- **dataset**: add WMS/WMTS raster readers via GDAL native drivers (#698)
+
+### Fix
+
+- **netcdf**: window-safe fast geostationary reads and no-EPSG CRS (#709)
+- **netcdf**: stop mislabeling a geostationary CRS as EPSG:4326 (#707)
+
+### Refactor
+
+- **collection**: replace flox with a local single-pass grouped reduction (#714)
+
 ## 0.41.0 (2026-07-06)
 
 ### Feat
