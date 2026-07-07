@@ -61,7 +61,11 @@ jobs:
           fetch-depth: 0
           # head_branch (not head_sha) — github-release pushes the bump + lockfile commits AFTER
           # the workflow_run head_sha is captured; we need the branch tip to see them.
-          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+          # The push/dispatch fallback is github.sha (the immutable triggering commit), NOT
+          # github.ref: a branch ref re-resolves per job, so a commit landing mid-run made the
+          # verify jobs check out newer tests than the wheels were built from — an ImportError
+          # on a symbol added by a PR that merged 12 min into run 28900224956.
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
@@ -103,7 +107,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
@@ -179,7 +183,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
@@ -270,7 +274,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
@@ -310,7 +314,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
@@ -351,7 +355,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
@@ -426,7 +430,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
@@ -477,7 +481,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -517,7 +521,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -560,7 +564,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -608,7 +612,7 @@ jobs:
 
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -665,7 +669,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.ref }}
+          ref: ${{ github.event.workflow_run.head_branch || inputs.branch || github.sha }}
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
