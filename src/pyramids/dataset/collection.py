@@ -669,6 +669,13 @@ class DatasetCollection:
         var`); each reduction runs once per unique label over the
         subset of timesteps carrying that label.
 
+        Note:
+            Each reduction evaluates all groups in a single ``dask.compute``,
+            so every source chunk is read once, but peak memory scales with the
+            number of groups computed in parallel. For very high-cardinality
+            groupings (hundreds of labels) prefer coarser labels or reduce in
+            batches.
+
         Args:
             time_labels: Sequence of length `self.time_length` — each
                 entry is the group label for the corresponding file
