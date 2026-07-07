@@ -20,7 +20,7 @@ from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
-FIXTURE = "tests/data/netcdf/cf__48v__1d17-3d21-4d10.nc"
+FIXTURE = "tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc"
 GDAL_LOGGER = "pyramids.base.config.gdal"
 
 

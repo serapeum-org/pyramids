@@ -1678,7 +1678,7 @@ class NetCDF(Dataset):
                 ```python
                 >>> from pyramids.netcdf import NetCDF
                 >>> nc = NetCDF.read_file(
-                ...     "tests/data/netcdf/noah-precipitation-1979.nc"
+                ...     "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
                 ... )
                 >>> arr = nc.read_array(
                 ...     variable="Band1",
@@ -2716,7 +2716,7 @@ class NetCDF(Dataset):
                 ```python
                 >>> from pyramids.netcdf import NetCDF
                 >>> nc = NetCDF.read_file(
-                ...     "tests/data/netcdf/noah-precipitation-1979.nc"
+                ...     "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
                 ... )
                 >>> sorted(nc.variables)
                 ['Band1', 'Band2', 'Band3', 'Band4']
@@ -2733,7 +2733,7 @@ class NetCDF(Dataset):
                 >>> import tempfile, zipfile
                 >>> from pathlib import Path
                 >>> from pyramids.netcdf import NetCDF
-                >>> src = Path("tests/data/netcdf/noah-precipitation-1979.nc")
+                >>> src = Path("tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc")
                 >>> with tempfile.TemporaryDirectory() as tmp:
                 ...     zpath = Path(tmp) / "noah.zip"
                 ...     with zipfile.ZipFile(zpath, "w") as zf:
@@ -2810,7 +2810,7 @@ class NetCDF(Dataset):
                 ```python
                 >>> from pathlib import Path
                 >>> from pyramids.netcdf import NetCDF
-                >>> data = Path("tests/data/netcdf/noah-precipitation-1979.nc").read_bytes()
+                >>> data = Path("tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc").read_bytes()
                 >>> nc = NetCDF.from_bytes(data, name="downloaded.nc")
                 >>> list(nc.variables)
                 ['Band1', 'Band2', 'Band3', 'Band4']
@@ -2825,7 +2825,7 @@ class NetCDF(Dataset):
                 >>> import pickle
                 >>> from pathlib import Path
                 >>> from pyramids.netcdf import NetCDF
-                >>> data = Path("tests/data/netcdf/noah-precipitation-1979.nc").read_bytes()
+                >>> data = Path("tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc").read_bytes()
                 >>> try:
                 ...     pickle.dumps(NetCDF.from_bytes(data))
                 ... except TypeError as exc:

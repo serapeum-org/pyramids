@@ -23,7 +23,7 @@ import shapely
 
 from pyramids.netcdf import NetCDF
 
-ERA5 = "tests/data/netcdf/era5_cds_beta_t2m_jan2022.nc"
+ERA5 = "tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc"
 _MASK = gpd.GeoDataFrame(
     geometry=[shapely.geometry.box(-75.0, 4.2, -74.0, 4.8)], crs="EPSG:4326"
 )

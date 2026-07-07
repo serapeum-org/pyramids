@@ -6,7 +6,7 @@ from pyramids.netcdf import LabeledDataset
 
 pytestmark = pytest.mark.core
 
-STATION = "none__111v__1d96-2d13-3d2__str.nc"  # madis-sao: 111 vars over a recNum record dimension
+STATION = "none__111v__1d96-2d13-3d2__str__y-desc.nc"  # madis-sao: 111 vars over a recNum record dimension
 
 
 def test_read_file_exposes_dimensions_and_variables(sample):

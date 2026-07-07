@@ -11,8 +11,8 @@ from pyramids.netcdf import NetCDF
 pytestmark = pytest.mark.core
 
 _GEO = (0.0, 1.0, 0.0, 3.0, 0.0, -1.0)
-_ERA5_T2M = "tests/data/netcdf/era5_cds_beta_t2m_jan2022.nc"
-_ERA5_PL = "tests/data/netcdf/era5_cds_beta_t_pressure_levels_jan2022.nc"
+_ERA5_T2M = "tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc"
+_ERA5_PL = "tests/data/netcdf/cf__5v__1d4-4d1__geog__y-desc.nc"
 
 
 def _make_time_nc(arr: np.ndarray, time_values: list) -> NetCDF:

@@ -24,7 +24,7 @@ from pyramids.netcdf import NetCDF
 pytestmark = pytest.mark.core
 
 GEOTIFF_FIXTURE = "tests/data/acc4000.tif"
-NETCDF_FIXTURE = "tests/data/netcdf/noah-precipitation-1979.nc"
+NETCDF_FIXTURE = "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
 
 
 def _download(path: str) -> bytes:

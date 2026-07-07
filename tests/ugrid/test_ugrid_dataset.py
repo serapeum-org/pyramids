@@ -105,7 +105,7 @@ class TestUgridDatasetReadFile:
         Test scenario:
             A regular structured NetCDF should raise ValueError.
         """
-        nc_path = Path("tests/data/netcdf/noah-precipitation-1979.nc")
+        nc_path = Path("tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc")
         with pytest.raises(ValueError, match="No UGRID mesh topology"):
             UgridDataset.read_file(nc_path)
 

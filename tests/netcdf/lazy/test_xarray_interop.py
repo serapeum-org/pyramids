@@ -312,7 +312,7 @@ class TestToXarrayFileBacked:
         """to_xarray() on a two-variable file includes both.
 
         Test scenario:
-            The two_vars_scale_offset.nc file contains 'z' and 'q';
+            The coards__4v__1d2-2d2__scaleoffset__y-asc.nc file contains 'z' and 'q';
             both should appear in the xr.Dataset.
         """
         nc = NetCDF.read_file(two_variable_nc)

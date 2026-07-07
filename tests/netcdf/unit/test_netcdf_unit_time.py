@@ -14,7 +14,7 @@ from tests.netcdf.unit._netcdf_unit_helpers import _make_3d_nc, _make_nc_with_ti
 pytestmark = pytest.mark.core
 
 
-MSWEP_PATH = Path("tests/data/netcdf/MSWEP_1979010100.nc")
+MSWEP_PATH = Path("tests/data/netcdf/none__4v__1d3-3d1__geog__y-asc.nc")
 
 
 class TestTimeStamp:
@@ -43,7 +43,7 @@ class TestGetTimeVariable:
         where time_dim has units and time values can be converted.
         """
         nc = NetCDF.read_file(
-            "tests/data/netcdf/noah-precipitation-1979.nc",
+            "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc",
             open_as_multi_dimensional=True,
         )
         result = nc.get_time_variable()
@@ -69,7 +69,7 @@ class TestGetTimeVariable:
         Covers the conversion path with a custom format.
         """
         nc = NetCDF.read_file(
-            "tests/data/netcdf/noah-precipitation-1979.nc",
+            "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc",
             open_as_multi_dimensional=True,
         )
         result = nc.get_time_variable(time_format="%Y/%m/%d")
@@ -84,7 +84,7 @@ class TestGetTimeVariable:
         returns parsed dates instead of ``None``. Reproduces issue #309.
         """
         nc = NetCDF.read_file(
-            "tests/data/netcdf/era5_cds_beta_t2m_jan2022.nc",
+            "tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc",
             open_as_multi_dimensional=True,
         )
 
@@ -120,7 +120,7 @@ class TestMSWEPFile:
     def test_read_mswep_mdim(self):
         """Verify reading MSWEP file in multidimensional mode.
 
-        Uses tests/data/netcdf/MSWEP_1979010100.nc to hit real code paths.
+        Uses tests/data/netcdf/none__4v__1d3-3d1__geog__y-asc.nc to hit real code paths.
         """
         nc = NetCDF.read_file(
             str(MSWEP_PATH),
@@ -254,7 +254,7 @@ class TestCubeDimensionNames:
             `dimension_names` should match the container's exactly.
         """
         nc = NetCDF.read_file(
-            "tests/data/netcdf/era5_cds_beta_t_pressure_levels_jan2022.nc"
+            "tests/data/netcdf/cf__5v__1d4-4d1__geog__y-desc.nc"
         )
         var = nc.get_variable("t")
         assert var.dimension_names == [
@@ -267,7 +267,7 @@ class TestCubeDimensionNames:
     def test_cube_dimension_names_matches_container_for_real_4d(self):
         """Cube's `dimension_names` mirrors container's on a no-flip file."""
         nc = NetCDF.read_file(
-            "tests/data/netcdf/era5_cds_beta_t_pressure_levels_jan2022.nc"
+            "tests/data/netcdf/cf__5v__1d4-4d1__geog__y-desc.nc"
         )
         var = nc.get_variable("t")
         assert (
@@ -278,7 +278,7 @@ class TestCubeDimensionNames:
         """Synthetic 4-D cube reports both band dims first; spatial dims may
         be renamed by pyramids' y-flip but count is still 4.
         """
-        nc = NetCDF.read_file("tests/data/netcdf/pyramids-netcdf-4d.nc")
+        nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
         var = nc.get_variable("temperature")
         names = var.dimension_names
         assert names is not None, "cube dim names must not be None after fix"
@@ -290,7 +290,7 @@ class TestCubeDimensionNames:
 
     def test_cube_dimension_names_is_independent_copy(self):
         """Mutating the returned list must not alter `_md_array_dims`."""
-        nc = NetCDF.read_file("tests/data/netcdf/pyramids-netcdf-4d.nc")
+        nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
         var = nc.get_variable("temperature")
         names = var.dimension_names
         original = list(var._md_array_dims)
@@ -306,7 +306,7 @@ class TestCubeDimensionNames:
 
     def test_cube_with_no_md_array_dims_returns_none(self):
         """Defensive: a cube whose `_md_array_dims` is empty returns `None`."""
-        nc = NetCDF.read_file("tests/data/netcdf/pyramids-netcdf-4d.nc")
+        nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
         var = nc.get_variable("temperature")
         var._md_array_dims = []
         assert (
@@ -321,7 +321,7 @@ class TestCubeDimensionNames:
             exact dim names from the file (no y-flip rename, since the
             container is the original MDIM dataset).
         """
-        nc = NetCDF.read_file("tests/data/netcdf/pyramids-netcdf-4d.nc")
+        nc = NetCDF.read_file("tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc")
         assert nc.dimension_names == [
             "time",
             "pressure_level",

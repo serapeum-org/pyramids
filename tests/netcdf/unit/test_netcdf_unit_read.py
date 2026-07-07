@@ -38,7 +38,7 @@ class TestReadVariable:
         gdal.Open(f'NETCDF:{path}:{var}').
         """
         nc = NetCDF.read_file(
-            "tests/data/netcdf/noah-precipitation-1979.nc",
+            "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc",
             open_as_multi_dimensional=False,
         )
         var_names = nc.variable_names
@@ -60,7 +60,7 @@ class TestReadVariable:
         Covers the except (RuntimeError, AttributeError) in classic mode.
         """
         nc = NetCDF.read_file(
-            "tests/data/netcdf/noah-precipitation-1979.nc",
+            "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc",
             open_as_multi_dimensional=False,
         )
         result = nc._read_variable("totally_fake_var")
@@ -140,7 +140,7 @@ class TestGetVariableEdgeCases:
         NETCDF:file:variable_name.
         """
         nc = NetCDF.read_file(
-            "tests/data/netcdf/noah-precipitation-1979.nc",
+            "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc",
             open_as_multi_dimensional=False,
         )
         var_names = nc.variable_names
@@ -262,7 +262,7 @@ class TestReadVariableFallbackPaths:
         NETCDF:file:var string.
         """
         nc = NetCDF.read_file(
-            "tests/data/netcdf/noah-precipitation-1979.nc",
+            "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc",
             open_as_multi_dimensional=False,
         )
         # In classic mode, variables are Band1, Band2, etc.
@@ -318,7 +318,7 @@ class TestGetVariableYFlipAndErrors:
         in classic mode. GDAL sometimes returns None instead of raising.
         """
         nc = NetCDF.read_file(
-            "tests/data/netcdf/noah-precipitation-1979.nc",
+            "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc",
             open_as_multi_dimensional=False,
         )
         original_names = nc.variable_names[:]

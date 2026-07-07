@@ -23,7 +23,7 @@ from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
-GOES16_FIXTURE = "tests/data/netcdf/goes16-abi-l2-cmipm-c13.nc"
+GOES16_FIXTURE = "tests/data/netcdf/cf__9v__1d7-2d2__geos__y-asc.nc"
 GOES16_LON_0 = -75.0
 
 

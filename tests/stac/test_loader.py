@@ -22,7 +22,7 @@ from pyramids.stac.signers import AWSRequesterPaysSigner
 pytestmark = pytest.mark.core
 
 _GEOTIFF = "tests/data/geotiff/era5_land_monthly_averaged.tif"
-_NETCDF = "tests/data/netcdf/noah-precipitation-1979.nc"
+_NETCDF = "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
 _COG_TYPE = "image/tiff; application=geotiff; profile=cloud-optimized"
 
 

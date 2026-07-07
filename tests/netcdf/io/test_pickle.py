@@ -36,13 +36,13 @@ pytestmark = pytest.mark.core
 @pytest.fixture
 def noah_path() -> str:
     """Path to a classic NetCDF fixture with multiple variables."""
-    return "tests/data/netcdf/noah-precipitation-1979.nc"
+    return "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
 
 
 @pytest.fixture
 def three_d_path() -> str:
     """Path to a pyramids-written 3D NetCDF fixture."""
-    return "tests/data/netcdf/pyramids-netcdf-3d.nc"
+    return "tests/data/netcdf/cf__4v__1d3-3d1__proj__y-desc.nc"
 
 
 def _read_container_on_subprocess(payload: bytes) -> tuple[str, bool, bool]:

@@ -9,7 +9,7 @@ from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
-MULTI = "cf__20v__1d3-3d17.nc"  # 20 variables incl. 17 packed 3-D fields
+MULTI = "cf__20v__1d3-3d17__y-desc.nc"  # 20 variables incl. 17 packed 3-D fields
 
 
 def test_remove_variable_drops_it(sample):
@@ -39,7 +39,7 @@ def test_rename_variable_keeps_data(sample):
 
 def test_reproject_variable_on_file_backed(sample):
     """``reproject_variable`` works on a file-backed container (regression for issue #587)."""
-    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1.nc"))
+    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1__y-asc.nc"))
     try:
         nc.reproject_variable("tos", 3857)
         assert nc.get_variable("tos").epsg == 3857

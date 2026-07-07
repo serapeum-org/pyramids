@@ -23,7 +23,7 @@ def root_nc(noah_nc_path: str) -> NetCDF:
     """Open the test NetCDF as a root MDIM container.
 
     Args:
-        noah_nc_path: Path to the noah-precipitation-1979.nc fixture.
+        noah_nc_path: Path to the cf__6v__1d2-2d4__geog__y-asc.nc fixture.
 
     Returns:
         NetCDF: Container with four data variables (``Band1`` … ``Band4``).

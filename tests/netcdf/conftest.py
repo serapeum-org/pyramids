@@ -15,17 +15,17 @@ GEO = (30.0, 0.5, 0, 35.0, 0, -0.5)
 
 @pytest.fixture(scope="module")
 def noah_nc_path() -> str:
-    return "tests/data/netcdf/noah-precipitation-1979.nc"
+    return "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
 
 
 @pytest.fixture(scope="module")
 def pyramids_created_nc_3d() -> str:
-    return "tests/data/netcdf/pyramids-netcdf-3d.nc"
+    return "tests/data/netcdf/cf__4v__1d3-3d1__proj__y-desc.nc"
 
 
 @pytest.fixture(scope="module")
 def two_variable_nc() -> str:
-    return "tests/data/netcdf/two_vars_scale_offset.nc"
+    return "tests/data/netcdf/coards__4v__1d2-2d2__scaleoffset__y-asc.nc"
 
 
 def make_3d_nc(

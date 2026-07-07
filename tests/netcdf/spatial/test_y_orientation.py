@@ -26,7 +26,7 @@ pytestmark = pytest.mark.core
 def noah_nc():
     """Noah precipitation file — external file with south-to-north lat."""
     return NetCDF.read_file(
-        "tests/data/netcdf/noah-precipitation-1979.nc",
+        "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc",
         open_as_multi_dimensional=True,
     )
 
@@ -187,10 +187,10 @@ class TestOneDimNotFlipped:
 
 
 ORIENTATION_CASES = [
-    ("goes16-abi-l2-cmipm-c13.nc", "CMI", True, "projected ascending (GOES geostationary) -> flip"),
-    ("noah-precipitation-1979.nc", "Band1", True, "geographic ascending (NOAH) -> flip"),
-    ("era5_cds_beta_t2m_jan2022.nc", "t2m", False, "geographic descending (ERA5) -> keep"),
-    ("coards__4v__1d3-3d1.nc", "air", False, "geographic descending (COARDS) -> keep"),
+    ("cf__9v__1d7-2d2__geos__y-asc.nc", "CMI", True, "projected ascending (GOES geostationary) -> flip"),
+    ("cf__6v__1d2-2d4__geog__y-asc.nc", "Band1", True, "geographic ascending (NOAH) -> flip"),
+    ("cf__5v__1d4-3d1__geog__y-desc.nc", "t2m", False, "geographic descending (ERA5) -> keep"),
+    ("coards__4v__1d3-3d1__y-desc.nc", "air", False, "geographic descending (COARDS) -> keep"),
 ]
 
 

@@ -22,7 +22,7 @@ from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
-FIXTURE = "tests/data/netcdf/cf__7v__1d3-2d3-3d1.nc"
+FIXTURE = "tests/data/netcdf/cf__7v__1d3-2d3-3d1__y-asc.nc"
 GDAL_LOGGER = "pyramids.base.config.gdal"
 # Gulf of Mexico + Caribbean, in -180..180 longitudes (matches the wrapped grid).
 REGION = [

@@ -17,7 +17,7 @@ pytestmark = pytest.mark.core
 def scale_offset_nc():
     """NetCDF file with scale_factor and add_offset on variables."""
     return NetCDF.read_file(
-        "tests/data/netcdf/two_vars_scale_offset.nc",
+        "tests/data/netcdf/coards__4v__1d2-2d2__scaleoffset__y-asc.nc",
         open_as_multi_dimensional=True,
     )
 
