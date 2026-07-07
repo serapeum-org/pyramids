@@ -156,10 +156,10 @@ monthly_mean = grouped.mean()       # dict {1: array, 2: array, ...}
 monthly_std  = grouped.std()
 ```
 
-Under the hood, pyramids routes through **flox** (single-pass
-grouped reduction — installed with `[lazy]`). When flox isn't
-available it falls back to a per-label loop with equivalent
-semantics. Both paths return a dict mapping label → numpy array.
+Under the hood, pyramids builds one lazy dask reduction per
+group and evaluates them all in a single `dask.compute`, so each
+source file is read once regardless of how the groups interleave
+across chunks. It returns a dict mapping label → numpy array.
 
 ## Per-timestep metadata — `RasterMeta`
 

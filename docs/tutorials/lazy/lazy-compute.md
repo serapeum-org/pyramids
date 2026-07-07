@@ -63,7 +63,7 @@ minimal:
 
 | Extra            | Pulls                                            | Enables                                      |
 |------------------|--------------------------------------------------|----------------------------------------------|
-| `[lazy]`         | `dask`, `zarr`, `fsspec`, `flox`, `kerchunk`, `h5py` | Raster + NetCDF lazy reads, Zarr, groupby, `to_kerchunk`/`combine_kerchunk` manifests |
+| `[lazy]`         | `dask`, `zarr`, `fsspec`, `kerchunk`, `h5py` | Raster + NetCDF lazy reads, Zarr, groupby, `to_kerchunk`/`combine_kerchunk` manifests |
 | `[parquet]`      | `pyarrow`, `dask-geopandas` + `[lazy]`           | Eager GeoParquet I/O + lazy `LazyFeatureCollection` |
 
 xarray interop (`NetCDF.to_xarray()` / `.from_xarray()`,

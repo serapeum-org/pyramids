@@ -111,8 +111,7 @@ flowchart TB
   - Constructors: `from_files(paths)`, `read_multiple_files(folder, ...)`.
   - Lazy stack: `data` (dask `(T, B, R, C)` array), `iloc(i)`, `head/tail/first/last`.
   - Per-timestep ops: `crop`, `to_crs`, `align`, `apply` — all `inplace=False` by default.
-  - Reductions: `mean / sum / min / max / std / var` (nan-aware via dask;
-    accelerated by `flox` when installed).
+  - Reductions: `mean / sum / min / max / std / var` (nan-aware via dask).
   - Groupby: `cube.groupby(labels).mean()` etc.
   - I/O: `to_file(path)`, `to_zarr(...)`, `to_kerchunk(...)`, `merge(dst)`.
 - `FeatureCollection`
