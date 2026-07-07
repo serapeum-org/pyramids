@@ -136,6 +136,19 @@ class TestGroupbySinglePass:
         assert np.isnan(result["B"]).all()
 
     @requires_dask
+    def test_non_contiguous_integer_labels(self, four_files):
+        """Non-contiguous integer labels (0 and 5, no 1-4) group correctly.
+
+        Guards against any assumption that labels are a dense 0..n-1 range;
+        group 0 = timesteps 0, 2 (values 1, 3) and group 5 = timesteps 1, 3.
+        """
+        collection = DatasetCollection.from_files(four_files)
+        result = collection.groupby([0, 5, 0, 5]).mean()
+        assert set(result) == {0, 5}
+        assert np.allclose(result[0], 2.0)
+        assert np.allclose(result[5], 3.0)
+
+    @requires_dask
     def test_chunk_spanning_groups_single_time_chunk(self):
         """A single time-axis chunk spanning every group still reduces correctly.
 
