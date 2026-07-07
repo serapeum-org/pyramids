@@ -2553,10 +2553,31 @@ class NetCDF(Dataset):
         # The classic netCDF driver needs an on-disk / VSI source; a MEM dataset has no such path.
         if not path or str(path).startswith("/vsimem"):
             return None
-        # Force the flip on this thread only. SetConfigOption would mutate the process-global value, so a
-        # concurrent netCDF open on another thread could inherit the forced orientation and get silently
-        # mis-flipped data. The open runs on this thread and GDAL bakes the orientation at open time, so a
-        # thread-local override reset right after Open confines it with no race.
+        classic = self._open_classic_flipped(path, var, flipped)
+        ref = self._raster
+        if classic is None or not self._same_raster_shape(classic, ref):
+            return None
+        # Reconcile georeferencing and the data-affecting band metadata onto the classic-driver copy so the
+        # fast path matches the slow MEM.CreateCopy("", self._raster): the wrapper's geotransform (which may
+        # hold a metre-rescaled geostationary or coordinate-derived correction), the view's SRS, and each
+        # band's no-data / scale / offset (see _reconcile_band_metadata).
+        mem = gdal.GetDriverByName("MEM").CreateCopy("", classic)
+        mem.SetGeoTransform(self._geotransform)
+        srs = ref.GetSpatialRef()
+        if srs is not None:
+            mem.SetSpatialRef(srs)
+        self._reconcile_band_metadata(ref, mem)
+        return mem
+
+    @staticmethod
+    def _open_classic_flipped(path: str, var: str, flipped: bool) -> "gdal.Dataset | None":
+        """Open ``NETCDF:"path":var`` with a thread-local ``GDAL_NETCDF_BOTTOMUP`` matching the flip.
+
+        ``SetConfigOption`` would mutate the process-global value, so a concurrent netCDF open on another
+        thread could inherit the forced orientation and get silently mis-flipped data. The open runs on
+        this thread and GDAL bakes the orientation at open time, so a thread-local override reset right
+        after ``Open`` confines it with no race. Returns ``None`` if the classic open raises.
+        """
         prev = gdal.GetThreadLocalConfigOption("GDAL_NETCDF_BOTTOMUP")
         gdal.SetThreadLocalConfigOption("GDAL_NETCDF_BOTTOMUP", "YES" if flipped else "NO")
         try:
@@ -2565,25 +2586,26 @@ class NetCDF(Dataset):
             classic = None
         finally:
             gdal.SetThreadLocalConfigOption("GDAL_NETCDF_BOTTOMUP", prev)
-        ref = self._raster
-        if classic is None or (
-            classic.RasterCount != ref.RasterCount
-            or classic.RasterXSize != ref.RasterXSize
-            or classic.RasterYSize != ref.RasterYSize
-        ):
-            return None
-        mem = gdal.GetDriverByName("MEM").CreateCopy("", classic)
-        # Reconcile georeferencing and the data-affecting band metadata onto the classic-driver copy so the
-        # fast path matches the slow MEM.CreateCopy("", self._raster): the wrapper's geotransform (which may
-        # hold a metre-rescaled geostationary or coordinate-derived correction), the view's SRS, and each
-        # band's no-data / scale / offset as the view reports them — including *clearing* a no-data the
-        # classic driver set but the view lacks, so read_array(unpack=True) is identical on either path.
-        # Cosmetic band metadata (unit type, description) is left as the classic driver read it from the CF
-        # attributes, which is generally richer than the view's.
-        mem.SetGeoTransform(self._geotransform)
-        srs = ref.GetSpatialRef()
-        if srs is not None:
-            mem.SetSpatialRef(srs)
+        return classic
+
+    @staticmethod
+    def _same_raster_shape(a: "gdal.Dataset", b: "gdal.Dataset") -> bool:
+        """Whether two datasets share the same band count and pixel dimensions."""
+        return (
+            a.RasterCount == b.RasterCount
+            and a.RasterXSize == b.RasterXSize
+            and a.RasterYSize == b.RasterYSize
+        )
+
+    @staticmethod
+    def _reconcile_band_metadata(ref: "gdal.Dataset", mem: "gdal.Dataset") -> None:
+        """Mirror the view's no-data / scale / offset onto the classic-driver copy.
+
+        Makes the fast path match the slow ``MEM.CreateCopy("", self._raster)`` for the data-affecting
+        fields — including *clearing* a no-data the classic driver set but the view lacks, so
+        ``read_array(unpack=True)`` is identical on either path. Cosmetic band metadata (unit type,
+        description) is left as the classic driver read it from the CF attributes.
+        """
         for i in range(ref.RasterCount):
             src_band = ref.GetRasterBand(i + 1)
             dst_band = mem.GetRasterBand(i + 1)
@@ -2596,7 +2618,6 @@ class NetCDF(Dataset):
             dst_band.SetScale(scale if scale is not None else 1.0)
             offset = src_band.GetOffset()
             dst_band.SetOffset(offset if offset is not None else 0.0)
-        return mem
 
     def resample(
         self,
