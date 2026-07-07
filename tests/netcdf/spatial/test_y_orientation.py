@@ -15,7 +15,7 @@ single return statement, descriptive assertion messages.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
-from osgeo import gdal
+from osgeo import gdal, osr
 
 from pyramids.netcdf.netcdf import NetCDF
 
@@ -194,14 +194,57 @@ ORIENTATION_CASES = [
 ]
 
 
+def _assert_fast_path_orientation(var, expect_flip, label):
+    """Assert the fast classic-driver path matches the multidim view and is north-up.
+
+    Shared by every Y-axis case: the recorded flip decision, a north-up geotransform, and byte-identical
+    data between `_materialize_via_classic_driver()` and a `MEM.CreateCopy` of the view.
+    """
+    assert (
+        var._md_y_flipped is expect_flip
+    ), f"{label}: expected _md_y_flipped={expect_flip}, got {var._md_y_flipped}"
+    assert (
+        var.geotransform[5] < 0
+    ), f"{label}: materialized geotransform must be north-up, got gt[5]={var.geotransform[5]}"
+    reference = gdal.GetDriverByName("MEM").CreateCopy("", var.raster).ReadAsArray()
+    fast = var._materialize_via_classic_driver()
+    assert fast is not None, f"{label}: fast classic-driver path should be available for an on-disk source"
+    np.testing.assert_array_equal(
+        fast.ReadAsArray(),
+        reference,
+        err_msg=f"{label}: fast-path data is not byte-identical to the view (orientation drift)",
+    )
+
+
+@pytest.fixture(scope="module")
+def projected_descending_nc(tmp_path_factory):
+    """A UTM (projected) netCDF written top-down, so its Y axis descends (row 0 = north).
+
+    No repo fixture is projected + descending, so build one: a UTM32N raster with a north-up
+    geotransform written with `WRITE_BOTTOMUP=NO` keeps the data top-down and emits a descending
+    `y` (`projection_y_coordinate`) axis — the one 2x2 cell the on-disk fixtures do not cover.
+    """
+    path = str(tmp_path_factory.mktemp("proj_desc") / "utm_projected_descending.nc")
+    src = gdal.GetDriverByName("MEM").Create("", 8, 6, 1, gdal.GDT_Float32)
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(32636)
+    src.SetProjection(srs.ExportToWkt())
+    src.SetGeoTransform((500000.0, 100.0, 0.0, 4000000.0, 0.0, -100.0))
+    src.GetRasterBand(1).WriteArray(np.arange(48, dtype=np.float32).reshape(6, 8))
+    src.GetRasterBand(1).SetNoDataValue(-9999.0)
+    gdal.Translate(path, src, format="netCDF", creationOptions=["WRITE_BOTTOMUP=NO"])
+    return path
+
+
 class TestFastPathOrientationAllCases:
     """The classic-driver fast path must reproduce the multidim view's north-up orientation.
 
-    One case per Y-axis situation the fix has to handle (#705): an ascending Y axis (row 0 = south)
-    is flipped to north-up, a descending one (row 0 = north) is kept. GDAL's classic driver only
-    auto-flips a recognised geographic latitude, not a projected ``projection_y_coordinate`` (GOES),
-    so the fast path forces ``GDAL_NETCDF_BOTTOMUP`` from the recorded flip decision. Each case asserts
-    the flip decision, a north-up geotransform, and byte-identical data against the reference view.
+    Covers the full 2x2 of the two variables that drive orientation (#705): Y-axis direction
+    (ascending row 0 = south -> flip; descending row 0 = north -> keep) x CRS type (a projected
+    ``projection_y_coordinate`` is not auto-flipped by GDAL's classic driver, a geographic latitude is).
+    The four on-disk fixtures cover projected-ascending (GOES), geographic-ascending (NOAH), and
+    geographic-descending (ERA5, COARDS); a generated UTM fixture covers projected-descending. Each case
+    asserts the flip decision, a north-up geotransform, and byte-identical data against the view.
     """
 
     @pytest.mark.parametrize(
@@ -218,24 +261,20 @@ class TestFastPathOrientationAllCases:
             Read the variable through the public MDIM path, capture the known-correct view as a
             reference, then materialize via the classic driver and compare — orientation must not drift.
         """
-        nc = NetCDF.read_file(f"tests/data/netcdf/{filename}")
-        var = nc.get_variable(variable)
-        assert (
-            var._md_y_flipped is expect_flip
-        ), f"{label}: expected _md_y_flipped={expect_flip}, got {var._md_y_flipped}"
-        assert (
-            var.geotransform[5] < 0
-        ), f"{label}: materialized geotransform must be north-up, got gt[5]={var.geotransform[5]}"
-        reference = gdal.GetDriverByName("MEM").CreateCopy("", var.raster).ReadAsArray()
-        fast = var._materialize_via_classic_driver()
-        assert (
-            fast is not None
-        ), f"{label}: fast classic-driver path should be available for an on-disk file"
-        np.testing.assert_array_equal(
-            fast.ReadAsArray(),
-            reference,
-            err_msg=f"{label}: fast-path data is not byte-identical to the view (orientation drift)",
-        )
+        var = NetCDF.read_file(f"tests/data/netcdf/{filename}").get_variable(variable)
+        _assert_fast_path_orientation(var, expect_flip, label)
+
+    def test_projected_descending_is_kept_and_matches_view(self, projected_descending_nc):
+        """Projected + descending Y (the 2x2 cell with no repo fixture) is kept and matches the view.
+
+        Test scenario:
+            A UTM-projected netCDF whose Y axis descends (row 0 = north) needs no flip; the fast path
+            (BOTTOMUP=NO) must reproduce the view byte-identically.
+        """
+        var = NetCDF.read_file(projected_descending_nc).get_variable("Band1")
+        srs = var.raster.GetSpatialRef()
+        assert srs is not None and srs.IsProjected(), "fixture should carry a projected CRS"
+        _assert_fast_path_orientation(var, expect_flip=False, label="projected descending (UTM) -> keep")
 
 
 class TestDiskRoundTripOrientation:
