@@ -407,12 +407,13 @@ class Selection(_Engine["NetCDF"]):
         if bbox is not None:
             if mask is not None:
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
-            crs = epsg if epsg is not None else self._ds.epsg
-            if crs is None:
+            # `.epsg` is None for a no-EPSG CRS (e.g. geostationary); fall back to
+            # the WKT so a bbox in the grid's own CRS is still honoured (#706).
+            crs = epsg if epsg is not None else (self._ds.epsg or self._ds.crs)
+            if not crs:
                 raise ValueError(
                     "crop(bbox=…) requires an explicit `epsg=` when the "
-                    "NetCDF itself has no CRS (self.epsg is None) — a "
-                    "bbox without a CRS is ambiguous"
+                    "NetCDF has no CRS at all — a bbox without a CRS is ambiguous"
                 )
             mask = FeatureCollection.from_bbox(bbox, epsg=crs)
         if mask is None:

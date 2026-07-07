@@ -1740,12 +1740,13 @@ class NetCDF(Dataset):
                 "read_array(chunks=..., bbox=...) is not supported; "
                 "read lazily and slice the resulting dask array instead."
             )
-        crs = epsg if epsg is not None else self.epsg
-        if crs is None:
+        # `.epsg` is None for a no-EPSG CRS (e.g. geostationary); fall back to the
+        # WKT so a bbox in the grid's own CRS is still honoured (#706).
+        crs = epsg if epsg is not None else (self.epsg or self.crs)
+        if not crs:
             raise ValueError(
-                "read_array(bbox=…) requires an explicit `epsg=` when "
-                "the NetCDF itself has no CRS (self.epsg is None) — a "
-                "bbox without a CRS is ambiguous"
+                "read_array(bbox=…) requires an explicit `epsg=` when the "
+                "NetCDF has no CRS at all — a bbox without a CRS is ambiguous"
             )
         return FeatureCollection.from_bbox(bbox, epsg=crs)
 

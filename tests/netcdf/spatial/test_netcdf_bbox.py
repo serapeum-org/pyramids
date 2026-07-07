@@ -235,10 +235,11 @@ class TestNetCDFCropMutex:
             mocker: pytest-mock fixture.
 
         Test scenario:
-            When the dataset has no CRS (``self.epsg is None``) and the
-            caller didn't pass ``epsg=``, the upfront guard must fire
-            with a message that names ``epsg=`` and ``self.epsg``
-            (better than the deeper ``from_bbox`` ``ValueError``).
+            When the dataset has no CRS at all (``epsg`` None *and* an empty
+            ``crs`` WKT) and the caller didn't pass ``epsg=``, the upfront guard
+            must fire (better than the deeper ``from_bbox`` ``ValueError``). A
+            geostationary grid — ``epsg is None`` but a present WKT — is not
+            CRS-less and must not hit this branch.
         """
         mocker.patch.object(
             type(root_nc),
@@ -246,7 +247,13 @@ class TestNetCDFCropMutex:
             new_callable=mocker.PropertyMock,
             return_value=None,
         )
-        with pytest.raises(ValueError, match=r"explicit `epsg=`.*self\.epsg is None"):
+        mocker.patch.object(
+            type(root_nc),
+            "crs",
+            new_callable=mocker.PropertyMock,
+            return_value="",
+        )
+        with pytest.raises(ValueError, match=r"explicit `epsg=`.*no CRS at all"):
             root_nc.crop(bbox=INSIDE_BBOX)
 
     def test_crs_less_netcdf_explicit_epsg_works(self, root_nc: NetCDF, mocker):
@@ -383,7 +390,13 @@ class TestNetCDFReadArrayBbox:
             new_callable=mocker.PropertyMock,
             return_value=None,
         )
-        with pytest.raises(ValueError, match=r"explicit `epsg=`.*self\.epsg is None"):
+        mocker.patch.object(
+            type(root_nc),
+            "crs",
+            new_callable=mocker.PropertyMock,
+            return_value="",
+        )
+        with pytest.raises(ValueError, match=r"explicit `epsg=`.*no CRS at all"):
             root_nc.read_array(variable="Band1", bbox=INSIDE_BBOX)
 
     def test_fc_built_once_at_netcdf_level(self, root_nc: NetCDF, mocker):

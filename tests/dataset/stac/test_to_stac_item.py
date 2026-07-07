@@ -167,8 +167,8 @@ class TestToStacItem:
             item = to_stac_item(ds, "x", asset_href="s.tif")
         assert item["bbox"] == [-180.0, -90.0, 180.0, 90.0], f"bbox: {item['bbox']}"
         assert any(
-            "no CRS" in str(w.message) for w in caught
-        ), "expected a no-CRS warning"
+            "no EPSG code" in str(w.message) for w in caught
+        ), "expected a no-EPSG-code warning"
         assert not any(
             k.startswith("proj:") for k in item["properties"]
         ), f"a CRS-less item must not advertise proj:* fields: {item['properties']}"

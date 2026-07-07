@@ -841,8 +841,9 @@ def _footprint_4326(
     minx, miny, maxx, maxy = native_bbox
     if not epsg:
         warnings.warn(
-            "Dataset has no CRS; setting the STAC geometry/bbox to the world "
-            "extent (-180, -90, 180, 90).",
+            "Cannot reproject the footprint to EPSG:4326 (the dataset has no "
+            "EPSG code); setting the STAC geometry/bbox to the world extent "
+            "(-180, -90, 180, 90).",
             stacklevel=3,
         )
         world = [-180.0, -90.0, 180.0, 90.0]

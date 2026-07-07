@@ -384,8 +384,8 @@ class RasterBase(ABC):
 
     @property
     @abstractmethod
-    def epsg(self):
-        """EPSG number."""
+    def epsg(self) -> int | None:
+        """EPSG number, or ``None`` for a CRS with no EPSG code (e.g. geostationary)."""
         pass
 
     @property
