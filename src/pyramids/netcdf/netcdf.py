@@ -2538,14 +2538,18 @@ class NetCDF(Dataset):
         # The classic netCDF driver needs an on-disk / VSI source; a MEM dataset has no such path.
         if not path or str(path).startswith("/vsimem"):
             return None
-        prev = gdal.GetConfigOption("GDAL_NETCDF_BOTTOMUP")
-        gdal.SetConfigOption("GDAL_NETCDF_BOTTOMUP", "YES" if flipped else "NO")
+        # Force the flip on this thread only. SetConfigOption would mutate the process-global value, so a
+        # concurrent netCDF open on another thread could inherit the forced orientation and get silently
+        # mis-flipped data. The open runs on this thread and GDAL bakes the orientation at open time, so a
+        # thread-local override reset right after Open confines it with no race.
+        prev = gdal.GetThreadLocalConfigOption("GDAL_NETCDF_BOTTOMUP")
+        gdal.SetThreadLocalConfigOption("GDAL_NETCDF_BOTTOMUP", "YES" if flipped else "NO")
         try:
             classic = gdal.Open(f"NETCDF:{path}:{var}")
         except RuntimeError:
             classic = None
         finally:
-            gdal.SetConfigOption("GDAL_NETCDF_BOTTOMUP", prev)
+            gdal.SetThreadLocalConfigOption("GDAL_NETCDF_BOTTOMUP", prev)
         ref = self._raster
         if classic is None or (
             classic.RasterCount != ref.RasterCount
