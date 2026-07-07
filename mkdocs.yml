@@ -251,6 +251,7 @@ nav:
       - Testing & CI:
           - Overview: how-to/testing.md
           - NetCDF fixtures: testing/netcdf/fixtures.md
+          - NetCDF test scenarios: testing/netcdf/tests.md
       - Wheel Build Flow: how-to/wheel-build-flow.md
       - FAQ & Troubleshooting: how-to/faq.md
   - About:
