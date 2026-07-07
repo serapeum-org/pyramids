@@ -109,9 +109,9 @@ class TestGroupbySinglePass:
         """Labels [0, 1, 0, 1] interleave groups across timesteps.
 
         group 0 = timesteps 0, 2 (values 1, 3) -> mean 2.0;
-        group 1 = timesteps 1, 3 (values 2, 4) -> mean 3.0. Exercises the
-        chunk-spanning-groups path that the single `dask.compute` handles in
-        one read pass.
+        group 1 = timesteps 1, 3 (values 2, 4) -> mean 3.0. Verifies per-group
+        correctness when labels interleave; the chunk-spanning read-once
+        property is covered by ``test_chunk_spanning_groups_single_time_chunk``.
         """
         collection = DatasetCollection.from_files(four_files)
         result = collection.groupby([0, 1, 0, 1]).mean()
@@ -134,6 +134,28 @@ class TestGroupbySinglePass:
         result = collection.groupby(["A", "B", "A", "B"]).mean(skipna=True)
         assert np.allclose(result["A"], 2.0)
         assert np.isnan(result["B"]).all()
+
+    @requires_dask
+    def test_chunk_spanning_groups_single_time_chunk(self):
+        """A single time-axis chunk spanning every group still reduces correctly.
+
+        Rechunking the cube to one chunk along time makes one dask chunk hold
+        timesteps from every group -- the read-once-per-shared-chunk case the
+        single ``dask.compute`` in ``_grouped_reduce`` is built for, unlike the
+        one-chunk-per-file layout ``from_files`` produces. Labels [0, 1, 0, 1]
+        interleave, so group 0 = t0, t2 and group 1 = t1, t3.
+        """
+        import dask.array as da
+
+        from pyramids.dataset.collection import _grouped_reduce
+
+        arr = np.arange(4 * 1 * 2 * 2, dtype="float64").reshape(4, 1, 2, 2)
+        data = da.from_array(arr, chunks=(1, 1, 2, 2)).rechunk({0: 4})
+        assert data.chunks[0] == (4,)  # one chunk spans all four timesteps
+        labels = np.array([0, 1, 0, 1])
+        result = _grouped_reduce(data, labels, [0, 1], "mean", True)
+        assert np.allclose(result[0], arr[[0, 2]].mean(axis=0))
+        assert np.allclose(result[1], arr[[1, 3]].mean(axis=0))
 
 
 class TestGroupbyErrors:
