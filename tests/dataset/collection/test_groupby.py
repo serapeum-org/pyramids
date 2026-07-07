@@ -165,6 +165,19 @@ class TestGroupbySinglePass:
         assert np.allclose(result[5], 3.0)
 
     @requires_dask
+    def test_skipna_false_propagates_nan(self, files_with_nan_group):
+        """skipna=False uses the plain (non-nan-aware) op, so any NaN propagates.
+
+        Values [1, NaN, 3, NaN] with labels [A, A, B, B]: group A = [1, NaN] and
+        group B = [3, NaN] both reduce to NaN under a plain mean, unlike the
+        nan-aware skipna=True path.
+        """
+        collection = DatasetCollection.from_files(files_with_nan_group)
+        result = collection.groupby(["A", "A", "B", "B"]).mean(skipna=False)
+        assert np.isnan(result["A"]).all()
+        assert np.isnan(result["B"]).all()
+
+    @requires_dask
     def test_chunk_spanning_groups_read_once(self):
         """A single time chunk spanning every group is fetched exactly once.
 
