@@ -17,7 +17,7 @@ from pyramids import _io
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._raster_meta import RasterMeta
-from pyramids.base._utils import import_flox, import_zarr, lazy_extra_hint
+from pyramids.base._utils import import_zarr, lazy_extra_hint
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
@@ -45,13 +45,11 @@ class _GroupedCollection:
     One reduction method per dask op. Each call returns a
     `{label: ndarray}` dict.
 
-    As of M4 the reduction is routed through
-    :func:`flox.groupby_reduce` when :mod:`flox` is importable (via
-    the `[lazy]` extra) — a single tree-reduction over the full
-    cube so each source file opens at most once regardless of how
-    many groups share it. When flox is unavailable the fallback
-    loops over unique labels and issues one :func:`dask.array`
-    reduction per label (correct but slower).
+    The reduction is single-pass: one lazy :func:`dask.array` reduction is
+    built per group and all of them are evaluated in a single
+    :func:`dask.compute`, so each source file is read once regardless of how
+    the groups interleave across dask chunks (the groups partition the time
+    axis). See :func:`_grouped_reduce`.
     """
 
     _OPS = ("mean", "sum", "min", "max", "std", "var")
@@ -61,34 +59,19 @@ class _GroupedCollection:
         self._labels = labels
 
     def _reduce_per_label(self, op_name: str, *, skipna: bool) -> dict:
-        """route through flox when installed; fall back to per-label dask.
+        """Single-pass per-label reduction over the time axis.
 
-        flox performs the grouped reduction as a single tree-reduction
-        over the full cube, which reads each source file at most once
-        regardless of how many groups share it. The fallback path does
-        one compute per unique label, re-reading files a label-count
-        number of times — correct but slower.
+        Builds one lazy dask reduction per group and evaluates them together,
+        so each source file is read once regardless of how the groups
+        interleave across chunks.
         """
-        data = self._collection.data
-        label_array = np.asarray(self._labels)
-        ordered_labels = sorted(set(self._labels))
-        try:
-            result = _flox_groupby_reduce(
-                data,
-                label_array,
-                ordered_labels,
-                op_name,
-                skipna,
-            )
-        except OptionalPackageDoesNotExist:
-            result = _fallback_groupby_reduce(
-                data,
-                label_array,
-                ordered_labels,
-                op_name,
-                skipna,
-            )
-        return result
+        return _grouped_reduce(
+            self._collection.data,
+            np.asarray(self._labels),
+            sorted(set(self._labels)),
+            op_name,
+            skipna,
+        )
 
     def mean(self, *, skipna: bool = True) -> dict:
         """Per-label mean over the time axis.
@@ -163,64 +146,43 @@ class _GroupedCollection:
         return self._reduce_per_label("var", skipna=skipna)
 
 
-def _flox_groupby_reduce(
+def _grouped_reduce(
     data,
     label_array: np.ndarray,
     ordered_labels: list,
     op_name: str,
     skipna: bool,
 ) -> dict:
-    """Single-pass grouped reduction via :func:`flox.groupby_reduce`.
+    """Single-pass grouped reduction over the time axis (axis 0).
 
-    Raises :class:`OptionalPackageDoesNotExist` when flox isn't
-    importable so the caller falls back to the per-label loop.
+    Builds one lazy :func:`dask.array` reduction per group, then evaluates
+    them all with a single :func:`dask.compute`. Because the groups partition
+    the time axis, that one pass reads each source chunk exactly once
+    regardless of how the groups interleave across chunks — the property a
+    per-label loop of separate ``.compute()`` calls cannot guarantee.
+
+    Args:
+        data: Lazy `dask.array` of shape `(T, B, R, C)` (the collection cube).
+        label_array: Per-timestep group labels, length `T`.
+        ordered_labels: Unique labels in output order.
+        op_name: One of `mean / sum / min / max / std / var`.
+        skipna: Use the nan-aware variant when True.
+
+    Returns:
+        dict: `{label: ndarray}` with one reduced `(B, R, C)` array per group.
     """
-    import_flox(
-        lazy_extra_hint(
-            "flox is required for grouped reductions over a DatasetCollection."
-        )
-    )
-    from flox import groupby_reduce
+    import dask
 
-    _, func_name = resolve_dask_op(op_name, skipna=skipna)
-    moved = np.moveaxis(data, 0, -1) if hasattr(data, "ndim") else data
-    if hasattr(moved, "rechunk"):
-        moved = moved.rechunk({moved.ndim - 1: moved.shape[-1]})
-    grouped_result, groups = groupby_reduce(
-        moved,
-        label_array,
-        func=func_name,
-        expected_groups=ordered_labels,
-    )
-    materialised = np.asarray(grouped_result)
-    index_by_label = {label: idx for idx, label in enumerate(groups)}
-    out: dict = {}
-    for label in ordered_labels:
-        idx = index_by_label[label]
-        out[label] = materialised[..., idx]
-    return out
-
-
-def _fallback_groupby_reduce(
-    data,
-    label_array: np.ndarray,
-    ordered_labels: list,
-    op_name: str,
-    skipna: bool,
-) -> dict:
-    """Per-label reduction path when flox is unavailable.
-
-    Kept so `groupby` works in environments that skip the
-    `[lazy]` extra's flox optional.
-    """
-    func, _ = resolve_dask_op(op_name, skipna=skipna)
-    out: dict = {}
-    for label in ordered_labels:
-        positions = np.where(label_array == label)[0]
-        subset = data[positions.tolist()]
-        reduced = func(subset, axis=0).compute()
-        out[label] = np.asarray(reduced)
-    return out
+    func = resolve_dask_op(op_name, skipna=skipna)
+    reductions = [
+        func(data[np.where(label_array == label)[0].tolist()], axis=0)
+        for label in ordered_labels
+    ]
+    computed = dask.compute(*reductions)
+    return {
+        label: np.asarray(reduced)
+        for label, reduced in zip(ordered_labels, computed)
+    }
 
 
 def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
@@ -738,7 +700,7 @@ class DatasetCollection:
         The per-timestep timestamps are supplied by the caller (``times``)
         because a :class:`DatasetCollection` does not itself carry a time
         coordinate. The reduction runs through :attr:`data`, so the optional
-        ``[lazy]`` extra (dask; flox recommended) is required.
+        ``[lazy]`` extra (dask) is required.
 
         Args:
             times: Per-timestep timestamps, length ``self.time_length``. Any
@@ -817,7 +779,7 @@ class DatasetCollection:
 
     def _reduce(self, op_name: str, *, skipna: bool) -> np.typing.NDArray:
         """Shared reduction dispatcher over the time axis."""
-        func, _ = resolve_dask_op(op_name, skipna=skipna)
+        func = resolve_dask_op(op_name, skipna=skipna)
         result = func(self.data, axis=0)
         return np.asarray(result.compute())
 

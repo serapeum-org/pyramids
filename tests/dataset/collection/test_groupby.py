@@ -1,9 +1,8 @@
 """Tests for :meth:`DatasetCollection.groupby`.
 
-group timesteps by per-file label, reduce each cohort.
-Functional without `flox`; `flox` (when installed) accelerates the
-tree-reduction. Tests here use the dask-only fallback to stay
-portable.
+group timesteps by per-file label, reduce each cohort with a single-pass
+local dask reduction (one lazy reduction per group, evaluated in one
+:func:`dask.compute`). No `flox`.
 """
 
 from __future__ import annotations
@@ -30,6 +29,24 @@ def four_files(tmp_path):
             epsg=4326,
         )
         p = str(tmp_path / f"f{i}.tif")
+        ds.to_file(p)
+        paths.append(p)
+    return paths
+
+
+@pytest.fixture
+def files_with_nan_group(tmp_path):
+    """4 timesteps with values 1, NaN, 3, NaN — group 'B' is entirely NaN."""
+    paths = []
+    for i, value in enumerate([1.0, np.nan, 3.0, np.nan]):
+        arr = np.full((3, 4), value, dtype=np.float32)
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 3.0),
+            cell_size=1.0,
+            epsg=4326,
+        )
+        p = str(tmp_path / f"n{i}.tif")
         ds.to_file(p)
         paths.append(p)
     return paths
@@ -82,6 +99,41 @@ class TestGroupbyShape:
         result = grouped.mean()
         assert result[0].shape == (1, 3, 4)
         assert result[1].shape == (1, 3, 4)
+
+
+class TestGroupbySinglePass:
+    """Parity checks for the single-pass local grouped reduction (#712)."""
+
+    @requires_dask
+    def test_interleaved_labels_reduce_per_group(self, four_files):
+        """Labels [0, 1, 0, 1] interleave groups across timesteps.
+
+        group 0 = timesteps 0, 2 (values 1, 3) -> mean 2.0;
+        group 1 = timesteps 1, 3 (values 2, 4) -> mean 3.0. Exercises the
+        chunk-spanning-groups path that the single `dask.compute` handles in
+        one read pass.
+        """
+        collection = DatasetCollection.from_files(four_files)
+        result = collection.groupby([0, 1, 0, 1]).mean()
+        assert np.allclose(result[0], 2.0)
+        assert np.allclose(result[1], 3.0)
+
+    @requires_dask
+    def test_std_var_match_numpy(self, four_files):
+        """Per-group std / var match the NumPy reference (population, ddof=0)."""
+        grouped = DatasetCollection.from_files(four_files).groupby([0, 1, 0, 1])
+        stds = grouped.std()
+        variances = grouped.var()
+        assert np.allclose(stds[0], np.std([1.0, 3.0]))       # 1.0
+        assert np.allclose(variances[1], np.var([2.0, 4.0]))  # 1.0
+
+    @requires_dask
+    def test_all_nan_group_skipna(self, files_with_nan_group):
+        """A group whose every timestep is all-NaN reduces to NaN under skipna."""
+        collection = DatasetCollection.from_files(files_with_nan_group)
+        result = collection.groupby(["A", "B", "A", "B"]).mean(skipna=True)
+        assert np.allclose(result["A"], 2.0)
+        assert np.isnan(result["B"]).all()
 
 
 class TestGroupbyErrors:

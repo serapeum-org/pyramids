@@ -638,20 +638,12 @@ def require_cleopatra(msg: str | None = None) -> None:
     import_cleopatra(effective)
 
 
-def import_flox(message: str):
-    """Import flox."""
-    try:
-        import flox  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
-
-
 def lazy_extra_hint(prefix: str) -> str:
     """Compose an install hint for the optional ``[lazy]`` extra.
 
     The shared PyPI / conda-forge install commands for the ``[lazy]`` extra
-    (dask / zarr / fsspec / flox) are defined once here so the zarr / dask /
-    flox call sites don't each copy them; only the lead sentence varies.
+    (dask / zarr / fsspec) are defined once here so the zarr / dask call
+    sites don't each copy them; only the lead sentence varies.
 
     Args:
         prefix: The domain-specific lead sentence, ending in a period (e.g.
