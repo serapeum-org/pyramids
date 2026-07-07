@@ -184,7 +184,7 @@ def _grouped_reduce(
     )
     func = resolve_dask_op(op_name, skipna=skipna)
     reductions = [
-        func(data[np.where(label_array == label)[0].tolist()], axis=0)
+        func(data[np.nonzero(label_array == label)[0].tolist()], axis=0)
         for label in ordered_labels
     ]
     computed = dask.compute(*reductions)
