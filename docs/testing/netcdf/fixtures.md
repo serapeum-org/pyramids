@@ -42,10 +42,10 @@ matters, its CRS and Y-axis orientation — is legible from the filename alone.
 | `none__4v__1d1-2d2-3d1__curv.nc`             | none      |    4 | 1×1D, 2×2D, 1×3D       | none          | —      |  ✓  | Curvilinear grid (RASM-like), 2-D coordinates                                                                                  |
 | `none__4v__1d3-3d1__geog__y-asc.nc`          | none      |    4 | 3×1D, 1×3D             | none          | asc    |  ✓  | MSWEP precip, geographic-ascending, **no `Conventions` attr**                                                                  |
 | `none__5v__1d2-2d2-3d1__curv.nc`             | none      |    5 | 2×1D, 2×2D, 1×3D       | none          | —      |  ✓  | Curvilinear grid (ROMS-like)                                                                                                   |
-| `none__11v__1d11__y-desc.nc`                 | none      |   11 | 11×1D                  | none          | desc   |     | Multiple 1-D vars — aircraft track time series                                                                                 |
+| `none__11v__1d11.nc`                 | none      |   11 | 11×1D                  | none          | —      |     | Multiple 1-D vars — aircraft track time series (no spatial Y axis)                                                             |
 | `none__17v__1d1-2d5-3d6-4d5__stag-str.nc`    | none      |   17 | 1×1D, 5×2D, 6×3D, 5×4D | none          | —      |  ✓  | Staggered grid + string variables                                                                                              |
 | `none__35v__1d35__groups-nc4.nc`             | none      |   35 | 35×1D                  | none          | —      |  ✓  | **7 groups**, netCDF-4 — group traversal                                                                                       |
-| `none__111v__1d96-2d13-3d2__str__y-desc.nc`  | (AWIPS)   |  111 | 96×1D, 13×2D, 2×3D     | none          | desc   |     | Many 1-D station-obs vars + char 2-D fields                                                                                    |
+| `none__111v__1d96-2d13-3d2__str.nc`  | (AWIPS)   |  111 | 96×1D, 13×2D, 2×3D     | none          | —      |     | Many 1-D station-obs vars + char 2-D fields (no spatial Y axis)                                                                |
 | `ugrid__1v__1d1.nc`                          | none      |    1 | 1×1D                   | none          | —      |     | UGRID unstructured mesh — single var                                                                                           |
 | `ugrid__1v__3d1.nc`                          | none      |    1 | 1×3D                   | none          | —      |  ✓  | UGRID mesh — 3-D var                                                                                                           |
 | `ugrid__6v__1d5-2d1.nc`                      | MPAS      |    6 | 5×1D, 1×2D             | none          | —      |  ✓  | MPAS-convention unstructured mesh                                                                                              |
@@ -55,15 +55,21 @@ mesh files, and files with no spatial Y axis, where a single ascending/descendin
 
 ## The Y-orientation 2×2
 
-Four fixtures (plus one generated at runtime) pin the interaction of **CRS type × Y-direction** that
-`tests/netcdf/spatial/test_y_orientation.py::TestFastPathOrientationAllCases` verifies — an ascending Y axis
-(row 0 = south) must be flipped to north-up, a descending one is kept, and GDAL's classic driver only auto-flips a
-recognised geographic latitude (not a projected `projection_y_coordinate`):
+`tests/netcdf/spatial/test_y_orientation.py::TestFastPathOrientationAllCases` verifies the interaction of
+**CRS type × Y-direction** — an ascending Y axis (row 0 = south) must be flipped to north-up, a descending one is
+kept, and GDAL's classic driver only auto-flips a recognised geographic latitude (not a projected
+`projection_y_coordinate`). The parametrized cases use four on-disk fixtures; the projected-descending cell has no
+on-disk fixture in the test and is covered by a UTM grid generated at runtime (the `projected_descending_nc`
+fixture):
 
-|                | ascending (→ **flip**)                                                                | descending (→ **keep**)                                                     |
-|----------------|---------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
-| **projected**  | `cf__9v__1d7-2d2__geos__y-asc.nc` (GOES)                                              | `cf__4v__1d3-3d1__proj__y-desc.nc`                                          |
-| **geographic** | `cf__6v__1d2-2d4__geog__y-asc.nc` (NOAH), `none__4v__1d3-3d1__geog__y-asc.nc` (MSWEP) | `cf__5v__1d4-3d1__geog__y-desc.nc` (ERA5), `coards__4v__1d3-3d1__y-desc.nc` |
+|                | ascending (→ **flip**)                   | descending (→ **keep**)                                                     |
+|----------------|------------------------------------------|-----------------------------------------------------------------------------|
+| **projected**  | `cf__9v__1d7-2d2__geos__y-asc.nc` (GOES) | UTM grid generated at runtime (`projected_descending_nc`)                   |
+| **geographic** | `cf__6v__1d2-2d4__geog__y-asc.nc` (NOAH) | `cf__5v__1d4-3d1__geog__y-desc.nc` (ERA5), `coards__4v__1d3-3d1__y-desc.nc` |
+
+Matching on-disk fixtures that carry the same orientation but are **not** used by this parametrized test:
+`cf__4v__1d3-3d1__proj__y-desc.nc` (projected-descending) and `none__4v__1d3-3d1__geog__y-asc.nc`
+(MSWEP, geographic-ascending).
 
 ## Related tests
 
