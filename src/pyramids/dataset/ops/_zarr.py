@@ -62,12 +62,16 @@ def _require_zarr() -> Any:
 
 def _metadata_dict(ds: Dataset) -> dict[str, Any]:
     """Return the standard CRS / GeoTransform geobox attr dict for the store."""
-    srs = sr_from_epsg(int(ds.epsg))
+    # A geostationary (and other no-EPSG) CRS has `.epsg is None`; carry it
+    # through the WKT `spatial_ref` and record epsg 0 (the geobox convention for
+    # "no authority code") so `to_zarr` does not crash on `int(None)` (#706).
+    epsg_code = int(ds.epsg) if ds.epsg else 0
+    crs_wkt = ds.crs or sr_from_epsg(epsg_code).ExportToWkt()
     nodata_tuple = ds.no_data_value
     return {
-        "spatial_ref": srs.ExportToWkt(),
+        "spatial_ref": crs_wkt,
         "GeoTransform": " ".join(str(v) for v in ds.geotransform),
-        "epsg": int(ds.epsg),
+        "epsg": epsg_code,
         "no_data_value": [None if v is None else float(v) for v in nodata_tuple],
         "band_names": list(ds.band_names) if ds.band_names else [],
         "dtype": str(np.dtype(ds.numpy_dtype[0])),

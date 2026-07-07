@@ -974,7 +974,7 @@ class RasterBase(ABC):
         pass
 
     @abstractmethod
-    def _get_epsg(self) -> int:
+    def _get_epsg(self) -> int | None:
         """Get EPSG.
 
             This function reads the projection of a GEOGCS file or tiff file

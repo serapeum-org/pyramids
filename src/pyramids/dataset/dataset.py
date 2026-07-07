@@ -25,7 +25,7 @@ from pyramids.base._utils import (
     UNDEFINED_COLOR_INTERP,
     numpy_to_gdal_dtype,
 )
-from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
+from pyramids.base.crs import epsg_from_wkt, sr_from_epsg, sr_from_user_input
 from pyramids.dataset.abstract_dataset import (
     DEFAULT_NO_DATA_VALUE,
     RasterBase,
@@ -1246,7 +1246,7 @@ class Dataset(RasterBase):
         """
         return str(self.raster.GetProjection())
 
-    def _get_epsg(self) -> int:
+    def _get_epsg(self) -> int | None:
         """Concrete override of :meth:`RasterBase._get_epsg`.
 
         Defined directly on Dataset for the same reason as
@@ -3205,13 +3205,21 @@ class Dataset(RasterBase):
             rows = int(arr.shape[1])
             cols = int(arr.shape[2])
 
+        # Keep the exact `sr_from_epsg` path for an EPSG int/numeric string; carry
+        # a no-EPSG CRS (e.g. geostationary) through as a WKT string so rebuilds
+        # preserve it instead of crashing on `int(None)` (#706).
+        try:
+            crs_wkt = sr_from_epsg(int(epsg)).ExportToWkt()
+        except (TypeError, ValueError):
+            crs_wkt = sr_from_user_input(epsg).ExportToWkt()
+
         return cls._build_dataset(
             cols,
             rows,
             bands,
             numpy_to_gdal_dtype(arr),
             geo,
-            sr_from_epsg(int(epsg)).ExportToWkt(),
+            crs_wkt,
             no_data_value,
             driver=driver_type,
             path=path,

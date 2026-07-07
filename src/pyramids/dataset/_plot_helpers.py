@@ -172,7 +172,7 @@ def render_array(
     ax: Any | None = None,
     fig: Any | None = None,
     basemap: bool | str | None = None,
-    basemap_epsg: int | None = None,
+    basemap_epsg: int | str | None = None,
     **kwargs: Any,
 ):
     """Build an ArrayGlyph and dispatch to the right cleopatra render path.
@@ -566,7 +566,7 @@ def mesh_render(
     data: Any,
     location: str = "face",
     basemap: bool | str | None = None,
-    basemap_epsg: int | None = None,
+    basemap_epsg: int | str | None = None,
     **kwargs: Any,
 ) -> Any:
     """N-6 — sibling of :func:`render_array` for UGRID mesh data.

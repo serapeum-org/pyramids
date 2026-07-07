@@ -836,6 +836,10 @@ class NetCDF(Dataset):
         :attr:`crs` (the geostationary WKT); reprojection is unaffected because
         :meth:`to_crs` warps from the WKT, not the EPSG code.
 
+        Scope: geostationary detection lives on ``NetCDF`` (where these grids are
+        read from), so a geostationary raster opened as a plain ``Dataset`` (e.g.
+        translated to GeoTIFF) still reports the base ``4326`` — out of scope here.
+
         Returns:
             int | None: The EPSG code, or ``None`` when the CRS is the CF
             geostationary projection.
@@ -1198,7 +1202,7 @@ class NetCDF(Dataset):
                     from cleopatra.reference import add_features
                     var = nc.get_variable("t2m")
                     glyph = var.plot()
-                    add_features(glyph.ax, "coastline", crs=var.epsg, zorder=5)
+                    add_features(glyph.ax, "coastline", crs=var.epsg or var.crs, zorder=5)
 
                 ``add_features`` fetches Natural Earth data (cached under ``~/.cleopatra``), so it
                 needs the ``[viz]`` extra and network access on first use. A relief backdrop is
@@ -2158,7 +2162,7 @@ class NetCDF(Dataset):
                     result = NetCDF.create_from_array(
                         arr=var_arr,
                         geo=var_result.geotransform,
-                        epsg=var_result.epsg,
+                        epsg=var_result.epsg or var_result.crs,
                         no_data_value=var_ndv_scalar,
                         variable_name=var_name,
                         extra_dims=extra_dims,
@@ -2167,7 +2171,7 @@ class NetCDF(Dataset):
                     result = NetCDF.create_from_array(
                         arr=var_arr,
                         geo=var_result.geotransform,
-                        epsg=var_result.epsg,
+                        epsg=var_result.epsg or var_result.crs,
                         no_data_value=var_ndv_scalar,
                         variable_name=var_name,
                     )
@@ -2176,7 +2180,7 @@ class NetCDF(Dataset):
                 ds = Dataset.create_from_array(
                     var_arr,
                     geo=var_result.geotransform,
-                    epsg=var_result.epsg,
+                    epsg=var_result.epsg or var_result.crs,
                     no_data_value=var_ndv_scalar,
                 )
                 NetCDF._copy_band_dim_metadata(ds, var)

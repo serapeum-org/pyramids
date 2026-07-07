@@ -121,6 +121,23 @@ class TestGeostationaryCRS:
         assert maxy - miny > 0.1, f"degenerate height: {warped.bbox}"
 
 
+class TestGeostationaryContainerOps:
+    """Container operations preserve the geostationary CRS via WKT (#706).
+
+    A geostationary variable has ``.epsg is None``; the container fan-out that
+    rebuilds each variable through ``create_from_array(epsg=...)`` must carry the
+    CRS through the WKT instead of crashing on the missing EPSG code.
+    """
+
+    def test_container_resample_preserves_geostationary_crs(self, tmp_path):
+        """`container.resample` keeps the geostationary CRS (no `epsg cannot be None`)."""
+        path = str(tmp_path / "geos.nc")
+        _write_geostationary_mdim(path)
+        out = NetCDF.read_file(path).resample(cell_size=4000.0).get_variable("CMI_C02")
+        assert out.epsg is None
+        assert "Geostationary_Satellite" in out.crs
+
+
 class TestNonGeostationaryEpsgUnaffected:
     """The `None`-for-geostationary rule must not touch ordinary CRSs."""
 
@@ -129,3 +146,9 @@ class TestNonGeostationaryEpsgUnaffected:
         arr = np.zeros((5, 6), "f4")
         nc = NetCDF.create_from_array(arr, geo=(0, 1, 0, 5, 0, -1), epsg=4326, variable_name="t")
         assert nc.get_variable("t").epsg == 4326
+
+    def test_latlon_container_resample_unchanged(self):
+        """A plain lat/lon container still resamples and keeps its EPSG code."""
+        arr = np.zeros((6, 7), "f4")
+        nc = NetCDF.create_from_array(arr, geo=(0, 1, 0, 6, 0, -1), epsg=4326, variable_name="t")
+        assert nc.resample(cell_size=2.0).get_variable("t").epsg == 4326

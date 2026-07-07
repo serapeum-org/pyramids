@@ -673,7 +673,7 @@ class Spatial(_Engine["Dataset"]):
         view._warp_source = self._ds
         return view
 
-    def _get_epsg(self) -> int:
+    def _get_epsg(self) -> int | None:
         """Get the EPSG number.
 
             This function reads the projection of a GEOGCS file or tiff file.

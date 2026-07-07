@@ -1893,7 +1893,7 @@ class Analysis(_Engine["Dataset"]):
             ax=ax,
             fig=fig,
             basemap=basemap,
-            basemap_epsg=self._ds.epsg,
+            basemap_epsg=self._ds.epsg or self._ds.crs,
             **kwargs,
         )
 
