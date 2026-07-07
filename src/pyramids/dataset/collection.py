@@ -161,6 +161,11 @@ def _grouped_reduce(
     regardless of how the groups interleave across chunks — the property a
     per-label loop of separate ``.compute()`` calls cannot guarantee.
 
+    Trade-off: batching every group into one compute lets the scheduler run
+    multiple groups' reads and partials concurrently, so peak memory scales
+    with the number of groups evaluated in parallel rather than one group at a
+    time — the deliberate I/O-for-memory trade behind reading each chunk once.
+
     Args:
         data: Lazy `dask.array` of shape `(T, B, R, C)` (the collection cube).
         label_array: Per-timestep group labels, length `T`.
