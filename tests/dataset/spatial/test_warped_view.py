@@ -195,7 +195,7 @@ class TestWarpedView:
 class TestWarpedViewNetCDF:
     """warped_view on NetCDF: variable subsets work, containers refuse."""
 
-    nc_path = "tests/data/netcdf/noah-precipitation-1979.nc"
+    nc_path = "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
 
     def test_variable_subset_view_keeps_netcdf_identity(self):
         """A variable-subset view is a NetCDF tagged as a subset, not a container.

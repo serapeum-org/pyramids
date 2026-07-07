@@ -151,9 +151,13 @@ class Variables(_Engine["NetCDF"]):
             band,
         )
 
-        # Set spatial reference (RT-7: attribute copying)
+        # Set spatial reference (RT-7: attribute copying). Carry a no-EPSG CRS
+        # (e.g. geostationary) through its WKT so set_variable / add_variable does
+        # not silently erase the georeference (#706).
         if dataset.epsg:
             md_arr.SetSpatialRef(sr_from_epsg(dataset.epsg))
+        elif dataset.crs:
+            md_arr.SetSpatialRef(sr_from_user_input(dataset.crs))
 
         # Set no-data value
         if dataset.no_data_value and dataset.no_data_value[0] is not None:

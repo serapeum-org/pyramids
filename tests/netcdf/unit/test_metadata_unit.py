@@ -1013,7 +1013,7 @@ class TestMetadataBuilderRealFile:
     """
 
     def test_topup_works_on_real_cds_beta_fixture(self):
-        """End-to-end check on tests/data/netcdf/era5_cds_beta_t2m_jan2022.nc.
+        """End-to-end check on tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc.
 
         Test scenario:
             Open the fixture in MDIM mode (where ``valid_time#units`` is
@@ -1022,7 +1022,7 @@ class TestMetadataBuilderRealFile:
             ``calendar``.
         """
         ds = gdal.OpenEx(
-            "tests/data/netcdf/era5_cds_beta_t2m_jan2022.nc",
+            "tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc",
             gdal.OF_MULTIDIM_RASTER,
         )
         md = MetadataBuilder(ds).build()

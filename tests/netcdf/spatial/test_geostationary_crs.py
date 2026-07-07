@@ -184,6 +184,34 @@ class TestGeostationaryContainerOps:
         assert any("Geostationary_Satellite" in open(f, encoding="utf-8").read() for f in meta)
 
 
+    def test_set_variable_preserves_geostationary_crs(self, tmp_path):
+        """`set_variable` carries the geostationary WKT instead of erasing it."""
+        path = str(tmp_path / "geos.nc")
+        _write_geostationary_mdim(path)
+        container = NetCDF.read_file(path)
+        container.set_variable("CMI_copy", container.get_variable("CMI_C02"))
+        copy = container.get_variable("CMI_copy")
+        assert copy.epsg is None
+        assert "Geostationary_Satellite" in copy.crs
+
+    def test_bounds_carries_geostationary_crs(self, tmp_path):
+        """`.bounds` attaches the geostationary CRS rather than a CRS-less frame."""
+        path = str(tmp_path / "geos.nc")
+        _write_geostationary_mdim(path)
+        var = NetCDF.read_file(path).get_variable("CMI_C02")
+        assert var.bounds.crs is not None
+
+    def test_aligner_rejects_geostationary_reference(self, tmp_path):
+        """Constructing an `Aligner` on a no-EPSG reference raises a clear error."""
+        from pyramids.dataset.ops.reproject import Aligner
+
+        path = str(tmp_path / "geos.nc")
+        _write_geostationary_mdim(path)
+        var = NetCDF.read_file(path).get_variable("CMI_C02")
+        with pytest.raises(ValueError, match=r"no EPSG code"):
+            Aligner(var)
+
+
 class TestNonGeostationaryEpsgUnaffected:
     """The `None`-for-geostationary rule must not touch ordinary CRSs."""
 

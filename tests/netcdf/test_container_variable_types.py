@@ -24,7 +24,7 @@ from pyramids.netcdf import NetCDF, Container, Variable
 
 pytestmark = pytest.mark.core
 
-THREE_D = "tests/data/netcdf/pyramids-netcdf-3d.nc"
+THREE_D = "tests/data/netcdf/cf__4v__1d3-3d1__proj__y-desc.nc"
 
 
 @pytest.fixture(scope="function")
@@ -68,7 +68,7 @@ class TestContainerRouting:
         """``read_file(open_as_multi_dimensional=False)`` also returns a Container.
 
         Args:
-            noah_nc_path: Path to the noah-precipitation-1979.nc fixture.
+            noah_nc_path: Path to the cf__6v__1d2-2d4__geog__y-asc.nc fixture.
 
         Test scenario:
             Opening a file is a container operation regardless of mode; the classic-mode
@@ -82,7 +82,7 @@ class TestContainerRouting:
         """``from_bytes`` returns a Container.
 
         Args:
-            noah_nc_path: Path to the noah-precipitation-1979.nc fixture.
+            noah_nc_path: Path to the cf__6v__1d2-2d4__geog__y-asc.nc fixture.
 
         Test scenario:
             Opening from in-memory bytes is a file-open, so it yields a Container.

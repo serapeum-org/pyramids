@@ -46,13 +46,13 @@ except ImportError:  # pragma: no cover
 @pytest.fixture(scope="module")
 def three_d_path() -> str:
     """Path to a 3D MDIM NetCDF fixture (shape (3, 13, 14))."""
-    return "tests/data/netcdf/pyramids-netcdf-3d.nc"
+    return "tests/data/netcdf/cf__4v__1d3-3d1__proj__y-desc.nc"
 
 
 @pytest.fixture(scope="module")
 def scale_offset_path() -> str:
     """Path to a NetCDF with CF ``scale_factor`` / ``add_offset``."""
-    return "tests/data/netcdf/two_vars_scale_offset.nc"
+    return "tests/data/netcdf/coards__4v__1d2-2d2__scaleoffset__y-asc.nc"
 
 
 @pytest.fixture

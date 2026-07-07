@@ -31,7 +31,7 @@ from pyramids.netcdf.engines.variables import Variables
 pytestmark = pytest.mark.core
 
 CURVILINEAR_PATH = "tests/data/netcdf/none__4v__1d1-2d2-3d1__curv.nc"
-THREE_D_PATH = "tests/data/netcdf/pyramids-netcdf-3d.nc"
+THREE_D_PATH = "tests/data/netcdf/cf__4v__1d3-3d1__proj__y-desc.nc"
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ def classic_container(noah_nc_path: str):
     """A classic-mode (non-MDIM) container — has no GDAL root group.
 
     Args:
-        noah_nc_path: Path to the noah-precipitation-1979.nc fixture.
+        noah_nc_path: Path to the cf__6v__1d2-2d4__geog__y-asc.nc fixture.
     """
     return NetCDF.read_file(noah_nc_path, open_as_multi_dimensional=False)
 

@@ -144,7 +144,7 @@ class Selection(_Engine["NetCDF"]):
                 ```python
                 >>> from pyramids.netcdf import NetCDF
                 >>> nc = NetCDF.read_file(
-                ...     "tests/data/netcdf/noah-precipitation-1979.nc"
+                ...     "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
                 ... )
                 >>> cropped = nc.crop(bbox=(10.0, -50.0, 50.0, -20.0))
                 >>> sorted(cropped.variables) == sorted(nc.variables)
@@ -156,7 +156,7 @@ class Selection(_Engine["NetCDF"]):
                 >>> from pyramids.feature import FeatureCollection
                 >>> from pyramids.netcdf import NetCDF
                 >>> nc = NetCDF.read_file(
-                ...     "tests/data/netcdf/noah-precipitation-1979.nc"
+                ...     "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
                 ... )
                 >>> fc = FeatureCollection.from_bbox(
                 ...     (10.0, -50.0, 50.0, -20.0), epsg=nc.epsg,
@@ -407,12 +407,13 @@ class Selection(_Engine["NetCDF"]):
         if bbox is not None:
             if mask is not None:
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
-            crs = epsg if epsg is not None else self._ds.epsg
-            if crs is None:
+            # `.epsg` is None for a no-EPSG CRS (e.g. geostationary); fall back to
+            # the WKT so a bbox in the grid's own CRS is still honoured (#706).
+            crs = epsg if epsg is not None else (self._ds.epsg or self._ds.crs)
+            if not crs:
                 raise ValueError(
                     "crop(bbox=…) requires an explicit `epsg=` when the "
-                    "NetCDF itself has no CRS (self.epsg is None) — a "
-                    "bbox without a CRS is ambiguous"
+                    "NetCDF has no CRS at all — a bbox without a CRS is ambiguous"
                 )
             mask = FeatureCollection.from_bbox(bbox, epsg=crs)
         if mask is None:
@@ -606,7 +607,7 @@ class Selection(_Engine["NetCDF"]):
             - Pin a pressure level on a 4-D file:
                 ```python
                 >>> nc = NetCDF.read_file(  # doctest: +SKIP
-                ...     "tests/data/netcdf/pyramids-netcdf-4d.nc"
+                ...     "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
                 ... )
                 >>> var = nc.get_variable("temperature")  # doctest: +SKIP
                 >>> sub = var.sel(pressure_level=500)  # doctest: +SKIP

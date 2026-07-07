@@ -1,10 +1,10 @@
 """Tests for sel() on 4-D NetCDFs (multiple band dimensions).
 
 Covers issue #311. Uses two fixtures:
-- ``tests/data/netcdf/pyramids-netcdf-4d.nc`` (synthetic, shape
+- ``tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc`` (synthetic, shape
   ``(time=4, pressure_level=3, lat=5, lon=6)``, pixel values encode
   ``t*1000 + l*100 + y*10 + x`` so storage order is verifiable).
-- ``tests/data/netcdf/era5_cds_beta_t_pressure_levels_jan2022.nc``
+- ``tests/data/netcdf/cf__5v__1d4-4d1__geog__y-desc.nc``
   (real CDS-Beta ERA5 pressure-levels retrieval, shape
   ``(28, 1, 141, 321)``) for end-to-end coverage.
 
@@ -22,8 +22,8 @@ from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
-SYNTH_PATH = "tests/data/netcdf/pyramids-netcdf-4d.nc"
-ERA5_PATH = "tests/data/netcdf/era5_cds_beta_t_pressure_levels_jan2022.nc"
+SYNTH_PATH = "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
+ERA5_PATH = "tests/data/netcdf/cf__5v__1d4-4d1__geog__y-desc.nc"
 
 # Synthetic-fixture geometry.
 NT, NL, NY, NX = 4, 3, 5, 6

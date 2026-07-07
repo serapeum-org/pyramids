@@ -46,7 +46,7 @@ INHERITED_NOARG_METHODS = [
 @pytest.fixture
 def tos_view(sample):
     """A single-variable Dataset-like view (tos) on which inherited raster ops are valid."""
-    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1.nc"))
+    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1__y-asc.nc"))
     try:
         yield nc.get_variable("tos")
     finally:

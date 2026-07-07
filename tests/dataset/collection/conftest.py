@@ -8,7 +8,7 @@ import pytest
 from pyramids.dataset import Dataset
 
 # Shared NetCDF path (time-coordinate, dims: time, pressure_level, lat, lon).
-NC_FIXTURE = "tests/data/netcdf/pyramids-netcdf-4d.nc"
+NC_FIXTURE = "tests/data/netcdf/cf__5v__1d4-4d1__y-asc.nc"
 
 
 @pytest.fixture

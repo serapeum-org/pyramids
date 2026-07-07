@@ -163,7 +163,7 @@ class TestRenameVariableErrors:
             Open in classic mode → ValueError.
         """
         nc = NetCDF.read_file(
-            "tests/data/netcdf/noah-precipitation-1979.nc",
+            "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc",
             open_as_multi_dimensional=False,
         )
         with pytest.raises(ValueError, match="multidimensional"):

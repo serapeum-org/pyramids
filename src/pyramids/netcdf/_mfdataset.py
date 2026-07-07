@@ -116,7 +116,7 @@ def open_mfdataset(
         - Stack a single file into a 1-element dask array:
             ```python
             >>> from pyramids.netcdf._mfdataset import open_mfdataset
-            >>> path = "tests/data/netcdf/pyramids-netcdf-3d.nc"
+            >>> path = "tests/data/netcdf/cf__4v__1d3-3d1__proj__y-desc.nc"
             >>> stack = open_mfdataset([path], "values")
             >>> stack.shape[0]
             1

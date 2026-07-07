@@ -248,7 +248,10 @@ nav:
       - Docker & GHCR: how-to/docker.md
       - Parallel windowed reads: how-to/parallel-reads.md
       - Recipes: how-to/recipes.md
-      - Testing & CI: how-to/testing.md
+      - Testing & CI:
+          - Overview: how-to/testing.md
+          - NetCDF fixtures: testing/netcdf/fixtures.md
+          - NetCDF test scenarios: testing/netcdf/tests.md
       - Wheel Build Flow: how-to/wheel-build-flow.md
       - FAQ & Troubleshooting: how-to/faq.md
   - About:

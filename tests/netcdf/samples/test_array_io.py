@@ -63,7 +63,7 @@ def test_masked_read_matches_shape(sample_name, sample):
 
 def test_read_array_window_subsets(sample, tmp_path):
     """A ``window`` read returns the requested sub-extent of a 2-D+ variable (tos)."""
-    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1.nc"))
+    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1__y-asc.nc"))
     try:
         full = nc.read_array(variable="tos")
         windowed = nc.read_array(variable="tos", window=[0, 0, 10, 8])  # col, row, width, height

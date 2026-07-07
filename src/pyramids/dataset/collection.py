@@ -241,7 +241,7 @@ def _finalize_collection_metadata(resolved_store, meta, files: list) -> None:
             "pyramids_file_list": list(files),
         },
         data_attrs={
-            "epsg": int(meta.epsg) if meta.epsg else None,
+            "epsg": int(meta.epsg or 0),
             "GeoTransform": " ".join(str(v) for v in meta.geotransform),
             "crs_wkt": meta.crs.to_wkt(),
             "nodata": [None if v is None else float(v) for v in meta.nodata],

@@ -19,10 +19,10 @@ def netcdf_bytes(noah_nc_path: str) -> bytes:
     """Raw bytes of a small NetCDF fixture.
 
     Args:
-        noah_nc_path: Path to the noah-precipitation-1979.nc fixture.
+        noah_nc_path: Path to the cf__6v__1d2-2d4__geog__y-asc.nc fixture.
 
     Returns:
-        bytes: Contents of the noah-precipitation-1979.nc fixture.
+        bytes: Contents of the cf__6v__1d2-2d4__geog__y-asc.nc fixture.
     """
     return Path(noah_nc_path).read_bytes()
 
@@ -50,7 +50,7 @@ class TestNetCDFFromBytes:
 
         Args:
             netcdf_bytes: Raw bytes of the NetCDF fixture.
-            noah_nc_path: Path to the noah-precipitation-1979.nc fixture.
+            noah_nc_path: Path to the cf__6v__1d2-2d4__geog__y-asc.nc fixture.
 
         Test scenario:
             ``NetCDF.from_bytes(bytes)`` vs ``NetCDF.read_file(path)`` —

@@ -142,7 +142,7 @@ class TestParseUgridTopology:
             The Noah precipitation file is a regular structured NetCDF
             without mesh_topology — should return [].
         """
-        nc_path = "tests/data/netcdf/noah-precipitation-1979.nc"
+        nc_path = "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
         ds = gdal.OpenEx(str(nc_path), gdal.OF_MULTIDIM_RASTER)
         rg = ds.GetRootGroup()
         topologies = parse_ugrid_topology(rg)

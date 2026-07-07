@@ -28,7 +28,7 @@ from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
-NC_FIXTURE = "tests/data/netcdf/noah-precipitation-1979.nc"
+NC_FIXTURE = "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
 
 
 class TestNetCDFReadFileArchiveForwarding:

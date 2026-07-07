@@ -9,11 +9,11 @@ pytestmark = pytest.mark.core
 
 # Files that are regular (rectilinear) lat/lon grids with 1-D coordinate axes.
 _REGULAR_GRID = {
-    "cf__7v__1d3-2d3-3d1.nc",
-    "cf__12v__1d4-2d5-3d2-4d1.nc",
-    "cf__20v__1d3-3d17.nc",
-    "coards__4v__1d3-3d1.nc",
-    "coards__5v__1d4-4d1.nc",
+    "cf__7v__1d3-2d3-3d1__y-asc.nc",
+    "cf__12v__1d4-2d5-3d2-4d1__y-asc.nc",
+    "cf__20v__1d3-3d17__y-desc.nc",
+    "coards__4v__1d3-3d1__y-desc.nc",
+    "coards__5v__1d4-4d1__y-desc.nc",
 }
 
 

@@ -35,7 +35,7 @@ from osgeo import gdal
 
 gdal.UseExceptions()
 
-PATH = Path(__file__).with_name("era5_cds_beta_t_pressure_levels_jan2022.nc")
+PATH = Path(__file__).with_name("cf__5v__1d4-4d1__geog__y-desc.nc")
 
 NT_OUT = 4  # first 4 timesteps (Jan 1, 2022 from 00:00 to 03:00)
 NL_OUT = 1  # the single 500 hPa level the original carries

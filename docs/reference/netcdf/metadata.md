@@ -47,7 +47,7 @@ from pyramids.netcdf.netcdf import NetCDF
 from pyramids.netcdf.metadata import to_json
 
 # Open the file in MDIM mode
-nc = NetCDF.read_file("tests/data/netcdf/pyramids-netcdf-3d.nc", open_as_multi_dimensional=True)
+nc = NetCDF.read_file("tests/data/netcdf/cf__4v__1d3-3d1__proj__y-desc.nc", open_as_multi_dimensional=True)
 
 # Read everything (groups, arrays, dimensions, attributes)
 md = nc.get_all_metadata()

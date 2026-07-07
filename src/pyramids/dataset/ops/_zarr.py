@@ -66,7 +66,9 @@ def _metadata_dict(ds: Dataset) -> dict[str, Any]:
     # through the WKT `spatial_ref` and record epsg 0 (the geobox convention for
     # "no authority code") so `to_zarr` does not crash on `int(None)` (#706).
     epsg_code = int(ds.epsg) if ds.epsg else 0
-    crs_wkt = ds.crs or sr_from_epsg(epsg_code).ExportToWkt()
+    # For an EPSG-coded dataset, emit the canonical EPSG WKT (derived from the code); a no-EPSG CRS
+    # (e.g. geostationary) carries its own `.crs` WKT so its `spatial_ref` is preserved.
+    crs_wkt = sr_from_epsg(epsg_code).ExportToWkt() if ds.epsg else (ds.crs or "")
     nodata_tuple = ds.no_data_value
     return {
         "spatial_ref": crs_wkt,

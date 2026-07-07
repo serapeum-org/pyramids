@@ -18,12 +18,12 @@ plt = pytest.importorskip("matplotlib.pyplot")
 
 # A known plottable (finite-valued) data variable per gridded sample file.
 _PLOT_VAR = {
-    "cf__7v__1d3-2d3-3d1.nc": "tos",
-    "coards__4v__1d3-3d1.nc": "air",
-    "cf__12v__1d4-2d5-3d2-4d1.nc": "ua",
-    "cf__20v__1d3-3d17.nc": "tcw",
-    "cf__48v__1d17-3d21-4d10.nc": "T",
-    "coards__5v__1d4-4d1.nc": "rhum",
+    "cf__7v__1d3-2d3-3d1__y-asc.nc": "tos",
+    "coards__4v__1d3-3d1__y-desc.nc": "air",
+    "cf__12v__1d4-2d5-3d2-4d1__y-asc.nc": "ua",
+    "cf__20v__1d3-3d17__y-desc.nc": "tcw",
+    "cf__48v__1d17-3d21-4d10__y-asc.nc": "T",
+    "coards__5v__1d4-4d1__y-desc.nc": "rhum",
     "cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc": "salt",
     "none__4v__1d1-2d2-3d1__curv.nc": "Tair",
     "none__17v__1d1-2d5-3d6-4d5__stag-str.nc": "T2",
@@ -79,7 +79,7 @@ def test_plot_with_facet_grid(sample):
 
 def test_plot_histogram(sample):
     """``plot_histogram`` renders a histogram of a variable view."""
-    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1.nc"))
+    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1__y-asc.nc"))
     try:
         assert nc.get_variable("tos").plot_histogram() is not None
     finally:
@@ -89,7 +89,7 @@ def test_plot_histogram(sample):
 
 def test_plot_vector_field(sample):
     """``plot_vector_field`` renders without raising on a variable view."""
-    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1.nc"))
+    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1__y-asc.nc"))
     try:
         assert nc.get_variable("tos").plot_vector_field() is not None
     finally:

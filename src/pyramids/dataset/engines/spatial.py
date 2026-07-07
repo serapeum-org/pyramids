@@ -1872,9 +1872,11 @@ class Spatial(_Engine["Dataset"]):
         if bbox is not None:
             if mask is not None:
                 raise ValueError("crop accepts either `mask` or `bbox`, not both")
-            crs = epsg if epsg is not None else self._ds.epsg
+            # `.epsg` is None for a no-EPSG CRS (e.g. geostationary); fall back to
+            # the WKT so a bbox in the grid's own CRS is still honoured (#706).
+            crs = epsg if epsg is not None else (self._ds.epsg or self._ds.crs)
             west, _, east, _ = bbox
-            crs_geo = crs is not None and sr_from_user_input(crs).IsGeographic()
+            crs_geo = bool(crs) and sr_from_user_input(crs).IsGeographic()
             ds_epsg = self._ds.epsg
             ds_geo = ds_epsg is not None and sr_from_user_input(ds_epsg).IsGeographic()
             if west > east and crs_geo and ds_geo:

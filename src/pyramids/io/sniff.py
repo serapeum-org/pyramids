@@ -110,7 +110,7 @@ def sniff_format(path: str | Path) -> str:
             ```
         - A NetCDF file is detected (HDF5 or classic-CDF magic):
             ```python
-            >>> sniff_format("tests/data/netcdf/noah-precipitation-1979.nc")
+            >>> sniff_format("tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc")
             'nc'
 
             ```
@@ -247,7 +247,7 @@ def load_resource(
         - Force a format with `expected_format` (skips sniffing):
             ```python
             >>> nc = load_resource(
-            ...     "tests/data/netcdf/noah-precipitation-1979.nc",
+            ...     "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc",
             ...     expected_format="nc",
             ... )
             >>> "precipitation" in " ".join(nc.variable_names).lower() or len(nc.variable_names) > 0

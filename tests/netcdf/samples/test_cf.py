@@ -36,7 +36,7 @@ def test_cfinfo_matches_declared_convention(sample_name, sample, caps):
 
 def test_tos_bounds_and_classification(sample):
     """The tos file classifies its data/coordinate/bounds variables and maps bounds to their coordinates."""
-    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1.nc"))
+    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1__y-asc.nc"))
     try:
         cf_info = nc.get_all_metadata().cf
         assert cf_info.classifications["tos"] == "data"
@@ -87,7 +87,7 @@ def test_decode_flags():
 
 def test_validate_cf_returns_list(sample):
     """``validate_cf`` returns a list of messages (warnings/errors) for a CF file without raising."""
-    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1.nc"))
+    nc = NetCDF.read_file(sample("cf__7v__1d3-2d3-3d1__y-asc.nc"))
     try:
         meta = nc.get_all_metadata()
         report = cf.validate_cf(meta.global_attributes, meta.variables, meta.dimensions)

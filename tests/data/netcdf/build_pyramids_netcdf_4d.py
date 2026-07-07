@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 from osgeo import gdal
 
-OUT = Path(__file__).with_name("pyramids-netcdf-4d.nc")
+OUT = Path(__file__).with_name("cf__5v__1d4-4d1__y-asc.nc")
 TIME_VALUES = [0, 6, 12, 18]  # hours
 LEVEL_VALUES = [1000, 850, 500]  # hPa
 LAT_VALUES = np.linspace(40.0, 44.0, 5)  # degrees north
