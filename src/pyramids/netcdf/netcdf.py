@@ -656,6 +656,7 @@ class NetCDF(Dataset):
             "_gdal_md_arr_ref": self._gdal_md_arr_ref,
             "_gdal_rg_ref": self._gdal_rg_ref,
             "_gdal_classic_src_ref": self._gdal_classic_src_ref,
+            "_md_y_flipped": getattr(self, "_md_y_flipped", None),
             "_geostationary_scaled": self._geostationary_scaled,
             "_md_array_dims": self._md_array_dims,
             "_band_dim_name": self._band_dim_name,
