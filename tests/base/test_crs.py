@@ -7,9 +7,43 @@ from osgeo import osr
 from pyproj import CRS
 
 from pyramids.base._errors import CRSError
-from pyramids.base.crs import epsg_from_user_input, sr_from_user_input
+from pyramids.base.crs import (
+    epsg_from_user_input,
+    epsg_from_wkt,
+    get_epsg_from_prj,
+    sr_from_user_input,
+)
 
 pytestmark = pytest.mark.core
+
+
+class TestGetEpsgFromPrjNonNumericAuthority:
+    """A non-numeric root authority code (OGC:CRS84) must not crash the resolver."""
+
+    @staticmethod
+    def _crs84_wkt() -> str:
+        srs = osr.SpatialReference()
+        srs.SetFromUserInput("OGC:CRS84")  # lon/lat WGS 84; code is "CRS84"
+        return srs.ExportToWkt()
+
+    def test_crs84_raises_crserror_not_int_valueerror(self):
+        """CRS84 (code 'CRS84') raises the documented CRSError, never int('CRS84').
+
+        CRS84 has no EPSG code of its own, so the strict resolver treats it as an
+        unresolvable custom CRS — but via the clear CRSError path, not a raw
+        ``invalid literal for int()`` crash from the non-numeric authority code.
+        """
+        wkt = self._crs84_wkt()
+        with pytest.raises(CRSError, match="could not resolve an EPSG"):
+            get_epsg_from_prj(wkt)
+
+    def test_epsg_from_wkt_absorbs_crs84_to_4326(self):
+        """The soft ``epsg_from_wkt`` path yields 4326 for a CRS84 raster.
+
+        This is the path ``Dataset.epsg`` uses, so a WMS/WMTS layer reported as
+        OGC:CRS84 reads back as EPSG:4326 instead of crashing.
+        """
+        assert epsg_from_wkt(self._crs84_wkt()) == 4326
 
 
 class TestEpsgFromUserInput:

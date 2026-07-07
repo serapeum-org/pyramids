@@ -216,6 +216,26 @@ class OGCAPIError(_PyramidsError):
     """
 
 
+class WMSError(_PyramidsError):
+    """A failure talking to an OGC Web Map Service (WMS) or Web Map Tile Service (WMTS).
+
+    Raised by :meth:`pyramids.dataset.Dataset.from_wms` and
+    :meth:`pyramids.dataset.Dataset.from_wmts` (implementation in
+    :mod:`pyramids.dataset._wms`) when the server cannot be opened, the layer
+    cannot be rendered / tiled, or the response is not a raster. WMS/WMTS are the
+    OGC *map* services — they return a server-rendered image, so this is the
+    imagery sibling of the coverage-data :class:`WCSError`.
+
+    The name is kept family-wide (``WMSError`` rather than a separate
+    ``WMTSError``) so both readers share one error, mirroring how
+    :class:`OGCAPIError` covers OGC API – Features and – Coverages together.
+
+    A *missing* WMTS layer (one not advertised by the capabilities document)
+    raises a plain :class:`ValueError` instead, mirroring how the rest of pyramids
+    reports a bad argument as opposed to a service failure.
+    """
+
+
 class GeometryWarning(UserWarning):
     """Pyramids-emitted warning about geometry validity / degeneracy.
 

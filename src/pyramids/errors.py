@@ -40,6 +40,7 @@ from pyramids.base._errors import (
     VectorDriverError,
     WCSError,
     WFSError,
+    WMSError,
 )
 from pyramids.base._errors import _PyramidsError as PyramidsError
 
@@ -62,4 +63,5 @@ __all__ = [
     "VectorDriverError",
     "WCSError",
     "WFSError",
+    "WMSError",
 ]

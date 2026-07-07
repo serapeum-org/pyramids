@@ -356,12 +356,18 @@ def get_epsg_from_prj(prj: str) -> int:
     # a UTM PROJCS) — a non-CRS code that breaks every downstream
     # sr_from_epsg() call. See issue #403.
     code = srs.GetAuthorityCode(None)
-    if code is None:
-        # AutoIdentifyEPSG could not tag the root, but the CRS may still be a
-        # well-known database entry whose WKT simply lacks an AUTHORITY node
-        # (e.g. a UTM PROJCS). Try an exact PROJ-database match before giving
-        # up, so identifiable CRSes resolve to their true CRS code.
-        code = _epsg_from_db_match(srs)
+    if not (code and str(code).isdigit()):
+        # No usable root EPSG code: either absent (AutoIdentifyEPSG could not tag
+        # the root — e.g. a UTM PROJCS whose WKT lacks an AUTHORITY node), or a
+        # *non-numeric* authority code — notably OGC:CRS84 (the lon/lat WGS 84 that
+        # WMS/WMTS layers report), where GetAuthorityCode returns "CRS84". Try an
+        # exact PROJ-database match before giving up. A UTM PROJCS resolves to its
+        # numeric code here; CRS84's best match is CRS84 itself (still non-numeric),
+        # so it is dropped to None below and raises CRSError — the soft
+        # epsg_from_wkt() then supplies its default. The point of this branch is to
+        # never crash on int("CRS84"), not to equate CRS84 with EPSG:4326.
+        match = _epsg_from_db_match(srs)
+        code = match if (match and str(match).isdigit()) else None
     if code is None:
         raise CRSError(
             "get_epsg_from_prj could not resolve an EPSG code from the "

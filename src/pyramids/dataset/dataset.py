@@ -57,6 +57,8 @@ from pyramids.dataset.ops.interpolate import grid_points
 from pyramids.dataset.ops.units import convert_array
 from pyramids.dataset.ops.vectorize import rasterize_features
 from pyramids.dataset._wcs import from_wcs as _from_wcs
+from pyramids.dataset._wms import from_wms as _from_wms
+from pyramids.dataset._wms import from_wmts as _from_wmts
 from pyramids.dataset._ogc_coverages import from_ogc_coverages as _from_ogc_coverages
 from pyramids.feature import FeatureCollection, create_polygon
 
@@ -79,6 +81,10 @@ _COLLABORATOR_ATTRS = (
 # tell "caller didn't pass one — inherit from the source rasters" apart from
 # "caller explicitly passed `None`" (which means "stamp no no-data sentinel").
 _INHERIT_NO_DATA = object()
+
+# Default CRS for the ``bbox`` of the web-service readers (from_wcs / from_wms /
+# from_wmts): lon/lat WGS 84.
+_DEFAULT_CRS = "EPSG:4326"
 
 # Default GTiff creation options for out-of-core allocation
 # (`create_empty` / `empty_like`). TILED keeps windowed writes block-aligned
@@ -2188,7 +2194,7 @@ class Dataset(RasterBase):
         *,
         coverage: str,
         bbox: tuple[float, float, float, float],
-        crs: str = "EPSG:4326",
+        crs: str = _DEFAULT_CRS,
         output_crs: str | None = None,
         resolution: float | tuple[float, float] | None = None,
         version: str | None = None,
@@ -2303,6 +2309,199 @@ class Dataset(RasterBase):
             auth=auth,
             timeout=timeout,
             extra_params=extra_params,
+        )
+
+    @classmethod
+    def from_wms(
+        cls,
+        endpoint: str,
+        *,
+        layers: str | list[str] | tuple[str, ...],
+        bbox: tuple[float, float, float, float],
+        crs: str = _DEFAULT_CRS,
+        size: tuple[int, int] | None = None,
+        resolution: float | tuple[float, float] | None = None,
+        image_format: str = "image/png",
+        version: str = "1.3.0",
+        bands: int = 3,
+        output_crs: str | None = None,
+        output: str | Path | None = None,
+        resample: str = "nearest",
+        auth: tuple[str, str] | None = None,
+        timeout: float = 60.0,
+    ) -> Dataset:
+        """Render a WMS ``GetMap`` window into a :class:`Dataset`.
+
+        Fetches a server-rendered map image for ``bbox`` from an OGC Web Map
+        Service via GDAL's native WMS driver, and returns it as a georeferenced
+        raster. Because WMS renders in the requested ``crs``, the ``bbox`` is the
+        request window directly — no client-side reprojection is needed.
+
+        The result is **rendered imagery** (RGB / RGBA pixels), not data values: a
+        WMS styles the data server-side. Use :meth:`from_wcs` /
+        :meth:`from_ogc_coverages` when you need the underlying coverage values.
+
+        Args:
+            endpoint: The WMS base URL, ending with ``?`` or ``&`` so GDAL can
+                append the ``GetMap`` query (e.g.
+                ``"https://ows.terrestris.de/osm/service?"``). Layer catalogs and
+                auth routing belong in the calling layer, not here.
+            layers: One layer name, or several to composite, as advertised by the
+                service ``GetCapabilities`` (joined with commas for the request).
+            bbox: ``(minx, miny, maxx, maxy)`` in ``crs`` order (lon/lat for the
+                default ``"EPSG:4326"``).
+            crs: CRS of ``bbox`` and of the rendered request. Defaults to
+                ``"EPSG:4326"`` (GDAL handles the WMS 1.3.0 lat/lon axis order).
+            size: Output image size ``(width, height)`` in pixels. Mutually
+                exclusive with ``resolution``; exactly one is required.
+            resolution: Output pixel size in ``crs`` units — a scalar (square) or
+                ``(x_res, y_res)`` pair — divided into the bbox extent to size the
+                image. Mutually exclusive with ``size``.
+            image_format: WMS ``FORMAT`` MIME type. Defaults to ``"image/png"``.
+            version: WMS protocol version. Defaults to ``"1.3.0"``.
+            bands: Number of bands to request (``3`` RGB, ``4`` RGBA). Defaults to
+                ``3``.
+            output_crs: Optional CRS to reproject the result into (any form
+                :meth:`to_crs` accepts). ``None`` keeps ``crs``.
+            output: Optional path to also write the result to as a GeoTIFF.
+            resample: Resampling method for the ``output_crs`` warp. Defaults to
+                ``"nearest"``.
+            auth: Optional ``(username, password)`` for Basic-authed services.
+            timeout: HTTP timeout in seconds. Defaults to ``60.0``.
+
+        Returns:
+            Dataset: The rendered map window.
+
+        Raises:
+            ValueError: ``bbox`` is malformed, ``layers`` is empty, or ``size`` /
+                ``resolution`` was not given exactly once.
+            pyramids.errors.WMSError: The server could not be reached or returned a
+                non-raster body.
+
+        Examples:
+            Render a small OSM window as a 512-px-wide PNG raster:
+
+            ```python
+            >>> ds = Dataset.from_wms(  # doctest: +SKIP
+            ...     "https://ows.terrestris.de/osm/service?",
+            ...     layers="OSM-WMS",
+            ...     bbox=(5.0, 51.0, 6.0, 52.0),
+            ...     size=(512, 512),
+            ... )
+
+            ```
+
+        See Also:
+            - :meth:`from_wmts`: the tiled (WMTS) sibling.
+            - :meth:`from_wcs`: read coverage *data values* instead of imagery.
+        """
+        return _from_wms(
+            cls,
+            endpoint,
+            layers=layers,
+            bbox=bbox,
+            crs=crs,
+            size=size,
+            resolution=resolution,
+            image_format=image_format,
+            version=version,
+            bands=bands,
+            output_crs=output_crs,
+            output=output,
+            resample=resample,
+            auth=auth,
+            timeout=timeout,
+        )
+
+    @classmethod
+    def from_wmts(
+        cls,
+        endpoint: str,
+        *,
+        layer: str,
+        bbox: tuple[float, float, float, float],
+        crs: str = _DEFAULT_CRS,
+        tile_matrix_set: str | None = None,
+        resolution: float | tuple[float, float] | None = None,
+        layer_crs: str | None = None,
+        output_crs: str | None = None,
+        output: str | Path | None = None,
+        resample: str = "nearest",
+        auth: tuple[str, str] | None = None,
+        timeout: float = 60.0,
+    ) -> Dataset:
+        """Crop a WMTS tile-pyramid layer to ``bbox`` into a :class:`Dataset`.
+
+        Opens a Web Map Tile Service layer as a full georeferenced tile pyramid
+        via GDAL's native WMTS driver, then crops ``bbox`` out of it (reprojecting
+        the bbox into the layer's native CRS with ``pyproj``, mirroring
+        :meth:`from_wcs`). The result is **rendered imagery** (RGB / RGBA), not data
+        values.
+
+        Args:
+            endpoint: The WMTS ``GetCapabilities`` URL (e.g.
+                ``"https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/1.0.0/WMTSCapabilities.xml"``).
+            layer: The layer identifier as advertised by the capabilities document.
+                A value the service does not advertise raises :class:`ValueError`
+                (with the available layers listed).
+            bbox: ``(minx, miny, maxx, maxy)`` in ``crs`` order.
+            crs: CRS of ``bbox``. Defaults to ``"EPSG:4326"``.
+            tile_matrix_set: Optional tile-matrix-set id to pin. ``None`` lets GDAL
+                pick the layer's default.
+            resolution: Output pixel size in the layer's native CRS units — GDAL
+                reads from the matching overview level. ``None`` (default) uses the
+                finest level, which can be **very large** for a wide bbox; pass
+                ``resolution`` to coarsen a large area.
+            layer_crs: The layer's CRS, used only when the WMTS layer opens without
+                a resolvable spatial reference (any proj4 / WKT / authority string).
+            output_crs: Optional CRS to reproject the result into. ``None`` keeps
+                the layer's native CRS.
+            output: Optional path to also write the result to as a GeoTIFF.
+            resample: Resampling method for the crop / warp. Defaults to
+                ``"nearest"``.
+            auth: Optional ``(username, password)`` for Basic-authed services.
+            timeout: HTTP timeout in seconds. Defaults to ``60.0``.
+
+        Returns:
+            Dataset: The cropped WMTS window.
+
+        Raises:
+            ValueError: ``bbox`` is malformed, ``layer`` is not advertised, or
+                ``layer_crs`` cannot be interpreted.
+            pyramids.errors.WMSError: The server could not be reached or the tile
+                read failed.
+
+        Examples:
+            Crop a NASA GIBS true-colour window (coarsened to ~0.01° pixels):
+
+            ```python
+            >>> ds = Dataset.from_wmts(  # doctest: +SKIP
+            ...     "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/1.0.0/WMTSCapabilities.xml",
+            ...     layer="MODIS_Terra_CorrectedReflectance_TrueColor",
+            ...     bbox=(5.0, 51.0, 6.0, 52.0),
+            ...     resolution=0.01,
+            ... )
+
+            ```
+
+        See Also:
+            - :meth:`from_wms`: the untiled (WMS ``GetMap``) sibling.
+            - :meth:`from_wcs`: read coverage *data values* instead of imagery.
+        """
+        return _from_wmts(
+            cls,
+            endpoint,
+            layer=layer,
+            bbox=bbox,
+            crs=crs,
+            tile_matrix_set=tile_matrix_set,
+            resolution=resolution,
+            layer_crs=layer_crs,
+            output_crs=output_crs,
+            output=output,
+            resample=resample,
+            auth=auth,
+            timeout=timeout,
         )
 
     @classmethod
