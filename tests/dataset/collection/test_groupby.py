@@ -11,9 +11,25 @@ import numpy as np
 import pytest
 
 from pyramids.dataset import Dataset, DatasetCollection
+from pyramids.dataset.collection import _grouped_reduce
 from tests._marks import requires_dask
 
 pytestmark = pytest.mark.lazy
+
+
+class _ReadCountingArray:
+    """Array-like wrapper counting chunk reads, for read-once assertions."""
+
+    def __init__(self, arr):
+        self._arr = arr
+        self.reads = 0
+        self.shape = arr.shape
+        self.dtype = arr.dtype
+        self.ndim = arr.ndim
+
+    def __getitem__(self, key):
+        self.reads += 1
+        return self._arr[key]
 
 
 @pytest.fixture
@@ -149,26 +165,30 @@ class TestGroupbySinglePass:
         assert np.allclose(result[5], 3.0)
 
     @requires_dask
-    def test_chunk_spanning_groups_single_time_chunk(self):
-        """A single time-axis chunk spanning every group still reduces correctly.
+    def test_chunk_spanning_groups_read_once(self):
+        """A single time chunk spanning every group is fetched exactly once.
 
-        Rechunking the cube to one chunk along time makes one dask chunk hold
-        timesteps from every group -- the read-once-per-shared-chunk case the
-        single ``dask.compute`` in ``_grouped_reduce`` is built for, unlike the
-        one-chunk-per-file layout ``from_files`` produces. Labels [0, 1, 0, 1]
-        interleave, so group 0 = t0, t2 and group 1 = t1, t3.
+        A read-counting array wrapped as one time-axis chunk makes every group's
+        timesteps share one dask chunk. ``_grouped_reduce`` builds one lazy
+        reduction per group and evaluates them in a single ``dask.compute``, so
+        that shared chunk is fetched once regardless of group count — the
+        property a per-label loop of separate computes cannot guarantee (it
+        re-reads the chunk once per group). Also checks per-group correctness;
+        labels [0, 1, 0, 1] interleave, so group 0 = t0, t2 and group 1 = t1, t3.
         """
         import dask.array as da
 
-        from pyramids.dataset.collection import _grouped_reduce
-
         arr = np.arange(4 * 1 * 2 * 2, dtype="float64").reshape(4, 1, 2, 2)
-        data = da.from_array(arr, chunks=(1, 1, 2, 2)).rechunk({0: 4})
+        counter = _ReadCountingArray(arr)
+        data = da.from_array(
+            counter, chunks=(4, 1, 2, 2), meta=np.empty((0, 0, 0, 0), dtype=arr.dtype)
+        )
         assert data.chunks[0] == (4,)  # one chunk spans all four timesteps
-        labels = np.array([0, 1, 0, 1])
-        result = _grouped_reduce(data, labels, [0, 1], "mean", True)
+        counter.reads = 0  # ignore construction-time meta peeks
+        result = _grouped_reduce(data, np.array([0, 1, 0, 1]), [0, 1], "mean", True)
         assert np.allclose(result[0], arr[[0, 2]].mean(axis=0))
         assert np.allclose(result[1], arr[[1, 3]].mean(axis=0))
+        assert counter.reads == 1  # shared chunk fetched once, not once per group
 
 
 class TestGroupbyErrors:
