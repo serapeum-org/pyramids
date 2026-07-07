@@ -1,6 +1,6 @@
 [project]
 name = "pyramids-gis"
-version = "0.40.0"
+version = "0.41.0"
 description = "GIS utility package"
 readme = {file = "README.md", content-type = "text/markdown"}
 authors = [{ name = "Mostafa Farrag", email = "moah.farag@gmail.com" }]
@@ -30,14 +30,28 @@ requires-python = ">= 3.11, <4"
 # Listing pip's PyPI GDAL would force a from-source build on Windows
 # (no wheel exists) and break most end-user pip installs.
 dependencies = [
+    # Inverse of the win_arm64 vendoring markers below: the vendored
+    # geopandas/pyogrio still import `packaging` (both) and `certifi`
+    # (pyogrio) at runtime, and with the real distributions skipped
+    # nothing else in the closure is guaranteed to install them — pip
+    # was satisfied while `import geopandas` died on a clean install.
+    # Drop these two lines together with the markers.
+    "certifi ; sys_platform == 'win32' and platform_machine == 'ARM64'",
+    "packaging ; sys_platform == 'win32' and platform_machine == 'ARM64'",
     "cftime >=1.6.4",
-    "geopandas >=1.0.0",
+    # win_arm64: shapely and pyogrio (geopandas' hard dep) ship no ARM64
+    # wheels on PyPI, so requiring them would make the platform
+    # uninstallable. The win_arm64 wheel vendors the whole vector stack
+    # (shapely + geopandas + pyogrio) under pyramids/_vendor/ instead —
+    # see ci/install-and-vendor-osgeo.py. Every other platform resolves
+    # these normally; drop the markers when upstream ships ARM64 wheels.
+    "geopandas >=1.0.0 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
     "hpc-utils >=0.1.5",
     "numpy >=2.0.0",
     "pandas >=2.0.0",
     "pyproj >=3.7.0",
     "PyYAML >=6.0.0",
-    "Shapely >=2.1.0",
+    "Shapely >=2.1.0 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
     "scipy >=1.10.0",
 ]
 
@@ -126,6 +140,15 @@ pyramids = [
     "base/data/*.yaml",
     "_vendor/osgeo/**/*",
     "_vendor/osgeo_utils/**/*",
+    # win_arm64 vector stack (empty matches on every other platform): the
+    # vendored packages' .py files ship via package discovery, but the
+    # compiled extensions (shapely/lib.pyd, pyogrio/_io.pyd, ...) are
+    # data files and need explicit globs. Their GEOS/GDAL DLLs are NOT
+    # vendored here — the wheel's delvewheel pass bundles one shared
+    # copy into pyramids_gis.libs and rewrites the import tables.
+    "_vendor/shapely/**/*",
+    "_vendor/geopandas/**/*",
+    "_vendor/pyogrio/**/*",
     "_data/gdal_data/*",
     "_data/proj_data/*",
     "_data/gdalplugins/*",

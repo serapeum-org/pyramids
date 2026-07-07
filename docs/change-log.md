@@ -1,6 +1,19 @@
 ﻿# Change log
 
 
+## 0.41.0 (2026-07-06)
+
+### Feat
+
+- **wheels**: publish win_arm64 wheels with a vendored vector stack (#695)
+- **collection**: add a time axis and label animation frames by it (#694)
+- **crop**: support antimeridian-crossing (west>east) bbox (#692)
+- **grib**: add grib_to_cog to convert a GRIB message to a COG (#690)
+
+### Fix
+
+- **ci**: verify-alpine test paths broken by the test-suite reorg (#689)
+
 ## 0.40.0 (2026-07-05)
 
 ### Fix
