@@ -75,10 +75,10 @@ SAMPLES = {
         "convention": "none", "gridded": True, "curvilinear": True, "string_vars": True,
         "multivar": True,
     },
-    "none__111v__1d96-2d13-3d2__str__y-desc.nc": {
+    "none__111v__1d96-2d13-3d2__str.nc": {
         "convention": "none", "string_vars": True, "multivar": True, "labeled": True,
     },
-    "none__11v__1d11__y-desc.nc": {
+    "none__11v__1d11.nc": {
         "convention": "none", "time": True, "multivar": True,
     },
     "none__35v__1d35__groups-nc4.nc": {
@@ -100,6 +100,10 @@ def files_with(*flags):
 def parse_structural_name(filename):
     """Decode a structural filename into ``(convention, nvars, {rank: count}, [features])``.
 
+    ``features`` are the structural modifier tokens (``curv``, ``stag``, ``str``, ``nc4``, ``geos``,
+    ``scaleoffset``, …). The trailing Y-orientation tag (``y-asc`` / ``y-desc``) is not a structural
+    feature and is excluded.
+
     Example: ``cf__12v__1d4-2d5-3d2-4d1__y-asc.nc`` ->
     ``("cf", 12, {1: 4, 2: 5, 3: 2, 4: 1}, [])``.
     """
@@ -110,7 +114,11 @@ def parse_structural_name(filename):
     for token in parts[2].split("-"):
         rank, count = token.split("d")
         histogram[int(rank)] = int(count)
-    features = parts[3].split("-") if len(parts) > 3 else []
+    features = []
+    for segment in parts[3:]:
+        if segment in ("y-asc", "y-desc"):
+            continue  # Y-orientation tag, not a structural feature
+        features.extend(segment.split("-"))
     return convention, nvars, histogram, features
 
 
