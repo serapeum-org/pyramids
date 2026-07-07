@@ -129,3 +129,28 @@ class TestFastPathFallbacks:
         var = NetCDF.read_file(GOES).get_variable("CMI")
         var._md_y_flipped = None
         assert var._materialize_via_classic_driver() is None
+
+
+PACKED = [
+    (GOES, "CMI"),
+    ("tests/data/netcdf/coards__4v__1d2-2d2__scaleoffset__y-asc.nc", "z"),
+]
+
+
+class TestPackedFastPathUnpack:
+    """The fast classic-driver path must unpack (scale/offset) identically to the slow multidim view."""
+
+    @pytest.mark.parametrize("path, variable", PACKED, ids=["geos-CMI", "coards-z"])
+    def test_unpack_identical_fast_vs_view(self, path, variable):
+        """read_array(unpack=True) matches between the fast materialize and the view for a packed var.
+
+        Test scenario:
+            A `scale_factor`/`add_offset`-packed variable read via the slow view and via the
+            classic-driver fast path (which mirrors scale/offset in `_reconcile_band_metadata`) must
+            yield identical unpacked arrays — otherwise unpacking would silently drift between paths.
+        """
+        slow = NetCDF.read_file(path).get_variable(variable).read_array(unpack=True)
+        fast_var = NetCDF.read_file(path).get_variable(variable)
+        fast_var._materialize_md_view()
+        fast = fast_var.read_array(unpack=True)
+        np.testing.assert_allclose(fast, slow, equal_nan=True)
