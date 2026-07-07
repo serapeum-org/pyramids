@@ -982,7 +982,7 @@ class Bands(_Engine["Dataset"]):
         coords = [(x_min, y_max), (x_min, y_min), (x_max, y_min), (x_max, y_max)]
         poly = create_polygon(coords)
         gdf = gpd.GeoDataFrame(geometry=[poly])
-        gdf.set_crs(epsg=self._ds.epsg, inplace=True)
+        gdf.set_crs(self._ds.epsg or self._ds.crs, inplace=True)
         return gdf
 
     def _set_no_data_value_backend(self, band: int, no_data_value: Any) -> None:

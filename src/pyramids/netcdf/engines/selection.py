@@ -1041,7 +1041,7 @@ class Selection(_Engine["NetCDF"]):
                 var_name,
                 arr,
                 var.geotransform,
-                var.epsg,
+                var.epsg or var.crs,
                 ndv,
                 band_names,
                 values_map,

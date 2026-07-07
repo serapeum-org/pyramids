@@ -1423,7 +1423,7 @@ class Spatial(_Engine["Dataset"]):
         # reproject the raster to match the projection of alignment_src
         reprojected_raster_b: Dataset = self._ds
         if self._ds.epsg != src.epsg:
-            reprojected_raster_b = self.to_crs(src.epsg)  # type: ignore[assignment]
+            reprojected_raster_b = self.to_crs(src.epsg or src.crs)  # type: ignore[assignment]
         dst_obj = self._ds.__class__._build_dataset(
             src.columns,
             src.rows,

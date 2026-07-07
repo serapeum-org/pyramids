@@ -1210,7 +1210,7 @@ class Dataset(RasterBase):
         coords = [(x_min, y_max), (x_min, y_min), (x_max, y_min), (x_max, y_max)]
         poly = create_polygon(coords)
         gdf = gpd.GeoDataFrame(geometry=[poly])
-        gdf.set_crs(epsg=self.epsg, inplace=True)
+        gdf.set_crs(self.epsg or self.crs, inplace=True)
         return gdf
 
     def _get_band_names(self):
@@ -1614,7 +1614,7 @@ class Dataset(RasterBase):
         result = self.create_from_array(
             result_array,
             geo=self.geotransform,
-            epsg=self.epsg,
+            epsg=self.epsg or self.crs,
             no_data_value=list(no_data),
         )
         result.band_units = new_units

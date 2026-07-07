@@ -1235,7 +1235,7 @@ class Analysis(_Engine["Dataset"]):
         new_dataset = Dataset.create_from_array(
             arr,
             geo=self._ds.geotransform,
-            epsg=self._ds.epsg,
+            epsg=self._ds.epsg or self._ds.crs,
             no_data_value=0,
         )
         # The mask is always single-band (the one extracted band flagged as 2 / nodata),

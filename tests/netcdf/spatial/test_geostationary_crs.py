@@ -19,7 +19,7 @@ import pytest
 from osgeo import gdal
 
 from pyramids.netcdf import NetCDF
-from tests._marks import requires_lazy as requires_zarr
+from tests._marks import requires_lazy
 
 pytestmark = pytest.mark.core
 
@@ -37,19 +37,26 @@ def _attr_f64(arr, name, value):
     arr.CreateAttribute(name, [], dt).Write(float(value))
 
 
-def _write_geostationary_mdim(path: str, ny: int = 120, nx: int = 150) -> None:
+def _write_geostationary_mdim(path: str, ny: int = 120, nx: int = 150, n_time: int | None = None) -> None:
     """Write a minimal GOES-style geostationary NetCDF via the GDAL MDIM API.
 
     The ``x`` / ``y`` coordinates are packed ``int16`` scan angles in radians
     (``scale_factor`` / ``add_offset``); ``goes_imager_projection`` carries the
     CF ``grid_mapping_name = "geostationary"`` parameters; ``CMI_C02`` is the
-    data variable that references them.
+    data variable that references them. When ``n_time`` is set, a leading
+    ``time`` dimension is added so the variable has a non-spatial axis to reduce.
     """
     ds = gdal.GetDriverByName("netCDF").CreateMultiDimensional(path)
     rg = ds.GetRootGroup()
     dy = rg.CreateDimension("y", "", "", ny)
     dx = rg.CreateDimension("x", "", "", nx)
     i16 = gdal.ExtendedDataType.Create(gdal.GDT_Int16)
+    if n_time is not None:
+        dt = rg.CreateDimension("time", "", "", n_time)
+        tv = rg.CreateMDArray("time", [dt], gdal.ExtendedDataType.Create(gdal.GDT_Int32))
+        tv.Write(np.arange(n_time, dtype=np.int32))
+        _attr_str(tv, "standard_name", "time")
+        _attr_str(tv, "units", "days since 2024-01-01")
 
     x = rg.CreateMDArray("x", [dx], i16)
     x.Write(np.arange(nx, dtype=np.int16))
@@ -78,8 +85,10 @@ def _write_geostationary_mdim(path: str, ny: int = 120, nx: int = 150) -> None:
     _attr_f64(gp, "longitude_of_projection_origin", _GEOS_LON_0)
     _attr_str(gp, "sweep_angle_axis", "x")
 
-    cmi = rg.CreateMDArray("CMI_C02", [dy, dx], gdal.ExtendedDataType.Create(gdal.GDT_UInt16))
-    cmi.Write(np.zeros((ny, nx), dtype=np.uint16))
+    cmi_dims = [dt, dy, dx] if n_time is not None else [dy, dx]
+    cmi_shape = (n_time, ny, nx) if n_time is not None else (ny, nx)
+    cmi = rg.CreateMDArray("CMI_C02", cmi_dims, gdal.ExtendedDataType.Create(gdal.GDT_UInt16))
+    cmi.Write(np.zeros(cmi_shape, dtype=np.uint16))
     _attr_str(cmi, "grid_mapping", "goes_imager_projection")
     _attr_str(cmi, "coordinates", "y x")
     _attr_f64(cmi, "scale_factor", 0.00031746)
@@ -140,15 +149,39 @@ class TestGeostationaryContainerOps:
         assert out.epsg is None
         assert "Geostationary_Satellite" in out.crs
 
-    @requires_zarr
-    def test_to_zarr_writes_geostationary_variable(self, tmp_path):
-        """`to_zarr` writes a geostationary variable without an `int(None)` crash."""
+    def test_container_reduce_preserves_geostationary_crs(self, tmp_path):
+        """`container.reduce` over a non-spatial dim keeps the geostationary CRS."""
+        path = str(tmp_path / "geos.nc")
+        _write_geostationary_mdim(path, n_time=3)
+        reduced = NetCDF.read_file(path).reduce(dim="time", how="mean")
+        out = reduced.get_variable("CMI_C02")
+        assert out.epsg is None
+        assert "Geostationary_Satellite" in out.crs
+
+    def test_polygonize_preserves_geostationary_crs(self, tmp_path):
+        """`to_polygons` builds its scratch raster without an epsg-None crash."""
+        path = str(tmp_path / "geos.nc")
+        _write_geostationary_mdim(path)
+        var = NetCDF.read_file(path).get_variable("CMI_C02")
+        gdf = var.to_polygons()
+        assert len(gdf) >= 0
+
+    @requires_lazy
+    def test_to_zarr_writes_geostationary_wkt(self, tmp_path):
+        """`to_zarr` writes without an `int(None)` crash and stores the geostationary WKT."""
+        import glob
+
         path = str(tmp_path / "geos.nc")
         _write_geostationary_mdim(path)
         var = NetCDF.read_file(path).get_variable("CMI_C02")
         store = str(tmp_path / "geos.zarr")
         var.to_zarr(store)
         assert os.path.exists(store)
+        # the geostationary CRS is preserved in the store's `spatial_ref` metadata
+        meta = glob.glob(os.path.join(store, "**", "*.json"), recursive=True) + glob.glob(
+            os.path.join(store, "**", ".z*"), recursive=True
+        )
+        assert any("Geostationary_Satellite" in open(f, encoding="utf-8").read() for f in meta)
 
 
 class TestNonGeostationaryEpsgUnaffected:
