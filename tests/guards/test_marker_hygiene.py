@@ -37,7 +37,6 @@ _OPTIONAL_DEPS = {
     "dask",
     "dask_geopandas",
     "distributed",
-    "flox",
     "zarr",
     "xarray",
     "kerchunk",

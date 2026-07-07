@@ -1,7 +1,7 @@
 """Tests for helpers in :mod:`pyramids.base._utils`.
 
 Currently covers :func:`lazy_extra_hint`, the single source of the optional
-``[lazy]`` extra install hint reused by the zarr / dask / flox call sites.
+``[lazy]`` extra install hint reused by the zarr / dask call sites.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ class TestLazyExtraHint:
             The composition inserts exactly one space between the prefix's
             trailing period and "Install", never a double space.
         """
-        message = lazy_extra_hint("Needs the optional 'flox' dependency.")
+        message = lazy_extra_hint("Needs the optional 'dask' dependency.")
         assert (
             ". Install with one of:" in message
         ), f"unexpected spacing before body: {message!r}"

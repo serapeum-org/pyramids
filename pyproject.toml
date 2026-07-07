@@ -63,7 +63,6 @@ lazy = [
     "zarr>=3",
     "fsspec>=2024.1.0",
     "s3fs>=2024.1.0",
-    "flox>=0.9.0",
     # kerchunk + h5py for the NetCDF/HDF5 lazy (Zarr-reference) path.
     "kerchunk>=0.2.10",
     "h5py>=3.8.0",
@@ -260,7 +259,7 @@ markers = [
     # auto-skips when the extra's headline dep isn't importable — see
     # ``tests/_marks.py`` + ``pytest_collection_modifyitems``. ``viz`` is
     # spelled ``plot`` above; don't register a duplicate.
-    "lazy: tests requiring the [lazy] extra (dask, distributed, zarr, fsspec, flox)",
+    "lazy: tests requiring the [lazy] extra (dask, distributed, zarr, fsspec)",
     "xarray: tests requiring xarray (a peer interop dep; `pip install xarray`)",
     "netcdf_lazy: tests requiring kerchunk + h5py (now part of the [lazy] extra)",
     "parquet: tests requiring the [parquet] extra (pyarrow)",
@@ -344,7 +343,6 @@ distributed = ">=2024.1.0"
 zarr = ">=3"
 fsspec = ">=2024.1.0"
 s3fs = ">=2024.1.0"
-flox = ">=0.9.0"
 # kerchunk (+ h5py) for the NetCDF/HDF5 lazy Zarr-reference path. HDF5-linking
 # libs must come from conda-forge to share the one HDF5 binary libgdal-netcdf
 # links against; PyPI h5py wheels bundle their own copy, which DLL-shadows on

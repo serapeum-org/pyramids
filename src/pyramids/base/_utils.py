@@ -638,20 +638,12 @@ def require_cleopatra(msg: str | None = None) -> None:
     import_cleopatra(effective)
 
 
-def import_flox(message: str):
-    """Import flox."""
-    try:
-        import flox  # noqa
-    except ImportError:
-        raise OptionalPackageDoesNotExist(message)
-
-
 def lazy_extra_hint(prefix: str) -> str:
     """Compose an install hint for the optional ``[lazy]`` extra.
 
     The shared PyPI / conda-forge install commands for the ``[lazy]`` extra
-    (dask / zarr / fsspec / flox) are defined once here so the zarr / dask /
-    flox call sites don't each copy them; only the lead sentence varies.
+    (dask / zarr / fsspec) are defined once here so the zarr / dask call
+    sites don't each copy them; only the lead sentence varies.
 
     Args:
         prefix: The domain-specific lead sentence, ending in a period (e.g.
@@ -727,11 +719,17 @@ def import_stac_asset(message: str):
 
 
 def import_dask(message: str):
-    """Import dask."""
+    """Import and return the ``dask`` module, or raise the ``[lazy]`` extra hint.
+
+    Returned so callers can use ``dask`` without a bare inline ``import`` of
+    their own (dask is optional, so it cannot be a top-level import). Callers
+    that only need the guard may ignore the return value.
+    """
     try:
-        import dask  # noqa
+        import dask
     except ImportError:
         raise OptionalPackageDoesNotExist(message)
+    return dask
 
 
 def import_kerchunk(message: str):

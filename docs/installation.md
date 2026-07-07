@@ -27,7 +27,7 @@ the macOS and Windows x64 wheels). No `gdal-config`, no
 
 - `viz`: `cleopatra[tiles]` (plotting + basemap tiles via mercantile /
   xyzservices / Pillow)
-- `lazy`: dask / distributed / zarr / fsspec / flox / kerchunk / h5py
+- `lazy`: dask / distributed / zarr / fsspec / kerchunk / h5py
   (powers `Dataset.read_array(chunks=…)`, `DatasetCollection.data`,
   `DatasetCollection.to_zarr`, and `NetCDF.to_kerchunk` /
   `combine_kerchunk` HDF5/NetCDF reference manifests)

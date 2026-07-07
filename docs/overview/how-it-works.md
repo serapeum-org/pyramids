@@ -127,7 +127,7 @@ flowchart LR
    lazy `(T, B, R, C)` dask cube. Per-timestep ops (`crop`, `to_crs`,
    `align`, `apply`) loop the per-step gdal handles; time-axis reductions
    (`mean / sum / std / groupby`) run through `_reduce_ops.resolve_dask_op`
-   with optional `flox` acceleration.
+   as a single-pass local dask reduction.
 4. Results are exported via `to_file` (GeoTIFF / ASCII), `to_cog` (COG),
    `to_zarr` (chunked + metadata), `to_kerchunk` (NetCDF/HDF5 sidecar),
    `merge` (mosaic), or vectorized into `FeatureCollection`.

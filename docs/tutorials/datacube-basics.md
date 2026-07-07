@@ -46,6 +46,6 @@ monthly_mean = dc.groupby(months).mean(skipna=True)   # {label: ndarray}
 ## Next steps
 
 - [Lazy collections](lazy/lazy-collection.md) — construction (`from_files`, `from_archive`,
-  `from_stac`), reductions, `groupby` via flox, and serialization (Zarr / NetCDF / kerchunk).
+  `from_stac`), reductions, `groupby`, and serialization (Zarr / NetCDF / kerchunk).
 - [DatasetCollection notebook](../examples/dataset/dataset_collection.ipynb) — runnable, end-to-end.
 - [DatasetCollection reference](../reference/dataset/collection.md) — full API.
