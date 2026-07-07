@@ -12,11 +12,14 @@ minimal GOES-style granule (radian ``x`` / ``y`` scan angles + a
 and no network.
 """
 
+import os
+
 import numpy as np
 import pytest
 from osgeo import gdal
 
 from pyramids.netcdf import NetCDF
+from tests._marks import requires_lazy as requires_zarr
 
 pytestmark = pytest.mark.core
 
@@ -136,6 +139,16 @@ class TestGeostationaryContainerOps:
         out = NetCDF.read_file(path).resample(cell_size=4000.0).get_variable("CMI_C02")
         assert out.epsg is None
         assert "Geostationary_Satellite" in out.crs
+
+    @requires_zarr
+    def test_to_zarr_writes_geostationary_variable(self, tmp_path):
+        """`to_zarr` writes a geostationary variable without an `int(None)` crash."""
+        path = str(tmp_path / "geos.nc")
+        _write_geostationary_mdim(path)
+        var = NetCDF.read_file(path).get_variable("CMI_C02")
+        store = str(tmp_path / "geos.zarr")
+        var.to_zarr(store)
+        assert os.path.exists(store)
 
 
 class TestNonGeostationaryEpsgUnaffected:
