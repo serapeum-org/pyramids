@@ -4,11 +4,11 @@ Implementation behind :meth:`pyramids.dataset.Dataset.from_wcs`. It fetches a
 coverage subset from an OGC WCS server and returns a single-raster
 :class:`~pyramids.dataset.Dataset`.
 
-The transport is **GDAL's native WCS driver** — no ``owslib``, no ``rasterio``.
-GDAL performs ``GetCapabilities`` / ``DescribeCoverage``, negotiates the WCS
-version, and issues the version-correct ``GetCoverage`` (the ``1.0.0`` ``bbox`` +
-``resx/resy`` form versus the ``2.0.x`` ``subsets`` + ``scaling`` form). pyramids
-adds the two things the driver does *not* handle on its own:
+The default transport is **GDAL's native WCS driver** — no ``owslib``, no
+``rasterio``. GDAL performs ``GetCapabilities`` / ``DescribeCoverage``, negotiates
+the WCS version, and issues the version-correct ``GetCoverage`` (the ``1.0.0``
+``bbox`` + ``resx/resy`` form versus the ``2.0.x`` ``subsets`` + ``scaling``
+form). pyramids adds the two things the driver does *not* handle on its own:
 
 * **A CRS shim.** Some servers (e.g. ISRIC SoilGrids) advertise a coverage CRS
   under an authority code that the local PROJ database does not know
@@ -21,6 +21,11 @@ adds the two things the driver does *not* handle on its own:
   dependency) and hand GDAL a native-CRS window. This is what makes subsetting
   land on the right pixels even when the server only honours its native CRS.
 
+For ``GetCoverage``-only "shim" servers that ``502``/``400`` on capabilities /
+describe, ``from_wcs(..., direct=True)`` bypasses GDAL's driver entirely and
+issues a KVP ``GetCoverage`` built here (:func:`_getcoverage_url`), reading the
+returned bytes into a raster (:func:`_open_getcoverage_bytes`).
+
 Scope boundary (see ``docs/SCOPE.md``): this reader takes only generic OGC
 inputs. Provider specifics — SoilGrids' ``map=/map/<property>.map`` URL scheme,
 coverage-name catalogs, the ``EPSG:152160 == IGH`` fact, agency auth endpoints —
@@ -30,6 +35,7 @@ passes ``coverage_crs`` / ``auth`` as needed.
 
 from __future__ import annotations
 
+import re
 import urllib.parse
 import urllib.request
 import uuid
@@ -48,6 +54,11 @@ from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_ne
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WCSError
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
+
+if TYPE_CHECKING:
+    from osgeo import osr
+
+    from pyramids.dataset.dataset import Dataset
 
 
 def _http_get(url: str, auth: tuple[str, str] | None, timeout: float, what: str) -> bytes:
@@ -68,11 +79,6 @@ def _http_get(url: str, auth: tuple[str, str] | None, timeout: float, what: str)
     except OSError as exc:
         # urllib.error.URLError / HTTPError both derive from OSError.
         raise WCSError(f"WCS {what} request failed for {url!r}: {exc}") from exc
-
-if TYPE_CHECKING:
-    from osgeo import osr
-
-    from pyramids.dataset.dataset import Dataset
 
 
 def _resolve_native_srs(
@@ -232,7 +238,8 @@ def _default_subset_axes(crs: str) -> tuple[str, str]:
     try:
         is_geographic = _PyprojCRS.from_user_input(crs).is_geographic
     except (_PyprojCRSError, ValueError, TypeError):
-        is_geographic = str(crs).strip().upper().endswith(":4326")
+        text = str(crs).strip().upper()
+        is_geographic = text.endswith(":4326") or "CRS84" in text
     return ("Long", "Lat") if is_geographic else ("X", "Y")
 
 
@@ -262,6 +269,11 @@ def _getcoverage_url(
     """
     minx, miny, maxx, maxy = bbox
     ver = version or "2.0.0"
+    if re.fullmatch(r"\d+\.\d+\.\d+", ver) is None:
+        raise ValueError(
+            f"direct GetCoverage needs a full 'x.y.z' WCS version (e.g. '2.0.0' or "
+            f"'1.0.0'); got {ver!r}."
+        )
     params: list[tuple[str, str]] = [
         ("SERVICE", "WCS"),
         ("VERSION", ver),
@@ -297,12 +309,22 @@ def _getcoverage_url(
     if wcs_format:
         params.append(("FORMAT", wcs_format))
     if extra_params:
-        params += list(extra_params.items())
-    # Keep ',():/' literal so CRS shorthand / URIs (EPSG:4326,
-    # http://www.opengis.net/def/crs/…) and SUBSET syntax survive intact — quirky
-    # shim servers often string-match these rather than percent-decode.
+        builtin_keys = {key.upper() for key, _ in params}
+        for key, val in extra_params.items():
+            if key.upper() in builtin_keys:
+                raise ValueError(
+                    f"extra_params key {key!r} collides with a built-in GetCoverage "
+                    "parameter; use the dedicated from_wcs argument instead."
+                )
+            params.append((key, val))
+    # Encode both key and value so a stray '&'/'=' in a caller-supplied key cannot
+    # split the query. Keep ',():/' literal in values so CRS shorthand / URIs
+    # (EPSG:4326, http://www.opengis.net/def/crs/…) and SUBSET syntax survive intact
+    # — quirky shim servers often string-match these rather than percent-decode.
     query = "&".join(
-        f"{key}={urllib.parse.quote(str(val), safe=',():/')}" for key, val in params
+        f"{urllib.parse.quote(str(key), safe='')}="
+        f"{urllib.parse.quote(str(val), safe=',():/')}"
+        for key, val in params
     )
     sep = "&" if "?" in endpoint else "?"
     return f"{endpoint}{sep}{query}"
@@ -407,7 +429,12 @@ def _finalize(
     """
     if output_crs is not None:
         target: str | None = output_crs
-    elif res and native_wkt is not None:
+    elif res:
+        if native_wkt is None:
+            raise WCSError(
+                "resolution resample requested but the returned coverage has no CRS "
+                "to resample within; pass coverage_crs=... or output_crs=..."
+            )
         target = native_wkt
     else:
         target = None
