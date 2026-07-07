@@ -33,8 +33,9 @@ class TestGetEpsgFromPrjNonNumericAuthority:
         unresolvable custom CRS — but via the clear CRSError path, not a raw
         ``invalid literal for int()`` crash from the non-numeric authority code.
         """
+        wkt = self._crs84_wkt()
         with pytest.raises(CRSError, match="could not resolve an EPSG"):
-            get_epsg_from_prj(self._crs84_wkt())
+            get_epsg_from_prj(wkt)
 
     def test_epsg_from_wkt_absorbs_crs84_to_4326(self):
         """The soft ``epsg_from_wkt`` path yields 4326 for a CRS84 raster.

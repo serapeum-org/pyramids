@@ -285,23 +285,24 @@ def from_wms(
     *,
     layers: str | list[str] | tuple[str, ...],
     bbox: tuple[float, float, float, float],
-    crs: str = "EPSG:4326",
-    size: tuple[int, int] | None = None,
-    resolution: float | tuple[float, float] | None = None,
-    image_format: str = "image/png",
-    version: str = "1.3.0",
-    bands: int = 3,
-    output_crs: str | None = None,
-    output: str | Path | None = None,
-    resample: str = "nearest",
-    auth: tuple[str, str] | None = None,
-    timeout: float = 60.0,
+    crs: str,
+    size: tuple[int, int] | None,
+    resolution: float | tuple[float, float] | None,
+    image_format: str,
+    version: str,
+    bands: int,
+    output_crs: str | None,
+    output: str | Path | None,
+    resample: str,
+    auth: tuple[str, str] | None,
+    timeout: float,
 ) -> "Dataset":
     """Render a WMS ``GetMap`` window and return a :class:`Dataset`.
 
     Private implementation; the public API is
-    :meth:`pyramids.dataset.Dataset.from_wms`, which forwards here and documents the
-    parameters.
+    :meth:`pyramids.dataset.Dataset.from_wms`, which owns the argument defaults and
+    forwards resolved values here (so they are not restated on this signature) —
+    see that method for the full parameter documentation.
 
     Raises:
         ValueError: ``bbox`` is malformed, ``layers`` is empty, or ``size`` /
@@ -342,15 +343,15 @@ def from_wmts(
     *,
     layer: str,
     bbox: tuple[float, float, float, float],
-    crs: str = "EPSG:4326",
-    tile_matrix_set: str | None = None,
-    resolution: float | tuple[float, float] | None = None,
-    layer_crs: str | None = None,
-    output_crs: str | None = None,
-    output: str | Path | None = None,
-    resample: str = "nearest",
-    auth: tuple[str, str] | None = None,
-    timeout: float = 60.0,
+    crs: str,
+    tile_matrix_set: str | None,
+    resolution: float | tuple[float, float] | None,
+    layer_crs: str | None,
+    output_crs: str | None,
+    output: str | Path | None,
+    resample: str,
+    auth: tuple[str, str] | None,
+    timeout: float,
 ) -> "Dataset":
     """Crop a WMTS layer to ``bbox`` and return a :class:`Dataset`.
 

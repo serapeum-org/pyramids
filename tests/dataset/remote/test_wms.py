@@ -106,7 +106,7 @@ class TestCrsElementTag:
 
     def test_descriptor_uses_srs_below_1_3_0(self):
         xml = _wms._wms_descriptor(
-            "http://x?", "L", "EPSG:4326", "image/png", "1.1.1", BBOX, (10, 10), 3,
+            "https://x?", "L", "EPSG:4326", "image/png", "1.1.1", BBOX, (10, 10), 3,
         )
         assert "<SRS>EPSG:4326</SRS>" in xml and "<CRS>" not in xml
 
@@ -118,7 +118,7 @@ class TestCrsElementTag:
         """
         for version in ("1.0.0", "1.1.1", "1.3.0"):
             xml = _wms._wms_descriptor(
-                "http://example.invalid/wms?", "L", "EPSG:4326", "image/png",
+                "https://example.invalid/wms?", "L", "EPSG:4326", "image/png",
                 version, BBOX, (16, 16), 3,
             )
             src = _wms.gdal.Open(xml)
@@ -127,12 +127,12 @@ class TestCrsElementTag:
 
 class TestWmtsConnection:
     def test_layer_only(self):
-        conn = _wms._wmts_connection("http://c.xml", "TC", None)
-        assert conn == "WMTS:http://c.xml,layer=TC"
+        conn = _wms._wmts_connection("https://c.xml", "TC", None)
+        assert conn == "WMTS:https://c.xml,layer=TC"
 
     def test_with_tile_matrix_set(self):
-        conn = _wms._wmts_connection("http://c.xml", "TC", "GMC")
-        assert conn == "WMTS:http://c.xml,layer=TC,tilematrixset=GMC"
+        conn = _wms._wmts_connection("https://c.xml", "TC", "GMC")
+        assert conn == "WMTS:https://c.xml,layer=TC,tilematrixset=GMC"
 
 
 class TestFromWmsGuards:
@@ -201,13 +201,13 @@ class TestAvailableWmtsLayers:
             @staticmethod
             def GetMetadata(_key):
                 return {
-                    "SUBDATASET_1_NAME": "WMTS:http://x,layer=B",
-                    "SUBDATASET_2_NAME": "WMTS:http://x,layer=A,tilematrixset=t",
+                    "SUBDATASET_1_NAME": "WMTS:https://x,layer=B",
+                    "SUBDATASET_2_NAME": "WMTS:https://x,layer=A,tilematrixset=t",
                     "SUBDATASET_1_DESC": "ignored, not a _NAME",
                 }
 
         monkeypatch.setattr(_wms.gdal, "Open", lambda _c: _Caps())
-        assert _wms._available_wmts_layers("http://x") == ["A", "B"]
+        assert _wms._available_wmts_layers("https://x") == ["A", "B"]
 
     def test_returns_empty_when_open_fails(self, monkeypatch):
         """A capabilities open failure yields [] (never masks the real error)."""
@@ -215,7 +215,7 @@ class TestAvailableWmtsLayers:
             raise RuntimeError("offline")
 
         monkeypatch.setattr(_wms.gdal, "Open", boom)
-        assert _wms._available_wmts_layers("http://x") == []
+        assert _wms._available_wmts_layers("https://x") == []
 
 
 @pytest.mark.slow

@@ -82,6 +82,10 @@ _COLLABORATOR_ATTRS = (
 # "caller explicitly passed `None`" (which means "stamp no no-data sentinel").
 _INHERIT_NO_DATA = object()
 
+# Default CRS for the ``bbox`` of the web-service readers (from_wcs / from_wms /
+# from_wmts): lon/lat WGS 84.
+_DEFAULT_CRS = "EPSG:4326"
+
 # Default GTiff creation options for out-of-core allocation
 # (`create_empty` / `empty_like`). TILED keeps windowed writes block-aligned
 # so a `write_array(window=)` does not amplify into a full-row rewrite;
@@ -2190,7 +2194,7 @@ class Dataset(RasterBase):
         *,
         coverage: str,
         bbox: tuple[float, float, float, float],
-        crs: str = "EPSG:4326",
+        crs: str = _DEFAULT_CRS,
         output_crs: str | None = None,
         resolution: float | tuple[float, float] | None = None,
         version: str | None = None,
@@ -2314,7 +2318,7 @@ class Dataset(RasterBase):
         *,
         layers: str | list[str] | tuple[str, ...],
         bbox: tuple[float, float, float, float],
-        crs: str = "EPSG:4326",
+        crs: str = _DEFAULT_CRS,
         size: tuple[int, int] | None = None,
         resolution: float | tuple[float, float] | None = None,
         image_format: str = "image/png",
@@ -2416,7 +2420,7 @@ class Dataset(RasterBase):
         *,
         layer: str,
         bbox: tuple[float, float, float, float],
-        crs: str = "EPSG:4326",
+        crs: str = _DEFAULT_CRS,
         tile_matrix_set: str | None = None,
         resolution: float | tuple[float, float] | None = None,
         layer_crs: str | None = None,
