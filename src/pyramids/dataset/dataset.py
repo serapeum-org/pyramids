@@ -2205,6 +2205,8 @@ class Dataset(RasterBase):
         auth: tuple[str, str] | None = None,
         timeout: float = 60.0,
         extra_params: dict[str, str] | None = None,
+        direct: bool = False,
+        subset_axes: tuple[str, str] | None = None,
     ) -> Dataset:
         """Read a coverage subset from an OGC Web Coverage Service (WCS).
 
@@ -2227,6 +2229,16 @@ class Dataset(RasterBase):
           default) and transformed into the coverage's native CRS with ``pyproj``
           before the request, so subsetting lands on the correct pixels even when
           the server only honours its native CRS.
+
+        For a **``GetCoverage``-only endpoint** — a "WCS shim" that returns
+        ``502``/``400`` for ``GetCapabilities``/``DescribeCoverage`` but serves
+        ``GetCoverage`` (e.g. Copernicus EDO/GDO) — pass ``direct=True``. That skips
+        both discovery steps and issues a KVP ``GetCoverage`` built straight from
+        ``coverage`` / ``crs`` / ``bbox`` / ``wcs_format`` / ``extra_params``, so the
+        caller owns correctness (no capabilities check). For WCS ``2.0.x`` the
+        ``SUBSET`` axis labels default to ``("Long", "Lat")`` for a geographic
+        ``crs`` — override with ``subset_axes`` if the server names its axes
+        differently.
 
         Args:
             endpoint: The WCS service URL, including any server-specific query
@@ -2264,14 +2276,23 @@ class Dataset(RasterBase):
             timeout: HTTP timeout in seconds for the metadata / coverage
                 requests. Defaults to ``60.0``.
             extra_params: Optional extra ``GetCoverage`` query parameters folded
-                into the request (a workaround hook for server quirks).
+                into the request (a workaround hook for server quirks). In direct
+                mode these are appended to the KVP request (e.g. a ``TIME`` axis).
+            direct: When ``True``, skip ``GetCapabilities``/``DescribeCoverage`` and
+                issue a KVP ``GetCoverage`` directly — for shim servers that only
+                implement ``GetCoverage``. Defaults to ``False`` (full handshake).
+            subset_axes: Direct mode, WCS ``2.0.x`` only — the ``(x, y)`` ``SUBSET``
+                axis labels. ``None`` (default) derives them from ``crs``
+                (``("Long", "Lat")`` for geographic, ``("X", "Y")`` otherwise).
 
         Returns:
             Dataset: The fetched coverage subset.
 
         Raises:
-            ValueError: ``bbox`` is malformed, ``coverage`` is not advertised, or
-                ``coverage_crs`` cannot be interpreted.
+            ValueError: ``bbox`` is malformed, ``coverage`` is not advertised
+                (discovery mode), ``coverage_crs`` cannot be interpreted, or (direct
+                mode) the WCS version is unsupported / ``1.0.0`` lacks a
+                ``resolution``.
             pyramids.errors.WCSError: The server could not be reached or returned
                 an error / a non-raster (``<ows:ExceptionReport>``) body.
 
@@ -2285,6 +2306,23 @@ class Dataset(RasterBase):
             ...     coverage="nitrogen_0-5cm_mean",
             ...     bbox=(5.0, 51.0, 6.0, 52.0),
             ...     coverage_crs="+proj=igh +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs",
+            ... )
+
+            ```
+
+            Direct mode for a ``GetCoverage``-only endpoint (Copernicus EDO/GDO),
+            whose ``GetCapabilities``/``DescribeCoverage`` return ``502``/``400``:
+
+            ```python
+            >>> ds = Dataset.from_wcs(  # doctest: +SKIP
+            ...     "https://.../mapserv?map=GDO_WCS",
+            ...     coverage="spaST",
+            ...     bbox=(-10.0, 35.0, 5.0, 45.0),
+            ...     crs="EPSG:4326",
+            ...     version="2.0.0",
+            ...     wcs_format="GEOTIFF",
+            ...     direct=True,
+            ...     extra_params={"TIME": "2024-06-01", "SELECTED_TIMESCALE": "03"},
             ... )
 
             ```
@@ -2309,6 +2347,8 @@ class Dataset(RasterBase):
             auth=auth,
             timeout=timeout,
             extra_params=extra_params,
+            direct=direct,
+            subset_axes=subset_axes,
         )
 
     @classmethod

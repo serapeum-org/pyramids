@@ -30,13 +30,17 @@ passes ``coverage_crs`` / ``auth`` as needed.
 
 from __future__ import annotations
 
+import urllib.parse
 import urllib.request
+import uuid
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 from xml.etree import ElementTree as ET
 
 from osgeo import gdal
+from pyproj import CRS as _PyprojCRS
+from pyproj.exceptions import CRSError as _PyprojCRSError
 
 from pyramids.base._coverage import native_projwin as _native_projwin
 from pyramids.base._coverage import resolution_pair as _resolution_pair
@@ -44,6 +48,26 @@ from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_ne
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WCSError
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
+
+
+def _http_get(url: str, auth: tuple[str, str] | None, timeout: float, what: str) -> bytes:
+    """GET ``url`` (optional HTTP Basic auth), returning the raw body.
+
+    Shared by the ``GetCapabilities`` (discovery) and direct ``GetCoverage``
+    paths. Raises :class:`WCSError` on any transport-level failure so both call
+    sites keep a uniform error contract.
+    """
+    opener = urllib.request.build_opener()
+    if auth is not None:
+        mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+        mgr.add_password(None, url, auth[0], auth[1])
+        opener.add_handler(urllib.request.HTTPBasicAuthHandler(mgr))
+    try:
+        with opener.open(url, timeout=timeout) as resp:
+            return resp.read()
+    except OSError as exc:
+        # urllib.error.URLError / HTTPError both derive from OSError.
+        raise WCSError(f"WCS {what} request failed for {url!r}: {exc}") from exc
 
 if TYPE_CHECKING:
     from osgeo import osr
@@ -97,17 +121,7 @@ def _get_capabilities(
             answered with an ``<ows:ExceptionReport>`` / non-XML body.
     """
     url = _capabilities_url(endpoint, version)
-    opener = urllib.request.build_opener()
-    if auth is not None:
-        mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-        mgr.add_password(None, endpoint, auth[0], auth[1])
-        opener.add_handler(urllib.request.HTTPBasicAuthHandler(mgr))
-    try:
-        with opener.open(url, timeout=timeout) as resp:
-            payload = resp.read()
-    except OSError as exc:
-        # urllib.error.URLError / HTTPError both derive from OSError.
-        raise WCSError(f"WCS GetCapabilities request failed for {endpoint!r}: {exc}") from exc
+    payload = _http_get(url, auth, timeout, "GetCapabilities")
 
     try:
         root = ET.fromstring(payload)
@@ -207,6 +221,203 @@ def _open_service(descriptor: str, coverage: str) -> "gdal.Dataset":
     return src
 
 
+def _default_subset_axes(crs: str) -> tuple[str, str]:
+    """Best-effort WCS 2.0 ``SUBSET`` axis labels for ``crs``.
+
+    Geographic CRSs get ``("Long", "Lat")``; everything else ``("X", "Y")``.
+    There is no ``DescribeCoverage`` in direct mode to learn the coverage's real
+    axis names from, so a server that labels them differently needs an explicit
+    ``subset_axes`` override.
+    """
+    try:
+        is_geographic = _PyprojCRS.from_user_input(crs).is_geographic
+    except (_PyprojCRSError, ValueError, TypeError):
+        is_geographic = str(crs).strip().upper().endswith(":4326")
+    return ("Long", "Lat") if is_geographic else ("X", "Y")
+
+
+def _getcoverage_url(
+    endpoint: str,
+    coverage: str,
+    crs: str,
+    bbox: tuple[float, float, float, float],
+    version: str | None,
+    wcs_format: str | None,
+    resolution: float | tuple[float, float] | None,
+    subset_axes: tuple[str, str] | None,
+    extra_params: dict[str, str] | None,
+) -> str:
+    """Build a direct KVP ``GetCoverage`` URL (no capabilities / DescribeCoverage).
+
+    Supports WCS ``2.0.x`` (``COVERAGEID`` + ``SUBSET`` + ``SUBSETTINGCRS`` — the
+    default when ``version`` is omitted) and ``1.0.0`` (``COVERAGE`` + ``CRS`` +
+    ``BBOX`` + ``RESX``/``RESY``). ``bbox`` is ``(minx, miny, maxx, maxy)`` in
+    ``crs``; for ``2.0.x`` the first ``subset_axes`` label takes the x (min-x,
+    max-x) range and the second the y range, so lon/lat values land on the right
+    axis regardless of the CRS's declared axis order.
+
+    Raises:
+        ValueError: the WCS version is unsupported for direct mode, or ``1.0.0``
+            was requested without a ``resolution`` (needed for the output grid).
+    """
+    minx, miny, maxx, maxy = bbox
+    ver = version or "2.0.0"
+    params: list[tuple[str, str]] = [
+        ("SERVICE", "WCS"),
+        ("VERSION", ver),
+        ("REQUEST", "GetCoverage"),
+    ]
+    if ver.startswith("2."):
+        x_axis, y_axis = subset_axes or _default_subset_axes(crs)
+        params += [
+            ("COVERAGEID", coverage),
+            ("SUBSET", f"{x_axis}({minx},{maxx})"),
+            ("SUBSET", f"{y_axis}({miny},{maxy})"),
+            ("SUBSETTINGCRS", crs),
+        ]
+    elif ver.startswith("1.0"):
+        res = _resolution_pair(resolution)
+        if res is None:
+            raise ValueError(
+                "direct WCS 1.0.0 GetCoverage needs an output grid; pass "
+                "resolution=... (mapped to RESX/RESY)."
+            )
+        params += [
+            ("COVERAGE", coverage),
+            ("CRS", crs),
+            ("BBOX", f"{minx},{miny},{maxx},{maxy}"),
+            ("RESX", str(res[0])),
+            ("RESY", str(res[1])),
+        ]
+    else:
+        raise ValueError(
+            f"direct GetCoverage supports WCS 1.0.0 and 2.0.x; got {ver!r}. "
+            "Use discovery mode (direct=False) for other versions."
+        )
+    if wcs_format:
+        params.append(("FORMAT", wcs_format))
+    if extra_params:
+        params += list(extra_params.items())
+    # Keep ',():/' literal so CRS shorthand / URIs (EPSG:4326,
+    # http://www.opengis.net/def/crs/…) and SUBSET syntax survive intact — quirky
+    # shim servers often string-match these rather than percent-decode.
+    query = "&".join(
+        f"{key}={urllib.parse.quote(str(val), safe=',():/')}" for key, val in params
+    )
+    sep = "&" if "?" in endpoint else "?"
+    return f"{endpoint}{sep}{query}"
+
+
+def _open_getcoverage_bytes(payload: bytes, coverage: str) -> "gdal.Dataset":
+    """Read a direct ``GetCoverage`` response into an in-memory raster.
+
+    A non-raster body (an ``<ows:ExceptionReport>``) is caught before it can be
+    opened as a file the caller sees: an XML exception raises :class:`WCSError`
+    with the server message; otherwise the bytes are materialised in ``/vsimem``,
+    opened, copied into ``MEM``, and the temp is unlinked.
+
+    Raises:
+        WCSError: the body is an exception report / non-raster, or GDAL could not
+            read it as a raster.
+    """
+    if payload.lstrip()[:1] == b"<":
+        try:
+            root: ET.Element | None = ET.fromstring(payload)
+        except ET.ParseError:
+            root = None
+        if root is not None and _localname(root.tag) in (
+            "ExceptionReport",
+            "ServiceExceptionReport",
+        ):
+            raise WCSError(
+                f"WCS server returned an exception for {coverage!r}: {_exception_text(root)}"
+            )
+        raise WCSError(f"WCS GetCoverage returned a non-raster body for {coverage!r}")
+    vsipath = f"/vsimem/wcs_getcoverage_{uuid.uuid4().hex}.tif"
+    gdal.FileFromMemBuffer(vsipath, payload)
+    try:
+        src = gdal.Open(vsipath)
+        mem = (
+            gdal.Translate("", src, options=gdal.TranslateOptions(format="MEM"))
+            if src is not None
+            else None
+        )
+    except RuntimeError as exc:
+        # GDAL raises (rather than returning None) on a bad file when exceptions
+        # are enabled — an HTML error page, truncated body, etc.
+        raise WCSError(
+            f"WCS GetCoverage returned no raster for {coverage!r}: {exc}"
+        ) from exc
+    finally:
+        gdal.Unlink(vsipath)
+    if mem is None:
+        raise WCSError(f"WCS GetCoverage returned no raster for {coverage!r}")
+    return mem
+
+
+def _from_wcs_direct(
+    dataset_cls: type["Dataset"],
+    endpoint: str,
+    coverage: str,
+    bbox: tuple[float, float, float, float],
+    crs: str,
+    version: str | None,
+    wcs_format: str | None,
+    resolution: float | tuple[float, float] | None,
+    subset_axes: tuple[str, str] | None,
+    coverage_crs: str | None,
+    auth: tuple[str, str] | None,
+    timeout: float,
+    extra_params: dict[str, str] | None,
+) -> tuple["Dataset", str | None]:
+    """Direct ``GetCoverage`` path: build the KVP request, fetch, wrap.
+
+    Returns ``(ds, native_wkt)`` so the shared finalize step can resample within
+    the coverage's own CRS when only a ``resolution`` was requested. ``native_wkt``
+    is ``None`` when the returned raster carries no CRS and no ``coverage_crs``
+    shim was supplied.
+    """
+    url = _getcoverage_url(
+        endpoint, coverage, crs, bbox, version, wcs_format, resolution,
+        subset_axes, extra_params,
+    )
+    payload = _http_get(url, auth, timeout, "GetCoverage")
+    mem = _open_getcoverage_bytes(payload, coverage)
+    if not mem.GetSpatialRef() and coverage_crs is not None:
+        mem.SetSpatialRef(_resolve_native_srs(mem, coverage_crs))
+    ds = dataset_cls(mem, access="write")
+    native = mem.GetSpatialRef()
+    native_wkt = native.ExportToWkt() if native else None
+    return ds, native_wkt
+
+
+def _finalize(
+    ds: "Dataset",
+    output_crs: str | None,
+    res: tuple[float, float] | None,
+    resample: str,
+    native_wkt: str | None,
+    output: str | Path | None,
+) -> "Dataset":
+    """Apply the optional reproject/resample + write shared by both WCS paths.
+
+    With ``output_crs`` set, reproject to it; with only ``res`` set, resample
+    within the coverage's own CRS (``native_wkt``); otherwise leave the raster
+    as fetched. Write to ``output`` last, only after a valid raster exists.
+    """
+    if output_crs is not None:
+        target: str | None = output_crs
+    elif res and native_wkt is not None:
+        target = native_wkt
+    else:
+        target = None
+    if target is not None:
+        ds = ds.to_crs(target, method=resample, cell_size=res)
+    if output is not None:
+        ds.to_file(output)
+    return ds
+
+
 def from_wcs(
     dataset_cls: type["Dataset"],
     endpoint: str,
@@ -224,6 +435,8 @@ def from_wcs(
     auth: tuple[str, str] | None = None,
     timeout: float = 60.0,
     extra_params: dict[str, str] | None = None,
+    direct: bool = False,
+    subset_axes: tuple[str, str] | None = None,
 ) -> "Dataset":
     """Fetch a WCS coverage subset and return a :class:`Dataset`.
 
@@ -231,49 +444,51 @@ def from_wcs(
     :meth:`pyramids.dataset.Dataset.from_wcs` classmethod, which forwards here.
     See that method for the full parameter documentation.
 
+    With ``direct=False`` (default) the full OGC handshake runs: ``GetCapabilities``
+    validates the coverage, then GDAL's WCS driver negotiates ``DescribeCoverage``
+    before the windowed ``GetCoverage``. With ``direct=True`` both discovery steps
+    are skipped and a KVP ``GetCoverage`` request is issued straight from the
+    caller-supplied parameters — for ``GetCoverage``-only "WCS shim" endpoints that
+    502/400 on capabilities/describe.
+
     Raises:
-        ValueError: ``bbox`` is malformed, ``coverage`` is not advertised by the
-            server, or ``coverage_crs`` cannot be interpreted.
+        ValueError: ``bbox`` is malformed, ``coverage`` is not advertised (discovery
+            mode), ``coverage_crs`` cannot be interpreted, or (direct mode) the WCS
+            version is unsupported / ``1.0.0`` lacks a ``resolution``.
         WCSError: The server could not be reached or returned an error / a
             non-raster body.
     """
     minx, miny, maxx, maxy = _validate_bbox(bbox)
     res = _resolution_pair(resolution)
+    window = (minx, miny, maxx, maxy)
 
-    _, coverages = _get_capabilities(endpoint, version, auth, timeout)
-    if coverages and coverage not in coverages:
-        raise ValueError(
-            f"coverage {coverage!r} is not advertised by {endpoint!r}. "
-            f"Available coverages: {sorted(coverages)[:10]}"
-            + (" …" if len(coverages) > 10 else "")
+    if direct:
+        ds, native_wkt = _from_wcs_direct(
+            dataset_cls, endpoint, coverage, window, crs, version, wcs_format,
+            resolution, subset_axes, coverage_crs, auth, timeout, extra_params,
         )
-
-    descriptor = _service_descriptor(endpoint, coverage, version, wcs_format, extra_params)
-    config = _gdal_http_config(auth, timeout)
-    with gdal.config_options(config):
-        src = _open_service(descriptor, coverage)
-        native_srs = _resolve_native_srs(src, coverage_crs)
-        projwin = _native_projwin((minx, miny, maxx, maxy), crs, native_srs)
-        mem = _translate_window(src, projwin, coverage)
-        src = None
-
-    mem.SetSpatialRef(native_srs)
-    ds = dataset_cls(mem, access="write")
-
-    if output_crs is not None:
-        target = output_crs
-    elif res:
-        # resample within the native CRS when only a resolution was requested;
-        # WKT round-trips more faithfully than proj4 for exotic / compound CRS
-        target = native_srs.ExportToWkt()
     else:
-        target = None
-    if target is not None:
-        ds = ds.to_crs(target, method=resample, cell_size=res)
+        _, coverages = _get_capabilities(endpoint, version, auth, timeout)
+        if coverages and coverage not in coverages:
+            raise ValueError(
+                f"coverage {coverage!r} is not advertised by {endpoint!r}. "
+                f"Available coverages: {sorted(coverages)[:10]}"
+                + (" …" if len(coverages) > 10 else "")
+            )
+        descriptor = _service_descriptor(endpoint, coverage, version, wcs_format, extra_params)
+        config = _gdal_http_config(auth, timeout)
+        with gdal.config_options(config):
+            src = _open_service(descriptor, coverage)
+            native_srs = _resolve_native_srs(src, coverage_crs)
+            projwin = _native_projwin(window, crs, native_srs)
+            mem = _translate_window(src, projwin, coverage)
+            src = None
+        mem.SetSpatialRef(native_srs)
+        ds = dataset_cls(mem, access="write")
+        # WKT round-trips more faithfully than proj4 for exotic / compound CRS.
+        native_wkt = native_srs.ExportToWkt()
 
-    if output is not None:
-        ds.to_file(output)
-    return ds
+    return _finalize(ds, output_crs, res, resample, native_wkt, output)
 
 
 def _translate_window(
