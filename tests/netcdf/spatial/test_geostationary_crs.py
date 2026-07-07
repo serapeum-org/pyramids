@@ -164,7 +164,7 @@ class TestGeostationaryContainerOps:
         _write_geostationary_mdim(path)
         var = NetCDF.read_file(path).get_variable("CMI_C02")
         gdf = var.to_polygons()
-        assert len(gdf) >= 0
+        assert gdf is not None and "geometry" in gdf.columns
 
     @requires_lazy
     def test_to_zarr_writes_geostationary_wkt(self, tmp_path):
