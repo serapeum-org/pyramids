@@ -15,6 +15,7 @@ single return statement, descriptive assertion messages.
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
+from osgeo import gdal
 
 from pyramids.netcdf.netcdf import NetCDF
 
@@ -183,6 +184,58 @@ class TestOneDimNotFlipped:
         assert x_vals is not None, "x coordinate should be readable"
         assert x_vals.ndim == 1, f"Expected 1D, got {x_vals.ndim}D"
         assert x_vals[0] < x_vals[-1], "x should be ascending (west to east)"
+
+
+ORIENTATION_CASES = [
+    ("goes16-abi-l2-cmipm-c13.nc", "CMI", True, "projected ascending (GOES geostationary) -> flip"),
+    ("noah-precipitation-1979.nc", "Band1", True, "geographic ascending (NOAH) -> flip"),
+    ("era5_cds_beta_t2m_jan2022.nc", "t2m", False, "geographic descending (ERA5) -> keep"),
+    ("coards__4v__1d3-3d1.nc", "air", False, "geographic descending (COARDS) -> keep"),
+]
+
+
+class TestFastPathOrientationAllCases:
+    """The classic-driver fast path must reproduce the multidim view's north-up orientation.
+
+    One case per Y-axis situation the fix has to handle (#705): an ascending Y axis (row 0 = south)
+    is flipped to north-up, a descending one (row 0 = north) is kept. GDAL's classic driver only
+    auto-flips a recognised geographic latitude, not a projected ``projection_y_coordinate`` (GOES),
+    so the fast path forces ``GDAL_NETCDF_BOTTOMUP`` from the recorded flip decision. Each case asserts
+    the flip decision, a north-up geotransform, and byte-identical data against the reference view.
+    """
+
+    @pytest.mark.parametrize(
+        "filename, variable, expect_flip, label",
+        ORIENTATION_CASES,
+        ids=[c[0].split(".")[0] for c in ORIENTATION_CASES],
+    )
+    def test_fast_path_matches_view_and_is_north_up(
+        self, filename, variable, expect_flip, label
+    ):
+        """Fast classic-driver materialize is byte-identical to the view and north-up for each case.
+
+        Test scenario:
+            Read the variable through the public MDIM path, capture the known-correct view as a
+            reference, then materialize via the classic driver and compare — orientation must not drift.
+        """
+        nc = NetCDF.read_file(f"tests/data/netcdf/{filename}")
+        var = nc.get_variable(variable)
+        assert (
+            var._md_y_flipped is expect_flip
+        ), f"{label}: expected _md_y_flipped={expect_flip}, got {var._md_y_flipped}"
+        assert (
+            var.geotransform[5] < 0
+        ), f"{label}: materialized geotransform must be north-up, got gt[5]={var.geotransform[5]}"
+        reference = gdal.GetDriverByName("MEM").CreateCopy("", var.raster).ReadAsArray()
+        fast = var._materialize_via_classic_driver()
+        assert (
+            fast is not None
+        ), f"{label}: fast classic-driver path should be available for an on-disk file"
+        np.testing.assert_array_equal(
+            fast.ReadAsArray(),
+            reference,
+            err_msg=f"{label}: fast-path data is not byte-identical to the view (orientation drift)",
+        )
 
 
 class TestDiskRoundTripOrientation:

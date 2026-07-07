@@ -83,7 +83,7 @@ class TestReadMdArray1D:
         str_dtype = gdal.ExtendedDataType.CreateString()
         rg.CreateMDArray("label_data", [dim], str_dtype)
         nc = Container(src_ds)
-        result_src, result_md, result_rg, _ix, _iy = nc._read_md_array("label_data")
+        result_src, result_md, result_rg, _ix, _iy, _yf = nc._read_md_array("label_data")
         # For string type, src should be the md_arr itself (not a Dataset)
         assert (
             result_src is result_md
@@ -346,7 +346,7 @@ class TestGetVariableYFlipAndErrors:
 
         def patched_read_md(variable_name, x_dim=None, y_dim=None):
             """Patch _read_md_array to return objects that simulate failure."""
-            src, md_arr, rg, ix, iy = original_read_md(
+            src, md_arr, rg, ix, iy, yf = original_read_md(
                 variable_name, x_dim=x_dim, y_dim=y_dim
             )
 
@@ -401,7 +401,7 @@ class TestGetVariableYFlipAndErrors:
                             result_dims.append(PatchedDim(d, False))
                     return result_dims
 
-            return src, PatchedMDArr(md_arr), rg, ix, iy
+            return src, PatchedMDArr(md_arr), rg, ix, iy, yf
 
         with patch.object(nc, "_read_md_array", side_effect=patched_read_md):
             var = nc.get_variable("temperature")
@@ -428,10 +428,10 @@ class TestGetVariableYFlipAndErrors:
 
         def patched_read(variable_name, x_dim=None, y_dim=None):
             """Return None for md_arr to trigger default dim info."""
-            src, _, rg_ref, ix, iy = original_read(
+            src, _, rg_ref, ix, iy, yf = original_read(
                 variable_name, x_dim=x_dim, y_dim=y_dim
             )
-            return src, None, rg_ref, ix, iy
+            return src, None, rg_ref, ix, iy, yf
 
         with patch.object(nc, "_read_md_array", side_effect=patched_read):
             var = nc.get_variable("temperature")
@@ -580,7 +580,7 @@ class TestGetVariableAttrException:
 
         def patched_read(variable_name, x_dim=None, y_dim=None):
             """Wrap md_arr with one that fails on GetAttributes."""
-            src, md_arr, rg_ref, ix, iy = original_read_md(
+            src, md_arr, rg_ref, ix, iy, yf = original_read_md(
                 variable_name, x_dim=x_dim, y_dim=y_dim
             )
 
@@ -599,7 +599,7 @@ class TestGetVariableAttrException:
                     """Raise to simulate failure."""
                     raise RuntimeError("Cannot read attributes")
 
-            return src, AttrFailMDArr(md_arr), rg_ref, ix, iy
+            return src, AttrFailMDArr(md_arr), rg_ref, ix, iy, yf
 
         with patch.object(nc, "_read_md_array", side_effect=patched_read):
             var = nc.get_variable("temperature")
