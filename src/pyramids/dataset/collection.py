@@ -43,7 +43,7 @@ class _GroupedCollection:
     """Lightweight view over a :class:`DatasetCollection` grouped by label.
 
     One reduction method per dask op. Each call returns a
-    `{label: ndarray}` dict.
+    ``{label: ndarray}`` dict.
 
     The reduction is single-pass: one lazy :func:`dask.array` reduction is
     built per group and all of them are evaluated in a single
@@ -167,14 +167,14 @@ def _grouped_reduce(
     time — the deliberate I/O-for-memory trade behind reading each chunk once.
 
     Args:
-        data: Lazy `dask.array` of shape `(T, B, R, C)` (the collection cube).
-        label_array: Per-timestep group labels, length `T`.
+        data: Lazy ``dask.array`` of shape ``(T, B, R, C)`` (the collection cube).
+        label_array: Per-timestep group labels, length ``T``.
         ordered_labels: Unique labels in output order.
-        op_name: One of `mean / sum / min / max / std / var`.
+        op_name: One of ``mean / sum / min / max / std / var``.
         skipna: Use the nan-aware variant when True.
 
     Returns:
-        dict: `{label: ndarray}` with one reduced `(B, R, C)` array per group.
+        dict: ``{label: ndarray}`` with one reduced ``(B, R, C)`` array per group.
     """
     dask = import_dask(
         lazy_extra_hint(

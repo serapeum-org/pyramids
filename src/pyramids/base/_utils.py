@@ -721,9 +721,9 @@ def import_stac_asset(message: str):
 def import_dask(message: str):
     """Import and return the ``dask`` module, or raise the ``[lazy]`` extra hint.
 
-    Returned so callers can use `dask` without a bare inline `import` of their
-    own (dask is optional, so it cannot be a top-level import). Callers that only
-    need the guard may ignore the return value.
+    Returned so callers can use ``dask`` without a bare inline ``import`` of
+    their own (dask is optional, so it cannot be a top-level import). Callers
+    that only need the guard may ignore the return value.
     """
     try:
         import dask
