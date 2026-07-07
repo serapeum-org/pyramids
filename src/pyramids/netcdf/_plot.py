@@ -1048,7 +1048,7 @@ class NetCDFPlot:
             ax=ax,
             fig=fig,
             basemap=basemap,
-            basemap_epsg=nc.epsg or nc.crs,
+            basemap_epsg=nc.epsg,
             **animate_kwargs,
         )
 

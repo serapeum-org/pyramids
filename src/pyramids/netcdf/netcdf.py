@@ -1202,7 +1202,7 @@ class NetCDF(Dataset):
                     from cleopatra.reference import add_features
                     var = nc.get_variable("t2m")
                     glyph = var.plot()
-                    add_features(glyph.ax, "coastline", crs=var.epsg or var.crs, zorder=5)
+                    add_features(glyph.ax, "coastline", crs=var.epsg, zorder=5)
 
                 ``add_features`` fetches Natural Earth data (cached under ``~/.cleopatra``), so it
                 needs the ``[viz]`` extra and network access on first use. A relief backdrop is
