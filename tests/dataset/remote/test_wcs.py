@@ -559,14 +559,45 @@ class TestDirectGetCoverage:
         )
         assert ds.epsg == 4326
 
-    def test_direct_1_0_0_end_to_end(self, monkeypatch, geotiff_bytes):
+    def test_direct_1_0_0_end_to_end_no_client_resample(self, monkeypatch, geotiff_bytes):
+        # 1.0.0 sends RESX/RESY, so the server grids server-side and pyramids does
+        # NOT resample again client-side. The mock returns the native-res fixture,
+        # so the result is the fixture grid unchanged (not resampled to 1.0).
         monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: geotiff_bytes)
         ds = Dataset.from_wcs(
             self.ENDPOINT, coverage="c", bbox=self.BBOX, crs="EPSG:4326",
             version="1.0.0", resolution=1.0, direct=True,
         )
         assert ds.epsg == 4326
-        assert ds.cell_size == pytest.approx(1.0, abs=0.01)
+        assert ds.shape == (1, 3, 4)  # native fixture grid, no client resample
+
+    def test_direct_forwards_params_into_the_url(self, monkeypatch, geotiff_bytes):
+        captured: dict[str, str] = {}
+
+        def capture(url, *a, **k):
+            captured["url"] = url
+            return geotiff_bytes
+
+        monkeypatch.setattr(_wcs, "_http_get", capture)
+        Dataset.from_wcs(
+            self.ENDPOINT, coverage="spaST", bbox=self.BBOX, crs="EPSG:4326",
+            version="2.0.1", direct=True, subset_axes=("x", "y"),
+            extra_params={"TIME": "2024-06-01"},
+        )
+        url = captured["url"]
+        assert "COVERAGEID=spaST" in url and "VERSION=2.0.1" in url
+        assert "SUBSET=x(-10.0,5.0)" in url and "SUBSET=y(35.0,45.0)" in url
+        assert "TIME=2024-06-01" in url
+
+    def test_direct_output_crs_without_crs_raises(
+        self, monkeypatch, crsless_geotiff_bytes
+    ):
+        monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: crsless_geotiff_bytes)
+        with pytest.raises(WCSError, match="no CRS"):
+            Dataset.from_wcs(
+                self.ENDPOINT, coverage="c", bbox=self.BBOX,
+                output_crs="EPSG:3857", direct=True,
+            )
 
     def test_direct_resolution_resamples_output(self, monkeypatch, geotiff_bytes):
         monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: geotiff_bytes)
