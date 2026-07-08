@@ -55,13 +55,25 @@ from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WCSError
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 
+# Request KVP keys pyramids sets itself in direct GetCoverage; an extra_params key
+# colliding with one of these is rejected so it cannot duplicate the request —
+# independent of whether the optional FORMAT was emitted.
+_RESERVED_KVP_KEYS = frozenset(
+    {
+        "SERVICE", "VERSION", "REQUEST", "COVERAGE", "COVERAGEID", "SUBSET",
+        "SUBSETTINGCRS", "CRS", "BBOX", "RESX", "RESY", "FORMAT",
+    }
+)
+
 if TYPE_CHECKING:
     from osgeo import osr
 
     from pyramids.dataset.dataset import Dataset
 
 
-def _http_get(url: str, auth: tuple[str, str] | None, timeout: float, what: str) -> bytes:
+def _http_get(
+    url: str, auth: tuple[str, str] | None, timeout: float, what: str
+) -> bytes:
     """GET ``url`` (optional HTTP Basic auth), returning the raw body.
 
     Shared by the ``GetCapabilities`` (discovery) and direct ``GetCoverage``
@@ -309,9 +321,8 @@ def _getcoverage_url(
     if wcs_format:
         params.append(("FORMAT", wcs_format))
     if extra_params:
-        builtin_keys = {key.upper() for key, _ in params}
         for key, val in extra_params.items():
-            if key.upper() in builtin_keys:
+            if key.upper() in _RESERVED_KVP_KEYS:
                 raise ValueError(
                     f"extra_params key {key!r} collides with a built-in GetCoverage "
                     "parameter; use the dedicated from_wcs argument instead."
@@ -342,7 +353,7 @@ def _open_getcoverage_bytes(payload: bytes, coverage: str) -> "gdal.Dataset":
         WCSError: the body is an exception report / non-raster, or GDAL could not
             read it as a raster.
     """
-    if payload.lstrip()[:1] == b"<":
+    if payload[:64].lstrip()[:1] == b"<":
         try:
             root: ET.Element | None = ET.fromstring(payload)
         except ET.ParseError:
@@ -354,7 +365,11 @@ def _open_getcoverage_bytes(payload: bytes, coverage: str) -> "gdal.Dataset":
             raise WCSError(
                 f"WCS server returned an exception for {coverage!r}: {_exception_text(root)}"
             )
-        raise WCSError(f"WCS GetCoverage returned a non-raster body for {coverage!r}")
+        raise WCSError(
+            f"WCS GetCoverage returned an XML/GML body for {coverage!r} that direct "
+            "mode cannot decode; request a plain binary raster via wcs_format=... "
+            "(e.g. 'GEOTIFF')."
+        )
     vsipath = f"/vsimem/wcs_getcoverage_{uuid.uuid4().hex}.tif"
     gdal.FileFromMemBuffer(vsipath, payload)
     try:
@@ -364,6 +379,7 @@ def _open_getcoverage_bytes(payload: bytes, coverage: str) -> "gdal.Dataset":
             if src is not None
             else None
         )
+        src = None  # release the /vsimem handle before Unlink
     except RuntimeError as exc:
         # GDAL raises (rather than returning None) on a bad file when exceptions
         # are enabled — an HTML error page, truncated body, etc.
@@ -427,14 +443,14 @@ def _finalize(
     within the coverage's own CRS (``native_wkt``); otherwise leave the raster
     as fetched. Write to ``output`` last, only after a valid raster exists.
     """
+    if (output_crs is not None or res) and native_wkt is None:
+        raise WCSError(
+            "reproject/resample requested but the returned coverage has no CRS to "
+            "work from; pass coverage_crs=... so the raster carries a source CRS."
+        )
     if output_crs is not None:
         target: str | None = output_crs
     elif res:
-        if native_wkt is None:
-            raise WCSError(
-                "resolution resample requested but the returned coverage has no CRS "
-                "to resample within; pass coverage_crs=... or output_crs=..."
-            )
         target = native_wkt
     else:
         target = None
@@ -494,6 +510,10 @@ def from_wcs(
             dataset_cls, endpoint, coverage, window, crs, version, wcs_format,
             resolution, subset_axes, coverage_crs, auth, timeout, extra_params,
         )
+        # 1.0.0 direct sends RESX/RESY, so the server already grids to `res`; skip
+        # the redundant client-side resample. 2.0.x has no request-side resolution,
+        # so it resamples client-side in _finalize.
+        finalize_res = None if (version or "2.0.0").startswith("1.0") else res
     else:
         _, coverages = _get_capabilities(endpoint, version, auth, timeout)
         if coverages and coverage not in coverages:
@@ -502,7 +522,9 @@ def from_wcs(
                 f"Available coverages: {sorted(coverages)[:10]}"
                 + (" …" if len(coverages) > 10 else "")
             )
-        descriptor = _service_descriptor(endpoint, coverage, version, wcs_format, extra_params)
+        descriptor = _service_descriptor(
+            endpoint, coverage, version, wcs_format, extra_params
+        )
         config = _gdal_http_config(auth, timeout)
         with gdal.config_options(config):
             src = _open_service(descriptor, coverage)
@@ -514,8 +536,9 @@ def from_wcs(
         ds = dataset_cls(mem, access="write")
         # WKT round-trips more faithfully than proj4 for exotic / compound CRS.
         native_wkt = native_srs.ExportToWkt()
+        finalize_res = res
 
-    return _finalize(ds, output_crs, res, resample, native_wkt, output)
+    return _finalize(ds, output_crs, finalize_res, resample, native_wkt, output)
 
 
 def _translate_window(
