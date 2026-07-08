@@ -2283,7 +2283,11 @@ class Dataset(RasterBase):
                 implement ``GetCoverage``. Defaults to ``False`` (full handshake).
             subset_axes: Direct mode, WCS ``2.0.x`` only — the ``(x, y)`` ``SUBSET``
                 axis labels. ``None`` (default) derives them from ``crs``
-                (``("Long", "Lat")`` for geographic, ``("X", "Y")`` otherwise).
+                (``("Long", "Lat")`` for geographic, ``("X", "Y")`` otherwise). These
+                defaults are a best-effort guess — direct mode skips the
+                ``DescribeCoverage`` that would reveal the coverage's real (case-
+                sensitive) axis labels — so MapServer-family shims often need
+                ``subset_axes=("x", "y")`` or the server's exact axis names.
 
         Returns:
             Dataset: The fetched coverage subset.
