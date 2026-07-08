@@ -1,6 +1,239 @@
 ﻿# Change log
 
 
+## 0.43.0 (2026-07-08)
+
+### BREAKING CHANGE
+
+- opening a store now returns a Container and extracting a
+variable returns a Variable (both NetCDF subclasses, so isinstance(x,
+NetCDF) still holds); type(x) is NetCDF is no longer true for these.
+Directly constructing NetCDF(...) is deprecated and emits a
+DeprecationWarning — use NetCDF.read_file(...) / NetCDF.create_from_array(...)
+(-> Container) and container.get_variable(...) (-> Variable). NetCDF remains
+an isinstance-compatible base for one major version.
+
+### Feat
+
+- **dataset**: add WMS/WMTS raster readers via GDAL native drivers (#698)
+- **wheels**: publish win_arm64 wheels with a vendored vector stack (#695)
+- **collection**: add a time axis and label animation frames by it (#694)
+- **crop**: support antimeridian-crossing (west>east) bbox (#692)
+- **grib**: add grib_to_cog to convert a GRIB message to a COG (#690)
+- **dataset**: add Dataset.from_ogc_coverages and finish the OGC reader family (#663)
+- **feature**: add FeatureCollection.from_ogc_api_features reader (#656)
+- **base**: RasterLike protocol + numpy.typing array-return typing (ARC-18/ARC-19) (#648)
+- **netcdf**: zero-copy lazy get_group view (ARC-12) (#642)
+- **netcdf**: read remote NetCDF over OPeNDAP/THREDDS via dods:// URLs (#644)
+- **netcdf**: stream create_from_array writes for dask inputs (ARC-11) (#637)
+- **feature**: add FeatureCollection.from_wfs OGC Web Feature Service reader (#635)
+- **wcs**: add Dataset.from_wcs OGC Web Coverage Service reader (#632)
+- **wcs**: add Dataset.from_wcs OGC Web Coverage Service reader
+                                                                                                              
+  Add a version-normalising OGC WCS reader exposed as the                                                     
+  Dataset.from_wcs classmethod (implementation in dataset/_wcs.py),                                           
+  backed by GDAL's native WCS driver so the 1.0.0 vs 2.0.x GetCoverage                                        
+  dialect fork is handled inside GDAL rather than hand-written.                                               
+                                                                                                              
+  - Caller supplies one lon/lat bbox plus optional resolution and                                             
+    output_crs; the reader issues the version-correct GetCoverage.                                            
+  - CRS shim: attach a caller-supplied coverage_crs when the server's                                         
+    advertised CRS is absent from PROJ (e.g. SoilGrids EPSG:152160).                                          
+  - Client-side bbox reprojection into the coverage's native CRS via                                          
+    pyproj, densified with transform_bounds so distorted or large                                             
+    windows stay covered.                                                                                     
+  - GetCapabilities fetched once per endpoint (LRU-cached); an unknown                                        
+    coverage raises ValueError, server errors raise the new WCSError.                                         
+  - The windowed read goes through an in-memory dataset, so a                                                 
+    non-raster ExceptionReport body can never be written to a .tif.                                           
+  - No new dependencies: GDAL handles transport and decode, pyproj                                            
+    (core) the CRS transform, and Dataset the warp/IO.                                                        
+  - Tests: pure helpers, the CRS shim, the capabilities cache, and a                                          
+    protocol-faithful mock server that drives GDAL end-to-end for both                                        
+    WCS dialects (asserting each call shape), plus gated live SoilGrids                                       
+    tests; 100% line and branch coverage on the new module.                                                   
+                                                                                                              
+  Closes #626
+- **netcdf**: split NetCDF into Container + Variable types (API-1) (#625)
+- **netcdf**: add exploration example notebooks and supporting grid work (#581)
+- **feature**: FeatureCollection GIS gaps — fishnet, IDW interpolation, PMTiles/MVT, GPX, FeatureServer and a native H3 engine(#591)
+- **dataset**: add Dataset.to_terrain_rgb (terrain-RGB encoding + XYZ tiles) (#590)
+- **feature**: add voronoi and quadtree tessellation ops to FeatureCollection (#562)
+- **collection**: RGB true-colour animation in DatasetCollection.plot (#557)
+- **dataset**: GCP/RPC georeferencing + mask, window, CLI & parallel-read ergonomics (#536)
+- NetCDF GDAL-multidim LabeledDataset rewrite, extras consolidation, wheel/CLI hardening (#520)
+- **dataset**: decimated (out_shape) reads in the core read_array (#512)
+- **dataset**: boundless windowed reads with fill values (#511)
+- **dataset**: thread-safe parallel reads via per-thread GDAL handles (#510)
+- **dataset**: add read_array(masked=True) returning a MaskedArray (#503)
+- **dataset**: add first-class Window object with block iteration (#504)
+- **dataset**: add warped_view - a lazy VRT-backed reprojected view (#508)
+- **dataset**: expand resampling methods to the full GDAL set (#501)
+- **dataset**: add Dataset.to_bytes for in-memory serialization (#502)
+- **cli**: add info/bounds/clip/warp/merge/overview/sample/convert subcommands (#509)
+- **dataset**: add xy()/rowcol() aliases and a GeoTransform object (#506)
+- **dataset**: add create_empty / empty_like out-of-core raster allocators (#473)
+- **netcdf**: surface time coord/length and window interleaved-layer variables (#468)
+- **netcdf**: add NetCDF.subset for windowed gridded cloud-cube reads (#462)
+- **basemap**: add relief() low-res global relief raster for offline backdrops (#461)
+- **netcdf**: add LabeledDataset reader for label-indexed NetCDF/Zarr stores (#455)
+- **plot**: upgrade cleopatra integration to 0.12.0 API and adopt new capabilities (#451)
+- **io**: add decompress-aware resource reader (sniff → Dataset / FeatureCollection / DataFrame) (#448)
+- **dataset**: accept arbitrary CRS in Dataset.to_crs (#444)
+- add grid adapters, unit conversion, and Natural Earth features (#407)
+- **cog**: unify write policy and add inspection, reads, profiles, and CLI (#402)
+- **stac**: add GDAL-native STAC subpackage and fix no-data/windowed-read bugs (#363)
+- **dataset**: extend merge_rasters and add DatasetCollection.reduce_time (#360)
+- add cloud-provider readers and GDAL-native raster operations (#339)
+- **wheels**: bundle GDAL into pip-installable platform wheels (#243)
+- add bytes/archive/band-stack/bbox/NetCDF/HTTP-knob entry points (#322)
+- **plot**: xarray-aligned NetCDF.plot API and unified plotting layer (#316)
+- **netcdf**: support 4-D+ NetCDFs and fix CDS-Beta metadata path (#313)
+- **dask**: integrate Dask across dataset, netcdf, collection, and feature paths (#253)
+- **cog**: add Cloud Optimized GeoTIFF support (write, validate, cloud I/O, stack export) (#249)
+- **basemap**: add web tile basemap plotting support (#231)
+- delegate UGRID plotting to cleopatra and add dunder methods to FeatureCollection (#230)
+- **netcdf**: add UGRID unstructured mesh support (#224)
+- **netcdf**: add CF conventions support and xarray interop (#198)
+- **netcdf**: add variable operations, metadata refinement, and  rename ArrayInfo to VariableInfo (#172)
+- **netcdf**: add variable operations, metadata refinement, and
+  rename ArrayInfo to VariableInfo
+- **logging**: Centralized logging via `LoggerManager` with colored console and optional file logging; reduced third‑party log noise. (#135)
+- **logging**: Centralized logging via `LoggerManager` with colored console and optional file logging; reduced third‑party log noise. (#135)
+
+### Fix
+
+- **ci**: pin wheel-build checkouts to the triggering commit, not the branch ref (#716)
+- **netcdf**: window-safe fast geostationary reads and no-EPSG CRS (#709)
+- **netcdf**: stop mislabeling a geostationary CRS as EPSG:4326 (#707)
+- **ci**: verify-alpine test paths broken by the test-suite reorg (#689)
+- **plot**: auto-detect RASM xc/yc curvilinear coordinates (#682)
+- **dataset**: correct footprint on NetCDF views and all nodata fills (#679)
+- **netcdf**: stop curvilinear plots smearing across the antimeridian (#670)
+- **netcdf**: stop curvilinear plots smearing across the antimeridian
+                                                                                                              
+  Curvilinear NetCDF grids whose longitude crosses the 0/360                                                  
+  antimeridian rendered as a full-width smear, because pcolormesh                                             
+  read the 359->0 wrap as one giant cell. render_array now makes a                                            
+  wrapping degree-geographic longitude continuous before it reaches                                           
+  cleopatra, gated so projected, unknown-CRS, and non-wrapping grids                                          
+  are left untouched.                                                                                         
+                                                                                                              
+  Plotting fix:                                                                                               
+  - NaN-safe, degrees-only, dtype-preserving, single-return unwrap                                            
+  - unit tests for the unwrap and CRS gate, plus an end-to-end                                                
+    regression on a real wrapping curvilinear file                                                            
+  - cover multi-wrap rows, single-column grids, and interior-NaN edges                                        
+                                                                                                              
+  Documentation:                                                                                              
+  - correct the basemap claims in the CF/COARDS explore notebooks:                                            
+    they plot in the data's own CRS with a Natural Earth coastline                                            
+    overlay, not a reprojected OpenStreetMap / Web Mercator basemap                                           
+  - drop the redundant crs= from add_features across the explore and                                          
+    anatomy notebooks; the returned glyph already carries the CRS                                             
+  - plot the anatomy examples via NetCDF.plot() instead of raw matplotlib                                     
+  - add a NetCDF class anatomy & reference notebook                                                           
+  - add mermaid diagrams across the NetCDF reference: container/variable                                      
+    object model, engines, the metadata pipeline and dataclass                                                
+    aggregation, the plot pipeline, the CF capability map, and the                                            
+    ugrid class model, conversion bridges, and submodule diagrams                                             
+                                                                                                              
+  Documentation accuracy & hygiene:                                                                           
+  - fix the UgridMetadata data_variables edge (it is a dict[str,str]                                          
+    name->location map, not MeshVariable records)                                                             
+  - clarify the metadata serializers are module-level functions, not                                          
+    methods on NetCDFMetadata                                                                                 
+  - list representative CF classification roles instead of a partial set                                      
+  - remove the object-model flowchart's subgraph self-loop                                                    
+  - scrub committed notebook output: drop an INFO log line and sanitize                                       
+    an ipykernel temp path that leaked a local username                                                       
+                                                                                                              
+  Test quality:                                                                                               
+  - assert unwrapped values with np.isclose instead of float ==                                               
+  - pass an unresolvable EPSG code, not a str, to the CRS-gate test                                           
+                                                                                                              
+  Closes #669
+- **netcdf**: drop xarray interop tests duplicated in test_xarray_interop (#636)
+- **test**: skip optional-dependency tests on the bare-wheel core CI run (#610)
+- **packaging**: bundle the JP2OpenJPEG driver so JP2-packed GRIB2 reads (#601)
+- clear SonarCloud main quality gate (reliability, security, hotspots) (#577)
+- **netcdf**: path-style S3 addressing for anonymous LabeledDataset reads (#569)
+- **dataset**: array_to_map_coordinates honours non-square and rotated grids (#568)
+- **netcdf**: carry string aux variables through container spatial ops (#567)
+- **netcdf**: release the GDAL handle on close() so the file unlocks immediately (#566)
+- **netcdf**: release the GDAL handle on close() so the file unlocks immediately
+- **netcdf**: build kerchunk manifests natively to kill the zarr-v3 deadlock (#561)
+- **netcdf**: resolve S3 bucket region for anonymous LabeledDataset reads (#537)
+- **netcdf**: carry non-spatial aux variables through container spatial ops (#514)
+- **collection**: render DatasetCollection.plot() when rasters have no nodata (#481)
+- **bootstrap**: force GDAL_DRIVER_PATH to the bundled plugins (#465)
+- **netcdf**: georeference geostationary (GOES) reads via the classic driver (#452)
+- **wheels**: vendor curl CA bundle so vendored-GDAL HTTPS reads work  (#414)
+- **crs**: resolve un-authority-tagged CRSes instead of returning child codes (#404)
+- **wheel-test**: unblock core matrix; add branch input to dispatch (#308)
+- wheel-test fails for plot tests (#261)
+- resolve architectural issues across dataset, netcdf, and feature modules (#197)
+- **packaging**: add GDAL to PyPI deps and fix missing YAML files in wheel (#162)
+
+### Refactor
+
+- **collection**: replace flox with a local single-pass grouped reduction (#714)
+- **typing**: make the netCDF subpackage and engine layer pass mypy (#657)
+- **netcdf**: extract engine subpackage from the NetCDF god-object (STR-1) (#627)
+- **netcdf**: consolidate duplicated MDIM/CF/UGRID logic behind the stable API (#612)
+- remove out-of-scope domain surfaces (grids, EO signers, natural_earth/relief) (#476)
+- remove out-of-scope domain surfaces; deprecate the rest
+- **zarr**: GeoZarr geobox, lazy read, cube round-trip, codecs, append + foreign/STAC reads (#417)
+- re-evaluate package architecture; close audit(#289)
+- **feature**: modernize feature subpackage and expand I/O surface (#252)
+- **dataset**: resolve 20 design issues from architectural review (#175)
+- restructure package layout and decompose Dataset into mixins (#170)
+- **api**: replace os module with pathlib across all public APIs (#157)
+- **typing**: modernize type annotations and add mypy (#146)
+- **netcdf**: extract into subpackage with MDIM round-trip support (#91)
+
+### Perf
+
+- **wheels**: trim niche GDAL_DATA and add wheel size/leak guardrails (#475)
+- **wheels**: shrink the bundled platform wheel 18-27% and make wheel CI deterministic (#471)
+
+## 0.8.0 (2025-09-07)
+
+### Feat
+
+- **plot**: add to_xyz method and improve plotting integration with Cleopatra (#99)
+- **plot**: add to_xyz method and improve plotting integration with Cleopatra
+- **docker**: add Docker support with workflow and documentation (#127)
+- **docker**: add Docker support with workflow and documentation
+
+## 0.7.3 (2025-08-02)
+
+## 0.7.2 (2025-01-12)
+
+## 0.7.1 (2024-12-07)
+
+## 0.7.0 (2024-07-12)
+
+## 0.6.0 (2024-02-19)
+
+## 0.5.6 (2024-01-09)
+
+## 0.5.5 (2024-01-04)
+
+## 0.5.4 (2023-12-31)
+
+## 0.5.3 (2023-12-28)
+
+## 0.5.2 (2023-12-27)
+
+## 0.5.1 (2023-11-27)
+
+## 0.5.0 (2023-10-01)
+
+## 0.4.2 (2023-04-27)
+
+## 0.4.1 (2023-04-23)
+
 ## 0.42.0 (2026-07-07)
 
 ### Feat
