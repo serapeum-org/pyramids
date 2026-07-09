@@ -560,6 +560,9 @@ class NetCDF(Dataset):
         # (x_index, y_index) of the raster plane within the MDArray's dimensions, resolved by
         # _read_md_array. The eager materialize path needs them to rebuild the unreversed view.
         self._md_spatial_dims: tuple[int, int] | None = None
+        # True once the AsClassicDataset view has been replaced by a window-readable MEM raster
+        # (see _materialize_md_view). Tracks the raster, so _update_inplace carries it over.
+        self._md_view_materialized: bool = False
         # True once a geostationary scan-angle geotransform has been rescaled to
         # metres on this cube; tells the `geotransform` property to trust the
         # stored geotransform instead of re-deriving radian spacing from x/y.
@@ -665,6 +668,7 @@ class NetCDF(Dataset):
             "_gdal_classic_src_ref": self._gdal_classic_src_ref,
             "_md_y_flipped": self._md_y_flipped,
             "_md_spatial_dims": self._md_spatial_dims,
+            "_md_view_materialized": self._md_view_materialized,
             "_geostationary_scaled": self._geostationary_scaled,
             "_md_array_dims": self._md_array_dims,
             "_band_dim_name": self._band_dim_name,
@@ -915,22 +919,23 @@ class NetCDF(Dataset):
         scan angles that the classic netCDF driver scales to projected metres by
         ``perspective_point_height`` (after applying their ``scale_factor`` /
         ``add_offset``). The multidimensional ``AsClassicDataset`` path used by
-        :meth:`get_variable` does neither, so the cube comes back with a raw
+        :meth:`get_variable` does neither — ``GDALMDArray::GuessGeoTransform``
+        reads the *raw* coordinate values — so the cube comes back with a raw
         pixel/radian geotransform under a metre-based geostationary CRS and
         ``to_crs`` collapses. Adopt the classic driver's metre geotransform so
         the cube is correctly georeferenced; a no-op for every other CRS.
 
-        The corrected geotransform is applied to the underlying GDAL dataset via
-        an in-memory VRT (the MDIM ``AsClassicDataset`` view has no driver and
-        silently ignores ``SetGeoTransform``), so ``to_crs`` — which warps
-        ``self.raster`` — sees it. The source view is kept alive (the VRT
-        references it; the view is backed by the MDArray refs already held).
+        An ``AsClassicDataset`` view has no driver and silently ignores
+        ``SetGeoTransform``, so the corrected geotransform is stamped onto a
+        materialized ``MEM`` raster (see :meth:`_materialize_md_view`), which
+        every downstream ``Warp`` / ``CreateCopy`` then sees.
 
         Side effects for a rescaled geostationary cube:
 
-        * ``self.raster`` becomes a VRT with no MDIM root group, so coordinate
-          accessors (`lon` / `lat` / `x` / `y`) report the projected **metre**
-          coordinates derived from the geotransform, not the raw ``x`` / ``y``.
+        * ``self.raster`` becomes a MEM raster with no MDIM root group, so
+          coordinate accessors (`lon` / `lat` / `x` / `y`) report the projected
+          **metre** coordinates derived from the geotransform, not the raw
+          ``x`` / ``y``.
         * ``crop(bbox=...)`` against the cube's own geostationary CRS can fail
           inside PROJ (off-disc cutline). Reproject with ``to_crs(4326)`` and
           crop the result.
@@ -944,29 +949,21 @@ class NetCDF(Dataset):
             # Already georeferenced (e.g. opened via the classic read path).
             self._geostationary_scaled = True
             return
-        # gdal.Translate probes the source to build the VRT; on GDAL >= 3.13 a windowed probe of the
-        # raw multidim AsClassicDataset view logs a benign, recovered-from
-        # "arrayStartIdx[...] >= <dim>" error (the VRT still builds correctly). Silence that single
-        # call so it does not surface as a spurious error; the result is validated immediately below,
-        # so a genuine VRT failure still falls through to the warning.
-        gdal.PushErrorHandler("CPLQuietErrorHandler")
-        try:
-            vrt = gdal.Translate("", self._raster, format="VRT")
-        finally:
-            gdal.PopErrorHandler()
-        if vrt is not None and vrt.SetGeoTransform(correct) == gdal.CE_None:
-            self._gdal_classic_src_ref = self._raster
-            self._raster = vrt
-        else:
-            warnings.warn(
-                "could not georeference the geostationary view through a VRT; "
-                "the wrapper geotransform reports metres but the underlying "
-                "dataset keeps its raw scan-angle grid, so to_crs/crop may be "
-                "wrong.",
-                stacklevel=3,
-            )
+        # Adopt the classic driver's metre geotransform and stamp it onto a materialized MEM raster.
+        # The previous approach wrapped the view in a VRT purely because an AsClassicDataset view
+        # ignores SetGeoTransform -- but every read and warp then went through that VRT, which was
+        # ~20x slower than reading the view directly and, over a Y-reversed view, raised
+        # "arrayStartIdx[...] >= <dim>" on each windowed block.
         self._geotransform = correct
         self._cell_size = abs(correct[1])
+        self._materialize_md_view()
+        if not self._md_view_materialized:
+            warnings.warn(
+                "could not materialize the geostationary view; the wrapper "
+                "geotransform reports metres but the underlying dataset keeps "
+                "its raw scan-angle grid, so to_crs/crop may be wrong.",
+                stacklevel=3,
+            )
         self._geostationary_scaled = True
 
     @property
@@ -2475,6 +2472,11 @@ class NetCDF(Dataset):
                 "container — call get_variable(<name>) first and warp that, "
                 "or use to_crs() for an eager whole-container reprojection."
             )
+        # warped_view builds a VRT over self.raster and warps it with windowed reads. A bottom-up
+        # variable's raster is a reversed AsClassicDataset view, which cannot service those reads
+        # (arrayStartIdx), and a geostationary view carries a raw scan-angle geotransform. Materialize
+        # first so the warp sees a plain MEM raster with the corrected geotransform.
+        self._materialize_md_view()
         pinned = super().warped_view(crs, method, cell_size=cell_size, bbox=bbox)
         result = self._preserve_netcdf_metadata(pinned)
         # Carry the GC pin: the VRT references the source GDAL handle, so the
@@ -2499,7 +2501,7 @@ class NetCDF(Dataset):
         Idempotent; a no-op on a classic (non-multidim) subset. The lazy ``read_array(chunks=)`` path
         reads from the file directly and never touches this view, so it stays fully lazy.
         """
-        if getattr(self, "_md_view_materialized", False):
+        if self._md_view_materialized:
             return
         # Only a variable subset carries an AsClassicDataset view. A root container's raster is the
         # multidim file dataset (0 bands) and must never be copied here.
@@ -3790,12 +3792,16 @@ class NetCDF(Dataset):
         geotransform is immutable (``SetGeoTransform`` is a no-op on it), hence the VRT wrapper.
 
         A no-op when: the cube isn't a variable subset; the view is already georeferenced (the
-        common case — the derived geotransform matches); or the file has no 1-D lon/lat matching
-        the grid shape (curvilinear 2-D coordinates, named coordinate variables, etc.). The
-        coordinates are read from the parent rather than via ``cube.lon`` / ``cube.lat`` so those
-        accessors keep their existing geotransform-derived (north-up) orientation.
+        common case — the derived geotransform matches); the file has no 1-D lon/lat matching
+        the grid shape (curvilinear 2-D coordinates, named coordinate variables, etc.); or the
+        CRS is geostationary. In that last case the 1-D ``x`` / ``y`` are **scan angles** (radians,
+        packed with a ``scale_factor``), not projected coordinates, so a coordinate-derived
+        geotransform is meaningless — it would overwrite the projected metre grid that
+        :meth:`_normalize_geostationary_geotransform` just installed with a raw index-space one.
+        The coordinates are read from the parent rather than via ``cube.lon`` / ``cube.lat`` so
+        those accessors keep their existing geotransform-derived (north-up) orientation.
         """
-        if isinstance(cube, NetCDF):
+        if isinstance(cube, NetCDF) and not cube._is_geostationary():
             real_gt = self._coordinate_derived_geotransform(cube)
             if real_gt is not None:
                 # Building the VRT issues a partial-window read of the AsClassicDataset MDArray view,
