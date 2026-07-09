@@ -27,6 +27,14 @@ GOES = "tests/data/netcdf/cf__9v__1d7-2d2__geos__y-desc.nc"
 NOAH = "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
 
 
+class _RaisingRootGroup:
+    """A root group whose `OpenMDArray` fails, the way a closed/renamed source would."""
+
+    def OpenMDArray(self, name):  # noqa: N802 - mirrors the GDAL SWIG API
+        """Fail the way a GDAL SWIG call fails."""
+        raise RuntimeError(f"cannot reopen {name}")
+
+
 def _irregular_lon_mdim() -> gdal.Dataset:
     """An in-memory multidim store whose `lon` is irregularly spaced and whose array carries no CRS.
 
@@ -174,6 +182,21 @@ class TestMaterializeIntegrity:
         var = NetCDF.read_file(GOES).get_variable("CMI")
         var._md_spatial_dims = None
         assert var._materialize_from_raw_view() is None, "cannot rebuild the raw view without dims"
+        var._materialize_md_view()
+        assert var._md_view_materialized is True, "fallback copy must still materialize"
+        assert var.raster.ReadAsArray(10, 10, 20, 20).shape[-2:] == (20, 20)
+
+    def test_raw_view_rebuild_declines_when_the_mdarray_cannot_be_reopened(self):
+        """A GDAL failure reopening the source MDArray falls back to copying the wrapper's raster.
+
+        Test scenario:
+            `_materialize_from_raw_view` reopens the variable to rebuild the *unreversed* view. If
+            that raises, materializing must still produce a window-readable raster rather than
+            propagate the error.
+        """
+        var = NetCDF.read_file(GOES).get_variable("CMI")
+        var._gdal_rg_ref = _RaisingRootGroup()
+        assert var._materialize_from_raw_view() is None, "a failed reopen must decline, not raise"
         var._materialize_md_view()
         assert var._md_view_materialized is True, "fallback copy must still materialize"
         assert var.raster.ReadAsArray(10, 10, 20, 20).shape[-2:] == (20, 20)

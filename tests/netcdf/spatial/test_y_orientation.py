@@ -12,6 +12,8 @@ Style: Google-style docstrings, <=120 char lines, no inline imports,
 single return statement, descriptive assertion messages.
 """
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
@@ -450,6 +452,14 @@ class _FakeDim:
         return None if self._values is None else _FakeIndexingVariable(self._values)
 
 
+class _RaisingDim:
+    """A dimension whose indexing variable cannot be read."""
+
+    def GetIndexingVariable(self):  # noqa: N802 - mirrors the GDAL SWIG API
+        """Fail the way a GDAL SWIG call fails."""
+        raise RuntimeError("no indexing variable")
+
+
 class _FakeIndexingVariable:
     """A 1-D MDArray stand-in whose `GetUnscaled()` is the identity."""
 
@@ -496,6 +506,68 @@ class TestScaledAxisAscends:
         """
         result = NetCDF._scaled_axis_ascends([_FakeDim(values)], 0)
         assert result is expected, f"{label}: expected {expected}, got {result}"
+
+    def test_unreadable_indexing_variable_reports_unknown(self):
+        """A GDAL failure reading the indexing variable reports `None`, not a direction."""
+        assert NetCDF._scaled_axis_ascends([_RaisingDim()], 0) is None
+
+
+class TestCorrectFlippedGeotransform:
+    """The wrapper-side geotransform correction re-anchors whichever axis GDAL left describing the
+    pre-flip order."""
+
+    @staticmethod
+    def _cube(gt, y_flipped, x_flipped):
+        """A minimal stand-in carrying only what `_correct_flipped_geotransform` reads."""
+        return SimpleNamespace(
+            _geotransform=gt,
+            _md_y_flipped=y_flipped,
+            _md_x_flipped=x_flipped,
+            _rows=4,
+            _columns=5,
+            _cell_size=None,
+        )
+
+    def test_y_flip_reanchors_origin_to_the_north(self):
+        """A positive `gt[5]` after a Y flip is re-anchored to the north edge."""
+        cube = self._cube((10.0, 2.0, 0.0, 0.0, 0.0, 1.0), y_flipped=True, x_flipped=False)
+        NetCDF._correct_flipped_geotransform(cube)
+        assert cube._geotransform == (10.0, 2.0, 0.0, 4.0, 0.0, -1.0)
+        assert cube._cell_size == 2.0
+
+    def test_x_flip_reanchors_origin_to_the_west(self):
+        """A negative `gt[1]` after an X flip is re-anchored to the west edge.
+
+        Test scenario:
+            GDAL normally corrects a reversed view's geotransform itself, so this branch only fires
+            when the reversed dimension had no indexing variable. Exercised directly because no
+            fixture can reach it.
+        """
+        cube = self._cube((30.0, -2.0, 0.0, 10.0, 0.0, -1.0), y_flipped=False, x_flipped=True)
+        NetCDF._correct_flipped_geotransform(cube)
+        assert cube._geotransform == (20.0, 2.0, 0.0, 10.0, 0.0, -1.0)
+        assert cube._cell_size == 2.0
+
+    def test_both_axes_reanchored_together(self):
+        """Both corrections compose into one north-up, west-to-east geotransform."""
+        cube = self._cube((30.0, -2.0, 0.0, 0.0, 0.0, 1.0), y_flipped=True, x_flipped=True)
+        NetCDF._correct_flipped_geotransform(cube)
+        assert cube._geotransform == (20.0, 2.0, 0.0, 4.0, 0.0, -1.0)
+
+    def test_already_north_up_is_untouched(self):
+        """An already-correct geotransform is left alone, and `_cell_size` is not rewritten."""
+        gt = (10.0, 2.0, 0.0, 4.0, 0.0, -1.0)
+        cube = self._cube(gt, y_flipped=True, x_flipped=True)
+        NetCDF._correct_flipped_geotransform(cube)
+        assert cube._geotransform == gt
+        assert cube._cell_size is None, "no change means no _cell_size write"
+
+    def test_unflipped_cube_keeps_a_positive_y_pixel_size(self):
+        """Without a recorded flip the geotransform is trusted as-is — the #705 guard."""
+        gt = (10.0, 2.0, 0.0, 0.0, 0.0, 1.0)
+        cube = self._cube(gt, y_flipped=False, x_flipped=False)
+        NetCDF._correct_flipped_geotransform(cube)
+        assert cube._geotransform == gt, "a geostationary cube must not be re-anchored"
 
 
 class TestXAxisOrientation:
