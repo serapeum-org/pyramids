@@ -372,7 +372,8 @@ class TestReadMdArray:
 
         Test scenario:
             A 2D variable should be converted to a classic dataset via
-            AsClassicDataset(). Returns a tuple (dataset, md_arr, rg, iXDim, iYDim, y_flipped).
+            AsClassicDataset(). Returns a tuple
+            (dataset, md_arr, rg, iXDim, iYDim, y_flipped, x_flipped).
         """
         src, md_arr, rg, _ix, _iy, _yf, _xf = nc_2d._read_md_array("elevation")
         assert isinstance(src, gdal.Dataset), f"Expected gdal.Dataset, got {type(src)}"
@@ -384,7 +385,8 @@ class TestReadMdArray:
 
         Test scenario:
             A 3D variable's non-spatial dimensions should become bands.
-            Returns a tuple (dataset, md_arr, rg, iXDim, iYDim, y_flipped) for lifetime safety.
+            Returns a tuple (dataset, md_arr, rg, iXDim, iYDim, y_flipped, x_flipped)
+            for lifetime safety.
         """
         src, _, _, _ix, _iy, _yf, _xf = nc_3d._read_md_array("temperature")
         assert isinstance(src, gdal.Dataset), f"Expected gdal.Dataset, got {type(src)}"
