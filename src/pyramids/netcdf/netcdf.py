@@ -827,7 +827,16 @@ class NetCDF(Dataset):
         not from the hot `geotransform` property — that uses the
         `_geostationary_scaled` flag instead).
         """
-        srs = self._raster.GetSpatialRef() if self._raster is not None else None
+        return self._dataset_is_geostationary(self._raster)
+
+    @staticmethod
+    def _dataset_is_geostationary(dataset) -> bool:
+        """True when ``dataset``'s CRS is the CF geostationary projection.
+
+        Takes the raster rather than ``self`` so the orientation predicates can ask it of the
+        ``AsClassicDataset`` view before any cube exists.
+        """
+        srs = dataset.GetSpatialRef() if dataset is not None else None
         return bool(
             srs is not None
             and srs.GetAttrValue("PROJECTION") == GEOSTATIONARY_PROJECTION
@@ -3643,6 +3652,9 @@ class NetCDF(Dataset):
         """
         values = None
         result = None
+        # True when `values` holds raw storage read through a negative scale_factor, so its order is
+        # the reverse of the physical axis'.
+        inverted = False
         try:
             indexing_var = dims[index].GetIndexingVariable()
         except (RuntimeError, AttributeError):
@@ -3651,17 +3663,28 @@ class NetCDF(Dataset):
             # GetUnscaled() is a zero-copy view applying scale_factor/add_offset; it is a no-op
             # (scale 1, offset 0) for an unpacked coordinate.
             try:
-                unscaled = indexing_var.GetUnscaled() or indexing_var
-                values = np.asarray(unscaled.ReadAsArray())
+                unscaled = indexing_var.GetUnscaled()
+            except (RuntimeError, AttributeError):
+                unscaled = None
+            try:
+                if unscaled is not None:
+                    values = np.asarray(unscaled.ReadAsArray())
+                else:
+                    # Never silently fall back to the RAW values: a negative scale_factor -- exactly
+                    # what a geostationary granule packs its scan angle with -- reverses the physical
+                    # direction, which is the whole of #705. Read raw, then account for the sign.
+                    values = np.asarray(indexing_var.ReadAsArray())
+                    scale = indexing_var.GetScale()
+                    inverted = scale is not None and scale < 0
             except (RuntimeError, AttributeError, TypeError):
                 values = None
         if values is not None and values.ndim == 1 and values.size >= 2:
             first, last = float(values[0]), float(values[-1])
             # A NaN endpoint (a fill value in the coordinate) compares unequal to everything and
             # less-than nothing, so a naive `first < last` would silently call the axis descending
-            # and mirror the raster. Report "unknown" and let the geotransform sign decide.
+            # and mirror the raster. Report "unknown" and let the caller's fallback decide.
             if np.isfinite(first) and np.isfinite(last) and first != last:
-                result = first < last
+                result = (first < last) != inverted
         return result
 
     @classmethod
@@ -3669,10 +3692,19 @@ class NetCDF(Dataset):
         """Whether the Y axis runs south-to-north and must be reversed to GDAL's north-up order.
 
         Falls back to the geotransform sign only when the Y dimension exposes no usable 1-D
-        coordinate — there the raw geotransform is all GDAL has, and it is not misleading.
+        coordinate — there the raw geotransform is all GDAL has. That fallback is *unsafe for a
+        geostationary axis*: GDAL builds the geotransform from the raw scan angles, which ascend
+        under the negative ``scale_factor`` a granule packs them with, so the sign says "flip" for an
+        array that is already north-up (#705). Since such a cube goes on to adopt the classic
+        driver's north-up metre geotransform, never flip it on that signal alone.
         """
         ascends = cls._scaled_axis_ascends(dims, y_index)
-        return classic_view.GetGeoTransform()[5] > 0 if ascends is None else ascends
+        if ascends is None:
+            geostationary = cls._dataset_is_geostationary(classic_view)
+            result = classic_view.GetGeoTransform()[5] > 0 and not geostationary
+        else:
+            result = ascends
+        return result
 
     @classmethod
     def _x_axis_is_right_to_left(cls, dims, x_index: int, classic_view) -> bool:
@@ -3685,10 +3717,15 @@ class NetCDF(Dataset):
 
         No known producer writes a descending X, but a file that did used to come back **mirrored
         west-east**, since the coordinate-derived geotransform assumed the first longitude was the
-        west edge.
+        west edge. The geostationary carve-out matches :meth:`_y_axis_is_bottom_up`'s.
         """
         ascends = cls._scaled_axis_ascends(dims, x_index)
-        return classic_view.GetGeoTransform()[1] < 0 if ascends is None else not ascends
+        if ascends is None:
+            geostationary = cls._dataset_is_geostationary(classic_view)
+            result = classic_view.GetGeoTransform()[1] < 0 and not geostationary
+        else:
+            result = not ascends
+        return result
 
     def get_variable(
         self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None

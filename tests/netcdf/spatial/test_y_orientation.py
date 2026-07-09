@@ -460,6 +460,51 @@ class _RaisingDim:
         raise RuntimeError("no indexing variable")
 
 
+class _UnscaledlessDim:
+    """A dimension whose `GetUnscaled()` declines, leaving only raw values and a scale factor."""
+
+    def __init__(self, raw_values, scale):
+        self._raw = np.asarray(raw_values)
+        self._scale = scale
+
+    def GetIndexingVariable(self):  # noqa: N802 - mirrors the GDAL SWIG API
+        """Return the packed coordinate variable."""
+        return self
+
+    def GetDimensionCount(self):  # noqa: N802 - mirrors the GDAL SWIG API
+        """Coordinate variables are 1-D."""
+        return 1
+
+    def GetUnscaled(self):  # noqa: N802 - mirrors the GDAL SWIG API
+        """Decline, the way GDAL does when it cannot build the unscaled view."""
+        return None
+
+    def GetScale(self):  # noqa: N802 - mirrors the GDAL SWIG API
+        """The coordinate's `scale_factor`."""
+        return self._scale
+
+    def ReadAsArray(self):  # noqa: N802 - mirrors the GDAL SWIG API
+        """The raw, packed storage values."""
+        return self._raw
+
+
+class _GeostationaryView:
+    """A classic-dataset stand-in carrying a geostationary CRS and a raw-order geotransform."""
+
+    def __init__(self, geotransform):
+        self._gt = geotransform
+
+    def GetGeoTransform(self):  # noqa: N802 - mirrors the GDAL SWIG API
+        """The view's raw-derived geotransform."""
+        return self._gt
+
+    def GetSpatialRef(self):  # noqa: N802 - mirrors the GDAL SWIG API
+        """A geostationary spatial reference."""
+        srs = osr.SpatialReference()
+        srs.SetGEOS(-75.0, 35786023.0, 0.0, 0.0)
+        return srs
+
+
 class _FakeIndexingVariable:
     """A 1-D MDArray stand-in whose `GetUnscaled()` is the identity."""
 
@@ -510,6 +555,55 @@ class TestScaledAxisAscends:
     def test_unreadable_indexing_variable_reports_unknown(self):
         """A GDAL failure reading the indexing variable reports `None`, not a direction."""
         assert NetCDF._scaled_axis_ascends([_RaisingDim()], 0) is None
+
+    @pytest.mark.parametrize(
+        "raw, scale, expected",
+        [
+            ([0, 1, 2, 3], -5.6e-05, False),
+            ([0, 1, 2, 3], 5.6e-05, True),
+            ([3, 2, 1, 0], -5.6e-05, True),
+            ([0, 1, 2, 3], None, True),
+        ],
+        ids=["negative-scale", "positive-scale", "negative-scale-desc-raw", "no-scale"],
+    )
+    def test_declined_unscaled_view_accounts_for_the_scale_sign(self, raw, scale, expected):
+        """When `GetUnscaled()` declines, the raw order is corrected by the scale factor's sign.
+
+        Test scenario:
+            Reading the raw values as if they were scaled inverts the direction of a negatively-packed
+            axis — precisely how a GOES scan angle, whose raw values ascend while the physical angle
+            descends, got mirrored in #705.
+        """
+        result = NetCDF._scaled_axis_ascends([_UnscaledlessDim(raw, scale)], 0)
+        assert result is expected, f"raw={raw} scale={scale}: expected {expected}, got {result}"
+
+
+class TestGeostationaryFallbackNeverFlips:
+    """With an unreadable coordinate, a geostationary axis must not be flipped on the raw gt sign."""
+
+    def test_y_fallback_refuses_to_flip_a_geostationary_axis(self):
+        """A raw-order `gt[5] > 0` would re-mirror a geostationary raster (#705); it must be ignored.
+
+        Test scenario:
+            GDAL derives the view's geotransform from the *raw* scan angles, which ascend under the
+            negative `scale_factor`. If the scaled coordinate cannot be read, that positive `gt[5]`
+            is the only signal left — and it is the wrong one, because the cube then adopts the
+            classic driver's north-up metre geotransform.
+        """
+        view = _GeostationaryView((0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
+        assert NetCDF._y_axis_is_bottom_up([_RaisingDim()], 0, view) is False
+
+    def test_x_fallback_refuses_to_flip_a_geostationary_axis(self):
+        """The mirror carve-out for columns."""
+        view = _GeostationaryView((0.0, -1.0, 0.0, 0.0, 0.0, -1.0))
+        assert NetCDF._x_axis_is_right_to_left([_RaisingDim()], 0, view) is False
+
+    def test_non_geostationary_fallback_still_uses_the_geotransform_sign(self):
+        """A plain raster with no usable coordinate still falls back to the geotransform sign."""
+        view = gdal.GetDriverByName("MEM").Create("", 2, 2, 1, gdal.GDT_Float32)
+        view.SetGeoTransform((0.0, -1.0, 0.0, 0.0, 0.0, 1.0))
+        assert NetCDF._y_axis_is_bottom_up([_RaisingDim()], 0, view) is True
+        assert NetCDF._x_axis_is_right_to_left([_RaisingDim()], 0, view) is True
 
 
 class TestCorrectFlippedGeotransform:
