@@ -8,7 +8,7 @@ import tempfile
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 import numpy as np
 import pandas as pd
@@ -241,7 +241,9 @@ def _finalize_append_metadata(
 
     root = zarr.open_group(resolved_store, mode="a")
     root.attrs["time_length"] = int(new_time_length)
-    existing_files = list(root.attrs.get("pyramids_file_list", []))
+    # pyramids_file_list is always written as list(files) by
+    # _finalize_collection_metadata, never any other JSON shape.
+    existing_files = list(cast(list, root.attrs.get("pyramids_file_list", [])))
     root.attrs["pyramids_file_list"] = existing_files + list(added_files)
     # zarr v3 emits a ZarrUserWarning that consolidated metadata isn't yet in the
     # spec; suppress it here so the append finalizer matches the other writer
@@ -780,7 +782,9 @@ class DatasetCollection:
         reduced = getattr(self.groupby(window_labels), op)(skipna=skipna)
 
         geo = self._base.geotransform
-        epsg = self._base.epsg
+        # epsg is None for a no-EPSG CRS (e.g. geostationary); fall back to the WKT
+        # so create_from_array still preserves it instead of defaulting to 4326 (#706).
+        epsg = self._base.epsg or self._base.crs
         no_data_value = self._base.no_data_value[0]
         result: list[tuple[Any, Dataset]] = []
         for label in sorted(reduced):
@@ -868,6 +872,9 @@ class DatasetCollection:
             # Zarr-backed cube (from_zarr): read the 4-D (T, B, R, C) array
             # lazily straight from the store — no per-file stacking.
             return da.from_zarr(self._zarr_store, component="data")
+        # The guard above already proved self._files is non-empty when
+        # self._zarr_store is None.
+        assert self._files is not None
         meta = self._meta
         shape = meta.shape
         dtype = np.dtype(meta.dtype)
@@ -1070,12 +1077,20 @@ class DatasetCollection:
         import dask
         import zarr
 
+        # to_zarr (the only caller) already checked self._files is non-empty.
+        assert self._files is not None
+
         if append_dim != "time":
             raise ValueError(
                 f"append_dim must be 'time' for a (T, B, Y, X) cube; got {append_dim!r}"
             )
         root = zarr.open_group(resolved_store, mode="a")
         existing = root["data"]
+        if not isinstance(existing, zarr.Array):
+            raise TypeError(
+                f"expected the 'data' node in {resolved_store!r} to be a zarr "
+                f"Array, got a Group -- the store is not a pyramids cube"
+            )
         old_t = int(existing.shape[0])
         new_total = old_t + int(data.shape[0])
         existing.resize((new_total, *existing.shape[1:]))
@@ -1276,6 +1291,7 @@ class DatasetCollection:
         y_coord = np.asarray(self._base.y)
         x_coord = np.asarray(self._base.x)
 
+        data_vars: dict[str, tuple[tuple[str, ...], np.ndarray]]
         if var_per_band:
             data_vars = {
                 names[i]: ((time_dim, "y", "x"), cube[:, i, :, :])
@@ -1507,7 +1523,7 @@ class DatasetCollection:
     @classmethod
     def from_files(
         cls,
-        files: list[str | Path],
+        files: Sequence[str | Path],
         *,
         meta: RasterMeta | None = None,
         gdal_env: dict[str, str] | None = None,
@@ -1584,27 +1600,40 @@ class DatasetCollection:
 
         resolved = _resolve_store(store, storage_options)
         root = zarr.open_group(resolved, mode="r")
-        data_attrs = dict(root["data"].attrs)
+        data_arr = root["data"]
+        if not isinstance(data_arr, zarr.Array):
+            raise TypeError(
+                f"expected the 'data' node in {resolved!r} to be a zarr Array, "
+                f"got a Group -- the store is not a pyramids cube"
+            )
+        data_attrs = dict(data_arr.attrs)
         geobox = read_geobox(root, data_name="data")
-        time_length, bands, rows, cols = (int(v) for v in root["data"].shape)
-        time_length = int(root.attrs.get("time_length", time_length))
+        time_length, bands, rows, cols = (int(v) for v in data_arr.shape)
+        # These attrs are always written by _finalize_collection_metadata /
+        # _finalize_append_metadata with the concrete types cast here, never any
+        # other JSON shape.
+        time_length = cast(int, root.attrs.get("time_length", time_length))
 
-        nodata_list = data_attrs.get("nodata")
+        nodata_list = cast("list | None", data_attrs.get("nodata"))
         if nodata_list and any(v is not None for v in nodata_list):
             no_data_value: Any = list(nodata_list)
         else:
             no_data_value = None
-        dtype = np.dtype(data_attrs.get("dtype", "float32"))
+        dtype = np.dtype(cast(str, data_attrs.get("dtype", "float32")))
         template_arr = np.zeros((bands, rows, cols), dtype=dtype)
+        geo_6 = cast(
+            "tuple[float, float, float, float, float, float]",
+            tuple(float(v) for v in geobox["geotransform"]),
+        )
         template = Dataset.create_from_array(
             template_arr if bands > 1 else template_arr[0],
-            geo=tuple(float(v) for v in geobox["geotransform"]),
+            geo=geo_6,
             epsg=geobox["epsg"] or 4326,
             no_data_value=no_data_value,
         )
         if geobox["crs_wkt"]:
             template.crs = geobox["crs_wkt"]
-        band_names = data_attrs.get("band_names") or []
+        band_names = cast("list | None", data_attrs.get("band_names")) or []
         if band_names and len(band_names) == template.band_count:
             template.band_names = list(band_names)
         meta = RasterMeta.from_dataset(template)
@@ -1815,8 +1844,15 @@ class DatasetCollection:
                     )
             else:
                 if date:
+                    # Reachable only when NOT(date and file_name_data_fmt is
+                    # None) (the elif above) and date is True here, so
+                    # file_name_data_fmt is guaranteed not None. Bind a
+                    # narrowed local so the lambda closure captures a plain
+                    # str, not the Optional parameter.
+                    assert file_name_data_fmt is not None
+                    date_fmt: str = file_name_data_fmt
                     fn: Callable[[Any], Any] = lambda x: dt.datetime.strptime(
-                        x.group(), file_name_data_fmt
+                        x.group(), date_fmt
                     )
                 else:
                     fn = lambda x: int(x.group())
@@ -1925,7 +1961,9 @@ class DatasetCollection:
             ds = _Dataset.create_from_array(
                 arr=val[i],
                 geo=self._base.geotransform,
-                epsg=self._base.epsg,
+                # epsg is None for a no-EPSG CRS (e.g. geostationary); fall back to
+                # the WKT so this preserves it instead of defaulting to 4326 (#706).
+                epsg=self._base.epsg or self._base.crs,
                 no_data_value=self._base.no_data_value[0],
             )
             new_datasets.append(ds)
@@ -1967,9 +2005,12 @@ class DatasetCollection:
         Returns:
             np.ndarray: A 2D array (single int) or a 3D array (slice).
         """
+        # read_array() is called with no chunks=, so it always returns a plain
+        # ndarray (the dask.Array arm of ArrayLike is unreachable here); numpy's
+        # __getitem__ stub returns Any for a general index.
         if isinstance(key, int):
-            return self.datasets[key].read_array(band=0)
-        return self.values[key]
+            return cast(np.typing.NDArray, self.datasets[key].read_array(band=0))
+        return cast(np.typing.NDArray, self.values[key])
 
     def __setitem__(self, key: int, value: np.ndarray) -> None:
         """Replace a single timestep's Dataset with a MEM Dataset built from ``value``.
@@ -1998,7 +2039,9 @@ class DatasetCollection:
         datasets[key] = _Dataset.create_from_array(
             arr=value,
             geo=self._base.geotransform,
-            epsg=self._base.epsg,
+            # epsg is None for a no-EPSG CRS (e.g. geostationary); fall back to the
+            # WKT so this preserves it instead of defaulting to 4326 (#706).
+            epsg=self._base.epsg or self._base.crs,
             no_data_value=self._base.no_data_value[0],
         )
         # The mutation breaks the disk correspondence for that slot;
@@ -2051,7 +2094,8 @@ class DatasetCollection:
         Cheaper than ``self.values[0]`` because it only reads one
         timestep instead of the full cube.
         """
-        return self.datasets[0].read_array(band=0)
+        # No chunks=, so this always returns a plain ndarray.
+        return cast(np.typing.NDArray, self.datasets[0].read_array(band=0))
 
     def last(self) -> np.typing.NDArray:
         """Last timestep array (2D).
@@ -2059,7 +2103,8 @@ class DatasetCollection:
         Cheaper than ``self.values[-1]`` because it only reads one
         timestep instead of the full cube.
         """
-        return self.datasets[-1].read_array(band=0)
+        # No chunks=, so this always returns a plain ndarray.
+        return cast(np.typing.NDArray, self.datasets[-1].read_array(band=0))
 
     def iloc(self, i: int) -> Dataset:
         """Return the ``Dataset`` at position ``i``.
@@ -2390,7 +2435,9 @@ class DatasetCollection:
             transient = Dataset.create_from_array(
                 arr=arr,
                 geo=src.geotransform,
-                epsg=src.epsg,
+                # epsg is None for a no-EPSG CRS (e.g. geostationary); fall back to
+                # the WKT so this preserves it instead of defaulting to 4326 (#706).
+                epsg=src.epsg or src.crs,
                 no_data_value=src.no_data_value[0],
             )
             transient.to_file(path[i], band=band)

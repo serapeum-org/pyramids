@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +33,7 @@ _cloud_config = signer_cloud_config
 
 
 def merge_rasters(
-    src: list[str | Path],
+    src: Sequence[str | Path],
     dst: str | Path,
     no_data_value: float | int | str = "0",
     init: float | int | str = "nan",
