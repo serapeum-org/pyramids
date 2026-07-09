@@ -324,13 +324,17 @@ class TestChangeNoDataValueNan:
         assert np.allclose(result[1], [[1.0, -1.0], [-1.0, 4.0]]), "Band 1 replaced by its own sentinel"
 
     @pytest.mark.parametrize(
-        "kwargs",
+        ("kwargs", "expected"),
         [
-            pytest.param({"new_value": -1.0, "old_value": [-9999.0]}, id="old_value"),
-            pytest.param({"new_value": [1.0], "old_value": -9999.0}, id="new_value"),
+            pytest.param(
+                {"new_value": -1.0, "old_value": [-9999.0]}, "old_value", id="old_value"
+            ),
+            pytest.param(
+                {"new_value": [1.0], "old_value": -9999.0}, "new_value", id="new_value"
+            ),
         ],
     )
-    def test_change_nodata_wrong_length_raises(self, kwargs):
+    def test_change_nodata_wrong_length_raises(self, kwargs, expected):
         """A mismatched-length new_value/old_value list raises NoDataValueError, not IndexError."""
         arr = np.stack(
             [
@@ -345,7 +349,7 @@ class TestChangeNoDataValueNan:
             epsg=4326,
             no_data_value=-9999.0,
         )
-        with pytest.raises(NoDataValueError, match="length"):
+        with pytest.raises(NoDataValueError, match=rf"{expected} must be .* length"):
             ds.change_no_data_value(**kwargs)
 
 
