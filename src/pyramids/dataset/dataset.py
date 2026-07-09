@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import warnings
 import weakref
+from collections.abc import Sequence
 from numbers import Number
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -3515,7 +3516,7 @@ class Dataset(RasterBase):
     @classmethod
     def from_band_files(
         cls,
-        files: list[str | Path],
+        files: Sequence[str | Path],
         *,
         band_names: list[str] | None = None,
         align: bool = False,
