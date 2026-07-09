@@ -2603,7 +2603,23 @@ class NetCDF(Dataset):
             wrapper_srs = self._raster.GetSpatialRef()
             if wrapper_srs is not None:
                 result.SetSpatialRef(wrapper_srs)
+            self._reconcile_band_no_data(result)
         return result
+
+    def _reconcile_band_no_data(self, target: "gdal.Dataset") -> None:
+        """Copy the wrapper's per-band no-data onto a raster rebuilt from the raw view.
+
+        The rebuilt view reads the same MDArray, so band order, scale and offset already agree. Its
+        no-data need not: an ``AsClassicDataset`` view silently ignores ``SetNoDataValue``, but the
+        VRT that :meth:`_georeference_index_subset` may wrap around it does not, so a no-data set on
+        the wrapper would be lost when the raster is rebuilt. Only a value actually present on the
+        wrapper is copied — never ``None`` over a value the raw view supplies.
+        """
+        bands = min(target.RasterCount, self._raster.RasterCount)
+        for index in range(1, bands + 1):
+            no_data = self._raster.GetRasterBand(index).GetNoDataValue()
+            if no_data is not None:
+                target.GetRasterBand(index).SetNoDataValue(no_data)
 
     def resample(
         self,

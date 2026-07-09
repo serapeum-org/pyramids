@@ -224,6 +224,28 @@ class TestMaterializeIntegrity:
         var._materialize_md_view()
         np.testing.assert_array_equal(var.read_array(band=0), arr)
 
+    def test_materialize_keeps_band_no_data_set_on_the_wrapper(self):
+        """A no-data set on the wrapper raster survives the rebuild from the raw view.
+
+        Test scenario:
+            An `AsClassicDataset` view ignores `SetNoDataValue`, but the VRT `_georeference_index_subset`
+            wraps around it does not. Rebuilding the raster from the raw view took that view's no-data
+            and silently dropped the wrapper's.
+        """
+        var = Container(_irregular_lon_mdim()).get_variable("v")
+        assert var.raster.GetDriver().ShortName == "VRT", "fixture should be VRT-wrapped"
+        var.raster.GetRasterBand(1).SetNoDataValue(-777.0)
+        var._materialize_md_view()
+        assert var.raster.GetRasterBand(1).GetNoDataValue() == -777.0, "materialize dropped no-data"
+
+    def test_materialize_does_not_erase_the_raw_views_no_data(self):
+        """A wrapper with no no-data must not blank the value the raw view supplies."""
+        var = NetCDF.read_file(NOAH).get_variable("Band1")
+        before = var.raster.GetRasterBand(1).GetNoDataValue()
+        assert before is not None, "fixture should carry a no-data value"
+        var._materialize_md_view()
+        assert var.raster.GetRasterBand(1).GetNoDataValue() == before
+
     def test_materialize_keeps_a_crs_the_raw_view_never_had(self):
         """Materializing preserves a CRS installed on the wrapper after the view was built.
 
