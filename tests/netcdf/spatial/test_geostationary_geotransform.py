@@ -94,14 +94,15 @@ class TestGeostationaryGeotransform:
         np.testing.assert_array_equal(np.asarray(arr), classic)
 
     def test_scaled_state_survives_update_inplace(self, goes_cube: NetCDF):
-        # _update_inplace (used by set_crs / the epsg setter / apply(inplace))
-        # must preserve the geostationary scaling flag and the source-view
-        # keep-alive, so the metre geotransform is not lost after in-place ops.
+        # _update_inplace (used by set_crs / the epsg setter / apply(inplace)) must preserve the
+        # geostationary scaling flag and the materialize flag, so the metre geotransform is not lost
+        # after in-place ops and the already-materialized raster is not needlessly re-copied.
         assert goes_cube._geostationary_scaled is True
-        src_ref = goes_cube._gdal_classic_src_ref
+        assert goes_cube._md_view_materialized is True
         goes_cube._update_inplace(goes_cube.raster)
         assert goes_cube._geostationary_scaled is True
-        assert goes_cube._gdal_classic_src_ref is src_ref
+        assert goes_cube._md_view_materialized is True
+        assert goes_cube._md_y_flipped is False
         assert abs(goes_cube.geotransform[1]) > 1000
 
     def test_materialize_failure_warns_and_keeps_metre_wrapper(self, monkeypatch):

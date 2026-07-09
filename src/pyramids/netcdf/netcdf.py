@@ -549,10 +549,6 @@ class NetCDF(Dataset):
         self._group_path: str | None = None
         self._gdal_md_arr_ref: Any = None
         self._gdal_rg_ref: Any = None
-        # Keeps the source MDIM view alive when a geostationary variable is
-        # re-georeferenced through an in-memory VRT (see
-        # _normalize_geostationary_geotransform).
-        self._gdal_classic_src_ref: Any = None
         # Whether get_variable reversed a south-to-north Y axis for this cube (None until a variable
         # subset is read). The eager materialize path replays it on the fast classic driver; declared
         # here so it is a class invariant snapshotted alongside the _gdal_* refs in _update_inplace.
@@ -604,8 +600,6 @@ class NetCDF(Dataset):
           with its own ``_raster`` and SWIG MDArray / root-group references;
         * the ``_gdal_md_arr_ref`` / ``_gdal_rg_ref`` views that keep an
           extracted variable's C++ backing alive;
-        * ``_gdal_classic_src_ref`` (the source kept alive behind a
-          geostationary VRT);
         * the ``_parent_nc`` back-reference forming a refcount cycle with the
           parent's variable cache.
 
@@ -630,7 +624,6 @@ class NetCDF(Dataset):
             self._cached_variables = None
         self._gdal_md_arr_ref = None
         self._gdal_rg_ref = None
-        self._gdal_classic_src_ref = None
         # The ad-hoc view/warp keep-alive pins are set only on some code paths (a
         # GetView Y-flip or a to_crs warp), so they are not initialised in __init__;
         # clear them here too — otherwise they hold their backing GDAL handle past
@@ -668,7 +661,6 @@ class NetCDF(Dataset):
             "_group_path": self._group_path,
             "_gdal_md_arr_ref": self._gdal_md_arr_ref,
             "_gdal_rg_ref": self._gdal_rg_ref,
-            "_gdal_classic_src_ref": self._gdal_classic_src_ref,
             "_md_y_flipped": self._md_y_flipped,
             "_md_x_flipped": self._md_x_flipped,
             "_md_spatial_dims": self._md_spatial_dims,
