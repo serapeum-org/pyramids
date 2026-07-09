@@ -30,7 +30,7 @@ import pickle
 
 import numpy as np
 import pytest
-from osgeo import gdal
+from osgeo import gdal, osr
 from numpy.testing import assert_allclose
 
 from pyramids.netcdf.netcdf import NetCDF
@@ -178,7 +178,7 @@ class TestDefaultChunks:
             _mdarray_shape_and_dtype,
         )
 
-        shape, _, block_size, _flip = _mdarray_shape_and_dtype(
+        shape, _, block_size, _flip_y, _flip_x = _mdarray_shape_and_dtype(
             three_d_path,
             three_d_var._source_var_name,
         )
@@ -359,4 +359,37 @@ class TestLazyOrientationMatchesEager:
         direct = self._first_plane(container._read_variable(variable))
         np.testing.assert_array_equal(
             direct, eager, err_msg="_read_variable is mirrored relative to get_variable"
+        )
+
+    def test_descending_x_lazy_read_matches_eager(self, tmp_path):
+        """A descending-longitude file reads west-first through both the eager and lazy paths.
+
+        Test scenario:
+            The `col 0 = west` normalization was added to the eager path only, so a chunked read of
+            an east-to-west file came back mirrored relative to `read_array()` — the horizontal twin
+            of #705. No producer writes such a file, so build one.
+        """
+        path = str(tmp_path / "lon_descending.nc")
+        src = gdal.GetDriverByName("MEM").Create("", 5, 4, 1, gdal.GDT_Float32)
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        src.SetProjection(srs.ExportToWkt())
+        # Origin at the east edge, walking west: lon = 29, 27, 25, 23, 21.
+        src.SetGeoTransform((30.0, -2.0, 0.0, 10.0, 0.0, -1.0))
+        src.GetRasterBand(1).WriteArray(np.arange(20, dtype=np.float32).reshape(4, 5))
+        gdal.Translate(path, src, format="netCDF", creationOptions=["WRITE_BOTTOMUP=NO"])
+
+        container = NetCDF.read_file(path)
+        var = container.get_variable("Band1")
+        assert var._md_x_flipped is True, "the fixture's longitude must descend"
+        eager = self._first_plane(var.read_array())
+        lazy = self._first_plane(
+            NetCDF.read_file(path).get_variable("Band1").read_array(chunks="auto")
+        )
+        direct = self._first_plane(container._read_variable("Band1"))
+        np.testing.assert_array_equal(
+            lazy, eager, err_msg="chunked read is mirrored west-east relative to the eager read"
+        )
+        np.testing.assert_array_equal(
+            direct, eager, err_msg="_read_variable is mirrored west-east relative to get_variable"
         )

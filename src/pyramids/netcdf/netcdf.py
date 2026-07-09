@@ -3146,8 +3146,7 @@ class NetCDF(Dataset):
     def _needs_y_flip(self, rg, md_arr) -> bool:
         """Check if an MDArray's Y dimension goes south-to-north.
 
-        Uses AsClassicDataset to check the geotransform Y pixel size.
-        Returns True if the data needs flipping (positive Y pixel size).
+        Decided from the scale/offset-applied coordinate; see `_mdim.needs_y_flip`.
         Returns False for 1-D arrays or when orientation is already correct.
 
         Args:
@@ -3155,6 +3154,18 @@ class NetCDF(Dataset):
             md_arr: The MDArray to check.
         """
         return needs_y_flip(rg, md_arr)
+
+    def _needs_x_flip(self, rg, md_arr) -> bool:
+        """Check if an MDArray's X dimension goes east-to-west.
+
+        Decided from the scale/offset-applied coordinate; see `_mdim.needs_x_flip`.
+        Returns False for 1-D arrays or when orientation is already correct.
+
+        Args:
+            rg: The root group (kept alive to prevent SWIG GC).
+            md_arr: The MDArray to check.
+        """
+        return needs_x_flip(rg, md_arr)
 
     def _read_variable(
         self,
@@ -3197,11 +3208,14 @@ class NetCDF(Dataset):
                         )
                     else:
                         result = md_arr.ReadAsArray()
-                    # Flip Y axis if south-to-north (same as get_variable)
-                    if result is not None and result.ndim >= 2:
-                        if window is None and self._needs_y_flip(rg, md_arr):
-                            y_axis = result.ndim - 2
-                            result = np.flip(result, axis=y_axis)
+                    # Normalize to the raster convention get_variable produces: row 0 = north,
+                    # col 0 = west. A windowed read is returned in storage order (the window is
+                    # expressed in storage indices), so it is left alone.
+                    if result is not None and result.ndim >= 2 and window is None:
+                        if self._needs_y_flip(rg, md_arr):
+                            result = np.flip(result, axis=result.ndim - 2)
+                        if self._needs_x_flip(rg, md_arr):
+                            result = np.flip(result, axis=result.ndim - 1)
             except (RuntimeError, ValueError):
                 pass  # nosec B110
             # Fall back to dimension indexing variable
