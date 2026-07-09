@@ -2504,6 +2504,11 @@ class NetCDF(Dataset):
 
         Idempotent; a no-op on a classic (non-multidim) subset. The lazy ``read_array(chunks=)`` path
         reads from the file directly and never touches this view, so it stays fully lazy.
+
+        Fails soft: when neither the raw-view rebuild nor the fallback copy yields a raster, the view
+        is left in place and ``_md_view_materialized`` stays ``False``, so callers that need a real
+        raster (notably :meth:`_normalize_geostationary_geotransform`) can warn rather than die on an
+        ``AttributeError`` from a ``None``.
         """
         if self._md_view_materialized:
             return
@@ -2516,7 +2521,10 @@ class NetCDF(Dataset):
             # Fallback: copy through the wrapper's own raster. A full read succeeds even on a
             # reversed view; only windowed reads are unavailable there.
             mem = gdal.GetDriverByName("MEM").CreateCopy("", self._raster)
-            mem.SetGeoTransform(self._geotransform)
+            if mem is not None:
+                mem.SetGeoTransform(self._geotransform)
+        if mem is None:
+            return
         self._raster = mem
         # The MEM copy owns its data; drop the SWIG views that backed the AsClassicDataset.
         self._gdal_md_arr_ref = None

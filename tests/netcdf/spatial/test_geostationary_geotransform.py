@@ -105,13 +105,16 @@ class TestGeostationaryGeotransform:
         assert abs(goes_cube.geotransform[1]) > 1000
 
     def test_materialize_failure_warns_and_keeps_metre_wrapper(self, monkeypatch):
-        # The metre geotransform only reaches GDAL through the materialized MEM raster. If that
-        # cannot be built, warn instead of silently leaving a dataset whose wrapper claims metres
-        # while the underlying grid is still raw scan angles.
+        # The metre geotransform only reaches GDAL through the materialized MEM raster. If neither
+        # the raw-view rebuild nor the fallback copy yields one, _materialize_md_view must fail soft
+        # so this warns, rather than dying on an AttributeError from a None raster. Warn instead of
+        # silently leaving a dataset whose wrapper claims metres while the grid is raw scan angles.
         container = NetCDF.read_file(GOES16_FIXTURE)
-        monkeypatch.setattr(netcdf_module.NetCDF, "_materialize_md_view", lambda self: None)
+        monkeypatch.setattr(netcdf_module.NetCDF, "_materialize_from_raw_view", lambda self: None)
+        monkeypatch.setattr(gdal.Driver, "CreateCopy", lambda *args, **kwargs: None)
         with pytest.warns(UserWarning, match="could not materialize the geostationary view"):
             cube = container.get_variable("CMI")
+        assert cube._md_view_materialized is False, "materialize should have failed soft"
         assert abs(cube.geotransform[1]) > 1000
 
 
