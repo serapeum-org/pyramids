@@ -3887,6 +3887,45 @@ class NetCDF(Dataset):
                     cube._cell_size = real_gt[1]
         return cube
 
+    def _first_coordinate(self, candidates: tuple[str, ...]) -> tuple[Any, str | None]:
+        """The first readable coordinate variable among `candidates`, with the name it was found under."""
+        values, found = None, None
+        for name in candidates:
+            array = self._read_variable(name)
+            if array is not None:
+                values, found = np.asarray(array), name
+                break
+        return values, found
+
+    @staticmethod
+    def _coordinates_index_subset(cube: "NetCDF", lon, lat, lon_name: str | None) -> bool:
+        """Whether the parent's 1-D lon/lat legitimately index `cube`'s spatial grid.
+
+        Adopt them only when the variable actually has the longitude coordinate dimension (by the CF
+        coordinate-variable convention a 1-D coord var shares its dimension's name). Test membership,
+        not position, so it holds when x_dim/y_dim select a non-trailing plane (e.g.
+        ``T(time, lat, lev, lon)``). Only the X (longitude) dim is checked: a Y-flip in
+        ``_read_md_array`` renames the latitude dimension (e.g. ``subset_lat_…``), so the lat name is
+        not reliably present. This still guards a same-shaped but unrelated axis (one with no
+        longitude dimension) from adopting the wrong coordinates. An X-flip renames the longitude
+        dimension the same way, so match the ``subset_<name>_…`` form too.
+        """
+        dim_names = getattr(cube, "_md_array_dims", None) or []
+        names_ok = (not dim_names) or any(
+            name == lon_name or name.startswith(f"subset_{lon_name}_") for name in dim_names
+        )
+        return bool(
+            lon is not None
+            and lat is not None
+            and lon.ndim == 1
+            and lat.ndim == 1
+            and len(lon) == cube.columns
+            and len(lat) == cube.rows
+            and len(lon) >= 2
+            and len(lat) >= 2
+            and names_ok
+        )
+
     def _coordinate_derived_geotransform(self, cube: "NetCDF") -> tuple | None:
         """Real-world geotransform from the parent's 1-D lon/lat, or ``None`` if not applicable.
 
@@ -3897,41 +3936,9 @@ class NetCDF(Dataset):
         differ from the subset's current (index-space) geotransform. Otherwise ``None``.
         """
         result = None
-        lon, lon_name = None, None
-        for cand in ("lon", "x"):
-            arr = self._read_variable(cand)
-            if arr is not None:
-                lon, lon_name = np.asarray(arr), cand
-                break
-        lat = None
-        for cand in ("lat", "y"):
-            arr = self._read_variable(cand)
-            if arr is not None:
-                lat = np.asarray(arr)
-                break
-        # Adopt the parent's lon/lat only when the variable actually has the longitude coordinate
-        # dimension (by the CF coordinate-variable convention a 1-D coord var shares its dimension's
-        # name). Test membership, not position, so it holds when x_dim/y_dim select a non-trailing
-        # plane (e.g. T(time, lat, lev, lon)). Only the X (longitude) dim is checked: the Y-flip in
-        # _read_md_array renames the latitude dimension (e.g. ``subset_lat_…``), so the lat name is
-        # not reliably present. This still guards a same-shaped but unrelated axis (one with no
-        # longitude dimension) from adopting the wrong coordinates. An X-flip renames the longitude
-        # dimension the same way, so match the ``subset_<name>_…`` form too.
-        dim_names = getattr(cube, "_md_array_dims", None) or []
-        names_ok = (not dim_names) or any(
-            name == lon_name or name.startswith(f"subset_{lon_name}_") for name in dim_names
-        )
-        if (
-            lon is not None
-            and lat is not None
-            and lon.ndim == 1
-            and lat.ndim == 1
-            and len(lon) == cube.columns
-            and len(lat) == cube.rows
-            and len(lon) >= 2
-            and len(lat) >= 2
-            and names_ok
-        ):
+        lon, lon_name = self._first_coordinate(("lon", "x"))
+        lat, _ = self._first_coordinate(("lat", "y"))
+        if self._coordinates_index_subset(cube, lon, lat, lon_name):
             # Anchor the affine on the coordinate that the *array's* first column / row actually
             # sits at. `_read_md_array` reverses an axis it decided was backwards, so after a flip
             # col 0 holds the last stored longitude, and without one it holds the first. Taking
