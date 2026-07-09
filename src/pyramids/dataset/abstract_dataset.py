@@ -256,8 +256,8 @@ class RasterBase(ABC):
 
     def xy(
         self,
-        rows: Number | list[Number] | np.ndarray,
-        cols: Number | list[Number] | np.ndarray,
+        rows: np.typing.ArrayLike,
+        cols: np.typing.ArrayLike,
         *,
         center: bool = True,
     ) -> tuple[Any, Any]:
@@ -314,9 +314,7 @@ class RasterBase(ABC):
         """
         # np.ndim == 0 treats Python scalars, NumPy scalars, and 0-d arrays
         # alike; np.isscalar misses 0-d arrays (np.isscalar(np.array(5)) is False).
-        # cast: the numpy stub's np.ndim overload set doesn't recognise
-        # numbers.Number, though it accepts any Number instance at runtime.
-        scalar = np.ndim(cast(Any, rows)) == 0 and np.ndim(cast(Any, cols)) == 0
+        scalar = np.ndim(rows) == 0 and np.ndim(cols) == 0
         rows_arr = np.atleast_1d(np.asarray(rows, dtype=float))
         cols_arr = np.atleast_1d(np.asarray(cols, dtype=float))
         shift = 0.5 if center else 0.0
@@ -338,8 +336,8 @@ class RasterBase(ABC):
 
     def rowcol(
         self,
-        x: Number | list[Number] | np.ndarray,
-        y: Number | list[Number] | np.ndarray,
+        x: np.typing.ArrayLike,
+        y: np.typing.ArrayLike,
     ) -> tuple[Any, Any]:
         """Return the array indices ``(row, col)`` of map coordinates.
 
@@ -392,9 +390,7 @@ class RasterBase(ABC):
         """
         # np.ndim == 0 treats Python scalars, NumPy scalars, and 0-d arrays
         # alike; np.isscalar misses 0-d arrays (np.isscalar(np.array(5)) is False).
-        # cast: the numpy stub's np.ndim overload set doesn't recognise
-        # numbers.Number, though it accepts any Number instance at runtime.
-        scalar = np.ndim(cast(Any, x)) == 0 and np.ndim(cast(Any, y)) == 0
+        scalar = np.ndim(x) == 0 and np.ndim(y) == 0
         x_arr = np.atleast_1d(np.asarray(x, dtype=float))
         y_arr = np.atleast_1d(np.asarray(y, dtype=float))
         inv = self.transform.inverse

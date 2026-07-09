@@ -895,16 +895,20 @@ class Bands(_Engine["Dataset"]):
                 # the default for floats (which can always represent it).
                 np_dtype = np.dtype(self._ds.numpy_dtype[i])
                 # np.issubdtype narrows at runtime but isn't recognised by the
-                # numpy stubs, so np.iinfo still sees the full dtype union.
+                # numpy stubs, so np.iinfo still sees the full dtype union --
+                # cast to the exact integer family each branch just proved.
                 if np.issubdtype(np_dtype, np.unsignedinteger):
                     # -9999 (and any negative default) cannot fit an unsigned
                     # band; use the dtype max, matching the None/NaN branch.
-                    fallback = np_dtype.type(np.iinfo(cast(Any, np_dtype)).max)
+                    unsigned_dtype = cast("np.dtype[np.unsignedinteger]", np_dtype)
+                    fallback = np_dtype.type(np.iinfo(unsigned_dtype).max)
                 elif np.issubdtype(np_dtype, np.integer):
                     # Keep the default -9999 when the signed band can hold it
                     # (int16/int32/int64); only too-small bands (int8) need the
-                    # dtype min.
-                    info = np.iinfo(cast(Any, np_dtype))
+                    # dtype min. The unsignedinteger branch above already ran,
+                    # so this is provably signedinteger.
+                    signed_dtype = cast("np.dtype[np.signedinteger]", np_dtype)
+                    info = np.iinfo(signed_dtype)
                     if info.min <= DEFAULT_NO_DATA_VALUE <= info.max:
                         fallback = np_dtype.type(DEFAULT_NO_DATA_VALUE)
                     else:
