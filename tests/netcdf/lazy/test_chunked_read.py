@@ -30,6 +30,7 @@ import pickle
 
 import numpy as np
 import pytest
+from osgeo import gdal
 from numpy.testing import assert_allclose
 
 from pyramids.netcdf.netcdf import NetCDF
@@ -302,3 +303,60 @@ class TestImportError:
         monkeypatch.setattr(builtins, "__import__", fake_import)
         with pytest.raises(ImportError, match="pyramids-gis\\[lazy\\]"):
             three_d_var.read_array(chunks="auto")
+
+
+ORIENTATION_FIXTURES = [
+    ("tests/data/netcdf/cf__9v__1d7-2d2__geos__y-desc.nc", "CMI", "geostationary, scaled Y descends"),
+    ("tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc", "Band1", "geographic, bottom-up"),
+    ("tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc", "t2m", "geographic, north-up"),
+    ("tests/data/netcdf/coards__4v__1d3-3d1__y-desc.nc", "air", "COARDS, north-up, packed"),
+]
+
+
+@requires_dask
+class TestLazyOrientationMatchesEager:
+    """A chunked read must come back the same way up as the eager read of the same variable."""
+
+    @staticmethod
+    def _first_plane(array):
+        """Reduce a possibly banded read to its first 2-D raster plane."""
+        data = np.asarray(array)
+        while data.ndim > 2:
+            data = data[0]
+        return data
+
+    @pytest.mark.parametrize(
+        "path, variable, label",
+        ORIENTATION_FIXTURES,
+        ids=[f[0].split("/")[-1].split(".")[0] for f in ORIENTATION_FIXTURES],
+    )
+    def test_lazy_read_matches_eager_and_classic_driver(self, path, variable, label):
+        """`read_array(chunks=)` equals `read_array()` equals the classic netCDF driver.
+
+        Test scenario:
+            The eager path decides the Y flip from the scale/offset-applied coordinate, but the lazy
+            path used to decide it from the view's raw geotransform. For a geostationary granule,
+            whose `y` is packed with a negative `scale_factor`, the two disagreed and the chunked
+            read came back vertically mirrored — #705, still live on the lazy path.
+        """
+        classic = self._first_plane(gdal.Open(f'NETCDF:"{path}":{variable}').ReadAsArray())
+        eager = self._first_plane(NetCDF.read_file(path).get_variable(variable).read_array())
+        lazy = self._first_plane(
+            NetCDF.read_file(path).get_variable(variable).read_array(chunks="auto")
+        )
+        np.testing.assert_array_equal(
+            eager, classic, err_msg=f"{label}: eager read disagrees with the classic driver"
+        )
+        np.testing.assert_array_equal(
+            lazy, eager, err_msg=f"{label}: chunked read is mirrored relative to the eager read"
+        )
+
+    def test_read_variable_matches_eager(self):
+        """`_read_variable` shares the orientation rule with `get_variable().read_array()`."""
+        path, variable = ORIENTATION_FIXTURES[0][0], ORIENTATION_FIXTURES[0][1]
+        container = NetCDF.read_file(path)
+        eager = self._first_plane(container.get_variable(variable).read_array())
+        direct = self._first_plane(container._read_variable(variable))
+        np.testing.assert_array_equal(
+            direct, eager, err_msg="_read_variable is mirrored relative to get_variable"
+        )
