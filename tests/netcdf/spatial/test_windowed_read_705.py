@@ -16,7 +16,7 @@ Style: Google-style docstrings, <=120 char lines, no inline imports.
 
 import numpy as np
 import pytest
-from osgeo import gdal
+from osgeo import gdal, osr
 
 from pyramids.netcdf.netcdf import Container, NetCDF
 
@@ -265,6 +265,49 @@ class TestMaterializeIntegrity:
         assert after is not None, "materializing dropped the CRS"
         code = after.GetAuthorityCode(None)
         assert code == "4326", f"CRS changed to {code}"
+
+
+class TestCoordinateDerivedGeotransform:
+    """The coordinate-derived affine describes the array as normalized, not as stored."""
+
+    def test_anchors_on_the_column_the_array_actually_starts_at(self):
+        """With no X flip the west edge comes from `lon[0]`, not from `min(lon)`.
+
+        Test scenario:
+            `_read_md_array` reverses an axis only when it decides the axis is backwards. If that
+            decision came from the geotransform-sign fallback (unreadable / constant / non-finite
+            coordinate) rather than from these coordinates, an affine anchored on `min(lon)` would
+            describe a west-to-east grid over an array still stored east-to-west — a silent mirror.
+            Pin the contract: the anchor follows the array's recorded flip.
+        """
+        container = Container(_irregular_lon_mdim())
+        cube = container.get_variable("v")
+        # lon = [1, 2, 4, 8, 16] ascending -> no X flip -> west edge derives from lon[0] = 1.
+        # lat = [1, 2, 3, 4] ascending -> Y flipped   -> north edge derives from lat[-1] = 4.
+        assert cube._md_x_flipped is False and cube._md_y_flipped is True
+        assert cube.geotransform[0] == pytest.approx(0.5), "west edge should be lon[0] - cell/2"
+        assert cube.geotransform[3] == pytest.approx(4.5), "north edge should be lat[-1] + cell/2"
+
+        # Force the opposite recorded X flip: the anchor must move to the last stored longitude,
+        # because that is the column the (notionally reversed) array would now start at.
+        cube._md_x_flipped = True
+        derived = container._coordinate_derived_geotransform(cube)
+        assert derived is not None, "a changed anchor must be reported as a new affine"
+        assert derived[0] == pytest.approx(15.5), "west edge should follow the array, not min(lon)"
+
+    def test_descending_x_file_anchors_on_the_western_edge(self, tmp_path):
+        """An actually-reversed X axis still yields the true west edge (the coordinate minimum)."""
+        path = str(tmp_path / "lon_descending.nc")
+        src = gdal.GetDriverByName("MEM").Create("", 5, 4, 1, gdal.GDT_Float32)
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        src.SetProjection(srs.ExportToWkt())
+        src.SetGeoTransform((30.0, -2.0, 0.0, 10.0, 0.0, -1.0))
+        src.GetRasterBand(1).WriteArray(np.arange(20, dtype=np.float32).reshape(4, 5))
+        gdal.Translate(path, src, format="netCDF", creationOptions=["WRITE_BOTTOMUP=NO"])
+        var = NetCDF.read_file(path).get_variable("Band1")
+        assert var._md_x_flipped is True
+        assert var.bbox == pytest.approx([20.0, 6.0, 30.0, 10.0])
 
 
 class TestClassicDriverNotUsedForPixels:

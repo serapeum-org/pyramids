@@ -3918,14 +3918,25 @@ class NetCDF(Dataset):
             and len(lat) >= 2
             and names_ok
         ):
-            # The subset is normalized to row 0 = north, col 0 = west, so anchor the affine on the
-            # coordinates' extremes rather than on lon[0] / lat[0] -- either axis may be stored in
-            # either direction, and _read_md_array has already reversed the array where needed.
+            # Anchor the affine on the coordinate that the *array's* first column / row actually
+            # sits at. `_read_md_array` reverses an axis it decided was backwards, so after a flip
+            # col 0 holds the last stored longitude, and without one it holds the first. Taking
+            # min(lon) / max(lat) instead would assume the array was always reversed from these
+            # coordinates -- untrue when the flip came from the geotransform-sign fallback (an
+            # unreadable, constant or non-finite coordinate), leaving the affine describing a
+            # mirror of the array it georeferences.
             x_cell = abs(float(lon[1] - lon[0]))
             y_cell = abs(float(lat[1] - lat[0]))
-            x_west = min(float(lon[0]), float(lon[-1])) - x_cell / 2
-            y_top = max(float(lat[0]), float(lat[-1])) + y_cell / 2
-            real_gt = (x_west, x_cell, 0.0, y_top, 0.0, -y_cell)
+            west_centre = float(lon[-1] if cube._md_x_flipped else lon[0])
+            north_centre = float(lat[-1] if cube._md_y_flipped else lat[0])
+            real_gt = (
+                west_centre - x_cell / 2,
+                x_cell,
+                0.0,
+                north_centre + y_cell / 2,
+                0.0,
+                -y_cell,
+            )
             current = cube._raster.GetGeoTransform()
             if not all(abs(float(a) - float(b)) < 1e-6 for a, b in zip(real_gt, current)):
                 result = real_gt
