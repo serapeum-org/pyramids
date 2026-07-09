@@ -17,7 +17,7 @@ import pytest
 from numpy.testing import assert_allclose
 from osgeo import gdal, osr
 
-from pyramids.netcdf.netcdf import NetCDF
+from pyramids.netcdf.netcdf import Container, NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -355,10 +355,10 @@ class TestOrientationAllCases:
 
         Test scenario:
             A UTM-projected netCDF whose `y` axis ascends (row 0 = south) must be reversed on read.
-            GDAL's classic driver only auto-flips a recognised geographic latitude, so this cell of
-            the 2x2 is the one that proves the orientation rule keys off the coordinate values rather
-            than off the CRS being geographic. Before #705 no test covered it: the geostationary
-            granule was miscatalogued as the projected-ascending case, and it is neither.
+            This fills the 2x2 cell that had no fixture — the geostationary granule was miscatalogued
+            as the projected-ascending case, and it is neither. Note this case does **not** by itself
+            discriminate the #705 fix: the old `gt[5] > 0` rule flipped a projected-ascending axis
+            too. Only the geostationary case (raw ascends, scaled descends) separates the two rules.
         """
         var = NetCDF.read_file(projected_ascending_nc).get_variable("Band1")
         srs = var.raster.GetSpatialRef()
@@ -366,6 +366,77 @@ class TestOrientationAllCases:
         _assert_orientation(
             var, True, "projected ascending (UTM) -> flip", projected_ascending_nc, "Band1"
         )
+
+
+def _mdim_cube(lat_values, lon_values, bands=1):
+    """An in-memory multidim store holding `v(time?, lat, lon)`, plus the array as written.
+
+    GDAL's netCDF writer emits one 2-D variable per band, so a multi-band variable with a chosen
+    coordinate direction cannot be produced by `gdal.Translate`; build the MDArray directly.
+    """
+    store = gdal.GetDriverByName("MEM").CreateMultiDimensional("m")
+    rg = store.GetRootGroup()
+    dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+    band_dims = [rg.CreateDimension("time", None, None, bands)] if bands > 1 else []
+    y_dim = rg.CreateDimension("lat", None, None, len(lat_values))
+    x_dim = rg.CreateDimension("lon", None, None, len(lon_values))
+    lat = rg.CreateMDArray("lat", [y_dim], dtype)
+    lat.WriteArray(np.asarray(lat_values, "f4"))
+    lon = rg.CreateMDArray("lon", [x_dim], dtype)
+    lon.WriteArray(np.asarray(lon_values, "f4"))
+    y_dim.SetIndexingVariable(lat)
+    x_dim.SetIndexingVariable(lon)
+    shape = ((bands,) if bands > 1 else ()) + (len(lat_values), len(lon_values))
+    data = np.arange(int(np.prod(shape)), dtype="f4").reshape(shape)
+    rg.CreateMDArray("v", band_dims + [y_dim, x_dim], dtype).WriteArray(data)
+    return store, data
+
+
+class TestMultiBandMaterialize:
+    """A flipped multi-band cube round-trips through the NumPy re-flip in the materialize path."""
+
+    def test_multiband_y_flip_survives_materialize(self):
+        """A 3-D bottom-up variable reads the same before and after materializing.
+
+        Test scenario:
+            `_materialize_from_raw_view` flips a non-contiguous `[..., ::-1, :]` view of the whole
+            band stack in one `WriteArray`. A band-ordering or stride bug there would corrupt every
+            band but the first, which a 2-D fixture cannot catch.
+        """
+        path = "tests/data/netcdf/cf__7v__1d3-2d3-3d1__y-asc.nc"
+        var = NetCDF.read_file(path).get_variable("tos")
+        assert var._md_y_flipped is True, "the fixture's latitude ascends"
+        before = np.asarray(var.read_array())
+        assert before.ndim == 3 and before.shape[0] > 1, f"expected a band stack, got {before.shape}"
+        np.testing.assert_array_equal(before, _north_up_reference(path, "tos"))
+        var._materialize_md_view()
+        np.testing.assert_array_equal(
+            np.asarray(var.read_array()), before, err_msg="materialize changed a band"
+        )
+        assert var.raster.ReadAsArray(1, 1, 3, 2).shape[-2:] == (2, 3), "window read must work"
+
+    def test_multiband_x_flip_matches_numpy_reference(self):
+        """A 3-D east-to-west variable is reversed along columns, on every band."""
+        store, data = _mdim_cube([4.0, 3.0, 2.0, 1.0], [5.0, 4.0, 3.0, 2.0, 1.0], bands=3)
+        var = Container(store).get_variable("v")
+        assert var._md_x_flipped is True and var._md_y_flipped is False
+        expected = data[..., ::-1]
+        np.testing.assert_array_equal(np.asarray(var.read_array()), expected)
+        var._materialize_md_view()
+        np.testing.assert_array_equal(
+            np.asarray(var.read_array()), expected, err_msg="materialize changed a band"
+        )
+
+    def test_both_axes_flipped_materializes_correctly(self):
+        """A cube stored south-to-north *and* east-to-west is reversed on both axes."""
+        store, data = _mdim_cube([1.0, 2.0, 3.0, 4.0], [5.0, 4.0, 3.0, 2.0, 1.0], bands=2)
+        var = Container(store).get_variable("v")
+        assert var._md_y_flipped is True and var._md_x_flipped is True
+        expected = data[..., ::-1, ::-1]
+        np.testing.assert_array_equal(np.asarray(var.read_array()), expected)
+        var._materialize_md_view()
+        np.testing.assert_array_equal(np.asarray(var.read_array()), expected)
+        assert var.geotransform[1] > 0 and var.geotransform[5] < 0, "must be north-up, west-east"
 
 
 class _FakeDim:
