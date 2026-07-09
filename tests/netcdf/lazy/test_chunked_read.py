@@ -30,9 +30,10 @@ import pickle
 
 import numpy as np
 import pytest
-from osgeo import gdal, osr
 from numpy.testing import assert_allclose
+from osgeo import gdal, osr
 
+from pyramids.netcdf import _lazy as lazy_mod
 from pyramids.netcdf.netcdf import NetCDF
 from tests._marks import requires_dask
 
@@ -137,8 +138,6 @@ class TestChunksLazy:
             ``_dtype_to_str`` to ``"unknown"`` and assert a clear, actionable ``ValueError``
             is raised instead.
         """
-        import pyramids.netcdf._lazy as lazy_mod
-
         monkeypatch.setattr(lazy_mod, "_dtype_to_str", lambda *_a, **_k: "unknown")
         with pytest.raises(ValueError, match="lazy.*reads cannot represent"):
             lazy_mod._mdarray_shape_and_dtype(three_d_path, "values")
@@ -393,3 +392,17 @@ class TestLazyOrientationMatchesEager:
         np.testing.assert_array_equal(
             direct, eager, err_msg="_read_variable is mirrored west-east relative to get_variable"
         )
+
+    def test_one_dimensional_variable_is_never_flipped(self):
+        """A 1-D coordinate array has no raster plane, so no axis is reversed.
+
+        Test scenario:
+            `build_lazy_array` guards the flips behind `len(shape) >= 2`. A lazily read coordinate
+            variable must come back in storage order, matching the eager `_read_variable` path which
+            also leaves 1-D arrays alone.
+        """
+        path = "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
+        lazy = lazy_mod.build_lazy_array(path, "lat", chunks="auto")
+        assert lazy.ndim == 1, f"expected a 1-D lazy array, got {lazy.ndim}-D"
+        eager = np.asarray(NetCDF.read_file(path)._read_variable("lat"))
+        np.testing.assert_array_equal(np.asarray(lazy), eager)
