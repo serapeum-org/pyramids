@@ -1080,8 +1080,8 @@ class Bands(_Engine["Dataset"]):
                 If `new_value` cannot be stored in a band's dtype — e.g. `None` or `NaN`
                 given for an integer band — the dtype mismatch is reported instead of
                 leaking a raw numpy `TypeError`/`ValueError`. Also raised when
-                `old_value` is given as a list whose length does not match
-                `band_count`.
+                `new_value` or `old_value` is given as a list whose length does not
+                match `band_count`.
 
         Warning:
             The `change_no_data_value` method creates a new dataset in memory in order to change the `no_data_value` in the raster bands.
@@ -1114,6 +1114,11 @@ class Bands(_Engine["Dataset"]):
         """
         if not isinstance(new_value, list):
             new_value = [new_value] * self._ds.band_count
+        if len(new_value) != self._ds.band_count:
+            raise NoDataValueError(
+                f"new_value must be a scalar or a list of length band_count "
+                f"({self._ds.band_count}); got a list of length {len(new_value)}."
+            )
         if old_value is not None and not isinstance(old_value, list):
             old_value = [old_value] * self._ds.band_count
         if old_value is not None and len(old_value) != self._ds.band_count:

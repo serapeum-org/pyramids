@@ -341,6 +341,24 @@ class TestChangeNoDataValueNan:
         with pytest.raises(NoDataValueError, match="length"):
             ds.change_no_data_value(-1.0, old_value=[-9999.0])
 
+    def test_change_nodata_new_value_wrong_length_raises(self):
+        """A mismatched-length new_value list raises NoDataValueError, not IndexError."""
+        arr = np.stack(
+            [
+                np.array([[-9999.0, 2.0], [3.0, -9999.0]], dtype=np.float32),
+                np.array([[1.0, -8888.0], [-8888.0, 4.0]], dtype=np.float32),
+            ]
+        )
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        with pytest.raises(NoDataValueError, match="length"):
+            ds.change_no_data_value([1.0], old_value=-9999.0)
+
 
 class TestFillNanNodata:
     """Tests for fill method with NaN no_data_value."""
