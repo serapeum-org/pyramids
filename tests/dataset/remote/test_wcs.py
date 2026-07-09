@@ -376,3 +376,243 @@ class TestLiveSoilGrids:
             output_crs="EPSG:4326",
         )
         assert ds.epsg == 4326
+
+
+class TestDefaultSubsetAxes:
+    def test_geographic_crs_gets_long_lat(self):
+        assert _wcs._default_subset_axes("EPSG:4326") == ("Long", "Lat")
+
+    def test_projected_crs_gets_x_y(self):
+        assert _wcs._default_subset_axes("EPSG:3857") == ("X", "Y")
+
+    def test_unparseable_crs_falls_back_without_raising(self):
+        # a garbage CRS must not raise; it falls back to the non-geographic default
+        assert _wcs._default_subset_axes("not-a-real-crs") == ("X", "Y")
+
+
+class TestGetCoverageUrl:
+    """The direct-mode KVP GetCoverage URL builder (no network)."""
+
+    def test_2_0_x_builds_coverageid_subset_and_subsettingcrs(self):
+        url = _wcs._getcoverage_url(
+            "https://x/mapserv?map=GDO_WCS", "spaST", "EPSG:4326",
+            (-10.0, 35.0, 5.0, 45.0), "2.0.0", "GEOTIFF", None, None,
+            {"TIME": "2024-06-01"},
+        )
+        assert "REQUEST=GetCoverage" in url and "COVERAGEID=spaST" in url
+        assert "SUBSET=Long(-10.0,5.0)" in url  # lon range on the Long axis
+        assert "SUBSET=Lat(35.0,45.0)" in url  # lat range on the Lat axis
+        assert "SUBSETTINGCRS=EPSG:4326" in url  # colon kept literal for shims
+        assert "FORMAT=GEOTIFF" in url and "TIME=2024-06-01" in url
+
+    def test_subset_axes_override_replaces_default_labels(self):
+        url = _wcs._getcoverage_url(
+            "https://x", "c", "EPSG:4326", (0.0, 1.0, 2.0, 3.0), "2.0.1",
+            None, None, ("x", "y"), None,
+        )
+        assert "SUBSET=x(0.0,2.0)" in url and "SUBSET=y(1.0,3.0)" in url
+
+    def test_1_0_0_builds_bbox_and_resx_resy(self):
+        url = _wcs._getcoverage_url(
+            "https://x/wcs", "c", "EPSG:4326", (-10.0, 35.0, 5.0, 45.0),
+            "1.0.0", "GEOTIFF", 0.1, None, None,
+        )
+        assert "COVERAGE=c" in url and "BBOX=-10.0,35.0,5.0,45.0" in url
+        assert "RESX=0.1" in url and "RESY=0.1" in url
+
+    def test_1_0_0_without_resolution_raises_valueerror(self):
+        with pytest.raises(ValueError, match="resolution"):
+            _wcs._getcoverage_url(
+                "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "1.0.0",
+                None, None, None, None,
+            )
+
+    def test_unsupported_version_raises_valueerror(self):
+        with pytest.raises(ValueError, match="1.0.0 and 2.0.x"):
+            _wcs._getcoverage_url(
+                "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "1.1.0",
+                None, None, None, None,
+            )
+
+    def test_malformed_version_raises_valueerror(self):
+        with pytest.raises(ValueError, match="x.y.z"):
+            _wcs._getcoverage_url(
+                "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0",
+                None, None, None, None,
+            )
+
+    def test_projected_crs_uses_x_y_subset_labels(self):
+        url = _wcs._getcoverage_url(
+            "https://x", "c", "EPSG:3857", (0.0, 1.0, 2.0, 3.0), "2.0.0",
+            None, None, None, None,
+        )
+        assert "SUBSET=X(0.0,2.0)" in url and "SUBSET=Y(1.0,3.0)" in url
+
+    def test_extra_params_value_with_space_is_encoded(self):
+        url = _wcs._getcoverage_url(
+            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
+            None, None, None, {"TIME": "2024-06-01 00:00"},
+        )
+        assert "TIME=2024-06-01%2000" in url  # the space is percent-encoded
+
+    def test_extra_params_key_with_ampersand_is_encoded(self):
+        url = _wcs._getcoverage_url(
+            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
+            None, None, None, {"a&b": "v"},
+        )
+        assert "a%26b=v" in url  # '&' in the key cannot split the query
+
+    def test_extra_params_key_colliding_with_builtin_raises(self):
+        with pytest.raises(ValueError, match="collides"):
+            _wcs._getcoverage_url(
+                "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
+                None, None, None, {"VERSION": "1.0.0"},
+            )
+
+
+@pytest.fixture
+def geotiff_bytes():
+    """Bytes of a tiny 4x3 EPSG:4326 GeoTIFF — stands in for a GetCoverage body."""
+    path = "/vsimem/_wcs_direct_fixture.tif"
+    src = gdal.GetDriverByName("GTiff").Create(path, 4, 3, 1, gdal.GDT_Byte)
+    src.SetGeoTransform([-10.0, 3.75, 0.0, 45.0, 0.0, -10.0 / 3.0])
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    src.SetProjection(srs.ExportToWkt())
+    src.GetRasterBand(1).Fill(7)
+    src.FlushCache()
+    src = None
+    stat = gdal.VSIStatL(path)
+    handle = gdal.VSIFOpenL(path, "rb")
+    data = gdal.VSIFReadL(1, stat.size, handle)
+    gdal.VSIFCloseL(handle)
+    gdal.Unlink(path)
+    return bytes(data)
+
+
+@pytest.fixture
+def crsless_geotiff_bytes():
+    """Bytes of a tiny GeoTIFF with a geotransform but NO CRS (a shim response)."""
+    path = "/vsimem/_wcs_crsless_fixture.tif"
+    src = gdal.GetDriverByName("GTiff").Create(path, 4, 3, 1, gdal.GDT_Byte)
+    src.SetGeoTransform([-10.0, 3.75, 0.0, 45.0, 0.0, -10.0 / 3.0])
+    src.GetRasterBand(1).Fill(7)
+    src.FlushCache()
+    src = None
+    stat = gdal.VSIStatL(path)
+    handle = gdal.VSIFOpenL(path, "rb")
+    data = gdal.VSIFReadL(1, stat.size, handle)
+    gdal.VSIFCloseL(handle)
+    gdal.Unlink(path)
+    return bytes(data)
+
+
+class TestDirectGetCoverage:
+    """The ``direct=True`` path: no capabilities/describe, KVP GetCoverage only."""
+
+    ENDPOINT = "https://shim.invalid/mapserv?map=GDO_WCS"
+    BBOX = (-10.0, 35.0, 5.0, 45.0)
+
+    def test_direct_success_returns_dataset(self, monkeypatch, geotiff_bytes):
+        monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: geotiff_bytes)
+        ds = Dataset.from_wcs(
+            self.ENDPOINT, coverage="spaST", bbox=self.BBOX, crs="EPSG:4326",
+            version="2.0.0", wcs_format="GEOTIFF", direct=True,
+        )
+        assert ds.shape == (1, 3, 4)
+        assert ds.epsg == 4326
+
+    def test_direct_skips_capabilities(self, monkeypatch, geotiff_bytes):
+        def boom(*a, **k):
+            raise AssertionError("GetCapabilities must not be called in direct mode")
+
+        monkeypatch.setattr(_wcs, "_get_capabilities", boom)
+        monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: geotiff_bytes)
+        ds = Dataset.from_wcs(
+            self.ENDPOINT, coverage="anything", bbox=self.BBOX, direct=True,
+        )
+        assert ds.epsg == 4326
+
+    def test_direct_exception_report_raises_wcserror(self, monkeypatch):
+        monkeypatch.setattr(
+            _wcs, "_http_get", lambda *a, **k: EXCEPTION_REPORT.encode("utf-8")
+        )
+        with pytest.raises(WCSError, match="exception"):
+            Dataset.from_wcs(
+                self.ENDPOINT, coverage="spaST", bbox=self.BBOX, direct=True,
+            )
+
+    def test_direct_non_raster_body_raises_wcserror(self, monkeypatch):
+        monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: b"not a raster at all")
+        with pytest.raises(WCSError, match="no raster|could not be read"):
+            Dataset.from_wcs(
+                self.ENDPOINT, coverage="c", bbox=(0.0, 0.0, 1.0, 1.0), direct=True,
+            )
+
+    def test_direct_coverage_crs_shim_sets_epsg_on_crsless_raster(
+        self, monkeypatch, crsless_geotiff_bytes
+    ):
+        monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: crsless_geotiff_bytes)
+        ds = Dataset.from_wcs(
+            self.ENDPOINT, coverage="spaST", bbox=self.BBOX, direct=True,
+            coverage_crs="EPSG:4326",
+        )
+        assert ds.epsg == 4326
+
+    def test_direct_1_0_0_end_to_end_no_client_resample(self, monkeypatch, geotiff_bytes):
+        # 1.0.0 sends RESX/RESY, so the server grids server-side and pyramids does
+        # NOT resample again client-side. The mock returns the native-res fixture,
+        # so the result is the fixture grid unchanged (not resampled to 1.0).
+        monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: geotiff_bytes)
+        ds = Dataset.from_wcs(
+            self.ENDPOINT, coverage="c", bbox=self.BBOX, crs="EPSG:4326",
+            version="1.0.0", resolution=1.0, direct=True,
+        )
+        assert ds.epsg == 4326
+        assert ds.shape == (1, 3, 4)  # native fixture grid, no client resample
+
+    def test_direct_forwards_params_into_the_url(self, monkeypatch, geotiff_bytes):
+        captured: dict[str, str] = {}
+
+        def capture(url, *a, **k):
+            captured["url"] = url
+            return geotiff_bytes
+
+        monkeypatch.setattr(_wcs, "_http_get", capture)
+        Dataset.from_wcs(
+            self.ENDPOINT, coverage="spaST", bbox=self.BBOX, crs="EPSG:4326",
+            version="2.0.1", direct=True, subset_axes=("x", "y"),
+            extra_params={"TIME": "2024-06-01"},
+        )
+        url = captured["url"]
+        assert "COVERAGEID=spaST" in url and "VERSION=2.0.1" in url
+        assert "SUBSET=x(-10.0,5.0)" in url and "SUBSET=y(35.0,45.0)" in url
+        assert "TIME=2024-06-01" in url
+
+    def test_direct_output_crs_without_crs_raises(
+        self, monkeypatch, crsless_geotiff_bytes
+    ):
+        monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: crsless_geotiff_bytes)
+        with pytest.raises(WCSError, match="no CRS"):
+            Dataset.from_wcs(
+                self.ENDPOINT, coverage="c", bbox=self.BBOX,
+                output_crs="EPSG:3857", direct=True,
+            )
+
+    def test_direct_resolution_resamples_output(self, monkeypatch, geotiff_bytes):
+        monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: geotiff_bytes)
+        ds = Dataset.from_wcs(
+            self.ENDPOINT, coverage="c", bbox=self.BBOX, version="2.0.0",
+            resolution=1.0, direct=True,
+        )
+        assert ds.cell_size == pytest.approx(1.0, abs=0.01)
+
+    def test_direct_resolution_without_crs_raises(
+        self, monkeypatch, crsless_geotiff_bytes
+    ):
+        monkeypatch.setattr(_wcs, "_http_get", lambda *a, **k: crsless_geotiff_bytes)
+        with pytest.raises(WCSError, match="no CRS"):
+            Dataset.from_wcs(
+                self.ENDPOINT, coverage="c", bbox=self.BBOX, resolution=1.0,
+                direct=True,
+            )
