@@ -323,8 +323,15 @@ class TestChangeNoDataValueNan:
         assert np.allclose(result[0], [[-1.0, 2.0], [3.0, -1.0]]), "Band 0 replaced by its own sentinel"
         assert np.allclose(result[1], [[1.0, -1.0], [-1.0, 4.0]]), "Band 1 replaced by its own sentinel"
 
-    def test_change_nodata_old_value_wrong_length_raises(self):
-        """A mismatched-length old_value list raises NoDataValueError, not IndexError."""
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            pytest.param({"new_value": -1.0, "old_value": [-9999.0]}, id="old_value"),
+            pytest.param({"new_value": [1.0], "old_value": -9999.0}, id="new_value"),
+        ],
+    )
+    def test_change_nodata_wrong_length_raises(self, kwargs):
+        """A mismatched-length new_value/old_value list raises NoDataValueError, not IndexError."""
         arr = np.stack(
             [
                 np.array([[-9999.0, 2.0], [3.0, -9999.0]], dtype=np.float32),
@@ -339,25 +346,7 @@ class TestChangeNoDataValueNan:
             no_data_value=-9999.0,
         )
         with pytest.raises(NoDataValueError, match="length"):
-            ds.change_no_data_value(-1.0, old_value=[-9999.0])
-
-    def test_change_nodata_new_value_wrong_length_raises(self):
-        """A mismatched-length new_value list raises NoDataValueError, not IndexError."""
-        arr = np.stack(
-            [
-                np.array([[-9999.0, 2.0], [3.0, -9999.0]], dtype=np.float32),
-                np.array([[1.0, -8888.0], [-8888.0, 4.0]], dtype=np.float32),
-            ]
-        )
-        ds = Dataset.create_from_array(
-            arr,
-            top_left_corner=(0.0, 0.0),
-            cell_size=0.05,
-            epsg=4326,
-            no_data_value=-9999.0,
-        )
-        with pytest.raises(NoDataValueError, match="length"):
-            ds.change_no_data_value([1.0], old_value=-9999.0)
+            ds.change_no_data_value(**kwargs)
 
 
 class TestFillNanNodata:
