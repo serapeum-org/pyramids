@@ -2530,6 +2530,16 @@ class NetCDF(Dataset):
             if mem is not None:
                 mem.SetGeoTransform(self._geotransform)
         if mem is None:
+            # Both copies failed (a full-image allocation, so essentially only on OOM or a broken
+            # source). Say so here: the view is left in place, and the callers that do not check
+            # `_md_view_materialized` -- to_crs, warped_view, resample, the COG writer -- would
+            # otherwise surface GDAL's opaque "arrayStartIdx[...] >= <dim>" from a windowed read of
+            # a reversed view.
+            warnings.warn(
+                f"could not materialize the multidim view of {self._source_var_name!r}; reads that "
+                "need a window (to_crs, crop, resample, COG) may fail against the reversed view.",
+                stacklevel=3,
+            )
             return
         self._raster = mem
         # The MEM copy owns its data; drop the SWIG views that backed the AsClassicDataset.

@@ -201,6 +201,21 @@ class TestMaterializeIntegrity:
         assert var._md_view_materialized is True, "fallback copy must still materialize"
         assert var.raster.ReadAsArray(10, 10, 20, 20).shape[-2:] == (20, 20)
 
+    def test_total_materialize_failure_warns_instead_of_deferring_to_gdal(self, monkeypatch):
+        """When both copies fail, warn here rather than let a later windowed read raise obscurely.
+
+        Test scenario:
+            `to_crs` / `resample` / the COG writer call `_materialize_md_view()` without checking the
+            flag. If it fails soft and says nothing, they read the still-reversed view and surface
+            GDAL's `arrayStartIdx[...] >= <dim>` with no hint of the real cause.
+        """
+        var = NetCDF.read_file(NOAH).get_variable("Band1")
+        monkeypatch.setattr(NetCDF, "_materialize_from_raw_view", lambda self: None)
+        monkeypatch.setattr(gdal.Driver, "CreateCopy", lambda *args, **kwargs: None)
+        with pytest.warns(UserWarning, match="could not materialize the multidim view"):
+            var._materialize_md_view()
+        assert var._md_view_materialized is False, "the view must be left in place"
+
     def test_in_memory_variable_materializes_correctly(self):
         """An in-memory variable (no on-disk path) materializes to the same pixels."""
         arr = np.arange(20.0).reshape(4, 5)
