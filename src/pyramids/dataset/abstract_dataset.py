@@ -94,7 +94,9 @@ class RasterBase(ABC):
         # Per-thread file manager for read_array(threadsafe=True); created
         # lazily by the IO engine and released by close().
         self._thread_manager = None
-        self._geotransform = src.GetGeoTransform()
+        self._geotransform: tuple[float, float, float, float, float, float] = (
+            src.GetGeoTransform()
+        )
         self._cell_size = self._geotransform[1]
         self._file_name = src.GetDescription()
         # the epsg property returns the value of the _epsg attribute, so if the projection changes in any function, the
@@ -220,7 +222,7 @@ class RasterBase(ABC):
         pass
 
     @property
-    def geotransform(self):
+    def geotransform(self) -> tuple[float, float, float, float, float, float]:
         """WKT projection.(x, cell_size, 0, y, 0, -cell_size)."""
         return self._geotransform
 

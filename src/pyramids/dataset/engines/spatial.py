@@ -8,7 +8,7 @@ Owns the Spatial family of operations on a Dataset. Accessed as
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast, overload
 from xml.sax.saxutils import escape
 
 import numpy as np
@@ -61,6 +61,12 @@ def _dst_srs_arg(dst_sr: osr.SpatialReference) -> str:
     return srs_arg
 
 
+@overload
+def _resolve_resolution(
+    cell_size: float | tuple[float, float] | list[float],
+) -> tuple[float, float]: ...
+@overload
+def _resolve_resolution(cell_size: None) -> tuple[None, None]: ...
 def _resolve_resolution(
     cell_size: float | tuple[float, float] | list[float] | None,
 ) -> tuple[float | None, float | None]:
@@ -78,6 +84,7 @@ def _resolve_resolution(
     Raises:
         ValueError: If the pair is not length 2, or any resolution is not positive.
     """
+    result: tuple[float | None, float | None]
     if cell_size is None:
         result = (None, None)
     else:
@@ -1205,7 +1212,9 @@ class Spatial(_Engine["Dataset"]):
         # and now has to be filled with values
         # compare no of element that is not no_data_value in both rasters to make sure they are matched
         # if both inputs are rasters
-        mask_array = mask.read_array()
+        # read_array() is called with no chunks=, so it always returns a plain
+        # ndarray here (the dask.Array arm of ArrayLike is unreachable).
+        mask_array = cast(np.typing.NDArray, mask.read_array())
         mask_noval = mask.no_data_value[0]
 
         if isinstance(mask, RasterBase) and isinstance(self._ds, RasterBase):
@@ -1255,7 +1264,9 @@ class Spatial(_Engine["Dataset"]):
             row = mask.rows
             col = mask.columns
             mask_noval = mask.no_data_value[0]
-            mask_array = mask.read_array(band=0)
+            # read_array() is called with no chunks=, so it always returns a plain
+            # ndarray here (the dask.Array arm of ArrayLike is unreachable).
+            mask_array = cast(np.typing.NDArray, mask.read_array(band=0))
         elif isinstance(mask, np.ndarray):
             if mask_noval is None:
                 raise ValueError(
@@ -1271,7 +1282,9 @@ class Spatial(_Engine["Dataset"]):
 
         band_count = self._ds.band_count
         src_sref = sr_from_wkt(self._ds.crs)
-        src_array = self._ds.read_array()
+        # read_array() is called with no chunks=, so it always returns a plain
+        # ndarray here (the dask.Array arm of ArrayLike is unreachable).
+        src_array = cast(np.typing.NDArray, self._ds.read_array())
 
         if not row == self._ds.rows or not col == self._ds.columns:
             raise ValueError(
@@ -1524,7 +1537,10 @@ class Spatial(_Engine["Dataset"]):
                 multithread=True,
             )
             dst = gdal.Warp("", self._ds.raster, options=warp_options)
-            dst_obj = base_cls(dst)
+            # base_cls is a dynamic MRO walk that always resolves to Dataset itself
+            # (the class directly above RasterBase; see the comment above), never a
+            # subclass, so this is guaranteed to actually be a Dataset at runtime.
+            dst_obj = cast("Dataset", base_cls(dst))
             if touch:
                 dst_obj = Spatial._correct_wrap_cutline_error(dst_obj)
 
@@ -1650,11 +1666,17 @@ class Spatial(_Engine["Dataset"]):
         Raises:
             ValueError: The bbox does not overlap the dataset's longitude extent.
         """
-        return _crop_seam_halves(
-            self._ds,
-            bbox,
-            lambda half: self.crop(bbox=half, epsg=crs, touch=touch),
-            self._merge_lon_halves,
+        # _crop_seam_halves is shared with the NetCDF Selection engine and returns
+        # Any accordingly; here crop_half/merge_halves are both Dataset-returning,
+        # so the result is a Dataset.
+        return cast(
+            "Dataset",
+            _crop_seam_halves(
+                self._ds,
+                bbox,
+                lambda half: self.crop(bbox=half, epsg=crs, touch=touch),
+                self._merge_lon_halves,
+            ),
         )
 
     def _merge_lon_halves(self, west_part: Dataset, east_part: Dataset) -> Dataset:
@@ -1880,8 +1902,11 @@ class Spatial(_Engine["Dataset"]):
             ds_epsg = self._ds.epsg
             ds_geo = ds_epsg is not None and sr_from_user_input(ds_epsg).IsGeographic()
             if west > east and crs_geo and ds_geo:
-                _require_antimeridian_seam(self._ds, tuple(bbox))
-                return self._crop_antimeridian(tuple(bbox), crs, touch)
+                # bbox is validated 4-long above; tuple(bbox) loses that fixed
+                # arity statically (it may start as a list), so restore it.
+                bbox_4 = cast(tuple[float, float, float, float], tuple(bbox))
+                _require_antimeridian_seam(self._ds, bbox_4)
+                return self._crop_antimeridian(bbox_4, crs, touch)
             mask = FeatureCollection.from_bbox(bbox, epsg=crs)
         if mask is None:
             raise TypeError(

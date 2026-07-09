@@ -25,11 +25,21 @@ to zero where the relative tolerance is too loose.
 
 from __future__ import annotations
 
+from typing import overload
+
 import numpy as np
 
 DEFAULT_RTOL: float = 0.001
 
 
+@overload
+def is_no_data(
+    arr: np.ndarray, no_data_value: float | None, *, rtol: float = DEFAULT_RTOL
+) -> np.typing.NDArray: ...
+@overload
+def is_no_data(
+    arr: float, no_data_value: float | None, *, rtol: float = DEFAULT_RTOL
+) -> bool: ...
 def is_no_data(
     arr: np.ndarray | float,
     no_data_value: float | None,
