@@ -26,7 +26,7 @@ then reduce.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from pyramids.feature import FeatureCollection
 
 
-_STAT_FUNCS = {
+_STAT_FUNCS: dict[str, Callable[[np.ndarray], Any]] = {
     "mean": np.nanmean,
     "sum": np.nansum,
     "min": np.nanmin,

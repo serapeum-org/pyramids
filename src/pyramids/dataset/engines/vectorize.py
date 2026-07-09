@@ -171,6 +171,8 @@ class Vectorize(_Engine["Dataset"]):
         if interval is not None:
             options += [f"LEVEL_INTERVAL={interval}", f"LEVEL_BASE={base}"]
         else:
+            # The exactly-one-of guard above proves fixed_levels is not None here.
+            assert fixed_levels is not None
             options.append("FIXED_LEVELS=" + ",".join(str(lvl) for lvl in fixed_levels))
 
         no_data_value = gdal_band.GetNoDataValue()
@@ -797,7 +799,7 @@ class Vectorize(_Engine["Dataset"]):
         neighbor. The caller (cluster) handles truly isolated cells separately.
         """
         rows, cols = array.shape
-        queue = collections.deque()
+        queue: collections.deque[tuple[int, int]] = collections.deque()
         queue.append((i, j))
 
         while queue:

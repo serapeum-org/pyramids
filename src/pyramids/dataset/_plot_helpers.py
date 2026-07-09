@@ -515,6 +515,10 @@ def render_array(
         # test-time ``patch("pyramids.basemap.basemap.add_basemap")`` is
         # honoured (the patch swaps the module attribute, not any
         # pre-bound reference this helper might hold).
+        # Only called when basemap is truthy, and the guard above already
+        # proved basemap_epsg is set in that case; mypy does not track that
+        # implication into this closure.
+        assert basemap_epsg is not None
         _basemap_module.add_basemap(
             target_ax,
             crs=basemap_epsg,
@@ -544,7 +548,9 @@ def render_array(
         # option that ``ArrayGlyph.plot`` does (it allocates one Axes
         # per panel and calls ``imshow``/``pcolormesh`` under the hood).
         # Forward only the render-call-only set; the rest is already on
-        # the constructor.
+        # the constructor. The guard at the top of this function already
+        # proved facet_kwargs is set for mode == "facet".
+        assert facet_kwargs is not None
         result = cleo.facet(**facet_kwargs, **render_kwargs)
         if basemap:
             # Every facet panel renders the same spatial domain (cleopatra
@@ -658,6 +664,9 @@ def mesh_render(
 
     result = plot_mesh_data(mesh, data, location=location, **kwargs)
     if basemap:
+        # The guard above already proved basemap_epsg is set when basemap is
+        # truthy.
+        assert basemap_epsg is not None
         source = basemap if isinstance(basemap, str) else None
         ax = result.ax if hasattr(result, "ax") else result
         _basemap_module.add_basemap(ax, crs=basemap_epsg, source=source)

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
@@ -197,7 +197,7 @@ class Analysis(_Engine["Dataset"]):
         )
         return int(domain_count)
 
-    def apply(self, func, band: int = 0, inplace: bool = False) -> Dataset:
+    def apply(self, func, band: int = 0, inplace: bool = False) -> Dataset | None:
         """Apply a function to all domain cells.
 
         - apply method executes a mathematical operation on the raster array.
@@ -213,8 +213,12 @@ class Analysis(_Engine["Dataset"]):
                 Default is False.
 
         Returns:
-            Dataset:
-                A new Dataset with the function applied. If inplace is True, returns self.
+            Dataset | None:
+                A new Dataset with the function applied, or ``None`` when
+                ``inplace=True`` -- the :meth:`Dataset.apply` facade
+                substitutes the real ``self`` in that case (this collaborator
+                only holds a ``weakref.proxy`` back-reference, so it cannot
+                satisfy an ``is`` identity check itself).
 
         Examples:
             - Create a dataset from an array filled with values between -1 and 1:
@@ -282,7 +286,7 @@ class Analysis(_Engine["Dataset"]):
 
     def fill(
         self, value: float | int, inplace: bool = False, path: str | Path | None = None
-    ) -> Dataset:
+    ) -> Dataset | None:
         """Fill the domain cells with a certain value.
 
             Fill takes a raster and fills it with one value
@@ -296,8 +300,9 @@ class Analysis(_Engine["Dataset"]):
                 Path including the extension (.tif).
 
         Returns:
-            Dataset:
-                A new Dataset with cells filled. If inplace is True, returns self.
+            Dataset | None:
+                A new Dataset with cells filled, or ``None`` when
+                ``inplace=True`` -- see :meth:`apply` for why.
 
         Examples:
             - Create a Dataset with 1 band, 5 rows, 5 columns, at the point lon/lat (0, 0):
@@ -488,16 +493,16 @@ class Analysis(_Engine["Dataset"]):
         """
         if isinstance(points, FeatureCollection):
             verts = points.with_coordinates()
-            return verts.loc[:, ["x", "y"]].to_numpy(dtype=float)
+            return cast(np.typing.NDArray, verts.loc[:, ["x", "y"]].to_numpy(dtype=float))
         if isinstance(points, GeoDataFrame):
             verts = FeatureCollection(points).with_coordinates()
-            return verts.loc[:, ["x", "y"]].to_numpy(dtype=float)
+            return cast(np.typing.NDArray, verts.loc[:, ["x", "y"]].to_numpy(dtype=float))
         if isinstance(points, DataFrame):
             if not all(col in points.columns for col in ("x", "y")):
                 raise ValueError(
                     "If the input is a DataFrame, it must have 'x' and 'y' columns."
                 )
-            return points.loc[:, ["x", "y"]].to_numpy(dtype=float)
+            return cast(np.typing.NDArray, points.loc[:, ["x", "y"]].to_numpy(dtype=float))
         raise TypeError(
             "points must be a FeatureCollection, GeoDataFrame, or DataFrame with "
             f"x/y columns - given {type(points)}."

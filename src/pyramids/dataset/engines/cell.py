@@ -213,12 +213,12 @@ class Cell(_Engine["Dataset"]):
 
         coords_tuples = [list(zip(x[:, i], y[:, i])) for i in range(4)]
         polys_coords = [
-            (
+            [
                 coords_tuples[0][i],
                 coords_tuples[1][i],
                 coords_tuples[2][i],
                 coords_tuples[3][i],
-            )
+            ]
             for i in range(len(x))
         ]
         polygons = list(map(create_polygon, polys_coords))

@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 from osgeo import gdal
@@ -90,7 +90,7 @@ class Georef(_Engine["Dataset"]):
         Returns:
             int: the GCP count.
         """
-        return self._ds.raster.GetGCPCount()
+        return cast(int, self._ds.raster.GetGCPCount())
 
     @property
     def gcp_projection(self: Georef) -> str | None:
@@ -109,7 +109,7 @@ class Georef(_Engine["Dataset"]):
         Returns:
             bool: whether any GCP is attached.
         """
-        return self._ds.raster.GetGCPCount() > 0
+        return cast(int, self._ds.raster.GetGCPCount()) > 0
 
     @property
     def rpcs(self: Georef) -> dict[str, str] | None:

@@ -41,7 +41,7 @@ import urllib.request
 import uuid
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from xml.etree import ElementTree as ET
 
 from osgeo import gdal
@@ -87,7 +87,7 @@ def _http_get(
         opener.add_handler(urllib.request.HTTPBasicAuthHandler(mgr))
     try:
         with opener.open(url, timeout=timeout) as resp:
-            return resp.read()
+            return cast(bytes, resp.read())
     except OSError as exc:
         # urllib.error.URLError / HTTPError both derive from OSError.
         raise WCSError(f"WCS {what} request failed for {url!r}: {exc}") from exc

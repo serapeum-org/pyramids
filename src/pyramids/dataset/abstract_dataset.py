@@ -709,7 +709,7 @@ class RasterBase(ABC):
             yield block, array
 
     @property
-    def file_name(self):
+    def file_name(self) -> str:
         """File name."""
         return self._file_name
 
