@@ -1612,8 +1612,9 @@ class DatasetCollection:
         time_length, bands, rows, cols = (int(v) for v in data_arr.shape)
         # These attrs are always written by _finalize_collection_metadata /
         # _finalize_append_metadata with the concrete types cast here, never any
-        # other JSON shape.
-        time_length = cast(int, root.attrs.get("time_length", time_length))
+        # other JSON shape. The int() is kept (a cast is a no-op at runtime) so a
+        # legacy store holding time_length as a JSON float/str still coerces.
+        time_length = int(cast("int | float | str", root.attrs.get("time_length", time_length)))
 
         nodata_list = cast("list | None", data_attrs.get("nodata"))
         if nodata_list and any(v is not None for v in nodata_list):
