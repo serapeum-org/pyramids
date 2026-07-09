@@ -194,25 +194,32 @@ ORIENTATION_CASES = [
 ]
 
 
+def _scaled_axis(array, axis_from_end):
+    """The axis' coordinate values with `scale_factor` / `add_offset` applied."""
+    dim = array.GetDimensions()[array.GetDimensionCount() - axis_from_end]
+    return np.asarray(dim.GetIndexingVariable().GetUnscaled().ReadAsArray())
+
+
 def _north_up_reference(path, variable):
-    """First-principles ground truth: the raw array ordered so row 0 sits at the largest scaled Y.
+    """First-principles ground truth: the raw array ordered north-up (row 0 = north, col 0 = west).
 
     Independent of both read paths under test, and of GDAL's classic driver — which cannot serve as a
     reference here: it returns pure fill for some 4-D packed variables, and it mis-orients a
     GDAL-written ``WRITE_BOTTOMUP=NO`` file (flipping the pixels while keeping a north-up
     geotransform).
 
-    The Y coordinate is read through ``GetUnscaled()`` so a packed axis — a geostationary granule's
+    Both coordinates are read through ``GetUnscaled()`` so a packed axis — a geostationary granule's
     radian scan angle, stored with a **negative** ``scale_factor`` — is interpreted physically rather
     than by its raw storage order (#705).
     """
     root = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER).GetRootGroup()
     array = root.OpenMDArray(variable)
-    y_dim = array.GetDimensions()[array.GetDimensionCount() - 2]
-    y_values = np.asarray(y_dim.GetIndexingVariable().GetUnscaled().ReadAsArray())
+    y_values, x_values = _scaled_axis(array, 2), _scaled_axis(array, 1)
     raw = np.asarray(array.ReadAsArray())
-    # Row 0 of the stored array already sits at the north when the coordinate descends.
-    return raw if y_values[0] > y_values[-1] else raw[..., ::-1, :]
+    # Row 0 already sits at the north when Y descends; col 0 at the west when X ascends.
+    rows = slice(None) if y_values[0] > y_values[-1] else slice(None, None, -1)
+    cols = slice(None) if x_values[0] < x_values[-1] else slice(None, None, -1)
+    return raw[..., rows, cols]
 
 
 def _assert_orientation(var, expect_flip, label, path, variable):
@@ -281,6 +288,27 @@ def projected_ascending_nc(tmp_path_factory):
     )
 
 
+@pytest.fixture(scope="module")
+def x_descending_nc(tmp_path_factory):
+    """A geographic netCDF whose longitude runs east→west (negative pixel width).
+
+    Legal CF — the convention only asks that a coordinate be monotonic — but no on-disk fixture has
+    one, and no known producer writes one. GDAL's classic netCDF driver never flips X; it reports a
+    negative `gt[1]` instead, which pyramids' `abs()`-based cell size and bbox arithmetic cannot
+    represent. Written by hand so the east-to-west branch of `_read_md_array` has a case.
+    """
+    path = str(tmp_path_factory.mktemp("x_desc") / "lon_descending.nc")
+    src = gdal.GetDriverByName("MEM").Create("", 5, 4, 1, gdal.GDT_Float32)
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    src.SetProjection(srs.ExportToWkt())
+    # Origin at the east edge, walking west: lon = 29, 27, 25, 23, 21.
+    src.SetGeoTransform((30.0, -2.0, 0.0, 10.0, 0.0, -1.0))
+    src.GetRasterBand(1).WriteArray(np.arange(20, dtype=np.float32).reshape(4, 5))
+    gdal.Translate(path, src, format="netCDF", creationOptions=["WRITE_BOTTOMUP=NO"])
+    return path
+
+
 class TestOrientationAllCases:
     """The multidim read must come back north-up for every Y-axis case in the 2x2 (CRS x direction).
 
@@ -338,6 +366,52 @@ class TestOrientationAllCases:
         _assert_orientation(
             var, True, "projected ascending (UTM) -> flip", projected_ascending_nc, "Band1"
         )
+
+
+class TestXAxisOrientation:
+    """The X axis is normalized to `col 0 = west`, the mirror of `row 0 = north`."""
+
+    def test_x_descending_is_flipped(self, x_descending_nc):
+        """An east→west longitude is reversed, and the geotransform describes the real extent.
+
+        Test scenario:
+            The file spans lon 20→30 with its columns stored east-first. Reading it must return the
+            columns west-first under a positive pixel width. Before the X rule, the coordinate-derived
+            geotransform took `lon[0]` (29) for the west edge, so the raster came back mirrored
+            west-east under a bbox shifted a full grid width east — silently wrong pixels, the same
+            failure mode as #705.
+        """
+        var = NetCDF.read_file(x_descending_nc).get_variable("Band1")
+        assert var._md_x_flipped is True, "east-to-west longitude must be reversed"
+        assert var._md_y_flipped is False, "the latitude already descends; it must not be reversed"
+        gt = var.geotransform
+        assert gt[1] > 0, f"pixel width must be positive after the X flip, got {gt[1]}"
+        assert var.bbox == pytest.approx([20.0, 6.0, 30.0, 10.0]), f"wrong extent: {var.bbox}"
+        np.testing.assert_array_equal(
+            np.asarray(var.read_array()),
+            _north_up_reference(x_descending_nc, "Band1"),
+            err_msg="col 0 of read_array() is not at the westernmost X coordinate",
+        )
+
+    def test_x_flip_survives_materialize(self, x_descending_nc):
+        """The NumPy re-flip in `_materialize_from_raw_view` reproduces the lazy `GetView` flip."""
+        var = NetCDF.read_file(x_descending_nc).get_variable("Band1")
+        before = np.asarray(var.read_array())
+        var._materialize_md_view()
+        np.testing.assert_array_equal(
+            np.asarray(var.read_array()), before, err_msg="materializing changed the pixels"
+        )
+        assert var.raster.ReadAsArray(1, 1, 3, 2).shape[-2:] == (2, 3), "window read must work"
+
+    @pytest.mark.parametrize(
+        "filename, variable",
+        [(c[0], c[1]) for c in ORIENTATION_CASES],
+        ids=[c[0].split(".")[0] for c in ORIENTATION_CASES],
+    )
+    def test_repo_fixtures_all_ascend_in_x(self, filename, variable):
+        """Document the invariant: every on-disk fixture stores X west→east, so none is X-flipped."""
+        var = NetCDF.read_file(f"tests/data/netcdf/{filename}").get_variable(variable)
+        assert var._md_x_flipped is False, f"{filename} unexpectedly stores X east-to-west"
 
 
 class TestDiskRoundTripOrientation:

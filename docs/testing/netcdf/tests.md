@@ -32,6 +32,13 @@ with a reference array reordered so row 0 sits at the largest scaled Y coordinat
 
 Neither projected cell has an on-disk fixture, so both build a UTM grid at runtime (`WRITE_BOTTOMUP=YES` / `NO`).
 
+The same rule applies to the X axis, mirrored: a longitude stored **east→west** is reversed so `col 0 = west`.
+GDAL's classic driver never flips X — it reports a negative `gt[1]` — but a negative pixel width cannot survive
+pyramids' `abs()`-based cell size and bbox arithmetic, and the coordinate-derived geotransform used to take
+`lon[0]` for the west edge, so such a file came back mirrored west-east under a shifted bbox. No known producer
+writes one, so `TestXAxisOrientation` builds it at runtime (`x_descending_nc`) and also asserts the invariant that
+every on-disk fixture ascends in X.
+
 Supporting orientation tests in the same file:
 
 - `TestExternalFileOrientation` — an external (south-up) file comes back north-up (negative Y pixel size, origin at
