@@ -69,9 +69,9 @@ Both projected cells are covered by UTM grids generated at runtime (the `project
 
 | | ascending (→ **flip**) | descending (→ **keep**) |
 |---|---|---|
-| **geostationary** | *(no known file — see below)* | GOES-16 ABI, `int16`-packed radian scan-angle Y (raw ascends) — **geostationary-descending**; the #705 fixture                                                                                                       |
-| **projected** | runtime UTM grid (`projected_ascending_nc`) | runtime UTM grid (`projected_descending_nc`) |
-| **geographic** | `cf__6v__1d2-2d4__geog__y-asc.nc` (NOAH) | `cf__5v__1d4-3d1__geog__y-desc.nc` (ERA5), `coards__4v__1d3-3d1__y-desc.nc` |
+| **geostationary** | *(no known producer — see below)* | `…__geos__y-desc` (GOES) |
+| **projected** | `projected_ascending_nc` (runtime UTM) | `projected_descending_nc` (runtime UTM) |
+| **geographic** | `…__geog__y-asc` (NOAH, MSWEP) | `…__geog__y-desc` (ERA5), `coards…__y-desc` |
 
 The GOES granule is the reason the `y-asc` / `y-desc` tag names the **scaled** direction, not the storage order.
 Its `y` is `int16` packed with a *negative* `scale_factor`, so the raw values ascend (`0 → 1499`) while the
