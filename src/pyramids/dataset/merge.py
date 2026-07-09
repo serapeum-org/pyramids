@@ -57,8 +57,8 @@ def merge_rasters(
       numpy.
 
     Args:
-        src (list[str | Path]):
-            List of paths to all input rasters.
+        src (Sequence[str | Path]):
+            Paths to all input rasters.
         dst (str | Path):
             Path to the output raster.
         no_data_value (float | int | str):
