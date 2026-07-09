@@ -19,7 +19,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from numbers import Number
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any, Generator, cast
 
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
@@ -54,7 +54,7 @@ RESAMPLING_METHODS = [
 ]
 
 
-def _reconstruct_dataset(cls: type, path: str, access: str) -> RasterBase:
+def _reconstruct_dataset(cls: type[RasterBase], path: str, access: str) -> RasterBase:
     """Re-open a dataset from its pickle recipe tuple.
 
     Called by :meth:`RasterBase.__reduce__` on unpickle. Routes
@@ -154,6 +154,16 @@ class RasterBase(ABC):
         return False
 
     @abstractmethod
+    def close(self) -> None:
+        """Close the dataset and release the underlying handle."""
+        pass
+
+    @abstractmethod
+    def align(self, *args, **kwargs):
+        """Align this dataset to another dataset's grid."""
+        pass
+
+    @abstractmethod
     def __str__(self):
         """__str__."""
         pass
@@ -189,6 +199,24 @@ class RasterBase(ABC):
     @abstractmethod
     def shape(self):
         """Shape (bands, rows, columns)."""
+        pass
+
+    @property
+    @abstractmethod
+    def band_count(self) -> int:
+        """Number of bands in the raster."""
+        pass
+
+    @property
+    @abstractmethod
+    def band_names(self) -> list[str]:
+        """Band names."""
+        pass
+
+    @property
+    @abstractmethod
+    def bbox(self) -> list:
+        """Bound box [xmin, ymin, xmax, ymax]."""
         pass
 
     @property
@@ -281,7 +309,9 @@ class RasterBase(ABC):
         """
         # np.ndim == 0 treats Python scalars, NumPy scalars, and 0-d arrays
         # alike; np.isscalar misses 0-d arrays (np.isscalar(np.array(5)) is False).
-        scalar = np.ndim(rows) == 0 and np.ndim(cols) == 0
+        # cast: the numpy stub's np.ndim overload set doesn't recognise
+        # numbers.Number, though it accepts any Number instance at runtime.
+        scalar = np.ndim(cast(Any, rows)) == 0 and np.ndim(cast(Any, cols)) == 0
         rows_arr = np.atleast_1d(np.asarray(rows, dtype=float))
         cols_arr = np.atleast_1d(np.asarray(cols, dtype=float))
         shift = 0.5 if center else 0.0
@@ -357,7 +387,9 @@ class RasterBase(ABC):
         """
         # np.ndim == 0 treats Python scalars, NumPy scalars, and 0-d arrays
         # alike; np.isscalar misses 0-d arrays (np.isscalar(np.array(5)) is False).
-        scalar = np.ndim(x) == 0 and np.ndim(y) == 0
+        # cast: the numpy stub's np.ndim overload set doesn't recognise
+        # numbers.Number, though it accepts any Number instance at runtime.
+        scalar = np.ndim(cast(Any, x)) == 0 and np.ndim(cast(Any, y)) == 0
         x_arr = np.atleast_1d(np.asarray(x, dtype=float))
         y_arr = np.atleast_1d(np.asarray(y, dtype=float))
         inv = self.transform.inverse
@@ -365,6 +397,7 @@ class RasterBase(ABC):
         rows_f = inv.y_origin + x_arr * inv.column_rotation + y_arr * inv.pixel_height
         rows_idx = np.floor(rows_f).astype(int)
         cols_idx = np.floor(cols_f).astype(int)
+        result: tuple[Any, Any]
         if scalar:
             result = (int(rows_idx[0]), int(cols_idx[0]))
         else:
@@ -614,9 +647,10 @@ class RasterBase(ABC):
                     rows=min(block_y, self.rows - row),
                 )
                 if window is not None:
-                    block = block.intersection(window)
-                    if block is None:
+                    intersected = block.intersection(window)
+                    if intersected is None:
                         continue
+                    block = intersected
                 yield block
 
     def iter_blocks(
@@ -664,7 +698,10 @@ class RasterBase(ABC):
             block_windows: The windows-only variant (no pixel reads).
         """
         for block in self.block_windows(band, window=window):
-            yield block, self.read_array(band=band, window=block)
+            # This iterator never passes chunks=, so read_array always returns a
+            # plain ndarray here (the dask.Array arm of ArrayLike is unreachable).
+            array = cast(np.typing.NDArray, self.read_array(band=band, window=block))
+            yield block, array
 
     @property
     def file_name(self):
@@ -696,7 +733,9 @@ class RasterBase(ABC):
 
     @abstractmethod
     def read_array(
-        self, band: int | None = None, window: list[int] | None = None
+        self,
+        band: int | None = None,
+        window: Window | GeoDataFrame | list[int] | None = None,
     ) -> ArrayLike:
         """Read Array.
 
