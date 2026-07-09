@@ -2533,44 +2533,46 @@ class NetCDF(Dataset):
         preserved -- copy it, then reverse the same axes with NumPy.
 
         Returns:
-            gdal.Dataset | None: A window-readable ``MEM`` raster carrying the wrapper's geotransform,
-            or ``None`` when the raw view cannot be rebuilt (no root group, no source variable, or
-            unresolved spatial dimensions), in which case the caller falls back to copying
-            ``self._raster``.
+            gdal.Dataset | None: A window-readable ``MEM`` raster carrying the wrapper's geotransform
+            and CRS, or ``None`` when the raw view cannot be rebuilt (no root group, no source
+            variable, unresolved spatial dimensions, or a failed copy), in which case the caller
+            falls back to copying ``self._raster``.
         """
+        result = None
         rg = self._gdal_rg_ref
         var = self._source_var_name
         spatial = self._md_spatial_dims
         flips_known = isinstance(self._md_y_flipped, bool) and isinstance(self._md_x_flipped, bool)
-        if rg is None or var is None or spatial is None or not flips_known:
-            return None
-        x_index, y_index = spatial
-        try:
-            # Bind the MDArray to a local: AsClassicDataset returns a view whose C++ backing is owned
-            # by the MDArray and root group. A bare `rg.OpenMDArray(var).AsClassicDataset(...)` frees
-            # the MDArray's SWIG wrapper at the end of the statement, leaving the view dangling for
-            # the CreateCopy below (segfault on Windows) -- the same trap _read_md_array documents.
-            raw_arr = rg.OpenMDArray(var)
-            raw_view = raw_arr.AsClassicDataset(x_index, y_index, rg)
-        except (RuntimeError, AttributeError):
-            return None
-        if raw_view is None:
-            return None
-        mem = gdal.GetDriverByName("MEM").CreateCopy("", raw_view)
-        if self._md_y_flipped or self._md_x_flipped:
-            rows = slice(None, None, -1) if self._md_y_flipped else slice(None)
-            cols = slice(None, None, -1) if self._md_x_flipped else slice(None)
-            mem.WriteArray(np.asarray(mem.ReadAsArray())[..., rows, cols])
-        # CreateCopy carries the raw view's geotransform; re-apply the wrapper's, which holds the
-        # north-up correction and any metre-rescaled geostationary geotransform.
-        mem.SetGeoTransform(self._geotransform)
-        # ... and the wrapper's CRS, which the raw view may not have: `_georeference_index_subset`
-        # installs a projection on a VRT over the view, and a multidim view often carries no SRS at
-        # all. Rebuilding from the raw view would silently drop it.
-        wrapper_srs = self._raster.GetSpatialRef()
-        if wrapper_srs is not None:
-            mem.SetSpatialRef(wrapper_srs)
-        return mem
+        if rg is not None and var is not None and spatial is not None and flips_known:
+            x_index, y_index = spatial
+            try:
+                # Bind the MDArray to a local: AsClassicDataset returns a view whose C++ backing is
+                # owned by the MDArray and the root group. A bare
+                # `rg.OpenMDArray(var).AsClassicDataset(...)` frees the MDArray's SWIG wrapper at the
+                # end of that statement, leaving the view dangling for the CreateCopy below (segfault
+                # on Windows) -- the same trap _read_md_array documents. `raw_arr` stays referenced
+                # for the rest of this function, so the view outlives every read from it.
+                raw_arr = rg.OpenMDArray(var)
+                raw_view = raw_arr.AsClassicDataset(x_index, y_index, rg)
+            except (RuntimeError, AttributeError):
+                raw_view = None
+            if raw_view is not None:
+                result = gdal.GetDriverByName("MEM").CreateCopy("", raw_view)
+        if result is not None:
+            if self._md_y_flipped or self._md_x_flipped:
+                rows = slice(None, None, -1) if self._md_y_flipped else slice(None)
+                cols = slice(None, None, -1) if self._md_x_flipped else slice(None)
+                result.WriteArray(np.asarray(result.ReadAsArray())[..., rows, cols])
+            # CreateCopy carries the raw view's geotransform; re-apply the wrapper's, which holds the
+            # north-up correction and any metre-rescaled geostationary geotransform.
+            result.SetGeoTransform(self._geotransform)
+            # ... and the wrapper's CRS, which the raw view may not have: `_georeference_index_subset`
+            # installs a projection on a VRT over the view, and a multidim view often carries no SRS
+            # at all. Rebuilding from the raw view would silently drop it.
+            wrapper_srs = self._raster.GetSpatialRef()
+            if wrapper_srs is not None:
+                result.SetSpatialRef(wrapper_srs)
+        return result
 
     def resample(
         self,
