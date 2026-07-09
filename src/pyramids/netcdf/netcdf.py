@@ -3592,17 +3592,18 @@ class NetCDF(Dataset):
         auto-detection, else the last two dimensions); all remaining
         dimensions are flattened into bands.
 
-        If the Y dimension is stored south-to-north (positive Y pixel
-        size), it is reversed via `MDArray.GetView()` **before** the
-        conversion. This is a lazy, zero-copy operation — GDAL handles
-        the reversed indexing internally without reading the whole array.
+        If the Y dimension is stored south-to-north (bottom-up), it is
+        reversed via `MDArray.GetView()` **before** the conversion. This is a
+        lazy, zero-copy operation — GDAL handles the reversed indexing
+        internally without reading the whole array. See
+        :meth:`_y_axis_is_bottom_up` for how that decision is made.
 
         Returns a tuple `(classic_dataset, md_array, root_group, x_index,
         y_index, y_flipped)` so callers can keep the GDAL objects alive and
         reuse the resolved plane indices (`x_index`/`y_index` are `None` for a
         1-D variable). `y_flipped` is `True` when the raw Y axis was stored
         south-to-north and reversed here; the eager materialize path needs it
-        to reproduce the same orientation from the fast classic driver.
+        to re-apply the same flip to the unreversed array.
         `AsClassicDataset` returns a **view** whose C++ backing depends on the
         MDArray and root group; if the Python SWIG wrappers for those are
         garbage-collected the view becomes a dangling pointer (segfault on
@@ -3631,9 +3632,9 @@ class NetCDF(Dataset):
         # First pass: check if Y orientation needs flipping.
         src = md_arr.AsClassicDataset(x_index, y_index, rg)
 
-        y_flipped = src.GetGeoTransform()[5] > 0
+        y_flipped = self._y_axis_is_bottom_up(dims, y_index, src)
         if y_flipped:
-            # Positive Y pixel size = south-to-north (NetCDF convention).
+            # Bottom-up (south-to-north) storage, the NetCDF convention.
             # Use GetView to reverse the Y dimension — this is lazy and
             # zero-copy; GDAL handles reversed indexing internally.
             slices = ",".join("::-1" if i == y_index else ":" for i in range(len(dims)))
@@ -3641,6 +3642,54 @@ class NetCDF(Dataset):
             src = md_arr.AsClassicDataset(x_index, y_index, rg)
 
         return src, md_arr, rg, x_index, y_index, y_flipped
+
+    @staticmethod
+    def _y_axis_is_bottom_up(dims, y_index: int, classic_view) -> bool:
+        """Whether the raw Y axis runs south-to-north and must be reversed to GDAL's north-up order.
+
+        Mirrors GDAL's own classic netCDF driver rule (``frmts/netcdf/netcdfdataset.cpp``), which
+        applies the coordinate variable's ``scale_factor``/``add_offset`` and then compares the first
+        and last values::
+
+            yMinMax[i] = add_offset + yMinMax[i] * scale_factor
+            bBottomUp  = (yMinMax[0] <= yMinMax[1])
+
+        The ``AsClassicDataset`` geotransform must **not** be used for this. GDAL derives it from the
+        *raw* indexing-variable values (``GDALMDArray::GuessGeoTransform`` -> ``IsRegularlySpaced``),
+        never from ``GetUnscaled()``. A coordinate packed with a **negative** ``scale_factor`` — the
+        radian scan angles of a geostationary granule (GOES / Himawari / MTG) — therefore ascends in
+        raw storage while the physical axis descends, so ``gt[5]`` is positive for an array that is
+        already north-up. Trusting it mirrors the raster about its own geotransform (#705).
+
+        Falls back to the geotransform sign only when the Y dimension exposes no usable 1-D
+        coordinate: curvilinear grids, mesh files, and bare index dimensions.
+
+        Args:
+            dims: The MDArray's dimensions, as returned by ``GetDimensions()``.
+            y_index: Index of the Y dimension within `dims`.
+            classic_view: The ``AsClassicDataset`` view, used only for the fallback.
+
+        Returns:
+            bool: True when the array must be reversed along Y.
+        """
+        values = None
+        try:
+            indexing_var = dims[y_index].GetIndexingVariable()
+        except (RuntimeError, AttributeError):
+            indexing_var = None
+        if indexing_var is not None and indexing_var.GetDimensionCount() == 1:
+            # GetUnscaled() is a zero-copy view applying scale_factor/add_offset; it is a no-op
+            # (scale 1, offset 0) for an unpacked coordinate.
+            try:
+                unscaled = indexing_var.GetUnscaled() or indexing_var
+                values = np.asarray(unscaled.ReadAsArray())
+            except (RuntimeError, AttributeError, TypeError):
+                values = None
+        if values is not None and values.ndim == 1 and values.size >= 2:
+            first, last = float(values[0]), float(values[-1])
+            if first != last:
+                return first < last
+        return classic_view.GetGeoTransform()[5] > 0
 
     def get_variable(
         self, variable_name: str, x_dim: str | None = None, y_dim: str | None = None
@@ -3771,9 +3820,17 @@ class NetCDF(Dataset):
     def _correct_flipped_geotransform(cube: NetCDF) -> None:
         """Flip a south-to-north geotransform (positive Y pixel size) to north-up on the wrapper.
 
-        A no-op unless `cube._geotransform[5] > 0`. Used after a lazy `GetView` Y-flip when the Y
-        dimension has no indexing variable, so GDAL could not correct the geotransform itself.
+        A no-op unless the data was actually reversed (`cube._md_y_flipped`) and
+        `cube._geotransform[5] > 0`. Used after a lazy `GetView` Y-flip when the Y dimension has no
+        indexing variable, so GDAL could not correct the geotransform itself.
+
+        The `_md_y_flipped` guard matters because a positive `gt[5]` no longer implies a flip: GDAL
+        builds the view's geotransform from the *raw* coordinate values, so a negative
+        `scale_factor` (geostationary radian scan angles) yields `gt[5] > 0` for an array that was
+        left north-up. Flipping the wrapper geotransform there would desync it from the data.
         """
+        if not cube._md_y_flipped:
+            return
         gt = cube._geotransform
         if gt[5] > 0:
             cube._geotransform = (

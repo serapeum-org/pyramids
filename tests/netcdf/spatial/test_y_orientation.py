@@ -187,7 +187,7 @@ class TestOneDimNotFlipped:
 
 
 ORIENTATION_CASES = [
-    ("cf__9v__1d7-2d2__geos__y-asc.nc", "CMI", True, "projected ascending (GOES geostationary) -> flip"),
+    ("cf__9v__1d7-2d2__geos__y-asc.nc", "CMI", False, "geostationary radian scan angle, descending -> keep"),
     ("cf__6v__1d2-2d4__geog__y-asc.nc", "Band1", True, "geographic ascending (NOAH) -> flip"),
     ("cf__5v__1d4-3d1__geog__y-desc.nc", "t2m", False, "geographic descending (ERA5) -> keep"),
     ("coards__4v__1d3-3d1__y-desc.nc", "air", False, "geographic descending (COARDS) -> keep"),

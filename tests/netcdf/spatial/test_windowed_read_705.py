@@ -1,10 +1,15 @@
 """Regression tests for #705 — windowed reads of geostationary / chunked NetCDF variables.
 
-On GDAL >= 3.13 a partial-window read of the multidimensional `AsClassicDataset` view raises
-`arrayStartIdx[...] >= <dim>`; a full read is also ~270x slower than the classic driver. The fast
-classic-driver materialize path fixes both. These tests drive the crash end-to-end on the GOES16
-geostationary fixture (which reproduces the raw-view crash) and assert the read now returns correct
-data without raising.
+The `arrayStartIdx[...] >= <dim>` crash comes from reading a window through a **reversed**
+`MDArray.GetView("[::-1, ...]")`, not from `AsClassicDataset` itself: an unreversed view services
+windowed reads fine. So a file is only affected when its Y axis is genuinely bottom-up and gets
+reversed (NOAH), and `_materialize_md_view` — which reads the unreversed array and flips it — is
+what makes windowed reads work there.
+
+A geostationary granule is *not* bottom-up: its radian scan-angle Y descends once `scale_factor` is
+applied. Inferring the orientation from the view's geotransform (which GDAL builds from the *raw*,
+unscaled coordinate values) mirrored the raster and, as a side effect, produced the crash and the
+slow reads reported in #705.
 
 Style: Google-style docstrings, <=120 char lines, no inline imports.
 """
@@ -18,6 +23,8 @@ from pyramids.netcdf.netcdf import NetCDF
 pytestmark = pytest.mark.core
 
 GOES = "tests/data/netcdf/cf__9v__1d7-2d2__geos__y-asc.nc"
+# Genuinely bottom-up (ascending latitude): its view IS reversed, so it still exercises the crash.
+NOAH = "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
 
 # The raw multidim-view partial-window crash (`arrayStartIdx`) is a GDAL >= 3.13 regression. The
 # win_arm64 wheel ships GDAL 3.12.4 (the vcpkg port ceiling), where the raw read succeeds instead of
@@ -29,30 +36,54 @@ _GDAL_RAW_VIEW_CRASHES = int(gdal.VersionInfo("VERSION_NUM")) >= 3130000
 class TestWindowedRead705:
     """A partial-window read of a geostationary variable must not hit the GDAL >= 3.13 crash."""
 
-    def test_eager_materialize_makes_the_view_window_readable(self):
-        """A partial-window read raises on the raw view but succeeds after the eager materialize.
+    def test_geostationary_view_is_window_readable_without_reversal(self):
+        """A geostationary variable is not Y-reversed, so its view services windowed reads directly.
 
         Test scenario:
-            The same `ReadAsArray(100, 100, 200, 200)` raises `arrayStartIdx >= 500` on the raw multidim
-            view (the #705 crash), then succeeds once `_materialize_md_view` swaps in the classic-driver
-            MEM, matching the corresponding slice of the full read.
+            The `arrayStartIdx` crash comes from reading through a reversed `GetView("[::-1, ...]")`,
+            not from `AsClassicDataset` itself. A GOES scan-angle Y axis descends once `scale_factor`
+            is applied, so it is never reversed — `ReadAsArray(100, 100, 200, 200)` succeeds on the
+            un-materialized view, and still succeeds (identically) after the eager materialize.
         """
         var = NetCDF.read_file(GOES).get_variable("CMI")
-        # Pre-fix behaviour: the same partial-window read raises on the un-materialized multidim view
-        # (GDAL >= 3.13) — this is exactly the crash the eager materialize removes. On GDAL 3.12.x
-        # (the win_arm64 wheel) the raw read does not crash, so only assert it where 3.13+ applies.
-        if _GDAL_RAW_VIEW_CRASHES:
-            with pytest.raises(RuntimeError, match="arrayStartIdx"):
-                var.raster.ReadAsArray(100, 100, 200, 200)
+        assert var._md_y_flipped is False, "GOES scaled scan-angle Y descends; it must not be reversed"
+        window_before = var.raster.ReadAsArray(100, 100, 200, 200)
+        assert window_before.shape[-2:] == (200, 200), "raw view must service a windowed read"
         var._materialize_md_view()
         assert var._md_view_materialized is True, "eager path should have materialized the view"
         window = var.raster.ReadAsArray(100, 100, 200, 200)
-        assert window is not None, "windowed read should return data, not None"
         assert window.shape[-2:] == (200, 200), f"expected a 200x200 window, got {window.shape}"
         full = var.raster.ReadAsArray()
         np.testing.assert_array_equal(
             window,
             full[..., 100:300, 100:300],
+            err_msg="windowed read does not match the corresponding slice of the full read",
+        )
+        np.testing.assert_array_equal(
+            window, window_before, err_msg="materialize changed the pixels of a windowed read"
+        )
+
+    def test_reversed_view_crashes_and_materialize_fixes_it(self):
+        """A genuinely bottom-up file is reversed; only the materialized raster is window-readable.
+
+        Test scenario:
+            NOAH's latitude ascends, so `_read_md_array` builds a reversed `GetView`. Reading a window
+            through that negative-step view raises `arrayStartIdx` on GDAL >= 3.13; materializing (which
+            reads the unreversed array and flips it) makes windowed reads work and stay consistent with
+            the full read.
+        """
+        var = NetCDF.read_file(NOAH).get_variable("Band1")
+        assert var._md_y_flipped is True, "NOAH latitude ascends; its view must be reversed"
+        if _GDAL_RAW_VIEW_CRASHES:
+            with pytest.raises(RuntimeError, match="arrayStartIdx"):
+                var.raster.ReadAsArray(10, 10, 20, 20)
+        var._materialize_md_view()
+        window = var.raster.ReadAsArray(10, 10, 20, 20)
+        assert window.shape[-2:] == (20, 20), f"expected a 20x20 window, got {window.shape}"
+        full = var.raster.ReadAsArray()
+        np.testing.assert_array_equal(
+            window,
+            full[..., 10:30, 10:30],
             err_msg="windowed read does not match the corresponding slice of the full read",
         )
 
