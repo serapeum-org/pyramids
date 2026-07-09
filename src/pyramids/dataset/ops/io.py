@@ -72,8 +72,15 @@ def _read_chunk(
         np.ndarray: The fully materialized chunk with shape derived
         from the `block_info` slice, dtype equal to `dtype`.
     """
+    # dask.array.map_blocks always supplies a real dict here for a function
+    # parameter literally named block_info; None is only dask's static type
+    # for the (unused) meta-inference call convention.
+    assert block_info is not None
     location = block_info[None]["array-location"]
     if single_band:
+        # The caller only sets single_band=True when it also resolved band to
+        # a real int (see _lazy_read's effective_band).
+        assert band is not None
         (y_start, y_stop), (x_start, x_stop) = location
         xoff, yoff = x_start, y_start
         xsize, ysize = x_stop - x_start, y_stop - y_start

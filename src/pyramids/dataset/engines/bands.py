@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import geopandas as gpd
 import numpy as np
@@ -894,15 +894,21 @@ class Bands(_Engine["Dataset"]):
                 # dtype min for signed ints too small to hold the default, and
                 # the default for floats (which can always represent it).
                 np_dtype = np.dtype(self._ds.numpy_dtype[i])
+                # np.issubdtype narrows at runtime but isn't recognised by the
+                # numpy stubs, so np.iinfo still sees the full dtype union --
+                # cast to the exact integer family each branch just proved.
                 if np.issubdtype(np_dtype, np.unsignedinteger):
                     # -9999 (and any negative default) cannot fit an unsigned
                     # band; use the dtype max, matching the None/NaN branch.
-                    fallback = np_dtype.type(np.iinfo(np_dtype).max)
+                    unsigned_dtype = cast("np.dtype[np.unsignedinteger]", np_dtype)
+                    fallback = np_dtype.type(np.iinfo(unsigned_dtype).max)
                 elif np.issubdtype(np_dtype, np.integer):
                     # Keep the default -9999 when the signed band can hold it
                     # (int16/int32/int64); only too-small bands (int8) need the
-                    # dtype min.
-                    info = np.iinfo(np_dtype)
+                    # dtype min. The unsignedinteger branch above already ran,
+                    # so this is provably signedinteger.
+                    signed_dtype = cast("np.dtype[np.signedinteger]", np_dtype)
+                    info = np.iinfo(signed_dtype)
                     if info.min <= DEFAULT_NO_DATA_VALUE <= info.max:
                         fallback = np_dtype.type(DEFAULT_NO_DATA_VALUE)
                     else:
@@ -1050,29 +1056,35 @@ class Bands(_Engine["Dataset"]):
 
     def change_no_data_value(
         self, new_value: Any, old_value: Any | None = None, inplace: bool = False
-    ) -> Dataset:
+    ) -> Dataset | None:
         """Change No Data Value.
             - Set the no data value in all raster bands.
             - Fill the whole raster with the no_data_value.
             - Change the no_data_value in the array in all bands.
         Args:
             new_value (numeric):
-                No data value to set in the raster bands.
+                No data value to set in the raster bands. Only a `list` is read per band, and it must
+                have `band_count` entries; any other value takes the scalar path and is applied to every
+                band, so it must be a numeric scalar. A `tuple` of per-band values is not supported.
             old_value (numeric):
-                Old no data value that is already in the raster bands.
+                Old no data value that is already in the raster bands. Follows the same per-band `list`
+                convention as `new_value`.
             inplace (bool):
                 If True, the original dataset will be modified. If False, a new dataset will be created.
                 Default is False.
 
         Returns:
-            Dataset:
-                A new Dataset with the updated no-data value. If inplace is True, returns self.
+            Dataset | None:
+                A new Dataset with the updated no-data value, or ``None``
+                when ``inplace=True`` -- see :meth:`Analysis.apply` for why.
 
         Raises:
             NoDataValueError:
                 If `new_value` cannot be stored in a band's dtype — e.g. `None` or `NaN`
                 given for an integer band — the dtype mismatch is reported instead of
-                leaking a raw numpy `TypeError`/`ValueError`.
+                leaking a raw numpy `TypeError`/`ValueError`. Also raised when
+                `new_value` or `old_value` is given as a list whose length does not
+                match `band_count`.
 
         Warning:
             The `change_no_data_value` method creates a new dataset in memory in order to change the `no_data_value` in the raster bands.
@@ -1105,8 +1117,18 @@ class Bands(_Engine["Dataset"]):
         """
         if not isinstance(new_value, list):
             new_value = [new_value] * self._ds.band_count
+        if len(new_value) != self._ds.band_count:
+            raise NoDataValueError(
+                f"new_value must be a scalar or a list of length band_count "
+                f"({self._ds.band_count}); got a list of length {len(new_value)}."
+            )
         if old_value is not None and not isinstance(old_value, list):
             old_value = [old_value] * self._ds.band_count
+        if old_value is not None and len(old_value) != self._ds.band_count:
+            raise NoDataValueError(
+                f"old_value must be a scalar or a list of length band_count "
+                f"({self._ds.band_count}); got a list of length {len(old_value)}."
+            )
         dst = gdal.GetDriverByName("MEM").CreateCopy("", self._ds.raster, 0)
         # create a new dataset
         new_dataset = self._ds.__class__(dst, "write")
@@ -1118,9 +1140,13 @@ class Bands(_Engine["Dataset"]):
         new_value = new_dataset.no_data_value
         for band in range(self._ds.band_count):
             arr = self._ds.read_array(band)
+            # old_value is normalized to a per-band list above (matching
+            # new_value); index it per-band here too instead of comparing
+            # against the whole list.
+            band_old_value = old_value[band] if old_value is not None else None
             try:
                 with np.errstate(invalid="raise"):
-                    arr[is_no_data(arr, old_value)] = new_value[band]
+                    arr[is_no_data(arr, band_old_value)] = new_value[band]
             # A dtype mismatch surfaces differently across numpy paths: a None value
             # is not subscriptable (TypeError), a NaN cast into an integer band raises
             # ValueError ("cannot convert float NaN to integer"), and an invalid

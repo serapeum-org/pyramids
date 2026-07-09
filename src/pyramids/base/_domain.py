@@ -25,21 +25,31 @@ to zero where the relative tolerance is too loose.
 
 from __future__ import annotations
 
+from typing import overload
+
 import numpy as np
 
 DEFAULT_RTOL: float = 0.001
 
 
+@overload
+def is_no_data(
+    arr: np.ndarray, no_data_value: float | None, *, rtol: float = DEFAULT_RTOL
+) -> np.typing.NDArray: ...
+@overload
+def is_no_data(
+    arr: float, no_data_value: float | None, *, rtol: float = DEFAULT_RTOL
+) -> np.bool_: ...
 def is_no_data(
     arr: np.ndarray | float,
     no_data_value: float | None,
     *,
     rtol: float = DEFAULT_RTOL,
-) -> np.typing.NDArray | bool:
+) -> np.typing.NDArray | np.bool_:
     """Boolean mask: True where `arr` cells equal `no_data_value`.
 
-    NaN- and None-safe. Works on scalars (returns `bool`) and
-    arrays (returns `np.ndarray` of bool).
+    NaN- and None-safe. Works on scalars (returns `np.bool_`, which behaves
+    as a `bool`) and arrays (returns `np.ndarray` of bool).
 
     Args:
         arr: Cell value(s) to test. Either a numpy array or a scalar.
@@ -50,7 +60,7 @@ def is_no_data(
             Default `0.001`.
 
     Returns:
-        Boolean mask shaped like `arr` (or `bool` when `arr` is a
+        Boolean mask shaped like `arr` (or `np.bool_` when `arr` is a
         scalar). `True` where the cell matches `no_data_value`.
 
     Examples:
@@ -90,7 +100,7 @@ def inside_domain(
     no_data_value: float | None,
     *,
     rtol: float = DEFAULT_RTOL,
-) -> np.typing.NDArray | bool:
+) -> np.typing.NDArray | np.bool_:
     """Boolean mask: True where `arr` cells are inside the domain.
 
     Inverse of :func:`is_no_data`; same NaN/None handling.

@@ -10,9 +10,10 @@ from __future__ import annotations
 import logging
 import warnings
 import weakref
+from collections.abc import Sequence
 from numbers import Number
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import geopandas as gpd
 import numpy as np
@@ -639,7 +640,10 @@ class Dataset(RasterBase):
                         )
                         resolved_rgb = [2, 1, 0]
                     else:
-                        resolved_rgb = [int(v) for v in candidate]
+                        # None NOT in candidate here, so every element is a
+                        # plain int -- mypy does not narrow list contents from
+                        # an `in` check.
+                        resolved_rgb = [int(v) for v in cast("list[int]", candidate)]
                 else:
                     resolved_rgb = rgb
                 resolved_band = int(resolved_rgb[0])
@@ -1219,7 +1223,7 @@ class Dataset(RasterBase):
         gdf.set_crs(self.epsg or self.crs, inplace=True)
         return gdf
 
-    def _get_band_names(self):
+    def _get_band_names(self) -> list[str]:
         """Concrete override of :meth:`RasterBase._get_band_names`.
 
         Defined directly on Dataset (not via the bands collaborator)
@@ -1227,7 +1231,7 @@ class Dataset(RasterBase):
         before the `Bands` collaborator is wired up. Mirrors
         :meth:`Bands._get_band_names`.
         """
-        names = []
+        names: list[str] = []
         for i in range(1, self.band_count + 1):
             band = self.raster.GetRasterBand(i)
             if band.GetDescription():
@@ -1723,7 +1727,7 @@ class Dataset(RasterBase):
         self._block_size = value
 
     @property
-    def file_name(self):
+    def file_name(self) -> str:
         """File name."""
         return super().file_name
 
@@ -3515,7 +3519,7 @@ class Dataset(RasterBase):
     @classmethod
     def from_band_files(
         cls,
-        files: list[str | Path],
+        files: Sequence[str | Path],
         *,
         band_names: list[str] | None = None,
         align: bool = False,
@@ -3711,7 +3715,11 @@ class Dataset(RasterBase):
                 grid_template = cls.create_from_array(
                     template.read_array(band=0).astype(target_np_dtype, copy=False),
                     geo=template.geotransform,
-                    epsg=template.epsg,
+                    # epsg is None only for a no-EPSG CRS reported as such (a
+                    # NetCDF geostationary grid); create_from_array raises
+                    # CRSError on None, so fall back to the WKT. No-op for a
+                    # plain Dataset (reports 4326) (#706).
+                    epsg=template.epsg or template.crs,
                     no_data_value=resolved_nd,
                 )
                 # Dataset.align uses the source's no_data_value to fill the warp

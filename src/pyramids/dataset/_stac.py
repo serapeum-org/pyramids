@@ -22,7 +22,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime as _datetime_cls
 from datetime import timedelta, timezone
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from osgeo import osr
 
@@ -375,7 +375,9 @@ def from_stac(
         )
 
     if target_grid is not None:
-        collection = collection.align(target_grid)
+        # align()'s default inplace=False (used here) always returns a new
+        # collection; only inplace=True returns None.
+        collection = cast("DatasetCollection", collection.align(target_grid))
     return collection
 
 
@@ -418,6 +420,8 @@ def _resolve_target_grid(
         )
     if anchor != "edge":
         raise ValueError(f"anchor must be 'edge', got {anchor!r}.")
+    # The two guards above already proved none of the trio is None.
+    assert crs is not None and resolution is not None and bounds is not None
 
     import math
 
@@ -559,7 +563,9 @@ def _from_stac_solar_day(
         merge_rasters(groups[day], out_path, method="first", signer=signer)
         per_day_paths.append(out_path)
 
-    return collection_cls.from_files(per_day_paths)
+    # collection_cls is always the real DatasetCollection class (passed by every
+    # caller); typed Any here only to dodge the import cycle noted above.
+    return cast("DatasetCollection", collection_cls.from_files(per_day_paths))
 
 
 def _from_stac_multi_asset(
@@ -621,7 +627,9 @@ def _from_stac_multi_asset(
             "from_stac produced no items (all were missing a requested asset "
             "or filtered out)."
         )
-    return collection_cls.from_files(per_item_paths)
+    # collection_cls is always the real DatasetCollection class (passed by every
+    # caller); typed Any here only to dodge the import cycle noted above.
+    return cast("DatasetCollection", collection_cls.from_files(per_item_paths))
 
 
 DEFAULT_STAC_URL = "https://planetarycomputer.microsoft.com/api/stac/v1"

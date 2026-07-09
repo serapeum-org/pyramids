@@ -184,6 +184,25 @@ class TestFromZarrRoundtrip:
         assert rt.meta.epsg == 4326, f"epsg {rt.meta.epsg}"
 
     @requires_zarr
+    def test_roundtrip_coerces_non_int_time_length(self, three_files_ramp, tmp_path):
+        """from_zarr coerces a non-int time_length attr to int.
+
+        Test scenario:
+            A store whose ``time_length`` attr is a JSON float (a legacy or
+            externally-authored cube) reopens with an ``int`` time_length, so
+            ``range(time_length)`` downstream still works.
+        """
+        out = str(tmp_path / "float_tl.zarr")
+        DatasetCollection.from_files(three_files_ramp).to_zarr(out)
+        root = zarr.open_group(out, mode="a")
+        root.attrs["time_length"] = 3.0
+        rt = DatasetCollection.from_zarr(out)
+        assert isinstance(
+            rt.time_length, int
+        ), f"time_length not coerced: {type(rt.time_length)}"
+        assert rt.time_length == 3, f"time_length {rt.time_length}"
+
+    @requires_zarr
     def test_data_is_lazy_and_values_match(self, three_files_ramp, tmp_path):
         """from_zarr.data is a lazy dask cube whose values match the source.
 

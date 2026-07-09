@@ -297,6 +297,61 @@ class TestChangeNoDataValueNan:
             result[0, 0], -1.0
         ), "Old nodata cells should be replaced with list old"
 
+    def test_change_nodata_multiband_distinct_old_values(self):
+        """Each band's cells are matched against its own old_value entry.
+
+        Regression test: a per-band old_value list was previously compared
+        against the whole list at once instead of being indexed per band,
+        which raises a numpy broadcast error (or silently mismatches) on
+        multi-band data with distinct per-band sentinels.
+        """
+        arr = np.stack(
+            [
+                np.array([[-9999.0, 2.0], [3.0, -9999.0]], dtype=np.float32),
+                np.array([[1.0, -8888.0], [-8888.0, 4.0]], dtype=np.float32),
+            ]
+        )
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        new_ds = ds.change_no_data_value(-1.0, old_value=[-9999.0, -8888.0])
+        result = new_ds.read_array()
+        assert np.allclose(result[0], [[-1.0, 2.0], [3.0, -1.0]]), "Band 0 replaced by its own sentinel"
+        assert np.allclose(result[1], [[1.0, -1.0], [-1.0, 4.0]]), "Band 1 replaced by its own sentinel"
+
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        [
+            pytest.param(
+                {"new_value": -1.0, "old_value": [-9999.0]}, "old_value", id="old_value"
+            ),
+            pytest.param(
+                {"new_value": [1.0], "old_value": -9999.0}, "new_value", id="new_value"
+            ),
+        ],
+    )
+    def test_change_nodata_wrong_length_raises(self, kwargs, expected):
+        """A mismatched-length new_value/old_value list raises NoDataValueError, not IndexError."""
+        arr = np.stack(
+            [
+                np.array([[-9999.0, 2.0], [3.0, -9999.0]], dtype=np.float32),
+                np.array([[1.0, -8888.0], [-8888.0, 4.0]], dtype=np.float32),
+            ]
+        )
+        ds = Dataset.create_from_array(
+            arr,
+            top_left_corner=(0.0, 0.0),
+            cell_size=0.05,
+            epsg=4326,
+            no_data_value=-9999.0,
+        )
+        with pytest.raises(NoDataValueError, match=rf"{expected} must be .* length"):
+            ds.change_no_data_value(**kwargs)
+
 
 class TestFillNanNodata:
     """Tests for fill method with NaN no_data_value."""

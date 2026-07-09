@@ -11,7 +11,7 @@ import math
 import uuid
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping, cast
 
 import numpy as np
 from osgeo import gdal
@@ -1010,7 +1010,7 @@ class COG(_Engine["Dataset"]):
         """
         nodata = band.GetNoDataValue()
         if nodata is not None:
-            return nodata
+            return cast(float, nodata)
         return 0 if is_integer_gdal_dtype(band.DataType) else float("nan")
 
     def preview(

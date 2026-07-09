@@ -19,7 +19,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from numbers import Number
 from pathlib import Path
-from typing import Any, Generator
+from typing import TYPE_CHECKING, Any, Generator, cast
 
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
@@ -32,6 +32,9 @@ from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
 from pyramids.base.protocols import ArrayLike, FloatArray
 from pyramids.dataset.transform import GeoTransform
 from pyramids.dataset.window import Window
+
+if TYPE_CHECKING:
+    from pyramids.base._file_manager import ThreadLocalFileManager
 from pyramids.feature import FeatureCollection
 
 DEFAULT_NO_DATA_VALUE = -9999
@@ -54,7 +57,7 @@ RESAMPLING_METHODS = [
 ]
 
 
-def _reconstruct_dataset(cls: type, path: str, access: str) -> RasterBase:
+def _reconstruct_dataset(cls: type[RasterBase], path: str, access: str) -> RasterBase:
     """Re-open a dataset from its pickle recipe tuple.
 
     Called by :meth:`RasterBase.__reduce__` on unpickle. Routes
@@ -93,10 +96,12 @@ class RasterBase(ABC):
         self._raster = src
         # Per-thread file manager for read_array(threadsafe=True); created
         # lazily by the IO engine and released by close().
-        self._thread_manager = None
-        self._geotransform = src.GetGeoTransform()
+        self._thread_manager: ThreadLocalFileManager | None = None
+        self._geotransform: tuple[float, float, float, float, float, float] = (
+            src.GetGeoTransform()
+        )
         self._cell_size = self._geotransform[1]
-        self._file_name = src.GetDescription()
+        self._file_name: str = src.GetDescription()
         # the epsg property returns the value of the _epsg attribute, so if the projection changes in any function, the
         # function should also change the value of the _epsg attribute.
         self._epsg = self._get_epsg()
@@ -154,6 +159,16 @@ class RasterBase(ABC):
         return False
 
     @abstractmethod
+    def close(self) -> None:
+        """Close the dataset and release the underlying handle."""
+        pass
+
+    @abstractmethod
+    def align(self, *args, **kwargs):
+        """Align this dataset to another dataset's grid."""
+        pass
+
+    @abstractmethod
     def __str__(self):
         """__str__."""
         pass
@@ -192,7 +207,25 @@ class RasterBase(ABC):
         pass
 
     @property
-    def geotransform(self):
+    @abstractmethod
+    def band_count(self) -> int:
+        """Number of bands in the raster."""
+        pass
+
+    @property
+    @abstractmethod
+    def band_names(self) -> list[str]:
+        """Band names."""
+        pass
+
+    @property
+    @abstractmethod
+    def bbox(self) -> list:
+        """Bound box [xmin, ymin, xmax, ymax]."""
+        pass
+
+    @property
+    def geotransform(self) -> tuple[float, float, float, float, float, float]:
         """WKT projection.(x, cell_size, 0, y, 0, -cell_size)."""
         return self._geotransform
 
@@ -223,8 +256,8 @@ class RasterBase(ABC):
 
     def xy(
         self,
-        rows: Number | list[Number] | np.ndarray,
-        cols: Number | list[Number] | np.ndarray,
+        rows: np.typing.ArrayLike,
+        cols: np.typing.ArrayLike,
         *,
         center: bool = True,
     ) -> tuple[Any, Any]:
@@ -303,8 +336,8 @@ class RasterBase(ABC):
 
     def rowcol(
         self,
-        x: Number | list[Number] | np.ndarray,
-        y: Number | list[Number] | np.ndarray,
+        x: np.typing.ArrayLike,
+        y: np.typing.ArrayLike,
     ) -> tuple[Any, Any]:
         """Return the array indices ``(row, col)`` of map coordinates.
 
@@ -365,6 +398,7 @@ class RasterBase(ABC):
         rows_f = inv.y_origin + x_arr * inv.column_rotation + y_arr * inv.pixel_height
         rows_idx = np.floor(rows_f).astype(int)
         cols_idx = np.floor(cols_f).astype(int)
+        result: tuple[Any, Any]
         if scalar:
             result = (int(rows_idx[0]), int(cols_idx[0]))
         else:
@@ -614,9 +648,10 @@ class RasterBase(ABC):
                     rows=min(block_y, self.rows - row),
                 )
                 if window is not None:
-                    block = block.intersection(window)
-                    if block is None:
+                    intersected = block.intersection(window)
+                    if intersected is None:
                         continue
+                    block = intersected
                 yield block
 
     def iter_blocks(
@@ -664,10 +699,13 @@ class RasterBase(ABC):
             block_windows: The windows-only variant (no pixel reads).
         """
         for block in self.block_windows(band, window=window):
-            yield block, self.read_array(band=band, window=block)
+            # This iterator never passes chunks=, so read_array always returns a
+            # plain ndarray here (the dask.Array arm of ArrayLike is unreachable).
+            array = cast(np.typing.NDArray, self.read_array(band=band, window=block))
+            yield block, array
 
     @property
-    def file_name(self):
+    def file_name(self) -> str:
         """File name."""
         return self._file_name
 
@@ -696,7 +734,9 @@ class RasterBase(ABC):
 
     @abstractmethod
     def read_array(
-        self, band: int | None = None, window: list[int] | None = None
+        self,
+        band: int | None = None,
+        window: Window | GeoDataFrame | list[int] | None = None,
     ) -> ArrayLike:
         """Read Array.
 
