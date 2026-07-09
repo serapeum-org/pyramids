@@ -22,7 +22,7 @@ from pyramids.netcdf.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
-GOES = "tests/data/netcdf/cf__9v__1d7-2d2__geos__y-asc.nc"
+GOES = "tests/data/netcdf/cf__9v__1d7-2d2__geos__y-desc.nc"
 # Genuinely bottom-up (ascending latitude): its view IS reversed, so it still exercises the crash.
 NOAH = "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
 

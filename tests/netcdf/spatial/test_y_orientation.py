@@ -187,7 +187,7 @@ class TestOneDimNotFlipped:
 
 
 ORIENTATION_CASES = [
-    ("cf__9v__1d7-2d2__geos__y-asc.nc", "CMI", False, "geostationary radian scan angle, descending -> keep"),
+    ("cf__9v__1d7-2d2__geos__y-desc.nc", "CMI", False, "geostationary radian scan angle, descending -> keep"),
     ("cf__6v__1d2-2d4__geog__y-asc.nc", "Band1", True, "geographic ascending (NOAH) -> flip"),
     ("cf__5v__1d4-3d1__geog__y-desc.nc", "t2m", False, "geographic descending (ERA5) -> keep"),
     ("coards__4v__1d3-3d1__y-desc.nc", "air", False, "geographic descending (COARDS) -> keep"),
@@ -243,15 +243,14 @@ def _assert_orientation(var, expect_flip, label, path, variable):
     )
 
 
-@pytest.fixture(scope="module")
-def projected_descending_nc(tmp_path_factory):
-    """A UTM (projected) netCDF written top-down, so its Y axis descends (row 0 = north).
+def _utm_netcdf(path, bottom_up):
+    """Write an 8x6 UTM32N raster to netCDF, bottom-up or top-down, and return the path.
 
-    No repo fixture is projected + descending, so build one: a UTM32N raster with a north-up
-    geotransform written with `WRITE_BOTTOMUP=NO` keeps the data top-down and emits a descending
-    `y` (`projection_y_coordinate`) axis — the one 2x2 cell the on-disk fixtures do not cover.
+    GDAL's netCDF writer defaults to ``WRITE_BOTTOMUP=YES``, which stores the rows south→north and
+    emits an **ascending** ``y`` (``projection_y_coordinate``) axis; ``WRITE_BOTTOMUP=NO`` keeps the
+    rows top-down and emits a descending one. Between them they cover both projected cells of the
+    Y-orientation 2x2, neither of which any on-disk fixture provides.
     """
-    path = str(tmp_path_factory.mktemp("proj_desc") / "utm_projected_descending.nc")
     src = gdal.GetDriverByName("MEM").Create("", 8, 6, 1, gdal.GDT_Float32)
     srs = osr.SpatialReference()
     srs.ImportFromEPSG(32636)
@@ -259,19 +258,38 @@ def projected_descending_nc(tmp_path_factory):
     src.SetGeoTransform((500000.0, 100.0, 0.0, 4000000.0, 0.0, -100.0))
     src.GetRasterBand(1).WriteArray(np.arange(48, dtype=np.float32).reshape(6, 8))
     src.GetRasterBand(1).SetNoDataValue(-9999.0)
-    gdal.Translate(path, src, format="netCDF", creationOptions=["WRITE_BOTTOMUP=NO"])
+    options = [f"WRITE_BOTTOMUP={'YES' if bottom_up else 'NO'}"]
+    gdal.Translate(path, src, format="netCDF", creationOptions=options)
     return path
 
 
-class TestFastPathOrientationAllCases:
-    """The multidim read must be north-up and agree with GDAL's classic driver for every Y-axis case.
+@pytest.fixture(scope="module")
+def projected_descending_nc(tmp_path_factory):
+    """A UTM (projected) netCDF written top-down, so its Y axis descends (row 0 = north)."""
+    return _utm_netcdf(
+        str(tmp_path_factory.mktemp("proj_desc") / "utm_projected_descending.nc"),
+        bottom_up=False,
+    )
+
+
+@pytest.fixture(scope="module")
+def projected_ascending_nc(tmp_path_factory):
+    """A UTM (projected) netCDF written bottom-up, so its Y axis ascends (row 0 = south)."""
+    return _utm_netcdf(
+        str(tmp_path_factory.mktemp("proj_asc") / "utm_projected_ascending.nc"),
+        bottom_up=True,
+    )
+
+
+class TestOrientationAllCases:
+    """The multidim read must come back north-up for every Y-axis case in the 2x2 (CRS x direction).
 
     The flip is decided from the **scale/offset-applied** Y coordinate, the way GDAL's own classic
     netCDF driver decides `bBottomUp`. That covers every axis kind with one rule: geographic degrees,
     projected metres, and the radian scan angles of a geostationary granule — the last of which is
     packed with a *negative* `scale_factor`, so its raw values ascend while the physical axis descends
-    (#705). Each case asserts the flip decision, a north-up geotransform, and equality with the classic
-    driver's array.
+    (#705). Each case asserts the flip decision, a north-up geotransform, and equality with an
+    independently-derived north-up reference (`_north_up_reference`).
     """
 
     @pytest.mark.parametrize(
@@ -279,29 +297,46 @@ class TestFastPathOrientationAllCases:
         ORIENTATION_CASES,
         ids=[c[0].split(".")[0] for c in ORIENTATION_CASES],
     )
-    def test_orientation_matches_classic_driver(self, filename, variable, expect_flip, label):
-        """The multidim read is north-up and byte-identical to the classic driver for each case.
+    def test_orientation_matches_coordinate_reference(self, filename, variable, expect_flip, label):
+        """The multidim read is north-up and byte-identical to the coordinate-ordered reference.
 
         Test scenario:
-            Read the variable through the public MDIM path and compare it against the classic netCDF
-            driver — an independent reader that applies the coordinate's scale/offset.
+            Read the variable through the public MDIM path and compare it against the raw array
+            reordered so row 0 sits at the largest *scaled* Y coordinate.
         """
         path = f"tests/data/netcdf/{filename}"
         var = NetCDF.read_file(path).get_variable(variable)
         _assert_orientation(var, expect_flip, label, path, variable)
 
     def test_projected_descending_is_kept(self, projected_descending_nc):
-        """Projected + descending Y (the 2x2 cell with no repo fixture) is kept, not flipped.
+        """Projected + descending Y is kept, not flipped.
 
         Test scenario:
-            A UTM-projected netCDF whose Y axis descends (row 0 = north) needs no flip and must match
-            the classic driver.
+            A UTM-projected netCDF whose `y` axis descends (row 0 = north) is already north-up, so
+            `_read_md_array` must leave it alone.
         """
         var = NetCDF.read_file(projected_descending_nc).get_variable("Band1")
         srs = var.raster.GetSpatialRef()
         assert srs is not None and srs.IsProjected(), "fixture should carry a projected CRS"
         _assert_orientation(
             var, False, "projected descending (UTM) -> keep", projected_descending_nc, "Band1"
+        )
+
+    def test_projected_ascending_is_flipped(self, projected_ascending_nc):
+        """Projected + ascending Y is flipped, exactly like an ascending geographic latitude.
+
+        Test scenario:
+            A UTM-projected netCDF whose `y` axis ascends (row 0 = south) must be reversed on read.
+            GDAL's classic driver only auto-flips a recognised geographic latitude, so this cell of
+            the 2x2 is the one that proves the orientation rule keys off the coordinate values rather
+            than off the CRS being geographic. Before #705 no test covered it: the geostationary
+            granule was miscatalogued as the projected-ascending case, and it is neither.
+        """
+        var = NetCDF.read_file(projected_ascending_nc).get_variable("Band1")
+        srs = var.raster.GetSpatialRef()
+        assert srs is not None and srs.IsProjected(), "fixture should carry a projected CRS"
+        _assert_orientation(
+            var, True, "projected ascending (UTM) -> flip", projected_ascending_nc, "Band1"
         )
 
 
