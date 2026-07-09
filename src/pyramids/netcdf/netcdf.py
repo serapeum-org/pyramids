@@ -3907,13 +3907,19 @@ class NetCDF(Dataset):
         ``T(time, lat, lev, lon)``). Only the X (longitude) dim is checked: a Y-flip in
         ``_read_md_array`` renames the latitude dimension (e.g. ``subset_lat_…``), so the lat name is
         not reliably present. This still guards a same-shaped but unrelated axis (one with no
-        longitude dimension) from adopting the wrong coordinates. An X-flip renames the longitude
-        dimension the same way, so match the ``subset_<name>_…`` form too.
+        longitude dimension) from adopting the wrong coordinates.
+
+        An X-flip renames the longitude dimension the same way (``subset_lon_4_-1_5``), so accept
+        that form too — but only when this cube actually *was* X-flipped. The name alone is a
+        coincidence a real on-disk dimension could reproduce; paired with the recorded flip it is
+        evidence that GDAL, not the file's author, wrote it.
         """
         dim_names = getattr(cube, "_md_array_dims", None) or []
-        names_ok = (not dim_names) or any(
-            name == lon_name or name.startswith(f"subset_{lon_name}_") for name in dim_names
+        renamed_prefix = f"subset_{lon_name}_" if lon_name else None
+        gdal_renamed_x = bool(cube._md_x_flipped) and any(
+            renamed_prefix is not None and name.startswith(renamed_prefix) for name in dim_names
         )
+        names_ok = (not dim_names) or (lon_name in dim_names) or gdal_renamed_x
         return bool(
             lon is not None
             and lat is not None
