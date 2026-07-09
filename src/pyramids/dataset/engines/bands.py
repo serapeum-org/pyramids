@@ -1063,9 +1063,9 @@ class Bands(_Engine["Dataset"]):
             - Change the no_data_value in the array in all bands.
         Args:
             new_value (numeric):
-                No data value to set in the raster bands. A `list` is read per band and must have
-                `band_count` entries; any other value (including a `tuple` or array) is treated as a
-                single scalar applied to every band.
+                No data value to set in the raster bands. Only a `list` is read per band, and it must
+                have `band_count` entries; any other value takes the scalar path and is applied to every
+                band, so it must be a numeric scalar. A `tuple` of per-band values is not supported.
             old_value (numeric):
                 Old no data value that is already in the raster bands. Follows the same per-band `list`
                 convention as `new_value`.
