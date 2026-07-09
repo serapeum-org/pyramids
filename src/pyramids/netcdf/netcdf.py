@@ -557,6 +557,9 @@ class NetCDF(Dataset):
         # subset is read). The eager materialize path replays it on the fast classic driver; declared
         # here so it is a class invariant snapshotted alongside the _gdal_* refs in _update_inplace.
         self._md_y_flipped: bool | None = None
+        # (x_index, y_index) of the raster plane within the MDArray's dimensions, resolved by
+        # _read_md_array. The eager materialize path needs them to rebuild the unreversed view.
+        self._md_spatial_dims: tuple[int, int] | None = None
         # True once a geostationary scan-angle geotransform has been rescaled to
         # metres on this cube; tells the `geotransform` property to trust the
         # stored geotransform instead of re-deriving radian spacing from x/y.
@@ -661,6 +664,7 @@ class NetCDF(Dataset):
             "_gdal_rg_ref": self._gdal_rg_ref,
             "_gdal_classic_src_ref": self._gdal_classic_src_ref,
             "_md_y_flipped": self._md_y_flipped,
+            "_md_spatial_dims": self._md_spatial_dims,
             "_geostationary_scaled": self._geostationary_scaled,
             "_md_array_dims": self._md_array_dims,
             "_band_dim_name": self._band_dim_name,
@@ -2483,12 +2487,14 @@ class NetCDF(Dataset):
         """Replace a multidimensional ``AsClassicDataset`` view with a window-readable MEM raster.
 
         A variable subset's backing raster is a GDAL multidimensional ``AsClassicDataset`` view (see
-        :meth:`_read_md_array`). GDAL >= 3.13 rejects any partial-window read of that view, raising
-        ``RuntimeError: arrayStartIdx[...] >= <dim>``; only a full read succeeds. That breaks every
-        eager partial read of the variable — the windowed curvilinear crop, ``resample``, and the COG
-        ``CreateCopy``. Copying the view into an in-memory ``MEM`` raster does a single full read (which
-        works) and yields a normal raster that GDAL can read with any window, both from pyramids and
-        from GDAL-internal ``Warp`` / ``CreateCopy``.
+        :meth:`_read_md_array`). When the raw Y axis is bottom-up, that view is a **reversed**
+        ``GetView("[::-1, ...]")``, and GDAL cannot service a partial-window read through a negative
+        step: it raises ``RuntimeError: arrayStartIdx[...] + (count-1)*arrayStep >= <dim>``. That
+        breaks every eager partial read -- the windowed curvilinear crop, ``resample``, ``to_crs`` and
+        the COG ``CreateCopy``. An unreversed view has no such problem.
+
+        Copy the **unreversed** view into an in-memory ``MEM`` raster and apply the Y flip with NumPy,
+        so no read ever passes through the reversed view.
 
         Idempotent; a no-op on a classic (non-multidim) subset. The lazy ``read_array(chunks=)`` path
         reads from the file directly and never touches this view, so it stays fully lazy.
@@ -2499,14 +2505,11 @@ class NetCDF(Dataset):
         # multidim file dataset (0 bands) and must never be copied here.
         if not (self._is_md_array and self._is_subset) or self._raster is None:
             return
-        # Fast path: copy from the classic NETCDF:file:var driver, which is window-readable and
-        # ~270x faster than a full read of the multidim view (#705). Falls back to the correct-but-slow
-        # full copy of the view when the classic driver is unavailable or disagrees on shape.
-        mem = self._materialize_via_classic_driver()
+        mem = self._materialize_from_raw_view()
         if mem is None:
+            # Fallback: copy through the wrapper's own raster. A full read succeeds even on a
+            # reversed view; only windowed reads are unavailable there.
             mem = gdal.GetDriverByName("MEM").CreateCopy("", self._raster)
-            # CreateCopy carries the view's geotransform; re-apply the wrapper's (it may hold a Y-flip
-            # or coordinate-derived correction the raw view lacks).
             mem.SetGeoTransform(self._geotransform)
         self._raster = mem
         # The MEM copy owns its data; drop the SWIG views that backed the AsClassicDataset.
@@ -2514,110 +2517,40 @@ class NetCDF(Dataset):
         self._gdal_rg_ref = None
         self._md_view_materialized = True
 
-    def _materialize_via_classic_driver(self) -> "gdal.Dataset | None":
-        """Materialize the variable from the fast classic ``NETCDF:file:var`` driver.
+    def _materialize_from_raw_view(self) -> "gdal.Dataset | None":
+        """Copy the *unreversed* multidim view into MEM, applying any Y flip with NumPy.
 
-        The multidimensional ``AsClassicDataset`` view this cube is backed by is correct but, on GDAL
-        >= 3.13, crashes on any partial-window read and is ~270x slower than the classic driver even for
-        a full read (#705). The classic driver is window-readable and fast; the one thing it does not
-        always do is flip a south-up array to north-up — its auto-detection flips a recognised geographic
-        latitude axis but *not* a projected ``projection_y_coordinate`` (e.g. GOES geostationary), where
-        it leaves the data south-up while still reporting a north-up geotransform. ``_read_md_array``
-        already decided the orientation and recorded it in ``_md_y_flipped``; replay that decision by
-        forcing GDAL's ``GDAL_NETCDF_BOTTOMUP`` config (thread-locally) so the driver performs the flip
-        internally. GDAL bakes the orientation at open time, so the override is reset right after ``Open``.
-
-        For a ``/vsizip`` / ``/vsicurl`` / cloud-rewritten source this re-opens the whole remote or
-        compressed file — a second fetch or decompress — but it is still preferred over the slow fallback,
-        which reads the source just as remotely *and* keeps the GDAL >= 3.13 windowed-read crash.
+        ``_read_md_array`` reverses the Y axis lazily via ``MDArray.GetView("[::-1, ...]")`` when the
+        raw axis is bottom-up. Reading a window through that negative-step view raises
+        ``arrayStartIdx[...] >= <dim>``. Rebuild the raw view instead -- ``AsClassicDataset`` flattens
+        the extra dimensions into bands exactly as before, so band order and band metadata are
+        preserved -- copy it, then reverse the rows with NumPy.
 
         Returns:
             gdal.Dataset | None: A window-readable ``MEM`` raster carrying the wrapper's geotransform,
-            spatial reference, and the view's no-data / scale / offset, or ``None`` when there is no
-            classic-openable source (in-memory / ``/vsimem``), the orientation was never recorded, the
-            variable is group-qualified, or the classic driver's raster shape disagrees with the view
-            (curvilinear staggering) — in which case the caller falls back to the slow full copy.
+            or ``None`` when the raw view cannot be rebuilt (no root group, no source variable, or
+            unresolved spatial dimensions), in which case the caller falls back to copying
+            ``self._raster``.
         """
-        parent = self._parent_nc
+        rg = self._gdal_rg_ref
         var = self._source_var_name
-        flipped = self._md_y_flipped
-        if parent is None or var is None or not isinstance(flipped, bool):
+        spatial = self._md_spatial_dims
+        if rg is None or var is None or spatial is None or not isinstance(self._md_y_flipped, bool):
             return None
-        # A group-qualified variable (get_variable("grp/var")) recurses with a bare _source_var_name and
-        # a parent whose file_name carries no group, so NETCDF:file:var would either miss it (safe) or
-        # silently open a same-named, same-shaped *root* variable — a collision the shape guard cannot
-        # detect. Force the correct slow fallback for grouped variables.
-        if getattr(parent, "_group_path", None) or "/" in var:
-            return None
-        path = parent.file_name
-        # The classic netCDF driver needs an on-disk / VSI source; a MEM dataset has no such path.
-        if not path or str(path).startswith("/vsimem"):
-            return None
-        classic = self._open_classic_flipped(path, var, flipped)
-        ref = self._raster
-        if classic is None or not self._same_raster_shape(classic, ref):
-            return None
-        # Reconcile georeferencing and the data-affecting band metadata onto the classic-driver copy so the
-        # fast path matches the slow MEM.CreateCopy("", self._raster): the wrapper's geotransform (which may
-        # hold a metre-rescaled geostationary or coordinate-derived correction), the view's SRS, and each
-        # band's no-data / scale / offset (see _reconcile_band_metadata).
-        mem = gdal.GetDriverByName("MEM").CreateCopy("", classic)
-        mem.SetGeoTransform(self._geotransform)
-        srs = ref.GetSpatialRef()
-        if srs is not None:
-            mem.SetSpatialRef(srs)
-        self._reconcile_band_metadata(ref, mem)
-        return mem
-
-    @staticmethod
-    def _open_classic_flipped(path: str, var: str, flipped: bool) -> "gdal.Dataset | None":
-        """Open ``NETCDF:"path":var`` with a thread-local ``GDAL_NETCDF_BOTTOMUP`` matching the flip.
-
-        ``SetConfigOption`` would mutate the process-global value, so a concurrent netCDF open on another
-        thread could inherit the forced orientation and get silently mis-flipped data. The open runs on
-        this thread and GDAL bakes the orientation at open time, so a thread-local override reset right
-        after ``Open`` confines it with no race. Returns ``None`` if the classic open raises.
-        """
-        prev = gdal.GetThreadLocalConfigOption("GDAL_NETCDF_BOTTOMUP")
-        gdal.SetThreadLocalConfigOption("GDAL_NETCDF_BOTTOMUP", "YES" if flipped else "NO")
+        x_index, y_index = spatial
         try:
-            classic = gdal.Open(f'NETCDF:"{path}":{var}')
-        except RuntimeError:
-            classic = None
-        finally:
-            gdal.SetThreadLocalConfigOption("GDAL_NETCDF_BOTTOMUP", prev)
-        return classic
-
-    @staticmethod
-    def _same_raster_shape(a: "gdal.Dataset", b: "gdal.Dataset") -> bool:
-        """Whether two datasets share the same band count and pixel dimensions."""
-        return (
-            a.RasterCount == b.RasterCount
-            and a.RasterXSize == b.RasterXSize
-            and a.RasterYSize == b.RasterYSize
-        )
-
-    @staticmethod
-    def _reconcile_band_metadata(ref: "gdal.Dataset", mem: "gdal.Dataset") -> None:
-        """Mirror the view's no-data / scale / offset onto the classic-driver copy.
-
-        Makes the fast path match the slow ``MEM.CreateCopy("", self._raster)`` for the data-affecting
-        fields — including *clearing* a no-data the classic driver set but the view lacks, so
-        ``read_array(unpack=True)`` is identical on either path. Cosmetic band metadata (unit type,
-        description) is left as the classic driver read it from the CF attributes.
-        """
-        for i in range(ref.RasterCount):
-            src_band = ref.GetRasterBand(i + 1)
-            dst_band = mem.GetRasterBand(i + 1)
-            ndv = src_band.GetNoDataValue()
-            if ndv is None:
-                dst_band.DeleteNoDataValue()
-            else:
-                dst_band.SetNoDataValue(ndv)
-            scale = src_band.GetScale()
-            dst_band.SetScale(scale if scale is not None else 1.0)
-            offset = src_band.GetOffset()
-            dst_band.SetOffset(offset if offset is not None else 0.0)
+            raw_view = rg.OpenMDArray(var).AsClassicDataset(x_index, y_index, rg)
+        except (RuntimeError, AttributeError):
+            return None
+        if raw_view is None:
+            return None
+        mem = gdal.GetDriverByName("MEM").CreateCopy("", raw_view)
+        if self._md_y_flipped:
+            mem.WriteArray(np.asarray(mem.ReadAsArray())[..., ::-1, :])
+        # CreateCopy carries the raw view's geotransform; re-apply the wrapper's, which holds the
+        # north-up correction and any metre-rescaled geostationary geotransform.
+        mem.SetGeoTransform(self._geotransform)
+        return mem
 
     def resample(
         self,
@@ -3772,10 +3705,11 @@ class NetCDF(Dataset):
             if isinstance(src, gdal.Dataset):
                 cube = Variable(src)
                 cube._is_md_array = True
-                # Whether _read_md_array reversed a south-to-north Y axis. The eager
-                # materialize path replays it on the fast classic driver (see
-                # _materialize_via_classic_driver).
+                # Whether _read_md_array reversed a south-to-north Y axis, and where the raster plane
+                # sits in the MDArray. The eager materialize path rebuilds the unreversed view from
+                # these and re-applies the flip with NumPy (see _materialize_from_raw_view).
                 cube._md_y_flipped = y_flipped
+                cube._md_spatial_dims = spatial_dim_indices
                 # _read_md_array flips the data lazily and GDAL usually corrects the geotransform,
                 # but a Y dim with no indexing variable (e.g. WRF "south_north") can leave it wrong;
                 # fix it on the wrapper (no data copy).
