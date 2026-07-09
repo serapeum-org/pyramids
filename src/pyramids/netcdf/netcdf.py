@@ -3620,7 +3620,8 @@ class NetCDF(Dataset):
         Returns:
             bool | None: True/False when the scaled coordinate strictly increases/decreases; ``None``
             when the dimension exposes no usable 1-D coordinate (curvilinear grids, mesh files, bare
-            index dimensions) or the axis is constant / of size 1.
+            index dimensions), when either endpoint is non-finite, or when the axis is constant / of
+            size 1. The caller then falls back to the geotransform sign.
         """
         values = None
         result = None
@@ -3638,7 +3639,10 @@ class NetCDF(Dataset):
                 values = None
         if values is not None and values.ndim == 1 and values.size >= 2:
             first, last = float(values[0]), float(values[-1])
-            if first != last:
+            # A NaN endpoint (a fill value in the coordinate) compares unequal to everything and
+            # less-than nothing, so a naive `first < last` would silently call the axis descending
+            # and mirror the raster. Report "unknown" and let the geotransform sign decide.
+            if np.isfinite(first) and np.isfinite(last) and first != last:
                 result = first < last
         return result
 

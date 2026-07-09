@@ -368,6 +368,65 @@ class TestOrientationAllCases:
         )
 
 
+class _FakeDim:
+    """A dimension whose indexing variable yields the given 1-D coordinate values."""
+
+    def __init__(self, values):
+        self._values = None if values is None else np.asarray(values)
+
+    def GetIndexingVariable(self):  # noqa: N802 - mirrors the GDAL SWIG API
+        """Return a stand-in MDArray, or `None` when the dimension has no coordinate."""
+        return None if self._values is None else _FakeIndexingVariable(self._values)
+
+
+class _FakeIndexingVariable:
+    """A 1-D MDArray stand-in whose `GetUnscaled()` is the identity."""
+
+    def __init__(self, values):
+        self._values = values
+
+    def GetDimensionCount(self):  # noqa: N802 - mirrors the GDAL SWIG API
+        """Coordinate variables are 1-D."""
+        return 1
+
+    def GetUnscaled(self):  # noqa: N802 - mirrors the GDAL SWIG API
+        """The values are already scaled."""
+        return self
+
+    def ReadAsArray(self):  # noqa: N802 - mirrors the GDAL SWIG API
+        """Return the coordinate values."""
+        return self._values
+
+
+class TestScaledAxisAscends:
+    """The orientation predicate reports `None` whenever the coordinate cannot settle the direction."""
+
+    @pytest.mark.parametrize(
+        "values, expected, label",
+        [
+            ([1.0, 2.0, 3.0], True, "ascending"),
+            ([3.0, 2.0, 1.0], False, "descending"),
+            ([5.0, 5.0, 5.0], None, "constant"),
+            ([7.0], None, "size-1"),
+            (None, None, "no indexing variable"),
+            ([np.nan, 2.0, 3.0], None, "NaN first endpoint"),
+            ([1.0, 2.0, np.nan], None, "NaN last endpoint"),
+            ([np.inf, 2.0, 3.0], None, "infinite endpoint"),
+        ],
+        ids=["asc", "desc", "constant", "size-1", "no-coord", "nan-first", "nan-last", "inf"],
+    )
+    def test_direction_or_unknown(self, values, expected, label):
+        """A non-finite endpoint must report `None`, not a direction.
+
+        Test scenario:
+            `NaN != NaN` is True and `NaN < x` is False, so an unguarded `first < last` classifies a
+            NaN-tipped axis as descending — keeping a bottom-up Y (or reversing a west-to-east X) and
+            silently mirroring the raster, the exact failure mode of #705.
+        """
+        result = NetCDF._scaled_axis_ascends([_FakeDim(values)], 0)
+        assert result is expected, f"{label}: expected {expected}, got {result}"
+
+
 class TestXAxisOrientation:
     """The X axis is normalized to `col 0 = west`, the mirror of `row 0 = north`."""
 
