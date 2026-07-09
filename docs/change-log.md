@@ -1,6 +1,12 @@
 ﻿# Change log
 
 
+## 0.43.0 (2026-07-09)
+
+### Feat
+
+- **dataset**: add a discovery-less direct GetCoverage mode to from_wcs (#718)
+
 ## 0.42.0 (2026-07-08)
 
 ### Feat
