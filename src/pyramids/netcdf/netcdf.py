@@ -967,7 +967,12 @@ class NetCDF(Dataset):
         # and mirror it. A no-op for every real granule, whose scaled X ascends and scaled Y descends.
         self._correct_flipped_geotransform(self)
         self._cell_size = abs(self._geotransform[1])
-        self._materialize_md_view()
+        with warnings.catch_warnings():
+            # _materialize_md_view warns generically on failure. Here the consequence is specific
+            # and worse -- the wrapper claims metres over a raw scan-angle grid -- so own the
+            # message rather than emitting two overlapping warnings for one failure.
+            warnings.filterwarnings("ignore", message="could not materialize the multidim view")
+            self._materialize_md_view()
         if not self._md_view_materialized:
             warnings.warn(
                 "could not materialize the geostationary view; the wrapper "

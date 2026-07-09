@@ -135,10 +135,16 @@ class TestGeostationaryGeotransform:
         container = NetCDF.read_file(GOES16_FIXTURE)
         monkeypatch.setattr(netcdf_module.NetCDF, "_materialize_from_raw_view", lambda self: None)
         monkeypatch.setattr(gdal.Driver, "CreateCopy", lambda *args, **kwargs: None)
-        with pytest.warns(UserWarning, match="could not materialize the geostationary view"):
+        with pytest.warns(UserWarning, match="could not materialize the geostationary view") as caught:
             cube = container.get_variable("CMI")
         assert cube._md_view_materialized is False, "materialize should have failed soft"
         assert abs(cube.geotransform[1]) > 1000
+        # One failure, one warning: the generic multidim message is suppressed in favour of this
+        # geostationary-specific one, which names the actual consequence.
+        materialize_warnings = [
+            w for w in caught.list if "could not materialize" in str(w.message)
+        ]
+        assert len(materialize_warnings) == 1, [str(w.message) for w in materialize_warnings]
 
 
 class TestNonGeostationaryUnaffected:
