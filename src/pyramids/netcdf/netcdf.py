@@ -960,7 +960,12 @@ class NetCDF(Dataset):
         # ~20x slower than reading the view directly and, over a Y-reversed view, raised
         # "arrayStartIdx[...] >= <dim>" on each windowed block.
         self._geotransform = correct
-        self._cell_size = abs(correct[1])
+        # The classic driver describes the grid as *it* stores it: it flips a bottom-up Y but never
+        # reverses X, emitting a negative gt[1] instead. Re-anchor the adopted affine for whichever
+        # axes _read_md_array actually reversed, or the metre grid would describe the pre-flip array
+        # and mirror it. A no-op for every real granule, whose scaled X ascends and scaled Y descends.
+        self._correct_flipped_geotransform(self)
+        self._cell_size = abs(self._geotransform[1])
         self._materialize_md_view()
         if not self._md_view_materialized:
             warnings.warn(

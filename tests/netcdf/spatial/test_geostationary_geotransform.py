@@ -74,6 +74,28 @@ class TestGeostationaryGeotransform:
         classic = gdal.Open(f"NETCDF:{GOES16_FIXTURE}:CMI").GetGeoTransform()
         assert goes_cube.geotransform == pytest.approx(classic, rel=1e-9)
 
+    def test_real_granule_needs_no_reanchoring(self, goes_cube: NetCDF):
+        # A real granule packs x with a positive scale_factor and y with a negative one, so neither
+        # axis is reversed and the adopted classic geotransform is already west-east, north-up.
+        assert goes_cube._md_x_flipped is False and goes_cube._md_y_flipped is False
+        assert goes_cube.geotransform[1] > 0 and goes_cube.geotransform[5] < 0
+
+    def test_adopted_geotransform_is_reanchored_for_a_reversed_x_axis(self, goes_cube, monkeypatch):
+        # The classic driver flips a bottom-up Y but never reverses X: it reports a negative gt[1]
+        # instead. A geostationary file whose scaled x descended would be X-reversed by
+        # _read_md_array, so adopting that geotransform unchanged would mirror the raster east-west.
+        # No producer writes one, so drive the reconciliation directly.
+        mirrored = (3627271.340967355, -2004.017315487541, 0.0, 4589199.764884492, 0.0, -2004.017315487541)
+        monkeypatch.setattr(netcdf_module.NetCDF, "_classic_geotransform", lambda self: mirrored)
+        goes_cube._md_x_flipped = True
+        goes_cube._geostationary_scaled = False
+        goes_cube._normalize_geostationary_geotransform()
+        gt = goes_cube.geotransform
+        assert gt[1] > 0, f"pixel width must be positive after re-anchoring, got {gt[1]}"
+        expected_west = mirrored[0] + mirrored[1] * goes_cube.columns
+        assert gt[0] == pytest.approx(expected_west), "origin must move to the west edge"
+        assert goes_cube.cell_size == pytest.approx(abs(mirrored[1]))
+
     def test_central_meridian_is_sub_satellite_longitude(self, goes_cube: NetCDF):
         srs = goes_cube.raster.GetSpatialRef()
         lon_0 = srs.GetProjParm("central_meridian", 999.0)
