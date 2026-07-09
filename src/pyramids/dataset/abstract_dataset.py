@@ -19,7 +19,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from numbers import Number
 from pathlib import Path
-from typing import Any, Generator, cast
+from typing import TYPE_CHECKING, Any, Generator, cast
 
 import numpy as np
 from geopandas.geodataframe import GeoDataFrame
@@ -32,6 +32,9 @@ from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
 from pyramids.base.protocols import ArrayLike, FloatArray
 from pyramids.dataset.transform import GeoTransform
 from pyramids.dataset.window import Window
+
+if TYPE_CHECKING:
+    from pyramids.base._file_manager import ThreadLocalFileManager
 from pyramids.feature import FeatureCollection
 
 DEFAULT_NO_DATA_VALUE = -9999
@@ -93,12 +96,12 @@ class RasterBase(ABC):
         self._raster = src
         # Per-thread file manager for read_array(threadsafe=True); created
         # lazily by the IO engine and released by close().
-        self._thread_manager = None
+        self._thread_manager: ThreadLocalFileManager | None = None
         self._geotransform: tuple[float, float, float, float, float, float] = (
             src.GetGeoTransform()
         )
         self._cell_size = self._geotransform[1]
-        self._file_name = src.GetDescription()
+        self._file_name: str = src.GetDescription()
         # the epsg property returns the value of the _epsg attribute, so if the projection changes in any function, the
         # function should also change the value of the _epsg attribute.
         self._epsg = self._get_epsg()

@@ -15,7 +15,7 @@ import warnings
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generator
+from typing import TYPE_CHECKING, Any, Generator, cast
 
 import numpy as np
 import pandas as pd
@@ -237,8 +237,11 @@ def _encode_terrain_rgb(
             ```
     """
     if encoding == "mapbox":
-        packed = np.round((np.asarray(elevation, dtype=float) - base_val) / interval)
-        packed = np.clip(packed, 0, 2**24 - 1).astype(np.uint32)
+        rounded = np.round((np.asarray(elevation, dtype=float) - base_val) / interval)
+        packed = cast(
+            "np.typing.NDArray[np.uint32]",
+            np.clip(rounded, 0, 2**24 - 1).astype(np.uint32),
+        )
         red = ((packed >> 16) & 0xFF).astype(np.uint8)
         green = ((packed >> 8) & 0xFF).astype(np.uint8)
         blue = (packed & 0xFF).astype(np.uint8)
@@ -766,7 +769,9 @@ class IO(_Engine["Dataset"]):
             self._ds._backend = "numpy"
             if masked:
                 arr = self._to_masked(arr, band, window=window)
-        return arr
+        # arr is assembled through many untyped GDAL/dask branches above; this
+        # is the method's own declared contract.
+        return cast("ArrayLike", arr)
 
     def _require_reopenable_path(self) -> str:
         """Return the dataset's path if per-thread handles can reopen it.
@@ -844,9 +849,12 @@ class IO(_Engine["Dataset"]):
                 f"window must be a list of 4 integers [xoff, yoff, xsize, ysize], "
                 f"got {len(window)}: {window}"
             )
+        # Normalize to the list[int] _read_via_handle expects -- window may still
+        # be a tuple here (e.g. straight from Window.to_read_args()).
+        window_list = list(window) if window is not None else None
         handle = self._get_thread_manager().acquire()
         try:
-            arr = self._read_via_handle(handle, band, window)
+            arr = self._read_via_handle(handle, band, window_list)
         except RuntimeError as exc:
             # Same contract as the default path's _read_block.
             if "Access window out of range" in str(exc):
@@ -924,7 +932,9 @@ class IO(_Engine["Dataset"]):
         else:
             effective_band = 0 if band is None else band
             arr = handle.GetRasterBand(effective_band + 1).ReadAsArray(*window_args)
-        return arr
+        # arr comes from GDAL's untyped ReadAsArray/np.stack; this method's own
+        # declared contract is a plain ndarray.
+        return cast(np.typing.NDArray, arr)
 
     def _to_masked(
         self,
@@ -2179,6 +2189,7 @@ class IO(_Engine["Dataset"]):
                 bands = self._ds.band_count
                 gdal_dtype = self._ds.gdal_dtype[0]
 
+            no_data: list | tuple
             if band is not None:
                 no_data = [self._ds.no_data_value[band]]
             else:
@@ -2263,7 +2274,7 @@ class IO(_Engine["Dataset"]):
                 ```
         """
         if bands is None:
-            bands = range(1, self._ds.band_count + 1)
+            bands = list(range(1, self._ds.band_count + 1))
         elif isinstance(bands, int):
             bands = [bands + 1]
         elif isinstance(bands, list):
