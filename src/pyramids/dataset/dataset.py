@@ -3715,9 +3715,10 @@ class Dataset(RasterBase):
                 grid_template = cls.create_from_array(
                     template.read_array(band=0).astype(target_np_dtype, copy=False),
                     geo=template.geotransform,
-                    # epsg is None for a no-EPSG CRS (e.g. geostationary); fall
-                    # back to the WKT so this preserves it instead of
-                    # defaulting to 4326 (#706).
+                    # epsg is None only for a no-EPSG CRS reported as such (a
+                    # NetCDF geostationary grid); create_from_array raises
+                    # CRSError on None, so fall back to the WKT. No-op for a
+                    # plain Dataset (reports 4326) (#706).
                     epsg=template.epsg or template.crs,
                     no_data_value=resolved_nd,
                 )

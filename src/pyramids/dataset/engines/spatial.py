@@ -327,8 +327,9 @@ def _stitch_lon_halves(ds: RasterBase, west_part: Any, east_part: Any) -> "Datas
     out = Dataset.create_from_array(
         merged,
         geo=west_part.geotransform,
-        # epsg is None for a no-EPSG CRS (e.g. geostationary); fall back to
-        # the WKT so this preserves it instead of defaulting to 4326 (#706).
+        # epsg is None only for a no-EPSG CRS reported as such (a NetCDF
+        # geostationary grid); create_from_array raises CRSError on None, so fall
+        # back to the WKT. No-op for a plain Dataset (reports 4326) (#706).
         epsg=west_part.epsg or west_part.crs,
         no_data_value=west_part.no_data_value,
     )
