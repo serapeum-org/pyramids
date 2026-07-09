@@ -4720,7 +4720,13 @@ class NetCDF(Dataset):
         materialized = Dataset.create_from_array(
             cast("np.typing.NDArray", arr),
             geo=reprojected.geotransform,
-            epsg=reprojected.epsg,
+            # epsg is None for a no-EPSG CRS (e.g. geostationary); fall back
+            # to the WKT so this preserves it instead of defaulting to 4326
+            # (#706). to_crs(to_epsg: int, ...) always targets a concrete
+            # EPSG here, so epsg is provably non-None -- the fallback is
+            # defense-in-depth, matching the pattern used throughout
+            # pyramids.dataset.
+            epsg=reprojected.epsg or reprojected.crs,
             no_data_value=ndv_scalar,
         )
         NetCDF._copy_band_dim_metadata(materialized, var)
