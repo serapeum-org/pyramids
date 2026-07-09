@@ -2562,7 +2562,13 @@ class NetCDF(Dataset):
             if self._md_y_flipped or self._md_x_flipped:
                 rows = slice(None, None, -1) if self._md_y_flipped else slice(None)
                 cols = slice(None, None, -1) if self._md_x_flipped else slice(None)
-                result.WriteArray(np.asarray(result.ReadAsArray())[..., rows, cols])
+                # Flip one band at a time. Reading the whole cube and writing back a reversed
+                # (negative-stride) view would hold the full raster twice over, plus the contiguous
+                # copy GDAL makes of the strided buffer; band-wise, the peak stays at the MEM raster
+                # plus two bands.
+                for index in range(1, result.RasterCount + 1):
+                    band = result.GetRasterBand(index)
+                    band.WriteArray(np.ascontiguousarray(band.ReadAsArray()[rows, cols]))
             # CreateCopy carries the raw view's geotransform; re-apply the wrapper's, which holds the
             # north-up correction and any metre-rescaled geostationary geotransform.
             result.SetGeoTransform(self._geotransform)
