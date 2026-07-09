@@ -2546,7 +2546,12 @@ class NetCDF(Dataset):
             return None
         x_index, y_index = spatial
         try:
-            raw_view = rg.OpenMDArray(var).AsClassicDataset(x_index, y_index, rg)
+            # Bind the MDArray to a local: AsClassicDataset returns a view whose C++ backing is owned
+            # by the MDArray and root group. A bare `rg.OpenMDArray(var).AsClassicDataset(...)` frees
+            # the MDArray's SWIG wrapper at the end of the statement, leaving the view dangling for
+            # the CreateCopy below (segfault on Windows) -- the same trap _read_md_array documents.
+            raw_arr = rg.OpenMDArray(var)
+            raw_view = raw_arr.AsClassicDataset(x_index, y_index, rg)
         except (RuntimeError, AttributeError):
             return None
         if raw_view is None:
