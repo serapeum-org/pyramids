@@ -14,6 +14,8 @@ slow reads reported in #705.
 Style: Google-style docstrings, <=120 char lines, no inline imports.
 """
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from osgeo import gdal, osr
@@ -27,12 +29,13 @@ GOES = "tests/data/netcdf/cf__9v__1d7-2d2__geos__y-desc.nc"
 NOAH = "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
 
 
-class _RaisingRootGroup:
+def _raising_root_group():
     """A root group whose `OpenMDArray` fails, the way a closed/renamed source would."""
 
-    def OpenMDArray(self, name):  # noqa: N802 - mirrors the GDAL SWIG API
-        """Fail the way a GDAL SWIG call fails."""
+    def _fail(name):
         raise RuntimeError(f"cannot reopen {name}")
+
+    return SimpleNamespace(OpenMDArray=_fail)
 
 
 def _irregular_lon_mdim() -> gdal.Dataset:
@@ -55,6 +58,7 @@ def _irregular_lon_mdim() -> gdal.Dataset:
     x_dim.SetIndexingVariable(lon)
     rg.CreateMDArray("v", [y_dim, x_dim], dtype).WriteArray(np.arange(20, dtype="f4").reshape(4, 5))
     return store
+
 
 # The raw multidim-view partial-window crash (`arrayStartIdx`) is a GDAL >= 3.13 regression. The
 # win_arm64 wheel ships GDAL 3.12.4 (the vcpkg port ceiling), where the raw read succeeds instead of
@@ -195,7 +199,7 @@ class TestMaterializeIntegrity:
             propagate the error.
         """
         var = NetCDF.read_file(GOES).get_variable("CMI")
-        var._gdal_rg_ref = _RaisingRootGroup()
+        var._gdal_rg_ref = _raising_root_group()
         assert var._materialize_from_raw_view() is None, "a failed reopen must decline, not raise"
         var._materialize_md_view()
         assert var._md_view_materialized is True, "fallback copy must still materialize"

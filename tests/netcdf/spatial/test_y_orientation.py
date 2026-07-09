@@ -441,87 +441,49 @@ class TestMultiBandMaterialize:
         assert var.geotransform[1] > 0 and var.geotransform[5] < 0, "must be north-up, west-east"
 
 
-class _FakeDim:
+def _fake_indexing_variable(values):
+    """A 1-D MDArray stand-in whose `GetUnscaled()` is the identity."""
+    array = np.asarray(values)
+    variable = SimpleNamespace(GetDimensionCount=lambda: 1, ReadAsArray=lambda: array)
+    variable.GetUnscaled = lambda: variable
+    return variable
+
+
+def _fake_dim(values):
     """A dimension whose indexing variable yields the given 1-D coordinate values."""
-
-    def __init__(self, values):
-        self._values = None if values is None else np.asarray(values)
-
-    def GetIndexingVariable(self):  # noqa: N802 - mirrors the GDAL SWIG API
-        """Return a stand-in MDArray, or `None` when the dimension has no coordinate."""
-        return None if self._values is None else _FakeIndexingVariable(self._values)
+    variable = None if values is None else _fake_indexing_variable(values)
+    return SimpleNamespace(GetIndexingVariable=lambda: variable)
 
 
-class _RaisingDim:
+def _raising_dim():
     """A dimension whose indexing variable cannot be read."""
 
-    def GetIndexingVariable(self):  # noqa: N802 - mirrors the GDAL SWIG API
-        """Fail the way a GDAL SWIG call fails."""
+    def _fail():
         raise RuntimeError("no indexing variable")
 
+    return SimpleNamespace(GetIndexingVariable=_fail)
 
-class _UnscaledlessDim:
+
+def _unscaledless_dim(raw_values, scale):
     """A dimension whose `GetUnscaled()` declines, leaving only raw values and a scale factor."""
-
-    def __init__(self, raw_values, scale):
-        self._raw = np.asarray(raw_values)
-        self._scale = scale
-
-    def GetIndexingVariable(self):  # noqa: N802 - mirrors the GDAL SWIG API
-        """Return the packed coordinate variable."""
-        return self
-
-    def GetDimensionCount(self):  # noqa: N802 - mirrors the GDAL SWIG API
-        """Coordinate variables are 1-D."""
-        return 1
-
-    def GetUnscaled(self):  # noqa: N802 - mirrors the GDAL SWIG API
-        """Decline, the way GDAL does when it cannot build the unscaled view."""
-        return None
-
-    def GetScale(self):  # noqa: N802 - mirrors the GDAL SWIG API
-        """The coordinate's `scale_factor`."""
-        return self._scale
-
-    def ReadAsArray(self):  # noqa: N802 - mirrors the GDAL SWIG API
-        """The raw, packed storage values."""
-        return self._raw
+    array = np.asarray(raw_values)
+    variable = SimpleNamespace(
+        GetDimensionCount=lambda: 1,
+        GetUnscaled=lambda: None,
+        GetScale=lambda: scale,
+        ReadAsArray=lambda: array,
+    )
+    return SimpleNamespace(GetIndexingVariable=lambda: variable)
 
 
-class _GeostationaryView:
+def _geostationary_view(geotransform):
     """A classic-dataset stand-in carrying a geostationary CRS and a raw-order geotransform."""
-
-    def __init__(self, geotransform):
-        self._gt = geotransform
-
-    def GetGeoTransform(self):  # noqa: N802 - mirrors the GDAL SWIG API
-        """The view's raw-derived geotransform."""
-        return self._gt
-
-    def GetSpatialRef(self):  # noqa: N802 - mirrors the GDAL SWIG API
-        """A geostationary spatial reference."""
-        srs = osr.SpatialReference()
-        srs.SetGEOS(-75.0, 35786023.0, 0.0, 0.0)
-        return srs
-
-
-class _FakeIndexingVariable:
-    """A 1-D MDArray stand-in whose `GetUnscaled()` is the identity."""
-
-    def __init__(self, values):
-        self._values = values
-
-    def GetDimensionCount(self):  # noqa: N802 - mirrors the GDAL SWIG API
-        """Coordinate variables are 1-D."""
-        return 1
-
-    def GetUnscaled(self):  # noqa: N802 - mirrors the GDAL SWIG API
-        """The values are already scaled."""
-        return self
-
-    def ReadAsArray(self):  # noqa: N802 - mirrors the GDAL SWIG API
-        """Return the coordinate values."""
-        return self._values
+    srs = osr.SpatialReference()
+    srs.SetGEOS(-75.0, 35786023.0, 0.0, 0.0)
+    return SimpleNamespace(
+        GetGeoTransform=lambda: geotransform,
+        GetSpatialRef=lambda: srs,
+    )
 
 
 class TestScaledAxisAscends:
@@ -549,12 +511,12 @@ class TestScaledAxisAscends:
             NaN-tipped axis as descending — keeping a bottom-up Y (or reversing a west-to-east X) and
             silently mirroring the raster, the exact failure mode of #705.
         """
-        result = NetCDF._scaled_axis_ascends([_FakeDim(values)], 0)
+        result = NetCDF._scaled_axis_ascends([_fake_dim(values)], 0)
         assert result is expected, f"{label}: expected {expected}, got {result}"
 
     def test_unreadable_indexing_variable_reports_unknown(self):
         """A GDAL failure reading the indexing variable reports `None`, not a direction."""
-        assert NetCDF._scaled_axis_ascends([_RaisingDim()], 0) is None
+        assert NetCDF._scaled_axis_ascends([_raising_dim()], 0) is None
 
     @pytest.mark.parametrize(
         "raw, scale, expected",
@@ -574,7 +536,7 @@ class TestScaledAxisAscends:
             axis — precisely how a GOES scan angle, whose raw values ascend while the physical angle
             descends, got mirrored in #705.
         """
-        result = NetCDF._scaled_axis_ascends([_UnscaledlessDim(raw, scale)], 0)
+        result = NetCDF._scaled_axis_ascends([_unscaledless_dim(raw, scale)], 0)
         assert result is expected, f"raw={raw} scale={scale}: expected {expected}, got {result}"
 
 
@@ -590,20 +552,20 @@ class TestGeostationaryFallbackNeverFlips:
             is the only signal left — and it is the wrong one, because the cube then adopts the
             classic driver's north-up metre geotransform.
         """
-        view = _GeostationaryView((0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
-        assert NetCDF._y_axis_is_bottom_up([_RaisingDim()], 0, view) is False
+        view = _geostationary_view((0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
+        assert NetCDF._y_axis_is_bottom_up([_raising_dim()], 0, view) is False
 
     def test_x_fallback_refuses_to_flip_a_geostationary_axis(self):
         """The mirror carve-out for columns."""
-        view = _GeostationaryView((0.0, -1.0, 0.0, 0.0, 0.0, -1.0))
-        assert NetCDF._x_axis_is_right_to_left([_RaisingDim()], 0, view) is False
+        view = _geostationary_view((0.0, -1.0, 0.0, 0.0, 0.0, -1.0))
+        assert NetCDF._x_axis_is_right_to_left([_raising_dim()], 0, view) is False
 
     def test_non_geostationary_fallback_still_uses_the_geotransform_sign(self):
         """A plain raster with no usable coordinate still falls back to the geotransform sign."""
         view = gdal.GetDriverByName("MEM").Create("", 2, 2, 1, gdal.GDT_Float32)
         view.SetGeoTransform((0.0, -1.0, 0.0, 0.0, 0.0, 1.0))
-        assert NetCDF._y_axis_is_bottom_up([_RaisingDim()], 0, view) is True
-        assert NetCDF._x_axis_is_right_to_left([_RaisingDim()], 0, view) is True
+        assert NetCDF._y_axis_is_bottom_up([_raising_dim()], 0, view) is True
+        assert NetCDF._x_axis_is_right_to_left([_raising_dim()], 0, view) is True
 
 
 class TestCorrectFlippedGeotransform:
