@@ -626,8 +626,8 @@ class TestCorrectFlippedGeotransform:
         """A positive `gt[5]` after a Y flip is re-anchored to the north edge."""
         cube = self._cube((10.0, 2.0, 0.0, 0.0, 0.0, 1.0), y_flipped=True, x_flipped=False)
         NetCDF._correct_flipped_geotransform(cube)
-        assert cube._geotransform == (10.0, 2.0, 0.0, 4.0, 0.0, -1.0)
-        assert cube._cell_size == 2.0
+        assert cube._geotransform == pytest.approx((10.0, 2.0, 0.0, 4.0, 0.0, -1.0))
+        assert cube._cell_size == pytest.approx(2.0)
 
     def test_x_flip_reanchors_origin_to_the_west(self):
         """A negative `gt[1]` after an X flip is re-anchored to the west edge.
@@ -639,14 +639,14 @@ class TestCorrectFlippedGeotransform:
         """
         cube = self._cube((30.0, -2.0, 0.0, 10.0, 0.0, -1.0), y_flipped=False, x_flipped=True)
         NetCDF._correct_flipped_geotransform(cube)
-        assert cube._geotransform == (20.0, 2.0, 0.0, 10.0, 0.0, -1.0)
-        assert cube._cell_size == 2.0
+        assert cube._geotransform == pytest.approx((20.0, 2.0, 0.0, 10.0, 0.0, -1.0))
+        assert cube._cell_size == pytest.approx(2.0)
 
     def test_both_axes_reanchored_together(self):
         """Both corrections compose into one north-up, west-to-east geotransform."""
         cube = self._cube((30.0, -2.0, 0.0, 0.0, 0.0, 1.0), y_flipped=True, x_flipped=True)
         NetCDF._correct_flipped_geotransform(cube)
-        assert cube._geotransform == (20.0, 2.0, 0.0, 4.0, 0.0, -1.0)
+        assert cube._geotransform == pytest.approx((20.0, 2.0, 0.0, 4.0, 0.0, -1.0))
 
     def test_already_north_up_is_untouched(self):
         """An already-correct geotransform is left alone, and `_cell_size` is not rewritten."""
