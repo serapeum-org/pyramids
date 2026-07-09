@@ -183,32 +183,7 @@ def scaled_axis_ascends(dims: list, index: int) -> bool | None:
     """
     values = None
     result = None
-    # True when `values` holds raw storage read through a negative scale_factor, so its order is
-    # the reverse of the physical axis'.
-    inverted = False
-    try:
-        indexing_var = dims[index].GetIndexingVariable()
-    except (RuntimeError, AttributeError):
-        indexing_var = None
-    if indexing_var is not None and indexing_var.GetDimensionCount() == 1:
-        # GetUnscaled() is a zero-copy view applying scale_factor/add_offset; it is a no-op
-        # (scale 1, offset 0) for an unpacked coordinate.
-        try:
-            unscaled = indexing_var.GetUnscaled()
-        except (RuntimeError, AttributeError):
-            unscaled = None
-        try:
-            if unscaled is not None:
-                values = np.asarray(unscaled.ReadAsArray())
-            else:
-                # Never silently fall back to the RAW values: a negative scale_factor -- exactly
-                # what a geostationary granule packs its scan angle with -- reverses the physical
-                # direction, which is the whole of #705. Read raw, then account for the sign.
-                values = np.asarray(indexing_var.ReadAsArray())
-                scale = indexing_var.GetScale()
-                inverted = scale is not None and scale < 0
-        except (RuntimeError, AttributeError, TypeError):
-            values = None
+    values, inverted = _coordinate_values(_indexing_variable(dims, index))
     if values is not None and values.ndim == 1 and values.size >= 2:
         first, last = float(values[0]), float(values[-1])
         # A NaN endpoint (a fill value in the coordinate) compares unequal to everything and
@@ -217,6 +192,48 @@ def scaled_axis_ascends(dims: list, index: int) -> bool | None:
         if np.isfinite(first) and np.isfinite(last) and first != last:
             result = (first < last) != inverted
     return result
+
+
+def _indexing_variable(dims: list, index: int) -> gdal.MDArray | None:
+    """The dimension's 1-D coordinate variable, or ``None`` when it has none GDAL can read."""
+    try:
+        indexing_var = dims[index].GetIndexingVariable()
+    except (RuntimeError, AttributeError):
+        indexing_var = None
+    if indexing_var is not None and indexing_var.GetDimensionCount() != 1:
+        indexing_var = None
+    return indexing_var
+
+
+def _coordinate_values(indexing_var: gdal.MDArray | None) -> tuple[Any, bool]:
+    """Read a coordinate's scaled values, or its raw values plus a "reverse me" flag.
+
+    ``GetUnscaled()`` is a zero-copy view applying ``scale_factor``/``add_offset``; it is a no-op
+    (scale 1, offset 0) for an unpacked coordinate. When GDAL declines to build it, never silently
+    compare the RAW values: a negative ``scale_factor`` -- exactly what a geostationary granule packs
+    its scan angle with -- reverses the physical direction, which is the whole of #705. Read raw and
+    report that its order is inverted.
+
+    Returns:
+        ``(values, inverted)``, where ``values`` is ``None`` when nothing could be read.
+    """
+    values = None
+    inverted = False
+    if indexing_var is not None:
+        try:
+            unscaled = indexing_var.GetUnscaled()
+        except (RuntimeError, AttributeError):
+            unscaled = None
+        try:
+            if unscaled is not None:
+                values = np.asarray(unscaled.ReadAsArray())
+            else:
+                values = np.asarray(indexing_var.ReadAsArray())
+                scale = indexing_var.GetScale()
+                inverted = scale is not None and scale < 0
+        except (RuntimeError, AttributeError, TypeError):
+            values = None
+    return values, inverted
 
 
 def y_axis_is_bottom_up(dims: list, y_index: int, classic_view: gdal.Dataset) -> bool:

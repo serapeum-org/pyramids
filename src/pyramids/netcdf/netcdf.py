@@ -2563,6 +2563,27 @@ class NetCDF(Dataset):
             variable, unresolved spatial dimensions, or a failed copy), in which case the caller
             falls back to copying ``self._raster``.
         """
+        result = self._copy_raw_view()
+        if result is not None:
+            self._flip_bands_in_place(result)
+            # CreateCopy carries the raw view's geotransform; re-apply the wrapper's, which holds the
+            # north-up correction and any metre-rescaled geostationary geotransform.
+            result.SetGeoTransform(self._geotransform)
+            # ... and the wrapper's CRS, which the raw view may not have: `_georeference_index_subset`
+            # installs a projection on a VRT over the view, and a multidim view often carries no SRS
+            # at all. Rebuilding from the raw view would silently drop it.
+            wrapper_srs = self._raster.GetSpatialRef()
+            if wrapper_srs is not None:
+                result.SetSpatialRef(wrapper_srs)
+            self._reconcile_band_no_data(result)
+        return result
+
+    def _copy_raw_view(self) -> "gdal.Dataset | None":
+        """Rebuild the **unreversed** classic view of the source variable and copy it into MEM.
+
+        Returns ``None`` when the view cannot be rebuilt (no root group, no source variable,
+        unresolved spatial dimensions, unknown flips, or a failed open/copy).
+        """
         result = None
         rg = self._gdal_rg_ref
         var = self._source_var_name
@@ -2576,35 +2597,28 @@ class NetCDF(Dataset):
                 # `rg.OpenMDArray(var).AsClassicDataset(...)` frees the MDArray's SWIG wrapper at the
                 # end of that statement, leaving the view dangling for the CreateCopy below (segfault
                 # on Windows) -- the same trap _read_md_array documents. `raw_arr` stays referenced
-                # for the rest of this function, so the view outlives every read from it.
+                # until the copy completes, so the view outlives every read from it.
                 raw_arr = rg.OpenMDArray(var)
                 raw_view = raw_arr.AsClassicDataset(x_index, y_index, rg)
             except (RuntimeError, AttributeError):
                 raw_view = None
             if raw_view is not None:
                 result = gdal.GetDriverByName("MEM").CreateCopy("", raw_view)
-        if result is not None:
-            if self._md_y_flipped or self._md_x_flipped:
-                rows = slice(None, None, -1) if self._md_y_flipped else slice(None)
-                cols = slice(None, None, -1) if self._md_x_flipped else slice(None)
-                # Flip one band at a time. Reading the whole cube and writing back a reversed
-                # (negative-stride) view would hold the full raster twice over, plus the contiguous
-                # copy GDAL makes of the strided buffer; band-wise, the peak stays at the MEM raster
-                # plus two bands.
-                for index in range(1, result.RasterCount + 1):
-                    band = result.GetRasterBand(index)
-                    band.WriteArray(np.ascontiguousarray(band.ReadAsArray()[rows, cols]))
-            # CreateCopy carries the raw view's geotransform; re-apply the wrapper's, which holds the
-            # north-up correction and any metre-rescaled geostationary geotransform.
-            result.SetGeoTransform(self._geotransform)
-            # ... and the wrapper's CRS, which the raw view may not have: `_georeference_index_subset`
-            # installs a projection on a VRT over the view, and a multidim view often carries no SRS
-            # at all. Rebuilding from the raw view would silently drop it.
-            wrapper_srs = self._raster.GetSpatialRef()
-            if wrapper_srs is not None:
-                result.SetSpatialRef(wrapper_srs)
-            self._reconcile_band_no_data(result)
         return result
+
+    def _flip_bands_in_place(self, target: "gdal.Dataset") -> None:
+        """Reverse whichever spatial axes ``_read_md_array`` reversed, one band at a time.
+
+        Reading the whole cube and writing back a reversed (negative-stride) view would hold the
+        full raster twice over, plus the contiguous copy GDAL makes of the strided buffer;
+        band-wise, the peak stays at the MEM raster plus two bands.
+        """
+        if self._md_y_flipped or self._md_x_flipped:
+            rows = slice(None, None, -1) if self._md_y_flipped else slice(None)
+            cols = slice(None, None, -1) if self._md_x_flipped else slice(None)
+            for index in range(1, target.RasterCount + 1):
+                band = target.GetRasterBand(index)
+                band.WriteArray(np.ascontiguousarray(band.ReadAsArray()[rows, cols]))
 
     def _reconcile_band_no_data(self, target: "gdal.Dataset") -> None:
         """Copy the wrapper's per-band no-data onto a raster rebuilt from the raw view.
