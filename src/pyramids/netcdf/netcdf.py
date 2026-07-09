@@ -2564,6 +2564,12 @@ class NetCDF(Dataset):
         # CreateCopy carries the raw view's geotransform; re-apply the wrapper's, which holds the
         # north-up correction and any metre-rescaled geostationary geotransform.
         mem.SetGeoTransform(self._geotransform)
+        # ... and the wrapper's CRS, which the raw view may not have: `_georeference_index_subset`
+        # installs a projection on a VRT over the view, and a multidim view often carries no SRS at
+        # all. Rebuilding from the raw view would silently drop it.
+        wrapper_srs = self._raster.GetSpatialRef()
+        if wrapper_srs is not None:
+            mem.SetSpatialRef(wrapper_srs)
         return mem
 
     def resample(

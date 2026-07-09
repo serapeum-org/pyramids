@@ -18,13 +18,35 @@ import numpy as np
 import pytest
 from osgeo import gdal
 
-from pyramids.netcdf.netcdf import NetCDF
+from pyramids.netcdf.netcdf import Container, NetCDF
 
 pytestmark = pytest.mark.core
 
 GOES = "tests/data/netcdf/cf__9v__1d7-2d2__geos__y-desc.nc"
 # Genuinely bottom-up (ascending latitude): its view IS reversed, so it still exercises the crash.
 NOAH = "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
+
+
+def _irregular_lon_mdim() -> gdal.Dataset:
+    """An in-memory multidim store whose `lon` is irregularly spaced and whose array carries no CRS.
+
+    The irregular spacing defeats `GDALMDArray::GuessGeoTransform`, so the classic view comes back in
+    index space and `_georeference_index_subset` installs the coordinate-derived geotransform — and
+    the `epsg` fallback's projection — on a VRT wrapping the SRS-less view.
+    """
+    store = gdal.GetDriverByName("MEM").CreateMultiDimensional("m")
+    rg = store.GetRootGroup()
+    y_dim = rg.CreateDimension("lat", None, None, 4)
+    x_dim = rg.CreateDimension("lon", None, None, 5)
+    dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+    lat = rg.CreateMDArray("lat", [y_dim], dtype)
+    lat.WriteArray(np.array([1.0, 2.0, 3.0, 4.0], "f4"))
+    lon = rg.CreateMDArray("lon", [x_dim], dtype)
+    lon.WriteArray(np.array([1.0, 2.0, 4.0, 8.0, 16.0], "f4"))
+    y_dim.SetIndexingVariable(lat)
+    x_dim.SetIndexingVariable(lon)
+    rg.CreateMDArray("v", [y_dim, x_dim], dtype).WriteArray(np.arange(20, dtype="f4").reshape(4, 5))
+    return store
 
 # The raw multidim-view partial-window crash (`arrayStartIdx`) is a GDAL >= 3.13 regression. The
 # win_arm64 wheel ships GDAL 3.12.4 (the vcpkg port ceiling), where the raw read succeeds instead of
@@ -163,6 +185,26 @@ class TestMaterializeIntegrity:
         var = nc.get_variable("v")
         var._materialize_md_view()
         np.testing.assert_array_equal(var.read_array(band=0), arr)
+
+    def test_materialize_keeps_a_crs_the_raw_view_never_had(self):
+        """Materializing preserves a CRS installed on the wrapper after the view was built.
+
+        Test scenario:
+            A multidim view often carries no spatial reference, and an irregularly-spaced coordinate
+            makes GDAL fall back to an index-space geotransform — so `_georeference_index_subset`
+            wraps the view in a VRT and installs the projection there. Rebuilding the raster from the
+            *raw* view adopts its SRS (none), so the cube silently lost its CRS on the first eager
+            read and any later `to_crs` would warp from a missing source CRS.
+        """
+        var = Container(_irregular_lon_mdim()).get_variable("v")
+        before = var.raster.GetSpatialRef()
+        assert before is not None, "fixture should carry a CRS before materializing"
+        assert before.GetAuthorityCode(None) == "4326"
+        var._materialize_md_view()
+        after = var.raster.GetSpatialRef()
+        assert after is not None, "materializing dropped the CRS"
+        code = after.GetAuthorityCode(None)
+        assert code == "4326", f"CRS changed to {code}"
 
 
 class TestClassicDriverNotUsedForPixels:
