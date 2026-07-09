@@ -3608,11 +3608,15 @@ class NetCDF(Dataset):
         """Whether the axis' **scaled** coordinate increases, or ``None`` when it cannot be read.
 
         Mirrors GDAL's own classic netCDF driver rule (``frmts/netcdf/netcdfdataset.cpp``), which
-        applies the coordinate variable's ``scale_factor``/``add_offset`` and then compares the first
-        and last values::
+        applies the coordinate variable's ``scale_factor``/``add_offset`` before deciding::
 
             yMinMax[i] = add_offset + yMinMax[i] * scale_factor
             bBottomUp  = (yMinMax[0] <= yMinMax[1])
+
+        There ``yMinMax`` holds the axis' **first and last** values, so the rule is "the axis
+        ascends". This reads them the same way, with two deliberate departures: a constant axis
+        (``first == last``, which GDAL's ``<=`` would call ascending) is reported as unknown, and so
+        is a non-finite endpoint — in both cases the geotransform sign is the better signal.
 
         The ``AsClassicDataset`` geotransform must **not** be used for this. GDAL derives it from the
         *raw* indexing-variable values (``GDALMDArray::GuessGeoTransform`` -> ``IsRegularlySpaced``),
