@@ -143,6 +143,14 @@ def dataset_is_geostationary(dataset: gdal.Dataset) -> bool:
 
     Returns:
         ``True`` for a geostationary (GOES / Himawari / MTG) fixed-grid CRS.
+
+    Examples:
+        - A GOES granule's classic view reports the fixed-grid projection:
+            ```python
+            >>> dataset_is_geostationary(gdal.Open('NETCDF:"goes.nc":CMI'))  # doctest: +SKIP
+            True
+
+            ```
     """
     srs = dataset.GetSpatialRef() if dataset is not None else None
     return bool(
@@ -180,6 +188,20 @@ def scaled_axis_ascends(dims: list, index: int) -> bool | None:
         when the dimension exposes no usable 1-D coordinate (curvilinear grids, mesh files, bare
         index dimensions), when either endpoint is non-finite, or when the axis is constant / of
         size 1. The caller then falls back to the geotransform sign.
+
+    Examples:
+        - A geostationary ``y`` packed with a negative ``scale_factor`` descends physically, even
+          though its raw values ascend:
+            ```python
+            >>> scaled_axis_ascends(cmi.GetDimensions(), 0)  # doctest: +SKIP
+            False
+
+            ```
+        - A dimension with no coordinate variable cannot say:
+            ```python
+            >>> scaled_axis_ascends(mesh.GetDimensions(), 0)  # doctest: +SKIP
+
+            ```
     """
     values = None
     result = None
@@ -253,6 +275,14 @@ def y_axis_is_bottom_up(dims: list, y_index: int, classic_view: gdal.Dataset) ->
 
     Returns:
         ``True`` when the array must be reversed along Y.
+
+    Examples:
+        - A south-to-north latitude must be reversed:
+            ```python
+            >>> y_axis_is_bottom_up(tas.GetDimensions(), 0, view)  # doctest: +SKIP
+            True
+
+            ```
     """
     ascends = scaled_axis_ascends(dims, y_index)
     if ascends is None:
@@ -278,6 +308,14 @@ def x_axis_is_right_to_left(dims: list, x_index: int, classic_view: gdal.Dataset
 
     Returns:
         ``True`` when the array must be reversed along X.
+
+    Examples:
+        - A west-to-east longitude is already in raster order:
+            ```python
+            >>> x_axis_is_right_to_left(tas.GetDimensions(), 1, view)  # doctest: +SKIP
+            False
+
+            ```
     """
     ascends = scaled_axis_ascends(dims, x_index)
     if ascends is None:

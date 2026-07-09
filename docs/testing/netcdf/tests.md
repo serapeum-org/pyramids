@@ -11,6 +11,11 @@ row 0 = north (negative Y pixel size). pyramids therefore flips a variable on re
 **ascends**, read the way GDAL's own classic netCDF driver decides `bBottomUp`: through `GetUnscaled()`, so the
 coordinate's `scale_factor` / `add_offset` are applied first.
 
+The rule lives once, in `pyramids.netcdf._mdim`, and **all three read paths share it**: the eager
+`get_variable().read_array()`, the chunked `read_array(chunks=...)` (via `build_lazy_array`), and the internal
+`_read_variable`. When the rule lived only in the eager path, a chunked read of a geostationary variable came back
+`flipud` of the eager read — #705, still live on a public API.
+
 Two subtleties the tests pin down:
 
 - The decision must **not** be read off the multidim view's geotransform. `GDALMDArray::GuessGeoTransform()` builds
@@ -32,7 +37,8 @@ with a reference array reordered so row 0 sits at the largest scaled Y coordinat
 
 Neither projected cell has an on-disk fixture, so both build a UTM grid at runtime (`WRITE_BOTTOMUP=YES` / `NO`).
 
-The same rule applies to the X axis, mirrored: a longitude stored **east→west** is reversed so `col 0 = west`.
+The same rule applies to the X axis, mirrored: a longitude stored **east→west** is reversed so `col 0 = west`, on
+every read path.
 GDAL's classic driver never flips X — it reports a negative `gt[1]` — but a negative pixel width cannot survive
 pyramids' `abs()`-based cell size and bbox arithmetic, and the coordinate-derived geotransform used to take
 `lon[0]` for the west edge, so such a file came back mirrored west-east under a shifted bbox. No known producer
