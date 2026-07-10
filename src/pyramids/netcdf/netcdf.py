@@ -44,6 +44,7 @@ from pyramids.netcdf.cf import (
 )
 from pyramids.netcdf._mdim import (
     GEOSTATIONARY_PROJECTION,
+    axis_flips,
     dataset_is_geostationary,
     needs_x_flip,
     needs_y_flip,
@@ -3245,11 +3246,12 @@ class NetCDF(Dataset):
                         result = md_arr.ReadAsArray()
                     # Normalize to the raster convention get_variable produces: row 0 = north,
                     # col 0 = west. A windowed read is returned in storage order (the window is
-                    # expressed in storage indices), so it is left alone.
+                    # expressed in storage indices), so it is left alone. One probe decides both axes.
                     if result is not None and result.ndim >= 2 and window is None:
-                        if self._needs_y_flip(rg, md_arr):
+                        flip_y, flip_x = axis_flips(rg, md_arr)
+                        if flip_y:
                             result = np.flip(result, axis=result.ndim - 2)
-                        if self._needs_x_flip(rg, md_arr):
+                        if flip_x:
                             result = np.flip(result, axis=result.ndim - 1)
             except (RuntimeError, ValueError):
                 pass  # nosec B110
