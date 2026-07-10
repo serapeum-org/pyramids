@@ -52,6 +52,8 @@ their own dimension (the classic CF coordinate variables).
 | `none__1v__1d1.nc`                        | 0.04 MB | (none)     | 1     | 1×1D                   | **Single variable**, trivial (`var1(dim1)`)                                                             |
 | `cf__7v__1d3-2d3-3d1__y-asc.nc`                  | 2.9 MB  | CF-1.0     | 7     | 3×1D, 3×2D, 1×3D       | **Single data variable** `tos(time,lat,lon)` + coords/bounds                                            |
 | `coards__4v__1d3-3d1__y-desc.nc`                  | 0.2 MB  | COARDS     | 4     | 3×1D, 1×3D             | Single data variable `air(time,lat,lon)`, int16-packed; COARDS (100 steps, deflate)                     |
+| `cf__6v__1d2-2d4__geog__y-asc.nc`                 | 4.2 MB  | CF-1.5     | 6     | 2×1D, 4×2D             | NOAH precipitation, four `Band(lat,lon)` vars; latitude stored **south→north** (Y-flip case)            |
+| `cf__9v__1d7-2d2__geos__y-desc.nc`                | 0.3 MB  | CF-1.7     | 9     | 7×1D, 2×2D             | GOES-16 ABI, geostationary CRS; `int16`-packed radian scan-angle `y` with **negative** `scale_factor`   |
 | `cf__12v__1d4-2d5-3d2-4d1__y-asc.nc`             | 2.8 MB  | CF-1.0     | 12    | 4×1D, 5×2D, 2×3D, 1×4D | **Mix of all dims**, CF; `pr`/`tas`(3D), `ua`(4D), `area`/`msk_rgn`(2D)                                 |
 | `cf__20v__1d3-3d17__y-desc.nc`                    | 1.7 MB  | CF-1.0     | 20    | 3×1D, 17×3D            | **Many 3-D variables** (17 int16-packed surface fields `(time,lat,lon)`), CF (12 steps)§                |
 | `cf__48v__1d17-3d21-4d10__y-asc.nc`              | 3.1 MB  | CF-1.0     | 48    | 17×1D, 21×3D, 10×4D    | **Mix of all** — CAM init; 10 `(time,lev,lat,lon)` 4-D + 21 3-D + coords (6 levels)¶                    |
@@ -119,6 +121,8 @@ file's provenance is never lost.
 | `none__4v__1d1-2d2-3d1__curv.nc`             | `rasm.nc`                               | xarray-data       |
 | `none__17v__1d1-2d5-3d6-4d5__stag-str.nc`    | `wrfout_v2_Lambert.nc` (reduced, 17/80) | Unidata examples  |
 | `coards__4v__1d3-3d1__y-desc.nc`                     | `air_temperature.nc`                    | xarray-data       |
+| `cf__6v__1d2-2d4__geog__y-asc.nc`                    | CreateCopy of `tests/data/geotiff/noah-precipitation` | this repo (GDAL)  |
+| `cf__9v__1d7-2d2__geos__y-desc.nc`                   | `OR_ABI-L2-CMIPM1-M6C13_G16_s20241801200284…` | NOAA GOES-16 (AWS) |
 | `coards__5v__1d4-4d1__y-desc.nc`                     | `rhum.2003.nc`                          | Unidata examples  |
 | `cf__7v__1d3-2d3-3d1__y-asc.nc`                     | `tos_O1_2001-2002.nc`                   | Unidata examples  |
 | `cf__12v__1d4-2d5-3d2-4d1__y-asc.nc`                | `sresa1b_ncar_ccsm3-example.nc`         | Unidata examples  |
