@@ -341,6 +341,51 @@ class TestClassicDriverNotUsedForPixels:
 class TestGeostationaryGroundTruth:
     """For a geostationary granule the classic driver is authoritative; pyramids must agree with it."""
 
+    def test_to_crs_pixels_match_the_classic_driver_warp(self):
+        """#705's downstream symptom: reprojected pixels must equal warping the classic driver.
+
+        Test scenario:
+            The reporter consumed the granule through `to_crs(4326)` and sampled geographic
+            coordinates; the mirrored source made every sampled value wrong while the shape and
+            bbox looked plausible. Warping GDAL's classic read is the independent reference: same
+            resampling, same grid, correct orientation.
+        """
+        warped = NetCDF.read_file(GOES).get_variable("CMI").to_crs(4326)
+        reference = gdal.Warp("", gdal.Open(f'NETCDF:"{GOES}":CMI'), format="MEM", dstSRS="EPSG:4326")
+        np.testing.assert_array_equal(
+            np.asarray(warped.read_array()),
+            np.asarray(reference.ReadAsArray()),
+            err_msg="to_crs(4326) pixels differ from warping the classic driver",
+        )
+
+    def test_to_crs_sampled_coordinates_match_the_classic_driver_warp(self):
+        """Sampling lon/lat points after `to_crs(4326)` — the issue's exact methodology.
+
+        Test scenario:
+            Index two geographic coordinates through each dataset's own geotransform, the way the
+            report did with netCDF4 as ground truth. A vertical mirror leaves the grids identical
+            but swaps which pixel a coordinate lands on, so the sampled values diverge — 0.42.0
+            returned `[1494, 728]` where the truth was `[1543, 2114]` on the reporter's granule.
+        """
+        warped = NetCDF.read_file(GOES).get_variable("CMI").to_crs(4326)
+        pyramids_array = np.asarray(warped.read_array())
+        gt = warped.geotransform
+        reference = gdal.Warp("", gdal.Open(f'NETCDF:"{GOES}":CMI'), format="MEM", dstSRS="EPSG:4326")
+        ref_array = np.asarray(reference.ReadAsArray())
+        ref_gt = reference.GetGeoTransform()
+        # Two points well inside the disc: 1/3 and 2/3 across the warped extent.
+        for x_frac, y_frac in ((1 / 3, 1 / 3), (2 / 3, 2 / 3)):
+            lon = gt[0] + gt[1] * warped.columns * x_frac
+            lat = gt[3] + gt[5] * warped.rows * y_frac
+            row = int((lat - gt[3]) / gt[5])
+            col = int((lon - gt[0]) / gt[1])
+            ref_row = int((lat - ref_gt[3]) / ref_gt[5])
+            ref_col = int((lon - ref_gt[0]) / ref_gt[1])
+            assert pyramids_array[row, col] == ref_array[ref_row, ref_col], (
+                f"value sampled at lon={lon:.4f}, lat={lat:.4f} does not match the classic warp "
+                f"(pyramids {pyramids_array[row, col]!r} vs reference {ref_array[ref_row, ref_col]!r})"
+            )
+
     def test_read_array_matches_classic_driver_not_its_flipud(self):
         """#705: `read_array()` must equal the classic driver's array, not its `flipud`."""
         var = NetCDF.read_file(GOES).get_variable("CMI")
