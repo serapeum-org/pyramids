@@ -74,7 +74,7 @@ Both projected cells are covered by UTM grids generated at runtime (the `project
 | **geographic** | `…__geog__y-asc` (NOAH, MSWEP) | `…__geog__y-desc` (ERA5), `coards…__y-desc` |
 
 The GOES granule is the reason the `y-asc` / `y-desc` tag names the **scaled** direction, not the storage order.
-Its `y` is `int16` packed with a *negative* `scale_factor`, so the raw values ascend (`0 → 1499`) while the
+Its `y` is `int16` packed with a *negative* `scale_factor`, so the raw values ascend (`0 → 499`) while the
 physical scan angle descends (`0.0420 → 0.0140`). It is the only fixture where the two disagree, and reading the
 tag off the raw order is exactly what mirrored the raster in #705. A geostationary file with a genuinely
 ascending scan angle is not something any known producer writes, so that cell stays empty; the rule handles it
