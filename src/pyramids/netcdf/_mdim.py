@@ -2,9 +2,18 @@
 
 This module collects the small MDIM primitives that were previously duplicated across
 ``netcdf.py``, ``_lazy.py``, ``labeled.py`` and the ``ugrid`` subpackage: opening a root
-group, opening an MDArray behind the ``RuntimeError``/``None`` guard, reducing a per-band
-NoData list to a scalar, and probing whether a stored array runs south-to-north (so its Y
-axis needs flipping to a north-up raster).
+group, opening an MDArray behind the ``RuntimeError``/``None`` guard, and reducing a
+per-band NoData list to a scalar.
+
+It also owns the **axis-orientation rule** (#705): whether a stored array must be reversed
+along Y (south-to-north storage) and/or X (east-to-west storage) to reach GDAL's raster
+convention of ``row 0 = north, col 0 = west``. The decision reads the coordinate variable
+with its ``scale_factor``/``add_offset`` applied (:func:`scaled_axis_ascends`), never the
+view's raw-derived geotransform, and includes the geostationary CRS detection
+(:func:`dataset_is_geostationary`) its fallback needs. Every read path — the eager
+``get_variable``, the chunked/dask ``read_array(chunks=)``, and the internal
+``_read_variable`` — consumes the same rule, so they cannot disagree about which way up
+the data is.
 
 Keeping these in one place means a behavioural fix — e.g. a new GDAL guard — lands once
 instead of in a dozen near-identical copies. The helpers are intentionally thin and

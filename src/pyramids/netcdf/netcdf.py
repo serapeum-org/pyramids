@@ -3213,8 +3213,13 @@ class NetCDF(Dataset):
         Uses the MDIM root group when available (avoids opening a new GDAL
         handle). Falls back to the classic `NETCDF:file:var` path.
 
-        For arrays with 2+ dimensions, the Y axis is flipped if the data
-        is stored south-to-north (matching the flip in `get_variable`).
+        A **full** read of a 2+-dimensional array is normalized to the raster
+        convention `get_variable` produces — the Y axis is reversed when the
+        data is stored south-to-north and the X axis when it is stored
+        east-to-west (one `_mdim.axis_flips` probe decides both). A
+        **windowed** read is returned in **storage order** with no flip: the
+        window is expressed in storage indices, so reordering the result
+        would desync it from the indices the caller windowed by.
 
         Args:
             var: Variable name in the dataset.
