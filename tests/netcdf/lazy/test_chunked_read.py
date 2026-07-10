@@ -393,6 +393,25 @@ class TestLazyOrientationMatchesEager:
             direct, eager, err_msg="_read_variable is mirrored west-east relative to get_variable"
         )
 
+    def test_non_trailing_spatial_variable_lazy_matches_eager(self):
+        """A `(time, lat, lev, lon)` variable reads the same lazily and eagerly.
+
+        Test scenario:
+            The lazy path normalizes the trailing two axes (see `_mdim.axis_flips`), while the eager
+            path resolves the raster plane through `_resolve_spatial_dims`. For CAM's non-trailing
+            latitude both resolve to the same trailing `(lev, lon)` plane, so the reads must agree
+            byte-for-byte — pinned here so any future divergence between the two plane-resolution
+            strategies surfaces as a failure instead of a silent mirror.
+        """
+        path = "tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc"
+        eager = np.asarray(NetCDF.read_file(path).get_variable("T").read_array())
+        lazy = np.squeeze(
+            np.asarray(NetCDF.read_file(path).get_variable("T").read_array(chunks="auto"))
+        )
+        np.testing.assert_array_equal(
+            lazy, eager, err_msg="lazy read diverged from eager on a non-trailing-spatial variable"
+        )
+
     def test_one_dimensional_variable_is_never_flipped(self):
         """A 1-D coordinate array has no raster plane, so no axis is reversed.
 
