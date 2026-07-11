@@ -18,16 +18,23 @@ from pyramids.base._errors import FileFormatNotSupportedError
 COMPRESSED_FILES_EXTENSIONS = [".zip", ".gz", ".tar"]
 DOES_NOT_SUPPORT_INTERNAL = [".gz"]
 
+# GDAL VSI archive-handler prefixes, named once and reused across the kind
+# map, the vsi-path builders and the prefix checks below to avoid duplicating
+# the literals (S1192).
+_VSIZIP = "/vsizip/"
+_VSITAR = "/vsitar/"
+_VSIGZIP = "/vsigzip/"
+
 # User-facing archive ``kind`` -> GDAL VSI handler prefix. ``"tar.gz"`` /
 # ``"tgz"`` go through ``/vsitar/`` (GDAL's tar handler decompresses gzip
 # inline); ``"gz"`` / ``"gzip"`` is for a single gzip-compressed file.
 _VSI_ARCHIVE_KINDS: dict[str, str] = {
-    "zip": "/vsizip/",
-    "tar": "/vsitar/",
-    "tar.gz": "/vsitar/",
-    "tgz": "/vsitar/",
-    "gz": "/vsigzip/",
-    "gzip": "/vsigzip/",
+    "zip": _VSIZIP,
+    "tar": _VSITAR,
+    "tar.gz": _VSITAR,
+    "tgz": _VSITAR,
+    "gz": _VSIGZIP,
+    "gzip": _VSIGZIP,
 }
 
 # Process-wide monotonic counter guaranteeing `/vsimem/` path uniqueness.
@@ -258,10 +265,10 @@ def _get_zip_path(path: str, file_i: int = 0):
     """
     # get a list of files inside the compressed file
     if path.__contains__(".zip") and not path.endswith(".zip"):
-        vsi_path = f"/vsizip/{path}"
+        vsi_path = f"{_VSIZIP}{path}"
     else:
         file_list = zipfile.ZipFile(path).namelist()
-        vsi_path = f"/vsizip/{path}/{file_list[file_i]}"
+        vsi_path = f"{_VSIZIP}{path}/{file_list[file_i]}"
     return vsi_path
 
 
@@ -285,16 +292,16 @@ def _get_gzip_path(path: str, file_i: int = 0):
         "path/file-name.gz/internal-file.ext)"
     )
     if path.__contains__(".gz") and not path.endswith(".gz"):
-        vsi_path = f"/vsigzip/{path}"
+        vsi_path = f"{_VSIGZIP}{path}"
     else:
         try:
             with tarfile.open(path) as tf:
                 file_list = tf.getnames()
-            vsi_path = f"/vsigzip/{path}/{file_list[file_i]}"
+            vsi_path = f"{_VSIGZIP}{path}/{file_list[file_i]}"
         except tarfile.ReadError:
             # if the tarfile.open() does not give a getnames() method, it means the file contains one file
             # so return the path of the main file
-            vsi_path = f"/vsigzip/{path}"
+            vsi_path = f"{_VSIGZIP}{path}"
     return vsi_path
 
 
@@ -312,7 +319,7 @@ def _get_tar_path(path: str):
         str: Path for GDAL to read the tar file.
     """
     # get list of files inside the compressed file
-    vsi_path = f"/vsitar/{path}"
+    vsi_path = f"{_VSITAR}{path}"
     return vsi_path
 
 
@@ -417,7 +424,7 @@ def _archive_dir_vsi(path: str | Path, kind: str = "auto") -> str:
             f"{sorted(_VSI_ARCHIVE_KINDS)} or 'auto'"
         )
     vsi_path = remote._to_vsi(path)
-    if vsi_path.startswith(("/vsizip/", "/vsitar/", "/vsigzip/")):
+    if vsi_path.startswith((_VSIZIP, _VSITAR, _VSIGZIP)):
         return vsi_path
     return f"{prefix}{vsi_path}"
 
