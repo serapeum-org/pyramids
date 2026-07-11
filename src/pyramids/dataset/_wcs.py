@@ -76,6 +76,12 @@ _OVERRIDABLE_KVP_KEYS = _RESERVED_KVP_KEYS - _PROTOCOL_KVP_KEYS
 _CRS_KVP_KEYS = frozenset({"CRS", "SUBSETTINGCRS"})
 
 
+if TYPE_CHECKING:
+    from osgeo import osr
+
+    from pyramids.dataset.dataset import Dataset
+
+
 def _kvp_slot(key: str) -> str:
     """Normalised override slot for a KVP key (CRS and SUBSETTINGCRS share one)."""
     upper = key.upper()
@@ -89,14 +95,16 @@ def _merge_direct_kvp(
     """Fold ``extra_params`` into the built-in direct-GetCoverage KVP list.
 
     In direct mode the caller owns the wire request. An ``extra_params`` key that
-    matches a built-in KVP *replaces* it — case-insensitively, and with ``CRS`` and
-    ``SUBSETTINGCRS`` sharing one slot — using the caller's exact key spelling and
-    value. This lets a non-conformant shim be handed its exact tokens: a lowercase
-    ``coverageID`` key, or the WCS-1.x ``CRS=`` on a WCS-2.0 request (the two quirks
-    of the Copernicus EDO/GDO MapServer, which ``500``s on the spec spellings). A
-    key that matches nothing built-in is appended verbatim, as before. ``SERVICE`` /
-    ``VERSION`` / ``REQUEST`` / ``SUBSET`` stay locked — they are the fixed protocol
-    call (or multi-valued), so overriding them is always an error.
+    matches a built-in KVP *replaces* it in place — case-insensitively, and with
+    ``CRS`` and ``SUBSETTINGCRS`` sharing one slot — using the caller's exact key
+    spelling and value. This lets a non-conformant shim be handed its exact tokens:
+    a lowercase ``coverageID`` key, or the WCS-1.x ``CRS=`` on a WCS-2.0 request (the
+    two quirks of the Copernicus EDO/GDO MapServer, which ``500``s on the spec
+    spellings). A key that matches no built-in is appended verbatim, in caller order.
+    ``SERVICE`` / ``VERSION`` / ``REQUEST`` / ``SUBSET`` stay locked — they are the
+    fixed protocol call (or multi-valued), so overriding them is always an error;
+    additional WCS-2.0 ``SUBSET`` axes (e.g. a temporal subset) therefore cannot be
+    added in direct mode, only in discovery mode.
 
     Args:
         params: The KVP pairs the builder assembled, in order.
@@ -104,13 +112,16 @@ def _merge_direct_kvp(
 
     Returns:
         The merged KVP pairs: built-ins with any matching override substituted in
-        place, followed by the non-colliding extras.
+        place, followed by the non-colliding extras in caller order.
 
     Raises:
-        ValueError: an ``extra_params`` key targets a locked protocol parameter.
+        ValueError: an ``extra_params`` key targets a locked protocol parameter, or
+            two ``extra_params`` keys target the same GetCoverage parameter (e.g.
+            both ``CRS`` and ``SUBSETTINGCRS``, or case-variant duplicates).
     """
     result = list(params)
     if extra_params:
+        builtin_slots = {_kvp_slot(key) for key, _ in result}
         overrides: dict[str, tuple[str, str]] = {}
         appended: list[tuple[str, str]] = []
         for key, val in extra_params.items():
@@ -120,33 +131,19 @@ def _merge_direct_kvp(
                     f"extra_params key {key!r} is a fixed WCS protocol parameter and "
                     "cannot be overridden; set it via the from_wcs arguments instead."
                 )
-            if upper in _OVERRIDABLE_KVP_KEYS:
-                overrides[_kvp_slot(key)] = (key, val)
+            slot = _kvp_slot(key)
+            if upper in _OVERRIDABLE_KVP_KEYS and slot in builtin_slots:
+                if slot in overrides:
+                    raise ValueError(
+                        f"extra_params keys {overrides[slot][0]!r} and {key!r} both "
+                        "target the same GetCoverage parameter; pass only one."
+                    )
+                overrides[slot] = (key, val)
             else:
                 appended.append((key, val))
-        merged: list[tuple[str, str]] = []
-        used: set[str] = set()
-        for k, v in result:
-            slot = _kvp_slot(k)
-            replacement = overrides.get(slot)
-            if replacement is None:
-                merged.append((k, v))
-            elif slot not in used:
-                merged.append(replacement)
-                used.add(slot)
-            # else: drop a duplicate built-in of an already-replaced slot.
-        # An override that matched no built-in (e.g. RESX on a 2.0 request) is kept
-        # as a plain extra rather than silently dropped.
-        for slot, kv in overrides.items():
-            if slot not in used:
-                appended.append(kv)
+        merged = [overrides.get(_kvp_slot(k), (k, v)) for k, v in result]
         result = merged + appended
     return result
-
-if TYPE_CHECKING:
-    from osgeo import osr
-
-    from pyramids.dataset.dataset import Dataset
 
 
 def _http_get(

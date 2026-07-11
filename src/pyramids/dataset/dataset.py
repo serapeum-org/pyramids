@@ -2296,7 +2296,10 @@ class Dataset(RasterBase):
                 instead of ``SUBSETTINGCRS``. Non-matching keys are appended (e.g. a
                 ``TIME`` axis). The fixed protocol keys ``SERVICE`` / ``VERSION`` /
                 ``REQUEST`` / ``SUBSET`` cannot be overridden and raise
-                :class:`ValueError`.
+                :class:`ValueError`; because ``SUBSET`` is locked, an additional
+                WCS-2.0 ``SUBSET`` axis (e.g. a temporal subset) cannot be added in
+                direct mode — use discovery mode for that. Two keys targeting the
+                same parameter (e.g. both ``CRS`` and ``SUBSETTINGCRS``) also raise.
             direct: When ``True``, skip ``GetCapabilities``/``DescribeCoverage`` and
                 issue a KVP ``GetCoverage`` directly — for shim servers that only
                 implement ``GetCoverage``. Defaults to ``False`` (full handshake).
