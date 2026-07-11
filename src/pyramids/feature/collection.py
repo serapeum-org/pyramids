@@ -542,9 +542,9 @@ class FeatureCollection(GeoDataFrame):
             w, s, e, n = (float(v) for v in seq)
         except (TypeError, ValueError) as exc:
             raise TypeError(f"bbox elements must be numbers; got {seq!r}") from exc
-        if not (w < e):
+        if w >= e:
             raise ValueError(f"bbox must satisfy west < east; got west={w}, east={e}")
-        if not (s < n):
+        if s >= n:
             raise ValueError(
                 f"bbox must satisfy south < north; got south={s}, north={n}"
             )

@@ -1289,22 +1289,22 @@ class Spatial(_Engine["Dataset"]):
         # ndarray here (the dask.Array arm of ArrayLike is unreachable).
         src_array = cast(np.typing.NDArray, self._ds.read_array())
 
-        if not row == self._ds.rows or not col == self._ds.columns:
+        if row != self._ds.rows or col != self._ds.columns:
             raise ValueError(
                 "Two rasters have different number of columns or rows, please resample or match both rasters"
             )
 
         if isinstance(mask, RasterBase):
             if (
-                not self._ds.top_left_corner == mask.top_left_corner
-                or not self._ds.cell_size == mask.cell_size
+                self._ds.top_left_corner != mask.top_left_corner
+                or self._ds.cell_size != mask.cell_size
             ):
                 raise ValueError(
                     "the location of the upper left corner of both rasters is not the same or cell size is "
                     "different please match both rasters first "
                 )
 
-            if not mask_epsg == self._ds.epsg:
+            if mask_epsg != self._ds.epsg:
                 raise ValueError(
                     "Dataset A & B are using different coordinate systems please reproject one of them to "
                     "the other raster coordinate system"

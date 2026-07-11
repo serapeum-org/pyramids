@@ -2429,7 +2429,7 @@ class DatasetCollection:
                 path.mkdir(parents=True, exist_ok=True)
             path = [str(path / f"{i}.{ext}") for i in range(self.time_length)]
         else:
-            if not len(path) == self.time_length:
+            if len(path) != self.time_length:
                 raise ValueError(
                     f"Length of the given paths: {len(path)} does not equal number of rasters in the data cube: {self.time_length}"
                 )
