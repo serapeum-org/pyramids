@@ -145,6 +145,12 @@ COLOR_TABLE = DataFrame(
     columns=["id", "gdal_constant", "name"],
     data=list(zip(range(len(COLOR_NAMES)), COLOR_INTERPRETATIONS, COLOR_NAMES)),
 )
+# The historical pyramids default resampling method. Shared as the default
+# argument value across the reproject / warp / align / overview APIs and reused
+# as the canonical alias key below, so the literal is defined exactly once
+# (S1192).
+DEFAULT_RESAMPLING = "nearest neighbor"
+
 # Resampling-method name -> GDAL warp/translate constant. Covers every
 # ``gdal.GRA_*`` algorithm of the supported GDAL floor; the snake_case names
 # match rasterio's ``Resampling`` enum so users migrating from rasterio can
@@ -153,7 +159,7 @@ COLOR_TABLE = DataFrame(
 # GDAL versions are guarded with ``hasattr`` so importing pyramids never fails
 # on an older GDAL.
 INTERPOLATION_METHODS = {
-    "nearest neighbor": gdal.GRA_NearestNeighbour,
+    DEFAULT_RESAMPLING: gdal.GRA_NearestNeighbour,
     "nearest": gdal.GRA_NearestNeighbour,
     "bilinear": gdal.GRA_Bilinear,
     "cubic": gdal.GRA_Cubic,

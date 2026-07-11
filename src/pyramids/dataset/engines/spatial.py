@@ -16,7 +16,7 @@ from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal, osr
 
 from pyramids.base._domain import is_no_data
-from pyramids.base._utils import resolve_resampling
+from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import (
     epsg_from_wkt,
     reproject_coordinates,
@@ -392,7 +392,7 @@ class Spatial(_Engine["Dataset"]):
     def to_crs(
         self,
         to_epsg: int | str | Any,
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
         maintain_alignment: bool = False,
         *,
         cell_size: float | tuple[float, float] | None = None,
@@ -565,7 +565,7 @@ class Spatial(_Engine["Dataset"]):
     def warped_view(
         self,
         crs: int | str | Any,
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
         *,
         cell_size: float | tuple[float, float] | None = None,
         bbox: tuple[float, float, float, float] | None = None,
@@ -883,7 +883,7 @@ class Spatial(_Engine["Dataset"]):
     def resample(
         self,
         cell_size: int | float | tuple[float, float],
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
     ) -> Dataset:
         """Resample a raster to a new cell size.
 

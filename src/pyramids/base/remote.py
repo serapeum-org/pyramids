@@ -35,12 +35,15 @@ from osgeo import gdal
 
 logger = logging.getLogger(__name__)
 
-# GDAL cloud VSI prefixes, named once and reused across the maps and the
-# scheme/prefix logic below to avoid duplicating the literals (S1192).
+# GDAL cloud and archive VSI prefixes, named once and reused across the maps
+# and the scheme/prefix logic below to avoid duplicating the literals (S1192).
 _VSICURL = "/vsicurl/"
 _VSIS3 = "/vsis3/"
 _VSIGS = "/vsigs/"
 _VSIAZ = "/vsiaz/"
+_VSIZIP = "/vsizip/"
+_VSITAR = "/vsitar/"
+_VSIGZIP = "/vsigzip/"
 
 
 # Module-scope tuple of cloud VSI prefixes; referenced by _chain_archive_vsi
@@ -57,11 +60,11 @@ _CLOUD_VSI_PREFIXES: tuple[str, ...] = (
 # first so the regex alternation prefers `.tar.gz` over `.gz` — see
 # _ARCHIVE_MARKER_RE below.
 _ARCHIVE_EXT_TO_VSI: dict[str, str] = {
-    "tar.gz": "/vsitar/",
-    "tgz": "/vsitar/",
-    "zip": "/vsizip/",
-    "tar": "/vsitar/",
-    "gz": "/vsigzip/",
+    "tar.gz": _VSITAR,
+    "tgz": _VSITAR,
+    "zip": _VSIZIP,
+    "tar": _VSITAR,
+    "gz": _VSIGZIP,
 }
 
 # Match `.<ext>/` where `<ext>` is an archive extension (longest
@@ -97,9 +100,9 @@ _VSI_PREFIXES: tuple[str, ...] = (
     _VSICURL,
     "/vsicurl_streaming/",
     "/vsimem/",
-    "/vsizip/",
-    "/vsigzip/",
-    "/vsitar/",
+    _VSIZIP,
+    _VSIGZIP,
+    _VSITAR,
     "/vsioss/",
     "/vsiswift/",
     "/vsihdfs/",
