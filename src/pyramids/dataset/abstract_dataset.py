@@ -27,6 +27,7 @@ from osgeo import gdal
 
 from pyramids.base._utils import (
     Catalog,
+    DEFAULT_RESAMPLING,
 )
 from pyramids.base.crs import epsg_from_wkt, sr_from_epsg
 from pyramids.base.protocols import ArrayLike, FloatArray
@@ -976,7 +977,7 @@ class RasterBase(ABC):
     def to_crs(
         self,
         to_epsg: int,
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
         maintain_alignment: bool = False,
     ) -> RasterBase:
         """To EPSG.

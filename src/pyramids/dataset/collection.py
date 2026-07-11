@@ -17,7 +17,12 @@ from pyramids import _io
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._raster_meta import RasterMeta
-from pyramids.base._utils import import_dask, import_zarr, lazy_extra_hint
+from pyramids.base._utils import (
+    DEFAULT_RESAMPLING,
+    import_dask,
+    import_zarr,
+    lazy_extra_hint,
+)
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
@@ -2570,7 +2575,7 @@ class DatasetCollection:
     def to_crs(
         self,
         to_epsg: int | str | Any = 3857,
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
         maintain_alignment: bool = False,
         inplace: bool = False,
     ) -> DatasetCollection | None:
