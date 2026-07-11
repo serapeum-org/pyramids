@@ -177,9 +177,11 @@ def scaled_axis_ascends(dims: list, index: int) -> bool | None:
         bBottomUp  = (yMinMax[0] <= yMinMax[1])
 
     There ``yMinMax`` holds the axis' **first and last** values, so the rule is "the axis
-    ascends". This reads them the same way, with two deliberate departures: a constant axis
-    (``first == last``, which GDAL's ``<=`` would call ascending) is reported as unknown, and so
-    is a non-finite endpoint — in both cases the geotransform sign is the better signal.
+    ascends". This applies the same scaling but demands **strict monotonicity** of the whole
+    coordinate rather than comparing the endpoints: a constant axis (which GDAL's ``<=`` would
+    call ascending), a non-monotonic axis (which a ``[::-1]`` reversal could not sort anyway),
+    and any non-finite value are all reported as unknown — the geotransform sign is the better
+    signal for those.
 
     An ``AsClassicDataset`` geotransform must **not** be used for this. GDAL derives it from the
     *raw* indexing-variable values (``GDALMDArray::GuessGeoTransform`` -> ``IsRegularlySpaced``),
@@ -193,10 +195,12 @@ def scaled_axis_ascends(dims: list, index: int) -> bool | None:
         index: Index of the axis' dimension within ``dims``.
 
     Returns:
-        ``True``/``False`` when the scaled coordinate strictly increases/decreases; ``None``
-        when the dimension exposes no usable 1-D coordinate (curvilinear grids, mesh files, bare
-        index dimensions), when either endpoint is non-finite, or when the axis is constant / of
-        size 1. The caller then falls back to the geotransform sign.
+        ``True``/``False`` when the scaled coordinate is **strictly monotonic** (every step
+        increasing / every step decreasing); ``None`` when the dimension exposes no usable 1-D
+        coordinate (curvilinear grids, mesh files, bare index dimensions), when any value is
+        non-finite, or when the axis is non-monotonic, constant, or of size 1 — a ``[::-1]``
+        reversal cannot sort a non-monotonic axis, so no direction is claimed for one. The caller
+        then falls back to the geotransform sign.
 
     Examples:
         - A geostationary ``y`` packed with a negative ``scale_factor`` descends physically, even
@@ -212,16 +216,20 @@ def scaled_axis_ascends(dims: list, index: int) -> bool | None:
 
             ```
     """
-    values = None
     result = None
     values, inverted = _coordinate_values(_indexing_variable(dims, index))
     if values is not None and values.ndim == 1 and values.size >= 2:
-        first, last = float(values[0]), float(values[-1])
-        # A NaN endpoint (a fill value in the coordinate) compares unequal to everything and
-        # less-than nothing, so a naive `first < last` would silently call the axis descending
-        # and mirror the raster. Report "unknown" and let the caller's fallback decide.
-        if np.isfinite(first) and np.isfinite(last) and first != last:
-            result = (first < last) != inverted
+        # Endpoints alone would mis-decide a non-monotonic (malformed) coordinate, and the `[::-1]`
+        # reversal built on the answer would not actually sort one. Demand strict monotonicity --
+        # a NaN anywhere poisons the diffs into "neither", which also covers the fill-value-endpoint
+        # case: `NaN < x` is False everywhere, so a naive endpoint comparison would silently call
+        # the axis descending and mirror the raster. Report "unknown" and let the caller's
+        # geotransform-sign fallback decide.
+        steps = np.diff(values.astype("f8"))
+        ascends_strictly = bool(np.all(steps > 0))
+        descends_strictly = bool(np.all(steps < 0))
+        if ascends_strictly or descends_strictly:
+            result = ascends_strictly != inverted
     return result
 
 
@@ -276,6 +284,11 @@ def y_axis_is_bottom_up(dims: list, y_index: int, classic_view: gdal.Dataset) ->
     under the negative ``scale_factor`` a granule packs them with, so the sign says "flip" for an
     array that is already north-up (#705). Since such a cube goes on to adopt the classic
     driver's north-up metre geotransform, never flip it on that signal alone.
+
+    Residual limitation: the carve-out relies on :func:`dataset_is_geostationary` recognising the
+    CRS. A granule whose ``grid_mapping`` is missing or non-standard **and** whose coordinate is
+    unreadable leaves only the raw sign, which would re-mirror it — undecidable in principle, since
+    with neither signal nothing identifies the file as geostationary. Real granules carry both.
 
     Args:
         dims: The MDArray's dimensions.

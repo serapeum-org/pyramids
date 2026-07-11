@@ -500,8 +500,12 @@ class TestScaledAxisAscends:
             ([np.nan, 2.0, 3.0], None, "NaN first endpoint"),
             ([1.0, 2.0, np.nan], None, "NaN last endpoint"),
             ([np.inf, 2.0, 3.0], None, "infinite endpoint"),
+            ([1.0, 3.0, 2.0], None, "non-monotonic"),
+            ([1.0, 2.0, 2.0, 3.0], None, "plateau"),
+            ([1.0, np.nan, 3.0], None, "interior NaN"),
         ],
-        ids=["asc", "desc", "constant", "size-1", "no-coord", "nan-first", "nan-last", "inf"],
+        ids=["asc", "desc", "constant", "size-1", "no-coord", "nan-first", "nan-last", "inf",
+             "non-monotonic", "plateau", "interior-nan"],
     )
     def test_direction_or_unknown(self, values, expected, label):
         """A non-finite endpoint must report `None`, not a direction.
@@ -525,8 +529,10 @@ class TestScaledAxisAscends:
             ([0, 1, 2, 3], 5.6e-05, True),
             ([3, 2, 1, 0], -5.6e-05, True),
             ([0, 1, 2, 3], None, True),
+            ([0, 2, 1, 3], -5.6e-05, None),
         ],
-        ids=["negative-scale", "positive-scale", "negative-scale-desc-raw", "no-scale"],
+        ids=["negative-scale", "positive-scale", "negative-scale-desc-raw", "no-scale",
+             "non-monotonic-raw"],
     )
     def test_declined_unscaled_view_accounts_for_the_scale_sign(self, raw, scale, expected):
         """When `GetUnscaled()` declines, the raw order is corrected by the scale factor's sign.
@@ -559,6 +565,25 @@ class TestGeostationaryFallbackNeverFlips:
         """The mirror carve-out for columns."""
         view = _geostationary_view((0.0, -1.0, 0.0, 0.0, 0.0, -1.0))
         assert NetCDF._x_axis_is_right_to_left([_raising_dim()], 0, view) is False
+
+    def test_undetectable_geostationary_still_mirrors_and_is_a_known_limit(self):
+        """Pin the one residual mirror path: CRS detection fails AND the coordinate is unreadable.
+
+        Test scenario:
+            The geostationary carve-out relies on recognising `Geostationary_Satellite` in the SRS.
+            A granule whose `grid_mapping` is missing or non-standard, and whose scan-angle
+            coordinate also cannot be read, leaves only the raw geotransform sign — which says
+            "flip" for the raw-ascending storage, re-creating the #705 mirror. Undecidable in
+            principle (nothing identifies such a file as geostationary); real granules always
+            carry both signals. This test documents the limitation so a behaviour change is loud.
+        """
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(32636)  # a projected CRS that is NOT recognised as geostationary
+        view = SimpleNamespace(
+            GetGeoTransform=lambda: (0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
+            GetSpatialRef=lambda: srs,
+        )
+        assert NetCDF._y_axis_is_bottom_up([_raising_dim()], 0, view) is True
 
     def test_non_geostationary_fallback_still_uses_the_geotransform_sign(self):
         """A plain raster with no usable coordinate still falls back to the geotransform sign."""
