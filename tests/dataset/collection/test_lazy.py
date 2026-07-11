@@ -90,12 +90,12 @@ class TestManagerCaching:
         def _path_entries() -> dict[str, Any]:
             return {
                 key: handle
-                for key, handle in list(FILE_CACHE._cache.items())
+                for key, handle in FILE_CACHE._cache.items()
                 if any(p in tuple(key) for p in three_files)
             }
 
         for path in three_files:
-            for key in [k for k in list(FILE_CACHE._cache) if path in tuple(k)]:
+            for key in [k for k in FILE_CACHE._cache if path in tuple(k)]:
                 del FILE_CACHE._cache[key]
         collection = DatasetCollection.from_files(three_files)
         collection.data.compute()
@@ -127,7 +127,7 @@ class TestManagerCaching:
         from pyramids.dataset.collection import _read_time_step
 
         first_path = three_files[0]
-        for key in [k for k in list(FILE_CACHE._cache) if first_path in tuple(k)]:
+        for key in [k for k in FILE_CACHE._cache if first_path in tuple(k)]:
             del FILE_CACHE._cache[key]
 
         _read_time_step(first_path)
