@@ -524,6 +524,26 @@ class TestGetCoverageUrl:
         )
         assert url.count("CRS=") == 1 and "CRS=EPSG:3857" in url
 
+    def test_1_0_0_coverageid_override_replaces_coverage(self):
+        # The coverage id spelling collapses across versions: a 2.0 `coverageID`
+        # override replaces the 1.0.0 built-in `COVERAGE`, not appends beside it.
+        url = _wcs._getcoverage_url(
+            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "1.0.0",
+            None, 0.1, None, {"coverageID": "c"},
+        )
+        assert "coverageID=c" in url and "COVERAGE=c" not in url
+
+    def test_extra_params_appended_keep_caller_order(self):
+        # Non-matching extras (and overridable-but-unmatched keys) append after the
+        # built-ins in caller order; regression guard for the ordering guarantee.
+        url = _wcs._getcoverage_url(
+            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
+            None, None, None, {"BB": "2", "coverageID": "c", "AA": "1"},
+        )
+        tail = url.split("REQUEST=GetCoverage", 1)[1]
+        assert tail.index("BB=2") < tail.index("AA=1")  # caller order preserved
+        assert tail.index("coverageID=c") < tail.index("BB=2")  # built-ins first
+
     def test_extra_params_non_matching_key_is_appended(self):
         url = _wcs._getcoverage_url(
             "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
