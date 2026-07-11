@@ -649,7 +649,7 @@ class TestFromStacMultiAsset:
         """
         coll = DatasetCollection.from_stac(multi_asset_items, asset="red")
         assert coll.time_length == 2, f"expected 2 timesteps, got {coll.time_length}"
-        assert coll.datasets[0].band_count == 1, f"single asset should be 1 band"
+        assert coll.datasets[0].band_count == 1, "single asset should be 1 band"
 
     def test_missing_asset_raises(self, multi_asset_items):
         """A requested asset absent from an item raises StacAssetError.

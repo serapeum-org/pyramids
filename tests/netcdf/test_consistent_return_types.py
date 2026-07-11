@@ -374,7 +374,7 @@ class TestCropReturnType:
         """
         var = _make_3d_nc().get_variable("temperature")
         result = var.crop(mask=crop_mask)
-        assert result is not None, f"Expected a new NetCDF, got None"
+        assert result is not None, "Expected a new NetCDF, got None"
 
     def test_2d_variable_crop_returns_netcdf(self, var_2d, crop_mask):
         """crop() on a 2D variable subset also returns NetCDF.
@@ -472,7 +472,7 @@ class TestToCrsReturnType:
         """
         var = _make_3d_nc().get_variable("temperature")
         result = var.to_crs(to_epsg=32637)
-        assert result is not None, f"Expected a new NetCDF, got None"
+        assert result is not None, "Expected a new NetCDF, got None"
 
     def test_container_to_crs_returns_netcdf(self, nc_3d):
         """to_crs() on a container returns NetCDF.
@@ -544,7 +544,7 @@ class TestResampleReturnType:
         """
         var = _make_3d_nc().get_variable("temperature")
         result = var.resample(cell_size=2.0)
-        assert result is not None, f"Expected a new NetCDF, got None"
+        assert result is not None, "Expected a new NetCDF, got None"
 
 
 class TestSelReturnType:
