@@ -462,12 +462,75 @@ class TestGetCoverageUrl:
         )
         assert "a%26b=v" in url  # '&' in the key cannot split the query
 
-    def test_extra_params_key_colliding_with_builtin_raises(self):
-        with pytest.raises(ValueError, match="collides"):
+    @pytest.mark.parametrize("key", ["VERSION", "SERVICE", "REQUEST", "SUBSET"])
+    def test_extra_params_protocol_key_raises(self, key):
+        with pytest.raises(ValueError, match="fixed WCS protocol parameter"):
             _wcs._getcoverage_url(
                 "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
-                None, None, None, {"VERSION": "1.0.0"},
+                None, None, None, {key: "x"},
             )
+
+    def test_extra_params_lowercase_coverageid_overrides_builtin(self):
+        # A shim that is case-sensitive on the key (Copernicus EDO/GDO) needs the
+        # lowercase spelling; the override replaces COVERAGEID, not duplicates it.
+        url = _wcs._getcoverage_url(
+            "https://x", "spaST", "EPSG:4326", (10.0, 45.0, 15.0, 48.0), "2.0.0",
+            "GEOTIFF", None, None, {"coverageID": "spaST"},
+        )
+        assert "coverageID=spaST" in url
+        assert "COVERAGEID=spaST" not in url
+
+    def test_extra_params_crs_overrides_subsettingcrs(self):
+        # WCS-1.x CRS= on a 2.0 request: the override replaces SUBSETTINGCRS and no
+        # SUBSETTINGCRS token survives (the two share one CRS slot).
+        url = _wcs._getcoverage_url(
+            "https://x", "c", "EPSG:4326", (10.0, 45.0, 15.0, 48.0), "2.0.0",
+            None, None, None, {"CRS": "EPSG:4326"},
+        )
+        assert "&CRS=EPSG:4326" in url
+        assert "SUBSETTINGCRS" not in url
+
+    def test_extra_params_edo_dialect_builds_request_a(self):
+        # Both quirks together must reproduce the exact request EDO/GDO answers 200:
+        # lowercase coverageID + CRS= + WCS-2.0 SUBSET syntax, extras preserved.
+        url = _wcs._getcoverage_url(
+            "https://drought.emergency.copernicus.eu/api/wcs?map=DO_WCS",
+            "spaST", "EPSG:4326", (10.0, 45.0, 15.0, 48.0), "2.0.0", "GEOTIFF",
+            None, None,
+            {"coverageID": "spaST", "CRS": "EPSG:4326",
+             "TIME": "2023-06-01", "SELECTED_TIMESCALE": "01"},
+        )
+        assert "coverageID=spaST" in url and "COVERAGEID=spaST" not in url
+        assert "&CRS=EPSG:4326" in url and "SUBSETTINGCRS" not in url
+        assert "SUBSET=Long(10.0,15.0)" in url and "SUBSET=Lat(45.0,48.0)" in url
+        assert "TIME=2023-06-01" in url and "SELECTED_TIMESCALE=01" in url
+
+    def test_extra_params_non_matching_key_is_appended(self):
+        url = _wcs._getcoverage_url(
+            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
+            None, None, None, {"SELECTED_TIMESCALE": "03"},
+        )
+        assert "SELECTED_TIMESCALE=03" in url
+        assert "COVERAGEID=c" in url  # built-ins untouched
+
+    def test_extra_params_override_case_insensitive(self):
+        # A mixed-case override key still matches the built-in it targets ('/' is kept
+        # literal in values, like CRS URIs, so the MIME type is not percent-encoded).
+        url = _wcs._getcoverage_url(
+            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
+            "GEOTIFF", None, None, {"Format": "image/tiff"},
+        )
+        assert "Format=image/tiff" in url
+        assert "FORMAT=GEOTIFF" not in url
+
+    def test_extra_params_overridable_key_without_builtin_is_appended(self):
+        # RESX is overridable but a 2.0 request emits no RESX built-in, so it must be
+        # kept as a plain extra rather than silently dropped.
+        url = _wcs._getcoverage_url(
+            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
+            None, None, None, {"RESX": "0.1"},
+        )
+        assert "RESX=0.1" in url
 
 
 @pytest.fixture
@@ -616,3 +679,88 @@ class TestDirectGetCoverage:
                 self.ENDPOINT, coverage="c", bbox=self.BBOX, resolution=1.0,
                 direct=True,
             )
+
+    @pytest.mark.parametrize(
+        ("dialect", "extra_params"),
+        [
+            pytest.param("compliant", None, id="compliant-COVERAGEID-SUBSETTINGCRS"),
+            pytest.param(
+                "edo",
+                {"coverageID": "spaST", "CRS": "EPSG:4326"},
+                id="edo-coverageID-CRS",
+            ),
+        ],
+    )
+    def test_direct_serves_both_wcs_dialects(
+        self, monkeypatch, geotiff_bytes, dialect, extra_params
+    ):
+        # A fake server that returns a raster only for its own KVP dialect (else an
+        # exception report -> WCSError). direct=True must retrieve a raster from
+        # each: the spec spellings with no override, and the EDO shim spellings via
+        # extra_params. Proves the override reproduces the shim dialect without
+        # regressing the compliant path.
+        monkeypatch.setattr(
+            _wcs, "_http_get",
+            lambda url, *a, **k: _dialect_body(url, geotiff_bytes, dialect),
+        )
+        ds = Dataset.from_wcs(
+            self.ENDPOINT, coverage="spaST", bbox=self.BBOX, crs="EPSG:4326",
+            version="2.0.0", wcs_format="GEOTIFF", direct=True,
+            extra_params=extra_params,
+        )
+        assert ds.shape == (1, 3, 4)
+        assert ds.epsg == 4326
+
+
+def _dialect_body(url: str, raster: bytes, dialect: str) -> bytes:
+    """Fake GetCoverage body: the raster iff ``url`` matches ``dialect``, else a 500.
+
+    Models the two WCS KVP dialects a direct request can target — the spec-compliant
+    ``COVERAGEID`` + ``SUBSETTINGCRS`` and the Copernicus EDO/GDO shim's lowercase
+    ``coverageID`` + WCS-1.x ``CRS=`` — returning an ``<ows:ExceptionReport>`` (which
+    surfaces as :class:`WCSError`) when the request does not match the served dialect.
+    """
+    if dialect == "edo":
+        matched = (
+            "coverageID=" in url
+            and "COVERAGEID=" not in url
+            and "&CRS=" in url
+            and "SUBSETTINGCRS" not in url
+        )
+    else:
+        matched = "COVERAGEID=" in url and "SUBSETTINGCRS=" in url
+    return raster if matched else EXCEPTION_REPORT.encode("utf-8")
+
+
+@pytest.mark.slow
+@pytest.mark.live
+class TestLiveEdoDirect:
+    """Live direct GetCoverage against the Copernicus EDO/GDO WCS shim (#713).
+
+    The shim ``500``s on the spec ``COVERAGEID`` / ``SUBSETTINGCRS`` spellings, so
+    the request overrides both via ``extra_params`` to the lowercase ``coverageID``
+    and the WCS-1.x ``CRS=`` it accepts. ``TIME=2023-06-01`` is a published EDO dekad.
+    """
+
+    def test_direct_edo_override_returns_reference_raster(self):
+        ds = Dataset.from_wcs(
+            "https://drought.emergency.copernicus.eu/api/wcs?map=DO_WCS",
+            coverage="spaST",
+            bbox=(10.0, 45.0, 15.0, 48.0),
+            crs="EPSG:4326",
+            version="2.0.0",
+            wcs_format="GEOTIFF",
+            direct=True,
+            extra_params={
+                "coverageID": "spaST",
+                "CRS": "EPSG:4326",
+                "TIME": "2023-06-01",
+                "SELECTED_TIMESCALE": "01",
+            },
+            timeout=45,
+        )
+        assert ds.shape == (1, 12, 1440)
+        assert ds.geotransform == pytest.approx((-180.0, 0.25, 0.0, 48.0, 0.0, -0.25))
+        assert ds.epsg == 4326
+        arr = ds.read_array()
+        assert float(arr.min()) >= 0.0 and float(arr.max()) <= 3.0

@@ -2244,6 +2244,14 @@ class Dataset(RasterBase):
         ``crs`` — override with ``subset_axes`` if the server names its axes
         differently.
 
+        A non-conformant shim may also reject the spec KVP spellings themselves: the
+        Copernicus EDO/GDO MapServer ``500``s on the uppercase ``COVERAGEID`` key and
+        on ``SUBSETTINGCRS=`` (it wants a lowercase ``coverageID`` and the WCS-1.x
+        ``CRS=``). In direct mode ``extra_params`` can override a built-in KVP by key,
+        so pass ``extra_params={"coverageID": <id>, "CRS": <crs>}`` to hand such a
+        server its exact spelling — the override replaces the built-in rather than
+        duplicating it.
+
         Args:
             endpoint: The WCS service URL, including any server-specific query
                 prefix (e.g. ``"https://maps.isric.org/mapserv?map=/map/nitrogen.map"``).
@@ -2281,7 +2289,14 @@ class Dataset(RasterBase):
                 requests. Defaults to ``60.0``.
             extra_params: Optional extra ``GetCoverage`` query parameters folded
                 into the request (a workaround hook for server quirks). In direct
-                mode these are appended to the KVP request (e.g. a ``TIME`` axis).
+                mode a key that matches a built-in KVP (case-insensitively, with
+                ``CRS`` and ``SUBSETTINGCRS`` treated as one) *overrides* it with the
+                given spelling and value — e.g. ``{"coverageID": "spaST"}`` sends a
+                lowercase key, ``{"CRS": "EPSG:4326"}`` sends the WCS-1.x CRS token
+                instead of ``SUBSETTINGCRS``. Non-matching keys are appended (e.g. a
+                ``TIME`` axis). The fixed protocol keys ``SERVICE`` / ``VERSION`` /
+                ``REQUEST`` / ``SUBSET`` cannot be overridden and raise
+                :class:`ValueError`.
             direct: When ``True``, skip ``GetCapabilities``/``DescribeCoverage`` and
                 issue a KVP ``GetCoverage`` directly — for shim servers that only
                 implement ``GetCoverage``. Defaults to ``False`` (full handshake).
@@ -2299,8 +2314,9 @@ class Dataset(RasterBase):
         Raises:
             ValueError: ``bbox`` is malformed, ``coverage`` is not advertised
                 (discovery mode), ``coverage_crs`` cannot be interpreted, or (direct
-                mode) the WCS version is unsupported / ``1.0.0`` lacks a
-                ``resolution``.
+                mode) the WCS version is unsupported, ``1.0.0`` lacks a
+                ``resolution``, or an ``extra_params`` key targets a locked protocol
+                parameter.
             pyramids.errors.WCSError: The server could not be reached or returned
                 an error / a non-raster (``<ows:ExceptionReport>``) body.
 
@@ -2319,18 +2335,26 @@ class Dataset(RasterBase):
             ```
 
             Direct mode for a ``GetCoverage``-only endpoint (Copernicus EDO/GDO),
-            whose ``GetCapabilities``/``DescribeCoverage`` return ``502``/``400``:
+            whose ``GetCapabilities``/``DescribeCoverage`` return ``502``/``400``.
+            EDO also rejects the spec KVP spellings, so override the coverage key and
+            CRS token via ``extra_params`` to send the lowercase ``coverageID`` and
+            the WCS-1.x ``CRS=`` it accepts:
 
             ```python
             >>> ds = Dataset.from_wcs(  # doctest: +SKIP
-            ...     "https://.../mapserv?map=GDO_WCS",
+            ...     "https://drought.emergency.copernicus.eu/api/wcs?map=DO_WCS",
             ...     coverage="spaST",
-            ...     bbox=(-10.0, 35.0, 5.0, 45.0),
+            ...     bbox=(10.0, 45.0, 15.0, 48.0),
             ...     crs="EPSG:4326",
             ...     version="2.0.0",
             ...     wcs_format="GEOTIFF",
             ...     direct=True,
-            ...     extra_params={"TIME": "2024-06-01", "SELECTED_TIMESCALE": "03"},
+            ...     extra_params={
+            ...         "coverageID": "spaST",
+            ...         "CRS": "EPSG:4326",
+            ...         "TIME": "2023-06-01",
+            ...         "SELECTED_TIMESCALE": "01",
+            ...     },
             ... )
 
             ```
