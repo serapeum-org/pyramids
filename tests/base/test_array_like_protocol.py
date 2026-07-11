@@ -143,7 +143,7 @@ class TestAliasExport:
         """Smoke test that did not accidentally remove SpatialObject."""
         from pyramids.base.protocols import SpatialObject
 
-        assert SpatialObject is not None
+        assert SpatialObject.__name__ == "SpatialObject"
 
 
 class TestArrayLikeGapCoverage:
