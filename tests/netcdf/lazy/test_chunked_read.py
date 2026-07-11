@@ -403,7 +403,7 @@ class TestLazyOrientationMatchesEager:
             byte-for-byte — pinned here so any future divergence between the two plane-resolution
             strategies surfaces as a failure instead of a silent mirror.
 
-        Reads the shared on-disk fixture directly; the autouse `_clear_file_cache` fixture closes the
+        Reads the shared on-disk fixture directly; the netcdf-wide autouse `_clear_file_cache` fixture closes the
         lazy path's parked GDAL handle at teardown, so a later test reopening the same file cannot
         collide with a stale handle (the CAM segfault mechanism).
         """
