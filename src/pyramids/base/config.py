@@ -613,7 +613,7 @@ class Config:
         """
         self.setup_logging(level=level, log_file=log_file)
         self.config_file = config_file
-        self.config = self.load_config()
+        self.settings = self.load_config()
         self.initialize_gdal()
 
     def load_config(self):
@@ -678,9 +678,9 @@ class Config:
         gdal.UseExceptions()
         ogr.UseExceptions()
         # Apply GDAL/OGR options from configuration
-        for key, value in self.config.get("gdal", {}).items():
+        for key, value in self.settings.get("gdal", {}).items():
             gdal.SetConfigOption(key, value)
-        for key, value in self.config.get("ogr", {}).items():
+        for key, value in self.settings.get("ogr", {}).items():
             gdal.SetConfigOption(key, value)
 
         gdal_plugins_path = self.dynamic_env_variables()

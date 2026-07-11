@@ -164,7 +164,7 @@ def _write_to_file_sync(
         if catalog_key is None:
             raise DriverNotExistError(
                 f"The driver: {driver!r} is not in the driver catalog. Known "
-                f"driver names: {sorted(CATALOG.catalog)}"
+                f"driver names: {sorted(CATALOG.drivers)}"
             )
         driver = catalog_key
     driver_name = CATALOG.get_gdal_name(driver)

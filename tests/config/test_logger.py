@@ -167,7 +167,7 @@ def test_initialize_gdal_sets_options_and_conditional_driver_path(
     # Create instance without running __init__ side-effects
     cfg = object.__new__(Config)
     cfg.logger = logging.getLogger("tests.config.coverage")
-    cfg.config = {
+    cfg.settings = {
         "gdal": {"GDAL_CACHEMAX": "256"},
         "ogr": {"OGR_SRS_PARSER": "strict"},
     }

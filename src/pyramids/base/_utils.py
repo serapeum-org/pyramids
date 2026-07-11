@@ -489,7 +489,7 @@ class Catalog:
             path = "gdal_drivers.yaml"
         else:
             path = "ogr_drivers.yaml"
-        self.catalog = self._get_gdal_catalog(path)
+        self.drivers = self._get_gdal_catalog(path)
 
     @staticmethod
     def _get_gdal_catalog(path: str):
@@ -501,7 +501,7 @@ class Catalog:
 
     def get_driver(self, driver: str):
         """Get Driver data from the catalog."""
-        return self.catalog.get(driver)
+        return self.drivers.get(driver)
 
     def get_gdal_name(self, driver: str):
         """Get GDAL name."""
@@ -520,7 +520,7 @@ class Catalog:
         try:
             key = next(
                 key
-                for key, value in self.catalog.items()
+                for key, value in self.drivers.items()
                 if value.get("extension") is not None
                 and value.get("extension") == extension
             )
@@ -548,7 +548,7 @@ class Catalog:
 
     def exists(self, driver: str):
         """Check if the driver exist in the catalog."""
-        return driver in self.catalog.keys()
+        return driver in self.drivers.keys()
 
     def get_extension(self, driver: str):
         """Get driver extension."""
@@ -558,7 +558,7 @@ class Catalog:
     def get_driver_name(self, gdal_name) -> str | None:
         """Get driver name."""
         result_key = None
-        for key, value in self.catalog.items():
+        for key, value in self.drivers.items():
             name = value.get("GDAL Name")
             if gdal_name == name:
                 result_key = str(key)
