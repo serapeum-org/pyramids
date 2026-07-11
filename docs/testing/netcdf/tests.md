@@ -7,21 +7,43 @@ naming convention, variable/rank breakdown, CRS, groups, and Y-axis direction �
 ## Y-axis orientation
 
 External NetCDF files store latitude **south→north** (row 0 = the south edge), while GDAL's raster convention is
-row 0 = north (negative Y pixel size). pyramids therefore flips a variable on read **iff** its raw geotransform has
-a positive Y pixel size (`gt[5] > 0`). The subtlety the tests pin down: GDAL's classic netCDF driver auto-flips a
-recognised **geographic latitude** but **not** a projected `projection_y_coordinate` (e.g. GOES), so the fast read
-path forces `GDAL_NETCDF_BOTTOMUP` to replay pyramids' own flip decision.
+row 0 = north (negative Y pixel size). pyramids therefore flips a variable on read **iff** its Y coordinate
+**ascends**, read the way GDAL's own classic netCDF driver decides `bBottomUp`: through `GetUnscaled()`, so the
+coordinate's `scale_factor` / `add_offset` are applied first.
 
-`tests/netcdf/spatial/test_y_orientation.py::TestFastPathOrientationAllCases` verifies the full **2×2 of CRS type ×
-Y-direction**, asserting for each case (a) the recorded flip decision, (b) a north-up geotransform, and (c) that the
-fast classic-driver read is **byte-identical** to the multidim view:
+The rule lives once, in `pyramids.netcdf._mdim`, and **all three read paths share it**: the eager
+`get_variable().read_array()`, the chunked `read_array(chunks=...)` (via `build_lazy_array`), and the internal
+`_read_variable`. When the rule lived only in the eager path, a chunked read of a geostationary variable came back
+`flipud` of the eager read — #705, still live on a public API.
+
+Two subtleties the tests pin down:
+
+- The decision must **not** be read off the multidim view's geotransform. `GDALMDArray::GuessGeoTransform()` builds
+  that from the *raw* coordinate values, so a geostationary granule — whose `y` is packed with a **negative**
+  `scale_factor` — reports a positive `gt[5]` for an array that is already north-up. Flipping it mirrored the
+  raster (#705).
+- The decision must **not** key off the CRS. GDAL's classic driver auto-flips a recognised **geographic latitude**
+  but not a projected `projection_y_coordinate`; pyramids' rule is CRS-agnostic and handles both.
+
+`tests/netcdf/spatial/test_y_orientation.py::TestOrientationAllCases` verifies the full **CRS type × Y-direction**
+matrix, asserting for each case (a) the recorded flip decision, (b) a north-up geotransform, and (c) byte-identity
+with a reference array reordered so row 0 sits at the largest scaled Y coordinate:
 
 | | ascending (→ **flip**) | descending (→ **keep**) |
 |---|---|---|
-| **projected** | `…__geos__y-asc` (GOES) | `…__proj__y-desc` |
+| **geostationary** | *(no known producer)* | `…__geos__y-desc` (GOES — raw values ascend) |
+| **projected** | runtime UTM grid | runtime UTM grid |
 | **geographic** | `…__geog__y-asc` (NOAH, MSWEP) | `…__geog__y-desc` (ERA5), `coards…__y-desc` |
 
-The projected-descending cell has no on-disk fixture, so that case builds a UTM grid at runtime.
+Neither projected cell has an on-disk fixture, so both build a UTM grid at runtime (`WRITE_BOTTOMUP=YES` / `NO`).
+
+The same rule applies to the X axis, mirrored: a longitude stored **east→west** is reversed so `col 0 = west`, on
+every read path.
+GDAL's classic driver never flips X — it reports a negative `gt[1]` — but a negative pixel width cannot survive
+pyramids' `abs()`-based cell size and bbox arithmetic, and the coordinate-derived geotransform used to take
+`lon[0]` for the west edge, so such a file came back mirrored west-east under a shifted bbox. No known producer
+writes one, so `TestXAxisOrientation` builds it at runtime (`x_descending_nc`) and also asserts the invariant that
+every on-disk fixture ascends in X.
 
 Supporting orientation tests in the same file:
 
@@ -34,15 +56,22 @@ Supporting orientation tests in the same file:
 
 ## Windowed reads (#705)
 
-`tests/netcdf/spatial/test_windowed_read_705.py` guards the geostationary/chunked windowed-read crash on
-GDAL ≥ 3.13 (`arrayStartIdx[...] >= <dim>`):
+`tests/netcdf/spatial/test_windowed_read_705.py` guards the windowed-read crash on GDAL ≥ 3.13
+(`arrayStartIdx[...] >= <dim>`). The crash comes from reading a window through a **reversed**
+`MDArray.GetView("[::-1, ...]")`, not from `AsClassicDataset` itself — an unreversed view services windowed reads
+fine — so only a genuinely bottom-up file is affected:
 
-- `TestWindowedRead705` — a partial-window read *raises* on the raw multidim view, then succeeds and matches the
-  full read once the eager materialize swaps in the classic-driver raster; also the `to_crs(4326)` + bbox path.
-- `TestFastPathFallbacks` — the fast path is taken for an on-disk variable and declines (falls back to the slow,
-  correct copy) for in-memory, grouped, or orientation-unknown variables.
+- `TestWindowedRead705` — a geostationary variable is never reversed, so its view is window-readable as-is; a
+  bottom-up geographic file (NOAH) *raises* until the eager materialize reads the unreversed array and flips it
+  with NumPy. Also covers the `to_crs(4326)` + bbox path from the issue.
+- `TestMaterializeIntegrity` — materializing is idempotent, preserves the pixels and `unpack=True` values, and
+  falls back to a plain copy when the raw view cannot be rebuilt.
+- `TestClassicDriverNotUsedForPixels` — the materialize reads the multidim array, never the classic subdataset
+  driver, which returns pure fill for some 4-D packed variables (`coards__5v__1d4-4d1__y-desc.nc::rhum`).
+- `TestGeostationaryGroundTruth` — `read_array()` equals the classic driver's array, not its `flipud`.
 
-Fixture: `cf__9v__1d7-2d2__geos__y-asc.nc` (GOES-16, chunked, projected scan-angle Y).
+Fixtures: `cf__9v__1d7-2d2__geos__y-desc.nc` (GOES-16, chunked, packed scan-angle Y) and
+`cf__6v__1d2-2d4__geog__y-asc.nc` (NOAH, bottom-up).
 
 ## Structural scenarios
 

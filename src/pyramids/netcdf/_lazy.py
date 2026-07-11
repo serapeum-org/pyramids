@@ -40,7 +40,7 @@ import numpy as np
 from pyramids.base._file_manager import CachingFileManager, gdal_mdarray_open
 from pyramids.base._locks import DummyLock, default_lock
 from pyramids.base._utils import import_dask
-from pyramids.netcdf._mdim import needs_y_flip
+from pyramids.netcdf._mdim import axis_flips
 from pyramids.netcdf.utils import _dtype_to_str
 
 _DASK_MISSING_MESSAGE = (
@@ -79,31 +79,30 @@ def _resolve_lock(lock: Any) -> Any:
 def _mdarray_shape_and_dtype(
     path: str,
     variable_name: str,
-) -> tuple[tuple[int, ...], np.dtype, list[int] | None, bool]:
-    """Return `(shape, numpy_dtype, block_size, needs_y_flip)` for an MDArray.
+) -> tuple[tuple[int, ...], np.dtype, list[int] | None, bool, bool]:
+    """Return `(shape, numpy_dtype, block_size, needs_y_flip, needs_x_flip)` for an MDArray.
 
     Opens the file in MDIM mode, looks up `variable_name` in the
     root group, and returns the shape, the numpy dtype used by
     `ReadAsArray` output, the MDArray's native `GetBlockSize`
-    (if available), and a flag indicating whether the Y axis is
-    stored south-to-north (in which case downstream code must flip).
+    (if available), and flags indicating whether the Y axis is
+    stored south-to-north and the X axis east-to-west (in which
+    case downstream code must flip them).
 
     The opened handle is released when the function returns; the
     lazy graph re-opens through the :class:`CachingFileManager`.
 
-    The Y-flip detection mirrors the eager-path logic at
-    `NetCDF._needs_y_flip`: an `AsClassicDataset` view is
-    created and its geotransform `gt[5]` (pixel height) is
-    inspected — a positive value means the data is stored
-    south-to-north and the eager path flips it, so the lazy path
-    must match.
+    The flip detection comes from the same `_mdim` predicates the
+    eager path uses, which decide from the coordinate variable with
+    its `scale_factor`/`add_offset` applied. Deciding from the raw
+    geotransform sign instead mirrored geostationary reads (#705).
 
     Args:
         path: File path passed to the MDIM opener.
         variable_name: Name of the MDArray in the root group.
 
     Returns:
-        tuple: `(shape, dtype, block_size, needs_y_flip)`.
+        tuple: `(shape, dtype, block_size, needs_y_flip, needs_x_flip)`.
 
     Raises:
         ValueError: If the variable is not found in the root group
@@ -111,6 +110,7 @@ def _mdarray_shape_and_dtype(
     """
     ds = gdal_mdarray_open(path, "read_only")
     needs_flip = False
+    needs_col_flip = False
     try:
         rg = ds.GetRootGroup()
         if rg is None:
@@ -143,13 +143,13 @@ def _mdarray_shape_and_dtype(
             block_size = [int(b) for b in bs] if bs else None
         except Exception:  # pragma: no cover - driver-specific
             block_size = None
-        # Use the shared `_mdim.needs_y_flip` probe (CON-3) rather than an inline
+        # Use the shared `_mdim` probe (CON-3) rather than an inline
         # AsClassicDataset/geotransform copy, so the lazy path can't drift from the
-        # eager path's Y-flip detection.
-        needs_flip = needs_y_flip(rg, md_arr)
+        # eager path's orientation decision. One call decides both axes.
+        needs_flip, needs_col_flip = axis_flips(rg, md_arr)
     finally:
         ds = None
-    return shape, dtype, block_size, needs_flip
+    return shape, dtype, block_size, needs_flip, needs_col_flip
 
 
 def _default_chunks(
@@ -501,7 +501,7 @@ def build_lazy_array(
     import_dask(_DASK_MISSING_MESSAGE)
     import dask.array as da
 
-    shape, dtype, block_size, needs_y_flip = _mdarray_shape_and_dtype(
+    shape, dtype, block_size, flip_y, flip_x = _mdarray_shape_and_dtype(
         path,
         variable_name,
     )
@@ -533,6 +533,10 @@ def build_lazy_array(
         )
         graph[(name,) + index] = (reader,)
     lazy = da.Array(graph, name, chunks_per_axis, dtype=dtype)
-    if needs_y_flip and len(shape) >= 2:
-        lazy = da.flip(lazy, axis=len(shape) - 2)
+    if len(shape) >= 2:
+        # Normalize to the raster convention the eager path produces: row 0 = north, col 0 = west.
+        if flip_y:
+            lazy = da.flip(lazy, axis=len(shape) - 2)
+        if flip_x:
+            lazy = da.flip(lazy, axis=len(shape) - 1)
     return lazy

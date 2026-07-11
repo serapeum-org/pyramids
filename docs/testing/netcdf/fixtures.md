@@ -17,7 +17,7 @@ matters, its CRS and Y-axis orientation — is legible from the filename alone.
 | `rank-breakdown`                | count of variables at each dimensionality, e.g. `1d3-3d1` = 3 one-D + 1 three-D (sums to `Nv`)                                                                                                                             |
 | `crs` *(optional)*              | `geos` (geostationary), `geog` (geographic lat/lon), `proj` (projected, e.g. UTM)                                                                                                                                          |
 | `feature` *(optional)*          | structural tags: `curv` (curvilinear), `stag` (staggered), `str` (string vars), `nc4` (netCDF-4), `groups-nc4` (has groups), `scaleoffset` (packed data)                                                                   |
-| `y-asc` / `y-desc` *(optional)* | Y-axis direction — `asc` = row 0 is the south edge (data stored south→north), `desc` = row 0 is the north edge. Present only when the file has a genuine 1-D spatial Y axis (omitted for curvilinear / no-Y / mesh files). |
+| `y-asc` / `y-desc` *(optional)* | Direction of the **scaled** Y coordinate (`scale_factor`/`add_offset` applied), not raw storage order — `asc` = row 0 is the south edge, `desc` = row 0 is the north edge. Only for files with a 1-D spatial Y axis.       |
 
 ## Fixtures
 
@@ -30,7 +30,7 @@ matters, its CRS and Y-axis orientation — is legible from the filename alone.
 | `cf__6v__1d2-2d4__geog__y-asc.nc`              | CF-1.5      |      6 | 2×1D, 4×2D               | geographic      | asc      |       | NOAH precipitation, four `Band(lat,lon)` vars; **geographic-ascending** orientation case (flipped on read)                       |
 | `cf__7v__1d3-2d3-3d1__y-asc.nc`                | CF-1.0      |      7 | 3×1D, 3×2D, 1×3D         | geographic      | asc      |       | Single CF data var `tos(time,lat,lon)` + coords/bounds                                                                           |
 | `cf__8v__1d3-2d3-3d1-4d1__curv-stag.nc`        | CF-1.4      |      8 | 3×1D, 3×2D, 1×3D, 1×4D   | geographic      | —        | ✓     | Curvilinear + staggered grid                                                                                                     |
-| `cf__9v__1d7-2d2__geos__y-asc.nc`              | CF-1.7      |      9 | 7×1D, 2×2D               | geostationary   | asc      | ✓     | GOES-16 ABI, projected scan-angle Y, packed `CMI` — **projected-ascending** case and the #705 windowed-read regression fixture   |
+| `cf__9v__1d7-2d2__geos__y-desc.nc`             | CF-1.7      |      9 | 7×1D, 2×2D               | geostationary   | desc     | ✓     | GOES-16 ABI, `int16`-packed radian scan-angle Y (raw ascends) — **geostationary-descending**; the #705 fixture                   |
 | `cf__12v__1d4-2d5-3d2-4d1__y-asc.nc`           | CF-1.0      |     12 | 4×1D, 5×2D, 2×3D, 1×4D   | geographic      | asc      |       | Mix of all dimensionalities (CCSM sample): 3-D `pr`/`tas`, 4-D `ua`                                                              |
 | `cf__20v__1d3-3d17__y-desc.nc`                 | CF-1.0      |     20 | 3×1D, 17×3D              | geographic      | desc     | ✓     | Many 3-D vars (17 packed surface fields), ERA-40 subset                                                                          |
 | `cf__40v__1d28-2d9-3d3__nc4.nc`                | CF-1.6      |     40 | 28×1D, 9×2D, 3×3D        | geographic      | —        | ✓     | Large variable count, netCDF-4, no plain spatial Y                                                                               |
@@ -56,19 +56,29 @@ mesh files, and files with no spatial Y axis, where a single ascending/descendin
 EPSG:4326); the filename `crs` tag is applied only to the files a test cares about (`geos` for #705, `geog`/`proj`
 for the orientation 2×2), so a file can be `geographic` here without a `geog` tag in its name.*
 
-## The Y-orientation 2×2
+## The Y-orientation matrix
 
-`tests/netcdf/spatial/test_y_orientation.py::TestFastPathOrientationAllCases` verifies the interaction of
-**CRS type × Y-direction** — an ascending Y axis (row 0 = south) must be flipped to north-up, a descending one is
-kept, and GDAL's classic driver only auto-flips a recognised geographic latitude (not a projected
-`projection_y_coordinate`). The parametrized cases use four on-disk fixtures; the projected-descending cell has no
-on-disk fixture in the test and is covered by a UTM grid generated at runtime (the `projected_descending_nc`
-fixture):
+`tests/netcdf/spatial/test_y_orientation.py::TestOrientationAllCases` verifies the interaction of
+**CRS type × Y-direction**. One rule decides every cell: read the Y coordinate with its `scale_factor` /
+`add_offset` applied, then flip iff it **ascends** (row 0 = south). The CRS never enters the decision — which is
+the point of the projected row, since GDAL's classic driver only auto-flips a recognised geographic latitude, not
+a projected `projection_y_coordinate`.
 
-|                | ascending (→ **flip**)                   | descending (→ **keep**)                                                     |
-|----------------|------------------------------------------|-----------------------------------------------------------------------------|
-| **projected**  | `cf__9v__1d7-2d2__geos__y-asc.nc` (GOES) | UTM grid generated at runtime (`projected_descending_nc`)                   |
-| **geographic** | `cf__6v__1d2-2d4__geog__y-asc.nc` (NOAH) | `cf__5v__1d4-3d1__geog__y-desc.nc` (ERA5), `coards__4v__1d3-3d1__y-desc.nc` |
+Both projected cells are covered by UTM grids generated at runtime (the `projected_ascending_nc` /
+`projected_descending_nc` fixtures, written with `WRITE_BOTTOMUP=YES` / `NO`) rather than by an on-disk file:
+
+| | ascending (→ **flip**) | descending (→ **keep**) |
+|---|---|---|
+| **geostationary** | *(no known producer — see below)* | `…__geos__y-desc` (GOES) |
+| **projected** | `projected_ascending_nc` (runtime UTM) | `projected_descending_nc` (runtime UTM) |
+| **geographic** | `…__geog__y-asc` (NOAH, MSWEP) | `…__geog__y-desc` (ERA5), `coards…__y-desc` |
+
+The GOES granule is the reason the `y-asc` / `y-desc` tag names the **scaled** direction, not the storage order.
+Its `y` is `int16` packed with a *negative* `scale_factor`, so the raw values ascend (`0 → 499`) while the
+physical scan angle descends (`0.0420 → 0.0140`). It is the only fixture where the two disagree, and reading the
+tag off the raw order is exactly what mirrored the raster in #705. A geostationary file with a genuinely
+ascending scan angle is not something any known producer writes, so that cell stays empty; the rule handles it
+regardless, since nothing about it is geostationary-specific.
 
 Matching on-disk fixtures that carry the same orientation but are **not** used by this parametrized test:
 `cf__4v__1d3-3d1__proj__y-desc.nc` (projected-descending) and `none__4v__1d3-3d1__geog__y-asc.nc`
@@ -76,10 +86,11 @@ Matching on-disk fixtures that carry the same orientation but are **not** used b
 
 ## Related tests
 
-- `tests/netcdf/spatial/test_y_orientation.py` — Y-axis orientation across the 2×2 above (flip decision, north-up
-  geotransform, byte-identity of the fast classic-driver read vs the multidim view).
-- `tests/netcdf/spatial/test_windowed_read_705.py` — the geostationary/chunked windowed-read crash (#705) and the
-  fast-path fallback branches (uses `cf__9v__1d7-2d2__geos__y-asc.nc`).
+- `tests/netcdf/spatial/test_y_orientation.py` — Y-axis orientation across the matrix above: the flip decision, a
+  north-up geotransform, and byte-identity with a reference array reordered so row 0 sits at the largest scaled Y
+  coordinate.
+- `tests/netcdf/spatial/test_windowed_read_705.py` — the windowed-read crash on a Y-reversed multidim view (#705)
+  and the eager-materialize path that fixes it (uses `cf__9v__1d7-2d2__geos__y-desc.nc`).
 - `tests/netcdf/samples/` — structural coverage (conventions, dimensions, groups, curvilinear, string vars) over the
   full fixture set.
 

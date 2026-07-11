@@ -12,12 +12,14 @@ Style: Google-style docstrings, <=120 char lines, no inline imports,
 single return statement, descriptive assertion messages.
 """
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 from osgeo import gdal, osr
 
-from pyramids.netcdf.netcdf import NetCDF
+from pyramids.netcdf.netcdf import Container, NetCDF
 
 pytestmark = pytest.mark.core
 
@@ -187,44 +189,77 @@ class TestOneDimNotFlipped:
 
 
 ORIENTATION_CASES = [
-    ("cf__9v__1d7-2d2__geos__y-asc.nc", "CMI", True, "projected ascending (GOES geostationary) -> flip"),
+    ("cf__9v__1d7-2d2__geos__y-desc.nc", "CMI", False, "geostationary radian scan angle, descending -> keep"),
     ("cf__6v__1d2-2d4__geog__y-asc.nc", "Band1", True, "geographic ascending (NOAH) -> flip"),
     ("cf__5v__1d4-3d1__geog__y-desc.nc", "t2m", False, "geographic descending (ERA5) -> keep"),
     ("coards__4v__1d3-3d1__y-desc.nc", "air", False, "geographic descending (COARDS) -> keep"),
 ]
 
 
-def _assert_fast_path_orientation(var, expect_flip, label):
-    """Assert the fast classic-driver path matches the multidim view and is north-up.
+def _scaled_axis(array, axis_from_end):
+    """The axis' coordinate values with `scale_factor` / `add_offset` applied."""
+    dim = array.GetDimensions()[array.GetDimensionCount() - axis_from_end]
+    return np.asarray(dim.GetIndexingVariable().GetUnscaled().ReadAsArray())
 
-    Shared by every Y-axis case: the recorded flip decision, a north-up geotransform, and byte-identical
-    data between `_materialize_via_classic_driver()` and a `MEM.CreateCopy` of the view.
+
+def _north_up_reference(path, variable):
+    """First-principles ground truth: the raw array ordered north-up (row 0 = north, col 0 = west).
+
+    Independent of both read paths under test, and of GDAL's classic driver — which cannot serve as a
+    reference here: it returns pure fill for some 4-D packed variables, and it mis-orients a
+    GDAL-written ``WRITE_BOTTOMUP=NO`` file (flipping the pixels while keeping a north-up
+    geotransform).
+
+    Both coordinates are read through ``GetUnscaled()`` so a packed axis — a geostationary granule's
+    radian scan angle, stored with a **negative** ``scale_factor`` — is interpreted physically rather
+    than by its raw storage order (#705).
+    """
+    root = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER).GetRootGroup()
+    array = root.OpenMDArray(variable)
+    y_values, x_values = _scaled_axis(array, 2), _scaled_axis(array, 1)
+    raw = np.asarray(array.ReadAsArray())
+    # Row 0 already sits at the north when Y descends; col 0 at the west when X ascends.
+    rows = slice(None) if y_values[0] > y_values[-1] else slice(None, None, -1)
+    cols = slice(None) if x_values[0] < x_values[-1] else slice(None, None, -1)
+    return raw[..., rows, cols]
+
+
+def _assert_orientation(var, expect_flip, label, path, variable):
+    """Assert the flip decision, a north-up geotransform, and agreement with the coordinate reference.
+
+    Checking against an *independent* reference is the whole point: the previous version of this
+    helper compared pyramids' two internal read paths against each other, and both were mirrored the
+    same way, so a geostationary raster shipped upside down (#705). It also checks that materializing
+    does not change the pixels.
     """
     assert (
         var._md_y_flipped is expect_flip
     ), f"{label}: expected _md_y_flipped={expect_flip}, got {var._md_y_flipped}"
     assert (
         var.geotransform[5] < 0
-    ), f"{label}: materialized geotransform must be north-up, got gt[5]={var.geotransform[5]}"
-    reference = gdal.GetDriverByName("MEM").CreateCopy("", var.raster).ReadAsArray()
-    fast = var._materialize_via_classic_driver()
-    assert fast is not None, f"{label}: fast classic-driver path should be available for an on-disk source"
+    ), f"{label}: geotransform must be north-up, got gt[5]={var.geotransform[5]}"
+    before = np.asarray(var.read_array())
     np.testing.assert_array_equal(
-        fast.ReadAsArray(),
-        reference,
-        err_msg=f"{label}: fast-path data is not byte-identical to the view (orientation drift)",
+        before,
+        _north_up_reference(path, variable),
+        err_msg=f"{label}: row 0 of read_array() is not at the northernmost Y coordinate",
+    )
+    var._materialize_md_view()
+    np.testing.assert_array_equal(
+        np.asarray(var.read_array()),
+        before,
+        err_msg=f"{label}: materializing the view changed the pixels",
     )
 
 
-@pytest.fixture(scope="module")
-def projected_descending_nc(tmp_path_factory):
-    """A UTM (projected) netCDF written top-down, so its Y axis descends (row 0 = north).
+def _utm_netcdf(path, bottom_up):
+    """Write an 8x6 UTM32N raster to netCDF, bottom-up or top-down, and return the path.
 
-    No repo fixture is projected + descending, so build one: a UTM32N raster with a north-up
-    geotransform written with `WRITE_BOTTOMUP=NO` keeps the data top-down and emits a descending
-    `y` (`projection_y_coordinate`) axis — the one 2x2 cell the on-disk fixtures do not cover.
+    GDAL's netCDF writer defaults to ``WRITE_BOTTOMUP=YES``, which stores the rows south→north and
+    emits an **ascending** ``y`` (``projection_y_coordinate``) axis; ``WRITE_BOTTOMUP=NO`` keeps the
+    rows top-down and emits a descending one. Between them they cover both projected cells of the
+    Y-orientation 2x2, neither of which any on-disk fixture provides.
     """
-    path = str(tmp_path_factory.mktemp("proj_desc") / "utm_projected_descending.nc")
     src = gdal.GetDriverByName("MEM").Create("", 8, 6, 1, gdal.GDT_Float32)
     srs = osr.SpatialReference()
     srs.ImportFromEPSG(32636)
@@ -232,19 +267,59 @@ def projected_descending_nc(tmp_path_factory):
     src.SetGeoTransform((500000.0, 100.0, 0.0, 4000000.0, 0.0, -100.0))
     src.GetRasterBand(1).WriteArray(np.arange(48, dtype=np.float32).reshape(6, 8))
     src.GetRasterBand(1).SetNoDataValue(-9999.0)
+    options = [f"WRITE_BOTTOMUP={'YES' if bottom_up else 'NO'}"]
+    gdal.Translate(path, src, format="netCDF", creationOptions=options)
+    return path
+
+
+@pytest.fixture(scope="module")
+def projected_descending_nc(tmp_path_factory):
+    """A UTM (projected) netCDF written top-down, so its Y axis descends (row 0 = north)."""
+    return _utm_netcdf(
+        str(tmp_path_factory.mktemp("proj_desc") / "utm_projected_descending.nc"),
+        bottom_up=False,
+    )
+
+
+@pytest.fixture(scope="module")
+def projected_ascending_nc(tmp_path_factory):
+    """A UTM (projected) netCDF written bottom-up, so its Y axis ascends (row 0 = south)."""
+    return _utm_netcdf(
+        str(tmp_path_factory.mktemp("proj_asc") / "utm_projected_ascending.nc"),
+        bottom_up=True,
+    )
+
+
+@pytest.fixture(scope="module")
+def x_descending_nc(tmp_path_factory):
+    """A geographic netCDF whose longitude runs east→west (negative pixel width).
+
+    Legal CF — the convention only asks that a coordinate be monotonic — but no on-disk fixture has
+    one, and no known producer writes one. GDAL's classic netCDF driver never flips X; it reports a
+    negative `gt[1]` instead, which pyramids' `abs()`-based cell size and bbox arithmetic cannot
+    represent. Written by hand so the east-to-west branch of `_read_md_array` has a case.
+    """
+    path = str(tmp_path_factory.mktemp("x_desc") / "lon_descending.nc")
+    src = gdal.GetDriverByName("MEM").Create("", 5, 4, 1, gdal.GDT_Float32)
+    srs = osr.SpatialReference()
+    srs.ImportFromEPSG(4326)
+    src.SetProjection(srs.ExportToWkt())
+    # Origin at the east edge, walking west: lon = 29, 27, 25, 23, 21.
+    src.SetGeoTransform((30.0, -2.0, 0.0, 10.0, 0.0, -1.0))
+    src.GetRasterBand(1).WriteArray(np.arange(20, dtype=np.float32).reshape(4, 5))
     gdal.Translate(path, src, format="netCDF", creationOptions=["WRITE_BOTTOMUP=NO"])
     return path
 
 
-class TestFastPathOrientationAllCases:
-    """The classic-driver fast path must reproduce the multidim view's north-up orientation.
+class TestOrientationAllCases:
+    """The multidim read must come back north-up for every Y-axis case in the 2x2 (CRS x direction).
 
-    Covers the full 2x2 of the two variables that drive orientation (#705): Y-axis direction
-    (ascending row 0 = south -> flip; descending row 0 = north -> keep) x CRS type (a projected
-    ``projection_y_coordinate`` is not auto-flipped by GDAL's classic driver, a geographic latitude is).
-    The four on-disk fixtures cover projected-ascending (GOES), geographic-ascending (NOAH), and
-    geographic-descending (ERA5, COARDS); a generated UTM fixture covers projected-descending. Each case
-    asserts the flip decision, a north-up geotransform, and byte-identical data against the view.
+    The flip is decided from the **scale/offset-applied** Y coordinate, the way GDAL's own classic
+    netCDF driver decides `bBottomUp`. That covers every axis kind with one rule: geographic degrees,
+    projected metres, and the radian scan angles of a geostationary granule — the last of which is
+    packed with a *negative* `scale_factor`, so its raw values ascend while the physical axis descends
+    (#705). Each case asserts the flip decision, a north-up geotransform, and equality with an
+    independently-derived north-up reference (`_north_up_reference`).
     """
 
     @pytest.mark.parametrize(
@@ -252,29 +327,374 @@ class TestFastPathOrientationAllCases:
         ORIENTATION_CASES,
         ids=[c[0].split(".")[0] for c in ORIENTATION_CASES],
     )
-    def test_fast_path_matches_view_and_is_north_up(
-        self, filename, variable, expect_flip, label
-    ):
-        """Fast classic-driver materialize is byte-identical to the view and north-up for each case.
+    def test_orientation_matches_coordinate_reference(self, filename, variable, expect_flip, label):
+        """The multidim read is north-up and byte-identical to the coordinate-ordered reference.
 
         Test scenario:
-            Read the variable through the public MDIM path, capture the known-correct view as a
-            reference, then materialize via the classic driver and compare — orientation must not drift.
+            Read the variable through the public MDIM path and compare it against the raw array
+            reordered so row 0 sits at the largest *scaled* Y coordinate.
         """
-        var = NetCDF.read_file(f"tests/data/netcdf/{filename}").get_variable(variable)
-        _assert_fast_path_orientation(var, expect_flip, label)
+        path = f"tests/data/netcdf/{filename}"
+        var = NetCDF.read_file(path).get_variable(variable)
+        _assert_orientation(var, expect_flip, label, path, variable)
 
-    def test_projected_descending_is_kept_and_matches_view(self, projected_descending_nc):
-        """Projected + descending Y (the 2x2 cell with no repo fixture) is kept and matches the view.
+    def test_projected_descending_is_kept(self, projected_descending_nc):
+        """Projected + descending Y is kept, not flipped.
 
         Test scenario:
-            A UTM-projected netCDF whose Y axis descends (row 0 = north) needs no flip; the fast path
-            (BOTTOMUP=NO) must reproduce the view byte-identically.
+            A UTM-projected netCDF whose `y` axis descends (row 0 = north) is already north-up, so
+            `_read_md_array` must leave it alone.
         """
         var = NetCDF.read_file(projected_descending_nc).get_variable("Band1")
         srs = var.raster.GetSpatialRef()
         assert srs is not None and srs.IsProjected(), "fixture should carry a projected CRS"
-        _assert_fast_path_orientation(var, expect_flip=False, label="projected descending (UTM) -> keep")
+        _assert_orientation(
+            var, False, "projected descending (UTM) -> keep", projected_descending_nc, "Band1"
+        )
+
+    def test_projected_ascending_is_flipped(self, projected_ascending_nc):
+        """Projected + ascending Y is flipped, exactly like an ascending geographic latitude.
+
+        Test scenario:
+            A UTM-projected netCDF whose `y` axis ascends (row 0 = south) must be reversed on read.
+            This fills the 2x2 cell that had no fixture — the geostationary granule was miscatalogued
+            as the projected-ascending case, and it is neither. Note this case does **not** by itself
+            discriminate the #705 fix: the old `gt[5] > 0` rule flipped a projected-ascending axis
+            too. Only the geostationary case (raw ascends, scaled descends) separates the two rules.
+        """
+        var = NetCDF.read_file(projected_ascending_nc).get_variable("Band1")
+        srs = var.raster.GetSpatialRef()
+        assert srs is not None and srs.IsProjected(), "fixture should carry a projected CRS"
+        _assert_orientation(
+            var, True, "projected ascending (UTM) -> flip", projected_ascending_nc, "Band1"
+        )
+
+
+def _mdim_cube(lat_values, lon_values, bands=1):
+    """An in-memory multidim store holding `v(time?, lat, lon)`, plus the array as written.
+
+    GDAL's netCDF writer emits one 2-D variable per band, so a multi-band variable with a chosen
+    coordinate direction cannot be produced by `gdal.Translate`; build the MDArray directly.
+    """
+    store = gdal.GetDriverByName("MEM").CreateMultiDimensional("m")
+    rg = store.GetRootGroup()
+    dtype = gdal.ExtendedDataType.Create(gdal.GDT_Float32)
+    band_dims = [rg.CreateDimension("time", None, None, bands)] if bands > 1 else []
+    y_dim = rg.CreateDimension("lat", None, None, len(lat_values))
+    x_dim = rg.CreateDimension("lon", None, None, len(lon_values))
+    lat = rg.CreateMDArray("lat", [y_dim], dtype)
+    lat.WriteArray(np.asarray(lat_values, "f4"))
+    lon = rg.CreateMDArray("lon", [x_dim], dtype)
+    lon.WriteArray(np.asarray(lon_values, "f4"))
+    y_dim.SetIndexingVariable(lat)
+    x_dim.SetIndexingVariable(lon)
+    shape = ((bands,) if bands > 1 else ()) + (len(lat_values), len(lon_values))
+    data = np.arange(int(np.prod(shape)), dtype="f4").reshape(shape)
+    rg.CreateMDArray("v", band_dims + [y_dim, x_dim], dtype).WriteArray(data)
+    return store, data
+
+
+class TestMultiBandMaterialize:
+    """A flipped multi-band cube round-trips through the NumPy re-flip in the materialize path."""
+
+    def test_multiband_y_flip_survives_materialize(self):
+        """A 3-D bottom-up variable reads the same before and after materializing.
+
+        Test scenario:
+            `_materialize_from_raw_view` flips a non-contiguous `[..., ::-1, :]` view of the whole
+            band stack in one `WriteArray`. A band-ordering or stride bug there would corrupt every
+            band but the first, which a 2-D fixture cannot catch.
+        """
+        path = "tests/data/netcdf/cf__7v__1d3-2d3-3d1__y-asc.nc"
+        var = NetCDF.read_file(path).get_variable("tos")
+        assert var._md_y_flipped is True, "the fixture's latitude ascends"
+        before = np.asarray(var.read_array())
+        assert before.ndim == 3 and before.shape[0] > 1, f"expected a band stack, got {before.shape}"
+        np.testing.assert_array_equal(before, _north_up_reference(path, "tos"))
+        var._materialize_md_view()
+        np.testing.assert_array_equal(
+            np.asarray(var.read_array()), before, err_msg="materialize changed a band"
+        )
+        assert var.raster.ReadAsArray(1, 1, 3, 2).shape[-2:] == (2, 3), "window read must work"
+
+    def test_multiband_x_flip_matches_numpy_reference(self):
+        """A 3-D east-to-west variable is reversed along columns, on every band."""
+        store, data = _mdim_cube([4.0, 3.0, 2.0, 1.0], [5.0, 4.0, 3.0, 2.0, 1.0], bands=3)
+        var = Container(store).get_variable("v")
+        assert var._md_x_flipped is True and var._md_y_flipped is False
+        expected = data[..., ::-1]
+        np.testing.assert_array_equal(np.asarray(var.read_array()), expected)
+        var._materialize_md_view()
+        np.testing.assert_array_equal(
+            np.asarray(var.read_array()), expected, err_msg="materialize changed a band"
+        )
+
+    def test_both_axes_flipped_materializes_correctly(self):
+        """A cube stored south-to-north *and* east-to-west is reversed on both axes."""
+        store, data = _mdim_cube([1.0, 2.0, 3.0, 4.0], [5.0, 4.0, 3.0, 2.0, 1.0], bands=2)
+        var = Container(store).get_variable("v")
+        assert var._md_y_flipped is True and var._md_x_flipped is True
+        expected = data[..., ::-1, ::-1]
+        np.testing.assert_array_equal(np.asarray(var.read_array()), expected)
+        var._materialize_md_view()
+        np.testing.assert_array_equal(np.asarray(var.read_array()), expected)
+        assert var.geotransform[1] > 0 and var.geotransform[5] < 0, "must be north-up, west-east"
+
+
+def _fake_indexing_variable(values):
+    """A 1-D MDArray stand-in whose `GetUnscaled()` is the identity."""
+    array = np.asarray(values)
+    variable = SimpleNamespace(GetDimensionCount=lambda: 1, ReadAsArray=lambda: array)
+    variable.GetUnscaled = lambda: variable
+    return variable
+
+
+def _fake_dim(values):
+    """A dimension whose indexing variable yields the given 1-D coordinate values."""
+    variable = None if values is None else _fake_indexing_variable(values)
+    return SimpleNamespace(GetIndexingVariable=lambda: variable)
+
+
+def _raising_dim():
+    """A dimension whose indexing variable cannot be read."""
+
+    def _fail():
+        raise RuntimeError("no indexing variable")
+
+    return SimpleNamespace(GetIndexingVariable=_fail)
+
+
+def _unscaledless_dim(raw_values, scale):
+    """A dimension whose `GetUnscaled()` declines, leaving only raw values and a scale factor."""
+    array = np.asarray(raw_values)
+    variable = SimpleNamespace(
+        GetDimensionCount=lambda: 1,
+        GetUnscaled=lambda: None,
+        GetScale=lambda: scale,
+        ReadAsArray=lambda: array,
+    )
+    return SimpleNamespace(GetIndexingVariable=lambda: variable)
+
+
+def _geostationary_view(geotransform):
+    """A classic-dataset stand-in carrying a geostationary CRS and a raw-order geotransform."""
+    srs = osr.SpatialReference()
+    srs.SetGEOS(-75.0, 35786023.0, 0.0, 0.0)
+    return SimpleNamespace(
+        GetGeoTransform=lambda: geotransform,
+        GetSpatialRef=lambda: srs,
+    )
+
+
+class TestScaledAxisAscends:
+    """The orientation predicate reports `None` whenever the coordinate cannot settle the direction."""
+
+    @pytest.mark.parametrize(
+        "values, expected, label",
+        [
+            ([1.0, 2.0, 3.0], True, "ascending"),
+            ([3.0, 2.0, 1.0], False, "descending"),
+            ([5.0, 5.0, 5.0], None, "constant"),
+            ([7.0], None, "size-1"),
+            (None, None, "no indexing variable"),
+            ([np.nan, 2.0, 3.0], None, "NaN first endpoint"),
+            ([1.0, 2.0, np.nan], None, "NaN last endpoint"),
+            ([np.inf, 2.0, 3.0], None, "infinite endpoint"),
+            ([1.0, 3.0, 2.0], None, "non-monotonic"),
+            ([1.0, 2.0, 2.0, 3.0], None, "plateau"),
+            ([1.0, np.nan, 3.0], None, "interior NaN"),
+        ],
+        ids=["asc", "desc", "constant", "size-1", "no-coord", "nan-first", "nan-last", "inf",
+             "non-monotonic", "plateau", "interior-nan"],
+    )
+    def test_direction_or_unknown(self, values, expected, label):
+        """A non-finite endpoint must report `None`, not a direction.
+
+        Test scenario:
+            `NaN != NaN` is True and `NaN < x` is False, so an unguarded `first < last` classifies a
+            NaN-tipped axis as descending — keeping a bottom-up Y (or reversing a west-to-east X) and
+            silently mirroring the raster, the exact failure mode of #705.
+        """
+        result = NetCDF._scaled_axis_ascends([_fake_dim(values)], 0)
+        assert result is expected, f"{label}: expected {expected}, got {result}"
+
+    def test_unreadable_indexing_variable_reports_unknown(self):
+        """A GDAL failure reading the indexing variable reports `None`, not a direction."""
+        assert NetCDF._scaled_axis_ascends([_raising_dim()], 0) is None
+
+    @pytest.mark.parametrize(
+        "raw, scale, expected",
+        [
+            ([0, 1, 2, 3], -5.6e-05, False),
+            ([0, 1, 2, 3], 5.6e-05, True),
+            ([3, 2, 1, 0], -5.6e-05, True),
+            ([0, 1, 2, 3], None, True),
+            ([0, 2, 1, 3], -5.6e-05, None),
+        ],
+        ids=["negative-scale", "positive-scale", "negative-scale-desc-raw", "no-scale",
+             "non-monotonic-raw"],
+    )
+    def test_declined_unscaled_view_accounts_for_the_scale_sign(self, raw, scale, expected):
+        """When `GetUnscaled()` declines, the raw order is corrected by the scale factor's sign.
+
+        Test scenario:
+            Reading the raw values as if they were scaled inverts the direction of a negatively-packed
+            axis — precisely how a GOES scan angle, whose raw values ascend while the physical angle
+            descends, got mirrored in #705.
+        """
+        result = NetCDF._scaled_axis_ascends([_unscaledless_dim(raw, scale)], 0)
+        assert result is expected, f"raw={raw} scale={scale}: expected {expected}, got {result}"
+
+
+class TestGeostationaryFallbackNeverFlips:
+    """With an unreadable coordinate, a geostationary axis must not be flipped on the raw gt sign."""
+
+    def test_y_fallback_refuses_to_flip_a_geostationary_axis(self):
+        """A raw-order `gt[5] > 0` would re-mirror a geostationary raster (#705); it must be ignored.
+
+        Test scenario:
+            GDAL derives the view's geotransform from the *raw* scan angles, which ascend under the
+            negative `scale_factor`. If the scaled coordinate cannot be read, that positive `gt[5]`
+            is the only signal left — and it is the wrong one, because the cube then adopts the
+            classic driver's north-up metre geotransform.
+        """
+        view = _geostationary_view((0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
+        assert NetCDF._y_axis_is_bottom_up([_raising_dim()], 0, view) is False
+
+    def test_x_fallback_refuses_to_flip_a_geostationary_axis(self):
+        """The mirror carve-out for columns."""
+        view = _geostationary_view((0.0, -1.0, 0.0, 0.0, 0.0, -1.0))
+        assert NetCDF._x_axis_is_right_to_left([_raising_dim()], 0, view) is False
+
+    def test_undetectable_geostationary_still_mirrors_and_is_a_known_limit(self):
+        """Pin the one residual mirror path: CRS detection fails AND the coordinate is unreadable.
+
+        Test scenario:
+            The geostationary carve-out relies on recognising `Geostationary_Satellite` in the SRS.
+            A granule whose `grid_mapping` is missing or non-standard, and whose scan-angle
+            coordinate also cannot be read, leaves only the raw geotransform sign — which says
+            "flip" for the raw-ascending storage, re-creating the #705 mirror. Undecidable in
+            principle (nothing identifies such a file as geostationary); real granules always
+            carry both signals. This test documents the limitation so a behaviour change is loud.
+        """
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(32636)  # a projected CRS that is NOT recognised as geostationary
+        view = SimpleNamespace(
+            GetGeoTransform=lambda: (0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
+            GetSpatialRef=lambda: srs,
+        )
+        assert NetCDF._y_axis_is_bottom_up([_raising_dim()], 0, view) is True
+
+    def test_non_geostationary_fallback_still_uses_the_geotransform_sign(self):
+        """A plain raster with no usable coordinate still falls back to the geotransform sign."""
+        view = gdal.GetDriverByName("MEM").Create("", 2, 2, 1, gdal.GDT_Float32)
+        view.SetGeoTransform((0.0, -1.0, 0.0, 0.0, 0.0, 1.0))
+        assert NetCDF._y_axis_is_bottom_up([_raising_dim()], 0, view) is True
+        assert NetCDF._x_axis_is_right_to_left([_raising_dim()], 0, view) is True
+
+
+class TestCorrectFlippedGeotransform:
+    """The wrapper-side geotransform correction re-anchors whichever axis GDAL left describing the
+    pre-flip order."""
+
+    @staticmethod
+    def _cube(gt, y_flipped, x_flipped):
+        """A minimal stand-in carrying only what `_correct_flipped_geotransform` reads."""
+        return SimpleNamespace(
+            _geotransform=gt,
+            _md_y_flipped=y_flipped,
+            _md_x_flipped=x_flipped,
+            _rows=4,
+            _columns=5,
+            _cell_size=None,
+        )
+
+    def test_y_flip_reanchors_origin_to_the_north(self):
+        """A positive `gt[5]` after a Y flip is re-anchored to the north edge."""
+        cube = self._cube((10.0, 2.0, 0.0, 0.0, 0.0, 1.0), y_flipped=True, x_flipped=False)
+        NetCDF._correct_flipped_geotransform(cube)
+        assert cube._geotransform == pytest.approx((10.0, 2.0, 0.0, 4.0, 0.0, -1.0))
+        assert cube._cell_size == pytest.approx(2.0)
+
+    def test_x_flip_reanchors_origin_to_the_west(self):
+        """A negative `gt[1]` after an X flip is re-anchored to the west edge.
+
+        Test scenario:
+            GDAL normally corrects a reversed view's geotransform itself, so this branch only fires
+            when the reversed dimension had no indexing variable. Exercised directly because no
+            fixture can reach it.
+        """
+        cube = self._cube((30.0, -2.0, 0.0, 10.0, 0.0, -1.0), y_flipped=False, x_flipped=True)
+        NetCDF._correct_flipped_geotransform(cube)
+        assert cube._geotransform == pytest.approx((20.0, 2.0, 0.0, 10.0, 0.0, -1.0))
+        assert cube._cell_size == pytest.approx(2.0)
+
+    def test_both_axes_reanchored_together(self):
+        """Both corrections compose into one north-up, west-to-east geotransform."""
+        cube = self._cube((30.0, -2.0, 0.0, 0.0, 0.0, 1.0), y_flipped=True, x_flipped=True)
+        NetCDF._correct_flipped_geotransform(cube)
+        assert cube._geotransform == pytest.approx((20.0, 2.0, 0.0, 4.0, 0.0, -1.0))
+
+    def test_already_north_up_is_untouched(self):
+        """An already-correct geotransform is left alone, and `_cell_size` is not rewritten."""
+        gt = (10.0, 2.0, 0.0, 4.0, 0.0, -1.0)
+        cube = self._cube(gt, y_flipped=True, x_flipped=True)
+        NetCDF._correct_flipped_geotransform(cube)
+        assert cube._geotransform == gt
+        assert cube._cell_size is None, "no change means no _cell_size write"
+
+    def test_unflipped_cube_keeps_a_positive_y_pixel_size(self):
+        """Without a recorded flip the geotransform is trusted as-is — the #705 guard."""
+        gt = (10.0, 2.0, 0.0, 0.0, 0.0, 1.0)
+        cube = self._cube(gt, y_flipped=False, x_flipped=False)
+        NetCDF._correct_flipped_geotransform(cube)
+        assert cube._geotransform == gt, "a geostationary cube must not be re-anchored"
+
+
+class TestXAxisOrientation:
+    """The X axis is normalized to `col 0 = west`, the mirror of `row 0 = north`."""
+
+    def test_x_descending_is_flipped(self, x_descending_nc):
+        """An east→west longitude is reversed, and the geotransform describes the real extent.
+
+        Test scenario:
+            The file spans lon 20→30 with its columns stored east-first. Reading it must return the
+            columns west-first under a positive pixel width. Before the X rule, the coordinate-derived
+            geotransform took `lon[0]` (29) for the west edge, so the raster came back mirrored
+            west-east under a bbox shifted a full grid width east — silently wrong pixels, the same
+            failure mode as #705.
+        """
+        var = NetCDF.read_file(x_descending_nc).get_variable("Band1")
+        assert var._md_x_flipped is True, "east-to-west longitude must be reversed"
+        assert var._md_y_flipped is False, "the latitude already descends; it must not be reversed"
+        gt = var.geotransform
+        assert gt[1] > 0, f"pixel width must be positive after the X flip, got {gt[1]}"
+        assert var.bbox == pytest.approx([20.0, 6.0, 30.0, 10.0]), f"wrong extent: {var.bbox}"
+        np.testing.assert_array_equal(
+            np.asarray(var.read_array()),
+            _north_up_reference(x_descending_nc, "Band1"),
+            err_msg="col 0 of read_array() is not at the westernmost X coordinate",
+        )
+
+    def test_x_flip_survives_materialize(self, x_descending_nc):
+        """The NumPy re-flip in `_materialize_from_raw_view` reproduces the lazy `GetView` flip."""
+        var = NetCDF.read_file(x_descending_nc).get_variable("Band1")
+        before = np.asarray(var.read_array())
+        var._materialize_md_view()
+        np.testing.assert_array_equal(
+            np.asarray(var.read_array()), before, err_msg="materializing changed the pixels"
+        )
+        assert var.raster.ReadAsArray(1, 1, 3, 2).shape[-2:] == (2, 3), "window read must work"
+
+    @pytest.mark.parametrize(
+        "filename, variable",
+        [(c[0], c[1]) for c in ORIENTATION_CASES],
+        ids=[c[0].split(".")[0] for c in ORIENTATION_CASES],
+    )
+    def test_repo_fixtures_all_ascend_in_x(self, filename, variable):
+        """Document the invariant: every on-disk fixture stores X west→east, so none is X-flipped."""
+        var = NetCDF.read_file(f"tests/data/netcdf/{filename}").get_variable(variable)
+        assert var._md_x_flipped is False, f"{filename} unexpectedly stores X east-to-west"
 
 
 class TestDiskRoundTripOrientation:
