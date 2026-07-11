@@ -27,7 +27,6 @@ from __future__ import annotations
 import builtins
 import multiprocessing
 import pickle
-import shutil
 
 import numpy as np
 import pytest
@@ -394,7 +393,7 @@ class TestLazyOrientationMatchesEager:
             direct, eager, err_msg="_read_variable is mirrored west-east relative to get_variable"
         )
 
-    def test_non_trailing_spatial_variable_lazy_matches_eager(self, tmp_path):
+    def test_non_trailing_spatial_variable_lazy_matches_eager(self):
         """A `(time, lat, lev, lon)` variable reads the same lazily and eagerly.
 
         Test scenario:
@@ -404,24 +403,16 @@ class TestLazyOrientationMatchesEager:
             byte-for-byte — pinned here so any future divergence between the two plane-resolution
             strategies surfaces as a failure instead of a silent mirror.
 
-        The fixture is copied to a private path first. The lazy compute leaves a cached MDIM handle
-        for its path in the `CachingFileManager`, and other tests (smoke, roundtrip) reopen the same
-        fixture later in the process; sharing the on-disk path between the cached handle and those
-        opens crashed GDAL with an access violation at a process-dependent point. The containers are
-        also closed deterministically — `close()` runs the gc pass that reclaims SWIG wrapper cycles.
+        Reads the shared on-disk fixture directly; the autouse `_clear_file_cache` fixture closes the
+        lazy path's parked GDAL handle at teardown, so a later test reopening the same file cannot
+        collide with a stale handle (the CAM segfault mechanism).
         """
-        source = "tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc"
-        path = str(tmp_path / "cam_private_copy.nc")
-        shutil.copyfile(source, path)
-        eager_container = NetCDF.read_file(path)
-        eager = np.asarray(eager_container.get_variable("T").read_array())
-        lazy_container = NetCDF.read_file(path)
-        lazy = np.squeeze(np.asarray(lazy_container.get_variable("T").read_array(chunks="auto")))
+        path = "tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc"
+        eager = np.asarray(NetCDF.read_file(path).get_variable("T").read_array())
+        lazy = np.squeeze(np.asarray(NetCDF.read_file(path).get_variable("T").read_array(chunks="auto")))
         np.testing.assert_array_equal(
             lazy, eager, err_msg="lazy read diverged from eager on a non-trailing-spatial variable"
         )
-        eager_container.close()
-        lazy_container.close()
 
     def test_one_dimensional_variable_is_never_flipped(self):
         """A 1-D coordinate array has no raster plane, so no axis is reversed.
