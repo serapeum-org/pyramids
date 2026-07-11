@@ -264,10 +264,6 @@ class TestCrop:
         rasters_folder_path: str,
         crop_aligned_folder_saveto: str,
     ):
-        # if os.path.exists(crop_aligned_folder_saveto):
-        #     shutil.rmtree(crop_aligned_folder_saveto)
-        #     os.mkdir(crop_aligned_folder_saveto)
-        # else:
         #     os.mkdir(crop_aligned_folder_saveto)
 
         mask = Dataset(raster_mask)
@@ -289,10 +285,6 @@ class TestCrop:
         rasters_folder_path: str,
         crop_aligned_folder_saveto: str,
     ):
-        # if os.path.exists(crop_aligned_folder_saveto):
-        #     shutil.rmtree(crop_aligned_folder_saveto)
-        #     os.mkdir(crop_aligned_folder_saveto)
-        # else:
         #     os.mkdir(crop_aligned_folder_saveto)
 
         mask = Dataset(raster_mask)
@@ -314,10 +306,6 @@ class TestCrop:
         rasters_folder_path: str,
         crop_aligned_folder_saveto: str,
     ):
-        # if os.path.exists(crop_aligned_folder_saveto):
-        #     shutil.rmtree(crop_aligned_folder_saveto)
-        #     os.mkdir(crop_aligned_folder_saveto)
-        # else:
         #     os.mkdir(crop_aligned_folder_saveto)
 
         cube = DatasetCollection.read_multiple_files(

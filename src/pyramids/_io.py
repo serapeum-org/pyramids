@@ -579,11 +579,6 @@ def read_file(
             raise FileNotFoundError(f"{path} you entered does not exist")
         else:
             raise e
-    # if src is None:
-    #     raise ValueError(
-    #         f"The raster path: {path} you enter gives a None gdal Object check the read premission, maybe "
-    #         f"the raster is being used by other software"
-    #     )
     return src
 
 

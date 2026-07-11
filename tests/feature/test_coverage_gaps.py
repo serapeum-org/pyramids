@@ -80,7 +80,7 @@ class TestTopLeftCornerEdges:
         fc = FeatureCollection(
             gpd.GeoDataFrame({"v": [1]}, geometry=[poly], crs="EPSG:4326")
         )
-        # top_left = [xmin, ymax] = [-10, 0]
+        # expected top-left corner (xmin, ymax) is (-10, 0)
         assert fc.top_left_corner == [-10.0, 0.0]
 
     def test_single_point(self):

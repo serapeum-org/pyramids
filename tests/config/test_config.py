@@ -76,8 +76,6 @@ class TestConfigMock(unittest.TestCase):
         mock_conda.return_value = Path("/usr/lib/gdalplugins")
         self.config.initialize_gdal()
 
-        # self.assertIn("GDAL_DRIVER_PATH", os.environ)
-        # self.assertEqual(os.environ["GDAL_DRIVER_PATH"], "/usr/lib/gdalplugins")
         mock_register.assert_called_once()
 
     @patch("os.getenv", return_value=None)
