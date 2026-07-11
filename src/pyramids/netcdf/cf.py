@@ -707,12 +707,10 @@ def classify_variables(
                     cell_measure_vars.add(token)
         av = attrs.get("ancillary_variables")
         if isinstance(av, str):
-            for token in av.split():
-                ancillary_vars.add(token)
+            ancillary_vars.update(av.split())
         coords = attrs.get("coordinates")
         if isinstance(coords, str):
-            for token in coords.split():
-                aux_coord_vars.add(token)
+            aux_coord_vars.update(coords.split())
 
     roles: dict[str, str] = {}
     for name, var in variables.items():
