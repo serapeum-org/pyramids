@@ -70,10 +70,13 @@ _RESERVED_KVP_KEYS = frozenset(
 _PROTOCOL_KVP_KEYS = frozenset({"SERVICE", "VERSION", "REQUEST", "SUBSET"})
 _OVERRIDABLE_KVP_KEYS = _RESERVED_KVP_KEYS - _PROTOCOL_KVP_KEYS
 
-# The request CRS is spelled SUBSETTINGCRS in WCS 2.0.x and CRS in 1.0.0; a shim
-# may want the other spelling on either version, so both collapse to one logical
-# slot — overriding with either replaces whichever the builder emitted.
+# Two request parameters are spelled differently across WCS versions: the CRS is
+# SUBSETTINGCRS in 2.0.x and CRS in 1.0.0, and the coverage id is COVERAGEID in
+# 2.0.x and COVERAGE in 1.0.0. A shim may want the other spelling on either
+# version, so each pair collapses to one logical slot — overriding with either
+# spelling replaces whichever the builder emitted (see _kvp_slot).
 _CRS_KVP_KEYS = frozenset({"CRS", "SUBSETTINGCRS"})
+_COVERAGE_KVP_KEYS = frozenset({"COVERAGE", "COVERAGEID"})
 
 
 if TYPE_CHECKING:
@@ -83,9 +86,19 @@ if TYPE_CHECKING:
 
 
 def _kvp_slot(key: str) -> str:
-    """Normalised override slot for a KVP key (CRS and SUBSETTINGCRS share one)."""
+    """Normalised override slot for a KVP key.
+
+    The two cross-version pairs collapse to one slot each so an override bridges the
+    WCS spellings: ``CRS``/``SUBSETTINGCRS`` -> ``CRS`` and
+    ``COVERAGE``/``COVERAGEID`` -> ``COVERAGE``. Every other key is its own slot.
+    """
     upper = key.upper()
-    slot = "CRS" if upper in _CRS_KVP_KEYS else upper
+    if upper in _CRS_KVP_KEYS:
+        slot = "CRS"
+    elif upper in _COVERAGE_KVP_KEYS:
+        slot = "COVERAGE"
+    else:
+        slot = upper
     return slot
 
 
@@ -116,8 +129,9 @@ def _merge_direct_kvp(
 
     Raises:
         ValueError: an ``extra_params`` key targets a locked protocol parameter, or
-            two ``extra_params`` keys target the same GetCoverage parameter (e.g.
-            both ``CRS`` and ``SUBSETTINGCRS``, or case-variant duplicates).
+            two ``extra_params`` keys target the same built-in GetCoverage parameter
+            (e.g. both ``CRS`` and ``SUBSETTINGCRS``, or case-variant duplicates of a
+            built-in key such as ``coverageID`` and ``COVERAGEID``).
     """
     result = list(params)
     if extra_params:
@@ -141,6 +155,11 @@ def _merge_direct_kvp(
                 overrides[slot] = (key, val)
             else:
                 appended.append((key, val))
+        # Substitute each override into its matching built-in position. Safe as a
+        # single pass because no overridable slot is ever emitted twice in `params`:
+        # the only duplicated built-in slot is SUBSET (two axes on 2.0.x), and SUBSET
+        # is a protocol key that can never populate `overrides`. If a future builder
+        # emits a duplicated overridable slot, dedupe here before substituting.
         merged = [overrides.get(_kvp_slot(k), (k, v)) for k, v in result]
         result = merged + appended
     return result

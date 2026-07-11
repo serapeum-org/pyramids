@@ -2289,17 +2289,19 @@ class Dataset(RasterBase):
                 requests. Defaults to ``60.0``.
             extra_params: Optional extra ``GetCoverage`` query parameters folded
                 into the request (a workaround hook for server quirks). In direct
-                mode a key that matches a built-in KVP (case-insensitively, with
-                ``CRS`` and ``SUBSETTINGCRS`` treated as one) *overrides* it with the
-                given spelling and value — e.g. ``{"coverageID": "spaST"}`` sends a
-                lowercase key, ``{"CRS": "EPSG:4326"}`` sends the WCS-1.x CRS token
-                instead of ``SUBSETTINGCRS``. Non-matching keys are appended (e.g. a
-                ``TIME`` axis). The fixed protocol keys ``SERVICE`` / ``VERSION`` /
-                ``REQUEST`` / ``SUBSET`` cannot be overridden and raise
+                mode a key that matches a built-in KVP (case-insensitively, with the
+                cross-version pairs ``CRS``/``SUBSETTINGCRS`` and
+                ``COVERAGE``/``COVERAGEID`` each treated as one) *overrides* it with
+                the given spelling and value — e.g. ``{"coverageID": "spaST"}`` sends
+                a lowercase key, ``{"CRS": "EPSG:4326"}`` sends the WCS-1.x CRS token
+                instead of ``SUBSETTINGCRS``. Non-matching keys are appended in caller
+                order (e.g. a ``TIME`` axis). The fixed protocol keys ``SERVICE`` /
+                ``VERSION`` / ``REQUEST`` / ``SUBSET`` cannot be overridden and raise
                 :class:`ValueError`; because ``SUBSET`` is locked, an additional
                 WCS-2.0 ``SUBSET`` axis (e.g. a temporal subset) cannot be added in
                 direct mode — use discovery mode for that. Two keys targeting the
-                same parameter (e.g. both ``CRS`` and ``SUBSETTINGCRS``) also raise.
+                same built-in parameter (e.g. both ``CRS`` and ``SUBSETTINGCRS``) also
+                raise.
             direct: When ``True``, skip ``GetCapabilities``/``DescribeCoverage`` and
                 issue a KVP ``GetCoverage`` directly — for shim servers that only
                 implement ``GetCoverage``. Defaults to ``False`` (full handshake).
