@@ -531,13 +531,13 @@ class _NullLock:
         return True
 
     def release(self) -> None:
-        pass
+        """No-op: a null lock is never held, so there is nothing to release."""
 
     def __enter__(self) -> _NullLock:
         return self
 
     def __exit__(self, *_: Any) -> None:
-        pass
+        """No-op: a null lock holds nothing, so context exit releases nothing."""
 
 
 _NULL_LOCK = _NullLock()
