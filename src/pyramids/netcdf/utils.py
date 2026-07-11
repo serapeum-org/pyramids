@@ -104,7 +104,7 @@ def _safe_array_names(group: gdal.Group) -> list[str]:
         names = group.GetMDArrayNames() or []
     except Exception:
         names = []
-    return sorted(list(names))
+    return sorted(names)
 
 
 def _safe_group_names(group: gdal.Group) -> list[str]:
@@ -122,7 +122,7 @@ def _safe_group_names(group: gdal.Group) -> list[str]:
         names = group.GetGroupNames() or []
     except Exception:
         names = []
-    return sorted(list(names))
+    return sorted(names)
 
 
 def _get_root_group(dataset: gdal.Dataset) -> gdal.Group | None:
