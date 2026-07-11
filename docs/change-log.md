@@ -1,6 +1,17 @@
 ﻿# Change log
 
 
+## 0.44.0 (2026-07-11)
+
+### Feat
+
+- **dataset**: let direct from_wcs override built-in KVP keys for shims (#725)
+
+### Fix
+
+- **netcdf**: orient NetCDF reads from the scaled coordinate, not the raw geotransform (#722)
+- **dataset**: enforce types across the dataset subpackage (#721)
+
 ## 0.43.0 (2026-07-09)
 
 ### Feat
