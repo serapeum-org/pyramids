@@ -85,6 +85,7 @@ class TestConfigMock(unittest.TestCase):
     def test_set_env_conda_no_conda(self, mock_exists, mock_getenv):
         result = self.config.set_env_conda()
         self.assertIsNone(result)
+        mock_getenv.assert_called()
 
     @patch("os.getenv", return_value="/fake/conda/prefix")
     @patch("pathlib.Path.exists", return_value=True)
@@ -100,6 +101,7 @@ class TestConfigMock(unittest.TestCase):
     def test_set_env_conda_plugins_path_not_exist(self, mock_exists, mock_getenv):
         result = self.config.set_env_conda()
         self.assertIsNone(result)
+        mock_exists.assert_called()
 
     @patch("site.getsitepackages", return_value=["C:/Python/site-packages"])
     @patch("pathlib.Path.exists", return_value=True)
