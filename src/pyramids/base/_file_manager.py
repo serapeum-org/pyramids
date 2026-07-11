@@ -279,7 +279,7 @@ class _LRUCache(MutableMapping):
                 self._on_evict(key, value)
 
 
-def _close_handle(_key: Hashable, handle: Any) -> None:
+def _close_handle(_key: Hashable | None, handle: Any) -> None:
     """Close a cached GDAL/OGR handle if it has a `Close` method.
 
     Eviction-time close failures are logged at DEBUG and swallowed
