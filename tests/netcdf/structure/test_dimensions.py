@@ -686,7 +686,7 @@ class TestToMetadataMethod:
         }
         idx = DimensionsIndex.from_metadata(md)
         out_sorted = idx.to_metadata(sort_names=True)
-        out_unsorted = idx.to_metadata(sort_names=False)
+        _ = idx.to_metadata(sort_names=False)
         assert out_sorted["NETCDF_DIM_EXTRA"] == "{a,b}"
         # Insertion order is whatever dict kept; since we parsed sorted(dim_names)
         # inside from_metadata, the internal order is sorted. To truly test

@@ -79,7 +79,7 @@ class TestGroupNeighbours:
             re-discovered by its neighbours (9 total).
         """
         arr = np.ones((3, 3), dtype=float) * 5
-        position, values, cluster = self._call(arr, 1, 1, 1, 10)
+        position, values, _ = self._call(arr, 1, 1, 1, 10)
 
         assert (
             len(position) == 9
@@ -97,7 +97,7 @@ class TestGroupNeighbours:
             should be found.
         """
         arr = np.ones((3, 3), dtype=float)
-        position, values, cluster = self._call(arr, 1, 1, 5, 10)
+        position, values, _ = self._call(arr, 1, 1, 5, 10)
 
         assert position == [], f"Expected empty position, got {position}"
         assert values == [], f"Expected empty values, got {values}"
@@ -110,7 +110,7 @@ class TestGroupNeighbours:
             should be included in the cluster.
         """
         arr = np.array([[2.0, 5.0], [8.0, 3.0]])
-        position, values, cluster = self._call(arr, 0, 0, 2.0, 8.0)
+        _, values, _ = self._call(arr, 0, 0, 2.0, 8.0)
 
         found_values = set(values)
         assert 5.0 in found_values, "Value within bounds should be found"
@@ -133,7 +133,7 @@ class TestGroupNeighbours:
                 [5.0, 0.0, 5.0],
             ]
         )
-        position, values, cluster = self._call(arr, 1, 1, 4, 6)
+        position, _, _ = self._call(arr, 1, 1, 4, 6)
 
         found_positions = {(r, c) for r, c in position}
         expected = {(0, 0), (0, 2), (2, 0), (2, 2), (1, 1)}
@@ -196,7 +196,7 @@ class TestGroupNeighbours:
             should be found (8 reachable + start re-discovered).
         """
         arr = np.ones((3, 3), dtype=float) * 5
-        position, values, cluster = self._call(arr, 0, 0, 1, 10)
+        position, _, _ = self._call(arr, 0, 0, 1, 10)
 
         assert (
             len(position) == 9
@@ -210,7 +210,7 @@ class TestGroupNeighbours:
             should be found.
         """
         arr = np.ones((3, 3), dtype=float) * 5
-        position, values, cluster = self._call(arr, 0, 1, 1, 10)
+        position, _, _ = self._call(arr, 0, 1, 1, 10)
 
         assert (
             len(position) == 9
@@ -223,7 +223,7 @@ class TestGroupNeighbours:
             Pass count=7; all discovered cells should have cluster value 7.
         """
         arr = np.ones((3, 3), dtype=float) * 5
-        position, values, cluster = self._call(arr, 1, 1, 1, 10, count=7)
+        position, _, cluster = self._call(arr, 1, 1, 1, 10, count=7)
 
         for r, c in position:
             assert (
@@ -244,7 +244,7 @@ class TestGroupNeighbours:
                 [7.0, 8.0, 9.0],
             ]
         )
-        position, values, cluster = self._call(arr, 1, 1, 1, 9)
+        position, values, _ = self._call(arr, 1, 1, 1, 9)
 
         for (r, c), v in zip(position, values):
             assert v == arr[r, c], f"Value at ({r},{c}) should be {arr[r, c]}, got {v}"
@@ -266,7 +266,7 @@ class TestGroupNeighbours:
                 [0.0, 0.0, 0.0, 5.0, 5.0],
             ]
         )
-        position, values, cluster = self._call(arr, 0, 0, 4, 6)
+        position, _, _ = self._call(arr, 0, 0, 4, 6)
 
         found = {(r, c) for r, c in position}
         top_left_block = {(0, 0), (0, 1), (1, 0), (1, 1)}
@@ -289,7 +289,7 @@ class TestGroupNeighbours:
                 [0.0, 0.0, 5.0, 5.0],
             ]
         )
-        position, values, cluster = self._call(arr, 0, 0, 4, 6)
+        position, _, _ = self._call(arr, 0, 0, 4, 6)
 
         assert (
             len(position) == 8
@@ -304,7 +304,7 @@ class TestGroupNeighbours:
             it without error.
         """
         arr = np.ones((200, 200), dtype=float) * 5
-        position, values, cluster = self._call(arr, 100, 100, 1, 10)
+        position, _, _ = self._call(arr, 100, 100, 1, 10)
 
         expected_count = 200 * 200
         assert (
@@ -319,7 +319,7 @@ class TestGroupNeighbours:
             should include 0.5 but exclude 0.1 and 0.9.
         """
         arr = np.array([[0.1, 0.5], [0.9, 0.5]])
-        position, values, cluster = self._call(arr, 0, 1, 0.15, 0.85)
+        position, _, _ = self._call(arr, 0, 1, 0.15, 0.85)
 
         found_positions = {(r, c) for r, c in position}
         assert (0, 0) not in found_positions, "0.1 is below lower_bound 0.15"
@@ -341,7 +341,7 @@ class TestGroupNeighbours:
         arr[2, 2] = 5.0
         arr[2, 1] = 5.0
         arr[2, 0] = 5.0
-        position, values, cluster = self._call(arr, 0, 0, 4, 6)
+        position, _, _ = self._call(arr, 0, 0, 4, 6)
 
         assert len(position) == 7, f"Expected 7 cells in corridor, got {len(position)}"
 
@@ -373,7 +373,7 @@ class TestGroupNeighbours:
                 [5.0, 5.0],
             ]
         )
-        position, values, cluster = self._call(arr, 0, 0, 4, 6)
+        position, _, _ = self._call(arr, 0, 0, 4, 6)
 
         found = {(r, c) for r, c in position}
         assert (
@@ -476,7 +476,7 @@ class TestCluster:
             Two 2x2 blocks of value 5 separated by a 2-wide zero gap.
             With bounds [4, 6], both blocks should be separate clusters.
         """
-        cluster_array, count, position, values = two_cluster_dataset.cluster(4, 6)
+        cluster_array, count, position, _ = two_cluster_dataset.cluster(4, 6)
 
         assert (
             count == 3
@@ -505,7 +505,7 @@ class TestCluster:
             dtype=np.float64,
         )
         dataset = make_dataset(arr)
-        cluster_array, count, position, values = dataset.cluster(4, 6)
+        _, count, position, _ = dataset.cluster(4, 6)
 
         assert count == 2, f"Expected count=2 (1 cluster + increment), got {count}"
         assert (
@@ -528,7 +528,7 @@ class TestCluster:
             dtype=np.float64,
         )
         dataset = make_dataset(arr)
-        cluster_array, count, position, values = dataset.cluster(4, 6)
+        cluster_array, _, position, values = dataset.cluster(4, 6)
 
         assert len(position) == 1, f"Expected 1 position, got {len(position)}"
         assert position[0] == [1, 1], f"Expected position [1,1], got {position[0]}"
@@ -546,7 +546,7 @@ class TestCluster:
         """
         arr = np.array([[2.0, 5.0, 8.0]], dtype=np.float64)
         dataset = make_dataset(arr)
-        cluster_array, count, position, values = dataset.cluster(2.0, 8.0)
+        _, _, position, values = dataset.cluster(2.0, 8.0)
 
         assert len(position) == 3, f"Expected 3 cells, got {len(position)}"
         assert set(values) == {
@@ -571,7 +571,7 @@ class TestCluster:
             dtype=np.float64,
         )
         dataset = make_dataset(arr)
-        cluster_array, count, position, values = dataset.cluster(4, 6)
+        _, count, position, _ = dataset.cluster(4, 6)
 
         assert (
             count == 2
@@ -588,7 +588,7 @@ class TestCluster:
         """
         arr = np.ones((5, 7), dtype=np.float64) * 3
         dataset = make_dataset(arr)
-        cluster_array, count, position, values = dataset.cluster(1, 10)
+        cluster_array, _, _, _ = dataset.cluster(1, 10)
 
         assert cluster_array.shape == (
             5,
@@ -609,7 +609,7 @@ class TestCluster:
         arr[4, 0] = 5.0
         arr[4, 4] = 5.0
         dataset = make_dataset(arr)
-        cluster_array, count, position, values = dataset.cluster(4, 6)
+        _, count, position, _ = dataset.cluster(4, 6)
 
         assert (
             count == 5
@@ -626,7 +626,7 @@ class TestCluster:
         """
         arr = np.ones((200, 200), dtype=np.float64) * 5
         dataset = make_dataset(arr)
-        cluster_array, count, position, values = dataset.cluster(1, 10)
+        cluster_array, count, position, _ = dataset.cluster(1, 10)
 
         assert count == 2, f"Expected count=2 (1 cluster + increment), got {count}"
         assert len(position) == 40000, f"Expected 40000 cells, got {len(position)}"
@@ -642,7 +642,7 @@ class TestCluster:
         np.random.seed(42)
         arr = np.random.randint(1, 10, size=(6, 6)).astype(np.float64)
         dataset = make_dataset(arr)
-        cluster_array, count, position, values = dataset.cluster(3, 7)
+        _, _, position, values = dataset.cluster(3, 7)
 
         for v in values:
             assert 3 <= v <= 7, f"Value {v} is outside bounds [3, 7]"
@@ -661,7 +661,7 @@ class TestCluster:
         """
         arr = np.array([[5.0, 5.0, 0.0, 5.0, 5.0]], dtype=np.float64)
         dataset = make_dataset(arr)
-        cluster_array, count, position, values = dataset.cluster(4, 6)
+        _, count, position, _ = dataset.cluster(4, 6)
 
         assert count == 3, f"Expected count=3 (2 clusters + increment), got {count}"
         assert len(position) == 4, f"Expected 4 cells, got {len(position)}"
@@ -674,7 +674,7 @@ class TestCluster:
         """
         arr = np.array([[5.0], [5.0], [0.0], [5.0]], dtype=np.float64)
         dataset = make_dataset(arr)
-        cluster_array, count, position, values = dataset.cluster(4, 6)
+        _, count, position, _ = dataset.cluster(4, 6)
 
         assert count == 3, f"Expected count=3 (2 clusters + increment), got {count}"
         assert len(position) == 3, f"Expected 3 cells, got {len(position)}"
@@ -691,7 +691,7 @@ class TestCluster:
         arr[2, 0] = 5.0
         arr[4, 0] = 5.0
         dataset = make_dataset(arr)
-        cluster_array, count, position, values = dataset.cluster(4, 6)
+        cluster_array, _, _, _ = dataset.cluster(4, 6)
 
         assert (
             cluster_array[0, 0] == 1
@@ -718,7 +718,7 @@ class TestCluster:
             dtype=np.float64,
         )
         dataset = make_dataset(arr)
-        cluster_array, count, position, values = dataset.cluster(4, 6)
+        cluster_array, _, _, _ = dataset.cluster(4, 6)
 
         assert (
             cluster_array[0, 1] == 0
@@ -737,7 +737,7 @@ class TestCluster:
         np.random.seed(99)
         arr = np.random.uniform(1, 10, size=(4, 4)).astype(np.float64)
         dataset = make_dataset(arr)
-        cluster_array, count, position, values = dataset.cluster(3, 7)
+        _, _, position, values = dataset.cluster(3, 7)
 
         for (r, c), v in zip(position, values):
             assert (

@@ -49,7 +49,7 @@ class TestWriteAttributesToMdArray:
             A string attribute should be stored and retrievable via
             GDAL GetAttributes.
         """
-        ds, _, md_arr = _make_mem_md_array()
+        _, _, md_arr = _make_mem_md_array()
         write_attributes_to_md_array(md_arr, {"units": "K"})
         attrs = {a.GetName(): a.Read() for a in md_arr.GetAttributes()}
         assert "units" in attrs, f"Expected 'units' in attrs, got {list(attrs.keys())}"
@@ -61,7 +61,7 @@ class TestWriteAttributesToMdArray:
         Test scenario:
             A float attribute should be stored with float64 type.
         """
-        ds, _, md_arr = _make_mem_md_array()
+        _, _, md_arr = _make_mem_md_array()
         write_attributes_to_md_array(md_arr, {"scale_factor": 0.01})
         attrs = {a.GetName(): a.Read() for a in md_arr.GetAttributes()}
         assert (
@@ -77,7 +77,7 @@ class TestWriteAttributesToMdArray:
         Test scenario:
             An int attribute should be stored with Int32 type.
         """
-        ds, _, md_arr = _make_mem_md_array()
+        _, _, md_arr = _make_mem_md_array()
         write_attributes_to_md_array(md_arr, {"start_index": 1})
         attrs = {a.GetName(): a.Read() for a in md_arr.GetAttributes()}
         assert (
@@ -91,7 +91,7 @@ class TestWriteAttributesToMdArray:
         Test scenario:
             A mixed dict of str, int, float should all be stored.
         """
-        ds, _, md_arr = _make_mem_md_array()
+        _, _, md_arr = _make_mem_md_array()
         write_attributes_to_md_array(
             md_arr,
             {
@@ -116,7 +116,7 @@ class TestWriteAttributesToMdArray:
             A list of numeric values should be written as a
             multi-element float64 attribute.
         """
-        ds, _, md_arr = _make_mem_md_array()
+        _, _, md_arr = _make_mem_md_array()
         write_attributes_to_md_array(md_arr, {"standard_parallel": [30.0, 60.0]})
         attrs = {a.GetName(): a.Read() for a in md_arr.GetAttributes()}
         assert (
@@ -131,7 +131,7 @@ class TestWriteAttributesToMdArray:
         Test scenario:
             An empty attrs dict should be a no-op.
         """
-        ds, _, md_arr = _make_mem_md_array()
+        _, _, md_arr = _make_mem_md_array()
         write_attributes_to_md_array(md_arr, {})
         attrs = list(md_arr.GetAttributes())
         assert len(attrs) == 0, f"Expected 0 attributes, got {len(attrs)}"
@@ -143,7 +143,7 @@ class TestWriteAttributesToMdArray:
             Non-standard types fall through to the else branch and
             are converted via str().
         """
-        ds, _, md_arr = _make_mem_md_array()
+        _, _, md_arr = _make_mem_md_array()
         write_attributes_to_md_array(md_arr, {"comment": None})
         attrs = {a.GetName(): a.Read() for a in md_arr.GetAttributes()}
         assert (

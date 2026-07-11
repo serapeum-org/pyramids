@@ -70,7 +70,7 @@ class TestMeshToGridNearest:
             Should produce a grid with expected dimensions.
         """
         mesh, data = grid_mesh
-        grid, geo = mesh_to_grid(mesh, data, "face", cell_size=0.5, method="nearest")
+        grid, _ = mesh_to_grid(mesh, data, "face", cell_size=0.5, method="nearest")
         assert grid.ndim == 2, f"Expected 2D array, got {grid.ndim}D"
         assert grid.shape == (4, 4), f"Expected shape (4, 4), got {grid.shape}"
 
@@ -124,7 +124,7 @@ class TestMeshToGridNearest:
             Custom bounds [0, 0, 1, 1] should produce a smaller grid.
         """
         mesh, data = grid_mesh
-        grid, geo = mesh_to_grid(
+        grid, _ = mesh_to_grid(
             mesh,
             data,
             "face",
@@ -175,7 +175,7 @@ class TestMeshToGridLinear:
             Should produce a grid without errors.
         """
         mesh, data = grid_mesh
-        grid, geo = mesh_to_grid(mesh, data, "face", cell_size=0.5, method="linear")
+        grid, _ = mesh_to_grid(mesh, data, "face", cell_size=0.5, method="linear")
         assert grid.ndim == 2, f"Expected 2D, got {grid.ndim}D"
         assert grid.shape == (4, 4), f"Expected (4, 4), got {grid.shape}"
 
@@ -274,5 +274,5 @@ class TestInterpolationEdgeCases:
             cell_size=10 on a [0,2]x[0,2] mesh should produce a 1x1 grid.
         """
         mesh, data = grid_mesh
-        grid, geo = mesh_to_grid(mesh, data, "face", cell_size=10.0)
+        grid, _ = mesh_to_grid(mesh, data, "face", cell_size=10.0)
         assert grid.shape == (1, 1), f"Expected (1, 1), got {grid.shape}"

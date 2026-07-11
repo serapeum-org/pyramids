@@ -301,7 +301,7 @@ class TestReadVariableWithWindow:
             because the caller explicitly controls start/count indices.
             The returned data should match raw MDArray ordering.
         """
-        full_no_flip = nc_3d._read_variable("temperature")
+        _ = nc_3d._read_variable("temperature")
         windowed = nc_3d._read_variable(
             "temperature",
             window=[(0, 1), (0, 6), (0, 8)],

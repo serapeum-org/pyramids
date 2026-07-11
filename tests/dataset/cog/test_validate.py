@@ -268,14 +268,14 @@ class TestFallbackValidate:
         dst = translate_to_cog(mem_dataset, p, {})
         dst.FlushCache()
         dst = None
-        errors, warnings, details = _fallback_validate(str(p))
+        errors, _, details = _fallback_validate(str(p))
         assert errors == []
         assert "blocksize" in details
 
     def test_on_stripped_gtiff(self, tmp_path):
         p = tmp_path / "plain.tif"
         _write_plain_stripped_gtiff(p, size=2048)
-        errors, warnings, details = _fallback_validate(str(p))
+        errors, _, _ = _fallback_validate(str(p))
         assert any("tiled" in e or "strip" in e for e in errors)
 
 
@@ -334,5 +334,5 @@ class TestValidateCoverageFill:
 
         # Force gdal.Open to return None
         monkeypatch.setattr(gdal_mod, "Open", lambda *a, **kw: None)
-        errors, warnings, details = _fallback_validate(str(p))
+        errors, _, _ = _fallback_validate(str(p))
         assert any("cannot open" in e for e in errors)

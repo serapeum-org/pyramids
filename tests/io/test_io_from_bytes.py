@@ -137,8 +137,8 @@ class TestBytesToGdal:
         Test scenario:
             Two ``bytes_to_gdal`` calls — expected: different backing paths.
         """
-        s1, p1 = bytes_to_gdal(geotiff_bytes)
-        s2, p2 = bytes_to_gdal(geotiff_bytes)
+        _, p1 = bytes_to_gdal(geotiff_bytes)
+        _, p2 = bytes_to_gdal(geotiff_bytes)
         try:
             assert p1 != p2, "two calls reused the same /vsimem/ path"
         finally:
@@ -221,7 +221,7 @@ class TestBytesToGdal:
             finalizer; ``Dataset.from_bytes`` does that), and an explicit
             ``silent_unlink`` removes it.
         """
-        src, vsi_path = bytes_to_gdal(geotiff_bytes)
+        _, vsi_path = bytes_to_gdal(geotiff_bytes)
         src = None
         gc.collect()
         assert (
