@@ -1510,18 +1510,18 @@ class DatasetCollection:
         Returns:
             DatasetCollection: A time-stacked cube over the point AOI.
         """
-        kwargs: dict[str, Any] = dict(
-            collection=collection,
-            bands=bands,
-            start_date=start_date,
-            end_date=end_date,
-            edge_size=edge_size,
-            resolution=resolution,
-            units=units,
-            query=query,
-            signer=signer,
-            align=align,
-        )
+        kwargs: dict[str, Any] = {
+            "collection": collection,
+            "bands": bands,
+            "start_date": start_date,
+            "end_date": end_date,
+            "edge_size": edge_size,
+            "resolution": resolution,
+            "units": units,
+            "query": query,
+            "signer": signer,
+            "align": align,
+        }
         if stac is not None:
             kwargs["stac"] = stac
         return _from_point(lat, lon, **kwargs)
