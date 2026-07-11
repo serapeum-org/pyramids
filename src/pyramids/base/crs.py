@@ -156,7 +156,7 @@ def create_sr_from_proj(
     srs = osr.SpatialReference()
     if string_type is None:
         srs.ImportFromWkt(prj)
-    elif prj.startswith("PROJCS") or prj.startswith("GEOGCS"):
+    elif prj.startswith(("PROJCS", "GEOGCS")):
         srs.ImportFromESRI([prj])
     else:
         srs.ImportFromProj4(prj)

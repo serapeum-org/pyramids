@@ -316,7 +316,7 @@ class TestClassicDimMetadataToMetadata:
         assert out["NETCDF_DIM_EXTRA"] == "{level0,time}"
         # Attribute keys are sorted per-name (axis before units)
         assert list(
-            k for k in out.keys() if k.endswith("#axis") or k.endswith("#units")
+            k for k in out.keys() if k.endswith(("#axis", "#units"))
         ) == [
             "level0#axis",
             "level0#units",

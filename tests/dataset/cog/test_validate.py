@@ -159,7 +159,7 @@ class TestValidate:
         vsi_calls = [
             p
             for p in path_exists_calls
-            if p.startswith("/vsi") or p.startswith("\\vsi")
+            if p.startswith(("/vsi", "\\vsi"))
         ]
         assert vsi_calls == [], (
             f"Path.exists must not be called on /vsi* paths; "
