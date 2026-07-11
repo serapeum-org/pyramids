@@ -1229,7 +1229,7 @@ class Spatial(_Engine["Dataset"]):
             # Cells that are out-of-domain in src but in-domain in mask
             # need to be interpolated from neighbors.
             if elem_mask > elem_src:
-                gap_rows, gap_cols = np.where(src_no_data & ~mask_no_data)
+                gap_rows, gap_cols = np.nonzero(src_no_data & ~mask_no_data)
                 src_array = Vectorize._nearest_neighbour(
                     src_array,
                     self._ds.no_data_value[0],
@@ -1614,8 +1614,8 @@ class Spatial(_Engine["Dataset"]):
         else:
             raise ValueError("Array must be 2D or 3D")
 
-        valid_rows = np.where(~rows_to_remove)[0]
-        valid_cols = np.where(~cols_to_remove)[0]
+        valid_rows = np.nonzero(~rows_to_remove)[0]
+        valid_cols = np.nonzero(~cols_to_remove)[0]
         if valid_rows.size == 0 or valid_cols.size == 0:
             raise ValueError(
                 "crop produced no valid pixels: the bbox / polygon does not "

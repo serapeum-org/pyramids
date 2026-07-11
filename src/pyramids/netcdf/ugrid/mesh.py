@@ -208,7 +208,7 @@ class Mesh2d:
 
             last_valid = fnc.nodes_per_element() - 1
             needs_fix = last_valid < fnc.max_nodes_per_element - 1
-            fix_rows = np.where(needs_fix)[0]
+            fix_rows = np.nonzero(needs_fix)[0]
             fix_cols = last_valid[fix_rows]
             cross[fix_rows, fix_cols] = (
                 x[fix_rows, fix_cols] * y[fix_rows, 0]
