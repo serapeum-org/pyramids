@@ -1686,6 +1686,22 @@ class NetCDF(Dataset):
             NotImplementedError: If `masked=True` is combined with
                 `chunks` (lazy masked reads are not supported yet).
 
+        Note:
+            Two limitations are specific to the lazy (`chunks`) path:
+
+            * **Open-handle lifetime.** A lazy read parks a live GDAL handle in the process-global
+              `pyramids.base._file_manager.FILE_CACHE` (via `CachingFileManager`) and keeps it open
+              for later chunk reads. `close()` on this object does not evict it — the handle lives in
+              the dask graph — so it is released only under LRU pressure or at interpreter exit.
+              Opening the *same file again in the same process* while a lazy handle is parked leaves
+              two live handles to one NetCDF, which can crash GDAL on Windows. Compute (or drop) the
+              lazy array before reopening the file.
+            * **Axis plane.** The lazy path normalizes the **trailing two** dimensions to north-up /
+              west-first, whereas the eager path resolves the plane via `x_dim` / `y_dim` /
+              CF detection. They agree for every variable whose spatial plane is trailing (the common
+              `(time, lev, lat, lon)` layout); a variable whose CF-resolved plane is *non-trailing*
+              is read against a different plane lazily than eagerly. Read such a variable eagerly.
+
         Examples:
             - Eager bbox read on a root container — the container
               auto-routes to the named variable. The noah fixture's
