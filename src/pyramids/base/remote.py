@@ -35,15 +35,22 @@ from osgeo import gdal
 
 logger = logging.getLogger(__name__)
 
+# GDAL cloud VSI prefixes, named once and reused across the maps and the
+# scheme/prefix logic below to avoid duplicating the literals (S1192).
+_VSICURL = "/vsicurl/"
+_VSIS3 = "/vsis3/"
+_VSIGS = "/vsigs/"
+_VSIAZ = "/vsiaz/"
+
 
 # Module-scope tuple of cloud VSI prefixes; referenced by _chain_archive_vsi
 # to decide whether a path is eligible for archive-chaining. Keep in sync
 # with URL_SCHEMES below.
 _CLOUD_VSI_PREFIXES: tuple[str, ...] = (
-    "/vsicurl/",
-    "/vsis3/",
-    "/vsigs/",
-    "/vsiaz/",
+    _VSICURL,
+    _VSIS3,
+    _VSIGS,
+    _VSIAZ,
 )
 
 # Map archive extensions to GDAL's matching VSI prefix. Ordered longest-
@@ -68,12 +75,12 @@ _ARCHIVE_MARKER_RE = re.compile(r"\.(tar\.gz|tgz|zip|tar|gz)(?=/)", re.IGNORECAS
 
 
 URL_SCHEMES: dict[str, str] = {
-    "s3": "/vsis3/",
-    "gs": "/vsigs/",
-    "az": "/vsiaz/",
-    "abfs": "/vsiaz/",
-    "http": "/vsicurl/",
-    "https": "/vsicurl/",
+    "s3": _VSIS3,
+    "gs": _VSIGS,
+    "az": _VSIAZ,
+    "abfs": _VSIAZ,
+    "http": _VSICURL,
+    "https": _VSICURL,
     "file": "",
 }
 """Map URL scheme to GDAL VSI prefix. Empty string means strip-and-use."""
@@ -84,10 +91,10 @@ _DODS_SCHEME = "dods"
 
 
 _VSI_PREFIXES: tuple[str, ...] = (
-    "/vsis3/",
-    "/vsigs/",
-    "/vsiaz/",
-    "/vsicurl/",
+    _VSIS3,
+    _VSIGS,
+    _VSIAZ,
+    _VSICURL,
     "/vsicurl_streaming/",
     "/vsimem/",
     "/vsizip/",
@@ -357,7 +364,7 @@ def _scheme_to_vsi(parsed: ParseResult, scheme: str, path: str) -> str:
         key = parsed.path.lstrip("/")
         return f"{URL_SCHEMES[scheme]}{bucket}/{key}"
     if scheme in {"http", "https"}:
-        return f"/vsicurl/{path}"
+        return f"{_VSICURL}{path}"
     if scheme == "file":
         local = parsed.path
         # Windows file URIs: file:///C:/path -> /C:/path -> C:/path
@@ -388,17 +395,17 @@ def _extract_archive_search_region(path: str) -> str | None:
         cloud VSI path eligible for archive chaining.
     """
     result: str | None
-    if path.startswith("/vsicurl/"):
-        url = path[len("/vsicurl/") :]
+    if path.startswith(_VSICURL):
+        url = path[len(_VSICURL) :]
         parsed = urlparse(url)
         # Only the path component — excludes scheme, hostname, and query.
         result = parsed.path if parsed.scheme in {"http", "https"} else url
-    elif path.startswith("/vsis3/"):
-        result = path[len("/vsis3/") :]
-    elif path.startswith("/vsigs/"):
-        result = path[len("/vsigs/") :]
-    elif path.startswith("/vsiaz/"):
-        result = path[len("/vsiaz/") :]
+    elif path.startswith(_VSIS3):
+        result = path[len(_VSIS3) :]
+    elif path.startswith(_VSIGS):
+        result = path[len(_VSIGS) :]
+    elif path.startswith(_VSIAZ):
+        result = path[len(_VSIAZ) :]
     else:
         result = None
     return result
