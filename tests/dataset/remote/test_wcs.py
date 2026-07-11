@@ -490,7 +490,7 @@ class TestGetCoverageUrl:
         assert "&CRS=EPSG:4326" in url
         assert "SUBSETTINGCRS" not in url
 
-    def test_extra_params_edo_dialect_builds_request_a(self):
+    def test_extra_params_edo_dialect_reproduces_shim_request(self):
         # Both quirks together must reproduce the exact request EDO/GDO answers 200:
         # lowercase coverageID + CRS= + WCS-2.0 SUBSET syntax, extras preserved.
         url = _wcs._getcoverage_url(
@@ -504,6 +504,25 @@ class TestGetCoverageUrl:
         assert "&CRS=EPSG:4326" in url and "SUBSETTINGCRS" not in url
         assert "SUBSET=Long(10.0,15.0)" in url and "SUBSET=Lat(45.0,48.0)" in url
         assert "TIME=2023-06-01" in url and "SELECTED_TIMESCALE=01" in url
+
+    def test_extra_params_conflicting_slot_raises(self):
+        # Two keys collapsing to one slot (CRS + SUBSETTINGCRS) is contradictory
+        # input and must fail loud rather than silently drop one.
+        with pytest.raises(ValueError, match="same GetCoverage parameter"):
+            _wcs._getcoverage_url(
+                "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "2.0.0",
+                None, None, None,
+                {"CRS": "EPSG:4326", "SUBSETTINGCRS": "EPSG:3857"},
+            )
+
+    def test_1_0_0_crs_override_replaces_not_duplicates(self):
+        # On a 1.0.0 request the built-in already emits CRS; an override must
+        # replace it in place, leaving exactly one CRS token.
+        url = _wcs._getcoverage_url(
+            "https://x", "c", "EPSG:4326", (0.0, 0.0, 1.0, 1.0), "1.0.0",
+            None, 0.1, None, {"CRS": "EPSG:3857"},
+        )
+        assert url.count("CRS=") == 1 and "CRS=EPSG:3857" in url
 
     def test_extra_params_non_matching_key_is_appended(self):
         url = _wcs._getcoverage_url(
@@ -695,7 +714,7 @@ class TestDirectGetCoverage:
         self, monkeypatch, geotiff_bytes, dialect, extra_params
     ):
         # A fake server that returns a raster only for its own KVP dialect (else an
-        # exception report -> WCSError). direct=True must retrieve a raster from
+        # exception-report body -> WCSError). direct=True must retrieve a raster from
         # each: the spec spellings with no override, and the EDO shim spellings via
         # extra_params. Proves the override reproduces the shim dialect without
         # regressing the compliant path.
@@ -713,7 +732,7 @@ class TestDirectGetCoverage:
 
 
 def _dialect_body(url: str, raster: bytes, dialect: str) -> bytes:
-    """Fake GetCoverage body: the raster iff ``url`` matches ``dialect``, else a 500.
+    """Fake GetCoverage body: the raster iff ``url`` matches ``dialect``, else an error.
 
     Models the two WCS KVP dialects a direct request can target — the spec-compliant
     ``COVERAGEID`` + ``SUBSETTINGCRS`` and the Copernicus EDO/GDO shim's lowercase
