@@ -219,7 +219,7 @@ class TestCreateFromArrayCFGlobalAttributes:
             The default behavior should always include the Conventions
             attribute on the root group.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         ga = nc.global_attributes
         assert (
@@ -235,7 +235,7 @@ class TestCreateFromArrayCFGlobalAttributes:
         Test scenario:
             Passing title should add it to the global attributes.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -253,7 +253,7 @@ class TestCreateFromArrayCFGlobalAttributes:
         Test scenario:
             Passing institution should add it to global attributes.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -271,7 +271,7 @@ class TestCreateFromArrayCFGlobalAttributes:
         Test scenario:
             Passing source should add it to global attributes.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -289,7 +289,7 @@ class TestCreateFromArrayCFGlobalAttributes:
         Test scenario:
             Passing history should add it to global attributes.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -308,7 +308,7 @@ class TestCreateFromArrayCFGlobalAttributes:
             Passing all four optional params should produce all
             four attributes plus Conventions.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -342,7 +342,7 @@ class TestCreateFromArrayCFGlobalAttributes:
             When title/institution/source/history are None (default),
             only Conventions should be present.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         ga = nc.global_attributes
         assert "Conventions" in ga, "Conventions must always be present"
@@ -366,7 +366,7 @@ class TestCreateFromArrayCFGlobalAttributes:
             3D arrays (with extra dimension) should also get CF
             global attributes.
         """
-        arr = np.random.RandomState(SEED).rand(3, 5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((3, 5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -388,7 +388,7 @@ class TestCreateFromArrayCFGlobalAttributes:
             parameters should produce a valid NetCDF with data
             preserved.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -414,7 +414,7 @@ class TestCFGlobalAttributesRoundTrip:
             Create in-memory, write to .nc, read back, check
             Conventions is still CF-1.8.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -438,7 +438,7 @@ class TestCFGlobalAttributesRoundTrip:
             Create with all four CF params, write to disk,
             read back, verify all are preserved.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -473,7 +473,7 @@ class TestCFGlobalAttributesRoundTrip:
             reopen the file, and verify Conventions and title are present
             in the on-disk representation.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         out_path = str(tmp_path / "direct_write.nc")
         nc = NetCDF.create_from_array(
             arr=arr,

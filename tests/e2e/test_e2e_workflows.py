@@ -107,7 +107,7 @@ class TestDatasetCollectionRoundTrip:
 
         base = _make_dataset(rows=rows, cols=cols, fill_value=1.0)
         md = DatasetCollection.create_cube(base, dataset_length=time_steps)
-        values = np.random.rand(time_steps, rows, cols).astype(np.float64)
+        values = np.random.default_rng().random((time_steps, rows, cols)).astype(np.float64)
         md.values = values
 
         tmp_dir = Path(tempfile.mkdtemp())
@@ -604,7 +604,7 @@ class TestDatasetCollectionProcessingPipeline:
 
         base = _make_dataset(rows=rows, cols=cols)
         md = DatasetCollection.create_cube(base, dataset_length=time_steps)
-        values = np.random.rand(time_steps, rows, cols)
+        values = np.random.default_rng().random((time_steps, rows, cols))
         md.values = values
 
         assert md.head(3).shape == (3, rows, cols), "head(3) shape mismatch"
@@ -752,8 +752,8 @@ class TestClusterE2E:
             EPSG:32636 (UTM), re-cluster, and verify a similar number of
             clusters exist (exact match not expected due to resampling).
         """
-        np.random.seed(77)
-        arr = np.random.choice([0.0, 5.0], size=(10, 10), p=[0.6, 0.4]).astype(
+        rng = np.random.default_rng(77)
+        arr = rng.choice([0.0, 5.0], size=(10, 10), p=[0.6, 0.4]).astype(
             np.float32
         )
         src = Dataset.create_from_array(

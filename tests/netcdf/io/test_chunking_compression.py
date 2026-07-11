@@ -33,7 +33,7 @@ class TestCompressionOnDisk:
             Create two files with identical random data, one compressed,
             one not. Compressed file should be significantly smaller.
         """
-        arr = np.random.RandomState(SEED).rand(5, 50, 50).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 50, 50)).astype(np.float64)
         compressed = str(tmp_path / "compressed.nc")
         uncompressed = str(tmp_path / "uncompressed.nc")
 
@@ -66,7 +66,7 @@ class TestCompressionOnDisk:
         Test scenario:
             DEFLATE level 1 vs level 9 on the same data.
         """
-        arr = np.random.RandomState(SEED).rand(5, 50, 50).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 50, 50)).astype(np.float64)
         low = str(tmp_path / "level1.nc")
         high = str(tmp_path / "level9.nc")
 
@@ -104,7 +104,7 @@ class TestChunkingOnDisk:
             Create with chunk_sizes=(1, 25, 25), re-open via GDAL
             MDIM API and verify GetBlockSize.
         """
-        arr = np.random.RandomState(SEED).rand(5, 50, 50).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 50, 50)).astype(np.float64)
         path = str(tmp_path / "chunked.nc")
         NetCDF.create_from_array(
             arr=arr,
@@ -128,7 +128,7 @@ class TestChunkingOnDisk:
             Create with both chunk_sizes and compression, verify file
             is smaller and block sizes are correct.
         """
-        arr = np.random.RandomState(SEED).rand(5, 50, 50).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 50, 50)).astype(np.float64)
         path = str(tmp_path / "chunk_compress.nc")
         NetCDF.create_from_array(
             arr=arr,
@@ -160,7 +160,7 @@ class TestRoundTripDataIntegrity:
         Test scenario:
             Create compressed, reload, compare arrays element-wise.
         """
-        arr = np.random.RandomState(SEED).rand(50, 50).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((50, 50)).astype(np.float64)
         path = str(tmp_path / "rt_2d.nc")
         NetCDF.create_from_array(
             arr=arr,
@@ -184,7 +184,7 @@ class TestRoundTripDataIntegrity:
         Test scenario:
             Create with time dimension + compression, reload, compare.
         """
-        arr = np.random.RandomState(SEED).rand(5, 30, 40).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 30, 40)).astype(np.float64)
         path = str(tmp_path / "rt_3d.nc")
         NetCDF.create_from_array(
             arr=arr,
@@ -212,7 +212,7 @@ class TestRoundTripDataIntegrity:
         Test scenario:
             Create with no_data_value=-9999, reload, check nodata.
         """
-        arr = np.random.RandomState(SEED).rand(10, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((10, 10)).astype(np.float64)
         path = str(tmp_path / "rt_ndv.nc")
         NetCDF.create_from_array(
             arr=arr,
@@ -241,7 +241,7 @@ class TestInMemoryIgnoresOptions:
         Test scenario:
             In-memory creation ignores chunking options silently.
         """
-        arr = np.random.RandomState(SEED).rand(3, 10, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((3, 10, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -283,7 +283,7 @@ class TestBoundaryChunkSizes:
         Test scenario:
             chunk_sizes=(5, 50, 50) for a (5, 50, 50) array.
         """
-        arr = np.random.RandomState(SEED).rand(5, 50, 50).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 50, 50)).astype(np.float64)
         path = str(tmp_path / "single_chunk.nc")
         NetCDF.create_from_array(
             arr=arr,
@@ -306,7 +306,7 @@ class TestBoundaryChunkSizes:
         Test scenario:
             chunk_sizes=(25, 25) for a (50, 50) 2D array.
         """
-        arr = np.random.RandomState(SEED).rand(50, 50).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((50, 50)).astype(np.float64)
         path = str(tmp_path / "chunk_2d.nc")
         NetCDF.create_from_array(
             arr=arr,
@@ -335,7 +335,7 @@ class TestChunkingViaMetadataAPI:
         """
         from pyramids.netcdf.metadata import get_metadata
 
-        arr = np.random.RandomState(SEED).rand(5, 60, 80).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 60, 80)).astype(np.float64)
         path = str(tmp_path / "chunked_meta.nc")
         NetCDF.create_from_array(
             arr=arr,
@@ -365,7 +365,7 @@ class TestChunkingViaMetadataAPI:
         """
         from pyramids.netcdf.metadata import get_metadata
 
-        arr = np.random.RandomState(SEED).rand(40, 60).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((40, 60)).astype(np.float64)
         path = str(tmp_path / "2d_chunked_meta.nc")
         NetCDF.create_from_array(
             arr=arr,
@@ -390,7 +390,7 @@ class TestChunkingViaMetadataAPI:
         """
         from pyramids.netcdf.metadata import get_metadata
 
-        arr = np.random.RandomState(SEED).rand(3, 25, 25).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((3, 25, 25)).astype(np.float64)
         path = str(tmp_path / "no_chunk_meta.nc")
         NetCDF.create_from_array(
             arr=arr,
@@ -416,7 +416,7 @@ class TestChunkingViaMetadataAPI:
         """
         from pyramids.netcdf.metadata import get_metadata
 
-        arr = np.random.RandomState(SEED).rand(4, 80, 100).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((4, 80, 100)).astype(np.float64)
         path = str(tmp_path / "chunk_compress_meta.nc")
         NetCDF.create_from_array(
             arr=arr,
@@ -448,7 +448,7 @@ class TestChunkingViaMetadataAPI:
         """
         from pyramids.netcdf.metadata import get_metadata
 
-        arr = np.random.RandomState(SEED).rand(3, 45, 55).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((3, 45, 55)).astype(np.float64)
         path = str(tmp_path / "read_chunk.nc")
         NetCDF.create_from_array(
             arr=arr,
@@ -576,7 +576,7 @@ class TestCompressionOnly:
             Only set compression, let GDAL choose chunk sizes.
             Verify the file is created and data is readable.
         """
-        arr = np.random.RandomState(SEED).rand(20, 30).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((20, 30)).astype(np.float64)
         path = str(tmp_path / "compress_no_chunk.nc")
         NetCDF.create_from_array(
             arr=arr,

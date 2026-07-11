@@ -18,7 +18,7 @@ GEO = (0.0, 1.0, 0, 5.0, 0, -1.0)
 
 def _make_nc(var_name="temperature"):
     """Create an in-memory NetCDF with one 3D variable."""
-    arr = np.random.RandomState(SEED).rand(3, 5, 8).astype(np.float64)
+    arr = np.random.default_rng(SEED).random((3, 5, 8)).astype(np.float64)
     return NetCDF.create_from_array(
         arr=arr,
         geo=GEO,
@@ -33,7 +33,7 @@ def _make_multi_nc():
     from pyramids.dataset import Dataset
 
     nc = _make_nc("temp")
-    arr2 = np.random.RandomState(99).rand(3, 5, 8).astype(np.float64)
+    arr2 = np.random.default_rng(99).random((3, 5, 8)).astype(np.float64)
     ds2 = Dataset.create_from_array(
         arr2,
         geo=GEO,

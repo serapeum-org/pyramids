@@ -639,8 +639,8 @@ class TestCluster:
             Array has values 1-9; bounds [3, 7] should cluster only
             cells with values 3, 4, 5, 6, 7.
         """
-        np.random.seed(42)
-        arr = np.random.randint(1, 10, size=(6, 6)).astype(np.float64)
+        rng = np.random.default_rng(42)
+        arr = rng.integers(1, 10, size=(6, 6)).astype(np.float64)
         dataset = make_dataset(arr)
         _, _, position, values = dataset.cluster(3, 7)
 
@@ -734,8 +734,8 @@ class TestCluster:
             For each (position[i], values[i]) pair, the value should
             match the original array at that position.
         """
-        np.random.seed(99)
-        arr = np.random.uniform(1, 10, size=(4, 4)).astype(np.float64)
+        rng = np.random.default_rng(99)
+        arr = rng.uniform(1, 10, size=(4, 4)).astype(np.float64)
         dataset = make_dataset(arr)
         _, _, position, values = dataset.cluster(3, 7)
 

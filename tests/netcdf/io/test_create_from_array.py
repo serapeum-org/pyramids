@@ -29,7 +29,7 @@ class TestCreateFromArray2D:
             Create from a (10, 20) array, verify the variable name appears
             in ``variable_names``.
         """
-        arr = np.random.RandomState(SEED).rand(10, 20).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((10, 20)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -46,7 +46,7 @@ class TestCreateFromArray2D:
         Test scenario:
             Dimension names should be ``["x", "y"]`` (no extra dim).
         """
-        arr = np.random.RandomState(SEED).rand(8, 12).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((8, 12)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -64,7 +64,7 @@ class TestCreateFromArray2D:
         Test scenario:
             A single 2-D slice becomes 1 band in classic raster view.
         """
-        arr = np.random.RandomState(SEED).rand(10, 20).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((10, 20)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -80,7 +80,7 @@ class TestCreateFromArray2D:
         Test scenario:
             Read the variable back and compare to the original array.
         """
-        arr = np.random.RandomState(SEED).rand(6, 8).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((6, 8)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -103,7 +103,7 @@ class TestCreateFromArray2D:
             Pass ``no_data_value=-999`` and verify it on the extracted
             variable.
         """
-        arr = np.random.RandomState(SEED).rand(5, 5).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 5)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -125,7 +125,7 @@ class TestCreateFromArray2D:
         Test scenario:
             Create with ``epsg=32637`` and verify.
         """
-        arr = np.random.RandomState(SEED).rand(5, 5).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 5)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -146,7 +146,7 @@ class TestCreateFromArray3D:
         Test scenario:
             Create with ``extra_dim_name="time"`` and verify.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10, 20).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10, 20)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -164,7 +164,7 @@ class TestCreateFromArray3D:
         Test scenario:
             Use ``extra_dim_name="depth"`` and verify it appears.
         """
-        arr = np.random.RandomState(SEED).rand(4, 6, 8).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((4, 6, 8)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -183,7 +183,7 @@ class TestCreateFromArray3D:
             Pass ``extra_dim_values=[100, 200, 300]`` and read them
             back from the root group.
         """
-        arr = np.random.RandomState(SEED).rand(3, 5, 5).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((3, 5, 5)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -208,7 +208,7 @@ class TestCreateFromArray3D:
             Omit ``extra_dim_values`` for a 4-slice array and verify
             the stored coordinates.
         """
-        arr = np.random.RandomState(SEED).rand(4, 5, 5).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((4, 5, 5)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -227,7 +227,7 @@ class TestCreateFromArray3D:
         Test scenario:
             A (5, 10, 20) array -> variable with 5 bands.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10, 20).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10, 20)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -243,7 +243,7 @@ class TestCreateFromArray3D:
         Test scenario:
             Create 3-D -> extract variable -> read all bands -> compare.
         """
-        arr = np.random.RandomState(SEED).rand(3, 8, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((3, 8, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -270,7 +270,7 @@ class TestCreateFromArrayGeoParams:
             Pass ``geo=(30, 0.5, 0, 35, 0, -0.5)`` and verify on the
             extracted variable.
         """
-        arr = np.random.RandomState(SEED).rand(10, 20).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((10, 20)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -289,7 +289,7 @@ class TestCreateFromArrayGeoParams:
             Omit ``geo``, provide ``top_left_corner=(30, 35)`` and
             ``cell_size=0.5``. Verify the resulting geotransform.
         """
-        arr = np.random.RandomState(SEED).rand(10, 20).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((10, 20)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             top_left_corner=(30.0, 35.0),
@@ -308,7 +308,7 @@ class TestCreateFromArrayGeoParams:
         Test scenario:
             Call without any spatial reference -> ``ValueError``.
         """
-        arr = np.random.RandomState(SEED).rand(5, 5).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 5)).astype(np.float64)
         with pytest.raises(ValueError, match="top_left_corner"):
             NetCDF.create_from_array(
                 arr=arr,
@@ -326,7 +326,7 @@ class TestCreateFromArrayValidation:
         Test scenario:
             Pass 2 values for a 3-slice array -> ``ValueError``.
         """
-        arr = np.random.RandomState(SEED).rand(3, 5, 5).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((3, 5, 5)).astype(np.float64)
         with pytest.raises(ValueError, match="values length.*does not match size"):
             NetCDF.create_from_array(
                 arr=arr,
@@ -343,7 +343,7 @@ class TestCreateFromArrayValidation:
         Test scenario:
             Pass ``extra_dim_name=""`` for a 3-D array -> ``ValueError``.
         """
-        arr = np.random.RandomState(SEED).rand(3, 5, 5).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((3, 5, 5)).astype(np.float64)
         with pytest.raises(ValueError, match="name cannot be empty"):
             NetCDF.create_from_array(
                 arr=arr,
@@ -359,7 +359,7 @@ class TestCreateFromArrayValidation:
         Test scenario:
             Pass 3 values for a 3-slice array -> no error.
         """
-        arr = np.random.RandomState(SEED).rand(3, 5, 5).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((3, 5, 5)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -382,7 +382,7 @@ class TestCreateFromArrayDefaults:
         Test scenario:
             Omit ``variable_name`` and verify.
         """
-        arr = np.random.RandomState(SEED).rand(5, 5).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 5)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -396,7 +396,7 @@ class TestCreateFromArrayDefaults:
         Test scenario:
             Create a 3-D array without specifying ``extra_dim_name``.
         """
-        arr = np.random.RandomState(SEED).rand(3, 5, 5).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((3, 5, 5)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -411,7 +411,7 @@ class TestCreateFromArrayDefaults:
         Test scenario:
             Omit ``epsg`` and verify on the extracted variable.
         """
-        arr = np.random.RandomState(SEED).rand(5, 5).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 5)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -432,7 +432,7 @@ class TestCreateFromArrayDiskRoundTrip:
             Create, save to .nc, reload, compare variable names and
             array values.
         """
-        arr = np.random.RandomState(SEED).rand(8, 12).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((8, 12)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -460,7 +460,7 @@ class TestCreateFromArrayDiskRoundTrip:
             Create with ``extra_dim_name="level"``, save, reload, verify
             the dimension name and all slices.
         """
-        arr = np.random.RandomState(SEED).rand(4, 6, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((4, 6, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -491,7 +491,7 @@ class TestCreateFromArrayDiskRoundTrip:
             Create with ``extra_dim_values=[100, 200, 300]``, save, reload,
             read the dimension's indexing variable.
         """
-        arr = np.random.RandomState(SEED).rand(3, 5, 5).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((3, 5, 5)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -560,7 +560,7 @@ class TestCreateFromArraySetVariableRoundTrip:
             Create 3-D NetCDF, extract variable, multiply by 2, write
             back as a new variable, verify stored values.
         """
-        arr = np.random.RandomState(SEED).rand(3, 6, 8).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((3, 6, 8)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -599,7 +599,7 @@ class TestCreateFromArraySetVariableRoundTrip:
             The complete end-to-end workflow saving to disk and
             reloading the modified variable.
         """
-        arr = np.random.RandomState(SEED).rand(2, 10, 15).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((2, 10, 15)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,

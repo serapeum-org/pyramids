@@ -135,7 +135,7 @@ class TestCFAttributePreservation:
             Create a NetCDF, get a variable (which tracks attrs via
             RT-7), crop it, set it back, verify attrs are preserved.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -153,7 +153,7 @@ class TestCFAttributePreservation:
         Test scenario:
             Create, copy, check Conventions on copy.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         nc2 = nc.copy()
         ga = nc2.global_attributes

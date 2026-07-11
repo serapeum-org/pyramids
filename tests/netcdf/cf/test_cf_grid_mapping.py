@@ -93,7 +93,7 @@ class TestGridMappingInCreateFromArray:
             create_from_array with no path creates MEM dataset
             which should contain a spatial_ref grid_mapping variable.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         rg = nc._raster.GetRootGroup()
         gm_arr = rg.OpenMDArray("spatial_ref")
@@ -113,7 +113,7 @@ class TestGridMappingInCreateFromArray:
         Test scenario:
             The data variable should have grid_mapping="spatial_ref".
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         attrs = self._read_var_attrs(nc, "temp")
         assert (
@@ -127,7 +127,7 @@ class TestGridMappingInCreateFromArray:
             EPSG:32637 should create a grid_mapping with
             grid_mapping_name=transverse_mercator.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr, geo=GEO_UTM, epsg=32637, variable_name="temp"
         )
@@ -143,7 +143,7 @@ class TestGridMappingInCreateFromArray:
             The grid_mapping variable is scalar and should be filtered
             out of get_variable_names().
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         assert (
             "spatial_ref" not in nc.variable_names
@@ -156,7 +156,7 @@ class TestGridMappingInCreateFromArray:
             Create in-memory, write to .nc, read back, verify
             CRS is preserved.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         out_path = str(tmp_path / "gm_round_trip.nc")
         nc.to_file(out_path)

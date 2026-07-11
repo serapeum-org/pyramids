@@ -400,7 +400,7 @@ class TestCFInfoOnMetadata:
 
     def test_meta_data_has_cf(self):
         """NetCDFMetadata.cf is not None after reading."""
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         md = nc.meta_data
         assert md.cf is not None, "cf should be populated"
@@ -408,7 +408,7 @@ class TestCFInfoOnMetadata:
 
     def test_cf_classifications(self):
         """CFInfo.classifications contains correct roles."""
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         md = nc.meta_data
         assert (
@@ -417,7 +417,7 @@ class TestCFInfoOnMetadata:
 
     def test_cf_conventions_parsed(self):
         """CFInfo.conventions contains parsed Conventions attribute."""
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         md = nc.meta_data
         assert (
