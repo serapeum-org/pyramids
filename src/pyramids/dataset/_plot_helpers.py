@@ -490,7 +490,9 @@ def render_array(
     # ``title`` arg is not ``None``, so a constructor-set title survives and
     # routing it to the constructor (via ``option_keys()``) is correct.
     RENDER_ONLY_OVERRIDES = {"kind"}
-    ctor_option_keys = ArrayGlyph.option_keys()
+    # Reuse the option set resolved for the style/hillshade guard above — it is
+    # cleopatra's declared constructor options and does not change within a call.
+    ctor_option_keys = option_keys
     ctor_kwargs: dict[str, Any] = {}
     render_kwargs: dict[str, Any] = {}
     for key, value in kwargs.items():
