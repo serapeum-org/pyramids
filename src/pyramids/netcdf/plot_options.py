@@ -143,8 +143,8 @@ class ColorOpts:
             result. Defaults to True.
         cbar_kwargs: Extra dict forwarded to :meth:`Figure.colorbar`.
             Defaults to None.
-        style: Name of a cleopatra data-style preset (from
-            ``cleopatra.styles.DATA_STYLES`` — e.g. ``"flow_accumulation"``,
+        style: Name of a cleopatra data-style preset (a key of
+            ``cleopatra.array_glyph.DATA_STYLES`` — e.g. ``"flow_accumulation"``,
             ``"topography"``) to colour the variable by. Forwarded to
             :class:`~cleopatra.array_glyph.ArrayGlyph`; requires
             cleopatra >= 0.24. Defaults to None (no preset).
