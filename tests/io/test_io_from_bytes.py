@@ -224,7 +224,10 @@ class TestBytesToGdal:
             finalizer; ``Dataset.from_bytes`` does that), and an explicit
             ``silent_unlink`` removes it.
         """
-        _, vsi_path = bytes_to_gdal(geotiff_bytes)
+        # Hold then drop the dataset reference so the GC below can reclaim it;
+        # the test proves the /vsimem/ file survives that (no finalizer). The
+        # handle is used for its resource lifetime (S1481 false positive).
+        src, vsi_path = bytes_to_gdal(geotiff_bytes)
         src = None
         gc.collect()
         assert (
