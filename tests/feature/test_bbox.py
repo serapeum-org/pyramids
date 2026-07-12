@@ -411,7 +411,7 @@ class TestEstimatePixelDims:
         Test scenario:
             The Europe/1 km and 1 deg/100 m cases from the issue, plus a west>east antimeridian span.
         """
-        result = estimate_pixel_dims(west, south, east, north, scale_m)
+        result = estimate_pixel_dims((west, south, east, north), scale_m)
         assert result == expected, f"Expected {expected}, got {result}"
 
     def test_minimum_one_pixel(self):
@@ -420,7 +420,7 @@ class TestEstimatePixelDims:
         Test scenario:
             A point bbox at a coarse resolution floors to (1, 1) rather than (0, 0).
         """
-        result = estimate_pixel_dims(0.0, 0.0, 0.0, 0.0, 1000.0)
+        result = estimate_pixel_dims((0.0, 0.0, 0.0, 0.0), 1000.0)
         assert result == (1, 1), f"Expected (1, 1), got {result}"
 
     def test_non_positive_scale_raises(self):
@@ -430,7 +430,7 @@ class TestEstimatePixelDims:
             scale_m == 0 is rejected with a message naming scale_m.
         """
         with pytest.raises(ValueError, match="scale_m must be positive"):
-            estimate_pixel_dims(0.0, 0.0, 1.0, 1.0, 0.0)
+            estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), 0.0)
 
     def test_inverted_latitude_raises(self):
         """An inverted latitude range (north < south) raises ValueError.
@@ -439,7 +439,7 @@ class TestEstimatePixelDims:
             north < south is a genuine error (unlike west > east, which is a valid antimeridian crossing).
         """
         with pytest.raises(ValueError, match="north .* must be >= south"):
-            estimate_pixel_dims(0.0, 60.0, 1.0, 35.0, 1000.0)
+            estimate_pixel_dims((0.0, 60.0, 1.0, 35.0), 1000.0)
 
 
 class TestReadBboxDict:

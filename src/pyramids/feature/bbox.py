@@ -230,7 +230,7 @@ def to_shapely(bbox: Bbox) -> Polygon:
     return box(west, south, east, north)
 
 
-def estimate_pixel_dims(west: float, south: float, east: float, north: float, scale_m: float) -> tuple[int, int]:
+def estimate_pixel_dims(bbox: Bbox, scale_m: float) -> tuple[int, int]:
     """Estimate the `(width, height)` in pixels of a WGS84 bbox at a target ground resolution.
 
     This is a deliberate **equatorial** approximation: it converts the bbox's degree span to pixels using the
@@ -243,10 +243,8 @@ def estimate_pixel_dims(west: float, south: float, east: float, north: float, sc
     span is measured the short way across the 180 deg meridian.
 
     Args:
-        west: Western longitude in degrees.
-        south: Southern latitude in degrees.
-        east: Eastern longitude in degrees (may be `< west` for an antimeridian-crossing bbox).
-        north: Northern latitude in degrees.
+        bbox: A `(west, south, east, north)` bounding box in degrees; `east < west` denotes an
+            antimeridian-crossing bbox.
         scale_m: Target ground resolution in metres per pixel; must be positive.
 
     Returns:
@@ -258,25 +256,25 @@ def estimate_pixel_dims(west: float, south: float, east: float, north: float, sc
     Examples:
         - A ~1 km grid over Europe:
             ```python
-            >>> estimate_pixel_dims(-10.0, 35.0, 30.0, 60.0, 1000.0)
+            >>> estimate_pixel_dims((-10.0, 35.0, 30.0, 60.0), 1000.0)
             (4453, 2783)
 
             ```
         - A 1 deg square at 100 m:
             ```python
-            >>> estimate_pixel_dims(0.0, 0.0, 1.0, 1.0, 100.0)
+            >>> estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), 100.0)
             (1114, 1114)
 
             ```
         - An antimeridian-crossing bbox (`west > east`) spans the short way across 180 deg:
             ```python
-            >>> estimate_pixel_dims(175.0, -22.0, -175.0, -12.0, 1000.0)
+            >>> estimate_pixel_dims((175.0, -22.0, -175.0, -12.0), 1000.0)
             (1114, 1114)
 
             ```
         - A non-positive resolution is rejected:
             ```python
-            >>> estimate_pixel_dims(0.0, 0.0, 1.0, 1.0, 0.0)
+            >>> estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), 0.0)
             Traceback (most recent call last):
                 ...
             ValueError: estimate_pixel_dims: scale_m must be positive, got 0.0
@@ -285,7 +283,9 @@ def estimate_pixel_dims(west: float, south: float, east: float, north: float, sc
 
     See Also:
         transform: Reproject a bbox to a metric CRS for latitude-accurate dimensions.
+        read_bbox_dict: Build a `(west, south, east, north)` tuple from a dict of edge keys to pass here.
     """
+    west, south, east, north = bbox
     if scale_m <= 0:
         raise ValueError(f"estimate_pixel_dims: scale_m must be positive, got {scale_m}")
     if north < south:
