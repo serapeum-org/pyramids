@@ -1578,7 +1578,7 @@ class NetCDF(Dataset):
 
               ```python
               >>> cleo = nc.plot(  # doctest: +SKIP
-              ...     variable="t2m", chunks={"x": 5, "y": 5},
+              ...     variable="t2m", chunks={"rows": 5, "cols": 5},
               ... )
 
               ```
