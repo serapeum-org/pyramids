@@ -784,18 +784,6 @@ class Vectorize(_Engine["Dataset"]):
         return array
 
     @staticmethod
-    def _is_cluster_candidate(
-        array, ni, nj, rows, cols, lower_bound, upper_bound, cluster
-    ) -> bool:
-        """True if (ni, nj) is in-bounds, unvisited, and within [lower_bound, upper_bound]."""
-        return (
-            0 <= ni < rows
-            and 0 <= nj < cols
-            and cluster[ni, nj] == 0
-            and lower_bound <= array[ni, nj] <= upper_bound
-        )
-
-    @staticmethod
     def _group_neighbours(
         array, i, j, lower_bound, upper_bound, position, values, count, cluster
     ) -> None:
@@ -821,8 +809,11 @@ class Vectorize(_Engine["Dataset"]):
             ci, cj = queue.popleft()
             for di, dj in offsets:
                 ni, nj = ci + di, cj + dj
-                if Vectorize._is_cluster_candidate(
-                    array, ni, nj, rows, cols, lower_bound, upper_bound, cluster
+                if (
+                    0 <= ni < rows
+                    and 0 <= nj < cols
+                    and cluster[ni, nj] == 0
+                    and lower_bound <= array[ni, nj] <= upper_bound
                 ):
                     cluster[ni, nj] = count
                     position.append([ni, nj])
