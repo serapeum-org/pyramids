@@ -1691,13 +1691,20 @@ class NetCDF(Dataset):
 
             * **Open-handle lifetime.** A lazy read parks a live GDAL handle in the process-global
               `pyramids.base._file_manager.FILE_CACHE` (via `CachingFileManager`) so later chunk reads
-              can reuse it. The handle is released when the returned lazy array is dropped or garbage
-              collected — a finalizer evicts its `FILE_CACHE` slot and closes it — and also under LRU
-              pressure or at interpreter exit. `close()` on this `NetCDF` object does not evict it: the
-              handle's lifetime is tied to the lazy array, not to this object. Opening the *same file
-              again in the same process* while a handle is still parked leaves two live handles to one
-              NetCDF, which can crash GDAL on Windows, so **drop (or compute and then drop) the lazy
-              array before reopening the file** (#727).
+              can reuse it. The handle is released when the lazy read's result — **and every array
+              derived from it** (`unpack=True`, an `open_mfdataset` stack, a `plot(chunks=)`, a slice
+              or dask-arithmetic result) — is dropped or garbage-collected: a `weakref.finalize` on the
+              manager (kept alive by the chunk readers in the dask graph, not by the returned wrapper)
+              evicts its `FILE_CACHE` slot and closes it. It is also released under LRU pressure or at
+              interpreter exit. `close()` on this `NetCDF` object does not evict it: the handle's
+              lifetime follows the lazy data, not this object (#727).
+
+              A live lazy array's handle *must* stay open to serve its future chunk reads, so opening
+              the **same file again in the same process while a lazy array from it is still alive**
+              leaves two live GDAL handles to one NetCDF, which can crash GDAL on Windows. A finalizer
+              cannot cover that ordering — so **drop (or compute and then drop) the lazy array before
+              reopening the file.** (Fully closing this held-alive-then-reopen case would require a
+              process-global shared-handle registry; it is a known GDAL-on-Windows limitation.)
             * **Axis plane.** The lazy path normalizes the **trailing two** dimensions to north-up /
               west-first, whereas the eager path resolves the plane via `x_dim` / `y_dim` /
               CF detection. They agree for every variable whose spatial plane is trailing (the common

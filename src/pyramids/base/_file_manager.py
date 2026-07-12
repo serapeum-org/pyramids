@@ -31,6 +31,7 @@ import logging
 import os
 import threading
 import uuid
+import weakref
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from contextlib import contextmanager
@@ -204,6 +205,10 @@ class _LRUCache(MutableMapping):
         self._maxsize = maxsize
         self._on_evict = on_evict
         self._lock = threading.RLock()
+        # Number of live managers interested in each key. The handle is closed only when the last
+        # manager for a key is finalized, so a manager whose array is dropped never evicts a handle
+        # another manager (sharing the same `manager_id`) is still reading through.
+        self._refcounts: dict[Hashable, int] = {}
 
     @property
     def maxsize(self) -> int:
@@ -274,9 +279,32 @@ class _LRUCache(MutableMapping):
         with self._lock:
             items = list(self._cache.items())
             self._cache.clear()
+            self._refcounts.clear()
         if self._on_evict is not None:
             for key, value in items:
                 self._on_evict(key, value)
+
+    def retain(self, key: Hashable) -> None:
+        """Register one live referent for `key` (see :attr:`_refcounts`)."""
+        with self._lock:
+            self._refcounts[key] = self._refcounts.get(key, 0) + 1
+
+    def release(self, key: Hashable) -> None:
+        """Drop one referent for `key`; evict and close the handle when the last one is gone.
+
+        Safe to call from a :class:`weakref.finalize` callback on any thread: it holds no reference
+        to the releasing manager, and closes the handle outside the cache lock (like `on_evict`).
+        """
+        handle = None
+        with self._lock:
+            remaining = self._refcounts.get(key, 0) - 1
+            if remaining > 0:
+                self._refcounts[key] = remaining
+                return
+            self._refcounts.pop(key, None)
+            handle = self._cache.pop(key, None)
+        if handle is not None and self._on_evict is not None:
+            self._on_evict(key, handle)
 
 
 def _close_handle(_key: Hashable | None, handle: Any) -> None:
@@ -433,6 +461,7 @@ class CachingFileManager(FileManager):
         lock: Any = None,
         cache: _LRUCache | None = None,
         manager_id: Hashable | None = None,
+        auto_release: bool = False,
     ) -> None:
         self._opener = opener
         self._path = path
@@ -447,9 +476,20 @@ class CachingFileManager(FileManager):
             self._lock = lock
         self._cache = cache if cache is not None else FILE_CACHE
         self._manager_id = manager_id if manager_id is not None else str(uuid.uuid4())
+        self._auto_release = auto_release
         self._key = _make_cache_key(
             opener, path, access, self._kwargs, self._manager_id
         )
+        if auto_release:
+            # Release the parked handle deterministically when this manager is garbage-collected --
+            # i.e. when the lazy array holding its chunk readers is dropped -- instead of relying on
+            # LRU pressure or interpreter exit (#727). Bound to the manager, not the returned array,
+            # so it still fires for derived arrays (unpack / mfdataset / plot) whose graph keeps only
+            # the readers -> manager alive. The callback holds no reference to `self`, so it cannot
+            # keep the manager alive; the refcount stops it evicting a slot another auto-release
+            # manager still shares. Managers without `auto_release` keep the pure LRU lifetime.
+            self._cache.retain(self._key)
+            weakref.finalize(self, self._cache.release, self._key)
 
     def __getstate__(self) -> tuple:
         lock = None if self._use_default_lock else self._lock
@@ -460,10 +500,14 @@ class CachingFileManager(FileManager):
             self._kwargs,
             lock,
             self._manager_id,
+            self._auto_release,
         )
 
     def __setstate__(self, state: tuple) -> None:
-        opener, path, access, kwargs, lock, manager_id = state
+        # Tolerate the pre-`auto_release` 6-tuple so a manager pickled by an older pyramids (or a
+        # differently-versioned dask worker) still unpickles, defaulting `auto_release` to False.
+        opener, path, access, kwargs, lock, manager_id, *rest = state
+        auto_release = rest[0] if rest else False
         self.__init__(
             opener,
             path,
@@ -471,6 +515,7 @@ class CachingFileManager(FileManager):
             kwargs,
             lock=lock,
             manager_id=manager_id,
+            auto_release=auto_release,
         )
 
     def acquire(self) -> Any:
