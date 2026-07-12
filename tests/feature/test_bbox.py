@@ -462,6 +462,34 @@ class TestEstimatePixelDims:
             true_width = math.ceil(ground_m / scale_m)
             assert est_width >= true_width, f"width {est_width} under-counts true {true_width} at lon_span={lon_span}"
 
+    @pytest.mark.parametrize(
+        "bbox, axis",
+        [
+            ((10.0, 0.0, 10.0, 1.0), 0),
+            ((0.0, 5.0, 1.0, 5.0), 1),
+        ],
+    )
+    def test_zero_span_axis_floors_to_one(self, bbox, axis):
+        """A collapsed longitude or latitude span still yields at least one pixel on that axis.
+
+        Args:
+            bbox: A bbox with one axis collapsed (west==east or north==south).
+            axis: Index of the collapsed axis (0=width, 1=height).
+
+        Test scenario:
+            A zero-width (west==east) or zero-height (north==south) bbox floors that axis to 1 px.
+        """
+        assert estimate_pixel_dims(bbox, 1000.0)[axis] == 1, f"collapsed axis {axis} should floor to 1"
+
+    def test_integer_scale_m_accepted(self):
+        """An integer scale_m produces the same result as the equivalent float.
+
+        Test scenario:
+            estimate_pixel_dims accepts an int resolution (1000) identically to 1000.0.
+        """
+        bbox = (-10.0, 35.0, 30.0, 60.0)
+        assert estimate_pixel_dims(bbox, 1000) == estimate_pixel_dims(bbox, 1000.0), "int scale_m must match float"
+
     @pytest.mark.parametrize("scale_m", [0.0, -1.0])
     def test_non_positive_scale_raises(self, scale_m):
         """A non-positive resolution raises ValueError.
