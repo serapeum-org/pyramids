@@ -619,21 +619,7 @@ class Analysis(_Engine["Dataset"]):
                 f"{on_out_of_bounds!r}."
             )
 
-        band_count = self._ds.band_count
-        if bands is None:
-            band_list = list(range(band_count))
-            squeeze = False
-        elif isinstance(bands, int):
-            band_list = [bands]
-            squeeze = True
-        else:
-            band_list = list(bands)
-            squeeze = False
-        for b in band_list:
-            if b < 0 or b >= band_count:
-                raise ValueError(
-                    f"band {b} is out of range for a {band_count}-band dataset."
-                )
+        band_list, squeeze = self._resolve_sample_bands(bands, self._ds.band_count)
 
         xy = self._points_to_xy(points)
         n_points = xy.shape[0]
@@ -658,6 +644,70 @@ class Analysis(_Engine["Dataset"]):
             out_of_bounds = np.zeros(n_points, dtype=bool)
 
         in_bounds_idx = np.flatnonzero(~out_of_bounds)
+        rows_out = self._read_point_samples(
+            band_list, col, row, in_bounds_idx, n_points
+        )
+
+        stacked = np.vstack(rows_out) if rows_out else np.empty((0, n_points))
+        result: np.ndarray = stacked[0] if squeeze else stacked
+        if masked:
+            mask = (
+                out_of_bounds
+                if squeeze
+                else np.broadcast_to(out_of_bounds, result.shape)
+            )
+            result = np.ma.masked_array(result, mask=np.array(mask))
+        return result
+
+    @staticmethod
+    def _resolve_sample_bands(
+        bands: int | list[int] | None, band_count: int
+    ) -> tuple[list[int], bool]:
+        """Resolve the band list and squeeze flag for :meth:`sample`.
+
+        Args:
+            bands: ``None`` (all bands), a single ``int``, or a list of indices.
+            band_count: Number of bands in the dataset.
+
+        Returns:
+            ``(band_list, squeeze)`` — the resolved zero-based band indices and
+            whether a single-``int`` request should collapse the leading axis.
+
+        Raises:
+            ValueError: A requested band is outside ``[0, band_count)``.
+        """
+        if bands is None:
+            band_list = list(range(band_count))
+            squeeze = False
+        elif isinstance(bands, int):
+            band_list = [bands]
+            squeeze = True
+        else:
+            band_list = list(bands)
+            squeeze = False
+        for b in band_list:
+            if b < 0 or b >= band_count:
+                raise ValueError(
+                    f"band {b} is out of range for a {band_count}-band dataset."
+                )
+        return band_list, squeeze
+
+    def _read_point_samples(
+        self,
+        band_list: list[int],
+        col: np.ndarray,
+        row: np.ndarray,
+        in_bounds_idx: np.ndarray,
+        n_points: int,
+    ) -> list[np.ndarray]:
+        """Read a 1x1 window per in-bounds point, for each band in ``band_list``.
+
+        Out-of-bounds points keep the fill value — the band's no-data value, or
+        ``NaN`` when it has none (which promotes an integer band to float).
+
+        Returns:
+            One ``(n_points,)`` array per band, in ``band_list`` order.
+        """
         rows_out: list[np.ndarray] = []
         for b in band_list:
             gdal_band = self._ds.raster.GetRasterBand(b + 1)
@@ -678,17 +728,7 @@ class Analysis(_Engine["Dataset"]):
                 window = gdal_band.ReadAsArray(int(col[i]), int(row[i]), 1, 1)
                 band_values[i] = window[0, 0]
             rows_out.append(band_values)
-
-        stacked = np.vstack(rows_out) if rows_out else np.empty((0, n_points))
-        result: np.ndarray = stacked[0] if squeeze else stacked
-        if masked:
-            mask = (
-                out_of_bounds
-                if squeeze
-                else np.broadcast_to(out_of_bounds, result.shape)
-            )
-            result = np.ma.masked_array(result, mask=np.array(mask))
-        return result
+        return rows_out
 
     def sieve(
         self,
@@ -1848,47 +1888,9 @@ class Analysis(_Engine["Dataset"]):
         injected_extent = kwargs.pop("_extent", None)
         chunks = kwargs.pop("_chunks", None)
         mode = "facet" if facet_kwargs else "plot"
-        if mode == "facet":
-            arr = facet_stack
-        elif chunks is not None:
-            # Lazy read path: build a dask array of the variable, then
-            # materialise only the requested slice via `.compute()`.
-            # `read_array(chunks=...)` is only meaningful on NetCDF —
-            # plain Dataset doesn't support `chunks`. The kwarg arrives
-            # here only because NetCDF.plot injected it, so the call is
-            # safe to issue.
-            lazy = self._ds.read_array(chunks=chunks)
-            if hasattr(lazy, "compute"):
-                if lazy.ndim > 2:
-                    # `read_array(chunks=...)` returns the variable's
-                    # native `(d0, d1, ..., rows, cols)` shape, whereas
-                    # the eager `read_array()` flattens the non-spatial
-                    # dims into a single bands axis. Match that flatten so
-                    # `band` indexes the same slice. The reshape stays
-                    # lazy — `read_array(chunks=...)` already chunks the
-                    # non-spatial dims at size 1, so it's a pure relabel —
-                    # and only the chosen band's chunks get computed.
-                    lazy = lazy.reshape(-1, *lazy.shape[-2:])
-                    arr = np.asarray(lazy[band].compute())
-                else:
-                    arr = np.asarray(lazy.compute())
-            else:
-                arr = lazy if band is None else lazy[band]
-        else:
-            # When ``rgb`` is supplied, cleopatra's ArrayGlyph needs the full
-            # multi-band ``(bands, rows, cols)`` array so it can pick the
-            # colour channels itself. In all other cases we render just the
-            # requested band as a 2-D array.
-            read_band = None if rgb is not None else band
-            if overview:
-                arr = self._ds.read_overview_array(
-                    band=read_band,
-                    overview_index=(
-                        overview_index if overview_index is not None else 0
-                    ),
-                )
-            else:
-                arr = self._ds.read_array(band=read_band)
+        arr = self._resolve_plot_array(
+            band, rgb, overview, overview_index, mode, facet_stack, chunks
+        )
         exclude_value = (
             [no_data_value[band], exclude_value]
             if exclude_value is not None
@@ -1921,6 +1923,61 @@ class Analysis(_Engine["Dataset"]):
             basemap_epsg=self._ds.epsg,
             **kwargs,
         )
+
+    def _resolve_plot_array(
+        self,
+        band: int,
+        rgb: list[int] | None,
+        overview: bool | None,
+        overview_index: int | None,
+        mode: str,
+        facet_stack: Any,
+        chunks: Any,
+    ) -> Any:
+        """Resolve the array to render for :meth:`plot`.
+
+        - ``mode="facet"``: use the caller-injected ``_facet_stack``.
+        - ``_chunks`` injected: lazy-read and materialise only the requested band
+          (see :meth:`_read_plot_lazy_array`).
+        - otherwise: eager-read the band — or the full ``(bands, rows, cols)``
+          array when ``rgb`` is set so cleopatra can pick the colour channels —
+          from an overview when ``overview`` is truthy.
+        """
+        if mode == "facet":
+            arr = facet_stack
+        elif chunks is not None:
+            arr = self._read_plot_lazy_array(band, chunks)
+        else:
+            read_band = None if rgb is not None else band
+            if overview:
+                arr = self._ds.read_overview_array(
+                    band=read_band,
+                    overview_index=(
+                        overview_index if overview_index is not None else 0
+                    ),
+                )
+            else:
+                arr = self._ds.read_array(band=read_band)
+        return arr
+
+    def _read_plot_lazy_array(self, band: int, chunks: Any) -> np.ndarray:
+        """Lazy-read path for :meth:`plot` (``_chunks`` injected by ``NetCDF.plot``).
+
+        Builds a dask array of the variable and materialises only the requested
+        slice. ``read_array(chunks=...)`` keeps the variable's native
+        ``(d0, ..., rows, cols)`` shape, so a >2-D result is reshaped to
+        ``(-1, rows, cols)`` to match the eager ``read_array`` band flattening
+        before ``band`` indexes it; only that band's chunks are computed.
+        """
+        lazy = self._ds.read_array(chunks=chunks)
+        if not hasattr(lazy, "compute"):
+            result = lazy if band is None else lazy[band]
+        elif lazy.ndim > 2:
+            lazy = lazy.reshape(-1, *lazy.shape[-2:])
+            result = np.asarray(lazy[band].compute())
+        else:
+            result = np.asarray(lazy.compute())
+        return result
 
     @staticmethod
     def _process_color_table(color_table: DataFrame) -> DataFrame:
