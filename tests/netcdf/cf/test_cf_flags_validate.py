@@ -74,6 +74,12 @@ class TestDecodeFlags:
         result = decode_flags(0)
         assert result == ["unknown"], f"Expected ['unknown'], got {result!r}"
 
+    def test_no_meanings_with_masks_and_values_returns_unknown(self):
+        """Missing flag_meanings with masks/values degrades to ['unknown'], not a crash."""
+        assert decode_flags(1, flag_values=[0, 1, 2]) == ["unknown"]
+        assert decode_flags(1, flag_values=[0, 1], flag_masks=[1, 2]) == ["unknown"]
+        assert decode_flags(1, flag_masks=[1, 2]) == ["unknown"]
+
 
 class TestValidateCF:
     """Tests for cf.validate_cf."""

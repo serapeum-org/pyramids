@@ -881,30 +881,32 @@ def decode_flags(
     """
     result: list[str] = ["unknown"]
 
-    # `flag_meanings is None` -> keep the ["unknown"] default (no-op).
-    if flag_masks is not None and flag_values is not None:
-        matched = [
-            flag_meanings[i]
-            for i in range(len(flag_meanings))
-            if i < len(flag_masks)
-            and i < len(flag_values)
-            and (value & flag_masks[i]) == flag_values[i]
-        ]
-        if matched:
-            result = matched
-    elif flag_masks is not None:
-        matched = [
-            flag_meanings[i]
-            for i in range(len(flag_meanings))
-            if i < len(flag_masks) and (value & flag_masks[i]) != 0
-        ]
-        if matched:
-            result = matched
-    elif flag_values is not None:
-        for i, fv in enumerate(flag_values):
-            if fv == value and i < len(flag_meanings):
-                result = [flag_meanings[i]]
-                break
+    # A None flag_meanings has no labels to resolve, so keep the ["unknown"]
+    # default; every branch below indexes flag_meanings.
+    if flag_meanings is not None:
+        if flag_masks is not None and flag_values is not None:
+            matched = [
+                flag_meanings[i]
+                for i in range(len(flag_meanings))
+                if i < len(flag_masks)
+                and i < len(flag_values)
+                and (value & flag_masks[i]) == flag_values[i]
+            ]
+            if matched:
+                result = matched
+        elif flag_masks is not None:
+            matched = [
+                flag_meanings[i]
+                for i in range(len(flag_meanings))
+                if i < len(flag_masks) and (value & flag_masks[i]) != 0
+            ]
+            if matched:
+                result = matched
+        elif flag_values is not None:
+            for i, fv in enumerate(flag_values):
+                if fv == value and i < len(flag_meanings):
+                    result = [flag_meanings[i]]
+                    break
 
     return result
 
