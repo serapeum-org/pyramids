@@ -2026,7 +2026,9 @@ class FeatureCollection(GeoDataFrame):
         # dask_geopandas is installed → assert pyarrow too, so the user gets the
         # pyramids-branded hint (not the upstream message). `[parquet]` pulls both.
         _require_pyarrow()
-        # wrap the lazy return inside the pyramids type system.
+        # Local import breaks the collection <-> _lazy_collection cycle
+        # (_lazy_collection imports FeatureCollection from this module); it wraps
+        # the lazy dask return inside the pyramids type system.
         from pyramids.feature._lazy_collection import LazyFeatureCollection
 
         dask_gdf = dask_geopandas.read_parquet(resolved, **dask_kwargs)
