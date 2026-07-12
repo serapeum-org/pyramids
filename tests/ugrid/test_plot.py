@@ -6,6 +6,8 @@ MeshGlyph and returns MeshGlyph instances (not raw Axes).
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 
@@ -13,6 +15,7 @@ mesh_glyph = pytest.importorskip(
     "cleopatra.mesh_glyph", reason="cleopatra not installed"
 )
 MeshGlyph = mesh_glyph.MeshGlyph
+from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.netcdf.ugrid.dataset import UgridDataset
 from pyramids.netcdf.ugrid.plot import plot_mesh_data, plot_mesh_outline
 
@@ -269,10 +272,25 @@ class TestMeshStyleHillshade:
         result = self._dataset("node").plot("depth", hillshade=True)
         assert isinstance(result, MeshGlyph)
 
+    def test_style_and_hillshade_reach_mesh_glyph_plot(self):
+        """The presets are actually applied to ``MeshGlyph.plot`` (not just returned).
+
+        Test scenario:
+            ``isinstance(result, MeshGlyph)`` alone would still pass if the preset
+            were silently dropped between ``mesh_render`` and the glyph. Spy on
+            ``MeshGlyph.plot`` and assert ``style`` / ``hillshade`` arrive in its
+            call kwargs, proving the full facade -> mesh_render -> plot_mesh_data
+            -> MeshGlyph.plot leg forwards them.
+        """
+        ds = self._dataset("face")
+        with patch.object(MeshGlyph, "plot") as mock_plot:
+            ds.plot("depth", style="flow_accumulation", hillshade=True)
+        kw = mock_plot.call_args.kwargs
+        assert kw.get("style") == "flow_accumulation"
+        assert kw.get("hillshade") is True
+
     def test_style_forwarded_to_mesh_render(self):
         """``UgridDataset.plot`` forwards ``style`` / ``hillshade`` to the helper."""
-        from unittest.mock import patch
-
         ds = self._dataset("face")
         with patch(
             "pyramids.netcdf.ugrid.dataset._mesh_render", return_value="sentinel"
@@ -284,10 +302,6 @@ class TestMeshStyleHillshade:
 
     def test_style_on_old_cleopatra_raises_upgrade_hint(self):
         """``style=`` on a MeshGlyph lacking preset support raises the >= 0.24 hint."""
-        from unittest.mock import patch
-
-        from pyramids.base._errors import OptionalPackageDoesNotExist
-
         ds = self._dataset("face")
         old_keys = MeshGlyph.option_keys() - {"style", "hillshade"}
         with patch.object(MeshGlyph, "option_keys", return_value=old_keys):
@@ -296,8 +310,6 @@ class TestMeshStyleHillshade:
 
     def test_falsy_hillshade_not_guarded_on_old_cleopatra(self):
         """``hillshade=False`` is dropped, so the mesh guard does not fire."""
-        from unittest.mock import patch
-
         ds = self._dataset("face")
         old_keys = MeshGlyph.option_keys() - {"style", "hillshade"}
         with patch.object(MeshGlyph, "option_keys", return_value=old_keys):
