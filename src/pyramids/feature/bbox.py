@@ -260,7 +260,8 @@ def estimate_pixel_dims(bbox: Bbox, scale_m: float) -> tuple[int, int]:
         A `(width_px, height_px)` tuple; each dimension is at least 1.
 
     Raises:
-        ValueError: If `scale_m <= 0`, or if `north < south` (an inverted latitude range).
+        ValueError: If `scale_m` is not positive (zero, negative, or NaN), or if `north < south` (an inverted
+            latitude range).
 
     Examples:
         - A ~1 km grid over Europe:
