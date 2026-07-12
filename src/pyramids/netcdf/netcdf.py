@@ -1607,6 +1607,7 @@ class NetCDF(Dataset):
         chunks: Any = None,
         lock: Any = None,
         masked: bool = False,
+        bbox_rounding: str = "cover",
     ) -> ArrayLike:
         """Read array from the dataset (eager by default, lazy with `chunks`).
 
@@ -1665,6 +1666,14 @@ class NetCDF(Dataset):
                 raw stored values before any `unpack` scaling, matching CF
                 `_FillValue` semantics; the scale/offset arithmetic
                 preserves the mask. Default is `False`.
+            bbox_rounding (keyword-only): How a ``bbox`` (or geometry
+                ``window``) is snapped to whole pixels — ``"cover"``
+                (default; floor/ceil so every overlapping pixel is kept)
+                or ``"nearest"`` (round each edge to the closest pixel
+                boundary, the tightest window). Forwarded verbatim to
+                :meth:`pyramids.dataset.Dataset.read_array`; ignored on the
+                lazy path and for pixel windows. Any other value raises
+                :class:`ValueError`.
 
         Returns:
             np.ndarray or dask.array.Array: The array data, eager
@@ -1742,6 +1751,7 @@ class NetCDF(Dataset):
                 chunks=chunks,
                 lock=lock,
                 masked=masked,
+                bbox_rounding=bbox_rounding,
             )
         if variable is not None and variable != self._source_var_name:
             raise ValueError(
@@ -1751,7 +1761,7 @@ class NetCDF(Dataset):
                 "instead."
             )
         if chunks is None:
-            result = self._read_array_eager(band, read_window, masked)
+            result = self._read_array_eager(band, read_window, masked, bbox_rounding)
         else:
             result = self._read_array_lazy(chunks, lock, masked)
         if unpack:
@@ -1799,12 +1809,21 @@ class NetCDF(Dataset):
         return FeatureCollection.from_bbox(bbox, epsg=crs)
 
     def _read_array_eager(
-        self, band: int | None, window: Any, masked: bool
+        self,
+        band: int | None,
+        window: Any,
+        masked: bool,
+        bbox_rounding: str = "cover",
     ) -> ArrayLike:
         """Eager (numpy) read through the Dataset mixin."""
         return cast(
             ArrayLike,
-            super().read_array(band=band, window=window, masked=masked),
+            super().read_array(
+                band=band,
+                window=window,
+                masked=masked,
+                bbox_rounding=bbox_rounding,
+            ),
         )
 
     def _read_array_lazy(self, chunks: Any, lock: Any, masked: bool) -> ArrayLike:
