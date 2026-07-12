@@ -410,9 +410,9 @@ def _build_srs_from_cf_params(
             float(inv_flat),
         )
 
-    if grid_mapping_name == "latitude_longitude":
-        pass
-    elif grid_mapping_name == "transverse_mercator":
+    # `latitude_longitude` is geographic and needs no projection parameters,
+    # so it is intentionally not handled below (falls through as a no-op).
+    if grid_mapping_name == "transverse_mercator":
         srs.SetTM(
             params.get("latitude_of_projection_origin", 0.0),
             params.get("longitude_of_central_meridian", 0.0),
@@ -881,9 +881,8 @@ def decode_flags(
     """
     result: list[str] = ["unknown"]
 
-    if flag_meanings is None:
-        pass
-    elif flag_masks is not None and flag_values is not None:
+    # `flag_meanings is None` -> keep the ["unknown"] default (no-op).
+    if flag_masks is not None and flag_values is not None:
         matched = [
             flag_meanings[i]
             for i in range(len(flag_meanings))
