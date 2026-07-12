@@ -28,6 +28,7 @@ from osgeo import osr
 
 from pyramids.base._artifacts import artifact_dir
 from pyramids.base._errors import StacAssetError
+from pyramids.utm import utm_epsg
 
 if TYPE_CHECKING:
     from pyramids.dataset.collection import DatasetCollection
@@ -646,6 +647,9 @@ _MAX_TEMPLATE_PIXELS = 250_000_000
 def _utm_epsg(lon: float, lat: float) -> int:
     """Return the EPSG code of the UTM zone containing `(lon, lat)`.
 
+    Thin private wrapper delegating to the public :func:`pyramids.utm.utm_epsg`, so
+    the STAC point-cube path and the public helper stay in lock-step.
+
     Args:
         lon: Longitude in degrees.
         lat: Latitude in degrees.
@@ -668,9 +672,7 @@ def _utm_epsg(lon: float, lat: float) -> int:
 
             ```
     """
-    zone = int((lon + 180.0) / 6.0) + 1
-    zone = min(max(zone, 1), 60)
-    return (32600 if lat >= 0 else 32700) + zone
+    return utm_epsg(lon, lat)
 
 
 def _point_aoi_bbox(
