@@ -37204,8 +37204,8 @@ packages:
   requires_python: '>=3.7'
 - pypi: ./
   name: pyramids-gis
-  version: 0.43.0
-  sha256: 2796c301500f97d89563351194125ae3eca83fcc828528e53579e9ca1b88f6b6
+  version: 0.44.0
+  sha256: a3a398714b476de1368f8acfbb006c9e723deb403ac3ecfe591bbea8cb8778ee
   requires_dist:
   - certifi ; platform_machine == 'ARM64' and sys_platform == 'win32'
   - packaging ; platform_machine == 'ARM64' and sys_platform == 'win32'
