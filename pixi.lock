@@ -112,7 +112,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/yaml-0.2.5-h280c20c_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zlib-1.3.2-h25fd6f3_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/zstd-1.5.7-hb78ec9c_6.conda
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/04/5f/9ff93450ba96b09c7c2b3f81c94de31c89f92292f1380261bd7195bea4ea/contourpy-1.3.3-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/36/e1/a8933a72c45a87177fbde2696e0d0755c8c9062f8c077a961c6215fa27b1/fonttools-4.63.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
@@ -230,7 +230,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/yaml-0.2.5-h80f16a2_3.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/zlib-1.3.2-hdc9db2a_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/zstd-1.5.7-h85ac4a6_6.conda
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b1/71/f93e1e9471d189f79d0ce2497007731c1e6bf9ef6d1d61b911430c3db4e5/contourpy-1.3.3-cp314-cp314-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/dd/87/64cfa18a7a1621d17b7f4502b2b0ed8a135a90c3db51ea590ee99043e76b/fonttools-4.63.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
@@ -342,7 +342,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/yaml-0.2.5-h4132b18_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/zlib-1.3.2-hbb4bfdb_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/zstd-1.5.7-h3eecb57_6.conda
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/72/8b/4546f3ab60f78c514ffb7d01a0bd743f90de36f0019d1be84d0a708a580a/contourpy-1.3.3-cp314-cp314-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/cd/58/7dfa0c761cb3b2964e2a84c4dc986c926a87de0cb9fb60d5b28ded3f2914/fonttools-4.63.0-cp314-cp314-macosx_10_15_x86_64.whl
@@ -454,7 +454,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/yaml-0.2.5-h925e9cb_3.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zlib-1.3.2-h8088a28_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.7-hbf9d68e_6.conda
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/fd/e1/3542a9cb596cadd76fcef413f19c79216e002623158befe6daa03dbfa88c/contourpy-1.3.3-cp314-cp314-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/27/d2/23d25e3f247b328be58d04a4c9f894178a0d1eda7d42867cfb388adaf416/fonttools-4.63.0-cp314-cp314-macosx_10_15_universal2.whl
@@ -563,7 +563,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/yaml-0.2.5-h6a83c73_3.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/zlib-1.3.2-hfd05255_2.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/zstd-1.5.7-h534d264_6.conda
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7d/c2/57f54b03d0f22d4044b8afb9ca0e184f8b1afd57b4f735c2fa70883dc601/contourpy-1.3.3-cp314-cp314-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c3/d4/98078064ccc76b45cb0f6c002452011e93c4bd26f6850344f0951cc1fe89/fonttools-4.63.0-cp314-cp314-win_amd64.whl
@@ -810,7 +810,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/cc/d7/97d3136f81db489ec8d1d67748c110d6c994268fd7528014aa9f2b085e4e/cffi-2.1.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -1176,7 +1176,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2e/d2/065fcae1c73979fac8e054462478d0ff8a29c40cdc2ed7ea5676a061df53/cffi-2.1.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -1536,7 +1536,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/20/71/7c8372d30e42415602ed9f268f7cfd66f1b855fed881ecd168bcb45dbc0b/cffi-2.1.0-cp314-cp314-macosx_10_15_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -1893,7 +1893,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d6/5c/584e626835f0375c928176c04137c96927165cb8733cdb3150ec04e5ee5e/cffi-2.1.0-cp314-cp314-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -2247,7 +2247,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/41/de/92b9eeed4ae4a21d6fd9b2a2c8505cbed573299902ea73981cc13f7ff62c/cffi-2.1.0-cp314-cp314-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7d/c2/57f54b03d0f22d4044b8afb9ca0e184f8b1afd57b4f735c2fa70883dc601/contourpy-1.3.3-cp314-cp314-win_amd64.whl
@@ -2612,7 +2612,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/88/c6/92fcd42f1ba33e1184263f25bfabf3d27c383410470f169e4b8163bf9c17/beautifulsoup4-4.15.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/58/9d/40b6267367182187139a4000b82a3b287d84d745bccd808e75d916920e9d/bleach-6.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/cc/d7/97d3136f81db489ec8d1d67748c110d6c994268fd7528014aa9f2b085e4e/cffi-2.1.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/04/5f/9ff93450ba96b09c7c2b3f81c94de31c89f92292f1380261bd7195bea4ea/contourpy-1.3.3-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
@@ -2969,7 +2969,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/88/c6/92fcd42f1ba33e1184263f25bfabf3d27c383410470f169e4b8163bf9c17/beautifulsoup4-4.15.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/58/9d/40b6267367182187139a4000b82a3b287d84d745bccd808e75d916920e9d/bleach-6.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2e/d2/065fcae1c73979fac8e054462478d0ff8a29c40cdc2ed7ea5676a061df53/cffi-2.1.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b1/71/f93e1e9471d189f79d0ce2497007731c1e6bf9ef6d1d61b911430c3db4e5/contourpy-1.3.3-cp314-cp314-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl
@@ -3320,7 +3320,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/88/c6/92fcd42f1ba33e1184263f25bfabf3d27c383410470f169e4b8163bf9c17/beautifulsoup4-4.15.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/58/9d/40b6267367182187139a4000b82a3b287d84d745bccd808e75d916920e9d/bleach-6.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/20/71/7c8372d30e42415602ed9f268f7cfd66f1b855fed881ecd168bcb45dbc0b/cffi-2.1.0-cp314-cp314-macosx_10_15_x86_64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/72/8b/4546f3ab60f78c514ffb7d01a0bd743f90de36f0019d1be84d0a708a580a/contourpy-1.3.3-cp314-cp314-macosx_10_13_x86_64.whl
@@ -3671,7 +3671,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/88/c6/92fcd42f1ba33e1184263f25bfabf3d27c383410470f169e4b8163bf9c17/beautifulsoup4-4.15.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/58/9d/40b6267367182187139a4000b82a3b287d84d745bccd808e75d916920e9d/bleach-6.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d6/5c/584e626835f0375c928176c04137c96927165cb8733cdb3150ec04e5ee5e/cffi-2.1.0-cp314-cp314-macosx_11_0_arm64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/fd/e1/3542a9cb596cadd76fcef413f19c79216e002623158befe6daa03dbfa88c/contourpy-1.3.3-cp314-cp314-macosx_11_0_arm64.whl
@@ -4019,7 +4019,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/88/c6/92fcd42f1ba33e1184263f25bfabf3d27c383410470f169e4b8163bf9c17/beautifulsoup4-4.15.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/58/9d/40b6267367182187139a4000b82a3b287d84d745bccd808e75d916920e9d/bleach-6.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/41/de/92b9eeed4ae4a21d6fd9b2a2c8505cbed573299902ea73981cc13f7ff62c/cffi-2.1.0-cp314-cp314-win_amd64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7d/c2/57f54b03d0f22d4044b8afb9ca0e184f8b1afd57b4f735c2fa70883dc601/contourpy-1.3.3-cp314-cp314-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
@@ -4334,7 +4334,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/cc/d7/97d3136f81db489ec8d1d67748c110d6c994268fd7528014aa9f2b085e4e/cffi-2.1.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -4644,7 +4644,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2e/d2/065fcae1c73979fac8e054462478d0ff8a29c40cdc2ed7ea5676a061df53/cffi-2.1.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -4949,7 +4949,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/20/71/7c8372d30e42415602ed9f268f7cfd66f1b855fed881ecd168bcb45dbc0b/cffi-2.1.0-cp314-cp314-macosx_10_15_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -5251,7 +5251,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d6/5c/584e626835f0375c928176c04137c96927165cb8733cdb3150ec04e5ee5e/cffi-2.1.0-cp314-cp314-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -5551,7 +5551,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/41/de/92b9eeed4ae4a21d6fd9b2a2c8505cbed573299902ea73981cc13f7ff62c/cffi-2.1.0-cp314-cp314-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7d/c2/57f54b03d0f22d4044b8afb9ca0e184f8b1afd57b4f735c2fa70883dc601/contourpy-1.3.3-cp314-cp314-win_amd64.whl
@@ -5909,7 +5909,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/cc/d7/97d3136f81db489ec8d1d67748c110d6c994268fd7528014aa9f2b085e4e/cffi-2.1.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -6265,7 +6265,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2e/d2/065fcae1c73979fac8e054462478d0ff8a29c40cdc2ed7ea5676a061df53/cffi-2.1.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -6615,7 +6615,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/20/71/7c8372d30e42415602ed9f268f7cfd66f1b855fed881ecd168bcb45dbc0b/cffi-2.1.0-cp314-cp314-macosx_10_15_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -6962,7 +6962,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d6/5c/584e626835f0375c928176c04137c96927165cb8733cdb3150ec04e5ee5e/cffi-2.1.0-cp314-cp314-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -7306,7 +7306,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0d/fe/6bea5c9162869c5beba5d9c8abbed835ec85bf1ec1fba05a3822325c45f3/build-1.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/41/de/92b9eeed4ae4a21d6fd9b2a2c8505cbed573299902ea73981cc13f7ff62c/cffi-2.1.0-cp314-cp314-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7d/c2/57f54b03d0f22d4044b8afb9ca0e184f8b1afd57b4f735c2fa70883dc601/contourpy-1.3.3-cp314-cp314-win_amd64.whl
@@ -7615,7 +7615,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/fb/d2/4398416cd699b35167947c6e22aca52c47e69ad5695073c9f1f2c52e04aa/cffi-2.1.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a5/34/49b9060e8418b14fb5cba9cf6bfb383111e2538a03a1fb18e66a95aeb3d5/charset_normalizer-3.4.9-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -7926,7 +7926,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/22/d7/1a74539db16d8bfd839ff1515948948efbb162e574650fd3d846896eea95/cffi-2.1.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c3/69/2a5385192e67175f7d8bd5ce4f57c24bc956439adeae5c13a99aa28a53d1/charset_normalizer-3.4.9-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -8231,7 +8231,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/d3/67/85c89a59ba36a671e79638f44d466749f08179266a57e4f2ffdf92174072/cffi-2.1.0-cp311-cp311-macosx_10_15_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0b/e3/85ec501f206fb049259288c1f3506e53876937fb00edb47009348e66756b/charset_normalizer-3.4.9-cp311-cp311-macosx_10_9_universal2.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -8533,7 +8533,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/ea/dd/e3b0baa2d3d6a857ac72b7efbf18e32e487c9cdafcc13049ad765495b15e/cffi-2.1.0-cp311-cp311-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0b/e3/85ec501f206fb049259288c1f3506e53876937fb00edb47009348e66756b/charset_normalizer-3.4.9-cp311-cp311-macosx_10_9_universal2.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -8832,7 +8832,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/f9/c8/6c2de1d55cf35ef8b92885d5ef280790f0fb9634d87ea1cc315176aecd61/cffi-2.1.0-cp311-cp311-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ed/a1/e29995109e455dc8eff8d0fac6ae509be39561318a7cfeac5d33ad029213/charset_normalizer-3.4.9-cp311-cp311-win_amd64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/98/4b/9bd370b004b5c9d8045c6c33cf65bae018b27aca550a3f657cdc99acdbd8/contourpy-1.3.3-cp311-cp311-win_amd64.whl
@@ -9146,7 +9146,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/62/f2/c9522a81c32132799a1972c39f5c5f8b4c8b9f00488a23feaa6c06f07741/cffi-2.1.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/01/c4/4fa4c8b3097a11f3c5f09a35b72ed6855fb1d332469504962ab7bafcc702/charset_normalizer-3.4.9-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -9455,7 +9455,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/1b/dc/5620cf930688be01f2d673804291de757a934c90b946dbdc3d84130c2ea4/cffi-2.1.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ec/96/5d9364e3342d69f3a045e1777bc47c85c383e6e9466d561b33fdb419d1f9/charset_normalizer-3.4.9-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -9758,7 +9758,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/1e/85/990925db5df586ec90beb97529c853497e7f85ba0234830447faf41c3057/cffi-2.1.0-cp312-cp312-macosx_10_15_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/70/4a/ecbd131485c07fcdfad54e28946d513e3da22ef3b4bd854dcafae54ec739/charset_normalizer-3.4.9-cp312-cp312-macosx_10_13_universal2.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -10058,7 +10058,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/4b/92/e7bb136ad6b5352603732cf907ef862ca103f20f2031c1735a46300c20c9/cffi-2.1.0-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/70/4a/ecbd131485c07fcdfad54e28946d513e3da22ef3b4bd854dcafae54ec739/charset_normalizer-3.4.9-cp312-cp312-macosx_10_13_universal2.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -10355,7 +10355,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/a8/eb/f636456ff21a83fc13c032b58cc5dde061691546ac79efa284b2989b7982/cffi-2.1.0-cp312-cp312-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/80/cc/f920afd1a23c58ccd53c1d36085a71893a4737ff5e66e0371efab6809850/charset_normalizer-3.4.9-cp312-cp312-win_amd64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/19/e8/6026ed58a64563186a9ee3f29f41261fd1828f527dd93d33b60feca63352/contourpy-1.3.3-cp312-cp312-win_amd64.whl
@@ -10668,7 +10668,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/6f/08/f2e7d62c460faae0926f2d6e423694aa409ced3bc1fe2927a0a6e5f05416/cffi-2.1.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ea/f8/72eb13dcabe7257035cea8aefd922caad2f110d252bf9f67c4c2ca763aee/charset_normalizer-3.4.9-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -10977,7 +10977,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/3a/a6/e879bb68cc23a2bc9ba8f4b7d8019f0c2694bad2ab6c4a3701d429439f58/cffi-2.1.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d0/39/8ff066c672434225f8d25f8b739f992af250944392173dcc88362681c9bf/charset_normalizer-3.4.9-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -11281,7 +11281,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/8c/e9/45c3a76ad8d43ad9261f4c95436da61128d3ca545d72b9612c0ab5be0b1c/cffi-2.1.0-cp313-cp313-macosx_10_15_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b2/06/97ec2aeae780b31d742b6352218b43841a6871e2564578ca522dce4a45c3/charset_normalizer-3.4.9-cp313-cp313-macosx_10_13_universal2.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -11582,7 +11582,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/84/4c/82f132cb4418ee6d953d982b19191e87e2a6372c8a4ce36e50b69d6ade4a/cffi-2.1.0-cp313-cp313-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b2/06/97ec2aeae780b31d742b6352218b43841a6871e2564578ca522dce4a45c3/charset_normalizer-3.4.9-cp313-cp313-macosx_10_13_universal2.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -11880,7 +11880,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/5a/47/59eb7975cb0e4ef0afa764ea945b29a5bb4537a9f771cb7d6c8a5dd74c95/cffi-2.1.0-cp313-cp313-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e8/ef/6953a77c7cf2c2ff9998e6f575ab3e380119f100223381565a4f94c1f836/charset_normalizer-3.4.9-cp313-cp313-win_amd64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/18/0b/0098c214843213759692cc638fce7de5c289200a830e5035d1791d7a2338/contourpy-1.3.3-cp313-cp313-win_amd64.whl
@@ -12195,7 +12195,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/cc/d7/97d3136f81db489ec8d1d67748c110d6c994268fd7528014aa9f2b085e4e/cffi-2.1.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f4/c4/b3e049d2aa3766180c78507110543d9d50894cc97f57de543f1be521dcdc/charset_normalizer-3.4.9-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -12506,7 +12506,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/2e/d2/065fcae1c73979fac8e054462478d0ff8a29c40cdc2ed7ea5676a061df53/cffi-2.1.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2b/f9/ef4a69ea338ad3c0deceea0f5f7d2380ae8b52132b06d652cb0d2cd86706/charset_normalizer-3.4.9-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -12812,7 +12812,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/20/71/7c8372d30e42415602ed9f268f7cfd66f1b855fed881ecd168bcb45dbc0b/cffi-2.1.0-cp314-cp314-macosx_10_15_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7e/8d/496817fa0944239ecae662dd57ea765cfeaec6a735f9f025d4b7b72e7143/charset_normalizer-3.4.9-cp314-cp314-macosx_10_15_universal2.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -13115,7 +13115,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/d6/5c/584e626835f0375c928176c04137c96927165cb8733cdb3150ec04e5ee5e/cffi-2.1.0-cp314-cp314-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7e/8d/496817fa0944239ecae662dd57ea765cfeaec6a735f9f025d4b7b72e7143/charset_normalizer-3.4.9-cp314-cp314-macosx_10_15_universal2.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
@@ -13415,7 +13415,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/41/de/92b9eeed4ae4a21d6fd9b2a2c8505cbed573299902ea73981cc13f7ff62c/cffi-2.1.0-cp314-cp314-win_amd64.whl
       - pypi: https://files.pythonhosted.org/packages/db/3c/33bac158f8ab7f89b2e59426d5fe2e4f63f7ed25df84c036890172b412b5/cfgv-3.5.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/49/fd/a1d26144398c67486422a72bf5812cda22cb4ccfcd95a290fb41ceb4b8e2/charset_normalizer-3.4.9-cp314-cp314-win_amd64.whl
-      - pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/2f/8f/496168ab853b325f62075e78ceb611d975ffc58116e4fabcca17725ac53c/commitizen-4.16.4-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/7d/c2/57f54b03d0f22d4044b8afb9ca0e184f8b1afd57b4f735c2fa70883dc601/contourpy-1.3.3-cp314-cp314-win_amd64.whl
@@ -17390,10 +17390,10 @@ packages:
   - pkg:pypi/charset-normalizer?source=compressed-mapping
   size: 61278
   timestamp: 1783374645872
-- pypi: https://files.pythonhosted.org/packages/9a/2d/c4c923b05ed6eea1ef5578e0bdf81cd49f42738fef26c4e1db36e83ff182/cleopatra-0.22.0-py3-none-any.whl
+- pypi: https://files.pythonhosted.org/packages/e1/65/d2ac5edbbaa505d21e9c1f974e3d5e46c05674d13565c7cdf4559ee42bdd/cleopatra-0.24.0-py3-none-any.whl
   name: cleopatra
-  version: 0.22.0
-  sha256: 0ef3b95548d596ae7afb0c3a58473275071d7f30934d962811bb12cced4d3d3c
+  version: 0.24.0
+  sha256: 618595f1f53a49392e93d267271118103e814d6e14abf339db2349c8ff0e0ece
   requires_dist:
   - hpc-utils>=0.1.4
   - imageio-ffmpeg>=0.4.9
@@ -37205,7 +37205,7 @@ packages:
 - pypi: ./
   name: pyramids-gis
   version: 0.44.0
-  sha256: a3a398714b476de1368f8acfbb006c9e723deb403ac3ecfe591bbea8cb8778ee
+  sha256: 743f62c4f2cfa694d4998567dd2262bda188c37db2c13aca1b94c5e3c9c1fc69
   requires_dist:
   - certifi ; platform_machine == 'ARM64' and sys_platform == 'win32'
   - packaging ; platform_machine == 'ARM64' and sys_platform == 'win32'
@@ -37218,7 +37218,7 @@ packages:
   - pyyaml>=6.0.0
   - shapely>=2.1.0 ; platform_machine != 'ARM64' or sys_platform != 'win32'
   - scipy>=1.10.0
-  - cleopatra[tiles]>=0.22.0 ; extra == 'viz'
+  - cleopatra[tiles]>=0.24.0 ; extra == 'viz'
   - dask>=2024.1.0 ; extra == 'lazy'
   - distributed>=2024.1.0 ; extra == 'lazy'
   - zarr>=3 ; extra == 'lazy'

@@ -119,7 +119,11 @@ def plot_mesh_data(
             `color_scale` (`"linear"`, `"power"`,
             `"sym-lognorm"`, `"boundary-norm"`, `"midpoint"`),
             `gamma`, `midpoint`, `bounds`, `ticks_spacing`,
-            `cbar_orientation`, `cbar_label`, and `figsize`.
+            `cbar_orientation`, `cbar_label`, and `figsize`. Also
+            `style` (a cleopatra `DATA_STYLES` preset name) and
+            `hillshade` (`True` or a params dict) — data-style presets
+            requiring cleopatra >= 0.24 (`hillshade` needs
+            `location="node"`).
 
     Returns:
         cleopatra.mesh_glyph.MeshGlyph: The MeshGlyph instance with

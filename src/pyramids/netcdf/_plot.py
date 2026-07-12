@@ -415,9 +415,10 @@ class NetCDFPlot:
         Starts from ``base_kwargs`` (the caller's ``**kwargs`` pass-through
         to cleopatra), then layers on: the non-default :class:`ColorOpts`
         fields (``cmap`` / ``vmin`` / ``vmax`` / ``levels`` / ``norm`` /
-        ``center`` / ``extend`` / ``cbar_kwargs``, plus ``robust`` only
-        when explicitly enabled — ``add_colorbar`` is intentionally *not*
-        forwarded; it's applied post-render via :meth:`_remove_colorbar`);
+        ``center`` / ``extend`` / ``cbar_kwargs`` / ``style`` / ``hillshade``,
+        plus ``robust`` only when explicitly enabled — ``add_colorbar`` is
+        intentionally *not* forwarded; it's applied post-render via
+        :meth:`_remove_colorbar`);
         ``ax`` / ``figsize`` / ``title``; the curvilinear coord pair when
         one resolves; and the ``kind`` dispatch hint. A ``rgb=None``
         default is set so the engine's RGB branch stays off.
@@ -448,6 +449,8 @@ class NetCDFPlot:
             ("center", colour.center),
             ("extend", colour.extend),
             ("cbar_kwargs", colour.cbar_kwargs),
+            ("style", colour.style),
+            ("hillshade", colour.hillshade),
             ("ax", ax),
             ("figsize", figsize),
             ("title", title),
