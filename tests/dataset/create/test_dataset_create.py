@@ -486,18 +486,28 @@ class TestSpatialProperties:
         src: gdal.Dataset,
     ):
         dataset = Dataset(src)
-        x_coords = [456968.12, 460968.12, 460968.12, 456968.12, 456968.12]
-        y_coords = [508007.788, 508007.788, 504007.788, 504007.788, 508007.788]
-        coords = list(zip(x_coords, y_coords))
+        # Build a polygon covering exactly one cell (row 3, col 6) from the geotransform, in the
+        # raster's own CRS (EPSG:32618). Cell-aligned edges snap to exact integer indices, so both
+        # rounding modes resolve to the same 1x1 window.
+        row, col = 3, 6
+        origin_x, pixel_x, _, origin_y, _, pixel_y = dataset.geotransform
+        west, east = origin_x + col * pixel_x, origin_x + (col + 1) * pixel_x
+        north, south = origin_y + row * pixel_y, origin_y + (row + 1) * pixel_y
         gdf = gpd.GeoDataFrame(
-            columns=["id"], geometry=[Polygon(coords)], crs=32632, data=[[0]]
+            columns=["id"],
+            geometry=[Polygon([(west, north), (east, north), (east, south), (west, south)])],
+            crs=dataset.epsg,
+            data=[[0]],
         )
-        window = dataset.io._convert_polygon_to_window(gdf)
-        assert window == [5, 2, 1, 1]
-        arr = dataset.read_array(band=0, window=window)
-        assert arr[0] == 1
-        arr = dataset.read_array(band=0, window=gdf)
-        assert arr[0] == 1
+        full = dataset.read_array(band=0)
+        for mode in ("cover", "nearest"):
+            assert dataset.io._convert_polygon_to_window(gdf, rounding=mode) == [col, row, 1, 1]
+        assert np.array_equal(
+            np.squeeze(dataset.read_array(band=0, window=[col, row, 1, 1])), full[row, col]
+        )
+        assert np.array_equal(
+            np.squeeze(dataset.read_array(band=0, window=gdf)), full[row, col]
+        )
 
     def test_read_block_bigger_than_array(
         self,

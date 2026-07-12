@@ -23,6 +23,7 @@ from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal
 from osgeo_utils import gdal2xyz
 from pandas import DataFrame
+from pyproj import CRS
 
 from pyramids._io import new_vsimem_path, read_vsi_bytes
 from pyramids.base._domain import is_no_data
@@ -33,6 +34,7 @@ from pyramids.base._file_manager import (
     gdal_raster_open,
 )
 from pyramids.base._locks import DummyLock, default_lock
+from pyramids.base.crs import reproject_coordinates
 from pyramids.base.protocols import ArrayLike
 from pyramids.base._utils import resolve_resampling
 from pyramids.dataset.abstract_dataset import OVERVIEW_LEVELS, RESAMPLING_METHODS
@@ -52,6 +54,20 @@ if TYPE_CHECKING:
 from pyramids.dataset.engines._base import _Engine
 
 _VSIMEM_PREFIX = "/vsimem/"
+
+_GRID_SNAP_TOL = 1e-9
+"""Fractional-pixel tolerance for snapping a bbox edge onto an exact cell boundary.
+
+`(coord - origin) / pixel` is IEEE-754 division, so an edge that sits exactly on a cell boundary
+often lands at `k - 1e-16` instead of the integer `k`. Snapping to the nearest integer within this
+tolerance before `floor`/`ceil` stops a grid-aligned bbox from leaking a neighbouring row/column.
+"""
+
+
+def _snap_index(value: float, tol: float = _GRID_SNAP_TOL) -> float:
+    """Snap a fractional pixel index to the nearest integer when within `tol`, else return it as-is."""
+    nearest = round(value)
+    return float(nearest) if abs(value - nearest) <= tol else value
 
 _THREAD_MANAGER_CREATION_LOCK = threading.Lock()
 """Guards the lazy creation of a Dataset's per-thread file manager.
@@ -335,6 +351,7 @@ class IO(_Engine["Dataset"]):
         fill_value: float | None = None,
         masked: bool = False,
         threadsafe: bool = False,
+        bbox_rounding: str = "cover",
     ) -> ArrayLike:
         """Read the values stored in a given band (eager or lazy).
 
@@ -478,6 +495,25 @@ class IO(_Engine["Dataset"]):
                 flush pending writes (e.g. ``FlushCache``) before reading
                 with `threadsafe=True`. Default `False` (shared-handle
                 behaviour, unchanged).
+            bbox_rounding (str, keyword-only):
+                How a geometry window (`bbox=`, or a polygon `window=`) is
+                snapped to whole pixels:
+
+                - `"cover"` (default): floor the near edge and ceil the far
+                  edge, so the window includes every pixel the geometry
+                  overlaps. A full-extent bbox reads the full raster, and a
+                  partly-covered boundary pixel is kept.
+                - `"nearest"`: round each edge to the closest pixel boundary,
+                  giving the tightest window; a partly-covered boundary pixel
+                  can be clipped.
+
+                A geometry (`bbox=` / polygon `window=`) in a different CRS is
+                reprojected into the raster frame first. The resolved window is
+                clamped to the raster extent, so a bbox that pokes past an edge
+                reads the overlap; a bbox with no overlap raises
+                `OutOfBoundsError`. Ignored when `window` is already a pixel
+                window (`Window` or the x-first list) or absent. Any other
+                value raises `ValueError`. Default `"cover"`.
 
         Returns:
             ArrayLike:
@@ -494,7 +530,8 @@ class IO(_Engine["Dataset"]):
                 with `boundless=True`, `boundless=True` is given
                 without a pixel window, or `fill_value` is given
                 without `boundless=True` or cannot be represented
-                in the band dtype.
+                in the band dtype, or `bbox_rounding` is neither
+                `"cover"` nor `"nearest"`.
             ImportError: If `chunks` is non-None and `dask` is not
                 installed.
             NotImplementedError: If `out_shape` is combined with `chunks`
@@ -506,6 +543,9 @@ class IO(_Engine["Dataset"]):
                 `boundless=True` (boundless fills and masking are not
                 combined yet), or `threadsafe=True` (the mask band would
                 be read from the shared handle).
+            OutOfBoundsError: If a `bbox` / geometry `window` does not
+                overlap the raster extent at all, or (for a foreign-CRS
+                bbox) reprojects outside the target CRS's valid domain.
 
         Examples:
             - Create `Dataset` consisting of 4 bands, 5 rows, and 5 columns at the point lon/lat (0, 0):
@@ -670,6 +710,12 @@ class IO(_Engine["Dataset"]):
                 )
             crs = epsg if epsg is not None else self._ds.epsg
             window = FeatureCollection.from_bbox(bbox, epsg=crs)
+        # Resolve a geometry window (from `bbox=` or a polygon `window=`) to an integer pixel window
+        # once, up front, so `bbox_rounding` applies uniformly no matter which read path runs. The
+        # boundless branch below deliberately rejects geometry windows (they are clipped by
+        # definition), so leave those unconverted for it to reject.
+        if isinstance(window, GeoDataFrame) and not boundless:
+            window = self._convert_polygon_to_window(window, rounding=bbox_rounding)
         if chunks is not None:
             if window is not None:
                 raise ValueError(
@@ -746,11 +792,11 @@ class IO(_Engine["Dataset"]):
                             i + 1
                         ).ReadAsArray()
                 else:
-                    # ``window`` here is a FeatureCollection/GeoDataFrame (built
-                    # from a ``bbox`` or a polygon); its pixel dimensions are not
-                    # known until ``_read_block`` resolves it, and it is not
-                    # integer-indexable, so stack per-band block reads instead of
-                    # pre-allocating from ``window[2]`` / ``window[3]``.
+                    # ``window`` here is a resolved pixel window (``Window`` or
+                    # a ``[col_off, row_off, cols, rows]`` list — any geometry
+                    # window was converted to one above). Stack per-band block
+                    # reads so ``_read_block`` applies the identical window to
+                    # every band without re-parsing its dimensions here.
                     arr = np.stack(
                         [
                             self._read_block(i, window)
@@ -831,8 +877,6 @@ class IO(_Engine["Dataset"]):
                 "it with Dataset.read_file first."
             )
         _validate_band_index(band, self._ds.band_count)
-        if isinstance(window, GeoDataFrame):
-            window = self._convert_polygon_to_window(window)
         if isinstance(window, Window):
             # Accept the first-class Window like every other read path does.
             window = list(window.to_read_args())
@@ -971,8 +1015,6 @@ class IO(_Engine["Dataset"]):
             # _band_mask slices the mask band with window[0..3]; a Window is not
             # subscriptable, so normalize it to a pixel list first (mirrors _read_block).
             window = list(window.to_read_args())
-        if isinstance(window, GeoDataFrame):
-            window = self._convert_polygon_to_window(window)
         if arr.ndim == 2:
             indices = [0 if band is None else band]
             slices = [arr]
@@ -1206,8 +1248,6 @@ class IO(_Engine["Dataset"]):
             )
         rows, cols = _validate_out_shape(out_shape)
         alg = _RESAMPLING_ALG[key]
-        if isinstance(window, GeoDataFrame):
-            window = self._convert_polygon_to_window(window)
         if isinstance(window, Window):
             window_args: tuple[int, ...] = window.to_read_args()
         elif window is not None:
@@ -1392,19 +1432,116 @@ class IO(_Engine["Dataset"]):
         return np.asarray(block)
 
     def _convert_polygon_to_window(
-        self, poly: GeoDataFrame | FeatureCollection
+        self,
+        poly: GeoDataFrame | FeatureCollection,
+        rounding: str = "cover",
     ) -> list[Any]:
+        if rounding not in ("cover", "nearest"):
+            raise ValueError(
+                f"rounding must be 'cover' or 'nearest', got {rounding!r}"
+            )
         poly = FeatureCollection(poly)
-        bounds = poly.total_bounds
-        df = pd.DataFrame(columns=["id", "x", "y"])
-        df.loc["top_left", ["x", "y"]] = bounds[0], bounds[3]
-        df.loc["bottom_right", ["x", "y"]] = bounds[2], bounds[1]
-        arr_indeces = self._ds.map_to_array_coordinates(df)
-        xoff = arr_indeces[0, 1]
-        yoff = arr_indeces[0, 0]
-        x_size = arr_indeces[1, 0] - arr_indeces[0, 0]
-        y_size = arr_indeces[1, 1] - arr_indeces[0, 1]
+        west, south, east, north = poly.total_bounds
+        # The window is computed in the raster's own coordinate frame, so reproject the bbox into the
+        # raster CRS whenever the two CRSes differ -- compared through pyproj so a raster CRS that has
+        # no EPSG code (e.g. a geostationary WKT grid) is handled too, not only EPSG<->EPSG. The bbox
+        # edges are densified before transforming so a curved reprojected edge is not under-covered by
+        # a corner-only min/max. Without any of this a foreign-CRS bbox is measured against the wrong
+        # axis frame and yields a nonsensical, out-of-bounds window.
+        if self._crses_differ(poly):
+            n = 9  # samples per edge, incl. endpoints -- enough to bound a curved reprojected edge
+            edge_x = np.concatenate(
+                [
+                    np.linspace(west, east, n),
+                    np.linspace(west, east, n),
+                    np.full(n, west),
+                    np.full(n, east),
+                ]
+            )
+            edge_y = np.concatenate(
+                [
+                    np.full(n, north),
+                    np.full(n, south),
+                    np.linspace(south, north, n),
+                    np.linspace(south, north, n),
+                ]
+            )
+            xs, ys = reproject_coordinates(
+                edge_x.tolist(),
+                edge_y.tolist(),
+                from_crs=poly.crs,
+                to_crs=self._ds.crs,
+            )
+            if not all(math.isfinite(v) for v in (*xs, *ys)):
+                raise OutOfBoundsError(
+                    f"bbox reprojected from {poly.crs.to_string()!r} to the raster CRS is not finite; "
+                    "it falls outside the projection's valid domain. Pass a bbox that overlaps the "
+                    "raster, or one already in the raster CRS."
+                )
+            west, east = min(xs), max(xs)
+            south, north = min(ys), max(ys)
+        origin_x, pixel_x, row_rot, origin_y, col_rot, pixel_y = self._ds.geotransform
+        if row_rot or col_rot:
+            # Rotated/sheared grids need the full affine inverse; the axis-aligned mapping below is
+            # only approximate for them. Pre-existing limitation (also true of the old code path).
+            warnings.warn(
+                "read_array(bbox=/window=<polygon>) assumes an axis-aligned geotransform; the "
+                "rotation terms are ignored, so the window is approximate on a rotated raster.",
+                stacklevel=2,
+            )
+        # Map the bbox edges to fractional pixel indices through the geotransform, snapping edges that
+        # sit on a cell boundary onto the exact integer first (see `_snap_index`). `min`/`max` keep it
+        # correct whichever sign the pixel size has (north-up `pixel_y < 0` or flipped south-up).
+        # Deriving the window from map_to_array_coordinates instead snapped each corner to the nearest
+        # cell centre, which both transposed every non-square window and dropped the boundary
+        # row/column of a bbox whose edges fell mid-cell (#719).
+        cols = [_snap_index((west - origin_x) / pixel_x), _snap_index((east - origin_x) / pixel_x)]
+        rows = [_snap_index((north - origin_y) / pixel_y), _snap_index((south - origin_y) / pixel_y)]
+        if rounding == "cover":
+            # Floor the near edge and ceil the far edge, so the window includes every pixel the bbox
+            # overlaps -- a geotransform-based numpy crop of the full read. Never drops edge data.
+            xoff, x_far = math.floor(min(cols)), math.ceil(max(cols))
+            yoff, y_far = math.floor(min(rows)), math.ceil(max(rows))
+        else:
+            # Round each edge to the nearest pixel boundary (the tightest window); can clip a
+            # partly-covered boundary pixel.
+            cols = [round(value) for value in cols]
+            rows = [round(value) for value in rows]
+            xoff, x_far = min(cols), max(cols)
+            yoff, y_far = min(rows), max(rows)
+        # A sub-pixel bbox (or a degenerate zero-width/height polygon) can collapse to a zero-size
+        # window -- read at least the single cell it falls in rather than an empty array.
+        x_far = max(x_far, xoff + 1)
+        y_far = max(y_far, yoff + 1)
+        # Clamp to the raster extent so a bbox that pokes past an edge reads the overlap instead of
+        # raising (matching `crop(bbox=)` and the pre-rewrite behaviour); a bbox with no overlap at
+        # all still raises below.
+        columns, rows_total = self._ds.columns, self._ds.rows
+        xoff = min(max(int(xoff), 0), columns)
+        x_far = min(max(int(x_far), 0), columns)
+        yoff = min(max(int(yoff), 0), rows_total)
+        y_far = min(max(int(y_far), 0), rows_total)
+        x_size, y_size = x_far - xoff, y_far - yoff
+        if x_size <= 0 or y_size <= 0:
+            raise OutOfBoundsError(
+                "the bbox does not overlap the raster extent; no pixels to read."
+            )
         return [xoff, yoff, x_size, y_size]
+
+    def _crses_differ(self, poly: FeatureCollection) -> bool:
+        """Whether `poly`'s CRS differs from the raster's, compared through pyproj (EPSG or WKT).
+
+        Fast-paths identical EPSG codes; otherwise compares the full CRS objects so a raster whose CRS
+        has no EPSG code (e.g. a geostationary WKT grid) is still reprojected against. Returns False
+        when either CRS is unknown -- the bbox is then assumed to already be in the raster frame.
+        """
+        raster_epsg, poly_epsg = self._ds.epsg, poly.epsg
+        if raster_epsg and poly_epsg:
+            return int(raster_epsg) != int(poly_epsg)
+        raster_crs, poly_crs = self._ds.crs, poly.crs
+        if not raster_crs or poly_crs is None:
+            return False
+        return not CRS.from_user_input(poly_crs).equals(CRS.from_user_input(raster_crs))
 
     def read_windows(
         self,
