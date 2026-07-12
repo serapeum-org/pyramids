@@ -9,7 +9,9 @@ from pyramids.feature.bbox import (
     _crosses_antimeridian,
     _ring_crosses_antimeridian,
     _unwrap_polygon,
+    estimate_pixel_dims,
     normalise_longitude,
+    read_bbox_dict,
     split_antimeridian,
     split_polygon_antimeridian,
     to_shapely,
@@ -382,3 +384,104 @@ class TestSplitPolygonAntimeridian:
         """
         with pytest.raises(TypeError, match="expects a Polygon or MultiPolygon"):
             split_polygon_antimeridian("not a polygon")
+
+
+class TestEstimatePixelDims:
+    """Tests for estimate_pixel_dims."""
+
+    @pytest.mark.parametrize(
+        "west, south, east, north, scale_m, expected",
+        [
+            (-10.0, 35.0, 30.0, 60.0, 1000.0, (4453, 2783)),
+            (0.0, 0.0, 1.0, 1.0, 100.0, (1114, 1114)),
+            (175.0, -22.0, -175.0, -12.0, 1000.0, (1114, 1114)),
+        ],
+    )
+    def test_known_dimensions(self, west, south, east, north, scale_m, expected):
+        """Estimate matches the documented equatorial upper-bound values, including an antimeridian bbox.
+
+        Args:
+            west: Western longitude in degrees.
+            south: Southern latitude in degrees.
+            east: Eastern longitude in degrees.
+            north: Northern latitude in degrees.
+            scale_m: Ground resolution in metres per pixel.
+            expected: Expected (width_px, height_px).
+
+        Test scenario:
+            The Europe/1 km and 1 deg/100 m cases from the issue, plus a west>east antimeridian span.
+        """
+        result = estimate_pixel_dims(west, south, east, north, scale_m)
+        assert result == expected, f"Expected {expected}, got {result}"
+
+    def test_minimum_one_pixel(self):
+        """A degenerate (zero-area) bbox still returns at least one pixel per dimension.
+
+        Test scenario:
+            A point bbox at a coarse resolution floors to (1, 1) rather than (0, 0).
+        """
+        result = estimate_pixel_dims(0.0, 0.0, 0.0, 0.0, 1000.0)
+        assert result == (1, 1), f"Expected (1, 1), got {result}"
+
+    def test_non_positive_scale_raises(self):
+        """A non-positive resolution raises ValueError.
+
+        Test scenario:
+            scale_m == 0 is rejected with a message naming scale_m.
+        """
+        with pytest.raises(ValueError, match="scale_m must be positive"):
+            estimate_pixel_dims(0.0, 0.0, 1.0, 1.0, 0.0)
+
+    def test_inverted_latitude_raises(self):
+        """An inverted latitude range (north < south) raises ValueError.
+
+        Test scenario:
+            north < south is a genuine error (unlike west > east, which is a valid antimeridian crossing).
+        """
+        with pytest.raises(ValueError, match="north .* must be >= south"):
+            estimate_pixel_dims(0.0, 60.0, 1.0, 35.0, 1000.0)
+
+
+class TestReadBboxDict:
+    """Tests for read_bbox_dict."""
+
+    @pytest.mark.parametrize(
+        "bbox",
+        [
+            {"min_lon": -10.0, "min_lat": 35.0, "max_lon": 30.0, "max_lat": 60.0},
+            {"lonmin": -10.0, "latmin": 35.0, "lonmax": 30.0, "latmax": 60.0},
+            {"minx": -10.0, "miny": 35.0, "maxx": 30.0, "maxy": 60.0},
+            {"west": -10.0, "south": 35.0, "east": 30.0, "north": 60.0},
+            {"West": -10.0, "South": 35.0, "East": 30.0, "North": 60.0},
+        ],
+    )
+    def test_alias_spellings(self, bbox):
+        """Every accepted key spelling resolves to the same (west, south, east, north) tuple.
+
+        Args:
+            bbox: A bbox mapping using one of the supported alias conventions.
+
+        Test scenario:
+            GeoJSON, eodag, shapely/geopandas, and (case-insensitive) compass keys all parse identically.
+        """
+        result = read_bbox_dict(bbox)
+        assert result == (-10.0, 35.0, 30.0, 60.0), f"Unexpected bbox: {result}"
+
+    def test_values_coerced_to_float(self):
+        """Integer inputs are coerced to float.
+
+        Test scenario:
+            An int-valued dict yields a tuple of floats.
+        """
+        result = read_bbox_dict({"minx": -10, "miny": 35, "maxx": 30, "maxy": 60})
+        assert result == (-10.0, 35.0, 30.0, 60.0), f"Unexpected bbox: {result}"
+        assert all(isinstance(v, float) for v in result), f"Expected floats, got {result}"
+
+    def test_missing_edge_raises(self):
+        """A dict missing one edge raises ValueError naming that edge.
+
+        Test scenario:
+            Omitting the north key is reported as the 'north' edge being absent.
+        """
+        with pytest.raises(ValueError, match="'north' edge"):
+            read_bbox_dict({"minx": -10.0, "miny": 35.0, "maxx": 30.0})
