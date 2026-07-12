@@ -469,6 +469,23 @@ class TestLazyHandleLifetime:
         gc.collect()
         assert len(FILE_CACHE) == 0, "dropping a derived (unpack) lazy array must evict the handle"
 
+    def test_close_releases_parked_handle_while_array_alive(self, three_d_path):
+        """`nc.close()` releases the lazy handle even while the array is alive — #727's exact repro.
+
+        Test scenario:
+            The issue's reproduction holds the lazy array alive across a reopen but calls `nc.close()`
+            first. `close()` now evicts the handles its lazy reads parked (via weakly-tracked
+            managers), so the parked handle is gone before any reopen — and the lazy array stays usable
+            because its manager re-opens on the next chunk read.
+        """
+        nc = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
+        lazy = nc.get_variable(nc.variable_names[0]).read_array(chunks="auto")
+        lazy.compute()
+        assert len(FILE_CACHE) == 1, "the lazy read parks a handle"
+        nc.close()
+        assert len(FILE_CACHE) == 0, "close() must release the parked handle even while the array is alive"
+        assert lazy.compute().size > 0, "the lazy array stays usable after close() (its manager re-opens)"
+
     def test_shared_slot_kept_until_last_manager_released(self, three_d_var):
         """Two reads of the same variable share one slot; the handle survives until BOTH drop (M2).
 

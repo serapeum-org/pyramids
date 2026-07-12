@@ -620,6 +620,11 @@ class NetCDF(Dataset):
         (#564). Doing it here makes ``close()`` honour its contract — the file is
         unlocked immediately. Safe to call more than once.
         """
+        # Release handles parked by this container's lazy reads (#727): a lazy dask array can be held
+        # alive across close() (the finalizer only fires on drop), so close() explicitly evicts them
+        # here so a subsequent reopen of the same file does not leave two live handles. The lazy array
+        # stays usable -- its CachingFileManager re-opens on the next chunk read.
+        self._release_lazy_managers()
         cached = self._cached_variables
         if cached is not None:
             # Only the materialised children (bypass the lazy dict's loading
@@ -1691,20 +1696,19 @@ class NetCDF(Dataset):
 
             * **Open-handle lifetime.** A lazy read parks a live GDAL handle in the process-global
               `pyramids.base._file_manager.FILE_CACHE` (via `CachingFileManager`) so later chunk reads
-              can reuse it. The handle is released when the lazy read's result — **and every array
-              derived from it** (`unpack=True`, an `open_mfdataset` stack, a `plot(chunks=)`, a slice
-              or dask-arithmetic result) — is dropped or garbage-collected: a `weakref.finalize` on the
-              manager (kept alive by the chunk readers in the dask graph, not by the returned wrapper)
-              evicts its `FILE_CACHE` slot and closes it. It is also released under LRU pressure or at
-              interpreter exit. `close()` on this `NetCDF` object does not evict it: the handle's
-              lifetime follows the lazy data, not this object (#727).
+              can reuse it. It is released two ways (#727): when the lazy read's result — **and every
+              array derived from it** (`unpack=True`, an `open_mfdataset` stack, a `plot(chunks=)`, a
+              slice or dask-arithmetic result) — is dropped or garbage-collected (a `weakref.finalize`
+              on the manager, kept alive by the chunk readers in the dask graph, evicts and closes it);
+              **and** when this `NetCDF`'s `close()` is called, which evicts the handles its lazy reads
+              parked even while a lazy array from it is still alive. It is also released under LRU
+              pressure or at interpreter exit. A lazy array stays usable after `close()` — its manager
+              re-opens the handle on the next chunk read.
 
-              A live lazy array's handle *must* stay open to serve its future chunk reads, so opening
-              the **same file again in the same process while a lazy array from it is still alive**
-              leaves two live GDAL handles to one NetCDF, which can crash GDAL on Windows. A finalizer
-              cannot cover that ordering — so **drop (or compute and then drop) the lazy array before
-              reopening the file.** (Fully closing this held-alive-then-reopen case would require a
-              process-global shared-handle registry; it is a known GDAL-on-Windows limitation.)
+              Opening the **same file again in the same process while a handle is still parked** leaves
+              two live GDAL handles to one NetCDF, which can crash GDAL on Windows. So before reopening
+              a file in-process, either **drop the lazy array(s)** or **`close()` the `NetCDF`** — both
+              now release the parked handle.
             * **Axis plane.** The lazy path normalizes the **trailing two** dimensions to north-up /
               west-first, whereas the eager path resolves the plane via `x_dim` / `y_dim` /
               CF detection. They agree for every variable whose spatial plane is trailing (the common
@@ -1841,8 +1845,29 @@ class NetCDF(Dataset):
                 variable_name=var_name,
                 chunks=chunks,
                 lock=lock,
+                manager_hook=parent._register_lazy_manager,
             ),
         )
+
+    def _register_lazy_manager(self, manager: Any) -> None:
+        """Track (weakly) a lazy read's file manager so `close()` can release its handle (#727).
+
+        A weak reference is used deliberately: the manager's own drop-time finalizer must still fire
+        when the lazy array is dropped, so this container must not keep the manager alive.
+        """
+        managers = getattr(self, "_lazy_managers", None)
+        if managers is None:
+            managers = []
+            self._lazy_managers = managers
+        managers.append(weakref.ref(manager))
+
+    def _release_lazy_managers(self) -> None:
+        """Close every still-alive tracked lazy manager, releasing its parked handle."""
+        for ref in getattr(self, "_lazy_managers", ()):
+            manager = ref()
+            if manager is not None:
+                manager.close()
+        self._lazy_managers = []
 
     def _preserve_netcdf_metadata(self, result: Dataset) -> NetCDF:
         """Wrap a Dataset result as a NetCDF, preserving variable-subset metadata.

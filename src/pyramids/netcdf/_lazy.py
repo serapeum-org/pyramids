@@ -474,6 +474,7 @@ def build_lazy_array(
     chunks: Any,
     lock: Any = None,
     manager_id: Any = None,
+    manager_hook: Any = None,
 ) -> Any:
     """Build a :class:`dask.array.Array` backed by MDArray chunk reads.
 
@@ -488,6 +489,13 @@ def build_lazy_array(
             variable share a cache slot. Defaults to
             `(path, variable_name)` so repeated calls for the same
             variable de-duplicate the cached handle.
+        manager_hook: Optional callable invoked with the created
+            `CachingFileManager` before the array is returned, so the
+            owning object (e.g. the `NetCDF` container) can track it and
+            release its handle from `close()` -- the second half of the
+            #727 fix (release on the parent's `close()`, not only when
+            the array is dropped). It should hold only a weak reference,
+            so it does not defeat the drop-time finalizer.
 
     Returns:
         dask.array.Array: Lazy array that computes chunk-by-chunk
@@ -517,6 +525,8 @@ def build_lazy_array(
         manager_id=key_id,
         auto_release=True,
     )
+    if manager_hook is not None:
+        manager_hook(manager)
     chunks_per_axis = _expand_chunks(shape, chunk_shape)
     starts_per_axis = _chunk_starts(chunks_per_axis)
     name = f"pyramids-netcdf-read-{variable_name}-{id(manager)}"
