@@ -474,8 +474,9 @@ class FeatureCollection(GeoDataFrame):
             in the supplied CRS.
 
         Raises:
-            ValueError: ``bbox`` is not a 4-element sequence, or violates
-                ``west < east`` / ``south < north``, or ``epsg`` is ``None``.
+            ValueError: ``bbox`` is not a 4-element sequence, contains a
+                ``NaN`` coordinate, violates ``west < east`` /
+                ``south < north``, or ``epsg`` is ``None``.
             TypeError: ``bbox`` elements are not numbers.
 
         Examples:
