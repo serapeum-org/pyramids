@@ -303,15 +303,26 @@ class _LRUCache(MutableMapping):
         handle = None
         with self._lock:
             tracked = self._refcounts.get(key)
-            if tracked is None:
-                pass
-            elif tracked - 1 > 0:
-                self._refcounts[key] = tracked - 1
-            else:
-                self._refcounts.pop(key, None)
-                handle = self._cache.pop(key, None)
+            if tracked is not None:
+                if tracked - 1 > 0:
+                    self._refcounts[key] = tracked - 1
+                else:
+                    self._refcounts.pop(key, None)
+                    handle = self._cache.pop(key, None)
         if handle is not None and self._on_evict is not None:
-            self._on_evict(key, handle)
+            # release() runs from a `weakref.finalize` callback, which has no caller to surface a close
+            # failure to -- so log any error (e.g. an OSError flushing a remote `/vsi` handle, which
+            # `_close_handle` deliberately re-raises on a normal call stack) rather than let it become
+            # an "unraisable" exception reported during GC.
+            try:
+                self._on_evict(key, handle)
+            except Exception as exc:  # noqa: BLE001 - a finalizer path must not raise
+                logger.warning(
+                    "handle close failed during finalizer release for key %r: %s",
+                    key,
+                    exc,
+                    exc_info=True,
+                )
 
 
 def _close_handle(_key: Hashable | None, handle: Any) -> None:
@@ -459,7 +470,11 @@ class CachingFileManager(FileManager):
             manager's lifetime should own the handle — e.g. a lazy
             dask read whose manager is kept alive by the graph. The
             default `False` keeps the handle under pure LRU lifetime,
-            reusable by later managers with the same `manager_id`.
+            reusable by later managers with the same `manager_id`. Do
+            not share one `manager_id` between an `auto_release` and a
+            non-`auto_release` manager: the refcount counts only the
+            auto-release ones, so dropping one could close a handle the
+            other still relies on.
 
     The manager is picklable. On unpickle, the new instance starts
     with no cached handle and opens fresh on first :meth:`acquire`;

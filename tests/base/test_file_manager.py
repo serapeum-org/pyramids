@@ -722,3 +722,17 @@ class TestCachingFileManagerAutoRelease:
         gc.collect()
         assert reopened.closed is False, "a stale post-clear finalizer must not close the re-opened handle"
         assert len(cache) == 1, "the re-opened handle survives an untracked release"
+
+    def test_release_logs_close_error_instead_of_raising(self, caplog):
+        """A close failure during finalizer-invoked `release()` is logged, not left unraisable (L1)."""
+        def boom(_key, _handle):
+            raise OSError("simulated remote /vsi flush failure")
+
+        cache = _LRUCache(maxsize=4, on_evict=boom)
+        cache.retain("k")
+        cache._cache["k"] = object()
+        with caplog.at_level("WARNING", logger="pyramids.base._file_manager"):
+            cache.release("k")
+        assert any(
+            "handle close failed during finalizer release" in r.getMessage() for r in caplog.records
+        ), "the finalizer-invoked close error must be logged at WARNING"
