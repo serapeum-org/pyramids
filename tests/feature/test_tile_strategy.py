@@ -92,7 +92,7 @@ class TestCorrectnessAcrossStrategies:
             )
         )
         assert len(feats) == 10, (
-            f"strategy={strategy} returned {len(feats)} features; " f"expected 10"
+            f"strategy={strategy} returned {len(feats)} features; expected 10"
         )
 
     @pytest.mark.parametrize("strategy", ["auto", "rtree", "none"])

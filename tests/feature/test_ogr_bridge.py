@@ -230,6 +230,7 @@ class TestAsDatasource:
         monkeypatch.setattr("pyramids.feature._ogr._new_vsimem_path", _capture)
 
         with as_datasource(point_gdf):
+            # generating then cleaning up the vsimem path is the whole test
             pass
 
         assert len(captured) == 1, "Expected exactly one path generation"

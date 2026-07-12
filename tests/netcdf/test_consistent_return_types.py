@@ -51,7 +51,7 @@ def _make_2d_nc(rows=10, cols=12, variable_name="elevation"):
     Returns:
         NetCDF: An in-memory MDIM container with one 2D variable.
     """
-    arr = np.random.RandomState(99).rand(rows, cols).astype(np.float64)
+    arr = np.random.default_rng(99).random((rows, cols)).astype(np.float64)
     geo = (30.0, 1.0, 0, 40.0, 0, -1.0)
     nc = NetCDF.create_from_array(
         arr=arr,
@@ -70,7 +70,7 @@ def _make_multi_var_nc():
         NetCDF: Container with 'temperature' and 'pressure' variables.
     """
     nc = _make_3d_nc(variable_name="temperature")
-    arr2 = np.random.RandomState(7).rand(4, 10, 12).astype(np.float64)
+    arr2 = np.random.default_rng(7).random((4, 10, 12)).astype(np.float64)
     ds2 = Dataset.create_from_array(
         arr2,
         geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -126,7 +126,7 @@ class TestPreserveNetcdfMetadata:
             A Dataset created via create_from_array is wrapped into
             a NetCDF with the source variable's metadata copied.
         """
-        arr = np.random.rand(4, 5, 5)
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -157,7 +157,7 @@ class TestPreserveNetcdfMetadata:
             The source variable has _band_dim_name='time'; the
             wrapped result must have the same value.
         """
-        arr = np.random.rand(4, 5, 5)
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -176,7 +176,7 @@ class TestPreserveNetcdfMetadata:
             The source variable has coordinate values [0,6,12,18];
             the wrapped result must carry the same list.
         """
-        arr = np.random.rand(4, 5, 5)
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -194,7 +194,7 @@ class TestPreserveNetcdfMetadata:
         Test scenario:
             Variable attributes dict from the source is copied.
         """
-        arr = np.random.rand(4, 5, 5)
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -214,7 +214,7 @@ class TestPreserveNetcdfMetadata:
         """
         var_3d._scale = 0.01
         var_3d._offset = 273.15
-        arr = np.random.rand(4, 5, 5)
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -235,7 +235,7 @@ class TestPreserveNetcdfMetadata:
             The wrapped result must have the same _is_subset value
             as the source.
         """
-        arr = np.random.rand(4, 5, 5)
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -243,7 +243,7 @@ class TestPreserveNetcdfMetadata:
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
         assert wrapped._is_subset == var_3d._is_subset, (
-            f"Expected _is_subset={var_3d._is_subset}, " f"got {wrapped._is_subset}"
+            f"Expected _is_subset={var_3d._is_subset}, got {wrapped._is_subset}"
         )
 
     def test_copies_is_md_array_flag(self, var_3d):
@@ -253,7 +253,7 @@ class TestPreserveNetcdfMetadata:
             The wrapped result must have the same _is_md_array value
             as the source.
         """
-        arr = np.random.rand(4, 5, 5)
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -272,7 +272,7 @@ class TestPreserveNetcdfMetadata:
             SWIG refs are not transferable to a new GDAL dataset,
             so they must be cleared on the wrapped result.
         """
-        arr = np.random.rand(4, 5, 5)
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -374,7 +374,7 @@ class TestCropReturnType:
         """
         var = _make_3d_nc().get_variable("temperature")
         result = var.crop(mask=crop_mask)
-        assert result is not None, f"Expected a new NetCDF, got None"
+        assert result is not None, "Expected a new NetCDF, got None"
 
     def test_2d_variable_crop_returns_netcdf(self, var_2d, crop_mask):
         """crop() on a 2D variable subset also returns NetCDF.
@@ -472,7 +472,7 @@ class TestToCrsReturnType:
         """
         var = _make_3d_nc().get_variable("temperature")
         result = var.to_crs(to_epsg=32637)
-        assert result is not None, f"Expected a new NetCDF, got None"
+        assert result is not None, "Expected a new NetCDF, got None"
 
     def test_container_to_crs_returns_netcdf(self, nc_3d):
         """to_crs() on a container returns NetCDF.
@@ -544,7 +544,7 @@ class TestResampleReturnType:
         """
         var = _make_3d_nc().get_variable("temperature")
         result = var.resample(cell_size=2.0)
-        assert result is not None, f"Expected a new NetCDF, got None"
+        assert result is not None, "Expected a new NetCDF, got None"
 
 
 class TestSelReturnType:

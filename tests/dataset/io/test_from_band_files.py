@@ -518,7 +518,7 @@ class TestFromBandFiles:
             remapped to ``0`` so the array matches the declared no-data, while
             the in-coverage data cells keep their real value (``9``).
         """
-        pA = _make_band(
+        p_a = _make_band(
             tmp_path,
             "a.tif",
             7,
@@ -528,7 +528,7 @@ class TestFromBandFiles:
             shape=(10, 10),
             no_data_value=0,
         )
-        pB = _make_band(
+        p_b = _make_band(
             tmp_path,
             "b.tif",
             9,
@@ -539,7 +539,7 @@ class TestFromBandFiles:
             no_data_value=65535,
         )
         with pytest.warns(UserWarning, match="disagree on no-data"):
-            ds = Dataset.from_band_files([pA, pB], align=True)
+            ds = Dataset.from_band_files([p_a, p_b], align=True)
         band1 = ds.read_array(band=1)
         uniques = sorted(set(band1.flatten().tolist()))
         assert ds.no_data_value == (0.0, 0.0), f"declared no-data: {ds.no_data_value}"
@@ -561,7 +561,7 @@ class TestFromBandFiles:
             aligned fringe must still be ``0`` (no extra remap, no regression
             from the disagreement fix above).
         """
-        pA = _make_band(
+        p_a = _make_band(
             tmp_path,
             "a.tif",
             7,
@@ -571,7 +571,7 @@ class TestFromBandFiles:
             shape=(10, 10),
             no_data_value=0,
         )
-        pB = _make_band(
+        p_b = _make_band(
             tmp_path,
             "b.tif",
             9,
@@ -581,7 +581,7 @@ class TestFromBandFiles:
             shape=(8, 8),
             no_data_value=0,
         )
-        ds = Dataset.from_band_files([pA, pB], align=True)
+        ds = Dataset.from_band_files([p_a, p_b], align=True)
         band1 = ds.read_array(band=1)
         uniques = sorted(set(band1.flatten().tolist()))
         assert ds.no_data_value == (0.0, 0.0), f"declared no-data: {ds.no_data_value}"
@@ -599,7 +599,7 @@ class TestFromBandFiles:
             fringe must contain the override value (``42``), not the source's
             (``0``).
         """
-        pA = _make_band(
+        p_a = _make_band(
             tmp_path,
             "a.tif",
             7,
@@ -609,7 +609,7 @@ class TestFromBandFiles:
             shape=(10, 10),
             no_data_value=0,
         )
-        pB = _make_band(
+        p_b = _make_band(
             tmp_path,
             "b.tif",
             9,
@@ -619,7 +619,7 @@ class TestFromBandFiles:
             shape=(8, 8),
             no_data_value=0,
         )
-        ds = Dataset.from_band_files([pA, pB], align=True, no_data_value=42)
+        ds = Dataset.from_band_files([p_a, p_b], align=True, no_data_value=42)
         band1 = ds.read_array(band=1)
         uniques = sorted(set(band1.flatten().tolist()))
         assert ds.no_data_value == (42.0, 42.0), f"declared no-data: {ds.no_data_value}"
@@ -637,7 +637,7 @@ class TestFromBandFiles:
             ``NaN != NaN`` in Python, the "first-wins" reconciliation must
             treat both as equal — no ``UserWarning``, no remap needed.
         """
-        pE = _make_band(
+        p_e = _make_band(
             tmp_path,
             "e.tif",
             1.5,
@@ -647,7 +647,7 @@ class TestFromBandFiles:
             shape=(10, 10),
             no_data_value=float("nan"),
         )
-        pF = _make_band(
+        p_f = _make_band(
             tmp_path,
             "f.tif",
             2.5,
@@ -661,7 +661,7 @@ class TestFromBandFiles:
 
         with _warnings.catch_warnings(record=True) as caught:
             _warnings.simplefilter("always")
-            ds = Dataset.from_band_files([pE, pF], align=True)
+            ds = Dataset.from_band_files([p_e, p_f], align=True)
         assert not any(
             "disagree on no-data" in str(w.message) for w in caught
         ), "spurious NaN-vs-NaN disagreement warning fired"

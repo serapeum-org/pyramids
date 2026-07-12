@@ -970,14 +970,14 @@ class Analysis(_Engine["Dataset"]):
         )
         ind = get_indices2(arr, mask)
         classes = classes_map.read_array()
-        values: dict[Any, list[Any]] = dict()
+        values: dict[Any, list[Any]] = {}
 
         # extract values
         for i, ind_i in enumerate(ind):
             # first check if the sub-basin has a list in the dict if not create a list
             key = classes[ind_i[0], ind_i[1]]
-            if key not in list(values.keys()):
-                values[key] = list()
+            if key not in values:
+                values[key] = []
 
             values[key].append(arr[ind_i[0], ind_i[1]])
 

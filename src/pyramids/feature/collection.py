@@ -474,8 +474,9 @@ class FeatureCollection(GeoDataFrame):
             in the supplied CRS.
 
         Raises:
-            ValueError: ``bbox`` is not a 4-element sequence, or violates
-                ``west < east`` / ``south < north``, or ``epsg`` is ``None``.
+            ValueError: ``bbox`` is not a 4-element sequence, contains a
+                ``NaN`` coordinate, violates ``west < east`` /
+                ``south < north``, or ``epsg`` is ``None``.
             TypeError: ``bbox`` elements are not numbers.
 
         Examples:
@@ -542,9 +543,13 @@ class FeatureCollection(GeoDataFrame):
             w, s, e, n = (float(v) for v in seq)
         except (TypeError, ValueError) as exc:
             raise TypeError(f"bbox elements must be numbers; got {seq!r}") from exc
-        if not (w < e):
+        # NaN slips past the ordering checks below (nan >= x is False), so reject it
+        # explicitly — e.g. an empty frame's all-NaN ``total_bounds``.
+        if any(math.isnan(v) for v in (w, s, e, n)):
+            raise ValueError(f"bbox coordinates must not be NaN; got {seq!r}")
+        if w >= e:
             raise ValueError(f"bbox must satisfy west < east; got west={w}, east={e}")
-        if not (s < n):
+        if s >= n:
             raise ValueError(
                 f"bbox must satisfy south < north; got south={s}, north={n}"
             )
@@ -1295,7 +1300,7 @@ class FeatureCollection(GeoDataFrame):
         n = len(self)
         cols = self.columns.tolist()
         epsg = self.epsg
-        return f"FeatureCollection({n} features, " f"columns={cols}, epsg={epsg})"
+        return f"FeatureCollection({n} features, columns={cols}, epsg={epsg})"
 
     def __repr__(self) -> str:
         """Return a pyramids-branded repr."""

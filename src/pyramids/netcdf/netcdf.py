@@ -22,7 +22,7 @@ import pandas as pd
 from osgeo import gdal, osr
 
 from pyramids import _io
-from pyramids.base._utils import numpy_to_gdal_dtype
+from pyramids.base._utils import DEFAULT_RESAMPLING, numpy_to_gdal_dtype
 from pyramids.base.crs import sr_from_epsg
 from pyramids.base.protocols import ArrayLike
 from pyramids.dataset import DEFAULT_NO_DATA_VALUE, Dataset
@@ -2437,7 +2437,7 @@ class NetCDF(Dataset):
     def to_crs(
         self,
         to_epsg: int,
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
         maintain_alignment: bool = False,
     ) -> NetCDF:
         """Reproject the dataset to a different CRS.
@@ -2480,7 +2480,7 @@ class NetCDF(Dataset):
     def warped_view(
         self,
         crs: int | str | Any,
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
         *,
         cell_size: float | None = None,
         bbox: tuple[float, float, float, float] | None = None,
@@ -2678,7 +2678,7 @@ class NetCDF(Dataset):
     def resample(
         self,
         cell_size: float,
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
     ) -> NetCDF:
         """Resample the dataset to a different cell size.
 
@@ -4791,7 +4791,7 @@ class NetCDF(Dataset):
         rg = self._working_group()
         if rg is None:
             raise ValueError(
-                "delete_global_attribute requires a multidimensional " "container."
+                "delete_global_attribute requires a multidimensional container."
             )
         try:
             rg.DeleteAttribute(name)
@@ -4827,7 +4827,7 @@ class NetCDF(Dataset):
         return self
 
     def reproject_variable(
-        self, variable_name: str, to_epsg: int, method: str = "nearest neighbor"
+        self, variable_name: str, to_epsg: int, method: str = DEFAULT_RESAMPLING
     ) -> NetCDF:
         """Reproject a single variable and store the result back.
 
@@ -4876,7 +4876,7 @@ class NetCDF(Dataset):
         self,
         variable_name: str,
         cell_size: int | float,
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
     ) -> NetCDF:
         """Resample a single variable and store the result back.
 

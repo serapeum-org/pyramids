@@ -93,8 +93,8 @@ class GroupInfo:
         cls,
         group: gdal.Group,
         *,
-        variables: list[str],
-        children: list[str],
+        variables: list[str] | None,
+        children: list[str] | None,
         attributes: dict[str, AttributeValue] | None = None,
     ) -> GroupInfo:
         """Build a GroupInfo from a live GDAL Group object.

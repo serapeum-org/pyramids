@@ -46,6 +46,9 @@ _GZIP_SUFFIXES = {".gz"}
 # target the right member. ``.tar.gz`` is matched separately (its ``Path.suffix``
 # is ``.gz``) via :func:`_is_archive`.
 _ARCHIVE_SUFFIXES = {".zip", ".tar", ".tgz"}
+# ``.tar.gz`` needs its own compound suffix — ``Path.suffix`` only sees ``.gz`` —
+# so name it once and reuse it across the archive checks (S1192).
+_TAR_GZ_SUFFIX = ".tar.gz"
 
 _RASTER_SUFFIXES = {".tif", ".tiff", ".cog", ".nc", ".nc4", ".vrt"}
 _VECTOR_SUFFIXES = {
@@ -106,7 +109,7 @@ def _is_archive(path: Path) -> bool:
     ``.gz`` — GDAL's ``/vsitar/`` handler decompresses it inline.
     """
     name = path.name.lower()
-    return name.endswith(".tar.gz") or Path(name).suffix in _ARCHIVE_SUFFIXES
+    return name.endswith(_TAR_GZ_SUFFIX) or Path(name).suffix in _ARCHIVE_SUFFIXES
 
 
 def _strip_compression(name: str) -> str:
@@ -119,8 +122,8 @@ def _strip_compression(name: str) -> str:
     inside the archive.
     """
     low = name.lower()
-    if low.endswith(".tar.gz"):
-        inner = name[: -len(".tar.gz")]
+    if low.endswith(_TAR_GZ_SUFFIX):
+        inner = name[: -len(_TAR_GZ_SUFFIX)]
     else:
         p = Path(name)
         inner = (

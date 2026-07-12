@@ -17,7 +17,7 @@ from typing import Any
 import numpy as np
 from osgeo import gdal, osr
 
-from pyramids.base._utils import resolve_resampling
+from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.remote import signer_cloud_config
 from pyramids.dataset.dataset import _INHERIT_NO_DATA, Dataset
 
@@ -40,7 +40,7 @@ def merge_rasters(
     n: float | int | str = "nan",
     method: str = "last",
     dst_crs: int | str | None = None,
-    resampling: str = "nearest neighbor",
+    resampling: str = DEFAULT_RESAMPLING,
     signer: Any = None,
 ) -> None:
     """Merge a group of rasters into one raster, resolving overlaps by ``method``.
@@ -264,7 +264,7 @@ def _as_srs(crs: int | str) -> osr.SpatialReference:
 def _prepare_sources(
     src_paths: list[str],
     dst_crs: int | str | None,
-    resampling: str = "nearest neighbor",
+    resampling: str = DEFAULT_RESAMPLING,
 ) -> tuple[list, list]:
     """Put every source on a single CRS before the mosaic is composited.
 

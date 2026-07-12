@@ -136,12 +136,12 @@ class TestMeshTopologyInfo:
         Test scenario:
             Two MeshTopologyInfo objects with the same field values should be equal.
         """
-        kwargs = dict(
-            mesh_name="mesh2d",
-            topology_dimension=2,
-            node_x_var="node_x",
-            node_y_var="node_y",
-        )
+        kwargs = {
+            "mesh_name": "mesh2d",
+            "topology_dimension": 2,
+            "node_x_var": "node_x",
+            "node_y_var": "node_y",
+        }
         topo1 = MeshTopologyInfo(**kwargs)
         topo2 = MeshTopologyInfo(**kwargs)
         assert topo1 == topo2, "Identical MeshTopologyInfo objects should be equal"
@@ -603,7 +603,7 @@ class TestUgridMetadata:
         Test scenario:
             Two UgridMetadata objects with the same values should be equal.
         """
-        kwargs = dict(conventions="CF-1.8", n_nodes=10, n_faces=5, n_edges=15)
+        kwargs = {"conventions": "CF-1.8", "n_nodes": 10, "n_faces": 5, "n_edges": 15}
         m1 = UgridMetadata(**kwargs)
         m2 = UgridMetadata(**kwargs)
         assert m1 == m2, "Identical UgridMetadata objects should be equal"

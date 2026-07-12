@@ -22,6 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from pyramids.base._utils import DEFAULT_RESAMPLING
+
 if TYPE_CHECKING:
     from pyramids.dataset import Dataset
 
@@ -53,7 +55,7 @@ class ReprojectPlan:
     """
 
     target_epsg: int
-    method: str = "nearest neighbor"
+    method: str = DEFAULT_RESAMPLING
     maintain_alignment: bool = False
 
 
@@ -86,7 +88,7 @@ class Reprojector:
     def __init__(
         self,
         target_epsg: int,
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
         maintain_alignment: bool = False,
     ) -> None:
         self._plan = ReprojectPlan(
@@ -150,7 +152,7 @@ class Aligner(Reprojector):
             ```
     """
 
-    def __init__(self, reference: Dataset, method: str = "nearest neighbor") -> None:
+    def __init__(self, reference: Dataset, method: str = DEFAULT_RESAMPLING) -> None:
         if reference.epsg is None:
             raise ValueError(
                 "the alignment reference has no EPSG code (e.g. a geostationary "

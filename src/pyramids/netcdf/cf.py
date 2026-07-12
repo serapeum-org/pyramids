@@ -410,9 +410,7 @@ def _build_srs_from_cf_params(
             float(inv_flat),
         )
 
-    if grid_mapping_name == "latitude_longitude":
-        pass
-    elif grid_mapping_name == "transverse_mercator":
+    if grid_mapping_name == "transverse_mercator":
         srs.SetTM(
             params.get("latitude_of_projection_origin", 0.0),
             params.get("longitude_of_central_meridian", 0.0),
@@ -499,7 +497,9 @@ def _build_srs_from_cf_params(
             params.get("false_easting", 0.0),
             params.get("false_northing", 0.0),
         )
-    else:
+    elif grid_mapping_name != "latitude_longitude":
+        # `latitude_longitude` is geographic and sets no projection parameters,
+        # so it is accepted as a no-op; any other name is unsupported.
         raise ValueError(
             f"Unsupported CF grid_mapping_name: {grid_mapping_name!r}. "
             f"Include crs_wkt in the grid_mapping variable."
@@ -707,12 +707,10 @@ def classify_variables(
                     cell_measure_vars.add(token)
         av = attrs.get("ancillary_variables")
         if isinstance(av, str):
-            for token in av.split():
-                ancillary_vars.add(token)
+            ancillary_vars.update(av.split())
         coords = attrs.get("coordinates")
         if isinstance(coords, str):
-            for token in coords.split():
-                aux_coord_vars.add(token)
+            aux_coord_vars.update(coords.split())
 
     roles: dict[str, str] = {}
     for name, var in variables.items():
@@ -807,7 +805,7 @@ def parse_cell_methods(cell_methods_str: str) -> list[dict[str, str]]:
         and optionally `"where"` and `"over"`.
     """
     results: list[dict[str, str]] = []
-    pattern = r'(\w[\w\s]*?):\s+(\w+)' r'(?:\s+where\s+(\w+))?' r'(?:\s+over\s+(\w+))?'
+    pattern = r'(\w[\w\s]*?):\s+(\w+)(?:\s+where\s+(\w+))?(?:\s+over\s+(\w+))?'
     for match in re.finditer(pattern, cell_methods_str):
         entry: dict[str, str] = {
             "dimensions": match.group(1).strip(),
@@ -883,31 +881,32 @@ def decode_flags(
     """
     result: list[str] = ["unknown"]
 
-    if flag_meanings is None:
-        pass
-    elif flag_masks is not None and flag_values is not None:
-        matched = [
-            flag_meanings[i]
-            for i in range(len(flag_meanings))
-            if i < len(flag_masks)
-            and i < len(flag_values)
-            and (value & flag_masks[i]) == flag_values[i]
-        ]
-        if matched:
-            result = matched
-    elif flag_masks is not None:
-        matched = [
-            flag_meanings[i]
-            for i in range(len(flag_meanings))
-            if i < len(flag_masks) and (value & flag_masks[i]) != 0
-        ]
-        if matched:
-            result = matched
-    elif flag_values is not None:
-        for i, fv in enumerate(flag_values):
-            if fv == value and i < len(flag_meanings):
-                result = [flag_meanings[i]]
-                break
+    # A None flag_meanings has no labels to resolve, so keep the ["unknown"]
+    # default; every branch below indexes flag_meanings.
+    if flag_meanings is not None:
+        if flag_masks is not None and flag_values is not None:
+            matched = [
+                flag_meanings[i]
+                for i in range(len(flag_meanings))
+                if i < len(flag_masks)
+                and i < len(flag_values)
+                and (value & flag_masks[i]) == flag_values[i]
+            ]
+            if matched:
+                result = matched
+        elif flag_masks is not None:
+            matched = [
+                flag_meanings[i]
+                for i in range(len(flag_meanings))
+                if i < len(flag_masks) and (value & flag_masks[i]) != 0
+            ]
+            if matched:
+                result = matched
+        elif flag_values is not None:
+            for i, fv in enumerate(flag_values):
+                if fv == value and i < len(flag_meanings):
+                    result = [flag_meanings[i]]
+                    break
 
     return result
 
@@ -946,7 +945,7 @@ def validate_cf(
     conv = global_attrs.get("Conventions", "")
     if not isinstance(conv, str) or "CF-" not in conv:
         issues.append(
-            "Missing or invalid 'Conventions' attribute. " "Should contain 'CF-1.X'."
+            "Missing or invalid 'Conventions' attribute. Should contain 'CF-1.X'."
         )
 
     dim_names = {d.name for d in dimensions.values()}

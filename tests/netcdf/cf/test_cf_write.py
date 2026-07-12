@@ -49,7 +49,7 @@ class TestWriteAttributesToMdArray:
             A string attribute should be stored and retrievable via
             GDAL GetAttributes.
         """
-        ds, _, md_arr = _make_mem_md_array()
+        _, _, md_arr = _make_mem_md_array()
         write_attributes_to_md_array(md_arr, {"units": "K"})
         attrs = {a.GetName(): a.Read() for a in md_arr.GetAttributes()}
         assert "units" in attrs, f"Expected 'units' in attrs, got {list(attrs.keys())}"
@@ -61,7 +61,7 @@ class TestWriteAttributesToMdArray:
         Test scenario:
             A float attribute should be stored with float64 type.
         """
-        ds, _, md_arr = _make_mem_md_array()
+        _, _, md_arr = _make_mem_md_array()
         write_attributes_to_md_array(md_arr, {"scale_factor": 0.01})
         attrs = {a.GetName(): a.Read() for a in md_arr.GetAttributes()}
         assert (
@@ -77,7 +77,7 @@ class TestWriteAttributesToMdArray:
         Test scenario:
             An int attribute should be stored with Int32 type.
         """
-        ds, _, md_arr = _make_mem_md_array()
+        _, _, md_arr = _make_mem_md_array()
         write_attributes_to_md_array(md_arr, {"start_index": 1})
         attrs = {a.GetName(): a.Read() for a in md_arr.GetAttributes()}
         assert (
@@ -91,7 +91,7 @@ class TestWriteAttributesToMdArray:
         Test scenario:
             A mixed dict of str, int, float should all be stored.
         """
-        ds, _, md_arr = _make_mem_md_array()
+        _, _, md_arr = _make_mem_md_array()
         write_attributes_to_md_array(
             md_arr,
             {
@@ -116,7 +116,7 @@ class TestWriteAttributesToMdArray:
             A list of numeric values should be written as a
             multi-element float64 attribute.
         """
-        ds, _, md_arr = _make_mem_md_array()
+        _, _, md_arr = _make_mem_md_array()
         write_attributes_to_md_array(md_arr, {"standard_parallel": [30.0, 60.0]})
         attrs = {a.GetName(): a.Read() for a in md_arr.GetAttributes()}
         assert (
@@ -131,7 +131,7 @@ class TestWriteAttributesToMdArray:
         Test scenario:
             An empty attrs dict should be a no-op.
         """
-        ds, _, md_arr = _make_mem_md_array()
+        _, _, md_arr = _make_mem_md_array()
         write_attributes_to_md_array(md_arr, {})
         attrs = list(md_arr.GetAttributes())
         assert len(attrs) == 0, f"Expected 0 attributes, got {len(attrs)}"
@@ -143,7 +143,7 @@ class TestWriteAttributesToMdArray:
             Non-standard types fall through to the else branch and
             are converted via str().
         """
-        ds, _, md_arr = _make_mem_md_array()
+        _, _, md_arr = _make_mem_md_array()
         write_attributes_to_md_array(md_arr, {"comment": None})
         attrs = {a.GetName(): a.Read() for a in md_arr.GetAttributes()}
         assert (
@@ -219,7 +219,7 @@ class TestCreateFromArrayCFGlobalAttributes:
             The default behavior should always include the Conventions
             attribute on the root group.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         ga = nc.global_attributes
         assert (
@@ -235,7 +235,7 @@ class TestCreateFromArrayCFGlobalAttributes:
         Test scenario:
             Passing title should add it to the global attributes.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -253,7 +253,7 @@ class TestCreateFromArrayCFGlobalAttributes:
         Test scenario:
             Passing institution should add it to global attributes.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -271,7 +271,7 @@ class TestCreateFromArrayCFGlobalAttributes:
         Test scenario:
             Passing source should add it to global attributes.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -289,7 +289,7 @@ class TestCreateFromArrayCFGlobalAttributes:
         Test scenario:
             Passing history should add it to global attributes.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -308,7 +308,7 @@ class TestCreateFromArrayCFGlobalAttributes:
             Passing all four optional params should produce all
             four attributes plus Conventions.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -342,7 +342,7 @@ class TestCreateFromArrayCFGlobalAttributes:
             When title/institution/source/history are None (default),
             only Conventions should be present.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         ga = nc.global_attributes
         assert "Conventions" in ga, "Conventions must always be present"
@@ -366,7 +366,7 @@ class TestCreateFromArrayCFGlobalAttributes:
             3D arrays (with extra dimension) should also get CF
             global attributes.
         """
-        arr = np.random.RandomState(SEED).rand(3, 5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((3, 5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -388,7 +388,7 @@ class TestCreateFromArrayCFGlobalAttributes:
             parameters should produce a valid NetCDF with data
             preserved.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -414,7 +414,7 @@ class TestCFGlobalAttributesRoundTrip:
             Create in-memory, write to .nc, read back, check
             Conventions is still CF-1.8.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -438,7 +438,7 @@ class TestCFGlobalAttributesRoundTrip:
             Create with all four CF params, write to disk,
             read back, verify all are preserved.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -473,7 +473,7 @@ class TestCFGlobalAttributesRoundTrip:
             reopen the file, and verify Conventions and title are present
             in the on-disk representation.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         out_path = str(tmp_path / "direct_write.nc")
         nc = NetCDF.create_from_array(
             arr=arr,

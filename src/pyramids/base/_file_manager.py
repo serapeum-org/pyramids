@@ -279,7 +279,7 @@ class _LRUCache(MutableMapping):
                 self._on_evict(key, value)
 
 
-def _close_handle(_key: Hashable, handle: Any) -> None:
+def _close_handle(_key: Hashable | None, handle: Any) -> None:
     """Close a cached GDAL/OGR handle if it has a `Close` method.
 
     Eviction-time close failures are logged at DEBUG and swallowed
@@ -531,13 +531,13 @@ class _NullLock:
         return True
 
     def release(self) -> None:
-        pass
+        """No-op: a null lock is never held, so there is nothing to release."""
 
     def __enter__(self) -> _NullLock:
         return self
 
     def __exit__(self, *_: Any) -> None:
-        pass
+        """No-op: a null lock holds nothing, so context exit releases nothing."""
 
 
 _NULL_LOCK = _NullLock()

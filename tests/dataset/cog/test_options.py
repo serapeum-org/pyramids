@@ -96,12 +96,12 @@ class TestValidateBlocksize:
 
     @pytest.mark.parametrize("value", [500, 300, 1000])
     def test_rejects_non_power_of_two(self, value):
-        with pytest.raises(ValueError, match="power of 2"):
+        with pytest.raises(ValueError, match="must be a power of 2"):
             validate_blocksize(value)
 
     @pytest.mark.parametrize("value", [32, 8192, 0, -64])
     def test_rejects_out_of_range(self, value):
-        with pytest.raises(ValueError, match="power of 2"):
+        with pytest.raises(ValueError, match=r"in \[64, 4096\]"):
             validate_blocksize(value)
 
 

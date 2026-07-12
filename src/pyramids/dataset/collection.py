@@ -17,7 +17,12 @@ from pyramids import _io
 from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
 from pyramids.base._raster_meta import RasterMeta
-from pyramids.base._utils import import_dask, import_zarr, lazy_extra_hint
+from pyramids.base._utils import (
+    DEFAULT_RESAMPLING,
+    import_dask,
+    import_zarr,
+    lazy_extra_hint,
+)
 from pyramids.base.remote import cloud_config_from_env
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset._reduce_ops import resolve_dask_op
@@ -1505,18 +1510,18 @@ class DatasetCollection:
         Returns:
             DatasetCollection: A time-stacked cube over the point AOI.
         """
-        kwargs: dict[str, Any] = dict(
-            collection=collection,
-            bands=bands,
-            start_date=start_date,
-            end_date=end_date,
-            edge_size=edge_size,
-            resolution=resolution,
-            units=units,
-            query=query,
-            signer=signer,
-            align=align,
-        )
+        kwargs: dict[str, Any] = {
+            "collection": collection,
+            "bands": bands,
+            "start_date": start_date,
+            "end_date": end_date,
+            "edge_size": edge_size,
+            "resolution": resolution,
+            "units": units,
+            "query": query,
+            "signer": signer,
+            "align": align,
+        }
         if stac is not None:
             kwargs["stac"] = stac
         return _from_point(lat, lon, **kwargs)
@@ -2424,7 +2429,7 @@ class DatasetCollection:
                 path.mkdir(parents=True, exist_ok=True)
             path = [str(path / f"{i}.{ext}") for i in range(self.time_length)]
         else:
-            if not len(path) == self.time_length:
+            if len(path) != self.time_length:
                 raise ValueError(
                     f"Length of the given paths: {len(path)} does not equal number of rasters in the data cube: {self.time_length}"
                 )
@@ -2570,7 +2575,7 @@ class DatasetCollection:
     def to_crs(
         self,
         to_epsg: int | str | Any = 3857,
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
         maintain_alignment: bool = False,
         inplace: bool = False,
     ) -> DatasetCollection | None:

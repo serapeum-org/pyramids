@@ -89,7 +89,7 @@ def make_3d_nc(
         geo = (0.0, 1.0, 0, float(rows), 0, -1.0)
 
     if arr_type == "random":
-        arr = np.random.RandomState(seed).rand(bands, rows, cols).astype(np.float64)
+        arr = np.random.default_rng(seed).random((bands, rows, cols)).astype(np.float64)
     else:
         arr = np.arange(
             bands * rows * cols,

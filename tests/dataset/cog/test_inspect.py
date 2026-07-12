@@ -80,7 +80,7 @@ class TestCogInfo:
             4326, single band, and is_cog True.
         """
         info = cog_info(big_float_cog)
-        assert info.is_cog is True, f"expected a valid COG, errors via validate"
+        assert info.is_cog is True, "expected a valid COG, errors via validate"
         assert info.driver == "GTiff", f"unexpected driver {info.driver}"
         assert (
             info.compression == "DEFLATE"

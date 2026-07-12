@@ -143,7 +143,7 @@ class TestAliasExport:
         """Smoke test that did not accidentally remove SpatialObject."""
         from pyramids.base.protocols import SpatialObject
 
-        assert SpatialObject is not None
+        assert SpatialObject.__name__ == "SpatialObject"
 
 
 class TestArrayLikeGapCoverage:
@@ -239,12 +239,7 @@ class TestArrayLikeGapCoverage:
         assert out.dtype == np.int32
 
     @requires_dask
-    def test_is_lazy_dask_subclass_still_lazy(self):
-        """A subclassed dask.array.Array still reports lazy."""
-
-        class DaskSub(dask_array.Array):
-            pass
-
-        # Construct via from_array then check attribute presence is sufficient.
+    def test_is_lazy_dask_array_reports_lazy(self):
+        """A dask.array.Array reports lazy."""
         arr = dask_array.from_array(np.arange(4), chunks=2)
         assert is_lazy(arr) is True

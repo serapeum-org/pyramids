@@ -95,7 +95,7 @@ def _validate_band_index(band: int | None, band_count: int) -> None:
         return
     if band < 0 or band > band_count - 1:
         raise ValueError(
-            f"band index should be between 0 and {band_count - 1}, " f"got {band}"
+            f"band index should be between 0 and {band_count - 1}, got {band}"
         )
 
 

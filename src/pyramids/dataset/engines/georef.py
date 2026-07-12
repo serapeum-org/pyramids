@@ -17,7 +17,7 @@ from uuid import uuid4
 from osgeo import gdal
 
 from pyramids.base._errors import ReadOnlyError
-from pyramids.base._utils import resolve_resampling
+from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import sr_from_user_input
 from pyramids.dataset._gcp import GroundControlPoint
 from pyramids.dataset.engines._base import _Engine
@@ -350,7 +350,7 @@ class Georef(_Engine["Dataset"]):
         self: Georef,
         *,
         to_epsg: int | str | None = None,
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
         transform: str = "polynomial",
         order: int = 1,
         cell_size: float | None = None,

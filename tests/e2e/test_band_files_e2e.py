@@ -161,4 +161,4 @@ class TestBandFilesDownloadStackPersist:
         assert (
             collection.time_length == 2
         ), f"expected 2 timesteps, got {collection.time_length}"
-        assert collection.base.band_count == 2, f"stacked template should have 2 bands"
+        assert collection.base.band_count == 2, "stacked template should have 2 bands"

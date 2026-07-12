@@ -379,11 +379,10 @@ def merge_options(
     merged: dict[str, Any] = {
         str(k).upper(): v for k, v in defaults.items() if v is not None
     }
-    if extra is None:
-        pass
-    elif isinstance(extra, list):
+    # `extra is None` -> nothing to merge, keep the defaults.
+    if isinstance(extra, list):
         merged.update(_parse_list_extra(extra))
-    else:
+    elif extra is not None:
         merged.update({str(k).upper(): v for k, v in extra.items() if v is not None})
     return merged
 

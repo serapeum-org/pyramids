@@ -19,7 +19,6 @@ class _QuietHandler(http.server.SimpleHTTPRequestHandler):
 
     def log_message(self, *args, **kwargs):  # noqa: D401, N802
         """Suppress the default stderr access log."""
-        return
 
 
 @pytest.fixture(scope="module")
