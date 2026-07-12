@@ -107,7 +107,7 @@ class TestDatasetCollectionRoundTrip:
 
         base = _make_dataset(rows=rows, cols=cols, fill_value=1.0)
         md = DatasetCollection.create_cube(base, dataset_length=time_steps)
-        values = np.random.default_rng().random((time_steps, rows, cols)).astype(
+        values = np.random.default_rng(0).random((time_steps, rows, cols)).astype(
             np.float64
         )
         md.values = values
@@ -606,7 +606,7 @@ class TestDatasetCollectionProcessingPipeline:
 
         base = _make_dataset(rows=rows, cols=cols)
         md = DatasetCollection.create_cube(base, dataset_length=time_steps)
-        values = np.random.default_rng().random((time_steps, rows, cols))
+        values = np.random.default_rng(0).random((time_steps, rows, cols))
         md.values = values
 
         assert md.head(3).shape == (3, rows, cols), "head(3) shape mismatch"

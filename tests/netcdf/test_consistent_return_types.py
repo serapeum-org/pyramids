@@ -126,7 +126,7 @@ class TestPreserveNetcdfMetadata:
             A Dataset created via create_from_array is wrapped into
             a NetCDF with the source variable's metadata copied.
         """
-        arr = np.random.default_rng().random((4, 5, 5))
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -157,7 +157,7 @@ class TestPreserveNetcdfMetadata:
             The source variable has _band_dim_name='time'; the
             wrapped result must have the same value.
         """
-        arr = np.random.default_rng().random((4, 5, 5))
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -176,7 +176,7 @@ class TestPreserveNetcdfMetadata:
             The source variable has coordinate values [0,6,12,18];
             the wrapped result must carry the same list.
         """
-        arr = np.random.default_rng().random((4, 5, 5))
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -194,7 +194,7 @@ class TestPreserveNetcdfMetadata:
         Test scenario:
             Variable attributes dict from the source is copied.
         """
-        arr = np.random.default_rng().random((4, 5, 5))
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -214,7 +214,7 @@ class TestPreserveNetcdfMetadata:
         """
         var_3d._scale = 0.01
         var_3d._offset = 273.15
-        arr = np.random.default_rng().random((4, 5, 5))
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -235,7 +235,7 @@ class TestPreserveNetcdfMetadata:
             The wrapped result must have the same _is_subset value
             as the source.
         """
-        arr = np.random.default_rng().random((4, 5, 5))
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -253,7 +253,7 @@ class TestPreserveNetcdfMetadata:
             The wrapped result must have the same _is_md_array value
             as the source.
         """
-        arr = np.random.default_rng().random((4, 5, 5))
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
@@ -272,7 +272,7 @@ class TestPreserveNetcdfMetadata:
             SWIG refs are not transferable to a new GDAL dataset,
             so they must be cleared on the wrapped result.
         """
-        arr = np.random.default_rng().random((4, 5, 5))
+        arr = np.random.default_rng(0).random((4, 5, 5))
         ds = Dataset.create_from_array(
             arr,
             geo=(30.0, 1.0, 0, 40.0, 0, -1.0),
