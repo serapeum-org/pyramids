@@ -34,8 +34,9 @@ def utm_zone(lon: float) -> int:
     hemisphere band in `utm_epsg`, not the zone number.
 
     Args:
-        lon: Longitude in degrees. Values outside `[-180, 180]` are clamped to the
-            valid zone range `1..60`.
+        lon: Longitude in degrees. A longitude outside `[-180, 180]` — e.g. the
+            `0..360` convention common in climate/ocean grids — is wrapped into
+            `[-180, 180]` first, so `200` is treated as `-160`.
 
     Returns:
         int: The UTM zone number, `1..60`.
@@ -54,7 +55,15 @@ def utm_zone(lon: float) -> int:
             31
 
             ```
+        - A `0..360` longitude is wrapped, so 200°E resolves like 160°W:
+            ```python
+            >>> utm_zone(200.0)
+            4
+
+            ```
     """
+    if lon < -180.0 or lon > 180.0:
+        lon = ((lon + 180.0) % 360.0) - 180.0
     zone = math.floor((lon + 180.0) / 6.0) + 1
     zone = min(max(zone, 1), 60)
     return zone
@@ -64,9 +73,11 @@ def utm_epsg(lon: float, lat: float) -> int:
     """Return the EPSG code of the UTM zone containing `(lon, lat)`.
 
     Args:
-        lon: Longitude in degrees.
-        lat: Latitude in degrees. Only its sign is used, to pick the northern
-            (`326xx`) or southern (`327xx`) band.
+        lon: Longitude in degrees (wrapped into `[-180, 180]`; see `utm_zone`).
+        lat: Latitude in degrees. Only its sign is used (the equator is treated as
+            northern) to pick the northern (`326xx`) or southern (`327xx`) band. UTM
+            is defined for roughly `80°S..84°N`; a latitude outside that band still
+            returns a code, but the poles are properly the domain of UPS, not UTM.
 
     Returns:
         int: `326NN` (northern hemisphere) or `327NN` (southern) for UTM zone `NN`.
@@ -99,17 +110,20 @@ def utm_epsg_for_polygon(gdf: GeoDataFrame) -> int:
     Any geometry type is accepted (points, lines, polygons); the zone is chosen from
     the bounds centre, not a true geometric centroid.
 
-    A single UTM zone only makes sense for a reasonably local extent, so a layer
-    whose bounds span more than 180° of longitude — a dateline-crossing layer, whose
-    total bounds spuriously spans `-180…180`, or a genuinely half-globe extent — is
-    rejected rather than silently assigned the wrong (mid-span) zone.
+    The single zone returned is the one at the bounds centre; it is exact only for a
+    layer that fits within one 6°-wide zone, and is a best-effort choice for a wider
+    layer (which spans several zones). Only the clearly-nonsensical case is rejected:
+    bounds spanning more than 180° of longitude — a dateline-crossing layer (whose
+    total bounds spuriously spans `-180…180`), a near-polar extent (whose longitudes
+    fan out around the pole), or a genuinely half-globe span — where the mid-span
+    centre would name a zone covering none of the data.
 
     Args:
         gdf: A `GeoDataFrame` with a defined CRS and at least one finite-bounds
             geometry.
 
     Returns:
-        int: The EPSG code of the UTM zone covering the layer's bounds centre.
+        int: The EPSG code of the UTM zone at the layer's bounds centre.
 
     Raises:
         CRSError: `gdf` has no CRS (so its coordinates cannot be placed on Earth).
@@ -130,8 +144,8 @@ def utm_epsg_for_polygon(gdf: GeoDataFrame) -> int:
         )
     if maxx - minx > 180.0:
         raise ValueError(
-            f"gdf bounds span {maxx - minx:.1f}° of longitude (a dateline crossing "
-            "or a half-globe extent); no single UTM zone applies."
+            f"gdf bounds span {maxx - minx:.1f}° of longitude (a dateline crossing, "
+            "a near-polar extent, or a half-globe span); no single UTM zone applies."
         )
     return utm_epsg((minx + maxx) / 2.0, (miny + maxy) / 2.0)
 

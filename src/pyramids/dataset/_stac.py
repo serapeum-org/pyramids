@@ -25,6 +25,7 @@ from datetime import timedelta, timezone
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 from osgeo import osr
+from pyproj import Transformer
 
 from pyramids.base._artifacts import artifact_dir
 from pyramids.base._errors import StacAssetError
@@ -705,8 +706,6 @@ def _point_aoi_bbox(
     """
     if units not in ("px", "m"):
         raise ValueError(f"units must be 'px' or 'm', got {units!r}.")
-    from pyproj import Transformer
-
     epsg = _utm_epsg(lon, lat)
     to_utm = Transformer.from_crs(4326, epsg, always_xy=True)
     cx, cy = to_utm.transform(lon, lat)
