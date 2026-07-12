@@ -22,6 +22,7 @@ including interior rings; it does not attempt pole-enclosing geometries.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 
 from pyproj import CRS, Transformer
 from shapely.affinity import translate
@@ -244,7 +245,8 @@ def estimate_pixel_dims(bbox: Bbox, scale_m: float) -> tuple[int, int]:
     for a tight, latitude-accurate count, reproject to a metric CRS first (see :func:`transform`).
 
     A bbox with `west > east` is treated as an antimeridian crossing (this module's convention) and its longitude
-    span is measured the short way across the 180 deg meridian.
+    span is measured the wrapping way across the 180 deg meridian (`east - west + 360`), consistent with
+    :func:`split_antimeridian`.
 
     Args:
         bbox: A `(west, south, east, north)` bounding box in degrees; `east < west` denotes an
@@ -270,7 +272,7 @@ def estimate_pixel_dims(bbox: Bbox, scale_m: float) -> tuple[int, int]:
             (1114, 1117)
 
             ```
-        - An antimeridian-crossing bbox (`west > east`) spans the short way across 180 deg:
+        - An antimeridian-crossing bbox (`west > east`) wraps across 180 deg:
             ```python
             >>> estimate_pixel_dims((175.0, -22.0, -175.0, -12.0), 1000.0)
             (1114, 1117)
@@ -300,7 +302,7 @@ def estimate_pixel_dims(bbox: Bbox, scale_m: float) -> tuple[int, int]:
     return width, height
 
 
-def read_bbox_dict(bbox: dict) -> Bbox:
+def read_bbox_dict(bbox: Mapping[str, float]) -> Bbox:
     """Read a `(west, south, east, north)` bbox from a mapping, accepting many key spellings.
 
     Each edge is resolved to the first present alias from `_BBOX_KEY_ALIASES` (GeoJSON `min_lon`, eodag `lonmin`,
