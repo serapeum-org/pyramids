@@ -792,6 +792,28 @@ class Config:
 
         return gdal_plugins_path if gdal_plugins_path.exists() else None
 
+    @staticmethod
+    def _probe_windows_plugins() -> Path | None:
+        """Probe Python site-packages for a GDAL plugins dir (Windows), last match wins."""
+        found: Path | None = None
+        for site_path in site.getsitepackages():
+            plugins = Plugins(site_packages_path=site_path)
+            path = plugins.check_path()
+            if path:
+                found = path
+        return found
+
+    def _probe_posix_plugins(self) -> Path | None:
+        """Probe typical Linux/macOS gdalplugins locations, setting GDAL_DRIVER_PATH."""
+        found: Path | None = None
+        for candidate in ("/usr/local/lib/gdalplugins", "/usr/lib/gdalplugins"):
+            path = Path(candidate)
+            if path.exists():
+                os.environ["GDAL_DRIVER_PATH"] = str(path)
+                found = path
+                self.logger.debug(f"GDAL_DRIVER_PATH set to: {path}")
+        return found
+
     def dynamic_env_variables(self) -> Path | None:
         """Locate GDAL plugin directories and export GDAL_DRIVER_PATH.
 
@@ -820,30 +842,10 @@ class Config:
         gdal_plugins_path = self.set_env_conda()
 
         if gdal_plugins_path is None:
-
-            # For Windows, check Python site-packages
             if sys.platform == "win32":
-                for site_path in site.getsitepackages():
-                    plugins = Plugins(site_packages_path=site_path)
-                    path = plugins.check_path()
-                    if path:
-                        gdal_plugins_path = path
+                gdal_plugins_path = self._probe_windows_plugins()
             else:
-
-                # Check typical system locations (Linux/MacOS)
-                system_paths = [
-                    "/usr/local/lib/gdalplugins",
-                    "/usr/lib/gdalplugins",
-                ]
-                for path in system_paths:
-                    path = Path(path)
-                    if path.exists():
-                        os.environ["GDAL_DRIVER_PATH"] = str(path)
-                        gdal_plugins_path = path
-                        self.logger.debug(f"GDAL_DRIVER_PATH set to: {path}")
-
-                # If the path is not found
-                # print("GDAL plugins path could not be found. Please check your GDAL installation.")
+                gdal_plugins_path = self._probe_posix_plugins()
         return gdal_plugins_path
 
     def setup_logging(
