@@ -492,10 +492,9 @@ class IO(_Engine["Dataset"]):
                   giving the tightest window; a partly-covered boundary pixel
                   can be clipped.
 
-                Ignored when `window` is already a pixel window
-                (:class:`~pyramids.dataset.window.Window` or the x-first list)
-                or absent. Any other value raises :class:`ValueError`. Default
-                `"cover"`.
+                Ignored when `window` is already a pixel window (`Window` or
+                the x-first list) or absent. Any other value raises
+                `ValueError`. Default `"cover"`.
 
         Returns:
             ArrayLike:

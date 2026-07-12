@@ -1666,14 +1666,13 @@ class NetCDF(Dataset):
                 raw stored values before any `unpack` scaling, matching CF
                 `_FillValue` semantics; the scale/offset arithmetic
                 preserves the mask. Default is `False`.
-            bbox_rounding (keyword-only): How a ``bbox`` (or geometry
-                ``window``) is snapped to whole pixels — ``"cover"``
+            bbox_rounding (keyword-only): How a `bbox` (or geometry
+                `window`) is snapped to whole pixels — `"cover"`
                 (default; floor/ceil so every overlapping pixel is kept)
-                or ``"nearest"`` (round each edge to the closest pixel
+                or `"nearest"` (round each edge to the closest pixel
                 boundary, the tightest window). Forwarded verbatim to
-                :meth:`pyramids.dataset.Dataset.read_array`; ignored on the
-                lazy path and for pixel windows. Any other value raises
-                :class:`ValueError`.
+                `Dataset.read_array`; ignored on the lazy path and for
+                pixel windows. Any other value raises `ValueError`.
 
         Returns:
             np.ndarray or dask.array.Array: The array data, eager
