@@ -223,3 +223,83 @@ class TestUgridDatasetPlotMethods:
                 with pytest.raises(ValueError, match=r"CRS"):
                     ds.plot("depth", basemap=True)
             mock_render.assert_not_called()
+
+
+_mesh_supports_style = "style" in MeshGlyph.option_keys()
+
+
+@pytest.mark.plot
+class TestMeshStyleHillshade:
+    """cleopatra data-style presets on the UGRID mesh path (#737).
+
+    The presets ship in cleopatra >= 0.24 on ``MeshGlyph`` too, so the mesh
+    facade forwards ``style=`` / ``hillshade=`` through ``mesh_render`` and gates
+    them with the same upgrade guard as the raster path.
+    """
+
+    @staticmethod
+    def _dataset(location="face"):
+        """Build a single-face UgridDataset carrying a ``depth`` variable."""
+        data = np.array([5.0]) if location == "face" else np.array([0.0, 1.0, 2.0])
+        return UgridDataset.create_from_arrays(
+            node_x=np.array([0.0, 1.0, 0.5]),
+            node_y=np.array([0.0, 0.0, 1.0]),
+            face_node_connectivity=np.array([[0, 1, 2]]),
+            data={"depth": data},
+            data_locations={"depth": location},
+        )
+
+    @pytest.mark.skipif(
+        not _mesh_supports_style, reason="cleopatra < 0.24 has no MeshGlyph style"
+    )
+    def test_dataset_plot_style_renders(self):
+        """``UgridDataset.plot(style=...)`` renders a styled MeshGlyph."""
+        result = self._dataset("face").plot("depth", style="flow_accumulation")
+        assert isinstance(result, MeshGlyph)
+
+    @pytest.mark.skipif(
+        not _mesh_supports_style, reason="cleopatra < 0.24 has no MeshGlyph hillshade"
+    )
+    def test_dataset_plot_hillshade_node_renders(self):
+        """``hillshade=`` renders on node-centered mesh data.
+
+        cleopatra requires node-centered elevation for hillshade, so a
+        node-location variable is used.
+        """
+        result = self._dataset("node").plot("depth", hillshade=True)
+        assert isinstance(result, MeshGlyph)
+
+    def test_style_forwarded_to_mesh_render(self):
+        """``UgridDataset.plot`` forwards ``style`` / ``hillshade`` to the helper."""
+        from unittest.mock import patch
+
+        ds = self._dataset("face")
+        with patch(
+            "pyramids.netcdf.ugrid.dataset._mesh_render", return_value="sentinel"
+        ) as mock_render:
+            ds.plot("depth", style="topography", hillshade=True)
+        kw = mock_render.call_args.kwargs
+        assert kw.get("style") == "topography"
+        assert kw.get("hillshade") is True
+
+    def test_style_on_old_cleopatra_raises_upgrade_hint(self):
+        """``style=`` on a MeshGlyph lacking preset support raises the >= 0.24 hint."""
+        from unittest.mock import patch
+
+        from pyramids.base._errors import OptionalPackageDoesNotExist
+
+        ds = self._dataset("face")
+        old_keys = MeshGlyph.option_keys() - {"style", "hillshade"}
+        with patch.object(MeshGlyph, "option_keys", return_value=old_keys):
+            with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.24"):
+                ds.plot("depth", style="topography")
+
+    def test_falsy_hillshade_not_guarded_on_old_cleopatra(self):
+        """``hillshade=False`` is dropped, so the mesh guard does not fire."""
+        from unittest.mock import patch
+
+        ds = self._dataset("face")
+        old_keys = MeshGlyph.option_keys() - {"style", "hillshade"}
+        with patch.object(MeshGlyph, "option_keys", return_value=old_keys):
+            result = ds.plot("depth", hillshade=False)
+        assert isinstance(result, MeshGlyph)

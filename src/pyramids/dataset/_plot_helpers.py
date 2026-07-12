@@ -156,6 +156,49 @@ def _unwrap_geographic_longitude(
     return result
 
 
+def _guard_style_hillshade(kwargs: dict[str, Any], option_keys: Any) -> None:
+    """Normalise and version-gate the ``style`` / ``hillshade`` plot presets.
+
+    Shared by the raster (:func:`render_array`, ``ArrayGlyph``) and mesh
+    (:func:`mesh_render`, ``MeshGlyph``) dispatch so both paths handle cleopatra's
+    data-style presets identically.
+
+    ``style`` / ``hillshade`` were added to cleopatra's glyphs in 0.24. On an older
+    cleopatra the kwargs would fall through to a cryptic "Unknown option" error deep
+    in the render call; feature-detect each key against ``option_keys`` and raise a
+    clear upgrade hint instead.
+
+    A ``None`` / ``False`` ``hillshade`` requests no shading, so it is popped from
+    ``kwargs`` in place — making it a true no-op on ANY cleopatra version (a pre-0.24
+    build that rejects the unknown kwarg included). ``{}`` is falsy but is an
+    affirmative "shade with default parameters", so the drop uses identity (only
+    ``None`` / ``False``), not truthiness — an empty-dict ``hillshade`` is still
+    gated/forwarded. Each key is checked against its own ``option_keys`` membership
+    so a build shipping only one of the two features is handled precisely. An invalid
+    ``style`` *name* is left to cleopatra, which already raises a ``ValueError``
+    listing the valid ``DATA_STYLES`` keys. (issue #737)
+
+    Args:
+        kwargs: The render kwargs; mutated in place to drop a no-op ``hillshade``.
+        option_keys: The glyph's declared option set (``<Glyph>.option_keys()``).
+
+    Raises:
+        OptionalPackageDoesNotExist: A ``style`` / ``hillshade`` preset was
+            requested but the installed cleopatra's glyph does not support it.
+    """
+    hillshade = kwargs.get("hillshade")
+    if hillshade is None or hillshade is False:
+        kwargs.pop("hillshade", None)
+    style_unsupported = kwargs.get("style") is not None and "style" not in option_keys
+    hillshade_unsupported = "hillshade" in kwargs and "hillshade" not in option_keys
+    if style_unsupported or hillshade_unsupported:
+        raise OptionalPackageDoesNotExist(
+            "`style=` / `hillshade=` plot presets require cleopatra >= 0.24. "
+            "Upgrade with: pip install -U 'pyramids-gis[viz]' (or "
+            "pip install -U 'cleopatra>=0.24')."
+        )
+
+
 def render_array(
     *,
     arr: np.ndarray | None,
@@ -421,32 +464,11 @@ def render_array(
                 f"Unsupported color_scale {color_scale!r}; valid options: {valid}."
             ) from None
 
-    # ``style`` / ``hillshade`` data-style presets were added to ``ArrayGlyph``
-    # in cleopatra 0.24. On an older cleopatra the kwargs would fall through to a
-    # cryptic "Unknown option" error deep in the render call; feature-detect
-    # each key against ``option_keys()`` and raise a clear upgrade hint instead.
-    #
-    # A ``None``/``False`` ``hillshade`` requests no shading — drop it so it
-    # never reaches cleopatra, making it a true no-op on ANY version (a pre-0.24
-    # build that rejects the unknown kwarg included). Note ``{}`` is falsy but is
-    # an affirmative "shade with default parameters", so the drop uses identity
-    # (only ``None``/``False``), not truthiness — an empty-dict ``hillshade`` is
-    # still gated/forwarded. Each key is checked against its own ``option_keys()``
-    # membership so a build shipping only one of the two features is handled
-    # precisely. An invalid ``style`` *name* is left to cleopatra, which already
-    # raises a ValueError listing the valid ``DATA_STYLES`` keys. (issue #737)
-    _hillshade = kwargs.get("hillshade")
-    if _hillshade is None or _hillshade is False:
-        kwargs.pop("hillshade", None)
+    # Normalise + version-gate the style/hillshade presets (shared with the mesh
+    # path). Mutates kwargs to drop a no-op hillshade; raises a clear upgrade hint
+    # on a cleopatra whose ArrayGlyph lacks the presets. (issue #737)
     option_keys = ArrayGlyph.option_keys()
-    _style_unsupported = kwargs.get("style") is not None and "style" not in option_keys
-    _hillshade_unsupported = "hillshade" in kwargs and "hillshade" not in option_keys
-    if _style_unsupported or _hillshade_unsupported:
-        raise OptionalPackageDoesNotExist(
-            "`style=` / `hillshade=` plot presets require cleopatra >= 0.24. "
-            "Upgrade with: pip install -U 'pyramids-gis[viz]' (or "
-            "pip install -U 'cleopatra>=0.24')."
-        )
+    _guard_style_hillshade(kwargs, option_keys)
 
     # Unwrap a wrapping geographic longitude before handing curvilinear coords
     # to cleopatra, so its pcolormesh doesn't smear a ~178-degree quad across
@@ -690,7 +712,14 @@ def mesh_render(
     if basemap and basemap_epsg is None:
         raise ValueError("Dataset must have a CRS (epsg) to use basemap.")
     require_cleopatra()
+    from cleopatra.mesh_glyph import MeshGlyph
+
     from pyramids.netcdf.ugrid.plot import plot_mesh_data
+
+    # Normalise + version-gate the style/hillshade presets against MeshGlyph, the
+    # same way render_array does against ArrayGlyph, so the mesh path exposes
+    # cleopatra's data-style presets with a clean upgrade hint on older cleopatra.
+    _guard_style_hillshade(kwargs, MeshGlyph.option_keys())
 
     result = plot_mesh_data(mesh, data, location=location, **kwargs)
     if basemap:
