@@ -34,6 +34,7 @@ extra is not installed.
 from __future__ import annotations
 
 import builtins
+import gc
 import os
 import pickle
 import subprocess
@@ -45,7 +46,11 @@ import numpy as np
 import pytest
 from osgeo import gdal, osr
 
-from pyramids.base._file_manager import CachingFileManager, gdal_raster_open
+from pyramids.base._file_manager import (
+    FILE_CACHE,
+    CachingFileManager,
+    gdal_raster_open,
+)
 from pyramids.base._locks import DummyLock, SerializableLock
 from pyramids.dataset import Dataset
 from pyramids.dataset.ops import io as io_module
@@ -436,3 +441,26 @@ class TestE2EFixtureTiff:
         assert computed.dtype == np.float32
         assert computed[0, 0, 0] == pytest.approx(0.0)
         assert computed[1, 0, 0] == pytest.approx(1000.0)
+
+
+@requires_dask
+class TestRasterLazyHandleRelease:
+    """A raster lazy read releases its parked handle when the array is dropped (#727, GeoTIFF)."""
+
+    def test_dropping_lazy_array_releases_handle(self, tiled_tif_path: Path):
+        """Dropping the returned dask array evicts the manager's parked FILE_CACHE handle.
+
+        The raster lazy reader now passes `auto_release=True`, so the handle follows the dask array's
+        lifetime instead of lingering until LRU pressure or interpreter exit.
+        """
+        FILE_CACHE.clear()
+        try:
+            ds = Dataset.read_file(str(tiled_tif_path))
+            lazy = ds.read_array(chunks="auto")
+            lazy.compute()
+            assert len(FILE_CACHE) >= 1, "a lazy raster read + compute must park a handle"
+            del lazy
+            gc.collect()
+            assert len(FILE_CACHE) == 0, "dropping the lazy array must evict the parked handle"
+        finally:
+            FILE_CACHE.clear()
