@@ -718,6 +718,29 @@ class Config:
             gdal.SetConfigOption("GDAL_DRIVER_PATH", str(gdal_plugins_path))
         gdal.AllRegister()
 
+    def _prepend_to_path(self, library_bin_path: Path) -> None:
+        """Prepend ``library_bin_path`` to ``PATH`` (fixes Windows error 126 loading plugins)."""
+        if library_bin_path.exists():
+            current_path = os.environ.get("PATH", "")
+            bin_str = str(library_bin_path)
+            path_parts = current_path.split(os.pathsep) if current_path else []
+            if bin_str not in path_parts:
+                os.environ["PATH"] = bin_str + (
+                    os.pathsep + current_path if current_path else ""
+                )
+                self.logger.debug(f"Prepended to PATH: {bin_str}")
+        else:
+            self.logger.debug(f"Library bin path not found at: {library_bin_path}")
+
+    def _set_env_path(self, env_name: str, path: Path, not_found_label: str) -> None:
+        """Set ``os.environ[env_name]`` to ``path`` if it exists and differs; log otherwise."""
+        if path.exists():
+            if os.environ.get(env_name) != str(path):
+                os.environ[env_name] = str(path)
+                self.logger.debug(f"{env_name} set to: {path}")
+        else:
+            self.logger.debug(f"{not_found_label} path not found at: {path}")
+
     def set_env_conda(self) -> Path | None:
         """Set GDAL-related environment variables in a Conda environment.
 
@@ -761,32 +784,11 @@ class Config:
             )
 
         # Ensure dependent DLLs are on PATH (fixes error 126 on Windows when loading plugins like HDF5)
-        if library_bin_path.exists():
-            current_path = os.environ.get("PATH", "")
-            bin_str = str(library_bin_path)
-            path_parts = current_path.split(os.pathsep) if current_path else []
-            if bin_str not in path_parts:
-                os.environ["PATH"] = bin_str + (
-                    os.pathsep + current_path if current_path else ""
-                )
-                self.logger.debug(f"Prepended to PATH: {bin_str}")
-        else:
-            self.logger.debug(f"Library bin path not found at: {library_bin_path}")
+        self._prepend_to_path(library_bin_path)
 
         # Optionally set GDAL_DATA and PROJ_LIB if available
-        if gdal_data_path.exists():
-            if os.environ.get("GDAL_DATA") != str(gdal_data_path):
-                os.environ["GDAL_DATA"] = str(gdal_data_path)
-                self.logger.debug(f"GDAL_DATA set to: {gdal_data_path}")
-        else:
-            self.logger.debug(f"GDAL data path not found at: {gdal_data_path}")
-
-        if proj_lib_path.exists():
-            if os.environ.get("PROJ_LIB") != str(proj_lib_path):
-                os.environ["PROJ_LIB"] = str(proj_lib_path)
-                self.logger.debug(f"PROJ_LIB set to: {proj_lib_path}")
-        else:
-            self.logger.debug(f"PROJ lib path not found at: {proj_lib_path}")
+        self._set_env_path("GDAL_DATA", gdal_data_path, "GDAL data")
+        self._set_env_path("PROJ_LIB", proj_lib_path, "PROJ lib")
 
         return gdal_plugins_path if gdal_plugins_path.exists() else None
 
