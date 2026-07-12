@@ -474,6 +474,7 @@ def build_lazy_array(
     chunks: Any,
     lock: Any = None,
     manager_id: Any = None,
+    manager_hook: Any = None,
 ) -> Any:
     """Build a :class:`dask.array.Array` backed by MDArray chunk reads.
 
@@ -488,6 +489,13 @@ def build_lazy_array(
             variable share a cache slot. Defaults to
             `(path, variable_name)` so repeated calls for the same
             variable de-duplicate the cached handle.
+        manager_hook: Optional callable invoked with the created
+            `CachingFileManager` before the array is returned, so the
+            owning object (e.g. the `NetCDF` container) can track it and
+            release its handle from `close()` -- the second half of the
+            #727 fix (release on the parent's `close()`, not only when
+            the array is dropped). It should hold only a weak reference,
+            so it does not defeat the drop-time finalizer.
 
     Returns:
         dask.array.Array: Lazy array that computes chunk-by-chunk
@@ -515,7 +523,10 @@ def build_lazy_array(
         {},
         lock=resolved_lock,
         manager_id=key_id,
+        auto_release=True,
     )
+    if manager_hook is not None:
+        manager_hook(manager)
     chunks_per_axis = _expand_chunks(shape, chunk_shape)
     starts_per_axis = _chunk_starts(chunks_per_axis)
     name = f"pyramids-netcdf-read-{variable_name}-{id(manager)}"
@@ -539,4 +550,9 @@ def build_lazy_array(
             lazy = da.flip(lazy, axis=len(shape) - 2)
         if flip_x:
             lazy = da.flip(lazy, axis=len(shape) - 1)
+    # The parked FILE_CACHE handle is released deterministically when this `manager` is
+    # garbage-collected -- the `CachingFileManager` registers a `weakref.finalize` on itself in
+    # `__init__`. Because the manager is kept alive by the chunk readers in the graph (not by this
+    # `lazy` object), that release still fires for derived arrays -- `unpack=True`, `open_mfdataset`,
+    # `plot(chunks=)` -- whose graph keeps only the readers, not this wrapper (#727).
     return lazy

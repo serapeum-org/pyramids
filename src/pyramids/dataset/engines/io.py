@@ -1184,6 +1184,11 @@ class IO(_Engine["Dataset"]):
                 self._ds._file_name,
                 "read_only",
                 lock=False,
+                # Release the parked handle when the returned dask array (which keeps this manager
+                # alive through its chunk tasks) is dropped, rather than leaving it until LRU
+                # pressure or interpreter exit -- the same #727 handle lifetime the NetCDF lazy
+                # path fixes, applied to the raster lazy reader.
+                auto_release=True,
             )
         meta = np.empty((0,) * len(shape), dtype=dtype)
         arr = da.map_blocks(

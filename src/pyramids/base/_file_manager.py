@@ -31,6 +31,7 @@ import logging
 import os
 import threading
 import uuid
+import weakref
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from contextlib import contextmanager
@@ -204,6 +205,10 @@ class _LRUCache(MutableMapping):
         self._maxsize = maxsize
         self._on_evict = on_evict
         self._lock = threading.RLock()
+        # Number of live managers interested in each key. The handle is closed only when the last
+        # manager for a key is finalized, so a manager whose array is dropped never evicts a handle
+        # another manager (sharing the same `manager_id`) is still reading through.
+        self._refcounts: dict[Hashable, int] = {}
 
     @property
     def maxsize(self) -> int:
@@ -274,9 +279,50 @@ class _LRUCache(MutableMapping):
         with self._lock:
             items = list(self._cache.items())
             self._cache.clear()
+            self._refcounts.clear()
         if self._on_evict is not None:
             for key, value in items:
                 self._on_evict(key, value)
+
+    def retain(self, key: Hashable) -> None:
+        """Register one live referent for `key` (see the `_refcounts` note in `__init__`)."""
+        with self._lock:
+            self._refcounts[key] = self._refcounts.get(key, 0) + 1
+
+    def release(self, key: Hashable) -> None:
+        """Drop one referent for `key`; evict and close the handle when the last one is gone.
+
+        Safe to call from a `weakref.finalize` callback on any thread: it holds no reference to the
+        releasing manager and closes the handle outside the cache lock (like `on_evict`). A key that
+        is no longer tracked -- e.g. wiped by `clear()` while this manager was still alive -- is
+        treated as a no-op, so a stale finalizer never closes a handle the refcount is no longer
+        accounting for (which could otherwise be a re-opened handle a live array is still reading). A
+        manager that survives a `clear()` therefore falls back to pure LRU / interpreter-exit lifetime;
+        that is an accepted trade-off, since `clear()` is an explicit hard reset.
+        """
+        handle = None
+        with self._lock:
+            tracked = self._refcounts.get(key)
+            if tracked is not None:
+                if tracked - 1 > 0:
+                    self._refcounts[key] = tracked - 1
+                else:
+                    self._refcounts.pop(key, None)
+                    handle = self._cache.pop(key, None)
+        if handle is not None and self._on_evict is not None:
+            # release() runs from a `weakref.finalize` callback, which has no caller to surface a close
+            # failure to -- so log any error (e.g. an OSError flushing a remote `/vsi` handle, which
+            # `_close_handle` deliberately re-raises on a normal call stack) rather than let it become
+            # an "unraisable" exception reported during GC.
+            try:
+                self._on_evict(key, handle)
+            except Exception as exc:  # noqa: BLE001 - a finalizer path must not raise
+                logger.warning(
+                    "handle close failed during finalizer release for key %r: %s",
+                    key,
+                    exc,
+                    exc_info=True,
+                )
 
 
 def _close_handle(_key: Hashable | None, handle: Any) -> None:
@@ -416,6 +462,19 @@ class CachingFileManager(FileManager):
             otherwise hash identically. Defaults to a fresh UUID so
             two managers built from identical arguments do not share
             a cache slot; pass an explicit value to *share* one.
+        auto_release: When `True`, register a `weakref.finalize` on
+            the manager that releases its cached handle (evicting the
+            slot and closing the handle) as soon as the manager is
+            garbage-collected, refcounted so a shared slot closes only
+            when its last manager is finalized. Use this when the
+            manager's lifetime should own the handle — e.g. a lazy
+            dask read whose manager is kept alive by the graph. The
+            default `False` keeps the handle under pure LRU lifetime,
+            reusable by later managers with the same `manager_id`. Do
+            not share one `manager_id` between an `auto_release` and a
+            non-`auto_release` manager: the refcount counts only the
+            auto-release ones, so dropping one could close a handle the
+            other still relies on.
 
     The manager is picklable. On unpickle, the new instance starts
     with no cached handle and opens fresh on first :meth:`acquire`;
@@ -433,6 +492,7 @@ class CachingFileManager(FileManager):
         lock: Any = None,
         cache: _LRUCache | None = None,
         manager_id: Hashable | None = None,
+        auto_release: bool = False,
     ) -> None:
         self._opener = opener
         self._path = path
@@ -447,9 +507,20 @@ class CachingFileManager(FileManager):
             self._lock = lock
         self._cache = cache if cache is not None else FILE_CACHE
         self._manager_id = manager_id if manager_id is not None else str(uuid.uuid4())
+        self._auto_release = auto_release
         self._key = _make_cache_key(
             opener, path, access, self._kwargs, self._manager_id
         )
+        if auto_release:
+            # Release the parked handle deterministically when this manager is garbage-collected --
+            # i.e. when the lazy array holding its chunk readers is dropped -- instead of relying on
+            # LRU pressure or interpreter exit (#727). Bound to the manager, not the returned array,
+            # so it still fires for derived arrays (unpack / mfdataset / plot) whose graph keeps only
+            # the readers -> manager alive. The callback holds no reference to `self`, so it cannot
+            # keep the manager alive; the refcount stops it evicting a slot another auto-release
+            # manager still shares. Managers without `auto_release` keep the pure LRU lifetime.
+            self._cache.retain(self._key)
+            weakref.finalize(self, self._cache.release, self._key)
 
     def __getstate__(self) -> tuple:
         lock = None if self._use_default_lock else self._lock
@@ -460,10 +531,16 @@ class CachingFileManager(FileManager):
             self._kwargs,
             lock,
             self._manager_id,
+            self._auto_release,
         )
 
     def __setstate__(self, state: tuple) -> None:
-        opener, path, access, kwargs, lock, manager_id = state
+        # Tolerate the pre-`auto_release` 6-tuple so a manager pickled by an older pyramids (or a
+        # differently-versioned dask worker) still unpickles, defaulting `auto_release` to False. The
+        # reverse -- an old worker receiving the new 7-tuple -- cannot be helped from here and is
+        # intentionally unsupported (mixed-version dask.distributed clusters are not a target).
+        opener, path, access, kwargs, lock, manager_id, *rest = state
+        auto_release = rest[0] if rest else False
         self.__init__(
             opener,
             path,
@@ -471,6 +548,7 @@ class CachingFileManager(FileManager):
             kwargs,
             lock=lock,
             manager_id=manager_id,
+            auto_release=auto_release,
         )
 
     def acquire(self) -> Any:
