@@ -425,15 +425,22 @@ def render_array(
     # in cleopatra 0.24. On an older cleopatra the kwargs would fall through to a
     # cryptic "Unknown option" error deep in the render call; feature-detect
     # each key against ``option_keys()`` and raise a clear upgrade hint instead.
-    # Scoped to when a preset is actually requested — a falsy ``hillshade``
-    # (e.g. ``hillshade=False``) asks for nothing, so it is not gated, and each
-    # key is checked against its own ``option_keys()`` membership so a build
-    # that ships only one of the two features is handled precisely. An invalid
-    # ``style`` *name* is left to cleopatra, which already raises a ValueError
-    # listing the valid ``DATA_STYLES`` keys. (issue #737)
+    #
+    # A ``None``/``False`` ``hillshade`` requests no shading — drop it so it
+    # never reaches cleopatra, making it a true no-op on ANY version (a pre-0.24
+    # build that rejects the unknown kwarg included). Note ``{}`` is falsy but is
+    # an affirmative "shade with default parameters", so the drop uses identity
+    # (only ``None``/``False``), not truthiness — an empty-dict ``hillshade`` is
+    # still gated/forwarded. Each key is checked against its own ``option_keys()``
+    # membership so a build shipping only one of the two features is handled
+    # precisely. An invalid ``style`` *name* is left to cleopatra, which already
+    # raises a ValueError listing the valid ``DATA_STYLES`` keys. (issue #737)
+    _hillshade = kwargs.get("hillshade")
+    if _hillshade is None or _hillshade is False:
+        kwargs.pop("hillshade", None)
     option_keys = ArrayGlyph.option_keys()
     _style_unsupported = kwargs.get("style") is not None and "style" not in option_keys
-    _hillshade_unsupported = kwargs.get("hillshade") and "hillshade" not in option_keys
+    _hillshade_unsupported = "hillshade" in kwargs and "hillshade" not in option_keys
     if _style_unsupported or _hillshade_unsupported:
         raise OptionalPackageDoesNotExist(
             "`style=` / `hillshade=` plot presets require cleopatra >= 0.24. "
