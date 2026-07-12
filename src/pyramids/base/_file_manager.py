@@ -296,7 +296,9 @@ class _LRUCache(MutableMapping):
         releasing manager and closes the handle outside the cache lock (like `on_evict`). A key that
         is no longer tracked -- e.g. wiped by `clear()` while this manager was still alive -- is
         treated as a no-op, so a stale finalizer never closes a handle the refcount is no longer
-        accounting for (which could otherwise be a re-opened handle a live array is still reading).
+        accounting for (which could otherwise be a re-opened handle a live array is still reading). A
+        manager that survives a `clear()` therefore falls back to pure LRU / interpreter-exit lifetime;
+        that is an accepted trade-off, since `clear()` is an explicit hard reset.
         """
         handle = None
         with self._lock:
