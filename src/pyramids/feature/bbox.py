@@ -21,6 +21,9 @@ including interior rings; it does not attempt pole-enclosing geometries.
 
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
+
 from pyproj import CRS, Transformer
 from shapely.affinity import translate
 from shapely.geometry import MultiPolygon, Polygon, box
@@ -30,6 +33,23 @@ Bbox = tuple[float, float, float, float]
 """A `(west, south, east, north)` bounding box in degrees."""
 
 _CONVENTIONS = ("-180..180", "0..360")
+
+METRES_PER_DEGREE = 111_319.4909
+"""Equatorial length of a degree of longitude on WGS84, rounded up — the E-W (width) upper-bound basis.
+
+Rounded up from the exact `a * pi / 180 = 111_319.49079` so the width stays a strict upper bound (never an
+under-estimate) for equator-touching bboxes."""
+
+MAX_METRES_PER_LAT_DEGREE = 111_694.0
+"""Maximum (polar) length of a degree of latitude on WGS84, rounded up — the N-S (height) upper-bound basis."""
+
+_BBOX_KEY_ALIASES: dict[str, tuple[str, ...]] = {
+    "west": ("min_lon", "lonmin", "minlon", "minx", "west"),
+    "south": ("min_lat", "latmin", "minlat", "miny", "south"),
+    "east": ("max_lon", "lonmax", "maxlon", "maxx", "east"),
+    "north": ("max_lat", "latmax", "maxlat", "maxy", "north"),
+}
+"""Accepted key spellings per bbox edge (GeoJSON, eodag, shapely/geopandas, compass), matched case-insensitively."""
 
 
 def split_antimeridian(bbox: Bbox) -> list[Bbox]:
@@ -215,6 +235,134 @@ def to_shapely(bbox: Bbox) -> Polygon:
     """
     west, south, east, north = bbox
     return box(west, south, east, north)
+
+
+def estimate_pixel_dims(bbox: Bbox, scale_m: float) -> tuple[int, int]:
+    """Estimate the `(width, height)` in pixels of a WGS84 bbox at a target ground resolution.
+
+    This is a deliberate worst-case approximation with no latitude convergence: the width uses the equatorial
+    degree of longitude (`METRES_PER_DEGREE`, which is widest at the equator) and the height uses the maximum,
+    polar degree of latitude (`MAX_METRES_PER_LAT_DEGREE`), so **both dimensions are a true upper bound** on the
+    pixel count — never an under-estimate, which is exactly what a "will this export exceed the provider's pixel
+    cap?" pre-check wants. The bound is loose away from those latitudes (there is no `cos(latitude)` narrowing);
+    for a tight, latitude-accurate count, reproject to a metric CRS first (see :func:`transform`).
+
+    A bbox with `west > east` is treated as an antimeridian crossing (this module's convention) and its longitude
+    span is measured the wrapping way across the 180 deg meridian (`east - west + 360`), consistent with
+    :func:`split_antimeridian`.
+
+    Args:
+        bbox: A `(west, south, east, north)` bounding box in degrees; `east < west` denotes an
+            antimeridian-crossing bbox.
+        scale_m: Target ground resolution in metres per pixel; must be positive.
+
+    Returns:
+        A `(width_px, height_px)` tuple; each dimension is at least 1.
+
+    Raises:
+        ValueError: If any bbox coordinate is non-finite, if `scale_m` is not positive (zero, negative, or NaN),
+            or if `north < south` (an inverted latitude range).
+
+    Examples:
+        - A ~1 km grid over Europe:
+            ```python
+            >>> estimate_pixel_dims((-10.0, 35.0, 30.0, 60.0), 1000.0)
+            (4453, 2793)
+
+            ```
+        - A 1 deg square at 100 m:
+            ```python
+            >>> estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), 100.0)
+            (1114, 1117)
+
+            ```
+        - An antimeridian-crossing bbox (`west > east`) wraps across 180 deg:
+            ```python
+            >>> estimate_pixel_dims((175.0, -22.0, -175.0, -12.0), 1000.0)
+            (1114, 1117)
+
+            ```
+        - A non-positive resolution is rejected:
+            ```python
+            >>> estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), 0.0)
+            Traceback (most recent call last):
+                ...
+            ValueError: estimate_pixel_dims: scale_m must be positive, got 0.0
+
+            ```
+
+    See Also:
+        transform: Reproject a bbox to a metric CRS for latitude-accurate dimensions.
+        read_bbox_dict: Build a `(west, south, east, north)` tuple from a dict of edge keys to pass here.
+    """
+    west, south, east, north = bbox
+    if not all(math.isfinite(v) for v in (west, south, east, north)):
+        raise ValueError(f"estimate_pixel_dims: bbox coordinates must be finite, got {bbox!r}")
+    if scale_m <= 0 or math.isnan(scale_m):  # isnan needed since NaN <= 0 is False
+        raise ValueError(f"estimate_pixel_dims: scale_m must be positive, got {scale_m}")
+    if north < south:
+        raise ValueError(f"estimate_pixel_dims: north ({north}) must be >= south ({south})")
+    lon_span = east - west if east >= west else east - west + 360.0
+    width = max(math.ceil(lon_span * METRES_PER_DEGREE / scale_m), 1)
+    height = max(math.ceil((north - south) * MAX_METRES_PER_LAT_DEGREE / scale_m), 1)
+    return width, height
+
+
+def read_bbox_dict(bbox: Mapping[str, float]) -> Bbox:
+    """Read a `(west, south, east, north)` bbox from a mapping, accepting many key spellings.
+
+    Each edge is resolved to the first present alias from `_BBOX_KEY_ALIASES` (GeoJSON `min_lon`, eodag `lonmin`,
+    shapely/geopandas `minx`, compass `west`, ...). Keys are matched case-insensitively and values are coerced to
+    `float`. Reading a bbox from an ordered list/tuple is out of scope — those already carry a clear edge order.
+
+    Args:
+        bbox: A mapping holding the four bbox edges under any accepted alias spelling.
+
+    Returns:
+        A `(west, south, east, north)` tuple of floats.
+
+    Raises:
+        ValueError: If no key is present for one of the four edges, or an edge's value is not numeric.
+
+    Examples:
+        - eodag-style keys:
+            ```python
+            >>> read_bbox_dict({"lonmin": -10.0, "latmin": 35.0, "lonmax": 30.0, "latmax": 60.0})
+            (-10.0, 35.0, 30.0, 60.0)
+
+            ```
+        - shapely / geopandas keys:
+            ```python
+            >>> read_bbox_dict({"minx": -10.0, "miny": 35.0, "maxx": 30.0, "maxy": 60.0})
+            (-10.0, 35.0, 30.0, 60.0)
+
+            ```
+        - compass keys (case-insensitive):
+            ```python
+            >>> read_bbox_dict({"West": -10.0, "South": 35.0, "East": 30.0, "North": 60.0})
+            (-10.0, 35.0, 30.0, 60.0)
+
+            ```
+        - a missing edge is reported:
+            ```python
+            >>> read_bbox_dict({"minx": -10.0, "miny": 35.0, "maxx": 30.0})
+            Traceback (most recent call last):
+                ...
+            ValueError: read_bbox_dict: no key found for the 'north' edge
+
+            ```
+    """
+    lowered = {str(key).lower(): value for key, value in bbox.items()}
+    edges: dict[str, float] = {}
+    for edge, aliases in _BBOX_KEY_ALIASES.items():
+        key = next((alias for alias in aliases if alias in lowered), None)
+        if key is None:
+            raise ValueError(f"read_bbox_dict: no key found for the {edge!r} edge")
+        try:
+            edges[edge] = float(lowered[key])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"read_bbox_dict: the {edge!r} edge value {lowered[key]!r} is not numeric") from exc
+    return edges["west"], edges["south"], edges["east"], edges["north"]
 
 
 def _ring_crosses_antimeridian(coords: list[tuple[float, float]]) -> bool:
