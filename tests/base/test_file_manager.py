@@ -23,6 +23,7 @@ These tests cover:
 
 from __future__ import annotations
 
+import gc
 import pickle
 import threading
 
@@ -648,3 +649,53 @@ class TestOpenersE2E:
             assert ds is not None, "ogr_open with access='w' must return a datasource"
         finally:
             ds = None
+
+
+class TestCachingFileManagerAutoRelease:
+    """`auto_release` ties the cached handle to the manager's lifetime, refcounted per slot (#727)."""
+
+    def test_handle_closed_when_manager_is_collected(self):
+        """An auto-release manager evicts and closes its handle when garbage-collected."""
+        cache = _LRUCache(maxsize=8, on_evict=_close_handle)
+        fm = CachingFileManager(_fake_opener, "a.tif", cache=cache, auto_release=True)
+        handle = fm.acquire()
+        assert len(cache) == 1 and handle.closed is False
+        del fm
+        gc.collect()
+        assert len(cache) == 0, "manager GC must evict the slot"
+        assert handle.closed is True, "manager GC must close the handle"
+
+    def test_shared_slot_closes_only_after_last_manager(self):
+        """Two auto-release managers sharing a `manager_id` keep the handle until both are collected."""
+        cache = _LRUCache(maxsize=8, on_evict=_close_handle)
+        first = CachingFileManager(
+            _fake_opener, "a.tif", cache=cache, manager_id="k", auto_release=True
+        )
+        second = CachingFileManager(
+            _fake_opener, "a.tif", cache=cache, manager_id="k", auto_release=True
+        )
+        handle = first.acquire()
+        assert second.acquire() is handle, "same manager_id shares one cached handle"
+        del first
+        gc.collect()
+        assert handle.closed is False and len(cache) == 1, "one manager gone: shared handle stays open"
+        del second
+        gc.collect()
+        assert handle.closed is True and len(cache) == 0, "last manager gone: handle closed"
+
+    def test_without_auto_release_handle_survives_manager_gc(self):
+        """A default (non-auto-release) manager leaves its handle under pure LRU lifetime."""
+        cache = _LRUCache(maxsize=8, on_evict=_close_handle)
+        fm = CachingFileManager(_fake_opener, "a.tif", cache=cache)
+        handle = fm.acquire()
+        del fm
+        gc.collect()
+        assert handle.closed is False and len(cache) == 1, "LRU lifetime: handle survives manager GC"
+
+    def test_setstate_tolerates_legacy_six_tuple(self):
+        """A manager pickled by the pre-`auto_release` 6-tuple format still unpickles (defaults False)."""
+        fm = CachingFileManager(_fake_opener, "a.tif", auto_release=True)
+        legacy = (fm._opener, fm._path, fm._access, fm._kwargs, None, fm._manager_id)
+        clone = CachingFileManager.__new__(CachingFileManager)
+        clone.__setstate__(legacy)
+        assert clone._auto_release is False, "legacy 6-tuple must default auto_release to False"

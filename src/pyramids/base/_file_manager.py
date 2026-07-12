@@ -444,6 +444,15 @@ class CachingFileManager(FileManager):
             otherwise hash identically. Defaults to a fresh UUID so
             two managers built from identical arguments do not share
             a cache slot; pass an explicit value to *share* one.
+        auto_release: When `True`, register a `weakref.finalize` on
+            the manager that releases its cached handle (evicting the
+            slot and closing the handle) as soon as the manager is
+            garbage-collected, refcounted so a shared slot closes only
+            when its last manager is finalized. Use this when the
+            manager's lifetime should own the handle — e.g. a lazy
+            dask read whose manager is kept alive by the graph. The
+            default `False` keeps the handle under pure LRU lifetime,
+            reusable by later managers with the same `manager_id`.
 
     The manager is picklable. On unpickle, the new instance starts
     with no cached handle and opens fresh on first :meth:`acquire`;
