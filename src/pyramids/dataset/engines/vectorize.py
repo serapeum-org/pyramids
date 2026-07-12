@@ -809,15 +809,16 @@ class Vectorize(_Engine["Dataset"]):
                     if di == 0 and dj == 0:
                         continue
                     ni, nj = ci + di, cj + dj
-                    if 0 <= ni < rows and 0 <= nj < cols:
-                        if (
-                            cluster[ni, nj] == 0
-                            and lower_bound <= array[ni, nj] <= upper_bound
-                        ):
-                            cluster[ni, nj] = count
-                            position.append([ni, nj])
-                            values.append(array[ni, nj])
-                            queue.append((ni, nj))
+                    if (
+                        0 <= ni < rows
+                        and 0 <= nj < cols
+                        and cluster[ni, nj] == 0
+                        and lower_bound <= array[ni, nj] <= upper_bound
+                    ):
+                        cluster[ni, nj] = count
+                        position.append([ni, nj])
+                        values.append(array[ni, nj])
+                        queue.append((ni, nj))
 
     def cluster(
         self, lower_bound: Any, upper_bound: Any

@@ -76,8 +76,6 @@ class TestConfigMock(unittest.TestCase):
         mock_conda.return_value = Path("/usr/lib/gdalplugins")
         self.config.initialize_gdal()
 
-        # self.assertIn("GDAL_DRIVER_PATH", os.environ)
-        # self.assertEqual(os.environ["GDAL_DRIVER_PATH"], "/usr/lib/gdalplugins")
         mock_register.assert_called_once()
 
     @patch("os.getenv", return_value=None)
@@ -85,6 +83,7 @@ class TestConfigMock(unittest.TestCase):
     def test_set_env_conda_no_conda(self, mock_exists, mock_getenv):
         result = self.config.set_env_conda()
         self.assertIsNone(result)
+        mock_getenv.assert_called()
 
     @patch("os.getenv", return_value="/fake/conda/prefix")
     @patch("pathlib.Path.exists", return_value=True)
@@ -100,6 +99,7 @@ class TestConfigMock(unittest.TestCase):
     def test_set_env_conda_plugins_path_not_exist(self, mock_exists, mock_getenv):
         result = self.config.set_env_conda()
         self.assertIsNone(result)
+        mock_exists.assert_called()
 
     @patch("site.getsitepackages", return_value=["C:/Python/site-packages"])
     @patch("pathlib.Path.exists", return_value=True)

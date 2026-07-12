@@ -177,7 +177,7 @@ class MeshSpatialIndex:
             & (self._mesh.node_y >= ymin)
             & (self._mesh.node_y <= ymax)
         )
-        result = np.where(mask)[0]
+        result = np.nonzero(mask)[0]
         return result
 
     def locate_faces_in_bounds(
@@ -200,7 +200,7 @@ class MeshSpatialIndex:
         """
         cx, cy = self._mesh.face_centroids
         mask = (cx >= xmin) & (cx <= xmax) & (cy >= ymin) & (cy <= ymax)
-        result = np.where(mask)[0]
+        result = np.nonzero(mask)[0]
         return result
 
     def locate_faces(
@@ -306,7 +306,7 @@ def subset_by_bounds(
     mesh = dataset.mesh
     cx, cy = mesh.face_centroids
     mask = (cx >= xmin) & (cx <= xmax) & (cy >= ymin) & (cy <= ymax)
-    selected_faces = np.where(mask)[0].tolist()
+    selected_faces = np.nonzero(mask)[0].tolist()
 
     result = _subset_mesh_by_face_indices(dataset, selected_faces)
     return result

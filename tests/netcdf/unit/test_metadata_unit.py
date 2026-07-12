@@ -198,17 +198,17 @@ def _make_metadata(**kwargs) -> NetCDFMetadata:
     Returns:
         NetCDFMetadata: A metadata instance.
     """
-    defaults = dict(
-        driver="netCDF",
-        root_group="/",
-        groups={
+    defaults = {
+        "driver": "netCDF",
+        "root_group": "/",
+        "groups": {
             "/": GroupInfo(
                 name="root",
                 full_name="/",
                 variables=["/temperature"],
             ),
         },
-        variables={
+        "variables": {
             "/temperature": VariableInfo(
                 name="temperature",
                 full_name="/temperature",
@@ -217,18 +217,18 @@ def _make_metadata(**kwargs) -> NetCDFMetadata:
                 dimensions=["/lat", "/lon"],
             ),
         },
-        dimensions={
+        "dimensions": {
             "/lat": DimensionInfo(name="lat", full_name="/lat", size=180),
             "/lon": DimensionInfo(name="lon", full_name="/lon", size=360),
             "/time": DimensionInfo(name="time", full_name="/time", size=365),
         },
-        global_attributes={"Conventions": "CF-1.6", "history": "created"},
-        structural=StructuralInfo(
+        "global_attributes": {"Conventions": "CF-1.6", "history": "created"},
+        "structural": StructuralInfo(
             driver_name="netCDF",
             driver_metadata={"DMD_LONGNAME": "NetCDF"},
         ),
-        created_with={"library": "GDAL", "version": "3.9.0"},
-    )
+        "created_with": {"library": "GDAL", "version": "3.9.0"},
+    }
     defaults.update(kwargs)
     return NetCDFMetadata(**defaults)
 

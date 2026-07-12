@@ -444,7 +444,9 @@ class _CoverageHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(tif)
             return
-        self.send_error(404, "not found: " + path)
+        # Do not echo the request `path` back into the response — reflecting client-
+        # controlled input is an injection smell (SonarCloud S6839), even in a test mock.
+        self.send_error(404, "unknown path")
 
 
 @pytest.fixture(scope="class")

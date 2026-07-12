@@ -197,7 +197,7 @@ class TestToXarrayInMemory3D:
         nc = _make_3d_nc()
         ds = nc.to_xarray()
         assert ds["temperature"].dims == ("time", "y", "x"), (
-            f"Expected dims ('time', 'y', 'x'), " f"got {ds['temperature'].dims}"
+            f"Expected dims ('time', 'y', 'x'), got {ds['temperature'].dims}"
         )
 
 
@@ -419,7 +419,7 @@ class TestFromXarrayWithPath:
         nc = _make_3d_nc()
         ds = nc.to_xarray()
         out_path = tmp_path / "output.nc"
-        nc2 = NetCDF.from_xarray(ds, path=out_path)
+        _ = NetCDF.from_xarray(ds, path=out_path)
         assert out_path.exists(), f"Expected file at {out_path} to exist"
 
     def test_explicit_path_data_integrity(self, tmp_path):

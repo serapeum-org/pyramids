@@ -85,8 +85,3 @@ class TestReadOverviewArray:
 
         with pytest.raises(ValueError):
             dataset.read_overview_array(band=0, overview_index=0)
-
-    # def test_multi_band_some_without_overview(self, multi_band_dataset):
-    #     # Assuming some bands in the dataset do not have overviews
-    #     with pytest.raises(ValueError):
-    #         multi_band_dataset.read_overview_array(band=None, overview_index=0)

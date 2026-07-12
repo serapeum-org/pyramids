@@ -107,7 +107,9 @@ class TestDatasetCollectionRoundTrip:
 
         base = _make_dataset(rows=rows, cols=cols, fill_value=1.0)
         md = DatasetCollection.create_cube(base, dataset_length=time_steps)
-        values = np.random.rand(time_steps, rows, cols).astype(np.float64)
+        values = np.random.default_rng(0).random((time_steps, rows, cols)).astype(
+            np.float64
+        )
         md.values = values
 
         tmp_dir = Path(tempfile.mkdtemp())
@@ -525,7 +527,7 @@ class TestReprojectAlignWorkflow:
         src = _make_dataset(
             rows=10, cols=10, epsg=32636, cell_size=1000.0, fill_value=5.0
         )
-        arr_orig = src.read_array()
+        _ = src.read_array()
         original_epsg = src.epsg
         assert original_epsg == 32636, "Starting EPSG should be 32636"
 
@@ -604,7 +606,7 @@ class TestDatasetCollectionProcessingPipeline:
 
         base = _make_dataset(rows=rows, cols=cols)
         md = DatasetCollection.create_cube(base, dataset_length=time_steps)
-        values = np.random.rand(time_steps, rows, cols)
+        values = np.random.default_rng(0).random((time_steps, rows, cols))
         md.values = values
 
         assert md.head(3).shape == (3, rows, cols), "head(3) shape mismatch"
@@ -688,7 +690,7 @@ class TestClusterE2E:
         src = Dataset.create_from_array(
             arr, top_left_corner=(0, 0), cell_size=1.0, epsg=4326
         )
-        cluster_array, count, position, values = src.cluster(1, 10)
+        cluster_array, count, position, _ = src.cluster(1, 10)
 
         assert count == 3, f"Expected 2 clusters, got {count - 1}"
         assert len(position) == 8, f"Expected 8 cells clustered, got {len(position)}"
@@ -738,7 +740,7 @@ class TestClusterE2E:
         crop_mask = gpd.GeoDataFrame(geometry=[crop_poly], crs="EPSG:4326")
         cropped = src.crop(crop_mask)
 
-        cluster_array, count, position, values = cropped.cluster(5, 10)
+        _, count, _, values = cropped.cluster(5, 10)
 
         assert count == 2, f"Expected 1 cluster in cropped region, got {count - 1}"
         for v in values:
@@ -752,8 +754,8 @@ class TestClusterE2E:
             EPSG:32636 (UTM), re-cluster, and verify a similar number of
             clusters exist (exact match not expected due to resampling).
         """
-        np.random.seed(77)
-        arr = np.random.choice([0.0, 5.0], size=(10, 10), p=[0.6, 0.4]).astype(
+        rng = np.random.default_rng(77)
+        arr = rng.choice([0.0, 5.0], size=(10, 10), p=[0.6, 0.4]).astype(
             np.float32
         )
         src = Dataset.create_from_array(
@@ -791,7 +793,7 @@ class TestClusterE2E:
             arr, top_left_corner=(0.0, 0.0), cell_size=1.0, epsg=4326
         )
 
-        cluster_array, count, position, values = src.cluster(4, 6)
+        cluster_array, _, _, _ = src.cluster(4, 6)
 
         cluster_ds = Dataset.create_from_array(
             cluster_array.astype(np.float32),
@@ -822,7 +824,7 @@ class TestClusterE2E:
             arr, top_left_corner=(0.0, 0.0), cell_size=0.01, epsg=4326
         )
 
-        cluster_array, count, position, values = src.cluster(1, 10)
+        cluster_array, count, position, _ = src.cluster(1, 10)
 
         assert count == 2, f"Expected 1 cluster, got {count - 1}"
         assert len(position) == 90000, f"Expected 90000 cells, got {len(position)}"

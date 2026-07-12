@@ -47,6 +47,7 @@ from osgeo import osr
 from pandas import DataFrame
 
 from pyramids.base._errors import _PyramidsError
+from pyramids.base._utils import DEFAULT_RESAMPLING
 from pyramids.base.crs import sr_from_user_input, sr_from_wkt
 from pyramids.dataset import Dataset
 from pyramids.dataset._gcp import GroundControlPoint
@@ -77,6 +78,7 @@ def _json_safe(value: float | None) -> float | None:
 _HELP_SRC_RASTER = "source raster path"
 _HELP_DST_RASTER = "destination raster path"
 _HELP_OVERWRITE = "replace the output if it already exists"
+_HELP_RESAMPLING = "resampling method"
 
 
 def _refuse_existing(path: str, overwrite: bool) -> None:
@@ -672,7 +674,7 @@ def _cmd_overview(args: argparse.Namespace) -> int:
     # "nearest neighbor" spelling too, so the resampling vocabulary is
     # consistent with `warp` / `merge` across subcommands (L9).
     resampling = args.resampling
-    if resampling.strip().lower() == "nearest neighbor":
+    if resampling.strip().lower() == DEFAULT_RESAMPLING:
         resampling = "nearest"
     ds.create_overviews(resampling_method=resampling, overview_levels=args.levels)
     counts = ds.overview_count
@@ -817,7 +819,7 @@ def _build_parser() -> argparse.ArgumentParser:
     warp.add_argument("output", help=_HELP_DST_RASTER)
     warp.add_argument("--crs", required=True, help="target CRS (EPSG code, WKT, PROJ4)")
     warp.add_argument(
-        "--resampling", default="nearest neighbor", help="resampling method"
+        "--resampling", default=DEFAULT_RESAMPLING, help=_HELP_RESAMPLING
     )
     warp.add_argument("--overwrite", action="store_true", help=_HELP_OVERWRITE)
     warp.set_defaults(func=_cmd_warp)
@@ -890,7 +892,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     georeference.add_argument("--to-crs", help="reproject the result to this CRS")
     georeference.add_argument(
-        "--resampling", default="nearest neighbor", help="resampling method"
+        "--resampling", default=DEFAULT_RESAMPLING, help=_HELP_RESAMPLING
     )
     georeference.add_argument(
         "--overwrite", action="store_true", help=_HELP_OVERWRITE
@@ -910,7 +912,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     orthorectify.add_argument("--to-crs", help="reproject the result to this CRS")
     orthorectify.add_argument(
-        "--resampling", default="bilinear", help="resampling method"
+        "--resampling", default="bilinear", help=_HELP_RESAMPLING
     )
     orthorectify.add_argument(
         "--overwrite", action="store_true", help=_HELP_OVERWRITE

@@ -16,7 +16,7 @@ from geopandas.geodataframe import GeoDataFrame
 from osgeo import gdal, osr
 
 from pyramids.base._domain import is_no_data
-from pyramids.base._utils import resolve_resampling
+from pyramids.base._utils import DEFAULT_RESAMPLING, resolve_resampling
 from pyramids.base.crs import (
     epsg_from_wkt,
     reproject_coordinates,
@@ -392,7 +392,7 @@ class Spatial(_Engine["Dataset"]):
     def to_crs(
         self,
         to_epsg: int | str | Any,
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
         maintain_alignment: bool = False,
         *,
         cell_size: float | tuple[float, float] | None = None,
@@ -565,7 +565,7 @@ class Spatial(_Engine["Dataset"]):
     def warped_view(
         self,
         crs: int | str | Any,
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
         *,
         cell_size: float | tuple[float, float] | None = None,
         bbox: tuple[float, float, float, float] | None = None,
@@ -883,7 +883,7 @@ class Spatial(_Engine["Dataset"]):
     def resample(
         self,
         cell_size: int | float | tuple[float, float],
-        method: str = "nearest neighbor",
+        method: str = DEFAULT_RESAMPLING,
     ) -> Dataset:
         """Resample a raster to a new cell size.
 
@@ -1229,7 +1229,7 @@ class Spatial(_Engine["Dataset"]):
             # Cells that are out-of-domain in src but in-domain in mask
             # need to be interpolated from neighbors.
             if elem_mask > elem_src:
-                gap_rows, gap_cols = np.where(src_no_data & ~mask_no_data)
+                gap_rows, gap_cols = np.nonzero(src_no_data & ~mask_no_data)
                 src_array = Vectorize._nearest_neighbour(
                     src_array,
                     self._ds.no_data_value[0],
@@ -1289,22 +1289,22 @@ class Spatial(_Engine["Dataset"]):
         # ndarray here (the dask.Array arm of ArrayLike is unreachable).
         src_array = cast(np.typing.NDArray, self._ds.read_array())
 
-        if not row == self._ds.rows or not col == self._ds.columns:
+        if row != self._ds.rows or col != self._ds.columns:
             raise ValueError(
                 "Two rasters have different number of columns or rows, please resample or match both rasters"
             )
 
         if isinstance(mask, RasterBase):
             if (
-                not self._ds.top_left_corner == mask.top_left_corner
-                or not self._ds.cell_size == mask.cell_size
+                self._ds.top_left_corner != mask.top_left_corner
+                or self._ds.cell_size != mask.cell_size
             ):
                 raise ValueError(
                     "the location of the upper left corner of both rasters is not the same or cell size is "
                     "different please match both rasters first "
                 )
 
-            if not mask_epsg == self._ds.epsg:
+            if mask_epsg != self._ds.epsg:
                 raise ValueError(
                     "Dataset A & B are using different coordinate systems please reproject one of them to "
                     "the other raster coordinate system"
@@ -1614,8 +1614,8 @@ class Spatial(_Engine["Dataset"]):
         else:
             raise ValueError("Array must be 2D or 3D")
 
-        valid_rows = np.where(~rows_to_remove)[0]
-        valid_cols = np.where(~cols_to_remove)[0]
+        valid_rows = np.nonzero(~rows_to_remove)[0]
+        valid_cols = np.nonzero(~cols_to_remove)[0]
         if valid_rows.size == 0 or valid_cols.size == 0:
             raise ValueError(
                 "crop produced no valid pixels: the bbox / polygon does not "

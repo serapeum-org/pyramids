@@ -145,6 +145,12 @@ COLOR_TABLE = DataFrame(
     columns=["id", "gdal_constant", "name"],
     data=list(zip(range(len(COLOR_NAMES)), COLOR_INTERPRETATIONS, COLOR_NAMES)),
 )
+# The historical pyramids default resampling method. Shared as the default
+# argument value across the reproject / warp / align / overview APIs and reused
+# as the canonical alias key below, so the literal is defined exactly once
+# (S1192).
+DEFAULT_RESAMPLING = "nearest neighbor"
+
 # Resampling-method name -> GDAL warp/translate constant. Covers every
 # ``gdal.GRA_*`` algorithm of the supported GDAL floor; the snake_case names
 # match rasterio's ``Resampling`` enum so users migrating from rasterio can
@@ -153,7 +159,7 @@ COLOR_TABLE = DataFrame(
 # GDAL versions are guarded with ``hasattr`` so importing pyramids never fails
 # on an older GDAL.
 INTERPOLATION_METHODS = {
-    "nearest neighbor": gdal.GRA_NearestNeighbour,
+    DEFAULT_RESAMPLING: gdal.GRA_NearestNeighbour,
     "nearest": gdal.GRA_NearestNeighbour,
     "bilinear": gdal.GRA_Bilinear,
     "cubic": gdal.GRA_Cubic,
@@ -483,7 +489,7 @@ class Catalog:
             path = "gdal_drivers.yaml"
         else:
             path = "ogr_drivers.yaml"
-        self.catalog = self._get_gdal_catalog(path)
+        self.drivers = self._get_gdal_catalog(path)
 
     @staticmethod
     def _get_gdal_catalog(path: str):
@@ -495,7 +501,7 @@ class Catalog:
 
     def get_driver(self, driver: str):
         """Get Driver data from the catalog."""
-        return self.catalog.get(driver)
+        return self.drivers.get(driver)
 
     def get_gdal_name(self, driver: str):
         """Get GDAL name."""
@@ -514,7 +520,7 @@ class Catalog:
         try:
             key = next(
                 key
-                for key, value in self.catalog.items()
+                for key, value in self.drivers.items()
                 if value.get("extension") is not None
                 and value.get("extension") == extension
             )
@@ -542,7 +548,7 @@ class Catalog:
 
     def exists(self, driver: str):
         """Check if the driver exist in the catalog."""
-        return driver in self.catalog.keys()
+        return driver in self.drivers.keys()
 
     def get_extension(self, driver: str):
         """Get driver extension."""
@@ -552,7 +558,7 @@ class Catalog:
     def get_driver_name(self, gdal_name) -> str | None:
         """Get driver name."""
         result_key = None
-        for key, value in self.catalog.items():
+        for key, value in self.drivers.items():
             name = value.get("GDAL Name")
             if gdal_name == name:
                 result_key = str(key)

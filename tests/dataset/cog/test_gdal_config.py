@@ -154,8 +154,10 @@ class TestConfigApplication:
             Passing None/empty yields without touching GDAL config.
         """
         with config_context(None):
+            # None yields a no-op context; nothing to do inside
             pass
         with config_context({}):
+            # empty mapping yields a no-op context; nothing to do inside
             pass
 
     def test_config_context_fallback_without_config_options(self, monkeypatch):

@@ -66,7 +66,7 @@ class TestReduceTime:
         coll = DatasetCollection.from_files(daily_files)
         result = coll.reduce_time(daily_times, freq="1MS", op="mean")
         assert len(result) == 1, f"Jan-only data is one month, got {len(result)}"
-        label, ds = result[0]
+        _, ds = result[0]
         assert isinstance(ds, Dataset), f"Expected a Dataset, got {type(ds)}"
         assert float(ds.read_array()[0, 0]) == pytest.approx(
             1.5

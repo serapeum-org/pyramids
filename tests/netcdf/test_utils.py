@@ -646,7 +646,7 @@ class TestParseUnitsOrigin:
 
     def test_case_insensitive(self):
         """'Days SINCE' works case-insensitively."""
-        unit, origin = _parse_units_origin("Days SINCE 1979-01-01")
+        unit, _ = _parse_units_origin("Days SINCE 1979-01-01")
         assert unit == "days", "Unit should be lowercased"
 
     def test_extra_whitespace(self):

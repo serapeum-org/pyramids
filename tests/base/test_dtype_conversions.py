@@ -20,13 +20,13 @@ pytestmark = pytest.mark.core
 def test_numpy_to_gdal_dtype(arr: np.ndarray):
     # test with array input
     gdal_type = numpy_to_gdal_dtype(arr)
-    assert gdal_type is gdal.GDT_Float32
+    assert gdal_type == gdal.GDT_Float32
     # test with  a dtye input
     gdal_type = numpy_to_gdal_dtype(arr.dtype)
-    assert gdal_type is gdal.GDT_Float32
+    assert gdal_type == gdal.GDT_Float32
     # test with  a dtye input
     gdal_type = numpy_to_gdal_dtype("float32")
-    assert gdal_type is gdal.GDT_Float32
+    assert gdal_type == gdal.GDT_Float32
 
 
 def test_gdal_to_numpy_dtype():
@@ -51,7 +51,7 @@ def test_ogr_to_numpy_dtype():
 class TestCatalog:
     def test_create_instance(self):
         catalog = Catalog()
-        assert hasattr(catalog, "catalog")
+        assert hasattr(catalog, "drivers")
 
     def test_get_driver(self):
         catalog = Catalog()

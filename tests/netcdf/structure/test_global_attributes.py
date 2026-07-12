@@ -90,7 +90,7 @@ class TestSetGlobalAttribute:
         nc.set_global_attribute("history", "created by test")
         assert (
             nc.global_attributes["history"] == "created by test"
-        ), f"String not stored correctly"
+        ), "String not stored correctly"
 
     def test_float_value(self):
         """Setting a float attribute should store it correctly.
@@ -100,7 +100,7 @@ class TestSetGlobalAttribute:
         """
         nc = _make_nc()
         nc.set_global_attribute("version", 2.5)
-        assert nc.global_attributes["version"] == pytest.approx(2.5), f"Float not stored correctly"
+        assert nc.global_attributes["version"] == pytest.approx(2.5), "Float not stored correctly"
 
     def test_int_value(self):
         """Setting an int attribute should store it correctly.
@@ -110,7 +110,7 @@ class TestSetGlobalAttribute:
         """
         nc = _make_nc()
         nc.set_global_attribute("count", 42)
-        assert nc.global_attributes["count"] == 42, f"Int not stored correctly"
+        assert nc.global_attributes["count"] == 42, "Int not stored correctly"
 
     def test_overwrite_existing(self):
         """Setting an attribute that already exists should overwrite it.
@@ -121,7 +121,7 @@ class TestSetGlobalAttribute:
         nc = _make_nc()
         nc.set_global_attribute("key", "first")
         nc.set_global_attribute("key", "second")
-        assert nc.global_attributes["key"] == "second", f"Overwrite failed"
+        assert nc.global_attributes["key"] == "second", "Overwrite failed"
 
     def test_multiple_attributes(self):
         """Setting multiple attributes should all be readable.

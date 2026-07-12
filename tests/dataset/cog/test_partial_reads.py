@@ -40,7 +40,7 @@ def tile_3857(tmp_path) -> Dataset:
     Returns:
         Dataset: An in-memory dataset aligned to the zoom-1 NW tile bounds.
     """
-    west, south, east, north = _xyz_bounds_3857(1, 0, 0)
+    west, _, east, north = _xyz_bounds_3857(1, 0, 0)
     cell = (east - west) / 256.0
     gt = (west, cell, 0.0, north, 0.0, -cell)
     mem = gdal.GetDriverByName("MEM").Create("", 256, 256, 1, gdal.GDT_Float32)

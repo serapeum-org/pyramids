@@ -156,7 +156,7 @@ def create_sr_from_proj(
     srs = osr.SpatialReference()
     if string_type is None:
         srs.ImportFromWkt(prj)
-    elif prj.startswith("PROJCS") or prj.startswith("GEOGCS"):
+    elif prj.startswith(("PROJCS", "GEOGCS")):
         srs.ImportFromESRI([prj])
     else:
         srs.ImportFromProj4(prj)
@@ -380,7 +380,7 @@ def get_epsg_from_prj(prj: str) -> int:
     return int(code)
 
 
-def epsg_from_wkt(wkt: str, default: int = 4326) -> int:
+def epsg_from_wkt(wkt: str | None, default: int = 4326) -> int:
     """Resolve an EPSG code from a WKT / Proj string with a fallback.
 
     Wraps :func:`get_epsg_from_prj` to absorb the

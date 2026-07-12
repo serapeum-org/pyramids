@@ -25,7 +25,7 @@ Examples:
 
     >>> from pyramids.base.config import Config
     >>> cfg = Config(level="WARNING")  # doctest: +SKIP
-    >>> settings = cfg.config  # doctest: +SKIP
+    >>> settings = cfg.settings  # doctest: +SKIP
     >>> isinstance(settings, dict)  # doctest: +SKIP
     True
 
@@ -564,7 +564,7 @@ class Config:
         >>> from pyramids.base.config import Config  # doctest: +SKIP
         >>> cfg = Config(level="INFO")  # doctest: +SKIP
         2025-09-09 23:10:28 | INFO | pyramids.base.config | Logging is configured.
-        >>> print(cfg.config)  # doctest: +SKIP
+        >>> print(cfg.settings)  # doctest: +SKIP
         {'gdal': {'GDAL_CACHEMAX': '512',
           'GDAL_PAM_ENABLED': 'YES',
           'GDAL_VRT_ENABLE_PYTHON': 'YES',
@@ -613,7 +613,7 @@ class Config:
         """
         self.setup_logging(level=level, log_file=log_file)
         self.config_file = config_file
-        self.config = self.load_config()
+        self.settings = self.load_config()
         self.initialize_gdal()
 
     def load_config(self):
@@ -633,7 +633,7 @@ class Config:
                 ```python
                 >>> from pyramids.base.config import Config
                 >>> cfg = Config(config_file="config.yaml")
-                >>> print(cfg.config)  # doctest: +SKIP
+                >>> print(cfg.settings)  # doctest: +SKIP
                 {'gdal': {'GDAL_CACHEMAX': '512',
                   'GDAL_PAM_ENABLED': 'YES',
                   'GDAL_VRT_ENABLE_PYTHON': 'YES',
@@ -678,9 +678,9 @@ class Config:
         gdal.UseExceptions()
         ogr.UseExceptions()
         # Apply GDAL/OGR options from configuration
-        for key, value in self.config.get("gdal", {}).items():
+        for key, value in self.settings.get("gdal", {}).items():
             gdal.SetConfigOption(key, value)
-        for key, value in self.config.get("ogr", {}).items():
+        for key, value in self.settings.get("ogr", {}).items():
             gdal.SetConfigOption(key, value)
 
         gdal_plugins_path = self.dynamic_env_variables()

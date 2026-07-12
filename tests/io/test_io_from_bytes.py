@@ -137,6 +137,9 @@ class TestBytesToGdal:
         Test scenario:
             Two ``bytes_to_gdal`` calls — expected: different backing paths.
         """
+        # Keep both dataset handles alive so the /vsimem/ files stay open while we
+        # compare paths, then release them before unlinking (handles look "unused"
+        # to static analysis but are held for their GDAL resource lifetime).
         s1, p1 = bytes_to_gdal(geotiff_bytes)
         s2, p2 = bytes_to_gdal(geotiff_bytes)
         try:
@@ -221,6 +224,9 @@ class TestBytesToGdal:
             finalizer; ``Dataset.from_bytes`` does that), and an explicit
             ``silent_unlink`` removes it.
         """
+        # Hold then drop the dataset reference so the GC below can reclaim it;
+        # the test proves the /vsimem/ file survives that (no finalizer). The
+        # handle is used for its resource lifetime (S1481 false positive).
         src, vsi_path = bytes_to_gdal(geotiff_bytes)
         src = None
         gc.collect()

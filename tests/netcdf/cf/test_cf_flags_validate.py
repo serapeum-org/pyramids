@@ -74,6 +74,12 @@ class TestDecodeFlags:
         result = decode_flags(0)
         assert result == ["unknown"], f"Expected ['unknown'], got {result!r}"
 
+    def test_no_meanings_with_masks_and_values_returns_unknown(self):
+        """Missing flag_meanings with masks/values degrades to ['unknown'], not a crash."""
+        assert decode_flags(1, flag_values=[0, 1, 2]) == ["unknown"]
+        assert decode_flags(1, flag_values=[0, 1], flag_masks=[1, 2]) == ["unknown"]
+        assert decode_flags(1, flag_masks=[1, 2]) == ["unknown"]
+
 
 class TestValidateCF:
     """Tests for cf.validate_cf."""
@@ -135,7 +141,7 @@ class TestCFAttributePreservation:
             Create a NetCDF, get a variable (which tracks attrs via
             RT-7), crop it, set it back, verify attrs are preserved.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(
             arr=arr,
             geo=GEO,
@@ -153,7 +159,7 @@ class TestCFAttributePreservation:
         Test scenario:
             Create, copy, check Conventions on copy.
         """
-        arr = np.random.RandomState(SEED).rand(5, 10).astype(np.float64)
+        arr = np.random.default_rng(SEED).random((5, 10)).astype(np.float64)
         nc = NetCDF.create_from_array(arr=arr, geo=GEO, variable_name="temp")
         nc2 = nc.copy()
         ga = nc2.global_attributes

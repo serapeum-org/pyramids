@@ -108,6 +108,7 @@ class TestRequesterPaysContextManager:
         """
         with pytest.warns(UserWarning, match="Requester-Pays"):
             with RequesterPays(region="us-west-2"):
+                # entering the context is what emits the billing warning
                 pass
 
     def test_ack_charges_silences_warning(self):
@@ -119,6 +120,7 @@ class TestRequesterPaysContextManager:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             with RequesterPays(region="us-west-2", ack_charges=True):
+                # entering must not raise: ack_charges suppresses the warning
                 pass
 
     def test_env_ack_silences_warning(self, monkeypatch):
@@ -134,6 +136,7 @@ class TestRequesterPaysContextManager:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             with RequesterPays(region="us-west-2"):
+                # entering must not raise: the env var suppresses the warning
                 pass
 
     def test_yields_config_with_payer_and_knobs(self):

@@ -35,9 +35,9 @@ class TestFeatureCollectionFromBbox:
         """
         fc = FeatureCollection.from_bbox((10, 20, 30, 40), epsg=4326)
         expected = box(10, 20, 30, 40)
-        assert list(fc.geometry)[0].equals(
+        assert next(iter(fc.geometry)).equals(
             expected
-        ), f"unexpected geometry: {list(fc.geometry)[0].wkt}"
+        ), f"unexpected geometry: {next(iter(fc.geometry)).wkt}"
 
     def test_total_bounds_round_trip(self):
         """``total_bounds`` on the result matches the input ``(w, s, e, n)``.
@@ -91,8 +91,8 @@ class TestFeatureCollectionFromBbox:
         """
         a = FeatureCollection.from_bbox([0, 0, 1, 1], epsg=4326)
         b = FeatureCollection.from_bbox((0, 0, 1, 1), epsg=4326)
-        assert list(a.geometry)[0].equals(
-            list(b.geometry)[0]
+        assert next(iter(a.geometry)).equals(
+            next(iter(b.geometry))
         ), "list and tuple inputs produced different geometries"
 
     def test_accepts_integer_coordinates(self):
@@ -156,6 +156,14 @@ class TestFeatureCollectionFromBbox:
         """
         with pytest.raises(ValueError, match="4-element"):
             FeatureCollection.from_bbox(42, epsg=4326)
+
+    def test_nan_bbox_raises(self):
+        """A NaN coordinate (e.g. an empty frame's all-NaN bounds) is rejected."""
+        nan = float("nan")
+        with pytest.raises(ValueError, match="NaN"):
+            FeatureCollection.from_bbox((nan, nan, nan, nan), epsg=4326)
+        with pytest.raises(ValueError, match="NaN"):
+            FeatureCollection.from_bbox((0, 0, nan, 1), epsg=4326)
 
     @pytest.mark.parametrize(
         "bad",
