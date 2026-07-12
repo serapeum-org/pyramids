@@ -8,6 +8,7 @@ import time
 import warnings
 import zipfile
 from pathlib import Path
+from typing import NoReturn
 
 import numpy as np
 from osgeo import gdal
@@ -503,6 +504,55 @@ def extract_from_gz(input_file: str | Path, output_file: str | Path, delete=Fals
         input_file.unlink()
 
 
+def _resolve_read_path(path: str | Path, vsi: str | None, file_i: int) -> str:
+    """Resolve ``path`` to the concrete path :func:`read_file` should open.
+
+    When ``vsi`` is given, treat ``path`` as an archive of that kind and return
+    the VSI path of member ``file_i``; otherwise sniff/normalise the path as
+    usual via :func:`_parse_path`.
+    """
+    if vsi is not None:
+        dir_vsi = _archive_dir_vsi(path, vsi)
+        members = _archive_members(dir_vsi)
+        if not 0 <= file_i < len(members):
+            raise FileNotFoundError(
+                f"archive {path!r} has {len(members)} member(s); file_i={file_i} "
+                "is out of range"
+            )
+        resolved = f"{dir_vsi}/{members[file_i]}"
+    else:
+        resolved = _parse_path(path, file_i=file_i)
+    return resolved
+
+
+def _raise_open_error(error: Exception, path: str) -> NoReturn:
+    """Translate a GDAL open failure into a specific pyramids exception.
+
+    Re-raises the original ``error`` when the message is not one of the
+    recognised "unsupported / gzip-multi-member / missing" cases.
+    """
+    message = str(error)
+    if message.__contains__(" not recognized as a supported file format."):
+        if any(path.endswith(i) for i in COMPRESSED_FILES_EXTENSIONS):
+            raise FileFormatNotSupportedError(
+                "File format is not supported if you provided a gzip compressed file with multiple internal "
+                "files. Currently, it is not supported to read gzip files with multiple compressed internal "
+                "files"
+            )
+        raise error
+    if any(path.__contains__(i) for i in DOES_NOT_SUPPORT_INTERNAL) and not any(
+        path.endswith(i) for i in DOES_NOT_SUPPORT_INTERNAL
+    ):
+        raise FileFormatNotSupportedError(
+            "File format is not supported, if you provided a gzip compressed file with multiple internal "
+            "files. Currently it is not supported to read gzip files with multiple compressed internal "
+            "files"
+        )
+    if message.__contains__(" No such file or directory"):
+        raise FileNotFoundError(f"{path} you entered does not exist")
+    raise error
+
+
 def read_file(
     path: str | Path,
     read_only: bool = True,
@@ -533,52 +583,18 @@ def read_file(
         raise TypeError(
             f"the path parameter should be of string or Path type, given: {type(path)}"
         )
-    if vsi is not None:
-        dir_vsi = _archive_dir_vsi(path, vsi)
-        members = _archive_members(dir_vsi)
-        if not 0 <= file_i < len(members):
-            raise FileNotFoundError(
-                f"archive {path!r} has {len(members)} member(s); file_i={file_i} "
-                "is out of range"
-            )
-        path = f"{dir_vsi}/{members[file_i]}"
-    else:
-        path = _parse_path(path, file_i=file_i)
+    path = _resolve_read_path(path, vsi, file_i)
     access = gdal.GA_ReadOnly if read_only else gdal.GA_Update
     try:
-        # get the file extension
-        # Example criteria for using gdal.OpenEx with OF_MULTIDIM_RASTER for complex multi-dimensional formats
-        if (
-            open_as_multi_dimensional
-        ):  # file_extension in ["hdf", "h5", "nc", "nc4", "grib", "grib2", "jp2"]:
-            # Use OpenEx with the OF_MULTIDIM_RASTER flag for formats that often require handling of multi-dimensional
-            # data
+        if open_as_multi_dimensional:
+            # OF_MULTIDIM_RASTER for formats that expose multi-dimensional data
+            # (hdf, h5, nc, nc4, grib, grib2, jp2, ...).
             src = gdal.OpenEx(path, access | gdal.OF_MULTIDIM_RASTER)
         else:
-            # Use OpenShared for potentially frequently accessed raster files
+            # OpenShared for potentially frequently accessed raster files.
             src = gdal.OpenShared(path, access)
     except Exception as e:
-        if str(e).__contains__(" not recognized as a supported file format."):
-            if any(path.endswith(i) for i in COMPRESSED_FILES_EXTENSIONS):
-                raise FileFormatNotSupportedError(
-                    "File format is not supported if you provided a gzip compressed file with multiple internal "
-                    "files. Currently, it is not supported to read gzip files with multiple compressed internal "
-                    "files"
-                )
-            else:
-                raise e
-        elif any(path.__contains__(i) for i in DOES_NOT_SUPPORT_INTERNAL) and not any(
-            path.endswith(i) for i in DOES_NOT_SUPPORT_INTERNAL
-        ):
-            raise FileFormatNotSupportedError(
-                "File format is not supported, if you provided a gzip compressed file with multiple internal "
-                "files. Currently it is not supported to read gzip files with multiple compressed internal "
-                "files"
-            )
-        elif str(e).__contains__(" No such file or directory"):
-            raise FileNotFoundError(f"{path} you entered does not exist")
-        else:
-            raise e
+        _raise_open_error(e, path)
     return src
 
 
