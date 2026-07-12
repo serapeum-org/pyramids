@@ -486,6 +486,48 @@ class TestLazyHandleLifetime:
         assert len(FILE_CACHE) == 0, "close() must release the parked handle even while the array is alive"
         assert lazy.compute().size > 0, "the lazy array stays usable after close() (its manager re-opens)"
 
+    def test_closing_variable_subset_releases_its_handle(self, three_d_path):
+        """Closing a `get_variable()` subset directly releases the handle it parked (M1).
+
+        Test scenario:
+            The manager is tracked on both the subset and the root container, so closing the subset —
+            not only the root — evicts its parked handle before any reopen.
+        """
+        nc = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
+        var = nc.get_variable(nc.variable_names[0])
+        lazy = var.read_array(chunks="auto")
+        lazy.compute()
+        assert len(FILE_CACHE) == 1, "the subset lazy read parks a handle"
+        var.close()
+        assert len(FILE_CACHE) == 0, "closing the subset must release its parked handle"
+
+    def test_second_close_releases_handle_reparked_after_close(self, three_d_path):
+        """A handle re-parked by a `compute()` after `close()` is released by a later `close()` (M2).
+
+        Test scenario:
+            `close()` keeps tracking still-alive managers, so the documented "recompute after close"
+            sequence followed by another `close()` still releases the re-parked handle.
+        """
+        nc = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
+        lazy = nc.get_variable(nc.variable_names[0]).read_array(chunks="auto")
+        lazy.compute()
+        nc.close()
+        assert len(FILE_CACHE) == 0, "the first close releases the parked handle"
+        lazy.compute()
+        assert len(FILE_CACHE) == 1, "recomputing after close re-parks a handle (manager re-opens)"
+        nc.close()
+        assert len(FILE_CACHE) == 0, "a second close must release the re-parked handle"
+
+    def test_tracking_does_not_accumulate_dead_managers(self, three_d_var):
+        """Dropped lazy reads' managers auto-prune from the tracking `WeakSet` — no unbounded growth (L1)."""
+        for _ in range(10):
+            lazy = three_d_var.read_array(chunks="auto")
+            lazy.compute()
+            del lazy
+        gc.collect()
+        tracked = getattr(three_d_var, "_lazy_managers", ())
+        assert len(tracked) <= 1, f"dead managers must not accumulate in the WeakSet; tracked={len(tracked)}"
+
     def test_shared_slot_kept_until_last_manager_released(self, three_d_var):
         """Two reads of the same variable share one slot; the handle survives until BOTH drop (M2).
 

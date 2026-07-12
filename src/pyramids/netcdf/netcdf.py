@@ -11,6 +11,7 @@ import itertools
 import math
 import os
 import tempfile
+import threading
 import warnings
 import weakref
 from numbers import Number
@@ -58,6 +59,10 @@ from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
 from pyramids.netcdf.utils import _read_attributes, create_time_conversion_func
+
+# Guards the per-container `_lazy_managers` WeakSet against a concurrent lazy `read_array` (which adds)
+# and `close()` (which snapshots) on the same container from different threads.
+_LAZY_MANAGERS_LOCK = threading.Lock()
 
 # GDAL integer dtype codes, used to pick the right typed Attribute.Write* call
 # when copying variable attributes (numeric tuples can't go through Write/WriteRaw).
@@ -1845,29 +1850,40 @@ class NetCDF(Dataset):
                 variable_name=var_name,
                 chunks=chunks,
                 lock=lock,
-                manager_hook=parent._register_lazy_manager,
+                manager_hook=self._register_lazy_manager,
             ),
         )
 
     def _register_lazy_manager(self, manager: Any) -> None:
         """Track (weakly) a lazy read's file manager so `close()` can release its handle (#727).
 
-        A weak reference is used deliberately: the manager's own drop-time finalizer must still fire
-        when the lazy array is dropped, so this container must not keep the manager alive.
+        Registered on both this object and its root container (`_parent_nc`), so closing either a
+        `get_variable()` subset or the root releases the handle. A `weakref.WeakSet` is used
+        deliberately: the manager's drop-time finalizer must still fire when the lazy array is dropped
+        (so tracking must not keep the manager alive), and the set auto-prunes collected managers so a
+        long-lived container in a read loop does not accumulate dead entries.
         """
-        managers = getattr(self, "_lazy_managers", None)
-        if managers is None:
-            managers = []
-            self._lazy_managers = managers
-        managers.append(weakref.ref(manager))
+        with _LAZY_MANAGERS_LOCK:
+            for owner in (self, self._parent_nc):
+                if owner is None:
+                    continue
+                managers = getattr(owner, "_lazy_managers", None)
+                if managers is None:
+                    managers = weakref.WeakSet()
+                    owner._lazy_managers = managers
+                managers.add(manager)
 
     def _release_lazy_managers(self) -> None:
-        """Close every still-alive tracked lazy manager, releasing its parked handle."""
-        for ref in getattr(self, "_lazy_managers", ()):
-            manager = ref()
-            if manager is not None:
-                manager.close()
-        self._lazy_managers = []
+        """Close every still-alive tracked lazy manager, releasing its parked handle.
+
+        The set is not cleared: `manager.close()` is idempotent, and a still-alive manager stays
+        tracked so a handle it re-parks (a `compute()` after `close()`) is released by a later
+        `close()` too. Dead managers drop out of the `WeakSet` on their own.
+        """
+        with _LAZY_MANAGERS_LOCK:
+            managers = list(getattr(self, "_lazy_managers", ()))
+        for manager in managers:
+            manager.close()
 
     def _preserve_netcdf_metadata(self, result: Dataset) -> NetCDF:
         """Wrap a Dataset result as a NetCDF, preserving variable-subset metadata.
