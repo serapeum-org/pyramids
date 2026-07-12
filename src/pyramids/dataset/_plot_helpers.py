@@ -65,6 +65,7 @@ import numpy as np
 from pyproj import CRS
 from pyproj.exceptions import CRSError
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.base._utils import require_cleopatra
 
 # `add_basemap` is imported at top-level so existing test patches that
@@ -419,6 +420,23 @@ def render_array(
             raise ValueError(
                 f"Unsupported color_scale {color_scale!r}; valid options: {valid}."
             ) from None
+
+    # ``style`` / ``hillshade`` data-style presets were added to ``ArrayGlyph``
+    # in cleopatra 0.24. On an older cleopatra the kwargs would fall through to a
+    # cryptic "Unknown option" error deep in the render call; feature-detect
+    # (``"style"`` is absent from ``option_keys()`` before 0.24) and raise a
+    # clear upgrade hint instead. Scoped to when the preset kwargs are actually
+    # used, so basic plotting on an older cleopatra is unaffected. An invalid
+    # ``style`` *name* is left to cleopatra, which already raises a ValueError
+    # listing the valid ``DATA_STYLES`` keys. (issue #737)
+    if (
+        kwargs.get("style") is not None or kwargs.get("hillshade") is not None
+    ) and "style" not in ArrayGlyph.option_keys():
+        raise OptionalPackageDoesNotExist(
+            "`style=` / `hillshade=` plot presets require cleopatra >= 0.24. "
+            "Upgrade with: pip install -U 'pyramids-gis[viz]' (or "
+            "pip install -U 'cleopatra>=0.24')."
+        )
 
     # Unwrap a wrapping geographic longitude before handing curvilinear coords
     # to cleopatra, so its pcolormesh doesn't smear a ~178-degree quad across

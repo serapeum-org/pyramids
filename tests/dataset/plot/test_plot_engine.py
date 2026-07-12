@@ -5,6 +5,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
+from pyramids.base._errors import OptionalPackageDoesNotExist
 from pyramids.dataset import Dataset
 from pyramids.dataset._plot_helpers import render_array
 from pyramids.dataset.engines import Analysis
@@ -339,6 +340,102 @@ class TestRenderArrayKwargRouting:
                 mode="plot",
                 bogus=1,
             )
+
+
+class TestStyleHillshadePresets:
+    """``style=`` / ``hillshade=`` presets route to cleopatra (#737).
+
+    The presets ship in cleopatra >= 0.24. These tests render against the real
+    installed cleopatra when it supports them, and simulate an older cleopatra
+    (by hiding ``style`` from ``option_keys()``) to exercise the upgrade guard.
+    """
+
+    _supports_style = "style" in ArrayGlyph.option_keys()
+
+    @pytest.mark.skipif(
+        not _supports_style, reason="cleopatra < 0.24 has no style presets"
+    )
+    def test_style_preset_renders(self):
+        """A valid ``style`` preset name renders end to end.
+
+        Test scenario:
+            ``render_array(..., style="flow_accumulation")`` auto-routes the
+            preset to ``ArrayGlyph`` (``style`` is in ``option_keys()``) and
+            returns a rendered glyph — no pyramids-side handling needed.
+        """
+        rng = np.random.default_rng(737)
+        arr = rng.random((6, 6)).astype("float32")
+        glyph = render_array(
+            arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", style="flow_accumulation"
+        )
+        assert isinstance(glyph, ArrayGlyph)
+
+    @pytest.mark.skipif(
+        not _supports_style, reason="cleopatra < 0.24 has no hillshade"
+    )
+    def test_hillshade_renders(self):
+        """A ``hillshade`` blend renders end to end."""
+        rng = np.random.default_rng(738)
+        arr = rng.random((6, 6)).astype("float32")
+        glyph = render_array(
+            arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade=True
+        )
+        assert isinstance(glyph, ArrayGlyph)
+
+    @pytest.mark.skipif(
+        not _supports_style, reason="cleopatra < 0.24 has no style presets"
+    )
+    def test_unknown_style_name_surfaces_cleopatra_valueerror(self):
+        """An unknown ``style`` name is rejected by cleopatra with the valid list.
+
+        Test scenario:
+            pyramids does not duplicate the preset-name check; an invalid name
+            defers to cleopatra, which raises ``ValueError`` naming the valid
+            ``DATA_STYLES`` keys.
+        """
+        rng = np.random.default_rng(739)
+        arr = rng.random((5, 5)).astype("float32")
+        with pytest.raises(ValueError, match="style"):
+            render_array(
+                arr=arr,
+                extent=[0.0, 0.0, 1.0, 1.0],
+                mode="plot",
+                style="definitely_not_a_style",
+            )
+
+    def test_style_on_old_cleopatra_raises_upgrade_hint(self):
+        """``style=`` on a cleopatra without preset support raises a clear hint.
+
+        Test scenario:
+            Simulate cleopatra < 0.24 by hiding ``style`` from
+            ``option_keys()``. The scoped guard in ``render_array`` must raise
+            :class:`OptionalPackageDoesNotExist` pointing at the >= 0.24 upgrade
+            instead of letting a cryptic "Unknown option" surface deep in the
+            render call.
+        """
+        rng = np.random.default_rng(740)
+        arr = rng.random((5, 5)).astype("float32")
+        old_keys = ArrayGlyph.option_keys() - {"style", "hillshade"}
+        with patch.object(ArrayGlyph, "option_keys", return_value=old_keys):
+            with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.24"):
+                render_array(
+                    arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", style="topography"
+                )
+
+    def test_no_preset_kwargs_unaffected_on_old_cleopatra(self):
+        """Basic plotting is untouched by the guard on an older cleopatra.
+
+        Test scenario:
+            With ``style`` hidden from ``option_keys()`` (simulated old
+            cleopatra) but no ``style`` / ``hillshade`` passed, ``render_array``
+            renders normally — the guard is scoped to preset use only.
+        """
+        rng = np.random.default_rng(741)
+        arr = rng.random((5, 5)).astype("float32")
+        old_keys = ArrayGlyph.option_keys() - {"style", "hillshade"}
+        with patch.object(ArrayGlyph, "option_keys", return_value=old_keys):
+            glyph = render_array(arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot")
+        assert isinstance(glyph, ArrayGlyph)
 
 
 class TestMeshRenderHelper:
