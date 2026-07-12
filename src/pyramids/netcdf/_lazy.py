@@ -504,8 +504,10 @@ def _orient_lazy_plane(
         da: The imported `dask.array` module (passed in to avoid a second import).
         ndim: Number of dimensions of `lazy`.
         spatial_dims: `(x_index, y_index)` of the resolved plane, or `None`.
-        flips: `(needs_y_flip, needs_x_flip)` for the resolved plane, or `None` to fall back to the
-            trailing-plane decision.
+        flips: `(needs_y_flip, needs_x_flip)` for the resolved plane. `None` falls back to
+            `trailing_flips`, which is correct only when the resolved plane *is* the trailing one —
+            supply `flips` whenever `spatial_dims` is a non-trailing plane (a moved plane is left
+            unflipped otherwise, never flipped on the trailing plane's criterion).
         trailing_flips: `(needs_y_flip, needs_x_flip)` for the trailing plane, from
             `_mdarray_shape_and_dtype`.
 
@@ -518,9 +520,18 @@ def _orient_lazy_plane(
             flip_y, flip_x = trailing_flips
         else:
             x_index, y_index = spatial_dims
-            if (y_index, x_index) != (ndim - 2, ndim - 1):
+            is_trailing = (y_index, x_index) == (ndim - 2, ndim - 1)
+            if not is_trailing:
                 oriented = da.moveaxis(oriented, [y_index, x_index], [ndim - 2, ndim - 1])
-            flip_y, flip_x = flips if flips is not None else trailing_flips
+            if flips is not None:
+                flip_y, flip_x = flips
+            else:
+                # `trailing_flips` is the decision `axis_flips` made for the ORIGINAL trailing plane,
+                # so it is a valid fallback only when the resolved plane *is* that trailing plane. For
+                # a moved (non-trailing) plane the caller must supply `flips`; without them, do not
+                # flip on the wrong criterion. (Unreachable from `netcdf.py`, which always pairs a
+                # non-`None` `spatial_dims` with `flips`; guards the module-private signature.)
+                flip_y, flip_x = trailing_flips if is_trailing else (False, False)
         if flip_y:
             oriented = da.flip(oriented, axis=ndim - 2)
         if flip_x:
