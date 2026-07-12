@@ -639,34 +639,54 @@ def detect_axis(
     if isinstance(axis, str) and axis.strip().upper() in ("X", "Y", "Z", "T"):
         result = axis.strip().upper()
     else:
-        stdname = attrs.get("standard_name")
-        if isinstance(stdname, str):
-            result = _STDNAME_TO_AXIS.get(stdname.lower())
+        result = _detect_axis_from_metadata(name, attrs, units)
 
-        if result is None:
-            unit_str = units or attrs.get("units")
-            if isinstance(unit_str, str):
-                unit_lower = unit_str.lower().strip()
-                if unit_lower in (
-                    "degrees_north",
-                    "degree_north",
-                    "degree_n",
-                    "degrees_n",
-                ):
-                    result = "Y"
-                elif unit_lower in (
-                    "degrees_east",
-                    "degree_east",
-                    "degree_e",
-                    "degrees_e",
-                ):
-                    result = "X"
-                elif "since" in unit_lower:
-                    result = "T"
+    return result
 
-        if result is None:
-            result = _NAME_PATTERNS.get(name.lower().strip())
 
+def _axis_from_units(unit_str: Any) -> str | None:
+    """Map a CF ``units`` string to an axis code (Y/X/T), or None.
+
+    Args:
+        unit_str: A candidate CF ``units`` value.
+
+    Returns:
+        ``"Y"`` for degrees-north units, ``"X"`` for degrees-east units,
+        ``"T"`` for a ``<period> since <epoch>`` time unit, else ``None``.
+    """
+    axis: str | None = None
+    if isinstance(unit_str, str):
+        unit_lower = unit_str.lower().strip()
+        if unit_lower in ("degrees_north", "degree_north", "degree_n", "degrees_n"):
+            axis = "Y"
+        elif unit_lower in ("degrees_east", "degree_east", "degree_e", "degrees_e"):
+            axis = "X"
+        elif "since" in unit_lower:
+            axis = "T"
+    return axis
+
+
+def _detect_axis_from_metadata(
+    name: str, attrs: dict[str, Any], units: str | None
+) -> str | None:
+    """Detect a CF axis from standard_name, then units, then name pattern.
+
+    Applied (in priority order) when no explicit ``axis`` attribute is present.
+
+    Args:
+        name: Variable or dimension short name.
+        attrs: Case-folded attribute dictionary.
+        units: Unit string passed separately from ``attrs``.
+
+    Returns:
+        One of ``"X"``, ``"Y"``, ``"Z"``, ``"T"``, or ``None``.
+    """
+    stdname = attrs.get("standard_name")
+    result = _STDNAME_TO_AXIS.get(stdname.lower()) if isinstance(stdname, str) else None
+    if result is None:
+        result = _axis_from_units(units or attrs.get("units"))
+    if result is None:
+        result = _NAME_PATTERNS.get(name.lower().strip())
     return result
 
 
@@ -885,30 +905,84 @@ def decode_flags(
     # default; every branch below indexes flag_meanings.
     if flag_meanings is not None:
         if flag_masks is not None and flag_values is not None:
-            matched = [
-                flag_meanings[i]
-                for i in range(len(flag_meanings))
-                if i < len(flag_masks)
-                and i < len(flag_values)
-                and (value & flag_masks[i]) == flag_values[i]
-            ]
-            if matched:
-                result = matched
+            matched = _decode_combined(value, flag_values, flag_meanings, flag_masks)
         elif flag_masks is not None:
-            matched = [
-                flag_meanings[i]
-                for i in range(len(flag_meanings))
-                if i < len(flag_masks) and (value & flag_masks[i]) != 0
-            ]
-            if matched:
-                result = matched
+            matched = _decode_bitfield(value, flag_meanings, flag_masks)
         elif flag_values is not None:
-            for i, fv in enumerate(flag_values):
-                if fv == value and i < len(flag_meanings):
-                    result = [flag_meanings[i]]
-                    break
+            matched = _decode_exclusive(value, flag_values, flag_meanings)
+        else:
+            matched = []
+        if matched:
+            result = matched
 
     return result
+
+
+def _decode_combined(
+    value: int,
+    flag_values: list,
+    flag_meanings: list[str],
+    flag_masks: list[int],
+) -> list[str]:
+    """Combined CF flags: meanings where ``(value & mask) == flag_value``.
+
+    Args:
+        value: The integer flag value being decoded.
+        flag_values: Per-flag expected values (1:1 with meanings).
+        flag_meanings: Human-readable meaning strings.
+        flag_masks: Per-flag bit masks (1:1 with meanings).
+
+    Returns:
+        Matching meanings, empty if none match.
+    """
+    return [
+        flag_meanings[i]
+        for i in range(len(flag_meanings))
+        if i < len(flag_masks)
+        and i < len(flag_values)
+        and (value & flag_masks[i]) == flag_values[i]
+    ]
+
+
+def _decode_bitfield(
+    value: int, flag_meanings: list[str], flag_masks: list[int]
+) -> list[str]:
+    """Boolean/bit-field CF flags: meanings whose mask bit is set in ``value``.
+
+    Args:
+        value: The integer flag value being decoded.
+        flag_meanings: Human-readable meaning strings.
+        flag_masks: Per-flag bit masks (1:1 with meanings).
+
+    Returns:
+        Matching meanings, empty if none match.
+    """
+    return [
+        flag_meanings[i]
+        for i in range(len(flag_meanings))
+        if i < len(flag_masks) and (value & flag_masks[i]) != 0
+    ]
+
+
+def _decode_exclusive(
+    value: int, flag_values: list, flag_meanings: list[str]
+) -> list[str]:
+    """Mutually exclusive CF flags: the single meaning matching ``value``.
+
+    Args:
+        value: The integer flag value being decoded.
+        flag_values: Per-flag values (1:1 with meanings).
+        flag_meanings: Human-readable meaning strings.
+
+    Returns:
+        A single-element list with the first matching meaning, empty if none.
+    """
+    matched: list[str] = []
+    for i, fv in enumerate(flag_values):
+        if fv == value and i < len(flag_meanings):
+            matched = [flag_meanings[i]]
+            break
+    return matched
 
 
 def validate_cf(
