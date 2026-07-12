@@ -308,10 +308,18 @@ class NetCDFPlot:
         else:
             if chunks is not None:
                 analysis_kwargs["_chunks"] = chunks
+                # The lazy `read_array(chunks=)` re-reads the whole source variable and ignores the
+                # `sel()`-pinned subset, so render from the *unpinned* `nc` -- which carries the
+                # resolved raster plane -- and index the flat band the selection pins to, instead of
+                # storage band 0 (which would silently draw the wrong slice; #728).
+                render_source = nc
+                render_band = self._flat_band_index(nc, resolved_sel)
             else:
                 self._maybe_log_lazy_hint(pinned)
-            result = pinned.analysis.plot(
-                band=0,
+                render_source = pinned
+                render_band = 0
+            result = render_source.analysis.plot(
+                band=render_band,
                 exclude_value=exclude_value,
                 basemap=basemap,
                 **analysis_kwargs,
@@ -397,6 +405,45 @@ class NetCDFPlot:
                 dim_coords = nc._band_dim_values_map.get(dim_name)
                 resolved[dim_name] = idx if dim_coords is None else dim_coords[idx]
         return resolved
+
+    def _flat_band_index(self, nc: NetCDF, resolved_sel: dict[str, Any]) -> int:
+        """Flat classic-band index the selection pins to, for the lazy (`chunks=`) render path.
+
+        The lazy `read_array(chunks=)` re-reads the whole source variable and ignores the
+        `sel()`-pinned subset, so the chunks render path reads the unpinned variable and indexes
+        this band rather than storage band 0. Reuses the exact band-index machinery `sel` uses
+        (`_resolve_dim_indices` + `_map_dim_to_band_indices`) so the flat index matches the eager
+        selection's band order. Every band dim is pinned on this path (`run` asserts
+        `band_count == 1`), so the per-dim band sets intersect to a single band; returns `0` when no
+        selector is active.
+
+        Args:
+            nc: The unpinned variable subset (carries the full band-dim metadata).
+            resolved_sel: `{band_dim_name: label}` from `_resolve_selectors`.
+
+        Returns:
+            int: The 0-based flat band index of the selected 2-D slice.
+        """
+        flat_index = 0
+        if resolved_sel:
+            # Local import breaks the pyramids.netcdf.engines.selection <-> pyramids.netcdf._plot
+            # cycle (selection imports NetCDFPlot from this module).
+            from pyramids.netcdf.engines.selection import (
+                _map_dim_to_band_indices,
+                _resolve_dim_indices,
+            )
+
+            sizes = nc._band_dim_sizes
+            candidate: set[int] | None = None
+            for dim_name, value in resolved_sel.items():
+                coords = nc._band_dim_values_map[dim_name]
+                dim_indices = _resolve_dim_indices(coords, value)
+                dim_axis = nc._band_dim_names.index(dim_name)
+                bands = set(_map_dim_to_band_indices(dim_axis, sizes, dim_indices))
+                candidate = bands if candidate is None else candidate & bands
+            if candidate:
+                flat_index = min(candidate)
+        return flat_index
 
     def _build_render_kwargs(
         self,
