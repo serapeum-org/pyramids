@@ -438,22 +438,61 @@ class TestStyleHillshadePresets:
                     arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade=True
                 )
 
-    def test_falsy_hillshade_on_old_cleopatra_not_guarded(self):
-        """``hillshade=False`` asks for nothing, so the guard does not fire.
+    @pytest.mark.parametrize("value", [False, None])
+    def test_falsy_hillshade_is_dropped_not_forwarded(self, value):
+        """A ``None``/``False`` ``hillshade`` is dropped, never reaching cleopatra.
 
         Test scenario:
-            With preset support hidden (simulated old cleopatra), an explicit
-            ``hillshade=False`` requests no shading and must render normally
-            rather than raising the >= 0.24 upgrade error.
+            A falsy hillshade requests no shading, so ``render_array`` must pop
+            it before the ctor/render split — making it a true no-op on any
+            cleopatra version, not merely one that happens to accept the kwarg.
+            A fake glyph captures what actually reaches the constructor / plot
+            call, so this is independent of the installed cleopatra.
         """
+        fake_cls, ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
         rng = np.random.default_rng(745)
+        arr = rng.random((5, 5)).astype("float32")
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade=value
+            )
+        assert "hillshade" not in ctor, f"hillshade={value!r} must not reach the ctor"
+        assert "hillshade" not in plot, f"hillshade={value!r} must not reach plot"
+
+    def test_empty_dict_hillshade_is_forwarded(self):
+        """An affirmative ``hillshade={}`` (default params) reaches the glyph.
+
+        Test scenario:
+            ``{}`` is falsy but documented as "shade with default parameters",
+            so unlike ``False`` it must NOT be dropped — it flows to the glyph
+            constructor like any other affirmative hillshade request.
+        """
+        fake_cls, ctor, _plot, *_ = TestRenderArrayKwargRouting._capture_calls()
+        rng = np.random.default_rng(746)
+        arr = rng.random((5, 5)).astype("float32")
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade={}
+            )
+        assert ctor.get("hillshade") == {}, "affirmative hillshade={} must be forwarded"
+
+    def test_empty_dict_hillshade_on_old_cleopatra_raises_upgrade_hint(self):
+        """``hillshade={}`` on a build lacking hillshade raises the upgrade hint.
+
+        Test scenario:
+            The affirmative empty-dict form must be gated exactly like
+            ``hillshade=True`` — an old cleopatra (``hillshade`` absent from
+            ``option_keys()``) yields the clear >= 0.24 error, not the cryptic
+            downstream "Unknown option".
+        """
+        rng = np.random.default_rng(747)
         arr = rng.random((5, 5)).astype("float32")
         old_keys = ArrayGlyph.option_keys() - {"style", "hillshade"}
         with patch.object(ArrayGlyph, "option_keys", return_value=old_keys):
-            glyph = render_array(
-                arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade=False
-            )
-        assert isinstance(glyph, ArrayGlyph)
+            with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.24"):
+                render_array(
+                    arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade={}
+                )
 
     @pytest.mark.skipif(
         not _supports_style, reason="cleopatra < 0.24 has no style presets"
