@@ -441,16 +441,55 @@ class TestLazyHandleLifetime:
         Test scenario:
             A lazy read parks a live MDIM handle in the process-global FILE_CACHE for chunk reuse.
             Before #727 that handle survived until LRU pressure or interpreter exit; now a finalizer
-            on the returned array evicts its slot when the array is dropped, so reopening the same
-            NetCDF in-process does not leave two live handles (a Windows GDAL crash).
+            on the read's manager (kept alive by the dask graph) evicts its slot when the array is
+            dropped, so reopening the same NetCDF in-process does not leave two live handles.
         """
         assert len(FILE_CACHE) == 0, "the autouse fixture should leave FILE_CACHE empty at test start"
         lazy = three_d_var.read_array(chunks="auto")
         lazy.compute()
-        assert len(FILE_CACHE) >= 1, "a lazy read + compute must park a handle"
+        assert len(FILE_CACHE) == 1, "a lazy read + compute must park exactly one handle"
         del lazy
         gc.collect()
         assert len(FILE_CACHE) == 0, "dropping the lazy array must evict the parked handle"
+
+    def test_dropping_unpack_lazy_array_evicts_handle(self, scale_offset_path):
+        """Dropping an `unpack=True` lazy array — a DERIVED dask array — still evicts the handle (H1).
+
+        Test scenario:
+            `read_array(unpack=True)` returns `scale * x + offset`, a derived dask array that keeps
+            only the graph layers, not the inner wrapper. Because the finalizer is bound to the
+            manager (kept alive by the readers), dropping the derived array releases the handle — the
+            path a wrapper-bound finalizer silently leaked (cache stayed at 1).
+        """
+        nc = NetCDF.read_file(scale_offset_path, open_as_multi_dimensional=True)
+        lazy = nc.get_variable(nc.variable_names[0]).read_array(chunks="auto", unpack=True)
+        lazy.compute()
+        assert len(FILE_CACHE) == 1, "a lazy unpack read + compute must park exactly one handle"
+        del lazy
+        gc.collect()
+        assert len(FILE_CACHE) == 0, "dropping a derived (unpack) lazy array must evict the handle"
+
+    def test_shared_slot_kept_until_last_manager_released(self, three_d_var):
+        """Two reads of the same variable share one slot; the handle survives until BOTH drop (M2).
+
+        Test scenario:
+            The lazy `manager_id` is `(path, variable)`, so two reads share one FILE_CACHE slot. A
+            per-slot refcount must keep the handle open until the last manager is finalized, so a
+            finalizer close can never yank a handle the other array is still reading through.
+        """
+        assert len(FILE_CACHE) == 0
+        first = three_d_var.read_array(chunks="auto")
+        second = three_d_var.read_array(chunks="auto")
+        first.compute()
+        second.compute()
+        assert len(FILE_CACHE) == 1, "two reads of one variable share a single slot"
+        del first
+        gc.collect()
+        assert len(FILE_CACHE) == 1, "dropping one array must NOT evict the shared handle"
+        assert second.compute().size > 0, "the surviving array must still read"
+        del second
+        gc.collect()
+        assert len(FILE_CACHE) == 0, "dropping the last array evicts the shared handle"
 
     def test_reopen_same_file_after_dropping_lazy_array(self, three_d_path):
         """The documented contract: drop the lazy array, then reopen the same file and read eagerly.
