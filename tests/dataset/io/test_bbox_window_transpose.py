@@ -243,12 +243,12 @@ class TestBboxRounding:
 
     def test_invalid_bbox_rounding_raises(self, non_square_raster):
         """An unknown `bbox_rounding` raises `ValueError`, on both the public and helper surfaces."""
+        bbox = list(self.WIDE_PARTIAL)
+        fc = FeatureCollection.from_bbox(self.WIDE_PARTIAL, epsg=4326)
         with pytest.raises(ValueError, match="cover.*nearest"):
-            non_square_raster.read_array(bbox=list(self.WIDE_PARTIAL), bbox_rounding="bogus")
+            non_square_raster.read_array(bbox=bbox, bbox_rounding="bogus")
         with pytest.raises(ValueError, match="cover.*nearest"):
-            non_square_raster.io._convert_polygon_to_window(
-                FeatureCollection.from_bbox(self.WIDE_PARTIAL, epsg=4326), rounding="bogus"
-            )
+            non_square_raster.io._convert_polygon_to_window(fc, rounding="bogus")
 
 
 class TestBboxReprojection:
@@ -263,10 +263,10 @@ class TestBboxReprojection:
         """
         native_bbox = (10.3, 2.3, 29.7, 7.7)
         foreign = gpd.GeoDataFrame(geometry=[box(*native_bbox)], crs=4326).to_crs(3857)
-        foreign_bbox = tuple(foreign.total_bounds)
-        native = np.asarray(non_square_raster.read_array(bbox=list(native_bbox)))
+        foreign_bbox = foreign.total_bounds.tolist()
+        native = np.asarray(non_square_raster.read_array(bbox=native_bbox))
         reprojected = np.asarray(
-            non_square_raster.read_array(bbox=list(foreign_bbox), epsg=3857)
+            non_square_raster.read_array(bbox=foreign_bbox, epsg=3857)
         )
         np.testing.assert_array_equal(reprojected, native)
 
@@ -283,9 +283,9 @@ class TestBboxReprojection:
             cell_size=1000.0,
             epsg=32618,
         )
-        far_bbox = (456968.0, 504007.0, 460968.0, 508007.0)  # zone-32N easting/northing
+        far_bbox = [456968.0, 504007.0, 460968.0, 508007.0]  # zone-32N easting/northing
         with pytest.raises(OutOfBoundsError, match="not finite"):
-            raster.read_array(bbox=list(far_bbox), epsg=32632)
+            raster.read_array(bbox=far_bbox, epsg=32632)
 
 
 class TestBboxWindowMultiBand:
