@@ -478,67 +478,26 @@ class Mesh2d:
         node_x = node_x_arr.ReadAsArray().astype(np.float64)
         node_y = node_y_arr.ReadAsArray().astype(np.float64)
 
-        face_node_conn = None
-        if topo_info.face_node_var:
-            fnc_arr = rg.OpenMDArray(topo_info.face_node_var)
-            if fnc_arr is not None:
-                face_node_conn = Connectivity.from_gdal_array(
-                    fnc_arr, "face_node_connectivity"
-                )
+        face_node_conn = cls._read_connectivity(
+            rg, topo_info.face_node_var, "face_node_connectivity"
+        )
+        edge_node_conn = cls._read_connectivity(
+            rg, topo_info.edge_node_var, "edge_node_connectivity"
+        )
+        face_edge_conn = cls._read_connectivity(
+            rg, topo_info.face_edge_var, "face_edge_connectivity"
+        )
+        face_face_conn = cls._read_connectivity(
+            rg, topo_info.face_face_var, "face_face_connectivity"
+        )
+        edge_face_conn = cls._read_connectivity(
+            rg, topo_info.edge_face_var, "edge_face_connectivity"
+        )
 
-        edge_node_conn = None
-        if topo_info.edge_node_var:
-            enc_arr = rg.OpenMDArray(topo_info.edge_node_var)
-            if enc_arr is not None:
-                edge_node_conn = Connectivity.from_gdal_array(
-                    enc_arr, "edge_node_connectivity"
-                )
-
-        face_edge_conn = None
-        if topo_info.face_edge_var:
-            fec_arr = rg.OpenMDArray(topo_info.face_edge_var)
-            if fec_arr is not None:
-                face_edge_conn = Connectivity.from_gdal_array(
-                    fec_arr, "face_edge_connectivity"
-                )
-
-        face_face_conn = None
-        if topo_info.face_face_var:
-            ffc_arr = rg.OpenMDArray(topo_info.face_face_var)
-            if ffc_arr is not None:
-                face_face_conn = Connectivity.from_gdal_array(
-                    ffc_arr, "face_face_connectivity"
-                )
-
-        edge_face_conn = None
-        if topo_info.edge_face_var:
-            efc_arr = rg.OpenMDArray(topo_info.edge_face_var)
-            if efc_arr is not None:
-                edge_face_conn = Connectivity.from_gdal_array(
-                    efc_arr, "edge_face_connectivity"
-                )
-
-        face_x = None
-        face_y = None
-        if topo_info.face_x_var:
-            fx_arr = rg.OpenMDArray(topo_info.face_x_var)
-            if fx_arr is not None:
-                face_x = fx_arr.ReadAsArray().astype(np.float64)
-        if topo_info.face_y_var:
-            fy_arr = rg.OpenMDArray(topo_info.face_y_var)
-            if fy_arr is not None:
-                face_y = fy_arr.ReadAsArray().astype(np.float64)
-
-        edge_x = None
-        edge_y = None
-        if topo_info.edge_x_var:
-            ex_arr = rg.OpenMDArray(topo_info.edge_x_var)
-            if ex_arr is not None:
-                edge_x = ex_arr.ReadAsArray().astype(np.float64)
-        if topo_info.edge_y_var:
-            ey_arr = rg.OpenMDArray(topo_info.edge_y_var)
-            if ey_arr is not None:
-                edge_y = ey_arr.ReadAsArray().astype(np.float64)
+        face_x = cls._read_coord_array(rg, topo_info.face_x_var)
+        face_y = cls._read_coord_array(rg, topo_info.face_y_var)
+        edge_x = cls._read_coord_array(rg, topo_info.edge_x_var)
+        edge_y = cls._read_coord_array(rg, topo_info.edge_y_var)
 
         crs = None
         if topo_info.crs_wkt:
@@ -567,3 +526,33 @@ class Mesh2d:
             crs=crs,
         )
         return result
+
+    @staticmethod
+    def _read_connectivity(
+        rg: gdal.Group, var_name: str | None, role: str
+    ) -> Connectivity | None:
+        """Read an optional UGRID connectivity array from a GDAL group.
+
+        Returns ``None`` when the variable name is empty or the array cannot be
+        opened, otherwise a :class:`Connectivity` tagged with ``role``.
+        """
+        conn = None
+        if var_name:
+            arr = rg.OpenMDArray(var_name)
+            if arr is not None:
+                conn = Connectivity.from_gdal_array(arr, role)
+        return conn
+
+    @staticmethod
+    def _read_coord_array(rg: gdal.Group, var_name: str | None) -> np.ndarray | None:
+        """Read an optional coordinate array (as ``float64``) from a GDAL group.
+
+        Returns ``None`` when the variable name is empty or the array cannot be
+        opened.
+        """
+        values = None
+        if var_name:
+            arr = rg.OpenMDArray(var_name)
+            if arr is not None:
+                values = arr.ReadAsArray().astype(np.float64)
+        return values
