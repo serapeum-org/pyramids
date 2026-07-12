@@ -1956,6 +1956,51 @@ class FeatureCollection(GeoDataFrame):
             kwargs["batch_size"] = batch_size
         return open_arrow(resolved, **kwargs)
 
+    @staticmethod
+    def _read_parquet_dask(
+        resolved: str,
+        *,
+        columns: list[str] | None,
+        split_row_groups: bool | None,
+        filters: list | None,
+        blocksize: int | str | None,
+        storage_options: dict | None,
+        extra_kwargs: dict[str, Any],
+    ) -> "LazyFeatureCollection":
+        """Dask backend for :meth:`read_parquet`: wrap dask_geopandas as a LazyFeatureCollection."""
+        # check deps in order of specificity — the backend request is the more
+        # specific signal, so the dask-geopandas hint beats the generic pyarrow
+        # one. When both are missing, this error names the extra ([parquet]).
+        try:
+            import dask_geopandas
+        except ImportError as exc:
+            raise ImportError(
+                "backend='dask' requires the optional "
+                "'dask-geopandas' dependency. Install with one of:\n"
+                "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
+                "  - conda-forge: conda install -c conda-forge pyramids-parquet"
+            ) from exc
+        dask_kwargs: dict[str, Any] = {}
+        if columns is not None:
+            dask_kwargs["columns"] = columns
+        if split_row_groups is not None:
+            dask_kwargs["split_row_groups"] = split_row_groups
+        if filters is not None:
+            dask_kwargs["filters"] = filters
+        if blocksize is not None:
+            dask_kwargs["blocksize"] = blocksize
+        if storage_options is not None:
+            dask_kwargs["storage_options"] = storage_options
+        dask_kwargs.update(extra_kwargs)
+        # dask_geopandas is installed → assert pyarrow too, so the user gets the
+        # pyramids-branded hint (not the upstream message). `[parquet]` pulls both.
+        _require_pyarrow()
+        # wrap the lazy return inside the pyramids type system.
+        from pyramids.feature._lazy_collection import LazyFeatureCollection
+
+        dask_gdf = dask_geopandas.read_parquet(resolved, **dask_kwargs)
+        return LazyFeatureCollection.from_dask_gdf(dask_gdf)
+
     @classmethod
     def read_parquet(
         cls,
@@ -2058,43 +2103,15 @@ class FeatureCollection(GeoDataFrame):
         """
         resolved = _pyramids_io._parse_path(path)
         if backend == "dask":
-            # check deps in order of specificity — the backend
-            # request is the more specific signal, so the
-            # dask-geopandas hint beats the generic pyarrow one.
-            # When both are missing, the dask-geopandas error names
-            # the extra that installs both ([parquet]).
-            try:
-                import dask_geopandas
-            except ImportError as exc:
-                raise ImportError(
-                    "backend='dask' requires the optional "
-                    "'dask-geopandas' dependency. Install with one of:\n"
-                    "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
-                    "  - conda-forge: conda install -c conda-forge pyramids-parquet"
-                ) from exc
-            dask_kwargs: dict[str, Any] = {}
-            if columns is not None:
-                dask_kwargs["columns"] = columns
-            if split_row_groups is not None:
-                dask_kwargs["split_row_groups"] = split_row_groups
-            if filters is not None:
-                dask_kwargs["filters"] = filters
-            if blocksize is not None:
-                dask_kwargs["blocksize"] = blocksize
-            if storage_options is not None:
-                dask_kwargs["storage_options"] = storage_options
-            dask_kwargs.update(kwargs)
-            # dask_geopandas is installed → assert pyarrow too, so
-            # the user gets the pyramids-branded hint (not the
-            # upstream message dask_geopandas would emit when it tries
-            # to read). `[parquet]` pulls both.
-            _require_pyarrow()
-            # wrap the lazy return as a LazyFeatureCollection so the
-            # dask branch stays inside the pyramids type system.
-            from pyramids.feature._lazy_collection import LazyFeatureCollection
-
-            dask_gdf = dask_geopandas.read_parquet(resolved, **dask_kwargs)
-            return LazyFeatureCollection.from_dask_gdf(dask_gdf)
+            return cls._read_parquet_dask(
+                resolved,
+                columns=columns,
+                split_row_groups=split_row_groups,
+                filters=filters,
+                blocksize=blocksize,
+                storage_options=storage_options,
+                extra_kwargs=kwargs,
+            )
         if backend != "pandas":
             raise ValueError(f"backend must be 'pandas' or 'dask', got {backend!r}")
         _require_pyarrow()
