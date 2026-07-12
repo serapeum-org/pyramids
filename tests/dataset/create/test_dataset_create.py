@@ -486,28 +486,28 @@ class TestSpatialProperties:
         src: gdal.Dataset,
     ):
         dataset = Dataset(src)
-        # These corners are in the raster's own CRS (EPSG:32618) -- they map onto its grid. The
-        # polygon spans a single cell, but its edges sit a sub-millimetre inside the col-5/6 and
-        # row-2/3 boundaries (the geotransform origin is not a whole coordinate), so the default
-        # "cover" rounding includes both straddled cells (a 2x2 window) while "nearest" snaps to the
-        # tightest 1x1 window.
-        x_coords = [456968.12, 460968.12, 460968.12, 456968.12, 456968.12]
-        y_coords = [508007.788, 508007.788, 504007.788, 504007.788, 508007.788]
-        coords = list(zip(x_coords, y_coords))
+        # Build a polygon covering exactly one cell (row 3, col 6) from the geotransform, in the
+        # raster's own CRS (EPSG:32618). Cell-aligned edges snap to exact integer indices, so both
+        # rounding modes resolve to the same 1x1 window.
+        row, col = 3, 6
+        origin_x, pixel_x, _, origin_y, _, pixel_y = dataset.geotransform
+        west, east = origin_x + col * pixel_x, origin_x + (col + 1) * pixel_x
+        north, south = origin_y + row * pixel_y, origin_y + (row + 1) * pixel_y
         gdf = gpd.GeoDataFrame(
-            columns=["id"], geometry=[Polygon(coords)], crs=32618, data=[[0]]
+            columns=["id"],
+            geometry=[Polygon([(west, north), (east, north), (east, south), (west, south)])],
+            crs=dataset.epsg,
+            data=[[0]],
         )
         full = dataset.read_array(band=0)
-
-        cover = dataset.io._convert_polygon_to_window(gdf)
-        assert cover == [5, 2, 2, 2]
-        assert np.array_equal(dataset.read_array(band=0, window=cover), full[2:4, 5:7])
-        assert np.array_equal(dataset.read_array(band=0, window=gdf), full[2:4, 5:7])
-
-        nearest = dataset.io._convert_polygon_to_window(gdf, rounding="nearest")
-        assert nearest == [6, 3, 1, 1]
-        arr_near = np.squeeze(dataset.read_array(band=0, window=gdf, bbox_rounding="nearest"))
-        assert np.array_equal(arr_near, full[3, 6])
+        for mode in ("cover", "nearest"):
+            assert dataset.io._convert_polygon_to_window(gdf, rounding=mode) == [col, row, 1, 1]
+        assert np.array_equal(
+            np.squeeze(dataset.read_array(band=0, window=[col, row, 1, 1])), full[row, col]
+        )
+        assert np.array_equal(
+            np.squeeze(dataset.read_array(band=0, window=gdf)), full[row, col]
+        )
 
     def test_read_block_bigger_than_array(
         self,

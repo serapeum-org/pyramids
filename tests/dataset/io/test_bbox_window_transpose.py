@@ -25,11 +25,10 @@ Style: Google-style docstrings, <=120 char lines, no inline imports.
 
 from __future__ import annotations
 
-import math
-
 import geopandas as gpd
 import numpy as np
 import pytest
+from osgeo import gdal, osr
 from shapely.geometry import box
 
 from pyramids.base._errors import OutOfBoundsError
@@ -70,20 +69,29 @@ def multiband_non_square_raster() -> Dataset:
 
 
 def _cover_window(dataset: Dataset, bbox: tuple[float, float, float, float]) -> list[int]:
-    """The expected `"cover"` window for `bbox`, derived only from the geotransform.
+    """The expected `"cover"` window for `bbox`, by enumerating which cells the bbox overlaps.
 
-    Independent of `_convert_polygon_to_window` and of `map_to_array_coordinates`: it maps the bbox
-    corners to fractional pixel indices through the geotransform, then floors the near edge and ceils
-    the far edge. Any width/height transpose or boundary off-by-one in the production helper diverges
-    from this.
+    Deliberately shares no arithmetic with the production `floor`/`ceil` formula (Round-2 N1): it
+    walks every cell, tests whether the cell's own extent overlaps the bbox with positive area, and
+    returns the bounding window of the overlapping cells. A zero-width edge touch (bbox edge exactly
+    on a cell boundary) is excluded, which is the intended `"cover"` semantics. Works for north-up and
+    flipped geotransforms because it compares cell edges via `min`/`max`.
     """
     west, south, east, north = bbox
     origin_x, pixel_x, _, origin_y, _, pixel_y = dataset.geotransform
-    cols = [(west - origin_x) / pixel_x, (east - origin_x) / pixel_x]
-    rows = [(north - origin_y) / pixel_y, (south - origin_y) / pixel_y]
-    xoff, x_far = math.floor(min(cols)), math.ceil(max(cols))
-    yoff, y_far = math.floor(min(rows)), math.ceil(max(rows))
-    return [xoff, yoff, x_far - xoff, y_far - yoff]
+    cols_in = [
+        c
+        for c in range(dataset.columns)
+        if max(origin_x + c * pixel_x, origin_x + (c + 1) * pixel_x) > west
+        and min(origin_x + c * pixel_x, origin_x + (c + 1) * pixel_x) < east
+    ]
+    rows_in = [
+        r
+        for r in range(dataset.rows)
+        if max(origin_y + r * pixel_y, origin_y + (r + 1) * pixel_y) > south
+        and min(origin_y + r * pixel_y, origin_y + (r + 1) * pixel_y) < north
+    ]
+    return [cols_in[0], rows_in[0], cols_in[-1] - cols_in[0] + 1, rows_in[-1] - rows_in[0] + 1]
 
 
 class TestBboxWindowNonSquare:
@@ -298,3 +306,115 @@ class TestBboxWindowMultiBand:
         np.testing.assert_array_equal(
             got, full[:, yoff : yoff + y_size, xoff : xoff + x_size]
         )
+
+
+class TestBboxWindowFloatingPoint:
+    """Grid-aligned bbox edges on a non-integer cell size do not leak a neighbouring pixel (H1)."""
+
+    @pytest.fixture()
+    def fine_raster(self) -> Dataset:
+        """A 6x6 raster on a 0.05-degree grid, where `(coord - origin) / pixel` is FP-inexact."""
+        arr = np.arange(6 * 6, dtype="float32").reshape(6, 6)
+        return Dataset.create_from_array(
+            arr, top_left_corner=(0.0, 0.0), cell_size=0.05, epsg=4326
+        )
+
+    def test_grid_aligned_bbox_does_not_leak_a_column(self, fine_raster):
+        """A bbox exactly equal to one column reads that column only, not its neighbour too.
+
+        Test scenario:
+            `(0.15 - 0) / 0.05` evaluates to 2.9999999999999996 in IEEE-754; without a snap tolerance
+            `floor` gives 2 and the read leaks column 2. The correct `"cover"` window is `[3, 0, 1, 1]`.
+        """
+        bbox = (0.15, -0.05, 0.20, 0.0)  # exactly column 3, row 0
+        window = fine_raster.io._convert_polygon_to_window(
+            FeatureCollection.from_bbox(bbox, epsg=4326)
+        )
+        # The hand-written window is the independent oracle here: a floor/ceil (or cell-enumeration)
+        # oracle inherits the same FP noise (`3 * 0.05 == 0.15000000000000002`), so only an explicit
+        # integer window pins the intended result.
+        assert window == [3, 0, 1, 1]
+        full = np.squeeze(np.asarray(fine_raster.read_array()))
+        got = np.squeeze(np.asarray(fine_raster.read_array(bbox=list(bbox))))
+        np.testing.assert_array_equal(got, full[0:1, 3:4])
+
+
+class TestBboxWindowClamping:
+    """A partly-outside bbox reads the overlap; a fully-outside bbox raises (M1)."""
+
+    def test_partial_overlap_clamps_to_extent(self, non_square_raster):
+        """A bbox poking past the west/north edge reads the in-bounds overlap without raising.
+
+        Test scenario:
+            `(-5, 2, 10, 8)` on the 40x10 raster clamps to `[0, 2, 10, 6]` and returns that overlap;
+            an un-clamped negative offset would raise `OutOfBoundsError`.
+        """
+        bbox = (-5.0, 2.0, 10.0, 8.0)
+        window = non_square_raster.io._convert_polygon_to_window(
+            FeatureCollection.from_bbox(bbox, epsg=4326)
+        )
+        assert window == [0, 2, 10, 6]
+        full = np.squeeze(np.asarray(non_square_raster.read_array()))
+        got = np.squeeze(np.asarray(non_square_raster.read_array(bbox=list(bbox))))
+        assert got.shape == (6, 10)
+        np.testing.assert_array_equal(got, full[2:8, 0:10])
+
+    def test_bbox_fully_outside_raster_raises(self, non_square_raster):
+        """A bbox with no overlap at all raises `OutOfBoundsError`, not an empty read."""
+        with pytest.raises(OutOfBoundsError, match="does not overlap"):
+            non_square_raster.read_array(bbox=[100.0, 2.0, 110.0, 8.0])
+
+
+class TestBboxWindowDegenerate:
+    """Sub-pixel / degenerate windows still read at least one cell instead of an empty array (L1)."""
+
+    def test_nearest_subpixel_bbox_reads_one_cell(self, non_square_raster):
+        """`bbox_rounding="nearest"` on a sub-cell bbox returns the nearest single cell, not empty.
+
+        Test scenario:
+            `(5.1, 5.1, 5.3, 5.3)` is narrower than a cell; `"nearest"` used to round to a zero-size
+            window and return a `(0, 0)` array. It now returns the single cell it falls in.
+        """
+        window = non_square_raster.io._convert_polygon_to_window(
+            FeatureCollection.from_bbox((5.1, 5.1, 5.3, 5.3), epsg=4326), rounding="nearest"
+        )
+        assert window[2] >= 1 and window[3] >= 1
+        got = np.squeeze(
+            np.asarray(
+                non_square_raster.read_array(bbox=[5.1, 5.1, 5.3, 5.3], bbox_rounding="nearest")
+            )
+        )
+        assert got.size == 1
+
+    def test_degenerate_zero_width_polygon_reads_one_cell(self, non_square_raster):
+        """A zero-width polygon window (west == east) resolves to a non-empty window."""
+        line = gpd.GeoDataFrame(geometry=[box(6.0, 3.0, 6.0, 5.0)], crs=4326)
+        window = non_square_raster.io._convert_polygon_to_window(line)
+        assert window[2] >= 1 and window[3] >= 1
+
+
+class TestBboxWindowFlippedGrid:
+    """A south-up (positive pixel-height) geotransform resolves the window correctly (L4)."""
+
+    def test_south_up_grid_window_matches_enumeration(self):
+        """A flipped raster (`pixel_y > 0`, rows increasing northward) yields the enumerated window.
+
+        Test scenario:
+            The `min`/`max` framing must handle a positive y-step; a non-square bbox resolves to the
+            same window the independent cell-enumeration oracle produces, read at the right cells.
+        """
+        arr = np.arange(6 * 8, dtype="float32").reshape(6, 8)
+        mem = gdal.GetDriverByName("MEM").Create("", 8, 6, 1, gdal.GDT_Float32)
+        mem.SetGeoTransform((0.0, 1.0, 0.0, 0.0, 0.0, 1.0))  # origin bottom-left, y increases upward
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        mem.SetProjection(srs.ExportToWkt())
+        mem.GetRasterBand(1).WriteArray(arr)
+        ds = Dataset(mem)
+        bbox = (1.3, 1.3, 6.7, 3.7)
+        window = ds.io._convert_polygon_to_window(FeatureCollection.from_bbox(bbox, epsg=4326))
+        assert window == _cover_window(ds, bbox)
+        xoff, yoff, x_size, y_size = window
+        full = np.squeeze(np.asarray(ds.read_array()))
+        got = np.squeeze(np.asarray(ds.read_array(bbox=list(bbox))))
+        np.testing.assert_array_equal(got, full[yoff : yoff + y_size, xoff : xoff + x_size])

@@ -8,8 +8,6 @@ through to the existing polygon / variable-subset paths.
 
 from __future__ import annotations
 
-import math
-
 import pytest
 
 from pyramids.feature import FeatureCollection
@@ -350,12 +348,12 @@ class TestNetCDFReadArrayBbox:
             from the variable's geotransform -- a transpose would swap the two axes.
         """
         var = root_nc.get_variable("Band1")
-        origin_x, pixel_x, _, origin_y, _, pixel_y = var.geotransform
+        _, pixel_x, _, _, _, pixel_y = var.geotransform
         west, south, east, north = 10.0, -50.0, 90.0, -30.0
-        cols = [(west - origin_x) / pixel_x, (east - origin_x) / pixel_x]
-        rows = [(north - origin_y) / pixel_y, (south - origin_y) / pixel_y]
-        exp_cols = math.ceil(max(cols)) - math.floor(min(cols))
-        exp_rows = math.ceil(max(rows)) - math.floor(min(rows))
+        # These edges are cell-aligned, so the exact cover span is the extent divided by the cell
+        # size -- derived independently of the production floor/ceil index math.
+        exp_cols = round((east - west) / abs(pixel_x))
+        exp_rows = round((north - south) / abs(pixel_y))
         got = var.read_array(bbox=(west, south, east, north))
         got2d = got[got.shape[0] // 2] if got.ndim == 3 else got
         assert got2d.shape == (exp_rows, exp_cols), (
