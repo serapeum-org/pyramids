@@ -25,9 +25,11 @@ from datetime import timedelta, timezone
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 from osgeo import osr
+from pyproj import Transformer
 
 from pyramids.base._artifacts import artifact_dir
 from pyramids.base._errors import StacAssetError
+from pyramids.utm import utm_epsg
 
 if TYPE_CHECKING:
     from pyramids.dataset.collection import DatasetCollection
@@ -646,6 +648,9 @@ _MAX_TEMPLATE_PIXELS = 250_000_000
 def _utm_epsg(lon: float, lat: float) -> int:
     """Return the EPSG code of the UTM zone containing `(lon, lat)`.
 
+    Thin private wrapper delegating to the public :func:`pyramids.utm.utm_epsg`, so
+    the STAC point-cube path and the public helper stay in lock-step.
+
     Args:
         lon: Longitude in degrees.
         lat: Latitude in degrees.
@@ -668,9 +673,7 @@ def _utm_epsg(lon: float, lat: float) -> int:
 
             ```
     """
-    zone = int((lon + 180.0) / 6.0) + 1
-    zone = min(max(zone, 1), 60)
-    return (32600 if lat >= 0 else 32700) + zone
+    return utm_epsg(lon, lat)
 
 
 def _point_aoi_bbox(
@@ -703,17 +706,15 @@ def _point_aoi_bbox(
     """
     if units not in ("px", "m"):
         raise ValueError(f"units must be 'px' or 'm', got {units!r}.")
-    from pyproj import Transformer
-
-    utm_epsg = _utm_epsg(lon, lat)
-    to_utm = Transformer.from_crs(4326, utm_epsg, always_xy=True)
+    epsg = _utm_epsg(lon, lat)
+    to_utm = Transformer.from_crs(4326, epsg, always_xy=True)
     cx, cy = to_utm.transform(lon, lat)
     cx = round(cx / resolution) * resolution
     cy = round(cy / resolution) * resolution
     half = (edge_size / 2.0) * resolution if units == "px" else edge_size / 2.0
     utm_bbox = (cx - half, cy - half, cx + half, cy + half)
 
-    to_wgs = Transformer.from_crs(utm_epsg, 4326, always_xy=True)
+    to_wgs = Transformer.from_crs(epsg, 4326, always_xy=True)
     minx, miny, maxx, maxy = utm_bbox
     corners = [(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy)]
     lons, lats = [], []
@@ -721,7 +722,7 @@ def _point_aoi_bbox(
         clon, clat = to_wgs.transform(x, y)
         lons.append(clon)
         lats.append(clat)
-    return utm_epsg, (min(lons), min(lats), max(lons), max(lats))
+    return epsg, (min(lons), min(lats), max(lons), max(lats))
 
 
 def from_point(
