@@ -363,26 +363,41 @@ class MetadataBuilder:
         if any(self._is_classic_dim_attr_key(k) for k in existing):
             result = existing
         else:
-            try:
-                path = self.gdal_dataset.GetDescription()
-            except RuntimeError as exc:
-                logger.debug("GetDescription() failed during dim top-up: %s", exc)
-                path = ""
-            if path:
-                try:
-                    ds = gdal.Open(path)
-                    try:
-                        if ds is not None:
-                            result = ds.GetMetadata() or {}
-                    finally:
-                        ds = None  # explicit release; see review M1
-                except RuntimeError as exc:
-                    logger.debug(
-                        "classic re-open failed during dim top-up (%r): %s",
-                        path,
-                        exc,
-                    )
+            result = self._reopen_classic_metadata()
         self._classic_md_cache = result
+        return result
+
+    def _reopen_classic_metadata(self) -> dict[str, str]:
+        """Re-open the dataset in classic mode to read its flat metadata.
+
+        Opens a transient `gdal.Open(GetDescription())` handle on the same
+        path and returns its `GetMetadata()` dict. Any failure (no path,
+        unreachable file, GDAL error on `GetDescription` / `Open` /
+        `GetMetadata`) yields `{}` so the top-up degrades to a no-op.
+
+        Returns:
+            dict[str, str]: Flat classic-mode metadata, empty on failure.
+        """
+        result: dict[str, str] = {}
+        try:
+            path = self.gdal_dataset.GetDescription()
+        except RuntimeError as exc:
+            logger.debug("GetDescription() failed during dim top-up: %s", exc)
+            path = ""
+        if path:
+            try:
+                ds = gdal.Open(path)
+                try:
+                    if ds is not None:
+                        result = ds.GetMetadata() or {}
+                finally:
+                    ds = None  # explicit release; see review M1
+            except RuntimeError as exc:
+                logger.debug(
+                    "classic re-open failed during dim top-up (%r): %s",
+                    path,
+                    exc,
+                )
         return result
 
 

@@ -952,15 +952,33 @@ def validate_cf(
     for name, var in variables.items():
         short = name.lstrip("/")
         if short in dim_names:
-            if not var.attributes.get("units") and not var.unit:
-                issues.append(
-                    f"Coordinate variable '{short}' has no 'units' attribute."
-                )
-            units_val = var.attributes.get("units", "")
-            if isinstance(units_val, str) and "since" in units_val:
-                if "calendar" not in var.attributes:
-                    issues.append(
-                        f"Time coordinate '{short}' has no 'calendar' attribute."
-                    )
+            issues.extend(_check_coordinate_variable(short, var))
 
+    return issues
+
+
+def _check_coordinate_variable(short: str, var: Any) -> list[str]:
+    """Return CF issues for a single dimension-coordinate variable.
+
+    Checks that the coordinate carries a ``units`` attribute and, for a
+    time coordinate (``units`` containing ``"since"``), that it also carries
+    a ``calendar`` attribute.
+
+    Args:
+        short: Coordinate variable name with any leading ``/`` stripped.
+        var: The ``VariableInfo`` for the coordinate.
+
+    Returns:
+        List of warning strings for this variable. Empty if compliant.
+    """
+    issues: list[str] = []
+    if not var.attributes.get("units") and not var.unit:
+        issues.append(f"Coordinate variable '{short}' has no 'units' attribute.")
+    units_val = var.attributes.get("units", "")
+    if (
+        isinstance(units_val, str)
+        and "since" in units_val
+        and "calendar" not in var.attributes
+    ):
+        issues.append(f"Time coordinate '{short}' has no 'calendar' attribute.")
     return issues

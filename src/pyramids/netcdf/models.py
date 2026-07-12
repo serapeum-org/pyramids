@@ -16,6 +16,7 @@ from pyramids.netcdf.utils import (
     _get_coord_variable_names,
     _get_group_name,
     _read_attributes,
+    _read_dim_names,
     resolve_full_name,
 )
 
@@ -517,17 +518,7 @@ class VariableInfo:
                 shape = []
 
         # dimension names
-        try:
-            dims2 = md_arr.GetDimensions() or []
-            dim_names: list[str] = []
-            for d in dims2:
-                try:
-                    dn = d.GetFullName()
-                except Exception:
-                    dn = d.GetName()
-                dim_names.append(dn)
-        except Exception:
-            dim_names = []
+        dim_names = _read_dim_names(md_arr)
 
         a_attrs = _read_attributes(md_arr)
         try:

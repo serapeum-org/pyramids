@@ -776,6 +776,29 @@ def _write_blocks_streaming(md_arr: Any, dask_arr: Any) -> None:
         md_arr.Write(block, array_start_idx=starts, count=counts)
 
 
+def _require_create_inputs(
+    variable_name: str | None,
+    geo: tuple[float, float, float, float, float, float] | None,
+    epsg: str | int | None,
+) -> None:
+    """Validate the required inputs for `_create_netcdf_from_array`.
+
+    Args:
+        variable_name: Name of the data variable.
+        geo: Geotransform tuple.
+        epsg: EPSG code or WKT/user-input CRS string.
+
+    Raises:
+        ValueError: If `variable_name`, `geo`, or `epsg` is None.
+    """
+    if variable_name is None:
+        raise ValueError("Variable_name cannot be None")
+    if geo is None:
+        raise ValueError("geo cannot be None")
+    if epsg is None:
+        raise ValueError("epsg cannot be None")
+
+
 def _create_netcdf_from_array(
     arr: np.ndarray,
     variable_name: str,
@@ -833,12 +856,7 @@ def _create_netcdf_from_array(
     # set_variable and other call sites) and are reached through the class.
     from pyramids.netcdf.netcdf import NetCDF
 
-    if variable_name is None:
-        raise ValueError("Variable_name cannot be None")
-    if geo is None:
-        raise ValueError("geo cannot be None")
-    if epsg is None:
-        raise ValueError("epsg cannot be None")
+    _require_create_inputs(variable_name, geo, epsg)
 
     if extra_dims is None:
         extra_dims = []

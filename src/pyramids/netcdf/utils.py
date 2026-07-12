@@ -814,3 +814,29 @@ def _read_attributes(obj: Any) -> dict[str, AttributeValue]:
             # Be robust; don't crash on odd attribute types
             attrs[name] = _normalize_attr_value(None)
     return attrs
+
+
+def _read_dim_names(md_arr: Any) -> list[str]:
+    """Read the ordered dimension names of a GDAL MDArray.
+
+    Prefers each dimension's full name and falls back to its short name.
+    Any failure to enumerate the dimensions yields an empty list so the
+    caller degrades gracefully.
+
+    Args:
+        md_arr: A GDAL `MDArray` supporting `GetDimensions()`.
+
+    Returns:
+        Ordered list of dimension names (full names where available),
+        empty if the dimensions cannot be read.
+    """
+    dim_names: list[str] = []
+    try:
+        for d in md_arr.GetDimensions() or []:
+            try:
+                dim_names.append(d.GetFullName())
+            except Exception:
+                dim_names.append(d.GetName())
+    except Exception:
+        return []
+    return dim_names
