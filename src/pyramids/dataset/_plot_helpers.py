@@ -173,13 +173,16 @@ def _guard_style_hillshade(kwargs: dict[str, Any], option_keys: Any) -> None:
     build that rejects the unknown kwarg included). ``{}`` is falsy but is an
     affirmative "shade with default parameters", so the drop uses identity (only
     ``None`` / ``False``), not truthiness — an empty-dict ``hillshade`` is still
-    gated/forwarded. Each key is checked against its own ``option_keys`` membership
-    so a build shipping only one of the two features is handled precisely. An invalid
-    ``style`` *name* is left to cleopatra, which already raises a ``ValueError``
-    listing the valid ``DATA_STYLES`` keys. (issue #737)
+    gated/forwarded. An explicit ``style=None`` requests no preset and is likewise
+    popped in place, symmetric with the ``hillshade`` drop. Each remaining key is
+    checked against its own ``option_keys`` membership so a build shipping only one
+    of the two features is handled precisely. An invalid ``style`` *name* is left to
+    cleopatra, which already raises a ``ValueError`` listing the valid ``DATA_STYLES``
+    keys. (issue #737)
 
     Args:
-        kwargs: The render kwargs; mutated in place to drop a no-op ``hillshade``.
+        kwargs: The render kwargs; mutated in place to drop a no-op ``style`` /
+            ``hillshade``.
         option_keys: The glyph's declared option set (``<Glyph>.option_keys()``).
 
     Raises:
@@ -724,6 +727,10 @@ def mesh_render(
     # Normalise + version-gate the style/hillshade presets against MeshGlyph, the
     # same way render_array does against ArrayGlyph, so the mesh path exposes
     # cleopatra's data-style presets with a clean upgrade hint on older cleopatra.
+    # Note: unlike the raster path (where style is an ArrayGlyph *constructor*
+    # option), plot_mesh_data forwards style/hillshade to MeshGlyph.plot(), not the
+    # constructor. Feature-detecting against option_keys() therefore assumes cleopatra
+    # declares them there in lock-step with .plot() accepting them (true on 0.24).
     _guard_style_hillshade(kwargs, MeshGlyph.option_keys())
 
     result = plot_mesh_data(mesh, data, location=location, **kwargs)
