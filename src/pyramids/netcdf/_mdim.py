@@ -357,8 +357,11 @@ def axis_flips(rg: gdal.Group, md_arr: gdal.MDArray) -> tuple[bool, bool]:
     ``_resolve_spatial_dims`` and decides flips for *that* plane; the lazy ``read_array(chunks=)``
     path now threads the same resolved plane into ``build_lazy_array`` and uses this trailing
     decision only as the fallback when no plane was resolved (a 1-D coordinate read) (#728).
-    ``_read_variable`` still normalizes the trailing two axes, which is correct for its callers — all
-    of which read coordinate/time variables whose spatial plane is already trailing.
+    ``_read_variable`` still normalizes the trailing two axes and carries no plane override. Its
+    in-tree callers read coordinate/time variables (and, on the plot paths, named coordinate/data
+    variables) whose spatial plane is trailing, so the trailing decision is correct for them; a
+    *non-trailing*-plane data variable read through ``_read_variable`` would be normalized on the
+    trailing plane, not its resolved one.
 
     Args:
         rg: The root group, kept alive to prevent SWIG garbage collection of the view.
