@@ -1817,6 +1817,14 @@ class NetCDF(Dataset):
         top" pattern.
         """
         if bbox is None:
+            if window is not None and chunks is not None:
+                # The lazy path re-reads the whole variable and never applies a pixel window, so a
+                # silently-ignored `window=` would return far more data than asked. Fail loudly,
+                # matching the `bbox=` + `chunks=` guard below (#728 review M1).
+                raise ValueError(
+                    "read_array(chunks=..., window=...) is not supported; "
+                    "read lazily and slice the resulting dask array instead."
+                )
             return window
         if window is not None:
             raise ValueError(

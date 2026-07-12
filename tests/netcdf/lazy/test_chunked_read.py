@@ -104,6 +104,15 @@ class TestChunksLazy:
         arr = three_d_var.read_array(chunks=1)
         assert isinstance(arr, dask_array.Array)
 
+    def test_window_with_chunks_raises(self, three_d_var):
+        """`read_array(window=, chunks=)` raises instead of silently ignoring the window (#728 M1).
+
+        The lazy path never applies a pixel window, so a silently-dropped `window=` would return the
+        whole variable; it must fail loudly like the `bbox=` + `chunks=` guard.
+        """
+        with pytest.raises(ValueError, match="window"):
+            three_d_var.read_array(window=[0, 0, 2, 2], chunks="auto")
+
     def test_chunks_tuple_returns_dask(self, three_d_var):
         """Tuple chunks also return a dask array with matching spec."""
         arr = three_d_var.read_array(chunks=(1, -1, -1))
