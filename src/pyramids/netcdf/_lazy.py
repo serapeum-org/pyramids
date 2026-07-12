@@ -468,6 +468,39 @@ def _chunk_starts(chunks_per_axis: tuple[tuple[int, ...], ...]) -> list[list[int
     return starts
 
 
+def _plane_move_and_flips(
+    ndim: int,
+    spatial_dims: tuple[int, int] | None,
+    flips: tuple[bool, bool] | None,
+    trailing_flips: tuple[bool, bool],
+) -> tuple[bool, int, int, bool, bool]:
+    """Decide the plane move + flips for :func:`_orient_lazy_plane`.
+
+    Returns `(move, y_axis, x_axis, flip_y, flip_x)`: whether the resolved plane must be transposed
+    to the trailing two axes, the resolved `(y_axis, x_axis)` to move, and the two flip booleans.
+
+    `trailing_flips` is the decision `axis_flips` made for the ORIGINAL trailing plane, so it is a
+    valid fallback only when the resolved plane *is* that trailing plane. For a moved (non-trailing)
+    plane the caller must supply `flips`; without them the plane is left unflipped rather than flipped
+    on the wrong criterion. (Unreachable from `netcdf.py`, which always pairs a non-`None`
+    `spatial_dims` with `flips`; guards the module-private signature.)
+    """
+    y_axis, x_axis = ndim - 2, ndim - 1
+    move = False
+    if spatial_dims is None:
+        flip_y, flip_x = trailing_flips
+    else:
+        x_index, y_index = spatial_dims
+        is_trailing = (y_index, x_index) == (ndim - 2, ndim - 1)
+        move = not is_trailing
+        y_axis, x_axis = y_index, x_index
+        if flips is not None:
+            flip_y, flip_x = flips
+        else:
+            flip_y, flip_x = trailing_flips if is_trailing else (False, False)
+    return move, y_axis, x_axis, flip_y, flip_x
+
+
 def _orient_lazy_plane(
     lazy: Any,
     da: Any,
@@ -516,22 +549,11 @@ def _orient_lazy_plane(
     """
     oriented = lazy
     if ndim >= 2:
-        if spatial_dims is None:
-            flip_y, flip_x = trailing_flips
-        else:
-            x_index, y_index = spatial_dims
-            is_trailing = (y_index, x_index) == (ndim - 2, ndim - 1)
-            if not is_trailing:
-                oriented = da.moveaxis(oriented, [y_index, x_index], [ndim - 2, ndim - 1])
-            if flips is not None:
-                flip_y, flip_x = flips
-            else:
-                # `trailing_flips` is the decision `axis_flips` made for the ORIGINAL trailing plane,
-                # so it is a valid fallback only when the resolved plane *is* that trailing plane. For
-                # a moved (non-trailing) plane the caller must supply `flips`; without them, do not
-                # flip on the wrong criterion. (Unreachable from `netcdf.py`, which always pairs a
-                # non-`None` `spatial_dims` with `flips`; guards the module-private signature.)
-                flip_y, flip_x = trailing_flips if is_trailing else (False, False)
+        move, y_axis, x_axis, flip_y, flip_x = _plane_move_and_flips(
+            ndim, spatial_dims, flips, trailing_flips
+        )
+        if move:
+            oriented = da.moveaxis(oriented, [y_axis, x_axis], [ndim - 2, ndim - 1])
         if flip_y:
             oriented = da.flip(oriented, axis=ndim - 2)
         if flip_x:
