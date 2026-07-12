@@ -1122,6 +1122,52 @@ class Analysis(_Engine["Dataset"]):
             )
         self._ds.raster.CreateMaskBand(gdal.GMF_PER_DATASET if per_dataset else 0)
 
+    def _warn_if_nodata_absent(self, arr: np.ndarray, no_data_val: Any) -> None:
+        """Warn when the band's nodata value does not actually appear in the data."""
+        if no_data_val is None:
+            if not np.isnan(arr).any():
+                self._ds.logger.warning(
+                    "The nodata value stored in the raster does not exist in the raster "
+                    "so either the raster extent is all full of data, or the no_data_value stored in the raster is"
+                    " not correct"
+                )
+        else:
+            if not np.isclose(arr, no_data_val, rtol=0.00001).any():
+                self._ds.logger.warning(
+                    "the nodata value stored in the raster does not exist in the raster "
+                    "so either the raster extent is all full of data, or the no_data_value stored in the raster is"
+                    " not correct"
+                )
+
+    @staticmethod
+    def _apply_exclude_values(
+        arr: np.ndarray, exclude_values: list[Any], no_data_val: Any
+    ) -> np.ndarray:
+        """Set cells matching any exclude value to nodata, promoting to float if needed."""
+        for val in exclude_values:
+            try:
+                # None nodata on an int array raises (None reads as float); promote.
+                arr[np.isclose(arr, val)] = no_data_val
+            except TypeError:
+                arr = arr.astype(np.float32)
+                arr[np.isclose(arr, val)] = no_data_val
+        return arr
+
+    @staticmethod
+    def _coverage_mask(arr: np.ndarray, no_data_val: Any) -> np.ndarray:
+        """Boolean mask of covered (non-nodata) cells; NaN and value fills both handled.
+
+        A NaN fill may be stored as None or a float nan (GDAL returns nan), and
+        ``np.isclose(x, nan)`` is always False, so both go through ``np.isnan``.
+        """
+        if no_data_val is None or (
+            isinstance(no_data_val, float) and np.isnan(no_data_val)
+        ):
+            valid = ~np.isnan(arr)
+        else:
+            valid = ~np.isclose(arr, no_data_val, rtol=0.00001)
+        return valid
+
     def footprint(
         self,
         band: int = 0,
@@ -1192,38 +1238,12 @@ class Analysis(_Engine["Dataset"]):
         arr = self._ds.read_array(band=band)
         no_data_val = self._ds.no_data_value[band]
 
-        if no_data_val is None:
-            if not (np.isnan(arr)).any():
-                self._ds.logger.warning(
-                    "The nodata value stored in the raster does not exist in the raster "
-                    "so either the raster extent is all full of data, or the no_data_value stored in the raster is"
-                    " not correct"
-                )
-        else:
-            if not (np.isclose(arr, no_data_val, rtol=0.00001)).any():
-                self._ds.logger.warning(
-                    "the nodata value stored in the raster does not exist in the raster "
-                    "so either the raster extent is all full of data, or the no_data_value stored in the raster is"
-                    " not correct"
-                )
-        # if you want to exclude_values any value in the raster
+        self._warn_if_nodata_absent(arr, no_data_val)
         if exclude_values:
-            for val in exclude_values:
-                try:
-                    # in case the val2 is None, and the array is int type, the following line will give error as None
-                    # is considered as float
-                    arr[np.isclose(arr, val)] = no_data_val
-                except TypeError:
-                    arr = arr.astype(np.float32)
-                    arr[np.isclose(arr, val)] = no_data_val
+            arr = self._apply_exclude_values(arr, exclude_values, no_data_val)
 
-        # Build the coverage mask: covered cells -> 2, nodata cells -> 0. A NaN fill may
-        # be stored as None or as a float nan (GDAL's GetNoDataValue returns nan), and
-        # np.isclose(x, nan) is always False, so both are compared with np.isnan.
-        if no_data_val is None or (isinstance(no_data_val, float) and np.isnan(no_data_val)):
-            valid = ~np.isnan(arr)
-        else:
-            valid = ~np.isclose(arr, no_data_val, rtol=0.00001)
+        # Build the coverage mask: covered cells -> 2, nodata cells -> 0.
+        valid = self._coverage_mask(arr, no_data_val)
         if not valid.any():
             self._ds.logger.warning("the raster is full of no_data_value")
             return None
