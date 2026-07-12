@@ -264,7 +264,6 @@ class TestCrop:
         rasters_folder_path: str,
         crop_aligned_folder_saveto: str,
     ):
-        #     os.mkdir(crop_aligned_folder_saveto)
 
         mask = Dataset(raster_mask)
         cube = DatasetCollection.read_multiple_files(
@@ -285,7 +284,6 @@ class TestCrop:
         rasters_folder_path: str,
         crop_aligned_folder_saveto: str,
     ):
-        #     os.mkdir(crop_aligned_folder_saveto)
 
         mask = Dataset(raster_mask)
         cube = DatasetCollection.read_multiple_files(
@@ -306,7 +304,6 @@ class TestCrop:
         rasters_folder_path: str,
         crop_aligned_folder_saveto: str,
     ):
-        #     os.mkdir(crop_aligned_folder_saveto)
 
         cube = DatasetCollection.read_multiple_files(
             rasters_folder_path, with_order=False
