@@ -1726,10 +1726,14 @@ class NetCDF(Dataset):
               eager path does — explicit `x_dim` / `y_dim` (carried on the `get_variable` subset) or
               CF detection, falling back to the trailing two dimensions — and moves it to the
               trailing two axes, north-up / west-first, so a lazy read is oriented on the *same*
-              plane as the eager read (#728). The two still differ in *packaging* for arrays with
-              more than one non-spatial dimension: the eager path flattens every non-spatial
-              dimension into a single band axis (and squeezes a singleton), whereas the lazy array
-              keeps them as separate leading axes in storage order. Reshape the lazy result with
+              plane as the eager read (#728). It reads the **entire source variable** in storage
+              order and does **not** apply a prior `sel` / `crop` / `window` carried on the subset
+              (those materialize the eager raster only): slice the returned dask array yourself, or
+              read a selected / cropped subset eagerly. For a subset with no active selection the
+              eager and lazy reads then differ only in *packaging* for arrays with more than one
+              non-spatial dimension — the eager path flattens every non-spatial dimension into a
+              single band axis (and squeezes a singleton), whereas the lazy array keeps them as
+              separate leading axes in storage order. Reshape the lazy result with
               `(-1, rows, cols)` to line the two up.
 
         Examples:
@@ -1978,14 +1982,6 @@ class NetCDF(Dataset):
         wrapped._offset = self._offset
         wrapped._parent_nc = self._parent_nc
         wrapped._source_var_name = self._source_var_name
-        # Carry the eager-resolved raster plane (and its flips) onto sel / spatial-op results. A lazy
-        # read re-reads the ORIGINAL variable in storage order, so a `plot(chunks=, x_dim=, y_dim=)`
-        # on a re-wrapped subset must still see the resolved plane rather than falling back to the
-        # trailing two axes (#728); the indices stay valid because `build_lazy_array` reads the same
-        # original variable this metadata was resolved against.
-        wrapped._md_spatial_dims = self._md_spatial_dims
-        wrapped._md_y_flipped = self._md_y_flipped
-        wrapped._md_x_flipped = self._md_x_flipped
         wrapped._gdal_md_arr_ref = None
         wrapped._gdal_rg_ref = None
         return wrapped

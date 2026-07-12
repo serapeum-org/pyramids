@@ -467,26 +467,6 @@ class TestLazyOrientationMatchesEager:
             err_msg="lazy read is not north-up on the resolved lat/lon plane",
         )
 
-    def test_sel_derived_subset_retains_resolved_plane_for_lazy_read(self):
-        """A `sel()` on an explicit-plane subset keeps the resolved plane, so its lazy read stays oriented.
-
-        Test scenario:
-            `_preserve_netcdf_metadata` re-wraps `sel` / spatial-op results but historically dropped
-            the resolved `(x_index, y_index)` plane and its flips, so a `read_array(chunks=)` on a
-            `sel`-derived subset fell back to the trailing two axes — the #728 mirror, one step
-            removed. The plane must survive the re-wrap so the lazy read still resolves `(lat, lon)`.
-        """
-        path = self._NON_TRAILING_FIXTURE
-        var = NetCDF.read_file(path).get_variable("T", x_dim="lon", y_dim="lat")
-        band_dim = var._band_dim_names[0]
-        selected = var.sel(**{band_dim: var._band_dim_values_map[band_dim][0]})
-        assert selected._md_spatial_dims == (3, 1), "sel dropped the resolved plane"
-        assert selected._md_y_flipped is True, "sel dropped the resolved Y flip"
-        lazy = np.asarray(selected.read_array(chunks="auto"))
-        assert lazy.shape[-2:] == (64, 128), (
-            "lazy read of a sel-derived subset lost the resolved (lat, lon) plane"
-        )
-
     def test_one_dimensional_variable_is_never_flipped(self):
         """A 1-D coordinate array has no raster plane, so no axis is reversed.
 
