@@ -494,6 +494,11 @@ def _orient_lazy_plane(
     When `spatial_dims` is `None` (a 1-D coordinate read, or a subset that never resolved a plane)
     the trailing two axes are normalized as before.
 
+    The chunk grid is built in storage order *before* this move, so for a non-trailing plane the
+    resolved plane's axes keep their storage-order chunk sizes (e.g. a default `(1,…,1,rows,cols)`
+    fallback leaves the resolved row axis finely split). This is correct but can be sub-optimal;
+    callers wanting coarse plane chunks pass an explicit integer `chunks=`.
+
     Args:
         lazy: The storage-order `dask.array.Array`.
         da: The imported `dask.array` module (passed in to avoid a second import).

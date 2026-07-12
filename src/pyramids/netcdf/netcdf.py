@@ -1734,7 +1734,11 @@ class NetCDF(Dataset):
               non-spatial dimension — the eager path flattens every non-spatial dimension into a
               single band axis (and squeezes a singleton), whereas the lazy array keeps them as
               separate leading axes in storage order. Reshape the lazy result with
-              `(-1, rows, cols)` to line the two up.
+              `(-1, rows, cols)` to line the two up. Chunking is computed in *storage* order
+              (before the plane is moved to the trailing axes), so for a non-trailing plane the
+              default `chunks="auto"` may split the resolved plane finely and the named `chunks=`
+              aliases (`rows` / `cols`) map to storage axes, not the resolved plane — pass explicit
+              integer `chunks=` per axis for optimal chunking on such a variable.
 
         Examples:
             - Eager bbox read on a root container — the container
