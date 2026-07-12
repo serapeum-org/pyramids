@@ -512,6 +512,20 @@ class TestEstimatePixelDims:
         with pytest.raises(ValueError, match="scale_m must be positive"):
             estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), float("nan"))
 
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    def test_non_finite_bbox_coord_raises(self, bad):
+        """A non-finite bbox coordinate is rejected with a ValueError, not a downstream ceil/overflow error.
+
+        Args:
+            bad: A non-finite edge value (NaN or inf).
+
+        Test scenario:
+            NaN/inf edges slip past `north < south`; an explicit isfinite check raises the documented ValueError
+            (e.g. shapely's empty-geometry `.bounds` is all-NaN). (review round 4 N1)
+        """
+        with pytest.raises(ValueError, match="coordinates must be finite"):
+            estimate_pixel_dims((0.0, 0.0, bad, 1.0), 1000.0)
+
     def test_inverted_latitude_raises(self):
         """An inverted latitude range (north < south) raises ValueError.
 

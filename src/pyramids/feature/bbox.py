@@ -260,8 +260,8 @@ def estimate_pixel_dims(bbox: Bbox, scale_m: float) -> tuple[int, int]:
         A `(width_px, height_px)` tuple; each dimension is at least 1.
 
     Raises:
-        ValueError: If `scale_m` is not positive (zero, negative, or NaN), or if `north < south` (an inverted
-            latitude range).
+        ValueError: If any bbox coordinate is non-finite, if `scale_m` is not positive (zero, negative, or NaN),
+            or if `north < south` (an inverted latitude range).
 
     Examples:
         - A ~1 km grid over Europe:
@@ -296,6 +296,8 @@ def estimate_pixel_dims(bbox: Bbox, scale_m: float) -> tuple[int, int]:
         read_bbox_dict: Build a `(west, south, east, north)` tuple from a dict of edge keys to pass here.
     """
     west, south, east, north = bbox
+    if not all(math.isfinite(v) for v in (west, south, east, north)):
+        raise ValueError(f"estimate_pixel_dims: bbox coordinates must be finite, got {bbox!r}")
     if not scale_m > 0:  # also rejects NaN (all NaN comparisons are False)
         raise ValueError(f"estimate_pixel_dims: scale_m must be positive, got {scale_m}")
     if north < south:
