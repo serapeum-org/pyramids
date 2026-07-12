@@ -1565,35 +1565,9 @@ class IO(_Engine["Dataset"]):
                 "read_only=False to write into it."
             )
 
-        if window is not None:
-            if isinstance(window, Window):
-                xoff, yoff, n_cols, n_rows = window.to_read_args()
-            else:
-                warnings.warn(
-                    "Passing write_array a bare (row_off, col_off, n_rows, "
-                    "n_cols) tuple is deprecated: its y-first order is the "
-                    "opposite of read_array's window. Pass a "
-                    "pyramids.dataset.window.Window (x-first, shared by both "
-                    "methods) instead; the tuple form will be removed in the "
-                    "next major release.",
-                    DeprecationWarning,
-                    stacklevel=3,
-                )
-                if not isinstance(window, (list, tuple)) or len(window) != 4:
-                    raise ValueError(
-                        "write_array window must be a Window or a "
-                        "(row_off, col_off, n_rows, n_cols) tuple of 4 integers, "
-                        f"got {window!r}."
-                    )
-                yoff, xoff, n_rows, n_cols = window
-            if array.shape[-2:] != (n_rows, n_cols):
-                raise ValueError(
-                    f"array spatial shape {array.shape[-2:]} does not match the "
-                    f"window size {(n_rows, n_cols)}."
-                )
-        else:
-            yoff, xoff = (0, 0) if top_left_corner is None else top_left_corner
-            n_rows, n_cols = array.shape[-2], array.shape[-1]
+        yoff, xoff, n_rows, n_cols = self._resolve_write_window(
+            array, top_left_corner, window
+        )
 
         if (
             xoff < 0
@@ -1623,6 +1597,55 @@ class IO(_Engine["Dataset"]):
         else:
             self._ds._raster.WriteArray(array, xoff=xoff, yoff=yoff)
         self._ds._raster.FlushCache()
+
+    @staticmethod
+    def _resolve_write_window(
+        array: np.ndarray,
+        top_left_corner: list[int] | None,
+        window: "Window | tuple[int, int, int, int] | None",
+    ) -> tuple[int, int, int, int]:
+        """Resolve the ``(yoff, xoff, n_rows, n_cols)`` target of a write.
+
+        With a ``window`` the offsets/size come from it — a
+        :class:`~pyramids.dataset.window.Window` is x-first; the deprecated bare
+        ``(row_off, col_off, n_rows, n_cols)`` tuple is y-first — and the array's
+        spatial shape is validated against the window. Otherwise the offset comes
+        from ``top_left_corner`` (default ``[0, 0]``) and the size from the array.
+
+        Raises:
+            ValueError: The bare-tuple window is malformed, or the array's
+                spatial shape does not match the window size.
+        """
+        if window is not None:
+            if isinstance(window, Window):
+                xoff, yoff, n_cols, n_rows = window.to_read_args()
+            else:
+                warnings.warn(
+                    "Passing write_array a bare (row_off, col_off, n_rows, "
+                    "n_cols) tuple is deprecated: its y-first order is the "
+                    "opposite of read_array's window. Pass a "
+                    "pyramids.dataset.window.Window (x-first, shared by both "
+                    "methods) instead; the tuple form will be removed in the "
+                    "next major release.",
+                    DeprecationWarning,
+                    stacklevel=4,
+                )
+                if not isinstance(window, (list, tuple)) or len(window) != 4:
+                    raise ValueError(
+                        "write_array window must be a Window or a "
+                        "(row_off, col_off, n_rows, n_cols) tuple of 4 integers, "
+                        f"got {window!r}."
+                    )
+                yoff, xoff, n_rows, n_cols = window
+            if array.shape[-2:] != (n_rows, n_cols):
+                raise ValueError(
+                    f"array spatial shape {array.shape[-2:]} does not match the "
+                    f"window size {(n_rows, n_cols)}."
+                )
+        else:
+            yoff, xoff = (0, 0) if top_left_corner is None else top_left_corner
+            n_rows, n_cols = array.shape[-2], array.shape[-1]
+        return yoff, xoff, n_rows, n_cols
 
     def get_block_arrangement(
         self,

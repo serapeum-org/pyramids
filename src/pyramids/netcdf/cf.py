@@ -261,41 +261,11 @@ def _extract_proj_params(srs: osr.SpatialReference, proj_name: str) -> dict[str,
             osr.SRS_PP_SCALE_FACTOR, 1.0
         )
     elif "Lambert_Conformal_Conic" in proj_name:
-        p["latitude_of_projection_origin"] = srs.GetProjParm(
-            osr.SRS_PP_LATITUDE_OF_ORIGIN, 0.0
-        )
-        p["longitude_of_central_meridian"] = srs.GetProjParm(
-            osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
-        )
-        sp1 = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
-        sp2 = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_2, 0.0)
-        if sp1 == sp2:
-            p["standard_parallel"] = sp1
-        else:
-            p["standard_parallel"] = [sp1, sp2]
+        p.update(_lcc_params(srs))
     elif "Mercator" in proj_name:
-        p["longitude_of_projection_origin"] = srs.GetProjParm(
-            osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
-        )
-        sf = srs.GetProjParm(osr.SRS_PP_SCALE_FACTOR, 0.0)
-        sp = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
-        if not math.isclose(sf, 0.0):
-            p["scale_factor_at_projection_origin"] = sf
-        if not math.isclose(sp, 0.0):
-            p["standard_parallel"] = sp
+        p.update(_mercator_params(srs))
     elif "Polar_Stereographic" in proj_name:
-        p["straight_vertical_longitude_from_pole"] = srs.GetProjParm(
-            osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
-        )
-        p["latitude_of_projection_origin"] = srs.GetProjParm(
-            osr.SRS_PP_LATITUDE_OF_ORIGIN, 0.0
-        )
-        sf = srs.GetProjParm(osr.SRS_PP_SCALE_FACTOR, 0.0)
-        sp = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
-        if not math.isclose(sf, 0.0):
-            p["scale_factor_at_projection_origin"] = sf
-        if not math.isclose(sp, 0.0):
-            p["standard_parallel"] = sp
+        p.update(_polar_stereographic_params(srs))
     elif "Albers" in proj_name:
         p["latitude_of_projection_origin"] = srs.GetProjParm(
             osr.SRS_PP_LATITUDE_OF_ORIGIN, 0.0
@@ -348,6 +318,62 @@ def _extract_proj_params(srs: osr.SpatialReference, proj_name: str) -> dict[str,
         p["perspective_point_height"] = srs.GetProjParm("satellite_height", 35785831.0)
         p["sweep_angle_axis"] = "y"
 
+    return p
+
+
+def _lcc_params(srs: osr.SpatialReference) -> dict[str, Any]:
+    """CF params for a Lambert Conformal Conic projection.
+
+    Collapses the two standard parallels to a single value when they are
+    equal, else emits them as a ``[sp1, sp2]`` pair.
+    """
+    sp1 = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
+    sp2 = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_2, 0.0)
+    return {
+        "latitude_of_projection_origin": srs.GetProjParm(
+            osr.SRS_PP_LATITUDE_OF_ORIGIN, 0.0
+        ),
+        "longitude_of_central_meridian": srs.GetProjParm(
+            osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
+        ),
+        "standard_parallel": sp1 if sp1 == sp2 else [sp1, sp2],
+    }
+
+
+def _mercator_params(srs: osr.SpatialReference) -> dict[str, Any]:
+    """CF params for a Mercator projection (scale factor / standard parallel
+    are emitted only when non-zero)."""
+    p: dict[str, Any] = {
+        "longitude_of_projection_origin": srs.GetProjParm(
+            osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
+        ),
+    }
+    sf = srs.GetProjParm(osr.SRS_PP_SCALE_FACTOR, 0.0)
+    sp = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
+    if not math.isclose(sf, 0.0):
+        p["scale_factor_at_projection_origin"] = sf
+    if not math.isclose(sp, 0.0):
+        p["standard_parallel"] = sp
+    return p
+
+
+def _polar_stereographic_params(srs: osr.SpatialReference) -> dict[str, Any]:
+    """CF params for a Polar Stereographic projection (scale factor / standard
+    parallel are emitted only when non-zero)."""
+    p: dict[str, Any] = {
+        "straight_vertical_longitude_from_pole": srs.GetProjParm(
+            osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
+        ),
+        "latitude_of_projection_origin": srs.GetProjParm(
+            osr.SRS_PP_LATITUDE_OF_ORIGIN, 0.0
+        ),
+    }
+    sf = srs.GetProjParm(osr.SRS_PP_SCALE_FACTOR, 0.0)
+    sp = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
+    if not math.isclose(sf, 0.0):
+        p["scale_factor_at_projection_origin"] = sf
+    if not math.isclose(sp, 0.0):
+        p["standard_parallel"] = sp
     return p
 
 
@@ -419,23 +445,18 @@ def _build_srs_from_cf_params(
             params.get("false_northing", 0.0),
         )
     elif grid_mapping_name == "lambert_conformal_conic":
-        sp = params.get("standard_parallel", [0.0, 0.0])
-        if isinstance(sp, (int, float)):
-            sp = [sp, sp]
+        sp1, sp2 = _two_standard_parallels(params)
         srs.SetLCC(
-            sp[0],
-            sp[1] if len(sp) > 1 else sp[0],
+            sp1,
+            sp2,
             params.get("latitude_of_projection_origin", 0.0),
             params.get("longitude_of_central_meridian", 0.0),
             params.get("false_easting", 0.0),
             params.get("false_northing", 0.0),
         )
     elif grid_mapping_name == "mercator":
-        sp = params.get("standard_parallel", 0.0)
-        if isinstance(sp, list):
-            sp = sp[0]
         srs.SetMercator(
-            float(sp),
+            _single_standard_parallel(params),
             params.get("longitude_of_projection_origin", 0.0),
             params.get("scale_factor_at_projection_origin", 1.0),
             params.get("false_easting", 0.0),
@@ -450,12 +471,10 @@ def _build_srs_from_cf_params(
             params.get("false_northing", 0.0),
         )
     elif grid_mapping_name == "albers_conical_equal_area":
-        sp = params.get("standard_parallel", [0.0, 0.0])
-        if isinstance(sp, (int, float)):
-            sp = [sp, sp]
+        sp1, sp2 = _two_standard_parallels(params)
         srs.SetACEA(
-            sp[0],
-            sp[1] if len(sp) > 1 else sp[0],
+            sp1,
+            sp2,
             params.get("latitude_of_projection_origin", 0.0),
             params.get("longitude_of_central_meridian", 0.0),
             params.get("false_easting", 0.0),
@@ -506,6 +525,26 @@ def _build_srs_from_cf_params(
         )
 
     return srs
+
+
+def _two_standard_parallels(params: dict[str, Any]) -> tuple[float, float]:
+    """Return the two CF standard parallels, normalizing a scalar to a pair.
+
+    A ``standard_parallel`` given as a scalar becomes ``(sp, sp)``; a
+    single-element list repeats its value for the second parallel.
+    """
+    sp = params.get("standard_parallel", [0.0, 0.0])
+    if isinstance(sp, (int, float)):
+        sp = [sp, sp]
+    return sp[0], (sp[1] if len(sp) > 1 else sp[0])
+
+
+def _single_standard_parallel(params: dict[str, Any]) -> float:
+    """Return the scalar CF standard parallel, taking the first of a list."""
+    sp = params.get("standard_parallel", 0.0)
+    if isinstance(sp, list):
+        sp = sp[0]
+    return float(sp)
 
 
 _STDNAME_TO_AXIS: dict[str, str] = {
