@@ -468,6 +468,99 @@ def _chunk_starts(chunks_per_axis: tuple[tuple[int, ...], ...]) -> list[list[int
     return starts
 
 
+def _plane_move_and_flips(
+    ndim: int,
+    spatial_dims: tuple[int, int] | None,
+    flips: tuple[bool, bool] | None,
+    trailing_flips: tuple[bool, bool],
+) -> tuple[bool, int, int, bool, bool]:
+    """Decide the plane move + flips for :func:`_orient_lazy_plane`.
+
+    Returns `(move, y_axis, x_axis, flip_y, flip_x)`: whether the resolved plane must be transposed
+    to the trailing two axes, the resolved `(y_axis, x_axis)` to move, and the two flip booleans.
+
+    `trailing_flips` is the decision `axis_flips` made for the ORIGINAL trailing plane, so it is a
+    valid fallback only when the resolved plane *is* that trailing plane. For a moved (non-trailing)
+    plane the caller must supply `flips`; without them the plane is left unflipped rather than flipped
+    on the wrong criterion. (Unreachable from `netcdf.py`, which always pairs a non-`None`
+    `spatial_dims` with `flips`; guards the module-private signature.)
+    """
+    y_axis, x_axis = ndim - 2, ndim - 1
+    move = False
+    if spatial_dims is None:
+        flip_y, flip_x = trailing_flips
+    else:
+        x_index, y_index = spatial_dims
+        is_trailing = (y_index, x_index) == (ndim - 2, ndim - 1)
+        move = not is_trailing
+        y_axis, x_axis = y_index, x_index
+        if flips is not None:
+            flip_y, flip_x = flips
+        else:
+            flip_y, flip_x = trailing_flips if is_trailing else (False, False)
+    return move, y_axis, x_axis, flip_y, flip_x
+
+
+def _orient_lazy_plane(
+    lazy: Any,
+    da: Any,
+    ndim: int,
+    spatial_dims: tuple[int, int] | None,
+    flips: tuple[bool, bool] | None,
+    trailing_flips: tuple[bool, bool],
+) -> Any:
+    """Orient a storage-order lazy array to the raster convention the eager path produces.
+
+    The eager `get_variable` path resolves the raster plane (explicit `x_dim`/`y_dim`, else CF
+    detection, else the trailing two dims) and presents it as the trailing two axes, north-up /
+    west-first. This mirrors that on the dask array so a lazy read matches the eager read
+    plane-for-plane (#728):
+
+    - `spatial_dims` is `(x_index, y_index)` resolved by the eager path. The `(y_index, x_index)`
+      pair is moved to the trailing two positions with `dask.array.moveaxis`. For a plane that is
+      *already* trailing (every ordinary `(time, lev, lat, lon)` file) this is a no-op, so the
+      common case stays byte-identical to the historical behaviour.
+    - The flips come from the eager path's own decision for the *resolved* plane (`flips`), not the
+      trailing-plane guess, so a variable whose latitude is non-trailing is no longer mirrored on
+      the wrong axis.
+
+    When `spatial_dims` is `None` (a 1-D coordinate read, or a subset that never resolved a plane)
+    the trailing two axes are normalized as before.
+
+    The chunk grid is built in storage order *before* this move, so for a non-trailing plane the
+    resolved plane's axes keep their storage-order chunk sizes (e.g. a default `(1,…,1,rows,cols)`
+    fallback leaves the resolved row axis finely split). This is correct but can be sub-optimal;
+    callers wanting coarse plane chunks pass an explicit integer `chunks=`.
+
+    Args:
+        lazy: The storage-order `dask.array.Array`.
+        da: The imported `dask.array` module (passed in to avoid a second import).
+        ndim: Number of dimensions of `lazy`.
+        spatial_dims: `(x_index, y_index)` of the resolved plane, or `None`.
+        flips: `(needs_y_flip, needs_x_flip)` for the resolved plane. `None` falls back to
+            `trailing_flips`, which is correct only when the resolved plane *is* the trailing one —
+            supply `flips` whenever `spatial_dims` is a non-trailing plane (a moved plane is left
+            unflipped otherwise, never flipped on the trailing plane's criterion).
+        trailing_flips: `(needs_y_flip, needs_x_flip)` for the trailing plane, from
+            `_mdarray_shape_and_dtype`.
+
+    Returns:
+        The oriented lazy array (row 0 = north, col 0 = west on the resolved plane).
+    """
+    oriented = lazy
+    if ndim >= 2:
+        move, y_axis, x_axis, flip_y, flip_x = _plane_move_and_flips(
+            ndim, spatial_dims, flips, trailing_flips
+        )
+        if move:
+            oriented = da.moveaxis(oriented, [y_axis, x_axis], [ndim - 2, ndim - 1])
+        if flip_y:
+            oriented = da.flip(oriented, axis=ndim - 2)
+        if flip_x:
+            oriented = da.flip(oriented, axis=ndim - 1)
+    return oriented
+
+
 def build_lazy_array(
     path: str,
     variable_name: str,
@@ -475,6 +568,8 @@ def build_lazy_array(
     lock: Any = None,
     manager_id: Any = None,
     manager_hook: Any = None,
+    spatial_dims: tuple[int, int] | None = None,
+    flips: tuple[bool, bool] | None = None,
 ) -> Any:
     """Build a :class:`dask.array.Array` backed by MDArray chunk reads.
 
@@ -496,6 +591,16 @@ def build_lazy_array(
             #727 fix (release on the parent's `close()`, not only when
             the array is dropped). It should hold only a weak reference,
             so it does not defeat the drop-time finalizer.
+        spatial_dims: `(x_index, y_index)` of the raster plane the eager
+            `get_variable` path resolved (explicit `x_dim`/`y_dim` or CF
+            detection). When given, the resolved plane is moved to the
+            trailing two axes so the lazy read is oriented on the same
+            plane as the eager read; `None` (the default) keeps the
+            historical trailing-two-axes normalization. See
+            :func:`_orient_lazy_plane` (#728).
+        flips: `(needs_y_flip, needs_x_flip)` the eager path decided for
+            the resolved plane. Used with `spatial_dims`; `None` falls
+            back to the trailing-plane decision.
 
     Returns:
         dask.array.Array: Lazy array that computes chunk-by-chunk
@@ -544,12 +649,11 @@ def build_lazy_array(
         )
         graph[(name,) + index] = (reader,)
     lazy = da.Array(graph, name, chunks_per_axis, dtype=dtype)
-    if len(shape) >= 2:
-        # Normalize to the raster convention the eager path produces: row 0 = north, col 0 = west.
-        if flip_y:
-            lazy = da.flip(lazy, axis=len(shape) - 2)
-        if flip_x:
-            lazy = da.flip(lazy, axis=len(shape) - 1)
+    # Normalize to the raster convention the eager path produces (row 0 = north, col 0 = west) on the
+    # SAME plane the eager `get_variable` resolved -- moving a non-trailing plane to the trailing two
+    # axes when `spatial_dims` is threaded through (#728). A trailing plane makes this a no-op, so the
+    # ordinary `(time, lev, lat, lon)` case is unchanged.
+    lazy = _orient_lazy_plane(lazy, da, len(shape), spatial_dims, flips, (flip_y, flip_x))
     # The parked FILE_CACHE handle is released deterministically when this `manager` is
     # garbage-collected -- the `CachingFileManager` registers a `weakref.finalize` on itself in
     # `__init__`. Because the manager is kept alive by the chunk readers in the graph (not by this

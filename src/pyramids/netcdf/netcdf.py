@@ -1578,7 +1578,7 @@ class NetCDF(Dataset):
 
               ```python
               >>> cleo = nc.plot(  # doctest: +SKIP
-              ...     variable="t2m", chunks={"x": 5, "y": 5},
+              ...     variable="t2m", chunks={"rows": 5, "cols": 5},
               ... )
 
               ```
@@ -1722,11 +1722,23 @@ class NetCDF(Dataset):
               two live GDAL handles to one NetCDF, which can crash GDAL on Windows. So before reopening
               a file in-process, either **drop the lazy array(s)** or **`close()` the `NetCDF`** — both
               now release the parked handle.
-            * **Axis plane.** The lazy path normalizes the **trailing two** dimensions to north-up /
-              west-first, whereas the eager path resolves the plane via `x_dim` / `y_dim` /
-              CF detection. They agree for every variable whose spatial plane is trailing (the common
-              `(time, lev, lat, lon)` layout); a variable whose CF-resolved plane is *non-trailing*
-              is read against a different plane lazily than eagerly. Read such a variable eagerly.
+            * **Axis plane and shape.** The lazy path resolves the raster plane the same way the
+              eager path does — explicit `x_dim` / `y_dim` (carried on the `get_variable` subset) or
+              CF detection, falling back to the trailing two dimensions — and moves it to the
+              trailing two axes, north-up / west-first, so a lazy read is oriented on the *same*
+              plane as the eager read (#728). It reads the **entire source variable** in storage
+              order and does **not** apply a prior `sel` / `crop` / `window` carried on the subset
+              (those materialize the eager raster only): slice the returned dask array yourself, or
+              read a selected / cropped subset eagerly. For a subset with no active selection the
+              eager and lazy reads then differ only in *packaging* for arrays with more than one
+              non-spatial dimension — the eager path flattens every non-spatial dimension into a
+              single band axis (and squeezes a singleton), whereas the lazy array keeps them as
+              separate leading axes in storage order. Reshape the lazy result with
+              `(-1, rows, cols)` to line the two up. Chunking is computed in *storage* order
+              (before the plane is moved to the trailing axes), so for a non-trailing plane the
+              default `chunks="auto"` may split the resolved plane finely and the named `chunks=`
+              aliases (`rows` / `cols`) map to storage axes, not the resolved plane — pass explicit
+              integer `chunks=` per axis for optimal chunking on such a variable.
 
         Examples:
             - Eager bbox read on a root container — the container
@@ -1805,6 +1817,14 @@ class NetCDF(Dataset):
         top" pattern.
         """
         if bbox is None:
+            if window is not None and chunks is not None:
+                # The lazy path re-reads the whole variable and never applies a pixel window, so a
+                # silently-ignored `window=` would return far more data than asked. Fail loudly,
+                # matching the `bbox=` + `chunks=` guard below (#728 review M1).
+                raise ValueError(
+                    "read_array(chunks=..., window=...) is not supported; "
+                    "read lazily and slice the resulting dask array instead."
+                )
             return window
         if window is not None:
             raise ValueError(
@@ -1861,6 +1881,15 @@ class NetCDF(Dataset):
                 "`variable=` on the container or call read_array "
                 "on a subset from `get_variable()`."
             )
+        # Thread the eager-resolved raster plane (and its flips) into the lazy build so a variable
+        # whose latitude/longitude is not the trailing pair -- selected via `x_dim`/`y_dim` or CF
+        # detection -- is oriented on the SAME plane the eager `get_variable` read produces, instead
+        # of silently normalizing the trailing two axes (#728). `_md_spatial_dims` is `None` only for
+        # a 1-D coordinate read, where `build_lazy_array` keeps the trailing behaviour.
+        spatial_dims = self._md_spatial_dims
+        flips = None
+        if spatial_dims is not None:
+            flips = (bool(self._md_y_flipped), bool(self._md_x_flipped))
         return cast(
             ArrayLike,
             build_lazy_array(
@@ -1869,6 +1898,8 @@ class NetCDF(Dataset):
                 chunks=chunks,
                 lock=lock,
                 manager_hook=self._register_lazy_manager,
+                spatial_dims=spatial_dims,
+                flips=flips,
             ),
         )
 

@@ -104,6 +104,15 @@ class TestChunksLazy:
         arr = three_d_var.read_array(chunks=1)
         assert isinstance(arr, dask_array.Array)
 
+    def test_window_with_chunks_raises(self, three_d_var):
+        """`read_array(window=, chunks=)` raises instead of silently ignoring the window (#728 M1).
+
+        The lazy path never applies a pixel window, so a silently-dropped `window=` would return the
+        whole variable; it must fail loudly like the `bbox=` + `chunks=` guard.
+        """
+        with pytest.raises(ValueError, match="window"):
+            three_d_var.read_array(window=[0, 0, 2, 2], chunks="auto")
+
     def test_chunks_tuple_returns_dask(self, three_d_var):
         """Tuple chunks also return a dask array with matching spec."""
         arr = three_d_var.read_array(chunks=(1, -1, -1))
@@ -286,6 +295,21 @@ class TestLazyPickle:
         expected_sum = float(np.asarray(expected, dtype=np.float64).sum())
         assert_allclose(total, expected_sum, rtol=1e-6)
 
+    def test_nontrailing_moveaxis_graph_pickles(self):
+        """A non-trailing (moveaxis) lazy graph pickles and recomputes to the same array (#728).
+
+        The extra `da.moveaxis` layer over the chunk readers must not break graph serialization; a
+        pickle round-trip of a non-trailing lazy read must recompute to the same north-up plane.
+        """
+        lazy = (
+            NetCDF.read_file("tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc")
+            .get_variable("T", x_dim="lon", y_dim="lat")
+            .read_array(chunks="auto")
+        )
+        before = np.asarray(lazy.compute())
+        after = np.asarray(pickle.loads(pickle.dumps(lazy)).compute())
+        np.testing.assert_array_equal(after, before)
+
 
 class TestImportError:
     """``chunks`` + missing dask yields a clear ImportError."""
@@ -395,25 +419,133 @@ class TestLazyOrientationMatchesEager:
             direct, eager, err_msg="_read_variable is mirrored west-east relative to get_variable"
         )
 
-    def test_non_trailing_spatial_variable_lazy_matches_eager(self):
-        """A `(time, lat, lev, lon)` variable reads the same lazily and eagerly.
+    _NON_TRAILING_FIXTURE = "tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc"
+
+    def test_default_resolution_lazy_matches_eager(self):
+        """The default (no `x_dim`/`y_dim`) read of a `(time, lat, lev, lon)` variable is unchanged.
 
         Test scenario:
-            The lazy path normalizes the trailing two axes (see `_mdim.axis_flips`), while the eager
-            path resolves the raster plane through `_resolve_spatial_dims`. For CAM's non-trailing
-            latitude both resolve to the same trailing `(lev, lon)` plane, so the reads must agree
-            byte-for-byte — pinned here so any future divergence between the two plane-resolution
-            strategies surfaces as a failure instead of a silent mirror.
+            The fixture's `lat`/`lon` carry no CF axis attributes, so auto-detection falls back to
+            the trailing `(lev, lon)` plane. Both the eager and lazy paths then resolve the same
+            trailing plane, so the fix must leave this common case byte-identical (the `moveaxis` is
+            a no-op for a trailing plane). Reshaping folds the eager band-flattening into the lazy
+            array's separate leading axes.
 
-        Reads the shared on-disk fixture directly; the netcdf-wide autouse `_clear_file_cache` fixture closes the
-        lazy path's parked GDAL handle at teardown, so a later test reopening the same file cannot
-        collide with a stale handle (the CAM segfault mechanism).
+        Reads the shared on-disk fixture directly; the netcdf-wide autouse `_clear_file_cache`
+        fixture closes the lazy path's parked GDAL handle at teardown.
         """
-        path = "tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc"
+        path = self._NON_TRAILING_FIXTURE
         eager = np.asarray(NetCDF.read_file(path).get_variable("T").read_array())
-        lazy = np.squeeze(np.asarray(NetCDF.read_file(path).get_variable("T").read_array(chunks="auto")))
+        lazy = np.asarray(NetCDF.read_file(path).get_variable("T").read_array(chunks="auto"))
         np.testing.assert_array_equal(
-            lazy, eager, err_msg="lazy read diverged from eager on a non-trailing-spatial variable"
+            lazy.reshape(-1, *eager.shape[-2:]),
+            eager,
+            err_msg="default lazy read diverged from eager on the trailing-plane fallback",
+        )
+
+    def test_build_lazy_array_without_resolved_plane_normalizes_trailing(self):
+        """A direct `build_lazy_array` call with no resolved plane keeps the trailing-axes normalization.
+
+        Test scenario:
+            The NetCDF path always threads the resolved plane, but `build_lazy_array` is also callable
+            directly (e.g. the raster lazy path, or a coordinate read) with `spatial_dims=None`. That
+            fallback — and the defensive `flips=None` path when a plane is passed without flips — must
+            reproduce the historical trailing-plane normalization, matching the eager read of a
+            bottom-up 2-D variable.
+        """
+        path, variable, _ = ORIENTATION_FIXTURES[1]  # geographic, bottom-up `Band1` (needs a Y flip)
+        eager = self._first_plane(NetCDF.read_file(path).get_variable(variable).read_array())
+        no_plane = self._first_plane(lazy_mod.build_lazy_array(path, variable, chunks="auto"))
+        np.testing.assert_array_equal(
+            no_plane, eager, err_msg="spatial_dims=None must keep the trailing normalization"
+        )
+        ndim = np.asarray(
+            NetCDF.read_file(path).get_variable(variable).read_array(chunks="auto")
+        ).ndim
+        no_flips = self._first_plane(
+            lazy_mod.build_lazy_array(
+                path, variable, chunks="auto", spatial_dims=(ndim - 1, ndim - 2), flips=None
+            )
+        )
+        np.testing.assert_array_equal(
+            no_flips, eager, err_msg="flips=None must fall back to the trailing-plane decision"
+        )
+
+    def test_explicit_nontrailing_plane_lazy_matches_eager(self):
+        """`read_array(chunks=)` honours an explicit non-trailing `x_dim`/`y_dim` like the eager read.
+
+        Test scenario:
+            `T(time, lat, lev, lon)` selected via `x_dim="lon", y_dim="lat"` has its raster plane at
+            the *non-trailing* axes `(lat=1, lon=3)`. Before #728 the lazy path ignored the selection
+            and normalized the trailing `(lev, lon)` plane — flipping `lev` instead of `lat` and
+            returning the wrong plane as its raster. The fix moves the resolved plane to the trailing
+            two axes and flips *it*, so the lazy read matches the eager read plane-for-plane. Checked
+            against an independent north-up reference built straight from the storage-order MDArray —
+            locating the `lat`/`lon` dims by name and flipping each from its own coordinate
+            direction, so the reference shares no axis choice with the code under test.
+        """
+        path = self._NON_TRAILING_FIXTURE
+        var = NetCDF.read_file(path).get_variable("T", x_dim="lon", y_dim="lat")
+        assert var._md_spatial_dims == (3, 1), "lon/lat must resolve to the non-trailing (x=3, y=1)"
+        assert var._md_y_flipped is True, "the fixture's ascending latitude must flip to north-up"
+        eager = np.asarray(var.read_array())
+        rows, cols = eager.shape[-2:]
+        assert (rows, cols) == (64, 128), "eager plane must be (lat=64, lon=128)"
+
+        lazy = np.asarray(
+            NetCDF.read_file(path)
+            .get_variable("T", x_dim="lon", y_dim="lat")
+            .read_array(chunks="auto")
+        )
+        assert lazy.shape[-2:] == (64, 128), (
+            "lazy trailing plane must be (lat, lon); a (6, 128) plane means the pre-#728 "
+            "trailing-axes read leaked through"
+        )
+        np.testing.assert_array_equal(
+            lazy.reshape(-1, rows, cols),
+            eager,
+            err_msg="explicit non-trailing lazy read diverged from eager (#728)",
+        )
+
+        ds = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER)
+        root = ds.GetRootGroup()
+        md = root.OpenMDArray("T")
+        dim_names = [d.GetName() for d in md.GetDimensions()]
+        y_axis, x_axis = dim_names.index("lat"), dim_names.index("lon")
+        raw = np.asarray(md.ReadAsArray())  # storage order (time, lat, lev, lon)
+        lat = np.asarray(root.OpenMDArray("lat").ReadAsArray())
+        lon = np.asarray(root.OpenMDArray("lon").ReadAsArray())
+        reference = np.moveaxis(raw, [y_axis, x_axis], [raw.ndim - 2, raw.ndim - 1])
+        if lat[0] < lat[-1]:  # ascending south-to-north -> reverse to north-up rows
+            reference = reference[..., ::-1, :]
+        if lon[0] > lon[-1]:  # descending east-to-west -> reverse to west-first cols
+            reference = reference[..., :, ::-1]
+        np.testing.assert_array_equal(
+            lazy.reshape(-1, rows, cols),
+            reference.reshape(-1, rows, cols),
+            err_msg="lazy read is not north-up / west-first on the resolved lat/lon plane",
+        )
+
+    def test_direct_nontrailing_x_flip_moves_and_flips(self):
+        """A non-trailing plane with an X flip exercises `moveaxis` + `da.flip(axis=-1)` together.
+
+        Test scenario:
+            The on-disk fixtures need only a Y flip on a non-trailing plane, so the `flip_x`-after-
+            `moveaxis` path is otherwise uncovered. Drive `build_lazy_array` directly with the
+            resolved `(x=3, y=1)` plane and a forced X flip, and compare against a hand-built
+            reference that moves `(lat, lon)` to the trailing axes then reverses the columns.
+        """
+        path = self._NON_TRAILING_FIXTURE
+        lazy = np.asarray(
+            lazy_mod.build_lazy_array(
+                path, "T", chunks="auto", spatial_dims=(3, 1), flips=(False, True)
+            )
+        )
+        ds = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER)
+        raw = np.asarray(ds.GetRootGroup().OpenMDArray("T").ReadAsArray())  # (time, lat, lev, lon)
+        reference = np.moveaxis(raw, [1, 3], [2, 3])[..., :, ::-1]  # (time, lev, lat, lon), cols flipped
+        np.testing.assert_array_equal(
+            lazy, reference, err_msg="moveaxis + forced X flip diverged from the reference"
         )
 
     def test_one_dimensional_variable_is_never_flipped(self):
@@ -451,6 +583,26 @@ class TestLazyHandleLifetime:
         del lazy
         gc.collect()
         assert len(FILE_CACHE) == 0, "dropping the lazy array must evict the parked handle"
+
+    def test_nontrailing_moveaxis_lazy_evicts_handle_on_drop(self):
+        """Dropping a non-trailing (moveaxis-graph) lazy array still evicts its parked handle (#728).
+
+        Test scenario:
+            A non-trailing plane adds a `da.moveaxis` layer over the chunk-reader graph. The manager
+            is kept alive by the base readers, not the wrapper, so the drop-time finalizer must still
+            fire — mirror the trailing eviction test on the moveaxis graph.
+        """
+        assert len(FILE_CACHE) == 0, "the autouse fixture should leave FILE_CACHE empty at test start"
+        lazy = (
+            NetCDF.read_file("tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc")
+            .get_variable("T", x_dim="lon", y_dim="lat")
+            .read_array(chunks="auto")
+        )
+        lazy.compute()
+        assert len(FILE_CACHE) == 1, "a non-trailing lazy read + compute must park exactly one handle"
+        del lazy
+        gc.collect()
+        assert len(FILE_CACHE) == 0, "dropping the moveaxis lazy array must evict the parked handle"
 
     def test_dropping_unpack_lazy_array_evicts_handle(self, scale_offset_path):
         """Dropping an `unpack=True` lazy array — a DERIVED dask array — still evicts the handle (H1).

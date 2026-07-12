@@ -51,6 +51,68 @@ class TestNetCDFPlotLazy:
         assert isinstance(result, ArrayGlyph)
         assert result.arr.shape == (4, 4)
 
+    @pytest.mark.lazy
+    def test_selectors_chunks_renders_selected_slice_not_band_zero(self, tmp_path):
+        """`plot(selectors=, chunks=)` renders the SELECTED slice, not storage band 0 (#728 / H1).
+
+        Test scenario:
+            The lazy `read_array(chunks=)` ignores the `sel()`-pinned subset and re-reads the whole
+            variable, so before the fix the chunks render path drew `lazy[0]` — storage slice 0 —
+            regardless of the selector. Each time slice of the fixture has distinct random values, so
+            a wrong-slice render is detectable: the chunked render must equal the eager render of the
+            same selector and must NOT equal the (different) slice-0 render.
+        """
+        nc_mem = make_plot_3d_nc(n_times=4, rows=4, cols=4)
+        out = tmp_path / "slices.nc"
+        nc_mem.to_file(out)
+        nc = NetCDF.read_file(str(out))
+        eager = np.asarray(nc.plot(variable="t2m", selectors=Selectors(time=2)).arr)
+        lazy = np.asarray(
+            nc.plot(
+                variable="t2m", selectors=Selectors(time=2), chunks={"cols": 2, "rows": 2}
+            ).arr
+        )
+        np.testing.assert_array_equal(
+            lazy, eager, err_msg="chunked plot drew a different slice than the eager plot"
+        )
+        slice0 = np.asarray(nc.plot(variable="t2m", selectors=Selectors(time=0)).arr)
+        assert not np.array_equal(
+            lazy, slice0
+        ), "chunked plot drew storage band 0, not the selected slice"
+
+    @pytest.mark.lazy
+    def test_multi_dim_selectors_chunks_renders_intersected_slice(self, tmp_path):
+        """`chunks=` with TWO pinned band dims indexes the intersected flat band (#728 / H1).
+
+        Test scenario:
+            A 4-D `(time, pressure_level, lat, lon)` variable pinned on both band dims exercises the
+            multi-dim intersection in `_flat_band_index`. The chunked render must equal the eager
+            render of the same selectors and differ from the (0, 0) corner slice.
+        """
+        nc_mem = _make_4d_nc()
+        out = tmp_path / "cube4d.nc"
+        nc_mem.to_file(out)
+        nc = NetCDF.read_file(str(out))
+        sel = Selectors(time=6, sel={"pressure_level": 500})
+        eager = np.asarray(nc.plot(variable="temperature", selectors=sel).arr)
+        lazy = np.asarray(
+            nc.plot(
+                variable="temperature", selectors=sel, chunks={"cols": 1, "rows": 1}
+            ).arr
+        )
+        np.testing.assert_array_equal(
+            lazy, eager, err_msg="multi-dim chunked plot drew a different slice than eager"
+        )
+        corner = np.asarray(
+            nc.plot(
+                variable="temperature",
+                selectors=Selectors(time=0, sel={"pressure_level": 1000}),
+            ).arr
+        )
+        assert not np.array_equal(
+            lazy, corner
+        ), "chunked plot drew the (0, 0) corner band, not the intersected slice"
+
     def test_chunks_none_preserves_eager_behaviour(self):
         """``chunks=None`` (default) preserves the current eager path.
 
