@@ -23,7 +23,7 @@ from pyramids.netcdf import NetCDF
 
 pytestmark = pytest.mark.core
 
-GOES16_FIXTURE = "tests/data/netcdf/cf__9v__1d7-2d2__geos__y-asc.nc"
+GOES16_FIXTURE = "tests/data/netcdf/cf__9v__1d7-2d2__geos__y-desc.nc"
 GOES16_LON_0 = -75.0
 
 
@@ -51,14 +51,50 @@ class TestGeostationaryGeotransform:
         assert abs(gt[5]) > 1000, f"pixel height not in metres: {gt[5]}"
 
     def test_underlying_gdal_geotransform_is_metres(self, goes_cube: NetCDF):
-        # to_crs warps the GDAL dataset, so its internal geotransform (the VRT
-        # wrap, not just the wrapper attribute) must be the metre one.
+        # to_crs warps the GDAL dataset, so its internal geotransform (the
+        # materialized MEM raster, not just the wrapper attribute) must be the metre one.
         gt = goes_cube.raster.GetGeoTransform()
         assert abs(gt[1]) > 1000, f"underlying GDAL geotransform raw: {gt}"
+
+    def test_geostationary_view_is_materialized_eagerly(self, goes_cube: NetCDF):
+        # An AsClassicDataset view ignores SetGeoTransform, so the metre geotransform is
+        # stamped onto a MEM copy. A VRT wrapper (the previous approach) made every read and
+        # warp ~20x slower and broke windowed reads.
+        assert goes_cube._md_view_materialized is True
+        assert goes_cube.raster.GetDriver().ShortName == "MEM"
+
+    def test_coordinate_derived_geotransform_does_not_clobber_metres(self, goes_cube: NetCDF):
+        # The file's 1-D x/y are packed scan angles, so _georeference_index_subset must leave a
+        # geostationary cube alone; adopting a coordinate-derived geotransform would replace the
+        # metre grid with the raw index-space one.
+        classic = gdal.Open(f"NETCDF:{GOES16_FIXTURE}:CMI").GetGeoTransform()
+        assert goes_cube.raster.GetGeoTransform() == pytest.approx(classic, rel=1e-9)
 
     def test_geotransform_matches_classic_driver(self, goes_cube: NetCDF):
         classic = gdal.Open(f"NETCDF:{GOES16_FIXTURE}:CMI").GetGeoTransform()
         assert goes_cube.geotransform == pytest.approx(classic, rel=1e-9)
+
+    def test_real_granule_needs_no_reanchoring(self, goes_cube: NetCDF):
+        # A real granule packs x with a positive scale_factor and y with a negative one, so neither
+        # axis is reversed and the adopted classic geotransform is already west-east, north-up.
+        assert goes_cube._md_x_flipped is False and goes_cube._md_y_flipped is False
+        assert goes_cube.geotransform[1] > 0 and goes_cube.geotransform[5] < 0
+
+    def test_adopted_geotransform_is_reanchored_for_a_reversed_x_axis(self, goes_cube, monkeypatch):
+        # The classic driver flips a bottom-up Y but never reverses X: it reports a negative gt[1]
+        # instead. A geostationary file whose scaled x descended would be X-reversed by
+        # _read_md_array, so adopting that geotransform unchanged would mirror the raster east-west.
+        # No producer writes one, so drive the reconciliation directly.
+        mirrored = (3627271.340967355, -2004.017315487541, 0.0, 4589199.764884492, 0.0, -2004.017315487541)
+        monkeypatch.setattr(netcdf_module.NetCDF, "_classic_geotransform", lambda self: mirrored)
+        goes_cube._md_x_flipped = True
+        goes_cube._geostationary_scaled = False
+        goes_cube._normalize_geostationary_geotransform()
+        gt = goes_cube.geotransform
+        assert gt[1] > 0, f"pixel width must be positive after re-anchoring, got {gt[1]}"
+        expected_west = mirrored[0] + mirrored[1] * goes_cube.columns
+        assert gt[0] == pytest.approx(expected_west), "origin must move to the west edge"
+        assert goes_cube.cell_size == pytest.approx(abs(mirrored[1]))
 
     def test_central_meridian_is_sub_satellite_longitude(self, goes_cube: NetCDF):
         srs = goes_cube.raster.GetSpatialRef()
@@ -71,31 +107,44 @@ class TestGeostationaryGeotransform:
         assert maxx - minx > 1.0, f"degenerate width: {warped.bbox}"
         assert maxy - miny > 1.0, f"degenerate height: {warped.bbox}"
 
-    def test_read_array_after_vrt_swap(self, goes_cube: NetCDF):
-        # the VRT-wrapped (root-group-less) cube must still read its pixels.
+    def test_read_array_after_materialize(self, goes_cube: NetCDF):
+        # the materialized (root-group-less) cube must still read its pixels, and they must be
+        # the classic driver's pixels -- not a vertically mirrored copy of them (#705).
         arr = goes_cube.read_array()
         assert arr.shape == (goes_cube.rows, goes_cube.columns)
+        classic = np.asarray(gdal.Open(f"NETCDF:{GOES16_FIXTURE}:CMI").ReadAsArray())
+        np.testing.assert_array_equal(np.asarray(arr), classic)
 
     def test_scaled_state_survives_update_inplace(self, goes_cube: NetCDF):
-        # _update_inplace (used by set_crs / the epsg setter / apply(inplace))
-        # must preserve the geostationary scaling flag and the source-view
-        # keep-alive, so the metre geotransform is not lost after in-place ops.
+        # _update_inplace (used by set_crs / the epsg setter / apply(inplace)) must preserve the
+        # geostationary scaling flag and the materialize flag, so the metre geotransform is not lost
+        # after in-place ops and the already-materialized raster is not needlessly re-copied.
         assert goes_cube._geostationary_scaled is True
-        src_ref = goes_cube._gdal_classic_src_ref
+        assert goes_cube._md_view_materialized is True
         goes_cube._update_inplace(goes_cube.raster)
         assert goes_cube._geostationary_scaled is True
-        assert goes_cube._gdal_classic_src_ref is src_ref
+        assert goes_cube._md_view_materialized is True
+        assert goes_cube._md_y_flipped is False
         assert abs(goes_cube.geotransform[1]) > 1000
 
-    def test_vrt_failure_warns_and_keeps_metre_wrapper(self, monkeypatch):
-        # If the VRT georeferencing cannot be applied, warn instead of silently
-        # leaving a degenerate dataset; the wrapper geotransform still reports
-        # metres (the classic-driver geotransform).
+    def test_materialize_failure_warns_and_keeps_metre_wrapper(self, monkeypatch):
+        # The metre geotransform only reaches GDAL through the materialized MEM raster. If neither
+        # the raw-view rebuild nor the fallback copy yields one, _materialize_md_view must fail soft
+        # so this warns, rather than dying on an AttributeError from a None raster. Warn instead of
+        # silently leaving a dataset whose wrapper claims metres while the grid is raw scan angles.
         container = NetCDF.read_file(GOES16_FIXTURE)
-        monkeypatch.setattr(netcdf_module.gdal, "Translate", lambda *a, **k: None)
-        with pytest.warns(UserWarning, match="could not georeference"):
+        monkeypatch.setattr(netcdf_module.NetCDF, "_materialize_from_raw_view", lambda self: None)
+        monkeypatch.setattr(gdal.Driver, "CreateCopy", lambda *args, **kwargs: None)
+        with pytest.warns(UserWarning, match="could not materialize the geostationary view") as caught:
             cube = container.get_variable("CMI")
+        assert cube._md_view_materialized is False, "materialize should have failed soft"
         assert abs(cube.geotransform[1]) > 1000
+        # One failure, one warning: the generic multidim message is suppressed in favour of this
+        # geostationary-specific one, which names the actual consequence.
+        materialize_warnings = [
+            w for w in caught.list if "could not materialize" in str(w.message)
+        ]
+        assert len(materialize_warnings) == 1, [str(w.message) for w in materialize_warnings]
 
 
 class TestNonGeostationaryUnaffected:

@@ -571,8 +571,8 @@ def read_file(
             path.endswith(i) for i in DOES_NOT_SUPPORT_INTERNAL
         ):
             raise FileFormatNotSupportedError(
-                "File format is not supported, if you provided a gzip/7z compressed file with multiple internal "
-                "files. Currently it is not supported to read gzip/7z files with multiple compressed internal "
+                "File format is not supported, if you provided a gzip compressed file with multiple internal "
+                "files. Currently it is not supported to read gzip files with multiple compressed internal "
                 "files"
             )
         elif str(e).__contains__(" No such file or directory"):

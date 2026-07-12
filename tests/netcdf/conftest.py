@@ -5,7 +5,28 @@ from typing import Sequence
 import numpy as np
 import pytest
 
+from pyramids.base._file_manager import FILE_CACHE
 from pyramids.netcdf.netcdf import NetCDF
+
+
+@pytest.fixture(autouse=True)
+def _clear_file_cache():
+    """Close every parked GDAL handle around each NetCDF test.
+
+    A lazy read (`read_array(chunks=...)`, `crop(..., chunks=...)`) opens the file through a
+    `CachingFileManager`, which parks a live MDIM `gdal.Dataset` in the process-global `FILE_CACHE`
+    and keeps it open for later chunk reads. Nothing evicts it after `compute()`, so the handle
+    outlives the test. A later test that reopens the *same* on-disk fixture then holds two live
+    handles to one NetCDF file — which crashes GDAL with an access violation on Windows (exit 139,
+    the CAM/GOES-fixture segfault). Lazy reads live in several test directories (`lazy/`, `samples/`,
+    `plot/`, `io/`) and the shared fixtures they touch are reopened elsewhere, so the isolation must
+    be netcdf-wide, not scoped to one folder. Clearing the cache before and after every netcdf test
+    closes those handles so no stale handle survives into a later reopen.
+    """
+    FILE_CACHE.clear()
+    yield
+    FILE_CACHE.clear()
+
 
 # Shared random seed used across NetCDF test modules.
 SEED = 42

@@ -55,9 +55,7 @@ from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WCSError
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
 
-# Request KVP keys pyramids sets itself in direct GetCoverage; an extra_params key
-# colliding with one of these is rejected so it cannot duplicate the request —
-# independent of whether the optional FORMAT was emitted.
+# Request KVP keys pyramids sets itself in direct GetCoverage.
 _RESERVED_KVP_KEYS = frozenset(
     {
         "SERVICE", "VERSION", "REQUEST", "COVERAGE", "COVERAGEID", "SUBSET",
@@ -65,10 +63,106 @@ _RESERVED_KVP_KEYS = frozenset(
     }
 )
 
+# The fixed protocol call itself (SUBSET is multi-valued): an extra_params key
+# targeting one of these is always a mistake, so it stays rejected even in direct
+# mode. Every other reserved key is overridable — a caller can hand a
+# non-conformant shim its exact spelling (see _merge_direct_kvp).
+_PROTOCOL_KVP_KEYS = frozenset({"SERVICE", "VERSION", "REQUEST", "SUBSET"})
+_OVERRIDABLE_KVP_KEYS = _RESERVED_KVP_KEYS - _PROTOCOL_KVP_KEYS
+
+# Two request parameters are spelled differently across WCS versions: the CRS is
+# SUBSETTINGCRS in 2.0.x and CRS in 1.0.0, and the coverage id is COVERAGEID in
+# 2.0.x and COVERAGE in 1.0.0. A shim may want the other spelling on either
+# version, so each pair collapses to one logical slot — overriding with either
+# spelling replaces whichever the builder emitted (see _kvp_slot).
+_CRS_KVP_KEYS = frozenset({"CRS", "SUBSETTINGCRS"})
+_COVERAGE_KVP_KEYS = frozenset({"COVERAGE", "COVERAGEID"})
+
+
 if TYPE_CHECKING:
     from osgeo import osr
 
     from pyramids.dataset.dataset import Dataset
+
+
+def _kvp_slot(key: str) -> str:
+    """Normalised override slot for a KVP key.
+
+    The two cross-version pairs collapse to one slot each so an override bridges the
+    WCS spellings: ``CRS``/``SUBSETTINGCRS`` -> ``CRS`` and
+    ``COVERAGE``/``COVERAGEID`` -> ``COVERAGE``. Every other key is its own slot.
+    """
+    upper = key.upper()
+    if upper in _CRS_KVP_KEYS:
+        slot = "CRS"
+    elif upper in _COVERAGE_KVP_KEYS:
+        slot = "COVERAGE"
+    else:
+        slot = upper
+    return slot
+
+
+def _merge_direct_kvp(
+    params: list[tuple[str, str]], extra_params: dict[str, str] | None
+) -> list[tuple[str, str]]:
+    """Fold ``extra_params`` into the built-in direct-GetCoverage KVP list.
+
+    In direct mode the caller owns the wire request. An ``extra_params`` key that
+    matches a built-in KVP *replaces* it in place — case-insensitively, and with
+    ``CRS`` and ``SUBSETTINGCRS`` sharing one slot — using the caller's exact key
+    spelling and value. This lets a non-conformant shim be handed its exact tokens:
+    a lowercase ``coverageID`` key, or the WCS-1.x ``CRS=`` on a WCS-2.0 request (the
+    two quirks of the Copernicus EDO/GDO MapServer, which ``500``s on the spec
+    spellings). A key that matches no built-in is appended verbatim, in caller order.
+    ``SERVICE`` / ``VERSION`` / ``REQUEST`` / ``SUBSET`` stay locked — they are the
+    fixed protocol call (or multi-valued), so overriding them is always an error;
+    additional WCS-2.0 ``SUBSET`` axes (e.g. a temporal subset) therefore cannot be
+    added in direct mode, only in discovery mode.
+
+    Args:
+        params: The KVP pairs the builder assembled, in order.
+        extra_params: Caller-supplied query parameters, or ``None``.
+
+    Returns:
+        The merged KVP pairs: built-ins with any matching override substituted in
+        place, followed by the non-colliding extras in caller order.
+
+    Raises:
+        ValueError: an ``extra_params`` key targets a locked protocol parameter, or
+            two ``extra_params`` keys target the same built-in GetCoverage parameter
+            (e.g. both ``CRS`` and ``SUBSETTINGCRS``, or case-variant duplicates of a
+            built-in key such as ``coverageID`` and ``COVERAGEID``).
+    """
+    result = list(params)
+    if extra_params:
+        builtin_slots = {_kvp_slot(key) for key, _ in result}
+        overrides: dict[str, tuple[str, str]] = {}
+        appended: list[tuple[str, str]] = []
+        for key, val in extra_params.items():
+            upper = key.upper()
+            if upper in _PROTOCOL_KVP_KEYS:
+                raise ValueError(
+                    f"extra_params key {key!r} is a fixed WCS protocol parameter and "
+                    "cannot be overridden; set it via the from_wcs arguments instead."
+                )
+            slot = _kvp_slot(key)
+            if upper in _OVERRIDABLE_KVP_KEYS and slot in builtin_slots:
+                if slot in overrides:
+                    raise ValueError(
+                        f"extra_params keys {overrides[slot][0]!r} and {key!r} both "
+                        "target the same GetCoverage parameter; pass only one."
+                    )
+                overrides[slot] = (key, val)
+            else:
+                appended.append((key, val))
+        # Substitute each override into its matching built-in position. Safe as a
+        # single pass because no overridable slot is ever emitted twice in `params`:
+        # the only duplicated built-in slot is SUBSET (two axes on 2.0.x), and SUBSET
+        # is a protocol key that can never populate `overrides`. If a future builder
+        # emits a duplicated overridable slot, dedupe here before substituting.
+        merged = [overrides.get(_kvp_slot(k), (k, v)) for k, v in result]
+        result = merged + appended
+    return result
 
 
 def _http_get(
@@ -275,9 +369,16 @@ def _getcoverage_url(
     max-x) range and the second the y range, so lon/lat values land on the right
     axis regardless of the CRS's declared axis order.
 
+    ``extra_params`` may override a built-in KVP by matching its key (see
+    :func:`_merge_direct_kvp`), so a non-conformant shim can be served its exact
+    spelling (e.g. ``{"coverageID": "spaST", "CRS": "EPSG:4326"}`` to send a
+    lowercase key and the WCS-1.x CRS token on a WCS-2.0 request).
+
     Raises:
-        ValueError: the WCS version is unsupported for direct mode, or ``1.0.0``
-            was requested without a ``resolution`` (needed for the output grid).
+        ValueError: the WCS version is unsupported for direct mode, ``1.0.0`` was
+            requested without a ``resolution`` (needed for the output grid), or an
+            ``extra_params`` key targets a locked protocol parameter
+            (``SERVICE`` / ``VERSION`` / ``REQUEST`` / ``SUBSET``).
     """
     minx, miny, maxx, maxy = bbox
     ver = version or "2.0.0"
@@ -320,14 +421,7 @@ def _getcoverage_url(
         )
     if wcs_format:
         params.append(("FORMAT", wcs_format))
-    if extra_params:
-        for key, val in extra_params.items():
-            if key.upper() in _RESERVED_KVP_KEYS:
-                raise ValueError(
-                    f"extra_params key {key!r} collides with a built-in GetCoverage "
-                    "parameter; use the dedicated from_wcs argument instead."
-                )
-            params.append((key, val))
+    params = _merge_direct_kvp(params, extra_params)
     # Encode both key and value so a stray '&'/'=' in a caller-supplied key cannot
     # split the query. Keep ',():/' literal in values so CRS shorthand / URIs
     # (EPSG:4326, http://www.opengis.net/def/crs/…) and SUBSET syntax survive intact

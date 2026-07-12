@@ -31,7 +31,9 @@ import pickle
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
+from osgeo import gdal, osr
 
+from pyramids.netcdf import _lazy as lazy_mod
 from pyramids.netcdf.netcdf import NetCDF
 from tests._marks import requires_dask
 
@@ -136,8 +138,6 @@ class TestChunksLazy:
             ``_dtype_to_str`` to ``"unknown"`` and assert a clear, actionable ``ValueError``
             is raised instead.
         """
-        import pyramids.netcdf._lazy as lazy_mod
-
         monkeypatch.setattr(lazy_mod, "_dtype_to_str", lambda *_a, **_k: "unknown")
         with pytest.raises(ValueError, match="lazy.*reads cannot represent"):
             lazy_mod._mdarray_shape_and_dtype(three_d_path, "values")
@@ -177,7 +177,7 @@ class TestDefaultChunks:
             _mdarray_shape_and_dtype,
         )
 
-        shape, _, block_size, _flip = _mdarray_shape_and_dtype(
+        shape, _, block_size, _flip_y, _flip_x = _mdarray_shape_and_dtype(
             three_d_path,
             three_d_var._source_var_name,
         )
@@ -302,3 +302,128 @@ class TestImportError:
         monkeypatch.setattr(builtins, "__import__", fake_import)
         with pytest.raises(ImportError, match="pyramids-gis\\[lazy\\]"):
             three_d_var.read_array(chunks="auto")
+
+
+ORIENTATION_FIXTURES = [
+    ("tests/data/netcdf/cf__9v__1d7-2d2__geos__y-desc.nc", "CMI", "geostationary, scaled Y descends"),
+    ("tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc", "Band1", "geographic, bottom-up"),
+    ("tests/data/netcdf/cf__5v__1d4-3d1__geog__y-desc.nc", "t2m", "geographic, north-up"),
+    ("tests/data/netcdf/coards__4v__1d3-3d1__y-desc.nc", "air", "COARDS, north-up, packed"),
+]
+
+
+@requires_dask
+class TestLazyOrientationMatchesEager:
+    """A chunked read must come back the same way up as the eager read of the same variable."""
+
+    @staticmethod
+    def _first_plane(array):
+        """Reduce a possibly banded read to its first 2-D raster plane."""
+        data = np.asarray(array)
+        while data.ndim > 2:
+            data = data[0]
+        return data
+
+    @pytest.mark.parametrize(
+        "path, variable, label",
+        ORIENTATION_FIXTURES,
+        ids=[f[0].split("/")[-1].split(".")[0] for f in ORIENTATION_FIXTURES],
+    )
+    def test_lazy_read_matches_eager_and_classic_driver(self, path, variable, label):
+        """`read_array(chunks=)` equals `read_array()` equals the classic netCDF driver.
+
+        Test scenario:
+            The eager path decides the Y flip from the scale/offset-applied coordinate, but the lazy
+            path used to decide it from the view's raw geotransform. For a geostationary granule,
+            whose `y` is packed with a negative `scale_factor`, the two disagreed and the chunked
+            read came back vertically mirrored — #705, still live on the lazy path.
+        """
+        classic = self._first_plane(gdal.Open(f'NETCDF:"{path}":{variable}').ReadAsArray())
+        eager = self._first_plane(NetCDF.read_file(path).get_variable(variable).read_array())
+        lazy = self._first_plane(
+            NetCDF.read_file(path).get_variable(variable).read_array(chunks="auto")
+        )
+        np.testing.assert_array_equal(
+            eager, classic, err_msg=f"{label}: eager read disagrees with the classic driver"
+        )
+        np.testing.assert_array_equal(
+            lazy, eager, err_msg=f"{label}: chunked read is mirrored relative to the eager read"
+        )
+
+    def test_read_variable_matches_eager(self):
+        """`_read_variable` shares the orientation rule with `get_variable().read_array()`."""
+        path, variable = ORIENTATION_FIXTURES[0][0], ORIENTATION_FIXTURES[0][1]
+        container = NetCDF.read_file(path)
+        eager = self._first_plane(container.get_variable(variable).read_array())
+        direct = self._first_plane(container._read_variable(variable))
+        np.testing.assert_array_equal(
+            direct, eager, err_msg="_read_variable is mirrored relative to get_variable"
+        )
+
+    def test_descending_x_lazy_read_matches_eager(self, tmp_path):
+        """A descending-longitude file reads west-first through both the eager and lazy paths.
+
+        Test scenario:
+            The `col 0 = west` normalization was added to the eager path only, so a chunked read of
+            an east-to-west file came back mirrored relative to `read_array()` — the horizontal twin
+            of #705. No producer writes such a file, so build one.
+        """
+        path = str(tmp_path / "lon_descending.nc")
+        src = gdal.GetDriverByName("MEM").Create("", 5, 4, 1, gdal.GDT_Float32)
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        src.SetProjection(srs.ExportToWkt())
+        # Origin at the east edge, walking west: lon = 29, 27, 25, 23, 21.
+        src.SetGeoTransform((30.0, -2.0, 0.0, 10.0, 0.0, -1.0))
+        src.GetRasterBand(1).WriteArray(np.arange(20, dtype=np.float32).reshape(4, 5))
+        gdal.Translate(path, src, format="netCDF", creationOptions=["WRITE_BOTTOMUP=NO"])
+
+        container = NetCDF.read_file(path)
+        var = container.get_variable("Band1")
+        assert var._md_x_flipped is True, "the fixture's longitude must descend"
+        eager = self._first_plane(var.read_array())
+        lazy = self._first_plane(
+            NetCDF.read_file(path).get_variable("Band1").read_array(chunks="auto")
+        )
+        direct = self._first_plane(container._read_variable("Band1"))
+        np.testing.assert_array_equal(
+            lazy, eager, err_msg="chunked read is mirrored west-east relative to the eager read"
+        )
+        np.testing.assert_array_equal(
+            direct, eager, err_msg="_read_variable is mirrored west-east relative to get_variable"
+        )
+
+    def test_non_trailing_spatial_variable_lazy_matches_eager(self):
+        """A `(time, lat, lev, lon)` variable reads the same lazily and eagerly.
+
+        Test scenario:
+            The lazy path normalizes the trailing two axes (see `_mdim.axis_flips`), while the eager
+            path resolves the raster plane through `_resolve_spatial_dims`. For CAM's non-trailing
+            latitude both resolve to the same trailing `(lev, lon)` plane, so the reads must agree
+            byte-for-byte — pinned here so any future divergence between the two plane-resolution
+            strategies surfaces as a failure instead of a silent mirror.
+
+        Reads the shared on-disk fixture directly; the netcdf-wide autouse `_clear_file_cache` fixture closes the
+        lazy path's parked GDAL handle at teardown, so a later test reopening the same file cannot
+        collide with a stale handle (the CAM segfault mechanism).
+        """
+        path = "tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc"
+        eager = np.asarray(NetCDF.read_file(path).get_variable("T").read_array())
+        lazy = np.squeeze(np.asarray(NetCDF.read_file(path).get_variable("T").read_array(chunks="auto")))
+        np.testing.assert_array_equal(
+            lazy, eager, err_msg="lazy read diverged from eager on a non-trailing-spatial variable"
+        )
+
+    def test_one_dimensional_variable_is_never_flipped(self):
+        """A 1-D coordinate array has no raster plane, so no axis is reversed.
+
+        Test scenario:
+            `build_lazy_array` guards the flips behind `len(shape) >= 2`. A lazily read coordinate
+            variable must come back in storage order, matching the eager `_read_variable` path which
+            also leaves 1-D arrays alone.
+        """
+        path = "tests/data/netcdf/cf__6v__1d2-2d4__geog__y-asc.nc"
+        lazy = lazy_mod.build_lazy_array(path, "lat", chunks="auto")
+        assert lazy.ndim == 1, f"expected a 1-D lazy array, got {lazy.ndim}-D"
+        eager = np.asarray(NetCDF.read_file(path)._read_variable("lat"))
+        np.testing.assert_array_equal(np.asarray(lazy), eager)
