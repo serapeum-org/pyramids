@@ -424,14 +424,17 @@ def render_array(
     # ``style`` / ``hillshade`` data-style presets were added to ``ArrayGlyph``
     # in cleopatra 0.24. On an older cleopatra the kwargs would fall through to a
     # cryptic "Unknown option" error deep in the render call; feature-detect
-    # (``"style"`` is absent from ``option_keys()`` before 0.24) and raise a
-    # clear upgrade hint instead. Scoped to when the preset kwargs are actually
-    # used, so basic plotting on an older cleopatra is unaffected. An invalid
+    # each key against ``option_keys()`` and raise a clear upgrade hint instead.
+    # Scoped to when a preset is actually requested — a falsy ``hillshade``
+    # (e.g. ``hillshade=False``) asks for nothing, so it is not gated, and each
+    # key is checked against its own ``option_keys()`` membership so a build
+    # that ships only one of the two features is handled precisely. An invalid
     # ``style`` *name* is left to cleopatra, which already raises a ValueError
     # listing the valid ``DATA_STYLES`` keys. (issue #737)
-    if (
-        kwargs.get("style") is not None or kwargs.get("hillshade") is not None
-    ) and "style" not in ArrayGlyph.option_keys():
+    option_keys = ArrayGlyph.option_keys()
+    _style_unsupported = kwargs.get("style") is not None and "style" not in option_keys
+    _hillshade_unsupported = kwargs.get("hillshade") and "hillshade" not in option_keys
+    if _style_unsupported or _hillshade_unsupported:
         raise OptionalPackageDoesNotExist(
             "`style=` / `hillshade=` plot presets require cleopatra >= 0.24. "
             "Upgrade with: pip install -U 'pyramids-gis[viz]' (or "
