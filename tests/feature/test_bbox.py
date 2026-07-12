@@ -507,10 +507,11 @@ class TestEstimatePixelDims:
         """A NaN scale_m is rejected by the scale_m guard, not by a downstream math.ceil error (review N1).
 
         Test scenario:
-            NaN slips past `<= 0` (NaN comparisons are False); `not scale_m > 0` catches it with the clear message.
+            NaN slips past `<= 0` (NaN comparisons are False); an explicit `math.isnan` check catches it.
         """
+        nan_scale = float("nan")
         with pytest.raises(ValueError, match="scale_m must be positive"):
-            estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), float("nan"))
+            estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), nan_scale)
 
     @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
     def test_non_finite_bbox_coord_raises(self, bad):
