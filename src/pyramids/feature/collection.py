@@ -1295,7 +1295,7 @@ class FeatureCollection(GeoDataFrame):
         n = len(self)
         cols = self.columns.tolist()
         epsg = self.epsg
-        return f"FeatureCollection({n} features, " f"columns={cols}, epsg={epsg})"
+        return f"FeatureCollection({n} features, columns={cols}, epsg={epsg})"
 
     def __repr__(self) -> str:
         """Return a pyramids-branded repr."""

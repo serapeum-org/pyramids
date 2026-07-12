@@ -805,7 +805,7 @@ def parse_cell_methods(cell_methods_str: str) -> list[dict[str, str]]:
         and optionally `"where"` and `"over"`.
     """
     results: list[dict[str, str]] = []
-    pattern = r'(\w[\w\s]*?):\s+(\w+)' r'(?:\s+where\s+(\w+))?' r'(?:\s+over\s+(\w+))?'
+    pattern = r'(\w[\w\s]*?):\s+(\w+)(?:\s+where\s+(\w+))?(?:\s+over\s+(\w+))?'
     for match in re.finditer(pattern, cell_methods_str):
         entry: dict[str, str] = {
             "dimensions": match.group(1).strip(),
@@ -943,7 +943,7 @@ def validate_cf(
     conv = global_attrs.get("Conventions", "")
     if not isinstance(conv, str) or "CF-" not in conv:
         issues.append(
-            "Missing or invalid 'Conventions' attribute. " "Should contain 'CF-1.X'."
+            "Missing or invalid 'Conventions' attribute. Should contain 'CF-1.X'."
         )
 
     dim_names = {d.name for d in dimensions.values()}

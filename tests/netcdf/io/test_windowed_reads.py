@@ -353,7 +353,7 @@ class TestReadVariableClassicMode:
         )
         result = nc._read_variable("completely_nonexistent_var_xyz")
         assert result is None, (
-            f"Expected None for nonexistent var in classic mode, " f"got {type(result)}"
+            f"Expected None for nonexistent var in classic mode, got {type(result)}"
         )
 
 
@@ -600,7 +600,7 @@ class TestReadVariableWindowBoundary:
             window=[(0, 1)],
         )
         assert result is None, (
-            f"Expected None for nonexistent var with window, " f"got {type(result)}"
+            f"Expected None for nonexistent var with window, got {type(result)}"
         )
 
     def test_window_returns_numpy_array_not_bytearray(self, nc_3d):
@@ -675,7 +675,7 @@ class TestSelOnDiskFile:
         windowed = nc._read_variable(nc.variable_names[0], window=window)
         assert windowed is not None, "Windowed read on on-disk NC should succeed"
         assert windowed.size == 1, (
-            f"Single-element window should return 1 value, " f"got {windowed.size}"
+            f"Single-element window should return 1 value, got {windowed.size}"
         )
 
 

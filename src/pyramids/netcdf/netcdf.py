@@ -4653,7 +4653,7 @@ class NetCDF(Dataset):
         rg = self._working_group()
         if rg is None:
             raise ValueError(
-                "delete_global_attribute requires a multidimensional " "container."
+                "delete_global_attribute requires a multidimensional container."
             )
         try:
             rg.DeleteAttribute(name)

@@ -243,7 +243,7 @@ class TestPreserveNetcdfMetadata:
         )
         wrapped = var_3d._preserve_netcdf_metadata(ds)
         assert wrapped._is_subset == var_3d._is_subset, (
-            f"Expected _is_subset={var_3d._is_subset}, " f"got {wrapped._is_subset}"
+            f"Expected _is_subset={var_3d._is_subset}, got {wrapped._is_subset}"
         )
 
     def test_copies_is_md_array_flag(self, var_3d):

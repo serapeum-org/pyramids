@@ -121,7 +121,7 @@ def _mdarray_shape_and_dtype(
         md_arr = rg.OpenMDArray(variable_name)
         if md_arr is None:
             raise ValueError(
-                f"Variable {variable_name!r} not found in root group " f"of {path!r}."
+                f"Variable {variable_name!r} not found in root group of {path!r}."
             )
         shape = tuple(int(d.GetSize()) for d in md_arr.GetDimensions())
         # Resolve the dtype from the array's declared type rather than a 1-element

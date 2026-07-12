@@ -197,7 +197,7 @@ class TestToXarrayInMemory3D:
         nc = _make_3d_nc()
         ds = nc.to_xarray()
         assert ds["temperature"].dims == ("time", "y", "x"), (
-            f"Expected dims ('time', 'y', 'x'), " f"got {ds['temperature'].dims}"
+            f"Expected dims ('time', 'y', 'x'), got {ds['temperature'].dims}"
         )
 
 
