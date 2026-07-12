@@ -32,14 +32,19 @@ class TestUtmZone:
             (11.0, 32),
             (-76.2, 18),
             (-180.0, 1),  # first zone
-            (180.0, 60),  # clamped to the last zone
-            (200.0, 60),  # out-of-range clamps to 60
-            (-200.0, 1),  # out-of-range clamps to 1
+            (180.0, 60),  # last zone (in-range boundary)
+            (200.0, 4),  # 0..360 longitude wraps: 200E == 160W -> zone 4
+            (-200.0, 57),  # -200 wraps to 160E -> zone 57
         ],
     )
     def test_zone_number(self, lon, expected):
-        """Longitude maps to the plain 6-degree UTM band, clamped to 1..60."""
+        """Longitude maps to the plain 6-degree UTM band; out-of-range wraps first."""
         assert utm_zone(lon) == expected
+
+    def test_out_of_range_longitude_wraps(self):
+        """A 0..360 longitude resolves to the same zone as its [-180,180] equivalent."""
+        assert utm_zone(200.0) == utm_zone(-160.0)
+        assert utm_zone(360.0) == utm_zone(0.0)
 
 
 class TestUtmEpsg:
@@ -54,12 +59,12 @@ class TestUtmEpsg:
             (31.25, -25.0, 32736),  # southern hemisphere -> 327xx band
             (11.0, 46.0, 32632),  # Italian Alps
             (-58.0, -34.0, 32721),  # Buenos Aires
-            (200.0, 10.0, 32660),  # out-of-range lon clamps to zone 60N
-            (-200.0, -10.0, 32701),  # out-of-range lon clamps to zone 1S
+            (200.0, 10.0, 32604),  # 0..360 lon wraps: 200E == 160W -> zone 4N
+            (-200.0, -10.0, 32757),  # -200 wraps to 160E -> zone 57S
         ],
     )
     def test_epsg_code(self, lon, lat, expected):
-        """Each point resolves to its EPSG-correct UTM zone (lon clamped to 1..60)."""
+        """Each point resolves to its EPSG-correct UTM zone (lon wrapped to [-180,180])."""
         assert utm_epsg(lon, lat) == expected
 
     @pytest.mark.parametrize(
