@@ -298,7 +298,7 @@ def estimate_pixel_dims(bbox: Bbox, scale_m: float) -> tuple[int, int]:
     west, south, east, north = bbox
     if not all(math.isfinite(v) for v in (west, south, east, north)):
         raise ValueError(f"estimate_pixel_dims: bbox coordinates must be finite, got {bbox!r}")
-    if not scale_m > 0:  # also rejects NaN (all NaN comparisons are False)
+    if scale_m <= 0 or math.isnan(scale_m):  # isnan needed since NaN <= 0 is False
         raise ValueError(f"estimate_pixel_dims: scale_m must be positive, got {scale_m}")
     if north < south:
         raise ValueError(f"estimate_pixel_dims: north ({north}) must be >= south ({south})")
