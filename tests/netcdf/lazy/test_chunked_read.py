@@ -428,8 +428,9 @@ class TestLazyOrientationMatchesEager:
             and normalized the trailing `(lev, lon)` plane — flipping `lev` instead of `lat` and
             returning the wrong plane as its raster. The fix moves the resolved plane to the trailing
             two axes and flips *it*, so the lazy read matches the eager read plane-for-plane. Checked
-            against an independent north-up reference built straight from the storage-order MDArray,
-            so a shared mirror could not make both sides agree.
+            against an independent north-up reference built straight from the storage-order MDArray —
+            locating the `lat`/`lon` dims by name and flipping each from its own coordinate
+            direction, so the reference shares no axis choice with the code under test.
         """
         path = self._NON_TRAILING_FIXTURE
         var = NetCDF.read_file(path).get_variable("T", x_dim="lon", y_dim="lat")
@@ -456,15 +457,21 @@ class TestLazyOrientationMatchesEager:
 
         ds = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER)
         root = ds.GetRootGroup()
-        raw = np.asarray(root.OpenMDArray("T").ReadAsArray())  # storage order (time, lat, lev, lon)
+        md = root.OpenMDArray("T")
+        dim_names = [d.GetName() for d in md.GetDimensions()]
+        y_axis, x_axis = dim_names.index("lat"), dim_names.index("lon")
+        raw = np.asarray(md.ReadAsArray())  # storage order (time, lat, lev, lon)
         lat = np.asarray(root.OpenMDArray("lat").ReadAsArray())
-        reference = np.moveaxis(raw, [1, 3], [2, 3])  # -> (time, lev, lat, lon)
+        lon = np.asarray(root.OpenMDArray("lon").ReadAsArray())
+        reference = np.moveaxis(raw, [y_axis, x_axis], [raw.ndim - 2, raw.ndim - 1])
         if lat[0] < lat[-1]:  # ascending south-to-north -> reverse to north-up rows
             reference = reference[..., ::-1, :]
+        if lon[0] > lon[-1]:  # descending east-to-west -> reverse to west-first cols
+            reference = reference[..., :, ::-1]
         np.testing.assert_array_equal(
             lazy.reshape(-1, rows, cols),
             reference.reshape(-1, rows, cols),
-            err_msg="lazy read is not north-up on the resolved lat/lon plane",
+            err_msg="lazy read is not north-up / west-first on the resolved lat/lon plane",
         )
 
     def test_one_dimensional_variable_is_never_flipped(self):
