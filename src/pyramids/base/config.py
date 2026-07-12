@@ -185,6 +185,72 @@ class LoggerManager:
         self._setup_logging(level=level, log_file=log_file)
         self._set_error_handler()
 
+    def _normalize_level(self, level: int | str) -> int:
+        """Coerce a level name (case-insensitive) or int to a logging level int."""
+        if isinstance(level, str):
+            if level.upper() not in self.LEVELS:
+                raise ValueError(f"Invalid log level: {level}")
+            level = getattr(logging, level.upper(), logging.INFO)
+        return level
+
+    @staticmethod
+    def _existing_handlers(
+        root_logger: logging.Logger,
+    ) -> tuple[logging.Handler | None, set[Path]]:
+        """Return the current console handler (if any) and the set of file-handler paths."""
+        console_handler: logging.Handler | None = None
+        file_paths: set[Path] = set()
+        for h in root_logger.handlers:
+            if isinstance(h, logging.StreamHandler) and not isinstance(
+                h, logging.FileHandler
+            ):
+                console_handler = h
+            if isinstance(h, logging.FileHandler):
+                try:
+                    file_paths.add(Path(h.baseFilename))
+                except Exception:
+                    pass  # nosec B110
+        return console_handler, file_paths
+
+    def _ensure_console_handler(
+        self,
+        root_logger: logging.Logger,
+        console_handler: logging.Handler | None,
+        level: int,
+    ) -> None:
+        """Add a coloured console handler, or update the existing one's level/format."""
+        if console_handler is None:
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(level)
+            console_handler.setFormatter(
+                ColorFormatter(fmt=self.FMT, datefmt=self.DATE_FMT)
+            )
+            root_logger.addHandler(console_handler)
+        else:
+            console_handler.setLevel(level)
+            if not isinstance(console_handler.formatter, ColorFormatter):
+                console_handler.setFormatter(
+                    ColorFormatter(fmt=self.FMT, datefmt=self.DATE_FMT)
+                )
+
+    def _ensure_file_handler(
+        self,
+        root_logger: logging.Logger,
+        log_file: str | Path | None,
+        level: int,
+        existing_paths: set[Path],
+    ) -> None:
+        """Add a file handler for ``log_file`` if requested and not already present."""
+        if log_file is not None:
+            log_file_path = Path(log_file)
+            if log_file_path not in existing_paths:
+                fh = logging.FileHandler(log_file_path, encoding="utf-8")
+                fh.setLevel(level)
+                fh.setFormatter(
+                    logging.Formatter(fmt=self.FMT, datefmt=self.DATE_FMT)
+                )
+                root_logger.addHandler(fh)
+
     def _setup_logging(
         self,
         level: int | str = logging.INFO,
@@ -222,53 +288,16 @@ class LoggerManager:
         See Also:
             ColorFormatter: Colorizes level names for console output.
         """
-        # Normalize level
-        if isinstance(level, str):
-            if level.upper() not in self.LEVELS:
-                raise ValueError(f"Invalid log level: {level}")
-            level = getattr(logging, level.upper(), logging.INFO)
+        level = self._normalize_level(level)
 
         root_logger = logging.getLogger()
         root_logger.setLevel(level)
 
-        # Determine if a console handler already exists
-        console_handler = None
-        file_handler_exists_for = set()
-        for h in root_logger.handlers:
-            if isinstance(h, logging.StreamHandler) and not isinstance(
-                h, logging.FileHandler
-            ):
-                console_handler = h
-            if isinstance(h, logging.FileHandler):
-                try:
-                    file_handler_exists_for.add(Path(h.baseFilename))
-                except Exception:
-                    pass  # nosec B110
-
-        # Create or update console handler
-        if console_handler is None:
-            console_handler = logging.StreamHandler()
-            console_handler.setLevel(level)
-            console_handler.setFormatter(
-                ColorFormatter(fmt=self.FMT, datefmt=self.DATE_FMT)
-            )
-            root_logger.addHandler(console_handler)
-        else:
-            console_handler.setLevel(level)
-            # Always ensure colored formatter on console
-            if not isinstance(console_handler.formatter, ColorFormatter):
-                console_handler.setFormatter(
-                    ColorFormatter(fmt=self.FMT, datefmt=self.DATE_FMT)
-                )
-
-        # Create file handler if requested and not already present
-        if log_file is not None:
-            log_file_path = Path(log_file)
-            if log_file_path not in file_handler_exists_for:
-                fh = logging.FileHandler(log_file_path, encoding="utf-8")
-                fh.setLevel(level)
-                fh.setFormatter(logging.Formatter(fmt=self.FMT, datefmt=self.DATE_FMT))
-                root_logger.addHandler(fh)
+        console_handler, file_handler_exists_for = self._existing_handlers(root_logger)
+        self._ensure_console_handler(root_logger, console_handler, level)
+        self._ensure_file_handler(
+            root_logger, log_file, level, file_handler_exists_for
+        )
 
         # Reduce noise from common third-party libraries
         for noisy in ("fiona", "rasterio", "shapely", "matplotlib", "urllib3", "osgeo"):
