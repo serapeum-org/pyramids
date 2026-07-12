@@ -137,8 +137,11 @@ class TestBytesToGdal:
         Test scenario:
             Two ``bytes_to_gdal`` calls — expected: different backing paths.
         """
-        _, p1 = bytes_to_gdal(geotiff_bytes)
-        _, p2 = bytes_to_gdal(geotiff_bytes)
+        # Keep both dataset handles alive so the /vsimem/ files stay open while we
+        # compare paths, then release them before unlinking (handles look "unused"
+        # to static analysis but are held for their GDAL resource lifetime).
+        s1, p1 = bytes_to_gdal(geotiff_bytes)
+        s2, p2 = bytes_to_gdal(geotiff_bytes)
         try:
             assert p1 != p2, "two calls reused the same /vsimem/ path"
         finally:
