@@ -419,6 +419,34 @@ class TestLazyOrientationMatchesEager:
             err_msg="default lazy read diverged from eager on the trailing-plane fallback",
         )
 
+    def test_build_lazy_array_without_resolved_plane_normalizes_trailing(self):
+        """A direct `build_lazy_array` call with no resolved plane keeps the trailing-axes normalization.
+
+        Test scenario:
+            The NetCDF path always threads the resolved plane, but `build_lazy_array` is also callable
+            directly (e.g. the raster lazy path, or a coordinate read) with `spatial_dims=None`. That
+            fallback — and the defensive `flips=None` path when a plane is passed without flips — must
+            reproduce the historical trailing-plane normalization, matching the eager read of a
+            bottom-up 2-D variable.
+        """
+        path, variable, _ = ORIENTATION_FIXTURES[1]  # geographic, bottom-up `Band1` (needs a Y flip)
+        eager = self._first_plane(NetCDF.read_file(path).get_variable(variable).read_array())
+        no_plane = self._first_plane(lazy_mod.build_lazy_array(path, variable, chunks="auto"))
+        np.testing.assert_array_equal(
+            no_plane, eager, err_msg="spatial_dims=None must keep the trailing normalization"
+        )
+        ndim = np.asarray(
+            NetCDF.read_file(path).get_variable(variable).read_array(chunks="auto")
+        ).ndim
+        no_flips = self._first_plane(
+            lazy_mod.build_lazy_array(
+                path, variable, chunks="auto", spatial_dims=(ndim - 1, ndim - 2), flips=None
+            )
+        )
+        np.testing.assert_array_equal(
+            no_flips, eager, err_msg="flips=None must fall back to the trailing-plane decision"
+        )
+
     def test_explicit_nontrailing_plane_lazy_matches_eager(self):
         """`read_array(chunks=)` honours an explicit non-trailing `x_dim`/`y_dim` like the eager read.
 
