@@ -34,7 +34,10 @@ Bbox = tuple[float, float, float, float]
 _CONVENTIONS = ("-180..180", "0..360")
 
 METRES_PER_DEGREE = 111_319.49
-"""Equatorial metres per degree of arc on WGS84 — the basis of the equatorial pixel-dimension upper bound."""
+"""Equatorial length of a degree of longitude on WGS84 — the E-W (width) pixel-dimension upper-bound basis."""
+
+MAX_METRES_PER_LAT_DEGREE = 111_694.0
+"""Maximum (polar) length of a degree of latitude on WGS84 — the N-S (height) pixel-dimension upper-bound basis."""
 
 _BBOX_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     "west": ("min_lon", "lonmin", "minlon", "minx", "west"),
@@ -233,11 +236,12 @@ def to_shapely(bbox: Bbox) -> Polygon:
 def estimate_pixel_dims(bbox: Bbox, scale_m: float) -> tuple[int, int]:
     """Estimate the `(width, height)` in pixels of a WGS84 bbox at a target ground resolution.
 
-    This is a deliberate **equatorial** approximation: it converts the bbox's degree span to pixels using the
-    equatorial metres-per-degree (`METRES_PER_DEGREE`) with no latitude convergence. Because a degree of longitude
-    is widest at the equator, the result is an **upper bound** on the true pixel count — which is exactly what a
-    "will this export exceed the provider's pixel cap?" pre-check wants. For a latitude-accurate count, reproject
-    to a metric CRS first (see :func:`transform`).
+    This is a deliberate worst-case approximation with no latitude convergence: the width uses the equatorial
+    degree of longitude (`METRES_PER_DEGREE`, which is widest at the equator) and the height uses the maximum,
+    polar degree of latitude (`MAX_METRES_PER_LAT_DEGREE`), so **both dimensions are a true upper bound** on the
+    pixel count — never an under-estimate, which is exactly what a "will this export exceed the provider's pixel
+    cap?" pre-check wants. The bound is loose away from those latitudes (there is no `cos(latitude)` narrowing);
+    for a tight, latitude-accurate count, reproject to a metric CRS first (see :func:`transform`).
 
     A bbox with `west > east` is treated as an antimeridian crossing (this module's convention) and its longitude
     span is measured the short way across the 180 deg meridian.
@@ -257,19 +261,19 @@ def estimate_pixel_dims(bbox: Bbox, scale_m: float) -> tuple[int, int]:
         - A ~1 km grid over Europe:
             ```python
             >>> estimate_pixel_dims((-10.0, 35.0, 30.0, 60.0), 1000.0)
-            (4453, 2783)
+            (4453, 2793)
 
             ```
         - A 1 deg square at 100 m:
             ```python
             >>> estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), 100.0)
-            (1114, 1114)
+            (1114, 1117)
 
             ```
         - An antimeridian-crossing bbox (`west > east`) spans the short way across 180 deg:
             ```python
             >>> estimate_pixel_dims((175.0, -22.0, -175.0, -12.0), 1000.0)
-            (1114, 1114)
+            (1114, 1117)
 
             ```
         - A non-positive resolution is rejected:
@@ -291,9 +295,8 @@ def estimate_pixel_dims(bbox: Bbox, scale_m: float) -> tuple[int, int]:
     if north < south:
         raise ValueError(f"estimate_pixel_dims: north ({north}) must be >= south ({south})")
     lon_span = east - west if east >= west else east - west + 360.0
-    deg_per_px = scale_m / METRES_PER_DEGREE
-    width = max(math.ceil(lon_span / deg_per_px), 1)
-    height = max(math.ceil((north - south) / deg_per_px), 1)
+    width = max(math.ceil(lon_span * METRES_PER_DEGREE / scale_m), 1)
+    height = max(math.ceil((north - south) * MAX_METRES_PER_LAT_DEGREE / scale_m), 1)
     return width, height
 
 

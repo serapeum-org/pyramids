@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
+from pyproj import Geod
 from shapely.geometry import MultiPolygon, Polygon
 
 from pyramids.feature.bbox import (
@@ -392,13 +395,13 @@ class TestEstimatePixelDims:
     @pytest.mark.parametrize(
         "west, south, east, north, scale_m, expected",
         [
-            (-10.0, 35.0, 30.0, 60.0, 1000.0, (4453, 2783)),
-            (0.0, 0.0, 1.0, 1.0, 100.0, (1114, 1114)),
-            (175.0, -22.0, -175.0, -12.0, 1000.0, (1114, 1114)),
+            (-10.0, 35.0, 30.0, 60.0, 1000.0, (4453, 2793)),
+            (0.0, 0.0, 1.0, 1.0, 100.0, (1114, 1117)),
+            (175.0, -22.0, -175.0, -12.0, 1000.0, (1114, 1117)),
         ],
     )
     def test_known_dimensions(self, west, south, east, north, scale_m, expected):
-        """Estimate matches the documented equatorial upper-bound values, including an antimeridian bbox.
+        """Estimate matches the documented upper-bound values, including an antimeridian bbox.
 
         Args:
             west: Western longitude in degrees.
@@ -422,6 +425,24 @@ class TestEstimatePixelDims:
         """
         result = estimate_pixel_dims((0.0, 0.0, 0.0, 0.0), 1000.0)
         assert result == (1, 1), f"Expected (1, 1), got {result}"
+
+    @pytest.mark.parametrize("south, north", [(0.0, 1.0), (35.0, 60.0), (60.0, 89.0), (80.0, 89.0)])
+    def test_height_is_true_upper_bound(self, south, north):
+        """The estimated height never under-counts the true geodesic pixel span, incl. high latitudes.
+
+        Args:
+            south: Southern latitude in degrees.
+            north: Northern latitude in degrees.
+
+        Test scenario:
+            estimate_pixel_dims height >= ceil(WGS84 meridian distance / scale_m) across a latitude spread —
+            the property that the equatorial constant alone violated above ~55 deg (review M1).
+        """
+        scale_m = 1000.0
+        est_height = estimate_pixel_dims((0.0, south, 1.0, north), scale_m)[1]
+        _, _, ground_m = Geod(ellps="WGS84").inv(0.0, south, 0.0, north)
+        true_height = math.ceil(ground_m / scale_m)
+        assert est_height >= true_height, f"height {est_height} under-counts true {true_height} for {south}->{north}"
 
     def test_non_positive_scale_raises(self):
         """A non-positive resolution raises ValueError.
