@@ -364,26 +364,9 @@ class COG(_Engine["Dataset"]):
         # Resolve a named profile (PB-5): it seeds the compression options;
         # explicit kwargs and `extra` override it. jpeg/webp enforce dtype/band
         # constraints against the *effective* source.
-        profile_opts: dict[str, Any] = {}
-        if profile is not None:
-            validate_profile(
-                profile,
-                gdal.GetDataTypeName(source_band0.DataType),
-                source_ds.RasterCount,
-            )
-            profile_opts = profile_options(profile)
-        eff_compress = (
-            compress
-            if compress is not None
-            else profile_opts.get("COMPRESS", "DEFLATE")
+        eff_compress, eff_level, eff_quality, profile_extra = self._resolve_compression(
+            profile, compress, level, quality, source_ds, source_band0
         )
-        eff_level = level if level is not None else profile_opts.get("LEVEL")
-        eff_quality = quality if quality is not None else profile_opts.get("QUALITY")
-        profile_extra = {
-            k: v
-            for k, v in profile_opts.items()
-            if k not in ("COMPRESS", "LEVEL", "QUALITY")
-        }
 
         # Single house policy lives here (ARC-1): `to_cog` resolves the
         # dtype-dependent defaults so a direct `ds.to_cog(...)` and the
@@ -442,6 +425,56 @@ class COG(_Engine["Dataset"]):
         with config_context(config):
             self._translate_with_statistics_retry(path, options, src=source_ds)
         return Path(path)
+
+    @staticmethod
+    def _resolve_compression(
+        profile: str | None,
+        compress: str | None,
+        level: int | None,
+        quality: int | None,
+        source_ds: gdal.Dataset,
+        source_band0: Any,
+    ) -> tuple[str, int | None, int | None, dict[str, Any]]:
+        """Resolve effective compression options, seeding from a named profile.
+
+        A named `profile` supplies default COMPRESS/LEVEL/QUALITY plus any extra
+        profile options; explicit `compress`/`level`/`quality` kwargs override the
+        seeded defaults. `jpeg`/`webp` profiles validate dtype/band constraints
+        against the effective source before seeding.
+
+        Args:
+            profile: Named compression preset, or None.
+            compress: Explicit compression method override, or None.
+            level: Explicit compression level override, or None.
+            quality: Explicit lossy quality override, or None.
+            source_ds: Effective source dataset (for band-count validation).
+            source_band0: Band 0 of the effective source (for dtype validation).
+
+        Returns:
+            `(eff_compress, eff_level, eff_quality, profile_extra)` where
+            `profile_extra` holds profile options other than COMPRESS/LEVEL/QUALITY.
+        """
+        profile_opts: dict[str, Any] = {}
+        if profile is not None:
+            validate_profile(
+                profile,
+                gdal.GetDataTypeName(source_band0.DataType),
+                source_ds.RasterCount,
+            )
+            profile_opts = profile_options(profile)
+        eff_compress = (
+            compress
+            if compress is not None
+            else profile_opts.get("COMPRESS", "DEFLATE")
+        )
+        eff_level = level if level is not None else profile_opts.get("LEVEL")
+        eff_quality = quality if quality is not None else profile_opts.get("QUALITY")
+        profile_extra = {
+            k: v
+            for k, v in profile_opts.items()
+            if k not in ("COMPRESS", "LEVEL", "QUALITY")
+        }
+        return eff_compress, eff_level, eff_quality, profile_extra
 
     def _effective_source(
         self,

@@ -648,23 +648,7 @@ class UgridDataset:
         Returns:
             geopandas GeoDataFrame.
         """
-        geometries = []
-        if location == "face":
-            spatial_idx = MeshSpatialIndex(self._mesh)
-            geometries = spatial_idx.face_polygons
-        elif location == "node":
-            for i in range(self.n_node):
-                geometries.append(Point(self._mesh.node_x[i], self._mesh.node_y[i]))
-        elif location == "edge":
-            if self._mesh.edge_node_connectivity is None:
-                raise ValueError("Edge connectivity not available.")
-            enc = self._mesh.edge_node_connectivity
-            for i in range(enc.n_elements):
-                nodes = enc.get_element(i)
-                coords = [(self._mesh.node_x[n], self._mesh.node_y[n]) for n in nodes]
-                geometries.append(LineString(coords))
-        else:
-            raise ValueError(f"Unknown location: {location}")
+        geometries = self._build_geometries(location)
 
         data_dict: dict[str, Any] = {}
         if variable_name is not None:
@@ -681,6 +665,42 @@ class UgridDataset:
 
         result = gdf
         return result
+
+    def _build_geometries(self, location: str) -> list:
+        """Build the geometry list for a mesh location.
+
+        Args:
+            location: Mesh location ("face", "node", or "edge").
+
+        Returns:
+            List of shapely geometries — Polygons for "face", Points for
+            "node", LineStrings for "edge".
+
+        Raises:
+            ValueError: If `location` is unknown, or edge connectivity is
+                unavailable for an edge conversion.
+        """
+        if location == "face":
+            geometries = MeshSpatialIndex(self._mesh).face_polygons
+        elif location == "node":
+            geometries = [
+                Point(self._mesh.node_x[i], self._mesh.node_y[i])
+                for i in range(self.n_node)
+            ]
+        elif location == "edge":
+            if self._mesh.edge_node_connectivity is None:
+                raise ValueError("Edge connectivity not available.")
+            enc = self._mesh.edge_node_connectivity
+            geometries = []
+            for i in range(enc.n_elements):
+                nodes = enc.get_element(i)
+                coords = [
+                    (self._mesh.node_x[n], self._mesh.node_y[n]) for n in nodes
+                ]
+                geometries.append(LineString(coords))
+        else:
+            raise ValueError(f"Unknown location: {location}")
+        return geometries
 
     def to_feature_collection(
         self,

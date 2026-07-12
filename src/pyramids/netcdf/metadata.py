@@ -584,43 +584,11 @@ class GroupTraverser:
 
             # Children
             children_full: list[str] = []
-            for cn in _safe_group_names(group):
-                try:
-                    current_group = group.OpenGroup(cn)
-                except RuntimeError as exc:
-                    logger.debug(
-                        "group.OpenGroup(%r) failed in %r: %s",
-                        cn,
-                        group_full_name,
-                        exc,
-                    )
-                    current_group = None
-
-                if current_group is None:
-                    continue
-
-                # Delegate child full-name resolution to GroupInfo
-                try:
-                    child_info = GroupInfo.from_group(
-                        current_group, variables=[], children=[], attributes={}
-                    )
-                    current_group_full_name = child_info.full_name
-                except RuntimeError as exc:
-                    logger.debug(
-                        "GroupInfo.from_group(%r) failed in %r: %s; "
-                        "falling back to path concatenation",
-                        cn,
-                        group_full_name,
-                        exc,
-                    )
-                    current_group_full_name = (
-                        f"{group_full_name}/{cn}"
-                        if group_full_name != "/"
-                        else f"/{cn}"
-                    )
-
-                children_full.append(current_group_full_name)
-                q.append(current_group)
+            for child_full_name, child_group in self._resolve_child_groups(
+                group, group_full_name
+            ):
+                children_full.append(child_full_name)
+                q.append(child_group)
 
             # Record this group entry via GroupInfo factory
             group_info = GroupInfo.from_group(
@@ -632,6 +600,62 @@ class GroupTraverser:
             if gkey != "/":
                 gkey = gkey.lstrip("/")
             self.groups[gkey] = group_info
+
+    def _resolve_child_groups(
+        self, group: gdal.Group, group_full_name: str
+    ) -> list[tuple[str, "gdal.Group"]]:
+        """Open the child groups of *group* and resolve their full names.
+
+        Children that fail to open are skipped. For a child whose
+        `GroupInfo` resolution raises, the full name falls back to
+        concatenating the parent full name with the child's short name.
+
+        Args:
+            group: The parent GDAL group being visited.
+            group_full_name: Full name of the parent group.
+
+        Returns:
+            List of `(child_full_name, child_group)` pairs for every child
+            that opened successfully, in traversal order.
+        """
+        children: list[tuple[str, "gdal.Group"]] = []
+        for cn in _safe_group_names(group):
+            try:
+                current_group = group.OpenGroup(cn)
+            except RuntimeError as exc:
+                logger.debug(
+                    "group.OpenGroup(%r) failed in %r: %s",
+                    cn,
+                    group_full_name,
+                    exc,
+                )
+                current_group = None
+
+            if current_group is None:
+                continue
+
+            # Delegate child full-name resolution to GroupInfo
+            try:
+                child_info = GroupInfo.from_group(
+                    current_group, variables=[], children=[], attributes={}
+                )
+                current_group_full_name = child_info.full_name
+            except RuntimeError as exc:
+                logger.debug(
+                    "GroupInfo.from_group(%r) failed in %r: %s; "
+                    "falling back to path concatenation",
+                    cn,
+                    group_full_name,
+                    exc,
+                )
+                current_group_full_name = (
+                    f"{group_full_name}/{cn}"
+                    if group_full_name != "/"
+                    else f"/{cn}"
+                )
+
+            children.append((current_group_full_name, current_group))
+        return children
 
 
 def get_metadata(
