@@ -385,6 +385,79 @@ class TestStyleHillshadePresets:
     @pytest.mark.skipif(
         not _supports_style, reason="cleopatra < 0.24 has no style presets"
     )
+    def test_dict_hillshade_renders(self):
+        """A dict ``hillshade`` (parameter passthrough) renders end to end."""
+        rng = np.random.default_rng(742)
+        arr = rng.random((6, 6)).astype("float32")
+        glyph = render_array(
+            arr=arr,
+            extent=[0.0, 0.0, 1.0, 1.0],
+            mode="plot",
+            hillshade={"vert_exag": 8},
+        )
+        assert isinstance(glyph, ArrayGlyph)
+
+    @pytest.mark.skipif(
+        not _supports_style, reason="cleopatra < 0.24 has no style presets"
+    )
+    def test_style_and_hillshade_animate_renders(self):
+        """``style`` + ``hillshade`` render through the real animate path.
+
+        Test scenario:
+            Unlike the mocked NetCDF forwarding test, this drives cleopatra
+            0.24's ``ArrayGlyph.animate(style=..., hillshade=...)`` for real
+            over a ``(time, rows, cols)`` stack, guarding the advertised
+            animated-shaded path against a future cleopatra signature change.
+        """
+        rng = np.random.default_rng(743)
+        stack = rng.random((3, 6, 6)).astype("float32")
+        glyph = render_array(
+            arr=stack,
+            extent=[0.0, 0.0, 1.0, 1.0],
+            mode="animate",
+            animation_axis_values=[0, 1, 2],
+            style="flow_accumulation",
+            hillshade=True,
+        )
+        assert isinstance(glyph, ArrayGlyph)
+
+    def test_hillshade_only_on_old_cleopatra_raises_upgrade_hint(self):
+        """``hillshade=`` alone on a build lacking it raises the upgrade hint.
+
+        Test scenario:
+            The guard checks each key independently. Simulate a cleopatra that
+            supports ``style`` but not ``hillshade``; a truthy ``hillshade=``
+            with no ``style=`` must still raise the >= 0.24 upgrade error.
+        """
+        rng = np.random.default_rng(744)
+        arr = rng.random((5, 5)).astype("float32")
+        style_only = (ArrayGlyph.option_keys() - {"hillshade"}) | {"style"}
+        with patch.object(ArrayGlyph, "option_keys", return_value=style_only):
+            with pytest.raises(OptionalPackageDoesNotExist, match="cleopatra >= 0.24"):
+                render_array(
+                    arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade=True
+                )
+
+    def test_falsy_hillshade_on_old_cleopatra_not_guarded(self):
+        """``hillshade=False`` asks for nothing, so the guard does not fire.
+
+        Test scenario:
+            With preset support hidden (simulated old cleopatra), an explicit
+            ``hillshade=False`` requests no shading and must render normally
+            rather than raising the >= 0.24 upgrade error.
+        """
+        rng = np.random.default_rng(745)
+        arr = rng.random((5, 5)).astype("float32")
+        old_keys = ArrayGlyph.option_keys() - {"style", "hillshade"}
+        with patch.object(ArrayGlyph, "option_keys", return_value=old_keys):
+            glyph = render_array(
+                arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", hillshade=False
+            )
+        assert isinstance(glyph, ArrayGlyph)
+
+    @pytest.mark.skipif(
+        not _supports_style, reason="cleopatra < 0.24 has no style presets"
+    )
     def test_unknown_style_name_surfaces_cleopatra_valueerror(self):
         """An unknown ``style`` name is rejected by cleopatra with the valid list.
 
