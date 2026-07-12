@@ -295,7 +295,7 @@ def estimate_pixel_dims(bbox: Bbox, scale_m: float) -> tuple[int, int]:
         read_bbox_dict: Build a `(west, south, east, north)` tuple from a dict of edge keys to pass here.
     """
     west, south, east, north = bbox
-    if scale_m <= 0:
+    if not scale_m > 0:  # also rejects NaN (all NaN comparisons are False)
         raise ValueError(f"estimate_pixel_dims: scale_m must be positive, got {scale_m}")
     if north < south:
         raise ValueError(f"estimate_pixel_dims: north ({north}) must be >= south ({south})")

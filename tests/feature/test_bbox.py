@@ -503,6 +503,15 @@ class TestEstimatePixelDims:
         with pytest.raises(ValueError, match="scale_m must be positive"):
             estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), scale_m)
 
+    def test_nan_scale_raises_with_guard_message(self):
+        """A NaN scale_m is rejected by the scale_m guard, not by a downstream math.ceil error (review N1).
+
+        Test scenario:
+            NaN slips past `<= 0` (NaN comparisons are False); `not scale_m > 0` catches it with the clear message.
+        """
+        with pytest.raises(ValueError, match="scale_m must be positive"):
+            estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), float("nan"))
+
     def test_inverted_latitude_raises(self):
         """An inverted latitude range (north < south) raises ValueError.
 
