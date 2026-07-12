@@ -1399,11 +1399,15 @@ class IO(_Engine["Dataset"]):
         df = pd.DataFrame(columns=["id", "x", "y"])
         df.loc["top_left", ["x", "y"]] = bounds[0], bounds[3]
         df.loc["bottom_right", ["x", "y"]] = bounds[2], bounds[1]
+        # map_to_array_coordinates returns [row, col] per point, so column 1 is the column
+        # index and column 0 is the row index. The window is [xoff, yoff, x_size, y_size]:
+        # x_size (columns) must come from the column delta and y_size (rows) from the row
+        # delta. Sourcing them the other way round transposed every non-square window (#719).
         arr_indeces = self._ds.map_to_array_coordinates(df)
         xoff = arr_indeces[0, 1]
         yoff = arr_indeces[0, 0]
-        x_size = arr_indeces[1, 0] - arr_indeces[0, 0]
-        y_size = arr_indeces[1, 1] - arr_indeces[0, 1]
+        x_size = arr_indeces[1, 1] - arr_indeces[0, 1]
+        y_size = arr_indeces[1, 0] - arr_indeces[0, 0]
         return [xoff, yoff, x_size, y_size]
 
     def read_windows(
