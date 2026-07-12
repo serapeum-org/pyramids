@@ -506,3 +506,21 @@ class TestReadBboxDict:
         """
         with pytest.raises(ValueError, match="'north' edge"):
             read_bbox_dict({"minx": -10.0, "miny": 35.0, "maxx": 30.0})
+
+    def test_present_none_value_reports_non_numeric_not_missing(self):
+        """A present-but-None edge value is reported as non-numeric, not as a missing key (review L1).
+
+        Test scenario:
+            minx=None names the 'west' edge value as non-numeric rather than raising 'no key found'.
+        """
+        with pytest.raises(ValueError, match="'west' edge value None is not numeric"):
+            read_bbox_dict({"minx": None, "miny": 35.0, "maxx": 30.0, "maxy": 60.0})
+
+    def test_non_numeric_value_raises_naming_edge(self):
+        """A non-coercible edge value raises a ValueError naming the offending edge (review L2).
+
+        Test scenario:
+            A string south value reports the 'south' edge value as non-numeric.
+        """
+        with pytest.raises(ValueError, match="'south' edge value 'abc' is not numeric"):
+            read_bbox_dict({"minx": -10.0, "miny": "abc", "maxx": 30.0, "maxy": 60.0})

@@ -314,7 +314,7 @@ def read_bbox_dict(bbox: dict) -> Bbox:
         A `(west, south, east, north)` tuple of floats.
 
     Raises:
-        ValueError: If no key is present for one of the four edges.
+        ValueError: If no key is present for one of the four edges, or an edge's value is not numeric.
 
     Examples:
         - eodag-style keys:
@@ -347,10 +347,13 @@ def read_bbox_dict(bbox: dict) -> Bbox:
     lowered = {str(key).lower(): value for key, value in bbox.items()}
     edges: dict[str, float] = {}
     for edge, aliases in _BBOX_KEY_ALIASES.items():
-        match = next((lowered[alias] for alias in aliases if alias in lowered), None)
-        if match is None:
+        key = next((alias for alias in aliases if alias in lowered), None)
+        if key is None:
             raise ValueError(f"read_bbox_dict: no key found for the {edge!r} edge")
-        edges[edge] = float(match)
+        try:
+            edges[edge] = float(lowered[key])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"read_bbox_dict: the {edge!r} edge value {lowered[key]!r} is not numeric") from exc
     return edges["west"], edges["south"], edges["east"], edges["north"]
 
 
