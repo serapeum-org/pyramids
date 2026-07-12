@@ -55,7 +55,7 @@ def utm_zone(lon: float) -> int:
 
             ```
     """
-    zone = int(math.floor((lon + 180.0) / 6.0) + 1)
+    zone = math.floor((lon + 180.0) / 6.0) + 1
     zone = min(max(zone, 1), 60)
     return zone
 
@@ -92,19 +92,29 @@ def utm_epsg(lon: float, lat: float) -> int:
 
 
 def utm_epsg_for_polygon(gdf: GeoDataFrame) -> int:
-    """Return the UTM EPSG for a vector layer, from the centroid of its bounds.
+    """Return the UTM EPSG for a vector layer, from the centre of its bounds.
 
-    The layer is reprojected to WGS84 (a no-op when it is already `EPSG:4326`), its
-    total bounds' centre is taken, and that lon/lat is passed to `utm_epsg`.
+    The layer is reprojected to WGS84 (a no-op when it is already `EPSG:4326`), the
+    centre of its total bounds is taken, and that lon/lat is passed to `utm_epsg`.
+    Any geometry type is accepted (points, lines, polygons); the zone is chosen from
+    the bounds centre, not a true geometric centroid.
+
+    A single UTM zone only makes sense for a reasonably local extent, so a layer
+    whose bounds span more than 180° of longitude — a dateline-crossing layer, whose
+    total bounds spuriously spans `-180…180`, or a genuinely half-globe extent — is
+    rejected rather than silently assigned the wrong (mid-span) zone.
 
     Args:
-        gdf: A `GeoDataFrame` with a defined CRS.
+        gdf: A `GeoDataFrame` with a defined CRS and at least one finite-bounds
+            geometry.
 
     Returns:
-        int: The EPSG code of the UTM zone covering the layer's centre.
+        int: The EPSG code of the UTM zone covering the layer's bounds centre.
 
     Raises:
         CRSError: `gdf` has no CRS (so its coordinates cannot be placed on Earth).
+        ValueError: `gdf` is empty / has no finite bounds, or its bounds span more
+            than 180° of longitude (no single UTM zone applies).
     """
     if gdf.crs is None:
         raise CRSError(
@@ -113,6 +123,16 @@ def utm_epsg_for_polygon(gdf: GeoDataFrame) -> int:
         )
     wgs84 = gdf.to_crs(_WGS84_EPSG)
     minx, miny, maxx, maxy = wgs84.total_bounds
+    if not all(math.isfinite(v) for v in (minx, miny, maxx, maxy)):
+        raise ValueError(
+            "gdf has no finite bounds (it is empty or all its geometries are null); "
+            "cannot compute a UTM zone."
+        )
+    if maxx - minx > 180.0:
+        raise ValueError(
+            f"gdf bounds span {maxx - minx:.1f}° of longitude (a dateline crossing "
+            "or a half-globe extent); no single UTM zone applies."
+        )
     return utm_epsg((minx + maxx) / 2.0, (miny + maxy) / 2.0)
 
 
@@ -123,11 +143,13 @@ def project_to_utm(gdf: GeoDataFrame) -> tuple[GeoDataFrame, int]:
         gdf: A `GeoDataFrame` with a defined CRS.
 
     Returns:
-        tuple[GeoDataFrame, int]: The layer reprojected to its UTM zone, and that
-        zone's EPSG code.
+        tuple[GeoDataFrame, int]: The layer reprojected to its UTM zone (a fresh
+        `GeoDataFrame`; the input is not modified), and that zone's EPSG code.
 
     Raises:
         CRSError: `gdf` has no CRS.
+        ValueError: `gdf` is empty / has no finite bounds, or its bounds span more
+            than 180° of longitude (see :func:`utm_epsg_for_polygon`).
     """
     epsg = utm_epsg_for_polygon(gdf)
     return gdf.to_crs(epsg), epsg
