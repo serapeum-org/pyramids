@@ -33,6 +33,7 @@ callers without the `[lazy]` extra installed get a clear
 
 from __future__ import annotations
 
+import weakref
 from typing import Any
 
 import numpy as np
@@ -539,4 +540,10 @@ def build_lazy_array(
             lazy = da.flip(lazy, axis=len(shape) - 2)
         if flip_x:
             lazy = da.flip(lazy, axis=len(shape) - 1)
+    # Release the parked FILE_CACHE handle deterministically when the returned lazy array is dropped,
+    # instead of waiting for LRU eviction or interpreter exit. Without this, reopening the same NetCDF
+    # in-process while the handle is still parked opens a second live MDIM handle and crashes GDAL on
+    # Windows (#727). The finalizer is attached to the array the caller receives, and manager.close()
+    # is idempotent, so a prior LRU eviction (or a second finalizer run) is harmless.
+    weakref.finalize(lazy, manager.close)
     return lazy

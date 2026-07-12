@@ -1690,12 +1690,14 @@ class NetCDF(Dataset):
             Two limitations are specific to the lazy (`chunks`) path:
 
             * **Open-handle lifetime.** A lazy read parks a live GDAL handle in the process-global
-              `pyramids.base._file_manager.FILE_CACHE` (via `CachingFileManager`) and keeps it open
-              for later chunk reads. `close()` on this object does not evict it — the handle lives in
-              the dask graph — so it is released only under LRU pressure or at interpreter exit.
-              Opening the *same file again in the same process* while a lazy handle is parked leaves
-              two live handles to one NetCDF, which can crash GDAL on Windows. Compute (or drop) the
-              lazy array before reopening the file.
+              `pyramids.base._file_manager.FILE_CACHE` (via `CachingFileManager`) so later chunk reads
+              can reuse it. The handle is released when the returned lazy array is dropped or garbage
+              collected — a finalizer evicts its `FILE_CACHE` slot and closes it — and also under LRU
+              pressure or at interpreter exit. `close()` on this `NetCDF` object does not evict it: the
+              handle's lifetime is tied to the lazy array, not to this object. Opening the *same file
+              again in the same process* while a handle is still parked leaves two live handles to one
+              NetCDF, which can crash GDAL on Windows, so **drop (or compute and then drop) the lazy
+              array before reopening the file** (#727).
             * **Axis plane.** The lazy path normalizes the **trailing two** dimensions to north-up /
               west-first, whereas the eager path resolves the plane via `x_dim` / `y_dim` /
               CF detection. They agree for every variable whose spatial plane is trailing (the common
