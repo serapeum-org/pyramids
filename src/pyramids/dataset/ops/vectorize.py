@@ -59,15 +59,7 @@ def rasterize_features(
         CRSError: If the FeatureCollection has no CRS, or
             `template.epsg!= features.epsg`.
     """
-    if cell_size is None and template is None:
-        raise ValueError("You have to enter either cell size or Dataset object.")
-    if cell_size is not None and cell_size <= 0:
-        raise ValueError(f"cell_size must be positive; got {cell_size!r}.")
-    if column_name is not None and not isinstance(column_name, (str, list)):
-        raise TypeError(
-            f"column_name must be str, list[str], or None; "
-            f"got {type(column_name).__name__}."
-        )
+    _validate_rasterize_args(cell_size, template, column_name)
 
     ds_epsg = features.epsg
     if ds_epsg is None:
@@ -76,64 +68,12 @@ def rasterize_features(
             "Set one via `fc.set_crs('EPSG:...')` or construct the FC "
             "with `crs='EPSG:...'`."
         )
-    if template is not None:
-        if not isinstance(template, dataset_cls):
-            raise TypeError(
-                "The template parameter must be a pyramids Dataset "
-                "(see pyramids.dataset.Dataset.read_file)."
-            )
-        if template.epsg != ds_epsg:
-            raise CRSError(
-                f"Dataset and vector are not the same EPSG. "
-                f"{template.epsg} != {ds_epsg}"
-            )
-        xmin, ymax = template.top_left_corner
-        no_data_value = (
-            template.no_data_value[0]
-            if template.no_data_value[0] is not None
-            else np.nan
-        )
-        rows = template.rows
-        columns = template.columns
-        cell_size = template.cell_size
-    else:
-        xmin, ymin, xmax, ymax = features.total_bounds
-        no_data_value = dataset_cls.default_no_data_value
-        columns = int(np.ceil((xmax - xmin) / cell_size))
-        rows = int(np.ceil((ymax - ymin) / cell_size))
 
-    if column_name is None:
-        column_name = [c for c in features.columns if c != "geometry"]
+    xmin, ymax, rows, columns, cell_size, no_data_value = _resolve_raster_geometry(
+        features, dataset_cls, template, cell_size, ds_epsg
+    )
 
-    if isinstance(column_name, list):
-        if not column_name:
-            raise ValueError(
-                "column_name list must be non-empty. Pass None to "
-                "burn every non-geometry column, or name at least "
-                "one column."
-            )
-        missing = [c for c in column_name if c not in features.columns]
-        if missing:
-            raise ValueError(
-                f"column_name references columns not in the "
-                f"FeatureCollection: {missing}. Available columns: "
-                f"{list(features.columns)}."
-            )
-        # Multi-band burn: every band shares the same dataset dtype, so
-        # promote to the smallest dtype that can hold every selected
-        # column without lossy cast. Mixed [int8, float32] â†’ float32,
-        # mixed [int8, int16] â†’ int16, etc. Previously the dtype was
-        # taken from column_name[0] only, which silently truncated
-        # wider columns.
-        numpy_dtype = np.result_type(*[features.dtypes[c] for c in column_name])
-    else:
-        if column_name not in features.columns:
-            raise ValueError(
-                f"column_name {column_name!r} is not in the "
-                f"FeatureCollection. Available columns: "
-                f"{list(features.columns)}."
-            )
-        numpy_dtype = features.dtypes[column_name]
+    column_name, numpy_dtype = _resolve_burn_columns(features, column_name)
 
     # Integer raster dtypes cannot represent NaN. If the template
     # supplied None as no_data_value (defaulted to NaN above) and the
@@ -173,3 +113,120 @@ def rasterize_features(
             gdal.Rasterize(dataset_n.raster, vector_ds, options=rasterize_opts)
 
     return dataset_n
+
+
+def _validate_rasterize_args(
+    cell_size: Any | None,
+    template: Dataset | None,
+    column_name: str | list[str] | None,
+) -> None:
+    """Validate the scalar arguments of :func:`rasterize_features`.
+
+    Raises:
+        ValueError: Neither ``cell_size`` nor ``template`` given, or a
+            non-positive ``cell_size``.
+        TypeError: ``column_name`` is not ``str`` / ``list`` / ``None``.
+    """
+    if cell_size is None and template is None:
+        raise ValueError("You have to enter either cell size or Dataset object.")
+    if cell_size is not None and cell_size <= 0:
+        raise ValueError(f"cell_size must be positive; got {cell_size!r}.")
+    if column_name is not None and not isinstance(column_name, (str, list)):
+        raise TypeError(
+            f"column_name must be str, list[str], or None; "
+            f"got {type(column_name).__name__}."
+        )
+
+
+def _resolve_raster_geometry(
+    features: FeatureCollection,
+    dataset_cls: type[Dataset],
+    template: Dataset | None,
+    cell_size: Any | None,
+    ds_epsg: int,
+) -> tuple[float, float, int, int, Any, Any]:
+    """Resolve the output raster geometry for :func:`rasterize_features`.
+
+    With a ``template`` the geometry (origin, size, cell size, no-data) is
+    inherited from it after validating its type and CRS; otherwise it is derived
+    from the feature bounds and the requested ``cell_size``.
+
+    Returns:
+        ``(xmin, ymax, rows, columns, cell_size, no_data_value)``.
+
+    Raises:
+        TypeError: ``template`` is not an instance of ``dataset_cls``.
+        CRSError: ``template.epsg`` differs from the FeatureCollection's EPSG.
+    """
+    if template is not None:
+        if not isinstance(template, dataset_cls):
+            raise TypeError(
+                "The template parameter must be a pyramids Dataset "
+                "(see pyramids.dataset.Dataset.read_file)."
+            )
+        if template.epsg != ds_epsg:
+            raise CRSError(
+                f"Dataset and vector are not the same EPSG. "
+                f"{template.epsg} != {ds_epsg}"
+            )
+        xmin, ymax = template.top_left_corner
+        no_data_value = (
+            template.no_data_value[0]
+            if template.no_data_value[0] is not None
+            else np.nan
+        )
+        rows = template.rows
+        columns = template.columns
+        cell_size = template.cell_size
+    else:
+        xmin, ymin, xmax, ymax = features.total_bounds
+        no_data_value = dataset_cls.default_no_data_value
+        columns = int(np.ceil((xmax - xmin) / cell_size))
+        rows = int(np.ceil((ymax - ymin) / cell_size))
+    return xmin, ymax, rows, columns, cell_size, no_data_value
+
+
+def _resolve_burn_columns(
+    features: FeatureCollection, column_name: str | list[str] | None
+) -> tuple[str | list[str], Any]:
+    """Resolve and validate the burn column(s) and the output dtype.
+
+    ``None`` expands to every non-geometry column. A list is validated as
+    non-empty and fully present; the dtype is promoted to the smallest that
+    holds every selected column (mixed ``[int8, float32]`` -> ``float32``),
+    fixing the earlier ``column_name[0]``-only dtype that truncated wider
+    columns. A single column is validated as present.
+
+    Returns:
+        ``(column_name, numpy_dtype)`` with ``column_name`` normalised.
+
+    Raises:
+        ValueError: The list is empty, or a named column is missing.
+    """
+    if column_name is None:
+        column_name = [c for c in features.columns if c != "geometry"]
+
+    if isinstance(column_name, list):
+        if not column_name:
+            raise ValueError(
+                "column_name list must be non-empty. Pass None to "
+                "burn every non-geometry column, or name at least "
+                "one column."
+            )
+        missing = [c for c in column_name if c not in features.columns]
+        if missing:
+            raise ValueError(
+                f"column_name references columns not in the "
+                f"FeatureCollection: {missing}. Available columns: "
+                f"{list(features.columns)}."
+            )
+        numpy_dtype = np.result_type(*[features.dtypes[c] for c in column_name])
+    else:
+        if column_name not in features.columns:
+            raise ValueError(
+                f"column_name {column_name!r} is not in the "
+                f"FeatureCollection. Available columns: "
+                f"{list(features.columns)}."
+            )
+        numpy_dtype = features.dtypes[column_name]
+    return column_name, numpy_dtype
