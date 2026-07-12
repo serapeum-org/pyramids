@@ -999,6 +999,6 @@ def flatten_for_index(metadata: NetCDFMetadata) -> dict[str, Any]:
     for k, v in list(metadata.global_attributes.items())[:MAX_INDEXED_GLOBAL_ATTRS]:
         d[f"global.{k}"] = v
     # include names of variables and dims
-    d["variables"] = sorted([a for a in metadata.variables.keys()])
-    d["dimensions"] = sorted([dname for dname in metadata.dimensions.keys()])
+    d["variables"] = sorted(metadata.variables.keys())
+    d["dimensions"] = sorted(metadata.dimensions.keys())
     return d
