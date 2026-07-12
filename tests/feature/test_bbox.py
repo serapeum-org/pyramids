@@ -444,14 +444,18 @@ class TestEstimatePixelDims:
         true_height = math.ceil(ground_m / scale_m)
         assert est_height >= true_height, f"height {est_height} under-counts true {true_height} for {south}->{north}"
 
-    def test_non_positive_scale_raises(self):
+    @pytest.mark.parametrize("scale_m", [0.0, -1.0])
+    def test_non_positive_scale_raises(self, scale_m):
         """A non-positive resolution raises ValueError.
 
+        Args:
+            scale_m: The rejected resolution (zero and negative).
+
         Test scenario:
-            scale_m == 0 is rejected with a message naming scale_m.
+            scale_m <= 0 is rejected with a message naming scale_m.
         """
         with pytest.raises(ValueError, match="scale_m must be positive"):
-            estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), 0.0)
+            estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), scale_m)
 
     def test_inverted_latitude_raises(self):
         """An inverted latitude range (north < south) raises ValueError.
@@ -471,6 +475,7 @@ class TestReadBboxDict:
         [
             {"min_lon": -10.0, "min_lat": 35.0, "max_lon": 30.0, "max_lat": 60.0},
             {"lonmin": -10.0, "latmin": 35.0, "lonmax": 30.0, "latmax": 60.0},
+            {"minlon": -10.0, "minlat": 35.0, "maxlon": 30.0, "maxlat": 60.0},
             {"minx": -10.0, "miny": 35.0, "maxx": 30.0, "maxy": 60.0},
             {"west": -10.0, "south": 35.0, "east": 30.0, "north": 60.0},
             {"West": -10.0, "South": 35.0, "East": 30.0, "North": 60.0},
@@ -498,14 +503,27 @@ class TestReadBboxDict:
         assert result == (-10.0, 35.0, 30.0, 60.0), f"Unexpected bbox: {result}"
         assert all(isinstance(v, float) for v in result), f"Expected floats, got {result}"
 
-    def test_missing_edge_raises(self):
-        """A dict missing one edge raises ValueError naming that edge.
+    @pytest.mark.parametrize(
+        "bbox, edge",
+        [
+            ({"miny": 35.0, "maxx": 30.0, "maxy": 60.0}, "west"),
+            ({"minx": -10.0, "maxx": 30.0, "maxy": 60.0}, "south"),
+            ({"minx": -10.0, "miny": 35.0, "maxy": 60.0}, "east"),
+            ({"minx": -10.0, "miny": 35.0, "maxx": 30.0}, "north"),
+        ],
+    )
+    def test_missing_edge_raises(self, bbox, edge):
+        """A dict missing any one edge raises ValueError naming that edge.
+
+        Args:
+            bbox: A bbox mapping with one edge omitted.
+            edge: The name of the omitted edge.
 
         Test scenario:
-            Omitting the north key is reported as the 'north' edge being absent.
+            Omitting west/south/east/north each reports that specific edge as absent.
         """
-        with pytest.raises(ValueError, match="'north' edge"):
-            read_bbox_dict({"minx": -10.0, "miny": 35.0, "maxx": 30.0})
+        with pytest.raises(ValueError, match=f"'{edge}' edge"):
+            read_bbox_dict(bbox)
 
     def test_present_none_value_reports_non_numeric_not_missing(self):
         """A present-but-None edge value is reported as non-numeric, not as a missing key (review L1).
