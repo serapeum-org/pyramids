@@ -827,7 +827,13 @@ class UgridDataset:
                 (forwarded to plot_mesh_data). Notably ``colorbar``
                 (``bool``, default ``True``): pass ``colorbar=False`` to
                 suppress the per-mesh colorbar when you want to attach a
-                custom or shared one to ``glyph.ax``.
+                custom or shared one to ``glyph.ax``. Also ``style`` (name of
+                a cleopatra ``DATA_STYLES`` preset, e.g. ``"flow_accumulation"``)
+                and ``hillshade`` (``True`` or a params dict) to colour / relief-
+                shade the mesh; both require cleopatra >= 0.24 (``hillshade``
+                needs node-centered data). Distinct from
+                :meth:`pyramids.dataset.Dataset.hillshade`, which *returns* a
+                shaded-relief array.
 
         Returns:
             cleopatra.mesh_glyph.MeshGlyph instance with the plot

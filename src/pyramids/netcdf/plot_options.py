@@ -143,6 +143,17 @@ class ColorOpts:
             result. Defaults to True.
         cbar_kwargs: Extra dict forwarded to :meth:`Figure.colorbar`.
             Defaults to None.
+        style: Name of a cleopatra data-style preset (a key of
+            ``cleopatra.array_glyph.DATA_STYLES`` — e.g. ``"flow_accumulation"``,
+            ``"topography"``) to colour the variable by. Forwarded to
+            :class:`~cleopatra.array_glyph.ArrayGlyph`; requires
+            cleopatra >= 0.24. Defaults to None (no preset).
+        hillshade: Relief-shade the rendered field. ``True`` blends a
+            default hillshade over the colours; a dict passes hillshade
+            parameters through (e.g. ``{"vert_exag": 8}``). Distinct from
+            :meth:`pyramids.dataset.Dataset.hillshade`, which *returns* a
+            shaded-relief array — this is a render-time blend. Forwarded to
+            cleopatra; requires cleopatra >= 0.24. Defaults to None.
 
     Examples:
         - The default constructor is a no-op forward — every colour
@@ -194,6 +205,8 @@ class ColorOpts:
     extend: str | None = None
     add_colorbar: bool = True
     cbar_kwargs: dict | None = None
+    style: str | None = None
+    hillshade: bool | dict | None = None
 
 
 @dataclass(frozen=True)

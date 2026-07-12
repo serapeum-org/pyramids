@@ -17,9 +17,10 @@ from unittest.mock import patch
 import pytest
 
 import pyramids
-from pyramids.netcdf import ColourOpts, FacetSpec, Selectors
+from pyramids.netcdf import ColorOpts, ColourOpts, FacetSpec, Selectors
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_plot_3d_nc
+from tests.netcdf.plot._plot_helpers import _make_fake_render
 
 
 class TestPlotOptionDataclasses:
@@ -59,6 +60,8 @@ class TestPlotOptionDataclasses:
         assert colour.extend is None
         assert colour.add_colorbar is True
         assert colour.cbar_kwargs is None
+        assert colour.style is None
+        assert colour.hillshade is None
 
     def test_facet_spec_defaults_are_all_none(self):
         """``FacetSpec()`` constructs with every field ``None``.
@@ -208,3 +211,68 @@ class TestPlotConsumesOptionDataclasses:
             mock_plot.return_value = "ok"
             var.plot(variable="t2m", facet=None)
         assert "_facet_stack" not in mock_plot.call_args.kwargs
+
+    def test_style_and_hillshade_forwarded_to_engine(self):
+        """``ColorOpts(style=..., hillshade=...)`` forwards both flattened (#737).
+
+        Test scenario:
+            The cleopatra data-style preset name and the hillshade blend
+            are ``ColorOpts`` fields; the dataclass unpacking inside
+            ``NetCDF.plot`` must hand the engine flat ``style=`` /
+            ``hillshade=`` kwargs (the raster paths already auto-route
+            them to the glyph via ``render_array``).
+        """
+        nc = make_plot_3d_nc()
+        var = nc.get_variable("t2m")
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "ok"
+            var.plot(
+                variable="t2m",
+                colour=ColorOpts(style="flow_accumulation", hillshade={"vert_exag": 8}),
+            )
+        forwarded = mock_plot.call_args.kwargs
+        assert forwarded["style"] == "flow_accumulation"
+        assert forwarded["hillshade"] == {"vert_exag": 8}
+
+    def test_style_and_hillshade_default_not_forwarded(self):
+        """An unset ``style`` / ``hillshade`` leaks no kwarg to the engine.
+
+        Test scenario:
+            Both fields default to ``None``, and ``_build_render_kwargs``
+            only forwards non-``None`` colour fields, so a plain
+            ``ColorOpts()`` must not inject ``style=`` / ``hillshade=``.
+        """
+        nc = make_plot_3d_nc()
+        var = nc.get_variable("t2m")
+        with patch.object(type(var.analysis), "plot", autospec=True) as mock_plot:
+            mock_plot.return_value = "ok"
+            var.plot(variable="t2m", colour=ColorOpts())
+        forwarded = mock_plot.call_args.kwargs
+        assert "style" not in forwarded
+        assert "hillshade" not in forwarded
+
+    def test_style_and_hillshade_survive_animate(self):
+        """``style`` / ``hillshade`` reach the animate render call (#737).
+
+        Test scenario:
+            The animate path drops the static-only kwargs listed in
+            ``_ANIMATE_DROP_KWARGS`` before calling ``render_array`` with
+            ``mode="animate"``. ``style`` / ``hillshade`` are *not* in
+            that drop-set, so a ``ColorOpts(style=..., hillshade=...)``
+            must survive into the animated frames (cleopatra >= 0.24
+            shades every frame).
+        """
+        nc = make_plot_3d_nc(n_times=3)
+        captured: dict = {}
+        with patch(
+            "pyramids.netcdf._plot._render_array",
+            side_effect=_make_fake_render(captured),
+        ):
+            nc.plot(
+                variable="t2m",
+                animate=True,
+                colour=ColorOpts(style="topography", hillshade=True),
+            )
+        assert captured["kw"]["mode"] == "animate"
+        assert captured["kw"]["style"] == "topography"
+        assert captured["kw"]["hillshade"] is True
