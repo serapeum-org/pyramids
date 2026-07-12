@@ -749,53 +749,93 @@ def classify_variables(
         dim_names.add(d.name)
         dim_names.add(d.full_name.lstrip("/"))
 
-    bounds_vars: set[str] = set()
-    cell_measure_vars: set[str] = set()
-    ancillary_vars: set[str] = set()
-    aux_coord_vars: set[str] = set()
+    refs = _collect_reference_vars(variables)
 
+    roles: dict[str, str] = {}
+    for name, var in variables.items():
+        roles[name] = _classify_one(name, var.attributes, dim_names, refs)
+
+    return roles
+
+
+def _parse_cell_measures(cell_measures: Any) -> set[str]:
+    """Parse a CF ``cell_measures`` string into its measure-variable names.
+
+    The standard measure keywords (``area``, ``volume``) are skipped; a
+    non-string input yields an empty set.
+    """
+    result: set[str] = set()
+    if isinstance(cell_measures, str):
+        for token in cell_measures.replace(":", " ").split():
+            if token not in ("area", "volume"):
+                result.add(token)
+    return result
+
+
+def _collect_reference_vars(variables: dict[str, Any]) -> dict[str, set[str]]:
+    """Collect names referenced by other variables, grouped by CF role.
+
+    Scans every variable's attributes and returns the sets of names referenced
+    as ``bounds``, ``cell_measures``, ``ancillary_variables`` and (auxiliary)
+    ``coordinates`` variables.
+
+    Returns:
+        Dict with keys ``"bounds"`` / ``"cell_measure"`` / ``"ancillary"`` /
+        ``"aux_coord"``, each mapping to a set of referenced variable names.
+    """
+    refs: dict[str, set[str]] = {
+        "bounds": set(),
+        "cell_measure": set(),
+        "ancillary": set(),
+        "aux_coord": set(),
+    }
     for var in variables.values():
         attrs = var.attributes
         bounds_ref = attrs.get("bounds")
         if isinstance(bounds_ref, str):
-            bounds_vars.add(bounds_ref)
-        cm = attrs.get("cell_measures")
-        if isinstance(cm, str):
-            for token in cm.replace(":", " ").split():
-                if token not in ("area", "volume"):
-                    cell_measure_vars.add(token)
+            refs["bounds"].add(bounds_ref)
+        refs["cell_measure"] |= _parse_cell_measures(attrs.get("cell_measures"))
         av = attrs.get("ancillary_variables")
         if isinstance(av, str):
-            ancillary_vars.update(av.split())
+            refs["ancillary"].update(av.split())
         coords = attrs.get("coordinates")
         if isinstance(coords, str):
-            aux_coord_vars.update(coords.split())
+            refs["aux_coord"].update(coords.split())
+    return refs
 
-    roles: dict[str, str] = {}
-    for name, var in variables.items():
-        short_name = name.lstrip("/")
-        attrs = var.attributes
 
-        if "grid_mapping_name" in attrs:
-            roles[name] = "grid_mapping"
-        elif short_name in bounds_vars or name in bounds_vars:
-            roles[name] = "bounds"
-        elif short_name in cell_measure_vars or name in cell_measure_vars:
-            roles[name] = "cell_measure"
-        elif short_name in ancillary_vars or name in ancillary_vars:
-            roles[name] = "ancillary"
-        elif _is_mesh_topology(attrs):
-            roles[name] = "mesh_topology"
-        elif _is_connectivity(attrs):
-            roles[name] = "connectivity"
-        elif short_name in dim_names:
-            roles[name] = "coordinate"
-        elif short_name in aux_coord_vars or name in aux_coord_vars:
-            roles[name] = "auxiliary_coordinate"
-        else:
-            roles[name] = "data"
+def _classify_one(
+    name: str,
+    attrs: dict[str, Any],
+    dim_names: set[str],
+    refs: dict[str, set[str]],
+) -> str:
+    """Return the CF role for a single variable.
 
-    return roles
+    Applies the role precedence used by :func:`classify_variables`:
+    grid-mapping, bounds, cell-measure, ancillary, mesh-topology, connectivity,
+    (dimension) coordinate, auxiliary coordinate, then plain data.
+    """
+    short_name = name.lstrip("/")
+    if "grid_mapping_name" in attrs:
+        role = "grid_mapping"
+    elif short_name in refs["bounds"] or name in refs["bounds"]:
+        role = "bounds"
+    elif short_name in refs["cell_measure"] or name in refs["cell_measure"]:
+        role = "cell_measure"
+    elif short_name in refs["ancillary"] or name in refs["ancillary"]:
+        role = "ancillary"
+    elif _is_mesh_topology(attrs):
+        role = "mesh_topology"
+    elif _is_connectivity(attrs):
+        role = "connectivity"
+    elif short_name in dim_names:
+        role = "coordinate"
+    elif short_name in refs["aux_coord"] or name in refs["aux_coord"]:
+        role = "auxiliary_coordinate"
+    else:
+        role = "data"
+    return role
 
 
 def _is_mesh_topology(attrs: dict[str, Any]) -> bool:
