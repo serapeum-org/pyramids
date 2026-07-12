@@ -107,7 +107,9 @@ class TestDatasetCollectionRoundTrip:
 
         base = _make_dataset(rows=rows, cols=cols, fill_value=1.0)
         md = DatasetCollection.create_cube(base, dataset_length=time_steps)
-        values = np.random.default_rng().random((time_steps, rows, cols)).astype(np.float64)
+        values = np.random.default_rng().random((time_steps, rows, cols)).astype(
+            np.float64
+        )
         md.values = values
 
         tmp_dir = Path(tempfile.mkdtemp())
