@@ -707,15 +707,15 @@ def _point_aoi_bbox(
         raise ValueError(f"units must be 'px' or 'm', got {units!r}.")
     from pyproj import Transformer
 
-    utm_epsg = _utm_epsg(lon, lat)
-    to_utm = Transformer.from_crs(4326, utm_epsg, always_xy=True)
+    epsg = _utm_epsg(lon, lat)
+    to_utm = Transformer.from_crs(4326, epsg, always_xy=True)
     cx, cy = to_utm.transform(lon, lat)
     cx = round(cx / resolution) * resolution
     cy = round(cy / resolution) * resolution
     half = (edge_size / 2.0) * resolution if units == "px" else edge_size / 2.0
     utm_bbox = (cx - half, cy - half, cx + half, cy + half)
 
-    to_wgs = Transformer.from_crs(utm_epsg, 4326, always_xy=True)
+    to_wgs = Transformer.from_crs(epsg, 4326, always_xy=True)
     minx, miny, maxx, maxy = utm_bbox
     corners = [(minx, miny), (maxx, miny), (maxx, maxy), (minx, maxy)]
     lons, lats = [], []
@@ -723,7 +723,7 @@ def _point_aoi_bbox(
         clon, clat = to_wgs.transform(x, y)
         lons.append(clon)
         lats.append(clat)
-    return utm_epsg, (min(lons), min(lats), max(lons), max(lats))
+    return epsg, (min(lons), min(lats), max(lons), max(lats))
 
 
 def from_point(
