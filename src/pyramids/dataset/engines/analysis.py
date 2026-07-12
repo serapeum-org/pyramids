@@ -976,7 +976,7 @@ class Analysis(_Engine["Dataset"]):
         for i, ind_i in enumerate(ind):
             # first check if the sub-basin has a list in the dict if not create a list
             key = classes[ind_i[0], ind_i[1]]
-            if key not in values.keys():
+            if key not in values:
                 values[key] = []
 
             values[key].append(arr[ind_i[0], ind_i[1]])
