@@ -340,6 +340,21 @@ def _lcc_params(srs: osr.SpatialReference) -> dict[str, Any]:
     }
 
 
+def _add_scale_and_parallel(srs: osr.SpatialReference, p: dict[str, Any]) -> None:
+    """Add the CF scale-factor / standard-parallel params when they are non-zero.
+
+    Shared by the Mercator and Polar Stereographic projections, which both emit
+    `scale_factor_at_projection_origin` / `standard_parallel` only when the GDAL
+    projection parameter is set (non-zero).
+    """
+    sf = srs.GetProjParm(osr.SRS_PP_SCALE_FACTOR, 0.0)
+    sp = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
+    if not math.isclose(sf, 0.0):
+        p["scale_factor_at_projection_origin"] = sf
+    if not math.isclose(sp, 0.0):
+        p["standard_parallel"] = sp
+
+
 def _mercator_params(srs: osr.SpatialReference) -> dict[str, Any]:
     """CF params for a Mercator projection (scale factor / standard parallel
     are emitted only when non-zero)."""
@@ -348,12 +363,7 @@ def _mercator_params(srs: osr.SpatialReference) -> dict[str, Any]:
             osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
         ),
     }
-    sf = srs.GetProjParm(osr.SRS_PP_SCALE_FACTOR, 0.0)
-    sp = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
-    if not math.isclose(sf, 0.0):
-        p["scale_factor_at_projection_origin"] = sf
-    if not math.isclose(sp, 0.0):
-        p["standard_parallel"] = sp
+    _add_scale_and_parallel(srs, p)
     return p
 
 
@@ -368,12 +378,7 @@ def _polar_stereographic_params(srs: osr.SpatialReference) -> dict[str, Any]:
             osr.SRS_PP_LATITUDE_OF_ORIGIN, 0.0
         ),
     }
-    sf = srs.GetProjParm(osr.SRS_PP_SCALE_FACTOR, 0.0)
-    sp = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
-    if not math.isclose(sf, 0.0):
-        p["scale_factor_at_projection_origin"] = sf
-    if not math.isclose(sp, 0.0):
-        p["standard_parallel"] = sp
+    _add_scale_and_parallel(srs, p)
     return p
 
 
