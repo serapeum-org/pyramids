@@ -410,8 +410,6 @@ def _build_srs_from_cf_params(
             float(inv_flat),
         )
 
-    # `latitude_longitude` is geographic and needs no projection parameters,
-    # so it is intentionally not handled below (falls through as a no-op).
     if grid_mapping_name == "transverse_mercator":
         srs.SetTM(
             params.get("latitude_of_projection_origin", 0.0),
@@ -499,7 +497,9 @@ def _build_srs_from_cf_params(
             params.get("false_easting", 0.0),
             params.get("false_northing", 0.0),
         )
-    else:
+    elif grid_mapping_name != "latitude_longitude":
+        # `latitude_longitude` is geographic and sets no projection parameters,
+        # so it is accepted as a no-op; any other name is unsupported.
         raise ValueError(
             f"Unsupported CF grid_mapping_name: {grid_mapping_name!r}. "
             f"Include crs_wkt in the grid_mapping variable."
