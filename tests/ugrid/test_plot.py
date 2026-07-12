@@ -272,6 +272,9 @@ class TestMeshStyleHillshade:
         result = self._dataset("node").plot("depth", hillshade=True)
         assert isinstance(result, MeshGlyph)
 
+    @pytest.mark.skipif(
+        not _mesh_supports_style, reason="cleopatra < 0.24 has no MeshGlyph style"
+    )
     def test_style_and_hillshade_reach_mesh_glyph_plot(self):
         """The presets are actually applied to ``MeshGlyph.plot`` (not just returned).
 

@@ -459,6 +459,23 @@ class TestStyleHillshadePresets:
         assert "hillshade" not in ctor, f"hillshade={value!r} must not reach the ctor"
         assert "hillshade" not in plot, f"hillshade={value!r} must not reach plot"
 
+    def test_none_style_is_dropped_not_forwarded(self):
+        """An explicit ``style=None`` is dropped, never reaching cleopatra.
+
+        Test scenario:
+            ``style=None`` requests no preset, so ``render_array`` must pop it
+            before the ctor/render split — a true no-op on any cleopatra version,
+            symmetric with the falsy-``hillshade`` drop. A fake glyph captures
+            what actually reaches the constructor / plot call.
+        """
+        fake_cls, ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
+        rng = np.random.default_rng(748)
+        arr = rng.random((5, 5)).astype("float32")
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", style=None)
+        assert "style" not in ctor, "style=None must not reach the ctor"
+        assert "style" not in plot, "style=None must not reach plot"
+
     def test_empty_dict_hillshade_is_forwarded(self):
         """An affirmative ``hillshade={}`` (default params) reaches the glyph.
 
