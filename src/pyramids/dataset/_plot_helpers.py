@@ -186,10 +186,15 @@ def _guard_style_hillshade(kwargs: dict[str, Any], option_keys: Any) -> None:
         OptionalPackageDoesNotExist: A ``style`` / ``hillshade`` preset was
             requested but the installed cleopatra's glyph does not support it.
     """
+    if kwargs.get("style") is None:
+        # An explicit ``style=None`` requests no preset — drop it so it never
+        # reaches cleopatra (a true no-op on any version), symmetric with the
+        # ``hillshade`` handling below.
+        kwargs.pop("style", None)
     hillshade = kwargs.get("hillshade")
     if hillshade is None or hillshade is False:
         kwargs.pop("hillshade", None)
-    style_unsupported = kwargs.get("style") is not None and "style" not in option_keys
+    style_unsupported = "style" in kwargs and "style" not in option_keys
     hillshade_unsupported = "hillshade" in kwargs and "hillshade" not in option_keys
     if style_unsupported or hillshade_unsupported:
         raise OptionalPackageDoesNotExist(
