@@ -1722,11 +1722,15 @@ class NetCDF(Dataset):
               two live GDAL handles to one NetCDF, which can crash GDAL on Windows. So before reopening
               a file in-process, either **drop the lazy array(s)** or **`close()` the `NetCDF`** — both
               now release the parked handle.
-            * **Axis plane.** The lazy path normalizes the **trailing two** dimensions to north-up /
-              west-first, whereas the eager path resolves the plane via `x_dim` / `y_dim` /
-              CF detection. They agree for every variable whose spatial plane is trailing (the common
-              `(time, lev, lat, lon)` layout); a variable whose CF-resolved plane is *non-trailing*
-              is read against a different plane lazily than eagerly. Read such a variable eagerly.
+            * **Axis plane and shape.** The lazy path resolves the raster plane the same way the
+              eager path does — explicit `x_dim` / `y_dim` (carried on the `get_variable` subset) or
+              CF detection, falling back to the trailing two dimensions — and moves it to the
+              trailing two axes, north-up / west-first, so a lazy read is oriented on the *same*
+              plane as the eager read (#728). The two still differ in *packaging* for arrays with
+              more than one non-spatial dimension: the eager path flattens every non-spatial
+              dimension into a single band axis (and squeezes a singleton), whereas the lazy array
+              keeps them as separate leading axes in storage order. Reshape the lazy result with
+              `(-1, rows, cols)` to line the two up.
 
         Examples:
             - Eager bbox read on a root container — the container
@@ -1861,6 +1865,15 @@ class NetCDF(Dataset):
                 "`variable=` on the container or call read_array "
                 "on a subset from `get_variable()`."
             )
+        # Thread the eager-resolved raster plane (and its flips) into the lazy build so a variable
+        # whose latitude/longitude is not the trailing pair -- selected via `x_dim`/`y_dim` or CF
+        # detection -- is oriented on the SAME plane the eager `get_variable` read produces, instead
+        # of silently normalizing the trailing two axes (#728). `_md_spatial_dims` is `None` only for
+        # a 1-D coordinate read, where `build_lazy_array` keeps the trailing behaviour.
+        spatial_dims = self._md_spatial_dims
+        flips = None
+        if spatial_dims is not None:
+            flips = (bool(self._md_y_flipped), bool(self._md_x_flipped))
         return cast(
             ArrayLike,
             build_lazy_array(
@@ -1869,6 +1882,8 @@ class NetCDF(Dataset):
                 chunks=chunks,
                 lock=lock,
                 manager_hook=self._register_lazy_manager,
+                spatial_dims=spatial_dims,
+                flips=flips,
             ),
         )
 
@@ -1963,6 +1978,14 @@ class NetCDF(Dataset):
         wrapped._offset = self._offset
         wrapped._parent_nc = self._parent_nc
         wrapped._source_var_name = self._source_var_name
+        # Carry the eager-resolved raster plane (and its flips) onto sel / spatial-op results. A lazy
+        # read re-reads the ORIGINAL variable in storage order, so a `plot(chunks=, x_dim=, y_dim=)`
+        # on a re-wrapped subset must still see the resolved plane rather than falling back to the
+        # trailing two axes (#728); the indices stay valid because `build_lazy_array` reads the same
+        # original variable this metadata was resolved against.
+        wrapped._md_spatial_dims = self._md_spatial_dims
+        wrapped._md_y_flipped = self._md_y_flipped
+        wrapped._md_x_flipped = self._md_x_flipped
         wrapped._gdal_md_arr_ref = None
         wrapped._gdal_rg_ref = None
         return wrapped

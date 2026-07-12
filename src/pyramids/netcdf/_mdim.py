@@ -352,11 +352,13 @@ def axis_flips(rg: gdal.Group, md_arr: gdal.MDArray) -> tuple[bool, bool]:
     """Return ``(needs_y_flip, needs_x_flip)`` for the array's **trailing** raster plane.
 
     Both flips are decided together — one ``AsClassicDataset`` build, one read of each coordinate —
-    because every caller needs the pair. The plane is always the last two dimensions; unlike the
-    eager ``get_variable`` path (which resolves an explicit / CF-detected ``x_dim``/``y_dim`` via
-    ``_resolve_spatial_dims``), the lazy and ``_read_variable`` paths carry no plane override, so
-    they normalize the trailing two axes. For every variable whose spatial plane *is* trailing —
-    which is every on-disk fixture and the ordinary 2-D/3-D/4-D case — this matches the eager read.
+    because every caller needs the pair. This returns the *trailing*-plane decision. The eager
+    ``get_variable`` path resolves an explicit / CF-detected ``x_dim``/``y_dim`` via
+    ``_resolve_spatial_dims`` and decides flips for *that* plane; the lazy ``read_array(chunks=)``
+    path now threads the same resolved plane into ``build_lazy_array`` and uses this trailing
+    decision only as the fallback when no plane was resolved (a 1-D coordinate read) (#728).
+    ``_read_variable`` still normalizes the trailing two axes, which is correct for its callers — all
+    of which read coordinate/time variables whose spatial plane is already trailing.
 
     Args:
         rg: The root group, kept alive to prevent SWIG garbage collection of the view.

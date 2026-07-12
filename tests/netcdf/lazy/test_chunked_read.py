@@ -395,25 +395,96 @@ class TestLazyOrientationMatchesEager:
             direct, eager, err_msg="_read_variable is mirrored west-east relative to get_variable"
         )
 
-    def test_non_trailing_spatial_variable_lazy_matches_eager(self):
-        """A `(time, lat, lev, lon)` variable reads the same lazily and eagerly.
+    _NON_TRAILING_FIXTURE = "tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc"
+
+    def test_default_resolution_lazy_matches_eager(self):
+        """The default (no `x_dim`/`y_dim`) read of a `(time, lat, lev, lon)` variable is unchanged.
 
         Test scenario:
-            The lazy path normalizes the trailing two axes (see `_mdim.axis_flips`), while the eager
-            path resolves the raster plane through `_resolve_spatial_dims`. For CAM's non-trailing
-            latitude both resolve to the same trailing `(lev, lon)` plane, so the reads must agree
-            byte-for-byte — pinned here so any future divergence between the two plane-resolution
-            strategies surfaces as a failure instead of a silent mirror.
+            The fixture's `lat`/`lon` carry no CF axis attributes, so auto-detection falls back to
+            the trailing `(lev, lon)` plane. Both the eager and lazy paths then resolve the same
+            trailing plane, so the fix must leave this common case byte-identical (the `moveaxis` is
+            a no-op for a trailing plane). Reshaping folds the eager band-flattening into the lazy
+            array's separate leading axes.
 
-        Reads the shared on-disk fixture directly; the netcdf-wide autouse `_clear_file_cache` fixture closes the
-        lazy path's parked GDAL handle at teardown, so a later test reopening the same file cannot
-        collide with a stale handle (the CAM segfault mechanism).
+        Reads the shared on-disk fixture directly; the netcdf-wide autouse `_clear_file_cache`
+        fixture closes the lazy path's parked GDAL handle at teardown.
         """
-        path = "tests/data/netcdf/cf__48v__1d17-3d21-4d10__y-asc.nc"
+        path = self._NON_TRAILING_FIXTURE
         eager = np.asarray(NetCDF.read_file(path).get_variable("T").read_array())
-        lazy = np.squeeze(np.asarray(NetCDF.read_file(path).get_variable("T").read_array(chunks="auto")))
+        lazy = np.asarray(NetCDF.read_file(path).get_variable("T").read_array(chunks="auto"))
         np.testing.assert_array_equal(
-            lazy, eager, err_msg="lazy read diverged from eager on a non-trailing-spatial variable"
+            lazy.reshape(-1, *eager.shape[-2:]),
+            eager,
+            err_msg="default lazy read diverged from eager on the trailing-plane fallback",
+        )
+
+    def test_explicit_nontrailing_plane_lazy_matches_eager(self):
+        """`read_array(chunks=)` honours an explicit non-trailing `x_dim`/`y_dim` like the eager read.
+
+        Test scenario:
+            `T(time, lat, lev, lon)` selected via `x_dim="lon", y_dim="lat"` has its raster plane at
+            the *non-trailing* axes `(lat=1, lon=3)`. Before #728 the lazy path ignored the selection
+            and normalized the trailing `(lev, lon)` plane — flipping `lev` instead of `lat` and
+            returning the wrong plane as its raster. The fix moves the resolved plane to the trailing
+            two axes and flips *it*, so the lazy read matches the eager read plane-for-plane. Checked
+            against an independent north-up reference built straight from the storage-order MDArray,
+            so a shared mirror could not make both sides agree.
+        """
+        path = self._NON_TRAILING_FIXTURE
+        var = NetCDF.read_file(path).get_variable("T", x_dim="lon", y_dim="lat")
+        assert var._md_spatial_dims == (3, 1), "lon/lat must resolve to the non-trailing (x=3, y=1)"
+        assert var._md_y_flipped is True, "the fixture's ascending latitude must flip to north-up"
+        eager = np.asarray(var.read_array())
+        rows, cols = eager.shape[-2:]
+        assert (rows, cols) == (64, 128), "eager plane must be (lat=64, lon=128)"
+
+        lazy = np.asarray(
+            NetCDF.read_file(path)
+            .get_variable("T", x_dim="lon", y_dim="lat")
+            .read_array(chunks="auto")
+        )
+        assert lazy.shape[-2:] == (64, 128), (
+            "lazy trailing plane must be (lat, lon); a (6, 128) plane means the pre-#728 "
+            "trailing-axes read leaked through"
+        )
+        np.testing.assert_array_equal(
+            lazy.reshape(-1, rows, cols),
+            eager,
+            err_msg="explicit non-trailing lazy read diverged from eager (#728)",
+        )
+
+        ds = gdal.OpenEx(path, gdal.OF_MULTIDIM_RASTER)
+        root = ds.GetRootGroup()
+        raw = np.asarray(root.OpenMDArray("T").ReadAsArray())  # storage order (time, lat, lev, lon)
+        lat = np.asarray(root.OpenMDArray("lat").ReadAsArray())
+        reference = np.moveaxis(raw, [1, 3], [2, 3])  # -> (time, lev, lat, lon)
+        if lat[0] < lat[-1]:  # ascending south-to-north -> reverse to north-up rows
+            reference = reference[..., ::-1, :]
+        np.testing.assert_array_equal(
+            lazy.reshape(-1, rows, cols),
+            reference.reshape(-1, rows, cols),
+            err_msg="lazy read is not north-up on the resolved lat/lon plane",
+        )
+
+    def test_sel_derived_subset_retains_resolved_plane_for_lazy_read(self):
+        """A `sel()` on an explicit-plane subset keeps the resolved plane, so its lazy read stays oriented.
+
+        Test scenario:
+            `_preserve_netcdf_metadata` re-wraps `sel` / spatial-op results but historically dropped
+            the resolved `(x_index, y_index)` plane and its flips, so a `read_array(chunks=)` on a
+            `sel`-derived subset fell back to the trailing two axes — the #728 mirror, one step
+            removed. The plane must survive the re-wrap so the lazy read still resolves `(lat, lon)`.
+        """
+        path = self._NON_TRAILING_FIXTURE
+        var = NetCDF.read_file(path).get_variable("T", x_dim="lon", y_dim="lat")
+        band_dim = var._band_dim_names[0]
+        selected = var.sel(**{band_dim: var._band_dim_values_map[band_dim][0]})
+        assert selected._md_spatial_dims == (3, 1), "sel dropped the resolved plane"
+        assert selected._md_y_flipped is True, "sel dropped the resolved Y flip"
+        lazy = np.asarray(selected.read_array(chunks="auto"))
+        assert lazy.shape[-2:] == (64, 128), (
+            "lazy read of a sel-derived subset lost the resolved (lat, lon) plane"
         )
 
     def test_one_dimensional_variable_is_never_flipped(self):
