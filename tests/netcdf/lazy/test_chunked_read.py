@@ -25,6 +25,7 @@ single return statement, descriptive assertion messages.
 from __future__ import annotations
 
 import builtins
+import gc
 import multiprocessing
 import pickle
 
@@ -33,6 +34,7 @@ import pytest
 from numpy.testing import assert_allclose
 from osgeo import gdal, osr
 
+from pyramids.base._file_manager import FILE_CACHE
 from pyramids.netcdf import _lazy as lazy_mod
 from pyramids.netcdf.netcdf import NetCDF
 from tests._marks import requires_dask
@@ -427,3 +429,142 @@ class TestLazyOrientationMatchesEager:
         assert lazy.ndim == 1, f"expected a 1-D lazy array, got {lazy.ndim}-D"
         eager = np.asarray(NetCDF.read_file(path)._read_variable("lat"))
         np.testing.assert_array_equal(np.asarray(lazy), eager)
+
+
+@requires_dask
+class TestLazyHandleLifetime:
+    """The parked FILE_CACHE handle is released when the lazy array is dropped (#727)."""
+
+    def test_dropping_lazy_array_evicts_parked_handle(self, three_d_var):
+        """A lazy read parks a handle; dropping the returned array evicts it.
+
+        Test scenario:
+            A lazy read parks a live MDIM handle in the process-global FILE_CACHE for chunk reuse.
+            Before #727 that handle survived until LRU pressure or interpreter exit; now a finalizer
+            on the read's manager (kept alive by the dask graph) evicts its slot when the array is
+            dropped, so reopening the same NetCDF in-process does not leave two live handles.
+        """
+        assert len(FILE_CACHE) == 0, "the autouse fixture should leave FILE_CACHE empty at test start"
+        lazy = three_d_var.read_array(chunks="auto")
+        lazy.compute()
+        assert len(FILE_CACHE) == 1, "a lazy read + compute must park exactly one handle"
+        del lazy
+        gc.collect()
+        assert len(FILE_CACHE) == 0, "dropping the lazy array must evict the parked handle"
+
+    def test_dropping_unpack_lazy_array_evicts_handle(self, scale_offset_path):
+        """Dropping an `unpack=True` lazy array — a DERIVED dask array — still evicts the handle (H1).
+
+        Test scenario:
+            `read_array(unpack=True)` returns `scale * x + offset`, a derived dask array that keeps
+            only the graph layers, not the inner wrapper. Because the finalizer is bound to the
+            manager (kept alive by the readers), dropping the derived array releases the handle — the
+            path a wrapper-bound finalizer silently leaked (cache stayed at 1).
+        """
+        nc = NetCDF.read_file(scale_offset_path, open_as_multi_dimensional=True)
+        lazy = nc.get_variable(nc.variable_names[0]).read_array(chunks="auto", unpack=True)
+        lazy.compute()
+        assert len(FILE_CACHE) == 1, "a lazy unpack read + compute must park exactly one handle"
+        del lazy
+        gc.collect()
+        assert len(FILE_CACHE) == 0, "dropping a derived (unpack) lazy array must evict the handle"
+
+    def test_close_releases_parked_handle_while_array_alive(self, three_d_path):
+        """`nc.close()` releases the lazy handle even while the array is alive — #727's exact repro.
+
+        Test scenario:
+            The issue's reproduction holds the lazy array alive across a reopen but calls `nc.close()`
+            first. `close()` now evicts the handles its lazy reads parked (via weakly-tracked
+            managers), so the parked handle is gone before any reopen — and the lazy array stays usable
+            because its manager re-opens on the next chunk read.
+        """
+        nc = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
+        lazy = nc.get_variable(nc.variable_names[0]).read_array(chunks="auto")
+        lazy.compute()
+        assert len(FILE_CACHE) == 1, "the lazy read parks a handle"
+        nc.close()
+        assert len(FILE_CACHE) == 0, "close() must release the parked handle even while the array is alive"
+        assert lazy.compute().size > 0, "the lazy array stays usable after close() (its manager re-opens)"
+
+    def test_closing_variable_subset_releases_its_handle(self, three_d_path):
+        """Closing a `get_variable()` subset directly releases the handle it parked (M1).
+
+        Test scenario:
+            The manager is tracked on both the subset and the root container, so closing the subset —
+            not only the root — evicts its parked handle before any reopen.
+        """
+        nc = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
+        var = nc.get_variable(nc.variable_names[0])
+        lazy = var.read_array(chunks="auto")
+        lazy.compute()
+        assert len(FILE_CACHE) == 1, "the subset lazy read parks a handle"
+        var.close()
+        assert len(FILE_CACHE) == 0, "closing the subset must release its parked handle"
+
+    def test_second_close_releases_handle_reparked_after_close(self, three_d_path):
+        """A handle re-parked by a `compute()` after `close()` is released by a later `close()` (M2).
+
+        Test scenario:
+            `close()` keeps tracking still-alive managers, so the documented "recompute after close"
+            sequence followed by another `close()` still releases the re-parked handle.
+        """
+        nc = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
+        lazy = nc.get_variable(nc.variable_names[0]).read_array(chunks="auto")
+        lazy.compute()
+        nc.close()
+        assert len(FILE_CACHE) == 0, "the first close releases the parked handle"
+        lazy.compute()
+        assert len(FILE_CACHE) == 1, "recomputing after close re-parks a handle (manager re-opens)"
+        nc.close()
+        assert len(FILE_CACHE) == 0, "a second close must release the re-parked handle"
+
+    def test_tracking_does_not_accumulate_dead_managers(self, three_d_var):
+        """Dropped lazy reads' managers auto-prune from the tracking `WeakSet` — no unbounded growth (L1)."""
+        for _ in range(10):
+            lazy = three_d_var.read_array(chunks="auto")
+            lazy.compute()
+            del lazy
+        gc.collect()
+        tracked = getattr(three_d_var, "_lazy_managers", ())
+        assert len(tracked) <= 1, f"dead managers must not accumulate in the WeakSet; tracked={len(tracked)}"
+
+    def test_shared_slot_kept_until_last_manager_released(self, three_d_var):
+        """Two reads of the same variable share one slot; the handle survives until BOTH drop (M2).
+
+        Test scenario:
+            The lazy `manager_id` is `(path, variable)`, so two reads share one FILE_CACHE slot. A
+            per-slot refcount must keep the handle open until the last manager is finalized, so a
+            finalizer close can never yank a handle the other array is still reading through.
+        """
+        assert len(FILE_CACHE) == 0
+        first = three_d_var.read_array(chunks="auto")
+        second = three_d_var.read_array(chunks="auto")
+        first.compute()
+        second.compute()
+        assert len(FILE_CACHE) == 1, "two reads of one variable share a single slot"
+        del first
+        gc.collect()
+        assert len(FILE_CACHE) == 1, "dropping one array must NOT evict the shared handle"
+        assert second.compute().size > 0, "the surviving array must still read"
+        del second
+        gc.collect()
+        assert len(FILE_CACHE) == 0, "dropping the last array evicts the shared handle"
+
+    def test_reopen_same_file_after_dropping_lazy_array(self, three_d_path):
+        """The documented contract: drop the lazy array, then reopen the same file and read eagerly.
+
+        Test scenario:
+            Reproduces #727's sequence with the handle released first — a lazy read + compute, drop
+            the array, then reopen the same path in-process and read a variable eagerly. The parked
+            handle is gone, so there is no second live handle to the same NetCDF.
+        """
+        first = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
+        variable = first.variable_names[0]
+        lazy = first.get_variable(variable).read_array(chunks="auto")
+        lazy.compute()
+        del lazy
+        gc.collect()
+        assert len(FILE_CACHE) == 0, "the parked handle must be released before reopening"
+        reopened = NetCDF.read_file(three_d_path, open_as_multi_dimensional=True)
+        eager = np.asarray(reopened.get_variable(variable).read_array())
+        assert eager.size > 0, "the eager reopen read should return data"

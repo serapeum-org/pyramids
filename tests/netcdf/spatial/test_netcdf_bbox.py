@@ -336,6 +336,59 @@ class TestNetCDFReadArrayBbox:
             windowed.size < full.size
         ), f"bbox didn't reduce size: full={full.size} windowed={windowed.size}"
 
+    def test_non_square_bbox_variable_not_transposed(self, root_nc: NetCDF):
+        """Test a non-square NetCDF-variable bbox read is not transposed (#719's actual path).
+
+        Args:
+            root_nc: Module-scope root NetCDF fixture (EPSG:4326).
+
+        Test scenario:
+            #719 was reported through a NetCDF variable. A bbox spanning far more longitude than
+            latitude must read back wider than it is tall, matching a window derived independently
+            from the variable's geotransform -- a transpose would swap the two axes.
+        """
+        var = root_nc.get_variable("Band1")
+        _, pixel_x, _, _, _, pixel_y = var.geotransform
+        west, south, east, north = 10.0, -50.0, 90.0, -30.0
+        # These edges are cell-aligned, so the exact cover span is the extent divided by the cell
+        # size -- derived independently of the production floor/ceil index math.
+        exp_cols = round((east - west) / abs(pixel_x))
+        exp_rows = round((north - south) / abs(pixel_y))
+        got = var.read_array(bbox=(west, south, east, north))
+        got2d = got[got.shape[0] // 2] if got.ndim == 3 else got
+        assert got2d.shape == (exp_rows, exp_cols), (
+            f"transposed or mis-sized: got {got2d.shape}, expected {(exp_rows, exp_cols)}"
+        )
+        assert got2d.shape[1] > got2d.shape[0], "bbox spans more lon than lat; cols must exceed rows"
+
+    def test_bbox_rounding_forwarded_to_variable_read(self, root_nc: NetCDF):
+        """Test ``bbox_rounding=`` is forwarded through the NetCDF override to the window resolver.
+
+        Args:
+            root_nc: Module-scope root NetCDF fixture (EPSG:4326).
+
+        Test scenario:
+            For a bbox whose edges fall off cell centres, ``"nearest"`` must read a strictly smaller
+            window than the default ``"cover"``. If the override dropped the argument, both reads
+            would be identical.
+        """
+        var = root_nc.get_variable("Band1")
+        origin_x, pixel_x, _, origin_y, _, pixel_y = var.geotransform
+        west = origin_x + 20.7 * pixel_x
+        east = origin_x + 100.3 * pixel_x
+        north = origin_y + 220.7 * pixel_y
+        south = origin_y + 280.3 * pixel_y
+        cover = root_nc.read_array(variable="Band1", bbox=(west, south, east, north))
+        nearest = root_nc.read_array(
+            variable="Band1", bbox=(west, south, east, north), bbox_rounding="nearest"
+        )
+        assert nearest.shape[-2] < cover.shape[-2], (
+            f"nearest rows should be fewer: cover={cover.shape[-2:]} nearest={nearest.shape[-2:]}"
+        )
+        assert nearest.shape[-1] < cover.shape[-1], (
+            f"nearest cols should be fewer: cover={cover.shape[-2:]} nearest={nearest.shape[-2:]}"
+        )
+
     def test_window_and_bbox_together_raises(self, root_nc: NetCDF):
         """Test ``window=`` + ``bbox=`` together raises ``ValueError``.
 

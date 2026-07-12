@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
+from pyproj import Geod
 from shapely.geometry import MultiPolygon, Polygon
 
 from pyramids.feature.bbox import (
     _crosses_antimeridian,
     _ring_crosses_antimeridian,
     _unwrap_polygon,
+    estimate_pixel_dims,
     normalise_longitude,
+    read_bbox_dict,
     split_antimeridian,
     split_polygon_antimeridian,
     to_shapely,
@@ -382,3 +387,228 @@ class TestSplitPolygonAntimeridian:
         """
         with pytest.raises(TypeError, match="expects a Polygon or MultiPolygon"):
             split_polygon_antimeridian("not a polygon")
+
+
+class TestEstimatePixelDims:
+    """Tests for estimate_pixel_dims."""
+
+    @pytest.mark.parametrize(
+        "west, south, east, north, scale_m, expected",
+        [
+            (-10.0, 35.0, 30.0, 60.0, 1000.0, (4453, 2793)),
+            (0.0, 0.0, 1.0, 1.0, 100.0, (1114, 1117)),
+            (175.0, -22.0, -175.0, -12.0, 1000.0, (1114, 1117)),
+        ],
+    )
+    def test_known_dimensions(self, west, south, east, north, scale_m, expected):
+        """Estimate matches the documented upper-bound values, including an antimeridian bbox.
+
+        Args:
+            west: Western longitude in degrees.
+            south: Southern latitude in degrees.
+            east: Eastern longitude in degrees.
+            north: Northern latitude in degrees.
+            scale_m: Ground resolution in metres per pixel.
+            expected: Expected (width_px, height_px).
+
+        Test scenario:
+            The Europe/1 km and 1 deg/100 m cases from the issue, plus a west>east antimeridian span.
+        """
+        result = estimate_pixel_dims((west, south, east, north), scale_m)
+        assert result == expected, f"Expected {expected}, got {result}"
+
+    def test_minimum_one_pixel(self):
+        """A degenerate (zero-area) bbox still returns at least one pixel per dimension.
+
+        Test scenario:
+            A point bbox at a coarse resolution floors to (1, 1) rather than (0, 0).
+        """
+        result = estimate_pixel_dims((0.0, 0.0, 0.0, 0.0), 1000.0)
+        assert result == (1, 1), f"Expected (1, 1), got {result}"
+
+    @pytest.mark.parametrize("south, north", [(0.0, 1.0), (35.0, 60.0), (60.0, 89.0), (80.0, 89.0)])
+    def test_height_is_true_upper_bound(self, south, north):
+        """The estimated height never under-counts the true geodesic pixel span, incl. high latitudes.
+
+        Args:
+            south: Southern latitude in degrees.
+            north: Northern latitude in degrees.
+
+        Test scenario:
+            estimate_pixel_dims height >= ceil(WGS84 meridian distance / scale_m) across a latitude spread —
+            the property that the equatorial constant alone violated above ~55 deg (review M1).
+        """
+        scale_m = 1000.0
+        est_height = estimate_pixel_dims((0.0, south, 1.0, north), scale_m)[1]
+        _, _, ground_m = Geod(ellps="WGS84").inv(0.0, south, 0.0, north)
+        true_height = math.ceil(ground_m / scale_m)
+        assert est_height >= true_height, f"height {est_height} under-counts true {true_height} for {south}->{north}"
+
+    def test_width_is_true_upper_bound_at_equator(self):
+        """The estimated width never under-counts the true geodesic E-W span at the equator (review L1/L2).
+
+        Test scenario:
+            Across a dense sweep of longitude spans at 1 m/px on the equator (where a degree of longitude is
+            longest and the width bound is tightest), estimate_pixel_dims width >= ceil(WGS84 parallel distance /
+            scale_m). The width analogue of the height property; catches a width constant rounded below the true
+            equatorial degree.
+        """
+        geod = Geod(ellps="WGS84")
+        scale_m = 1.0
+        for i in range(1, 2001):
+            lon_span = i * 0.01
+            est_width = estimate_pixel_dims((0.0, 0.0, lon_span, 0.0), scale_m)[0]
+            _, _, ground_m = geod.inv(0.0, 0.0, lon_span, 0.0)
+            true_width = math.ceil(ground_m / scale_m)
+            assert est_width >= true_width, f"width {est_width} under-counts true {true_width} at lon_span={lon_span}"
+
+    @pytest.mark.parametrize(
+        "bbox, axis",
+        [
+            ((10.0, 0.0, 10.0, 1.0), 0),
+            ((0.0, 5.0, 1.0, 5.0), 1),
+        ],
+    )
+    def test_zero_span_axis_floors_to_one(self, bbox, axis):
+        """A collapsed longitude or latitude span still yields at least one pixel on that axis.
+
+        Args:
+            bbox: A bbox with one axis collapsed (west==east or north==south).
+            axis: Index of the collapsed axis (0=width, 1=height).
+
+        Test scenario:
+            A zero-width (west==east) or zero-height (north==south) bbox floors that axis to 1 px.
+        """
+        assert estimate_pixel_dims(bbox, 1000.0)[axis] == 1, f"collapsed axis {axis} should floor to 1"
+
+    def test_integer_scale_m_accepted(self):
+        """An integer scale_m produces the same result as the equivalent float.
+
+        Test scenario:
+            estimate_pixel_dims accepts an int resolution (1000) identically to 1000.0.
+        """
+        bbox = (-10.0, 35.0, 30.0, 60.0)
+        assert estimate_pixel_dims(bbox, 1000) == estimate_pixel_dims(bbox, 1000.0), "int scale_m must match float"
+
+    @pytest.mark.parametrize("scale_m", [0.0, -1.0])
+    def test_non_positive_scale_raises(self, scale_m):
+        """A non-positive resolution raises ValueError.
+
+        Args:
+            scale_m: The rejected resolution (zero and negative).
+
+        Test scenario:
+            scale_m <= 0 is rejected with a message naming scale_m.
+        """
+        with pytest.raises(ValueError, match="scale_m must be positive"):
+            estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), scale_m)
+
+    def test_nan_scale_raises_with_guard_message(self):
+        """A NaN scale_m is rejected by the scale_m guard, not by a downstream math.ceil error (review N1).
+
+        Test scenario:
+            NaN slips past `<= 0` (NaN comparisons are False); an explicit `math.isnan` check catches it.
+        """
+        nan_scale = float("nan")
+        with pytest.raises(ValueError, match="scale_m must be positive"):
+            estimate_pixel_dims((0.0, 0.0, 1.0, 1.0), nan_scale)
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+    def test_non_finite_bbox_coord_raises(self, bad):
+        """A non-finite bbox coordinate is rejected with a ValueError, not a downstream ceil/overflow error.
+
+        Args:
+            bad: A non-finite edge value (NaN or inf).
+
+        Test scenario:
+            NaN/inf edges slip past `north < south`; an explicit isfinite check raises the documented ValueError
+            (e.g. shapely's empty-geometry `.bounds` is all-NaN). (review round 4 N1)
+        """
+        with pytest.raises(ValueError, match="coordinates must be finite"):
+            estimate_pixel_dims((0.0, 0.0, bad, 1.0), 1000.0)
+
+    def test_inverted_latitude_raises(self):
+        """An inverted latitude range (north < south) raises ValueError.
+
+        Test scenario:
+            north < south is a genuine error (unlike west > east, which is a valid antimeridian crossing).
+        """
+        with pytest.raises(ValueError, match="north .* must be >= south"):
+            estimate_pixel_dims((0.0, 60.0, 1.0, 35.0), 1000.0)
+
+
+class TestReadBboxDict:
+    """Tests for read_bbox_dict."""
+
+    @pytest.mark.parametrize(
+        "bbox",
+        [
+            {"min_lon": -10.0, "min_lat": 35.0, "max_lon": 30.0, "max_lat": 60.0},
+            {"lonmin": -10.0, "latmin": 35.0, "lonmax": 30.0, "latmax": 60.0},
+            {"minlon": -10.0, "minlat": 35.0, "maxlon": 30.0, "maxlat": 60.0},
+            {"minx": -10.0, "miny": 35.0, "maxx": 30.0, "maxy": 60.0},
+            {"west": -10.0, "south": 35.0, "east": 30.0, "north": 60.0},
+            {"West": -10.0, "South": 35.0, "East": 30.0, "North": 60.0},
+        ],
+    )
+    def test_alias_spellings(self, bbox):
+        """Every accepted key spelling resolves to the same (west, south, east, north) tuple.
+
+        Args:
+            bbox: A bbox mapping using one of the supported alias conventions.
+
+        Test scenario:
+            GeoJSON, eodag, shapely/geopandas, and (case-insensitive) compass keys all parse identically.
+        """
+        result = read_bbox_dict(bbox)
+        assert result == (-10.0, 35.0, 30.0, 60.0), f"Unexpected bbox: {result}"
+
+    def test_values_coerced_to_float(self):
+        """Integer inputs are coerced to float.
+
+        Test scenario:
+            An int-valued dict yields a tuple of floats.
+        """
+        result = read_bbox_dict({"minx": -10, "miny": 35, "maxx": 30, "maxy": 60})
+        assert result == (-10.0, 35.0, 30.0, 60.0), f"Unexpected bbox: {result}"
+        assert all(isinstance(v, float) for v in result), f"Expected floats, got {result}"
+
+    @pytest.mark.parametrize(
+        "bbox, edge",
+        [
+            ({"miny": 35.0, "maxx": 30.0, "maxy": 60.0}, "west"),
+            ({"minx": -10.0, "maxx": 30.0, "maxy": 60.0}, "south"),
+            ({"minx": -10.0, "miny": 35.0, "maxy": 60.0}, "east"),
+            ({"minx": -10.0, "miny": 35.0, "maxx": 30.0}, "north"),
+        ],
+    )
+    def test_missing_edge_raises(self, bbox, edge):
+        """A dict missing any one edge raises ValueError naming that edge.
+
+        Args:
+            bbox: A bbox mapping with one edge omitted.
+            edge: The name of the omitted edge.
+
+        Test scenario:
+            Omitting west/south/east/north each reports that specific edge as absent.
+        """
+        with pytest.raises(ValueError, match=f"'{edge}' edge"):
+            read_bbox_dict(bbox)
+
+    def test_present_none_value_reports_non_numeric_not_missing(self):
+        """A present-but-None edge value is reported as non-numeric, not as a missing key (review L1).
+
+        Test scenario:
+            minx=None names the 'west' edge value as non-numeric rather than raising 'no key found'.
+        """
+        with pytest.raises(ValueError, match="'west' edge value None is not numeric"):
+            read_bbox_dict({"minx": None, "miny": 35.0, "maxx": 30.0, "maxy": 60.0})
+
+    def test_non_numeric_value_raises_naming_edge(self):
+        """A non-coercible edge value raises a ValueError naming the offending edge (review L2).
+
+        Test scenario:
+            A string south value reports the 'south' edge value as non-numeric.
+        """
+        with pytest.raises(ValueError, match="'south' edge value 'abc' is not numeric"):
+            read_bbox_dict({"minx": -10.0, "miny": "abc", "maxx": 30.0, "maxy": 60.0})

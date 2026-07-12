@@ -11,6 +11,7 @@ import itertools
 import math
 import os
 import tempfile
+import threading
 import warnings
 import weakref
 from numbers import Number
@@ -58,6 +59,10 @@ from pyramids.netcdf.metadata import get_metadata
 from pyramids.netcdf.models import NetCDFMetadata
 from pyramids.netcdf.plot_options import ColorOpts, FacetSpec, Selectors
 from pyramids.netcdf.utils import _read_attributes, create_time_conversion_func
+
+# Guards the per-container `_lazy_managers` WeakSet against a concurrent lazy `read_array` (which adds)
+# and `close()` (which snapshots) on the same container from different threads.
+_LAZY_MANAGERS_LOCK = threading.Lock()
 
 # GDAL integer dtype codes, used to pick the right typed Attribute.Write* call
 # when copying variable attributes (numeric tuples can't go through Write/WriteRaw).
@@ -620,6 +625,11 @@ class NetCDF(Dataset):
         (#564). Doing it here makes ``close()`` honour its contract — the file is
         unlocked immediately. Safe to call more than once.
         """
+        # Release handles parked by this container's lazy reads (#727): a lazy dask array can be held
+        # alive across close() (the finalizer only fires on drop), so close() explicitly evicts them
+        # here so a subsequent reopen of the same file does not leave two live handles. The lazy array
+        # stays usable -- its CachingFileManager re-opens on the next chunk read.
+        self._release_lazy_managers()
         cached = self._cached_variables
         if cached is not None:
             # Only the materialised children (bypass the lazy dict's loading
@@ -1607,6 +1617,7 @@ class NetCDF(Dataset):
         chunks: Any = None,
         lock: Any = None,
         masked: bool = False,
+        bbox_rounding: str = "cover",
     ) -> ArrayLike:
         """Read array from the dataset (eager by default, lazy with `chunks`).
 
@@ -1665,6 +1676,13 @@ class NetCDF(Dataset):
                 raw stored values before any `unpack` scaling, matching CF
                 `_FillValue` semantics; the scale/offset arithmetic
                 preserves the mask. Default is `False`.
+            bbox_rounding (keyword-only): How a `bbox` (or geometry
+                `window`) is snapped to whole pixels — `"cover"`
+                (default; floor/ceil so every overlapping pixel is kept)
+                or `"nearest"` (round each edge to the closest pixel
+                boundary, the tightest window). Forwarded verbatim to
+                `Dataset.read_array`; ignored on the lazy path and for
+                pixel windows. Any other value raises `ValueError`.
 
         Returns:
             np.ndarray or dask.array.Array: The array data, eager
@@ -1690,12 +1708,20 @@ class NetCDF(Dataset):
             Two limitations are specific to the lazy (`chunks`) path:
 
             * **Open-handle lifetime.** A lazy read parks a live GDAL handle in the process-global
-              `pyramids.base._file_manager.FILE_CACHE` (via `CachingFileManager`) and keeps it open
-              for later chunk reads. `close()` on this object does not evict it — the handle lives in
-              the dask graph — so it is released only under LRU pressure or at interpreter exit.
-              Opening the *same file again in the same process* while a lazy handle is parked leaves
-              two live handles to one NetCDF, which can crash GDAL on Windows. Compute (or drop) the
-              lazy array before reopening the file.
+              `pyramids.base._file_manager.FILE_CACHE` (via `CachingFileManager`) so later chunk reads
+              can reuse it. It is released two ways (#727): when the lazy read's result — **and every
+              array derived from it** (`unpack=True`, an `open_mfdataset` stack, a `plot(chunks=)`, a
+              slice or dask-arithmetic result) — is dropped or garbage-collected (a `weakref.finalize`
+              on the manager, kept alive by the chunk readers in the dask graph, evicts and closes it);
+              **and** when this `NetCDF`'s `close()` is called, which evicts the handles its lazy reads
+              parked even while a lazy array from it is still alive. It is also released under LRU
+              pressure or at interpreter exit. A lazy array stays usable after `close()` — its manager
+              re-opens the handle on the next chunk read.
+
+              Opening the **same file again in the same process while a handle is still parked** leaves
+              two live GDAL handles to one NetCDF, which can crash GDAL on Windows. So before reopening
+              a file in-process, either **drop the lazy array(s)** or **`close()` the `NetCDF`** — both
+              now release the parked handle.
             * **Axis plane.** The lazy path normalizes the **trailing two** dimensions to north-up /
               west-first, whereas the eager path resolves the plane via `x_dim` / `y_dim` /
               CF detection. They agree for every variable whose spatial plane is trailing (the common
@@ -1742,6 +1768,7 @@ class NetCDF(Dataset):
                 chunks=chunks,
                 lock=lock,
                 masked=masked,
+                bbox_rounding=bbox_rounding,
             )
         if variable is not None and variable != self._source_var_name:
             raise ValueError(
@@ -1751,7 +1778,7 @@ class NetCDF(Dataset):
                 "instead."
             )
         if chunks is None:
-            result = self._read_array_eager(band, read_window, masked)
+            result = self._read_array_eager(band, read_window, masked, bbox_rounding)
         else:
             result = self._read_array_lazy(chunks, lock, masked)
         if unpack:
@@ -1799,12 +1826,21 @@ class NetCDF(Dataset):
         return FeatureCollection.from_bbox(bbox, epsg=crs)
 
     def _read_array_eager(
-        self, band: int | None, window: Any, masked: bool
+        self,
+        band: int | None,
+        window: Any,
+        masked: bool,
+        bbox_rounding: str = "cover",
     ) -> ArrayLike:
         """Eager (numpy) read through the Dataset mixin."""
         return cast(
             ArrayLike,
-            super().read_array(band=band, window=window, masked=masked),
+            super().read_array(
+                band=band,
+                window=window,
+                masked=masked,
+                bbox_rounding=bbox_rounding,
+            ),
         )
 
     def _read_array_lazy(self, chunks: Any, lock: Any, masked: bool) -> ArrayLike:
@@ -1832,8 +1868,40 @@ class NetCDF(Dataset):
                 variable_name=var_name,
                 chunks=chunks,
                 lock=lock,
+                manager_hook=self._register_lazy_manager,
             ),
         )
+
+    def _register_lazy_manager(self, manager: Any) -> None:
+        """Track (weakly) a lazy read's file manager so `close()` can release its handle (#727).
+
+        Registered on both this object and its root container (`_parent_nc`), so closing either a
+        `get_variable()` subset or the root releases the handle. A `weakref.WeakSet` is used
+        deliberately: the manager's drop-time finalizer must still fire when the lazy array is dropped
+        (so tracking must not keep the manager alive), and the set auto-prunes collected managers so a
+        long-lived container in a read loop does not accumulate dead entries.
+        """
+        with _LAZY_MANAGERS_LOCK:
+            for owner in (self, self._parent_nc):
+                if owner is None:
+                    continue
+                managers = getattr(owner, "_lazy_managers", None)
+                if managers is None:
+                    managers = weakref.WeakSet()
+                    owner._lazy_managers = managers
+                managers.add(manager)
+
+    def _release_lazy_managers(self) -> None:
+        """Close every still-alive tracked lazy manager, releasing its parked handle.
+
+        The set is not cleared: `manager.close()` is idempotent, and a still-alive manager stays
+        tracked so a handle it re-parks (a `compute()` after `close()`) is released by a later
+        `close()` too. Dead managers drop out of the `WeakSet` on their own.
+        """
+        with _LAZY_MANAGERS_LOCK:
+            managers = list(getattr(self, "_lazy_managers", ()))
+        for manager in managers:
+            manager.close()
 
     def _preserve_netcdf_metadata(self, result: Dataset) -> NetCDF:
         """Wrap a Dataset result as a NetCDF, preserving variable-subset metadata.
