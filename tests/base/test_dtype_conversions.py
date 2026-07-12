@@ -51,7 +51,7 @@ def test_ogr_to_numpy_dtype():
 class TestCatalog:
     def test_create_instance(self):
         catalog = Catalog()
-        assert hasattr(catalog, "catalog")
+        assert hasattr(catalog, "drivers")
 
     def test_get_driver(self):
         catalog = Catalog()
