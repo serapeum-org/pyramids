@@ -699,3 +699,26 @@ class TestCachingFileManagerAutoRelease:
         clone = CachingFileManager.__new__(CachingFileManager)
         clone.__setstate__(legacy)
         assert clone._auto_release is False, "legacy 6-tuple must default auto_release to False"
+
+    def test_stale_finalizer_after_clear_does_not_close_reopened_handle(self):
+        """A finalizer firing after `clear()` must not close a handle re-opened for a live sibling.
+
+        `clear()` wipes both the cache and the refcounts. A manager alive across the clear still holds
+        a pending finalizer; when it fires, `release` must treat the now-untracked key as a no-op
+        rather than underflowing the count and closing a handle another live manager just re-parked.
+        """
+        cache = _LRUCache(maxsize=8, on_evict=_close_handle)
+        first = CachingFileManager(
+            _fake_opener, "a.tif", cache=cache, manager_id="k", auto_release=True
+        )
+        second = CachingFileManager(
+            _fake_opener, "a.tif", cache=cache, manager_id="k", auto_release=True
+        )
+        first.acquire()
+        cache.clear()
+        reopened = second.acquire()
+        assert len(cache) == 1 and reopened.closed is False
+        del first
+        gc.collect()
+        assert reopened.closed is False, "a stale post-clear finalizer must not close the re-opened handle"
+        assert len(cache) == 1, "the re-opened handle survives an untracked release"

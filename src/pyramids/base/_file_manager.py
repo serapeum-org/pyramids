@@ -285,24 +285,29 @@ class _LRUCache(MutableMapping):
                 self._on_evict(key, value)
 
     def retain(self, key: Hashable) -> None:
-        """Register one live referent for `key` (see :attr:`_refcounts`)."""
+        """Register one live referent for `key` (see the `_refcounts` note in `__init__`)."""
         with self._lock:
             self._refcounts[key] = self._refcounts.get(key, 0) + 1
 
     def release(self, key: Hashable) -> None:
         """Drop one referent for `key`; evict and close the handle when the last one is gone.
 
-        Safe to call from a :class:`weakref.finalize` callback on any thread: it holds no reference
-        to the releasing manager, and closes the handle outside the cache lock (like `on_evict`).
+        Safe to call from a `weakref.finalize` callback on any thread: it holds no reference to the
+        releasing manager and closes the handle outside the cache lock (like `on_evict`). A key that
+        is no longer tracked -- e.g. wiped by `clear()` while this manager was still alive -- is
+        treated as a no-op, so a stale finalizer never closes a handle the refcount is no longer
+        accounting for (which could otherwise be a re-opened handle a live array is still reading).
         """
         handle = None
         with self._lock:
-            remaining = self._refcounts.get(key, 0) - 1
-            if remaining > 0:
-                self._refcounts[key] = remaining
-                return
-            self._refcounts.pop(key, None)
-            handle = self._cache.pop(key, None)
+            tracked = self._refcounts.get(key)
+            if tracked is None:
+                pass
+            elif tracked - 1 > 0:
+                self._refcounts[key] = tracked - 1
+            else:
+                self._refcounts.pop(key, None)
+                handle = self._cache.pop(key, None)
         if handle is not None and self._on_evict is not None:
             self._on_evict(key, handle)
 
@@ -514,7 +519,9 @@ class CachingFileManager(FileManager):
 
     def __setstate__(self, state: tuple) -> None:
         # Tolerate the pre-`auto_release` 6-tuple so a manager pickled by an older pyramids (or a
-        # differently-versioned dask worker) still unpickles, defaulting `auto_release` to False.
+        # differently-versioned dask worker) still unpickles, defaulting `auto_release` to False. The
+        # reverse -- an old worker receiving the new 7-tuple -- cannot be helped from here and is
+        # intentionally unsupported (mixed-version dask.distributed clusters are not a target).
         opener, path, access, kwargs, lock, manager_id, *rest = state
         auto_release = rest[0] if rest else False
         self.__init__(
