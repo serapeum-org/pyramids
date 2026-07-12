@@ -542,6 +542,10 @@ class FeatureCollection(GeoDataFrame):
             w, s, e, n = (float(v) for v in seq)
         except (TypeError, ValueError) as exc:
             raise TypeError(f"bbox elements must be numbers; got {seq!r}") from exc
+        # NaN slips past the ordering checks below (nan >= x is False), so reject it
+        # explicitly — e.g. an empty frame's all-NaN ``total_bounds``.
+        if any(math.isnan(v) for v in (w, s, e, n)):
+            raise ValueError(f"bbox coordinates must not be NaN; got {seq!r}")
         if w >= e:
             raise ValueError(f"bbox must satisfy west < east; got west={w}, east={e}")
         if s >= n:

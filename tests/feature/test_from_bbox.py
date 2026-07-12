@@ -157,6 +157,14 @@ class TestFeatureCollectionFromBbox:
         with pytest.raises(ValueError, match="4-element"):
             FeatureCollection.from_bbox(42, epsg=4326)
 
+    def test_nan_bbox_raises(self):
+        """A NaN coordinate (e.g. an empty frame's all-NaN bounds) is rejected."""
+        nan = float("nan")
+        with pytest.raises(ValueError, match="NaN"):
+            FeatureCollection.from_bbox((nan, nan, nan, nan), epsg=4326)
+        with pytest.raises(ValueError, match="NaN"):
+            FeatureCollection.from_bbox((0, 0, nan, 1), epsg=4326)
+
     @pytest.mark.parametrize(
         "bad",
         [
