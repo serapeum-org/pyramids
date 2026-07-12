@@ -34,11 +34,14 @@ Bbox = tuple[float, float, float, float]
 
 _CONVENTIONS = ("-180..180", "0..360")
 
-METRES_PER_DEGREE = 111_319.49
-"""Equatorial length of a degree of longitude on WGS84 — the E-W (width) pixel-dimension upper-bound basis."""
+METRES_PER_DEGREE = 111_319.4909
+"""Equatorial length of a degree of longitude on WGS84, rounded up — the E-W (width) upper-bound basis.
+
+Rounded up from the exact `a * pi / 180 = 111_319.49079` so the width stays a strict upper bound (never an
+under-estimate) for equator-touching bboxes."""
 
 MAX_METRES_PER_LAT_DEGREE = 111_694.0
-"""Maximum (polar) length of a degree of latitude on WGS84 — the N-S (height) pixel-dimension upper-bound basis."""
+"""Maximum (polar) length of a degree of latitude on WGS84, rounded up — the N-S (height) upper-bound basis."""
 
 _BBOX_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     "west": ("min_lon", "lonmin", "minlon", "minx", "west"),

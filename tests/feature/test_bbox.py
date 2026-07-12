@@ -444,6 +444,24 @@ class TestEstimatePixelDims:
         true_height = math.ceil(ground_m / scale_m)
         assert est_height >= true_height, f"height {est_height} under-counts true {true_height} for {south}->{north}"
 
+    def test_width_is_true_upper_bound_at_equator(self):
+        """The estimated width never under-counts the true geodesic E-W span at the equator (review L1/L2).
+
+        Test scenario:
+            Across a dense sweep of longitude spans at 1 m/px on the equator (where a degree of longitude is
+            longest and the width bound is tightest), estimate_pixel_dims width >= ceil(WGS84 parallel distance /
+            scale_m). The width analogue of the height property; catches a width constant rounded below the true
+            equatorial degree.
+        """
+        geod = Geod(ellps="WGS84")
+        scale_m = 1.0
+        for i in range(1, 2001):
+            lon_span = i * 0.01
+            est_width = estimate_pixel_dims((0.0, 0.0, lon_span, 0.0), scale_m)[0]
+            _, _, ground_m = geod.inv(0.0, 0.0, lon_span, 0.0)
+            true_width = math.ceil(ground_m / scale_m)
+            assert est_width >= true_width, f"width {est_width} under-counts true {true_width} at lon_span={lon_span}"
+
     @pytest.mark.parametrize("scale_m", [0.0, -1.0])
     def test_non_positive_scale_raises(self, scale_m):
         """A non-positive resolution raises ValueError.
