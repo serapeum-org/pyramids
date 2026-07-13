@@ -846,6 +846,8 @@ class UgridDataset:
                   use it for a custom colorbar or ``glyph.im.set_clim(...)``.
                   It is ``None`` after :meth:`plot_outline` (an outline
                   carries no scalar mapping).
+                - ``glyph.apply_style(style)`` (cleopatra >= 0.25) — re-apply a
+                  ``DATA_STYLES`` preset by name in place, without re-plotting.
 
         Raises:
             ValueError: If the selected variable has no loaded data, or if

@@ -351,6 +351,7 @@ class TestStyleHillshadePresets:
     """
 
     _supports_style = "style" in ArrayGlyph.option_keys()
+    _supports_apply_style = hasattr(ArrayGlyph, "apply_style")
 
     @pytest.mark.skipif(
         not _supports_style, reason="cleopatra < 0.24 has no style presets"
@@ -565,6 +566,29 @@ class TestStyleHillshadePresets:
         with patch.object(ArrayGlyph, "option_keys", return_value=old_keys):
             glyph = render_array(arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot")
         assert isinstance(glyph, ArrayGlyph)
+
+    @pytest.mark.skipif(
+        not _supports_apply_style,
+        reason="cleopatra < 0.25 has no glyph.apply_style()",
+    )
+    def test_returned_glyph_supports_apply_style(self):
+        """The glyph from ``Dataset.plot`` can be restyled in place (cleopatra 0.25).
+
+        Test scenario:
+            cleopatra 0.25 adds ``ArrayGlyph.apply_style(style)`` and a ``style``
+            read-back. Because pyramids returns the raw glyph, a caller holding it
+            can re-apply a preset by name without rebuilding — verify the round
+            trip through the ``Dataset.plot`` facade.
+        """
+        rng = np.random.default_rng(750)
+        arr = rng.random((1, 8, 8)).astype("float32")
+        dataset = Dataset.create_from_array(
+            arr=arr, geo=(0, 0.1, 0, 2, 0, -0.1), epsg=4326
+        )
+        glyph = dataset.plot(band=0, style="flow_accumulation")
+        assert glyph.style == "flow_accumulation"
+        glyph.apply_style("topography")
+        assert glyph.style == "topography", "apply_style must restyle the glyph in place"
 
 
 class TestMeshRenderHelper:

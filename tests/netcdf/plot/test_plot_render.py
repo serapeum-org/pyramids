@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 
-from pyramids.netcdf import ColourOpts, Selectors
+from pyramids.netcdf import ColorOpts, ColourOpts, Selectors
 from pyramids.netcdf._plot import NetCDFPlot
 from pyramids.netcdf.netcdf import NetCDF
 from tests.netcdf.conftest import make_plot_3d_nc
@@ -81,6 +81,22 @@ class TestNetCDFPlotDefaultRender:
         nc = make_plot_3d_nc()
         result = nc.plot(variable="t2m")
         assert isinstance(result, ArrayGlyph)
+
+    @pytest.mark.skipif(
+        not hasattr(ArrayGlyph, "apply_style"),
+        reason="cleopatra < 0.25 has no glyph.apply_style()",
+    )
+    def test_returned_glyph_supports_apply_style(self):
+        """The glyph from `NetCDF.plot` can be restyled in place (cleopatra 0.25).
+
+        `ColorOpts.style` documents that the glyph `NetCDF.plot` returns exposes
+        `apply_style`; verify the round trip via the documented ColorOpts path.
+        """
+        nc = make_plot_3d_nc()
+        glyph = nc.plot(variable="t2m", colour=ColorOpts(style="flow_accumulation"))
+        assert glyph.style == "flow_accumulation"
+        glyph.apply_style("topography")
+        assert glyph.style == "topography", "apply_style must restyle in place"
 
     def test_selectors_none_equivalent_to_omitted(self):
         """`selectors=None` renders the same default slice as omitting it.
