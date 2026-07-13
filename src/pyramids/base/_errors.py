@@ -171,7 +171,25 @@ class WCSError(_PyramidsError):
     A *missing* coverage (one not advertised by ``GetCapabilities``) raises a
     plain :class:`ValueError` instead, mirroring how the rest of pyramids
     reports a bad argument as opposed to a service failure.
+
+    On a genuine HTTP-error status (a ``GetCapabilities`` / ``GetCoverage`` that
+    returns 4xx/5xx), ``status_code`` carries the status and ``response_body`` the
+    server's decoded body (the empty string when the error had no body) so a caller
+    can branch on them programmatically. Both are ``None`` for failures that have no
+    HTTP response (transport errors, XML ``ExceptionReport`` bodies returned as HTTP
+    200, driver-level failures).
     """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        response_body: str | None = None,
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.response_body = response_body
 
 
 class WFSError(_PyramidsError):

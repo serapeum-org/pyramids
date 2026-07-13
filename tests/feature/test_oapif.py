@@ -149,6 +149,62 @@ class TestPureHelpers:
 
         assert _ogc_api.http_error_detail(_Plain()) == "upstream exploded"
 
+    def test_http_error_detail_json_body_extracts_description(self):
+        """A JSON (RFC 7807) HTTPError body is parsed and its description surfaced."""
+        class _Json:
+            code = 400
+            reason = "Bad Request"
+
+            def read(self):
+                return b'{"description": "coverage gone", "code": "X"}'
+
+        assert _ogc_api.http_error_detail(_Json()) == "coverage gone"
+
+    def test_http_error_detail_parses_non_utf8_json_body(self):
+        """A UTF-16-encoded JSON body still parses (byte-level json.loads) — the raw-bytes rationale."""
+        payload = json.dumps({"description": "utf16 boom"}).encode("utf-16")
+
+        class _Json16:
+            code = 400
+            reason = "Bad Request"
+
+            def read(self):
+                return payload
+
+        assert _ogc_api.http_error_detail(_Json16()) == "utf16 boom"
+
+    def test_read_http_error_returns_code_raw_and_text(self):
+        """read_http_error returns the status code, the raw bytes, and the decoded stripped text."""
+        class _Err:
+            code = 422
+            reason = "Unprocessable Entity"
+
+            def read(self):
+                return b'  {"message": "nope"}  '
+
+        assert _ogc_api.read_http_error(_Err()) == (
+            422, b'  {"message": "nope"}  ', '{"message": "nope"}'
+        )
+
+    def test_read_http_error_falls_back_to_reason(self):
+        """An empty or unreadable body yields empty raw bytes and the reason phrase as text."""
+        class _Empty:
+            code = 500
+            reason = "Server Error"
+
+            def read(self):
+                return b""
+
+        class _Unreadable:
+            code = 503
+            reason = "Service Unavailable"
+
+            def read(self):
+                raise OSError("connection gone")
+
+        assert _ogc_api.read_http_error(_Empty()) == (500, b"", "Server Error")
+        assert _ogc_api.read_http_error(_Unreadable()) == (503, b"", "Service Unavailable")
+
 
 class TestCollections:
     def test_parses_collection_ids(self, collections_server):

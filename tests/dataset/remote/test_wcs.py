@@ -17,6 +17,11 @@ is set, so normal CI stays offline.
 from __future__ import annotations
 
 
+import copy
+import io
+import pickle
+import urllib.error
+
 import pytest
 from osgeo import gdal, osr
 
@@ -214,12 +219,110 @@ class TestCapabilities:
         with pytest.raises(WCSError, match="request failed"):
             _wcs._get_capabilities("https://wcs.invalid/x", None, None, 5.0)
 
+    def test_get_capabilities_http_error_propagates_status_and_body(self, monkeypatch):
+        """A 4xx GetCapabilities carries status_code/response_body through the real call site."""
+        body = b'{"message": "forbidden zone", "code": "NOPE"}'
+
+        def boom(self, *args, **kwargs):
+            raise urllib.error.HTTPError(
+                "https://wcs.invalid/caps-403", 403, "Forbidden", {}, io.BytesIO(body)
+            )
+
+        monkeypatch.setattr(_wcs.urllib.request.OpenerDirector, "open", boom)
+        with pytest.raises(WCSError) as excinfo:
+            _wcs._get_capabilities("https://wcs.invalid/caps-403", None, None, 5.0)
+        err = excinfo.value
+        assert err.status_code == 403
+        assert "forbidden zone" in err.response_body
+        assert "forbidden zone" in str(err)
+
     def test_exception_text_falls_back_without_exception_element(self):
         """_exception_text returns body text, or a default when nothing is present."""
         body = _wcs.ET.fromstring("<ExceptionReport>broken upstream</ExceptionReport>")
         assert _wcs._exception_text(body) == "broken upstream"
         empty = _wcs.ET.fromstring("<ExceptionReport></ExceptionReport>")
         assert _wcs._exception_text(empty) == "no message provided"
+
+
+class TestHttpGet:
+    def test_http_error_surfaces_body_and_attributes(self, monkeypatch):
+        """A 4xx GetCoverage surfaces the server body text and carries status + body on WCSError."""
+        body = (
+            b'{"message": "Requested date 2035-06-11 is outside the available '
+            b'coverage range for SPI ERA5 Short Term.", "code": "DATE_OUT_OF_RANGE"}'
+        )
+
+        def boom(self, *args, **kwargs):
+            raise urllib.error.HTTPError(
+                "https://wcs.invalid/x", 422, "Unprocessable Entity", {}, io.BytesIO(body)
+            )
+
+        monkeypatch.setattr(_wcs.urllib.request.OpenerDirector, "open", boom)
+        with pytest.raises(WCSError) as excinfo:
+            _wcs._http_get("https://wcs.invalid/x", None, 5.0, "GetCoverage")
+        err = excinfo.value
+        assert "outside the available coverage range" in str(err)
+        assert "HTTP 422" in str(err)
+        assert err.status_code == 422
+        assert "DATE_OUT_OF_RANGE" in err.response_body
+
+    def test_http_error_body_truncated_in_message_but_full_on_attribute(self, monkeypatch):
+        """A large error body is truncated in the message yet kept whole on response_body."""
+        body = b"x" * 5000
+
+        def boom(self, *args, **kwargs):
+            raise urllib.error.HTTPError(
+                "https://wcs.invalid/x", 500, "Server Error", {}, io.BytesIO(body)
+            )
+
+        monkeypatch.setattr(_wcs.urllib.request.OpenerDirector, "open", boom)
+        with pytest.raises(WCSError) as excinfo:
+            _wcs._http_get("https://wcs.invalid/x", None, 5.0, "GetCapabilities")
+        err = excinfo.value
+        assert "…" in str(err)  # truncation marker present
+        assert len(str(err)) < 1000  # message is bounded
+        assert len(err.response_body) == 5000  # full body preserved on the attribute
+
+    def test_http_error_empty_body_reason_in_message_and_empty_response_body(self, monkeypatch):
+        """An empty-body HTTP error shows the reason phrase in the message; response_body is ''."""
+
+        def boom(self, *args, **kwargs):
+            raise urllib.error.HTTPError(
+                "https://wcs.invalid/x", 403, "Forbidden", {}, io.BytesIO(b"")
+            )
+
+        monkeypatch.setattr(_wcs.urllib.request.OpenerDirector, "open", boom)
+        with pytest.raises(WCSError) as excinfo:
+            _wcs._http_get("https://wcs.invalid/x", None, 5.0, "GetCoverage")
+        err = excinfo.value
+        assert err.status_code == 403
+        assert err.response_body == ""
+        assert "Forbidden" in str(err)
+
+    def test_non_http_transport_error_leaves_attributes_none(self, monkeypatch):
+        """A non-HTTP transport failure keeps its message and leaves status_code/body None."""
+
+        def boom(self, *args, **kwargs):
+            raise urllib.error.URLError("connection reset")
+
+        monkeypatch.setattr(_wcs.urllib.request.OpenerDirector, "open", boom)
+        with pytest.raises(WCSError) as excinfo:
+            _wcs._http_get("https://wcs.invalid/x", None, 5.0, "GetCoverage")
+        err = excinfo.value
+        assert "request failed" in str(err)
+        assert err.status_code is None
+        assert err.response_body is None
+
+    def test_wcserror_survives_pickle_and_copy(self):
+        """status_code / response_body round-trip through pickle and copy (cross-process safe)."""
+        err = WCSError("boom", status_code=422, response_body='{"code": "X"}')
+        restored = pickle.loads(pickle.dumps(err))
+        assert str(restored) == "boom"
+        assert restored.status_code == 422
+        assert restored.response_body == '{"code": "X"}'
+        cloned = copy.copy(err)
+        assert cloned.status_code == 422
+        assert cloned.response_body == '{"code": "X"}'
 
 
 class TestOpenService:
