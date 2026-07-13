@@ -160,6 +160,19 @@ class TestPureHelpers:
 
         assert _ogc_api.http_error_detail(_Json()) == "coverage gone"
 
+    def test_http_error_detail_parses_non_utf8_json_body(self):
+        """A UTF-16-encoded JSON body still parses (byte-level json.loads) — the raw-bytes rationale."""
+        payload = json.dumps({"description": "utf16 boom"}).encode("utf-16")
+
+        class _Json16:
+            code = 400
+            reason = "Bad Request"
+
+            def read(self):
+                return payload
+
+        assert _ogc_api.http_error_detail(_Json16()) == "utf16 boom"
+
     def test_read_http_error_returns_code_raw_and_text(self):
         """read_http_error returns the status code, the raw bytes, and the decoded stripped text."""
         class _Err:
