@@ -217,6 +217,23 @@ class TestCapabilities:
         with pytest.raises(WCSError, match="request failed"):
             _wcs._get_capabilities("https://wcs.invalid/x", None, None, 5.0)
 
+    def test_get_capabilities_http_error_propagates_status_and_body(self, monkeypatch):
+        """A 4xx GetCapabilities carries status_code/response_body through the real call site."""
+        body = b'{"message": "forbidden zone", "code": "NOPE"}'
+
+        def boom(self, *args, **kwargs):
+            raise urllib.error.HTTPError(
+                "https://wcs.invalid/caps-403", 403, "Forbidden", {}, io.BytesIO(body)
+            )
+
+        monkeypatch.setattr(_wcs.urllib.request.OpenerDirector, "open", boom)
+        with pytest.raises(WCSError) as excinfo:
+            _wcs._get_capabilities("https://wcs.invalid/caps-403", None, None, 5.0)
+        err = excinfo.value
+        assert err.status_code == 403
+        assert "forbidden zone" in err.response_body
+        assert "forbidden zone" in str(err)
+
     def test_http_error_surfaces_body_and_attributes(self, monkeypatch):
         """A 4xx GetCoverage surfaces the server body text and carries status + body on WCSError."""
         body = (

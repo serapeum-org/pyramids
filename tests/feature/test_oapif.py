@@ -149,6 +149,17 @@ class TestPureHelpers:
 
         assert _ogc_api.http_error_detail(_Plain()) == "upstream exploded"
 
+    def test_http_error_detail_json_body_extracts_description(self):
+        """A JSON (RFC 7807) HTTPError body is parsed and its description surfaced."""
+        class _Json:
+            code = 400
+            reason = "Bad Request"
+
+            def read(self):
+                return b'{"description": "coverage gone", "code": "X"}'
+
+        assert _ogc_api.http_error_detail(_Json()) == "coverage gone"
+
     def test_read_http_error_returns_code_raw_and_text(self):
         """read_http_error returns the status code, the raw bytes, and the decoded stripped text."""
         class _Err:
