@@ -179,7 +179,9 @@ def _http_get(
 
     Shared by the ``GetCapabilities`` (discovery) and direct ``GetCoverage``
     paths. Raises :class:`WCSError` on any transport-level failure so both call
-    sites keep a uniform error contract.
+    sites keep a uniform error contract. On a genuine HTTP-error status (4xx/5xx)
+    the raised :class:`WCSError` also carries the ``status_code`` and the decoded
+    ``response_body`` so a caller can inspect the server's explanation.
     """
     opener = urllib.request.build_opener()
     if auth is not None:
