@@ -234,6 +234,15 @@ class TestCapabilities:
         assert "forbidden zone" in err.response_body
         assert "forbidden zone" in str(err)
 
+    def test_exception_text_falls_back_without_exception_element(self):
+        """_exception_text returns body text, or a default when nothing is present."""
+        body = _wcs.ET.fromstring("<ExceptionReport>broken upstream</ExceptionReport>")
+        assert _wcs._exception_text(body) == "broken upstream"
+        empty = _wcs.ET.fromstring("<ExceptionReport></ExceptionReport>")
+        assert _wcs._exception_text(empty) == "no message provided"
+
+
+class TestHttpGet:
     def test_http_error_surfaces_body_and_attributes(self, monkeypatch):
         """A 4xx GetCoverage surfaces the server body text and carries status + body on WCSError."""
         body = (
@@ -296,13 +305,6 @@ class TestCapabilities:
         cloned = copy.copy(err)
         assert cloned.status_code == 422
         assert cloned.response_body == '{"code": "X"}'
-
-    def test_exception_text_falls_back_without_exception_element(self):
-        """_exception_text returns body text, or a default when nothing is present."""
-        body = _wcs.ET.fromstring("<ExceptionReport>broken upstream</ExceptionReport>")
-        assert _wcs._exception_text(body) == "broken upstream"
-        empty = _wcs.ET.fromstring("<ExceptionReport></ExceptionReport>")
-        assert _wcs._exception_text(empty) == "no message provided"
 
 
 class TestOpenService:
