@@ -17,6 +17,9 @@ is set, so normal CI stays offline.
 from __future__ import annotations
 
 
+import io
+import urllib.error
+
 import pytest
 from osgeo import gdal, osr
 
@@ -211,6 +214,58 @@ class TestCapabilities:
         monkeypatch.setattr(_wcs.urllib.request.OpenerDirector, "open", boom)
         with pytest.raises(WCSError, match="request failed"):
             _wcs._get_capabilities("https://wcs.invalid/x", None, None, 5.0)
+
+    def test_http_error_surfaces_body_and_attributes(self, monkeypatch):
+        """A 4xx GetCoverage surfaces the server body text and carries status + body on WCSError."""
+        body = (
+            b'{"message": "Requested date 2035-06-11 is outside the available '
+            b'coverage range for SPI ERA5 Short Term.", "code": "DATE_OUT_OF_RANGE"}'
+        )
+
+        def boom(self, *args, **kwargs):
+            raise urllib.error.HTTPError(
+                "https://wcs.invalid/x", 422, "Unprocessable Entity", {}, io.BytesIO(body)
+            )
+
+        monkeypatch.setattr(_wcs.urllib.request.OpenerDirector, "open", boom)
+        with pytest.raises(WCSError) as excinfo:
+            _wcs._http_get("https://wcs.invalid/x", None, 5.0, "GetCoverage")
+        err = excinfo.value
+        assert "outside the available coverage range" in str(err)
+        assert "HTTP 422" in str(err)
+        assert err.status_code == 422
+        assert "DATE_OUT_OF_RANGE" in err.response_body
+
+    def test_http_error_body_truncated_in_message_but_full_on_attribute(self, monkeypatch):
+        """A large error body is truncated in the message yet kept whole on response_body."""
+        body = b"x" * 5000
+
+        def boom(self, *args, **kwargs):
+            raise urllib.error.HTTPError(
+                "https://wcs.invalid/x", 500, "Server Error", {}, io.BytesIO(body)
+            )
+
+        monkeypatch.setattr(_wcs.urllib.request.OpenerDirector, "open", boom)
+        with pytest.raises(WCSError) as excinfo:
+            _wcs._http_get("https://wcs.invalid/x", None, 5.0, "GetCapabilities")
+        err = excinfo.value
+        assert "…" in str(err)  # truncation marker present
+        assert len(str(err)) < 1000  # message is bounded
+        assert len(err.response_body) == 5000  # full body preserved on the attribute
+
+    def test_non_http_transport_error_leaves_attributes_none(self, monkeypatch):
+        """A non-HTTP transport failure keeps its message and leaves status_code/body None."""
+
+        def boom(self, *args, **kwargs):
+            raise urllib.error.URLError("connection reset")
+
+        monkeypatch.setattr(_wcs.urllib.request.OpenerDirector, "open", boom)
+        with pytest.raises(WCSError) as excinfo:
+            _wcs._http_get("https://wcs.invalid/x", None, 5.0, "GetCoverage")
+        err = excinfo.value
+        assert "request failed" in str(err)
+        assert err.status_code is None
+        assert err.response_body is None
 
     def test_exception_text_falls_back_without_exception_element(self):
         """_exception_text returns body text, or a default when nothing is present."""

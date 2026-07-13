@@ -36,6 +36,7 @@ passes ``coverage_crs`` / ``auth`` as needed.
 from __future__ import annotations
 
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -54,6 +55,12 @@ from pyramids.base._coverage import resolve_native_srs as _resolve_native_srs_ne
 from pyramids.base._coverage import validate_bbox as _validate_bbox
 from pyramids.base._errors import CoverageError, WCSError
 from pyramids.base._ogc_api import gdal_http_config as _gdal_http_config
+from pyramids.base._ogc_api import read_http_error as _read_http_error
+
+# Cap on how much of an HTTP-error body is inlined into a WCSError message; the
+# full body is still carried on WCSError.response_body. Keeps a multi-KB HTML
+# error page from bloating the exception text.
+_ERROR_BODY_CHARS = 500
 
 # Request KVP keys pyramids sets itself in direct GetCoverage.
 _RESERVED_KVP_KEYS = frozenset(
@@ -182,8 +189,20 @@ def _http_get(
     try:
         with opener.open(url, timeout=timeout) as resp:
             return cast(bytes, resp.read())
+    except urllib.error.HTTPError as exc:
+        # A 4xx/5xx status carries a body with the server's real explanation
+        # (non-spec shims return e.g. a JSON {"message": ...}); surface it in the
+        # message and carry the status + full body on the exception so a caller
+        # can branch on them. str(HTTPError) alone is only "HTTP <code>: <reason>".
+        code, body = _read_http_error(exc)
+        shown = body if len(body) <= _ERROR_BODY_CHARS else f"{body[:_ERROR_BODY_CHARS]}…"
+        raise WCSError(
+            f"WCS {what} request failed for {url!r}: HTTP {code}: {shown}",
+            status_code=code,
+            response_body=body,
+        ) from exc
     except OSError as exc:
-        # urllib.error.URLError / HTTPError both derive from OSError.
+        # urllib.error.URLError / timeout / connection reset — no HTTP response body.
         raise WCSError(f"WCS {what} request failed for {url!r}: {exc}") from exc
 
 
