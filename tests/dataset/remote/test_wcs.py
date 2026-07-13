@@ -17,7 +17,9 @@ is set, so normal CI stays offline.
 from __future__ import annotations
 
 
+import copy
 import io
+import pickle
 import urllib.error
 
 import pytest
@@ -266,6 +268,17 @@ class TestCapabilities:
         assert "request failed" in str(err)
         assert err.status_code is None
         assert err.response_body is None
+
+    def test_wcserror_survives_pickle_and_copy(self):
+        """status_code / response_body round-trip through pickle and copy (cross-process safe)."""
+        err = WCSError("boom", status_code=422, response_body='{"code": "X"}')
+        restored = pickle.loads(pickle.dumps(err))
+        assert str(restored) == "boom"
+        assert restored.status_code == 422
+        assert restored.response_body == '{"code": "X"}'
+        cloned = copy.copy(err)
+        assert cloned.status_code == 422
+        assert cloned.response_body == '{"code": "X"}'
 
     def test_exception_text_falls_back_without_exception_element(self):
         """_exception_text returns body text, or a default when nothing is present."""

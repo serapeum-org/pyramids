@@ -190,6 +190,16 @@ class WCSError(_PyramidsError):
         self.status_code = status_code
         self.response_body = response_body
 
+    def __reduce__(self):
+        # Round-trip the extras through pickle / copy: BaseException.__reduce__
+        # rebuilds from self.args (message only), which would reset the keyword-only
+        # status_code / response_body to None when the error crosses a process
+        # boundary (e.g. a multiprocessing worker). The state dict is applied to
+        # __dict__ after reconstruction, restoring both.
+        message = self.args[0] if self.args else ""
+        state = {"status_code": self.status_code, "response_body": self.response_body}
+        return (self.__class__, (message,), state)
+
 
 class WFSError(_PyramidsError):
     """A failure talking to an OGC Web Feature Service (WFS).
