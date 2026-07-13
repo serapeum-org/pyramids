@@ -165,5 +165,6 @@ class TestReadMasksWindowBounds:
         Test scenario:
             Window(20,20,5,5) on a 4x4 raster is rejected with a clear error.
         """
+        window = Window(20, 20, 5, 5)
         with pytest.raises(OutOfBoundsError):
-            nodata_dataset.read_masks(0, window=Window(20, 20, 5, 5))
+            nodata_dataset.read_masks(0, window=window)

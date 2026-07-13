@@ -435,8 +435,9 @@ class TestCloudConfigHttpContextManager:
             expected: the exception propagates and the previous value is back.
         """
         gdal.SetConfigOption("GDAL_HTTP_MAX_RETRY", "prev")
+        cfg = CloudConfig(http_max_retry=11)
         with pytest.raises(RuntimeError, match="boom"):
-            with CloudConfig(http_max_retry=11):
+            with cfg:
                 raise RuntimeError("boom")
         assert (
             gdal.GetConfigOption("GDAL_HTTP_MAX_RETRY") == "prev"

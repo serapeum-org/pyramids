@@ -33,5 +33,6 @@ def test_ugrid_dataset_reads_mesh(sample):
 @pytest.mark.parametrize("name", DATA_ONLY)
 def test_ugrid_data_only_files_have_no_mesh(name, sample):
     """Files carrying data on a mesh dimension but no topology raise a clear error (no mesh to build)."""
+    src = sample(name)
     with pytest.raises(ValueError, match="mesh topology"):
-        UgridDataset.read_file(sample(name))
+        UgridDataset.read_file(src)

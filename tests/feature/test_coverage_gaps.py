@@ -96,8 +96,9 @@ class TestMissingFileErrors:
 
     def test_iter_features_missing_file(self, tmp_path: Path):
         missing = tmp_path / "does_not_exist.geojson"
+        features = FeatureCollection.iter_features(missing)
         with pytest.raises((DataSourceError, FileNotFoundError)):
-            list(FeatureCollection.iter_features(missing))
+            list(features)
 
 
 class TestSchemaPolygon:

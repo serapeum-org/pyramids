@@ -203,12 +203,13 @@ class TestClipCommand:
 
     def test_bbox_and_vector_mutually_exclusive(self, src_raster, tmp_path, capsys):
         """Passing both --bbox and --vector is rejected by argparse."""
+        out = str(tmp_path / "o.tif")
         with pytest.raises(SystemExit):
             main(
                 [
                     "clip",
                     src_raster,
-                    str(tmp_path / "o.tif"),
+                    out,
                     "--bbox",
                     "1",
                     "1",

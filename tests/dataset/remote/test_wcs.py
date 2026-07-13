@@ -142,8 +142,9 @@ class TestNativeCrsShim:
         assert srs.GetAuthorityCode(None) == "4326"
 
     def test_requires_coverage_crs_when_missing(self):
+        ds = self._mem(with_srs=False)
         with pytest.raises(WCSError, match="coverage_crs"):
-            _wcs._resolve_native_srs(self._mem(with_srs=False), None)
+            _wcs._resolve_native_srs(ds, None)
 
     def test_applies_coverage_crs_shim(self):
         igh = "+proj=igh +lat_0=0 +lon_0=0 +datum=WGS84 +units=m +no_defs"
@@ -151,8 +152,9 @@ class TestNativeCrsShim:
         assert "igh" in srs.ExportToProj4()
 
     def test_rejects_bad_coverage_crs(self):
+        ds = self._mem(with_srs=False)
         with pytest.raises(ValueError, match="coverage_crs"):
-            _wcs._resolve_native_srs(self._mem(with_srs=False), "not-a-crs!!!")
+            _wcs._resolve_native_srs(ds, "not-a-crs!!!")
 
     def test_native_projwin_reprojects_bbox(self):
         igh = osr.SpatialReference()

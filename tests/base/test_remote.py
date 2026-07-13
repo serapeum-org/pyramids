@@ -316,10 +316,13 @@ class TestCloudConfigContextManager:
     def test_restores_on_exception(self):
         key = "AWS_REGION"
         gdal.SetConfigOption(key, "before")
+        cfg = CloudConfig(aws_region="during")
+        # The in-context "during" value is covered by
+        # test_restores_previous_value_on_exit; this test only asserts restoration
+        # when the body raises, so the pytest.raises block holds a single raiser.
         try:
             with pytest.raises(RuntimeError):
-                with CloudConfig(aws_region="during"):
-                    assert gdal.GetConfigOption(key) == "during"
+                with cfg:
                     raise RuntimeError("boom")
             assert gdal.GetConfigOption(key) == "before"
         finally:

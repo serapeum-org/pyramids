@@ -38,5 +38,6 @@ class TestToNetcdfMissingXarray:
         """
         col, _ = _make_int16_collection(tmp_path)
         monkeypatch.setitem(sys.modules, "xarray", None)
+        path = str(tmp_path / "noxr.nc")
         with pytest.raises(OptionalPackageDoesNotExist, match="xarray"):
-            col.to_netcdf(str(tmp_path / "noxr.nc"))
+            col.to_netcdf(path)

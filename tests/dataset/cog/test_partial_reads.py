@@ -155,8 +155,9 @@ class TestReadPart:
         Test scenario:
             resampling='bogus' is rejected before any read.
         """
+        bbox = tuple(ramp_4326.bbox)
         with pytest.raises(ValueError, match="unknown resampling"):
-            ramp_4326.read_part(tuple(ramp_4326.bbox), resampling="bogus")
+            ramp_4326.read_part(bbox, resampling="bogus")
 
     def test_nearest_neighbor_alias_accepted(self, ramp_4326):
         """The 'nearest neighbor' alias resolves like the warp family (L1).

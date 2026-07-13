@@ -192,8 +192,9 @@ class TestGridPoints:
             geometry=[Point(0, 0), Point(5, 0), Point(10, 0)],
             crs="EPSG:4326",
         )
+        fc = FeatureCollection(gdf)
         with pytest.raises(ValueError, match="degenerate output bounds"):
-            grid_points(FeatureCollection(gdf), "val", Dataset, cell_size=1.0)
+            grid_points(fc, "val", Dataset, cell_size=1.0)
 
     def test_no_sizing_raises(self, corner_points):
         """Omitting both cell_size and width/height raises ValueError.

@@ -398,8 +398,9 @@ class TestToNetcdfTimeCoords:
             ``ValueError`` mentioning the offending count.
         """
         col, _ = _make_int16_collection(tmp_path, count=2)
+        path = str(tmp_path / "bad.nc")
         with pytest.raises(ValueError, match=r"has 3 entries but"):
-            col.to_netcdf(str(tmp_path / "bad.nc"), time_coords=[1, 2, 3])
+            col.to_netcdf(path, time_coords=[1, 2, 3])
 
     def test_non_monotonic_time_coords_warns(self, tmp_path):
         """A non-monotonic ``time_coords`` triggers a :class:`UserWarning`.

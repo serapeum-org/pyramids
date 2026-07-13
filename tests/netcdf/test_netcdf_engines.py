@@ -207,8 +207,9 @@ class TestVariablesEngine:
             Neither a geotransform nor a ``(top_left_corner, cell_size)`` pair is
             supplied, so the geobox is undefined and a ValueError is raised.
         """
+        arr = np.zeros((2, 3))
         with pytest.raises(ValueError, match="geo.*top_left_corner|top_left_corner"):
-            NetCDF.create_from_array(np.zeros((2, 3)))
+            NetCDF.create_from_array(arr)
 
     def test_add_variable_copies_all_from_netcdf_source(self):
         """``add_variable`` with no name copies every variable from a NetCDF source.

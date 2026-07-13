@@ -59,8 +59,9 @@ class TestFallbackValidateGdalOpenRaises:
             raise RuntimeError("cannot read")
 
         monkeypatch.setattr(gdal_mod, "Open", boom)
+        path = str(p)
         with pytest.raises(RuntimeError, match="cannot read") as exc_info:
-            _fallback_validate(str(p))
+            _fallback_validate(path)
         assert "cannot read" in str(
             exc_info.value
         ), f"Expected 'cannot read' in exception, got: {exc_info.value}"
@@ -207,8 +208,9 @@ class TestCloudConfigExitContract:
             must not return True (which would suppress it). Caller code
             must still see the original exception.
         """
+        ctx = CloudConfig(aws_region="us-east-1")
         with pytest.raises(RuntimeError, match="boom"):
-            with CloudConfig(aws_region="us-east-1"):
+            with ctx:
                 raise RuntimeError("boom")
 
 

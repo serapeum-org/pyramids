@@ -273,8 +273,9 @@ class TestSelSlice:
         var._band_dim_values_map = dict(var._band_dim_values_map)
         var._band_dim_values_map["time"] = list(var._band_dim_values)
 
+        time_slice = slice(100, 200)
         with pytest.raises(ValueError, match="No bands match"):
-            var.sel(time=slice(100, 200))
+            var.sel(time=time_slice)
 
 
 class TestSelErrors:
@@ -445,8 +446,9 @@ class TestSelBoundary:
         """
         nc = _make_nc()
         var = nc.get_variable("temp")
+        time_slice = slice(100, 200)
         with pytest.raises(ValueError, match="No bands match"):
-            var.sel(time=slice(100, 200))
+            var.sel(time=time_slice)
 
 
 class TestSelPreservation:

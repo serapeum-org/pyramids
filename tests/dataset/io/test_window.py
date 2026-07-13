@@ -223,10 +223,10 @@ class TestWindowedIO:
 
     def test_window_shape_mismatch_raises(self, ramp_dataset):
         """An array whose shape disagrees with the Window raises ValueError."""
+        arr = np.zeros((3, 3), dtype="float32")
+        window = Window(0, 0, 2, 2)
         with pytest.raises(ValueError, match="does not match"):
-            ramp_dataset.write_array(
-                np.zeros((3, 3), dtype="float32"), window=Window(0, 0, 2, 2)
-            )
+            ramp_dataset.write_array(arr, window=window)
 
     def test_read_write_round_trip_same_window_object(self, ramp_dataset):
         """One Window object addresses both the read and the write back.

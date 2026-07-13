@@ -8,6 +8,7 @@ live :class:`gdal.Dataset` handle.
 from __future__ import annotations
 
 import pickle
+from dataclasses import FrozenInstanceError
 
 import numpy as np
 import pytest
@@ -147,5 +148,5 @@ class TestPickle:
 
 class TestFrozen:
     def test_cannot_mutate_fields(self, basic_meta):
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             basic_meta.rows = 42  # type: ignore[misc]

@@ -132,8 +132,9 @@ class TestFromFeatures:
             return
             yield  # pragma: no cover — makes this a generator
 
+        gen = empty_gen()
         with pytest.raises(ValueError, match="at least one feature"):
-            FeatureCollection.from_features(empty_gen())
+            FeatureCollection.from_features(gen)
 
     def test_empty_tuple_raises(self):
         """C9: an empty tuple is rejected the same as an empty list."""
@@ -247,19 +248,15 @@ class TestFromRecords:
 
     def test_orient_list_rejects_non_dict(self):
         """C26: passing a list under ``orient="list"`` raises clearly."""
+        records = [{"geometry": Point(0, 0)}]
         with pytest.raises(ValueError, match="dict of column"):
-            FeatureCollection.from_records(
-                [{"geometry": Point(0, 0)}],
-                orient="list",
-            )
+            FeatureCollection.from_records(records, orient="list")
 
     def test_invalid_orient_raises(self):
         """C26: unknown ``orient`` value is rejected."""
+        records = [{"geometry": Point(0, 0)}]
         with pytest.raises(ValueError, match=r"records.*list"):
-            FeatureCollection.from_records(
-                [{"geometry": Point(0, 0)}],
-                orient="index",
-            )
+            FeatureCollection.from_records(records, orient="index")
 
     def test_orient_list_missing_geometry_column_raises(self):
         """C26: columnar dict without the geometry key raises ``FeatureError``."""
@@ -272,11 +269,9 @@ class TestFromRecords:
 
     def test_orient_list_mismatched_lengths_raises(self):
         """C26: pandas surfaces mismatched-length columns as ValueError."""
+        records = {"v": [1, 2, 3], "geometry": [Point(0, 0)]}
         with pytest.raises(ValueError):
-            FeatureCollection.from_records(
-                {"v": [1, 2, 3], "geometry": [Point(0, 0)]},
-                orient="list",
-            )
+            FeatureCollection.from_records(records, orient="list")
 
 
 # ── ARC-25 : iter_features dict mode ────────────────────────────────
@@ -340,8 +335,9 @@ class TestIterFeaturesChunked:
         assert isinstance(combined, FeatureCollection)
 
     def test_chunksize_less_than_one_raises(self, small_geojson: Path):
+        features = FeatureCollection.iter_features(small_geojson, chunksize=0)
         with pytest.raises(ValueError, match="chunksize"):
-            list(FeatureCollection.iter_features(small_geojson, chunksize=0))
+            list(features)
 
     def test_chunked_with_filters(self, larger_geojson: Path):
         """bbox / where compose with chunking."""

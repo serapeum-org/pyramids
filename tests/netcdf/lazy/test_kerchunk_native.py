@@ -390,8 +390,9 @@ class TestUnsupportedFeatures:
 
         not_hdf5 = tmp_path / "plain.txt"
         not_hdf5.write_text("this is not an HDF5 file")
+        src = str(not_hdf5)
         with pytest.raises(OSError):
-            build_single_manifest(str(not_hdf5))
+            build_single_manifest(src)
 
 
 def _mini_time_manifest(time_len: int, chunk: int) -> dict:

@@ -277,21 +277,16 @@ def _extract_proj_params(srs: osr.SpatialReference, proj_name: str) -> dict[str,
             srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0),
             srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_2, 0.0),
         ]
-    elif "Lambert_Azimuthal_Equal_Area" in proj_name:
-        p["latitude_of_projection_origin"] = srs.GetProjParm(
-            osr.SRS_PP_LATITUDE_OF_ORIGIN, 0.0
+    elif any(
+        k in proj_name
+        for k in (
+            "Lambert_Azimuthal_Equal_Area",
+            "Azimuthal_Equidistant",
+            "Orthographic",
         )
-        p["longitude_of_projection_origin"] = srs.GetProjParm(
-            osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
-        )
-    elif "Azimuthal_Equidistant" in proj_name:
-        p["latitude_of_projection_origin"] = srs.GetProjParm(
-            osr.SRS_PP_LATITUDE_OF_ORIGIN, 0.0
-        )
-        p["longitude_of_projection_origin"] = srs.GetProjParm(
-            osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
-        )
-    elif "Orthographic" in proj_name:
+    ):
+        # These three projections carry the same CF params: the projection
+        # origin latitude/longitude. (Merged to avoid three identical branches.)
         p["latitude_of_projection_origin"] = srs.GetProjParm(
             osr.SRS_PP_LATITUDE_OF_ORIGIN, 0.0
         )

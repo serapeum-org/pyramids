@@ -304,8 +304,9 @@ class TestImportErrorPath:
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
+        out_path = str(tmp_path / "nope.zarr")
         with pytest.raises(OptionalPackageDoesNotExist) as exc_info:
-            small_dataset.to_zarr(str(tmp_path / "nope.zarr"))
+            small_dataset.to_zarr(out_path)
         message = str(exc_info.value)
         assert (
             "pip install 'pyramids-gis[lazy]'" in message

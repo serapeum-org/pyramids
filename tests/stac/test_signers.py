@@ -246,8 +246,9 @@ class TestBearerTokenSigner:
             `sign_request` with an empty token raises ValueError.
         """
         request = SimpleNamespace(headers={})
+        signer = BearerTokenSigner("")
         with pytest.raises(ValueError, match="non-empty string"):
-            BearerTokenSigner("").sign_request(request)
+            signer.sign_request(request)
 
     def test_non_string_token_raises(self):
         """A non-string token (e.g. an int) is rejected.

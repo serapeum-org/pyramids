@@ -66,8 +66,9 @@ class TestPlotMeshData:
 
     def test_invalid_location_raises(self, triangle_mesh):
         """Test that invalid location raises ValueError."""
+        data = np.array([1.0])
         with pytest.raises(ValueError, match="not supported"):
-            plot_mesh_data(triangle_mesh, np.array([1.0]), location="edge")
+            plot_mesh_data(triangle_mesh, data, location="edge")
 
     def test_mixed_mesh_face_plot(self, mixed_mesh):
         """Test plotting face data on mixed mesh returns MeshGlyph."""

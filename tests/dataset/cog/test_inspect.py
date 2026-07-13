@@ -191,8 +191,9 @@ class TestCogInfo:
         Test scenario:
             A non-existent path cannot be opened by GDAL.
         """
+        path = str(tmp_path / "nope.tif")
         with pytest.raises(FileNotFoundError):
-            cog_info(str(tmp_path / "nope.tif"))
+            cog_info(path)
 
 
 class TestCogInfoFacade:
