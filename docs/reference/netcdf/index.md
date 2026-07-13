@@ -1,5 +1,8 @@
 # NetCDF Class
 
+![pyramids — NetCDF, fully supported: CF / COARDS, curvilinear, staggered WRF, packed data, netCDF-4 groups and
+UGRID meshes on one native GDAL stack](../../_images/branding/netcdf-banner.png)
+
 The `NetCDF` class extends `Dataset` for structured (regular grid)
 NetCDF files. It wraps GDAL's Multidimensional API to provide
 variable access, time dimension handling, and CF-compliant metadata.
