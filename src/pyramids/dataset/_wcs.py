@@ -197,7 +197,12 @@ def _http_get(
         # message and carry the status + full body on the exception so a caller
         # can branch on them. str(HTTPError) alone is only "HTTP <code>: <reason>".
         code, _raw, body = _read_http_error(exc)
-        shown = body if len(body) <= _ERROR_BODY_CHARS else f"{body[:_ERROR_BODY_CHARS]}…"
+        # Collapse whitespace so a multi-line HTML / pretty JSON error page stays a
+        # single line in the message, and cap its length; the full, untouched body
+        # is still carried on response_body below.
+        shown = " ".join(body.split())
+        if len(shown) > _ERROR_BODY_CHARS:
+            shown = f"{shown[:_ERROR_BODY_CHARS]}…"
         raise WCSError(
             f"WCS {what} request failed for {url!r}: HTTP {code}: {shown}",
             status_code=code,
