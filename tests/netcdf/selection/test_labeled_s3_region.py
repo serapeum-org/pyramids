@@ -514,6 +514,6 @@ class TestS3PathStyleAddressing:
         fake_ds.GetRootGroup.return_value = Mock()
         monkeypatch.setattr(labeled_mod.gdal, "OpenEx", lambda path, flags: fake_ds)
 
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError):
             LabeledDataset.read_file("s3://bucket/store.zarr", anon=True)
         assert captured.get("vhost") == "FALSE", "classification must use path-style"

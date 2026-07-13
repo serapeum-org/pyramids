@@ -62,7 +62,7 @@ class TestToKerchunkSingleFile:
         # then also fails (file not found), so the call raises -- the warning proves
         # the fallback path was taken.
         with pytest.warns(UserWarning, match="falling back to the kerchunk"):
-            with pytest.raises(Exception):
+            with pytest.raises(OSError):
                 to_kerchunk(str(missing), tmp_path / "refs.json", backend="native")
 
     def test_native_reraises_corrupt_local_file(self, tmp_path):
