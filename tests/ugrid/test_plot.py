@@ -229,6 +229,7 @@ class TestUgridDatasetPlotMethods:
 
 
 _mesh_supports_style = "style" in MeshGlyph.option_keys()
+_mesh_supports_apply_style = hasattr(MeshGlyph, "apply_style")
 
 
 @pytest.mark.plot
@@ -318,3 +319,21 @@ class TestMeshStyleHillshade:
         with patch.object(MeshGlyph, "option_keys", return_value=old_keys):
             result = ds.plot("depth", hillshade=False)
         assert isinstance(result, MeshGlyph)
+
+    @pytest.mark.skipif(
+        not _mesh_supports_apply_style,
+        reason="cleopatra < 0.25 has no MeshGlyph.apply_style()",
+    )
+    def test_returned_mesh_glyph_supports_apply_style(self):
+        """The glyph from ``UgridDataset.plot`` can be restyled in place (0.25).
+
+        Test scenario:
+            cleopatra 0.25 adds ``MeshGlyph.apply_style(name)`` and a ``style``
+            read-back. pyramids returns the raw glyph, so a caller can re-apply a
+            preset by name without rebuilding — verify the round trip through the
+            ``UgridDataset.plot`` facade.
+        """
+        result = self._dataset("face").plot("depth", style="flow_accumulation")
+        assert result.style == "flow_accumulation"
+        result.apply_style("bathymetry")
+        assert result.style == "bathymetry", "apply_style must restyle in place"

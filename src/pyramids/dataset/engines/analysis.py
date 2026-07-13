@@ -1836,6 +1836,8 @@ class Analysis(_Engine["Dataset"]):
                   (imshow/pcolormesh/contour/contourf); e.g. ``cleo.im.set_clim(0, 100)``.
                 - ``cleo.cbar`` \u2014 the auto-created :class:`matplotlib.colorbar.Colorbar`, or
                   ``None`` when ``add_colorbar=False`` (or for RGB renders).
+                - ``cleo.apply_style(name)`` (cleopatra >= 0.25) — re-apply a
+                  ``DATA_STYLES`` preset by name in place, without re-plotting.
 
                 For the full ``ArrayGlyph`` API see the
                 [ArrayGlyph reference](https://serapeum-org.github.io/cleopatra/latest/api/array-glyph-class/).
