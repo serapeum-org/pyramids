@@ -475,16 +475,15 @@ class TestAsVsimemPath:
         Test scenario:
             Raise inside the block, confirm the path is still gone.
         """
-        captured: str | None = None
         ctx = as_vsimem_path(polygon_gdf)
         with pytest.raises(ValueError, match="bad"):
             with ctx as path:
-                captured = path
                 raise ValueError("bad")
-        assert captured is not None
+        # `path` stays bound to the yielded /vsimem/ path after the block; the
+        # context manager unlinks it on the exception, so it must be gone now.
         assert (
-            gdal.VSIStatL(captured) is None
-        ), f"/vsimem/ path leaked after exception: {captured}"
+            gdal.VSIStatL(path) is None
+        ), f"/vsimem/ path leaked after exception: {path}"
 
     def test_accepts_featurecollection_subclass(self, polygon_gdf):
         """A ``FeatureCollection`` is accepted transparently.
