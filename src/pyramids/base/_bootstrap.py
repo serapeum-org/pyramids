@@ -39,6 +39,67 @@ from pathlib import Path
 _DLL_HANDLE = None
 
 
+def _configure_gdal_data_env(data_dir: Path) -> None:
+    """Point GDAL / PROJ / libcurl at the wheel's bundled data directories.
+
+    ``GDAL_DATA`` / ``PROJ_DATA`` / ``PROJ_LIB`` and the CA bundle use
+    ``setdefault`` so a user/system override wins; ``GDAL_DRIVER_PATH`` is
+    forced to the bundled plugins dir (they are ABI-locked to the bundled
+    libgdal) unless ``PYRAMIDS_KEEP_GDAL_ENV=1``.
+    """
+    gdal_data = data_dir / "gdal_data"
+    proj_data = data_dir / "proj_data"
+    gdal_plugins = data_dir / "gdalplugins"
+    ca_bundle = data_dir / "ssl" / "cacert.pem"
+    if gdal_data.is_dir():
+        os.environ.setdefault("GDAL_DATA", str(gdal_data))
+    if proj_data.is_dir():
+        os.environ.setdefault("PROJ_DATA", str(proj_data))
+        os.environ.setdefault("PROJ_LIB", str(proj_data))
+    if gdal_plugins.is_dir():
+        # GDAL_DRIVER_PATH points at compiled driver plugins (gdal_netCDF.so,
+        # gdal_HDF5.so, gdal_GRIB.so, ...) ABI-locked to the exact bundled
+        # libgdal build, so it is FORCED to the bundled dir rather than
+        # setdefault'd — a foreign (e.g. conda-activated) GDAL_DRIVER_PATH is
+        # never safe for the bundled libgdal (issue #465). Power users can set
+        # PYRAMIDS_KEEP_GDAL_ENV=1 to restore "inherited value wins".
+        if os.environ.get("PYRAMIDS_KEEP_GDAL_ENV") == "1":
+            os.environ.setdefault("GDAL_DRIVER_PATH", str(gdal_plugins))
+        else:
+            os.environ["GDAL_DRIVER_PATH"] = str(gdal_plugins)
+    if ca_bundle.is_file():
+        # The bundled libcurl bakes its CA path to the wheel-build prefix,
+        # absent in the consuming env, so /vsicurl HTTPS fails with "error
+        # adding trust anchors". Re-point GDAL / PROJ / libcurl at the vendored
+        # cacert.pem; setdefault keeps any user override authoritative (#412).
+        ca_str = str(ca_bundle)
+        os.environ.setdefault("GDAL_HTTP_CAINFO", ca_str)
+        os.environ.setdefault("PROJ_CURL_CA_BUNDLE", ca_str)
+        os.environ.setdefault("CURL_CA_BUNDLE", ca_str)
+        os.environ.setdefault("SSL_CERT_FILE", ca_str)
+
+
+def _register_windows_dll_dirs(pkg_dir: Path) -> None:  # pragma: no cover
+    """Register the wheel's native DLL directory on Windows.
+
+    delvewheel places DLLs at ``<site-packages>/pyramids_gis.libs/``; this is a
+    safety net for that layout and the older ``pyramids/.libs/`` convention. The
+    dir is also prepended to ``PATH`` because GDAL's native plugin loader uses
+    raw ``LoadLibrary`` (no ``SEARCH_USER_DIRS``), which ignores
+    ``add_dll_directory``. The handle is anchored at module scope so the
+    directory stays registered for the process lifetime.
+    """
+    global _DLL_HANDLE
+    for candidate in (pkg_dir / ".libs", pkg_dir.parent / "pyramids_gis.libs"):
+        if candidate.is_dir():
+            _DLL_HANDLE = os.add_dll_directory(str(candidate))
+            candidate_str = str(candidate)
+            path = os.environ.get("PATH", "")
+            if candidate_str not in path.split(os.pathsep):
+                os.environ["PATH"] = candidate_str + os.pathsep + path
+            break
+
+
 def activate_vendored_osgeo(pkg_dir: Path) -> bool:
     """Activate the vendored osgeo if `_vendor/osgeo/` exists + ABI-matches.
 
@@ -57,7 +118,6 @@ def activate_vendored_osgeo(pkg_dir: Path) -> bool:
         directory exists or if its `_gdal.<EXT>` doesn't match the
         current Python ABI.
     """
-    global _DLL_HANDLE
     vendored_osgeo = pkg_dir / "_vendor" / "osgeo"
 
     if not vendored_osgeo.is_dir():
@@ -79,85 +139,10 @@ def activate_vendored_osgeo(pkg_dir: Path) -> bool:
     if vendor_str not in sys.path:
         sys.path.insert(0, vendor_str)
 
-    data_dir = pkg_dir / "_data"
-    gdal_data = data_dir / "gdal_data"
-    proj_data = data_dir / "proj_data"
-    gdal_plugins = data_dir / "gdalplugins"
-    ca_bundle = data_dir / "ssl" / "cacert.pem"
-    # setdefault for the DATA dirs is intentional: a user-set GDAL_DATA /
-    # PROJ_DATA / PROJ_LIB wins over the wheel's bundled data dirs. These
-    # are version-tolerant resource files, and overriding them is a
-    # legitimate advanced use case (e.g. pointing PROJ at a custom grid
-    # bundle). Side effect: changing these env vars after import has no
-    # effect — the bootstrap reads them once at first `import pyramids`.
-    if gdal_data.is_dir():
-        os.environ.setdefault("GDAL_DATA", str(gdal_data))
-    if proj_data.is_dir():
-        os.environ.setdefault("PROJ_DATA", str(proj_data))
-        os.environ.setdefault("PROJ_LIB", str(proj_data))
-    if gdal_plugins.is_dir():
-        # GDAL_DRIVER_PATH is handled DIFFERENTLY from the data dirs above:
-        # it points at compiled driver plugins (gdal_netCDF.so,
-        # gdal_HDF5.so, gdal_GRIB.so, ...) that are ABI-locked to the exact
-        # bundled libgdal build, so it is FORCED to the bundled dir rather
-        # than setdefault'd. conda-forge now ships these drivers as plugins
-        # on every platform (not statically linked), and we vendor them
-        # into `_data/gdalplugins/`.
-        #
-        # The failure this prevents (issue #465): when the wheel is
-        # imported inside an activated conda env, conda's activate.d already
-        # exports GDAL_DRIVER_PATH pointing at conda's own gdalplugins,
-        # built for a DIFFERENT libgdal version. With setdefault that
-        # inherited value would win, so the bundled libgdal would try to
-        # load conda's mismatched plugins; GDAL refuses to register them
-        # ("Function GDALRegister_netCDF of .../gdal_netCDF.so did not
-        # register a driver netCDF") and every NetCDF/HDF5 read then fails
-        # with "not recognized as being in a supported file format".
-        #
-        # A foreign GDAL_DRIVER_PATH is never safe for the bundled libgdal,
-        # so we override it. Power users who really want the bundled GDAL to
-        # load plugins from an external dir can set PYRAMIDS_KEEP_GDAL_ENV=1
-        # to restore the old "inherited GDAL_DRIVER_PATH wins" behaviour.
-        if os.environ.get("PYRAMIDS_KEEP_GDAL_ENV") == "1":
-            os.environ.setdefault("GDAL_DRIVER_PATH", str(gdal_plugins))
-        else:
-            os.environ["GDAL_DRIVER_PATH"] = str(gdal_plugins)
-    if ca_bundle.is_file():
-        # The bundled libcurl bakes its CA path to the wheel-build
-        # prefix (`.pixi/envs/wheel-build/ssl/cacert.pem`), which is
-        # absent in the consuming env, so GDAL `/vsicurl` HTTPS reads
-        # fail with "error adding trust anchors". Re-point GDAL / PROJ /
-        # libcurl at the cacert.pem we vendor into the wheel. setdefault
-        # keeps any user/system override (CURL_CA_BUNDLE, SSL_CERT_FILE,
-        # certifi) authoritative. See issue #412.
-        ca_str = str(ca_bundle)
-        os.environ.setdefault("GDAL_HTTP_CAINFO", ca_str)
-        os.environ.setdefault("PROJ_CURL_CA_BUNDLE", ca_str)
-        os.environ.setdefault("CURL_CA_BUNDLE", ca_str)
-        os.environ.setdefault("SSL_CERT_FILE", ca_str)
+    _configure_gdal_data_env(pkg_dir / "_data")
 
     if sys.platform == "win32":  # pragma: no cover
-        # delvewheel places DLLs at <site-packages>/pyramids_gis.libs/
-        # (one level up from this package) and injects its own
-        # add_dll_directory call near the top of the vendored
-        # osgeo/__init__.py. The block below is a safety net for both
-        # that layout and the older pyramids/.libs/ convention; the
-        # vendored osgeo/__init__.py also sets the DLL directory on
-        # import so spawn workers that import osgeo without pyramids
-        # first still resolve gdal.dll.
-        #
-        # We also prepend the libs dir to PATH because GDAL's native
-        # plugin loader uses raw LoadLibrary (no SEARCH_USER_DIRS
-        # flag), which doesn't honor add_dll_directory. PATH is the
-        # only env-controlled fallback in the legacy DLL search order.
-        for candidate in (pkg_dir / ".libs", pkg_dir.parent / "pyramids_gis.libs"):
-            if candidate.is_dir():
-                _DLL_HANDLE = os.add_dll_directory(str(candidate))
-                candidate_str = str(candidate)
-                path = os.environ.get("PATH", "")
-                if candidate_str not in path.split(os.pathsep):
-                    os.environ["PATH"] = candidate_str + os.pathsep + path
-                break
+        _register_windows_dll_dirs(pkg_dir)
 
     if os.environ.get("PYRAMIDS_DEBUG_BOOTSTRAP"):  # pragma: no cover
         print(f"[pyramids] vendor dir: {vendor_str}")

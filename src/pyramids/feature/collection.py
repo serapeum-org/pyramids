@@ -894,25 +894,9 @@ class FeatureCollection(GeoDataFrame):
         else:
             batch_size = int(chunksize)
 
-        # D-M3: pin the engine to pyogrio. `skip_features` /
-        # `max_features` are pyogrio-specific (geopandas' fiona
-        # engine silently ignores them, which would turn every chunk
-        # into a full scan). Pinning the engine makes the contract
-        # explicit and fails fast if pyogrio is absent.
-        read_kwargs: dict[str, Any] = {"engine": "pyogrio"}
-        if layer is not None:
-            read_kwargs["layer"] = layer
-        if where is not None:
-            read_kwargs["where"] = where
-
-        # when tile_strategy is "auto"/"rtree"/"row_group",
-        # forward the bbox to pyogrio which transparently uses the
-        # format's spatial index. When "none", hold the bbox back
-        # and apply it in Python after each chunk loads.
-        pushdown_bbox = bbox if tile_strategy != "none" else None
-        python_bbox = bbox if tile_strategy == "none" else None
-        if pushdown_bbox is not None:
-            read_kwargs["bbox"] = pushdown_bbox
+        read_kwargs, python_bbox = cls._build_iter_read_kwargs(
+            layer, where, bbox, tile_strategy
+        )
 
         for start in range(0, total, batch_size):
             gdf_chunk = gpd.read_file(
@@ -921,32 +905,79 @@ class FeatureCollection(GeoDataFrame):
                 max_features=batch_size,
                 **read_kwargs,
             )
-            # remember the absolute row indices before any
-            # bbox-based masking so callers can map yielded features
-            # back to their source rows even after a Python-side filter
-            # has dropped some of them.
-            if include_index:
-                row_indices = list(range(start, start + len(gdf_chunk)))
+            # Absolute row indices captured before any bbox masking, so callers
+            # can map yielded features back to their source rows.
+            row_indices = (
+                list(range(start, start + len(gdf_chunk))) if include_index else None
+            )
             if python_bbox is not None and len(gdf_chunk) > 0:
                 xmin, ymin, xmax, ymax = python_bbox
                 mask = gdf_chunk.intersects(box(xmin, ymin, xmax, ymax))
                 if include_index:
                     row_indices = [ri for ri, keep in zip(row_indices, mask) if keep]
                 gdf_chunk = gdf_chunk[mask]
-            if chunksize is None:
-                iterator = gdf_chunk.iterfeatures(na="null")
-                if include_index:
-                    for ri, feat in zip(row_indices, iterator):
-                        feat["id"] = ri
-                        yield feat
-                else:
-                    for feat in iterator:
-                        yield feat
+            yield from cls._emit_features(
+                gdf_chunk, row_indices, chunksize, include_index
+            )
+
+    @staticmethod
+    def _build_iter_read_kwargs(
+        layer: str | int | None,
+        where: str | None,
+        bbox: tuple[float, float, float, float] | None,
+        tile_strategy: str,
+    ) -> tuple[dict[str, Any], tuple[float, float, float, float] | None]:
+        """Build the pyogrio ``read_file`` kwargs for :meth:`iter_features`.
+
+        The engine is pinned to pyogrio (``skip_features`` / ``max_features`` are
+        pyogrio-specific; the fiona engine silently ignores them, turning every
+        chunk into a full scan). For every ``tile_strategy`` except ``"none"`` the
+        ``bbox`` is pushed down to pyogrio (which uses the format's spatial
+        index); for ``"none"`` it is held back for a post-load Python filter.
+
+        Returns:
+            ``(read_kwargs, python_bbox)`` — the held-back bbox is ``None`` unless
+            ``tile_strategy == "none"``.
+        """
+        read_kwargs: dict[str, Any] = {"engine": "pyogrio"}
+        if layer is not None:
+            read_kwargs["layer"] = layer
+        if where is not None:
+            read_kwargs["where"] = where
+        pushdown_bbox = bbox if tile_strategy != "none" else None
+        python_bbox = bbox if tile_strategy == "none" else None
+        if pushdown_bbox is not None:
+            read_kwargs["bbox"] = pushdown_bbox
+        return read_kwargs, python_bbox
+
+    @classmethod
+    def _emit_features(
+        cls,
+        gdf_chunk: GeoDataFrame,
+        row_indices: list[int] | None,
+        chunksize: int | None,
+        include_index: bool,
+    ) -> Any:
+        """Yield a processed chunk for :meth:`iter_features`.
+
+        With ``chunksize=None`` yields one GeoJSON-style dict per row (stamping
+        an ``"id"`` when ``include_index``); otherwise yields a single
+        :class:`FeatureCollection` chunk (with a ``"_row_index"`` column when
+        ``include_index``).
+        """
+        if chunksize is None:
+            iterator = gdf_chunk.iterfeatures(na="null")
+            if include_index:
+                for ri, feat in zip(row_indices, iterator):
+                    feat["id"] = ri
+                    yield feat
             else:
-                chunk_fc = cls(gdf_chunk)
-                if include_index:
-                    chunk_fc["_row_index"] = row_indices
-                yield chunk_fc
+                yield from iterator
+        else:
+            chunk_fc = cls(gdf_chunk)
+            if include_index:
+                chunk_fc["_row_index"] = row_indices
+            yield chunk_fc
 
     @classmethod
     def read_file(
@@ -1956,6 +1987,53 @@ class FeatureCollection(GeoDataFrame):
             kwargs["batch_size"] = batch_size
         return open_arrow(resolved, **kwargs)
 
+    @staticmethod
+    def _read_parquet_dask(
+        resolved: str,
+        *,
+        columns: list[str] | None,
+        split_row_groups: bool | None,
+        filters: list | None,
+        blocksize: int | str | None,
+        storage_options: dict | None,
+        extra_kwargs: dict[str, Any],
+    ) -> "LazyFeatureCollection":
+        """Dask backend for :meth:`read_parquet`: wrap dask_geopandas as a LazyFeatureCollection."""
+        # check deps in order of specificity — the backend request is the more
+        # specific signal, so the dask-geopandas hint beats the generic pyarrow
+        # one. When both are missing, this error names the extra ([parquet]).
+        try:
+            import dask_geopandas
+        except ImportError as exc:
+            raise ImportError(
+                "backend='dask' requires the optional "
+                "'dask-geopandas' dependency. Install with one of:\n"
+                "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
+                "  - conda-forge: conda install -c conda-forge pyramids-parquet"
+            ) from exc
+        dask_kwargs: dict[str, Any] = {}
+        if columns is not None:
+            dask_kwargs["columns"] = columns
+        if split_row_groups is not None:
+            dask_kwargs["split_row_groups"] = split_row_groups
+        if filters is not None:
+            dask_kwargs["filters"] = filters
+        if blocksize is not None:
+            dask_kwargs["blocksize"] = blocksize
+        if storage_options is not None:
+            dask_kwargs["storage_options"] = storage_options
+        dask_kwargs.update(extra_kwargs)
+        # dask_geopandas is installed → assert pyarrow too, so the user gets the
+        # pyramids-branded hint (not the upstream message). `[parquet]` pulls both.
+        _require_pyarrow()
+        # Local import breaks the collection <-> _lazy_collection cycle
+        # (_lazy_collection imports FeatureCollection from this module); it wraps
+        # the lazy dask return inside the pyramids type system.
+        from pyramids.feature._lazy_collection import LazyFeatureCollection
+
+        dask_gdf = dask_geopandas.read_parquet(resolved, **dask_kwargs)
+        return LazyFeatureCollection.from_dask_gdf(dask_gdf)
+
     @classmethod
     def read_parquet(
         cls,
@@ -2058,43 +2136,15 @@ class FeatureCollection(GeoDataFrame):
         """
         resolved = _pyramids_io._parse_path(path)
         if backend == "dask":
-            # check deps in order of specificity — the backend
-            # request is the more specific signal, so the
-            # dask-geopandas hint beats the generic pyarrow one.
-            # When both are missing, the dask-geopandas error names
-            # the extra that installs both ([parquet]).
-            try:
-                import dask_geopandas
-            except ImportError as exc:
-                raise ImportError(
-                    "backend='dask' requires the optional "
-                    "'dask-geopandas' dependency. Install with one of:\n"
-                    "  - PyPI:        pip install 'pyramids-gis[parquet]'\n"
-                    "  - conda-forge: conda install -c conda-forge pyramids-parquet"
-                ) from exc
-            dask_kwargs: dict[str, Any] = {}
-            if columns is not None:
-                dask_kwargs["columns"] = columns
-            if split_row_groups is not None:
-                dask_kwargs["split_row_groups"] = split_row_groups
-            if filters is not None:
-                dask_kwargs["filters"] = filters
-            if blocksize is not None:
-                dask_kwargs["blocksize"] = blocksize
-            if storage_options is not None:
-                dask_kwargs["storage_options"] = storage_options
-            dask_kwargs.update(kwargs)
-            # dask_geopandas is installed → assert pyarrow too, so
-            # the user gets the pyramids-branded hint (not the
-            # upstream message dask_geopandas would emit when it tries
-            # to read). `[parquet]` pulls both.
-            _require_pyarrow()
-            # wrap the lazy return as a LazyFeatureCollection so the
-            # dask branch stays inside the pyramids type system.
-            from pyramids.feature._lazy_collection import LazyFeatureCollection
-
-            dask_gdf = dask_geopandas.read_parquet(resolved, **dask_kwargs)
-            return LazyFeatureCollection.from_dask_gdf(dask_gdf)
+            return cls._read_parquet_dask(
+                resolved,
+                columns=columns,
+                split_row_groups=split_row_groups,
+                filters=filters,
+                blocksize=blocksize,
+                storage_options=storage_options,
+                extra_kwargs=kwargs,
+            )
         if backend != "pandas":
             raise ValueError(f"backend must be 'pandas' or 'dask', got {backend!r}")
         _require_pyarrow()

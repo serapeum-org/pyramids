@@ -852,6 +852,50 @@ class Bands(_Engine["Dataset"]):
 
         return df
 
+    def _coerce_band_no_data(self, i: int, val: Any) -> Any:
+        """Coerce one band's no-data value to its dtype.
+
+        Non-``None``/``NaN`` values cast to the band's numpy dtype (may raise
+        ``OverflowError`` when out of range); ``None``/``NaN`` on an unsigned band
+        uses the dtype max, and passes through unchanged otherwise.
+        """
+        # if not None or np.nan
+        if val is not None and not np.isnan(val):
+            # cast to the band dtype (raises OverflowError when out of range)
+            result = self._ds.numpy_dtype[i](val)
+        elif self._ds.dtype[i].startswith("u"):
+            # None/np.nan on an Unsigned integer band would misbehave; use the
+            # dtype max bound as the no_data_value.
+            result = np.iinfo(self._ds.dtype[i]).max
+        else:
+            # None/np.nan on any non-unsigned dtype: pass through unchanged.
+            result = val
+        return result
+
+    def _fallback_no_data(self, i: int) -> Any:
+        """Pick a dtype-valid no-data sentinel when the requested value overflows.
+
+        The dtype max for unsigned ints (matching the None/NaN branch), the dtype
+        min for signed ints too small to hold the default, and the default for
+        floats (which can always represent it).
+        """
+        np_dtype = np.dtype(self._ds.numpy_dtype[i])
+        # np.issubdtype narrows at runtime but isn't recognised by the numpy
+        # stubs, so cast to the exact integer family each branch just proved.
+        if np.issubdtype(np_dtype, np.unsignedinteger):
+            unsigned_dtype = cast("np.dtype[np.unsignedinteger]", np_dtype)
+            fallback = np_dtype.type(np.iinfo(unsigned_dtype).max)
+        elif np.issubdtype(np_dtype, np.integer):
+            signed_dtype = cast("np.dtype[np.signedinteger]", np_dtype)
+            info = np.iinfo(signed_dtype)
+            if info.min <= DEFAULT_NO_DATA_VALUE <= info.max:
+                fallback = np_dtype.type(DEFAULT_NO_DATA_VALUE)
+            else:
+                fallback = np_dtype.type(info.min)
+        else:
+            fallback = np_dtype.type(DEFAULT_NO_DATA_VALUE)
+        return fallback
+
     def _check_no_data_value(self, no_data_value: list | tuple) -> list:
         """Validate the no_data_value against each band's dtype.
 
@@ -874,57 +918,17 @@ class Bands(_Engine["Dataset"]):
         """
         no_data_value = list(no_data_value)
         # convert the no_data_value based on the dtype of each raster band.
-        for i, val in enumerate(self._ds.gdal_dtype):
+        for i in range(len(self._ds.gdal_dtype)):
             try:
-                val = no_data_value[i]
-                # if not None or np.nan
-                if val is not None and not np.isnan(val):
-                    # if val < np.iinfo(self._ds.dtype[i]).min or val > np.iinfo(self._ds.dtype[i]).max:
-                    # if the no_data_value is out of the range of the data type
-                    no_data_value[i] = self._ds.numpy_dtype[i](val)
-                else:
-                    # None and np.nan
-                    if self._ds.dtype[i].startswith("u"):
-                        # only Unsigned integer data types.
-                        # if None or np.nan it will make a problem with the unsigned integer data type
-                        # use the max bound of the data type as a no_data_value
-                        no_data_value[i] = np.iinfo(self._ds.dtype[i]).max
-                    else:
-                        # no_data_type is None/np,nan and all other data types that is not Unsigned integer
-                        no_data_value[i] = val
+                no_data_value[i] = self._coerce_band_no_data(i, no_data_value[i])
             except OverflowError:
                 # The requested no_data_value does not fit the band dtype (e.g.
-                # the default -9999 on a uint16 band, or -3.4e38 on int64). Fall
-                # back to a dtype-valid sentinel instead of re-casting the same
-                # out-of-range value (which would just re-raise): the dtype max
-                # for unsigned ints (matching the None/NaN branch above), the
-                # dtype min for signed ints too small to hold the default, and
-                # the default for floats (which can always represent it).
-                np_dtype = np.dtype(self._ds.numpy_dtype[i])
-                # np.issubdtype narrows at runtime but isn't recognised by the
-                # numpy stubs, so np.iinfo still sees the full dtype union --
-                # cast to the exact integer family each branch just proved.
-                if np.issubdtype(np_dtype, np.unsignedinteger):
-                    # -9999 (and any negative default) cannot fit an unsigned
-                    # band; use the dtype max, matching the None/NaN branch.
-                    unsigned_dtype = cast("np.dtype[np.unsignedinteger]", np_dtype)
-                    fallback = np_dtype.type(np.iinfo(unsigned_dtype).max)
-                elif np.issubdtype(np_dtype, np.integer):
-                    # Keep the default -9999 when the signed band can hold it
-                    # (int16/int32/int64); only too-small bands (int8) need the
-                    # dtype min. The unsignedinteger branch above already ran,
-                    # so this is provably signedinteger.
-                    signed_dtype = cast("np.dtype[np.signedinteger]", np_dtype)
-                    info = np.iinfo(signed_dtype)
-                    if info.min <= DEFAULT_NO_DATA_VALUE <= info.max:
-                        fallback = np_dtype.type(DEFAULT_NO_DATA_VALUE)
-                    else:
-                        fallback = np_dtype.type(info.min)
-                else:
-                    fallback = np_dtype.type(DEFAULT_NO_DATA_VALUE)
+                # the default -9999 on a uint16 band, or -3.4e38 on int64); fall
+                # back to a dtype-valid sentinel instead of re-casting.
+                fallback = self._fallback_no_data(i)
                 warnings.warn(
                     f"The no_data_value {no_data_value[i]!r} is out of range for band "
-                    f"dtype {np_dtype}; falling back to {fallback}."
+                    f"dtype {np.dtype(self._ds.numpy_dtype[i])}; falling back to {fallback}."
                 )
                 no_data_value[i] = fallback
         return no_data_value

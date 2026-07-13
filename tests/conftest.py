@@ -33,8 +33,15 @@ from shapely.geometry import Polygon
 
 # isort: on
 from tests._marks import EXTRA_MARKERS
-from tests.dataset.conftest import *
-from tests.feature.conftest import *
+
+# The dataset/ and feature/ conftests auto-provide their fixtures to tests under
+# their own directories. The only cross-directory use is tests/base/test_dtype_conversions.py,
+# which needs `src` and `data_source`, so re-export just those two chains here
+# instead of a blanket `from … import *` (S2208). (`src_path` / `test_vector_path`
+# are the path fixtures they depend on.) A new cross-dir use would fail loudly with
+# "fixture not found", prompting an explicit addition.
+from tests.dataset.conftest import src, src_path  # noqa: F401
+from tests.feature.conftest import data_source, test_vector_path  # noqa: F401
 
 # GDAL_DATA as configured by `import pyramids` above (the vendored
 # `_data/gdal_data` in a bundled wheel, or conda's `share/gdal` in dev).

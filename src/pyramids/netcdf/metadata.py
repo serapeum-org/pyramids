@@ -363,26 +363,41 @@ class MetadataBuilder:
         if any(self._is_classic_dim_attr_key(k) for k in existing):
             result = existing
         else:
-            try:
-                path = self.gdal_dataset.GetDescription()
-            except RuntimeError as exc:
-                logger.debug("GetDescription() failed during dim top-up: %s", exc)
-                path = ""
-            if path:
-                try:
-                    ds = gdal.Open(path)
-                    try:
-                        if ds is not None:
-                            result = ds.GetMetadata() or {}
-                    finally:
-                        ds = None  # explicit release; see review M1
-                except RuntimeError as exc:
-                    logger.debug(
-                        "classic re-open failed during dim top-up (%r): %s",
-                        path,
-                        exc,
-                    )
+            result = self._reopen_classic_metadata()
         self._classic_md_cache = result
+        return result
+
+    def _reopen_classic_metadata(self) -> dict[str, str]:
+        """Re-open the dataset in classic mode to read its flat metadata.
+
+        Opens a transient `gdal.Open(GetDescription())` handle on the same
+        path and returns its `GetMetadata()` dict. Any failure (no path,
+        unreachable file, GDAL error on `GetDescription` / `Open` /
+        `GetMetadata`) yields `{}` so the top-up degrades to a no-op.
+
+        Returns:
+            dict[str, str]: Flat classic-mode metadata, empty on failure.
+        """
+        result: dict[str, str] = {}
+        try:
+            path = self.gdal_dataset.GetDescription()
+        except RuntimeError as exc:
+            logger.debug("GetDescription() failed during dim top-up: %s", exc)
+            path = ""
+        if path:
+            try:
+                ds = gdal.Open(path)
+                try:
+                    if ds is not None:
+                        result = ds.GetMetadata() or {}
+                finally:
+                    ds = None  # explicit release; see review M1
+            except RuntimeError as exc:
+                logger.debug(
+                    "classic re-open failed during dim top-up (%r): %s",
+                    path,
+                    exc,
+                )
         return result
 
 
@@ -569,43 +584,11 @@ class GroupTraverser:
 
             # Children
             children_full: list[str] = []
-            for cn in _safe_group_names(group):
-                try:
-                    current_group = group.OpenGroup(cn)
-                except RuntimeError as exc:
-                    logger.debug(
-                        "group.OpenGroup(%r) failed in %r: %s",
-                        cn,
-                        group_full_name,
-                        exc,
-                    )
-                    current_group = None
-
-                if current_group is None:
-                    continue
-
-                # Delegate child full-name resolution to GroupInfo
-                try:
-                    child_info = GroupInfo.from_group(
-                        current_group, variables=[], children=[], attributes={}
-                    )
-                    current_group_full_name = child_info.full_name
-                except RuntimeError as exc:
-                    logger.debug(
-                        "GroupInfo.from_group(%r) failed in %r: %s; "
-                        "falling back to path concatenation",
-                        cn,
-                        group_full_name,
-                        exc,
-                    )
-                    current_group_full_name = (
-                        f"{group_full_name}/{cn}"
-                        if group_full_name != "/"
-                        else f"/{cn}"
-                    )
-
-                children_full.append(current_group_full_name)
-                q.append(current_group)
+            for child_full_name, child_group in self._resolve_child_groups(
+                group, group_full_name
+            ):
+                children_full.append(child_full_name)
+                q.append(child_group)
 
             # Record this group entry via GroupInfo factory
             group_info = GroupInfo.from_group(
@@ -617,6 +600,62 @@ class GroupTraverser:
             if gkey != "/":
                 gkey = gkey.lstrip("/")
             self.groups[gkey] = group_info
+
+    def _resolve_child_groups(
+        self, group: gdal.Group, group_full_name: str
+    ) -> list[tuple[str, "gdal.Group"]]:
+        """Open the child groups of *group* and resolve their full names.
+
+        Children that fail to open are skipped. For a child whose
+        `GroupInfo` resolution raises, the full name falls back to
+        concatenating the parent full name with the child's short name.
+
+        Args:
+            group: The parent GDAL group being visited.
+            group_full_name: Full name of the parent group.
+
+        Returns:
+            List of `(child_full_name, child_group)` pairs for every child
+            that opened successfully, in traversal order.
+        """
+        children: list[tuple[str, "gdal.Group"]] = []
+        for cn in _safe_group_names(group):
+            try:
+                current_group = group.OpenGroup(cn)
+            except RuntimeError as exc:
+                logger.debug(
+                    "group.OpenGroup(%r) failed in %r: %s",
+                    cn,
+                    group_full_name,
+                    exc,
+                )
+                current_group = None
+
+            if current_group is None:
+                continue
+
+            # Delegate child full-name resolution to GroupInfo
+            try:
+                child_info = GroupInfo.from_group(
+                    current_group, variables=[], children=[], attributes={}
+                )
+                current_group_full_name = child_info.full_name
+            except RuntimeError as exc:
+                logger.debug(
+                    "GroupInfo.from_group(%r) failed in %r: %s; "
+                    "falling back to path concatenation",
+                    cn,
+                    group_full_name,
+                    exc,
+                )
+                current_group_full_name = (
+                    f"{group_full_name}/{cn}"
+                    if group_full_name != "/"
+                    else f"/{cn}"
+                )
+
+            children.append((current_group_full_name, current_group))
+        return children
 
 
 def get_metadata(
@@ -999,6 +1038,6 @@ def flatten_for_index(metadata: NetCDFMetadata) -> dict[str, Any]:
     for k, v in list(metadata.global_attributes.items())[:MAX_INDEXED_GLOBAL_ATTRS]:
         d[f"global.{k}"] = v
     # include names of variables and dims
-    d["variables"] = sorted([a for a in metadata.variables.keys()])
-    d["dimensions"] = sorted([dname for dname in metadata.dimensions.keys()])
+    d["variables"] = sorted(metadata.variables.keys())
+    d["dimensions"] = sorted(metadata.dimensions.keys())
     return d

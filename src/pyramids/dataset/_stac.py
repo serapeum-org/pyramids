@@ -880,6 +880,38 @@ def _footprint_4326(
     return geometry, [min(lons), min(lats), max(lons), max(lats)]
 
 
+def _to_iso(value: Any) -> Any:
+    """Serialise a datetime-like value via ``isoformat()``; pass strings/None through."""
+    return value.isoformat() if hasattr(value, "isoformat") else value
+
+
+def _proj_fields(
+    dataset: Any, epsg: Any, native_bbox: list, transform_fn: Any
+) -> dict[str, Any]:
+    """Build the ``proj`` extension property fields from the dataset grid."""
+    return {
+        "proj:epsg": epsg,
+        "proj:code": f"EPSG:{epsg}",
+        "proj:shape": [dataset.rows, dataset.columns],
+        "proj:transform": transform_fn(dataset.geotransform),
+        "proj:bbox": native_bbox,
+    }
+
+
+def _raster_bands(dataset: Any) -> list[dict[str, Any]]:
+    """Build the ``raster:bands`` list (per-band ``data_type`` + optional ``nodata``)."""
+    nodata = dataset.no_data_value
+    dtypes = dataset.dtype
+    bands: list[dict[str, Any]] = []
+    for i in range(dataset.band_count):
+        band: dict[str, Any] = {"data_type": dtypes[i]}
+        nd = nodata[i] if i < len(nodata) else None
+        if nd is not None:
+            band["nodata"] = nd
+        bands.append(band)
+    return bands
+
+
 def to_stac_item(
     dataset: Any,
     item_id: str,
@@ -961,27 +993,22 @@ def to_stac_item(
     native_bbox = list(dataset.bbox)
     geometry, bbox_4326 = _footprint_4326(native_bbox, epsg, precision)
 
-    def _iso(value: Any) -> Any:
-        return value.isoformat() if hasattr(value, "isoformat") else value
-
     # A null `datetime` is only STAC-valid alongside a start/end range. When the
     # caller gives neither, default to "now" so the Item is always valid
     # instead of silently emitting a null-datetime Feature.
     if datetime is None and not (start_datetime and end_datetime):
         datetime = _datetime_cls.now(timezone.utc)
-    properties: dict[str, Any] = {"datetime": _iso(datetime)}
+    properties: dict[str, Any] = {"datetime": _to_iso(datetime)}
     if start_datetime is not None:
-        properties["start_datetime"] = _iso(start_datetime)
+        properties["start_datetime"] = _to_iso(start_datetime)
     if end_datetime is not None:
-        properties["end_datetime"] = _iso(end_datetime)
+        properties["end_datetime"] = _to_iso(end_datetime)
     stac_extensions: list[str] = []
 
     if with_proj and epsg:
-        properties["proj:epsg"] = epsg
-        properties["proj:code"] = f"EPSG:{epsg}"
-        properties["proj:shape"] = [dataset.rows, dataset.columns]
-        properties["proj:transform"] = geotransform_to_affine(dataset.geotransform)
-        properties["proj:bbox"] = native_bbox
+        properties.update(
+            _proj_fields(dataset, epsg, native_bbox, geotransform_to_affine)
+        )
         stac_extensions.append(
             "https://stac-extensions.github.io/projection/v1.1.0/schema.json"
         )
@@ -991,16 +1018,7 @@ def to_stac_item(
         asset["type"] = asset_media_type
 
     if with_raster:
-        nodata = dataset.no_data_value
-        dtypes = dataset.dtype
-        bands = []
-        for i in range(dataset.band_count):
-            band: dict[str, Any] = {"data_type": dtypes[i]}
-            nd = nodata[i] if i < len(nodata) else None
-            if nd is not None:
-                band["nodata"] = nd
-            bands.append(band)
-        asset["raster:bands"] = bands
+        asset["raster:bands"] = _raster_bands(dataset)
         stac_extensions.append(
             "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
         )

@@ -209,27 +209,45 @@ def _get_array_nodata(
             if isinstance(v, list):
                 return v[0] if v else None
             return v  # type: ignore[return-value]
-    # Try driver API
+    return _nodata_from_driver_api(mdarr)
+
+
+def _nodata_from_driver_api(mdarr: gdal.MDArray) -> int | float | str | None:
+    """Read a no-data value from the GDAL MDArray driver API.
+
+    Tries the double / int64 / string accessors in order. Some GDAL versions
+    return a ``(value, has_value)`` pair; the value is used only when the flag
+    is set, otherwise the next accessor is tried. Any accessor that raises is
+    skipped.
+
+    Args:
+        mdarr: A GDAL multidimensional array object.
+
+    Returns:
+        The no-data value as an ``int`` / ``float`` / ``str``, or ``None`` if
+        no accessor yields one.
+    """
     for meth in (
         "GetNoDataValueAsDouble",
         "GetNoDataValueAsInt64",
         "GetNoDataValueAsString",
     ):
-        if hasattr(mdarr, meth):
-            try:
-                v = getattr(mdarr, meth)()
-                # Some GDAL versions return (value, hasval)
-                if (
-                    isinstance(v, (list, tuple))
-                    and len(v) == 2
-                    and isinstance(v[1], (bool, int))
-                ):
-                    if v[1]:
-                        return cast(int | float | str | None, _to_py_scalar(v[0]))
-                    continue
-                return cast(int | float | str | None, _to_py_scalar(v))
-            except Exception:
-                continue  # nosec B112
+        if not hasattr(mdarr, meth):
+            continue
+        try:
+            v = getattr(mdarr, meth)()
+            # Some GDAL versions return (value, hasval)
+            if (
+                isinstance(v, (list, tuple))
+                and len(v) == 2
+                and isinstance(v[1], (bool, int))
+            ):
+                if v[1]:
+                    return cast(int | float | str | None, _to_py_scalar(v[0]))
+                continue
+            return cast(int | float | str | None, _to_py_scalar(v))
+        except Exception:
+            continue  # nosec B112
     return None
 
 
@@ -814,3 +832,29 @@ def _read_attributes(obj: Any) -> dict[str, AttributeValue]:
             # Be robust; don't crash on odd attribute types
             attrs[name] = _normalize_attr_value(None)
     return attrs
+
+
+def _read_dim_names(md_arr: Any) -> list[str]:
+    """Read the ordered dimension names of a GDAL MDArray.
+
+    Prefers each dimension's full name and falls back to its short name.
+    Any failure to enumerate the dimensions yields an empty list so the
+    caller degrades gracefully.
+
+    Args:
+        md_arr: A GDAL `MDArray` supporting `GetDimensions()`.
+
+    Returns:
+        Ordered list of dimension names (full names where available),
+        empty if the dimensions cannot be read.
+    """
+    dim_names: list[str] = []
+    try:
+        for d in md_arr.GetDimensions() or []:
+            try:
+                dim_names.append(d.GetFullName())
+            except Exception:
+                dim_names.append(d.GetName())
+    except Exception:
+        return []
+    return dim_names

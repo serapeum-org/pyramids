@@ -261,41 +261,11 @@ def _extract_proj_params(srs: osr.SpatialReference, proj_name: str) -> dict[str,
             osr.SRS_PP_SCALE_FACTOR, 1.0
         )
     elif "Lambert_Conformal_Conic" in proj_name:
-        p["latitude_of_projection_origin"] = srs.GetProjParm(
-            osr.SRS_PP_LATITUDE_OF_ORIGIN, 0.0
-        )
-        p["longitude_of_central_meridian"] = srs.GetProjParm(
-            osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
-        )
-        sp1 = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
-        sp2 = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_2, 0.0)
-        if sp1 == sp2:
-            p["standard_parallel"] = sp1
-        else:
-            p["standard_parallel"] = [sp1, sp2]
+        p.update(_lcc_params(srs))
     elif "Mercator" in proj_name:
-        p["longitude_of_projection_origin"] = srs.GetProjParm(
-            osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
-        )
-        sf = srs.GetProjParm(osr.SRS_PP_SCALE_FACTOR, 0.0)
-        sp = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
-        if not math.isclose(sf, 0.0):
-            p["scale_factor_at_projection_origin"] = sf
-        if not math.isclose(sp, 0.0):
-            p["standard_parallel"] = sp
+        p.update(_mercator_params(srs))
     elif "Polar_Stereographic" in proj_name:
-        p["straight_vertical_longitude_from_pole"] = srs.GetProjParm(
-            osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
-        )
-        p["latitude_of_projection_origin"] = srs.GetProjParm(
-            osr.SRS_PP_LATITUDE_OF_ORIGIN, 0.0
-        )
-        sf = srs.GetProjParm(osr.SRS_PP_SCALE_FACTOR, 0.0)
-        sp = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
-        if not math.isclose(sf, 0.0):
-            p["scale_factor_at_projection_origin"] = sf
-        if not math.isclose(sp, 0.0):
-            p["standard_parallel"] = sp
+        p.update(_polar_stereographic_params(srs))
     elif "Albers" in proj_name:
         p["latitude_of_projection_origin"] = srs.GetProjParm(
             osr.SRS_PP_LATITUDE_OF_ORIGIN, 0.0
@@ -348,6 +318,67 @@ def _extract_proj_params(srs: osr.SpatialReference, proj_name: str) -> dict[str,
         p["perspective_point_height"] = srs.GetProjParm("satellite_height", 35785831.0)
         p["sweep_angle_axis"] = "y"
 
+    return p
+
+
+def _lcc_params(srs: osr.SpatialReference) -> dict[str, Any]:
+    """CF params for a Lambert Conformal Conic projection.
+
+    Collapses the two standard parallels to a single value when they are
+    equal, else emits them as a ``[sp1, sp2]`` pair.
+    """
+    sp1 = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
+    sp2 = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_2, 0.0)
+    return {
+        "latitude_of_projection_origin": srs.GetProjParm(
+            osr.SRS_PP_LATITUDE_OF_ORIGIN, 0.0
+        ),
+        "longitude_of_central_meridian": srs.GetProjParm(
+            osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
+        ),
+        "standard_parallel": sp1 if sp1 == sp2 else [sp1, sp2],
+    }
+
+
+def _add_scale_and_parallel(srs: osr.SpatialReference, p: dict[str, Any]) -> None:
+    """Add the CF scale-factor / standard-parallel params when they are non-zero.
+
+    Shared by the Mercator and Polar Stereographic projections, which both emit
+    `scale_factor_at_projection_origin` / `standard_parallel` only when the GDAL
+    projection parameter is set (non-zero).
+    """
+    sf = srs.GetProjParm(osr.SRS_PP_SCALE_FACTOR, 0.0)
+    sp = srs.GetProjParm(osr.SRS_PP_STANDARD_PARALLEL_1, 0.0)
+    if not math.isclose(sf, 0.0):
+        p["scale_factor_at_projection_origin"] = sf
+    if not math.isclose(sp, 0.0):
+        p["standard_parallel"] = sp
+
+
+def _mercator_params(srs: osr.SpatialReference) -> dict[str, Any]:
+    """CF params for a Mercator projection (scale factor / standard parallel
+    are emitted only when non-zero)."""
+    p: dict[str, Any] = {
+        "longitude_of_projection_origin": srs.GetProjParm(
+            osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
+        ),
+    }
+    _add_scale_and_parallel(srs, p)
+    return p
+
+
+def _polar_stereographic_params(srs: osr.SpatialReference) -> dict[str, Any]:
+    """CF params for a Polar Stereographic projection (scale factor / standard
+    parallel are emitted only when non-zero)."""
+    p: dict[str, Any] = {
+        "straight_vertical_longitude_from_pole": srs.GetProjParm(
+            osr.SRS_PP_CENTRAL_MERIDIAN, 0.0
+        ),
+        "latitude_of_projection_origin": srs.GetProjParm(
+            osr.SRS_PP_LATITUDE_OF_ORIGIN, 0.0
+        ),
+    }
+    _add_scale_and_parallel(srs, p)
     return p
 
 
@@ -419,23 +450,18 @@ def _build_srs_from_cf_params(
             params.get("false_northing", 0.0),
         )
     elif grid_mapping_name == "lambert_conformal_conic":
-        sp = params.get("standard_parallel", [0.0, 0.0])
-        if isinstance(sp, (int, float)):
-            sp = [sp, sp]
+        sp1, sp2 = _two_standard_parallels(params)
         srs.SetLCC(
-            sp[0],
-            sp[1] if len(sp) > 1 else sp[0],
+            sp1,
+            sp2,
             params.get("latitude_of_projection_origin", 0.0),
             params.get("longitude_of_central_meridian", 0.0),
             params.get("false_easting", 0.0),
             params.get("false_northing", 0.0),
         )
     elif grid_mapping_name == "mercator":
-        sp = params.get("standard_parallel", 0.0)
-        if isinstance(sp, list):
-            sp = sp[0]
         srs.SetMercator(
-            float(sp),
+            _single_standard_parallel(params),
             params.get("longitude_of_projection_origin", 0.0),
             params.get("scale_factor_at_projection_origin", 1.0),
             params.get("false_easting", 0.0),
@@ -450,12 +476,10 @@ def _build_srs_from_cf_params(
             params.get("false_northing", 0.0),
         )
     elif grid_mapping_name == "albers_conical_equal_area":
-        sp = params.get("standard_parallel", [0.0, 0.0])
-        if isinstance(sp, (int, float)):
-            sp = [sp, sp]
+        sp1, sp2 = _two_standard_parallels(params)
         srs.SetACEA(
-            sp[0],
-            sp[1] if len(sp) > 1 else sp[0],
+            sp1,
+            sp2,
             params.get("latitude_of_projection_origin", 0.0),
             params.get("longitude_of_central_meridian", 0.0),
             params.get("false_easting", 0.0),
@@ -506,6 +530,26 @@ def _build_srs_from_cf_params(
         )
 
     return srs
+
+
+def _two_standard_parallels(params: dict[str, Any]) -> tuple[float, float]:
+    """Return the two CF standard parallels, normalizing a scalar to a pair.
+
+    A ``standard_parallel`` given as a scalar becomes ``(sp, sp)``; a
+    single-element list repeats its value for the second parallel.
+    """
+    sp = params.get("standard_parallel", [0.0, 0.0])
+    if isinstance(sp, (int, float)):
+        sp = [sp, sp]
+    return sp[0], (sp[1] if len(sp) > 1 else sp[0])
+
+
+def _single_standard_parallel(params: dict[str, Any]) -> float:
+    """Return the scalar CF standard parallel, taking the first of a list."""
+    sp = params.get("standard_parallel", 0.0)
+    if isinstance(sp, list):
+        sp = sp[0]
+    return float(sp)
 
 
 _STDNAME_TO_AXIS: dict[str, str] = {
@@ -639,34 +683,54 @@ def detect_axis(
     if isinstance(axis, str) and axis.strip().upper() in ("X", "Y", "Z", "T"):
         result = axis.strip().upper()
     else:
-        stdname = attrs.get("standard_name")
-        if isinstance(stdname, str):
-            result = _STDNAME_TO_AXIS.get(stdname.lower())
+        result = _detect_axis_from_metadata(name, attrs, units)
 
-        if result is None:
-            unit_str = units or attrs.get("units")
-            if isinstance(unit_str, str):
-                unit_lower = unit_str.lower().strip()
-                if unit_lower in (
-                    "degrees_north",
-                    "degree_north",
-                    "degree_n",
-                    "degrees_n",
-                ):
-                    result = "Y"
-                elif unit_lower in (
-                    "degrees_east",
-                    "degree_east",
-                    "degree_e",
-                    "degrees_e",
-                ):
-                    result = "X"
-                elif "since" in unit_lower:
-                    result = "T"
+    return result
 
-        if result is None:
-            result = _NAME_PATTERNS.get(name.lower().strip())
 
+def _axis_from_units(unit_str: Any) -> str | None:
+    """Map a CF ``units`` string to an axis code (Y/X/T), or None.
+
+    Args:
+        unit_str: A candidate CF ``units`` value.
+
+    Returns:
+        ``"Y"`` for degrees-north units, ``"X"`` for degrees-east units,
+        ``"T"`` for a ``<period> since <epoch>`` time unit, else ``None``.
+    """
+    axis: str | None = None
+    if isinstance(unit_str, str):
+        unit_lower = unit_str.lower().strip()
+        if unit_lower in ("degrees_north", "degree_north", "degree_n", "degrees_n"):
+            axis = "Y"
+        elif unit_lower in ("degrees_east", "degree_east", "degree_e", "degrees_e"):
+            axis = "X"
+        elif "since" in unit_lower:
+            axis = "T"
+    return axis
+
+
+def _detect_axis_from_metadata(
+    name: str, attrs: dict[str, Any], units: str | None
+) -> str | None:
+    """Detect a CF axis from standard_name, then units, then name pattern.
+
+    Applied (in priority order) when no explicit ``axis`` attribute is present.
+
+    Args:
+        name: Variable or dimension short name.
+        attrs: Case-folded attribute dictionary.
+        units: Unit string passed separately from ``attrs``.
+
+    Returns:
+        One of ``"X"``, ``"Y"``, ``"Z"``, ``"T"``, or ``None``.
+    """
+    stdname = attrs.get("standard_name")
+    result = _STDNAME_TO_AXIS.get(stdname.lower()) if isinstance(stdname, str) else None
+    if result is None:
+        result = _axis_from_units(units or attrs.get("units"))
+    if result is None:
+        result = _NAME_PATTERNS.get(name.lower().strip())
     return result
 
 
@@ -690,53 +754,93 @@ def classify_variables(
         dim_names.add(d.name)
         dim_names.add(d.full_name.lstrip("/"))
 
-    bounds_vars: set[str] = set()
-    cell_measure_vars: set[str] = set()
-    ancillary_vars: set[str] = set()
-    aux_coord_vars: set[str] = set()
+    refs = _collect_reference_vars(variables)
 
+    roles: dict[str, str] = {}
+    for name, var in variables.items():
+        roles[name] = _classify_one(name, var.attributes, dim_names, refs)
+
+    return roles
+
+
+def _parse_cell_measures(cell_measures: Any) -> set[str]:
+    """Parse a CF ``cell_measures`` string into its measure-variable names.
+
+    The standard measure keywords (``area``, ``volume``) are skipped; a
+    non-string input yields an empty set.
+    """
+    result: set[str] = set()
+    if isinstance(cell_measures, str):
+        for token in cell_measures.replace(":", " ").split():
+            if token not in ("area", "volume"):
+                result.add(token)
+    return result
+
+
+def _collect_reference_vars(variables: dict[str, Any]) -> dict[str, set[str]]:
+    """Collect names referenced by other variables, grouped by CF role.
+
+    Scans every variable's attributes and returns the sets of names referenced
+    as ``bounds``, ``cell_measures``, ``ancillary_variables`` and (auxiliary)
+    ``coordinates`` variables.
+
+    Returns:
+        Dict with keys ``"bounds"`` / ``"cell_measure"`` / ``"ancillary"`` /
+        ``"aux_coord"``, each mapping to a set of referenced variable names.
+    """
+    refs: dict[str, set[str]] = {
+        "bounds": set(),
+        "cell_measure": set(),
+        "ancillary": set(),
+        "aux_coord": set(),
+    }
     for var in variables.values():
         attrs = var.attributes
         bounds_ref = attrs.get("bounds")
         if isinstance(bounds_ref, str):
-            bounds_vars.add(bounds_ref)
-        cm = attrs.get("cell_measures")
-        if isinstance(cm, str):
-            for token in cm.replace(":", " ").split():
-                if token not in ("area", "volume"):
-                    cell_measure_vars.add(token)
+            refs["bounds"].add(bounds_ref)
+        refs["cell_measure"] |= _parse_cell_measures(attrs.get("cell_measures"))
         av = attrs.get("ancillary_variables")
         if isinstance(av, str):
-            ancillary_vars.update(av.split())
+            refs["ancillary"].update(av.split())
         coords = attrs.get("coordinates")
         if isinstance(coords, str):
-            aux_coord_vars.update(coords.split())
+            refs["aux_coord"].update(coords.split())
+    return refs
 
-    roles: dict[str, str] = {}
-    for name, var in variables.items():
-        short_name = name.lstrip("/")
-        attrs = var.attributes
 
-        if "grid_mapping_name" in attrs:
-            roles[name] = "grid_mapping"
-        elif short_name in bounds_vars or name in bounds_vars:
-            roles[name] = "bounds"
-        elif short_name in cell_measure_vars or name in cell_measure_vars:
-            roles[name] = "cell_measure"
-        elif short_name in ancillary_vars or name in ancillary_vars:
-            roles[name] = "ancillary"
-        elif _is_mesh_topology(attrs):
-            roles[name] = "mesh_topology"
-        elif _is_connectivity(attrs):
-            roles[name] = "connectivity"
-        elif short_name in dim_names:
-            roles[name] = "coordinate"
-        elif short_name in aux_coord_vars or name in aux_coord_vars:
-            roles[name] = "auxiliary_coordinate"
-        else:
-            roles[name] = "data"
+def _classify_one(
+    name: str,
+    attrs: dict[str, Any],
+    dim_names: set[str],
+    refs: dict[str, set[str]],
+) -> str:
+    """Return the CF role for a single variable.
 
-    return roles
+    Applies the role precedence used by :func:`classify_variables`:
+    grid-mapping, bounds, cell-measure, ancillary, mesh-topology, connectivity,
+    (dimension) coordinate, auxiliary coordinate, then plain data.
+    """
+    short_name = name.lstrip("/")
+    if "grid_mapping_name" in attrs:
+        role = "grid_mapping"
+    elif short_name in refs["bounds"] or name in refs["bounds"]:
+        role = "bounds"
+    elif short_name in refs["cell_measure"] or name in refs["cell_measure"]:
+        role = "cell_measure"
+    elif short_name in refs["ancillary"] or name in refs["ancillary"]:
+        role = "ancillary"
+    elif _is_mesh_topology(attrs):
+        role = "mesh_topology"
+    elif _is_connectivity(attrs):
+        role = "connectivity"
+    elif short_name in dim_names:
+        role = "coordinate"
+    elif short_name in refs["aux_coord"] or name in refs["aux_coord"]:
+        role = "auxiliary_coordinate"
+    else:
+        role = "data"
+    return role
 
 
 def _is_mesh_topology(attrs: dict[str, Any]) -> bool:
@@ -885,30 +989,84 @@ def decode_flags(
     # default; every branch below indexes flag_meanings.
     if flag_meanings is not None:
         if flag_masks is not None and flag_values is not None:
-            matched = [
-                flag_meanings[i]
-                for i in range(len(flag_meanings))
-                if i < len(flag_masks)
-                and i < len(flag_values)
-                and (value & flag_masks[i]) == flag_values[i]
-            ]
-            if matched:
-                result = matched
+            matched = _decode_combined(value, flag_values, flag_meanings, flag_masks)
         elif flag_masks is not None:
-            matched = [
-                flag_meanings[i]
-                for i in range(len(flag_meanings))
-                if i < len(flag_masks) and (value & flag_masks[i]) != 0
-            ]
-            if matched:
-                result = matched
+            matched = _decode_bitfield(value, flag_meanings, flag_masks)
         elif flag_values is not None:
-            for i, fv in enumerate(flag_values):
-                if fv == value and i < len(flag_meanings):
-                    result = [flag_meanings[i]]
-                    break
+            matched = _decode_exclusive(value, flag_values, flag_meanings)
+        else:
+            matched = []
+        if matched:
+            result = matched
 
     return result
+
+
+def _decode_combined(
+    value: int,
+    flag_values: list,
+    flag_meanings: list[str],
+    flag_masks: list[int],
+) -> list[str]:
+    """Combined CF flags: meanings where ``(value & mask) == flag_value``.
+
+    Args:
+        value: The integer flag value being decoded.
+        flag_values: Per-flag expected values (1:1 with meanings).
+        flag_meanings: Human-readable meaning strings.
+        flag_masks: Per-flag bit masks (1:1 with meanings).
+
+    Returns:
+        Matching meanings, empty if none match.
+    """
+    return [
+        flag_meanings[i]
+        for i in range(len(flag_meanings))
+        if i < len(flag_masks)
+        and i < len(flag_values)
+        and (value & flag_masks[i]) == flag_values[i]
+    ]
+
+
+def _decode_bitfield(
+    value: int, flag_meanings: list[str], flag_masks: list[int]
+) -> list[str]:
+    """Boolean/bit-field CF flags: meanings whose mask bit is set in ``value``.
+
+    Args:
+        value: The integer flag value being decoded.
+        flag_meanings: Human-readable meaning strings.
+        flag_masks: Per-flag bit masks (1:1 with meanings).
+
+    Returns:
+        Matching meanings, empty if none match.
+    """
+    return [
+        flag_meanings[i]
+        for i in range(len(flag_meanings))
+        if i < len(flag_masks) and (value & flag_masks[i]) != 0
+    ]
+
+
+def _decode_exclusive(
+    value: int, flag_values: list, flag_meanings: list[str]
+) -> list[str]:
+    """Mutually exclusive CF flags: the single meaning matching ``value``.
+
+    Args:
+        value: The integer flag value being decoded.
+        flag_values: Per-flag values (1:1 with meanings).
+        flag_meanings: Human-readable meaning strings.
+
+    Returns:
+        A single-element list with the first matching meaning, empty if none.
+    """
+    matched: list[str] = []
+    for i, fv in enumerate(flag_values):
+        if fv == value and i < len(flag_meanings):
+            matched = [flag_meanings[i]]
+            break
+    return matched
 
 
 def validate_cf(
@@ -952,15 +1110,33 @@ def validate_cf(
     for name, var in variables.items():
         short = name.lstrip("/")
         if short in dim_names:
-            if not var.attributes.get("units") and not var.unit:
-                issues.append(
-                    f"Coordinate variable '{short}' has no 'units' attribute."
-                )
-            units_val = var.attributes.get("units", "")
-            if isinstance(units_val, str) and "since" in units_val:
-                if "calendar" not in var.attributes:
-                    issues.append(
-                        f"Time coordinate '{short}' has no 'calendar' attribute."
-                    )
+            issues.extend(_check_coordinate_variable(short, var))
 
+    return issues
+
+
+def _check_coordinate_variable(short: str, var: Any) -> list[str]:
+    """Return CF issues for a single dimension-coordinate variable.
+
+    Checks that the coordinate carries a ``units`` attribute and, for a
+    time coordinate (``units`` containing ``"since"``), that it also carries
+    a ``calendar`` attribute.
+
+    Args:
+        short: Coordinate variable name with any leading ``/`` stripped.
+        var: The ``VariableInfo`` for the coordinate.
+
+    Returns:
+        List of warning strings for this variable. Empty if compliant.
+    """
+    issues: list[str] = []
+    if not var.attributes.get("units") and not var.unit:
+        issues.append(f"Coordinate variable '{short}' has no 'units' attribute.")
+    units_val = var.attributes.get("units", "")
+    if (
+        isinstance(units_val, str)
+        and "since" in units_val
+        and "calendar" not in var.attributes
+    ):
+        issues.append(f"Time coordinate '{short}' has no 'calendar' attribute.")
     return issues

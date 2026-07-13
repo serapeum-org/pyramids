@@ -1238,6 +1238,50 @@ class Spatial(_Engine["Dataset"]):
                 )
         return src_array
 
+    def _assert_crop_aligned(
+        self, mask: gdal.Dataset | np.ndarray, row: int, col: int
+    ) -> None:
+        """Raise if source and mask differ in size, grid origin/cell size, or CRS."""
+        if row != self._ds.rows or col != self._ds.columns:
+            raise ValueError(
+                "Two rasters have different number of columns or rows, please resample or match both rasters"
+            )
+        if isinstance(mask, RasterBase):
+            if (
+                self._ds.top_left_corner != mask.top_left_corner
+                or self._ds.cell_size != mask.cell_size
+            ):
+                raise ValueError(
+                    "the location of the upper left corner of both rasters is not the same or cell size is "
+                    "different please match both rasters first "
+                )
+            if mask.epsg != self._ds.epsg:
+                raise ValueError(
+                    "Dataset A & B are using different coordinate systems please reproject one of them to "
+                    "the other raster coordinate system"
+                )
+
+    def _apply_mask_nodata(
+        self, src_array: np.ndarray, mask_no_data: np.ndarray, band_count: int
+    ) -> None:
+        """Write the source no-data value into the masked cells (per band)."""
+        if band_count > 1:
+            # check the no_data_value complies with the src dtype before writing it
+            # into cells (a band full of values may never use its no_data_value).
+            no_data_value = self._ds._check_no_data_value(self._ds.no_data_value)
+            for band in range(self._ds.band_count):
+                src_array[band, mask_no_data] = no_data_value[band]
+        else:
+            src_array[mask_no_data] = self._ds.no_data_value[0]
+
+    def _write_bands(self, dst_obj: Any, src_array: np.ndarray, band_count: int) -> None:
+        """Write the (possibly multi-band) array into the destination raster."""
+        if band_count > 1:
+            for band in range(band_count):
+                dst_obj.raster.GetRasterBand(band + 1).WriteArray(src_array[band, :, :])
+        else:
+            dst_obj.raster.GetRasterBand(1).WriteArray(src_array)
+
     def _crop_aligned(
         self,
         mask: gdal.Dataset | np.ndarray,
@@ -1263,7 +1307,6 @@ class Spatial(_Engine["Dataset"]):
         """
         if isinstance(mask, RasterBase):
             mask_gt = mask.geotransform
-            mask_epsg = mask.epsg
             row = mask.rows
             col = mask.columns
             mask_noval = mask.no_data_value[0]
@@ -1289,37 +1332,10 @@ class Spatial(_Engine["Dataset"]):
         # ndarray here (the dask.Array arm of ArrayLike is unreachable).
         src_array = cast(np.typing.NDArray, self._ds.read_array())
 
-        if row != self._ds.rows or col != self._ds.columns:
-            raise ValueError(
-                "Two rasters have different number of columns or rows, please resample or match both rasters"
-            )
-
-        if isinstance(mask, RasterBase):
-            if (
-                self._ds.top_left_corner != mask.top_left_corner
-                or self._ds.cell_size != mask.cell_size
-            ):
-                raise ValueError(
-                    "the location of the upper left corner of both rasters is not the same or cell size is "
-                    "different please match both rasters first "
-                )
-
-            if mask_epsg != self._ds.epsg:
-                raise ValueError(
-                    "Dataset A & B are using different coordinate systems please reproject one of them to "
-                    "the other raster coordinate system"
-                )
+        self._assert_crop_aligned(mask, row, col)
 
         mask_no_data = is_no_data(mask_array, mask_noval)
-        if band_count > 1:
-            # check if the no data value for the src complies with the dtype of the src as sometimes the band is full
-            # of values and the no_data_value is not used at all in the band, and when we try to replace any value in
-            # the array with the no_data_value it will raise an error.
-            no_data_value = self._ds._check_no_data_value(self._ds.no_data_value)
-            for band in range(self._ds.band_count):
-                src_array[band, mask_no_data] = no_data_value[band]
-        else:
-            src_array[mask_no_data] = self._ds.no_data_value[0]
+        self._apply_mask_nodata(src_array, mask_no_data, band_count)
 
         if fill_gaps:
             src_array = self.fill_gaps(mask, src_array)
@@ -1340,11 +1356,7 @@ class Spatial(_Engine["Dataset"]):
         dst_obj = self._ds.__class__(dst)
         # set the no data value
         dst_obj._set_no_data_value(self._ds.no_data_value)
-        if band_count > 1:
-            for band in range(band_count):
-                dst_obj.raster.GetRasterBand(band + 1).WriteArray(src_array[band, :, :])
-        else:
-            dst_obj.raster.GetRasterBand(1).WriteArray(src_array)
+        self._write_bands(dst_obj, src_array, band_count)
         return dst_obj
 
     def _check_alignment(self, mask) -> bool:

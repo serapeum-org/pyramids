@@ -252,27 +252,42 @@ def _get_capabilities(
     return tuple(sorted(versions)), frozenset(_extract_coverages(root))
 
 
-def _extract_coverages(root: ET.Element) -> set[str]:
-    """Collect coverage identifiers from a ``GetCapabilities`` document.
-
-    WCS 2.0.x / 1.1.x advertise coverages as ``CoverageId`` / ``Identifier``.
-    WCS 1.0.0 uses ``<name>`` — but only the ``<name>`` *inside a coverage
-    offering* is an identifier; the ``<Service><name>`` is the service title, so
-    a blind ``name`` sweep would wrongly admit it. We therefore collect ``name``
-    only when its parent is a ``CoverageOfferingBrief`` / ``CoverageOffering``.
-    """
-    coverages: set[str] = set()
+def _collect_coverage_ids(root: ET.Element) -> set[str]:
+    """Collect WCS 2.0.x / 1.1.x ``CoverageId`` / ``Identifier`` values."""
+    ids: set[str] = set()
     for el in root.iter():
         if _localname(el.tag) in ("CoverageId", "Identifier") and el.text:
-            coverages.add(el.text.strip())
-    if coverages:
-        return coverages
+            ids.add(el.text.strip())
+    return ids
+
+
+def _collect_wcs10_names(root: ET.Element) -> set[str]:
+    """Collect WCS 1.0.0 ``<name>`` values inside coverage offerings only.
+
+    The ``<name>`` inside a ``CoverageOfferingBrief`` / ``CoverageOffering`` is a
+    coverage identifier; the ``<Service><name>`` is the service title, so a blind
+    ``name`` sweep would wrongly admit it.
+    """
+    names: set[str] = set()
     for parent in root.iter():
         if _localname(parent.tag) not in ("CoverageOfferingBrief", "CoverageOffering"):
             continue
         for child in parent:
             if _localname(child.tag) == "name" and child.text:
-                coverages.add(child.text.strip())
+                names.add(child.text.strip())
+    return names
+
+
+def _extract_coverages(root: ET.Element) -> set[str]:
+    """Collect coverage identifiers from a ``GetCapabilities`` document.
+
+    WCS 2.0.x / 1.1.x advertise coverages as ``CoverageId`` / ``Identifier``;
+    WCS 1.0.0 uses ``<name>`` inside a coverage offering (see
+    :func:`_collect_wcs10_names` for why the service title is excluded).
+    """
+    coverages = _collect_coverage_ids(root)
+    if not coverages:
+        coverages = _collect_wcs10_names(root)
     return coverages
 
 

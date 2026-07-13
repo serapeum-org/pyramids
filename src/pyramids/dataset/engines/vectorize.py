@@ -799,26 +799,26 @@ class Vectorize(_Engine["Dataset"]):
         neighbor. The caller (cluster) handles truly isolated cells separately.
         """
         rows, cols = array.shape
+        # 8-connected neighbour offsets, in the row-major order of the original
+        # (-1, 0, 1) x (-1, 0, 1) double loop (minus the (0, 0) self-cell).
+        offsets = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
         queue: collections.deque[tuple[int, int]] = collections.deque()
         queue.append((i, j))
 
         while queue:
             ci, cj = queue.popleft()
-            for di in (-1, 0, 1):
-                for dj in (-1, 0, 1):
-                    if di == 0 and dj == 0:
-                        continue
-                    ni, nj = ci + di, cj + dj
-                    if (
-                        0 <= ni < rows
-                        and 0 <= nj < cols
-                        and cluster[ni, nj] == 0
-                        and lower_bound <= array[ni, nj] <= upper_bound
-                    ):
-                        cluster[ni, nj] = count
-                        position.append([ni, nj])
-                        values.append(array[ni, nj])
-                        queue.append((ni, nj))
+            for di, dj in offsets:
+                ni, nj = ci + di, cj + dj
+                if (
+                    0 <= ni < rows
+                    and 0 <= nj < cols
+                    and cluster[ni, nj] == 0
+                    and lower_bound <= array[ni, nj] <= upper_bound
+                ):
+                    cluster[ni, nj] = count
+                    position.append([ni, nj])
+                    values.append(array[ni, nj])
+                    queue.append((ni, nj))
 
     def cluster(
         self, lower_bound: Any, upper_bound: Any

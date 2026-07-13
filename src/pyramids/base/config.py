@@ -185,6 +185,72 @@ class LoggerManager:
         self._setup_logging(level=level, log_file=log_file)
         self._set_error_handler()
 
+    def _normalize_level(self, level: int | str) -> int:
+        """Coerce a level name (case-insensitive) or int to a logging level int."""
+        if isinstance(level, str):
+            if level.upper() not in self.LEVELS:
+                raise ValueError(f"Invalid log level: {level}")
+            level = getattr(logging, level.upper(), logging.INFO)
+        return level
+
+    @staticmethod
+    def _existing_handlers(
+        root_logger: logging.Logger,
+    ) -> tuple[logging.Handler | None, set[Path]]:
+        """Return the current console handler (if any) and the set of file-handler paths."""
+        console_handler: logging.Handler | None = None
+        file_paths: set[Path] = set()
+        for h in root_logger.handlers:
+            if isinstance(h, logging.StreamHandler) and not isinstance(
+                h, logging.FileHandler
+            ):
+                console_handler = h
+            if isinstance(h, logging.FileHandler):
+                try:
+                    file_paths.add(Path(h.baseFilename))
+                except Exception:
+                    pass  # nosec B110
+        return console_handler, file_paths
+
+    def _ensure_console_handler(
+        self,
+        root_logger: logging.Logger,
+        console_handler: logging.Handler | None,
+        level: int,
+    ) -> None:
+        """Add a coloured console handler, or update the existing one's level/format."""
+        if console_handler is None:
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(level)
+            console_handler.setFormatter(
+                ColorFormatter(fmt=self.FMT, datefmt=self.DATE_FMT)
+            )
+            root_logger.addHandler(console_handler)
+        else:
+            console_handler.setLevel(level)
+            if not isinstance(console_handler.formatter, ColorFormatter):
+                console_handler.setFormatter(
+                    ColorFormatter(fmt=self.FMT, datefmt=self.DATE_FMT)
+                )
+
+    def _ensure_file_handler(
+        self,
+        root_logger: logging.Logger,
+        log_file: str | Path | None,
+        level: int,
+        existing_paths: set[Path],
+    ) -> None:
+        """Add a file handler for ``log_file`` if requested and not already present."""
+        if log_file is not None:
+            log_file_path = Path(log_file)
+            if log_file_path not in existing_paths:
+                fh = logging.FileHandler(log_file_path, encoding="utf-8")
+                fh.setLevel(level)
+                fh.setFormatter(
+                    logging.Formatter(fmt=self.FMT, datefmt=self.DATE_FMT)
+                )
+                root_logger.addHandler(fh)
+
     def _setup_logging(
         self,
         level: int | str = logging.INFO,
@@ -222,53 +288,16 @@ class LoggerManager:
         See Also:
             ColorFormatter: Colorizes level names for console output.
         """
-        # Normalize level
-        if isinstance(level, str):
-            if level.upper() not in self.LEVELS:
-                raise ValueError(f"Invalid log level: {level}")
-            level = getattr(logging, level.upper(), logging.INFO)
+        level = self._normalize_level(level)
 
         root_logger = logging.getLogger()
         root_logger.setLevel(level)
 
-        # Determine if a console handler already exists
-        console_handler = None
-        file_handler_exists_for = set()
-        for h in root_logger.handlers:
-            if isinstance(h, logging.StreamHandler) and not isinstance(
-                h, logging.FileHandler
-            ):
-                console_handler = h
-            if isinstance(h, logging.FileHandler):
-                try:
-                    file_handler_exists_for.add(Path(h.baseFilename))
-                except Exception:
-                    pass  # nosec B110
-
-        # Create or update console handler
-        if console_handler is None:
-            console_handler = logging.StreamHandler()
-            console_handler.setLevel(level)
-            console_handler.setFormatter(
-                ColorFormatter(fmt=self.FMT, datefmt=self.DATE_FMT)
-            )
-            root_logger.addHandler(console_handler)
-        else:
-            console_handler.setLevel(level)
-            # Always ensure colored formatter on console
-            if not isinstance(console_handler.formatter, ColorFormatter):
-                console_handler.setFormatter(
-                    ColorFormatter(fmt=self.FMT, datefmt=self.DATE_FMT)
-                )
-
-        # Create file handler if requested and not already present
-        if log_file is not None:
-            log_file_path = Path(log_file)
-            if log_file_path not in file_handler_exists_for:
-                fh = logging.FileHandler(log_file_path, encoding="utf-8")
-                fh.setLevel(level)
-                fh.setFormatter(logging.Formatter(fmt=self.FMT, datefmt=self.DATE_FMT))
-                root_logger.addHandler(fh)
+        console_handler, file_handler_exists_for = self._existing_handlers(root_logger)
+        self._ensure_console_handler(root_logger, console_handler, level)
+        self._ensure_file_handler(
+            root_logger, log_file, level, file_handler_exists_for
+        )
 
         # Reduce noise from common third-party libraries
         for noisy in ("fiona", "rasterio", "shapely", "matplotlib", "urllib3", "osgeo"):
@@ -689,6 +718,29 @@ class Config:
             gdal.SetConfigOption("GDAL_DRIVER_PATH", str(gdal_plugins_path))
         gdal.AllRegister()
 
+    def _prepend_to_path(self, library_bin_path: Path) -> None:
+        """Prepend ``library_bin_path`` to ``PATH`` (fixes Windows error 126 loading plugins)."""
+        if library_bin_path.exists():
+            current_path = os.environ.get("PATH", "")
+            bin_str = str(library_bin_path)
+            path_parts = current_path.split(os.pathsep) if current_path else []
+            if bin_str not in path_parts:
+                os.environ["PATH"] = bin_str + (
+                    os.pathsep + current_path if current_path else ""
+                )
+                self.logger.debug(f"Prepended to PATH: {bin_str}")
+        else:
+            self.logger.debug(f"Library bin path not found at: {library_bin_path}")
+
+    def _set_env_path(self, env_name: str, path: Path, not_found_label: str) -> None:
+        """Set ``os.environ[env_name]`` to ``path`` if it exists and differs; log otherwise."""
+        if path.exists():
+            if os.environ.get(env_name) != str(path):
+                os.environ[env_name] = str(path)
+                self.logger.debug(f"{env_name} set to: {path}")
+        else:
+            self.logger.debug(f"{not_found_label} path not found at: {path}")
+
     def set_env_conda(self) -> Path | None:
         """Set GDAL-related environment variables in a Conda environment.
 
@@ -732,34 +784,35 @@ class Config:
             )
 
         # Ensure dependent DLLs are on PATH (fixes error 126 on Windows when loading plugins like HDF5)
-        if library_bin_path.exists():
-            current_path = os.environ.get("PATH", "")
-            bin_str = str(library_bin_path)
-            path_parts = current_path.split(os.pathsep) if current_path else []
-            if bin_str not in path_parts:
-                os.environ["PATH"] = bin_str + (
-                    os.pathsep + current_path if current_path else ""
-                )
-                self.logger.debug(f"Prepended to PATH: {bin_str}")
-        else:
-            self.logger.debug(f"Library bin path not found at: {library_bin_path}")
+        self._prepend_to_path(library_bin_path)
 
         # Optionally set GDAL_DATA and PROJ_LIB if available
-        if gdal_data_path.exists():
-            if os.environ.get("GDAL_DATA") != str(gdal_data_path):
-                os.environ["GDAL_DATA"] = str(gdal_data_path)
-                self.logger.debug(f"GDAL_DATA set to: {gdal_data_path}")
-        else:
-            self.logger.debug(f"GDAL data path not found at: {gdal_data_path}")
-
-        if proj_lib_path.exists():
-            if os.environ.get("PROJ_LIB") != str(proj_lib_path):
-                os.environ["PROJ_LIB"] = str(proj_lib_path)
-                self.logger.debug(f"PROJ_LIB set to: {proj_lib_path}")
-        else:
-            self.logger.debug(f"PROJ lib path not found at: {proj_lib_path}")
+        self._set_env_path("GDAL_DATA", gdal_data_path, "GDAL data")
+        self._set_env_path("PROJ_LIB", proj_lib_path, "PROJ lib")
 
         return gdal_plugins_path if gdal_plugins_path.exists() else None
+
+    @staticmethod
+    def _probe_windows_plugins() -> Path | None:
+        """Probe Python site-packages for a GDAL plugins dir (Windows), last match wins."""
+        found: Path | None = None
+        for site_path in site.getsitepackages():
+            plugins = Plugins(site_packages_path=site_path)
+            path = plugins.check_path()
+            if path:
+                found = path
+        return found
+
+    def _probe_posix_plugins(self) -> Path | None:
+        """Probe typical Linux/macOS gdalplugins locations, setting GDAL_DRIVER_PATH."""
+        found: Path | None = None
+        for candidate in ("/usr/local/lib/gdalplugins", "/usr/lib/gdalplugins"):
+            path = Path(candidate)
+            if path.exists():
+                os.environ["GDAL_DRIVER_PATH"] = str(path)
+                found = path
+                self.logger.debug(f"GDAL_DRIVER_PATH set to: {path}")
+        return found
 
     def dynamic_env_variables(self) -> Path | None:
         """Locate GDAL plugin directories and export GDAL_DRIVER_PATH.
@@ -789,30 +842,10 @@ class Config:
         gdal_plugins_path = self.set_env_conda()
 
         if gdal_plugins_path is None:
-
-            # For Windows, check Python site-packages
             if sys.platform == "win32":
-                for site_path in site.getsitepackages():
-                    plugins = Plugins(site_packages_path=site_path)
-                    path = plugins.check_path()
-                    if path:
-                        gdal_plugins_path = path
+                gdal_plugins_path = self._probe_windows_plugins()
             else:
-
-                # Check typical system locations (Linux/MacOS)
-                system_paths = [
-                    "/usr/local/lib/gdalplugins",
-                    "/usr/lib/gdalplugins",
-                ]
-                for path in system_paths:
-                    path = Path(path)
-                    if path.exists():
-                        os.environ["GDAL_DRIVER_PATH"] = str(path)
-                        gdal_plugins_path = path
-                        self.logger.debug(f"GDAL_DRIVER_PATH set to: {path}")
-
-                # If the path is not found
-                # print("GDAL plugins path could not be found. Please check your GDAL installation.")
+                gdal_plugins_path = self._probe_posix_plugins()
         return gdal_plugins_path
 
     def setup_logging(

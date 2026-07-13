@@ -231,50 +231,83 @@ def _normalize_chunks(
             raise ValueError(f"Unknown chunks string {chunks!r}; expected 'auto'.")
         result = default
     elif isinstance(chunks, int):
-        result = tuple(int(chunks) if chunks > 0 else int(axis) for axis in shape)
+        result = _normalize_chunks_int(chunks, shape)
     elif isinstance(chunks, (tuple, list)):
-        if len(chunks) != len(shape):
-            raise ValueError(
-                f"chunks tuple length {len(chunks)} does not match "
-                f"array ndim {len(shape)}."
-            )
-        normalized: list[int] = []
-        for c, axis in zip(chunks, shape):
-            if c in (None, -1):
-                normalized.append(int(axis))
-            else:
-                normalized.append(int(c))
-        result = tuple(normalized)
+        result = _normalize_chunks_seq(chunks, shape)
     elif isinstance(chunks, dict):
-        name_aliases_3d = {"bands": 0, "rows": 1, "cols": 2, "columns": 2}
-        name_aliases_2d = {"rows": 0, "cols": 1, "columns": 1}
-        aliases = name_aliases_3d if len(shape) == 3 else name_aliases_2d
-        resolved = list(default)
-        for key, value in chunks.items():
-            if isinstance(key, int):
-                axis_idx = key
-            elif isinstance(key, str) and key in aliases:
-                axis_idx = aliases[key]
-            else:
-                raise ValueError(
-                    f"Unknown chunks dict key {key!r}; expected an int "
-                    f"axis index or one of {sorted(aliases)}."
-                )
-            if not 0 <= axis_idx < len(shape):
-                raise ValueError(
-                    f"chunks dict axis {axis_idx} out of range for "
-                    f"ndim={len(shape)}."
-                )
-            resolved[axis_idx] = (
-                int(shape[axis_idx]) if value in (None, -1) else int(value)
-            )
-        result = tuple(resolved)
+        result = _normalize_chunks_dict(chunks, shape, default)
     else:
         raise TypeError(
             f"Unsupported chunks type {type(chunks).__name__}; expected "
             "None, int, tuple, list, dict, or 'auto'."
         )
     return result
+
+
+def _normalize_chunks_int(chunks: int, shape: tuple[int, ...]) -> tuple[int, ...]:
+    """Apply a single ``int`` chunk size to every axis (``<= 0`` means full axis)."""
+    return tuple(int(chunks) if chunks > 0 else int(axis) for axis in shape)
+
+
+def _normalize_chunks_seq(
+    chunks: tuple | list, shape: tuple[int, ...]
+) -> tuple[int, ...]:
+    """Normalize a per-axis ``tuple``/``list`` of chunk sizes.
+
+    Its length must equal ``len(shape)``; ``None``/``-1`` entries mean "full axis".
+
+    Raises:
+        ValueError: The sequence length does not match the array ndim.
+    """
+    if len(chunks) != len(shape):
+        raise ValueError(
+            f"chunks tuple length {len(chunks)} does not match "
+            f"array ndim {len(shape)}."
+        )
+    normalized: list[int] = []
+    for c, axis in zip(chunks, shape):
+        if c in (None, -1):
+            normalized.append(int(axis))
+        else:
+            normalized.append(int(c))
+    return tuple(normalized)
+
+
+def _normalize_chunks_dict(
+    chunks: dict, shape: tuple[int, ...], default: tuple[int, ...]
+) -> tuple[int, ...]:
+    """Normalize a ``dict`` of chunk sizes keyed by axis index or name.
+
+    Keys may be an ``int`` axis index or one of the ``bands``/``rows``/``cols``
+    (``columns``) aliases (3-D or 2-D depending on ``shape``). Axes absent from
+    the dict keep their ``default`` value; ``None``/``-1`` values mean "full axis".
+
+    Raises:
+        ValueError: An unknown key, or an axis index out of range.
+    """
+    name_aliases_3d = {"bands": 0, "rows": 1, "cols": 2, "columns": 2}
+    name_aliases_2d = {"rows": 0, "cols": 1, "columns": 1}
+    aliases = name_aliases_3d if len(shape) == 3 else name_aliases_2d
+    resolved = list(default)
+    for key, value in chunks.items():
+        if isinstance(key, int):
+            axis_idx = key
+        elif isinstance(key, str) and key in aliases:
+            axis_idx = aliases[key]
+        else:
+            raise ValueError(
+                f"Unknown chunks dict key {key!r}; expected an int "
+                f"axis index or one of {sorted(aliases)}."
+            )
+        if not 0 <= axis_idx < len(shape):
+            raise ValueError(
+                f"chunks dict axis {axis_idx} out of range for "
+                f"ndim={len(shape)}."
+            )
+        resolved[axis_idx] = (
+            int(shape[axis_idx]) if value in (None, -1) else int(value)
+        )
+    return tuple(resolved)
 
 
 def _read_mdarray_chunk(

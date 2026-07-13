@@ -136,17 +136,7 @@ def _write_to_file_sync(
             :meth:`pyramids.dataset.engines.COG.to_cog`).
     """
     if driver == "COG":
-        if band != 0:
-            raise ValueError(
-                "driver='COG' does not support the 'band' argument — "
-                "COG always writes all source bands. Subset the "
-                "dataset first (e.g. Dataset.get_band_subset) if you "
-                "need a single-band output."
-            )
-        cog_kwargs: dict[str, Any] = {"extra": creation_options}
-        if tile_length is not None:
-            cog_kwargs["blocksize"] = tile_length
-        ds.to_cog(path, **cog_kwargs)
+        _write_cog(ds, path, band, tile_length, creation_options)
         return
     if not isinstance(path, (str, Path)):
         raise TypeError(
@@ -154,20 +144,7 @@ def _write_to_file_sync(
         )
 
     path = Path(path)
-    if driver is None:
-        extension = path.suffix[1:]
-        driver = CATALOG.get_driver_name_by_extension(extension)
-    elif not CATALOG.exists(driver):
-        # Accept GDAL driver names (e.g. "GTiff") as well as catalog keys
-        # (e.g. "geotiff") before declaring the driver unknown.
-        catalog_key = CATALOG.get_driver_name(driver)
-        if catalog_key is None:
-            raise DriverNotExistError(
-                f"The driver: {driver!r} is not in the driver catalog. Known "
-                f"driver names: {sorted(CATALOG.drivers)}"
-            )
-        driver = catalog_key
-    driver_name = CATALOG.get_gdal_name(driver)
+    driver, driver_name = _resolve_output_driver(driver, path)
 
     if driver == "ascii":
         arr = ds.read_array(band=band)
@@ -175,60 +152,135 @@ def _write_to_file_sync(
         xmin, ymin, _, _ = ds.bbox
         _io.to_ascii(arr, ds.cell_size, xmin, ymin, no_data_value, path)
     else:
-        # COMPRESS=DEFLATE and the TILED/BLOCK options are GeoTIFF creation
-        # options. Applying them to other drivers is at best ignored and at
-        # worst breaks the output — e.g. on the netCDF driver COMPRESS=DEFLATE
-        # forces the NC4C format, which some GDAL builds cannot read back,
-        # making ``to_file("out.nc")`` produce an unreadable file. Only emit
-        # them for GeoTIFF; user-supplied creation_options always pass through.
-        options: list[str] = []
-        if driver_name != "GTiff" and tile_length is not None:
-            logging.getLogger("pyramids.dataset").warning(
-                "tile_length is a GeoTIFF-only option and is ignored for the "
-                f"{driver_name} driver."
-            )
-        if driver_name == "GTiff":
-            options.append("COMPRESS=DEFLATE")
-            if tile_length is not None:
-                options += [
-                    "TILED=YES",
-                    f"TILE_LENGTH={tile_length}",
-                ]
-                if ds._block_size is not None and ds._block_size != []:
-                    options += [
-                        "BLOCKXSIZE={}".format(ds._block_size[0][0]),
-                        "BLOCKYSIZE={}".format(ds._block_size[0][1]),
-                    ]
-        if creation_options is not None:
-            options += creation_options
-
+        options = _build_creation_options(
+            driver_name, tile_length, creation_options, ds
+        )
         save_error = f"Failed to save the {driver_name} raster to the path: {path}"
-        try:
-            ds.raster.FlushCache()
-            dst = gdal.GetDriverByName(driver_name).CreateCopy(
-                str(path), ds.raster, 0, options=options
+        _create_copy_and_reopen(ds, path, driver_name, options, save_error)
+
+
+def _write_cog(
+    ds: Dataset,
+    path: str | Path,
+    band: int,
+    tile_length: int | None,
+    creation_options: list[str] | None,
+) -> None:
+    """Write ``ds`` via the COG driver (delegates to :meth:`Dataset.to_cog`).
+
+    Raises:
+        ValueError: A non-zero ``band`` was requested — COG always writes all
+            source bands.
+    """
+    if band != 0:
+        raise ValueError(
+            "driver='COG' does not support the 'band' argument — "
+            "COG always writes all source bands. Subset the "
+            "dataset first (e.g. Dataset.get_band_subset) if you "
+            "need a single-band output."
+        )
+    cog_kwargs: dict[str, Any] = {"extra": creation_options}
+    if tile_length is not None:
+        cog_kwargs["blocksize"] = tile_length
+    ds.to_cog(path, **cog_kwargs)
+
+
+def _resolve_output_driver(driver: str | None, path: Path) -> tuple[str, str]:
+    """Resolve the catalog driver key and GDAL driver name for an output path.
+
+    ``None`` infers the driver from the path extension. A given driver is
+    accepted whether it is a catalog key (e.g. ``"geotiff"``) or a GDAL name
+    (e.g. ``"GTiff"``).
+
+    Raises:
+        DriverNotExistError: The driver is neither a catalog key nor a known
+            GDAL driver name.
+    """
+    if driver is None:
+        extension = path.suffix[1:]
+        driver = CATALOG.get_driver_name_by_extension(extension)
+    elif not CATALOG.exists(driver):
+        catalog_key = CATALOG.get_driver_name(driver)
+        if catalog_key is None:
+            raise DriverNotExistError(
+                f"The driver: {driver!r} is not in the driver catalog. Known "
+                f"driver names: {sorted(CATALOG.drivers)}"
             )
-            if dst is None:
-                raise FailedToSaveError(save_error)
-            # Finalize the file on disk before any reader opens it. For a
-            # compressed GeoTIFF (the default COMPRESS=DEFLATE) ``FlushCache``
-            # leaves the compressed strips and the TIFF directory buffered in the
-            # write handle, so a *second* handle that opens the same path reads
-            # back all-nodata on Linux/macOS (#570). Closing the CreateCopy
-            # handle writes everything; reopen the completed file for the
-            # in-place handle swap so the Dataset keeps pointing at it.
-            dst = None
-            reopened = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_UPDATE)
-            access = "write"
-            if reopened is None:
-                # Some write-once drivers (e.g. AAIGrid) cannot be reopened for
-                # update; fall back to a read-only handle and label it as such so
-                # the Dataset's access mode matches the handle it actually holds.
-                reopened = gdal.OpenEx(str(path), gdal.OF_RASTER)
-                access = "read_only"
-            if reopened is None:
-                raise FailedToSaveError(save_error)
-            ds._update_inplace(reopened, access)
-        except RuntimeError:
-            if not path.exists():
-                raise FailedToSaveError(save_error)
+        driver = catalog_key
+    return driver, CATALOG.get_gdal_name(driver)
+
+
+def _build_creation_options(
+    driver_name: str,
+    tile_length: int | None,
+    creation_options: list[str] | None,
+    ds: Dataset,
+) -> list[str]:
+    """Build GDAL creation options for a raster write.
+
+    ``COMPRESS=DEFLATE`` and the ``TILED``/``BLOCK*`` options are GeoTIFF-only —
+    applying them to other drivers is at best ignored and at worst breaks the
+    output (e.g. netCDF ``COMPRESS=DEFLATE`` forces an NC4C file some GDAL builds
+    cannot read back). They are emitted only for GeoTIFF; user-supplied
+    ``creation_options`` always pass through.
+    """
+    options: list[str] = []
+    if driver_name != "GTiff" and tile_length is not None:
+        logging.getLogger("pyramids.dataset").warning(
+            "tile_length is a GeoTIFF-only option and is ignored for the "
+            f"{driver_name} driver."
+        )
+    if driver_name == "GTiff":
+        options.append("COMPRESS=DEFLATE")
+        if tile_length is not None:
+            options += [
+                "TILED=YES",
+                f"TILE_LENGTH={tile_length}",
+            ]
+            if ds._block_size is not None and ds._block_size != []:
+                options += [
+                    "BLOCKXSIZE={}".format(ds._block_size[0][0]),
+                    "BLOCKYSIZE={}".format(ds._block_size[0][1]),
+                ]
+    if creation_options is not None:
+        options += creation_options
+    return options
+
+
+def _create_copy_and_reopen(
+    ds: Dataset,
+    path: Path,
+    driver_name: str,
+    options: list[str],
+    save_error: str,
+) -> None:
+    """CreateCopy the raster, then reopen the finished file for the in-place swap.
+
+    Closing the ``CreateCopy`` handle before reopening finalises a compressed
+    GeoTIFF on disk, so a second handle does not read back all-nodata (#570).
+    Write-once drivers that cannot reopen for update fall back to a read-only
+    handle (with the access mode labelled to match).
+
+    Raises:
+        FailedToSaveError: The copy failed, the file cannot be reopened, or a
+            GDAL ``RuntimeError`` left no file on disk.
+    """
+    try:
+        ds.raster.FlushCache()
+        dst = gdal.GetDriverByName(driver_name).CreateCopy(
+            str(path), ds.raster, 0, options=options
+        )
+        if dst is None:
+            raise FailedToSaveError(save_error)
+        dst = None
+        reopened = gdal.OpenEx(str(path), gdal.OF_RASTER | gdal.OF_UPDATE)
+        access = "write"
+        if reopened is None:
+            reopened = gdal.OpenEx(str(path), gdal.OF_RASTER)
+            access = "read_only"
+        if reopened is None:
+            raise FailedToSaveError(save_error)
+        ds._update_inplace(reopened, access)
+    except RuntimeError:
+        if not path.exists():
+            raise FailedToSaveError(save_error)
