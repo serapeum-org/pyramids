@@ -328,7 +328,7 @@ class TestMeshStyleHillshade:
         """The glyph from ``UgridDataset.plot`` can be restyled in place (0.25).
 
         Test scenario:
-            cleopatra 0.25 adds ``MeshGlyph.apply_style(name)`` and a ``style``
+            cleopatra 0.25 adds ``MeshGlyph.apply_style(style)`` and a ``style``
             read-back. pyramids returns the raw glyph, so a caller can re-apply a
             preset by name without rebuilding — verify the round trip through the
             ``UgridDataset.plot`` facade.

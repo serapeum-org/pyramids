@@ -575,7 +575,7 @@ class TestStyleHillshadePresets:
         """The glyph from ``Dataset.plot`` can be restyled in place (cleopatra 0.25).
 
         Test scenario:
-            cleopatra 0.25 adds ``ArrayGlyph.apply_style(name)`` and a ``style``
+            cleopatra 0.25 adds ``ArrayGlyph.apply_style(style)`` and a ``style``
             read-back. Because pyramids returns the raw glyph, a caller holding it
             can re-apply a preset by name without rebuilding — verify the round
             trip through the ``Dataset.plot`` facade.

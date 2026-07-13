@@ -148,7 +148,7 @@ class ColorOpts:
             ``"topography"``) to colour the variable by. Forwarded to
             :class:`~cleopatra.array_glyph.ArrayGlyph`; requires
             cleopatra >= 0.24. Defaults to None (no preset). The rendered glyph
-            that ``plot`` returns exposes ``glyph.apply_style(name)`` (cleopatra
+            that ``plot`` returns exposes ``glyph.apply_style(style)`` (cleopatra
             >= 0.25) to re-apply a preset by name in place without re-plotting.
         hillshade: Relief-shade the rendered field. ``True`` blends a
             default hillshade over the colours; a dict passes hillshade
