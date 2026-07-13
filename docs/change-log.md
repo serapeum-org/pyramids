@@ -1,6 +1,25 @@
 ﻿# Change log
 
 
+## 0.45.0 (2026-07-13)
+
+### Feat
+
+- **plot**: expose cleopatra style presets and hillshade across all raster and mesh plot paths (#740)
+- **bbox**: add estimate_pixel_dims and read_bbox_dict helpers (#736)
+- **dataset**: add bbox_rounding and fix bbox/polygon window resolution (#732)
+- **crs**: add a public UTM zone/EPSG helper (#734)
+
+### Fix
+
+- **netcdf**: orient lazy reads on the resolved plane, not the trailing axes (#741)
+- **netcdf**: release lazy read GDAL handles on array drop and on NetCDF.close() (#738)
+- **io**: drop misleading 7z mention from gzip error message (#733)
+
+### Refactor
+
+- **sonar**: cut python:S3776 cognitive complexity in 34 functions (#739)
+
 ## 0.44.0 (2026-07-11)
 
 ### Feat
