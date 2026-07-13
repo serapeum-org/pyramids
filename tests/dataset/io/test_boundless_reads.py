@@ -187,11 +187,12 @@ class TestBoundlessReads:
         ds = Dataset.create_from_array(
             arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326, no_data_value=None
         )
+        window = Window(-1, -1, 3, 3)
         for bad_fill in (-9999.0, -9999, 0.5, float("nan")):
             with pytest.raises(ValueError, match="not representable"):
                 ds.read_array(
                     band=0,
-                    window=Window(-1, -1, 3, 3),
+                    window=window,
                     boundless=True,
                     fill_value=bad_fill,
                 )
@@ -202,12 +203,14 @@ class TestBoundlessReads:
         ds = Dataset.create_from_array(
             arr, top_left_corner=(0, 6), cell_size=1.0, epsg=4326, no_data_value=None
         )
+        window = Window(-1, -1, 3, 3)
+        nan_fill = float("nan")
         with pytest.raises(ValueError, match="floating-point band"):
             ds.read_array(
                 band=0,
-                window=Window(-1, -1, 3, 3),
+                window=window,
                 boundless=True,
-                fill_value=float("nan"),
+                fill_value=nan_fill,
             )
 
     def test_nan_fill_value_on_float_band(self, ramp_dataset):

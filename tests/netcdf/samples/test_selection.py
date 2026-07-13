@@ -27,8 +27,9 @@ def test_sel_unknown_value_raises(sample):
     """Selecting a coordinate value that does not exist raises a clear error."""
     nc = NetCDF.read_file(sample(RHUM))
     try:
+        var = nc.get_variable("rhum")
         with pytest.raises((ValueError, KeyError)):
-            nc.get_variable("rhum").sel(level=123456.0)
+            var.sel(level=123456.0)
     finally:
         nc.close()
 

@@ -123,15 +123,15 @@ class TestNwmReachabilityGuard:
 
     def test_transport_error_skips(self):
         """A connection-shaped error skips gracefully, not fails."""
+        exc = RuntimeError("CURL error: Could not resolve host for the bucket")
         with pytest.raises(pytest.skip.Exception):
-            _skip_if_network_else_raise(
-                RuntimeError("CURL error: Could not resolve host for the bucket")
-            )
+            _skip_if_network_else_raise(exc)
 
     def test_real_failure_propagates(self):
         """A non-transport error (a real bug) is re-raised, never masked as 'unreachable'."""
+        exc = ValueError("variable 'ACCET' not found")
         with pytest.raises(ValueError, match="not found"):
-            _skip_if_network_else_raise(ValueError("variable 'ACCET' not found"))
+            _skip_if_network_else_raise(exc)
 
 
 class TestContiguousRange:
@@ -203,8 +203,9 @@ class TestResolveIndexSelector:
             _resolve_index_selector((3, 1), 10, "time")
 
     def test_equal_bounds_raises_empty(self):
+        sel = slice(2, 2)
         with pytest.raises(ValueError, match="empty index range"):
-            _resolve_index_selector(slice(2, 2), 10, "time")
+            _resolve_index_selector(sel, 10, "time")
 
 
 class TestClampBound:
@@ -452,8 +453,9 @@ class TestAssertFullRank:
             A (4, 5) read for a 3-D variable -> RuntimeError naming the variable
             and the expected axis count.
         """
+        arr = np.zeros((4, 5))
         with pytest.raises(RuntimeError, match="returned 2 axes, expected 3") as exc:
-            NetCDF._assert_full_rank(np.zeros((4, 5)), 3, "soil")
+            NetCDF._assert_full_rank(arr, 3, "soil")
         assert "soil" in str(exc.value), f"variable name missing: {exc.value}"
 
 

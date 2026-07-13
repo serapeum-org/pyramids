@@ -173,37 +173,45 @@ class TestToTerrainRgbErrors:
 
     def test_invalid_encoding_raises(self, tmp_path):
         """An unknown encoding name raises ValueError."""
+        dem = _dem_3857()
+        out = tmp_path / "x.png"
         with pytest.raises(ValueError, match="encoding must be one of"):
-            _dem_3857().to_terrain_rgb(tmp_path / "x.png", encoding="rainbow")
+            dem.to_terrain_rgb(out, encoding="rainbow")
 
     def test_invalid_resampling_raises(self, tmp_path):
         """An unknown resampling name raises ValueError."""
+        dem = _dem_3857()
+        out = tmp_path / "x.png"
         with pytest.raises(ValueError, match="does not exist|resampling"):
-            _dem_3857().to_terrain_rgb(tmp_path / "x.png", resampling="bogus")
+            dem.to_terrain_rgb(out, resampling="bogus")
 
     def test_max_zoom_below_min_zoom_raises(self, tmp_path):
         """``max_zoom < min_zoom`` raises ValueError."""
+        dem = _dem_3857(no_data_value=None)
+        out = tmp_path / "t"
         with pytest.raises(ValueError, match="max_zoom"):
-            _dem_3857(no_data_value=None).to_terrain_rgb(
-                tmp_path / "t", tiles=True, min_zoom=8, max_zoom=4
-            )
+            dem.to_terrain_rgb(out, tiles=True, min_zoom=8, max_zoom=4)
 
     def test_non_positive_interval_raises(self, tmp_path):
         """A non-positive mapbox ``interval`` raises instead of dividing by zero."""
+        dem = _dem_3857()
+        out = tmp_path / "x.png"
         with pytest.raises(ValueError, match="interval must be positive"):
-            _dem_3857().to_terrain_rgb(tmp_path / "x.png", tiles=False, interval=0.0)
+            dem.to_terrain_rgb(out, tiles=False, interval=0.0)
 
     def test_negative_min_zoom_raises(self, tmp_path):
         """A negative ``min_zoom`` raises ValueError."""
+        dem = _dem_3857(no_data_value=None)
+        out = tmp_path / "t"
         with pytest.raises(ValueError, match="min_zoom must be >= 0"):
-            _dem_3857(no_data_value=None).to_terrain_rgb(
-                tmp_path / "t", tiles=True, min_zoom=-1
-            )
+            dem.to_terrain_rgb(out, tiles=True, min_zoom=-1)
 
     def test_out_of_range_band_raises(self, tmp_path):
         """A band index past the source band count raises a clear ValueError."""
+        dem = _dem_3857()
+        out = tmp_path / "x.png"
         with pytest.raises(ValueError, match="band index"):
-            _dem_3857().to_terrain_rgb(tmp_path / "x.png", tiles=False, band=5)
+            dem.to_terrain_rgb(out, tiles=False, band=5)
 
 
 class TestEncodeTerrainRgb:

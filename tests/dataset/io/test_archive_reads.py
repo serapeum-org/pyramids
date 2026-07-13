@@ -226,8 +226,9 @@ class TestArchiveMembers:
         Test scenario:
             ``_archive_members(dir, "*.jp2")`` — expected: ``FileNotFoundError``.
         """
+        archive_dir = _io._archive_dir_vsi(band_zip)
         with pytest.raises(FileNotFoundError, match="no members matching"):
-            _io._archive_members(_io._archive_dir_vsi(band_zip), "*.jp2")
+            _io._archive_members(archive_dir, "*.jp2")
 
     def test_not_an_archive_raises(self, tmp_path):
         """A file that is not a valid archive raises ``FileFormatNotSupportedError``.
@@ -241,8 +242,9 @@ class TestArchiveMembers:
         """
         bad = tmp_path / "bad.zip"
         bad.write_bytes(b"definitely not a zip")
+        archive_dir = _io._archive_dir_vsi(str(bad))
         with pytest.raises(FileFormatNotSupportedError, match="could not list archive"):
-            _io._archive_members(_io._archive_dir_vsi(str(bad)))
+            _io._archive_members(archive_dir)
 
 
 class TestReadFileVsi:

@@ -389,8 +389,9 @@ class TestSelectVectorMember:
         assert passthrough == "roads"
 
     def test_out_of_range_index_raises(self):
+        zip_path = Path("x.zip")
         with pytest.raises(IndexError, match="out of range"):
-            _select_vector_member(["a.shp", "b.shp"], 5, Path("x.zip"))
+            _select_vector_member(["a.shp", "b.shp"], 5, zip_path)
 
     def test_bool_layer_is_not_used_as_index(self):
         # bool subclasses int but must not be treated as a member index

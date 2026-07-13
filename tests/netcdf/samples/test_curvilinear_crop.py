@@ -53,8 +53,9 @@ def test_roms_crop_nonoverlapping_polygon_raises(sample):
     nc = NetCDF.read_file(sample(ROMS))
     try:
         salt = nc.get_variable("salt")
+        aoi = _fc([(10, 10), (12, 10), (12, 12), (10, 12)])
         with pytest.raises(ValueError, match="does not overlap"):
-            salt.crop(_fc([(10, 10), (12, 10), (12, 12), (10, 12)]))
+            salt.crop(aoi)
     finally:
         nc.close()
 
@@ -170,10 +171,10 @@ def test_rectilinear_crop_rejects_chunks(sample):
     """``chunks=`` is curvilinear-only; the affine (rectilinear) crop path rejects it."""
     nc = NetCDF.read_file(sample(RECTILINEAR))
     try:
+        tos = nc.get_variable("tos")
+        aoi = _fc([(120, -40), (240, -40), (240, 70), (120, 70)])
         with pytest.raises(ValueError, match="only supported for curvilinear"):
-            nc.get_variable("tos").crop(
-                _fc([(120, -40), (240, -40), (240, 70), (120, 70)]), chunks="auto"
-            )
+            tos.crop(aoi, chunks="auto")
     finally:
         nc.close()
 
@@ -305,8 +306,9 @@ def test_container_crop_rejects_chunks(sample):
     """
     nc = NetCDF.read_file(sample(ROMS))
     try:
+        aoi = _fc([(-91, 28), (-88, 28), (-88, 30.5), (-91, 30.5)])
         with pytest.raises(ValueError, match="chunks|per-variable|get_variable"):
-            nc.crop(_fc([(-91, 28), (-88, 28), (-88, 30.5), (-91, 30.5)]), chunks="auto")
+            nc.crop(aoi, chunks="auto")
     finally:
         nc.close()
 

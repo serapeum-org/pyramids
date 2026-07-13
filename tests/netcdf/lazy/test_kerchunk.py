@@ -58,12 +58,14 @@ class TestToKerchunkSingleFile:
         from pyramids.netcdf._kerchunk_facade import to_kerchunk
 
         missing = tmp_path / "does_not_exist.nc"  # os.path.exists -> False
+        missing_str = str(missing)
+        refs = tmp_path / "refs.json"
         # native build raises OSError -> fallback warning; the kerchunk translator
         # then also fails (file not found), so the call raises -- the warning proves
         # the fallback path was taken.
         with pytest.warns(UserWarning, match="falling back to the kerchunk"):
             with pytest.raises(OSError):
-                to_kerchunk(str(missing), tmp_path / "refs.json", backend="native")
+                to_kerchunk(missing_str, refs, backend="native")
 
     def test_native_reraises_corrupt_local_file(self, tmp_path):
         """A local file that exists but is not HDF5 surfaces OSError, no fallback.
@@ -77,10 +79,12 @@ class TestToKerchunkSingleFile:
 
         not_hdf5 = tmp_path / "plain.txt"
         not_hdf5.write_text("this is not an HDF5 file")
+        src = str(not_hdf5)
+        refs = tmp_path / "refs.json"
         with warnings.catch_warnings():
             warnings.simplefilter("error")  # a fallback warning would become an error
             with pytest.raises(OSError):
-                to_kerchunk(str(not_hdf5), tmp_path / "refs.json", backend="native")
+                to_kerchunk(src, refs, backend="native")
 
 
 class TestCombineKerchunk:

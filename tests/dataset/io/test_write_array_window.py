@@ -150,8 +150,10 @@ class TestWriteArrayWindow:
         Test scenario:
             A 3x3 array given a 2x2 window is rejected.
         """
+        arr = np.ones((3, 3))
+        window = Window(0, 0, 2, 2)
         with pytest.raises(ValueError, match="does not match the window size"):
-            blank.write_array(np.ones((3, 3)), window=Window(0, 0, 2, 2))
+            blank.write_array(arr, window=window)
 
     def test_legacy_tuple_wrong_length_raises_clear_error(self, blank):
         """A deprecated tuple of the wrong length gives a clear error (L6).
@@ -162,9 +164,10 @@ class TestWriteArrayWindow:
             (row_off, col_off, n_rows, n_cols) form. The deprecation warning still
             fires first.
         """
+        arr = np.ones((2, 2))
         with pytest.warns(DeprecationWarning):
             with pytest.raises(ValueError, match="tuple of 4 integers"):
-                blank.write_array(np.ones((2, 2)), window=(0, 0, 2))
+                blank.write_array(arr, window=(0, 0, 2))
 
     def test_window_out_of_bounds_raises(self, blank):
         """A window extending past the raster raises OutOfBoundsError.
@@ -172,8 +175,10 @@ class TestWriteArrayWindow:
         Test scenario:
             Window(4, 4, 3, 3) would reach row/col 7 on a 5x5 raster.
         """
+        arr = np.ones((3, 3))
+        window = Window(4, 4, 3, 3)
         with pytest.raises(OutOfBoundsError, match="falls outside"):
-            blank.write_array(np.ones((3, 3)), window=Window(4, 4, 3, 3))
+            blank.write_array(arr, window=window)
 
     def test_top_left_corner_out_of_bounds_raises(self, blank):
         """A top_left_corner placement past the raster raises OutOfBoundsError.
@@ -181,8 +186,9 @@ class TestWriteArrayWindow:
         Test scenario:
             A 2x2 patch at [4,4] would reach row/col 6 on a 5x5 raster.
         """
+        arr = np.ones((2, 2))
         with pytest.raises(OutOfBoundsError, match="falls outside"):
-            blank.write_array(np.ones((2, 2)), top_left_corner=[4, 4])
+            blank.write_array(arr, top_left_corner=[4, 4])
 
     def test_negative_offset_raises(self, blank):
         """A negative offset raises OutOfBoundsError.
@@ -190,8 +196,10 @@ class TestWriteArrayWindow:
         Test scenario:
             Window(0, -1, 2, 2) has a negative row offset.
         """
+        arr = np.ones((2, 2))
+        window = Window(0, -1, 2, 2)
         with pytest.raises(OutOfBoundsError, match="falls outside"):
-            blank.write_array(np.ones((2, 2)), window=Window(0, -1, 2, 2))
+            blank.write_array(arr, window=window)
 
     def test_band_out_of_range_raises(self, blank_multiband):
         """A band index beyond the raster raises ValueError.
@@ -199,10 +207,10 @@ class TestWriteArrayWindow:
         Test scenario:
             band=9 on a 2-band raster is out of range.
         """
+        arr = np.ones((2, 2))
+        window = Window(0, 0, 2, 2)
         with pytest.raises(ValueError, match="out of range"):
-            blank_multiband.write_array(
-                np.ones((2, 2)), band=9, window=Window(0, 0, 2, 2)
-            )
+            blank_multiband.write_array(arr, band=9, window=window)
 
     def test_band_write_requires_2d_array(self, blank_multiband):
         """A band-targeted write with a non-2D array raises ValueError.
@@ -210,8 +218,9 @@ class TestWriteArrayWindow:
         Test scenario:
             band=0 given a 3D array is rejected.
         """
+        arr = np.ones((2, 2, 2))
         with pytest.raises(ValueError, match="requires a 2D array"):
-            blank_multiband.write_array(np.ones((2, 2, 2)), band=0)
+            blank_multiband.write_array(arr, band=0)
 
     def test_read_only_dataset_raises(self, tmp_path):
         """Writing into a read-only dataset raises ReadOnlyError.
@@ -228,5 +237,7 @@ class TestWriteArrayWindow:
             path=str(path),
         )
         read_only = Dataset.read_file(str(path), read_only=True)
+        arr = np.ones((2, 2))
+        window = Window(0, 0, 2, 2)
         with pytest.raises(ReadOnlyError, match="read-only"):
-            read_only.write_array(np.ones((2, 2)), window=Window(0, 0, 2, 2))
+            read_only.write_array(arr, window=window)

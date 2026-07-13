@@ -64,12 +64,11 @@ class TestValidation:
     """Invalid ``tile_strategy`` raises ValueError up front."""
 
     def test_invalid_tile_strategy_raises(self, geojson_no_index: Path):
+        features = FeatureCollection.iter_features(
+            geojson_no_index, tile_strategy="hybrid"
+        )
         with pytest.raises(ValueError, match="tile_strategy"):
-            list(
-                FeatureCollection.iter_features(
-                    geojson_no_index, tile_strategy="hybrid"
-                )
-            )
+            list(features)
 
 
 class TestCorrectnessAcrossStrategies:

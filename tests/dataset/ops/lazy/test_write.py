@@ -111,8 +111,9 @@ class TestEarlyPicklingError:
             cell_size=1.0,
             epsg=4326,
         )
+        out_path = str(tmp_path / "nope.tif")
         with pytest.raises(pickle.PicklingError, match="on-disk"):
-            mem_ds.to_file(str(tmp_path / "nope.tif"), compute=False)
+            mem_ds.to_file(out_path, compute=False)
 
 
 class TestImportError:
@@ -129,5 +130,6 @@ class TestImportError:
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
+        out_path = str(tmp_path / "nope.tif")
         with pytest.raises(ImportError, match="pyramids-gis\\[lazy\\]"):
-            tiny_dataset.to_file(str(tmp_path / "nope.tif"), compute=False)
+            tiny_dataset.to_file(out_path, compute=False)

@@ -256,8 +256,9 @@ class TestAsDatasource:
 
         monkeypatch.setattr("pyramids.feature._ogr._new_vsimem_path", _capture)
 
+        ctx = as_datasource(point_gdf)
         with pytest.raises(RuntimeError, match="boom"):
-            with as_datasource(point_gdf):
+            with ctx:
                 raise RuntimeError("boom")
 
         assert len(captured) == 1
@@ -338,8 +339,10 @@ class TestAsDatasourceExceptionSafety:
             def to_json(self):
                 raise RuntimeError("simulated serialization failure")
 
+        bad = _BadGDF()
+        ctx = as_datasource(bad)
         with pytest.raises(RuntimeError, match="simulated"):
-            with as_datasource(_BadGDF()):
+            with ctx:
                 pass  # pragma: no cover - unreachable when to_json fails
 
         assert unlinked_paths == [], (
@@ -411,8 +414,9 @@ class TestAsDatasourceExceptionSafety:
             lambda p: calls.append(p) or real_unlink(p),
         )
 
+        ctx = as_datasource(point_gdf)
         with pytest.raises(ValueError, match="user-code failure"):
-            with as_datasource(point_gdf):
+            with ctx:
                 raise ValueError("user-code failure")
 
         assert len(calls) == 1, f"expected exactly one Unlink call; got {calls}"
@@ -471,15 +475,16 @@ class TestAsVsimemPath:
         Test scenario:
             Raise inside the block, confirm the path is still gone.
         """
-        captured: list[str] = []
+        captured: str | None = None
+        ctx = as_vsimem_path(polygon_gdf)
         with pytest.raises(ValueError, match="bad"):
-            with as_vsimem_path(polygon_gdf) as path:
-                captured.append(path)
+            with ctx as path:
+                captured = path
                 raise ValueError("bad")
-        assert len(captured) == 1
+        assert captured is not None
         assert (
-            gdal.VSIStatL(captured[0]) is None
-        ), f"/vsimem/ path leaked after exception: {captured[0]}"
+            gdal.VSIStatL(captured) is None
+        ), f"/vsimem/ path leaked after exception: {captured}"
 
     def test_accepts_featurecollection_subclass(self, polygon_gdf):
         """A ``FeatureCollection`` is accepted transparently.

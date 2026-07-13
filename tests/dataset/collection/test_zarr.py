@@ -139,8 +139,9 @@ class TestErrors:
             epsg=4326,
         )
         collection = DatasetCollection(src, time_length=1)
+        path = str(tmp_path / "nope.zarr")
         with pytest.raises(RuntimeError, match="file-backed"):
-            collection.to_zarr(str(tmp_path / "nope.zarr"))
+            collection.to_zarr(path)
 
     def test_import_error_without_zarr(self, three_files_ramp, tmp_path, monkeypatch):
         import builtins
@@ -154,8 +155,9 @@ class TestErrors:
 
         monkeypatch.setattr(builtins, "__import__", fake_import)
         collection = DatasetCollection.from_files(three_files_ramp)
+        path = str(tmp_path / "nope.zarr")
         with pytest.raises(OptionalPackageDoesNotExist) as exc_info:
-            collection.to_zarr(str(tmp_path / "nope.zarr"))
+            collection.to_zarr(path)
         message = str(exc_info.value)
         assert (
             "pip install 'pyramids-gis[lazy]'" in message
@@ -266,8 +268,9 @@ class TestAppendAndRegion:
         """
         store = str(tmp_path / "guard.zarr")
         self._col(tmp_path, [1], "g").to_zarr(store)
+        col = self._col(tmp_path, [2], "g2")
         with pytest.raises(ValueError, match="append_dim"):
-            self._col(tmp_path, [2], "g2").to_zarr(store, mode="a")
+            col.to_zarr(store, mode="a")
 
     @requires_zarr
     def test_region_overwrites_existing_timesteps(self, tmp_path):

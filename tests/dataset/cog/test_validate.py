@@ -197,8 +197,9 @@ class TestOsgeoValidate:
             substring-matching GDAL's error message.
         """
         missing = tmp_path / "nonexistent_file_xyz_12345.tif"
+        path = str(missing)
         with pytest.raises(FileNotFoundError) as exc_info:
-            _osgeo_validate(str(missing))
+            _osgeo_validate(path)
         assert str(missing) in str(
             exc_info.value
         ), f"FileNotFoundError must name the missing path; got: {exc_info.value}"
@@ -229,8 +230,9 @@ class TestRaiseIfMissing:
         from pyramids.dataset.cog.validate import _raise_if_missing
 
         missing = tmp_path / "nope.tif"
+        path = str(missing)
         with pytest.raises(FileNotFoundError, match="nope.tif"):
-            _raise_if_missing(str(missing))
+            _raise_if_missing(path)
 
     def test_existing_vsimem_file_silent(self):
         """Existing /vsimem/ file returns silently.

@@ -114,8 +114,9 @@ class TestConvertArray:
             A band with no recorded unit cannot be converted; ValueError mentions
             'no source unit'.
         """
+        arr = np.array([1.0])
         with pytest.raises(ValueError, match="no source unit") as exc:
-            convert_array(np.array([1.0]), "", "celsius")
+            convert_array(arr, "", "celsius")
         assert "no source unit" in str(exc.value), f"Unexpected: {exc.value}"
 
     def test_unknown_pair_raises(self):
@@ -125,8 +126,9 @@ class TestConvertArray:
             A target with no table entry raises ValueError listing the supported
             pairs.
         """
+        arr = np.array([1.0])
         with pytest.raises(ValueError, match="No unit conversion") as exc:
-            convert_array(np.array([1.0]), "K", "furlongs")
+            convert_array(arr, "K", "furlongs")
         msg = str(exc.value)
         assert "No unit conversion" in msg, f"Unexpected: {msg}"
         assert "Supported pairs" in msg, f"Message should list supported pairs: {msg}"

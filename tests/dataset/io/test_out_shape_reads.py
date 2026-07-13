@@ -221,10 +221,9 @@ class TestOutShapeReads:
 
     def test_out_of_bounds_window_raises(self, ramp_dataset):
         """A window beyond the raster raises OutOfBoundsError, not GDAL's error."""
+        window = Window(48, 48, 32, 32)
         with pytest.raises(OutOfBoundsError):
-            ramp_dataset.read_array(
-                band=0, window=Window(48, 48, 32, 32), out_shape=(8, 8)
-            )
+            ramp_dataset.read_array(band=0, window=window, out_shape=(8, 8))
 
     def test_band_index_validated(self, ramp_dataset):
         """An out-of-range band raises the shared band-index ValueError."""

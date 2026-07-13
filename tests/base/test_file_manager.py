@@ -225,8 +225,9 @@ class TestCloseHandle:
         class _BrokenHandle:
             Close = "not callable"
 
+        handle = _BrokenHandle()
         with pytest.raises(TypeError):
-            _close_handle("some-key", _BrokenHandle())
+            _close_handle("some-key", handle)
 
     def test_handle_without_close_is_noop(self):
         class _NoCloseHandle:
@@ -326,16 +327,18 @@ class TestCachingFileManager:
     def test_acquire_context_preserves_handle_on_reraise(self):
         fm = CachingFileManager(_fake_opener, "x.tif", "read_only")
         fm.acquire()  # pre-cache
+        ctx = fm.acquire_context()
         with pytest.raises(RuntimeError):
-            with fm.acquire_context():
+            with ctx:
                 raise RuntimeError("boom")
         # Still cached because it was cached before the block.
         assert fm._key in FILE_CACHE
 
     def test_acquire_context_drops_handle_on_first_open_failure(self):
         fm = CachingFileManager(_fake_opener, "x.tif", "read_only")
+        ctx = fm.acquire_context()
         with pytest.raises(RuntimeError):
-            with fm.acquire_context():
+            with ctx:
                 raise RuntimeError("boom")
         assert fm._key not in FILE_CACHE
 

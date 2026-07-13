@@ -115,8 +115,9 @@ class TestReduceWindowed:
             3 labels for a size-4 time axis is rejected.
         """
         arr = np.ones((4, 2, 2), dtype="float32")
+        nc = _make_time_nc(arr, [0, 1, 2, 3])
         with pytest.raises(ValueError, match="covers"):
-            _make_time_nc(arr, [0, 1, 2, 3]).reduce("time", "mean", groupby=[0, 0, 1])
+            nc.reduce("time", "mean", groupby=[0, 0, 1])
 
 
 class TestReduceSkipna:
@@ -228,8 +229,9 @@ class TestReduceErrors:
             `how='median'` is rejected.
         """
         arr = np.ones((2, 2, 2), dtype="float32")
+        nc = _make_time_nc(arr, [0, 1])
         with pytest.raises(ValueError, match="how must be one of"):
-            _make_time_nc(arr, [0, 1]).reduce("time", "median")
+            nc.reduce("time", "median")
 
     def test_unknown_dimension_raises(self):
         """Reducing a non-existent dimension raises ValueError.
@@ -238,8 +240,9 @@ class TestReduceErrors:
             `reduce('depth')` on a time-only cube is rejected.
         """
         arr = np.ones((2, 2, 2), dtype="float32")
+        nc = _make_time_nc(arr, [0, 1])
         with pytest.raises(ValueError, match="not a non-spatial dimension"):
-            _make_time_nc(arr, [0, 1]).reduce("depth", "mean")
+            nc.reduce("depth", "mean")
 
     def test_frequency_without_time_coord_raises(self):
         """A frequency groupby on a dim with no time coordinate raises.
@@ -249,8 +252,9 @@ class TestReduceErrors:
             grouping cannot decode it.
         """
         arr = np.ones((2, 2, 2), dtype="float32")
+        nc = _make_time_nc(arr, [0, 1])
         with pytest.raises(ValueError, match="no decodable time coordinate"):
-            _make_time_nc(arr, [0, 1]).reduce("time", "mean", groupby="1MS")
+            nc.reduce("time", "mean", groupby="1MS")
 
 
 class TestReduceRealFixtures:

@@ -114,9 +114,10 @@ class TestSearch:
             The STAC API forbids both; the helper rejects it early with a clear
             message (no client needed).
         """
+        client = _FakeClient()
         with pytest.raises(ValueError, match="mutually exclusive"):
             search(
-                _FakeClient(),
+                client,
                 "c",
                 bbox=(0, 0, 1, 1),
                 intersects={"type": "Point", "coordinates": [0, 0]},

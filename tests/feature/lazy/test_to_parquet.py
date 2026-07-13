@@ -43,8 +43,9 @@ class TestToParquetContract:
     def test_compute_false_raises(self, lfc, tmp_path):
         """``compute=False`` is rejected (violates the to_* contract)."""
         out = tmp_path / "lazy.parquet"
+        out_str = str(out)
         with pytest.raises(ValueError, match="compute=False"):
-            lfc.to_parquet(str(out), compute=False)
+            lfc.to_parquet(out_str, compute=False)
 
 
 @requires_pyarrow

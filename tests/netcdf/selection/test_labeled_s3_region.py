@@ -360,8 +360,9 @@ class TestReadFileRegionWiring:
         monkeypatch.setattr(labeled_mod, "resolve_s3_region", _boom)
         captured = self._capture_open(monkeypatch)
         missing = tmp_path / "store.zarr"
+        path = str(missing)
         with pytest.raises(ValueError):
-            LabeledDataset.read_file(str(missing), anon=True)
+            LabeledDataset.read_file(path, anon=True)
         assert captured["region"] in (None, "")
 
 
@@ -414,8 +415,9 @@ class TestS3PathStyleAddressing:
             A filesystem store leaves AWS_VIRTUAL_HOSTING unset.
         """
         captured = self._capture_open_vhost(monkeypatch)
+        path = str(tmp_path / "store.zarr")
         with pytest.raises(ValueError):
-            LabeledDataset.read_file(str(tmp_path / "store.zarr"), anon=True)
+            LabeledDataset.read_file(path, anon=True)
         assert captured["vhost"] in (None, "")
 
     def test_reads_reapply_cloud_config(self):

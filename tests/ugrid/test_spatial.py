@@ -628,8 +628,9 @@ class TestCrop:
         Test scenario:
             mask and bbox are mutually exclusive.
         """
+        mask = box(0, 0, 1, 1)
         with pytest.raises(ValueError, match="not both"):
-            unit_square_dataset.crop(box(0, 0, 1, 1), bbox=(0, 0, 1, 1))
+            unit_square_dataset.crop(mask, bbox=(0, 0, 1, 1))
 
     @pytest.mark.parametrize("bad_bbox", [(0.0, 0.0, 1.0), (0.0, 0.0, 1.0, 1.0, 2.0)])
     def test_crop_bad_bbox_length_raises(self, unit_square_dataset, bad_bbox):

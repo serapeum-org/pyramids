@@ -73,8 +73,9 @@ class TestErrors:
             epsg=4326,
         )
         collection = DatasetCollection(src, time_length=1)
+        path = str(tmp_path / "nope.json")
         with pytest.raises(RuntimeError, match="file-backed"):
-            collection.to_kerchunk(str(tmp_path / "nope.json"))
+            collection.to_kerchunk(path)
 
     def test_works_without_kerchunk(self, tmp_path, monkeypatch):
         """The native combine path needs h5py, not kerchunk (#530)."""
