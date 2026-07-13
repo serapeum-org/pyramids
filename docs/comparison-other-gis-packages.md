@@ -45,15 +45,15 @@ comparatively new. Read the tables as *surface coverage*, with the maturity row 
 
 ### Core raster I/O
 
-| Capability | pyramids | rasterio | xarray | rioxarray |
-|---|---|---|---|---|
-| GDAL raster formats (GeoTIFF, …) | ✓ `Dataset` | ✓✓ standard | ◐ `→rioxarray` | ✓ `open_rasterio` |
-| Windowed read & write | ✓ `read/write_array(window=)` + Window math | ✓✓ `Window` | ◐ Dask chunks | ◐ Dask chunks |
-| In-memory raster (bytes) | ✓ `from_bytes`/`to_bytes` | ✓ `MemoryFile` | ◐ `→rioxarray` | ◐ via `MemoryFile` |
-| Overviews / pyramids | ✓ `create_overviews`, `read_overview_array` | ✓ `build_overviews` | ✗ `→rio` | ◐ `→rasterio` |
-| COG write / validate / inspect | ✓✓ `to_cog` | ◐ `→rio-cogeo` | ✗ `→rioxarray` | ◐ `to_raster(COG)` |
-| Decimated reads (preview / tile) | ✓✓ `out_shape` + `preview` | ◐ `out_shape` | ◐ `→rioxarray` | ◐ `overview_level` |
-| No-data / masks / colour interp | ✓ `mask_flags`/`read_masks`/`band_color` | ✓ | ◐ `.where` | ✓ `.rio.nodata` |
+| Capability                       | pyramids                                    | rasterio            | xarray         | rioxarray          |
+|----------------------------------|---------------------------------------------|---------------------|----------------|--------------------|
+| GDAL raster formats (GeoTIFF, …) | ✓ `Dataset`                                 | ✓✓ standard         | ◐ `→rioxarray` | ✓ `open_rasterio`  |
+| Windowed read & write            | ✓ `read/write_array(window=)` + Window math | ✓✓ `Window`         | ◐ Dask chunks  | ◐ Dask chunks      |
+| In-memory raster (bytes)         | ✓ `from_bytes`/`to_bytes`                   | ✓ `MemoryFile`      | ◐ `→rioxarray` | ◐ via `MemoryFile` |
+| Overviews / pyramids             | ✓ `create_overviews`, `read_overview_array` | ✓ `build_overviews` | ✗ `→rio`       | ◐ `→rasterio`      |
+| COG write / validate / inspect   | ✓✓ `to_cog`                                 | ◐ `→rio-cogeo`      | ✗ `→rioxarray` | ◐ `to_raster(COG)` |
+| Decimated reads (preview / tile) | ✓✓ `out_shape` + `preview`                  | ◐ `out_shape`       | ◐ `→rioxarray` | ◐ `overview_level` |
+| No-data / masks / colour interp  | ✓ `mask_flags`/`read_masks`/`band_color`    | ✓                   | ◐ `.where`     | ✓ `.rio.nodata`    |
 
 ### CRS, warping & alignment
 
@@ -108,7 +108,7 @@ spatial resample/warp is the `rioxarray` accessor's job.
 | NetCDF + CF conventions | ✓✓ first-class | ◐ subdatasets only | ✓✓✓ first-class | ✓✓ + CRS |
 | UGRID unstructured grids | ✓ | ✗ | ◐ `→uxarray` | ✗ `→uxarray` |
 | Zarr | ✓ `to_zarr`/`from_zarr` | ◐ GDAL driver | ✓✓ native | ✓ + CRS |
-| GRIB (read) | ◐ via `read_file` (no GRIB-specific API) | ◐ via GDAL | ◐ `→cfgrib` | ◐ `→cfgrib` |
+| GRIB (read + metadata) | ✓ `grib.open_grib` / `grib_band_metadata` / `grib_to_cog` | ◐ via GDAL | ◐ `→cfgrib` | ◐ `→cfgrib` |
 
 ### Cloud, STAC & lazy compute
 
@@ -120,11 +120,25 @@ spatial resample/warp is the `rioxarray` accessor's job.
 | Lazy / Dask-backed arrays | ✓ Dask `chunks=` | ✗ `→rioxarray` | ✓✓✓ standard | ✓✓✓ standard |
 | Concurrent windowed reads | ✓ `read_array(threadsafe=)`, `read_windows` | ✓✓ | ✓ via Dask | ✓ via Dask |
 
+### OGC web services
+
+None of rasterio / xarray / rioxarray ship dedicated OGC-service clients — you reach for `owslib`, or
+hand-configure GDAL's WMS/WCS drivers. pyramids has first-class readers that hand you a `Dataset` /
+`FeatureCollection` directly, negotiating the service's capabilities for you.
+
+| Capability | pyramids | rasterio | xarray | rioxarray |
+|---|---|---|---|---|
+| WCS coverage read (raster) | ✓ `Dataset.from_wcs` | ◐ GDAL WCS driver | ✗ `→owslib` | ◐ `→rasterio` |
+| WMS map read (raster) | ✓ `Dataset.from_wms` | ◐ GDAL WMS driver | ✗ `→owslib` | ◐ `→rasterio` |
+| OGC API - Coverages (raster) | ✓ `Dataset.from_ogc_coverages` | ✗ `→owslib` | ✗ `→owslib` | ✗ `→owslib` |
+| WFS feature read (vector) | ✓ `FeatureCollection.from_wfs` | ✗ `→OWSLib/OGR` | ✗ `→owslib` | ✗ `→owslib` |
+| OGC API - Features (vector) | ✓ `FeatureCollection.from_ogc_features` | ✗ `→owslib` | ✗ `→owslib` | ✗ `→owslib` |
+
 ### Tooling & maturity
 
 | Capability | pyramids | rasterio | xarray | rioxarray |
 |---|---|---|---|---|
-| CLI | ✓ `pyramids` (incl. `edit-info`, `calc`, `georeference`, `shapes`, `rasterize`) | ✓ `rio` | ✗ | ✗ |
+| CLI | ✓ `pyramids` (incl. `cog`, `warp`, `clip`, `merge`, `overview`, `convert`, `rasterize`, `georeference`, `edit-info`) | ✓ `rio` | ✗ | ✗ |
 | Plotting | ◐ `→cleopatra` | ✓ `rasterio.plot` | ✓✓ `xarray.plot` | ✓✓ `xarray.plot` |
 | Maturity / adoption / community | younger | ✓✓✓ standard | ✓✓✓ huge (Pangeo) | ✓✓ widely used |
 | Stability / docs depth | growing | ✓✓✓ | ✓✓✓ | ✓✓ |
@@ -149,8 +163,9 @@ spatial resample/warp is the `rioxarray` accessor's job.
   single-package peer to pyramids' raster + datacube combo, but inherits xarray's vector / zonal /
   terrain / STAC blanks (→ ecosystem).
 - **pyramids' real strengths:** breadth in **one** GDAL/GIS-first package, each capability behind its
-  own Pythonic API — raster **and** vector **and** datacube; NetCDF/CF/UGRID, STAC, terrain / zonal /
-  interpolation / clustering, COG tooling, and lazy/Dask, without stitching together several libraries.
+  own Pythonic API — raster **and** vector **and** datacube; NetCDF/CF/UGRID, STAC **and OGC web services
+  (WCS / WMS / WFS + OGC API Coverages / Features)**, terrain / zonal / interpolation / clustering, COG
+  tooling, a GRIB read + metadata API, and lazy/Dask — without stitching together several libraries.
 - **When to pick which:**
   - **pyramids** — an integrated, batteries-included, CRS-aware GDAL toolkit covering raster, vector,
     and datacubes together.
