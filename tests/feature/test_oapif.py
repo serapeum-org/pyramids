@@ -149,8 +149,8 @@ class TestPureHelpers:
 
         assert _ogc_api.http_error_detail(_Plain()) == "upstream exploded"
 
-    def test_read_http_error_returns_code_and_body(self):
-        """read_http_error returns the status code and the decoded, stripped body."""
+    def test_read_http_error_returns_code_raw_and_text(self):
+        """read_http_error returns the status code, the raw bytes, and the decoded stripped text."""
         class _Err:
             code = 422
             reason = "Unprocessable Entity"
@@ -158,10 +158,12 @@ class TestPureHelpers:
             def read(self):
                 return b'  {"message": "nope"}  '
 
-        assert _ogc_api.read_http_error(_Err()) == (422, '{"message": "nope"}')
+        assert _ogc_api.read_http_error(_Err()) == (
+            422, b'  {"message": "nope"}  ', '{"message": "nope"}'
+        )
 
     def test_read_http_error_falls_back_to_reason(self):
-        """An empty or unreadable body falls back to the reason phrase."""
+        """An empty or unreadable body yields empty raw bytes and the reason phrase as text."""
         class _Empty:
             code = 500
             reason = "Server Error"
@@ -176,8 +178,8 @@ class TestPureHelpers:
             def read(self):
                 raise OSError("connection gone")
 
-        assert _ogc_api.read_http_error(_Empty()) == (500, "Server Error")
-        assert _ogc_api.read_http_error(_Unreadable()) == (503, "Service Unavailable")
+        assert _ogc_api.read_http_error(_Empty()) == (500, b"", "Server Error")
+        assert _ogc_api.read_http_error(_Unreadable()) == (503, b"", "Service Unavailable")
 
 
 class TestCollections:

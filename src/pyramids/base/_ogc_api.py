@@ -154,15 +154,18 @@ def error_text(doc: Any) -> str:
     return message
 
 
-def read_http_error(exc: urllib.error.HTTPError) -> tuple[int | None, str]:
-    """Read an ``HTTPError``'s status code and body text (best-effort, guarded).
+def read_http_error(exc: urllib.error.HTTPError) -> tuple[int | None, bytes, str]:
+    """Read an ``HTTPError``'s status code and body (best-effort, guarded).
 
     A 4xx/5xx response body often carries the server's real explanation, and the
     ``HTTPError`` is a file-like object whose body can be read only **once**.
-    Returns ``(status_code, body)`` where ``body`` is the decoded, stripped
-    response body — or the HTTP reason phrase (then :data:`NO_MESSAGE`) when the
-    body is empty or cannot be read. Shared by :func:`http_error_detail` and the
-    WCS reader so the single read is not duplicated.
+    Returns ``(status_code, raw, text)``: ``raw`` is the undecoded body bytes
+    (empty when the body is missing or unreadable), kept so a caller can parse it
+    at the byte level -- ``json.loads`` auto-detects the JSON encoding from the
+    bytes; ``text`` is the same body decoded as UTF-8 and stripped, falling back
+    to the HTTP reason phrase and then to :data:`NO_MESSAGE`. Shared by
+    :func:`http_error_detail` and the WCS reader so the single read is not
+    duplicated.
     """
     code = getattr(exc, "code", None)
     reason = getattr(exc, "reason", None) or NO_MESSAGE
@@ -171,18 +174,20 @@ def read_http_error(exc: urllib.error.HTTPError) -> tuple[int | None, str]:
     except OSError:
         raw = b""
     text = raw.decode("utf-8", "replace").strip() if raw else ""
-    return code, (text or reason)
+    return code, raw, (text or reason)
 
 
 def http_error_detail(exc: urllib.error.HTTPError) -> str:
     """Best-effort human message from an ``HTTPError`` body (RFC 7807 problem+json).
 
     Reads the error response body and runs a JSON one through :func:`error_text`;
-    falls back to a truncated plain-text body or the HTTP reason phrase.
+    falls back to a truncated plain-text body or the HTTP reason phrase. The JSON
+    parse is done on the raw bytes so ``json.loads`` keeps its byte-level encoding
+    auto-detection (a UTF-16/32 JSON error document is still parsed).
     """
-    _code, body = read_http_error(exc)
+    _code, raw, text = read_http_error(exc)
     try:
-        detail = error_text(json.loads(body))
+        detail = error_text(json.loads(raw))
     except (ValueError, TypeError):
-        detail = body[:200] or NO_MESSAGE
+        detail = text[:200] or NO_MESSAGE
     return detail

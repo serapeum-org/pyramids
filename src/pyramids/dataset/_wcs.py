@@ -194,7 +194,7 @@ def _http_get(
         # (non-spec shims return e.g. a JSON {"message": ...}); surface it in the
         # message and carry the status + full body on the exception so a caller
         # can branch on them. str(HTTPError) alone is only "HTTP <code>: <reason>".
-        code, body = _read_http_error(exc)
+        code, _raw, body = _read_http_error(exc)
         shown = body if len(body) <= _ERROR_BODY_CHARS else f"{body[:_ERROR_BODY_CHARS]}…"
         raise WCSError(
             f"WCS {what} request failed for {url!r}: HTTP {code}: {shown}",
