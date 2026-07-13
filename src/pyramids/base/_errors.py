@@ -173,11 +173,11 @@ class WCSError(_PyramidsError):
     reports a bad argument as opposed to a service failure.
 
     On a genuine HTTP-error status (a ``GetCapabilities`` / ``GetCoverage`` that
-    returns 4xx/5xx), ``status_code`` and ``response_body`` carry the server's
-    status and decoded response body so a caller can branch on them
-    programmatically; both are ``None`` for failures that have no HTTP response
-    (transport errors, XML ``ExceptionReport`` bodies returned as HTTP 200,
-    driver-level failures).
+    returns 4xx/5xx), ``status_code`` carries the status and ``response_body`` the
+    server's decoded body (the empty string when the error had no body) so a caller
+    can branch on them programmatically. Both are ``None`` for failures that have no
+    HTTP response (transport errors, XML ``ExceptionReport`` bodies returned as HTTP
+    200, driver-level failures).
     """
 
     def __init__(

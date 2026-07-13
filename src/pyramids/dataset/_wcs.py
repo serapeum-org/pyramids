@@ -196,17 +196,21 @@ def _http_get(
         # (non-spec shims return e.g. a JSON {"message": ...}); surface it in the
         # message and carry the status + full body on the exception so a caller
         # can branch on them. str(HTTPError) alone is only "HTTP <code>: <reason>".
-        code, _raw, body = _read_http_error(exc)
+        code, raw, text = _read_http_error(exc)
+        # `text` is the decoded body, or the HTTP reason phrase when the body is
+        # empty — right for the human message. `response_body` should instead be the
+        # server's actual body (the empty string when there was none), so decode the
+        # raw bytes faithfully rather than reusing the reason-phrase fallback.
+        response_body = raw.decode("utf-8", "replace") if raw else ""
         # Collapse whitespace so a multi-line HTML / pretty JSON error page stays a
-        # single line in the message, and cap its length; the full, untouched body
-        # is still carried on response_body below.
-        shown = " ".join(body.split())
+        # single line in the (capped) message; response_body keeps the faithful body.
+        shown = " ".join(text.split())
         if len(shown) > _ERROR_BODY_CHARS:
             shown = f"{shown[:_ERROR_BODY_CHARS]}…"
         raise WCSError(
             f"WCS {what} request failed for {url!r}: HTTP {code}: {shown}",
             status_code=code,
-            response_body=body,
+            response_body=response_body,
         ) from exc
     except OSError as exc:
         # urllib.error.URLError / timeout / connection reset — no HTTP response body.

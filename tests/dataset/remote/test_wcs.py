@@ -281,6 +281,22 @@ class TestHttpGet:
         assert len(str(err)) < 1000  # message is bounded
         assert len(err.response_body) == 5000  # full body preserved on the attribute
 
+    def test_http_error_empty_body_reason_in_message_and_empty_response_body(self, monkeypatch):
+        """An empty-body HTTP error shows the reason phrase in the message; response_body is ''."""
+
+        def boom(self, *args, **kwargs):
+            raise urllib.error.HTTPError(
+                "https://wcs.invalid/x", 403, "Forbidden", {}, io.BytesIO(b"")
+            )
+
+        monkeypatch.setattr(_wcs.urllib.request.OpenerDirector, "open", boom)
+        with pytest.raises(WCSError) as excinfo:
+            _wcs._http_get("https://wcs.invalid/x", None, 5.0, "GetCoverage")
+        err = excinfo.value
+        assert err.status_code == 403
+        assert err.response_body == ""
+        assert "Forbidden" in str(err)
+
     def test_non_http_transport_error_leaves_attributes_none(self, monkeypatch):
         """A non-HTTP transport failure keeps its message and leaves status_code/body None."""
 
