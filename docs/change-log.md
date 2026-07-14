@@ -1,13 +1,6 @@
 ﻿# Change log
 
 
-## 0.46.0 (2026-07-13)
-
-### Feat
-
-- **wcs**: surface the HTTP response body in WCSError on GetCoverage errors (#746)
-- **plot**: adopt cleopatra 0.25 and surface apply_style on returned glyphs (#745)
-
 ## 0.45.0 (2026-07-13)
 
 ### Feat
