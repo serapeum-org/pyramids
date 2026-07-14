@@ -27,6 +27,10 @@ if ($VcpkgRoot -ne "C:\vcpkg") {
 }
 $InstallRoot = Join-Path $VcpkgRoot "installed"
 $ManifestRoot = $PSScriptRoot   # this script lives in ci/, next to vcpkg.json
+# Overlay ports override the builtin registry's copy of a port. libaec/ here
+# fetches its source from GitHub instead of the upstream port's gitlab.dkrz.de,
+# which persistently 429s CI runners (see ci/vcpkg-ports/libaec/portfile.cmake).
+$OverlayPorts = Join-Path $ManifestRoot "vcpkg-ports"
 
 Write-Host "=== vcpkg GDAL stack: triplet=$Triplet -> $BuildPrefix ==="
 
@@ -65,6 +69,7 @@ if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg failed ($LASTEXITCODE)" }
     --triplet $Triplet `
     --x-manifest-root=$ManifestRoot `
     --x-install-root=$InstallRoot `
+    --overlay-ports=$OverlayPorts `
     --feature-flags=versions,manifests
 if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed ($LASTEXITCODE)" }
 
