@@ -2136,15 +2136,15 @@ class IO(_Engine["Dataset"]):
 
         Forwards every argument to :meth:`to_file`; see that method's
         documentation for the full contract. Provided for parity with the
-        rioxarray ``.rio.to_raster`` name.
+        rioxarray `.rio.to_raster` name.
 
         Examples:
             - Write a dataset to a GeoTIFF:
 
               ```python
               >>> from pyramids.dataset import Dataset
-              >>> ds = Dataset.read_file("in.tif")
-              >>> ds.to_raster("out.tif")
+              >>> ds = Dataset.read_file("in.tif")  # doctest: +SKIP
+              >>> ds.to_raster("out.tif")  # doctest: +SKIP
 
               ```
         """
