@@ -197,6 +197,7 @@ nav:
               - River channel: examples/netcdf/ugrid/ugrid-river-channel.ipynb
               - Dask (mesh → raster bridge): examples/netcdf/ugrid/dask-lazy-ugrid.ipynb
   - Reference:
+    - Command line (CLI): reference/cli.md
     - Dataset:
       - Overview: reference/dataset/index.md
       - I/O Operations: reference/dataset/io.md
