@@ -119,6 +119,7 @@ nav:
     - Getting help: getting-help.md
   - Examples:
       - "How do I…?": examples/index.md
+      - Gallery: examples/gallery.md
       - Lazy / Dask:
           - Overview: tutorials/lazy/lazy-compute.md
           - Lazy rasters (Dataset): tutorials/lazy/lazy-raster.md
