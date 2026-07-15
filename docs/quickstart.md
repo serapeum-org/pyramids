@@ -85,7 +85,7 @@ values.plot(variable="values")
 values.to_file("values.tif")
 ```
 
-See [Core concepts](concepts.md#container-vs-variable) for the container-vs-variable model, and the
+See [Core concepts](concepts.md#container-vs-variable-netcdf) for the container-vs-variable model, and the
 [NetCDF tutorial](tutorials/netcdf-plotting.md) for CF / UGRID / packed data.
 
 ## Time-series datacubes
