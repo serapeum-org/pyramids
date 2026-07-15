@@ -34,7 +34,7 @@ CLI command it ships — not merely that the underlying engine (GDAL/GEOS/PROJ) 
 down to it.** pyramids is a GDAL/OGR wrapper, so nearly all of its raster ✓s are "a GDAL call wrapped in a
 pyramids method" — which counts, exactly as rasterio's and rioxarray's GDAL wrappers count, *because there
 is a Pythonic entry point*. Where pyramids has **no** wrapper and you would have to call `osgeo.gdal`
-yourself, the cell is **not** a ✓ (see GRIB, GCP/RPC below). Every pyramids ✓ in these tables was checked
+yourself, the cell is **not** a ✓. Every pyramids ✓ in these tables was checked
 against a concrete public symbol in `src/pyramids`.
 
 **A ✓ is still not parity in maturity, performance, or edge-case robustness.** rasterio, xarray, and
