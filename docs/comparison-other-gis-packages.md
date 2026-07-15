@@ -102,13 +102,14 @@ spatial resample/warp is the `rioxarray` accessor's job.
 
 ### Multi-dimensional / datacube / formats
 
-| Capability               | pyramids                                                  | rasterio           | xarray           | rioxarray       |
-|--------------------------|-----------------------------------------------------------|--------------------|------------------|-----------------|
-| Time-series datacube     | ✓ `DatasetCollection`                                     | ✗ `→rioxarray`     | ✓✓✓ the standard | ✓✓ xarray + CRS |
-| NetCDF + CF conventions  | ✓✓ first-class                                            | ◐ subdatasets only | ✓✓✓ first-class  | ✓✓ + CRS        |
-| UGRID unstructured grids | ✓                                                         | ✗                  | ◐ `→uxarray`     | ✗ `→uxarray`    |
-| Zarr                     | ✓ `to_zarr`/`from_zarr`                                   | ◐ GDAL driver      | ✓✓ native        | ✓ + CRS         |
-| GRIB (read + metadata)   | ✓ `grib.open_grib` / `grib_band_metadata` / `grib_to_cog` | ◐ via GDAL         | ◐ `→cfgrib`      | ◐ `→cfgrib`     |
+| Capability                | pyramids                                                  | rasterio           | xarray           | rioxarray          |
+|---------------------------|-----------------------------------------------------------|--------------------|------------------|--------------------|
+| Time-series datacube      | ✓ `DatasetCollection`                                     | ✗ `→rioxarray`     | ✓✓✓ the standard | ✓✓ xarray + CRS    |
+| NetCDF + CF conventions   | ✓✓ first-class                                            | ◐ subdatasets only | ✓✓✓ first-class  | ✓✓ + CRS           |
+| UGRID unstructured grids  | ✓                                                         | ✗                  | ◐ `→uxarray`     | ✗ `→uxarray`       |
+| Zarr                      | ✓ `to_zarr`/`from_zarr`                                   | ◐ GDAL driver      | ✓✓ native        | ✓ + CRS            |
+| GRIB (read + metadata)    | ✓ `grib.open_grib` / `grib_band_metadata` / `grib_to_cog` | ◐ via GDAL         | ◐ `→cfgrib`      | ◐ `→cfgrib`        |
+| xarray interop (hand-off) | ✓ `NetCDF.to_xarray`/`from_xarray`                        | ✗                  | ✓✓✓ native       | ✓✓ native (`.rio`) |
 
 ### Cloud, STAC & lazy compute
 
@@ -126,16 +127,23 @@ None of rasterio / xarray / rioxarray ship dedicated OGC-service clients — you
 hand-configure GDAL's WMS/WCS drivers. pyramids has first-class readers that hand you a `Dataset` /
 `FeatureCollection` directly, negotiating the service's capabilities for you.
 
-| Capability                   | pyramids                                | rasterio          | xarray      | rioxarray     |
-|------------------------------|-----------------------------------------|-------------------|-------------|---------------|
-| WCS coverage read (raster)   | ✓ `Dataset.from_wcs`                    | ◐ GDAL WCS driver | ✗ `→owslib` | ◐ `→rasterio` |
-| WMS map read (raster)        | ✓ `Dataset.from_wms`                    | ◐ GDAL WMS driver | ✗ `→owslib` | ◐ `→rasterio` |
-| OGC API - Coverages (raster) | ✓ `Dataset.from_ogc_coverages`          | ✗ `→owslib`       | ✗ `→owslib` | ✗ `→owslib`   |
-| WFS feature read (vector)    | ✓ `FeatureCollection.from_wfs`          | ✗ `→OWSLib/OGR`   | ✗ `→owslib` | ✗ `→owslib`   |
-| OGC API - Features (vector)  | ✓ `FeatureCollection.from_ogc_features` | ✗ `→owslib`       | ✗ `→owslib` | ✗ `→owslib`   |
+| Capability                   | pyramids                                | rasterio           | xarray      | rioxarray     |
+|------------------------------|-----------------------------------------|--------------------|-------------|---------------|
+| WCS coverage read (raster)   | ✓ `Dataset.from_wcs`                    | ◐ GDAL WCS driver  | ✗ `→owslib` | ◐ `→rasterio` |
+| WMS map read (raster)        | ✓ `Dataset.from_wms`                    | ◐ GDAL WMS driver  | ✗ `→owslib` | ◐ `→rasterio` |
+| WMTS map read (raster)       | ✓ `Dataset.from_wmts`                   | ◐ GDAL WMTS driver | ✗ `→owslib` | ◐ `→rasterio` |
+| OGC API - Coverages (raster) | ✓ `Dataset.from_ogc_coverages`          | ✗ `→owslib`        | ✗ `→owslib` | ✗ `→owslib`   |
+| WFS feature read (vector)    | ✓ `FeatureCollection.from_wfs`          | ✗ `→OWSLib/OGR`    | ✗ `→owslib` | ✗ `→owslib`   |
+| OGC API - Features (vector)  | ✓ `FeatureCollection.from_ogc_features` | ✗ `→owslib`        | ✗ `→owslib` | ✗ `→owslib`   |
 
 ### Tooling & maturity
 
+| Capability                      | pyramids                                                                        | rasterio          | xarray            | rioxarray        |
+|---------------------------------|---------------------------------------------------------------------------------|-------------------|-------------------|------------------|
+| CLI                             | ✓ `pyramids` (incl. `edit-info`, `calc`, `georeference`, `shapes`, `rasterize`) | ✓ `rio`           | ✗                 | ✗                |
+| Plotting                        | ◐ `→cleopatra`                                                                  | ✓ `rasterio.plot` | ✓✓ `xarray.plot`  | ✓✓ `xarray.plot` |
+| Maturity / adoption / community | younger                                                                         | ✓✓✓ standard      | ✓✓✓ huge (Pangeo) | ✓✓ widely used   |
+| Stability / docs depth          | growing                                                                         | ✓✓✓               | ✓✓✓               | ✓✓               |
 | Capability                      | pyramids                                                                                                             | rasterio          | xarray            | rioxarray        |
 |---------------------------------|----------------------------------------------------------------------------------------------------------------------|-------------------|-------------------|------------------|
 | CLI                             | ✓ `pyramids` (incl. `cog`, `warp`, `clip`, `merge`, `overview`, `convert`, `rasterize`, `georeference`, `edit-info`) | ✓ `rio`           | ✗                 | ✗                |
@@ -143,13 +151,7 @@ hand-configure GDAL's WMS/WCS drivers. pyramids has first-class readers that han
 | Maturity / adoption / community | younger                                                                                                              | ✓✓✓ standard      | ✓✓✓ huge (Pangeo) | ✓✓ widely used   |
 | Stability / docs depth          | growing                                                                                                              | ✓✓✓               | ✓✓✓               | ✓✓               |
 
-### Honest summary
 
-
-- **pyramids' real strengths:** breadth in **one** GDAL/GIS-first package, each capability behind its
-  own Pythonic API — raster **and** vector **and** datacube; NetCDF/CF/UGRID, STAC **and OGC web services
-  (WCS / WMS / WFS + OGC API Coverages / Features)**, terrain / zonal / interpolation / clustering, COG
-  tooling, a GRIB read + metadata API, and lazy/Dask — without stitching together several libraries.
 
 
 > Scope reminder: pyramids stays a *generic* GDAL/OGR toolkit — the breadth above is generic primitives
