@@ -113,7 +113,10 @@ nav:
   - Home: index.md
   - Getting Started:
     - Installation: installation.md
+    - Quickstart: quickstart.md
+    - Core concepts: concepts.md
     - Troubleshooting: troubleshooting.md
+    - Getting help: getting-help.md
   - Examples:
       - "How do I…?": examples/index.md
       - Lazy / Dask:
@@ -258,6 +261,7 @@ nav:
   - About:
     - Scope: SCOPE.md
     - Comparison: comparison-other-gis-packages.md
+    - Ecosystem: ecosystem.md
     - Change-log: change-log.md
     - Migration guide: migration.md
     - Code of Conduct: CODE_OF_CONDUCT.md
