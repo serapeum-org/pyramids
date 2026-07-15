@@ -8,9 +8,10 @@ pyramids --help                 # list all commands
 pyramids <command> --help       # options for one command
 ```
 
-Commands that write a file refuse to clobber an existing output unless you pass **`--overwrite`**. Most accept a
-CRS as an EPSG code, WKT, or PROJ string, and a `--resampling` method (`nearest`, `bilinear`, `cubic`,
-`average`, `mode`, …).
+Commands that write a file refuse to clobber an existing output unless you pass **`--overwrite`**. A handful take
+spatial options: `bounds`, `warp`, `georeference`, `orthorectify`, and `edit-info` accept a CRS as an EPSG code,
+WKT, or PROJ string; `warp`, `overview`, `georeference`, and `orthorectify` accept a `--resampling` method
+(`nearest`, `bilinear`, `cubic`, `average`, `mode`, …).
 
 ## Inspect & edit metadata
 
