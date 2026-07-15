@@ -82,7 +82,7 @@ Terms used across the docs and API, each with the pyramids call that surfaces it
 pyramids follows the [Diátaxis](https://diataxis.fr/) split:
 
 - **Learning** → [Quickstart](quickstart.md) and the [tutorials](tutorials/dataset.md).
-- **Doing** → the task-oriented [“How do I…?” index](examples/index.md) over 49 runnable notebooks.
+- **Doing** → the task-oriented [“How do I…?” index](examples/index.md) over 26 runnable notebooks.
 - **Looking up** → the [API Reference](reference/dataset/index.md).
 - **Understanding** → this page, plus [Overview / architecture](overview/architecture.md) and
   [SCOPE](SCOPE.md).

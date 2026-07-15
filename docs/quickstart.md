@@ -120,7 +120,7 @@ cube.to_zarr("cube.zarr")  # parallel, chunked write
 ## Next steps
 
 - **Learn the model** — [Core concepts & terminology](concepts.md): which class to use, and the GIS vocabulary.
-- **By task** — the ["How do I…?" example index](examples/index.md): 49 runnable notebooks, grouped by goal.
+- **By task** — the ["How do I…?" example index](examples/index.md): 26 runnable notebooks, grouped by goal.
 - **Deeper tutorials** — [Dataset](tutorials/dataset.md), [FeatureCollection](tutorials/feature.md),
   [DatasetCollection](tutorials/datacube-basics.md), [COG](tutorials/cog.md), [STAC](tutorials/stac.md),
   [Lazy / Dask](tutorials/lazy/lazy-compute.md).
