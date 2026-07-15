@@ -138,21 +138,12 @@ hand-configure GDAL's WMS/WCS drivers. pyramids has first-class readers that han
 
 ### Tooling & maturity
 
-| Capability                      | pyramids                                                                        | rasterio          | xarray            | rioxarray        |
-|---------------------------------|---------------------------------------------------------------------------------|-------------------|-------------------|------------------|
-| CLI                             | ✓ `pyramids` (incl. `edit-info`, `calc`, `georeference`, `shapes`, `rasterize`) | ✓ `rio`           | ✗                 | ✗                |
-| Plotting                        | ◐ `→cleopatra`                                                                  | ✓ `rasterio.plot` | ✓✓ `xarray.plot`  | ✓✓ `xarray.plot` |
-| Maturity / adoption / community | younger                                                                         | ✓✓✓ standard      | ✓✓✓ huge (Pangeo) | ✓✓ widely used   |
-| Stability / docs depth          | growing                                                                         | ✓✓✓               | ✓✓✓               | ✓✓               |
 | Capability                      | pyramids                                                                                                             | rasterio          | xarray            | rioxarray        |
 |---------------------------------|----------------------------------------------------------------------------------------------------------------------|-------------------|-------------------|------------------|
 | CLI                             | ✓ `pyramids` (incl. `cog`, `warp`, `clip`, `merge`, `overview`, `convert`, `rasterize`, `georeference`, `edit-info`) | ✓ `rio`           | ✗                 | ✗                |
 | Plotting                        | ◐ `→cleopatra`                                                                                                       | ✓ `rasterio.plot` | ✓✓ `xarray.plot`  | ✓✓ `xarray.plot` |
 | Maturity / adoption / community | younger                                                                                                              | ✓✓✓ standard      | ✓✓✓ huge (Pangeo) | ✓✓ widely used   |
 | Stability / docs depth          | growing                                                                                                              | ✓✓✓               | ✓✓✓               | ✓✓               |
-
-
-
 
 > Scope reminder: pyramids stays a *generic* GDAL/OGR toolkit — the breadth above is generic primitives
 > and format support, not domain logic. See [Scope](SCOPE.md) for the boundary.
