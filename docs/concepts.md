@@ -11,9 +11,10 @@ flowchart TB
     AD["AbstractDataset (ABC)<br/>geo-properties: epsg · cell_size · bounds · no_data"]
     AD --> DS["Dataset<br/>a single raster (GeoTIFF · COG · ASCII)"]
     DS --> NC["NetCDF<br/>NetCDF/CF file: variables · time · groups"]
-    NC --> UG["UgridDataset<br/>unstructured (UGRID) mesh"]
+    UG["UgridDataset<br/>unstructured (UGRID) mesh — standalone class"]
     DC["DatasetCollection<br/>a time-series stack of aligned rasters"]
     FC["FeatureCollection<br/>vector data (wraps a GeoDataFrame)"]
+    NC -. "mesh ↔ raster bridge" .-> UG
     DS -. "contained by" .-> DC
 ```
 
