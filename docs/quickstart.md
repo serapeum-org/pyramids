@@ -77,10 +77,10 @@ polys  = raster.to_feature_collection()            # vectorize a raster back to 
 ```python
 from pyramids.netcdf import NetCDF
 
-nc = NetCDF.read_file("examples/data/netcdf/pyramids-netcdf-3d.nc")
+nc = NetCDF.read_file("examples/data/netcdf/cf__4v__1d3-3d1__proj__y-desc.nc")
 nc.variable_names          # -> ['values']
 values = nc.get_variable("values")   # a Variable — one raster
-values.shape               # (time, rows, cols)
+values.shape               # -> (3, 13, 14)  (time, rows, cols)
 values.plot(variable="values")
 values.to_file("values.tif")
 ```
