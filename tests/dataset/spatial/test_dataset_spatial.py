@@ -539,7 +539,6 @@ class TestCrop:
         self,
         soil_raster: gdal.Dataset,
         aligned_raster: gdal.Dataset,
-        crop_save_to: str,
     ):
         # the soil raster has epsg=2116 and
         # Geotransform = (830606.744300001, 30.0, 0.0, 1011325.7178760837, 0.0, -30.0)

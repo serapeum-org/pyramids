@@ -288,17 +288,6 @@ def aligned_raster_arr(aligned_raster) -> np.ndarray:
 
 
 @pytest.fixture(scope="module")
-def crop_aligned_folder_saveto() -> str:
-    return "tests/data/crop_aligned_folder/"
-
-
-@pytest.fixture(scope="module")
-def crop_save_to(tmp_path_factory) -> str:
-    """Disk output path for the crop test, in a temp dir pytest removes after the run."""
-    return str(tmp_path_factory.mktemp("crop") / "crop_using_crop.tif")
-
-
-@pytest.fixture(scope="module")
 def rasters_folder_path() -> str:
     return "tests/data/geotiff/raster-folder"
 
