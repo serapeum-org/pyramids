@@ -284,9 +284,9 @@ class TestPlotPR6Cleanups:
             other kwarg must land on the constructor exactly once.
             We patch both call sites and inspect the recorded kwargs.
 
-            The loose point-styling names used below are deprecated in cleopatra
-            0.26 in favour of ``PointOverlay``; they remain accepted upstream and
-            serve here only as vehicles for the routing invariant.
+            The loose point-styling names used below are superseded in cleopatra
+            0.26 by ``PointOverlay``; they remain accepted upstream and serve here
+            only as vehicles for the routing invariant.
         """
         from unittest.mock import patch as _patch
 
