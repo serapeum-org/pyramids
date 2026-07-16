@@ -175,3 +175,41 @@ src/pyramids/_data/
 
 # GDAL /vsigzip/ writes a .gz.properties sidecar caching the uncompressed size
 *.gz.properties
+
+# Legacy example scripts + data kept locally only (not used by any notebook,
+# test or doc). Untracked deliberately: local-only, never pushed.
+examples/00Basic_rasters.py
+examples/01ZonalStatistics.py
+examples/MatchTwoRasters.py
+examples/Rasterize_Vector.py
+examples/ascii_files.py
+examples/clip_raster_with_polygon.py
+examples/cliprasterwithpolygon.py
+examples/cliprasterwithraster.py
+examples/clustering.py
+examples/convert_examples.py
+examples/docs.py
+examples/plot_bands.py
+examples/raster_to_df.py
+examples/read_raster_folder.py
+examples/resample_raster.py
+examples/scripts/03convert-longitude.ipynb.py
+examples/scripts/xyz.py
+examples/data/MSWEP_1979010100.tif
+examples/data/MSWEP_1979010100_reprojected.tif
+examples/data/ZonalStatistics/maps/Map1.zip
+examples/data/ZonalStatistics/maps/Map2.zip
+examples/data/convert_data/polygonized.geojson
+examples/data/convert_data/raster_to_df.tif
+examples/data/convert_data/raster_to_polygon.geojson
+examples/data/points.csv
+examples/data/rasterexample.tif
+examples/data/roughness.asc
+examples/data/crop_aligned_folder/Evaporation_ECMWF_ERA-Interim_mm_daily_2009.01.02.tif
+examples/data/crop_aligned_folder/Evaporation_ECMWF_ERA-Interim_mm_daily_2009.01.03.tif
+examples/data/crop_aligned_folder/irvine_gcp2.pix
+examples/data/geotiff/aligned_rasters/Evaporation_ECMWF_ERA-Interim_mm_daily_2009.01.02.tif
+examples/data/geotiff/aligned_rasters/Evaporation_ECMWF_ERA-Interim_mm_daily_2009.01.03.tif
+examples/data/geotiff/crop_aligned_folder/Evaporation_ECMWF_ERA-Interim_mm_daily_2009.01.02.tif
+examples/data/geotiff/crop_aligned_folder/Evaporation_ECMWF_ERA-Interim_mm_daily_2009.01.03.tif
+examples/data/geotiff/rhine-flood.tif
