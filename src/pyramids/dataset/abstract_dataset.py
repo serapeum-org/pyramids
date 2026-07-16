@@ -837,8 +837,9 @@ class RasterBase(ABC):
                     the column index in the array. The second and third columns tell the location of the point
                     in the array. To style the points, pass a
                     ``cleopatra.array_glyph.PointOverlay(points, color=..., size=..., label_color=...,
-                    label_size=...)`` instead — cleopatra >= 0.26 deprecates a plain array combined with the
-                    loose ``point_color`` / ``point_size`` / ``pid_color`` / ``pid_size`` kwargs.
+                    label_size=...)`` instead — on cleopatra >= 0.26 the loose ``point_color`` /
+                    ``point_size`` / ``pid_color`` / ``pid_size`` kwargs are deprecated; set the styling on
+                    the ``PointOverlay`` instead.
                 figsize (tuple, optional):
                     Figure size. The default is (8, 8).
                 title (str, optional):
