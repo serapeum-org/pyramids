@@ -278,11 +278,15 @@ class TestPlotPR6Cleanups:
         """D-4 — kwargs reach the constructor xor the render call.
 
         Test scenario:
-            The render-call-only kwargs (``points``, ``point_color``,
-            ``point_size``, ``pid_color``, ``pid_size``, ``kind``) must
+            The render-call-only kwargs (anything outside
+            ``ArrayGlyph.option_keys()``, such as ``points`` and ``kind``) must
             reach ``ArrayGlyph.plot``, not the constructor. Every
             other kwarg must land on the constructor exactly once.
             We patch both call sites and inspect the recorded kwargs.
+
+            The loose point-styling names used below are superseded in cleopatra
+            0.26 by ``PointOverlay``; they remain accepted upstream and serve here
+            only as vehicles for the routing invariant.
         """
         from unittest.mock import patch as _patch
 

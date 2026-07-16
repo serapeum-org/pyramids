@@ -831,18 +831,15 @@ class RasterBase(ABC):
             overview_index (int, optional):
                 Index of the overview. Default is 0.
             **kwargs: Additional plotting options.
-                points (array):
-                    3 column array with the first column as the value you want to display for the point, the second
-                    is the rows index of the point in the array, and the third column as the column index in the array.
-                    The second and third columns tell the location of the point in the array.
-                point_color (str):
-                    Point color.
-                point_size (Any):
-                    Size of the point.
-                pid_color (str):
-                    The color of the annotation of the point. Default is blue.
-                pid_size (Any):
-                    Size of the point annotation.
+                points (array | PointOverlay):
+                    Point overlay. A 3 column array with the first column as the value you want to display for
+                    the point, the second is the rows index of the point in the array, and the third column as
+                    the column index in the array. The second and third columns tell the location of the point
+                    in the array. To style the points, pass a
+                    ``cleopatra.array_glyph.PointOverlay(points, color=..., size=..., label_color=...,
+                    label_size=...)`` instead — on cleopatra >= 0.26 the loose ``point_color`` /
+                    ``point_size`` / ``pid_color`` / ``pid_size`` kwargs are deprecated; set the styling on
+                    the ``PointOverlay`` instead.
                 figsize (tuple, optional):
                     Figure size. The default is (8, 8).
                 title (str, optional):

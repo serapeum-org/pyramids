@@ -2208,11 +2208,7 @@ class DatasetCollection:
                 | Parameter                  | Type                  | Description |
                 |----------------------------|-----------------------|-------------|
                 | animation_axis_values      | sequence, optional    | Per-frame labels for the animation, one per timestep. Defaults to the collection's `time` axis when set (e.g. dates parsed by `read_multiple_files`), else `range(time_length)` (index labels). Pass a sequence here to override (e.g. `range(2000, 2024)`). |
-                | points                     | array                 | 3-column array: col 1 = value to display, col 2 = row index, col 3 = column index. Columns 2 and 3 indicate the location of the point. |
-                | point_color                | str                   | Color of the points. |
-                | point_size                 | Any                   | Size of the points. |
-                | pid_color                  | str                   | Color of the annotation of the point. Default is blue. |
-                | pid_size                   | Any                   | Size of the point annotation. |
+                | points                     | array \| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `cleopatra.array_glyph.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — on cleopatra >= 0.26 the loose `point_color` / `point_size` / `pid_color` / `pid_size` kwargs are deprecated; set the styling on the `PointOverlay` instead. |
                 | figsize                    | tuple, optional       | Figure size. Default is `(8, 8)`. |
                 | title                      | str, optional         | Title of the plot. Default is `'Total Discharge'`. |
                 | title_size                 | int, optional         | Title size. Default is `15`. |

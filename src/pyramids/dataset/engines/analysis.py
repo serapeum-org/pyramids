@@ -1799,11 +1799,7 @@ class Analysis(_Engine["Dataset"]):
         kwargs:
                 | Parameter                   | Type                | Description |
                 |-----------------------------|---------------------|-------------|
-                | `points`                    | array               | 3 column array with the first column as the value to display for the point, the second as the row index, and the third as the column index in the array. The second and third columns tell the location of the point. |
-                | `point_color`               | str                 | Color of the point. |
-                | `point_size`                | Any                 | Size of the point. |
-                | `pid_color`                 | str                 | Color of the annotation of the point. Default is blue. |
-                | `pid_size`                  | Any                 | Size of the point annotation. |
+                | `points`                    | array \| PointOverlay | Point overlay. A 3-column array (value to display, row index, column index) draws unstyled points. To style them, pass a `cleopatra.array_glyph.PointOverlay(points, color=..., size=..., label_color=..., label_size=...)` instead — on cleopatra >= 0.26 the loose `point_color` / `point_size` / `pid_color` / `pid_size` kwargs are deprecated; set the styling on the `PointOverlay` instead. |
                 | `figsize`                   | tuple, optional     | Figure size. Default is `(8, 8)`. |
                 | `title`                     | str, optional       | Title of the plot. Default is `'Total Discharge'`. |
                 | `title_size`                | int, optional       | Title size. Default is `15`. |

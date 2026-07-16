@@ -16,6 +16,10 @@ _cleo_array = pytest.importorskip(
     "cleopatra.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
+# cleopatra >= 0.26 bundles the point-overlay styling kwargs into this class,
+# and the animate frame-label pair into FrameLabel.
+PointOverlay = getattr(_cleo_array, "PointOverlay", None)
+FrameLabel = getattr(_cleo_array, "FrameLabel", None)
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
 Config = _cleo_config.Config
 Config.set_matplotlib_backend("agg")
@@ -171,13 +175,18 @@ class TestRenderArrayKwargRouting:
             ), f"`{key}` must NOT also reach cleo.plot; plot={plot}"
 
     def test_render_call_only_kwargs_reach_plot(self):
-        """``points``/``point_color``/``point_size``/``pid_color``/``pid_size``/``kind``.
+        """Render-call-only kwargs reach ``ArrayGlyph.plot`` and nothing else.
 
         Test scenario:
-            Every render-call-only kwarg in the D-4 list must reach
+            A kwarg outside ``ArrayGlyph.option_keys()`` must reach
             ``ArrayGlyph.plot`` exclusively. The cleanup added the
             ``plot_call_only`` set in ``_plot_helpers.render_array``; a
             regression here would resurrect the double-forward bug.
+
+            The loose point-styling names below are superseded upstream in
+            cleopatra 0.26 (``PointOverlay`` replaces them) and survive here only
+            as vehicles for the routing invariant — they are still accepted, and
+            pyramids must route them like any other non-option kwarg.
         """
         fake_cls, ctor, plot, _, _, _ = self._capture_calls()
         rng = np.random.default_rng(202)
@@ -740,3 +749,94 @@ class TestMeshRenderHelper:
         assert (
             kwargs.get("source") == "CartoDB.Positron"
         ), f"`source` must equal the basemap string; got {kwargs}"
+
+
+@pytest.mark.skipif(
+    PointOverlay is None, reason="cleopatra < 0.26 has no PointOverlay"
+)
+class TestPointOverlay:
+    """The `points=` overlay reaches cleopatra from the plot facade (cleopatra 0.26).
+
+    cleopatra 0.26 bundles the point-styling kwargs into a `PointOverlay` object.
+    pyramids forwards `points=` verbatim as a render-call-only kwarg, so the object
+    flows through untouched — these tests pin the form the docs tell callers to use.
+    """
+
+    @staticmethod
+    def _dataset():
+        """Build a small single-band in-memory dataset."""
+        rng = np.random.default_rng(760)
+        arr = rng.random((1, 8, 8)).astype("float32")
+        return Dataset.create_from_array(
+            arr=arr, geo=(0, 0.1, 0, 2, 0, -0.1), epsg=4326
+        )
+
+    @staticmethod
+    def _points():
+        """Points as pyramids documents them: (value, row index, column index)."""
+        return np.array([[1.0, 2, 3], [2.0, 4, 5]])
+
+    def test_styled_point_overlay_renders(self):
+        """A styled `PointOverlay` renders — the form the docs recommend."""
+        glyph = self._dataset().plot(
+            band=0,
+            points=PointOverlay(self._points(), color="red", label_color="blue"),
+        )
+        assert isinstance(glyph, ArrayGlyph)
+
+    def test_plain_points_array_renders(self):
+        """A bare `points` array renders — the unstyled path."""
+        glyph = self._dataset().plot(band=0, points=self._points())
+        assert isinstance(glyph, ArrayGlyph)
+
+    def test_point_overlay_reaches_the_render_call(self):
+        """`points=` is routed to the render call, not the glyph constructor.
+
+        `points` is not in `ArrayGlyph.option_keys()`, so the D-4 split must send
+        it to `cleo.plot(...)`. A fake glyph captures where it lands.
+        """
+        fake_cls, ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
+        overlay = PointOverlay(self._points(), color="red")
+        rng = np.random.default_rng(761)
+        arr = rng.random((5, 5)).astype("float32")
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", points=overlay
+            )
+        assert plot.get("points") is overlay, "points must reach the render call"
+        assert "points" not in ctor, "points must not land on the constructor"
+
+
+@pytest.mark.skipif(FrameLabel is None, reason="cleopatra < 0.26 has no FrameLabel")
+class TestFrameLabel:
+    """`frame_label=` reaches the real `ArrayGlyph.animate` (cleopatra 0.26).
+
+    cleopatra 0.26 replaces `animate()`'s `text_loc` with a `FrameLabel` object.
+    `docs/examples/dataset/dataset_collection.ipynb` is otherwise the only thing
+    exercising this path, and it runs in a separate CI job — so a change to the
+    animate signature would surface in the docs build rather than here.
+    """
+
+    @staticmethod
+    def _stack():
+        """A small `(time, rows, cols)` stack to animate."""
+        rng = np.random.default_rng(762)
+        return rng.random((3, 6, 6)).astype("float32")
+
+    def test_frame_label_animates(self):
+        """`FrameLabel` animates — the form the collection notebook uses.
+
+        Test scenario:
+            Drives `render_array(mode="animate", frame_label=FrameLabel(...))`
+            against the real glyph, so a change to cleopatra's animate signature
+            fails here rather than only in the notebook job.
+        """
+        glyph = render_array(
+            arr=self._stack(),
+            extent=[0.0, 0.0, 1.0, 1.0],
+            mode="animate",
+            animation_axis_values=[0, 1, 2],
+            frame_label=FrameLabel(location=(1, 3)),
+        )
+        assert isinstance(glyph, ArrayGlyph)
+
