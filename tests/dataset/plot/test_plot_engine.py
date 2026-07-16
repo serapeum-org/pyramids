@@ -772,19 +772,34 @@ class TestPointOverlay:
         """Points as pyramids documents them: (value, row index, column index)."""
         return np.array([[1.0, 2, 3], [2.0, 4, 5]])
 
+    @staticmethod
+    def _point_deprecations(caught):
+        """Select the point-overlay deprecations out of every warning caught.
+
+        Scoped to `points` on purpose: an unrelated DeprecationWarning from
+        matplotlib or numpy must not decide whether this contract holds.
+        """
+        return [
+            w
+            for w in caught
+            if issubclass(w.category, DeprecationWarning)
+            and "points" in str(w.message)
+        ]
+
     def test_point_overlay_renders_without_deprecation(self):
-        """A styled `PointOverlay` renders and raises no DeprecationWarning.
+        """A styled `PointOverlay` renders and draws no point deprecation.
 
         This is the documented, non-deprecated way to style points on
         cleopatra >= 0.26.
         """
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", DeprecationWarning)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
             glyph = self._dataset().plot(
                 band=0,
                 points=PointOverlay(self._points(), color="red", label_color="blue"),
             )
         assert isinstance(glyph, ArrayGlyph)
+        assert self._point_deprecations(caught) == []
 
     def test_plain_points_array_still_renders(self):
         """An unstyled plain `points` array keeps working (no deprecation).
@@ -792,10 +807,28 @@ class TestPointOverlay:
         Only combining a plain array with the loose styling kwargs is deprecated;
         the bare array remains the simple path.
         """
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", DeprecationWarning)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
             glyph = self._dataset().plot(band=0, points=self._points())
         assert isinstance(glyph, ArrayGlyph)
+        assert self._point_deprecations(caught) == []
+
+    def test_plain_points_array_with_loose_kwarg_deprecates(self):
+        """A plain array plus a loose styling kwarg still renders, but deprecates.
+
+        This is the combination cleopatra 0.26 deprecates and the reason the docs
+        steer callers to `PointOverlay`. It must keep working (pyramids forwards
+        both kwargs untouched) while emitting the warning that names the successor.
+        """
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            glyph = self._dataset().plot(
+                band=0, points=self._points(), point_color="red"
+            )
+        assert isinstance(glyph, ArrayGlyph)
+        messages = [str(w.message) for w in self._point_deprecations(caught)]
+        assert len(messages) == 1
+        assert "PointOverlay" in messages[0]
 
     def test_point_overlay_reaches_the_render_call(self):
         """`points=` is routed to the render call, not the glyph constructor.
