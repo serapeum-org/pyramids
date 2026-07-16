@@ -175,7 +175,3 @@ src/pyramids/_data/
 
 # GDAL /vsigzip/ writes a .gz.properties sidecar caching the uncompressed size
 *.gz.properties
-
-# Local-only scratch: legacy example scripts + their data, untracked on purpose
-# (superseded by docs/examples/*.ipynb). Kept locally, never pushed.
-examples/trials/

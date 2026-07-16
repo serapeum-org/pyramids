@@ -192,7 +192,7 @@ def cells_centerscoords() -> np.ndarray:
 
 
 @pytest.fixture(scope="module")
-def soil_raster() -> Dataset:
+def soil_raster() -> gdal.Dataset:
     return gdal.Open("tests/data/soil_raster.tif")
 
 
