@@ -1,5 +1,6 @@
 """Plot tests: the Analysis plot engine, render_array kwarg routing, and the mesh-render helper."""
 
+import warnings
 from unittest.mock import patch
 
 import numpy as np
@@ -16,6 +17,8 @@ _cleo_array = pytest.importorskip(
     "cleopatra.array_glyph", reason="cleopatra not installed"
 )
 ArrayGlyph = _cleo_array.ArrayGlyph
+# cleopatra >= 0.26 bundles the point-overlay styling kwargs into this class.
+PointOverlay = getattr(_cleo_array, "PointOverlay", None)
 _cleo_config = pytest.importorskip("cleopatra.config", reason="cleopatra not installed")
 Config = _cleo_config.Config
 Config.set_matplotlib_backend("agg")
@@ -740,3 +743,73 @@ class TestMeshRenderHelper:
         assert (
             kwargs.get("source") == "CartoDB.Positron"
         ), f"`source` must equal the basemap string; got {kwargs}"
+
+
+@pytest.mark.skipif(
+    PointOverlay is None, reason="cleopatra < 0.26 has no PointOverlay"
+)
+class TestPointOverlay:
+    """The `points=` overlay reaches cleopatra from the plot facade (cleopatra 0.26).
+
+    cleopatra 0.26 bundles the loose point-styling kwargs (`point_color`,
+    `point_size`, `pid_color`, `pid_size`) into a `PointOverlay` object and
+    deprecates passing a plain `points` array alongside them. pyramids forwards
+    `points=` verbatim as a render-call-only kwarg, so the new object flows
+    through untouched — these tests pin that documented contract.
+    """
+
+    @staticmethod
+    def _dataset():
+        """Build a small single-band in-memory dataset."""
+        rng = np.random.default_rng(760)
+        arr = rng.random((1, 8, 8)).astype("float32")
+        return Dataset.create_from_array(
+            arr=arr, geo=(0, 0.1, 0, 2, 0, -0.1), epsg=4326
+        )
+
+    @staticmethod
+    def _points():
+        """Points as pyramids documents them: (value, row index, column index)."""
+        return np.array([[1.0, 2, 3], [2.0, 4, 5]])
+
+    def test_point_overlay_renders_without_deprecation(self):
+        """A styled `PointOverlay` renders and raises no DeprecationWarning.
+
+        This is the documented, non-deprecated way to style points on
+        cleopatra >= 0.26.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            glyph = self._dataset().plot(
+                band=0,
+                points=PointOverlay(self._points(), color="red", label_color="blue"),
+            )
+        assert isinstance(glyph, ArrayGlyph)
+
+    def test_plain_points_array_still_renders(self):
+        """An unstyled plain `points` array keeps working (no deprecation).
+
+        Only combining a plain array with the loose styling kwargs is deprecated;
+        the bare array remains the simple path.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            glyph = self._dataset().plot(band=0, points=self._points())
+        assert isinstance(glyph, ArrayGlyph)
+
+    def test_point_overlay_reaches_the_render_call(self):
+        """`points=` is routed to the render call, not the glyph constructor.
+
+        `points` is not in `ArrayGlyph.option_keys()`, so the D-4 split must send
+        it to `cleo.plot(...)`. A fake glyph captures where it lands.
+        """
+        fake_cls, ctor, plot, *_ = TestRenderArrayKwargRouting._capture_calls()
+        overlay = PointOverlay(self._points(), color="red")
+        rng = np.random.default_rng(761)
+        arr = rng.random((5, 5)).astype("float32")
+        with patch("cleopatra.array_glyph.ArrayGlyph", new=fake_cls):
+            render_array(
+                arr=arr, extent=[0.0, 0.0, 1.0, 1.0], mode="plot", points=overlay
+            )
+        assert plot.get("points") is overlay, "points must reach the render call"
+        assert "points" not in ctor, "points must not land on the constructor"

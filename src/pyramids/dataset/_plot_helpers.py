@@ -44,8 +44,8 @@ automatically when options are added or moved:
   ``title``, ...). These go into ``default_options`` and the render
   methods pick them up from there.
 * **render-call-only** — everything not in ``option_keys()``: the explicit
-  method params (``points``, ``point_color``, ``point_size``, ``pid_color``,
-  ``pid_size``) that are not ``default_options`` keys, plus any invalid key,
+  method params (``points`` — an array or a ``PointOverlay``) that are not
+  ``default_options`` keys, plus any invalid key,
   which the render method rejects with ``ValueError``. ``kind`` is the lone
   exception — it is *in* ``option_keys()`` yet must reach the render call
   (it is an explicit ``plot``/``facet`` param read from the signature, not
@@ -494,8 +494,8 @@ def render_array(
 
     # D-4 split: keep figure/colour/scale options on the constructor
     # (they land in cleopatra's ``default_options`` once) and route the
-    # render-call-only kwargs (``points``, ``point_color``, ...,
-    # ``kind``) to ``cleo.plot``/``cleo.animate``/``cleo.facet``. Before
+    # render-call-only kwargs (``points``, ``kind``) to
+    # ``cleo.plot``/``cleo.animate``/``cleo.facet``. Before
     # PR-6 the same ``kwargs`` dict was passed to both call sites; that
     # double-forward was harmless (cleopatra re-assigned the same values
     # into ``default_options``) but obscured which kwargs belonged where.
@@ -503,7 +503,7 @@ def render_array(
     # own declared set of constructor options, resolvable without building
     # an instance — so pyramids tracks cleopatra automatically instead of
     # hand-maintaining the render-only list. The render-only method params
-    # (``points``, ``point_color``, ..., ``pid_size``) are not in that set,
+    # (``points`` — an array or a ``PointOverlay``) are not in that set,
     # so they fall to ``render_kwargs`` on their own; an invalid key does
     # too, so the render method rejects it instead of being silently dropped.
     #
