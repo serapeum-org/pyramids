@@ -174,13 +174,20 @@ class TestRenderArrayKwargRouting:
             ), f"`{key}` must NOT also reach cleo.plot; plot={plot}"
 
     def test_render_call_only_kwargs_reach_plot(self):
-        """``points``/``point_color``/``point_size``/``pid_color``/``pid_size``/``kind``.
+        """Render-call-only kwargs reach ``ArrayGlyph.plot`` and nothing else.
 
         Test scenario:
-            Every render-call-only kwarg in the D-4 list must reach
+            A kwarg outside ``ArrayGlyph.option_keys()`` must reach
             ``ArrayGlyph.plot`` exclusively. The cleanup added the
             ``plot_call_only`` set in ``_plot_helpers.render_array``; a
             regression here would resurrect the double-forward bug.
+
+            The loose point-styling names below are deprecated upstream in
+            cleopatra 0.26 (``PointOverlay`` supersedes them) and survive here
+            only as vehicles for the routing invariant — they are still accepted,
+            and pyramids must route them like any other non-option kwarg. The
+            glyph is faked, so this stays green even once cleopatra drops the
+            shim; ``TestPointOverlay`` is what exercises the live contract.
         """
         fake_cls, ctor, plot, _, _, _ = self._capture_calls()
         rng = np.random.default_rng(202)
