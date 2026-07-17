@@ -26,10 +26,14 @@ on:
         default: false
         type: boolean
 
-# Cancel superseded runs to free the hosted-runner pool, but only for pull_request builds —
-# never cancel a push/workflow_run build, since those can publish wheels to PyPI.
+# Every push / workflow_run runs to completion independently: a merge to main must always
+# be fully built and verified, even if a later commit lands while its pipeline is still
+# running, so nothing ever reaches main unverified. Those events get a per-run group
+# (github.run_id is unique per run) so they never queue behind — or cancel — one another.
+# Only pull_request builds share a per-branch group with cancel-in-progress, so a new push
+# to a PR supersedes its older run and frees the hosted-runner pool.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
