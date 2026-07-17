@@ -411,7 +411,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14, windows-2022]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14, macos-13, windows-2022]
         python-version: ["3.11", "3.12", "3.13", "3.14"]
         include:
           - os: ubuntu-latest
@@ -425,6 +425,13 @@ jobs:
           - os: macos-14
             arch: arm64
             artifact: wheels-macos-arm64
+            wheel-tag: macosx
+          # macos-13 is the Intel runner: the x86_64 wheel is cross-compiled on
+          # the arm64 macos-14 host, so cibuildwheel can't execute it and this is
+          # the only place `import pyramids` runs on it before it publishes.
+          - os: macos-13
+            arch: x86_64
+            artifact: wheels-macos-x86_64
             wheel-tag: macosx
           - os: windows-2022
             arch: AMD64
