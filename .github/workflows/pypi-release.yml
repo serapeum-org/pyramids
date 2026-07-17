@@ -4,11 +4,13 @@ name: pypi-release (emergency sdist-only fallback)
 # when bundle-pypi-wheels.yml is broken and conda-forge needs a new tarball
 # to pick up; do NOT use it for normal releases.
 #
-# The canonical release path is bundle-pypi-wheels.yml's `publish:` job,
-# which builds + tests + publishes sdist plus 20 platform wheels in
-# one workflow. That job fires automatically on `release: types:
-# [released]` (which github-release.yml's commitizen tag emits) and on
-# manual `workflow_dispatch` with `upload-to-pypi: true`.
+# The canonical release path is bundle-pypi-wheels.yml's `release:` job,
+# which builds + tests + publishes the sdist plus 23 platform wheels in
+# one workflow. It runs automatically on `workflow_run` when the
+# `github-release` workflow completes (github-release.yml cuts the tag +
+# release via commitizen). A manual `workflow_dispatch` with
+# `dry_run_release: true` runs the gather + composition gate only and
+# does NOT publish.
 #
 # Trigger this workflow manually: `gh workflow run pypi-release.yml`.
 
