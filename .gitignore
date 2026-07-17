@@ -172,3 +172,6 @@ src/pyramids/_data/
 # pixi environments
 .pixi
 /site/*
+
+# GDAL /vsigzip/ writes a .gz.properties sidecar caching the uncompressed size
+*.gz.properties

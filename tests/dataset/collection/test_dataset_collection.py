@@ -262,7 +262,6 @@ class TestCrop:
         self,
         raster_mask: Dataset,
         rasters_folder_path: str,
-        crop_aligned_folder_saveto: str,
     ):
         mask = Dataset(raster_mask)
         cube = DatasetCollection.read_multiple_files(
@@ -270,18 +269,15 @@ class TestCrop:
         )
         cube.open_multi_dataset()
         cube.crop(mask, inplace=True)
-        # cube.to_geotiff(crop_aligned_folder_saveto)_crop_with_polygon
         arr = cube.values[0, :, :]
         no_data_value = cube.base.no_data_value[0]
         arr1 = arr[~np.isclose(arr, no_data_value, rtol=0.001)]
         assert arr1.shape[0] == 720
-        # shutil.rmtree(crop_aligned_folder_saveto)
 
     def test_crop_with_raster_inplace_false(
         self,
         raster_mask: DatasetCollection,
         rasters_folder_path: str,
-        crop_aligned_folder_saveto: str,
     ):
         mask = Dataset(raster_mask)
         cube = DatasetCollection.read_multiple_files(
@@ -289,30 +285,25 @@ class TestCrop:
         )
         cube.open_multi_dataset()
         cropped_dataset = cube.crop(mask, inplace=False)
-        # cube.to_geotiff(crop_aligned_folder_saveto)_crop_with_polygon
         arr = cropped_dataset.values[0, :, :]
         no_data_value = cropped_dataset.base.no_data_value[0]
         arr1 = arr[~np.isclose(arr, no_data_value, rtol=0.001)]
         assert arr1.shape[0] == 720
-        # shutil.rmtree(crop_aligned_folder_saveto)
 
     def test_crop_with_polygon(
         self,
         polygon_mask: gpd.GeoDataFrame,
         rasters_folder_path: str,
-        crop_aligned_folder_saveto: str,
     ):
         cube = DatasetCollection.read_multiple_files(
             rasters_folder_path, with_order=False
         )
         cube.open_multi_dataset()
         cube.crop(polygon_mask, inplace=True, touch=False)
-        # cube.to_file(crop_aligned_folder_saveto)
         arr = cube.values[0, :, :]
         no_data_value = cube.base.no_data_value[0]
         arr1 = arr[~np.isclose(arr, no_data_value, rtol=0.001)]
         assert arr1.shape[0] == 696
-        # shutil.rmtree(crop_aligned_folder_saveto)
 
 
 def test_merge_rasters_free_function(

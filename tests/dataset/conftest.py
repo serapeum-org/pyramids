@@ -193,17 +193,19 @@ def cells_centerscoords() -> np.ndarray:
 
 @pytest.fixture(scope="module")
 def soil_raster() -> Dataset:
-    return gdal.Open("examples/data/soil_raster.tif")
+    return gdal.Open("tests/data/soil_raster.tif")
 
 
 @pytest.fixture(scope="module")
-def save_raster_path() -> Path:
-    return Path("examples/data/save_raster_test.tif")
+def save_raster_path(tmp_path_factory) -> Path:
+    """Disk output path for the save-raster test, in a temp dir pytest removes after the run."""
+    return tmp_path_factory.mktemp("save_raster") / "save_raster_test.tif"
 
 
 @pytest.fixture(scope="module")
-def raster_like_path() -> Path:
-    return Path("examples/data/raster_like_saved.tif")
+def raster_like_path(tmp_path_factory) -> Path:
+    """Disk output path for the raster-like test, in a temp dir pytest removes after the run."""
+    return tmp_path_factory.mktemp("raster_like") / "raster_like_saved.tif"
 
 
 def func1(val):
@@ -283,21 +285,6 @@ def aligned_raster() -> Dataset:
 @pytest.fixture(scope="module")
 def aligned_raster_arr(aligned_raster) -> np.ndarray:
     return aligned_raster.ReadAsArray()
-
-
-@pytest.fixture(scope="module")
-def crop_aligned_folder_path() -> str:
-    return "examples/data/geotiff/aligned_rasters/"
-
-
-@pytest.fixture(scope="module")
-def crop_aligned_folder_saveto() -> str:
-    return "tests/data/crop_aligned_folder/"
-
-
-@pytest.fixture(scope="module")
-def crop_save_to() -> str:
-    return "examples/data/crop_using_crop.tif"
 
 
 @pytest.fixture(scope="module")
