@@ -14,6 +14,7 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
@@ -23,15 +24,17 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ github.event.workflow_run.head_branch || github.ref }}
+          fetch-depth: 0   # need tags for `git describe` below
 
-      - name: Get latest release tag
+      - name: Get release tag
         if: github.event_name == 'workflow_run'
         id: get-release
         run: |
-          LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
-          echo "tag=$LATEST_TAG" >> $GITHUB_OUTPUT
-        env:
-          GH_TOKEN: ${{ github.token }}
+          # Tag the image with the version of the code we actually built — the
+          # nearest tag reachable from the checked-out head_branch tip — not
+          # `gh release list --limit 1`. The newest release can differ from this
+          # run's commit under back-to-back releases and mislabel the image.
+          echo "tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
 
       - name: Get repo image name (lowercase)
         shell: bash
