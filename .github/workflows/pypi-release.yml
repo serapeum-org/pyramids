@@ -24,6 +24,18 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
+      - name: Check actor is a repository admin
+        run: |
+          PERMISSION=$(gh api \
+            repos/${{ github.repository }}/collaborators/${{ github.actor }}/permission --jq '.permission')
+          echo "Permission level for ${{ github.actor }}: $PERMISSION"
+          if [ "$PERMISSION" != "admin" ]; then
+            echo "::error::${{ github.actor }} is not a repository admin. Only admins can publish."
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
