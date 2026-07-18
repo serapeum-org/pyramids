@@ -23,6 +23,13 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # contents: write is required for the admin-gate step below: the
+    # collaborators/{user}/permission REST endpoint needs push access, and the
+    # gate this mirrors in github-release.yml runs under contents: write for the
+    # same reason. Without it the gh api call 403s and the gate fails closed for
+    # everyone, making the emergency publish path inert.
+    permissions:
+      contents: write
     steps:
       - name: Check actor is a repository admin
         env:
