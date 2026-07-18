@@ -30,11 +30,20 @@ jobs:
         if: github.event_name == 'workflow_run'
         id: get-release
         run: |
+          set -euo pipefail
           # Tag the image with the version of the code we actually built — the
-          # nearest tag reachable from the checked-out head_branch tip — not
-          # `gh release list --limit 1`. The newest release can differ from this
-          # run's commit under back-to-back releases and mislabel the image.
-          echo "tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
+          # nearest release tag reachable from the checked-out head_branch tip —
+          # not `gh release list --limit 1`. The newest release can differ from
+          # this run's commit under back-to-back releases and mislabel the image.
+          # --match constrains git describe to X.Y.Z release tags: the repo also
+          # carries non-semver tags (e.g. basemap-data-v1) that would otherwise
+          # be returned and break docker/metadata-action's type=semver parse.
+          TAG=$(git describe --tags --abbrev=0 --match '[0-9]*.[0-9]*.[0-9]*')
+          if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::git describe returned a non-semver tag: '$TAG'"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Get repo image name (lowercase)
         shell: bash
