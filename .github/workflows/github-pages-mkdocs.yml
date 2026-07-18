@@ -48,13 +48,19 @@ jobs:
           install-groups: 'docs'
           deploy-token: ${{ secrets.ACTIONS_DEPLOY_TOKEN }}
           # Execute the example notebooks in CI so the rendered docs show real
-          # outputs (plots/tables). Only the network-only notebooks are excluded.
+          # outputs (plots/tables). Excluded: the network-only notebooks, plus
+          # the two heavy notebooks whose executed outputs (live map tiles /
+          # mesh renders + an inline jshtml animation) are multi-MB and
+          # byte-different on every run, which bloats the shared gh-pages
+          # branch (see #761).
           notebooks-path: 'docs/examples'
           notebooks-exclude: |
             netcdf/dask-lazy-netcdf.ipynb
             feature/dask-lazy-features.ipynb
             stac/stac-cloud-earth-search.ipynb
             dataset/wms-wmts-readers.ipynb
+            basemap/basemap-example.ipynb
+            netcdf/ugrid/ugrid-mesh-exploration.ipynb
           notebooks-continue-on-error: 'true'
 
   deploy-main:
@@ -74,11 +80,16 @@ jobs:
         install-groups: 'docs'
         deploy-token: ${{ secrets.ACTIONS_DEPLOY_TOKEN }}
         notebooks-path: 'docs/examples'
+        # See the deploy-pr job above: these two heavy notebooks are excluded
+        # from CI execution so their multi-MB, non-deterministic outputs no
+        # longer bloat the shared gh-pages branch (see #761).
         notebooks-exclude: |
           netcdf/dask-lazy-netcdf.ipynb
           feature/dask-lazy-features.ipynb
           stac/stac-cloud-earth-search.ipynb
           dataset/wms-wmts-readers.ipynb
+          basemap/basemap-example.ipynb
+          netcdf/ugrid/ugrid-mesh-exploration.ipynb
         notebooks-continue-on-error: 'true'
 
   deploy-release:
@@ -111,9 +122,14 @@ jobs:
         release-tag: ${{ github.event.release.tag_name || steps.version.outputs.tag }}
         mike-alias: 'latest'
         notebooks-path: 'docs/examples'
+        # See the deploy-pr job above: these two heavy notebooks are excluded
+        # from CI execution so their multi-MB, non-deterministic outputs no
+        # longer bloat the shared gh-pages branch (see #761).
         notebooks-exclude: |
           netcdf/dask-lazy-netcdf.ipynb
           feature/dask-lazy-features.ipynb
           stac/stac-cloud-earth-search.ipynb
           dataset/wms-wmts-readers.ipynb
+          basemap/basemap-example.ipynb
+          netcdf/ugrid/ugrid-mesh-exploration.ipynb
         notebooks-continue-on-error: 'true'
