@@ -8,11 +8,14 @@ on:
     branches: [main]
   pull_request:
 
-# Cancel superseded runs: a new push to a branch/PR cancels the previous in-progress run
+# Cancel superseded runs on PRs: a new push to a PR cancels the previous in-progress run
 # instead of letting both compete for the (limited, especially macOS) hosted-runner pool.
+# main is exempt — every commit merged to main must run the full suite independently, so a
+# later merge never cancels an earlier commit's verification. main gets a unique run_id group
+# (never shared, never cancelled); PRs keep the per-ref group with cancel-in-progress.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   main-package:
