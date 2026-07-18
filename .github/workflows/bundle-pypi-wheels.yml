@@ -31,7 +31,9 @@ on:
 # running, so nothing ever reaches main unverified. Those events get a per-run group
 # (github.run_id is unique per run) so they never queue behind — or cancel — one another.
 # Only pull_request builds share a per-branch group with cancel-in-progress, so a new push
-# to a PR supersedes its older run and frees the hosted-runner pool.
+# to a PR supersedes its older run and frees the hosted-runner pool. NOTE: the on.pull_request
+# trigger is currently commented out above, so the PR arm is dormant future-proofing today —
+# every live event resolves to the unique github.run_id group. It activates if that trigger is restored.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
