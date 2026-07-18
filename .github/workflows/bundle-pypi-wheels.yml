@@ -789,7 +789,10 @@ jobs:
       - name: Verify GDAL import + drivers (x86_64 under Rosetta)
         run: |
           set -euo pipefail
-          arch -x86_64 .venv-x86/bin/python -c "import platform;assert platform.machine()=='x86_64'"
+          # Confirm the venv really is x86_64 (not a stray arm64 interpreter)
+          # without `assert`, which `python -O` would strip.
+          M=$(arch -x86_64 .venv-x86/bin/python -c "import platform;print(platform.machine())")
+          [ "$M" = "x86_64" ] || { echo "::error::venv python is $M, expected x86_64"; exit 1; }
           arch -x86_64 .venv-x86/bin/python ci/verify-wheel.py
 
   release:
