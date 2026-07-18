@@ -175,3 +175,8 @@ src/pyramids/_data/
 
 # GDAL /vsigzip/ writes a .gz.properties sidecar caching the uncompressed size
 *.gz.properties
+
+# Artifacts written by running the example notebooks (they write outputs next
+# to themselves); these are generated, not sources. Data lives in examples/data/.
+docs/examples/**/*.tif
+docs/examples/**/*.nc
