@@ -2,618 +2,618 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/AUTHORS/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/CODE_OF_CONDUCT/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/LICENSE/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/SCOPE/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/change-log/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/comparison-other-gis-packages/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/concepts/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/contributing/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/ecosystem/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/getting-help/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/installation/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/migration/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/quickstart/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/troubleshooting/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/about/THIRD_PARTY_LICENSES/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/adr/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/adr/0001-docs-stack/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/adr/0002-type-checking/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/adr/0003-io-formats/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/adr/0004-dependency-graphing/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/adr/0005-versioning-docs/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/adr/0006-docker-image/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/gallery/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/basemap/basemap-example/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/cog/cog-basics/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/cog/cog-real-data/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/conversions/geotiff-netcdf/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/conversions/raster-formats/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/conversions/vector-formats/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dask/collection/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dask/dataset/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dask/feature/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dask/netcdf/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dask/overview/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dataset/convert-longitude/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dataset/dask-lazy-datasets/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dataset/dataset/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dataset/dataset_collection/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dataset/lazy-and-dask-explained/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dataset/lazy-collection-complete/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dataset/lazy-dataset-complete/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dataset/rgb_animation/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dataset/south-america/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dataset/spatial-operation-methods/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dataset/stac-solar-day/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/dataset/wms-wmts-readers/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/feature/dask-lazy-features/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/feature/lazy-feature-complete/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/netcdf/dask-lazy-netcdf/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/netcdf/lazy-netcdf-complete/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/netcdf/netcdf-anatomy/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/netcdf/explore/01-gridded-cf/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/netcdf/explore/02-gridded-coards/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/netcdf/explore/03-packed-int16/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/netcdf/explore/04-curvilinear/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/netcdf/explore/05-staggered-wrf/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/netcdf/explore/06-structural-groups-nc4/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/netcdf/explore/07-ugrid-mesh/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/netcdf/explore/08-y-axis-orientation/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/netcdf/ugrid/dask-lazy-ugrid/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/netcdf/ugrid/ugrid-mesh-exploration/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/netcdf/ugrid/ugrid-river-channel/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/color-tables/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/crop-mask/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/extract-at-points/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/mosaic-merge/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/nodata-gap-filling/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/overviews/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/raster-algebra/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/rasterize-vectorize/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/reproject-resample-align/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/terrain-analysis/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/vector-geometry/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/vector-tessellation/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/visualization/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/windowed-reads/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/operations/zonal-statistics/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/stac/stac-cloud-earth-search/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/stac/stac-local/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/zarr/zarr-basics/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/zarr/zarr-cube/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/zarr/zarr-foreign-geozarr/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/examples/zarr/zarr-pyramid-preview/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/how-to/devcontainer/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/how-to/docker/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/how-to/faq/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/how-to/parallel-reads/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/how-to/recipes/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/how-to/testing/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/how-to/wheel-build-flow/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/overview/architecture/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/overview/codebase-map/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/overview/diagrams/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/overview/how-it-works/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/basemap/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/cli/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/config/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/utm/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/zarr/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/base/crs/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/cog/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/cog/cli/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/cog/read/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/dataset/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/dataset/analysis/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/dataset/band_metadata/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/dataset/cell/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/dataset/collection/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/dataset/georef/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/dataset/io/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/dataset/merge/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/dataset/spatial/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/dataset/vectorize/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/feature/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/feature/geometry/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/dimensions/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/metadata/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/models/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/plot/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/utils/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/cf/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/ugrid/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/ugrid/connectivity/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/ugrid/dataset/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/ugrid/interpolation/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/ugrid/io/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/ugrid/mesh/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/ugrid/models/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/ugrid/plot/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/netcdf/ugrid/spatial/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/stac/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/stac/assets/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/reference/stac/signers/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/testing/netcdf/fixtures/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/testing/netcdf/tests/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/cog/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/datacube-basics/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/dataset/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/dataset_collection/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/feature/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/georeferencing/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/netcdf-plotting/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/raster-basics/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/stac/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/lazy/kerchunk/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/lazy/lazy-collection/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/lazy/lazy-compute/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/lazy/lazy-netcdf/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/lazy/lazy-raster/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/lazy/lazy-vector/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
     <url>
          <loc>https://serapeum-org.github.io/pyramids/main/tutorials/lazy/zarr/</loc>
-         <lastmod>2026-07-17</lastmod>
+         <lastmod>2026-07-18</lastmod>
     </url>
 </urlset>
