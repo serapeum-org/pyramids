@@ -48,6 +48,13 @@ env:
   # (ci/source-build/) and no longer need them.
   PIXI_VERSION: "0.68.1"
   MICROMAMBA_VERSION: "2.6.1"
+  # x86_64 uv for the Rosetta verify-macos-x86_64 job. Pinned + SHA256-verified
+  # like the other toolchain fetches (never `latest/download`): this job gates
+  # the PyPI publish, so a rolling/tampered binary must not silently pass or
+  # break the wheel verification. Bump both together — the checksum is of
+  # uv-x86_64-apple-darwin.tar.gz for UV_VERSION.
+  UV_VERSION: "0.11.29"
+  UV_SHA256: "c4c4de482da9ccdd076dc4fb5cfe7b740609029385c72f58606be3153602387d"
 
 jobs:
   build-sdist:
@@ -739,11 +746,13 @@ jobs:
       - name: Ensure Rosetta 2 is available
         run: softwareupdate --install-rosetta --agree-to-license || true
 
-      - name: Install an x86_64 uv (runs under Rosetta to manage x86_64 Pythons)
+      - name: Install a pinned, checksummed x86_64 uv (runs under Rosetta)
         run: |
           set -euo pipefail
-          curl -LsSf https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-apple-darwin.tar.gz \
-            | tar -xz
+          curl -fsSL -o uv-x86_64.tar.gz \
+            "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-apple-darwin.tar.gz"
+          echo "${UV_SHA256}  uv-x86_64.tar.gz" | shasum -a 256 -c -
+          tar -xzf uv-x86_64.tar.gz
           echo "UVX86=$PWD/uv-x86_64-apple-darwin/uv" >> "$GITHUB_ENV"
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
